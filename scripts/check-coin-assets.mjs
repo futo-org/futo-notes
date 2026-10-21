@@ -23,7 +23,7 @@
 //   just coin-check   this gate
 
 import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 
@@ -34,6 +34,21 @@ const COIN = path.join(ROOT, 'assets/coin');
 
 function sha256(buffer) {
   return createHash('sha256').update(buffer).digest('hex');
+}
+
+/// The hash of every .py in assets/coin, by name then bytes, in name order —
+/// exactly what coin_export.py's script_digest records. build-coin.py is split
+/// into sibling modules, so hashing the entry file alone would let an edit to
+/// studio_env.py or coin_export.py ship a stale coin.
+function sourceDigest() {
+  const digest = createHash('sha256');
+  for (const name of readdirSync(COIN)
+    .filter((file) => file.endsWith('.py'))
+    .sort()) {
+    digest.update(Buffer.from(name, 'utf8'));
+    digest.update(readFileSync(path.join(COIN, name)));
+  }
+  return digest.digest('hex');
 }
 
 /// A .usdz is a zip, and a zip stamps every entry with the time it was written.
@@ -62,10 +77,10 @@ function contentDigest(file) {
 const problems = [];
 const manifest = JSON.parse(readFileSync(path.join(COIN, 'manifest.json'), 'utf8'));
 
-const sourceOnDisk = sha256(readFileSync(path.join(COIN, manifest.source)));
+const sourceOnDisk = sourceDigest();
 if (sourceOnDisk !== manifest.sourceSha256) {
   problems.push(
-    `assets/coin/${manifest.source} has changed since the coin was last exported.\n` +
+    `assets/coin/*.py (${manifest.source} and its modules) changed since the coin was last exported.\n` +
       `    manifest records ${manifest.sourceSha256}\n` +
       `    on disk          ${sourceOnDisk}\n` +
       `    The shipped coin is NOT the one this script describes. Run: just coin`,
@@ -121,7 +136,7 @@ try {
         `(at row ${drift.row}, column ${drift.column}); anything from ` +
         `${HDR_TOLERANCE_QUANTA} up is a real difference in the arithmetic.\n` +
         `    The studio lives in TWO places (drift-registry \`coin-studio-environment\`):\n` +
-        `    assets/coin/build-coin.py \`build_environment\` and that module's SHIPPED +\n` +
+        `    assets/coin/studio_env.py \`build_environment\` and that module's SHIPPED +\n` +
         `    buildStudioEnvironment. Change both in one commit, then: just coin`,
     );
   }

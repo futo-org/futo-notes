@@ -1,0 +1,305 @@
+# Included by .gitlab-ci.yml: shared job templates: images, toolchain setup, caches.
+
+# Pinned by digest, not `:latest`, so a manual rebuild cannot silently change
+# the MR environment. Resolve deliberate updates through project registry
+# repository 176. It is kitchensink plus Rust/Tauri, GTK/WebKit, Bun, sccache,
+# xvfb, Postgres tooling and a baked Playwright Chromium (ci/test.Dockerfile),
+# so any job that would otherwise run on kitchensink can extend it.
+.ci-test-image:
+  # if-not-present is safe on a digest pin (the bytes can't drift) and skips
+  # a registry round-trip that cost up to 5 minutes under contention (job
+  # 192833: prepare_executor 308s vs 4s; job 252177 still re-pulled
+  # kitchensink for 166s on runner 71). Only the dind_fast runner allows the
+  # override — runner 55 (dind) is locked to allowed_pull_policies [always]
+  # and refuses the job — so every job extending this ALSO carries
+  # `tags: [dind_fast]` (premerge-test-parity asserts the pairing).
+  image:
+    name: gitlab.futo.org:5050/futo-notes/futo-notes/ci/test@sha256:c8cb4ab14ce1cb939a88505ae5e37f3421b7c4a64f2cacfcd73e6e19e89a32fb
+    pull_policy: if-not-present
+
+# ─────────────────────────────────────────────────────────────
+# Reusable script fragments
+# ─────────────────────────────────────────────────────────────
+
+.setup-rust:
+  script:
+    - |
+      if ! command -v rustup >/dev/null 2>&1; then
+        curl https://sh.rustup.rs -sSf | sh -s -- -y
+        export PATH="$CARGO_HOME/bin:$PATH"
+      fi
+    - |
+      # No `grep -q`: under pipefail its early exit can SIGPIPE `rustup` (which
+      # writes a line at a time) and read as "toolchain missing" (RC-65 shape).
+      if rustup toolchain list | grep '^1.89.0' >/dev/null; then
+        echo "Rust 1.89.0 already present in the image"
+      else
+        rustup toolchain install 1.89.0 --profile minimal --component rustfmt --component clippy
+      fi
+      rustup default 1.89.0
+    - |
+      # Pinned, and the cached binary is checked by version: tauri-cli 2.12.3
+      # changed the AppImage GTK hook patch-appimage.mjs rewrites (v1.9.0 tag).
+      # Copies of this pin are listed in scripts/drift-registry.json (tauri-cli-pin).
+      TAURI_CLI_VERSION=2.11.4
+      if cargo tauri --version 2>/dev/null | grep -Fx "tauri-cli $TAURI_CLI_VERSION" >/dev/null; then
+        echo "cargo-tauri $TAURI_CLI_VERSION already installed (cached)"
+      else
+        if ! command -v cargo-binstall >/dev/null 2>&1; then
+          echo "Installing cargo-binstall..."
+          curl -L --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash
+        fi
+        echo "Installing tauri-cli $TAURI_CLI_VERSION via binstall..."
+        cargo binstall "tauri-cli@$TAURI_CLI_VERSION" --no-confirm --locked --force
+      fi
+      cargo tauri --version | grep -Fx "tauri-cli $TAURI_CLI_VERSION"
+    # Last step before any cargo invocation, and shared by every job that
+    # restores a cargo `target/` cache. Cache restore runs AFTER get_sources, so
+    # a restored artifact can be newer than the source it was built from and
+    # cargo — which decides freshness by mtime, never by content — skips the
+    # rebuild. Pipeline 33129 / job 211040 linked futo-notes-ffi against a
+    # futo_notes_sync rlib predating open_note.rs and died with 13 "could not
+    # find OpenNoteDisposition in `sync`" errors. See the script header.
+    - node "$CI_PROJECT_DIR/scripts/ci-cargo-cache-freshness.mjs"
+
+.setup-linux-deps:
+  script:
+    - |
+      if pkg-config --exists webkit2gtk-4.1 && pkg-config --exists gtk+-3.0; then
+        echo "Linux Tauri development libraries already present in the image"
+      elif command -v apt-get >/dev/null 2>&1; then
+        apt-get update
+        DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+          libwebkit2gtk-4.1-dev \
+          libgtk-3-dev \
+          libayatana-appindicator3-dev \
+          librsvg2-dev \
+          libfuse2 \
+          libssl-dev \
+          patchelf \
+          xdg-utils
+      fi
+
+.set-version:
+  script:
+    - |
+      VERSION="$(node "$CI_PROJECT_DIR/scripts/desktop-version.mjs" --resolve-ci "${CI_COMMIT_TAG:-}")"
+      test -n "$VERSION" || { echo "desktop version is empty"; exit 1; }
+      echo "VERSION=$VERSION" >> "$CI_PROJECT_DIR/build.env"
+      echo "Building desktop version $VERSION"
+      node "$CI_PROJECT_DIR/scripts/desktop-version.mjs" "$VERSION"
+
+# Fetch the E2EE sync server (separate repo, public). It is a Go project that
+# publishes a static binary per release, so this downloads the release pinned in
+# scripts/sync-server-pin.json — no checkout, no toolchain, no database server,
+# and every job in the pipeline runs the exact server the pin names.
+# scripts/lib/sync-server.mjs owns the resolution and verifies the sha256; the
+# jobs below read the server through $FUTO_NOTES_E2EE_SERVER_BIN.
+#
+# It used to clone the repo and `bun install` it. That broke twice over when the
+# server was rewritten in Go: the harness's `bun src/index.ts` no longer existed,
+# AND `bun install` in a directory with no package.json walks UP to the client's
+# own package.json and overwrites pnpm's node_modules — which is why the Android
+# leg failed with "TS2307: Cannot find module '@codemirror/autocomplete'".
+.setup-futo-notes-server:
+  script:
+    - |
+      FUTO_NOTES_E2EE_SERVER_BIN="$(node "$CI_PROJECT_DIR/scripts/lib/sync-server.mjs" path)"
+      export FUTO_NOTES_E2EE_SERVER_BIN
+      # An empty or unusable path must stop the job here, not surface later as
+      # a server that never became healthy (M11).
+      test -x "$FUTO_NOTES_E2EE_SERVER_BIN" || { echo "sync server binary not resolved" >&2; exit 1; }
+      echo "sync server: $FUTO_NOTES_E2EE_SERVER_BIN ($(node "$CI_PROJECT_DIR/scripts/lib/sync-server.mjs" version))"
+
+.setup-playwright:
+  script:
+    - |
+      # Use the image's baked browsers only when they are EXACTLY what the
+      # lockfile's Playwright launches. ci/test bakes Playwright 1.62.1's
+      # headless shell (revision 1234) while the lockfile is on 1.63.0
+      # (revision 1243); accepting any chrome-headless-shell found under
+      # /ms-playwright would hand 1.63 a browser it cannot launch. `install
+      # --dry-run` prints every directory a real install would fill (the
+      # headless shell AND ffmpeg, which video capture needs); each needs the
+      # INSTALLATION_COMPLETE marker Playwright writes last.
+      playwright_dirs_missing() {
+        local dirs
+        dirs="$(PLAYWRIGHT_BROWSERS_PATH="$1" pnpm exec playwright install --dry-run --only-shell chromium | sed -n 's/^ *Install location: *//p')"
+        # No parsed location means the dry-run format changed: report it
+        # missing rather than accept an unchecked directory (M11).
+        test -n "$dirs" || { echo "(no install location parsed)"; return; }
+        for dir in $dirs; do
+          test -f "$dir/INSTALLATION_COMPLETE" || echo "$dir"
+        done
+      }
+      if [ -d /ms-playwright ] && [ -z "$(playwright_dirs_missing /ms-playwright)" ]; then
+        export PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+        echo "Using the image's baked Playwright browsers in /ms-playwright"
+      else
+        # The cached download dir (.cache-playwright). A no-op when the
+        # restored cache already holds this revision.
+        pnpm exec playwright install --only-shell chromium
+        MISSING="$(playwright_dirs_missing "$PLAYWRIGHT_BROWSERS_PATH")"
+        test -z "$MISSING" || { echo "Playwright browsers still missing after install: $MISSING" >&2; exit 1; }
+        echo "Using Playwright browsers in $PLAYWRIGHT_BROWSERS_PATH"
+      fi
+
+# M11 for a `parallel:` Playwright job: the shard flag must have reached
+# Playwright AND this shard must have run tests, because both failures are
+# green. `pnpm run <script> -- --shard=…` forwards a literal `--`, and
+# Playwright then ran the WHOLE suite in every shard; an empty shard exits 0
+# with stats.expected 0 (both reproduced locally on Playwright 1.63.0). Reads
+# the JSON reporter's output named by $PLAYWRIGHT_JSON.
+.check-playwright-shard:
+  script:
+    - |
+      node -e '
+        const [file, index, total] = process.argv.slice(1);
+        const report = require(file);
+        const shard = report.config && report.config.shard;
+        if (!shard || shard.current !== Number(index) || shard.total !== Number(total)) {
+          console.error(`Playwright did not run as shard ${index}/${total} (report shard: ${JSON.stringify(shard)})`);
+          process.exit(1);
+        }
+        const passed = report.stats ? report.stats.expected : 0;
+        if (!(passed > 0)) {
+          console.error(`Playwright shard ${index}/${total} ran zero tests`);
+          process.exit(1);
+        }
+        console.log(`Playwright shard ${index}/${total}: ${passed} tests passed`);
+      ' "$PLAYWRIGHT_JSON" "$CI_NODE_INDEX" "$CI_NODE_TOTAL"
+
+# ─────────────────────────────────────────────────────────────
+# Cache templates
+# ─────────────────────────────────────────────────────────────
+
+.cache-pnpm:
+  cache:
+    key:
+      files:
+        - pnpm-lock.yaml
+    paths:
+      - .pnpm-store/
+    policy: pull-push
+
+.cache-cargo-tauri:
+  cache:
+    key:
+      files:
+        - Cargo.lock
+    paths:
+      - .cargo-home/
+      - target/
+    policy: $CARGO_CACHE_POLICY
+    # Upload even on failure/timeout: a cold compile that dies at the job
+    # wall still seeds the cache, so the retry resumes instead of starting
+    # cold again (cargo handles partial target/ dirs fine).
+    when: always
+
+# Sync builds deliberately clean and relink the Tauri crate with test hooks.
+# Sharing their target/ archive with workspace tests lets concurrent jobs
+# overwrite one another with incompatible partial trees, so keep a distinct
+# namespace until remote sccache replaces target archives entirely.
+.cache-cargo-sync:
+  cache:
+    key:
+      prefix: sync
+      files:
+        - Cargo.lock
+    paths:
+      - .cargo-home/
+      - target/
+    policy: $CARGO_CACHE_POLICY
+    when: always
+
+# Native shells (Compose / SwiftUI) build futo-notes-ffi for the Android NDK
+# targets (aarch64/armv7/x86_64-linux-android) plus a host lib for binding
+# generation. Those target/ subtrees and the cargo-ndk toolchain are disjoint
+# from what the Tauri jobs build, so sharing .cache-cargo-tauri's target/ just
+# thrashes both caches (each job evicts the other's artifacts on push). Give
+# the native cargo work its own key.
+.cache-cargo-native:
+  cache:
+    key:
+      prefix: native
+      files:
+        - Cargo.lock
+    paths:
+      - .cargo-home/
+      - target/
+    policy: $CARGO_CACHE_POLICY
+    # when: always — see .cache-cargo-tauri. Critical here: this job only
+    # runs on tags, so without failure uploads every tag retry starts cold.
+    when: always
+
+# Gradle wrapper distribution + dependency cache for the native Android build.
+# Keyed on the gradle config so a dependency bump invalidates it; the wrapper
+# dist rarely changes, so warm runs skip the ~100 MB Gradle download.
+.cache-gradle-native:
+  cache:
+    key:
+      prefix: gradle-native
+      files:
+        - apps/android/gradle/wrapper/gradle-wrapper.properties
+        - apps/android/app/build.gradle.kts
+    paths:
+      - .gradle-native/caches/
+      - .gradle-native/wrapper/
+    policy: pull-push
+    when: always
+
+# Separate caches for the release Linux builds. Both packages (.deb/.rpm) and the
+# AppImage build on ubuntu:22.04 (glibc 2.35, wide forward-compat; jammy-security
+# WebKitGTK is new enough for the EGL platform API). The post-bundle pass in
+# scripts/patch-appimage.mjs strips the Mesa 26-incompatible Wayland library and
+# rewrites tauri-bundler's forced-X11 hook to prefer Wayland. Test jobs use the
+# ci/test image. Each base gets its own cache key — sharing a target/ across
+# images wastes bandwidth and invalidates oddly.
+.cache-cargo-tauri-linux-packages:
+  cache:
+    key:
+      prefix: linux-packages
+      files:
+        - Cargo.lock
+    paths:
+      - .cargo-home/
+      - target/
+    policy: pull-push
+
+.cache-cargo-tauri-linux-appimage:
+  cache:
+    key:
+      prefix: linux-appimage
+      files:
+        - Cargo.lock
+    paths:
+      - .cargo-home/
+      - target/
+    policy: pull-push
+    when: always
+
+# Own key (see the comment above the other linux-* caches): the internal
+# build compiles with FUTO_HOSTED_SERVER_BAKED set to the staging address,
+# which must never share a target/ with the production (unbaked) Linux
+# builds' cache.
+.cache-cargo-tauri-desktop-internal:
+  cache:
+    key:
+      prefix: desktop-internal
+      files:
+        - Cargo.lock
+    paths:
+      - .cargo-home/
+      - target/
+    policy: pull-push
+    when: always
+
+.cache-playwright:
+  cache:
+    key:
+      prefix: playwright
+      files:
+        - pnpm-lock.yaml
+    paths:
+      - .cache-ms-playwright/
+    policy: pull-push

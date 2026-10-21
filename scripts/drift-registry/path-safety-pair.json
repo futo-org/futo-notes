@@ -1,0 +1,29 @@
+{
+  "concept": "path-safety-pair",
+  "description": "Safe note-ID validation at the TypeScript platform boundary and Rust note vault. Both consumers read tests/conformance/path-safety.json so acceptance cannot silently diverge.",
+  "lockStatus": "locked",
+  "copies": [
+    {
+      "location": "src/lib/platform/pathSafety.ts",
+      "pattern": "export function ensureSafeNoteId"
+    },
+    {
+      "location": "crates/futo-notes-core/src/files/paths.rs",
+      "pattern": "pub fn safe_note_path"
+    }
+  ],
+  "locks": [
+    {
+      "path": "tests/conformance/path-safety.json",
+      "kind": "fixture"
+    },
+    {
+      "path": "src/lib/platform/pathSafety.test.ts",
+      "kind": "test"
+    },
+    {
+      "path": "crates/futo-notes-core/tests/path_safety_conformance.rs",
+      "kind": "test"
+    }
+  ]
+}

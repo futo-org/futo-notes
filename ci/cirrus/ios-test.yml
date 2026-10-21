@@ -1,0 +1,198 @@
+# Appended to .cirrus.yml by .cirrus.star: iOS native tests and TestFlight upload.
+
+test_ios_native_task:
+  name: testFutoNotesIOSNative
+  macos_instance:
+    image: ghcr.io/cirruslabs/macos-sequoia-xcode:26.2
+  env:
+    # Incremental artifacts are per-machine scratch that a fresh VM can never
+    # reuse, and they are ~0.6 GB of pure churn in every target/ cache upload.
+    CARGO_INCREMENTAL: "0"
+  cargo_registry_cache:
+    folder: $HOME/.cargo/registry
+    fingerprint_key: futo-notes-cargo-registry-$CIRRUS_OS-v1
+    reupload_on_changes: true
+  cargo_git_cache:
+    # Empty today (Cargo.lock has no git dependencies) — the agent then just
+    # logs "All cache folders are empty! Skipping uploading". Declared anyway so
+    # a future git dependency does not silently re-clone in every task.
+    folder: $HOME/.cargo/git
+    fingerprint_key: futo-notes-cargo-git-$CIRRUS_OS-v1
+    reupload_on_changes: true
+  cargo_target_cache:
+    # Shared with buildFutoNotesIOSNative on purpose: both run the identical
+    # scripts/build-rust-ios.sh (three release-ffi iOS triples + the host debug
+    # lib used for binding generation), so one blob serves both and the two
+    # never run concurrently — the macscript runner drives one VM at a time.
+    # The one input that differs is FUTO_HOSTED_SERVER_BAKED, which the
+    # default-branch build sets. futo-notes-sync reads it via option_env!,
+    # which cargo tracks in the fingerprint (not by mtime), so a flip rebuilds
+    # only futo-notes-sync and its dependents, correctly, rather than serving a
+    # stale baked address.
+    folder: target
+    fingerprint_key: futo-notes-target-ios-$CIRRUS_OS-v1
+    reupload_on_changes: true
+  testFutoNotesIOSNative_script:
+    - brew install fnm xcodegen just
+    # Swift lint first: seconds, and it needs none of the toolchain below.
+    # Nothing ran `just lint-swift` in CI before, so main drifted to 157
+    # findings unnoticed. It lives in this task, whose GitLab job
+    # (test:ios-native) is already in release:gate.needs.
+    - LINT_SWIFT_REQUIRED=1 just lint-swift
+    - eval "$(fnm env --shell bash)"
+    - fnm use --install-if-missing
+    - corepack enable
+    - corepack prepare pnpm@10.29.2 --activate
+    - curl https://sh.rustup.rs -sSf | sh -s -- -y
+    - export PATH="$HOME/.cargo/bin:$PATH"
+    - rustup target add aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios
+    - pnpm install --frozen-lockfile
+    # Two different mtime lies have to be undone before cargo looks at the
+    # restored caches — see each script's header.
+    # (1) Cirrus untars without applying the tar header's mtime, so a restored
+    #     tree comes back in walk order and cargo rebuilds every build-script
+    #     crate and proc-macro on a full cache hit. Arguments are oldest-first.
+    - node scripts/ci-cirrus-cache-mtimes.mjs "$HOME/.cargo/registry" target
+    # (2) The cache lands after the sources, so a restored artifact can still
+    #     claim to be newer than the source it was built from.
+    - CI_PROJECT_DIR="${CIRRUS_WORKING_DIR:-$PWD}" node scripts/ci-cargo-cache-freshness.mjs
+    # Shared Rust FFI -> FutoNotesFfi.xcframework + Swift bindings.
+    - bash scripts/build-rust-ios.sh
+    # Embedded editor bundle used by the native bridge tests.
+    - pnpm exec vite build --config vite.editor.config.ts
+    - (cd apps/ios && xcodegen generate)
+    # xcodebuild test requires one concrete simulator. Prefer an already-booted
+    # iPhone; otherwise boot the first available iPhone runtime on the image.
+    - |
+      SIM=$(xcrun simctl list devices booted | sed -n 's/.*(\([0-9A-Fa-f-]\{36\}\)).*Booted.*/\1/p' | head -1)
+      if [ -z "$SIM" ]; then
+        SIM=$(xcrun simctl list devices available | sed -n '/iPhone/s/.*(\([0-9A-Fa-f-]\{36\}\)).*/\1/p' | head -1)
+        if [ -z "$SIM" ]; then
+          echo "ERROR: no available iPhone simulator found" >&2
+          xcrun simctl list devices available >&2
+          exit 1
+        fi
+        xcrun simctl boot "$SIM"
+      fi
+      xcrun simctl bootstatus "$SIM" -b
+      echo "Testing on simulator $SIM"
+      export SIM
+    # Two tiers, keyed the same way testRustMacOS keys its full run. MR
+    # pipelines run only the FutoNotesNativeTests unit bundle (Swift Testing,
+    # 323 tests in ~13s in job 264124); main pushes and tags also run the
+    # FutoNotesNativeUITests bundle, the XCTest UI cases, which took 173s of that
+    # job's 226s test phase when the bundle held 8 of them. A UI regression
+    # therefore surfaces on the main push, before tag time, rather than on the MR.
+    - |
+      if [ -n "${CI_COMMIT_TAG:-}" ] || { [ -n "${CI_DEFAULT_BRANCH:-}" ] && [ "${CI_COMMIT_BRANCH:-}" = "${CI_DEFAULT_BRANCH}" ]; }; then
+        export IOS_TEST_TIER=full
+      else
+        export IOS_TEST_TIER=unit
+      fi
+      echo "iOS test tier: $IOS_TEST_TIER"
+    # xcodebuild's EXIT CODE is unreliable for a Swift-Testing-only target: it
+    # returns non-zero for the empty XCTest bundle's "Executed 0 tests" on some
+    # Xcode versions even when Swift Testing passed and "** TEST SUCCEEDED **"
+    # printed (reproduced on the shared Mac: Xcode 26.2 exits non-zero, 26.6
+    # exits 0, byte-identical output). So do NOT gate on its exit here; capture
+    # the log and let the outcome arbiter below decide (M11: assert outcomes,
+    # not exit codes).
+    - |
+      set -o pipefail
+      # `tee` cannot create the log if its dir is absent — and on a fresh CI
+      # clone apps/ios/.build does not exist until xcodebuild's -derivedDataPath
+      # makes it, by which point tee has already failed to open the file
+      # (output still streams to the Cirrus log, so the file silently stays
+      # empty). A warm local .build hid this. Create the dir first.
+      mkdir -p apps/ios/.build
+      ONLY_TESTING=()
+      if [ "$IOS_TEST_TIER" = unit ]; then
+        ONLY_TESTING=(-only-testing:FutoNotesNativeTests)
+      fi
+      set +e
+      xcodebuild test -project apps/ios/FutoNotesNative.xcodeproj \
+        -scheme FutoNotesNative \
+        "${ONLY_TESTING[@]}" \
+        -destination "id=$SIM" \
+        -derivedDataPath apps/ios/.build \
+        -resultBundlePath apps/ios/.build/TestResults.xcresult \
+        CODE_SIGNING_ALLOWED=YES CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="-" \
+        2>&1 | tee apps/ios/.build/xcodebuild-test.log
+      XCODEBUILD_EXIT=${PIPESTATUS[0]}
+      set -e
+      echo "xcodebuild-exit=$XCODEBUILD_EXIT (informational; the arbiter below decides)"
+    # M11 outcome arbiter — pass/fail from what xcodebuild REPORTED, never its
+    # exit code. Layered so it can never go silently green, and it checks each
+    # bundle the tier ran by its own marker, so one bundle's tests can never
+    # stand in for the other's.
+    - |
+      LOG=apps/ios/.build/xcodebuild-test.log
+      # (1) Any genuine test/build failure marker -> red.
+      if grep -Eq '\*\* TEST FAILED \*\*|Testing failed:|Failing tests:|Executed [0-9]+ tests?, with [1-9][0-9]* failures?|Test run with [0-9]+ tests?( in [0-9]+ suites?)? failed' "$LOG"; then
+        echo "ERROR: xcodebuild reported test/build failures" >&2
+        grep -Ei 'fail' "$LOG" | tail -20 >&2
+        exit 1
+      fi
+      # (2) The unit bundle, in both tiers: Swift Testing's own summary with
+      #     >=1 test. FutoNotesNativeTests is the only Swift Testing bundle
+      #     (UITests is XCTest), so this line is its count and nothing else's.
+      #     Its XCTest half always prints "Executed 0 tests" (it holds no
+      #     XCTestCase), and that line must never satisfy anything here.
+      UNIT_SUMMARY="$(awk '/Test run with [1-9][0-9]* tests?( in [0-9]+ suites?)? passed/ { line = $0 } END { print line }' "$LOG")"
+      if [ -z "$UNIT_SUMMARY" ]; then
+        echo "ERROR: no passing Swift Testing summary with >=1 test from FutoNotesNativeTests" >&2
+        grep -E 'Executed [0-9]+ tests?|Test run with [0-9]+ tests?' "$LOG" >&2 || echo "(no test summary at all)" >&2
+        exit 1
+      fi
+      echo "unit bundle: $UNIT_SUMMARY"
+      # (3) The UI bundle, full tier only: its XCTest suite passed with >=1
+      #     executed case. awk reads the whole log (no early-exit pipe, RC-65).
+      if [ "$IOS_TEST_TIER" = full ]; then
+        UI_EXECUTED="$(awk '/Test Suite .FutoNotesNativeUITests\.xctest. passed/ { getline; if (match($0, /Executed [0-9]+ test/)) { n = substr($0, RSTART + 9, RLENGTH - 14) } } END { print n + 0 }' "$LOG")"
+        if [ "$UI_EXECUTED" -lt 1 ]; then
+          echo "ERROR: full tier, but FutoNotesNativeUITests reported no passing suite with >=1 executed test" >&2
+          exit 1
+        fi
+        echo "UI bundle: $UI_EXECUTED test(s) executed"
+      fi
+      # (4) Require the overall success marker.
+      if ! grep -q '\*\* TEST SUCCEEDED \*\*' "$LOG"; then
+        echo "ERROR: no '** TEST SUCCEEDED **' marker in the test log" >&2
+        exit 1
+      fi
+      echo "iOS tests passed ($IOS_TEST_TIER tier; arbiter: TEST SUCCEEDED + per-bundle test counts + no failure markers)"
+  always:
+    # See the note on testRustMacOS's upload_caches: naming any cache disables
+    # the automatic upload for all of them, so this list stays exhaustive.
+    upload_caches:
+      - cargo_registry
+      - cargo_git
+      - cargo_target
+    ios_test_results_artifacts:
+      path: "apps/ios/.build/TestResults.xcresult/**"
+
+publish_ios_task:
+  name: publishFutoNotesIOS
+  macos_instance:
+    image: ghcr.io/cirruslabs/macos-sequoia-xcode:26.2
+  publishFutoNotesIOS_script:
+    # Fetch the ASC API key from GitLab secure files
+    - curl --silent "https://gitlab.com/gitlab-org/incubation-engineering/mobile-devops/download-secure-files/-/raw/main/installer" | bash
+    - mkdir -p ~/.private_keys
+    - cp .secure_files/AuthKey*.p8 ~/.private_keys/
+
+    # The IPA is already present: GitLab's `needs: build:ios-native` (default
+    # `artifacts: true`) puts it in the publish:ios working dir at
+    # buildFutoNotesIOSNative/binary/*.ipa, and Cirrus rsyncs the working dir
+    # into this VM.
+    - |
+      IPA=""
+      if [ -d buildFutoNotesIOSNative/binary ]; then
+        IPA=$(find buildFutoNotesIOSNative/binary -name "*.ipa" -type f | head -1)
+      fi
+      if [ -z "$IPA" ]; then
+        echo "ERROR: No IPA found in working dir — was build:ios-native artifact propagated?"
+        exit 1
+      fi
+      echo "Uploading $IPA to TestFlight"
+      xcrun altool --upload-app --type ios --file "$IPA" --apiKey "$ASC_KEY_ID" --apiIssuer "$ASC_ISSUER_ID"

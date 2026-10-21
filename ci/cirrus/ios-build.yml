@@ -1,0 +1,197 @@
+# Appended to .cirrus.yml by .cirrus.star: native iOS build.
+
+# Native iOS app (SwiftUI over the futo-notes-ffi UniFFI core + embedded
+# editor.html). Tag builds produce a signed Release IPA for TestFlight;
+# non-tag builds are unsigned simulator compile checks.
+build_ios_native_task:
+  name: buildFutoNotesIOSNative
+  macos_instance:
+    image: ghcr.io/cirruslabs/macos-sequoia-xcode:26.2
+  env:
+    # Incremental artifacts are per-machine scratch that a fresh VM can never
+    # reuse, and they are ~0.6 GB of pure churn in every target/ cache upload.
+    CARGO_INCREMENTAL: "0"
+  cargo_registry_cache:
+    folder: $HOME/.cargo/registry
+    fingerprint_key: futo-notes-cargo-registry-$CIRRUS_OS-v1
+    reupload_on_changes: true
+  cargo_git_cache:
+    # Empty today (Cargo.lock has no git dependencies) — the agent then just
+    # logs "All cache folders are empty! Skipping uploading". Declared anyway so
+    # a future git dependency does not silently re-clone in every task.
+    folder: $HOME/.cargo/git
+    fingerprint_key: futo-notes-cargo-git-$CIRRUS_OS-v1
+    reupload_on_changes: true
+  cargo_target_cache:
+    # Same blob as testFutoNotesIOSNative — identical build-rust-ios.sh
+    # output. See that task for the reasoning.
+    folder: target
+    fingerprint_key: futo-notes-target-ios-$CIRRUS_OS-v1
+    reupload_on_changes: true
+  build_ios_native_script:
+    - brew install fnm xcodegen
+    - eval "$(fnm env --shell bash)"
+    - fnm use --install-if-missing
+    - corepack enable
+    - corepack prepare pnpm@10.29.2 --activate
+    - curl https://sh.rustup.rs -sSf | sh -s -- -y
+    - export PATH="$HOME/.cargo/bin:$PATH"
+    - rustup target add aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios
+    - pnpm install --frozen-lockfile
+    # Hosted sync is on for the internal dogfood build (default branch →
+    # TestFlight) and off for tag/MR builds, per ADR 0003 decision 13 (the
+    # archive step below re-derives the same condition for
+    # HOSTED_SYNC_CONDITION). Determined here, before the Rust FFI build, so
+    # the dogfood build's xcframework also bakes the staging hosted address
+    # rather than the production one (C3, ADR 0003 decision 2).
+    - |
+      if [ -z "${CI_COMMIT_TAG:-}" ] && [ -n "${CI_DEFAULT_BRANCH:-}" ] && [ "${CI_COMMIT_BRANCH:-}" = "${CI_DEFAULT_BRANCH}" ]; then
+        export FUTO_HOSTED_SERVER_BAKED=https://staging-notes-sync.futo.org
+        echo "Default-branch build — internal dogfood, baked hosted server: $FUTO_HOSTED_SERVER_BAKED"
+      fi
+    # Two different mtime lies have to be undone before cargo looks at the
+    # restored caches — see each script's header.
+    # (1) Cirrus untars without applying the tar header's mtime, so a restored
+    #     tree comes back in walk order and cargo rebuilds every build-script
+    #     crate and proc-macro on a full cache hit. Arguments are oldest-first.
+    - node scripts/ci-cirrus-cache-mtimes.mjs "$HOME/.cargo/registry" target
+    # (2) The cache lands after the sources, so a restored artifact can still
+    #     claim to be newer than the source it was built from.
+    - CI_PROJECT_DIR="${CIRRUS_WORKING_DIR:-$PWD}" node scripts/ci-cargo-cache-freshness.mjs
+    # Shared Rust FFI -> FutoNotesFfi.xcframework + Swift bindings (uses
+    # xcodebuild -create-xcframework).
+    - bash scripts/build-rust-ios.sh
+    # Embedded editor bundle (single self-contained editor.html).
+    - pnpm exec vite build --config vite.editor.config.ts
+    # Generate the Xcode project.
+    - (cd apps/ios && xcodegen generate)
+    - |
+      # Sign + archive on tag builds (release IPA) AND default-branch builds
+      # (the dogfood IPA that publish:ios:main ships to TestFlight). MRs fall
+      # through to the unsigned simulator compile check below.
+      if [ -n "${CI_COMMIT_TAG:-}" ] || { [ -n "${CI_DEFAULT_BRANCH:-}" ] && [ "${CI_COMMIT_BRANCH:-}" = "${CI_DEFAULT_BRANCH}" ]; }; then
+        echo "Building signed native iOS release for ${CI_COMMIT_TAG:-$CI_COMMIT_BRANCH}"
+        curl --silent "https://gitlab.com/gitlab-org/incubation-engineering/mobile-devops/download-secure-files/-/raw/main/installer" | bash
+
+        security unlock-keychain -p "admin" ~/Library/Keychains/login.keychain
+        security import ./.secure_files/Certificates.p12 -k ~/Library/Keychains/login.keychain -P "$IOS_CERT_PASSWORD" -T /usr/bin/codesign
+        security set-key-partition-list -S apple-tool:,apple: -s -k admin ~/Library/Keychains/login.keychain
+
+        mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+        PROFILE_NAME=""
+        for PROFILE_PATH in .secure_files/*.mobileprovision; do
+          [ -e "$PROFILE_PATH" ] || continue
+          PROFILE_PLIST=$(mktemp)
+          /usr/bin/security cms -D -i "$PROFILE_PATH" > "$PROFILE_PLIST"
+          PROFILE_UUID=$(/usr/libexec/PlistBuddy -c "Print UUID" "$PROFILE_PLIST")
+          NAME=$(/usr/libexec/PlistBuddy -c "Print Name" "$PROFILE_PLIST")
+          APP_ID=$(/usr/libexec/PlistBuddy -c "Print Entitlements:application-identifier" "$PROFILE_PLIST" 2>/dev/null || true)
+          cp "$PROFILE_PATH" ~/Library/MobileDevice/Provisioning\ Profiles/${PROFILE_UUID}.mobileprovision
+          if [[ "$APP_ID" == *.com.futo.notes ]]; then
+            PROFILE_NAME="$NAME"
+          fi
+          rm -f "$PROFILE_PLIST"
+        done
+        if [ -z "$PROFILE_NAME" ]; then
+          echo "ERROR: No provisioning profile found for com.futo.notes"
+          exit 1
+        fi
+
+        # Tag builds use the tag version; default-branch builds use the latest
+        # release patch-bumped (see scripts/ios-marketing-version.mjs). The build
+        # number is the pipeline IID — monotonic across the whole project, so a
+        # main build never collides with or regresses below a tag build's number.
+        VERSION="$(node scripts/ios-marketing-version.mjs)"
+        BUILD_NUMBER="${CI_PIPELINE_IID:-1}"
+        echo "Marketing version $VERSION (build $BUILD_NUMBER)"
+        # Hosted sync is on for the internal dogfood build (default branch →
+        # TestFlight) and off for the store release (tag), per ADR 0003
+        # decision 13. project.yml's Release config expands this setting into
+        # SWIFT_ACTIVE_COMPILATION_CONDITIONS; empty compiles none of it in.
+        HOSTED_SYNC_CONDITION=""
+        if [ -z "${CI_COMMIT_TAG:-}" ]; then
+          HOSTED_SYNC_CONDITION="FUTO_HOSTED_SYNC"
+        fi
+        echo "Hosted sync condition: '${HOSTED_SYNC_CONDITION:-<off>}'"
+        ARCHIVE="apps/ios/.build-release/FutoNotesNative.xcarchive"
+        xcodebuild -project apps/ios/FutoNotesNative.xcodeproj \
+          -scheme FutoNotesNative -configuration Release \
+          -destination 'generic/platform=iOS' \
+          -derivedDataPath apps/ios/.build-release \
+          -archivePath "$ARCHIVE" \
+          DEVELOPMENT_TEAM=2W7AC6T8T5 \
+          CODE_SIGN_STYLE=Manual \
+          CODE_SIGNING_ALLOWED=YES \
+          CODE_SIGNING_REQUIRED=YES \
+          CODE_SIGN_IDENTITY="Apple Distribution" \
+          PROVISIONING_PROFILE_SPECIFIER="$PROFILE_NAME" \
+          MARKETING_VERSION="$VERSION" \
+          CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
+          FUTO_HOSTED_SYNC_CONDITION="$HOSTED_SYNC_CONDITION" \
+          archive | tail -5
+
+        cat > /tmp/ExportOptionsNative.plist << PLISTEOF
+      <?xml version="1.0" encoding="UTF-8"?>
+      <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+      <plist version="1.0">
+      <dict>
+          <key>method</key>
+          <string>app-store</string>
+          <key>teamID</key>
+          <string>2W7AC6T8T5</string>
+          <key>signingStyle</key>
+          <string>manual</string>
+          <key>provisioningProfiles</key>
+          <dict>
+              <key>com.futo.notes</key>
+              <string>${PROFILE_NAME}</string>
+          </dict>
+      </dict>
+      </plist>
+      PLISTEOF
+        xcodebuild -exportArchive \
+          -archivePath "$ARCHIVE" \
+          -exportOptionsPlist /tmp/ExportOptionsNative.plist \
+          -exportPath apps/ios/.build-release/export
+
+        IPA_PATH=$(find apps/ios/.build-release/export -name "*.ipa" -type f | head -1)
+        if [ -z "$IPA_PATH" ]; then
+          echo "ERROR: native iOS export produced no IPA"
+          exit 1
+        fi
+        cp "$IPA_PATH" ./
+        # Keep the dSYMs: the crash reporter writes `<image> <offset>` frames,
+        # which only these symbolicate (the release job stores them per tag).
+        if ! ls "$ARCHIVE"/dSYMs/*.dSYM >/dev/null 2>&1; then
+          echo "ERROR: native iOS archive produced no dSYMs"
+          exit 1
+        fi
+        ditto -c -k --keepParent "$ARCHIVE/dSYMs" FutoNotesNative-dSYMs.zip
+      else
+        # Simulator compile check (unsigned). ARCHS=arm64: the FFI xcframework
+        # only ships an arm64 simulator slice (aarch64-apple-ios-sim); a bare
+        # 'generic/platform=iOS Simulator' build also targets x86_64 and fails
+        # to link. Build-only, so host arch is moot.
+        xcodebuild -project apps/ios/FutoNotesNative.xcodeproj \
+          -scheme FutoNotesNative -configuration Debug \
+          -destination 'generic/platform=iOS Simulator' \
+          -derivedDataPath apps/ios/.build \
+          ARCHS=arm64 ONLY_ACTIVE_ARCH=NO CODE_SIGNING_ALLOWED=NO \
+          build | tail -5
+      fi
+  # A cache's auto-generated upload inherits the cache instruction's ON_SUCCESS
+  # behavior, so a task that dies mid-compile (or hits the wall) uploads
+  # nothing and dooms every retry to another cold start — the exact hazard
+  # .gitlab-ci.yml's cache templates carry `when: always` for. Moving the
+  # uploads into `always:` via `upload_caches` fixes that; cargo handles a
+  # partial target/ fine. NOTE: naming ANY cache here disables the automatic
+  # upload for ALL of them, so this list must stay exhaustive.
+  always:
+    upload_caches:
+      - cargo_registry
+      - cargo_git
+      - cargo_target
+  binary_artifacts:
+    path: "*.ipa"
+  dsyms_artifacts:
+    path: "*-dSYMs.zip"

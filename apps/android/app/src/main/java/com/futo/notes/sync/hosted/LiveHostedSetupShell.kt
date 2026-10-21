@@ -13,6 +13,8 @@ import com.futo.notes.SyncManager
 import com.futo.notes.localization.Localization
 import com.futo.notes.localization.LocalizedMessage
 import uniffi.futo_notes_ffi.HostedSetupClient
+import com.futo.notes.connectHosted
+import com.futo.notes.signOutHosted
 
 /**
  * The live wiring behind the hosted wizard: the Custom Tab, the clipboard, the

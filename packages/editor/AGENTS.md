@@ -48,7 +48,7 @@ chip) left `view.composing` set for good off Android — input rules stop and `i
 sticks. It also deletes a selection that covers a chip before a composition starts over it (RC-97:
 ProseMirror re-dispatching that selection made Chromium drop the composition). The fork is swapped in at the same index in `commonmarkWithCompat()`; its canary is in
 `editor-embed-milkdown-compat.spec.ts`, its real-IME tests in
-`editor-embed-milkdown-wikilinks.spec.ts`.
+`editor-embed-milkdown-wikilinks-ime.spec.ts`.
 
 From the 2026-09 release-hardening campaign (FB-4a/4b/4c), all on the parse side:
 
@@ -133,9 +133,9 @@ the editor's own `parserCtx`.
   decides its escaping by parsing with the editor's own parser. No Rust, Swift or
   Kotlin code reads or writes that document, so there is no second consumer to
   keep in step and nothing for the TS↔Rust differential to compare
-  (`tests/conformance/title-rules-differential.mjs` lists the fixture in
+  (`tests/conformance/title-rules-differential.mjs` lists the fixtures in
   `FIXTURES_OUTSIDE_THE_DIFFERENTIAL`; tests/conformance/README.md says the same).
-- Spec line first, then a golden in `tests/conformance/markdown-house-style.json`
+- Spec line first, then a golden in `tests/conformance/markdown-house-style-*.json`
   (hand-reviewed; never pasted from output), then the code. The goldens run against
   the shipping parser in `src/features/editor/milkdown/markdownHouseStyle.test.ts`.
 - A node or mark it has no spelling for throws `UnknownNodeError` rather than being

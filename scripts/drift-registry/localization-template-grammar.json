@@ -1,0 +1,34 @@
+{
+  "concept": "localization-template-grammar",
+  "description": "The catalog placeholder grammar ({name}, {{ and }} escapes, ^[a-z][A-Za-z0-9]*$ names) is scanned by the three runtime interpreters and, separately, by the catalog validator and the native resource generator, which pre-tokenize the same templates at build time.",
+  "lockStatus": "partial",
+  "note": "The two build-time copies are what the runtime copies are generated from and validated by, so a grammar change must touch all five together or the generator silently emits tokens the runtimes cannot reproduce. Nothing mechanically ties the build-time pair to the runtime trio; the runtime trio is covered by tests/localization/cases.json, and the build-time pair by its own script tests.",
+  "copies": [
+    {
+      "location": "src/shared/localization/catalogParsing.ts",
+      "pattern": "function parseTemplate"
+    },
+    {
+      "location": "scripts/language-catalogs.mjs",
+      "pattern": "function inspectMessageTemplate"
+    },
+    {
+      "location": "scripts/generate-native-language-resources.mjs",
+      "pattern": "function templateTokens"
+    }
+  ],
+  "locks": [
+    {
+      "path": "tests/localization/cases.json",
+      "kind": "fixture"
+    },
+    {
+      "path": "scripts/language-catalogs.test.mjs",
+      "kind": "test"
+    },
+    {
+      "path": "scripts/generate-native-language-resources.test.mjs",
+      "kind": "test"
+    }
+  ]
+}

@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest';
 import {
   justfileSources,
   gitlabPipeline,
+  gitlabPipelineSources,
   packageScripts,
   androidInstrumentationScript,
   androidEmulatorScript,
@@ -145,7 +146,7 @@ describe('pre-merge CI routing contracts', () => {
   // is safe; anything else must be pipe-free or consume all input.
   it('has no early-exit `| grep -q` consumer of a multi-buffer producer under pipefail', () => {
     const sources = {
-      '.gitlab-ci.yml': gitlabPipeline,
+      ...gitlabPipelineSources,
       ...justfileSources,
       'scripts/ci-android-sync-leg.sh': androidSyncLegScript,
       'scripts/ci-android-instrumentation.sh': androidInstrumentationScript,

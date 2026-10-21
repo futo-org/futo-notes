@@ -14,7 +14,7 @@
  * user's selection on the move transaction: traveling with the block when it
  * was inside it.
  *
- * → tests/editor-embed-milkdown-block-drag.spec.ts "USING THE ⠿ HANDLE NEVER SELECTS ANYTHING"
+ * → tests/editor-embed-milkdown-gutter-handle-selection.spec.ts "USING THE ⠿ HANDLE NEVER SELECTS ANYTHING"
  */
 import type { Node as ProseNode } from '@milkdown/kit/prose/model';
 import { Selection, TextSelection, type Transaction } from '@milkdown/kit/prose/state';

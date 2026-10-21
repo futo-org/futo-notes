@@ -1,0 +1,43 @@
+{
+  "concept": "validate-server-url",
+  "description": "Sync server URL validation, hand-written x3 (no Rust side). TS, Swift, and Kotlin all read the full shared fixture.",
+  "lockStatus": "locked",
+  "note": "LOCKED: All three consumers are fully locked against server-url.json; Kotlin's SyncManagerDefaultsTest.kt loads and asserts all 9 fixture cases.",
+  "copies": [
+    {
+      "location": "src/features/sync/syncServiceE2ee.ts",
+      "pattern": "function validateSyncServerUrl"
+    },
+    {
+      "location": "apps/android/app/src/main/java/com/futo/notes/SyncManager.kt",
+      "pattern": "fun validateServerUrl"
+    },
+    {
+      "location": "apps/ios/Sources/Sync/SyncManager+OutcomeRules.swift",
+      "pattern": "func validateServerURL"
+    }
+  ],
+  "locks": [
+    {
+      "path": "tests/conformance/server-url.json",
+      "kind": "fixture"
+    },
+    {
+      "path": "src/features/sync/syncServiceE2ee.test.ts",
+      "kind": "test"
+    },
+    {
+      "path": "apps/android/app/src/test/java/com/futo/notes/SyncManagerDefaultsTest.kt",
+      "kind": "test"
+    },
+    {
+      "path": "apps/ios/Tests/Sync/ServerUrlConformanceTests.swift",
+      "kind": "test"
+    }
+  ],
+  "scan": {
+    "dirs": ["src", "apps/ios/Sources", "apps/android/app/src/main"],
+    "extensions": [".ts", ".swift", ".kt"],
+    "pattern": "(function validateSyncServerUrl|fun validateServerUrl|func validateServerURL)\\b"
+  }
+}

@@ -3,7 +3,6 @@ import {
   lstatSync,
   mkdirSync,
   mkdtempSync,
-  readFileSync,
   rmSync,
   symlinkSync,
   utimesSync,
@@ -14,6 +13,8 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { afterEach, describe, expect, it } from 'vitest';
+
+import { readCirrusCiSource } from './lib/cirrus-ci.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const SCRIPT = join(ROOT, 'scripts/ci-cirrus-cache-mtimes.mjs');
@@ -113,8 +114,8 @@ describe('ci-cirrus-cache-mtimes', () => {
   // Rust-compiling task added without caching (buildFutoNotesMacOSInternal
   // landed on main that way while this was in review) must fail here, not
   // silently build cold.
-  describe('.cirrus.yml wiring', () => {
-    const cirrus = readFileSync(join(ROOT, '.cirrus.yml'), 'utf8');
+  describe('Cirrus config wiring', () => {
+    const cirrus = readCirrusCiSource(ROOT);
     const tasks = cirrus
       .split(/^(?=\S.*_task:)/m)
       .filter((t) => /_task:/.test(t.split('\n')[0]))

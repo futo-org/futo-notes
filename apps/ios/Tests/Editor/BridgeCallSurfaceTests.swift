@@ -8,7 +8,8 @@ private final class BundleToken {}
 /// `window.FutoEditor.<name>` as free-floating strings inside `evaluateJavaScript`,
 /// with no compiler check that each name is a real method of the bridge
 /// contract. This is a SOURCE SCAN (the same shape as Android's
-/// `BridgeCoverageTest`): it bundles `EditorWebView.swift` as a resource,
+/// `BridgeCoverageTest`): it bundles `EditorWebView.swift` (with the
+/// `EditorHost*.swift` files it is split across) as a resource,
 /// extracts every `FutoEditor.<name>` occurrence, and asserts each is in the
 /// documented set — catching a typo or an undocumented method reaching the bridge.
 @Suite("Host→editor bridge call-surface")

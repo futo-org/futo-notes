@@ -169,19 +169,22 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.futo.notes.tests
         GENERATE_INFOPLIST_FILE: "YES"
-    # The bridge call-surface guard scans EditorWebView.swift at runtime, so its
-    # text must ride along in the test bundle. Xcode's resource phase refuses to
-    # copy .swift files, so copy it in as .txt after compile (before signing) —
-    # a single source of truth, refreshed from Sources/ on every build.
+    # The bridge call-surface guard scans EditorWebView.swift and the
+    # EditorHost*.swift files it is split across at runtime, so their text must
+    # ride along in the test bundle. Xcode's resource phase refuses to copy
+    # .swift files, so concatenate them in as .txt after compile (before
+    # signing) — a single source of truth, refreshed from Sources/ on every build.
     postCompileScripts:
       - name: Bundle EditorWebView source for the bridge call-surface scan
         script: |
-          cp "${SRCROOT}/Sources/Editor/EditorWebView.swift" \
-             "${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/EditorWebView.txt"
+          cat "${SRCROOT}/Sources/Editor/EditorWebView.swift" \
+              "${SRCROOT}"/Sources/Editor/EditorHost*.swift \
+            > "${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/EditorWebView.txt"
       - name: Bundle NoteEditorView source for the back-affordance scan
         script: |
-          cp "${SRCROOT}/Sources/Notes/Editor/NoteEditorView.swift" \
-             "${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/NoteEditorView.txt"
+          cat "${SRCROOT}/Sources/Notes/Editor/NoteEditorView.swift" \
+              "${SRCROOT}"/Sources/Notes/Editor/NoteEditorView+*.swift \
+            > "${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/NoteEditorView.txt"
 
   # Launch-level regression coverage. This target is intentionally isolated
   # from the developer's vault and credential service by launch environment.

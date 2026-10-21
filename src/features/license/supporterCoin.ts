@@ -20,11 +20,8 @@
 // model and the environment are fetched on the same first visit, and until they
 // land the flat SVG in SupporterCoin.svelte is what the user sees.
 
-/// The Blender exports. `?url` keeps them out of the JS bundle: Vite emits them
-/// as hashed files and hands back the path, so the coin costs nothing until a
-/// licensed user opens Settings.
-import coinModelUrl from '@/assets/coin/futo-coin.glb?url';
-import coinEnvironmentUrl from '@/assets/coin/studio-env.hdr?url';
+import { attachDragToTurn } from './coinDragToTurn';
+import { disposeLoadedModel, openStage } from './coinStage';
 
 /// Slow enough to read as an object rather than a spinner: one turn every ~5s.
 const BASE_SPIN = 1.25;
@@ -35,18 +32,6 @@ const CELEBRATION_SPIN = 16;
 /// bleeds off. One constant, so a thrown coin and a celebrating one settle the
 /// same way.
 const SPIN_DECAY = 2.6;
-
-/// Radians of turn per pixel dragged. Tuned so crossing a 96px coin turns it
-/// about half a revolution: enough that a drag obviously grabs the object,
-/// little enough that you can stop on a face.
-const DRAG_RADIANS_PER_PIXEL = 0.018;
-/// A flick is only a flick if the pointer was still moving when it left. Below
-/// this the coin is *placed*, and it stays where it was put until it eases back
-/// to its resting speed.
-const FLICK_MIN_SPEED = 0.6;
-/// Ceiling on a thrown spin, so a fast swipe across a trackpad cannot turn the
-/// coin into a strobe.
-const FLICK_MAX_SPEED = 24;
 
 /// A click on the coin owes it one more full turn (@justin 2026-09-17).
 /// Distinct from `celebrate()`, which is a spin-up the decay bleeds off and
@@ -74,11 +59,6 @@ const TAP_MIN_RATE = 2;
 /// Below this the rest of the debt is handed over in one frame: half a degree
 /// is not a turn, and the debt has to actually reach zero.
 const TAP_SETTLE = 0.01;
-/// A press is a click and not a drag if the pointer barely moved and did not
-/// linger. Both bounds matter: a 2px wobble is still a click, and a slow,
-/// deliberate 2px nudge that holds for a second is not.
-const TAP_MAX_MOVEMENT_PX = 5;
-const TAP_MAX_MILLISECONDS = 400;
 
 /// A fixed tilt, so the coin is read as a disc even at the instant its face is
 /// edge-on to the camera. The native shells apply the same angle.
@@ -94,9 +74,6 @@ const CAMERA_DISTANCE = 1.55;
 /// Frame-time clamp. A backgrounded tab hands back a huge delta on its first
 /// frame; without this the coin jumps a random fraction of a turn on return.
 const MAX_FRAME_SECONDS = 1 / 20;
-
-/// Exposure for the Khronos PBR Neutral tone map (see `openStage`).
-const TONE_MAPPING_EXPOSURE = 1.0;
 
 /// How much of an owed turn one frame pays off: fastest when the most is owed,
 /// capped so a burst of clicks cannot become a strobe, and handing over the
@@ -144,77 +121,6 @@ export interface CoinHandle {
 /// `null` when this browser cannot give us a WebGL context. Never throws for a
 /// missing context — the caller has a flat coin to fall back to and the user
 /// should not notice.
-/// The renderer plus everything loaded onto it: the model and the prefiltered
-/// environment that lights it.
-interface CoinStage {
-  renderer: import('three').WebGLRenderer;
-  model: import('three').Group;
-  environment: import('three').Texture;
-  environmentTarget: import('three').WebGLRenderTarget;
-}
-
-/// Opens a WebGL context and loads both assets onto it, or resolves `null` when
-/// this browser cannot give us a context.
-///
-/// Both files or neither: a coin with its model but no environment would be a
-/// black disc, which is worse than the flat SVG the caller already has up. A
-/// load failure frees the context rather than leaving one of the document's
-/// small fixed pool stranded, then rethrows so the caller can log it.
-async function openStage(
-  THREE: typeof import('three'),
-  GLTFLoader: typeof import('three/examples/jsm/loaders/GLTFLoader.js').GLTFLoader,
-  RGBELoader: typeof import('three/examples/jsm/loaders/RGBELoader.js').RGBELoader,
-): Promise<CoinStage | null> {
-  let renderer: import('three').WebGLRenderer;
-  try {
-    // `preserveDrawingBuffer` is what makes the coin survive a `toDataURL()`
-    // read-back — without it every screenshot of this app captures the coin as
-    // a transparent hole, including the QA bridge's (Linux has no native
-    // window capture, so it composites the DOM).
-    renderer = new THREE.WebGLRenderer({
-      antialias: true,
-      alpha: true,
-      preserveDrawingBuffer: true,
-    });
-  } catch {
-    return null;
-  }
-
-  renderer.setPixelRatio(Math.min(globalThis.devicePixelRatio || 1, 2));
-  renderer.setClearColor(0x000000, 0);
-  // Khronos PBR Neutral, not ACES. ACES pushes a bright saturated highlight
-  // toward white, which on this coin turns the gold sheen into a gray smear
-  // exactly where it should be most golden. Neutral holds the hue.
-  renderer.toneMapping = THREE.NeutralToneMapping;
-  renderer.toneMappingExposure = TONE_MAPPING_EXPOSURE;
-
-  try {
-    const [gltf, equirect] = await Promise.all([
-      new GLTFLoader().loadAsync(coinModelUrl),
-      new RGBELoader().loadAsync(coinEnvironmentUrl),
-    ]);
-    equirect.mapping = THREE.EquirectangularReflectionMapping;
-    // Prefilter once into the roughness mip chain the standard material
-    // samples. Doing it here rather than per frame is the difference between a
-    // coin that costs nothing to turn and one that re-blurs its world 60x a
-    // second.
-    const pmrem = new THREE.PMREMGenerator(renderer);
-    const environmentTarget = pmrem.fromEquirectangular(equirect);
-    equirect.dispose();
-    pmrem.dispose();
-    return {
-      renderer,
-      model: gltf.scene,
-      environment: environmentTarget.texture,
-      environmentTarget,
-    };
-  } catch (error) {
-    renderer.dispose();
-    renderer.forceContextLoss();
-    throw error;
-  }
-}
-
 export async function buildCoin(mount: HTMLElement): Promise<CoinHandle | null> {
   const [THREE, { GLTFLoader }, { RGBELoader }] = await Promise.all([
     import('three'),
@@ -454,122 +360,4 @@ function frameShortSide(
       ? BASE_FOV
       : (2 * Math.atan(Math.tan((BASE_FOV * Math.PI) / 360) / aspect) * 180) / Math.PI;
   camera.updateProjectionMatrix();
-}
-
-/// What a drag does to the thing being turned.
-interface TurnTarget {
-  grab(): void;
-  turnBy(radians: number): void;
-  /// Angular velocity in rad/s for a flick, or `null` when the coin was placed
-  /// rather than thrown.
-  release(thrown: number | null): void;
-  /// The pointer went down and came back up without really moving: a click.
-  /// Always preceded by `grab()` and `release(null)`, since a click is a drag
-  /// that went nowhere.
-  tap(): void;
-}
-
-/// Makes an element's contents turn under a mouse, pen or finger, and returns
-/// the detach function.
-///
-/// Pointer events cover all three input kinds in one path, and pointer capture
-/// means a drag that wanders off the element keeps tracking instead of
-/// sticking. `touch-action: pan-y` is a deliberate half-measure: a vertical
-/// swipe still scrolls the Settings sheet under the finger, a horizontal one
-/// turns the coin. Claiming the whole gesture would trap the scroll on a phone.
-function attachDragToTurn(mount: HTMLElement, target: TurnTarget): () => void {
-  let pointer = -1;
-  let lastX = 0;
-  let lastMoveAt = 0;
-  /// Distance traveled and when the press began — together they separate a
-  /// click from a drag that happened to end where it started.
-  let travelled = 0;
-  let pressedAt = 0;
-  /// Radians/second, smoothed — a single sample is noisy enough to throw a wild
-  /// flick off the last two pixels of an otherwise slow drag.
-  let velocity = 0;
-
-  mount.style.touchAction = 'pan-y';
-  // The cursor is NOT set here. `src/styles/desktop-native.css` owns cursor
-  // policy for the whole desktop shell with a layered `!important` sweep, so an
-  // inline cursor silently loses to it; the grab/grabbing pair is declared
-  // there, keyed off this attribute.
-  mount.dataset.turning = 'false';
-
-  function onPointerDown(event: PointerEvent): void {
-    if (pointer !== -1) return;
-    pointer = event.pointerId;
-    lastX = event.clientX;
-    lastMoveAt = event.timeStamp;
-    pressedAt = event.timeStamp;
-    travelled = 0;
-    velocity = 0;
-    // Capture keeps a drag tracking after it wanders off the coin. It throws
-    // for a pointer id the browser does not consider active — a synthetic
-    // event from a test, or a pointer already released — and losing capture is
-    // not worth losing the drag over.
-    try {
-      mount.setPointerCapture(event.pointerId);
-    } catch {
-      /* drag still works, it just stops at the element's edge */
-    }
-    mount.dataset.turning = 'true';
-    target.grab();
-  }
-
-  function onPointerMove(event: PointerEvent): void {
-    if (event.pointerId !== pointer) return;
-    const dx = event.clientX - lastX;
-    const seconds = (event.timeStamp - lastMoveAt) / 1000;
-    lastX = event.clientX;
-    lastMoveAt = event.timeStamp;
-    travelled += Math.abs(dx);
-    const radians = dx * DRAG_RADIANS_PER_PIXEL;
-    target.turnBy(radians);
-    if (seconds > 0) velocity = velocity * 0.7 + (radians / seconds) * 0.3;
-  }
-
-  function endDrag(event: PointerEvent): void {
-    if (event.pointerId !== pointer) return;
-    pointer = -1;
-    mount.dataset.turning = 'false';
-    // A stale sample would fling a coin the user had deliberately held still,
-    // so a pointer that had stopped before it lifted counts as a placement.
-    const stale = event.timeStamp - lastMoveAt > 100;
-    const thrown = !stale && Math.abs(velocity) > FLICK_MIN_SPEED;
-    target.release(thrown ? Math.max(-FLICK_MAX_SPEED, Math.min(FLICK_MAX_SPEED, velocity)) : null);
-    // After `release`, so the turn starts from a coin that is already back
-    // under its own control.
-    if (travelled <= TAP_MAX_MOVEMENT_PX && event.timeStamp - pressedAt <= TAP_MAX_MILLISECONDS) {
-      target.tap();
-    }
-  }
-
-  mount.addEventListener('pointerdown', onPointerDown);
-  mount.addEventListener('pointermove', onPointerMove);
-  mount.addEventListener('pointerup', endDrag);
-  mount.addEventListener('pointercancel', endDrag);
-
-  return () => {
-    mount.removeEventListener('pointerdown', onPointerDown);
-    mount.removeEventListener('pointermove', onPointerMove);
-    mount.removeEventListener('pointerup', endDrag);
-    mount.removeEventListener('pointercancel', endDrag);
-  };
-}
-
-/// Frees everything a loaded glTF allocated on the GPU.
-///
-/// three.js tracks none of it for you: dropping the scene graph leaves the
-/// buffers and textures resident, and a Settings sheet that is opened and closed
-/// all day would leak a coin per visit.
-function disposeLoadedModel(root: import('three').Object3D): void {
-  root.traverse((node) => {
-    const mesh = node as import('three').Mesh;
-    if (mesh.geometry === undefined) return;
-    mesh.geometry.dispose();
-    for (const material of Array.isArray(mesh.material) ? mesh.material : [mesh.material]) {
-      material?.dispose();
-    }
-  });
 }

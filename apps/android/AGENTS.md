@@ -155,8 +155,8 @@ Generated and gitignored: `uniffi/` Kotlin bindings, `jniLibs/`,
   loading from empty so the shell renders immediately (M1). Never await work
   before first render.
 - A new `futoBridge` message needs a hand-written host in
-  `app/src/main/java/com/futo/notes/ui/EditorWebView.kt` **and** its iOS
-  counterpart — `packages/editor/src/bridge.ts` is the source of truth (M10).
+  `app/src/main/java/com/futo/notes/ui/EditorHostMessages.kt` (`EditorHost.handle()`)
+  **and** its iOS counterpart — `packages/editor/src/bridge.ts` is the source of truth (M10).
 
 - **`app/src/main/java/org/rustls/platformverifier/CertificateVerifier.kt` is vendored** from
   upstream tag v/0.6.2, matching the `rustls-platform-verifier` version `Cargo.lock` pins. It is
@@ -208,7 +208,7 @@ exists because an accessibility dump costs ~2s and shows what Compose last
 managed to render, not what the app holds (M21) — so a test that taps through a
 multi-step flow is both slow and unreliable.
 
-Adding a hook is a few lines in `MainActivity.testHooks()`:
+Adding a hook is a few lines in `MainActivity.testHooks()` (`MainActivityTestHooks.kt`):
 
 ```kotlin
 "confirm-storage" to {

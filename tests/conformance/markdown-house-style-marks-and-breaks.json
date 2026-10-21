@@ -1,0 +1,312 @@
+{
+  "description": "The editor's markdown house style (docs/spec/editor.md \"Markdown house style\", #266): what a save writes for a note, as hand-reviewed {source, expected} pairs. `source` is read with the app's own parser; `doc` instead gives an editor-made document no file could produce (ProseMirror toJSON shape). Every case also asserts that `expected` reads back as the same document and writes itself again unchanged. TypeScript only: the serializer has no Rust consumer. Runner: src/features/editor/milkdown/markdownHouseStyle.test.ts.",
+  "cases": [
+    {
+      "story": 2,
+      "name": "a *** rule is written ---",
+      "source": "a\n\n***\n\nb",
+      "expected": "a\n\n---\n\nb\n"
+    },
+    {
+      "story": 2,
+      "name": "a ___ rule is written ---",
+      "source": "a\n\n___\n\nb",
+      "expected": "a\n\n---\n\nb\n"
+    },
+    {
+      "story": 2,
+      "name": "a rule on the first line is *** (--- there would open front matter that the later rule closes)",
+      "source": "***\n\ntext\n\n***\n\nmore",
+      "expected": "***\n\ntext\n\n---\n\nmore\n"
+    },
+    {
+      "story": 2,
+      "name": "a *** rule on the first line is written --- when no later line would close front matter",
+      "source": "***\n\ntext",
+      "expected": "---\n\ntext\n"
+    },
+    {
+      "story": 2,
+      "name": "a rule on the first line stays *** when a --- line in a later code block would close front matter",
+      "source": "***\n\n```\n---\n```",
+      "expected": "***\n\n```\n---\n```\n"
+    },
+    {
+      "story": 2,
+      "name": "a later ---- or --- x line is not a fence: the first-line rule is ---",
+      "source": "***\n\n```\n----\n--- x\n```",
+      "expected": "---\n\n```\n----\n--- x\n```\n"
+    },
+    {
+      "story": 2,
+      "name": "a rule after a blank first line is not on line 1: it and the rules after it are ---",
+      "source": "\n***\n\nx\n\n***\n***",
+      "expected": "\n---\n\nx\n\n---\n\n---\n"
+    },
+    {
+      "story": 16,
+      "name": "--- on line 1 closed by a later --- is front matter, blank lines in its body included",
+      "source": "---\n\ntext\n\n---\n\nmore",
+      "expected": "---\n\ntext\n\n---\n\nmore\n"
+    },
+    {
+      "story": 2,
+      "name": "an unclosed --- on line 1 is a rule, written --- (nothing later would close front matter)",
+      "source": "---\n\n- a\n\n> q",
+      "expected": "---\n\n- a\n\n> q\n"
+    },
+    {
+      "story": 2,
+      "name": "a rule as a - item's first block is ***",
+      "source": "- ***",
+      "expected": "- ***\n"
+    },
+    {
+      "story": 2,
+      "name": "a rule under a tight item's paragraph is *** (--- would be a setext underline)",
+      "source": "- a\n  ***",
+      "expected": "- a\n  ***\n"
+    },
+    {
+      "story": 3,
+      "name": "* and + bullets are written -",
+      "source": "* one\n* two\n\n+ three",
+      "expected": "- one\n- two\n\n* three\n"
+    },
+    {
+      "story": 3,
+      "name": "_ emphasis and __ strong are written * and **",
+      "source": "_it_ and __bold__ and ___both___",
+      "expected": "*it* and **bold** and ***both***\n"
+    },
+    {
+      "story": 3,
+      "name": "single and double tilde strikethrough are written ~~",
+      "source": "~one~ and ~~two~~",
+      "expected": "~~one~~ and ~~two~~\n"
+    },
+    {
+      "story": 3,
+      "name": "marks over the same text nest strikethrough outermost, then bold, then italic",
+      "source": "***~~hello~~***",
+      "expected": "~~***hello***~~\n"
+    },
+    {
+      "story": 3,
+      "name": "an italic inside a word is written with *, which opens and closes there",
+      "source": "&#x78;_a_&#x79;",
+      "expected": "x*a*y\n"
+    },
+    {
+      "story": 3,
+      "name": "two italic runs that touch are one italic run (typing Z before _b_*c*)",
+      "doc": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "a Z"
+              },
+              {
+                "type": "text",
+                "marks": [
+                  {
+                    "type": "emphasis",
+                    "attrs": {
+                      "marker": "_"
+                    }
+                  }
+                ],
+                "text": "b"
+              },
+              {
+                "type": "text",
+                "marks": [
+                  {
+                    "type": "emphasis",
+                    "attrs": {
+                      "marker": "*"
+                    }
+                  }
+                ],
+                "text": "c"
+              }
+            ]
+          }
+        ]
+      },
+      "expected": "a Z*bc*\n"
+    },
+    {
+      "story": 4,
+      "name": "underscores inside words and in math are not escaped",
+      "source": "snake_case_word, $x_1$, file_name.txt and #dog_problems",
+      "expected": "snake_case_word, $x_1$, file_name.txt and #dog_problems\n"
+    },
+    {
+      "story": 4,
+      "name": "a lone underscore needs no escape",
+      "source": "a \\_ b",
+      "expected": "a _ b\n"
+    },
+    {
+      "story": 4,
+      "name": "a literal *x* keeps the one escape it needs, on the opener",
+      "source": "\\*not italic\\*",
+      "expected": "\\*not italic*\n"
+    },
+    {
+      "story": 4,
+      "name": "asterisks that cannot be emphasis stay bare",
+      "source": "2 * 3 * 4",
+      "expected": "2 * 3 * 4\n"
+    },
+    {
+      "story": 5,
+      "name": "a #tag line is not escaped",
+      "source": "#alpha #beta\ntext",
+      "expected": "#alpha #beta\ntext\n"
+    },
+    {
+      "story": 5,
+      "name": "a # that would be a heading is escaped",
+      "source": "\\# not a heading",
+      "expected": "\\# not a heading\n"
+    },
+    {
+      "story": 5,
+      "name": "#5 and C# are text",
+      "source": "#5 in C#",
+      "expected": "#5 in C#\n"
+    },
+    {
+      "story": 5,
+      "name": "1. that would be a list is escaped",
+      "source": "1\\. not a list",
+      "expected": "1\\. not a list\n"
+    },
+    {
+      "story": 5,
+      "name": "a heading's closing hashes are escaped only when they would close",
+      "source": "# a \\#\n\n# C#",
+      "expected": "# a \\#\n\n# C#\n"
+    },
+    {
+      "story": 6,
+      "name": "bare URLs and www links are written bare",
+      "source": "see https://example.com/a_b and www.example.com.",
+      "expected": "see https://example.com/a_b and www.example.com.\n"
+    },
+    {
+      "story": 6,
+      "name": "a scheme with nothing after it is not a link and needs no escape",
+      "source": "not https:// ",
+      "expected": "not https://\n"
+    },
+    {
+      "story": 6,
+      "name": "an autolink is written bare",
+      "source": "<https://example.com> and <a@b.co>",
+      "expected": "https://example.com and a@b.co\n"
+    },
+    {
+      "story": 6,
+      "name": "a URL that letters would extend stays an autolink",
+      "source": "[https://a.com](https://a.com)b",
+      "expected": "<https://a.com>b\n"
+    },
+    {
+      "story": 6,
+      "name": "an autolink whose URL holds a backslash is bare too: the literal keeps it",
+      "source": "<https://a.com/a\\.b>",
+      "expected": "https://a.com/a\\.b\n"
+    },
+    {
+      "story": 6,
+      "name": "a link with an empty label is written as its URL",
+      "source": "[](https://x.com/a)",
+      "expected": "https://x.com/a\n"
+    },
+    {
+      "story": 7,
+      "name": "single newlines stay single newlines",
+      "source": "line one\nline two\nline three",
+      "expected": "line one\nline two\nline three\n"
+    },
+    {
+      "story": 7,
+      "name": "whitespace at the end of a line is not written",
+      "source": "one \ntwo\t\nthree",
+      "expected": "one\ntwo\nthree\n"
+    },
+    {
+      "story": 7,
+      "name": "an old two-space hard break is written as a backslash",
+      "source": "one  \ntwo",
+      "expected": "one\\\ntwo\n"
+    },
+    {
+      "story": 7,
+      "name": "a backslash hard break stays",
+      "source": "one\\\ntwo",
+      "expected": "one\\\ntwo\n"
+    },
+    {
+      "story": 7,
+      "name": "a hard break in a setext heading is a space",
+      "source": "a  \nb\n===\n\nc\nd\n---",
+      "expected": "# a b\n\n## c d\n"
+    },
+    {
+      "story": 7,
+      "name": "a newline before inline HTML stays a newline",
+      "source": "Press\n<kbd>Ctrl</kbd> now",
+      "expected": "Press\n<kbd>Ctrl</kbd> now\n"
+    },
+    {
+      "story": 7,
+      "name": "bold across a line break is one run",
+      "source": "**a\nb** and **c**\n**d**",
+      "expected": "**a\nb** and **c**\n**d**\n"
+    },
+    {
+      "story": 8,
+      "name": "N empty paragraphs between blocks are N+1 blank lines",
+      "source": "a\n\n\n\nb\n\n\nc",
+      "expected": "a\n\n\n\nb\n\n\nc\n"
+    },
+    {
+      "story": 8,
+      "name": "blank lines before the first block are kept",
+      "source": "\n\n# h",
+      "expected": "\n\n# h\n"
+    },
+    {
+      "story": 8,
+      "name": "an older build's <br /> line is one empty paragraph",
+      "source": "a\n\n<br />\n\nb",
+      "expected": "a\n\n\nb\n"
+    },
+    {
+      "story": 8,
+      "name": "an inline <br> beside text stays",
+      "source": "a <br> b",
+      "expected": "a <br> b\n"
+    },
+    {
+      "story": 8,
+      "name": "empty paragraphs inside a quote",
+      "source": "> a\n>\n>\n> b",
+      "expected": "> a\n>\n>\n> b\n"
+    },
+    {
+      "story": 8,
+      "name": "an empty paragraph inside a list item, after its first paragraph",
+      "source": "- a\n\n\n  b\n- c",
+      "expected": "- a\n\n\n  b\n- c\n"
+    }
+  ]
+}

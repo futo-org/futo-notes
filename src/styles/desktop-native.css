@@ -66,7 +66,7 @@
   }
 
   /* The supporter coin is a physical object you can turn with the pointer, and
-     grab/grabbing is the one cursor pair that says so. `supporterCoin.ts` sets
+     grab/grabbing is the one cursor pair that says so. `coinDragToTurn.ts` sets
      the attribute rather than the cursor, because an inline cursor loses to the
      sweep above. */
   html.desktop-chrome .supporter-coin-stage {

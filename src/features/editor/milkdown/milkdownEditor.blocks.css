@@ -1,0 +1,296 @@
+/* Nesting indentation is CAPPED, because an unbounded one walks the note off
+ * the screen — and a `padding-left` bigger than its container does not
+ * overflow, it SHRINKS the content box to nothing, so there is not even
+ * anything to scroll to.
+ *
+ * MEASURED, 402px viewport (iPhone 16/17 CSS pixels), 20-level bullet list,
+ * at a flat 1.4em per level: level 13 computed to ZERO width and levels
+ * 14-19 started past the right edge, with `scrollWidth === clientWidth`. The
+ * note mounted all 20 items and the user saw a blank body — the reported
+ * defect.
+ *
+ * The tiers: levels 1-4 keep the full step, so every ordinary list (the
+ * common case is one to three) is pixel-identical to before; 5-8 taper to
+ * half, still visibly nesting; from 9 down the indent stops growing
+ * altogether. Total inset is therefore at most 8.4em (143px), leaving ~187px
+ * of readable column on the narrowest phone at ANY depth. Past level 8 the
+ * levels are no longer told apart by their left edge — a deliberate trade:
+ * a 20-deep outline is pathological, and seeing the text is worth more than
+ * counting the depth by eye.
+ *
+ * `:is(ul, ol)` chains rather than a JS-computed depth attribute: the depth
+ * that matters is exactly "how many list ancestors", which the cascade
+ * already knows. One `:is()` per level, so the chain LENGTH is the level it
+ * applies from, and a longer chain is automatically more specific — the
+ * tiers cannot be defeated by source order. No per-node decoration work on
+ * the load or keystroke path (AGENTS.md M5).
+ *
+ * The flat tier keeps `list-style-position: outside` (the default): with no
+ * padding for the marker to hang in, the bullet draws just left of the item's
+ * content edge, in the flat column's own left margin — which reads correctly,
+ * since every flat level shares that column. `inside` was tried first and is
+ * wrong here: a list item's first child is a block `<p>`, so an inside marker
+ * takes a line box of its OWN and every deep item renders as a lone bullet
+ * with its text on the next line.
+ *
+ * What this does NOT reach: a nested TASK list also pays its own 28px
+ * checkbox slot per level (`li[data-checked]` below), and that slot is a
+ * minimum tap target, so unlike indentation it cannot taper. Capping the
+ * list indent moves the depth at which a nested task list runs out of column
+ * from 6 to 8; past that it still collapses. Closing that is a
+ * checkbox-layout decision, not an indentation one. */
+.futo-milkdown .ProseMirror :is(ul, ol) :is(ul, ol) :is(ul, ol) :is(ul, ol) :is(ul, ol) {
+  padding-left: 0.7em;
+}
+
+.futo-milkdown
+  .ProseMirror
+  :is(ul, ol)
+  :is(ul, ol)
+  :is(ul, ol)
+  :is(ul, ol)
+  :is(ul, ol)
+  :is(ul, ol)
+  :is(ul, ol)
+  :is(ul, ol)
+  :is(ul, ol) {
+  padding-left: 0;
+}
+
+.futo-milkdown .ProseMirror ul {
+  list-style: disc;
+}
+.futo-milkdown .ProseMirror ol {
+  list-style: decimal;
+}
+
+.futo-milkdown .ProseMirror li {
+  margin: 0.15em 0;
+}
+
+/* iOS WebKit paints no marker for an item whose first line is only
+ * ProseMirror's trailing `<br>` — a bullet started from the toolbar stayed
+ * invisible until the first keystroke (desktop WebKit paints it). A
+ * zero-width inline box gives that line something to hang the marker on. */
+
+.futo-milkdown
+  .ProseMirror
+  li
+  > p:first-child:has(> br.ProseMirror-trailingBreak:only-child)::before {
+  content: '\200b';
+}
+
+/* A task item gives its marker column to the checkbox: the item's own
+ * padding IS the slot, and the widget is positioned into it. That keeps the
+ * box inside the item's box — no negative offsets reaching back into the
+ * list's or the editor's padding, and so nothing that can drift into the
+ * 20px screen-edge strip iOS reserves for the back swipe (see the
+ * .ProseMirror padding comment).
+ *
+ * An ordered task list keeps its number: only the bullet is redundant once
+ * there is a checkbox, so an ordered item pays the slot as its own padding,
+ * after the number.
+ *
+ * A BULLET task list does not pay twice. The bullet is hidden, so the list's
+ * marker column is empty, and the checkbox goes into that column instead of
+ * into a second 28px of item padding beside it — which had task text start
+ * 28px to the right of the bullet text above it (the reported "too much
+ * margin-left"). The list's padding widens from 1.4em to the 28px slot so
+ * the whole tap target still lies inside the list's own box, never in the
+ * editor's gutter; `:has()` scopes it to lists that hold a task item, so a
+ * plain bullet list is untouched. An engine without `:has()` (Chromium < 105)
+ * falls back to the padded-item layout below, which is only wider.
+ *
+ * The extra 2px keeps the widget's left edge at x >= 20 on the native shells,
+ * whose gutter is 18px: the leftmost 20pt of an iPhone screen belong to the
+ * back-swipe gesture (see the .ProseMirror padding comment), and
+ * tests/editor-embed-milkdown-parity.spec.ts holds that line. */
+.futo-milkdown .ProseMirror li[data-checked] {
+  position: relative;
+  padding-left: var(--futo-checkbox-slot);
+}
+
+.futo-milkdown .ProseMirror ul > li[data-checked] {
+  list-style: none;
+}
+
+.futo-milkdown .ProseMirror ul:has(> li[data-checked]) {
+  padding-left: calc(var(--futo-checkbox-slot) + 2px);
+}
+
+.futo-milkdown .ProseMirror ul:has(> li[data-checked]) > li[data-checked] {
+  padding-left: 0;
+}
+
+.futo-milkdown .ProseMirror ul:has(> li[data-checked]) > li[data-checked] .futo-task-checkbox {
+  left: calc(-1 * var(--futo-checkbox-slot));
+}
+
+/* The checkbox widget (taskCheckbox.ts). A fixed 28px in both axes that does
+ * NOT scale with the editor font — a minimum tap target that shrinks with the
+ * type size is not a minimum. Absolutely positioned, so its height can exceed
+ * the line box without moving anything. */
+.futo-milkdown .ProseMirror .futo-task-checkbox {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: var(--futo-checkbox-slot);
+  height: var(--futo-checkbox-slot);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  user-select: none;
+}
+
+.futo-milkdown .ProseMirror .futo-task-checkbox input {
+  width: 17px;
+  height: 17px;
+  margin: 0;
+  cursor: pointer;
+  accent-color: var(--color-primary, #f26b1f);
+}
+
+/* `#tag` decoration (tagDecorations.ts). Color only — no box, no
+ * background: the document holds a tag as plain text, so its glyphs must stay
+ * on the text baseline at the text's own advance width or typing inside a tag
+ * would shift the line. */
+.futo-milkdown .ProseMirror .futo-tag {
+  color: var(--color-primary, #f26b1f);
+}
+
+/* Find in note (find/findPlugin.ts). Painted as a background rather than a
+   selection color so the CURRENT match can still carry the real selection
+   on top of it and stay legible in both themes. */
+.futo-milkdown .ProseMirror .futo-find-match {
+  background: var(--color-find-match);
+  border-radius: 2px;
+}
+
+.futo-milkdown .ProseMirror .futo-find-match-current {
+  background: var(--color-find-match-current);
+}
+
+.futo-milkdown .ProseMirror hr {
+  border: none;
+  border-top: 1px solid var(--color-border, #e5e5e5);
+}
+
+.futo-milkdown .ProseMirror img {
+  max-width: 100%;
+  max-height: 300px;
+  border-radius: 6px;
+}
+
+/* ProseMirror's own stylesheet rule, which this editor never loads. The
+ * separator is the invisible `<img>` ProseMirror puts between a widget and
+ * a trailing `<br>` — an empty task item is exactly that: checkbox widget,
+ * separator, break. The global `img { display: block }` reset made it a
+ * block, splitting the empty line into anonymous boxes, and the caret was
+ * drawn in the zero-height one above the real line: "cursor is too high
+ * when no text is entered". → tests/editor-embed-milkdown-parity.spec.ts */
+.futo-milkdown .ProseMirror img.ProseMirror-separator {
+  display: inline !important;
+  border: none !important;
+  margin: 0 !important;
+}
+
+.futo-milkdown .ProseMirror table {
+  border-collapse: collapse;
+  display: block;
+  overflow-x: auto;
+  max-width: 100%;
+}
+
+.futo-milkdown .ProseMirror th,
+.futo-milkdown .ProseMirror td {
+  border: 1px solid var(--color-border, #e5e5e5);
+  padding: 0.35em 0.6em;
+  /* A freshly inserted table is all empty cells, and an empty cell is only
+   * as wide as its padding (~34px): the caret placed in one is drawn hard
+   * against the border and reads as "no caret at all". A floor of a few
+   * characters shows both the caret and where the cell IS. A cell with text
+   * grows past it as before. → tests/editor-embed-milkdown-interactive.spec.ts */
+  min-width: 5em;
+}
+
+.futo-milkdown .ProseMirror ::selection {
+  background: var(--color-selection, #ffe4d1);
+}
+
+/* Table row/column grips (table/tableGrips.ts). `position: fixed` in
+ * viewport coordinates, same contract as `.futo-mobile-dnd-indicator` —
+ * positioned in JS off the actual rendered table, appended OUTSIDE the
+ * contenteditable so WebKit's DOMObserver cannot fight them (M-drag
+ * handle's own comment, above). Hidden via the `hidden` attribute rather
+ * than `display`, per this repo's convention (toggle visibility with
+ * `el.hidden`). */
+.futo-table-grip {
+  position: fixed;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  font-size: 10px;
+  line-height: 1;
+  color: var(--color-muted, #737373);
+  background: var(--color-surface, #f2f2f2);
+  border: 1px solid var(--color-border, #e5e5e5);
+  border-radius: 3px;
+  cursor: pointer;
+  z-index: 6;
+}
+
+.futo-table-grip:hover {
+  color: var(--color-text, #111827);
+  background: var(--color-selection, #ffe4d1);
+}
+
+/* `[hidden]` needs the attribute selector to out-specificity the plain
+ * class rule above — `display: flex` on `.futo-table-grip` would otherwise
+ * beat the UA stylesheet's own `[hidden] { display: none }`. */
+.futo-table-grip[hidden],
+.futo-table-grip-menu[hidden] {
+  display: none;
+}
+
+.futo-table-grip-col::before {
+  content: '⠿';
+}
+
+.futo-table-grip-row::before {
+  content: '⠿';
+}
+
+.futo-table-grip-menu {
+  position: fixed;
+  display: flex;
+  flex-direction: column;
+  min-width: 9em;
+  padding: 0.25em;
+  background: var(--color-surface, #ffffff);
+  border: 1px solid var(--color-border, #e5e5e5);
+  border-radius: 6px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  z-index: 7;
+}
+
+.futo-table-grip-menu-item {
+  padding: 0.4em 0.6em;
+  font-size: 0.85rem;
+  text-align: left;
+  color: var(--color-text, #111827);
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.futo-table-grip-menu-item:hover:not(:disabled) {
+  background: var(--color-selection, #ffe4d1);
+}
+
+.futo-table-grip-menu-item:disabled {
+  color: var(--color-muted, #a3a3a3);
+  cursor: not-allowed;
+}

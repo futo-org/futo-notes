@@ -10,9 +10,13 @@ primitives (path safety, atomic writes, conflict names, the vault mutation guard
 
 ## Modules
 
-- **`lib.rs`**: `LocalNoteStore` and the whole public workflow surface — `bootstrap`,
-  `startup_listing`, `snapshot`, `read`, `create`, `write`, `save`, `flush_draft`, `rename`,
-  `move_note`, `delete`, the folder workflows, `reset`, and the vault-migration entry points.
+- **`lib.rs`**: `LocalNoteStore`, the public result types, sort order, search access, `reset`,
+  and the vault-migration entry points. The rest of the public workflow surface is split by job,
+  each an `impl LocalNoteStore` block: `bootstrap.rs` (`bootstrap`, `startup_listing`, `.txt`
+  migration), `notes.rs` (`snapshot`, `read`, `create`, `write`, `rename`, `move_note`, `delete`,
+  external-change projection), `flush.rs` (`save`, `flush_draft`), `folders.rs` (the folder
+  workflows), `relink.rs` (file moves with rollback and backlink rewrites), and `commit.rs`
+  (no-replace installs and the post-commit `MutationResult`).
 - **`vault.rs`**: the corpus walk, snapshot building, and `note_list_order` — **the** note-list sort
   rule (modified desc, id asc). The walk visits folders and each folder's notes in parallel and
   closes a folder before opening its subfolders, so descriptors stay bounded (iOS defaults to 256;
@@ -24,7 +28,8 @@ primitives (path safety, atomic writes, conflict names, the vault mutation guard
 - **`paths.rs`**: collision resolution (`unique_note_id`, `unique_folder_path`).
 - **`editor_draft.rs`**: baseline-aware identity changes. A stale editor parks its draft at the
   requested destination instead of overwriting the peer, and does not redirect links away from it.
-- **`vault_migration.rs`**: staged, verified moves of a whole vault to a new root.
+- **`vault_migration.rs`**: staged, verified moves of a whole vault to a new root; `vault_migration/`
+  holds the manifest copy and the directory-fsync durability steps.
 - **`search.rs`**: the per-vault search-engine lifecycle (start, retry, restart). The only place
   that constructs a `SearchEngine`.
 
@@ -62,7 +67,8 @@ and a flat vault. Method and numbers: `docs/perf/vault-open-hill-climb.md`.
 
 ## Testing
 
-Tests are inline: `src/tests.rs` (`#[cfg(test)] mod tests`) with helpers in `src/test_support.rs`.
+Tests are inline: `src/tests.rs` (`#[cfg(test)] mod tests`, shared helpers) with one module per
+behavior in `src/tests/`, and fixtures in `src/test_support.rs`.
 `LocalNoteStore` carries two `#[cfg(test)]` fault-injection hooks — one firing between id allocation
 and installation, one inside a flush's check/write span — so concurrent-writer races are exercised
 deterministically rather than by timing. Use them for any new check-then-act path.

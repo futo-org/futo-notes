@@ -25,9 +25,7 @@
  * guards that localhost/insecure/the localdev key never leak into base or prod.
  */
 import { spawnSync } from 'node:child_process';
-import { createServer } from 'node:http';
 import {
-  createReadStream,
   copyFileSync,
   existsSync,
   mkdirSync,
@@ -37,8 +35,8 @@ import {
   statSync,
   writeFileSync,
 } from 'node:fs';
-import { dirname, join, resolve, sep } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { join, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { buildManifest } from './build-updater-manifest.mjs';
 import {
   readDesktopVersions,
@@ -46,118 +44,23 @@ import {
   setDesktopVersion,
   TAURI_CONF as BASE_CONF,
 } from './desktop-version.mjs';
+import { hostTarget } from './release-build/host-target.mjs';
+import { serveLocaldev } from './release-build/localdev-server.mjs';
+import {
+  DEFAULT_PORT,
+  PROFILES,
+  ROOT,
+  TAURI_DIR,
+  die,
+  log,
+  parseFlags,
+  run,
+  signingEnv,
+  str,
+} from './release-build/profiles.mjs';
 import { verifyArtifactFile } from './verify-updater-signature.mjs';
 
-const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const TAURI_DIR = join(ROOT, 'apps', 'tauri');
-const SRC_TAURI = join(TAURI_DIR, 'src-tauri');
-// The localdev updater server's port. Deliberately NOT slot-derived like the
-// sync/dev/MCP ports: the app under test reads its endpoint from
-// tauri.updater-localdev.conf.json, which pins http://localhost:8787, so the
-// server and that baked-in endpoint must agree. Two worktrees on one machine
-// therefore collide here — serveDir explains that instead of serving the other
-// worktree's manifest (pc_ce0dda06ddf6). Moving this onto scripts/lib/slot.mjs
-// means generating that overlay too, not just changing the constant.
-const DEFAULT_PORT = 8787;
-
-const log = (m) => process.stdout.write(`[release-build] ${m}\n`);
-// Throw (not process.exit) so try/finally blocks — notably the version restore
-// in withVersionRestore — still run when a build step fails. main() catches and
-// exits non-zero. Tagged so main() can print it cleanly without a stack dump.
-class ReleaseBuildError extends Error {}
-const die = (m) => {
-  throw new ReleaseBuildError(m);
-};
-
-/** Coerce a flag value to a string, or undefined if it was passed without a
- *  value (parseFlags sets such flags to boolean `true`). Prevents `true.replace`
- *  / `resolve(true)` crashes and a `--version` with no value writing `true`. */
-const str = (v) => (typeof v === 'string' ? v : undefined);
-
-function run(cmd, args, opts = {}) {
-  log(`$ ${cmd} ${args.join(' ')}`);
-  const res = spawnSync(cmd, args, { stdio: 'inherit', ...opts });
-  if (res.status !== 0) die(`command failed (${res.status}): ${cmd} ${args.join(' ')}`);
-}
-
-// ── Profiles ───────────────────────────────────────────────────────────────
-const PROFILES = {
-  localdev: {
-    overlay: join(SRC_TAURI, 'tauri.updater-localdev.conf.json'),
-    keyPath: join(ROOT, 'keys', 'localdev-updater.key'),
-    defaultBaseUrl: `http://localhost:${DEFAULT_PORT}`,
-    defaultOut: join(ROOT, 'target', 'updater-localdev'),
-  },
-  prod: {
-    overlay: join(SRC_TAURI, 'tauri.updater-release.conf.json'),
-    keyPath: null, // from TAURI_SIGNING_PRIVATE_KEY env (CI secret)
-    defaultBaseUrl: null, // required: CI passes the release-asset URL prefix
-    defaultOut: join(ROOT, 'target', 'updater-release'),
-  },
-};
-
-/** Build the env carrying the signing key for the chosen profile. The key has no
- *  password; the empty passphrase the minisign format requires is supplied inline
- *  (`signer sign -p ""`, `cargo tauri build --ci`) so there is no password
- *  variable to manage. */
-function signingEnv(profile, environment = process.env) {
-  const p = PROFILES[profile];
-  if (p.keyPath) {
-    if (!existsSync(p.keyPath))
-      die(
-        `localdev signing key missing at ${p.keyPath} (regenerate: cargo tauri signer generate -w ${p.keyPath} -p "" -f --ci)`,
-      );
-    const signingEnvironment = {
-      ...environment,
-      TAURI_SIGNING_PRIVATE_KEY: readFileSync(p.keyPath, 'utf8'),
-    };
-    delete signingEnvironment.TAURI_SIGNING_PRIVATE_KEY_PASSWORD;
-    return signingEnvironment;
-  }
-  if (!environment.TAURI_SIGNING_PRIVATE_KEY)
-    die('prod profile requires TAURI_SIGNING_PRIVATE_KEY in the environment (CI secret)');
-  const signingEnvironment = { ...environment };
-  delete signingEnvironment.TAURI_SIGNING_PRIVATE_KEY_PASSWORD;
-  return signingEnvironment;
-}
-
-// ── Per-OS updater artifact shape ────────────────────────────────────────────
-// The updater artifact is NOT always the installer you distribute: Linux ships
-// the AppImage (deb/rpm self-update via the system repo); macOS the app.tar.gz
-// (not the .dmg); Windows the NSIS setup.exe.
-export function hostTarget(platform = process.platform, arch = process.arch) {
-  const a = arch === 'arm64' ? 'aarch64' : 'x86_64';
-  switch (platform) {
-    case 'linux':
-      // x86_64 only — we don't ship a linux-aarch64 AppImage (and that key isn't
-      // in the manifest's KNOWN_PLATFORMS).
-      return {
-        platform: 'linux-x86_64',
-        bundle: 'appimage',
-        dir: join(ROOT, 'target', 'release', 'bundle', 'appimage'),
-        suffix: '.AppImage',
-        patchAppImage: true,
-      };
-    case 'darwin':
-      return {
-        platform: `darwin-${a}`,
-        bundle: 'app',
-        dir: join(ROOT, 'target', 'release', 'bundle', 'macos'),
-        suffix: '.app.tar.gz',
-        patchAppImage: false,
-      };
-    case 'win32':
-      return {
-        platform: `windows-${a}`,
-        bundle: 'nsis',
-        dir: join(ROOT, 'target', 'release', 'bundle', 'nsis'),
-        suffix: '-setup.exe',
-        patchAppImage: false,
-      };
-    default:
-      return die(`unsupported platform: ${platform}`);
-  }
-}
+export { hostTarget, parseFlags };
 
 export function buildConfigArguments(profile, target) {
   const arguments_ = ['--config', PROFILES[profile].overlay];
@@ -328,50 +231,6 @@ export function buildOne({ profile, version }, dependencies = {}) {
   return { platform: t.platform, artifact, sig, suffix: t.suffix };
 }
 
-function serveDir(dir, port) {
-  const types = {
-    '.json': 'application/json',
-    '.gz': 'application/gzip',
-    '.tar': 'application/x-tar',
-    '.AppImage': 'application/octet-stream',
-    '.exe': 'application/octet-stream',
-  };
-  const root = resolve(dir);
-  const server = createServer((req, res) => {
-    const urlPath = decodeURIComponent((req.url || '/').split('?')[0]);
-    const file = resolve(root, urlPath.replace(/^\/+/, ''));
-    const within = file === root || file.startsWith(root + sep);
-    if (!within || !existsSync(file) || statSync(file).isDirectory()) {
-      res.writeHead(404, { 'content-type': 'text/plain' });
-      res.end('not found\n');
-      log(`404 ${urlPath}`);
-      return;
-    }
-    const ext = Object.keys(types).find((e) => file.endsWith(e));
-    res.writeHead(200, {
-      'content-type': ext ? types[ext] : 'application/octet-stream',
-      'content-length': statSync(file).size,
-    });
-    log(`200 ${urlPath}`);
-    createReadStream(file).pipe(res);
-  });
-  server.on('error', (error) => {
-    if (error.code === 'EADDRINUSE') {
-      log(`ERROR: port ${port} is already in use.`);
-      log('  Another worktree is probably serving its localdev update on this');
-      log('  port. The localdev app config pins this endpoint, so it cannot be');
-      log('  slot-derived — stop that server (Ctrl-C) and re-run.');
-    } else {
-      log(`ERROR: cannot serve ${dir} on port ${port}: ${error.message}`);
-    }
-    process.exit(1);
-  });
-  server.listen(port, 'localhost', () =>
-    log(`serving ${dir} at http://localhost:${port} (manifest: /latest.json)`),
-  );
-  return server;
-}
-
 /** Stage artifact + sig into `out` under a space-free name and return the name. */
 function stage(out, art) {
   const name = `FUTO-Notes-${art.version}-${art.platform}${art.suffix}`.replace(/ /g, '-');
@@ -381,28 +240,6 @@ function stage(out, art) {
 }
 
 // ── Flows ────────────────────────────────────────────────────────────────────
-export function parseFlags(argv) {
-  const f = {};
-  for (let i = 0; i < argv.length; i++) {
-    const a = argv[i];
-    if (a.startsWith('--')) {
-      // Accept both `--key value` and `--key=value`.
-      const eq = a.indexOf('=');
-      if (eq !== -1) {
-        f[a.slice(2, eq)] = a.slice(eq + 1);
-        continue;
-      }
-      const k = a.slice(2);
-      const next = argv[i + 1];
-      if (next === undefined || next.startsWith('--')) f[k] = true;
-      else {
-        f[k] = next;
-        i++;
-      }
-    }
-  }
-  return f;
-}
 
 function cmdBuild(profile, flags) {
   const p = PROFILES[profile];
@@ -502,12 +339,6 @@ function cmdE2e(flags) {
     log('──────────────────────────────────────────────────────────────');
     serveLocaldev(out);
   });
-}
-
-function serveLocaldev(out) {
-  const port = DEFAULT_PORT;
-  log(`Serving the update now (Ctrl-C to stop):`);
-  serveDir(out, port);
 }
 
 const USAGE = `usage: node scripts/release-build.mjs <build|e2e> --profile <localdev|prod> [opts]

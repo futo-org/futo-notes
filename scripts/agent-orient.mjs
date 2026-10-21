@@ -36,6 +36,7 @@ const AREA_TAGS = {
   '.claude': ['agents', 'skills', 'tooling', 'workflow', 'qa'],
   docs: ['docs'],
   '.gitlab-ci.yml': ['ci'],
+  ci: ['ci'],
   justfile: ['tooling'],
   just: ['tooling'],
 };

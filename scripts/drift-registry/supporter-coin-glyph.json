@@ -1,0 +1,26 @@
+{
+  "concept": "supporter-coin-glyph",
+  "description": "The FUTO supporter coin glyph: a gold-gradient disc with the diamond punched through it (evenOdd), viewBox 0 0 48 48, stops #ffd24d / #ffbb00 / #b8860b at 0 / 55% / 100%. One path, three renderings — desktop as inline SVG, iOS as a vector imageset, Android as a vector drawable. Since 2026-09-16 all three are FALLBACKS ONLY: every shell renders the Blender model (assets/coin/) and falls back to this flat glyph when the 3D renderer cannot start. It is artwork, not logic: the shells cannot share a file because each platform needs the glyph in its own asset format.",
+  "lockStatus": "locked",
+  "note": "LOCKED by scripts/check-supporter-coin-glyph.mjs, which DERIVES the glyph from the coin's own constants (disc radius 22 in a 48 box; diamond half-diagonal 0.45 of it, corners 0.16) and asserts all three copies carry that exact path. This entry previously claimed no gate could compare an inline SVG path, an .xcassets .svg and an Android <vector> pathData -- true for visual equivalence in general, false here, because the three carry the byte-identical string and the shape is computable. The cost of believing it: all three shipped a hand-drawn pinched figure-eight instead of the FUTO diamond. Those same constants are now ALSO the Blender model's (assets/coin/build-coin.py OUTER_RADIUS / DIAMOND_HALF / CORNER_RADIUS), so changing the coin's shape means changing the script, the gate and all three glyph copies in one commit -- paste `node scripts/check-supporter-coin-glyph.mjs --print` into the three files and run `just coin`. The glyph is reached less often than it used to be, which makes it EASIER to ship a wrong one unnoticed, not harder.",
+  "copies": [
+    {
+      "location": "src/features/license/SupporterCoin.svelte",
+      "pattern": "supporter-coin-face"
+    },
+    {
+      "location": "apps/ios/Assets.xcassets/SupporterCoin.imageset/supporter-coin.svg",
+      "pattern": "supporter-coin-face"
+    },
+    {
+      "location": "apps/android/app/src/main/res/drawable/ic_supporter_coin.xml",
+      "pattern": "ic_supporter_coin|FFFFD24D"
+    }
+  ],
+  "locks": [
+    {
+      "path": "scripts/check-supporter-coin-glyph.mjs",
+      "kind": "gate"
+    }
+  ]
+}

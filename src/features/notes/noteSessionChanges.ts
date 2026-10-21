@@ -1,4 +1,6 @@
-import { FALLBACK_TITLE } from '$lib/rules';
+import { idParent } from '$lib/platform/pathSafety';
+import { FALLBACK_TITLE, sanitizeFilename } from '$lib/rules';
+import type { NotePreview } from '$shared/types/note';
 
 export function shouldWriteNoteToDisk(params: {
   savedTitle: string;
@@ -70,4 +72,21 @@ export function isEditorChangeEcho(params: {
 }): boolean {
   if (params.nextContent === undefined) return false;
   return params.nextContent === params.content && params.nextContent === params.savedContent;
+}
+
+/* Ids compared as the file system and the store's `collision_key` do: a case
+ * or Unicode-normalization variant names the same file on macOS and Windows. */
+export const fileKey = (id: string): string => id.normalize('NFC').toLowerCase();
+
+export function hasDuplicateNoteTitle(
+  checkTitle: string,
+  notes: NotePreview[],
+  originalId: string | null,
+  pendingFolder: string | null,
+): boolean {
+  const leaf = sanitizeFilename(normalizeTitleForPersistence(checkTitle));
+  const parentFolder = originalId ? idParent(originalId) : (pendingFolder ?? '');
+  const checkId = parentFolder ? `${parentFolder}/${leaf}` : leaf;
+  const checkKey = fileKey(checkId);
+  return notes.some((note) => fileKey(note.id) === checkKey && note.id !== originalId);
 }

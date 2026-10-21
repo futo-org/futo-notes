@@ -10,6 +10,8 @@ import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
 
+import { GITLAB_CI, readGitlabCiSource } from './gitlab-ci.mjs';
+
 import {
   PINNED_SERVER_VERSION,
   SERVER_PIN,
@@ -26,8 +28,9 @@ const REPO_ROOT = resolve(fileURLToPath(new URL('.', import.meta.url)), '../..')
 const LAUNCHERS = [
   'tests/lib/sync-test-server.mjs',
   'tests/sync-integration.mjs',
-  'scripts/qa.mjs',
-  '.gitlab-ci.yml',
+  'scripts/qa/slot-server.mjs',
+  // The whole pipeline: the root file and the ci/*.yml files it includes.
+  GITLAB_CI,
 ];
 
 describe('the pin', () => {
@@ -184,7 +187,10 @@ function executableLines(source) {
 describe('every launcher', () => {
   it('goes through this module instead of naming a server command itself', () => {
     for (const launcher of LAUNCHERS) {
-      const source = readFileSync(join(REPO_ROOT, launcher), 'utf8');
+      const source =
+        launcher === GITLAB_CI
+          ? readGitlabCiSource(REPO_ROOT)
+          : readFileSync(join(REPO_ROOT, launcher), 'utf8');
       expect(executableLines(source), `${launcher} still runs the TypeScript server`).not.toMatch(
         /src\/index\.ts/,
       );

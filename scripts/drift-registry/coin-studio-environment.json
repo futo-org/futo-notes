@@ -1,0 +1,22 @@
+{
+  "concept": "coin-studio-environment",
+  "description": "The studio the supporter coin's gold reflects: a dark floor, a soft bright ceiling, and five lamps (front box, key, right box, fill, kicker) given as direction, cone tightness, intensity and color. assets/coin/studio_env.py (run by build-coin.py) generates studio-env.hdr from it in numpy; scripts/lib/studio-env.mjs runs the same arithmetic so `just coin-tuner` can rebuild the room live while a slider moves, and so the room can be checked at all in CI, which has no Blender. The .hdr is the only thing the three shells ever see — desktop and iOS read it directly, Android reads the cubemap cmgen prefilters from it.",
+  "lockStatus": "locked",
+  "note": "LOCKED by scripts/check-coin-assets.mjs (just coin-check / just check), which rebuilds the studio with the JS copy's SHIPPED numbers, decodes the .hdr on disk, and fails if any pixel disagrees by a full RGBE quantization step. The format truncates to a per-pixel step, so a faithful port lands at 0.99998 steps and the gate's threshold of 1 sits immediately above it; red-proved by moving one lamp's intensity 46.0 -> 45.0, which reports 5.122 steps. This is the one duplicate here that CI can fully verify without Blender, because the environment half of the coin is pure arithmetic while the mesh half is not. Change the Python and the JS in one commit, then run `just coin` (and scripts/build-coin-ibl.mjs, which the manifest's ibl block gates).",
+  "copies": [
+    {
+      "location": "assets/coin/studio_env.py",
+      "pattern": "def build_environment"
+    },
+    {
+      "location": "scripts/lib/studio-env.mjs",
+      "pattern": "export function buildStudioEnvironment"
+    }
+  ],
+  "locks": [
+    {
+      "path": "scripts/check-coin-assets.mjs",
+      "kind": "gate"
+    }
+  ]
+}

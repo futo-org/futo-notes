@@ -1,0 +1,25 @@
+{
+  "concept": "editor-relink-adoption",
+  "description": "Both native shells rebase self-link relinks against the newest mailbox revision after externalRefused and offer conditional adoption at most three times. This loop lost test coverage during editor ownership migration; paired tests now pin refusal retries and preserving a newer typed draft. Platform await/callback runtimes keep the executors separate; rebasedOnRelink owns the existing baseline decision.",
+  "lockStatus": "partial",
+  "copies": [
+    {
+      "location": "apps/android/app/src/main/java/com/futo/notes/ui/EditorNavigationCommit.kt",
+      "pattern": "suspend fun settleRelinkAdoption"
+    },
+    {
+      "location": "apps/ios/Sources/Notes/Editor/RelinkAdoption.swift",
+      "pattern": "func settleRelinkAdoption"
+    }
+  ],
+  "locks": [
+    {
+      "path": "apps/android/app/src/test/java/com/futo/notes/ui/RelinkAdoptionTest.kt",
+      "kind": "test"
+    },
+    {
+      "path": "apps/ios/Tests/Notes/Editor/RelinkAdoptionTests.swift",
+      "kind": "test"
+    }
+  ]
+}

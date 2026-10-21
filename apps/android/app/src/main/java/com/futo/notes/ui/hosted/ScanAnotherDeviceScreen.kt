@@ -61,6 +61,9 @@ import com.futo.notes.ui.theme.FutoRadius
 import com.futo.notes.ui.theme.FutoTheme
 import com.futo.notes.ui.theme.FutoType
 import kotlinx.coroutines.launch
+import com.futo.notes.sync.hosted.cancelConfirmation
+import com.futo.notes.sync.hosted.readScannedCode
+import com.futo.notes.sync.hosted.sendVaultKey
 
 /**
  * "Scan another device" on an already-unlocked device: the camera, one

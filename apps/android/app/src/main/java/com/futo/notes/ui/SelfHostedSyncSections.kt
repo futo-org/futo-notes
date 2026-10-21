@@ -45,6 +45,9 @@ import com.futo.notes.ui.theme.FutoRadius
 import com.futo.notes.ui.theme.FutoTheme
 import com.futo.notes.ui.theme.FutoType
 import kotlinx.coroutines.launch
+import com.futo.notes.connectAndSync
+import com.futo.notes.disconnect
+import com.futo.notes.syncNow
 
 private const val SERVER_REPO_URL = "https://gitlab.futo.org/futo-notes/futo-notes-server"
 

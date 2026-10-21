@@ -1,5 +1,5 @@
 /*
- * The markdown house style goldens (tests/conformance/markdown-house-style.json,
+ * The markdown house style goldens (tests/conformance/markdown-house-style-*.json,
  * docs/spec/editor.md "Markdown house style"), against the REAL shipping
  * parser: each source is read the way the app reads a note, written by the
  * owned serializer (`@futo-notes/editor/markdown`), and the bytes compared.
@@ -20,7 +20,11 @@ import {
   type MarkdownSerializer,
   type NodeJson,
 } from '@futo-notes/editor/markdown';
-import goldens from '../../../../tests/conformance/markdown-house-style.json';
+import marksAndBreaks from '../../../../tests/conformance/markdown-house-style-marks-and-breaks.json';
+import listsAndCode from '../../../../tests/conformance/markdown-house-style-lists-and-code.json';
+import tablesAndVerbatim from '../../../../tests/conformance/markdown-house-style-tables-and-verbatim.json';
+import escapesAndEmptyLines from '../../../../tests/conformance/markdown-house-style-escapes-and-empty-lines.json';
+import spacesAndTyping from '../../../../tests/conformance/markdown-house-style-spaces-and-typing.json';
 // The serializer's own comparison: its parse checks accept a spelling only when this agrees.
 import { canonical } from '../../../../packages/editor/src/markdown/normalize';
 import { houseDocument } from '../../../../tests/milkdown-census/detectors.mjs';
@@ -34,7 +38,13 @@ interface Golden {
   readonly expected: string;
 }
 
-const CASES = (goldens as { cases: Golden[] }).cases;
+const CASES = [
+  marksAndBreaks,
+  listsAndCode,
+  tablesAndVerbatim,
+  escapesAndEmptyLines,
+  spacesAndTyping,
+].flatMap((goldens) => (goldens as { cases: Golden[] }).cases);
 
 let parser: ShippingParser;
 let serializer: MarkdownSerializer;

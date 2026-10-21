@@ -1,0 +1,279 @@
+# Included by .gitlab-ci.yml: the release gate and app store publishing.
+
+# ─────────────────────────────────────────────────────────────
+# Release gate — all platform artifacts must exist
+# ─────────────────────────────────────────────────────────────
+
+release:gate:
+  stage: verify
+  needs:
+    # EVERY test job that runs on tag pipelines must be listed here, except
+    # test:audit, test:localization-audit and test:quality-report, which are
+    # allow_failure and non-blocking by design. With
+    # DAG `needs`, release/publish:ios run as soon as their needs succeed —
+    # a failed test job NOT in this list does not stop the publish (this
+    # nearly shipped v1.4.0 twice: once past a failed test:e2e:rest, once
+    # past a failed test:cross-platform-sync).
+    - job: test
+    - job: check:release-notes
+    - job: test:e2e:smoke
+    - job: test:e2e:rest
+    - job: test:e2e:editor-embed
+    - job: test:rust:workspace
+    - job: test:rust:ffi-android
+    - job: test:rust:macos
+    - job: test:desktop-smoke:macos
+    - job: test:cross-platform-sync
+    - job: test:cross-platform-sync:android
+    - job: test:ios-native
+    - job: build:linux-packages
+      artifacts: true
+    - job: build:linux-appimage
+      artifacts: true
+    - job: build:android-native
+      artifacts: true
+    - job: build:ios-native
+      artifacts: true
+    - job: build:macos
+      artifacts: true
+    - job: windows:sign
+      artifacts: true
+  before_script: []
+  script:
+    - |
+      MISSING=0
+      check() { if ! ls $1 >/dev/null 2>&1; then echo "MISSING: $1"; MISSING=$((MISSING+1)); else echo "OK: $1"; fi; }
+      check_find() { if [ -z "$(find $1 -name "$2" -type f 2>/dev/null)" ]; then echo "MISSING: $2 in $1"; MISSING=$((MISSING+1)); else echo "OK: $2 in $1"; fi; }
+
+      echo "=== Platform artifacts ==="
+      check "target/release/bundle/deb/*.deb"
+      check "target/release/bundle/rpm/*.rpm"
+      check "target/release/bundle/appimage/*.AppImage"
+      # One artifact per distribution flavor: the direct APK is what the
+      # `release` job uploads and F-Droid indexes; the play AAB is what
+      # publish:android uploads. A missing one blocks the whole release.
+      check_find "apps/android/app/build/outputs/apk/direct/release" "*release*.apk"
+      check_find "apps/android/app/build/outputs/bundle/playRelease" "*.aab"
+      check "buildFutoNotesIOSNative/binary/*.ipa"
+      check "buildFutoNotesIOSNative/dsyms/*-dSYMs.zip"
+      check "buildFutoNotesMacOS/binary/*.dmg"
+
+      echo ""
+      echo "=== Windows installer ==="
+      check "windows-artifacts/*.exe"
+
+      echo ""
+      echo "=== Desktop updater artifacts (.sig + macOS app.tar.gz) ==="
+      # The self-updater needs a signed updater artifact per desktop OS. Linux
+      # ships the AppImage, macOS the .app.tar.gz (NOT the .dmg), Windows the
+      # setup.exe — each with a minisign .sig embedded into latest.json.
+      check "target/release/bundle/appimage/*.AppImage.sig"
+      check_find "buildFutoNotesMacOS/updater" "*.app.tar.gz"
+      check_find "buildFutoNotesMacOS/updater" "*.app.tar.gz.sig"
+      check "windows-artifacts/*.exe.sig"
+
+      echo ""
+      if [ "$MISSING" -gt 0 ]; then
+        echo "RELEASE BLOCKED: $MISSING artifact(s) missing"
+        exit 1
+      fi
+      echo "All artifacts present — release gate passed"
+  rules:
+    - if: $CI_COMMIT_TAG
+
+# ─────────────────────────────────────────────────────────────
+# Publish + create GitLab release
+# ─────────────────────────────────────────────────────────────
+
+# Upload the iOS IPA to TestFlight. Gated by release:gate so a failing
+# test job blocks the upload. The Cirrus task pulls the IPA artifact
+# built in build:ios-native, so we don't rebuild from scratch.
+publish:ios:
+  stage: release
+  interruptible: false
+  # Shared with publish:ios:main so two pipelines can never run altool against
+  # the same App Store Connect app concurrently (main pushes are frequent).
+  resource_group: ios-testflight
+  tags:
+    - macscript
+  needs:
+    - job: release:gate
+    - job: build:ios-native
+  variables:
+    GIT_STRATEGY: clone
+  before_script:
+    - env | grep -E '^(CI_|IOS_|ASC_)' > "$CI_PROJECT_DIR/.cienv"
+  script:
+    - export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+    - command -v cirrus || brew install cirruslabs/cli/cirrus
+    - cirrus run publishFutoNotesIOS --artifacts-dir "$CI_PROJECT_DIR" --env-file "$CI_PROJECT_DIR/.cienv"
+  rules:
+    # STABLE tags only — same guard as `release:`. A bare $CI_COMMIT_TAG rule
+    # would ship an -rc or throwaway tag straight to TestFlight.
+    - if: $CI_COMMIT_TAG =~ /^v[0-9]+\.[0-9]+\.[0-9]+$/
+
+# Ship the latest default-branch build to TestFlight on every push — the
+# maintainer's dogfood feedback loop, so the newest main is always on-device.
+# Publishes the PROD app (com.futo.notes); build:ios-native signs the same
+# bundle id on main as on a tag. Gated on the `test` hard gate (lint + tsc +
+# test:full + build) instead of the tag-only release:gate, so a red main is not
+# shipped. Reuses the SAME Cirrus altool upload as the tag publish:ios; build
+# numbers (CI_PIPELINE_IID) never collide between main and tag pipelines.
+publish:ios:main:
+  stage: release
+  interruptible: false
+  # See publish:ios — one TestFlight upload at a time, project-wide.
+  resource_group: ios-testflight
+  tags:
+    - macscript
+  needs:
+    - job: test
+      artifacts: false
+    - job: build:ios-native
+      artifacts: true
+  variables:
+    GIT_STRATEGY: clone
+  before_script:
+    - env | grep -E '^(CI_|IOS_|ASC_)' > "$CI_PROJECT_DIR/.cienv"
+  script:
+    - export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+    - command -v cirrus || brew install cirruslabs/cli/cirrus
+    - cirrus run publishFutoNotesIOS --artifacts-dir "$CI_PROJECT_DIR" --env-file "$CI_PROJECT_DIR/.cienv"
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+# Upload the signed AAB to Google Play (production track by default) using FUTO's
+# shared publish_playstore.py (Android Publisher API v3) — the SAME uploader
+# grayjay uses. Gated by release:gate so a failing test blocks the upload.
+# Consumes the PLAY-flavor AAB built in build:android-native (no rebuild of the
+# Rust .so). Play gets `play`; every other channel gets `direct`.
+# Requires:
+#   - PLAY_SERVICE_ACCOUNT_JSON  (CI var, base64 of the Play service-account JSON)
+#   - the app already created in Play Console + that service account granted
+#     "Release to production" access (the API cannot create the app listing).
+#     "Release to testing tracks" alone uploads fine, then the edit's final
+#     commit answers HTTP 403 PERMISSION_DENIED (v1.8.1, pipeline #37926)
+#   - KEYSTORE_BASE64/KEYSTORE_PASSWORD/KEY_ALIAS set so build:android-native
+#     produced a SIGNED AAB (Play rejects unsigned uploads)
+# Publishes to the PRODUCTION track by default. $PLAY_TRACK and $PLAY_ROLLOUT
+# override that from the GitLab UI without editing this file: set PLAY_TRACK to
+# internal/alpha/beta to hold a release back, or PLAY_ROLLOUT to a fraction
+# (0.1) for a staged rollout instead of all users at once.
+publish:android:
+  stage: release
+  interruptible: false
+  image: $IMAGE_ANDROID
+  needs:
+    - job: release:gate
+    - job: build:android-native
+      artifacts: true
+  script:
+    - |
+      if [ -z "${PLAY_SERVICE_ACCOUNT_JSON:-}" ]; then
+        echo "PLAY_SERVICE_ACCOUNT_JSON is not set — cannot publish to Google Play." >&2
+        exit 1
+      fi
+    - echo "$PLAY_SERVICE_ACCOUNT_JSON" | base64 -d > /tmp/play-sa.json
+    # PLAY flavor only — the direct flavor never reaches Google Play.
+    - AAB=$(find apps/android/app/build/outputs/bundle/playRelease -name "*.aab" -type f | head -1)
+    - test -n "$AAB" || { echo "No play-flavor release AAB found from build:android-native" >&2; exit 1; }
+    # The release notes users read on the Play listing. check:release-notes
+    # already proved this file exists and fits, so a failure here is a bug in
+    # the gate, not a missing file.
+    - NOTES=$(mktemp)
+    - node scripts/release-notes.mjs --tag "$CI_COMMIT_TAG" --target play > "$NOTES"
+    - PLAY_TRACK="${PLAY_TRACK:-production}"
+    # A staged rollout needs BOTH the inProgress status and the fraction; Play
+    # rejects either alone, so they are set together or not at all.
+    - |
+      if [ -n "${PLAY_ROLLOUT:-}" ]; then
+        ROLLOUT_ARGS="--status inProgress --rollout $PLAY_ROLLOUT"
+        echo "Staged rollout: $PLAY_ROLLOUT of the $PLAY_TRACK track"
+      else
+        ROLLOUT_ARGS="--status completed"
+      fi
+    # The CI android image ships python3 without the venv module / ensurepip;
+    # install python3-venv (+pip) so scripts/venv-playstore.sh can build the
+    # google-api-python-client venv.
+    - apt-get update -qq && apt-get install -y -qq python3-venv python3-pip
+    # Build the google-api-python-client venv, then upload the prebuilt signed AAB.
+    - bash scripts/venv-playstore.sh
+    - . .venv-playstore/bin/activate
+    - |
+      set +e
+      python scripts/publish_playstore.py --sa /tmp/play-sa.json --package com.futo.notes \
+        --aab "$AAB" --track "$PLAY_TRACK" $ROLLOUT_ARGS \
+        --release-notes-file "$NOTES" > playstore-publish.log 2>&1
+      PUBLISH_STATUS=$?
+      set -e
+      cat playstore-publish.log
+      if [ "$PUBLISH_STATUS" -ne 0 ]; then
+        if grep -q "Your scoped storage permission declaration needs to be updated" playstore-publish.log; then
+          echo "ERROR: Google Play rejected the upload — the MANAGE_EXTERNAL_STORAGE" >&2
+          echo "('All files access') permission declaration has not been completed/approved" >&2
+          echo "in Play Console, so nothing was published. The signed AAB was built and" >&2
+          echo "archived by build:android-native; complete the declaration in Play Console," >&2
+          echo "then retry this job (no rebuild needed)." >&2
+        fi
+        exit "$PUBLISH_STATUS"
+      fi
+  rules:
+    # STABLE tags only — same guard as `release:`. A bare $CI_COMMIT_TAG rule
+    # would ship an -rc or throwaway tag straight to Play production.
+    - if: $CI_COMMIT_TAG =~ /^v[0-9]+\.[0-9]+\.[0-9]+$/
+
+# Submit the uploaded build to App Store review — the App Store Connect
+# clicking that used to follow every publish:ios upload: create the version,
+# attach the build, paste "What's New", press Submit.
+#
+# Runs on LINUX, not the macOS runner: only the IPA upload needs Xcode
+# (publish:ios → xcrun altool), and everything after it is the App Store
+# Connect REST API. Keeping it here leaves the single macscript runner free and
+# lets the job poll for half an hour without holding it.
+#
+# needs publish:ios because the build must be UPLOADED before it can be found;
+# Apple then processes it for 5-30 minutes, which is what this job waits out.
+# Timing out is not a failure of the release — the binary is already in
+# TestFlight — so the job says so and is safe to retry without a rebuild.
+#
+# Requires, beyond what publish:ios already needs:
+#   - the ASC API key to have App Manager access (TestFlight upload alone is a
+#     weaker role and cannot create an App Store version)
+#   - the listing itself complete in App Store Connect: screenshots, description,
+#     age rating, pricing, App Privacy. This job deliberately does not touch
+#     them (docs/release/store-submission.md).
+publish:ios:appstore:
+  stage: release
+  interruptible: false
+  needs:
+    - job: release:gate
+    - job: publish:ios
+      artifacts: false
+  # Apple processes one build at a time per app and the review submission is
+  # per-app; two of these at once would race over the same version row.
+  resource_group: ios-appstore
+  # Build processing dominates: 45m of polling plus slack.
+  timeout: 60m
+  script:
+    # The same ASC API key publish:ios uses, from GitLab secure files. If this
+    # installer ever fails on this image, the fallback is a masked CI variable
+    # ASC_PRIVATE_KEY holding the .p8 contents — submit-appstore.mjs reads it
+    # when --key-file is omitted.
+    - curl --silent "https://gitlab.com/gitlab-org/incubation-engineering/mobile-devops/download-secure-files/-/raw/main/installer" | bash
+    # `|| true`: under set -e a non-matching glob would kill the job on the
+    # assignment itself, so the explanatory message below never printed.
+    - KEY=$(ls .secure_files/AuthKey*.p8 2>/dev/null | head -1 || true)
+    - test -n "$KEY" || { echo "No AuthKey*.p8 in secure files — the ASC API key is missing." >&2; exit 1; }
+    # build:ios-native stamps MARKETING_VERSION from the tag and
+    # CURRENT_PROJECT_VERSION from the pipeline IID. Both pipelines are the
+    # same one, so CI_PIPELINE_IID here names exactly the build just uploaded.
+    - node scripts/submit-appstore.mjs
+        --bundle-id com.futo.notes
+        --version "${CI_COMMIT_TAG#v}"
+        --build-number "$CI_PIPELINE_IID"
+        --notes-file "release-notes/${CI_COMMIT_TAG}.md"
+        --key-file "$KEY"
+  rules:
+    # STABLE tags only — same guard as `release:`. A bare $CI_COMMIT_TAG rule
+    # would submit an -rc or throwaway tag to Apple for review.
+    - if: $CI_COMMIT_TAG =~ /^v[0-9]+\.[0-9]+\.[0-9]+$/

@@ -76,7 +76,8 @@ plain strings; where they live is the shell's business.
 
 ## The conformance fixture
 
-`tests/conformance/license.json` is hand-reviewed: a human decided every `expected`.
+`tests/conformance/license.json` is hand-reviewed: a human decided every `expected`. It is split
+across `license.json` and `tests/conformance/license/*.json` (merged by top-level key; `evaluate` is three slices).
 `scripts/gen-license-fixture.mjs` fills in only what a reviewer cannot type — the two test-only RSA
 key pairs and the `activation` string derived from each case's `sign` block. It never reads or
 writes an `expected` value, which is the exact failure mode that got the previous fixture generator

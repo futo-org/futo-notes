@@ -10,7 +10,8 @@ evidence-backed verdicts. It is not `just check` (that's the static chain);
 this is the device-driven behavioral pass. Three modes, chosen from the invocation:
 
 - **Full run** — `/verify-specs` (no scope) → every area file in `docs/spec/`
-  (excluding `README.md` and `AGENTS.md`) ×
+  (excluding `README.md` and `AGENTS.md`), including a split area's section
+  files under `docs/spec/<area>/` ×
   every platform + the cross-client sync mesh.
 - **Scoped run** — `/verify-specs since the last tagged release` (or "since
   <tag>", "just the editor", "what changed on this branch") → map the diff to

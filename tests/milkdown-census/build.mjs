@@ -43,23 +43,26 @@ const appAliases = {
   },
 };
 
-/** Builds the page if it is missing or stale; returns the file:// URL. */
-export async function buildCensusPage() {
-  mkdirSync(outDir, { recursive: true });
+/**
+ * Builds the page if it is missing or stale; returns the file:// URL. `dir`
+ * lets concurrent Playwright workers each build into their own folder.
+ */
+export async function buildCensusPage(dir = outDir) {
+  mkdirSync(dir, { recursive: true });
   await esbuild.build({
     entryPoints: [path.join(here, 'entry.ts')],
     bundle: true,
     format: 'iife',
     platform: 'browser',
     target: 'es2020',
-    outfile: path.join(outDir, 'bundle.js'),
+    outfile: path.join(dir, 'bundle.js'),
     absWorkingDir: repoRoot,
     alias: { '@futo-notes/editor': path.join(repoRoot, 'packages/editor/src') },
     plugins: [appAliases],
     logLevel: 'warning',
   });
-  writeFileSync(path.join(outDir, 'page.html'), PAGE_HTML);
-  return pageUrl;
+  writeFileSync(path.join(dir, 'page.html'), PAGE_HTML);
+  return `file://${path.join(dir, 'page.html')}`;
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

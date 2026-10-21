@@ -73,6 +73,8 @@ These drive actual apps, so they can leave state behind and they can touch devic
 - `cross-platform-sync.mjs` (`just test-cross-platform`) boots two Tauri test clients and the pinned
   sync server, and pairs a desktop client with the real native Android app when a device is
   reachable. No device means a loud SKIP and the desktop-only mesh — read the output, don't assume.
+  The file is the entry point; scenarios live in `cross-platform-sync/*-scenarios.mjs` and are
+  registered in `cross-platform-sync/scenario-registry.mjs`.
 - `ios-editor-stories.mjs` (`just test-ios-stories`) types at human cadence into the real iOS app and
   uses the simulator vault as the oracle. Needs a claimed `SIM`.
 - `android-storage-migration.mjs` (`just test-android-storage`) **clears the debug app's data**.

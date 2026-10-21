@@ -42,32 +42,26 @@ import { $prose } from '@milkdown/kit/utils';
 import { Plugin, PluginKey, type Command, type Transaction } from '@milkdown/kit/prose/state';
 import { CellSelection } from '@milkdown/kit/prose/tables';
 import type { EditorView as ProseView } from '@milkdown/kit/prose/view';
-
 import { localizedText } from '$shared/localization';
-import {
-  canInsertRowBefore,
-  columnDeleteDisabledReason,
-  deleteColumnAt,
-  deleteRowAt,
-  insertColumnAfter,
-  insertColumnBefore,
-  insertRowAfter,
-  insertRowBefore,
-  locateCell,
-  rowDeleteDisabledReason,
-  tablePosOf,
-  type CellLocation,
-} from './tableCommands';
-import {
-  clampRectToViewport,
-  columnGripRect,
-  expandRect,
-  pointInRect,
-  rowGripRect,
-  type Rect,
-} from './tableGripsGeometry';
+import { locateCell, type CellLocation } from './tableCommands';
+import { clampRectToViewport, columnGripRect, rowGripRect, type Rect } from './tableGripsGeometry';
 import { tableCellLineBreakRemark } from './tableLineBreak';
 import { tablePasteRepair } from './tablePaste';
+import { type GripKind, menuActionsFor, anchorPos, cellStartPos } from './tableGripMenu';
+import {
+  GRIP_CLASS,
+  GRIP_COL_CLASS,
+  GRIP_ROW_CLASS,
+  MENU_CLASS,
+  MENU_ITEM_CLASS,
+  GRIP_SIZE,
+  GRIP_GAP,
+  domRect,
+  tableElementFor,
+  applyRect,
+  isNearGrip,
+} from './tableGripsDom';
+export { isNearGrip } from './tableGripsDom';
 
 export const tableGripsKey = new PluginKey<number>('FUTO_TABLE_GRIPS');
 
@@ -76,125 +70,6 @@ export const tableGripsKey = new PluginKey<number>('FUTO_TABLE_GRIPS');
  * so the mobile shells' keyboard dismiss clears them explicitly. */
 export function hideTableGrips(tr: Transaction): Transaction {
   return tr.setMeta(tableGripsKey, 'hide');
-}
-
-const GRIP_CLASS = 'futo-table-grip';
-const GRIP_COL_CLASS = 'futo-table-grip-col';
-const GRIP_ROW_CLASS = 'futo-table-grip-row';
-const MENU_CLASS = 'futo-table-grip-menu';
-const MENU_ITEM_CLASS = 'futo-table-grip-menu-item';
-
-/** CSS px. Small on purpose (desktop, mouse-first) — the brief for this lane
- * notes touch targets this size are a known rough edge for fingers rather
- * than something to redesign here. */
-const GRIP_SIZE = 18;
-const GRIP_GAP = 4;
-/** How far past a grip's own box the pointer may wander and still count as
- * "hovering it", so the grip does not vanish the instant the pointer nears
- * its edge on the way to clicking it. */
-const GRIP_HOVER_MARGIN = 10;
-
-type GripKind = 'row' | 'col';
-
-interface MenuAction {
-  label: string;
-  disabled: boolean;
-  disabledReason: string | null;
-  run: Command;
-}
-
-/** The three menu entries for whichever grip was clicked, in the fixed
- * order the spec calls for. */
-function menuActionsFor(kind: GripKind, pos: number, loc: CellLocation): MenuAction[] {
-  if (kind === 'row') {
-    const insertBeforeAllowed = canInsertRowBefore(loc);
-    const deleteReason = rowDeleteDisabledReason(loc);
-    return [
-      {
-        label: localizedText('editor.tableGrips.insertBefore'),
-        disabled: !insertBeforeAllowed,
-        disabledReason: insertBeforeAllowed
-          ? null
-          : localizedText('editor.tableGrips.headerRowMustStayFirst'),
-        run: insertRowBefore(pos),
-      },
-      {
-        label: localizedText('editor.tableGrips.insertAfter'),
-        disabled: false,
-        disabledReason: null,
-        run: insertRowAfter(pos),
-      },
-      {
-        label: localizedText('editor.tableGrips.delete'),
-        disabled: deleteReason !== null,
-        disabledReason: deleteReason,
-        run: deleteRowAt(pos),
-      },
-    ];
-  }
-  const deleteReason = columnDeleteDisabledReason(loc);
-  return [
-    {
-      label: localizedText('editor.tableGrips.insertBefore'),
-      disabled: false,
-      disabledReason: null,
-      run: insertColumnBefore(pos),
-    },
-    {
-      label: localizedText('editor.tableGrips.insertAfter'),
-      disabled: false,
-      disabledReason: null,
-      run: insertColumnAfter(pos),
-    },
-    {
-      label: localizedText('editor.tableGrips.delete'),
-      disabled: deleteReason !== null,
-      disabledReason: deleteReason,
-      run: deleteColumnAt(pos),
-    },
-  ];
-}
-
-/** The first cell in the target row/column, as (row, col) into the table's
- * grid. Shared by {@link anchorPos} and {@link cellStartPos} so the two
- * position conventions below always agree on WHICH cell. */
-function firstCellOf(loc: CellLocation, kind: GripKind): { row: number; col: number } {
-  return kind === 'row' ? { row: loc.top, col: 0 } : { row: 0, col: loc.left };
-}
-
-/** The document position `tableCommands.ts` should act on for `loc`: any
- * position inside the target row/column's first cell in that line —
- * `locateCell`/`cellAround` resolve the same cell from anywhere in its
- * subtree, so one step inside its opening tag is enough and keeps this off
- * the boundary (never resolving to the PRECEDING cell instead). */
-function anchorPos(loc: CellLocation, kind: GripKind): number {
-  const { row, col } = firstCellOf(loc, kind);
-  return loc.tableStart + loc.map.positionAt(row, col, loc.table) + 1;
-}
-
-/**
- * The exact cell-start position `CellSelection.rowSelection`/`colSelection`
- * require: NO offset into the cell. Its constructor reads `$anchorCell.node(-1)`
- * expecting the TABLE — one past the boundary would resolve one depth too
- * deep (inside the cell's own content) and hand it the CELL instead,
- * throwing when `TableMap.get` is called on a non-table node. This is a
- * different position than `anchorPos` on purpose, not the same value reused.
- */
-function cellStartPos(loc: CellLocation, kind: GripKind): number {
-  const { row, col } = firstCellOf(loc, kind);
-  return loc.tableStart + loc.map.positionAt(row, col, loc.table);
-}
-
-function domRect(el: Element): Rect {
-  const r = el.getBoundingClientRect();
-  return { left: r.left, top: r.top, width: r.width, height: r.height };
-}
-
-/** The actual rendered `<table>` for `loc`, or null if the view has nothing
- * at that position (the table was just removed). */
-function tableElementFor(view: ProseView, loc: CellLocation): HTMLTableElement | null {
-  const dom = view.nodeDOM(tablePosOf(loc));
-  return dom instanceof HTMLTableElement ? dom : null;
 }
 
 /** Owns the two grip buttons and the menu popover for one editor view. */
@@ -470,18 +345,6 @@ class TableGripsView {
     }
     return this.menu;
   }
-}
-
-function applyRect(el: HTMLElement, rect: Rect): void {
-  el.style.left = `${rect.left}px`;
-  el.style.top = `${rect.top}px`;
-  el.style.width = `${rect.width}px`;
-  el.style.height = `${rect.height}px`;
-}
-
-/** Re-exported for tests that want to check hit-testing without a live view. */
-export function isNearGrip(x: number, y: number, gripRect: Rect): boolean {
-  return pointInRect(x, y, expandRect(gripRect, GRIP_HOVER_MARGIN));
 }
 
 const tableGripsView = $prose(

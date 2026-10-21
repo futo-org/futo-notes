@@ -29,9 +29,11 @@ apps/android/
         │   ├── res/                    # fonts, launcher icons; strings are GENERATED
         │   └── java/
         │       ├── com/futo/notes/
-        │       │   ├── MainActivity.kt
-        │       │   ├── NotesStore.kt         # reactive shell over the Rust NoteStore
-        │       │   ├── SyncManager.kt        # reactive shell over the Rust SyncClient
+        │       │   ├── MainActivity.kt       # + MainActivity{Storage,Vault,Shell,TestHooks}.kt extensions
+        │       │   ├── NotesStore.kt         # reactive shell over the Rust NoteStore; NotesStore{Drafts,Migration,Mutations}.kt
+        │       │   │                         #   hold its member functions as extensions
+        │       │   ├── SyncManager.kt        # reactive shell over the Rust SyncClient; SyncManager{Connect,Outcome,Lifecycle}.kt
+        │       │   │                         #   hold its member functions as extensions
         │       │   ├── localization/         # catalog runtime (shared fixture-locked)
         │       │   ├── storage/              # storage location + vault migration
         │       │   └── ui/                   # screens, EditorWebView, components/, navigation/, theme/
@@ -43,7 +45,8 @@ apps/android/
 
 The screens (`NoteListScreen`, `NoteEditorScreen`, `SearchScreen`,
 `SettingsScreen`, `SyncScreen`, `StorageOnboarding`) mirror the iOS app's views.
-`EditorWebView.kt` is the Android counterpart of the iOS `EditorWebView.swift`;
+`EditorWebView.kt` (with its `EditorHost*.kt` extensions) is the Android counterpart of the iOS
+`EditorWebView.swift`;
 the bridge messages both hosts handle are listed in the generated
 `ui/BridgeSpec.kt` (source of truth: `packages/editor/src/bridge.ts`).
 
@@ -76,7 +79,7 @@ required verification chain.
 - **Gradle wrapper is committed** and pinned to 8.14.3 (`gradle/wrapper/gradle-wrapper.properties`).
   Use `./gradlew`; don't run `gradle wrapper`, it would overwrite the pin.
 - **Empty-editor soft keyboard.** Android `WebView` can refuse to raise the keyboard for an empty
-  `contenteditable`; `EditorWebView.kt`'s `focusEditor()` does the JS focus and then the native
+  `contenteditable`; `EditorHost.focusEditor()` (`EditorHostCommands.kt`) does the JS focus and then the native
   half (`requestFocus()` + `showKeyboardWhenServed`), because CM6 DOM focus alone does not bind
   the IME to the WebView.
 - **`usesCleartextTraffic=true` in all build types** (deliberate) so self-hosters can sync to a

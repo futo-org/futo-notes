@@ -1,0 +1,26 @@
+{
+  "concept": "note-list-order-web-harness",
+  "description": "The note-list sort rule (key in direction, then id ascending by code point; Name folds the title with the filename collision rule). Canonical in the Rust store; the browser-mode web harness mirrors it so Playwright and web dev see the same order the engine produces (ADR-0001 keeps every shipping shell comparator-free).",
+  "lockStatus": "partial",
+  "copies": [
+    {
+      "location": "crates/futo-notes-store/src/vault.rs",
+      "pattern": "pub\\(crate\\) fn note_list_order"
+    },
+    {
+      "location": "src/lib/platform/webLocalNoteStore.ts",
+      "pattern": "function compareNotes"
+    }
+  ],
+  "locks": [
+    {
+      "path": "crates/futo-notes-store/src/tests/sort_order.rs",
+      "kind": "test"
+    },
+    {
+      "path": "src/lib/platform/webLocalNoteStore.test.ts",
+      "kind": "test"
+    }
+  ],
+  "note": "Partial: both sides pin the same surrogate-range tiebreak fixture (U+FDFD before U+1F600) and the same case-insensitive Name ordering, but no shared fixture file drives both. The harness is not a shipping shell; a shipping shell must never grow a comparator (AGENTS.md §12)."
+}

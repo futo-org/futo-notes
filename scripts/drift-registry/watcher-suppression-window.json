@@ -1,0 +1,25 @@
+{
+  "concept": "watcher-suppression-window",
+  "description": "5s filesystem-watcher self-write suppression window: Rust const + TS write-suppression TTL literals. Locked via PKT-7's constants.json gate (F21).",
+  "lockStatus": "locked",
+  "copies": [
+    {
+      "location": "apps/tauri/src-tauri/src/filesystem_watcher.rs",
+      "pattern": "const SUPPRESSION_WINDOW_MS"
+    },
+    {
+      "location": "src/lib/platform/writeSuppression.ts",
+      "pattern": "LOCAL_WRITE_TTL_MS|SYNC_WRITE_TTL_MS"
+    }
+  ],
+  "locks": [
+    {
+      "path": "tests/conformance/constants.json",
+      "kind": "fixture"
+    },
+    {
+      "path": "src/lib/constantsConformance.test.ts",
+      "kind": "test"
+    }
+  ]
+}

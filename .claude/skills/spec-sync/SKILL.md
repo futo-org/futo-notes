@@ -7,8 +7,9 @@ allowed-tools: Bash, Read, Edit, Write, Grep, Glob
 # Spec Sync
 
 `docs/spec/<area>.md` states what the app should do, by surface, across Tauri desktop, native iOS,
-and native Android. A requirement exists in one place even when a platform doesn't satisfy it yet
-— that's what makes gaps visible. This skill keeps that file set true.
+and native Android; a large area is an index whose sections live in `docs/spec/<area>/`. A
+requirement exists in one place even when a platform doesn't satisfy it yet — that's what makes
+gaps visible. This skill keeps that file set true.
 
 ## The model (internalize before editing)
 

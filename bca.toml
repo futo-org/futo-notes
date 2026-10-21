@@ -39,6 +39,7 @@ exclude = [
   "**/src/test/**",
   "**/src/androidTest/**",
   "**/tests.rs",
+  "**/__test__/**",
   "src/features/sync/testHostedSync.ts",
   "scripts/**",
 ]

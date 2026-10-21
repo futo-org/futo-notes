@@ -4,10 +4,11 @@ import { dirname, extname, join, normalize } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
+import { gitlabCiPaths } from './lib/gitlab-ci.mjs';
 import { justfilePaths } from './lib/justfile.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-const OPERATIONAL_MANIFESTS = ['.gitlab-ci.yml', ...justfilePaths(ROOT), 'package.json'];
+const OPERATIONAL_MANIFESTS = [...gitlabCiPaths(ROOT), ...justfilePaths(ROOT), 'package.json'];
 const PLAIN_NODE_TYPESCRIPT = /\bnode\s+(?:"[^"\n]*\.ts"|'[^'\n]*\.ts'|\S+\.ts)\b/g;
 const PLAIN_NODE_JAVASCRIPT =
   /\bnode\s+(?:"([^"\n]*\.(?:[cm]?js))"|'([^'\n]*\.(?:[cm]?js))'|([^\s"']+\.(?:[cm]?js)))\b/g;

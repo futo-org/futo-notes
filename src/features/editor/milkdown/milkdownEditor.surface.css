@@ -1,0 +1,275 @@
+.futo-milkdown {
+  height: 100%;
+  position: relative;
+}
+
+/*
+ * `.milkdown` is Milkdown's own wrapper around the editable, and it is what
+ * carries the editor's width. The desktop shell makes `.futo-milkdown` a FLEX
+ * ROW (`app-shell.css` `.editor-container > div`, a CodeMirror-era rule), so
+ * this wrapper is a flex ITEM: with the default `flex: 0 1 auto` its base
+ * size is its CONTENT width, and an empty paragraph has no content, leaving
+ * it exactly as wide as the editable's own padding — 72px of an 860px note
+ * area, measured on a brand new note. Everything to the right of that strip
+ * was outside the editor, so a press there placed no caret and typed nothing.
+ * Growing to fill is the intent on both hosts; in the embed `.futo-milkdown`
+ * is a plain block, where `flex` is simply inert.
+ * → tests/p0-regressions.spec.ts, docs/spec/editor.md "Blank editor surface"
+ */
+.futo-milkdown .milkdown {
+  height: 100%;
+  flex: 1 1 auto;
+  /* An `auto` minimum would floor the item at its content's min-content
+   * width, which a long unbroken word (a URL) can push past the note area. */
+  min-width: 0;
+}
+
+/*
+ * The editable is the scroller — in the EMBED. `editor.html` pins the page to
+ * the web view and carries a definite height down to `.futo-milkdown`, so
+ * `height: 100%` resolves, the editable overflows, and it keeps the
+ * platform's overscroll affordance instead of chaining out to the host web
+ * view (docs/spec/editor.md → "The editable element is the editor's own
+ * scroll container"). The desktop shell scrolls differently; see the
+ * `.notes-shell` rule right below.
+ */
+.futo-milkdown .ProseMirror {
+  height: 100%;
+  box-sizing: border-box;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  outline: none;
+  /* Left padding is wider than the right: it is the gutter the block drag
+   * handle floats in (see .milkdown-block-handle below), so it needs room
+   * on a phone-width screen without eating into content width.
+   *
+   * The gutter must ALSO keep the handle clear of the leftmost 20pt of the
+   * SCREEN. That strip belongs to UIKit's interactive-pop
+   * UIScreenEdgePanGestureRecognizer (the swipe-back that pops the
+   * NavigationStack), which delays touches begun inside it — a drag started
+   * there reaches the WKWebView as NOTHING AT ALL: no pointerdown, no
+   * touchstart, no moves. Measured on iPhone 17 Pro / iOS 26.5: an identical
+   * synthetic drag delivers a full pointer stream at screen x >= 20 and zero
+   * events at x <= 15, and a horizontal drag from x = 8 pops the stack.
+   * At the old 34px gutter the 20px-wide handle sat at x 6..26 — its whole
+   * left half, INCLUDING its center, inside that dead strip, which is why
+   * touch block-drag looked completely inert on iOS while working in
+   * Chromium and in Mobile Safari with the very same bundle. 54px puts it at
+   * x 26..46 (task items at 28..48). env() keeps that true in landscape,
+   * where the notch inset already pushes the whole page in. */
+  padding: 14px calc(18px + env(safe-area-inset-right)) max(40vh, 280px)
+    calc(54px + env(safe-area-inset-left));
+  color: var(--color-text, #0f0f0f);
+  font-family: var(--font-sans, system-ui, -apple-system, sans-serif);
+  font-size: 17px;
+  line-height: 1.55;
+  -webkit-text-size-adjust: 100%;
+  word-wrap: break-word;
+  white-space: pre-wrap;
+}
+
+/* THE APP SHELL OWNS ITS OWN SCROLL, so there the editable must not claim it.
+ * `.note-body` is the desktop shell's scroller — the title and the tag bar
+ * scroll away with the text, which is what
+ * `NoteWorkspace.svelte`'s `handleNoteBodyMouseDown` deselect zone is built
+ * on. Nothing above `.futo-milkdown` there has a definite height, so the
+ * `height: 100%` above resolves to auto and the editable grows to its whole
+ * content height: a scroll container with NOTHING to scroll, covering the
+ * entire note. `overscroll-behavior: contain` then means what it says — no
+ * chaining — and a wheel anywhere over a long note moved nothing at all.
+ * Making it a plain box hands the wheel back to `.note-body`.
+ *
+ * Scoped on `.notes-shell`, which `NotesShell.svelte` renders and the embed
+ * never does, so this is "which shell mounted me", not a platform branch.
+ *
+ * `min-height`, NOT `height: auto` on its own. `overflow-y: visible` is what
+ * hands the wheel back; the height only decides how far DOWN the editable
+ * box reaches. A plain `auto` sizes it to its content, so on a note shorter
+ * than the window it stopped well above the bottom of `.editor-container`
+ * and the gap under it belonged to no one: `handleNoteBodyMouseDown` ignores
+ * presses on a descendant, so a press there placed no caret, took no focus,
+ * and did nothing at all. A BRAND NEW note is one empty line at the top, so
+ * that dead gap was essentially the whole note — measured at 256px of 584px
+ * on a 720px-tall window before this. `min-height: 100%` keeps the box
+ * growing with its content while never ending above its container, which is
+ * what docs/spec/editor.md's "Blank editor surface" requires.
+ * → tests/editor-scroll.spec.ts, tests/p0-regressions.spec.ts */
+/* The desktop shell's body text starts where the title text starts. The
+ * title column is 740px wide with 20px of padding; `.editor-container` is
+ * 860px (desktop-shell.css: 60px past the title column each side, so the
+ * space beside the text is reachable). 60 + 20 = 80px puts the first
+ * character of a paragraph under the first character of the title, where
+ * the mobile gutter's 54px above left the body 26px to the LEFT of it. The
+ * ⠿ handle floats in this padding (floating-ui positions it), so the wider
+ * gutter only gives it more room. → tests/p2-regressions.spec.ts */
+.notes-shell.desktop-layout .futo-milkdown .ProseMirror {
+  padding-left: 80px;
+}
+
+.notes-shell .futo-milkdown .ProseMirror {
+  height: auto;
+  min-height: 100%;
+  overflow-y: visible;
+  overscroll-behavior: auto;
+}
+
+/* …and NONE of that applies without a handle. Under the long-press path both
+ * native shells mount (useMobileBlockDnd -> .mobile-dnd) the block itself is
+ * the handle, so there is nothing to keep clear of the back-swipe strip and
+ * the 54px gutter is pure dead offset — the user's "gutter on the left is
+ * still there, everything is still offset". Drop it back to the right side's
+ * 18px. Nothing else depends on the 54px: `contentColumnX` measures the
+ * column's center, and the task checkbox sits inside its own list ITEM's
+ * padding (taskCheckbox.ts, `.futo-task-checkbox` at `left: 0`), not in this
+ * gutter, so it still lands clear of the edge at 18px. Three classes, so it
+ * beats the base rule above regardless of source order. */
+.futo-milkdown.mobile-dnd .ProseMirror {
+  padding-left: calc(18px + env(safe-area-inset-left));
+}
+
+/* NOT `> * + *` (2026-09-08 device trace, streamed 10k-line open):
+ * Chromium cannot scope invalidation for a universal adjacent-sibling
+ * selector, so every child insert/remove under `.ProseMirror` invalidates
+ * the ROOT's WHOLE SUBTREE — twice per streamed chunk (the chunk itself,
+ * plus the trailing plugin's paragraph swap) and on every Enter/Backspace
+ * that adds or removes a block. A trace of the streamed open showed
+ * `UpdateLayoutTree` running after every chunk append with an elementCount
+ * that GREW WITH THE DOCUMENT (3,056 → 5,682 → … → 39,816) — 16.4 s of a
+ * 32 s open — while `Layout` correctly touched only the new chunk; the 25k
+ * fixture never completed the harness's 180 s budget at all (it used to
+ * finish in 36 s). `:first-child` re-evaluates exactly the ONE element that
+ * changed on an insert, not the whole subtree.
+ *
+ * The split below keeps the SAME specificity `* + *` had (0,1,1 for the
+ * first rule; `:where()` on the second keeps IT at 0,2,0 rather than 0,3,0,
+ * so source order — this rule sits below it — is what makes the
+ * `:first-child` override win, exactly the way `* + *` losing to `:first-
+ * child` naturally would not have applied here in the first place). An
+ * element's own more specific rule (e.g. `.futo-milkdown .ProseMirror h1`)
+ * still wins against either of these, same as it did against `* + *`. */
+.futo-milkdown .ProseMirror > * {
+  margin-top: 0.75em;
+}
+.futo-milkdown .ProseMirror > :where(:first-child) {
+  margin-top: 0;
+}
+
+/* Every top-level block is rendered eagerly — there is deliberately no
+ * `content-visibility` containment rule here. One ran on Chromium from #106
+ * until 2026-09-05, when it was measured against eager rendering on the
+ * low-end Android reference phone and lost on every axis: with off-screen
+ * blocks skipped, the FIRST focus of a note stalled Chromium's editable-focus
+ * work quadratically (3 s at 500 blocks, 12 s at 1,000, 48 s at 2,000 — a
+ * real tap into a 4,000-line note froze the app), focused typing was no
+ * faster with it, and open time was the same. Eager: first focus 176 / 202 /
+ * 379 / 810 ms at 500 / 1,000 / 2,000 / 5,000 blocks. The rule also painted
+ * holes on Apple WebKit, so removing it made the three engines behave alike.
+ * → docs/plan/milkdown-transition.md §5 "Containment retired",
+ *   tests/android-editor-perf.mjs (the first-focus budget) */
+
+.futo-milkdown .ProseMirror h1,
+.futo-milkdown .ProseMirror h2,
+.futo-milkdown .ProseMirror h3,
+.futo-milkdown .ProseMirror h4,
+.futo-milkdown .ProseMirror h5,
+.futo-milkdown .ProseMirror h6 {
+  font-weight: 650;
+  line-height: 1.25;
+  margin-top: 1.2em;
+}
+
+.futo-milkdown .ProseMirror h1 {
+  font-size: 1.7em;
+}
+.futo-milkdown .ProseMirror h2 {
+  font-size: 1.4em;
+}
+.futo-milkdown .ProseMirror h3 {
+  font-size: 1.2em;
+}
+
+.futo-milkdown .ProseMirror a {
+  color: var(--color-primary, #f26b1f);
+  text-decoration: underline;
+}
+
+/* Wikilinks: a dashed underline tells them from web links, and a broken or
+   ambiguous one (wikilink/display.ts stamps `cm-md-wikilink-broken`) is muted
+   so a dead link is identifiable before it is tapped (editor.md "Wikilinks").
+   Here, unlayered and at the same specificity as the rule above, because the
+   `@layer components` copies these used to live in (markdown-links.css) lose to
+   it on cascade origin and never applied. */
+.futo-milkdown .ProseMirror a.cm-md-wikilink {
+  text-decoration-style: dashed;
+}
+
+.futo-milkdown .ProseMirror a.cm-md-wikilink.cm-md-wikilink-broken {
+  color: var(--color-muted, #737373);
+  text-decoration-color: currentColor;
+}
+
+.futo-milkdown .ProseMirror blockquote {
+  border-left: 3px solid var(--color-border, #e5e5e5);
+  padding-left: 0.9em;
+  color: var(--color-muted, #737373);
+}
+
+/* #016: `--color-surface` (used by `pre` below) sits only a few L* units
+   off `--color-bg` in dark mode, so an inline code span read as barely
+   distinguishable from the page. `--color-code-bg` is tuned for a clearly
+   visible step in both themes (theme.css). */
+.futo-milkdown .ProseMirror code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.9em;
+  background: var(--color-code-bg, #e2e2e2);
+  border-radius: 4px;
+  padding: 0.1em 0.3em;
+}
+
+.futo-milkdown .ProseMirror pre {
+  background: var(--color-surface, #f2f2f2);
+  border-radius: 8px;
+  padding: 0.8em;
+  overflow-x: auto;
+  white-space: pre;
+}
+
+.futo-milkdown .ProseMirror pre code {
+  background: none;
+  padding: 0;
+}
+
+/* YAML front matter (packages/editor/src/milkdown-compat/frontmatter.ts): an
+ * atomic, non-editable block holding the note's metadata bytes verbatim.
+ *
+ * Shown rather than hidden, because a hidden block is one a Backspace from
+ * the body can delete without the user ever seeing what went. Read as
+ * metadata rather than as content: muted, monospace, a left rule, and no
+ * caret — the `contenteditable="false"` in the node's own toDOM is what makes
+ * it inert; this only has to LOOK inert so the difference is not a surprise.
+ * `user-select: text` keeps it copyable, which reading metadata needs. */
+.futo-milkdown .ProseMirror pre.futo-frontmatter {
+  background: var(--color-surface, #f2f2f2);
+  border-left: 3px solid var(--color-border, #e5e5e5);
+  border-radius: 0 6px 6px 0;
+  padding: 0.7em 0.9em;
+  margin: 0;
+  color: var(--color-muted, #737373);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.85em;
+  line-height: 1.5;
+  /* pre-wrap, not `pre`: a long metadata value wraps instead of forcing the
+   * whole editor to scroll sideways (the code-block rule above can afford
+   * `overflow-x: auto` because code lines are meant to stay unwrapped). */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  cursor: default;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.futo-milkdown .ProseMirror ul,
+.futo-milkdown .ProseMirror ol {
+  padding-left: 1.4em;
+}

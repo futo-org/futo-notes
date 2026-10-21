@@ -284,14 +284,8 @@ task premise, report it before acting.
 
 ## 12. Drift watchlist (same logic in ≥2 places — move in lockstep)
 
-**`scripts/drift-registry.json` is the watchlist** — every permitted duplicate is enumerated there
-with its copies and a `lockStatus`; `unlocked` means nothing but you keeps the copies in sync, so
-touch all of them in one commit and say so. `just check-drift` is deny-by-default: adding a duplicate
-means adding a registry entry. Keep the list there, not here — a prose copy of it is itself drift.
-
-The `notes-root-triplet` unlocked entry is the intentional dev/prod split (M3). Note sort order is
-owned only by the Rust store; shells splice engine-reported positions verbatim (ADR-0001), so never
-reintroduce a shell comparator or a shell final-id heuristic.
+**`scripts/drift-registry.json` is the watchlist** (`just check-drift`, deny-by-default); touch all copies
+of an entry in one commit. `unlocked` entries, the M3 split, note sort order: `docs/agents/drift-watchlist.md`.
 
 ## 13. Own the E2E experience
 

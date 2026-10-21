@@ -1,0 +1,348 @@
+{
+  "_source": "Hand-reviewed behavioral goldens. Change expected values only with the corresponding docs/spec behavior change; TypeScript and Rust must both match.",
+  "description": "Wikilink resolution / display-suffix / rewrite rules (wikilinks.ts).",
+  "groups": [
+    {
+      "op": "rewriteWikilinks",
+      "fn": "rewriteWikilinks",
+      "cases": [
+        {
+          "input": {
+            "text": "See [[Specs/folder-support]] for details",
+            "oldId": "Specs/folder-support",
+            "newId": "Specs/folder-support-v2",
+            "allIds": [
+              "grocery list",
+              "notes",
+              "Projects/notes",
+              "Specs/folder-support",
+              "Specs/Drafts/folder-support",
+              "Recipes/pasta",
+              "Recipes/Dinner/pasta",
+              "Journal/2026/June/pasta night",
+              "Unicode/café résumé",
+              "Emoji/🎉 party",
+              "Deep/a/b/c/leaf"
+            ]
+          },
+          "expected": {
+            "text": "See [[Specs/folder-support-v2]] for details",
+            "rewrites": 1
+          }
+        },
+        {
+          "input": {
+            "text": "buy [[grocery list]] and again [[grocery list]]",
+            "oldId": "grocery list",
+            "newId": "Lists/grocery list",
+            "allIds": [
+              "Lists/grocery list",
+              "notes",
+              "Projects/notes",
+              "Specs/folder-support",
+              "Specs/Drafts/folder-support",
+              "Recipes/pasta",
+              "Recipes/Dinner/pasta",
+              "Journal/2026/June/pasta night",
+              "Unicode/café résumé",
+              "Emoji/🎉 party",
+              "Deep/a/b/c/leaf"
+            ]
+          },
+          "expected": {
+            "text": "buy [[Lists/grocery list]] and again [[Lists/grocery list]]",
+            "rewrites": 2
+          }
+        },
+        {
+          "input": {
+            "text": "see [[Specs/folder-support|the spec]]",
+            "oldId": "Specs/folder-support",
+            "newId": "Specs/renamed",
+            "allIds": [
+              "grocery list",
+              "notes",
+              "Projects/notes",
+              "Specs/folder-support",
+              "Specs/Drafts/folder-support",
+              "Recipes/pasta",
+              "Recipes/Dinner/pasta",
+              "Journal/2026/June/pasta night",
+              "Unicode/café résumé",
+              "Emoji/🎉 party",
+              "Deep/a/b/c/leaf"
+            ]
+          },
+          "expected": {
+            "text": "see [[Specs/folder-support|the spec]]",
+            "rewrites": 0
+          }
+        },
+        {
+          "input": {
+            "text": "tonight: [[pasta]]",
+            "oldId": "Recipes/pasta",
+            "newId": "Recipes/spaghetti",
+            "allIds": [
+              "grocery list",
+              "notes",
+              "Projects/notes",
+              "Specs/folder-support",
+              "Specs/Drafts/folder-support",
+              "Recipes/pasta",
+              "Recipes/Dinner/pasta",
+              "Journal/2026/June/pasta night",
+              "Unicode/café résumé",
+              "Emoji/🎉 party",
+              "Deep/a/b/c/leaf"
+            ]
+          },
+          "expected": {
+            "text": "tonight: [[pasta]]",
+            "rewrites": 0
+          }
+        },
+        {
+          "input": {
+            "text": "see [[Dinner/pasta]]",
+            "oldId": "Recipes/Dinner/pasta",
+            "newId": "Recipes/Dinner/lasagna",
+            "allIds": [
+              "grocery list",
+              "notes",
+              "Projects/notes",
+              "Specs/folder-support",
+              "Specs/Drafts/folder-support",
+              "Recipes/pasta",
+              "Recipes/Dinner/pasta",
+              "Journal/2026/June/pasta night",
+              "Unicode/café résumé",
+              "Emoji/🎉 party",
+              "Deep/a/b/c/leaf"
+            ]
+          },
+          "expected": {
+            "text": "see [[Recipes/Dinner/lasagna]]",
+            "rewrites": 1
+          }
+        },
+        {
+          "input": {
+            "text": "see [[notes]]",
+            "oldId": "Projects/notes",
+            "newId": "Projects/notes-v2",
+            "allIds": [
+              "grocery list",
+              "notes",
+              "Projects/notes",
+              "Specs/folder-support",
+              "Specs/Drafts/folder-support",
+              "Recipes/pasta",
+              "Recipes/Dinner/pasta",
+              "Journal/2026/June/pasta night",
+              "Unicode/café résumé",
+              "Emoji/🎉 party",
+              "Deep/a/b/c/leaf"
+            ]
+          },
+          "expected": {
+            "text": "see [[notes]]",
+            "rewrites": 0
+          }
+        },
+        {
+          "input": {
+            "text": "```\n[[grocery list]]\n```",
+            "oldId": "grocery list",
+            "newId": "Lists/grocery list",
+            "allIds": [
+              "grocery list",
+              "notes",
+              "Projects/notes",
+              "Specs/folder-support",
+              "Specs/Drafts/folder-support",
+              "Recipes/pasta",
+              "Recipes/Dinner/pasta",
+              "Journal/2026/June/pasta night",
+              "Unicode/café résumé",
+              "Emoji/🎉 party",
+              "Deep/a/b/c/leaf"
+            ]
+          },
+          "expected": {
+            "text": "```\n[[Lists/grocery list]]\n```",
+            "rewrites": 1
+          }
+        },
+        {
+          "input": {
+            "text": "voir [[café résumé]]",
+            "oldId": "Unicode/café résumé",
+            "newId": "Unicode/CV",
+            "allIds": [
+              "grocery list",
+              "notes",
+              "Projects/notes",
+              "Specs/folder-support",
+              "Specs/Drafts/folder-support",
+              "Recipes/pasta",
+              "Recipes/Dinner/pasta",
+              "Journal/2026/June/pasta night",
+              "Unicode/café résumé",
+              "Emoji/🎉 party",
+              "Deep/a/b/c/leaf"
+            ]
+          },
+          "expected": {
+            "text": "voir [[Unicode/CV]]",
+            "rewrites": 1
+          }
+        },
+        {
+          "input": {
+            "text": "allons [[🎉 party]] !",
+            "oldId": "Emoji/🎉 party",
+            "newId": "Emoji/🎊 fiesta",
+            "allIds": [
+              "grocery list",
+              "notes",
+              "Projects/notes",
+              "Specs/folder-support",
+              "Specs/Drafts/folder-support",
+              "Recipes/pasta",
+              "Recipes/Dinner/pasta",
+              "Journal/2026/June/pasta night",
+              "Unicode/café résumé",
+              "Emoji/🎉 party",
+              "Deep/a/b/c/leaf"
+            ]
+          },
+          "expected": {
+            "text": "allons [[Emoji/🎊 fiesta]] !",
+            "rewrites": 1
+          }
+        },
+        {
+          "input": {
+            "text": "[[grocery\nlist]]",
+            "oldId": "grocery list",
+            "newId": "Lists/grocery list",
+            "allIds": [
+              "grocery list",
+              "notes",
+              "Projects/notes",
+              "Specs/folder-support",
+              "Specs/Drafts/folder-support",
+              "Recipes/pasta",
+              "Recipes/Dinner/pasta",
+              "Journal/2026/June/pasta night",
+              "Unicode/café résumé",
+              "Emoji/🎉 party",
+              "Deep/a/b/c/leaf"
+            ]
+          },
+          "expected": {
+            "text": "[[grocery\nlist]]",
+            "rewrites": 0
+          }
+        },
+        {
+          "input": {
+            "text": "weird [[a[[grocery list]] end",
+            "oldId": "grocery list",
+            "newId": "Lists/grocery list",
+            "allIds": [
+              "grocery list",
+              "notes",
+              "Projects/notes",
+              "Specs/folder-support",
+              "Specs/Drafts/folder-support",
+              "Recipes/pasta",
+              "Recipes/Dinner/pasta",
+              "Journal/2026/June/pasta night",
+              "Unicode/café résumé",
+              "Emoji/🎉 party",
+              "Deep/a/b/c/leaf"
+            ]
+          },
+          "expected": {
+            "text": "weird [[a[[grocery list]] end",
+            "rewrites": 0
+          }
+        },
+        {
+          "input": {
+            "text": "[[grocery list]]] tail",
+            "oldId": "grocery list",
+            "newId": "Lists/grocery list",
+            "allIds": [
+              "grocery list",
+              "notes",
+              "Projects/notes",
+              "Specs/folder-support",
+              "Specs/Drafts/folder-support",
+              "Recipes/pasta",
+              "Recipes/Dinner/pasta",
+              "Journal/2026/June/pasta night",
+              "Unicode/café résumé",
+              "Emoji/🎉 party",
+              "Deep/a/b/c/leaf"
+            ]
+          },
+          "expected": {
+            "text": "[[Lists/grocery list]]] tail",
+            "rewrites": 1
+          }
+        },
+        {
+          "input": {
+            "text": "plain text, no links",
+            "oldId": "grocery list",
+            "newId": "Lists/grocery list",
+            "allIds": [
+              "grocery list",
+              "notes",
+              "Projects/notes",
+              "Specs/folder-support",
+              "Specs/Drafts/folder-support",
+              "Recipes/pasta",
+              "Recipes/Dinner/pasta",
+              "Journal/2026/June/pasta night",
+              "Unicode/café résumé",
+              "Emoji/🎉 party",
+              "Deep/a/b/c/leaf"
+            ]
+          },
+          "expected": {
+            "text": "plain text, no links",
+            "rewrites": 0
+          }
+        },
+        {
+          "input": {
+            "text": "[[notes]]",
+            "oldId": "notes",
+            "newId": "notes",
+            "allIds": [
+              "grocery list",
+              "notes",
+              "Projects/notes",
+              "Specs/folder-support",
+              "Specs/Drafts/folder-support",
+              "Recipes/pasta",
+              "Recipes/Dinner/pasta",
+              "Journal/2026/June/pasta night",
+              "Unicode/café résumé",
+              "Emoji/🎉 party",
+              "Deep/a/b/c/leaf"
+            ]
+          },
+          "expected": {
+            "text": "[[notes]]",
+            "rewrites": 1
+          }
+        }
+      ]
+    }
+  ]
+}

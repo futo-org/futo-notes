@@ -157,7 +157,7 @@ The share is what carries over, not the milliseconds.
   unbroken run, and attach/detach on the DOM events.
 - `markdownChunks.test.ts`: viewport sizing, clamping, the fallback, and that only
   the first cut moves: every chunk still joins back to the input.
-- `tests/editor-embed-milkdown-progressive.spec.ts` "a focus while the tail streams holds
+- `tests/editor-embed-milkdown-progressive-open.spec.ts` "a focus while the tail streams holds
   the next chunk until the focus settles": a MutationObserver times the first
   streamed append after a focus. Against the base bundle it landed 21 ms after
   the focus (fails); with the hold, at least 150 ms. Then the open completes

@@ -14,167 +14,17 @@
  * and may lift a block exactly as before. This exercises `MobileBlockDndView`
  * directly against a fake `ProseView` (see its export comment) — the real
  * gesture, a physical long-press against a real WebView, is
- * `tests/editor-embed-milkdown-block-drag.spec.ts`'s job, and cf343347's own focus-
+ * `tests/editor-embed-milkdown-long-press.spec.ts`'s job, and cf343347's own focus-
  * capture guard (Chromium forcing focus onto an unfocused-start press mid-
  * gesture) already has device-measured coverage there.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { Node as ProseNode } from '@milkdown/kit/prose/model';
-import { EditorState, type Transaction } from '@milkdown/kit/prose/state';
-import type { EditorView as ProseView } from '@milkdown/kit/prose/view';
-
-import { makeStackedView } from './__fixtures__/stackedBlocksView';
-import { BlockDragSession } from './blockDragSession';
-
 import {
   DEFAULT_LONG_PRESS_MS,
   MobileBlockDndView,
   dropBlockDndFocusGuards,
-  needsSelectionNet,
-  type MobileBlockDndOptions,
 } from './mobileBlockDnd';
-import { testSchema } from './__fixtures__/schema';
-
-const s = testSchema;
-
-/** Real user-agent strings, by engine. */
-const UA = {
-  iosWebView:
-    'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148',
-  iosChrome:
-    'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/126.0.6478.153 Mobile/15E148 Safari/604.1',
-  iosEdge:
-    'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 EdgiOS/125.2535.60 Mobile/15E148 Safari/605.1.15',
-  iosFirefox:
-    'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) FxiOS/127.0 Mobile/15E148 Safari/605.1.15',
-  ipadSafariDesktopMode:
-    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15',
-  androidWebView90:
-    'Mozilla/5.0 (Linux; Android 11; Pixel 4 Build/RQ3A.210805.001.A1; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/90.0.4430.210 Mobile Safari/537.36',
-  androidWebView120:
-    'Mozilla/5.0 (Linux; Android 14; Pixel 8 Build/UQ1A.240105.004; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/120.0.6099.230 Mobile Safari/537.36',
-  chromeDesktop:
-    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
-  safariDesktop:
-    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Safari/605.1.15',
-  webKitGtk:
-    'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15',
-  firefoxDesktop: 'Mozilla/5.0 (X11; Linux x86_64; rv:127.0) Gecko/20100101 Firefox/127.0',
-  firefoxAndroid: 'Mozilla/5.0 (Android 14; Mobile; rv:127.0) Gecko/127.0 Firefox/127.0',
-};
-
-const BLOCK_TOP = 100;
-const BLOCK_HEIGHT = 40;
-const BLOCK_LEFT = 24;
-const BLOCK_WIDTH = 300;
-const BLOCK_X = BLOCK_LEFT + BLOCK_WIDTH / 2;
-
-function paragraph(text: string): ProseNode {
-  return s.nodes.paragraph.create(null, s.text(text));
-}
-
-function rectAt(top: number, bottom: number): DOMRect {
-  return {
-    top,
-    bottom,
-    left: BLOCK_LEFT,
-    right: BLOCK_LEFT + BLOCK_WIDTH,
-    width: BLOCK_WIDTH,
-    height: bottom - top,
-    x: BLOCK_LEFT,
-    y: top,
-    toJSON: () => ({}),
-  } as DOMRect;
-}
-
-/**
- * One top-level paragraph, "a", as a fixed box. `view.dom` is a REAL element
- * (not a stub object): the plugin binds `addEventListener` directly to it and
- * to its `ownerDocument`, so it has to be something the DOM can actually
- * dispatch through.
- */
-function makeView(hasFocus: boolean, empty = false) {
-  const doc = s.nodes.doc.create(null, [empty ? s.nodes.paragraph.create() : paragraph('a')]);
-  let state = EditorState.create({ doc });
-  const dispatched: Transaction[] = [];
-
-  const dom = document.createElement('div');
-  dom.className = 'futo-milkdown ProseMirror';
-  dom.getBoundingClientRect = () => rectAt(BLOCK_TOP - 20, BLOCK_TOP + BLOCK_HEIGHT + 20);
-  document.body.appendChild(dom);
-
-  const aEl = document.createElement('p');
-  aEl.getBoundingClientRect = () => rectAt(BLOCK_TOP, BLOCK_TOP + BLOCK_HEIGHT);
-
-  let focused = hasFocus;
-  const focusFn = vi.fn();
-
-  const view = {
-    get state() {
-      return state;
-    },
-    dom,
-    dispatch: (tr: Transaction) => {
-      dispatched.push(tr);
-      state = state.apply(tr);
-    },
-    hasFocus: () => focused,
-    focus: focusFn,
-    nodeDOM: (at: number) => (at === 0 ? aEl : null),
-    posAtCoords: ({ top: y }: { left: number; top: number }) => {
-      if (y >= BLOCK_TOP && y <= BLOCK_TOP + BLOCK_HEIGHT) return { pos: 1, inside: -1 };
-      return { pos: doc.content.size, inside: -1 };
-    },
-  } as unknown as ProseView & { focus: typeof focusFn };
-
-  return {
-    view,
-    dom,
-    dispatched,
-    setFocused: (value: boolean) => {
-      focused = value;
-    },
-    /** Center of the block, where a real touch would land. */
-    pointA: { x: BLOCK_X, y: BLOCK_TOP + BLOCK_HEIGHT / 2 },
-  };
-}
-
-function pointerEvent(
-  type: string,
-  overrides: Partial<{
-    clientX: number;
-    clientY: number;
-    pointerId: number;
-    pointerType: string;
-  }> = {},
-): PointerEvent {
-  const event = new Event(type, { bubbles: true, cancelable: true }) as PointerEvent;
-  Object.assign(event, {
-    clientX: 0,
-    clientY: 0,
-    pointerId: 1,
-    pointerType: 'touch',
-    ...overrides,
-  });
-  return event;
-}
-
-function makeOptions(): {
-  options: MobileBlockDndOptions;
-  onHaptic: ReturnType<typeof vi.fn>;
-  onDragActive: ReturnType<typeof vi.fn>;
-  onPressActive: ReturnType<typeof vi.fn>;
-} {
-  const onHaptic = vi.fn();
-  const onDragActive = vi.fn();
-  const onPressActive = vi.fn();
-  return {
-    options: { onHaptic, onDragActive, onPressActive },
-    onHaptic,
-    onDragActive,
-    onPressActive,
-  };
-}
+import { UA, makeView, pointerEvent, makeOptions } from './__fixtures__/mobileBlockDndView';
 
 describe('MobileBlockDndView — focus arbitration (QA #001)', () => {
   beforeEach(() => {
@@ -281,7 +131,7 @@ describe('MobileBlockDndView — focus arbitration (QA #001)', () => {
   // "FOCUS ARBITRATES DRAG VS. SELECTION"). Playwright's desktop Chromium
   // does not reproduce Chromium's forced focus itself (module doc), so this
   // simulates it mid-press with a direct `view.dom` focus, same as
-  // tests/editor-embed-milkdown-block-drag.spec.ts does against the real bundle.
+  // tests/editor-embed-milkdown-long-press.spec.ts does against the real bundle.
   it('an unfocused-start press that is force-focused mid-press is de-focused, and the drag keeps going', () => {
     const { view, dom, pointA } = makeView(/* hasFocus */ false);
     const { options, onDragActive, onHaptic } = makeOptions();
@@ -401,117 +251,5 @@ describe('MobileBlockDndView — focus arbitration (QA #001)', () => {
 
     pluginView.destroy();
     dom.remove();
-  });
-});
-
-describe('needsSelectionNet', () => {
-  it.each([
-    ['iOS WKWebView', { userAgent: UA.iosWebView }, true],
-    ['iOS Chrome (CriOS is WebKit)', { userAgent: UA.iosChrome }, true],
-    ['iOS Edge', { userAgent: UA.iosEdge }, true],
-    ['iOS Firefox', { userAgent: UA.iosFirefox }, true],
-    ['desktop Safari', { userAgent: UA.safariDesktop }, true],
-    ['iPad in desktop mode (Safari UA)', { userAgent: UA.ipadSafariDesktopMode }, true],
-    ['WebKitGTK', { userAgent: UA.webKitGtk }, true],
-    ['Firefox desktop', { userAgent: UA.firefoxDesktop }, true],
-    ['Firefox Android', { userAgent: UA.firefoxAndroid }, true],
-    ['an unknown engine', { userAgent: 'SomeBrowser/1.0' }, true],
-    ['no navigator', undefined, true],
-    // Chromium: no net, with or without `userAgentData` (WebView < 116 has none).
-    ['Android WebView 90 (no userAgentData)', { userAgent: UA.androidWebView90 }, false],
-    [
-      'Android WebView 120',
-      { userAgent: UA.androidWebView120, userAgentData: { mobile: true } },
-      false,
-    ],
-    ['Chrome desktop', { userAgent: UA.chromeDesktop, userAgentData: {} }, false],
-    ['Chrome desktop without userAgentData', { userAgent: UA.chromeDesktop }, false],
-    ['userAgentData alone', { userAgentData: {} }, false],
-  ] as const)('%s', (_name, nav, expected) => {
-    expect(needsSelectionNet(nav)).toBe(expected);
-  });
-});
-
-describe('MobileBlockDndView — one session move per frame', () => {
-  beforeEach(() => {
-    vi.useFakeTimers();
-  });
-
-  afterEach(() => {
-    vi.useRealTimers();
-  });
-
-  // A touch digitizer reports more moves than there are frames (WKWebView
-  // delivers every one), and each session move reads geometry and redraws the
-  // preview. Only the last position of a frame is worth drawing.
-  it('coalesces the moves of one frame into one session move, at the last position', () => {
-    const moveSpy = vi.spyOn(BlockDragSession.prototype, 'move');
-    const { view, dom, pointA } = makeView(/* hasFocus */ false);
-    const { options } = makeOptions();
-    const pluginView = new MobileBlockDndView(view, options);
-    const moveTo = (dy: number) =>
-      document.dispatchEvent(
-        pointerEvent('pointermove', { clientX: pointA.x, clientY: pointA.y + dy }),
-      );
-
-    dom.dispatchEvent(pointerEvent('pointerdown', { clientX: pointA.x, clientY: pointA.y }));
-    vi.advanceTimersByTime(DEFAULT_LONG_PRESS_MS); // lift
-    moveTo(5);
-    moveTo(10);
-    moveTo(15);
-    expect(moveSpy).not.toHaveBeenCalled();
-
-    vi.advanceTimersByTime(20); // one frame
-    expect(moveSpy).toHaveBeenCalledTimes(1);
-    expect(moveSpy).toHaveBeenLastCalledWith(pointA.x, pointA.y + 15);
-
-    // The release takes its own position; the frame it cut short never runs.
-    moveTo(20);
-    document.dispatchEvent(
-      pointerEvent('pointerup', { clientX: pointA.x, clientY: pointA.y + 20 }),
-    );
-    vi.advanceTimersByTime(20);
-    expect(moveSpy).toHaveBeenCalledTimes(1);
-
-    pluginView.destroy();
-    moveSpy.mockRestore();
-  });
-
-  // The boundary haptic is a fact about the gap the drawn frame shows: one
-  // tick per frame that lands in a new gap, none for a gap the finger entered
-  // and left again between two frames.
-  it('ticks the boundary haptic once per new gap a frame lands in', () => {
-    const fixture = makeStackedView(['a', 'b', 'c']);
-    const { options, onHaptic } = makeOptions();
-    const pluginView = new MobileBlockDndView(fixture.view, options);
-    const at = (y: number) => ({ clientX: 150, clientY: y });
-    const moves = () => onHaptic.mock.calls.filter(([kind]) => kind === 'move').length;
-
-    fixture.dom.dispatchEvent(pointerEvent('pointerdown', at(fixture.upperHalf(0))));
-    vi.advanceTimersByTime(DEFAULT_LONG_PRESS_MS); // lift
-    expect(onHaptic).toHaveBeenCalledWith('lift');
-
-    // Into the b/c gap and back to the source within one frame: nothing new drawn.
-    document.dispatchEvent(pointerEvent('pointermove', at(fixture.lowerHalf(1))));
-    document.dispatchEvent(pointerEvent('pointermove', at(fixture.upperHalf(0))));
-    vi.advanceTimersByTime(20);
-    expect(moves()).toBe(0);
-
-    // Into the b/c gap, then wandering inside it across frames: one tick.
-    document.dispatchEvent(pointerEvent('pointermove', at(fixture.lowerHalf(1))));
-    vi.advanceTimersByTime(20);
-    document.dispatchEvent(pointerEvent('pointermove', at(fixture.upperHalf(2))));
-    vi.advanceTimersByTime(20);
-    expect(moves()).toBe(1);
-
-    // On to the end of the document: the second tick.
-    document.dispatchEvent(pointerEvent('pointermove', at(fixture.lowerHalf(2))));
-    vi.advanceTimersByTime(20);
-    expect(moves()).toBe(2);
-
-    document.dispatchEvent(pointerEvent('pointerup', at(fixture.lowerHalf(2))));
-    expect(fixture.order()).toEqual(['b', 'c', 'a']);
-    pluginView.destroy();
-    fixture.destroy();
   });
 });

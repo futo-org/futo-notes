@@ -1,0 +1,351 @@
+# Included by .gitlab-ci.yml: Windows release build on the Proxmox VM chain.
+
+# ─────────────────────────────────────────────────────────────
+# Windows build (Proxmox VM)
+# ─────────────────────────────────────────────────────────────
+# Flow: provision Windows VM → SSH in to build → sign artifacts → cleanup VM
+# Template VM 101 has: Rust 1.92, VS Build Tools (MSVC), winget
+# Needs installed at build time: Git, Node.js, pnpm, NSIS, tauri-cli
+# Required CI/CD variables (masked, protected):
+#   PROXMOX_USER, PROXMOX_TOKEN_ID, PROXMOX_TOKEN_SECRET
+#   PROXMOX_WIN_USER, PROXMOX_WIN_PASSWORD
+
+.proxmox_auth: &proxmox_auth
+  - export PROXMOX_AUTH="PVEAPIToken=${PROXMOX_USER}!${PROXMOX_TOKEN_ID}=${PROXMOX_TOKEN_SECRET}"
+
+# Fail in seconds with the actual cause instead of hanging for an hour.
+# PROXMOX_USER/PROXMOX_TOKEN_ID/PROXMOX_TOKEN_SECRET/PROXMOX_WIN_USER/
+# PROXMOX_WIN_PASSWORD are PROTECTED CI/CD variables — GitLab does not pass
+# them into a pipeline running on a non-protected ref, so an MR from a
+# non-protected branch has none of them. Without this guard, the resulting
+# unauthenticated Proxmox API calls return empty bodies, `jq` yields "", and
+# the chain polls an empty task/VM id until the job timeout (pipeline 36519,
+# job 255053 on windows:provision:internal: 65 minutes / 3900s to fail, with
+# the log showing only empty "Using VMID:" / "Clone task started:" lines and
+# no indication why).
+.proxmox_guard: &proxmox_guard
+  - |
+    missing=""
+    for var in PROXMOX_USER PROXMOX_TOKEN_ID PROXMOX_TOKEN_SECRET PROXMOX_WIN_USER PROXMOX_WIN_PASSWORD; do
+      eval "val=\${$var:-}"
+      [ -n "$val" ] || missing="$missing $var"
+    done
+    if [ -n "$missing" ]; then
+      echo "FATAL: missing Proxmox credential(s):$missing"
+      echo "These are PROTECTED CI/CD variables (ref protected: ${CI_COMMIT_REF_PROTECTED:-unknown})."
+      echo "They are not passed into a pipeline on a non-protected ref, so this chain cannot run from this branch/MR."
+      echo "See the windows:provision job comment in .gitlab-ci.yml."
+      exit 1
+    fi
+
+windows:provision:
+  stage: build
+  needs:
+    - job: test
+  tags:
+    - proxmoxshell
+  before_script:
+    - *proxmox_guard
+    - *proxmox_auth
+  variables:
+    PROXMOX_HOST: "127.0.0.1"
+    PROXMOX_NODE: "green"
+    TEMPLATE_VMID: "101"
+    VM_NAME: "futo-notes-win-${CI_PIPELINE_ID}"
+    CLONE_TYPE: "1"
+  script:
+    # Get next available VMID
+    - |
+      export NEXT_VMID=$(curl -s -k \
+        -H "Authorization: ${PROXMOX_AUTH}" \
+        "https://${PROXMOX_HOST}:8006/api2/json/cluster/nextid" | jq -r '.data')
+      if [ -z "$NEXT_VMID" ] || [ "$NEXT_VMID" = "null" ]; then
+        echo "FATAL: Proxmox cluster/nextid returned no VMID — check PROXMOX_HOST/PROXMOX_NODE reachability and PROXMOX_AUTH."
+        exit 1
+      fi
+      echo "VMID=${NEXT_VMID}" >> provision.env
+      echo "Using VMID: ${NEXT_VMID}"
+
+    # Clone the template VM and poll task until done
+    - |
+      CLONE_RESPONSE=$(curl -s -k -X POST \
+        -H "Authorization: ${PROXMOX_AUTH}" \
+        -H "Content-Type: application/x-www-form-urlencoded" \
+        -d "newid=${NEXT_VMID}&name=${VM_NAME}&full=${CLONE_TYPE}" \
+        "https://${PROXMOX_HOST}:8006/api2/json/nodes/${PROXMOX_NODE}/qemu/${TEMPLATE_VMID}/clone")
+      UPID=$(echo "$CLONE_RESPONSE" | jq -r '.data')
+      if [ -z "$UPID" ] || [ "$UPID" = "null" ]; then
+        echo "FATAL: Proxmox clone request returned no task id (UPID). Response: $CLONE_RESPONSE"
+        exit 1
+      fi
+      echo "Clone task started: $UPID"
+
+    - |
+      UPID_ENCODED=$(printf '%s' "$UPID" | jq -sRr @uri)
+      LATEST_TEMP=""
+      while true; do
+        TASK_STATUS=$(curl -s -k \
+          -H "Authorization: ${PROXMOX_AUTH}" \
+          "https://${PROXMOX_HOST}:8006/api2/json/nodes/${PROXMOX_NODE}/tasks/${UPID_ENCODED}/status")
+        STATUS=$(echo "$TASK_STATUS" | jq -r '.data.status')
+        if [ "$STATUS" = "stopped" ]; then
+          EXIT_STATUS=$(echo "$TASK_STATUS" | jq -r '.data.exitstatus')
+          if [ "$EXIT_STATUS" = "OK" ]; then
+            echo "Clone completed successfully!"
+            break
+          else
+            echo "Clone failed: $EXIT_STATUS"
+            exit 1
+          fi
+        fi
+        TASK_LOG=$(curl -s -k \
+          -H "Authorization: ${PROXMOX_AUTH}" \
+          "https://${PROXMOX_HOST}:8006/api2/json/nodes/${PROXMOX_NODE}/tasks/${UPID_ENCODED}/log?limit=10000")
+        LATEST=$(echo "$TASK_LOG" | jq -r '.data | sort_by(.n) | last | .t // "waiting..."')
+        if [ "$LATEST_TEMP" != "$LATEST" ]; then
+          echo "Status: $STATUS | $LATEST"
+          LATEST_TEMP="$LATEST"
+        fi
+        sleep 5
+      done
+
+    # Start the VM
+    - |
+      source provision.env
+      curl -s -k -X POST \
+        -H "Authorization: ${PROXMOX_AUTH}" \
+        "https://${PROXMOX_HOST}:8006/api2/json/nodes/${PROXMOX_NODE}/qemu/${VMID}/status/start"
+
+    # Wait for VM to get an IP via QEMU guest agent
+    - |
+      source provision.env
+      echo "Waiting for VM to boot and get IP..."
+      for i in $(seq 1 60); do
+        IP=$(curl -s -k \
+          -H "Authorization: ${PROXMOX_AUTH}" \
+          "https://${PROXMOX_HOST}:8006/api2/json/nodes/${PROXMOX_NODE}/qemu/${VMID}/agent/network-get-interfaces" 2>/dev/null \
+          | jq -r '.data.result[]? | select(.name != "Loopback Pseudo-Interface 1") | ."ip-addresses"[]? | select(."ip-address-type" == "ipv4") | ."ip-address"' \
+          | head -1)
+        if [ -n "$IP" ] && [ "$IP" != "null" ]; then
+          echo "VM_IP=${IP}" >> provision.env
+          echo "VM is up at: ${IP}"
+          break
+        fi
+        echo "Waiting for start and IP... (${i}/60)"
+        sleep 10
+      done
+      if [ -z "$IP" ] || [ "$IP" = "null" ]; then
+        echo "ERROR: No IP after 10 minutes"
+        exit 1
+      fi
+
+  artifacts:
+    # when: always — publish the dotenv even when this job FAILS. The VM is
+    # created (clone+start) before the IP wait that can time out and `exit 1`;
+    # without this, a failed provision drops the VMID and windows:cleanup can't
+    # find the VM, orphaning it. With it, the VMID reaches cleanup regardless.
+    when: always
+    reports:
+      dotenv: provision.env
+  rules:
+    - if: $CI_COMMIT_TAG
+    # Manual Windows build on MRs: verify the Windows installer (incl. the
+    # static-CRT / no-VC++-runtime guard in ci/win-build.ps1) before merge,
+    # without cutting a tag. publish/release jobs are tag-only, so an MR
+    # pipeline can never publish. Manual ⇒ never auto-runs on every MR push;
+    # playing this one job starts the provision→build→cleanup chain.
+    #
+    # This chain is the deliberate EXCEPTION to the MR auto-run policy: the
+    # PROXMOX_* credentials are PROTECTED CI variables, which don't exist on
+    # MR pipelines from non-protected branches — an auto rule would fail
+    # every single run. If this ever becomes auto (vars unprotected or
+    # protected-branch MRs), windows:cleanup's MR rule must switch to
+    # when: always under the same changes: in the SAME commit, or a failed
+    # build orphans the VM.
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      when: manual
+      allow_failure: true
+
+build:windows:
+  stage: build
+  tags:
+    - proxmoxshell
+  needs:
+    - job: windows:provision
+      artifacts: true
+  # Pass the VM password to sshpass via the SSHPASS env var (sshpass -e)
+  # rather than on the command line, so the password never appears in the
+  # process argument list (visible in `ps`) on the runner or VM.
+  variables:
+    SSHPASS: "$PROXMOX_WIN_PASSWORD"
+  before_script: []
+  script:
+    # Wait for SSH to be ready
+    - |
+      for i in $(seq 1 30); do
+        if sshpass -e ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 "${PROXMOX_WIN_USER}@${VM_IP}" "echo ready" 2>/dev/null; then
+          echo "SSH is ready!"
+          break
+        fi
+        echo "Waiting for SSH... ($i/30)"
+        sleep 10
+      done
+
+    # Upload build scripts to VM
+    - |
+      sshpass -e scp -o StrictHostKeyChecking=no \
+        ci/win-install-deps.ps1 ci/win-build.ps1 \
+        "${PROXMOX_WIN_USER}@${VM_IP}:C:/Users/${PROXMOX_WIN_USER}/"
+
+    # Install build dependencies
+    - |
+      sshpass -e ssh -o StrictHostKeyChecking=no "${PROXMOX_WIN_USER}@${VM_IP}" \
+        "powershell -NoProfile -ExecutionPolicy Bypass -File C:\\Users\\${PROXMOX_WIN_USER}\\win-install-deps.ps1"
+
+    # Clone repo and build
+    - |
+      # Tag builds clone the tag and derive the version from it. MR builds have
+      # no tag, so clone the MR source branch and use a plain 0.0.0 (a
+      # non-numeric pre-release like 0.0.0-ci.N is rejected by the MSI bundler).
+      REF="${CI_COMMIT_TAG:-${CI_MERGE_REQUEST_SOURCE_BRANCH_NAME:-$CI_COMMIT_REF_NAME}}"
+      VERSION="${CI_COMMIT_TAG#v}"
+      [ -n "$VERSION" ] || VERSION="0.0.0"
+      sshpass -e ssh -o StrictHostKeyChecking=no "${PROXMOX_WIN_USER}@${VM_IP}" \
+        "powershell -NoProfile -ExecutionPolicy Bypass -File C:\\Users\\${PROXMOX_WIN_USER}\\win-build.ps1 -RepoUrl ${CI_REPOSITORY_URL} -Branch ${REF} -Version ${VERSION}"
+
+    # Retrieve build artifacts
+    - mkdir -p windows-artifacts
+    - |
+      sshpass -e scp -o StrictHostKeyChecking=no -r \
+        "${PROXMOX_WIN_USER}@${VM_IP}:C:/build/futo-notes/target/release/bundle/nsis/*" \
+        windows-artifacts/
+    - |
+      echo "=== Windows build artifacts ==="
+      ls -la windows-artifacts/
+
+  artifacts:
+    paths:
+      - windows-artifacts/*
+    expire_in: 4 weeks
+  rules:
+    - if: $CI_COMMIT_TAG
+    # On an MR, run automatically once the manual provision succeeds.
+    # allow_failure so flaky/expensive Windows infra never blocks a merge.
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      allow_failure: true
+
+windows:sign:
+  stage: build
+  tags:
+    - dind
+  image: debian@sha256:3a39a0592364683e6bab97937b72cad5a8fa6dcbbee90edb3bb48c7f8e94f258
+  needs:
+    - job: build:windows
+      artifacts: true
+  before_script: []
+  script:
+    # Deliberately NOT from .nvmrc: Node here only launches the pinned
+    # @tauri-apps/cli, whose native binary does the signing (M23).
+    - |
+      if ! command -v aws >/dev/null 2>&1 || ! command -v java >/dev/null 2>&1 || ! command -v python3 >/dev/null 2>&1 || ! command -v npx >/dev/null 2>&1; then
+        apt-get update
+        DEBIAN_FRONTEND=noninteractive apt-get install -y ca-certificates curl jq awscli default-jre-headless python3 nodejs npm
+      fi
+    # Download fullchain.pem from GitLab secure files
+    - |
+      mkdir -p /deploy/signing
+      FILE_ID=$(curl --silent --fail \
+        --header "JOB-TOKEN: $CI_JOB_TOKEN" \
+        "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/secure_files" \
+        | jq -r '.[] | select(.name=="fullchain.pem") | .id')
+      test -n "$FILE_ID"
+      curl --silent --fail \
+        --header "JOB-TOKEN: $CI_JOB_TOKEN" \
+        --output /deploy/signing/fullchain.pem \
+        "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/secure_files/${FILE_ID}/download"
+      echo "Downloaded fullchain.pem"
+    # Sign all .exe artifacts (Authenticode via jsign/AWS KMS)
+    - |
+      for f in windows-artifacts/*.exe; do
+        [ -f "$f" ] || continue
+        CERT_FILE=/deploy/signing/fullchain.pem bash ci/sign-windows.sh "$f"
+      done
+    # Updater signature — minisign the exe AFTER Authenticode (jsign rewrites the
+    # bytes, so any earlier .sig is stale). minisign MUST be the last touch. The
+    # Windows VM build stays keyless; the signing key lives only here as a CI var.
+    # The key has no password (-p "" supplies the empty passphrase). The CLI is
+    # pinned to match the cargo tauri-cli used on Linux/macOS. The .sig content is
+    # embedded into latest.json by the release: job.
+    - |
+      test -n "$TAURI_SIGNING_PRIVATE_KEY" || { echo "TAURI_SIGNING_PRIVATE_KEY is not set"; exit 1; }
+      for f in windows-artifacts/*.exe; do
+        [ -f "$f" ] || continue
+        npx --yes @tauri-apps/cli@2.11.3 signer sign -p "" "$f"
+      done
+  artifacts:
+    paths:
+      - windows-artifacts/*.exe
+      - windows-artifacts/*.exe.sig
+    expire_in: 4 weeks
+  rules:
+    - if: $CI_COMMIT_TAG
+
+windows:cleanup:
+  stage: build
+  tags:
+    - proxmoxshell
+  needs:
+    - job: windows:provision
+      artifacts: true
+    - job: build:windows
+  when: always
+  before_script:
+    - *proxmox_auth
+  variables:
+    PROXMOX_HOST: "127.0.0.1"
+    PROXMOX_NODE: "green"
+  script:
+    - |
+      # Fallback: if the VMID dotenv never reached us (provision failed so early
+      # it didn't publish, or the artifact was lost), find the VM by its
+      # pipeline-scoped name so a failed build/provision can't leave an orphan.
+      if [ -z "$VMID" ]; then
+        echo "No VMID from provision; looking up VM by name futo-notes-win-${CI_PIPELINE_ID}..."
+        VMID=$(curl -s -k \
+          -H "Authorization: ${PROXMOX_AUTH}" \
+          "https://${PROXMOX_HOST}:8006/api2/json/nodes/${PROXMOX_NODE}/qemu" \
+          | jq -r ".data[] | select(.name==\"futo-notes-win-${CI_PIPELINE_ID}\") | .vmid" | head -1)
+      fi
+      if [ -z "$VMID" ] || [ "$VMID" = "null" ]; then
+        echo "No VM found for this pipeline, nothing to clean up."
+        exit 0
+      fi
+      echo "Stopping VM $VMID..."
+      curl -s -k -X POST \
+        -H "Authorization: ${PROXMOX_AUTH}" \
+        "https://${PROXMOX_HOST}:8006/api2/json/nodes/${PROXMOX_NODE}/qemu/${VMID}/status/stop"
+    - |
+      echo "Waiting for VM to stop..."
+      for i in $(seq 1 30); do
+        STATUS=$(curl -s -k \
+          -H "Authorization: ${PROXMOX_AUTH}" \
+          "https://${PROXMOX_HOST}:8006/api2/json/nodes/${PROXMOX_NODE}/qemu/${VMID}/status/current" | jq -r '.data.status')
+        if [ "$STATUS" = "stopped" ]; then
+          echo "VM stopped!"
+          break
+        fi
+        sleep 5
+      done
+    - |
+      curl -s -k -X DELETE \
+        -H "Authorization: ${PROXMOX_AUTH}" \
+        "https://${PROXMOX_HOST}:8006/api2/json/nodes/${PROXMOX_NODE}/qemu/${VMID}"
+      echo "VM ${VMID} deleted"
+  rules:
+    - if: $CI_COMMIT_TAG
+    # On MRs, tear down the VM manually AFTER the build (play this job). Manual
+    # rather than the job-level when:always so it doesn't fire at pipeline start
+    # and no-op before the VM exists — which would orphan the real VM.
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      when: manual
+      allow_failure: true

@@ -5,7 +5,7 @@
  * `view.dom` is a REAL element in the document — the code under test binds
  * listeners to it and to its `ownerDocument` and appends a ghost beside it — and
  * every paragraph is a fixed box, so target resolution is plain arithmetic. The
- * real gesture against a real engine is `tests/editor-embed-milkdown-block-drag.spec.ts`.
+ * real gesture against a real engine is `tests/editor-embed-milkdown-gutter-handle.spec.ts`.
  */
 import type { Node as ProseNode } from '@milkdown/kit/prose/model';
 import { EditorState, type Transaction } from '@milkdown/kit/prose/state';

@@ -6,15 +6,15 @@ authority refs over guessing.
 
 ## Surfaces — use the spec's `→ path` refs first
 
-Every `docs/spec/*.md` line cites the source it governs (`→ wikilinkAutocomplete.ts`,
-`→ syncServiceE2ee`, …). So the reverse map is a grep: which spec file mentions
-a changed file's basename?
+Every spec line (`docs/spec/*.md` and the section files under `docs/spec/<area>/`)
+cites the source it governs (`→ wikilinkAutocomplete.ts`, `→ syncServiceE2ee`, …).
+So the reverse map is a grep: which spec file mentions a changed file's basename?
 
 ```bash
 LAST_TAG=$(git describe --tags --abbrev=0 --exclude '*-*')   # skip pre-release tags (v1.7.2-6, -milkdown.3)
 git diff --name-only "$LAST_TAG"..HEAD | grep -E '\.(ts|svelte|rs|swift|kt)$' | while read -r p; do
   b=$(basename "$p" | sed -E 's/\.(ts|svelte|rs|swift|kt)$//; s/\.test$//; s/\.spec$//')
-  grep -lE "$b" docs/spec/*.md 2>/dev/null | xargs -n1 basename 2>/dev/null | sed 's/\.md//'
+  grep -rlE --include='*.md' "$b" docs/spec 2>/dev/null | sed -E 's#^docs/spec/([^/]+)(/.*)?$#\1#; s/\.md$//'
 done | sort | uniq -c | sort -rn
 ```
 

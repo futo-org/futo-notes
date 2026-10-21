@@ -31,7 +31,7 @@ function asMode(value: string | null | undefined): BlockDragMode | null {
  * page a headless harness can load is `editor.html`, whose host flag is a
  * hard-coded `nativeShell: true`, so the long-press path is the only one a
  * Playwright run reaches by default; the gutter-handle cases in
- * `tests/editor-embed-milkdown-block-drag.spec.ts` load
+ * `tests/editor-embed-milkdown-gutter-handle.spec.ts` load
  * `editor.html?blockDragMode=gutter-handle` (or `=long-press`). Never set by
  * production hosts, and the sole extra input to the one gate below rather than
  * a second ad-hoc platform check. An unrecognized value is ignored, not obeyed.

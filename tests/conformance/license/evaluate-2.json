@@ -1,0 +1,146 @@
+{
+  "evaluate": [
+    {
+      "name": "a v1 activation — a bare signature over the license key — is Licensed, perpetually",
+      "$comment": "Reversal recorded 2026-09-10 (issue #161): this vector expected `unsupportedVersion` until FUTO Notes shipped against the activations pay2 actually issues. A v1 signature covers the key string alone, so product binding is the org key pair and there is nothing here to expire. issuedAt and expiresAt are null because the activation says nothing about either — never `now`, never the fetch time.",
+      "key": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+      "now": "2026-09-09T12:00:00Z",
+      "sign": {
+        "with": "org",
+        "format": "v1",
+        "key": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78"
+      },
+      "activation": "UTPJvUenvlIJ3rPKIgHILrXMpw_ihB1h-r72vNDQjRWbKkPGnHdlvYQO-0381ddamINpXIy8u9KmVvNDfkIsiM0_cKV3FoVds6J0Go9wci1w6v3Ot9XyKeOMlLtqpaatI3fh6fjXi26_0CkU5WHCVJPMUXcjng3xNz_-09WGg_1mCOoE-aDVFeyPtq8oByCv-5Vh7rqQf3VUI6e3NLT688bwlRyQ-x0gRYsxl6hUl7YMdDgNXZRBQ7xge6zsKs0-3k2CppVje_ctg8252ryaSumJtQtcMsGwiTcyPw3L1zliiti-fKu1HzvmYsDsrtMxy9eiDZf6ZgeDAotpurlQcQ",
+      "expected": {
+        "state": "licensed",
+        "issuedAt": null,
+        "expiresAt": null
+      }
+    },
+    {
+      "name": "the same v1 activation is still Licensed a decade later — v1 cannot express an expiry",
+      "key": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+      "now": "2039-01-01T00:00:00Z",
+      "sign": {
+        "with": "org",
+        "format": "v1",
+        "key": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78"
+      },
+      "activation": "UTPJvUenvlIJ3rPKIgHILrXMpw_ihB1h-r72vNDQjRWbKkPGnHdlvYQO-0381ddamINpXIy8u9KmVvNDfkIsiM0_cKV3FoVds6J0Go9wci1w6v3Ot9XyKeOMlLtqpaatI3fh6fjXi26_0CkU5WHCVJPMUXcjng3xNz_-09WGg_1mCOoE-aDVFeyPtq8oByCv-5Vh7rqQf3VUI6e3NLT688bwlRyQ-x0gRYsxl6hUl7YMdDgNXZRBQ7xge6zsKs0-3k2CppVje_ctg8252ryaSumJtQtcMsGwiTcyPw3L1zliiti-fKu1HzvmYsDsrtMxy9eiDZf6ZgeDAotpurlQcQ",
+      "expected": {
+        "state": "licensed",
+        "issuedAt": null,
+        "expiresAt": null
+      }
+    },
+    {
+      "name": "a v1 activation stored under a lowercased key still verifies — the signed message is the NORMALIZED key",
+      "key": "fn-ab12-cd34-ef56-gh78-jk12-mn34-pq56-rs78",
+      "now": "2026-09-09T12:00:00Z",
+      "sign": {
+        "with": "org",
+        "format": "v1",
+        "key": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78"
+      },
+      "activation": "UTPJvUenvlIJ3rPKIgHILrXMpw_ihB1h-r72vNDQjRWbKkPGnHdlvYQO-0381ddamINpXIy8u9KmVvNDfkIsiM0_cKV3FoVds6J0Go9wci1w6v3Ot9XyKeOMlLtqpaatI3fh6fjXi26_0CkU5WHCVJPMUXcjng3xNz_-09WGg_1mCOoE-aDVFeyPtq8oByCv-5Vh7rqQf3VUI6e3NLT688bwlRyQ-x0gRYsxl6hUl7YMdDgNXZRBQ7xge6zsKs0-3k2CppVje_ctg8252ryaSumJtQtcMsGwiTcyPw3L1zliiti-fKu1HzvmYsDsrtMxy9eiDZf6ZgeDAotpurlQcQ",
+      "expected": {
+        "state": "licensed",
+        "issuedAt": null,
+        "expiresAt": null
+      }
+    },
+    {
+      "name": "a v1 activation signed by a different org's key is not this app's license",
+      "$comment": "The whole product binding of a v1 activation: FUTO Notes has its own FUTOpay org key pair, so another org's signature over the very same key string verifies against nothing here.",
+      "key": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+      "now": "2026-09-09T12:00:00Z",
+      "sign": {
+        "with": "otherOrg",
+        "format": "v1",
+        "key": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78"
+      },
+      "activation": "T50HpcXlkvo9g4XVSPpBNZupM9BJ4OZZ82HFUbJw873N5d41Up1FOfDYiDqyA1W-sqjTt-hA0dTsQDMWhUYF6N-iDSka58BX2nHswgpDeOpI55fD3ylUexL4JBXm7nKDWPxfdEN3sqIs8I4Iv-XWc82ghZgANZbZNh5-Ys1DmHfNfZiX5K0RiShvY0oiHRfESD77DZpuaUz2iLnYMrwJOfpKIsmyrX4WJlgvgLRa7IYVXigtzTWC_UlBrbs2CDnDicro253GCzCoWv0ebPcJJ3oFVLpe7mOHsSQ9hHzsPId5lzNJWunnRmmdk6_LMO9Nk7DZSVvWmSkMOwLg9x9DRQ",
+      "expected": {
+        "state": "invalid",
+        "reason": "signatureMismatch"
+      }
+    },
+    {
+      "name": "a v1 activation minted for a different license key does not license this one",
+      "$comment": "v1's stand-in for v2's keyMismatch: the key IS the signed message, so a pasted-against-the-wrong-key activation fails verification instead of failing a comparison. Editing a character of the stored key lands here too.",
+      "key": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+      "now": "2026-09-09T12:00:00Z",
+      "sign": {
+        "with": "org",
+        "format": "v1",
+        "key": "FN-ZZ99-YY88-XX77-WW66-VV55-UU44-TT33-SS22"
+      },
+      "activation": "RED8lWGvZMdzJNbbwZEcYV1brizxbbhtKqYu79ABolaKmwR4FzlrjPKlTb7Oq15CJtGq6M1KcpfOJRGlrA1GQlbTaBrzhtmrf5TStRepTA8nWh5FS9nnmgbA-zkZreFg_8zm2zyRdBDu-5VCAMucjRQJiPcCIB-j6QmP49gwh1btMfUE0Ok9BCyU-bYiWO_bDfjOQFoDHSxcG2HKDyHYiKO-42MjgTDYFgk_rl_jqaYRoLldsfo_03yZ2SGGzazSYFfrPPwrq-8CXi8aTSEsYDCw97WpKATxhlkfK-rGy9hc6SAh45wnZkhO47ukm-sk3hM9dHA7aWTKRRWKPrrnoQ",
+      "expected": {
+        "state": "invalid",
+        "reason": "signatureMismatch"
+      }
+    },
+    {
+      "name": "a dot-free activation that is not base64url at all",
+      "$comment": "Since v1 is accepted, a single-segment activation is a signature rather than an unknown version — so garbage in that position now reads as malformedBase64. Every reason renders as the same message, so this pins the diagnosis, not the copy.",
+      "key": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+      "now": "2026-09-09T12:00:00Z",
+      "activation": "not a signature",
+      "expected": {
+        "state": "invalid",
+        "reason": "malformedBase64"
+      }
+    },
+    {
+      "name": "an explicit v1. envelope is still an unknown version — the real v1 format has no envelope",
+      "key": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+      "now": "2026-09-09T12:00:00Z",
+      "activation": "v1.cGF5bG9hZA.c2lnbmF0dXJl",
+      "expected": {
+        "state": "invalid",
+        "reason": "unsupportedVersion"
+      }
+    },
+    {
+      "name": "a future version is rejected rather than guessed at",
+      "key": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+      "now": "2026-09-09T12:00:00Z",
+      "activation": "v3.cGF5bG9hZA.c2lnbmF0dXJl",
+      "expected": {
+        "state": "invalid",
+        "reason": "unsupportedVersion"
+      }
+    },
+    {
+      "name": "four segments",
+      "key": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+      "now": "2026-09-09T12:00:00Z",
+      "activation": "v2.cGF5bG9hZA.c2lnbmF0dXJl.extra",
+      "expected": {
+        "state": "invalid",
+        "reason": "malformedActivation"
+      }
+    },
+    {
+      "name": "empty activation",
+      "key": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+      "now": "2026-09-09T12:00:00Z",
+      "activation": "",
+      "expected": {
+        "state": "invalid",
+        "reason": "malformedActivation"
+      }
+    },
+    {
+      "name": "the payload segment is not base64url",
+      "key": "FN-AB12-CD34-EF56-GH78-JK12-MN34-PQ56-RS78",
+      "now": "2026-09-09T12:00:00Z",
+      "activation": "v2.not base64!.c2lnbmF0dXJl",
+      "expected": {
+        "state": "invalid",
+        "reason": "malformedBase64"
+      }
+    }
+  ]
+}

@@ -1,6 +1,10 @@
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
 import { describe, expect, it } from 'vitest';
 
-import { findMissingScanDirs, shouldSkipDriftDirectory } from './drift-check.mjs';
+import { findMissingScanDirs, loadRegistry, shouldSkipDriftDirectory } from './drift-check.mjs';
 
 // Regression coverage: `walk()` used to silently return zero files for a
 // scan.dirs entry that doesn't exist (`if (!fs.existsSync(dir)) return out;`),
@@ -34,5 +38,26 @@ describe('shouldSkipDriftDirectory', () => {
 
   it('keeps an ordinary source directory in the registry scan', () => {
     expect(shouldSkipDriftDirectory('src', '/repo/src', () => false)).toBe(false);
+  });
+});
+
+describe('loadRegistry', () => {
+  it('loads every listed concept file and reports one the index does not list', () => {
+    const root = mkdtempSync(join(tmpdir(), 'drift-registry-'));
+    try {
+      mkdirSync(join(root, 'scripts/drift-registry'), { recursive: true });
+      writeFileSync(
+        join(root, 'scripts/drift-registry.json'),
+        JSON.stringify({ entryFiles: ['scripts/drift-registry/listed.json'] }),
+      );
+      writeFileSync(join(root, 'scripts/drift-registry/listed.json'), '{"concept":"listed"}');
+      writeFileSync(join(root, 'scripts/drift-registry/forgotten.json'), '{"concept":"forgotten"}');
+      expect(loadRegistry(root)).toEqual({
+        entries: [{ concept: 'listed' }],
+        unlisted: ['scripts/drift-registry/forgotten.json'],
+      });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });

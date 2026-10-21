@@ -38,247 +38,33 @@
  *   node tests/android-editor-perf.mjs          # the app already installed, as is
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import path from 'node:path';
-
-import WebSocket from 'ws';
-
-import { portsFor } from '../scripts/lib/slot.mjs';
-import { createAndroidDevice } from './lib/android/device.mjs';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import {
+  connectEditorPage,
+  forwardDevTools,
+  measureSave,
+  openSeededNote,
+  requireSerial,
+} from './android-editor-perf/device-session.mjs';
+import { fixturePlan } from './android-editor-perf/fixture-plan.mjs';
+import {
+  KEYSTROKE_SAMPLES,
+  KEYSTROKE_SAMPLES_PATHOLOGICAL,
+  NOTE_FILE,
+  NOTE_TITLE,
+  PACKAGE,
+  REPORT_DIR,
+} from './android-editor-perf/run-config.mjs';
 import { quoteForDeviceShell } from './lib/android/adbClient.mjs';
+import { createAndroidDevice } from './lib/android/device.mjs';
 import {
   DEVICE_BUDGET,
-  blockFixture,
   evaluateDeviceFloor,
   evaluateSaveCost,
-  lineFixture,
-  median,
   percentile95,
 } from './lib/editorDevicePerf.mjs';
-import { connectPage, measureExpression, saveExpression } from './lib/editorDevicePerfSnippets.mjs';
-
-/**
- * Flags, parsed once and strictly: an unrecognized argument fails the run
- * rather than being ignored, so `--stres` cannot look like a 50k run that
- * quietly measured 25k instead.
- */
-const FLAGS = new Set(['--stress']);
-const unknownArgs = process.argv.slice(2).filter((arg) => !FLAGS.has(arg));
-if (unknownArgs.length > 0) {
-  console.error(
-    `Unrecognized argument(s): ${unknownArgs.join(' ')}\nSupported: ${[...FLAGS].join(', ')}`,
-  );
-  process.exit(2);
-}
-const STRESS = process.argv.includes('--stress');
-
-const PACKAGE = 'com.futo.notes.dev';
-const NOTE_TITLE = 'Perf fixture';
-const NOTE_FILE = `${NOTE_TITLE}.md`;
-/**
- * Keystroke samples per fixture. The loop is byte-for-byte the desktop
- * gauntlet's `measureKeystrokes` (a dispatch, then a rAF), so the numbers mean
- * the same thing on both — which is also why the rAF cannot be dropped to make
- * a run cheaper.
- *
- * The budget-bearing fixtures keep the full 25. The pathological ladder does
- * not: one settled sample on the unchunkable 10k fixture measured 7.9s on the
- * reference phone, so 25 of them at 50k would spend ~20 minutes inside a single
- * leg. 8 samples still supports the same rank rule — it just collapses p95 onto
- * the second-worst sample, which makes the budget HARDER to meet, not easier.
- */
-const KEYSTROKE_SAMPLES = 25;
-const KEYSTROKE_SAMPLES_PATHOLOGICAL = 8;
-/**
- * Save samples per state per fixture. Each waits out the 200 ms change debounce
- * for the editor's report, and a cold one serializes the whole document, so
- * this is the run's slowest loop per sample; 20 puts p95 on the second-worst.
- */
-const SAVE_SAMPLES = 20;
-const REPORT_DIR = 'tests/editor-gauntlet/local';
-const LOCAL_NOTE_PATH = path.join(REPORT_DIR, 'device-perf-note.md');
-
-// Two ladders, because the two budgets need different documents.
-//
-// `*-blocks` fixtures are real-note shaped — blank line between blocks — and
-// carry the full `hard` policy: interactive-first-viewport AND first focus.
-// `*-lines` fixtures are the desktop floor's own generator (differential-
-// locked in editorDevicePerf.test.mjs) so the device numbers stay comparable
-// to MILKDOWN_FLOOR_FIXTURES'; they have no blank line anywhere. Before
-// markdownChunks.ts learned to cut at a non-blank "hard starter" (a column-0
-// heading, fence, blockquote, or interrupting list item), `planMarkdownChunks`
-// declined them outright and they loaded whole — that measured 15.7s at 10k
-// lines on this phone. They chunk now: the list-item and blockquote lines this
-// generator cycles through are hard starters (verified in
-// markdownChunks.test.ts and editorDevicePerf.test.mjs), so `10000-lines` and
-// `25000-lines` now carry `openPolicy.interactive: 'hard'` too — the
-// interactive budget is meaningful for them, matching plan §5's point that a
-// document offering a safe boundary opens progressively regardless of shape.
-// They still do NOT carry the `hard` policy's first-focus check: first focus
-// after a full load is Chromium's editable-focus work over the fully rendered
-// document (containment was retired 2026-09-05), measured at 1.6s / 3.9s at
-// 10k/25k lines on the 2026-09-06 gate run and reported but not gated — see
-// `lineFixture`'s own comment in editorDevicePerf.mjs.
-//
-// The adversarial byte fixtures stay desktop-only: §2's note-size population
-// says nothing about benchmark-shaped documents, and shipping 10 MiB through
-// a phone's CDP socket measures the socket more than the editor.
-function fixturePlan() {
-  const plan = [
-    {
-      name: '1000-lines-blocks',
-      openPolicy: { kind: 'hard' },
-      save: {},
-      build: () => blockFixture(1_000),
-    },
-    {
-      name: '10000-lines-blocks',
-      openPolicy: { kind: 'hard' },
-      save: { reference: '1000-lines-blocks' },
-      build: () => blockFixture(10_000),
-    },
-  ];
-  const realNote = resolveRealNote();
-  if (realNote) {
-    plan.push({
-      name: realNote.name,
-      // A real note is a real-note size by definition: the 1s budget applies.
-      openPolicy: { kind: 'hard' },
-      build: () => realNote.content,
-    });
-  }
-  plan.push(
-    // The reference for the cliff check below. Its open is now held to the
-    // interactive budget too (it chunks — see the comment above), but not to
-    // first focus.
-    {
-      name: '10000-lines',
-      openPolicy: { kind: 'measured', interactive: 'hard' },
-      build: () => lineFixture(10_000),
-    },
-    {
-      name: '25000-lines',
-      openPolicy: { kind: 'linear', reference: '10000-lines', interactive: 'hard' },
-      build: () => lineFixture(25_000),
-    },
-  );
-  /* 50k lines is what plan §5 names, and on the reference phone it is still
-   * not affordable in a routine run — but not because the open is unmeasurable
-   * any more. It chunks now, the same as 10k/25k (see the comment above), so
-   * this is held to the interactive budget too. The cost that remains is the
-   * KEYSTROKE samples: each settled-to-paint sample is a layout pass over a
-   * ~25,000-block document, slow enough on its own that the routine 10k/25k
-   * ladder already proves the
-   * same "scales linearly, no cliff" property (a RATIO check) at a fraction of
-   * the wall-clock cost. `--stress` adds the 50k rung for anyone who wants the
-   * number §5 quotes. Making it opt-in is a cost decision, not a weaker
-   * assertion — the same policy is applied to whichever rungs run. */
-  if (STRESS) {
-    plan.push({
-      name: '50000-lines',
-      openPolicy: { kind: 'linear', reference: '10000-lines', interactive: 'hard' },
-      build: () => lineFixture(50_000),
-    });
-  }
-  return { plan, realNote };
-}
-
-/** The local, uncommitted big-note fixture, or null with a loud notice. */
-function resolveRealNote() {
-  const explicit = process.env.FUTO_PERF_NOTE;
-  const file = explicit || (existsSync(LOCAL_NOTE_PATH) ? LOCAL_NOTE_PATH : null);
-  if (!file) {
-    console.log(
-      `NOTE: no real-note fixture — set $FUTO_PERF_NOTE or place one at ${LOCAL_NOTE_PATH} ` +
-        '(it stays local and uncommitted; the directory is gitignored).',
-    );
-    return null;
-  }
-  const content = readFileSync(file, 'utf8');
-  const lines = content.split('\n').length;
-  console.log(`Real-note fixture: ${file} (${lines} lines, ${content.length} chars)`);
-  return { name: 'real-note', content, lines };
-}
-
-// ── CDP: the app's editor WebView ─────────────────────────────────
-
-/** Forward the debug WebView's DevTools socket and return this run's port. */
-function forwardDevTools(adb) {
-  const pid = adb.shell(`pidof ${PACKAGE}`, { allowFailure: true }).trim();
-  if (!pid) throw new Error(`${PACKAGE} is not running`);
-  const sockets = adb.shell('cat /proc/net/unix', { allowFailure: true });
-  const socket = sockets.match(new RegExp(`webview_devtools_remote_${pid}\\b`))?.[0];
-  if (!socket) {
-    throw new Error(
-      `no DevTools socket for pid ${pid} — the editor WebView has not been opened yet`,
-    );
-  }
-  // Slot-derived like `just cdp-forward`, so parallel worktrees never steal
-  // each other's forward; $CDP_PORT still wins.
-  const port = Number(process.env.CDP_PORT || portsFor(process.cwd()).cdp);
-  adb.adb(['forward', `tcp:${port}`, `localabstract:${socket}`]);
-  return port;
-}
-
-/** One CDP session on the editor page (the shared client, tests/lib/editorDevicePerfSnippets.mjs). */
-async function connectEditorPage(port) {
-  const pages = await fetch(`http://localhost:${port}/json`).then((r) => r.json());
-  const page = pages.find((p) => p.type === 'page' && p.webSocketDebuggerUrl);
-  if (!page) throw new Error(`no debuggable page at localhost:${port}`);
-  return connectPage(page.webSocketDebuggerUrl, WebSocket);
-}
-
-// ── In-page measurement: tests/lib/editorDevicePerfSnippets.mjs (shared with the quick loop) ─
-
-// ── Device stories ────────────────────────────────────────────────
-
-function requireSerial() {
-  if (!process.env.ANDROID_SERIAL) {
-    console.error(
-      'Set $ANDROID_SERIAL to the claimed device (the low-end reference phone; `adb devices -l`).\n' +
-        'Pool emulators come from: just qa-claim android',
-    );
-    process.exit(1);
-  }
-}
-
-/**
- * Both save states (`saveSnippet`) on the fixture that is loaded. Warm first: it
- * waits on the editor's own priming after the open and the keystroke loop. A
- * failure is recorded, not thrown — evaluateSaveCost scores it.
- */
-async function measureSave(cdp, fixture, lines) {
-  try {
-    const { warmSamplesMs } = await cdp.evaluate(saveExpression(SAVE_SAMPLES));
-    const { coldSamplesMs } = await cdp.evaluate(saveExpression(SAVE_SAMPLES, { cold: true }));
-    return {
-      fixture,
-      lines,
-      coldSamplesMs,
-      warmSamplesMs,
-      coldMedianMs: median(coldSamplesMs),
-      coldP95Ms: percentile95(coldSamplesMs),
-      warmMedianMs: median(warmSamplesMs),
-      warmP95Ms: percentile95(warmSamplesMs),
-    };
-  } catch (error) {
-    return { fixture, lines, error: error instanceof Error ? error.message : String(error) };
-  }
-}
-
-/** Tap the seeded note in the list; its label may carry a preview suffix. */
-async function openSeededNote(device) {
-  const node = await device.waitFor(
-    `the "${NOTE_TITLE}" note to appear in the list`,
-    () =>
-      device
-        .uiNodes({ refresh: true })
-        .find((n) => n.label === NOTE_TITLE || n.label.startsWith(`${NOTE_TITLE}\n`)) ?? null,
-    { timeoutMs: 30_000 },
-  );
-  device.adb.tapPoint(node.x, node.y);
-  device.invalidateUi();
-}
+import { measureExpression } from './lib/editorDevicePerfSnippets.mjs';
+import path from 'node:path';
 
 async function main() {
   requireSerial();

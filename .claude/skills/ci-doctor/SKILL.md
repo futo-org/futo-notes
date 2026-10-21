@@ -10,6 +10,11 @@ allowed-tools: Bash, Read, Edit, Grep, Glob
 time cost. This skill turns the historical failure classes into a triage procedure so a red
 pipeline costs minutes, not an afternoon of push-and-watch.
 
+The root `.gitlab-ci.yml` holds `default`, `variables`, `workflow`, `stages`, and an `include:`
+list; the jobs live in `ci/<group>.yml`. A YAML anchor (`&x`/`*x`) does not resolve across
+included files, so a template used from another file goes through `extends:` or `!reference`.
+Text checks read the whole pipeline through `scripts/lib/gitlab-ci.mjs`.
+
 Project: `futo-notes/futo-notes` on `gitlab.futo.org`. The curl calls below use `$GITLAB_TOKEN`,
 which always works. `glab` is usually also present, but whether it can authenticate is per-machine
 and per-shell — see the auth gotcha in `docs/agents/issue-tracker.md` before blaming a read.
@@ -42,8 +47,8 @@ BRANCH=$(git branch --show-current)
 glab api "projects/futo-notes%2Ffuto-notes/pipelines?ref=$BRANCH"
 ```
 
-Read the log tail FIRST, then the failing job's `script:` in `.gitlab-ci.yml`, then the diff of
-the commit that broke it (`git log --oneline -5 -- .gitlab-ci.yml`).
+Read the log tail FIRST, then the failing job's `script:` in its `ci/*.yml` file, then the diff of
+the commit that broke it (`git log --oneline -5 -- .gitlab-ci.yml ci/`).
 
 ## Step 2 — Classify against the known failure taxonomy
 
@@ -74,7 +79,7 @@ Apply the rule for the class; do not just patch the symptom:
 3. **Every new test job goes into `release:gate.needs`** in the same commit. Publish jobs start as
    soon as their own `needs` succeed, so a red test job that is missing from that list does not
    hold anything back — that is how v1.4.0 twice came within one job of publishing past a failed
-   test (the `release:gate.needs` comment in `.gitlab-ci.yml` names both). Deliberate
+   test (the `release:gate.needs` comment in `ci/publish.yml` names both). Deliberate
    exceptions: `test:audit`, `test:localization-audit`, and `test:quality-report` are
    `allow_failure: true` and left out on purpose (docs/architecture-gates.md) — adding one would
    turn a reporter into a release blocker.
@@ -117,10 +122,10 @@ watch_pipeline() {
 - [ ] `just check` green locally
 - [ ] Last main pipeline fully green (not "green with failed-but-allowed jobs you care about")
 - [ ] `.gitlab-ci.yml` diff since the last tag reviewed against the rules above (`git diff
-      $(git describe --tags --abbrev=0) -- .gitlab-ci.yml`)
+      $(git describe --tags --abbrev=0) -- .gitlab-ci.yml ci/`)
 - [ ] Any NEW tag-only job since the last tag has been exercised (Step 4)
 - [ ] `release:gate.needs` still lists every test job except the three `allow_failure` reporters
-      (`test:audit`, `test:localization-audit`, `test:quality-report`), non-blocking by design (`grep -A30 'release:gate' .gitlab-ci.yml`)
+      (`test:audit`, `test:localization-audit`, `test:quality-report`), non-blocking by design (`grep -A30 'release:gate' ci/publish.yml`)
 - [ ] `test:audit` was yellow because it FOUND something, not because it never ran — its log has
       no `AUDIT-DID-NOT-RUN` line (`allow_failure` renders both the same)
 - [ ] Updater artifacts: signing is the LAST touch on bytes (mesa patch / notarize / Authenticode

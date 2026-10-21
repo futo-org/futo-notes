@@ -1,0 +1,226 @@
+# Included by .gitlab-ci.yml: native Android build.
+
+# ─────────────────────────────────────────────────────────────
+# Native app shells (Compose / SwiftUI) — NOT Tauri. Same Rust core
+# (futo-notes-ffi via UniFFI) + the embedded editor.html bundle. These are the
+# release mobile apps on tags; on MRs/default-branch pushes they remain
+# build-only verification jobs with no device install.
+# ─────────────────────────────────────────────────────────────
+
+build:android-native:
+  stage: build
+  # Pin to the office runner via the dind_fast tag (only runner 71 has it; the
+  # DigitalOcean dind droplet has just `dind`). It keeps a warm local cargo
+  # cache and has far faster CPU — ~5m here vs ~88m cold on the droplet.
+  # Trade-off: every dind_fast job shares that one box and loses the droplet
+  # as failover. It runs at most five jobs at once (14 days to 2026-10-08: no
+  # sixth ever started, and a job starting as the fifth waited a median 11s
+  # vs 1-2s otherwise), and since the JavaScript jobs moved here too (`test`,
+  # test:e2e:*) those five slots are this repo's main MR bottleneck.
+  tags:
+    - dind_fast
+  # Native verification is independent of the JavaScript suite; starting it
+  # immediately removes that suite from the native MR critical path.
+  needs: []
+  image: $IMAGE_ANDROID
+  cache:
+    - !reference [.cache-pnpm, cache]
+    # Native cargo work (NDK targets + host lib) is disjoint from the Tauri
+    # jobs — own key so the two don't evict each other's target/.
+    - !reference [.cache-cargo-native, cache]
+    # Gradle wrapper dist + dependency cache (GRADLE_USER_HOME below).
+    - !reference [.cache-gradle-native, cache]
+  variables:
+    CARGO_CACHE_POLICY: pull
+    ANDROID_HOME: /opt/android-sdk
+    ANDROID_SDK_ROOT: /opt/android-sdk
+    JAVA_HOME: /opt/jdk-21
+    NDK_HOME: /opt/android-sdk/ndk/28.2.13676358
+    # scripts/build-rust-android.sh requires ANDROID_NDK_HOME specifically
+    # (cargo-ndk also honors it); the image only exports NDK_HOME. NDK r28 links
+    # the Rust .so 16 KB-page-aligned by default (Play 16 KB requirement).
+    ANDROID_NDK_HOME: /opt/android-sdk/ndk/28.2.13676358
+    # Point Gradle's home at a cached, in-project dir so the wrapper dist +
+    # dependency cache survive between runs (must be under $CI_PROJECT_DIR for
+    # GitLab caching). The .gradle-native/{caches,wrapper} subtrees map to
+    # .cache-gradle-native.
+    GRADLE_USER_HOME: $CI_PROJECT_DIR/.gradle-native
+    ANDROID_CI_AVD: ci
+  script:
+    - export PATH="$JAVA_HOME/bin:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_HOME/platform-tools:$PATH"
+    # SDK platform 36 + build-tools 36 are baked into ci/android.Dockerfile
+    # (the same image build:android uses), so no inline sdkmanager install is
+    # needed here.
+    - pnpm install --frozen-lockfile
+    - !reference [.setup-rust, script]
+    # Android Rust targets + cargo-ndk for the per-ABI .so build. The image
+    # bakes the targets, but re-adding is a no-op if present. cargo-ndk is
+    # cached in .cache-cargo-native's .cargo-home/bin — only build it (FROM
+    # SOURCE, not binstall: the prebuilt binstall binary needs GLIBC_2.39,
+    # newer than the ci/android image) when the cached binary is missing.
+    - rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android
+    - |
+      if command -v cargo-ndk >/dev/null 2>&1; then
+        echo "cargo-ndk already installed (cached)"
+      else
+        cargo install cargo-ndk --locked
+      fi
+    # Hosted sync ("Log in with FUTO") is on for debug and for the INTERNAL
+    # track, off for the store (ADR 0003 decision 13). On Android the internal
+    # build is a prerelease tag (v1.7.2-4): it builds everything and publishes
+    # nothing, because every publish job gates on ^v[0-9]+\.[0-9]+\.[0-9]+$.
+    # So a stable tag — the only build that reaches Play or a GitLab release —
+    # never sets this, and compiles the flow out. Computed here, before the
+    # Rust FFI build below (not just before Gradle), so the internal build's
+    # .so also bakes the staging hosted address rather than the production one
+    # (C3, ADR 0003 decision 2); FUTO_HOSTED_SYNC and FUTO_HOSTED_SERVER_BAKED
+    # both stay exported for the later Gradle step.
+    - |
+      if [ -n "$CI_COMMIT_TAG" ] && ! echo "$CI_COMMIT_TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+        export FUTO_HOSTED_SYNC=true
+        export FUTO_HOSTED_SERVER_BAKED=https://staging-notes-sync.futo.org
+        echo "Prerelease tag $CI_COMMIT_TAG — internal build, hosted sync ON, baked hosted server: $FUTO_HOSTED_SERVER_BAKED"
+      else
+        echo "Hosted sync OFF in the release build (stable tag or no tag)"
+      fi
+    # Shared Rust FFI (.so per ABI) + UniFFI Kotlin bindings.
+    - bash scripts/build-rust-android.sh
+    - |
+      if [ -n "$CI_COMMIT_TAG" ]; then
+        VERSION="${CI_COMMIT_TAG#v}"
+        export VERSION_NAME="$VERSION"
+        # versionCode = MAJOR*1000000 + MINOR*1000 + PATCH, matching the LEGACY
+        # app's scheme (e.g. v1.4.0 = 1004000). The old CI_PIPELINE_IID (~hundreds)
+        # is far below legacy codes, so Android/Obtainium/Play reject it as a
+        # downgrade for anyone with the old app installed. Keep this monotonic
+        # with semver so updates always apply.
+        V_MAJ="${VERSION%%.*}"; V_REST="${VERSION#*.}"
+        V_MIN="${V_REST%%.*}"; V_PAT="${V_REST#*.}"; V_PAT="${V_PAT%%[!0-9]*}"
+        export VERSION_CODE=$(( ${V_MAJ:-0} * 1000000 + ${V_MIN:-0} * 1000 + ${V_PAT:-0} ))
+        echo "Building native Android release versionName=$VERSION_NAME versionCode=$VERSION_CODE"
+      fi
+    # Build the embedded editor bundle and stage it into the app assets
+    # (the SAME single editor.html iOS bundles).
+    - pnpm exec vite build --config vite.editor.config.ts
+    - mkdir -p apps/android/app/src/main/assets
+    - cp apps/ios/Resources/editor.html apps/android/app/src/main/assets/editor.html
+    - |
+      if [ -n "$CI_COMMIT_TAG" ] && [ -n "${KEYSTORE_BASE64:-}" ]; then
+        echo "$KEYSTORE_BASE64" | base64 -d > /tmp/native-release.keystore
+        {
+          echo "keyAlias=${KEY_ALIAS:-upload}"
+          echo "password=${KEYSTORE_PASSWORD}"
+          echo "storeFile=/tmp/native-release.keystore"
+        } > apps/android/keystore.properties
+      elif [ -n "$CI_COMMIT_TAG" ]; then
+        echo "WARNING: No KEYSTORE_BASE64 set — native Android release APK will be unsigned"
+      fi
+    # On tags build BOTH distribution flavors' shipping artifact: the DIRECT
+    # release APK (GitLab release / F-Droid / Obtainium sideload) and the PLAY
+    # release AAB (Google Play, uploaded by publish:android). Each flavor has
+    # exactly one consumer, so neither the play APK nor the direct AAB is built.
+    # Off tags, both flavors' DEBUG APKs are assembled — that is the only thing
+    # that compiles a play-only source set or buildConfigField before release
+    # day, and directDebug is also the APK test:cross-platform-sync:android
+    # installs. The pure-logic JVM unit tests run for BOTH flavors whenever this
+    # job runs — MR/default pipelines via its changes gate, and ALWAYS on tag
+    # builds — so a release can't ship past a red unit test, and
+    # DistributionFlavorTest's per-flavor assertions are evaluated on both
+    # sides. This job is a release:gate dependency, so a failure here blocks
+    # publish (M14) without a separate test job.
+    # FUTO_HOSTED_SYNC (and, on a prerelease tag, the baked hosted server
+    # address) is already exported above, before the Rust FFI build.
+    - |
+      if [ -n "$CI_COMMIT_TAG" ]; then
+        cd apps/android && ./gradlew --no-daemon :app:assembleDirectRelease :app:bundlePlayRelease :app:testDirectDebugUnitTest :app:testPlayDebugUnitTest
+      else
+        cd apps/android && ./gradlew --no-daemon :app:assembleDirectDebug :app:assemblePlayDebug :app:testDirectDebugUnitTest :app:testPlayDebugUnitTest
+      fi
+    # M11 guard: a "0 tests executed" gradle run must fail red, not pass green.
+    # Assert the JUnit result XML exists and holds at least one <testcase>.
+    # $CI_PROJECT_DIR-anchored so it is independent of the cd above (M12).
+    - |
+      for UNIT_TASK in testDirectDebugUnitTest testPlayDebugUnitTest; do
+        RESULTS_DIR="$CI_PROJECT_DIR/apps/android/app/build/test-results/$UNIT_TASK"
+        # Pipe-free on purpose (RC-65): GitLab runs with pipefail, and
+        # `find | grep -q .` lets grep exit on the first path, SIGPIPE-ing find
+        # (141) once it has more than one buffer of results — the guard then
+        # fired falsely (MR !359, 59 files). -quit stops find itself.
+        if [ -z "$(find "$RESULTS_DIR" -name 'TEST-*.xml' -type f -print -quit 2>/dev/null)" ]; then
+          echo "ERROR: no JVM unit-test result XML under $RESULTS_DIR — $UNIT_TASK did not execute" >&2
+          exit 1
+        fi
+        if ! grep -rq '<testcase' "$RESULTS_DIR"; then
+          echo "ERROR: JVM unit-test results contain no <testcase> — $UNIT_TASK executed 0 tests" >&2
+          exit 1
+        fi
+        echo "JVM unit-test results OK ($UNIT_TASK): $(grep -rho '<testcase' "$RESULTS_DIR" | wc -l) testcase(s)"
+      done
+    - bash "$CI_PROJECT_DIR/scripts/ci-android-instrumentation.sh"
+  after_script:
+    - find apps/android/app/build/outputs/apk -name "*.apk" -type f 2>/dev/null || true
+    - find apps/android/app/build/outputs/bundle -name "*.aab" -type f 2>/dev/null || true
+  artifacts:
+    # No artifacts:when here on purpose: GitLab uploads artifacts:reports
+    # (the junit below) on success AND failure regardless of artifacts:when,
+    # so failed runs still populate the MR test-report widget; `when: always`
+    # would only additionally retain release APK/AAB binaries from failed
+    # tag builds.
+    # Only the artifacts a later job actually reads. `play` is built to prove it
+    # COMPILES and to run its unit tests, but nothing downstream consumes a play
+    # APK: the sync leg takes apk/direct/debug, release + F-Droid take
+    # apk/direct/release, and Play takes the AAB from bundle/playRelease. A bare
+    # apk/**/*.apk also uploaded app-play-debug.apk — a second ~135 MB copy of a
+    # file with no reader — on every Android MR and tag pipeline.
+    paths:
+      - apps/android/app/build/outputs/apk/direct/**/*.apk
+      - apps/android/app/build/outputs/apk/androidTest/**/*.apk
+      - apps/android/app/build/outputs/bundle/**/*.aab
+    reports:
+      junit:
+        # Both flavors run the same test classes, so the report carries each
+        # case twice (once per flavor). That is the cost of proving the
+        # per-flavor constants on both sides; the duplicate is cosmetic.
+        - apps/android/app/build/test-results/testDirectDebugUnitTest/**/TEST-*.xml
+        - apps/android/app/build/test-results/testPlayDebugUnitTest/**/TEST-*.xml
+        - apps/android/app/build/outputs/androidTest-results/connected/**/TEST-*.xml
+    expire_in: 4 weeks
+  # A cold/partial .cache-cargo-native cache makes the Rust FFI compile across
+  # 3 NDK ABIs swing wide (observed 8m warm → 27m near-cold → 45m timeout
+  # fully cold on the v1.4.0 tag pipeline, killed mid-armv7). 90m lets a fully
+  # cold run finish; the caches now upload when: always so even a failed run
+  # warms the next attempt.
+  timeout: 90m
+  rules:
+    - if: $CI_MERGE_REQUEST_IID
+      changes:
+        - Cargo.lock
+      variables:
+        CARGO_CACHE_POLICY: pull-push
+    # The trailing entries are this job's own triggers plus everything that can
+    # make test:cross-platform-sync:android run: that job consumes the debug APK
+    # built here, so it must never run in a pipeline where this job did not.
+    - if: $CI_MERGE_REQUEST_IID
+      changes: &native-android-changes
+        - apps/android/**/*
+        - crates/futo-notes-ffi/**/*
+        - Cargo.lock
+        - languages/**/*
+        - tests/localization/**/*
+        - scripts/generate-native-language-resources.mjs
+        - scripts/build-rust-android.sh
+        - scripts/ci-android-instrumentation.sh
+        - scripts/ci-android-emulator.sh
+        - scripts/ci-android-sync-leg.sh
+        - tests/cross-platform-sync.mjs
+        - tests/cross-platform-sync/**/*
+        - tests/lib/**/*
+        - scripts/sync-server-pin.json
+        - scripts/lib/sync-server.mjs
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      changes: *native-android-changes
+      variables:
+        CARGO_CACHE_POLICY: pull-push
+    - if: $CI_COMMIT_TAG
+      variables:
+        CARGO_CACHE_POLICY: pull-push
