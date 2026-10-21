@@ -61,7 +61,8 @@
  *
  * `./inputRules` forks the presets' typed-markdown input rules where they read
  * a keystroke differently from how the parser reads the saved line: a fence
- * language with a capital or a `+`, seven `#`, emphasis padded with spaces.
+ * language with a capital or a `+`, seven `#`, emphasis padded with spaces, an
+ * escaped opener.
  *
  * `./frontmatter` is the one member that is an ADDITION rather than a fork: the
  * preset has no front matter construct at all, so `---\ntags: [a, b]\n---`
@@ -83,6 +84,7 @@ import {
   createCodeBlockInputRule as upstreamCodeBlockInputRule,
   emphasisStarInputRule as upstreamEmphasisStarInputRule,
   emphasisUnderscoreInputRule as upstreamEmphasisUnderscoreInputRule,
+  inlineCodeInputRule as upstreamInlineCodeInputRule,
   inlineNodesCursorPlugin as upstreamInlineNodesCursorPlugin,
   remarkInlineLinkPlugin,
   remarkPreserveEmptyLinePlugin,
@@ -108,6 +110,7 @@ import {
   createCodeBlockInputRule,
   emphasisStarInputRule,
   emphasisUnderscoreInputRule,
+  inlineCodeInputRule,
   strikethroughInputRule,
   strongInputRule,
   wrapInHeadingInputRule,
@@ -221,6 +224,7 @@ const FORKED_INPUT_RULES: readonly (readonly [MilkdownPlugin, MilkdownPlugin, st
     'emphasis-underscore input rule',
   ],
   [upstreamStrongInputRule, strongInputRule, 'strong input rule'],
+  [upstreamInlineCodeInputRule, inlineCodeInputRule, 'inline-code input rule'],
   [upstreamCodeBlockInputRule, createCodeBlockInputRule, 'code-block input rule'],
   [upstreamHeadingInputRule, wrapInHeadingInputRule, 'heading input rule'],
 ];

@@ -178,7 +178,7 @@ test.describe('typed markdown converts only where the saved line would read the 
   // The presets' input rules (milkdown-compat/inputRules.ts) disagreed with the
   // parser that reads a note back: a fence language with a capital or a `+`
   // did not open a fence, seven `#` made a level-7 heading, and a delimiter run
-  // padded with spaces became formatting.
+  // padded with spaces, or escaped with a backslash, became formatting.
   const typed = (page: Page, variant: 'compat' | 'baseline', keys: string) =>
     page.evaluate(([v, k]) => window.__futoCensus.typeText(v as 'compat' | 'baseline', k), [
       variant,
@@ -189,9 +189,14 @@ test.describe('typed markdown converts only where the saved line would read the 
     ['2 * 3 *', 'mark:emphasis'],
     ['** not bold **', 'mark:strong'],
     ['~~ not struck ~~', 'mark:strike_through'],
+    ['\\*not italic*', 'mark:emphasis'],
+    ['\\**not bold**', 'mark:strong'],
+    ['\\_not italic_', 'mark:emphasis'],
+    ['\\`not code`', 'mark:inlineCode'],
+    ['\\~not struck~', 'mark:strike_through'],
   ];
 
-  test('canary: upstream still formats padded delimiter runs', async ({ page }) => {
+  test('canary: upstream still formats padded and escaped delimiter runs', async ({ page }) => {
     for (const [keys, mark] of MARKS) {
       expect((await typed(page, 'baseline', keys)).histogram[mark], keys).toBe(1);
     }
@@ -210,6 +215,7 @@ test.describe('typed markdown converts only where the saved line would read the 
       ['a _em_', 'mark:emphasis'],
       ['~~gone~~', 'mark:strike_through'],
       ['`code`', 'mark:inlineCode'],
+      ['\\\\*em*', 'mark:emphasis'],
     ] as const) {
       expect((await typed(page, 'compat', keys)).histogram[mark], keys).toBe(1);
     }

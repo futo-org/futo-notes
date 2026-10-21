@@ -137,7 +137,9 @@
 
 - Typed delimiters convert only where a file would read them as formatting:
   `*`, `_` or `~` text padded with whitespace inside its delimiters
-  (`2 * 3 * 4`, `** not bold **`, `~~ a ~~`) stays text. →
+  (`2 * 3 * 4`, `** not bold **`, `~~ a ~~`) stays text, and so does any
+  delimiter escaped with a backslash (`\*not italic*`, `` \`a` ``), which is
+  saved so it reopens as the same line, backslash included. →
   packages/editor/src/milkdown-compat/inputRules.ts,
   tests/editor-embed-milkdown-interactive-typed-escapes.spec.ts
 

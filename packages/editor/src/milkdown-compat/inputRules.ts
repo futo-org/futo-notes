@@ -17,6 +17,10 @@
  *     `2 * 3 *` italicised ` 3 ` and saved `2 *&#x20;3&#x20;* 4`; `** not bold **`
  *     saved `**not bold**`. CommonMark's flanking rule: an opener is not followed
  *     by whitespace, a closer not preceded by it.
+ *  4. Every mark rule took a backslash-escaped opener (`\*not italic*`,
+ *     `\**x**`, `\_x_`, `` \`x` ``, `\~x~`) as a real one. An odd run of
+ *     backslashes escapes the delimiter after it; an even run is escaped
+ *     backslashes, and the delimiter still opens.
  *
  * Everything else is the preset's: the same delimiters, the same characters
  * that may not touch an opener (`\w:/` before `**`/`__`/`~~`, `*` before `*`,
@@ -36,6 +40,7 @@ import {
   codeBlockSchema,
   emphasisSchema,
   headingSchema,
+  inlineCodeSchema,
   strongSchema,
 } from '@milkdown/kit/preset/commonmark';
 import { strikethroughSchema } from '@milkdown/kit/preset/gfm';
@@ -45,11 +50,14 @@ import type { EditorState } from '@milkdown/kit/prose/state';
 import { $inputRule } from '@milkdown/kit/utils';
 
 /**
- * What may come before an opener: the start of the text, or a character from
- * `allowed` (a regex class body).
+ * What may come before an opener: the start of the text, a character from
+ * `allowed` (a regex class body), or any non-backslash character followed by
+ * backslashes — and then an EVEN run of backslashes, each pair an escaped
+ * backslash. An odd run leaves one `\` straight before the delimiter, which
+ * nothing here matches, so an escaped opener never opens.
  */
 function lead(allowed: string): string {
-  return String.raw`(?<lead>^|[${allowed}])`;
+  return String.raw`(?<lead>(?:^|[${allowed}]|[^\\](?=\\))(?:\\\\)*)`;
 }
 
 /** Text that neither starts nor ends with whitespace (or `edge`, the delimiter's own characters). */
@@ -58,20 +66,24 @@ function flanked(edge: string, inner: string): string {
 }
 
 const EMPHASIS_STAR = new RegExp(
-  lead(String.raw`^*`) + String.raw`(?<open>\*)` + flanked(String.raw`*`, '[^*]') + String.raw`\*$`,
+  lead(String.raw`^*\\`) +
+    String.raw`(?<open>\*)` +
+    flanked(String.raw`*`, '[^*]') +
+    String.raw`\*$`,
 );
 const EMPHASIS_UNDERSCORE = new RegExp(
-  lead(String.raw`^\w`) + '(?<open>_)' + flanked('_', '.') + '_$',
+  lead(String.raw`^\w\\`) + '(?<open>_)' + flanked('_', '.') + '_$',
 );
 const STRONG = new RegExp(
-  lead(String.raw`^\w:/`) +
+  lead(String.raw`^\w:/\\`) +
     String.raw`(?<open>\*\*|__)` +
     flanked(String.raw`*_`, '[^*_]') +
     String.raw`(?:\*\*|__)$`,
 );
 const STRIKETHROUGH = new RegExp(
-  lead(String.raw`^\w:/`) + '(?<open>~{1,2})' + flanked('~', '.') + String.raw`\k<open>$`,
+  lead(String.raw`^\w:/\\`) + '(?<open>~{1,2})' + flanked('~', '.') + String.raw`\k<open>$`,
 );
+const INLINE_CODE = new RegExp(lead(String.raw`^\\`) + '(?<open>`)(?<text>[^`]+)`$');
 
 /** The ```lang shortcut: any info word a backtick fence can open with. */
 const CODE_FENCE = /^```(?<language>[^\s`]*)[\s\n]$/;
@@ -139,6 +151,10 @@ export const strongInputRule = $inputRule((ctx) =>
   delimitedMarkRule(STRONG, strongSchema.type(ctx), (open) => ({
     marker: open.startsWith('*') ? '*' : '_',
   })),
+);
+
+export const inlineCodeInputRule = $inputRule((ctx) =>
+  delimitedMarkRule(INLINE_CODE, inlineCodeSchema.type(ctx)),
 );
 
 export const strikethroughInputRule = $inputRule((ctx) =>

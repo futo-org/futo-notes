@@ -272,8 +272,10 @@ test('typing six hashes and a space still makes a level-6 heading', async ({ pag
 // Typed delimiters follow CommonMark (spec: interactive-elements.md "convert
 // as you type"; markdown-house-style.md "Text and escaping"). The preset's
 // emphasis, strong and strikethrough rules took a run padded with spaces as
-// formatting, so typing what a file reads as plain text changed it:
-// `2 * 3 * 4` saved as `2 *&#x20;3&#x20;* 4`, `** not bold **` as `**not bold**`.
+// formatting, and every mark rule read a backslash-escaped opener as a real
+// one, so typing what a file reads as plain text changed it: `2 * 3 * 4` saved
+// as `2 *&#x20;3&#x20;* 4`, `** not bold **` as `**not bold**`, `\*not italic*`
+// as `\\*not italic*`.
 // ============================================================
 
 /** The formatting the rendered paragraph holds, as `tag:text` pairs. */
@@ -299,9 +301,31 @@ for (const typed of [
   });
 }
 
+for (const typed of [
+  '\\*not italic*',
+  '\\**not bold**',
+  '\\_not italic_',
+  '\\`not code`',
+  '\\~not struck~',
+]) {
+  test(`a typed backslash before "${typed.slice(1)}" keeps the delimiters text`, async ({
+    page,
+  }) => {
+    // The typed `\` is a character the user sees, so the saved note must read
+    // back as exactly that line — backslash included — with no formatting.
+    const saved = await typeIntoEmpty(page, typed);
+    expect(await renderedMarks(page), saved).toEqual([]);
+    await reopen(page, saved);
+    expect(await paragraphLines(page), saved).toEqual([typed]);
+    expect(await renderedMarks(page), saved).toEqual([]);
+  });
+}
+
 for (const [typed, saved, marks] of [
   ['2 *3* 4', '2 *3* 4\n', ['em:3']],
   ['a **b c** d', 'a **b c** d\n', ['strong:b c']],
+  // Two typed backslashes are an escaped backslash, each written escaped, so the `*` opens.
+  ['x \\\\*y* z', 'x \\\\\\\\*y* z\n', ['em:y']],
   ['run `npm i` now', 'run `npm i` now\n', ['code:npm i']],
 ] as const) {
   test(`typed "${typed}" still converts`, async ({ page }) => {
