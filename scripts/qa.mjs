@@ -42,6 +42,7 @@ import {
   POOL,
   SRV_DIR,
   claimPoolName,
+  markWiped,
   die,
   info,
   ownerIsStale,
@@ -62,7 +63,8 @@ import {
 // ── commands ───────────────────────────────────────────────────────────────
 
 // A device that changed hands is handed out with the debug app's data wiped.
-// If the wipe fails, the claim is dropped so the next claim retries it.
+// The claim stays `wipePending` until the wipe succeeds, so a boot that dies
+// first (die exits) still leaves the retry to wipe; a failed wipe drops the claim.
 function wipeOnFreshClaim(platform, name, fresh, wipe) {
   if (!fresh) return;
   const error = wipe();
@@ -70,6 +72,7 @@ function wipeOnFreshClaim(platform, name, fresh, wipe) {
     fs.rmSync(ownerPath(platform, name), { force: true });
     die(`${platform} ${name}: ${error}; claim released`);
   }
+  markWiped(platform, name);
   info(`${platform}: wiped com.futo.notes.dev data on ${name} (new claim)`);
 }
 

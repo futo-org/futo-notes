@@ -36,6 +36,7 @@ describe('claimPoolName', () => {
   it('is fresh for a free device and not for one this worktree holds', () => {
     const first = pool.claimPoolName('android', root);
     expect(first.fresh).toBe(true);
+    pool.markWiped('android', first.name);
     expect(pool.claimPoolName('android', root)).toEqual({ name: first.name, fresh: false });
   });
 
@@ -45,5 +46,15 @@ describe('claimPoolName', () => {
     fs.writeFileSync(ownerFile(name), JSON.stringify({ worktree: gone }));
     expect(pool.claimPoolName('android', root)).toEqual({ name, fresh: true });
     expect(JSON.parse(fs.readFileSync(ownerFile(name), 'utf8')).worktree).toBe(root);
+  });
+
+  // MR !446 QA: the claim is written before the emulator boots, and a boot that
+  // dies (die exits the process) kept it, so the retry saw a 'held' device and
+  // skipped the wipe of the previous worktree's install.
+  it('stays fresh until the handover wipe completes', () => {
+    const { name } = pool.claimPoolName('android', root);
+    expect(pool.claimPoolName('android', root)).toEqual({ name, fresh: true });
+    pool.markWiped('android', name);
+    expect(pool.claimPoolName('android', root)).toEqual({ name, fresh: false });
   });
 });
