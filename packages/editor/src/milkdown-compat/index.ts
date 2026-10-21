@@ -98,6 +98,7 @@ import { tightListItemSchema } from './listItemSpread';
 import { ownedSerializerPlugin } from './ownedSerializer';
 import { scopedKeepTableAlignPlugin, scopedTableEditingPlugin } from './tablePasses';
 import { tableAlignmentSchemas } from './tableAlignment';
+import { tableFillerRowSchema } from './tableFillerRow';
 import { remarkPadTableRowsPlugin } from './tableWidth';
 
 export { FRONTMATTER_NODE } from './frontmatter';
@@ -239,6 +240,9 @@ export function gfmWithCompat(): MilkdownPlugin[] {
     /* After the preset, whose cell nodes they re-register: a cell with no
      * alignment keeps none through a paste (see `./tableAlignment`). */
     ...tableAlignmentSchemas,
+    /* After the preset, whose `table_row` it re-registers: the empty row a
+     * header-only table needs is not written (see `./tableFillerRow`). */
+    tableFillerRowSchema,
     /* After the preset, whose task-list support extends `list_item`: an item the
      * editor makes is tight, like one read from a tight file (see `./listItemSpread`). */
     tightListItemSchema,

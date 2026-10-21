@@ -88,6 +88,13 @@ From the 2026-09 release-hardening campaign (FB-4a/4b/4c), all on the parse side
   `frontmatter.test.ts`), and a paste keeps front matter only where it can
   land (`withLandableFrontmatter`), else as a code block, never dropped.
 
+`tableFillerRow.ts` is not a parse-side repair but a mark: the gfm schema needs
+a body row, so a header-only table reads with a row of no cells, which
+`fixTables` (in `tablePasses.ts`) fills with empty cells on load. That row is
+marked `table_row.filler` (kept through the DOM), and the serializer does not
+write a filler row while it is empty, so an edit no longer adds `|  |  |`. Its
+canary is in `editor-embed-milkdown-compat-tables-and-links.spec.ts`.
+
 `src/milkdown-compat/frontmatter.ts` is in the same directory for the same
 reason but is an ADDITION, not a fork: the preset has no front matter construct,
 so `---\ntags: [a, b]\n---` parsed as a thematic break plus a setext heading and

@@ -49,6 +49,7 @@ export const FIXTURES_OUTSIDE_THE_DIFFERENTIAL = {
   'markdown-house-style-marks-and-breaks.json': MARKDOWN_HOUSE_STYLE_REASON,
   'markdown-house-style-lists-and-code.json': MARKDOWN_HOUSE_STYLE_REASON,
   'markdown-house-style-tables-and-verbatim.json': MARKDOWN_HOUSE_STYLE_REASON,
+  'markdown-house-style-table-filler-rows.json': MARKDOWN_HOUSE_STYLE_REASON,
   'markdown-house-style-escapes-and-empty-lines.json': MARKDOWN_HOUSE_STYLE_REASON,
   'markdown-house-style-spaces-and-typing.json': MARKDOWN_HOUSE_STYLE_REASON,
 };

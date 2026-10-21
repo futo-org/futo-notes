@@ -57,8 +57,8 @@ once the Rust oracle is built; it needs `cargo`, so it runs in the
 Two corpora are split across several files to stay under the repo's per-file size
 limit: `wikilinks-{resolve,suffix,rewrite}.json` hold one op group each, and
 `markdown-house-style-*.json` hold the cases in story order (`marks-and-breaks`,
-`lists-and-code`, `tables-and-verbatim`, `escapes-and-empty-lines`,
-`spaces-and-typing`). Every loader reads all of a corpus's parts.
+`lists-and-code`, `tables-and-verbatim`, `table-filler-rows`,
+`escapes-and-empty-lines`, `spaces-and-typing`). Every loader reads all of a corpus's parts.
 
 `op` names are the language-neutral verbs every binding dispatches on. Renaming one
 means touching the fixtures, the differential, the Rust dispatcher, and the native

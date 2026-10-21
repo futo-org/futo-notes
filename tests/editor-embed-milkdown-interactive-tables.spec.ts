@@ -153,6 +153,48 @@ test('Tab at the very last cell appends a row instead of dropping focus', async 
   ]);
 });
 
+// A table with no body row: the schema needs one (`table_header_row
+// table_row+`), so the editor shows an empty row under the header. That row
+// is not the note's — it used to be written as `|  |  |` by the first edit
+// anywhere in the table, Mod+Enter out of it included.
+const HEADER_ONLY = '| a | b |\n| - | - |\n\nafter\n';
+
+test('an edit to a header-only table writes no body row', async ({ page }) => {
+  await open(page, HEADER_ONLY);
+  await caretAtEndOf(page, 'b');
+  await page.keyboard.type('X');
+  await settled(page);
+  expect(await getContent(page)).toBe('| a | bX |\n| --- | --- |\n\nafter\n');
+});
+
+test('Mod+Enter out of a header-only table writes no body row', async ({ page }) => {
+  await open(page, HEADER_ONLY);
+  await caretAtEndOf(page, 'b');
+  await page.keyboard.press('ControlOrMeta+Enter');
+  await page.keyboard.type('new line');
+  await settled(page);
+  expect(await getContent(page)).toBe('| a | b |\n| --- | --- |\n\nnew line\n\nafter\n');
+});
+
+test('Enter in a header-only table moves into the empty row, which typing writes', async ({
+  page,
+}) => {
+  await open(page, HEADER_ONLY);
+  await caretAtEndOf(page, 'b');
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('X');
+  await settled(page);
+  expect(await getContent(page)).toBe('| a | b |\n| --- | --- |\n|  | X |\n\nafter\n');
+});
+
+test('a body row the author wrote empty is still written after an edit', async ({ page }) => {
+  await open(page, '| a | b |\n| - | - |\n|  |  |\n');
+  await caretAtEndOf(page, 'b');
+  await page.keyboard.type('X');
+  await settled(page);
+  expect(await getContent(page)).toBe('| a | bX |\n| --- | --- |\n|  |  |\n');
+});
+
 /**
  * A paste carrying an HTML `<table>` (a spreadsheet or web-table copy) while
  * the caret sits in a table cell. Nothing in Playwright or CDP can put HTML on
@@ -287,6 +329,24 @@ test('a list pasted into an empty list item becomes siblings, not a nested list'
   const content = await getContent(page);
   expect(content).not.toMatch(/-\s+-\s/);
   expect(content.match(/^\s*[-*+]\s/gm)).toHaveLength(4);
+});
+
+test('a header-only table copied out of the editor pastes back with no body row', async ({
+  page,
+}) => {
+  // The HTML the editor's own copy writes for a header-only table: its filler
+  // row is marked in the DOM, so the paste keeps it unwritten.
+  await open(page, 'start');
+  await caretAtEndOf(page, 'start');
+  await page.keyboard.press('Enter');
+  await pasteHtml(
+    page,
+    '<table><tbody><tr data-is-header="true"><th><p>a</p></th><th><p>b</p></th></tr>' +
+      '<tr data-filler=""><td><p></p></td><td><p></p></td></tr></tbody></table>',
+    '| a | b |\n| --- | --- |',
+  );
+  await settled(page);
+  expect(await getContent(page)).toBe('start\n\n| a | b |\n| --- | --- |\n');
 });
 
 test('pasting an HTML table into the header row, and a <th> table into a body row, both land', async ({
