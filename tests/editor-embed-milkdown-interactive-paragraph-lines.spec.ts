@@ -476,3 +476,24 @@ for (const [note, word, back, pasted, expected] of [
     expect(await getContent(page)).toBe(expected);
   });
 }
+
+// One copied line that starts with a tab or four spaces read as indented code,
+// and the line was split around a code block: `hello` + `    world` saved
+// `hello` and a fence holding `world`.
+for (const [note, word, back, pasted, expected] of [
+  ['hello\n', 'hello', 0, '    world', 'hello    world\n'],
+  ['base\n', 'base', 0, '\tx', 'base\tx\n'],
+  ['see the code\n', 'see the code', 8, '\treturn x;', 'see \treturn x;the code\n'],
+  ['see the code\n', 'see the code', 8, '\treturn x;\n', 'see \treturn x;the code\n'],
+] as const) {
+  test(`one indented line pasted into ${JSON.stringify(note)} keeps its whitespace: ${JSON.stringify(pasted)}`, async ({
+    page,
+  }) => {
+    await open(page, note);
+    await caretAtEndOf(page, word);
+    if (back > 0) await caretBack(page, back);
+    await pastePlainText(page, pasted);
+    await settled(page);
+    expect(await getContent(page)).toBe(expected);
+  });
+}

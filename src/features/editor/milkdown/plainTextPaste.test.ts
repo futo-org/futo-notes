@@ -289,13 +289,21 @@ describe('pasting blocks into a line that has text', () => {
   });
 
   // Where a pasted line stops being characters (plainTextPaste.ts `literalLine`):
-  // a marker with text after it is a block.
+  // a marker with text after it, several indented lines and a divider are blocks.
   it('a numbered line with text is an ordered list, split out of the line', async () => {
     const [handle, view] = await caretIn('abcd\n', 2);
 
     expect(pastePlain(view, '1986. A great year')).toBe(true);
 
     expect(handle.getContent()).toBe('ab\n\n1986. A great year\n\ncd\n');
+  });
+
+  it('several indented lines are a code block', async () => {
+    const [handle, view] = await caretIn('base\n', 4);
+
+    expect(pastePlain(view, '    a\n    b')).toBe(true);
+
+    expect(handle.getContent()).toBe('base\n\n```\na\nb\n```\n');
   });
 
   it('a divider is a block, split out of the line', async () => {

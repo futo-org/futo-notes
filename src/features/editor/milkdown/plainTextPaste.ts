@@ -226,13 +226,15 @@ function placeListItems(tr: Transaction, blocks: Fragment): Transaction | null {
 /**
  * The characters of a one-line paste that reads as no block a line could
  * want, or null. Read as markdown, a block marker alone (`#`, `-`, `>`, `1.`,
- * `- [ ]`) is an empty block; placed as one it splits the caret's line around
- * nothing the user typed. It goes in as copied, the line kept whole. A line
- * ending at either end of the copied line is not part of it.
+ * `- [ ]`) is an empty block and one indented line (a tab or four spaces) is
+ * a code block without its indent; placed as blocks they split the caret's
+ * line, around an empty block or a fence. They go in as copied, the line kept
+ * whole. A line ending at either end of the copied line is not part of it.
  */
 function literalLine(text: string, blocks: Fragment): string | null {
   const line = text.replace(/^(?:[ \t]*(?:\r\n?|\n))+/, '').replace(/(?:\r\n?|\n)+$/, '');
   if (/[\r\n]/.test(line)) return null;
+  if (blocks.childCount === 1 && blocks.firstChild!.type.spec.code) return line;
   let content = false;
   blocks.descendants((node) => {
     if (node.isText || node.isLeaf) content = true;

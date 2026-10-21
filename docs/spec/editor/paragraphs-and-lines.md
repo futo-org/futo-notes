@@ -62,7 +62,10 @@
   goes in as the characters copied and the line stays whole: `#` pasted into
   `ab|cd` saves `ab#cd`, not `ab`, an empty heading and `cd`. A marker with text
   after it is that block (`1986. A great year` pasted into `ab|cd` is an ordered
-  list starting at 1986, between `ab` and `cd`), and so is a divider (`---`). →
+  list starting at 1986, between `ab` and `cd`), and so is a divider (`---`).
+  One copied line that starts with a tab or four spaces is the same: its
+  whitespace is kept as copied, not read as indented code (`hello` + a pasted
+  `    world` saves `hello    world`); several such lines are a code block. →
   plainTextPaste.ts `literalLine`,
   tests/editor-embed-milkdown-interactive-paragraph-lines.spec.ts
 - In a list or task item, a pasted block lands inside the item, under the
