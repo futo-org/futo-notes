@@ -8,8 +8,9 @@
  * mirror.
  */
 import { $prose } from '@milkdown/kit/utils';
-import { Plugin as ProsePlugin, Selection } from '@milkdown/kit/prose/state';
-import type { EditorState, Transaction } from '@milkdown/kit/prose/state';
+import { keydownHandler } from '@milkdown/kit/prose/keymap';
+import { Plugin as ProsePlugin, Selection, TextSelection } from '@milkdown/kit/prose/state';
+import type { Command, EditorState, Transaction } from '@milkdown/kit/prose/state';
 import type { Node as ProseNode } from '@milkdown/kit/prose/model';
 import type { EditorView as ProseView } from '@milkdown/kit/prose/view';
 import { FRONTMATTER_NODE } from './frontmatter';
@@ -85,5 +86,45 @@ const frontmatterGapPlugin = $prose(
     }),
 );
 
+/**
+ * Ctrl+Home (Cmd+Up on an Apple keyboard) to the top of the body; with Shift,
+ * the selection is extended there instead.
+ *
+ * The browser's own document-start move looks for the first caret position in
+ * the editable host, finds the `contenteditable="false"` panel there, and does
+ * nothing at all — not even a `selectionchange` — so the next keystroke landed
+ * wherever the caret already was. Declines in a note without front matter,
+ * where the browser's move works.
+ */
+function toBodyStart(extend: boolean): Command {
+  return (state, dispatch) => {
+    const target = bodyStart(state.doc);
+    if (!target) return false;
+    const selection = extend
+      ? TextSelection.between(state.selection.$anchor, target.$head)
+      : target;
+    dispatch?.(state.tr.setSelection(selection).scrollIntoView());
+    return true;
+  };
+}
+
+const frontmatterBodyStartKeys = $prose(
+  () =>
+    new ProsePlugin({
+      props: {
+        handleKeyDown: keydownHandler({
+          'Ctrl-Home': toBodyStart(false),
+          'Ctrl-Shift-Home': toBodyStart(true),
+          'Meta-ArrowUp': toBodyStart(false),
+          'Meta-Shift-ArrowUp': toBodyStart(true),
+        }),
+      },
+    }),
+);
+
 /** The caret plugins, registered after {@link ./frontmatter}'s `frontmatterPlugins`. */
-export const frontmatterCaretPlugins = [frontmatterClickPlugin, frontmatterGapPlugin];
+export const frontmatterCaretPlugins = [
+  frontmatterClickPlugin,
+  frontmatterGapPlugin,
+  frontmatterBodyStartKeys,
+];

@@ -17,7 +17,7 @@ import {
   hostSetContent,
   pasteClipboard,
 } from './lib/editorEmbedMilkdown';
-import { caretAtStartOf } from './lib/editorEmbedMilkdownInteractive';
+import { caretAtEndOf, caretAtStartOf } from './lib/editorEmbedMilkdownInteractive';
 
 // ============================================================
 // YAML front matter (the block the editor's schema owns but never edits)
@@ -142,6 +142,33 @@ test('ArrowUp from the empty body of a front-matter-only note keeps the caret th
   await settleChangeDebounce(page);
 
   expect(await getContent(page)).toBe('---\na: 1\n---\n\nX\n');
+});
+
+// The browser's own Ctrl+Home looks for the first caret position in the
+// editable host and finds the `contenteditable="false"` metadata panel there,
+// so it did nothing at all and the next keystroke landed where the caret was.
+for (const key of ['Control+Home', 'Meta+ArrowUp']) {
+  test(`${key} moves the caret to the top of the body`, async ({ page }) => {
+    await hostSetContent(page, FRONT_MATTER_NOTE);
+    await caretAtEndOf(page, 'Content after front matter.');
+    await page.keyboard.press(key);
+    await page.keyboard.type('X');
+    await settleChangeDebounce(page);
+
+    expect(await getContent(page)).toBe(FRONT_MATTER_NOTE.replace('# Body', '# XBody'));
+  });
+}
+
+test('Ctrl+Shift+Home selects from the caret to the top of the body', async ({ page }) => {
+  await hostSetContent(page, FRONT_MATTER_NOTE);
+  await caretAtEndOf(page, 'Content after front matter.');
+  await page.keyboard.press('Control+Shift+Home');
+  await page.keyboard.type('X');
+  await settleChangeDebounce(page);
+
+  expect(await getContent(page)).toBe(
+    '---\ntitle: Front Matter Test\ntags: [a, b]\ndate: 2026-09-01\n---\n\n# X\n',
+  );
 });
 
 test('a note that opens with an unclosed --- rule keeps its lists and quotes', async ({ page }) => {

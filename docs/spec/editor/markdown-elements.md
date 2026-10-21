@@ -120,6 +120,11 @@
   written there rather than dropped. →
   packages/editor/src/milkdown-compat/frontmatterCaret.ts `caretBeforeFrontmatter`,
   tests/editor-embed-milkdown-front-matter.spec.ts
+- Ctrl+Home (Cmd+Up on an Apple keyboard) in a note with front matter moves
+  the caret to the top of the body, and with Shift selects up to it; the
+  browser's own move found no caret position in the panel and did nothing. →
+  packages/editor/src/milkdown-compat/frontmatterCaret.ts `toBodyStart`,
+  tests/editor-embed-milkdown-front-matter.spec.ts
 - A note whose ONLY content is front matter gets the empty body paragraph the
   schema requires (the document's content is `frontmatter? block+`). That
   paragraph is what gives the caret somewhere to go that is not a selection ON
