@@ -131,6 +131,10 @@
   in that language. → packages/editor/src/milkdown-compat/inputRules.ts,
   tests/editor-embed-milkdown-interactive-code-blocks.spec.ts
 
+- Seven or more `#` and a space are not a heading: the line stays text, as a
+  file reads it. → packages/editor/src/milkdown-compat/inputRules.ts,
+  tests/editor-embed-milkdown-interactive-typed-escapes.spec.ts
+
 - _(desktop)_ Selecting text raises a floating toolbar just above the
   selection — Text/H1/H2/H3, Quote, Bold, Italic, Strikethrough, Code, Link,
   plus Indent/Outdent inside lists and quotes — placed by the same

@@ -234,3 +234,36 @@ test('a LOOSE file keeps its blank lines after the same edit', async ({ page }) 
   await settled(page);
   expect(await getContent(page)).toBe('- item a\n\n- item b\n\n  - nested c!\n');
 });
+
+// ============================================================
+// Seven or more `#` are not a heading (CommonMark; markdown-house-style.md
+// "Headings are ATX: one to six #"). The preset's rule made a level-7 heading
+// node, rendered `<h7>`, that saved as six hashes — a different line.
+// ============================================================
+
+/** Opens an empty note, types `keys`, and waits for the save. */
+async function typeIntoEmpty(page: Page, keys: string): Promise<string> {
+  await openAtEnd(page, '');
+  await page.keyboard.type(keys);
+  await settled(page);
+  return getContent(page);
+}
+
+test('typing seven hashes and a space stays paragraph text', async ({ page }) => {
+  expect(await typeIntoEmpty(page, '####### seven')).toBe('####### seven\n');
+  expect(await page.locator('.ProseMirror :is(h1, h2, h3, h4, h5, h6, h7)').count()).toBe(0);
+});
+
+test('typing seven hashes and a space on a later line stays paragraph text', async ({ page }) => {
+  await openAtEnd(page, 'Hello');
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('####### seven');
+  await settled(page);
+  expect(await getContent(page)).toBe('Hello\n####### seven\n');
+  expect(await page.locator('.ProseMirror :is(h1, h2, h3, h4, h5, h6, h7)').count()).toBe(0);
+});
+
+test('typing six hashes and a space still makes a level-6 heading', async ({ page }) => {
+  expect(await typeIntoEmpty(page, '###### six')).toBe('###### six\n');
+  expect(await page.locator('.ProseMirror h6').allTextContents()).toEqual(['six']);
+});

@@ -177,7 +177,7 @@ test.describe('the parked end-of-document paragraph is not written', () => {
 test.describe('typed markdown converts only where the saved line would read the same', () => {
   // The presets' input rules (milkdown-compat/inputRules.ts) disagreed with the
   // parser that reads a note back: a fence language with a capital or a `+`
-  // did not open a fence.
+  // did not open a fence, and seven `#` made a level-7 heading.
   const typed = (page: Page, variant: 'compat' | 'baseline', keys: string) =>
     page.evaluate(([v, k]) => window.__futoCensus.typeText(v as 'compat' | 'baseline', k), [
       variant,
@@ -195,5 +195,16 @@ test.describe('typed markdown converts only where the saved line would read the 
       const out = await typed(page, 'compat', '```' + language + ' x');
       expect(out.markdown, language).toBe('```' + language + '\nx\n```\n');
     }
+  });
+
+  test('canary: upstream still makes a level-7 heading of seven #', async ({ page }) => {
+    expect((await typed(page, 'baseline', '####### seven')).headingLevels).toEqual([7]);
+  });
+
+  test('compat leaves seven # text and still makes headings of one to six', async ({ page }) => {
+    const seven = await typed(page, 'compat', '####### seven');
+    expect(seven.headingLevels).toEqual([]);
+    expect(seven.markdown).toBe('####### seven\n');
+    expect((await typed(page, 'compat', '###### six')).headingLevels).toEqual([6]);
   });
 });

@@ -61,7 +61,7 @@
  *
  * `./inputRules` forks the presets' typed-markdown input rules where they read
  * a keystroke differently from how the parser reads the saved line: a fence
- * language with a capital or a `+`.
+ * language with a capital or a `+`, seven `#`.
  *
  * `./frontmatter` is the one member that is an ADDITION rather than a fork: the
  * preset has no front matter construct at all, so `---\ntags: [a, b]\n---`
@@ -86,6 +86,7 @@ import {
   remarkPreserveEmptyLinePlugin,
   syncHeadingIdPlugin,
   syncListOrderPlugin,
+  wrapInHeadingInputRule as upstreamHeadingInputRule,
 } from '@milkdown/kit/preset/commonmark';
 import { gfm, keepTableAlignPlugin, tableEditingPlugin } from '@milkdown/kit/preset/gfm';
 import type { MilkdownPlugin } from '@milkdown/kit/ctx';
@@ -95,7 +96,7 @@ import { remarkInlineHtmlIndentPlugin } from './inlineHtmlIndent';
 import { remarkEmptyTaskItemPlugin } from './emptyTaskItem';
 import { remarkImageTitlePlugin } from './imageTitle';
 import { inlineNodesCursorPlugin } from './inlineNodesCursor';
-import { createCodeBlockInputRule } from './inputRules';
+import { createCodeBlockInputRule, wrapInHeadingInputRule } from './inputRules';
 import { remarkInlineUsedLinkDefinitionsPlugin } from './linkDefinitions';
 import { remarkBlankLineParagraphsPlugin } from './emptyLine';
 import { frontmatterPlugins } from './frontmatter';
@@ -198,6 +199,7 @@ function replacePresetEntry(
  */
 const FORKED_INPUT_RULES: readonly (readonly [MilkdownPlugin, MilkdownPlugin, string])[] = [
   [upstreamCodeBlockInputRule, createCodeBlockInputRule, 'code-block input rule'],
+  [upstreamHeadingInputRule, wrapInHeadingInputRule, 'heading input rule'],
 ];
 
 /** The upstream preset minus every plugin this module forks or drops. */
