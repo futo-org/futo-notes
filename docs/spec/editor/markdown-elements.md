@@ -124,6 +124,14 @@
   the caret to the top of the body, and with Shift selects up to it. →
   packages/editor/src/milkdown-compat/frontmatterCaret.ts `toBodyStart`,
   tests/editor-embed-milkdown-front-matter.spec.ts
+- Every other upward move that runs out of body reaches the top of the body,
+  as it reaches the start of a note without front matter, instead of stopping
+  partway along the first line: Ctrl+ArrowUp from anywhere in the first
+  paragraph, Shift+ArrowUp from its first line, and a PageUp that would go
+  past the top (each with Shift selecting up to it). A PageUp that lands inside
+  the body moves by a page as usual. →
+  packages/editor/src/milkdown-compat/frontmatterCaret.ts `upToBodyStart`,
+  `pageUpPastTop`, tests/editor-embed-milkdown-front-matter.spec.ts
 - The top of the body is always a caret, never a selection on a block: when
   the body opens with a divider, Ctrl+Home, a click on the panel, or a click
   above it puts the caret in front of the divider, and typing there writes a

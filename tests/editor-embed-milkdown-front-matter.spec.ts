@@ -9,6 +9,7 @@ import {
   getContent,
   installFakeAndroidHost,
   waitForMessages,
+  withCaretObserved,
   type FakeHostWindow,
 } from './lib/editorEmbedHost';
 import {
@@ -171,6 +172,78 @@ test('Ctrl+Shift+Home selects from the caret to the top of the body', async ({ p
   );
 });
 
+// Every other upward move the browser makes itself hit the same panel: from
+// the first line of the body, Ctrl+ArrowUp, Shift+ArrowUp and a PageUp that
+// overshoots the top stopped partway along that line (`# BoXdy`), where a note
+// without front matter goes to the start of it.
+const upwardMoves: [string, string, string][] = [
+  ['Control+ArrowUp', 'Body', '# XBody\n\nContent after front matter.\n'],
+  ['PageUp', 'Content after front matter.', '# XBody\n\nContent after front matter.\n'],
+  ['Shift+ArrowUp', 'Body', '# X\n\nContent after front matter.\n'],
+  ['Control+Shift+ArrowUp', 'Body', '# X\n\nContent after front matter.\n'],
+  ['Shift+PageUp', 'Content after front matter.', '# X\n'],
+];
+for (const [key, from, body] of upwardMoves) {
+  test(`${key} past the first line of the body reaches the top of the body`, async ({ page }) => {
+    await hostSetContent(page, FRONT_MATTER_NOTE);
+    await caretAtEndOf(page, from);
+    await page.keyboard.press(key);
+    await page.keyboard.type('X');
+    await settleChangeDebounce(page);
+
+    expect(await getContent(page)).toBe(
+      '---\ntitle: Front Matter Test\ntags: [a, b]\ndate: 2026-09-01\n---\n\n' + body,
+    );
+  });
+}
+
+test('Control+ArrowUp from the last line of a wrapped first paragraph reaches the top of the body', async ({
+  page,
+}) => {
+  // Ctrl+ArrowUp moves a paragraph at a time, so from anywhere in the first
+  // paragraph it goes to the start of it — not just from its first line.
+  const long = 'word '.repeat(120).trim();
+  await hostSetContent(page, `---\na: 1\n---\n\n${long}\n`);
+  await focusEditor(page);
+  await page.keyboard.press('Control+End');
+  await page.keyboard.press('Control+ArrowUp');
+  await page.keyboard.type('X');
+  await settleChangeDebounce(page);
+
+  expect(await getContent(page)).toBe(`---\na: 1\n---\n\nX${long}\n`);
+});
+
+test('Shift+ArrowUp from the text below a leading image selects up to the top of the body', async ({
+  page,
+}) => {
+  // The image is `contenteditable="false"`, so the line under it is the first
+  // one the browser's caret can reach, and its Shift+ArrowUp stopped there.
+  await hostSetContent(page, '---\na: 1\n---\n\n![alt](x.png) after\n\npara\n');
+  await caretAtEndOf(page, 'para');
+  // The first move is the browser's, so it reaches the editor on a later
+  // `selectionchange`.
+  await withCaretObserved(page, () => page.keyboard.press('Shift+ArrowUp'));
+  await page.keyboard.press('Shift+ArrowUp');
+  await page.keyboard.type('X');
+  await settleChangeDebounce(page);
+
+  expect(await getContent(page)).toBe('---\na: 1\n---\n\nX\n');
+});
+
+test('PageUp a long way below the top still moves by a page', async ({ page }) => {
+  const lines = Array.from({ length: 120 }, (_, i) => `line ${i}`).join('\n\n');
+  await hostSetContent(page, `---\na: 1\n---\n\n# Body\n\n${lines}\n`);
+  await caretAtEndOf(page, 'line 119');
+  await page.keyboard.press('PageUp');
+  await page.keyboard.type('X');
+  await settleChangeDebounce(page);
+
+  const content = await getContent(page);
+  expect(content).toContain('\n# Body\n');
+  expect(content).toMatch(/\nline (\d+)X\n/);
+  expect(Number(/\nline (\d+)X\n/.exec(content)?.[1])).toBeGreaterThan(10);
+});
+
 // A divider is a selectable leaf, so "the first place in the body" next to one
 // is a NODE selection on it, and the next keystroke replaced it: Ctrl+Home, a
 // click on the panel, or a click in the padding above it, then `X`, deleted the
@@ -184,6 +257,22 @@ const routesToBodyStart: [string, (page: Page) => Promise<void>][] = [
     async (page) => {
       await caretAtEndOf(page, 'para');
       await page.keyboard.press('Control+Home');
+    },
+  ],
+  [
+    'PageUp',
+    async (page) => {
+      await caretAtEndOf(page, 'para');
+      await page.keyboard.press('PageUp');
+    },
+  ],
+  [
+    'Control+ArrowUp twice',
+    async (page) => {
+      // The first press selects the divider, as without front matter.
+      await caretAtEndOf(page, 'para');
+      await page.keyboard.press('Control+ArrowUp');
+      await page.keyboard.press('Control+ArrowUp');
     },
   ],
   ['a click on the panel', (page) => page.locator('.futo-frontmatter').click()],

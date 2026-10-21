@@ -10,9 +10,14 @@
 import { $prose } from '@milkdown/kit/utils';
 import { GapCursor } from '@milkdown/kit/prose/gapcursor';
 import { keydownHandler } from '@milkdown/kit/prose/keymap';
-import { Plugin as ProsePlugin, Selection, TextSelection } from '@milkdown/kit/prose/state';
+import {
+  NodeSelection,
+  Plugin as ProsePlugin,
+  Selection,
+  TextSelection,
+} from '@milkdown/kit/prose/state';
 import type { Command, EditorState, Transaction } from '@milkdown/kit/prose/state';
-import type { Node as ProseNode } from '@milkdown/kit/prose/model';
+import type { Node as ProseNode, ResolvedPos } from '@milkdown/kit/prose/model';
 import type { EditorView as ProseView } from '@milkdown/kit/prose/view';
 import { FRONTMATTER_NODE } from './frontmatter';
 
@@ -99,6 +104,19 @@ const frontmatterGapPlugin = $prose(
 );
 
 /**
+ * The selection {@link bodyStart} gives, or with `extend` the current one
+ * stretched to it.
+ *
+ * A text selection cannot end in the gap in front of a divider that opens the
+ * body, so an extended one stops at the body's first text and leaves the
+ * divider out.
+ */
+function selectBodyStart(state: EditorState, target: Selection, extend: boolean): Transaction {
+  const selection = extend ? TextSelection.between(state.selection.$anchor, target.$head) : target;
+  return state.tr.setSelection(selection).scrollIntoView();
+}
+
+/**
  * Ctrl+Home (Cmd+Up on an Apple keyboard) to the top of the body; with Shift,
  * the selection is extended there instead.
  *
@@ -112,10 +130,86 @@ function toBodyStart(extend: boolean): Command {
   return (state, dispatch) => {
     const target = bodyStart(state.doc);
     if (!target) return false;
-    const selection = extend
-      ? TextSelection.between(state.selection.$anchor, target.$head)
-      : target;
-    dispatch?.(state.tr.setSelection(selection).scrollIntoView());
+    dispatch?.(selectBodyStart(state, target, extend));
+    return true;
+  };
+}
+
+/**
+ * Ctrl+ArrowUp, Shift+ArrowUp and Ctrl+Shift+ArrowUp at the top of the body:
+ * to the top of the body, as at the top of a note without front matter.
+ *
+ * The browser makes these moves itself, and what it looks for above is inside
+ * the `contenteditable="false"` panel, so it stopped partway along the first
+ * line instead (`# Bo|dy`). Shift+ArrowUp acts from the first line of the
+ * body; the Ctrl moves go a paragraph at a time, so they act from anywhere in
+ * the first one. Plain ArrowUp does not need this: the gap cursor takes it,
+ * and {@link caretBeforeFrontmatter} lands it here. Below a divider that opens
+ * the body, an unshifted move first selects the divider (ProseMirror's own
+ * step, as without front matter) and from there goes to the top of the body.
+ */
+function upToBodyStart(extend: boolean, byParagraph: boolean): Command {
+  return (state, dispatch, view) => {
+    const target = bodyStart(state.doc);
+    if (!view || !target) return false;
+    const { selection } = state;
+    if (selection instanceof NodeSelection) {
+      if (extend || selection.from !== target.from) return false;
+    } else {
+      const { $head } = selection;
+      if (!$head.parent.isTextblock) return false;
+      if (!extend && !(target instanceof TextSelection)) return false;
+      const firstText = Selection.findFrom(target.$head, 1, true);
+      if (firstText?.$head.start() !== $head.start()) return false;
+      if (!byParagraph && !onFirstTextLine(view, $head)) return false;
+    }
+    dispatch?.(selectBodyStart(state, target, extend));
+    return true;
+  };
+}
+
+/**
+ * Whether the head is on the first line of text in its textblock, where the
+ * browser has nowhere above to go. Measured from the head rather than with
+ * `endOfTextblock`, which looks at the top end of a selection, and from the
+ * first text rather than the block's start: an image above it is
+ * `contenteditable="false"`, no line the browser's caret can stop on.
+ */
+function onFirstTextLine(view: ProseView, $head: ResolvedPos): boolean {
+  let firstText = -1;
+  $head.parent.forEach((child, offset) => {
+    if (firstText < 0 && child.isText) firstText = $head.start() + offset;
+  });
+  if (firstText < 0 || firstText >= $head.pos) return true;
+  return view.coordsAtPos($head.pos).top < view.coordsAtPos(firstText, 1).bottom;
+}
+
+/**
+ * The distance the browser's PageUp moves the caret: Chromium's
+ * `MoveCommands::VerticalScrollDistance`, the smaller of the editor's and the
+ * viewport's height less a 40px overlap (or 7/8 of it, whichever is further).
+ */
+function pageStep(view: ProseView): number {
+  const height = Math.min(view.dom.clientHeight, document.documentElement.clientHeight);
+  return Math.max(height * 0.875, height - 40, 1);
+}
+
+/**
+ * PageUp (and Shift+PageUp) that would go past the top of the body: to the top
+ * of the body, as a note without front matter goes to its start.
+ *
+ * The browser looks for the line a page up, finds none it can edit above the
+ * body, and stopped partway along the first line (`# Bo|dy`), or below a
+ * divider did not move at all. A PageUp that lands inside the body is the
+ * browser's own.
+ */
+function pageUpPastTop(extend: boolean): Command {
+  return (state, dispatch, view) => {
+    const target = bodyStart(state.doc);
+    if (!view || !target) return false;
+    const caretTop = view.coordsAtPos(state.selection.head).top;
+    if (caretTop - pageStep(view) >= view.coordsAtPos(target.head).top) return false;
+    dispatch?.(selectBodyStart(state, target, extend));
     return true;
   };
 }
@@ -129,6 +223,11 @@ const frontmatterBodyStartKeys = $prose(
           'Ctrl-Shift-Home': toBodyStart(true),
           'Meta-ArrowUp': toBodyStart(false),
           'Meta-Shift-ArrowUp': toBodyStart(true),
+          'Ctrl-ArrowUp': upToBodyStart(false, true),
+          'Shift-ArrowUp': upToBodyStart(true, false),
+          'Ctrl-Shift-ArrowUp': upToBodyStart(true, true),
+          PageUp: pageUpPastTop(false),
+          'Shift-PageUp': pageUpPastTop(true),
         }),
       },
     }),
