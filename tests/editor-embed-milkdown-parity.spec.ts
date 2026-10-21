@@ -196,22 +196,52 @@ test('a typed link is exactly what reopening the note would link', async ({ page
   );
 });
 
-test('typed markdown link syntax is not linked as if it were a bare URL', async ({ page }) => {
-  // Only a GFM autolink literal is a bare URL. The word `[t](https://x.test)`
-  // parses as an INLINE link, and taking that as "the link reopening would
-  // give" marked the whole typed source as link text: the note saved a link
-  // quoting itself, `[\\[t\\](https://x.test)](https://x.test)`.
-  for (const typed of ['[t](https://x.test) ', '<https://x.test> ']) {
-    await typeIntoEmptyNote(page, typed);
-    await page.keyboard.type('ok');
-    expect(await links(page), typed).toEqual([]);
+/** Reopens `markdown` for real: through another note first, because a same-bytes
+ * `initialize` is skipped and would leave the typed document on screen. */
+async function reopenSaved(page: Page, markdown: string): Promise<void> {
+  await open(page, '-');
+  await open(page, markdown);
+}
+
+for (const [typed, expected] of [
+  ['[t](https://x.test) ok', [['https://x.test', 'https://x.test']]],
+  ['see [t](https://x.test) ok', [['https://x.test', 'https://x.test']]],
+  ['[t](www.x.test) ok', [['www.x.test', 'http://www.x.test']]],
+  ['[t](https://x.test)\nok', [['https://x.test', 'https://x.test']]],
+] as const) {
+  test(`typed link syntax "${typed}" links what reopening the note links`, async ({ page }) => {
+    // Only a GFM autolink literal is a bare URL. `[t](https://x.test)` parses
+    // as an INLINE link, and taking that as "the link reopening would give"
+    // marked the whole typed source as link text: the note saved a link quoting
+    // itself, `[\\[t\\](https://x.test)](https://x.test)`. Typed link syntax is
+    // text, saved escaped; the URL inside it is still a bare URL to the file,
+    // so it links now exactly as the next open links it.
+    const [line, rest] = typed.split('\n');
+    await typeIntoEmptyNote(page, line ?? '');
+    if (rest !== undefined) {
+      await page.keyboard.press('Enter');
+      await page.keyboard.type(rest);
+    }
+    expect(await links(page), typed).toEqual(expected);
     await page.waitForTimeout(CHANGE_DEBOUNCE_MS + 120);
     const saved = await getContent(page);
-    // Saved as the text it is on screen: reopening shows the same line, unlinked.
-    await open(page, saved);
-    expect(await links(page), saved).toEqual([]);
-    expect(await page.locator('.ProseMirror p').innerText(), saved).toBe(`${typed}ok`);
-  }
+    await reopenSaved(page, saved);
+    expect(await links(page), saved).toEqual(expected);
+    expect(await page.locator('.ProseMirror').innerText(), saved).toBe(typed);
+  });
+}
+
+test('typed "<url>" links what reopening the note links', async ({ page }) => {
+  // `<u>` is link syntax too: typed, it is text, and the bare URL GFM reads
+  // in the saved line is the link — whatever that is, typing and reopening agree.
+  await typeIntoEmptyNote(page, '<https://x.test> ok');
+  const typedLinks = await links(page);
+  expect(typedLinks.map(([text]) => text)).not.toContain('<https://x.test>');
+  await page.waitForTimeout(CHANGE_DEBOUNCE_MS + 120);
+  const saved = await getContent(page);
+  await reopenSaved(page, saved);
+  expect(await links(page), saved).toEqual(typedLinks);
+  expect(await page.locator('.ProseMirror').innerText(), saved).toBe('<https://x.test> ok');
 });
 
 test('a URL typed inside inline code stays code', async ({ page }) => {

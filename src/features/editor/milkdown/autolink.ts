@@ -1,24 +1,32 @@
 /*
  * A typed URL becomes a link the moment its word ends — Space, Enter, or a
- * hard break. → docs/spec/editor.md "Typing a bare URL links it"
+ * hard break. → docs/spec/editor/external-links.md "Typing a bare URL links it"
  *
  * GFM's autolink literals are recognized when a note is PARSED, so a URL
  * already in the file rendered as a link while one just typed stayed plain
  * text until the note was closed and reopened. This closes that gap without a
- * second definition of "URL": the word that just ended is handed to the
- * editor's OWN remark processor, exactly as the next open would read it, and
- * whatever link that parse finds — its extent, with GFM's trailing-punctuation
- * trim, and its href, `http://` added for `www.` — is the link applied. So
- * "a link now" and "a link after reopening" cannot disagree, and the file keeps
- * the bare URL the user typed (docs/spec/editor.md "Markdown house style").
+ * second definition of "URL": the word that just ended is SAVED and REOPENED —
+ * written by the editor's own serializer and read back by its own parser,
+ * exactly what the next save and open do to it — and whatever link that
+ * reopen holds — its extent, with GFM's trailing-punctuation trim, and its
+ * href, `http://` added for `www.` — is the link applied. So "a link now" and
+ * "a link after reopening" cannot disagree, and the file keeps the bare URL
+ * the user typed (docs/spec/editor.md "Markdown house style").
+ *
+ * The save is part of the question, not a detail: typed link syntax —
+ * `[t](https://x.test)`, `<https://x.test>` — is text, which the save escapes
+ * (`\[t](https://x.test)`), and the reopen reads the bare URL inside it as a
+ * GFM literal. Parsing the raw word instead read an inline link and linked the
+ * whole source as its own text, and skipping such words left a link that only
+ * appeared on the next open.
  *
  * An `appendTransaction` rather than a Space input rule and an Enter keymap:
  * it sees the result of the edit however it arrived — a key, a phone keyboard's
  * composition, a paste ending in whitespace — so every one of those paths ends
  * the word the same way.
  */
-import { remarkCtx } from '@milkdown/kit/core';
-import type { Node as ProseNode } from '@milkdown/kit/prose/model';
+import { parserCtx, serializerCtx } from '@milkdown/kit/core';
+import type { Mark, MarkType, Node as ProseNode } from '@milkdown/kit/prose/model';
 import {
   Plugin,
   PluginKey,
@@ -27,8 +35,6 @@ import {
   type Transaction,
 } from '@milkdown/kit/prose/state';
 import { $prose } from '@milkdown/kit/utils';
-
-import type { MdastNode } from '@futo-notes/editor/milkdown-compat';
 
 import { isLineBreak } from './paragraphLines';
 
@@ -66,46 +72,43 @@ function endedWordAt(state: EditorState, previous: EditorState): number | null {
   return lineEnd.empty && lineEnd.from < $caret.pos ? lineEnd.from : null;
 }
 
-/** Markdown in, mdast out — the editor's own remark processor's `parse`. */
-type ParseToMdast = (markdown: string) => MdastNode;
-
-/** The text an mdast node shows. */
-function shownText(node: MdastNode): string {
-  if (typeof node.value === 'string') return node.value;
-  return (node.children ?? []).map(shownText).join('');
-}
+/** A document through a save and an open: the editor's serializer, then its parser. */
+type Reopen = (doc: ProseNode) => ProseNode;
 
 /**
- * The first GFM autolink literal in a parsed `source`, with its offsets in it.
- *
- * A literal is the one link whose text IS its source: `[t](u)` and `<u>` parse
- * as links too, but show other text than they are spelled with, and taking one
- * as a bare URL marked the whole typed source as the link's text — a link
- * quoting itself (`[\[t\](u)](u)` on disk). Those are not bare URLs, so they
- * stay the text they were typed as (docs/spec/editor/external-links.md).
+ * The first link in `paragraph`, as offsets into its text — when its text is
+ * exactly `word`. A reopen that changed the word's text (a serializer that
+ * could not write it back) is no answer about where its link goes.
  */
-function firstLiteral(
-  node: MdastNode,
-  source: string,
-): { url: string; start: number; end: number } | null {
-  if (node.type === 'link') {
-    const start = node.position?.start.offset;
-    const end = node.position?.end.offset;
-    if (!node.url || start === undefined || end === undefined) return null;
-    return source.slice(start, end) === shownText(node) ? { url: node.url, start, end } : null;
+function firstLinkIn(
+  paragraph: ProseNode,
+  word: string,
+  link: MarkType,
+): { mark: Mark; start: number; end: number } | null {
+  if (!paragraph.isTextblock) return null;
+  if (paragraph.textBetween(0, paragraph.content.size, undefined, leafText) !== word) return null;
+  let start = -1;
+  let offset = 0;
+  let mark: Mark | undefined;
+  for (let index = 0; index < paragraph.childCount; index += 1) {
+    const child = paragraph.child(index);
+    const here = link.isInSet(child.marks);
+    if (mark) {
+      if (!here?.eq(mark)) break;
+    } else if (here) {
+      mark = here;
+      start = offset;
+    }
+    offset += child.nodeSize;
   }
-  for (const child of node.children ?? []) {
-    const found = firstLiteral(child, source);
-    if (found) return found;
-  }
-  return null;
+  return mark ? { mark, start, end: offset } : null;
 }
 
 /** The transaction linking the URL word that ends at `end`, if it is one. */
 export function autolinkTransaction(
   state: EditorState,
   end: number,
-  parse: ParseToMdast,
+  reopen: Reopen,
 ): Transaction | null {
   const { link, inlineCode } = state.schema.marks;
   if (!link) return null;
@@ -117,9 +120,16 @@ export function autolinkTransaction(
   const from = end - word.length;
   if (state.doc.rangeHasMark(from, end, link)) return null;
   if (inlineCode && state.doc.rangeHasMark(from, end, inlineCode)) return null;
-  const found = firstLiteral(parse(word), word);
+  const wordStart = $end.parentOffset - word.length;
+  const alone = state.schema.topNodeType.create(
+    null,
+    block.type.create(block.attrs, block.content.cut(wordStart, $end.parentOffset)),
+  );
+  const reopened = reopen(alone);
+  const paragraph = reopened.childCount === 1 ? reopened.firstChild : null;
+  const found = paragraph ? firstLinkIn(paragraph, word, link) : null;
   if (!found) return null;
-  return state.tr.addMark(from + found.start, from + found.end, link.create({ href: found.url }));
+  return state.tr.addMark(from + found.start, from + found.end, found.mark);
 }
 
 export const autolink = $prose(
@@ -130,7 +140,9 @@ export const autolink = $prose(
         if (!transactions.some((tr) => tr.docChanged)) return null;
         const end = endedWordAt(state, previous);
         if (end === null) return null;
-        return autolinkTransaction(state, end, (markdown) => ctx.get(remarkCtx).parse(markdown));
+        return autolinkTransaction(state, end, (doc) =>
+          ctx.get(parserCtx)(ctx.get(serializerCtx)(doc)),
+        );
       },
     }),
 );
