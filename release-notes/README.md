@@ -28,6 +28,8 @@ jumping when you click into a note.
 - The `# v1.7.2` title is for reading the diff. It is never shown to users.
 - Everything above `## Short` is the **App Store** "What's New" (≤ 4000 chars).
 - Everything under `## Short` is the **Google Play** release note (≤ 500 chars).
+- The App Store text must not mention Android or Google Play — App Review
+  rejects it. The gate checks this.
 - `## Short` is optional. Without it the same text serves both, and a body over
   500 characters fails the gate rather than being truncated mid-sentence.
 
