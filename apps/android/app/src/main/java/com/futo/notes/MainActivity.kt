@@ -131,19 +131,9 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        // Regression guard for F12/F13 (never gate render on disk I/O; no
-        // blocking FFI on the main thread). StrictMode flags any disk read/write
-        // that lands on the main thread on the hot paths — if the note scan or a
-        // CRUD FFI call ever slips back onto the UI thread it shows up in logcat
-        // (tag "StrictMode"). Debug-only; release builds keep the default policy.
+        // Debug-only StrictMode guard; release keeps the platform default.
         if (BuildConfig.DEBUG) {
-            android.os.StrictMode.setThreadPolicy(
-                android.os.StrictMode.ThreadPolicy.Builder()
-                    .detectDiskReads()
-                    .detectDiskWrites()
-                    .penaltyLog()
-                    .build()
-            )
+            installDebugStrictMode()
             android.util.Log.i("FutoStartup", "onCreate begin (pre-scan)")
         }
 
