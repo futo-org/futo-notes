@@ -1,0 +1,53 @@
+diff --git a/.claude/skills/puppet/SKILL.md b/.claude/skills/puppet/SKILL.md
+index 0652bc0a..bcc1d77d 100644
+--- a/.claude/skills/puppet/SKILL.md
++++ b/.claude/skills/puppet/SKILL.md
+@@ -22,6 +22,36 @@ running: launch it with the recipe on the same line. Desktop targets are resolve
+ through `scripts/qa-target.mjs`, which refuses anything but a debug build of this
+ checkout — the user's installed app runs on this machine on their real vault.
+ 
++## Driving the app: Jev first
++
++```
++act on the app?
++  └─ the user said not to use Jev? ── yes ──► the verbs yourself (the loop below)
++        │ no
++        ▼
++     just puppet drive '<goal>'
++        ├─ outcome: answered    ──► read the account; query what it does not say
++        ├─ outcome: needs-agent ──► take that one step, then --resume
++        └─ outcome: take-over   ──► the verbs yourself, from where the app is
++```
++
++```bash
++just puppet drive 'In `welcome`, make the word `fox` bold, then undo it. Report line 3.'
++```
++
++Jev is the default driver: a fast decision model that takes one verb per state change, so a
++whole sequence comes back in seconds as an account of every step. `take-over` covers every
++reason it cannot drive: switched off (`FUTO_PUPPET_JEV=off`), no TypeSafe key, the service
++down, a fault, stuck twice on one goal. A user who says not to use Jev, in any words, in the
++request or in CLAUDE.md, means: skip `drive` and use the verbs. How to write a goal and read
++the account: **Delegate the driving** below.
++
++**When to call it:** every reproduction and every verification you can say in one sentence is
++one `drive` call, not a run of individual commands. Individual commands are for a single read
++(`state`, `doc`, `at`), real input (a bug in focus, a mousedown or a drag needs
++`click`/`drag`/`tap`; Jev acts through verbs), and the step `drive` hands back.
++
++
+ ## How the app is laid out
+ 
+ Navigate it the way a person does; the verbs on offer are only what the current screen has.
+diff --git a/AGENTS.md b/AGENTS.md
+index 698ee0ea..724e4f38 100644
+--- a/AGENTS.md
++++ b/AGENTS.md
+@@ -208,6 +208,7 @@ and it answers in well under a second. **Any task about what the app does — a
+ this", "does this look right" — starts here, before reading source or delegating a search:**
+ 
+ ```bash
++just puppet drive '<goal, literals in backticks>'   # Jev drives: the default (agent skill, "Jev first")
+ just puppet state      # connected? which screen, note, selection (FUTO_PUPPET_TARGET=ios|android for the phones)
+ just puppet actions    # the verbs on this screen
+ just puppet do <Verb> '{…}' · click/tap/drag '{"x":…,"y":…}' · at · find · events

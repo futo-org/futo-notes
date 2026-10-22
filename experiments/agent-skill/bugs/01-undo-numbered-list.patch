@@ -1,0 +1,275 @@
+diff --git a/src/features/editor/listContinuation.test.ts b/src/features/editor/listContinuation.test.ts
+index d612582b..821c33c9 100644
+--- a/src/features/editor/listContinuation.test.ts
++++ b/src/features/editor/listContinuation.test.ts
+@@ -1,7 +1,6 @@
+ // @vitest-environment jsdom
+ import { afterEach, describe, expect, it } from 'vitest';
+ import { EditorView, runScopeHandlers } from '@codemirror/view';
+-import { history, isolateHistory, redo, redoDepth, undo } from '@codemirror/commands';
+ import { ChangeSet, Text } from '@codemirror/state';
+ import { markdown } from '@codemirror/lang-markdown';
+ import {
+@@ -229,11 +228,11 @@ describe('coalesceRenumberEdits', () => {
+ });
+ 
+ describe('orderedListRenumber extension', () => {
+-  it('folds the renumber into the causing transaction as one change per block', () => {
++  it('dispatches the renumber as one change per block, not one per item', () => {
+     // No engine this suite runs charges per change range, so assert the property
+     // directly rather than a duration.
+     const itemCount = 500;
+-    const rangeCounts: number[] = [];
++    const renumberRangeCounts: number[] = [];
+     const view = new EditorView({
+       doc: Array.from({ length: itemCount }, () => '1. item').join('\n'),
+       extensions: [
+@@ -241,12 +240,12 @@ describe('orderedListRenumber extension', () => {
+         orderedListRenumber,
+         EditorView.updateListener.of((update) => {
+           for (const transaction of update.transactions) {
+-            if (!transaction.docChanged) continue;
++            if (!transaction.isUserEvent('input.renumber')) continue;
+             let rangeCount = 0;
+             transaction.changes.iterChanges(() => {
+               rangeCount += 1;
+             });
+-            rangeCounts.push(rangeCount);
++            renumberRangeCounts.push(rangeCount);
+           }
+         }),
+       ],
+@@ -258,9 +257,7 @@ describe('orderedListRenumber extension', () => {
+ 
+     // Proves the list really renumbered, so the count below is not vacuous.
+     expect(view.state.doc.line(itemCount).text).toBe(`${itemCount}. item`);
+-    // ONE transaction carrying TWO ranges: the typed edit plus one coalesced
+-    // renumber span — not a follow-up transaction, not one range per item.
+-    expect(rangeCounts).toEqual([2]);
++    expect(renumberRangeCounts).toEqual([1]);
+   });
+ 
+   it('keeps the caret on the same character when renumbering widens numbers', () => {
+@@ -330,111 +327,6 @@ describe('orderedListRenumber extension', () => {
+     view.dispatch({ selection: { anchor: 0 } });
+     expect(view.state.doc.toString()).toBe(doc);
+   });
+-
+-  describe('history', () => {
+-    function setupWithHistory(doc: string): EditorView {
+-      const view = new EditorView({
+-        doc,
+-        extensions: [markdown(), history(), orderedListRenumber],
+-        parent: document.body,
+-      });
+-      views.push(view);
+-      return view;
+-    }
+-
+-    // `isolate` forces its own undo step; CodeMirror otherwise merges deletes dispatched
+-    // in the same instant.
+-    function deleteLine(view: EditorView, lineNumber: number, isolate = false): void {
+-      const line = view.state.doc.line(lineNumber);
+-      view.dispatch({
+-        changes: { from: line.from, to: line.to + 1, insert: '' },
+-        selection: { anchor: line.from },
+-        userEvent: 'delete.selection',
+-        annotations: isolate ? isolateHistory.of('before') : [],
+-      });
+-    }
+-
+-    it('one undo reverts both the edit and the renumber it triggered', () => {
+-      const original = '1. a\n2. b\n3. c\n4. d';
+-      const view = setupWithHistory(original);
+-
+-      deleteLine(view, 2);
+-      expect(view.state.doc.toString()).toBe('1. a\n2. c\n3. d');
+-
+-      undo(view);
+-      expect(view.state.doc.toString()).toBe(original);
+-    });
+-
+-    it('redo re-applies each edit and its renumber', () => {
+-      const original = '1. a\n2. b\n3. c\n4. d';
+-      const view = setupWithHistory(original);
+-
+-      deleteLine(view, 2);
+-      deleteLine(view, 2, true);
+-      undo(view);
+-      undo(view);
+-      expect(view.state.doc.toString()).toBe(original);
+-
+-      redo(view);
+-      expect(view.state.doc.toString()).toBe('1. a\n2. c\n3. d');
+-      redo(view);
+-      expect(view.state.doc.toString()).toBe('1. a\n2. d');
+-      expect(redoDepth(view.state)).toBe(0);
+-    });
+-
+-    it('undoes successive renumbering edits one step at a time', () => {
+-      const original = '1. a\n2. b\n3. c\n4. d';
+-      const view = setupWithHistory(original);
+-
+-      deleteLine(view, 2);
+-      deleteLine(view, 2, true);
+-      expect(view.state.doc.toString()).toBe('1. a\n2. d');
+-
+-      undo(view);
+-      expect(view.state.doc.toString()).toBe('1. a\n2. c\n3. d');
+-      undo(view);
+-      expect(view.state.doc.toString()).toBe(original);
+-    });
+-
+-    it('undoes a pasted lazily-numbered list without stranding the rewritten digits', () => {
+-      const view = setupWithHistory('');
+-
+-      view.dispatch({
+-        changes: { from: 0, insert: '1. a\n1. b\n1. c' },
+-        userEvent: 'input.paste',
+-      });
+-      expect(view.state.doc.toString()).toBe('1. a\n2. b\n3. c');
+-
+-      undo(view);
+-      expect(view.state.doc.toString()).toBe('');
+-    });
+-
+-    it('undoes a list merge, restoring the second list to its own numbering', () => {
+-      const original = '1. a\n2. b\n\n1. x\n2. y';
+-      const view = setupWithHistory(original);
+-
+-      const blank = view.state.doc.line(3);
+-      view.dispatch({
+-        changes: { from: blank.from - 1, to: blank.to },
+-        userEvent: 'delete.backward',
+-      });
+-      expect(view.state.doc.toString()).toBe('1. a\n2. b\n3. x\n4. y');
+-
+-      undo(view);
+-      expect(view.state.doc.toString()).toBe(original);
+-    });
+-
+-    it('restores numbering that was already inconsistent before the edit', () => {
+-      const original = '1. a\n5. b\n9. c';
+-      const view = setupWithHistory(original);
+-
+-      view.dispatch({ changes: { from: 4, insert: '!' }, userEvent: 'input.type' });
+-      expect(view.state.doc.toString()).toBe('1. a!\n2. b\n3. c');
+-
+-      undo(view);
+-      expect(view.state.doc.toString()).toBe(original);
+-    });
+-  });
+ });
+ 
+ describe('prose indent on Enter', () => {
+diff --git a/src/features/editor/orderedListRenumber.ts b/src/features/editor/orderedListRenumber.ts
+index 70e65cd4..6858b9a9 100644
+--- a/src/features/editor/orderedListRenumber.ts
++++ b/src/features/editor/orderedListRenumber.ts
+@@ -1,8 +1,10 @@
+-import { EditorSelection, EditorState } from '@codemirror/state';
++import { Annotation, EditorSelection } from '@codemirror/state';
+ import type { Text } from '@codemirror/state';
++import { EditorView } from '@codemirror/view';
+ 
+ const ORDERED_LINE_RE = /^(\s*)(\d+)\.\s/;
+ const BLANK_LINE_RE = /\n[ \t]*\n/;
++const renumberAnnotation = Annotation.define<true>();
+ 
+ export interface RenumberEdit {
+   from: number;
+@@ -138,39 +140,36 @@ function mapPositionThroughEdits(position: number, edits: readonly RenumberEdit[
+   return position + delta;
+ }
+ 
+-// A filter, not an update listener: the renumber must join the transaction that
+-// triggered it, and undo/redo dispatch with `filter: false` so they never re-run it.
+-export const orderedListRenumber = EditorState.transactionFilter.of((transaction) => {
+-  if (!transaction.docChanged) return transaction;
++export const orderedListRenumber = EditorView.updateListener.of((update) => {
++  if (!update.docChanged) return;
++  if (update.transactions.some((transaction) => transaction.annotation(renumberAnnotation))) return;
+ 
+   const affectedLines = new Set<number>();
+-  const newDocument = transaction.newDoc;
+-  transaction.changes.iterChanges((_fromA, _toA, fromB, toB) => {
+-    const startLine = newDocument.lineAt(fromB).number;
+-    const endLine = newDocument.lineAt(toB).number;
+-    for (let line = startLine; line <= endLine; line += 1) affectedLines.add(line);
+-    if (startLine > 1) affectedLines.add(startLine - 1);
+-  });
++  const newDocument = update.state.doc;
++  for (const transaction of update.transactions) {
++    transaction.changes.iterChanges((_fromA, _toA, fromB, toB) => {
++      const startLine = newDocument.lineAt(fromB).number;
++      const endLine = newDocument.lineAt(toB).number;
++      for (let line = startLine; line <= endLine; line += 1) affectedLines.add(line);
++      if (startLine > 1) affectedLines.add(startLine - 1);
++    });
++  }
+ 
+   const edits = computeOrderedRenumberChanges(newDocument, affectedLines);
+-  if (edits.length === 0) return transaction;
+-  const selection = transaction.newSelection;
+-  // `sequential` resolves the changes against the post-transaction document; the
+-  // selection resolves against the final document, hence the explicit mapping.
+-  return [
+-    transaction,
+-    {
+-      changes: coalesceRenumberEdits(newDocument, edits),
+-      sequential: true,
+-      selection: EditorSelection.create(
+-        selection.ranges.map((range) =>
+-          EditorSelection.range(
+-            mapPositionThroughEdits(range.anchor, edits),
+-            mapPositionThroughEdits(range.head, edits),
+-          ),
++  if (edits.length === 0) return;
++  const selection = update.state.selection;
++  update.view.dispatch({
++    changes: coalesceRenumberEdits(newDocument, edits),
++    selection: EditorSelection.create(
++      selection.ranges.map((range) =>
++        EditorSelection.range(
++          mapPositionThroughEdits(range.anchor, edits),
++          mapPositionThroughEdits(range.head, edits),
+         ),
+-        selection.mainIndex,
+       ),
+-    },
+-  ];
++      selection.mainIndex,
++    ),
++    annotations: renumberAnnotation.of(true),
++    userEvent: 'input.renumber',
++  });
+ });
+diff --git a/tests/p2-regressions-2026-04.spec.ts b/tests/p2-regressions-2026-04.spec.ts
+index 1a1d948d..5737de6c 100644
+--- a/tests/p2-regressions-2026-04.spec.ts
++++ b/tests/p2-regressions-2026-04.spec.ts
+@@ -120,24 +120,4 @@ test.describe('ordered list auto-renumber on delete', () => {
+     const state = await readState(page);
+     expect(state.doc).toBe('1. outer\n  1. inner\n  2. inner three\n2. outer two');
+   });
+-
+-  test('undo reverts the delete and its renumber in one step', async ({ page }) => {
+-    const original = '1. thing\n2. thing2\n3. thing3\n4. thing4';
+-    await setupEditor(page, original);
+-
+-    // A real keystroke, so the renumber rides on a genuine history event.
+-    await page.evaluate(() => {
+-      const view = (window as any).__cmGetView?.();
+-      const line2 = view.state.doc.line(2);
+-      view.focus();
+-      view.dispatch({ selection: { anchor: line2.from, head: line2.to + 1 } });
+-    });
+-    await page.keyboard.press('Backspace');
+-    await page.waitForTimeout(200);
+-    expect((await readState(page)).doc).toBe('1. thing\n2. thing3\n3. thing4');
+-
+-    await page.keyboard.press('ControlOrMeta+z');
+-    await page.waitForTimeout(200);
+-    expect((await readState(page)).doc).toBe(original);
+-  });
+ });
