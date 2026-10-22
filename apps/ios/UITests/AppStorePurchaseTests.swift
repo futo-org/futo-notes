@@ -29,7 +29,7 @@ final class AppStorePurchaseTests: XCTestCase {
     /// buys nothing (`notEntitled`) and the app never loads the product, so
     /// every test here fails on a timeout. Probed once per process with a
     /// purchase the session then clears; skipped only when the run opted out
-    /// with `FUTO_STOREKIT_TESTS_OPTIONAL=1` (`just test-ios-native`), a
+    /// with `FUTO_STOREKIT_TESTS_OPTIONAL=1` (`just test-ios-native-ui`), a
     /// failure everywhere else, CI included (M11).
     private func requireStoreKitTestEnvironment() async throws {
         if Self.storeKitAnswers == nil {

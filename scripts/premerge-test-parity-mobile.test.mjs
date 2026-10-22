@@ -34,6 +34,16 @@ describe('pre-merge CI routing contracts: native mobile jobs', () => {
     expect(iosStoryAvailabilityGate).toContain('iOS DEVICE STORIES SKIPPED');
   });
 
+  it('runs the same iOS unit bundle locally as CI runs on merge requests', () => {
+    // `just test-ios-native` once ran the UI bundle too: minutes of XCUITest per
+    // run for ~12s of unit tests, while the MR tier ran only the unit bundle.
+    const unitRecipe = topLevelBlock(justfile, /^test-ios-native(?=\s|:)[^\n]*$/m);
+    const iosTestTask = topLevelBlock(cirrusTasks, /^test_ios_native_task:$/m);
+    expect(unitRecipe).toContain('just _test-ios FutoNotesNativeTests');
+    expect(justfile).toContain('ONLY_TESTING=("-only-testing:$BUNDLE")');
+    expect(iosTestTask).toContain('ONLY_TESTING=(-only-testing:FutoNotesNativeTests)');
+  });
+
   it('runs Android instrumentation tests in the required native build job', () => {
     const androidJob = topLevelBlock(gitlabPipeline, /^build:android-native:$/m);
     const releaseGate = topLevelBlock(gitlabPipeline, /^release:gate:$/m);
@@ -89,7 +99,7 @@ describe('pre-merge CI routing contracts: native mobile jobs', () => {
     const releaseJob = topLevelBlock(gitlabPipeline, /^release:$/m);
     const deployRecipe = topLevelBlock(justfile, /^deploy-android[^\n]*:[^\n]*$/m);
     const buildRecipe = topLevelBlock(justfile, /^build-android-native:[^\n]*$/m);
-    const unitTestRecipe = topLevelBlock(justfile, /^test-android-native:[^\n]*$/m);
+    const unitTestRecipe = topLevelBlock(justfile, /^test-android-native(?=\s|:)[^\n]*$/m);
     const uiTestRecipe = topLevelBlock(justfile, /^test-android-native-ui:[^\n]*$/m);
 
     // L1-008: the Android test recipes must test the editor.html of the checkout,

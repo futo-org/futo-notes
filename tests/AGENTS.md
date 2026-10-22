@@ -35,7 +35,7 @@ That run always starts with a production Vite build of the editor bundle (its gl
 `tests/editorEmbedBundle.ts`, rebuilds so a stale `editor.html` cannot pass), so it counts as a
 build when a task rules builds out.
 
-`just test-one` is **Vitest**, not Playwright — use it for the co-located unit tests and the
+`just test-unit` is **Vitest**, not Playwright — use it for the co-located unit tests and the
 harness helpers under `lib/`, not for a `.spec.ts` here.
 
 Playwright **wipes** `test-results/` at the start of every run, so a failed run's trace and video

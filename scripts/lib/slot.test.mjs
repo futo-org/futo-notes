@@ -145,7 +145,7 @@ describe('xplatSyncBand', () => {
 
 // tests/lib/sync-test-server.test.mjs binds these ports for real. The probe used
 // to be one hardcoded 20993 in every checkout — outside the real bands, but
-// identical across worktrees — so seven concurrent `pnpm run test:unit` runs
+// identical across worktrees — so seven concurrent `just test-unit` runs
 // made that file reproduce the very port-ownership bug it exists to pin
 // ("listen EADDRINUSE: address already in use 127.0.0.1:20993"). Both halves are
 // asserted here so a "simplification" back to a constant fails red.

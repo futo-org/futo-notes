@@ -95,7 +95,7 @@ failed builds cannot look green. Read each check's result before continuing.
 Both consumers and the differential lock are required:
 
 ```bash
-pnpm run test:editor:minimal
+just test-unit packages/editor
 just test-rust
 ```
 

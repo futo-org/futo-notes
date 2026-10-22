@@ -44,7 +44,7 @@ Run the test and **confirm it fails**:
 
 ```bash
 # Run the new test — it should fail
-pnpm run test:unit -- --reporter verbose
+just test-unit <the new test file> --reporter verbose
 ```
 
 If it passes, something is wrong — the test doesn't exercise the bug. Revisit before continuing.
