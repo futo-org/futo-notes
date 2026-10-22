@@ -45,6 +45,11 @@ final class SyncManager: ObservableObject {
 
     var resetting = false
     var liveStartsInFlight = 0
+
+    /// False from `pauseLive` (the app went to the background) until
+    /// `resumeLiveAsync`. `startLive` checks it at the last moment, because
+    /// the connect cycle before it can straddle a pause.
+    var inForeground = true
     private var idleWaiters: [CheckedContinuation<Void, Never>] = []
 
     func finishCycle() {

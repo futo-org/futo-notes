@@ -86,6 +86,13 @@
 - Live sync is wired on native **Android and iOS** — both implement the Rust FFI
   `SyncEventListener` callback over the same `start_live`/`stop_live`. → SyncScreen.kt
   (Android), SyncManager.swift + SyncView.swift (iOS)
+- A native shell never starts live sync while the app is in the background. A
+  start asked for before the app was backgrounded — the one after a connect's
+  first cycle, or a foreground resume still waiting behind other sync work — is
+  dropped if the app is in the background when its turn comes, and the next
+  foreground starts live sync instead. → Android
+  `SyncManager.startLiveInForeground` (SyncManagerLifecycleTest.kt); iOS
+  `SyncManager.startLive` (SyncManagerLiveLifecycleTests.swift)
 - Live sync is also wired on **Tauri desktop** — Rust `e2ee_start_live` /
   `e2ee_stop_live` drive the same `SyncSession`, emitting
   `sync:live-state` (tracks stream health internally via `setLiveConnected`; no

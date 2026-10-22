@@ -103,6 +103,12 @@ class SyncManager(
      *  Mirrors iOS `SyncManager.sessionMode`. */
     internal var sessionMode: SessionMode? = null
 
+    /** False from [pauseLive] (the app went to the background) until
+     *  [resumeLiveAsync]. A live start checks it at the last moment, because
+     *  the connect cycle or the gate wait before it can straddle a pause.
+     *  Main thread only, like the lifecycle callbacks that set it. */
+    internal var inForeground = true
+
     /** Drains connect/heal/manual/resume work before a vault migration starts
      * and rejects any new sync work until the old vault is resumed or the app
      * restarts on the migrated root. */

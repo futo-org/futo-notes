@@ -346,6 +346,9 @@ dependencies {
     // JVM unit tests (pure logic only — e.g. SyncManager's seed-URL selection).
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303")
+    // A test Main dispatcher for SyncManager's lifecycle races; same version as
+    // kotlinx-coroutines-android above.
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1")
 
     androidTestImplementation(composeBom)
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
