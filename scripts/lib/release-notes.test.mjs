@@ -79,6 +79,11 @@ describe('validateReleaseNotes', () => {
       `# v1.0.0\n\nFine.\n\n## Short\n\n${'x'.repeat(PLAY_LIMIT + 1)}\n`,
       'shorten the `## Short` section',
     ],
+    [
+      'an App Store body that names Android',
+      `# v1.0.0\n\nSharing no longer crashes on Android.\n\n## Short\n\nFixed sharing on Android.\n`,
+      'App Review rejects',
+    ],
   ])('rejects %s', (_label, markdown, message) => {
     const problems = validateReleaseNotes(parseReleaseNotes(markdown), { tag: 'v1.0.0' });
     expect(problems).toHaveLength(1);

@@ -20,6 +20,10 @@ export const PLAY_LIMIT = 500;
 
 const SHORT_HEADING = /^##\s+Short\s*$/im;
 
+// App Review rejects "What's New" text that names another mobile platform
+// (App Store Review Guideline 2.3.10).
+const OTHER_PLATFORM = /\b(android|google play)\b/i;
+
 export const STABLE_TAG_PATTERN = /^v\d+\.\d+\.\d+$/;
 
 // `release-notes/v1.7.2.md` for tag `v1.7.2`. Exported so the CLI, the CI gate
@@ -61,6 +65,13 @@ export function validateReleaseNotes(notes, { tag } = {}) {
     problems.push(
       `${path}: the App Store text is ${notes.appStore.length} characters; ` +
         `App Store Connect accepts at most ${APP_STORE_LIMIT}.`,
+    );
+  }
+  const platform = notes.appStore.match(OTHER_PLATFORM);
+  if (platform) {
+    problems.push(
+      `${path}: the App Store text names "${platform[0]}"; App Review rejects ` +
+        `release notes that mention another platform — keep it to the \`## Short\` (Play) text.`,
     );
   }
 
