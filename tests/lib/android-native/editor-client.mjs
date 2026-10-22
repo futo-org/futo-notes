@@ -105,6 +105,27 @@ export class AndroidNativeEditorClient extends AndroidNativeAppClient {
     if (typed !== true) throw new Error(`${this.name}: the editor refused typed input`);
   }
 
+  /** Put the caret at the start of the first text run equal to `text`, and
+   *  return once the browser has had the frames to tell ProseMirror (it reads a
+   *  DOM caret move from an async `selectionchange`). Call focusOpenEditor first. */
+  async placeCaretAtStartOf(text) {
+    const placed = await this.#evaluateInEditor(
+      `(() => {
+        const walker = document.createTreeWalker(document.querySelector('.ProseMirror'), NodeFilter.SHOW_TEXT);
+        for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+          if (node.textContent !== ${JSON.stringify(text)}) continue;
+          getSelection().collapse(node, 0);
+          return new Promise((done) =>
+            requestAnimationFrame(() => requestAnimationFrame(() => done(true))),
+          );
+        }
+        return false;
+      })()`,
+    );
+    if (placed !== true)
+      throw new Error(`${this.name}: no editor text run is ${JSON.stringify(text)}`);
+  }
+
   /** Is the open note still streaming its tail ("Loading the rest…")? While it
    *  is, the editor withholds `change` (the save lock). */
   async isOpenEditorStreaming() {
