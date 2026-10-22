@@ -160,6 +160,13 @@ export async function ensureVersion(client, { appId, version, releaseType }) {
 
   if (found) {
     const state = versionState(found);
+    if (state === 'READY_FOR_REVIEW') {
+      throw new Error(
+        `App Store version ${version} is in a draft review submission (READY_FOR_REVIEW), ` +
+          'which locks its build. In App Store Connect, open App Review, remove the version ' +
+          'from the draft submission, then retry this job.',
+      );
+    }
     if (!EDITABLE_VERSION_STATES.has(state)) {
       throw new Error(
         `App Store version ${version} is in state ${state}, which this job must not overwrite. ` +
@@ -172,14 +179,28 @@ export async function ensureVersion(client, { appId, version, releaseType }) {
   }
 
   log(`Creating App Store version ${version} (releaseType ${releaseType})`);
-  const created = await client.post('/v1/appStoreVersions', {
-    data: {
-      type: 'appStoreVersions',
-      attributes: { platform: PLATFORM, versionString: version, releaseType },
-      relationships: { app: { data: { type: 'apps', id: appId } } },
-    },
-  });
-  return created.data;
+  try {
+    const created = await client.post('/v1/appStoreVersions', {
+      data: {
+        type: 'appStoreVersions',
+        attributes: { platform: PLATFORM, versionString: version, releaseType },
+        relationships: { app: { data: { type: 'apps', id: appId } } },
+      },
+    });
+    return created.data;
+  } catch (error) {
+    // Apple allows one unreleased version at a time. A previous version that
+    // was never submitted (or was pulled from review) blocks a new one.
+    if (error instanceof AppStoreConnectError && error.status === 409) {
+      throw new AppStoreConnectError(
+        `${error.message}\nAnother unreleased App Store version is probably still open. ` +
+          `In App Store Connect, rename it to ${version} (removing it from any draft ` +
+          'review submission first), then retry this job.',
+        { status: error.status, body: error.body },
+      );
+    }
+    throw error;
+  }
 }
 
 export async function attachBuild(client, { versionId, buildId }) {

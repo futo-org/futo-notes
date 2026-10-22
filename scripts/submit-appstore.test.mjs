@@ -215,6 +215,28 @@ describe('ensureVersion', () => {
     );
   });
 
+  it('says to pull a version out of its draft submission rather than calling it submitted', async () => {
+    const { client } = fakeAsc({
+      'GET /v1/apps/99/appStoreVersions': {
+        data: [
+          { id: 'v1', attributes: { versionString: '1.7.2', appVersionState: 'READY_FOR_REVIEW' } },
+        ],
+      },
+    });
+    await expect(ensureVersion(client, args)).rejects.toThrow(/remove the version from the draft/);
+  });
+
+  it('names the open version as the likely cause when Apple refuses a new one', async () => {
+    const { client } = fakeAsc({
+      'GET /v1/apps/99/appStoreVersions': { data: [] },
+      'POST /v1/appStoreVersions': {
+        __status: 409,
+        payload: { errors: [{ title: 'Conflict', detail: 'cannot create a new version' }] },
+      },
+    });
+    await expect(ensureVersion(client, args)).rejects.toThrow(/rename it to 1\.7\.2/);
+  });
+
   it('refuses to overwrite a version already in review', async () => {
     const { client } = fakeAsc({
       'GET /v1/apps/99/appStoreVersions': {
