@@ -193,7 +193,7 @@ test:rust:ffi-android:
   # exclusion, not longer timeouts. The needs: above orders the two within a
   # pipeline so the exclusion never delays the sync suite itself.
   resource_group: cross-platform-sync
-  image: $IMAGE_ANDROID
+  extends: .ci-android-image
   # Own single-ABI cache namespace instead of the fat 3-ABI + host `native`
   # archive: restoring that one costs more than this job's warm compile. Safe
   # to pull-push — the resource_group serializes every holder of this key, so

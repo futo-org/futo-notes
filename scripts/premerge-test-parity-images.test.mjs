@@ -24,13 +24,28 @@ describe('pre-merge CI routing contracts: container images and Node', () => {
     expect(syncJob).toContain('extends: .ci-test-image');
   });
 
-  it('runs every .ci-test-image job on the one runner that allows its pull policy', () => {
+  it('runs every if-not-present image job on the one runner that allows its pull policy', () => {
     // Runner 55 (dind) only allows pull_policy always and refuses a job that
     // asks for if-not-present, so the image and the dind_fast tag travel
     // together.
+    const androidImageBlock = topLevelBlock(gitlabPipeline, /^\.ci-android-image:$/m);
+    expect(androidImageBlock).toMatch(/^\s+name: \$IMAGE_ANDROID$/m);
+    expect(androidImageBlock).toContain('pull_policy: if-not-present');
+    // The Android image is reached only through the template, so a new job
+    // cannot pick it up with the slow `always` policy (or without the tag).
+    expect(gitlabPipeline).not.toMatch(/^\s+image: \$IMAGE_ANDROID$/m);
+
     const jobs = gitlabPipeline.split(/(?=^[^ #\n][^\n]*:\n)/m);
-    const imageJobs = jobs.filter((job) => /^ {2}extends: \.ci-test-image$/m.test(job));
-    expect(imageJobs.length).toBeGreaterThan(0);
+    const imageJobs = jobs.filter((job) => /^ {2}extends: \.ci-(?:test|android)-image$/m.test(job));
+    const names = imageJobs.map((job) => job.split('\n')[0]);
+    for (const job of [
+      'build:android-native:',
+      'publish:android:',
+      'test:rust:ffi-android:',
+      'test:cross-platform-sync:android:',
+    ]) {
+      expect(names).toContain(job);
+    }
     for (const job of imageJobs) {
       expect(job, job.split('\n')[0]).toMatch(/^ {2}tags:\n {4}- dind_fast$/m);
     }

@@ -181,4 +181,17 @@ describe('pre-merge CI routing contracts', () => {
     expect(syncJob.match(/SYNC_SCENARIO_FLAGS: --skip-slow/g)).toHaveLength(2);
     expect(syncJob).toContain('$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH');
   });
+  it('uploads stable-tag iOS builds to TestFlight before the gate, but submits after it', () => {
+    const upload = topLevelBlock(gitlabPipeline, /^publish:ios:$/m);
+    const submit = topLevelBlock(gitlabPipeline, /^publish:ios:appstore:$/m);
+    const releaseGate = topLevelBlock(gitlabPipeline, /^release:gate:$/m);
+    // Apple's processing overlaps the tests; only App Store review waits.
+    expect(upload).not.toContain('job: release:gate');
+    expect(upload).toContain('    - job: build:ios-native\n');
+    expect(upload).toContain('resource_group: ios-testflight');
+    expect(submit).toContain('    - job: release:gate\n');
+    expect(submit).toContain('    - job: publish:ios\n');
+    // A publish job in the gate would make an Apple outage block every store.
+    expect(releaseGate).not.toContain('job: publish:ios');
+  });
 });

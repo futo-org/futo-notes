@@ -117,8 +117,11 @@ price as the fallback; do not silently change the license behavior.
 A stable tag submits the build to App Store review with no console step:
 
 - `publish:ios` uploads the IPA to TestFlight (`xcrun altool`, on the macOS
-  Cirrus runner).
-- `publish:ios:appstore` then runs `scripts/submit-appstore.mjs` **on Linux** —
+  Cirrus runner) as soon as `build:ios-native` finishes — before `release:gate`,
+  so Apple processes the build while the tests run. A tag whose tests fail can
+  therefore leave its build in TestFlight, as every main push already does; it
+  never reaches review.
+- `publish:ios:appstore` waits for `release:gate`, then runs `scripts/submit-appstore.mjs` **on Linux** —
   everything past the upload is the App Store Connect REST API, so it does not
   occupy the single macOS runner. It waits for Apple to finish processing the
   build (5-30 minutes is normal), creates the App Store version, attaches that

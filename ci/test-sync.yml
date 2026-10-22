@@ -148,7 +148,7 @@ test:cross-platform-sync:android:
   # may only point at the current or an earlier stage — the debug APK comes from
   # build:android-native. It is still a blocking test job (release:gate.needs).
   stage: build
-  image: $IMAGE_ANDROID
+  extends: .ci-android-image
   # Both tags resolve to the office runner: dind_fast for the warm cargo cache
   # (see build:android-native), android_kvm because the emulator wants /dev/kvm.
   # The boot falls back to unaccelerated with a warning if it is missing.
