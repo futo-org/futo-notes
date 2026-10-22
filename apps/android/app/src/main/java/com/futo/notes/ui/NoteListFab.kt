@@ -1,7 +1,6 @@
 package com.futo.notes.ui
 
 import android.content.Context
-import android.widget.Toast
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyListState
@@ -108,11 +107,7 @@ internal fun createNote(
                 outcome.value
             }
             NoteMutationOutcome.Failed -> {
-                Toast.makeText(
-                    context,
-                    localization.localizedText("notes.errors.createFailed"),
-                    Toast.LENGTH_SHORT,
-                ).show()
+                showToast(context, localization.localizedText("notes.errors.createFailed"))
                 null
             }
         }

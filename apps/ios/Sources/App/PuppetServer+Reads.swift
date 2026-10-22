@@ -110,6 +110,11 @@
                     ?? NSNull(),
                 "opened": PuppetVerbs.shared.opened.map { ["count": $0.count, "url": $0.url] }
                     ?? NSNull(),
+                // The banner on screen, "" when none, as desktop reports its toast.
+                "toast": store.transientMessage.map {
+                    EditorHost.shared.desiredLocalization.localizedText(
+                        $0.path, arguments: $0.arguments)
+                } ?? "",
                 // Whether the app is on screen at all, and whether the keyboard is up: neither
                 // shows in the rows.
                 "foreground": UIApplication.shared.applicationState == .active,

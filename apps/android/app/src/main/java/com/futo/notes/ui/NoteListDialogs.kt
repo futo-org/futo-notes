@@ -1,7 +1,6 @@
 package com.futo.notes.ui
 
 import android.content.Context
-import android.widget.Toast
 import androidx.compose.runtime.Composable
 import com.futo.notes.NoteMutationOutcome
 import com.futo.notes.NotesStore
@@ -46,9 +45,9 @@ internal fun NoteListDialogs(
     onConfirmDeleteFolderChange: (String?) -> Unit,
     onFolderMoved: (from: String, to: String) -> Unit,
 ) {
-    // What the delete dialogs' Delete does.
     fun toast(key: String, arguments: Map<String, Any> = emptyMap()) =
-        Toast.makeText(context, localization.localizedText(key, arguments), Toast.LENGTH_SHORT).show()
+        showToast(context, localization.localizedText(key, arguments))
+    // What the delete dialogs' Delete does.
     suspend fun deleteNote(id: String) {
         toast(if (shouldCompleteNoteAction(store.delete(id))) "notes.deleted" else "notes.errors.deleteFailed")
     }
@@ -90,24 +89,13 @@ internal fun NoteListDialogs(
                         is NoteMutationOutcome.Committed -> {
                             moved.complete(true)
                             onMoveTargetChange(null)
-                            Toast.makeText(
-                                context,
-                                if (destination.isEmpty()) {
-                                    localization.localizedText("notes.movedToRoot")
-                                } else {
-                                    localization.localizedText(
-                                        "notes.movedTo",
-                                        mapOf("destination" to destination),
-                                    )
-                                },
-                                Toast.LENGTH_SHORT,
-                            ).show()
+                            if (destination.isEmpty()) {
+                                toast("notes.movedToRoot")
+                            } else {
+                                toast("notes.movedTo", mapOf("destination" to destination))
+                            }
                         }
-                        NoteMutationOutcome.Failed -> Toast.makeText(
-                            context,
-                            localization.localizedText("notes.errors.moveFailed"),
-                            Toast.LENGTH_SHORT,
-                        ).show()
+                        NoteMutationOutcome.Failed -> toast("notes.errors.moveFailed")
                     }
                 }.invokeOnCompletion { moved.complete(false) }
                 moved
@@ -124,11 +112,7 @@ internal fun NoteListDialogs(
                     if (shouldCompleteNoteAction(store.createFolder(path))) {
                         onNewFolderDialogChange(false)
                     } else {
-                        Toast.makeText(
-                            context,
-                            localization.localizedText("folders.errors.createFailed"),
-                            Toast.LENGTH_SHORT,
-                        ).show()
+                        toast("folders.errors.createFailed")
                     }
                 }
             },
@@ -152,17 +136,9 @@ internal fun NoteListDialogs(
                     val finalFolder = store.renameFolder(target, newPath)
                     if (finalFolder != null) {
                         onFolderMoved(target, finalFolder)
-                        Toast.makeText(
-                            context,
-                            localization.localizedText("folders.renamed"),
-                            Toast.LENGTH_SHORT,
-                        ).show()
+                        toast("folders.renamed")
                     } else {
-                        Toast.makeText(
-                            context,
-                            localization.localizedText("folders.errors.renameFailed"),
-                            Toast.LENGTH_SHORT,
-                        ).show()
+                        toast("folders.errors.renameFailed")
                     }
                 }
             },
@@ -187,24 +163,13 @@ internal fun NoteListDialogs(
                     if (finalFolder != null) {
                         moved.complete(true)
                         onFolderMoved(target, finalFolder)
-                        Toast.makeText(
-                            context,
-                            if (destination.isEmpty()) {
-                                localization.localizedText("folders.movedToRoot")
-                            } else {
-                                localization.localizedText(
-                                    "folders.movedTo",
-                                    mapOf("destination" to destination),
-                                )
-                            },
-                            Toast.LENGTH_SHORT,
-                        ).show()
+                        if (destination.isEmpty()) {
+                            toast("folders.movedToRoot")
+                        } else {
+                            toast("folders.movedTo", mapOf("destination" to destination))
+                        }
                     } else {
-                        Toast.makeText(
-                            context,
-                            localization.localizedText("folders.errors.moveFailed"),
-                            Toast.LENGTH_SHORT,
-                        ).show()
+                        toast("folders.errors.moveFailed")
                     }
                 }.invokeOnCompletion { moved.complete(false) }
                 moved

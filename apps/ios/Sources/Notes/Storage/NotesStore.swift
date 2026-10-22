@@ -17,7 +17,7 @@ final class NotesStore: ObservableObject {
     /// NavigationStack (list + any pushed editor). Used for sync-side events the
     /// user should notice but that don't warrant a dialog — e.g. a peer deleting
     /// the note you had open. Auto-clears after a few seconds. This is the iOS
-    /// equivalent of the desktop `showGlobalToast` / Android `Toast`.
+    /// equivalent of the desktop `showGlobalToast` / Android `showToast`.
     @Published var transientMessage: LocalizedMessage?
     private var transientMessageTask: Task<Void, Never>?
 

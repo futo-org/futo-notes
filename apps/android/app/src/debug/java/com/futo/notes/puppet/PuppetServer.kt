@@ -14,6 +14,7 @@ import androidx.compose.ui.platform.LocalView
 import com.futo.notes.NotesStore
 import com.futo.notes.SyncManager
 import com.futo.notes.ui.EditorHost
+import com.futo.notes.ui.currentToast
 import com.futo.notes.ui.navigation.AppNavigator
 import com.futo.notes.ui.navigation.Screen
 import kotlinx.coroutines.Dispatchers
@@ -151,7 +152,8 @@ internal object PuppetServer {
                 PuppetReply(200, JSONObject().put("screen", screen).put("actions", menu()).toString())
             route == PuppetRoute.Query("state") -> PuppetReply(
                 200,
-                JSONObject().put("screen", screen).put("foreground", screen != PuppetContract.NO_SCREEN).toString(),
+                JSONObject().put("screen", screen).put("foreground", screen != PuppetContract.NO_SCREEN)
+                    .put("toast", currentToast).toString(),
             )
             route == PuppetRoute.Query("observe") -> PuppetReply(
                 200,

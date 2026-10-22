@@ -117,9 +117,7 @@ fun SettingsScreen(
     suspend fun resetAll() {
         try {
             fullReset(store, sync, license, appIcons) { path ->
-                android.widget.Toast.makeText(
-                    context, localization.localizedText(path), android.widget.Toast.LENGTH_LONG,
-                ).show()
+                showToast(context, localization.localizedText(path), long = true)
             }
         } finally {
             resetting = false

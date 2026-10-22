@@ -2,7 +2,6 @@ package com.futo.notes.ui
 
 import android.net.Uri
 import android.widget.EditText
-import android.widget.Toast
 import java.io.File
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
@@ -283,18 +282,10 @@ fun NoteEditorScreen(
                 retargetNoteId(disposition.parkedId)
                 showTitleChange { titleField.commit(splitId(disposition.parkedId).title) }
                 savedContent = snapshot
-                Toast.makeText(
-                    context,
-                    localization.localizedText("notes.save.conflictCopy"),
-                    Toast.LENGTH_SHORT,
-                ).show()
+                showToast(context, localization.localizedText("notes.save.conflictCopy"))
             }
 
-            null -> Toast.makeText(
-                context,
-                localization.localizedText("notes.save.failedPending"),
-                Toast.LENGTH_SHORT,
-            ).show()
+            null -> showToast(context, localization.localizedText("notes.save.failedPending"))
         }
     }
 
@@ -460,17 +451,15 @@ fun NoteEditorScreen(
                     is OpenNoteDisposition.KeepDraft -> {
                         savedContent = disposition.base
                         when (disposition.reason) {
-                            KeepDraftReason.PEER_DELETED -> Toast.makeText(
+                            KeepDraftReason.PEER_DELETED -> showToast(
                                 context,
                                 localization.localizedText("notes.save.peerDeletedDraftOpen"),
-                                Toast.LENGTH_SHORT,
-                            ).show()
+                            )
 
-                            KeepDraftReason.DIVERGED -> Toast.makeText(
+                            KeepDraftReason.DIVERGED -> showToast(
                                 context,
                                 localization.localizedText("notes.save.peerChangedDraftOpen"),
-                                Toast.LENGTH_SHORT,
-                            ).show()
+                            )
 
                             KeepDraftReason.CONVERGED -> Unit
                         }
@@ -484,11 +473,7 @@ fun NoteEditorScreen(
                         // recreate a peer-deleted note.
                         savedContent = content
                         dismissFind()
-                        Toast.makeText(
-                            context,
-                            localization.localizedText("notes.deletedElsewhere"),
-                            Toast.LENGTH_SHORT,
-                        ).show()
+                        showToast(context, localization.localizedText("notes.deletedElsewhere"))
                         onBack()
                     }
                 }
@@ -597,14 +582,13 @@ fun NoteEditorScreen(
                 override fun onFailed(failure: EditorExitFailure) {
                     CloseLedger.mark("exitFailed")
                     if (!leaving && (attachment == null || !host.isCurrentAttachment(attachment))) return
-                    Toast.makeText(
+                    showToast(
                         context.applicationContext,
                         localization.localizedText(
                             if (failure == EditorExitFailure.TITLE) "notes.errors.renameFailed"
                             else "notes.save.failedPending",
                         ),
-                        Toast.LENGTH_SHORT,
-                    ).show()
+                    )
                 }
 
                 override fun onCommitError(error: Exception) {
@@ -644,11 +628,7 @@ fun NoteEditorScreen(
                 pendingImageInsert -= 1
             }
             if (name == null && host.isCurrentAttachment(attachment)) {
-                Toast.makeText(
-                    context,
-                    localization.localizedText(failureMessage.path, failureMessage.arguments),
-                    Toast.LENGTH_SHORT,
-                ).show()
+                showToast(context, localization.localizedText(failureMessage.path, failureMessage.arguments))
             } else if (name == null) {
                 // The attachment stopped being current before this landed —
                 // most often the note this image was picked for was already
@@ -819,11 +799,7 @@ fun NoteEditorScreen(
                 throw e
             } catch (e: Exception) {
                 android.util.Log.e("NoteEditor", "open-note reconciliation failed", e)
-                Toast.makeText(
-                    context,
-                    localization.localizedText("notes.save.refreshFailedDraftOpen"),
-                    Toast.LENGTH_SHORT,
-                ).show()
+                showToast(context, localization.localizedText("notes.save.refreshFailedDraftOpen"))
             }
         }
     }
@@ -897,11 +873,7 @@ fun NoteEditorScreen(
         }
         if (titleCommit.isCommitted) settleRelink(flushed, titleCommit.relinkedBody)
         if (!titleCommit.isCommitted) {
-            Toast.makeText(
-                context,
-                localization.localizedText("notes.title.renameFailed"),
-                Toast.LENGTH_SHORT,
-            ).show()
+            showToast(context, localization.localizedText("notes.title.renameFailed"))
         }
         return titleCommit.isCommitted
     }
@@ -1015,7 +987,7 @@ fun NoteEditorScreen(
         val path = "${store.rootPath}/$noteId.md"
         clipboard.setText(AnnotatedString(path))
         recordPuppetCopy(path)
-        Toast.makeText(context, localization.localizedText("notes.pathCopied"), Toast.LENGTH_SHORT).show()
+        showToast(context, localization.localizedText("notes.pathCopied"))
         return path
     }
 
@@ -1074,24 +1046,19 @@ fun NoteEditorScreen(
                     // cannot recreate the deleted note from its dirty draft.
                     savedContent = content
                     dismissFind()
-                    Toast.makeText(
-                        context,
-                        localization.localizedText("notes.deleted"),
-                        Toast.LENGTH_SHORT,
-                    ).show()
+                    showToast(context, localization.localizedText("notes.deleted"))
                     onBack()
                 }
 
                 override fun onFailed(failure: EditorExitFailure) {
-                    Toast.makeText(
+                    showToast(
                         context,
                         if (failure == EditorExitFailure.BODY) {
                             localization.localizedText("notes.delete.savePending")
                         } else {
                             localization.localizedText("notes.errors.deleteFailed")
                         },
-                        Toast.LENGTH_SHORT,
-                    ).show()
+                    )
                 }
             },
         )
@@ -1158,7 +1125,7 @@ fun NoteEditorScreen(
                 override fun onSucceeded() {
                     moved.complete(true)
                     showMoveSheet = false
-                    Toast.makeText(
+                    showToast(
                         context,
                         if (folder.isEmpty()) {
                             localization.localizedText("notes.movedToRoot")
@@ -1168,19 +1135,14 @@ fun NoteEditorScreen(
                                 mapOf("destination" to folder),
                             )
                         },
-                        Toast.LENGTH_SHORT,
-                    ).show()
+                    )
                 }
 
                 override fun onFailed(failure: EditorExitFailure) {
                     // REJECTED (a delete latched first) stays silent —
                     // the delete reports for itself.
                     if (failure == EditorExitFailure.REJECTED) return
-                    Toast.makeText(
-                        context,
-                        localization.localizedText("notes.errors.moveFailed"),
-                        Toast.LENGTH_SHORT,
-                    ).show()
+                    showToast(context, localization.localizedText("notes.errors.moveFailed"))
                 }
             },
         )
@@ -1318,11 +1280,7 @@ fun NoteEditorScreen(
                             localization.localizedText("notes.shareChooserTitle"),
                         )
                         if (!shared) {
-                            Toast.makeText(
-                                context,
-                                localization.localizedText("notes.shareFailed"),
-                                Toast.LENGTH_SHORT,
-                            ).show()
+                            showToast(context, localization.localizedText("notes.shareFailed"))
                         }
                     }) {
                         Icon(

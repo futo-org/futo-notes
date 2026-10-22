@@ -5,6 +5,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.findViewTreeLifecycleOwner
 import com.futo.notes.puppet.PuppetServer.Binding
+import com.futo.notes.ui.currentToast
 import com.futo.notes.ui.navigation.Screen
 import com.futo.notes.unsavedNoteIds
 import org.json.JSONArray
@@ -101,6 +102,8 @@ internal suspend fun stateObject(bound: Binding): JSONObject {
             PuppetVerbs.opened?.let { (count, url) -> JSONObject().put("count", count).put("url", url) }
                 ?: JSONObject.NULL,
         )
+        // The toast on screen, "" when none, as desktop reports it.
+        .put("toast", currentToast)
         // Whether the app is on screen at all (system Back at the root leaves it), and
         // whether the keyboard is up: neither shows in the rows.
         .put(

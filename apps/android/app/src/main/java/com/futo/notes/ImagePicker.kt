@@ -8,7 +8,6 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.webkit.MimeTypeMap
-import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -16,6 +15,7 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import com.futo.notes.localization.Localization
+import com.futo.notes.ui.showToast
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import java.io.File
 import java.text.SimpleDateFormat
@@ -132,7 +132,7 @@ class ImagePicker(
     /** Reset the picker, tell the user why, and hand the editor nothing. */
     private fun fail(message: String) {
         cameraUri = null
-        Toast.makeText(activity, localization().localizedText(message), Toast.LENGTH_LONG).show()
+        showToast(activity, localization().localizedText(message), long = true)
         deliver(emptyList())
     }
 
