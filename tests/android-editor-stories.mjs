@@ -19,6 +19,7 @@
  *   eval "$(just qa-claim android)"
  *   just android-native
  *   node tests/android-editor-stories.mjs
+ *   node tests/android-editor-stories.mjs --story self-link-rename   # one story
  */
 
 import { dirname, resolve } from 'node:path';
@@ -77,8 +78,10 @@ async function selfLinkRenameThenType(client) {
     problems.push('the editor still shows the pre-relink link text after the rename');
   }
 
-  // The title field still owns the keyboard; Back closes it without leaving the note.
-  if (client.device.isImeVisible()) client.device.pressBack();
+  // The title field still owns the keyboard; Back closes it without leaving the
+  // note. Focusing before the keyboard is gone races the app's own focus drop on
+  // that dismissal (#274), so wait it out.
+  await client.dismissKeyboard();
   await client.focusOpenEditor();
   await client.typeIntoOpenEditor(SELF_TYPED);
   await client.device.waitFor(
@@ -202,18 +205,44 @@ async function photoWithoutCameraPermission(client) {
   }
 }
 
+const STORIES = [
+  {
+    id: 'self-link-rename',
+    name: 'a self-link rename keeps one note and the text typed after it',
+    run: selfLinkRenameThenType,
+  },
+  {
+    id: 'camera-permission',
+    name: 'Take photo without the camera permission asks, then points to Settings',
+    run: photoWithoutCameraPermission,
+  },
+];
+
+/** Every story by default; `--story <id>` (repeatable) runs only those. An id
+ *  that names no story is an error, not an empty green run (M11). */
+function selectedStories(argv) {
+  const wanted = [];
+  for (let i = 0; i < argv.length; i += 1) {
+    if (argv[i] === '--story' && argv[i + 1]) wanted.push(argv[(i += 1)]);
+    else throw new Error(`unknown argument ${JSON.stringify(argv[i])}; usage: [--story <id>]...`);
+  }
+  if (wanted.length === 0) return STORIES;
+  const known = STORIES.map((story) => story.id);
+  const unknown = wanted.filter((id) => !known.includes(id));
+  if (unknown.length > 0) {
+    throw new Error(`no story named ${unknown.join(', ')}; stories: ${known.join(', ')}`);
+  }
+  return STORIES.filter((story) => wanted.includes(story.id));
+}
+
 async function main() {
+  const stories = selectedStories(process.argv.slice(2));
   const leg = findAndroidLegDevice();
   if (!leg.available) throw new Error(`no usable Android device: ${leg.reason}`);
   console.log(`Android editor stories on ${leg.serial}:\n`);
   const client = await startAndroidNativeInstance('android-stories', repoRoot, leg.serial);
   try {
-    await check('a self-link rename keeps one note and the text typed after it', () =>
-      selfLinkRenameThenType(client),
-    );
-    await check('Take photo without the camera permission asks, then points to Settings', () =>
-      photoWithoutCameraPermission(client),
-    );
+    for (const story of stories) await check(story.name, () => story.run(client));
   } finally {
     client.stop();
   }
