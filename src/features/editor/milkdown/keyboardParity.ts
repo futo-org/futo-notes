@@ -143,9 +143,10 @@ const tabEscapeArmed = new WeakMap<ProseView, boolean>();
  * Shift+Enter outside a table cell: run whatever plain Enter does at the caret
  * — a newline, a list split, a new paragraph after a heading, a newline in code
  * — by offering every key handler a plain Enter. Always claims the key, so the
- * preset's own Shift-Enter binding (a `\` hard break) never runs.
+ * preset's own Shift-Enter binding (a `\` hard break) never runs. Also how an
+ * Android return key lost to a composition is delivered (androidComposingEnter.ts).
  */
-function replayAsEnter(view: ProseView): boolean {
+export function replayAsEnter(view: ProseView): boolean {
   const enter = new KeyboardEvent('keydown', {
     key: 'Enter',
     code: 'Enter',

@@ -27,6 +27,7 @@ import type { ImageInsertTarget } from '../imageInsertTarget';
 import { readOnlyGuard } from './readOnlyGuard';
 import { useBlockDragPlugins } from './blockDrag.svelte';
 import { landPendingDrop } from './blockDragSession';
+import { androidComposingEnter } from './androidComposingEnter';
 import { autolink } from './autolink';
 import { dividerCaretFix } from './dividerCaret';
 import { plainTextPaste } from './plainTextPaste';
@@ -272,6 +273,8 @@ export function assembleEditor(assembly: EditorAssembly): Editor {
     .use(vaultImageView)
     .use(imageInputRule)
     .use(history)
+    // The Android return key lost to an open composition (androidComposingEnter.ts).
+    .use(androidComposingEnter)
     .use(listener)
     .use(documentChanges(documentEdited))
     .use(readOnlyGuard(() => props.readonly))
