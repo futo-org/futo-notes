@@ -91,7 +91,8 @@
 - **Android asks for the camera at the moment of use, and a refusal is not a
   dead end.** _(Android)_ The `CAMERA` permission is declared in the manifest
   and requested when the scanner screen opens — never during onboarding, never
-  on the sync screen. A first refusal gets the reason and an Allow button that
+  on the sync screen. (The editor's Camera button asks for it too, at its own
+  moment of use; see native-toolbar-chrome.md.) A first refusal gets the reason and an Allow button that
   asks again; a final refusal gets the "camera access is off" sentence and Open
   Settings; a device with no camera at all gets its own sentence. All three also
   name the door that is still open: on the device being set up, type the vault
