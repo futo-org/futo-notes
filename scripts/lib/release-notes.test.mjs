@@ -80,6 +80,11 @@ describe('validateReleaseNotes', () => {
       'shorten the `## Short` section',
     ],
     [
+      'an App Store body that names the Play Store',
+      `# v1.0.0\n\nRate us on the Play Store.\n\n## Short\n\nok\n`,
+      'App Review rejects',
+    ],
+    [
       'an App Store body that names Android',
       `# v1.0.0\n\nSharing no longer crashes on Android.\n\n## Short\n\nFixed sharing on Android.\n`,
       'App Review rejects',
@@ -88,6 +93,13 @@ describe('validateReleaseNotes', () => {
     const problems = validateReleaseNotes(parseReleaseNotes(markdown), { tag: 'v1.0.0' });
     expect(problems).toHaveLength(1);
     expect(problems[0]).toContain(message);
+  });
+
+  it('allows Android in the Play-only Short section', () => {
+    const notes = parseReleaseNotes(
+      '# v1.0.0\n\nFixed a crash.\n\n## Short\n\nFixed a crash on Android.\n',
+    );
+    expect(validateReleaseNotes(notes, { tag: 'v1.0.0' })).toEqual([]);
   });
 
   it('reports every problem at once rather than one per run', () => {

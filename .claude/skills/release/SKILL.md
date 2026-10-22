@@ -128,7 +128,10 @@ Parse messages. Identify any that requested features or reported bugs addressed 
 
 **Store version** — what App Store and Google Play users read. This is NOT the
 same audience: cut anything that only means something to someone who has read
-the diff, and lead with what a user would notice.
+the diff, and lead with what a user would notice. The App Store body must
+never name Android, Google Play or the Play Store — App Review rejected v1.9.0
+for it (Guideline 2.3.10). Android-only items go only in `## Short`, which only
+Play shows.
 
 Present all three versions to the user for review/editing before proceeding.
 
@@ -150,7 +153,7 @@ git commit -m "docs(release): store release notes for v<version>"
 ```
 
 `check:release-notes` fails the tag pipeline in its first minute if this is
-missing or too long, so do not skip it.
+missing, too long, or names Android in the App Store text, so do not skip it.
 
 ## Step 5: Copy Changelog to Clipboard
 
