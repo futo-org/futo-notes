@@ -38,6 +38,117 @@
       exit 1
     fi
 
+# The provision script both Windows chains run (windows:provision and
+# windows:provision:internal in ci/windows-internal.yml reach it with
+# !reference). Each job supplies PROXMOX_HOST/PROXMOX_NODE/TEMPLATE_VMID/
+# VM_NAME; the VM name is the only thing that differs.
+.proxmox_provision:
+  # Get next available VMID
+  - |
+    export NEXT_VMID=$(curl -s -k \
+      -H "Authorization: ${PROXMOX_AUTH}" \
+      "https://${PROXMOX_HOST}:8006/api2/json/cluster/nextid" | jq -r '.data')
+    if [ -z "$NEXT_VMID" ] || [ "$NEXT_VMID" = "null" ]; then
+      echo "FATAL: Proxmox cluster/nextid returned no VMID — check PROXMOX_HOST/PROXMOX_NODE reachability and PROXMOX_AUTH."
+      exit 1
+    fi
+    echo "VMID=${NEXT_VMID}" >> provision.env
+    echo "Using VMID: ${NEXT_VMID}"
+
+  # Clone the template: linked (full=0) first — seconds instead of the ~460s
+  # full copy (v1.9.0, pipeline 38318) — then full (full=1) when Proxmox
+  # refuses the linked clone or its task fails (e.g. template storage that
+  # cannot snapshot). Each attempt polls its task to completion.
+  - |
+    clone_template() {
+      full="$1"
+      CLONE_RESPONSE=$(curl -s -k -X POST \
+        -H "Authorization: ${PROXMOX_AUTH}" \
+        -H "Content-Type: application/x-www-form-urlencoded" \
+        -d "newid=${NEXT_VMID}&name=${VM_NAME}&full=${full}" \
+        "https://${PROXMOX_HOST}:8006/api2/json/nodes/${PROXMOX_NODE}/qemu/${TEMPLATE_VMID}/clone")
+      UPID=$(echo "$CLONE_RESPONSE" | jq -r '.data')
+      if [ -z "$UPID" ] || [ "$UPID" = "null" ]; then
+        echo "Proxmox clone request (full=${full}) returned no task id (UPID). Response: $CLONE_RESPONSE"
+        return 1
+      fi
+      echo "Clone task started (full=${full}): $UPID"
+      UPID_ENCODED=$(printf '%s' "$UPID" | jq -sRr @uri)
+      LATEST_TEMP=""
+      while true; do
+        TASK_STATUS=$(curl -s -k \
+          -H "Authorization: ${PROXMOX_AUTH}" \
+          "https://${PROXMOX_HOST}:8006/api2/json/nodes/${PROXMOX_NODE}/tasks/${UPID_ENCODED}/status")
+        STATUS=$(echo "$TASK_STATUS" | jq -r '.data.status')
+        if [ "$STATUS" = "stopped" ]; then
+          EXIT_STATUS=$(echo "$TASK_STATUS" | jq -r '.data.exitstatus')
+          if [ "$EXIT_STATUS" = "OK" ]; then
+            echo "Clone (full=${full}) completed successfully!"
+            return 0
+          fi
+          echo "Clone (full=${full}) failed: $EXIT_STATUS"
+          return 1
+        fi
+        TASK_LOG=$(curl -s -k \
+          -H "Authorization: ${PROXMOX_AUTH}" \
+          "https://${PROXMOX_HOST}:8006/api2/json/nodes/${PROXMOX_NODE}/tasks/${UPID_ENCODED}/log?limit=10000")
+        LATEST=$(echo "$TASK_LOG" | jq -r '.data | sort_by(.n) | last | .t // "waiting..."')
+        if [ "$LATEST_TEMP" != "$LATEST" ]; then
+          echo "Status: $STATUS | $LATEST"
+          LATEST_TEMP="$LATEST"
+        fi
+        sleep 5
+      done
+    }
+    if ! clone_template 0; then
+      echo "Linked clone failed (reason above); falling back to a full clone."
+      # Proxmox removes a failed clone's config and disks itself. If VMID
+      # ${NEXT_VMID} survived anyway, a second clone onto it would fail
+      # confusingly — stop here; windows:cleanup destroys it via the dotenv.
+      LEFTOVER=$(curl -s -k \
+        -H "Authorization: ${PROXMOX_AUTH}" \
+        "https://${PROXMOX_HOST}:8006/api2/json/nodes/${PROXMOX_NODE}/qemu/${NEXT_VMID}/status/current" \
+        | jq -r '.data.vmid // empty')
+      if [ -n "$LEFTOVER" ]; then
+        echo "FATAL: VMID ${NEXT_VMID} still exists after the failed linked clone; not cloning over it."
+        exit 1
+      fi
+      if ! clone_template 1; then
+        echo "FATAL: the full clone failed too (reason above)."
+        exit 1
+      fi
+    fi
+
+  # Start the VM
+  - |
+    source provision.env
+    curl -s -k -X POST \
+      -H "Authorization: ${PROXMOX_AUTH}" \
+      "https://${PROXMOX_HOST}:8006/api2/json/nodes/${PROXMOX_NODE}/qemu/${VMID}/status/start"
+
+  # Wait for VM to get an IP via QEMU guest agent
+  - |
+    source provision.env
+    echo "Waiting for VM to boot and get IP..."
+    for i in $(seq 1 60); do
+      IP=$(curl -s -k \
+        -H "Authorization: ${PROXMOX_AUTH}" \
+        "https://${PROXMOX_HOST}:8006/api2/json/nodes/${PROXMOX_NODE}/qemu/${VMID}/agent/network-get-interfaces" 2>/dev/null \
+        | jq -r '.data.result[]? | select(.name != "Loopback Pseudo-Interface 1") | ."ip-addresses"[]? | select(."ip-address-type" == "ipv4") | ."ip-address"' \
+        | head -1)
+      if [ -n "$IP" ] && [ "$IP" != "null" ]; then
+        echo "VM_IP=${IP}" >> provision.env
+        echo "VM is up at: ${IP}"
+        break
+      fi
+      echo "Waiting for start and IP... (${i}/60)"
+      sleep 10
+    done
+    if [ -z "$IP" ] || [ "$IP" = "null" ]; then
+      echo "ERROR: No IP after 10 minutes"
+      exit 1
+    fi
+
 windows:provision:
   stage: build
   needs:
@@ -52,93 +163,7 @@ windows:provision:
     PROXMOX_NODE: "green"
     TEMPLATE_VMID: "101"
     VM_NAME: "futo-notes-win-${CI_PIPELINE_ID}"
-    CLONE_TYPE: "1"
-  script:
-    # Get next available VMID
-    - |
-      export NEXT_VMID=$(curl -s -k \
-        -H "Authorization: ${PROXMOX_AUTH}" \
-        "https://${PROXMOX_HOST}:8006/api2/json/cluster/nextid" | jq -r '.data')
-      if [ -z "$NEXT_VMID" ] || [ "$NEXT_VMID" = "null" ]; then
-        echo "FATAL: Proxmox cluster/nextid returned no VMID — check PROXMOX_HOST/PROXMOX_NODE reachability and PROXMOX_AUTH."
-        exit 1
-      fi
-      echo "VMID=${NEXT_VMID}" >> provision.env
-      echo "Using VMID: ${NEXT_VMID}"
-
-    # Clone the template VM and poll task until done
-    - |
-      CLONE_RESPONSE=$(curl -s -k -X POST \
-        -H "Authorization: ${PROXMOX_AUTH}" \
-        -H "Content-Type: application/x-www-form-urlencoded" \
-        -d "newid=${NEXT_VMID}&name=${VM_NAME}&full=${CLONE_TYPE}" \
-        "https://${PROXMOX_HOST}:8006/api2/json/nodes/${PROXMOX_NODE}/qemu/${TEMPLATE_VMID}/clone")
-      UPID=$(echo "$CLONE_RESPONSE" | jq -r '.data')
-      if [ -z "$UPID" ] || [ "$UPID" = "null" ]; then
-        echo "FATAL: Proxmox clone request returned no task id (UPID). Response: $CLONE_RESPONSE"
-        exit 1
-      fi
-      echo "Clone task started: $UPID"
-
-    - |
-      UPID_ENCODED=$(printf '%s' "$UPID" | jq -sRr @uri)
-      LATEST_TEMP=""
-      while true; do
-        TASK_STATUS=$(curl -s -k \
-          -H "Authorization: ${PROXMOX_AUTH}" \
-          "https://${PROXMOX_HOST}:8006/api2/json/nodes/${PROXMOX_NODE}/tasks/${UPID_ENCODED}/status")
-        STATUS=$(echo "$TASK_STATUS" | jq -r '.data.status')
-        if [ "$STATUS" = "stopped" ]; then
-          EXIT_STATUS=$(echo "$TASK_STATUS" | jq -r '.data.exitstatus')
-          if [ "$EXIT_STATUS" = "OK" ]; then
-            echo "Clone completed successfully!"
-            break
-          else
-            echo "Clone failed: $EXIT_STATUS"
-            exit 1
-          fi
-        fi
-        TASK_LOG=$(curl -s -k \
-          -H "Authorization: ${PROXMOX_AUTH}" \
-          "https://${PROXMOX_HOST}:8006/api2/json/nodes/${PROXMOX_NODE}/tasks/${UPID_ENCODED}/log?limit=10000")
-        LATEST=$(echo "$TASK_LOG" | jq -r '.data | sort_by(.n) | last | .t // "waiting..."')
-        if [ "$LATEST_TEMP" != "$LATEST" ]; then
-          echo "Status: $STATUS | $LATEST"
-          LATEST_TEMP="$LATEST"
-        fi
-        sleep 5
-      done
-
-    # Start the VM
-    - |
-      source provision.env
-      curl -s -k -X POST \
-        -H "Authorization: ${PROXMOX_AUTH}" \
-        "https://${PROXMOX_HOST}:8006/api2/json/nodes/${PROXMOX_NODE}/qemu/${VMID}/status/start"
-
-    # Wait for VM to get an IP via QEMU guest agent
-    - |
-      source provision.env
-      echo "Waiting for VM to boot and get IP..."
-      for i in $(seq 1 60); do
-        IP=$(curl -s -k \
-          -H "Authorization: ${PROXMOX_AUTH}" \
-          "https://${PROXMOX_HOST}:8006/api2/json/nodes/${PROXMOX_NODE}/qemu/${VMID}/agent/network-get-interfaces" 2>/dev/null \
-          | jq -r '.data.result[]? | select(.name != "Loopback Pseudo-Interface 1") | ."ip-addresses"[]? | select(."ip-address-type" == "ipv4") | ."ip-address"' \
-          | head -1)
-        if [ -n "$IP" ] && [ "$IP" != "null" ]; then
-          echo "VM_IP=${IP}" >> provision.env
-          echo "VM is up at: ${IP}"
-          break
-        fi
-        echo "Waiting for start and IP... (${i}/60)"
-        sleep 10
-      done
-      if [ -z "$IP" ] || [ "$IP" = "null" ]; then
-        echo "ERROR: No IP after 10 minutes"
-        exit 1
-      fi
-
+  script: !reference [.proxmox_provision]
   artifacts:
     # when: always — publish the dotenv even when this job FAILS. The VM is
     # created (clone+start) before the IP wait that can time out and `exit 1`;
