@@ -13,6 +13,8 @@ use wiremock::{Mock, MockServer, ResponseTemplate};
 use super::*;
 use crate::checkpoint::{self, ConnectedState, ObjectState};
 
+mod cancel_wait;
+
 fn temp_root() -> PathBuf {
     static NEXT: AtomicU64 = AtomicU64::new(0);
     let root = std::env::temp_dir().join(format!(
@@ -487,7 +489,7 @@ async fn a_root_removed_during_the_entitlement_wait_fails_the_next_poll() {
     };
     let setup = rig.setup.with_schedules(slow, slow);
 
-    let wait = setup.await_entitled();
+    let wait = setup.await_entitled(setup.request_wait());
     let revoke = async {
         until_requests(&rig.requests, 2).await;
         (rig.revoke)();

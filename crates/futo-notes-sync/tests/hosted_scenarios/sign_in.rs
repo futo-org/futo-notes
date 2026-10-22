@@ -25,7 +25,11 @@ pub async fn sign_in_then_subscribe(base: &str) {
     );
     browser_visit(&handoff.url).await;
 
-    let session = match setup.await_sign_in(&handoff).await.expect("await sign in") {
+    let session = match setup
+        .await_sign_in(&handoff, setup.request_wait())
+        .await
+        .expect("await sign in")
+    {
         SignInOutcome::SignedIn(session) => session,
         other => panic!("expected a session, got {other:?}"),
     };
@@ -49,10 +53,11 @@ pub async fn a_dismissed_sheet_cancels_the_wait(base: &str) {
     let setup = setup(base);
     let handoff = mint_handoff(&setup).await;
 
+    let request = setup.request_wait();
     let waiting = tokio::spawn({
         let setup = Arc::clone(&setup);
         let handoff = handoff.clone();
-        async move { setup.await_sign_in(&handoff).await }
+        async move { setup.await_sign_in(&handoff, request).await }
     });
     // Let the wait get past its first poll, so the cancel interrupts a real
     // wait rather than being read before one started.
@@ -73,7 +78,10 @@ pub async fn a_spent_ticket_is_reported_as_expired(base: &str) {
     let handoff = mint_handoff(&first).await;
     browser_visit(&handoff.url).await;
     assert!(matches!(
-        first.await_sign_in(&handoff).await.expect("await sign in"),
+        first
+            .await_sign_in(&handoff, first.request_wait())
+            .await
+            .expect("await sign in"),
         SignInOutcome::SignedIn(_)
     ));
 
@@ -81,7 +89,7 @@ pub async fn a_spent_ticket_is_reported_as_expired(base: &str) {
     let second = setup(base);
     assert_eq!(
         second
-            .await_sign_in(&handoff)
+            .await_sign_in(&handoff, second.request_wait())
             .await
             .expect("await a spent ticket"),
         SignInOutcome::Expired

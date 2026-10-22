@@ -32,7 +32,7 @@ use futo_notes_core::e2ee::{
 use serde::{Deserialize, Serialize};
 
 use super::poll::PollSchedule;
-use super::{HostedError, HostedSetup, Waited};
+use super::{HostedError, HostedSetup, WaitRequest, Waited};
 
 /// The relay's own window, from creation (server ADR 0008). Used only when a
 /// server answers with an `expires_at` this client cannot read; the server's
@@ -254,7 +254,7 @@ impl HostedSetup {
     /// A person who declines on the other device sends nothing, so declining
     /// and walking away are the same thing seen from here: the wait ends at
     /// the code's expiry with [`HostedError::PairingExpired`].
-    pub async fn await_pairing(&self) -> Result<PairingOutcome, HostedError> {
+    pub async fn await_pairing(&self, request: WaitRequest) -> Result<PairingOutcome, HostedError> {
         let (id, secret, deadline) = {
             let pending = self.pairing.lock().expect("pending pairing lock");
             let pending = pending.as_ref().ok_or(HostedError::PairingNotStarted)?;
@@ -268,7 +268,7 @@ impl HostedSetup {
         };
 
         let waited = self
-            .wait(schedule, || async {
+            .wait(request, schedule, || async {
                 // Per poll, not per wait: `authorized` is where the TLS trust
                 // is re-checked, so a root removed while the code is on screen
                 // ends the wait instead of vouching for the rest of it.

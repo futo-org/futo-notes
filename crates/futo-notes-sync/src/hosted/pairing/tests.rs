@@ -17,7 +17,7 @@ async fn a_root_removed_during_the_pairing_wait_fails_the_next_poll() {
         deadline: Instant::now() + Duration::from_secs(3),
     });
 
-    let wait = rig.setup.await_pairing();
+    let wait = rig.setup.await_pairing(rig.setup.request_wait());
     let revoke = async {
         super::super::tests::until_requests(&rig.requests, 2).await;
         (rig.revoke)();
@@ -176,7 +176,7 @@ fn no_expiry_a_server_sends_can_outlast_the_contracts_window() {
 async fn waiting_without_a_pairing_says_so() {
     let setup = HostedSetup::at("https://pairing.example").expect("setup");
     assert_eq!(
-        setup.await_pairing().await.unwrap_err(),
+        setup.await_pairing(setup.request_wait()).await.unwrap_err(),
         HostedError::PairingNotStarted
     );
 }
