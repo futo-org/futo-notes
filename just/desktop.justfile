@@ -2,7 +2,7 @@
 
 # ── Desktop (Tauri) ──
 
-# Desktop dev (Wayland, Vite port 5200+slot per worktree — scripts/lib/slot.mjs); `--fake-update[=X.Y.Z]` simulates an update banner.
+# Desktop dev on any OS (forces Wayland on Linux; Vite port: `just ports`); `--fake-update[=X.Y.Z]` simulates an update banner.
 tauri-dev *args:
   node scripts/tauri-dev.mjs "$@"
 

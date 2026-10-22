@@ -48,7 +48,7 @@ export function createFeedbackForm(onsent: () => void) {
     for (const attachment of attachments) URL.revokeObjectURL(attachment.previewUrl);
   }
 
-  async function attachImages(): Promise<void> {
+  async function attachImages(paths?: readonly string[]): Promise<void> {
     const fs = getFS();
     const remaining = MAX_ATTACHMENTS - attachments.length;
     if (remaining <= 0 || !fs.pickImages) return;
@@ -57,6 +57,7 @@ export function createFeedbackForm(onsent: () => void) {
       const picked = await fs.pickImages({
         limit: remaining,
         filterName: localizedText('editor.images.filePickerFilter'),
+        paths,
       });
       const added: Attachment[] = [];
       for (const image of picked) {

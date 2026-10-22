@@ -13,6 +13,7 @@
    */
   import { onMount, tick, untrack } from 'svelte';
 
+  import { puppetRefusal, puppetVerb, registerPuppetVerbs } from '$app/puppet/puppetRegistry';
   import { showGlobalToast } from '$shared/notifications/toastBus.svelte';
   import { resolveLocalizedMessage, type LocalizedMessage } from '$shared/localization';
 
@@ -69,6 +70,26 @@
     input?.focus();
     input?.select();
   }
+
+  // Typing in the field, Enter and Escape, for as long as the field is open.
+  $effect(() =>
+    registerPuppetVerbs(() => [
+      puppetVerb(
+        'SetNewName',
+        { name: 'string' },
+        (args) => {
+          value = args.name as string;
+          error = null;
+        },
+        { controls: ['notes.title.fieldAccessibilityLabel', 'folders.nameField'] },
+      ),
+      puppetVerb('SubmitRename', {}, async () => {
+        await submit(true);
+        return error ? puppetRefusal(409, resolveLocalizedMessage(error)) : undefined;
+      }),
+      puppetVerb('CancelRename', {}, onclose),
+    ]),
+  );
 
   function handleKeydown(event: KeyboardEvent): void {
     if (event.key === 'Enter') {

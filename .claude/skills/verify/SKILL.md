@@ -20,6 +20,7 @@ the one you need before driving that platform:
 
 | Platform | When | Playbook |
 |---|---|---|
+| Any running debug app | acting on it and reading its state — **use the `puppet` skill, it is the only sanctioned driver** | `.claude/skills/puppet/` |
 | Web dev server | pure CSS / markdown / editor decorations, no Tauri APIs | `references/desktop.md` |
 | Tauri desktop | default for desktop features; anything touching Rust/`invoke()`/platform APIs | `references/desktop.md` |
 | iOS simulator (native SwiftUI) | `apps/ios` changes, iOS-specific behavior, "on the simulator" | `references/ios.md` |
@@ -28,8 +29,8 @@ the one you need before driving that platform:
 
 **Mobile is native, not Tauri**: the shipping mobile apps are the SwiftUI and
 Compose shells on the shared Rust core. Neither has the MCP bridge — the
-bridge is desktop-only. iOS is driven with `simctl` + `axe`, Android with
-`adb` + CDP.
+bridge is desktop-only. Every platform is driven with `just puppet` (the `puppet` skill);
+`simctl` and `adb` install and launch the phone apps.
 
 **Platform matrix** (`uname -s`): macOS = iOS + Android + desktop; Linux =
 Android + desktop + the Windows qemu VM (no iOS). The playbooks note the few
@@ -201,7 +202,7 @@ Do not commit private conversation excerpts or real-vault content as evidence.
 | iOS build        | PASS   | build-ios-native clean             |
 | Android tests    | SKIP   | no Android changes                 |
 | UI (desktop)     | PASS   | 3 screenshots in test-screenshots/ |
-| UI (iOS sim)     | PASS   | flush-and-read verified content    |
+| UI (iOS sim)     | PASS   | content verified on disk           |
 ```
 
 If anything failed, show the relevant error output and suggest a fix. List

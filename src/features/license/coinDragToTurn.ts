@@ -1,3 +1,5 @@
+import { puppetVerb, registerPuppetVerbs } from '$app/puppet/puppetRegistry';
+
 /// Radians of turn per pixel dragged. Tuned so crossing a 96px coin turns it
 /// about half a revolution: enough that a drag obviously grabs the object,
 /// little enough that you can stop on a face.
@@ -109,8 +111,17 @@ export function attachDragToTurn(mount: HTMLElement, target: TurnTarget): () => 
   mount.addEventListener('pointermove', onPointerMove);
   mount.addEventListener('pointerup', endDrag);
   mount.addEventListener('pointercancel', endDrag);
+  // A click, as `endDrag` reads one; a drag or a flick stays the real pointer's.
+  const unregisterVerbs = registerPuppetVerbs(() => [
+    puppetVerb('SpinCoin', {}, () => {
+      target.grab();
+      target.release(null);
+      target.tap();
+    }),
+  ]);
 
   return () => {
+    unregisterVerbs();
     mount.removeEventListener('pointerdown', onPointerDown);
     mount.removeEventListener('pointermove', onPointerMove);
     mount.removeEventListener('pointerup', endDrag);

@@ -81,6 +81,11 @@ export function isFolderOpen(path: string): boolean {
   return openFolders.has(path) || dragHoverExpanded.has(path);
 }
 
+/** Every folder `isFolderOpen` holds open, sorted. */
+export function openFolderPaths(): string[] {
+  return [...new Set([...openFolders, ...dragHoverExpanded])].sort();
+}
+
 export function toggleFolderOpen(path: string): void {
   setFolderOpen(path, !openFolders.has(path));
 }

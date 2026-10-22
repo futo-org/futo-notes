@@ -96,7 +96,8 @@ Default recommendation: **fix critical + high, skip medium + low** unless cheap.
 
 For each approved fix:
 
-- Apply the minimal change. No neighborhood cleanup — `bugfix` skill rules apply.
+- Apply the minimal change. No neighborhood cleanup (AGENTS.md section 7.9: a regression
+  test that fails first, then the owning layer's chain).
 - If the fix exposes a pre-existing bug the PR didn't introduce, **surface it as a side-quest** the user opts into. Don't silently widen the diff.
 - Add a regression test where applicable (see AGENTS.md §7 "Quality bar per deliverable").
 - Commit per logical fix or per severity tier — keeps reviewable history.
@@ -134,5 +135,5 @@ Lawson's observation: this workflow rarely speeds you up. It surfaces tangential
 - `/code-review` — single-reviewer Claude pass, faster.
 - `/codex:review`, `/codex:adversarial-review` — the two Codex passes this skill orchestrates.
 - `/codex:rescue` — delegate a substantial fix to Codex when one finding turns into a deep investigation.
-- `bugfix` skill — the discipline for applying each individual fix.
+- `puppet` skill — reproducing a finding in the running app before fixing it.
 - `verify` skill — the final verification chain after fixes land.

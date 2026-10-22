@@ -2,20 +2,17 @@
 
 The shipping Android app is the native Jetpack Compose shell in `apps/android`
 (Rust core via `futo-notes-ffi`, editor embedded as a WebView). There is no
-Tauri Android shell and no MCP bridge on Android. Three ways in, cheapest first:
+Tauri Android shell and no MCP bridge on Android.
 
-| Layer | Tool | Cost |
-| --- | --- | --- |
-| App state + named actions | `just android-drive state` / `hook` | ~0.2s |
-| Native Compose UI | `just android-drive tree` / `tap` (uiautomator) | ~2s per read |
-| Inside the editor WebView | `scripts/cdp-invoke.mjs` (CDP) | ~0.1s |
-
-**Reach for the state hook before the accessibility tree.** An a11y dump costs
-~2s and shows you what Compose last managed to render — an unfocused emulator
-throttles frames, so it can be stale (M21). `state` answers from the app itself
-and reports things the tree cannot show at all: which vault is live, how many
-notes the store holds, whether a migration is in flight. Use the a11y tree when
-the UI *is* what you're verifying.
+> **Use the `puppet` skill (`.claude/skills/puppet/`) — it is the only sanctioned
+> way to drive this app.**
+> Notes, folders, navigation and every editor action are verbs
+> (`FUTO_PUPPET_TARGET=android just puppet actions`) that run through the app's own
+> handlers and answer with a diff, and `tap`/`drag` land a real `adb shell input`
+> touch at the dp point `elements` reports, on this worktree's claimed emulator: the
+> CLI claims one on first use and opens its own `adb forward`. The rest of this file
+> is for what verbs do not cover: the toolchain, building and launching, what nothing
+> reaches (§3), the app's own state hook, and disk verification.
 
 Debug builds install as `com.futo.notes.dev` ("FUTO Notes Dev"); the vault is
 app-private at `files/futo-notes` inside the app's data dir. Isolation from a
@@ -56,8 +53,9 @@ serial. Direct `adb` and Gradle calls bypass that guard, so run
 `just qa-android-target` immediately before using those tools.
 
 `adb` honors `$ANDROID_SERIAL` natively; with multiple devices attached every
-`adb` call is ambiguous without it. Driving a device another session claimed
-(see `just qa-status`) causes install-thrashing — don't. Release with
+`adb` call is ambiguous without it. `just puppet` needs no export: it reads the
+claim itself. Driving a device another session claimed (see `just qa-status`)
+causes install-thrashing — don't. Release with
 `just qa-release android` when done — a bare `just qa-release` also frees any
 simulator this worktree claimed.
 
@@ -105,66 +103,43 @@ they're missing.
   any bare `gradlew` invocation will compile.
 - First Gradle run is slow (~2–3 min); warm rebuilds are fast.
 
-## 3. Drive the app
+## 3. Native Compose chrome — what nothing reaches
 
-`just android-drive` (= `node scripts/android-drive.mjs`) is the front door. Run
-it with no arguments for the command list. It honors `$ANDROID_SERIAL`, so
-`just qa-claim android` is the only setup.
+**Everything the app itself owns — notes, folders, navigation, the editor and its title
+field, find bar and ⋯ menu, Search, Settings, Storage location and its dialog that opens an
+already-populated folder, Sync, Feedback and the crash dialog — is a verb: use the `puppet`
+skill** (`state.screen` names every screen; `actions` lists what each offers). Check a row's
+long-press menu and swipe actions before declaring an affordance missing
+(`docs/spec/AGENTS.md`).
+
+Outside the app — the share chooser `ShareRecoveryKey` opens, the system's permission and
+settings screens — `elements` sees nothing: `just puppet screenshot` shows it, and
+`press {"key":"Back"}`, the system's Back, closes it as it does for a person.
+
+`just android-drive state` (`scripts/android-drive.mjs`) answers what `just puppet state`
+does not: which vault is live, how many notes the store holds, whether a migration is in
+flight. It honors `$ANDROID_SERIAL`, so `just qa-claim android` is the only setup.
 
 ```bash
 just android-drive state                    # app state as JSON — fast, and not a UI read
-just android-drive tree                     # labeled tap targets: "  114,121   Groceries"
-just android-drive tap 'Settings'           # find by label (scrolling if needed), tap once
 just android-drive wait shellVisible=true storageMode=DEVICE
-just android-drive hook storage-mode mode=DEVICE
-just android-drive text --replace 'replacement value'  # replace a focused native field
 just android-drive logs                     # the app's tagged logs
-just android-drive shot android-dark-list   # → ./test-screenshots/android-dark-list.png
-just android-drive relaunch                 # restart and wait until it answers again
 ```
-
-`tap` anchors on the node's own text or content-desc, so a layout change can't
-silently hit the wrong control the way copied coordinates can. It taps **once**:
-re-tapping until something changes reads as robustness, but a dialog that closes
-between the look and the tap leaves the extra taps landing on whatever is
-underneath — that is how a retry loop once reached the Settings Danger zone.
 
 ### Named hooks (debug builds only)
 
-The debug build registers a broadcast-driven command surface — Android's
-counterpart of the desktop `window.__testSync` hook, for the same reason. Hooks
-call the app's own entry points, so what they replace is the tapping, not the
-code under test.
+The debug build registers a broadcast-driven command surface for harnesses —
+Android's counterpart of the desktop `window.__testSync` hook. Hooks call the app's
+own entry points, so what they replace is the tapping, not the code under test.
 
 ```bash
 just android-drive hook state              # every field of the state snapshot
-just android-drive hook storage-mode mode=DEVICE
-just android-drive text --replace 'replacement value'  # replace a focused native field
-just android-drive hook confirm-storage
 just android-drive hook nonesuch           # errors listing the hooks that DO exist
 ```
 
 Every call waits for the app's own ack, so a broadcast that reached nothing fails
 at the call — `am broadcast` alone reports success either way. Adding a hook is a
 few lines in `MainActivity.testHooks()` (`MainActivityTestHooks.kt`); see `apps/android/AGENTS.md`.
-
-### Raw adb, when you need a gesture the driver doesn't expose
-
-```bash
-adb shell input swipe 850 1459 150 1459 300  # swipe row left → reveal actions
-adb shell input swipe X Y X Y 700            # long-press (same point, 700ms)
-adb shell input text 'grocery%slist'         # focused native field (%s = space)
-just android-drive back                     # navigation-mode-aware Back / IME dismissal
-adb shell input keyevent 67                  # Backspace
-```
-
-After any action the a11y tree is stale — re-read before the next lookup (the
-driver invalidates its cache for you). Check long-press context menus and swipe
-actions before declaring an affordance missing (`docs/spec/AGENTS.md`).
-
-**Don't** use `input tap` on coordinates *inside the editor WebView* — device
-pixel ratio and viewport offsets make them unreliable. Use CDP for anything
-inside the editor.
 
 ### Writing a harness instead of a one-off
 
@@ -212,9 +187,10 @@ native hook surface in §3, driven by broadcast rather than JS.
 `cdp-invoke.mjs` awaits promises and bypasses page CSP; re-run
 `just cdp-forward` after an app restart (the WebView pid changes).
 
-For an editor typing story, an `adb input text` exit code and a focused WebView
-do not prove the whole string arrived. Check `__futoTest.readDocument()` and
-the saved note. If adb delivers a prefix or no text, a CDP harness can use the
+For an editor typing story, a `just puppet type` that answered OK into a focused
+WebView does not prove the whole string arrived: its keys go through adb, which can
+deliver a prefix or nothing. Check the receipt's `doc` line and the saved note. A CDP
+harness can use the
 existing `connectPage` client (`tests/lib/editorDevicePerfSnippets.mjs`): focus
 the editor, send `cdp.send('Input.insertText', { text })`, then assert the exact
 document change and persistence. This drives the editor's input path; it does
@@ -275,8 +251,7 @@ adb shell 'stat -c "%y %n" /data/local/tmp'                                 # To
 
 # Seed a fixture (device-storage vault), then relaunch so the scan picks it up:
 printf '# Seeded\n' | adb shell sh -c 'cat > "/storage/emulated/0/Documents/FUTO Notes Dev/Seeded Note.md"'
-adb shell am force-stop com.futo.notes.dev
-adb shell am start -n com.futo.notes.dev/com.futo.notes.MainActivity
+FUTO_PUPPET_TARGET=android just puppet relaunch
 ```
 
 Full reset: `adb shell pm clear com.futo.notes.dev` (wipes the APP/INTERNAL
@@ -284,9 +259,8 @@ vault, prefs and sync state) plus `adb shell rm -rf "'/storage/emulated/0/Docume
 for a DEVICE-mode vault, which lives outside the package. `just qa-claim` does
 both when it hands you a pool emulator another worktree used.
 
-Like iOS, backgrounding the app (`adb shell input keyevent 3` = HOME) flushes
-pending editor edits to disk — background, then read the file to verify editor
-content.
+To verify editor content on disk, wait until `just puppet state`'s `pending.unsaved`
+is empty (the edits are written), then read the file.
 
 Android's Toybox `stat`/`ls` do not support GNU `--time-style=full-iso`.
 Use `stat -c '%y %n' <path>` for timestamps; add `run-as com.futo.notes.dev`
@@ -304,10 +278,9 @@ saved result, since an annotated tap does not prove delivery.
 ## 7. Sync features
 
 The emulator cannot reach the host's `127.0.0.1` — use **`10.0.2.2`** for any
-host-side service (sync server URL in Settings, etc.). There is no sync hook yet,
-so connect through Settings → Sync in the app UI; if you find yourself tapping
-that flow repeatedly, add one to `MainActivity.testHooks()` (`MainActivityTestHooks.kt`) instead. Server
-setup: see "Features that need a sync server" in SKILL.md.
+host-side service (sync server URL in Settings, etc.). Connect with the sync verbs
+(`OpenSync`, `ToggleOwnServer`, `ConnectSync`). Server setup: see "Features that need
+a sync server" in SKILL.md.
 
 ## Camera poster for QR stories
 
@@ -336,8 +309,3 @@ file changes. A different poster path requires running the helper again.
   later removed once FUTO Keyboard fixed the crash upstream (see
   `docs/spec/editor.md`, "Backspace on an empty note"). IME/status-bar issues generally need
   device/emulator QA — Playwright can't see them.
-- Some Compose surfaces (dialogs, menus) render in separate windows; if a
-  node is missing from the uiautomator dump, poll fresh dumps for the expected label with a bounded timeout.
-- `adb shell input text` can deliver a prefix or nothing to a focused editor
-  WebView. Verify the whole string; use CDP `Input.insertText` for input stories
-  or `setContent`/`exec` for content-level work, with the persistence checks above.

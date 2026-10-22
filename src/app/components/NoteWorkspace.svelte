@@ -13,12 +13,20 @@
 
   import type { createCurrentNoteActions } from '../createCurrentNoteActions.svelte';
   import DropdownMenu, { type DropdownMenuEntry } from '$shared/dialogs/DropdownMenu.svelte';
+  import { ANSWER_PARAM, throughConfirmation } from '$app/puppet/puppetConfirm';
+  import {
+    puppetRefusal,
+    puppetVerb,
+    registerPuppetVerbs,
+    SHORTCUT_STEPS,
+  } from '$app/puppet/puppetRegistry';
 
   // The subset of the editor's imperative API the shell drives.
   export type EditorApi = Pick<
     ReturnType<typeof MilkdownEditor>,
     | 'setContent'
     | 'openNote'
+    | 'retarget'
     | 'isStreaming'
     | 'applyEdit'
     | 'insertMarkdown'
@@ -94,6 +102,68 @@
     focusToken: 0,
   });
 
+  // The title field and the note's overflow menu; the picker, tag bar and
+  // editor register their own verbs. "Current" because the sidebar's DeleteNote
+  // and MoveNote name a note; these act on the open one, as the menu does.
+  $effect(() =>
+    registerPuppetVerbs(() =>
+      // The workspace stays mounted behind the home screen, where none of its chrome is on
+      // screen: `active` is the same flag the markup uses, so the menu says what the user
+      // can reach rather than what happens to be mounted.
+      !active
+        ? []
+        : [
+            // Typing a title and moving on: the blur handler flushes the debounced save, so
+            // the verb does too, and its receipt settles once the rename has landed.
+            puppetVerb(
+              'SetTitle',
+              { title: 'string' },
+              (args) => {
+                if (vaultAvailability.unavailable) {
+                  return puppetRefusal(409, 'the vault is unavailable, so the title is read-only');
+                }
+                if (!session.setTitle(args.title as string)) {
+                  return puppetRefusal(409, 'no title field is mounted');
+                }
+                return session.flushSave();
+              },
+              { controls: ['notes.untitledPlaceholder'] },
+            ),
+            puppetVerb('ToggleNoteActionsMenu', {}, actions.toggleMenu),
+            // The menu's items, while it is open. An untitled buffer has no file yet, so nothing
+            // that acts on the file is on offer: `actions` lists what can succeed now, and these
+            // appear once SetTitle or a first Insert has named the note.
+            ...(session.originalId === null || !actions.menuOpen
+              ? []
+              : [
+                  puppetVerb('CopyCurrentNotePath', {}, actions.copyFilePath, {
+                    controls: ['notes.actions.copyFilePath'],
+                  }),
+                  // Move and Delete are disabled in the menu while the vault is unusable.
+                  ...(vaultAvailability.unavailable
+                    ? []
+                    : [
+                        puppetVerb(
+                          'MoveCurrentNoteToFolder',
+                          { targetPath: 'string?' },
+                          actions.openMovePicker,
+                          {
+                            controls: ['notes.actions.moveToFolder'],
+                            shortcuts: { targetPath: SHORTCUT_STEPS.targetPath },
+                          },
+                        ),
+                        puppetVerb(
+                          'DeleteCurrentNote',
+                          ANSWER_PARAM,
+                          () => throughConfirmation(actions.deleteCurrentNote),
+                          { controls: ['notes.actions.deleteNote'] },
+                        ),
+                      ]),
+                ]),
+          ],
+    ),
+  );
+
   function handleFocusChange(focused: boolean): void {
     editorFocused = focused;
     onfocuschange?.(focused);
@@ -158,6 +228,7 @@
   </div>
 
   <NoteTagBar
+    {active}
     bind:element={tagBarEl}
     content={session.content}
     readMarkdown={() => editorApi?.getContent()}
@@ -213,11 +284,7 @@
 {/if}
 
 {#if active && actions.movePickerOpen}
-  <FolderPickerModal
-    {notes}
-    onpick={(path) => void actions.moveToFolder(path)}
-    oncancel={actions.closeMovePicker}
-  />
+  <FolderPickerModal {notes} onpick={actions.moveToFolder} oncancel={actions.closeMovePicker} />
 {/if}
 
 <style>

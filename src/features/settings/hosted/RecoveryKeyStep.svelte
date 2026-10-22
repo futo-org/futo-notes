@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { puppetRefusal, puppetVerb, registerPuppetVerbs } from '$app/puppet/puppetRegistry';
   import { localizedText } from '$shared/localization';
 
   interface Props {
@@ -13,13 +14,45 @@
     saved: boolean;
     busy: boolean;
     onsavedchange: (saved: boolean) => void;
-    oncopy: () => void;
-    onsavefile: () => void;
-    oncontinue: () => void;
+    oncopy: () => Promise<void>;
+    /** `path` stands in for the save dialog. */
+    onsavefile: (path?: string) => Promise<void>;
+    oncontinue: () => Promise<void>;
   }
 
   let { recoveryKey, replaced, saved, busy, onsavedchange, oncopy, onsavefile, oncontinue }: Props =
     $props();
+
+  const busyRefusal = () => puppetRefusal(409, 'hosted sync is busy');
+
+  $effect(() =>
+    registerPuppetVerbs(() => [
+      puppetVerb('CopyRecoveryKey', {}, () => (busy ? busyRefusal() : oncopy()), {
+        controls: ['sync.hosted.recoveryKey.copy'],
+      }),
+      puppetVerb(
+        'SaveRecoveryKey',
+        { path: 'string' },
+        (args) => (busy ? busyRefusal() : onsavefile(args.path as string)),
+        { controls: ['sync.hosted.recoveryKey.saveFile'] },
+      ),
+      puppetVerb(
+        'SetRecoveryKeySaved',
+        { saved: 'boolean' },
+        (args) => onsavedchange(args.saved as boolean),
+        { controls: ['sync.hosted.recoveryKey.confirmSaved'] },
+      ),
+      puppetVerb(
+        'ContinueRecoveryKey',
+        {},
+        () => {
+          if (!saved) return puppetRefusal(409, 'tick SetRecoveryKeySaved first');
+          return busy ? busyRefusal() : oncontinue();
+        },
+        { controls: ['sync.hosted.recoveryKey.continue'] },
+      ),
+    ]),
+  );
 </script>
 
 <p class="hosted-title">{localizedText('sync.hosted.recoveryKey.title')}</p>
@@ -36,10 +69,14 @@
 </p>
 
 <div class="settings-actions">
-  <button class="settings-btn settings-btn-inline" onclick={oncopy} disabled={busy}>
+  <button class="settings-btn settings-btn-inline" onclick={() => void oncopy()} disabled={busy}>
     {localizedText('sync.hosted.recoveryKey.copy')}
   </button>
-  <button class="settings-btn settings-btn-inline" onclick={onsavefile} disabled={busy}>
+  <button
+    class="settings-btn settings-btn-inline"
+    onclick={() => void onsavefile()}
+    disabled={busy}
+  >
     {localizedText('sync.hosted.recoveryKey.saveFile')}
   </button>
 </div>
@@ -57,7 +94,11 @@
 </label>
 
 <div class="settings-actions">
-  <button class="settings-btn settings-btn-inline" onclick={oncontinue} disabled={!saved || busy}>
+  <button
+    class="settings-btn settings-btn-inline"
+    onclick={() => void oncontinue()}
+    disabled={!saved || busy}
+  >
     {localizedText('sync.hosted.recoveryKey.continue')}
   </button>
 </div>

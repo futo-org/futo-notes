@@ -157,6 +157,30 @@ android-drive *args:
 qa-shot *args:
   @node scripts/qa-shot.mjs "$@"
 
+# Drive and read the running debug app (crates/futo-puppet); see justfile-notes.md.
+#   just puppet   with no arguments, every command and its arguments
+#   FUTO_PUPPET_TARGET=desktop (default) | ios | android
+[unix]
+puppet *args:
+  @bin=target/debug/futo-puppet stamp=target/debug/futo-puppet.stamp; \
+  if [ -n "${CARGO_TARGET_DIR:-}" ]; then exec cargo run -q -p futo-puppet -- "$@"; fi; \
+  if [ -x "$bin" ] && [ "$(cat "$stamp" 2>/dev/null)" = "$PWD" ] && [ -z "$(find crates/futo-puppet \
+    Cargo.toml Cargo.lock rust-toolchain.toml .cargo -newer "$stamp" -print -quit)" ]; then \
+    exec "$bin" "$@"; fi; \
+  mkdir -p target/debug && next=$(mktemp "$stamp.XXXXXX") && echo "$PWD" > "$next" \
+    && { cargo build -q -p futo-puppet || { status=$?; rm -f "$next"; exit "$status"; }; } \
+    && mv "$next" "$stamp" && exec "$bin" "$@"
+
+# Drive the debug app on Windows. Not through Git's sh, which runs recipes there: it re-parses
+# its arguments Cygwin-style (`\"` is no escape, `{a,b}` expands), so every JSON argument came
+# out empty. ponytail: `cargo run` costs ~0.2 s a call; port the stamp above if that matters.
+[windows]
+puppet *args:
+  #!node
+  const run = ['run', '-q', '-p', 'futo-puppet', '--', ...process.argv.slice(2)];
+  const { status } = require('node:child_process').spawnSync('cargo', run, { stdio: 'inherit' });
+  process.exit(status ?? 1);
+
 # Resolve a desktop QA target safely — the ONLY sanctioned port/PID → process lookup.
 #   just qa-target list | status | pid <pid> | port <port> | kill
 qa-target *args:

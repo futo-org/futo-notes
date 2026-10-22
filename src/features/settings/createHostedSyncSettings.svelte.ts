@@ -23,6 +23,7 @@ import {
   type BillingStatusOutput,
   type SetupStepOutput,
 } from '$lib/platform/tauri';
+import { recordPuppetCopy } from '$app/puppet/puppetRegistry';
 import { getPlatformFS } from '$lib/platform';
 import { openExternalUrl } from '$lib/platform/openExternalUrl';
 import { requestSync } from '$features/sync/autoSync';
@@ -135,7 +136,8 @@ export interface HostedSyncSettings {
   subscribe(): Promise<void>;
   createVault(vaultPassword: string): Promise<void>;
   copyRecoveryKey(): Promise<void>;
-  saveRecoveryKeyToFile(): Promise<void>;
+  /** `path` stands in for the save dialog (the agent's `SaveRecoveryKey`). */
+  saveRecoveryKeyToFile(path?: string): Promise<void>;
   continueAfterRecoveryKey(): Promise<void>;
   unlockWithPassword(vaultPassword: string): Promise<void>;
   unlockWithRecoveryKey(typed: string): Promise<void>;
@@ -285,11 +287,12 @@ class HostedSyncSettingsState implements HostedSyncSettings {
     if (!key) return;
     await this.#step(async () => {
       await (await getPlatformFS()).writeClipboardText(key);
+      recordPuppetCopy(key);
       showGlobalToast({ path: 'sync.hosted.recoveryKey.copied' });
     });
   }
 
-  async saveRecoveryKeyToFile(): Promise<void> {
+  async saveRecoveryKeyToFile(path?: string): Promise<void> {
     const key = this.#recoveryKey;
     if (!key) return;
     await this.#step(async () => {
@@ -300,6 +303,7 @@ class HostedSyncSettingsState implements HostedSyncSettings {
         filterName: localizedText('sync.hosted.recoveryKey.fileFilterName'),
         extensions: ['txt'],
         contents: `${key}\n`,
+        ...(path === undefined ? {} : { path }),
       });
       if (written) showGlobalToast({ path: 'sync.hosted.recoveryKey.saved' });
     });

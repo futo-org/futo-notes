@@ -81,30 +81,15 @@ pub(crate) fn run() {
                 crate::close_deadline::mark_clean();
             }
         })
-        .setup(|app| {
-            let handle = app.handle();
-            if let Ok(root) = crate::vault_location::root(handle) {
-                crate::panic_reporter::install(root.join(".crashlogs"));
-            }
-            crate::platform_integration::configure_app(handle)?;
-            crate::app_menu::install(handle)?;
-            #[cfg(target_os = "macos")]
-            if let Err(error) = crate::macos_terminate::install(handle) {
-                // Dock/AppleScript quit then end the old way (no save flush).
-                futo_notes_core::log_to_stderr!(
-                    "[quit] cannot route terminate: through the close handler: {error}"
-                );
-            }
-            crate::window_reveal::install(handle)?;
-            crate::instance_journal::install(handle);
-            crate::close_deadline::watch_web_process(handle);
-            crate::license::install(handle);
-            crate::local_notes::init_on_startup(handle);
-            Ok(())
-        })
+        .setup(setup)
         .invoke_handler(tauri::generate_handler![
             crate::app_data::app_data_write,
             crate::image_commands::fs_save_image,
+            crate::puppet_input::puppet_pointer,
+            crate::puppet_keys::puppet_key,
+            crate::puppet_notes_dir::puppet_notes_dir_refusal,
+            crate::puppet_screenshot::puppet_screenshot,
+            crate::dev_open_url::dev_open_url,
             crate::image_commands::fs_paste_clipboard_image,
             crate::close_deadline::close_deadline_set_dirty,
             crate::app_menu::app_menu_set_labels,
@@ -196,4 +181,28 @@ pub(crate) fn run() {
                 crate::macos_terminate::reply_to_pending_terminate();
             }
         });
+}
+
+/// Everything the app installs once its handle exists, in order.
+fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
+    let handle = app.handle();
+    if let Ok(root) = crate::vault_location::root(handle) {
+        crate::panic_reporter::install(root.join(".crashlogs"));
+    }
+    crate::platform_integration::configure_app(handle)?;
+    crate::app_menu::install(handle)?;
+    #[cfg(target_os = "macos")]
+    if let Err(error) = crate::macos_terminate::install(handle) {
+        // Dock/AppleScript quit then end the old way (no save flush).
+        futo_notes_core::log_to_stderr!(
+            "[quit] cannot route terminate: through the close handler: {error}"
+        );
+    }
+    crate::window_reveal::install(handle)?;
+    crate::puppet_input::keep_drawing_when_hidden(handle);
+    crate::instance_journal::install(handle);
+    crate::close_deadline::watch_web_process(handle);
+    crate::license::install(handle);
+    crate::local_notes::init_on_startup(handle);
+    Ok(())
 }

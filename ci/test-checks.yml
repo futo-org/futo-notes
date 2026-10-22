@@ -199,3 +199,18 @@ test:localization-audit:
         - pnpm-lock.yaml
         - ci/*.yml
         - .gitlab-ci.yml
+
+# The puppet gates warn instead of blocking, by design: a UI handler with no verb,
+# or an instruction file that teaches another driver, turns this job orange,
+# not the pipeline red. Both checks run even when the first fails, so one
+# pipeline reports both. Deliberately absent from release:gate.needs (M14).
+test:puppet-gates:
+  stage: test
+  needs: []
+  allow_failure: true
+  cache:
+    - !reference [.cache-pnpm, cache]
+  script:
+    - pnpm install --frozen-lockfile --prefer-offline
+    - status=0; pnpm run check:puppet-verbs || status=1; pnpm run check:puppet-first || status=1; exit $status
+

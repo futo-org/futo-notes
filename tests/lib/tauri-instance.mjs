@@ -14,9 +14,8 @@ import {
   lstatSync,
 } from 'node:fs';
 import { join, relative, resolve, sep } from 'node:path';
-import { homedir } from 'node:os';
 import { createHash, randomUUID } from 'node:crypto';
-import { candidateFor, verifyTarget, worktreeRoots } from '../../scripts/qa-target.mjs';
+import { candidateFor, targetContext, verifyTarget } from '../../scripts/qa-target.mjs';
 import { portsFor } from '../../scripts/lib/slot.mjs';
 import { discoverPort, connectWs } from './mcp-client.mjs';
 import { TauriTestClient, waitForTestHooks } from './tauri-test-client.mjs';
@@ -125,11 +124,7 @@ export async function startDesktopTauriInstance(name, repoRoot, options = {}) {
 
   let ws;
   try {
-    const target = verifyTarget(candidateFor(proc.pid), {
-      selfRoot: repoRoot,
-      worktreeRoots: worktreeRoots(repoRoot),
-      home: homedir(),
-    });
+    const target = verifyTarget(candidateFor(proc.pid), targetContext(repoRoot));
     if (target.verdict !== 'verified') throw new Error(JSON.stringify(target.refusals));
     writeFileSync(
       join(instanceDir, `target-${proc.pid}.json`),

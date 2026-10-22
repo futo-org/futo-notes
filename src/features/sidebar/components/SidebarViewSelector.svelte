@@ -2,6 +2,8 @@
   import { FileText, Image, Tag } from '@lucide/svelte';
   import { localizedText } from '$shared/localization';
 
+  import { puppetVerb, registerPuppetVerbs } from '$app/puppet/puppetRegistry';
+
   export type SidebarView = 'notes' | 'tags' | 'images';
 
   interface Props {
@@ -10,6 +12,23 @@
   }
 
   let { selected, onselect }: Props = $props();
+
+  $effect(() =>
+    registerPuppetVerbs(() => [
+      puppetVerb(
+        'SetSidebarView',
+        { view: 'notes|tags|images' },
+        (args) => onselect(args.view as SidebarView),
+        {
+          controls: [
+            'sidebar.views.notesAccessibilityLabel',
+            'sidebar.views.tagsAccessibilityLabel',
+            'sidebar.views.imagesAccessibilityLabel',
+          ],
+        },
+      ),
+    ]),
+  );
 </script>
 
 <div class="sidebar-view-toggle">

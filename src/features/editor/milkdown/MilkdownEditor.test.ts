@@ -18,6 +18,7 @@
 import { describe, expect, it } from 'vitest';
 import { tick } from 'svelte';
 import { redo, undo } from '@milkdown/kit/prose/history';
+import { puppetProviders } from '$app/puppet/puppetRegistry';
 import {
   POISONED,
   changes,
@@ -188,5 +189,16 @@ describe('flush failures never invent a body', () => {
     setFailSerialization(false);
     handle.flush('retry');
     expect(changes).toEqual(['typedbase\n']);
+  });
+});
+
+describe('a rename in the desktop shell', () => {
+  it('relabels the document the agent reads, and reports nothing to save', async () => {
+    handle.openNote('', 'body\n');
+    await afterChangeDebounce();
+    const reported = changes.length;
+    handle.retarget('', 'named');
+    expect(puppetProviders.editor?.note()).toBe('named');
+    expect(changes).toHaveLength(reported);
   });
 });

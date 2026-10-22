@@ -179,5 +179,7 @@ export function createViewCommands(deps: HostHandleDeps) {
     refreshDecorations,
     resetHistory,
     exec,
+    /** Every command id `exec` takes. */
+    execIds: (): string[] => Object.keys(EXEC),
   };
 }

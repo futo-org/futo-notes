@@ -42,7 +42,19 @@ export function createNoteTitleController(options: NoteTitleControllerOptions) {
   }
 
   function handleInput(event: Event): void {
-    const input = event.target as HTMLTextAreaElement;
+    applyInput(event.target as HTMLTextAreaElement);
+  }
+
+  /** What typing `value` into the title field would do, for the agent's `SetTitle`. */
+  function setTitle(value: string): boolean {
+    const input = options.getTextarea();
+    if (!input) return false;
+    input.value = value;
+    applyInput(input);
+    return true;
+  }
+
+  function applyInput(input: HTMLTextAreaElement): void {
     const typed = input.value;
     const withoutNewlines = typed.replace(/[\r\n]/g, '');
     const cleaned = withoutNewlines.replace(FORBIDDEN_CHARS_RE, '');
@@ -115,6 +127,7 @@ export function createNoteTitleController(options: NoteTitleControllerOptions) {
     clearWarning,
     autoResizeTextarea,
     handleInput,
+    setTitle,
     handleKeydown,
     handleBlur,
     handleFocus,

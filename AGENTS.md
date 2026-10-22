@@ -24,7 +24,6 @@ CRITICAL rules and behavioral specs take priority; report any conflict.
 
 Use `just` from the repo root (`just install`, `just tauri-dev`, `just check`). The justfile owns
 commands, overlays, dev IDs, worktree isolation, and device detection. Never call `cargo tauri`.
-`just tauri-dev` is desktop dev: Wayland, Vite port 5200 plus the worktree slot (`scripts/lib/slot.mjs`; `just ports`).
 
 ## 2. CRITICAL — mobile is native, not Tauri
 
@@ -103,12 +102,11 @@ infrastructure owner.
 - Repo-tooling friction (dead-end tool call, stale doc, broken recipe, missing helper) is a
   **papercut**: file it without stopping the task, `papercuts add "<what you hit>" --tag <area>`.
   Product bugs and spec gaps are never papercuts. Full procedure: `docs/agents/papercuts.md`.
-- `.claude/settings.json` wires `scripts/hooks/session-orient.mjs` (SessionStart) and
-  `scripts/hooks/subagent-scratch.mjs` (SubagentStart). No hook enforces M24, M25, or the stash
-  rule at runtime, so follow them by hand: never `git stash` outside the primary checkout —
+- `.claude/settings.json` wires the hooks CONTRIBUTING.md §4 lists. None enforces M24, M25, or the
+  stash rule at runtime, so follow them by hand: never `git stash` outside the primary checkout —
   refs/stash is shared by every worktree of this repo, so a pop can restore a parallel lane's
   work-in-progress over yours. Sessions open with `just orient`; agent worktrees come from `just wt new
-<name>` and go via `just wt gc`.
+  <name>` and go via `just wt gc`.
 
 ## 6. Named mistakes — and the rule that prevents each
 
@@ -161,8 +159,8 @@ These are observed failures, not generic advice.
 - **M13 — Untested tag job.** Exercise tag-gated work before tagging, propagate secrets into nested
   VMs, and upload caches `when: always`. Use `/ci-doctor`.
 - **M14 — Missing release dependency.** Every new test job enters `release:gate.needs` in the same
-  commit or it cannot block publication. Deliberate exception: `test:audit` is
-  non-blocking by design (docs/architecture-gates.md).
+  commit or it cannot block publication. Deliberate exceptions: `test:audit` and
+  `test:puppet-gates` are non-blocking by design (docs/architecture-gates.md).
 - **M15 — Loosening instead of diagnosing.** Wait on conditions, not sleeps; avoid exact
   cross-platform UI strings. A second timeout bump means stop and root-cause.
 - **M16 — Landed artifacts/debugging.** Gitignore generated paths before building, inspect status,
@@ -239,9 +237,10 @@ Run `just build` rather than hand-piping `tsc`/`vite build` through `head`/`tail
 
 ## 9. Driving the real apps
 
-Use `/verify`; desktop debug has an MCP bridge, native mobile does not. Claim QA devices and never
-touch an unclaimed one. Tear down only what you started (M25). Prefer `window.__testSync`; WebView2
-requires `scripts/win-vm/`.
+**`just puppet` is the ONE way to act on and read a running debug app.** Any task about what the
+app does starts here, before reading source or delegating a search: **load the `puppet` skill
+first**. Use `/verify` for build, install and per-platform mechanics. Claim QA devices and never
+touch an unclaimed one. WebView2 requires `scripts/win-vm/`.
 
 ## 10. Behavioral spec — source of truth
 

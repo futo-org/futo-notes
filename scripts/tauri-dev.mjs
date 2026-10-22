@@ -178,7 +178,7 @@ if (fakeUpdate)
     const configOverride = JSON.stringify({
       identifier,
       build: {
-        beforeDevCommand: `npm run dev --prefix ../.. -- --host 127.0.0.1 --port ${vitePort} --strictPort`,
+        beforeDevCommand: `pnpm --dir ../.. run dev --host 127.0.0.1 --port ${vitePort} --strictPort`,
         devUrl: `http://127.0.0.1:${vitePort}`,
       },
     });

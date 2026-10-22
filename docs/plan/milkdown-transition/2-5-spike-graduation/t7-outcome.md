@@ -51,7 +51,7 @@ pill following the caret, and Indent/Outdent appearing the moment a tap creates 
 disappearing the moment one is removed (the `cursorContext` fix).
 
 One iOS caveat worth writing down, because it cost a false pass: on a 402 pt iPhone the accessory
-bar's `list.number` sits at x 362-406 UNDER the dismiss-chevron capsule at x 352, so `axe tap
---id list.number` resolves, reports success, and blurs the editor instead. Swipe the bar left
+bar's `list.number` sits at x 362-406 UNDER the dismiss-chevron capsule at x 352, so tapping
+`list.number` by id through axe resolved, reported success, and blurred the editor instead. Swipe the bar left
 first. A keyboard-onboarding overlay ("Speed up your typing by sliding your finger") also swallowed
 a whole tap sequence while every tap reported `✓` — AGENTS.md M21, twice in one session.

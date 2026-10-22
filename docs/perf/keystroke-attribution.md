@@ -25,7 +25,7 @@ on the moto g.
   the first edit in each frame opens a `keystroke` record and the next animation
   frame closes it, so each sample is dispatch → next frame, the number the device
   runners call "settled". Edits that share a frame record nothing extra. It is
-  turned on by `installPerfCourse` (desktop, behind `testHooksEnabled()`) and by
+  turned on by `installPerfCourse` (desktop, behind `TEST_HOOKS_ENABLED`) and by
   the embed's `?test` URL, which only a debug Android build loads. A release
   build pays one boolean read per edit.
 - **Attribution tooling.** `tests/android-editor-attribution.mjs` builds

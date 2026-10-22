@@ -42,7 +42,11 @@
       <div class="for-you-header">{localizedText('notes.forYou.heading')}</div>
       <div class="for-you-cards">
         {#each forYouNotes as note (note.id)}
-          <button class="for-you-card" onclick={() => handleCardClick(note.id)}>
+          <button
+            class="for-you-card"
+            data-note-id={note.id}
+            onclick={() => handleCardClick(note.id)}
+          >
             <div class="for-you-card-title">{note.title}</div>
             {#if note.preview}
               <div class="for-you-card-preview">{note.preview.slice(0, 60)}</div>

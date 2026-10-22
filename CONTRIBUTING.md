@@ -32,7 +32,7 @@ and worktrees sharing a slot; presence alone does not prove a working build or a
 
 ```bash
 just setup        # check tools and install pinned workspace dependencies
-just tauri-dev    # run the desktop app (Wayland-first, Vite port 5200 + worktree slot)
+just tauri-dev    # run the desktop app (forces Wayland on Linux; port: just ports)
 just verify-run check  # lint + tests + build sanity, with a retained evidence bundle
 ```
 
@@ -62,7 +62,7 @@ local `.env`.
 
 This repo ships shared Claude Code config under `.claude/`:
 
-- **Skills** (`.claude/skills/`) — `/bugfix`, `/ci-doctor`, `/release`,
+- **Skills** (`.claude/skills/`) — `/ci-doctor`, `/puppet`, `/release`,
   `/slow-review`, `/spec-sync`, `/test-agent`, `/verify`, `/verify-specs`,
   `/zulip`, and more (`ls .claude/skills`). Available automatically when you
   open the repo in Claude Code. Note `/release`, `/verify`, and `/zulip` need
@@ -74,9 +74,11 @@ This repo ships shared Claude Code config under `.claude/`:
   `.claude/settings.local.json` (gitignored).
 - **Hooks** (`scripts/hooks/`, wired from `.claude/settings.json`) — print
   `just orient` at session start and give each subagent a private scratch
-  directory. No hook denies process-name kills, `git stash` in a linked worktree,
-  or OS-level input (the deny hook was removed in 34040eb9); follow those rules by
-  hand — see AGENTS.md §5, M24 and M25.
+  directory; `scripts/puppet-receipt-hook.mjs` (PreToolUse) refuses a piped or
+  filtered `just puppet` action, whose receipt must be read whole. No hook denies
+  process-name kills, `git stash` in a linked worktree, or OS-level input (the
+  deny hook was removed in 34040eb9); follow those rules by hand — see AGENTS.md
+  §5, M24 and M25.
 
 ### Third-party skills (optional)
 
@@ -87,7 +89,6 @@ and links them for this worktree. It refuses to overwrite existing installations
 A shallow clone must first fetch that commit with `git fetch origin 3b1c43c139181b91b7384b478b5edec454b80190`.
 The snapshot retains the original upstream attribution; future upgrades should be
 explicit, rather than silently replacing reference material during app builds.
-
 
 `skills-lock.json` records the generic engineering skills we borrow from
 `mattpocock/skills` (`/tdd`, `/research`, `/code-review`, `/wayfinder`, …). They

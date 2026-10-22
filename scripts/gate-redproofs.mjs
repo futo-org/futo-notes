@@ -69,6 +69,8 @@ const GATES = {
   'bridge-spec': ['node_modules/.bin/tsx', ['scripts/gen-bridge-spec.ts', '--check']],
   'theme-single-pace': ['node', ['scripts/check-theme-single-pace.mjs']],
   'supporter-coin-glyph': ['node', ['scripts/check-supporter-coin-glyph.mjs']],
+  'puppet-verbs': ['node', ['scripts/check-puppet-verbs.mjs']],
+  'puppet-first': ['node', ['scripts/check-puppet-first.mjs']],
   'rust-dependency-boundaries': ['node', ['scripts/check-rust-dependency-boundaries.mjs']],
   'cargo-cache-freshness': ['node', ['scripts/__fixtures__/gate-redproofs/cargo-cache-target.mjs']],
 };

@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { ANSWER_PARAM, throughConfirmation } from '$app/puppet/puppetConfirm';
+  import { puppetRefusal, puppetVerb, registerPuppetVerbs } from '$app/puppet/puppetRegistry';
   import { localizedRelativeTime, localizedText } from '$shared/localization';
 
   import type { SyncSettings } from './createSyncSettings.svelte';
@@ -11,6 +13,54 @@
   }
 
   let { sync, backgroundError, backgroundErrorMessage, reconnecting }: Props = $props();
+
+  // Each verb exists while the markup below draws its controls.
+  $effect(() =>
+    registerPuppetVerbs(() =>
+      !sync.connected
+        ? [
+            puppetVerb(
+              'ConnectSync',
+              { url: 'string?', password: 'string?' },
+              (args) => {
+                if (sync.busy) return puppetRefusal(409, 'sync is busy');
+                if (typeof args.url === 'string') sync.url = args.url;
+                if (typeof args.password === 'string') sync.password = args.password;
+                return sync.connect();
+              },
+              { controls: ['sync.connect', 'sync.serverUrl', 'sync.serverPasswordPlaceholder'] },
+            ),
+          ]
+        : [
+            puppetVerb(
+              'SyncNow',
+              sync.passwordSaved ? {} : { password: 'string?' },
+              (args) => {
+                if (sync.busy) return puppetRefusal(409, 'sync is busy');
+                if (typeof args.password === 'string') sync.password = args.password;
+                return sync.syncNow();
+              },
+              { controls: ['sync.syncNow', 'sync.restartPasswordPlaceholder'] },
+            ),
+            ...(sync.passwordSaved
+              ? [
+                  puppetVerb(
+                    'ForgetSyncPassword',
+                    ANSWER_PARAM,
+                    () => throughConfirmation(sync.forgetPassword),
+                    { controls: ['sync.forgetPassword'] },
+                  ),
+                ]
+              : []),
+            puppetVerb(
+              'ResetSyncConnection',
+              ANSWER_PARAM,
+              () => throughConfirmation(sync.resetConnection),
+              { controls: ['sync.resetConnection'] },
+            ),
+          ],
+    ),
+  );
 </script>
 
 <section class="settings-section">

@@ -17,6 +17,11 @@ vi.mock('$lib/platform', () => ({
 
 import { registerNotesShellShortcuts } from './registerNotesShellShortcuts';
 import { tabsStore } from '$features/tabs/tabsStore.svelte';
+import {
+  puppetProviders,
+  registeredVerbs,
+  type PuppetEditorProvider,
+} from './puppet/puppetRegistry';
 
 function press(key: string, init: Partial<KeyboardEventInit> = {}): KeyboardEvent {
   const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true, ...init });
@@ -104,6 +109,51 @@ describe('registerNotesShellShortcuts', () => {
 
     expect(deps.openFind).not.toHaveBeenCalled();
     expect(deps.stepFind).not.toHaveBeenCalled();
+  });
+
+  it('the tab keys are verbs: StepTab both ways, ActivateTabByNumber counting from 1 like Cmd+N', () => {
+    const run = (name: string, args: Record<string, unknown>) =>
+      registeredVerbs()
+        .find((verb) => verb.name === name)!
+        .run(args);
+    tabsStore.openNote('a', 'current');
+    tabsStore.openNote('b', 'foreground');
+    tabsStore.openNote('c', 'foreground');
+
+    run('ActivateTabByNumber', { number: 1 });
+    expect(tabsStore.activeTab.noteId).toBe('a');
+    run('StepTab', { direction: 1 });
+    expect(tabsStore.activeTab.noteId).toBe('b');
+    run('StepTab', { direction: -1 });
+    expect(tabsStore.activeTab.noteId).toBe('a');
+    run('ActivateTabByNumber', { number: 9 });
+    expect(tabsStore.activeTab.noteId).toBe('c');
+    expect(run('StepTab', { direction: 2 })).toMatchObject({ status: 400 });
+    expect(run('ActivateTabByNumber', { number: 0 })).toMatchObject({ status: 400 });
+  });
+
+  it('CreateNote on an empty new note says nothing was created instead of answering 200', () => {
+    const createNote = () =>
+      registeredVerbs()
+        .find((verb) => verb.name === 'CreateNote')!
+        .run({});
+    tabsStore.openNote('new', 'current');
+    // A ProseMirror document is never empty: an empty note is one empty paragraph.
+    let length = 0;
+    puppetProviders.editor = {
+      getView: () => ({
+        state: { doc: { childCount: 1, firstChild: { content: { size: length } } } },
+      }),
+    } as unknown as PuppetEditorProvider;
+    try {
+      expect(createNote()).toMatchObject({ status: 409 });
+      expect(deps.createNote).not.toHaveBeenCalled();
+      length = 5; // typed into: the next New note is a real one
+      createNote();
+      expect(deps.createNote).toHaveBeenCalledOnce();
+    } finally {
+      puppetProviders.editor = null;
+    }
   });
 
   it('unsubscribes from the menu on dispose', () => {

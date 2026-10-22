@@ -78,10 +78,22 @@ tauri-plugin-single-instance = "2"
 [target.'cfg(target_os = "macos")'.dependencies]
 keyring = { version = "3", features = ["apple-native"] }
 # tao's delegate has no applicationShouldTerminate:; macos_terminate.rs adds one.
+# Real mouse events for `just puppet click`/`drag`/`scroll` (puppet_input.rs): built with
+# AppKit and sent to this window only. Same objc2 generation wry already pulls in;
+# AppKit has no wheel-event constructor, so a scroll starts as a CoreGraphics event.
 objc2 = "0.6"
+objc2-app-kit = { version = "0.3", features = ["NSEvent", "NSGraphicsContext", "NSResponder", "NSView", "NSWindow", "objc2-core-graphics"] }
+objc2-core-graphics = { version = "0.3", default-features = false, features = ["std", "CGDirectDisplay", "CGEvent", "CGEventTypes"] }
+# NSProcessInfo + NSString also opt debug builds out of App Nap (platform_integration.rs).
+objc2-foundation = { version = "0.3", features = ["NSGeometry", "NSProcessInfo", "NSString"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 keyring = { version = "3", features = ["windows-native"] }
+# Real input for `just puppet` (puppet_input.rs, puppet_keys.rs): DevTools input calls on this
+# window's WebView2. The webview2-com/windows generation wry already pulls in.
+webview2-com = "0.39"
+windows = { version = "0.62", features = ["Win32_Foundation"] }
+windows-core = "0.62"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 tauri-plugin-dialog = { version = "2.7", default-features = false, features = ["xdg-portal"] }
@@ -89,6 +101,11 @@ tauri-plugin-single-instance = "2"
 glib = "0.18"
 # The web-process-terminated signal (close_deadline.rs); the version tauri/wry already use.
 webkit2gtk = "2"
+# Real input and screenshots for `just puppet` (puppet_input.rs, puppet_keys.rs,
+# puppet_screenshot.rs): GDK events (gtk::gdk) and a WebKitGTK snapshot encoded as PNG,
+# the gtk-rs generation webkit2gtk already pulls in.
+gtk = "0.18"
+cairo-rs = { version = "0.18", features = ["png"] }
 keyring = { version = "3", features = ["sync-secret-service", "crypto-rust"] }
 zbus = "5"
 

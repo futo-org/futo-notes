@@ -3,6 +3,8 @@
   import { developmentBranch } from '$shared/developmentBranch';
   import { localizedText } from '$shared/localization';
 
+  import { puppetVerb, registerPuppetVerbs } from '$app/puppet/puppetRegistry';
+
   interface Props {
     oncollapse: () => void;
     onhome: () => void;
@@ -12,6 +14,12 @@
   }
 
   let { oncollapse, onhome, onsettings, showCollapse = true }: Props = $props();
+
+  // Settings and collapse are OpenSettings / ToggleSidebar, registered by the
+  // shell that owns them; home is this header's alone.
+  $effect(() =>
+    registerPuppetVerbs(() => [puppetVerb('GoHome', {}, onhome, { controls: ['app.name'] })]),
+  );
 </script>
 
 <div class="sidebar-header">

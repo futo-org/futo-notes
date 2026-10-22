@@ -4,13 +4,15 @@
   import { getEmptyFolders } from './emptyFolders.svelte';
   import Modal from '$shared/dialogs/Modal.svelte';
   import type { NotePreview } from '$shared/types/note';
+  import { puppetRefusal, puppetVerb } from '$app/puppet/puppetRegistry';
   import { localizedText } from '$shared/localization';
 
   interface Props {
     title?: string;
     notes: NotePreview[];
     excludePaths?: ReadonlyArray<string>;
-    onpick: (path: string) => void;
+    /** A promise while the pick's move is landing: `PickFolder` answers after it. */
+    onpick: (path: string) => Promise<void> | void;
     oncancel: () => void;
   }
 
@@ -44,15 +46,32 @@
   }
 
   const folders = $derived(flattenAll(buildFolderTree(notes, getEmptyFolders())));
+
+  // '' or no path picks the root ("Notes"), as the first row does.
+  const verbs = () => [
+    puppetVerb(
+      'PickFolder',
+      { path: 'string?' },
+      (args) => {
+        const path = (args.path as string | undefined) ?? '';
+        if (path !== '' && !folders.some((folder) => folder.path === path)) {
+          return puppetRefusal(400, `not a pickable folder: ${path}`);
+        }
+        return onpick(path);
+      },
+      { controls: ['folders.notesDestination'], controlsMatching: '.picker-row' },
+    ),
+  ];
 </script>
 
-<Modal title={resolvedTitle} cardClass="modal-card-scroll" ondismiss={oncancel}>
+<Modal title={resolvedTitle} cardClass="modal-card-scroll" ondismiss={oncancel} {verbs}>
   <div class="picker-list">
     <button
       type="button"
       class="picker-row root"
       onclick={() => onpick('')}
       data-testid="folder-picker-root"
+      data-folder-path=""
     >
       <span class="root-icon" aria-hidden="true">
         <FileText size={16} />

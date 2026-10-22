@@ -10,6 +10,7 @@
     ListIndentDecrease,
   } from '@lucide/svelte';
 
+  import { puppetVerb, registerPuppetVerbs } from '$app/puppet/puppetRegistry';
   import { localizedText } from '$shared/localization';
   import type { Component } from 'svelte';
   import { TOOLBAR_GROUPS, TOOLBAR_ITEMS } from '@futo-notes/editor';
@@ -78,6 +79,22 @@
     event.preventDefault();
   }
 
+  let root: HTMLElement | undefined = $state();
+
+  /* The Link button as a verb while the bar is on screen. Its other buttons are the toolbar's
+   * commands, each already an editor verb (Bold, Quote, Indent…). */
+  $effect(() =>
+    registerPuppetVerbs(() =>
+      root?.closest('[data-show="true"]') && !editingLink
+        ? [
+            puppetVerb('LinkSelection', {}, openLinkField, {
+              controls: ['editor.selectionToolbar.link', 'editor.selectionToolbar.editLink'],
+            }),
+          ]
+        : [],
+    ),
+  );
+
   function openLinkField(): void {
     editingLink = true;
     onlinkediting(true);
@@ -102,6 +119,7 @@
 </script>
 
 <div
+  bind:this={root}
   class="futo-selection-toolbar-body"
   role="toolbar"
   aria-label={localizedText('editor.selectionToolbar.accessibilityLabel')}

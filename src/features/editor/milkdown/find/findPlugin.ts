@@ -399,7 +399,7 @@ function revealMatch(view: ProseView, match: FindMatch): void {
 }
 
 /** The visible band of `scroller`, in client coordinates. */
-function viewportRect(view: ProseView, scroller: Element): { top: number; bottom: number } {
+export function viewportRect(view: ProseView, scroller: Element): { top: number; bottom: number } {
   const document = view.dom.ownerDocument;
   if (scroller === document.scrollingElement || scroller === document.documentElement) {
     return { top: 0, bottom: document.defaultView?.innerHeight ?? scroller.clientHeight };

@@ -9,6 +9,8 @@ vi.mock('$features/notes/notes.svelte', () => ({
 }));
 
 import SearchPopup from './SearchPopup.svelte';
+import { runPuppetCommand } from '$app/puppet/puppetInspector';
+import { clearPuppetVerbs } from '$app/puppet/puppetRegistry';
 import { isSearchPopupFindShortcut } from './searchPopupShortcuts';
 
 function makeNote(id: string, preview = ''): NotePreview {
@@ -61,6 +63,34 @@ describe('SearchPopup', () => {
       app = null;
     }
     target.remove();
+    clearPuppetVerbs();
+  });
+
+  it('SetSearchQuery answers once the results for the new query are shown', async () => {
+    // landlord-search: an OpenSearchResult right after SetSearchQuery opened a note from
+    // the empty-query list (`travel/past trips/portland 2024` for "landlord").
+    searchMock.mockImplementation(async (query: string) =>
+      query ? [makeNote('lease notes'), makeNote('rent')] : [makeNote('portland 2024')],
+    );
+    mountPopup();
+    await resultButtons();
+
+    const receipt = runPuppetCommand('do', { verb: 'SetSearchQuery', args: { query: 'landlord' } });
+    expect(receipt.status).toBe(202);
+    const { action } = receipt.body as { action: number };
+    await vi.waitFor(() =>
+      expect(runPuppetCommand('diff', { action }).body).toMatchObject({ status: 200 }),
+    );
+    expect(
+      Array.from(target.querySelectorAll('.search-result-item'), (row) => row.textContent),
+    ).toEqual([expect.stringContaining('lease notes'), expect.stringContaining('rent')]);
+    runPuppetCommand('do', { verb: 'OpenSearchResult', args: { index: 0 } });
+    expect(onselect).toHaveBeenCalledWith('lease notes');
+
+    // The same query again has nothing to wait for.
+    expect(
+      runPuppetCommand('do', { verb: 'SetSearchQuery', args: { query: 'landlord' } }).status,
+    ).toBe(200);
   });
 
   it('caps the empty-query result list at the 8 most recent notes', async () => {

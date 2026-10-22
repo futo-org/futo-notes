@@ -1,0 +1,59 @@
+{
+  "_comment": "Exact lines that name a retired UI driver WITHOUT teaching it \u2014 a ban that cannot name what it bans is unenforceable, and a learning rewritten to mention a tool it never used is a falsified record. A pin whose line disappears fails the gate, so this file cannot rot. See scripts/check-puppet-first.mjs.",
+  "entries": [
+    {
+      "file": "AGENTS.md",
+      "rule": "axe-input",
+      "text": "Android throttles frames; iOS 26 nav items evade a11y taps, and `axe gesture`/`axe tap` report",
+      "reason": "M21 names these tools in order to warn that they report success while doing nothing. Naming a trap is how the trap gets avoided."
+    },
+    {
+      "file": "docs/spec/nav.md",
+      "rule": "axe-input",
+      "text": "2026-07-27: `axe describe-ui` reports each as a `Button` carrying both its",
+      "reason": "Runtime provenance for a spec claim \u2014 the evidence line records which tool observed the behaviour and when, which is what makes the claim checkable."
+    },
+    {
+      "file": "docs/spec/nav.md",
+      "rule": "axe-input",
+      "text": "label and its identifier, `axe tap --id nav-settings --element-type Button`",
+      "reason": "Runtime provenance for a spec claim \u2014 the evidence line records which tool observed the behaviour and when, which is what makes the claim checkable."
+    },
+    {
+      "file": ".claude/skills/puppet/SKILL.md",
+      "rule": "legacy-ui-reader",
+      "text": "- `axe` (`tap`, `type`, `swipe`, `describe-ui`) and `scripts/describe-ios-ui.mjs`",
+      "reason": "The exclusivity list itself: this file names every retired driver precisely so an agent knows what not to reach for."
+    },
+    {
+      "file": ".claude/skills/puppet/SKILL.md",
+      "rule": "adb-input",
+      "text": "- `adb shell input tap|swipe|text`, `uiautomator dump`, `just android-drive tap`",
+      "reason": "The exclusivity list itself: this file names every retired driver precisely so an agent knows what not to reach for."
+    },
+    {
+      "file": ".claude/skills/puppet/SKILL.md",
+      "rule": "uiautomator-dump",
+      "text": "- `adb shell input tap|swipe|text`, `uiautomator dump`, `just android-drive tap`",
+      "reason": "The exclusivity list itself: this file names every retired driver precisely so an agent knows what not to reach for."
+    },
+    {
+      "file": ".claude/skills/puppet/SKILL.md",
+      "rule": "legacy-ui-reader",
+      "text": "- `adb shell input tap|swipe|text`, `uiautomator dump`, `just android-drive tap`",
+      "reason": "The exclusivity list itself: this file names every retired driver precisely so an agent knows what not to reach for."
+    },
+    {
+      "file": ".claude/skills/puppet/SKILL.md",
+      "rule": "bridge-input",
+      "text": "- the desktop MCP bridge's `webview_interact` / `webview_keyboard`",
+      "reason": "The exclusivity list itself: this file names every retired driver precisely so an agent knows what not to reach for."
+    },
+    {
+      "file": ".claude/skills/verify/references/ios.md",
+      "rule": "legacy-ui-reader",
+      "text": "export AXE_BIN=/tmp/axe/axe              # scripts/describe-ios-ui.mjs honors this",
+      "reason": "Toolchain install step; names the env var the legacy reader honours so an existing checkout keeps working. Not a driving instruction."
+    }
+  ]
+}

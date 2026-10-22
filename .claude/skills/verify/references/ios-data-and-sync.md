@@ -16,7 +16,7 @@ cat "$NOTES/grocery list.md"
 # Seed fixtures, then relaunch so the scan picks them up:
 mkdir -p "$NOTES/QA Folder"
 printf '# Seeded\n\n- [ ] task\n' > "$NOTES/QA Folder/Seeded Note.md"
-xcrun simctl terminate "$SIM" com.futo.notes.dev; xcrun simctl launch "$SIM" com.futo.notes.dev
+FUTO_PUPPET_TARGET=ios just puppet relaunch
 ```
 
 **Empty-vault Welcome seed**: launching into a completely empty vault
@@ -40,36 +40,42 @@ even when the destination names one subdirectory and the command exits nonzero.
 Copy into a dedicated fixture directory without that option and retain a backup
 of any container holding data you did not create.
 
-### The flush-and-read trick (editor content verification)
+### Reading what landed (editor content verification)
 
-The editor WKWebView is not reachable via CDP or JS from outside (no
-`window.__testSync`, no MCP bridge on iOS). To verify what the editor holds:
-background the app — backgrounding flushes pending edits to disk — then read
-the file:
+`just puppet doc` reads the editor's lines on screen, and `state`'s `pending.unsaved` lists
+the notes whose edits are not on disk yet. Once it is empty, the file is the oracle:
 
 ```bash
-axe button home --udid $SIM
-sleep 1
+FUTO_PUPPET_TARGET=ios just puppet state    # pending.unsaved is [] once the save landed
 cat "$NOTES/<note>.md"
 ```
 
-Type into the editor with `axe type` after tapping the title/body to focus;
-verify the result on disk, not by screenshot-squinting.
+**IME mangles typed text in note fields**: under `just puppet type`,
+autocapitalize/predictive-text rewrite things like `para-1-ios` → `Para-1-iOS` (the
+Sync settings fields suppress this; note fields don't), and typing into a prefilled
+field appends to it (clear it with `press {"key":"Backspace","count":N}`). `type` is
+the simulator's HID keys, which on iOS 27 can deliver nothing while reporting success.
+For exact text use the verbs, which no keyboard rewrites (`do Type`, `SetTitle`,
+`SetSearchQuery`), or markers autocorrect can't rewrite (digits/hyphens), and verify
+byte-for-byte on disk.
 
-Two things the a11y tree _does_ give you without a disk read: the note title is
-the editor's `TextField` `AXValue`, and the editor's accessory toolbar only
-exists while the keyboard is up — so its presence is itself the evidence that a
-field is focused.
+### The editor toolbar is verbs, not taps
 
-**IME mangles typed text in note fields**: autocapitalize/predictive-text
-rewrite things like `para-1-ios` → `Para-1-iOS` (the Sync settings fields
-suppress this; note fields don't). `axe type` also APPENDS to prefilled
-fields — clear them first (tap the field's right edge, then `axe key --keycode
-42` backspaces). For exact text, `xcrun simctl pbcopy $SIM` + long-press →
-Paste usually works but has silently no-op'd in some fields. The robust
-patterns are: use markers autocorrect can't rewrite (digits/hyphens) and verify
-byte-for-byte on disk, or tap the on-screen keyboard's own keys — they are in
-the a11y tree with their letters as labels, so the IME never gets a say.
+Every accessory-toolbar item is a verb — `Bold`, `Italic`, `Strikethrough`,
+`Link`, `Heading`, `Quote`, `BulletList`, `OrderedList`, `TaskList` — and they
+act on the selection exactly as the button does, with a receipt:
+
+```bash
+export FUTO_PUPPET_TARGET=ios
+just puppet do '[["Select",{"from":0,"to":8}],["Bold"]]'
+just puppet doc                                  # → **boldtext**
+```
+
+That reaches every item wherever it sits. On a 402pt-wide iPhone only the first eight sit
+inside the bar's viewport; `checklist`, `camera` and `photo` start past the right edge, where a
+tap does nothing. `axe drag` across the row with `--steps 30` scrolls it; `just puppet drag`
+passes no step count and has not been shown to. An item off screen is evidence to scroll, not
+that it is broken.
 
 ## Sync features
 

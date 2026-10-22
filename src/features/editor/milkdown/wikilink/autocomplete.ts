@@ -5,6 +5,7 @@ import { Plugin, PluginKey, TextSelection } from '@milkdown/kit/prose/state';
 import type { EditorState } from '@milkdown/kit/prose/state';
 import type { EditorView as ProseView } from '@milkdown/kit/prose/view';
 
+import { puppetRefusal, puppetVerb, registerPuppetVerbs } from '$app/puppet/puppetRegistry';
 import { getAllNotes, getWikilinkIndex } from '$features/notes/notes.svelte';
 import {
   wikilinkCandidates,
@@ -234,6 +235,27 @@ export const wikilinkAutocomplete = $prose(() => {
         const state = wikilinkSuggestKey.getState(editorView.state)?.open;
         if (state) commit(editorView, state, state.candidates[index]);
       });
+      /* A tap on a suggestion, while the list is up (the arrows, Enter, Tab and Escape are
+       * keys, which Press reaches through `handleKeyDown` above). */
+      const unregisterVerbs = registerPuppetVerbs(() => {
+        const state = wikilinkSuggestKey.getState(editorView.state)?.open;
+        if (!state) return [];
+        return [
+          puppetVerb('PickLinkSuggestion', { noteId: 'string' }, (args) => {
+            const live = wikilinkSuggestKey.getState(editorView.state)?.open;
+            const candidate = live?.candidates.find((entry) => entry.id === args.noteId);
+            if (!live || !candidate) {
+              const offered = (live ?? state).candidates.map((entry) => entry.id).join(', ');
+              return puppetRefusal(
+                409,
+                `the list does not offer ${String(args.noteId)}: ${offered}`,
+              );
+            }
+            commit(editorView, live, candidate);
+            return undefined;
+          }),
+        ];
+      });
       return {
         update(view) {
           const state = wikilinkSuggestKey.getState(view.state)?.open;
@@ -241,6 +263,7 @@ export const wikilinkAutocomplete = $prose(() => {
           else popup.hide();
         },
         destroy() {
+          unregisterVerbs();
           popup.destroy();
         },
       };

@@ -13,6 +13,14 @@ export function resolveDefaultNotesRoot(): Promise<string> {
   return invoke<string>('resolve_default_notes_root');
 }
 
+/**
+ * Why the agent's `SetNotesDirectory` may not use `dir`, or null. Rust judges where the
+ * path resolves, symlinks followed, against the data folder `just tauri-dev` sets (M3).
+ */
+export function puppetNotesDirRefusal(dir: string): Promise<string | null> {
+  return invoke<string | null>('puppet_notes_dir_refusal', { dir });
+}
+
 export interface VaultStatus {
   /** The same location in terms a user recognizes. */
   displayPath: string;

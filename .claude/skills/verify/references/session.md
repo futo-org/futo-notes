@@ -54,7 +54,8 @@ module, so a plain `pnpm run dev` or `playwright test` already lands on
 **Devices**: `just qa-claim [ios|android|all]` claims this worktree's pooled
 device — creating and booting it on first use, and wiping the `com.futo.notes.dev`
 app's data when the device last belonged to another worktree — and prints the export lines.
-Set `SIM` / `ANDROID_SERIAL` in every Bash block that drives a device: all
+`just puppet` reads the claim itself, claiming on first use. Set `SIM` /
+`ANDROID_SERIAL` in every Bash block that runs anything else against a device: all
 `sim-*` recipes and `apps/ios/run.sh` honor `$SIM`, and `adb` honors
 `$ANDROID_SERIAL` natively. `just qa-status` shows who owns what,
 `just qa-release [ios|android]` frees your claims when done (name the platform
@@ -163,8 +164,8 @@ are in `references/evidence.md`.
 Resume only against the recorded commit and valid environment. Apply the evidence
 reuse rules below; do not blindly skip every row that happens to exist in a ledger.
 Report confirmed failures with expected behavior, actual behavior, and reproducible
-steps. Record verified new divergences per `docs/spec/AGENTS.md`; recommend `/bugfix`
-for regressions rather than silently changing product behavior during QA.
+steps. Record verified new divergences per `docs/spec/AGENTS.md`; report regressions
+as bugs rather than silently changing product behavior during QA.
 
 ## Reusing a prior pass's evidence
 

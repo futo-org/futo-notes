@@ -1,4 +1,10 @@
 <script lang="ts">
+  import {
+    puppetModalScope,
+    puppetVerb,
+    recordPuppetCopy,
+    registerPuppetVerbs,
+  } from '$app/puppet/puppetRegistry';
   import type { CrashReport } from './crashHandler';
   import { keyboard } from '$features/editor/keyboard.svelte';
   import { dismissable } from '$shared/dialogs/dismissable';
@@ -43,11 +49,58 @@
       `Platform: ${firstReport.platform} | ${firstReport.app_version}`,
     ].filter(Boolean);
     await navigator.clipboard.writeText(lines.join('\n'));
+    recordPuppetCopy(lines.join('\n'));
     copyFeedback = true;
     setTimeout(() => {
       copyFeedback = false;
     }, 2000);
   }
+
+  // The overlay covers the window, so nothing behind it is reachable.
+  puppetModalScope();
+  $effect(() =>
+    registerPuppetVerbs(() => [
+      puppetVerb('SendCrashReport', {}, handleSend, { controls: ['crashReporting.sendReport'] }),
+      puppetVerb('DiscardCrashReport', {}, handleDiscard, {
+        controls: ['crashReporting.dontSend'],
+      }),
+      puppetVerb('CopyCrashReport', {}, handleCopyReport, {
+        controls: ['crashReporting.copyReport'],
+      }),
+      puppetVerb(
+        'SetCrashDescription',
+        { text: 'string' },
+        (args) => {
+          userDescription = args.text as string;
+        },
+        { controls: ['crashReporting.optionalDescriptionPlaceholder'] },
+      ),
+      puppetVerb(
+        'SetAlwaysSendCrashReports',
+        { enabled: 'boolean' },
+        (args) => {
+          alwaysSend = args.enabled as boolean;
+        },
+        { controls: ['crashReporting.sendAutomatically'] },
+      ),
+      puppetVerb(
+        'ToggleCrashDetails',
+        {},
+        () => {
+          showDetails = !showDetails;
+        },
+        { controls: ['crashReporting.viewReport'] },
+      ),
+      puppetVerb(
+        'ToggleCrashContext',
+        {},
+        () => {
+          showContext = !showContext;
+        },
+        { controls: ['crashReporting.activityPrompt'] },
+      ),
+    ]),
+  );
 
   const reportCount = $derived(reports.length);
   const firstReport = $derived(reports[0]);

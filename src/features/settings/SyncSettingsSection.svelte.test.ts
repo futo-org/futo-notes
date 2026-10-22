@@ -1,11 +1,13 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { mount, unmount } from 'svelte';
+import { flushSync, mount, unmount } from 'svelte';
+
+import { registeredVerbs } from '$app/puppet/puppetRegistry';
 
 import SyncSettingsSection from './SyncSettingsSection.svelte';
 import type { SyncSettings } from './createSyncSettings.svelte';
 
-function makeSync(status = ''): SyncSettings {
+function makeSync(status = '', overrides: Partial<SyncSettings> = {}): SyncSettings {
   return {
     url: 'https://notes.example.com',
     password: '',
@@ -23,6 +25,7 @@ function makeSync(status = ''): SyncSettings {
     forgetPassword: vi.fn(async () => {}),
     handleUrlClick: vi.fn(),
     syncNow: vi.fn(async () => {}),
+    ...overrides,
   };
 }
 
@@ -69,5 +72,45 @@ describe('SyncSettingsSection status precedence', () => {
     expect(text).toContain('Uploading 1/2…');
     expect(text).not.toContain('HTTP 500');
     expect(text).not.toContain('Reconnecting…');
+  });
+});
+
+describe("SyncSettingsSection's verbs: each one while its control is drawn", () => {
+  let app: ReturnType<typeof mount> | null = null;
+
+  afterEach(() => {
+    if (app) unmount(app);
+    app = null;
+  });
+
+  function offered(overrides: Partial<SyncSettings>): { sync: SyncSettings; names: string[] } {
+    const sync = makeSync('', overrides);
+    app = mount(SyncSettingsSection, {
+      target: document.body.appendChild(document.createElement('div')),
+      props: { sync, backgroundError: false, backgroundErrorMessage: '', reconnecting: false },
+    });
+    flushSync();
+    return { sync, names: registeredVerbs().map((verb) => verb.name) };
+  }
+
+  it('offers only Connect while disconnected', () => {
+    expect(offered({ connected: false }).names).toEqual(['ConnectSync']);
+  });
+
+  it('offers Forget password only while one is saved', () => {
+    expect(offered({ passwordSaved: true }).names).toEqual([
+      'SyncNow',
+      'ForgetSyncPassword',
+      'ResetSyncConnection',
+    ]);
+  });
+
+  it('types the restart password before Sync now while none is saved', async () => {
+    const { sync, names } = offered({ passwordSaved: false });
+    expect(names).toEqual(['SyncNow', 'ResetSyncConnection']);
+    let passwordAtSync = '';
+    vi.mocked(sync.syncNow).mockImplementation(async () => void (passwordAtSync = sync.password));
+    await registeredVerbs()[0].run({ password: 'vault pw' });
+    expect(passwordAtSync).toBe('vault pw');
   });
 });

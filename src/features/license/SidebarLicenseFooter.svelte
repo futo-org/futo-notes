@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { puppetVerb, registerPuppetVerbs } from '$app/puppet/puppetRegistry';
   import { localizedText } from '$shared/localization';
 
   import { license } from './license.svelte';
@@ -25,6 +26,20 @@
   // target and would still be announced.
   const label = $derived(licenseAmbientLabel(license.view));
   const licensed = $derived(license.view.state === 'licensed');
+
+  // The button's name is the ambient label (it changes with the license), so the verb
+  // claims the tooltip that says what clicking does.
+  $effect(() =>
+    registerPuppetVerbs(() =>
+      label === null
+        ? []
+        : [
+            puppetVerb('OpenLicenseSettings', {}, onopenlicense, {
+              controls: ['license.openLicenseSettings'],
+            }),
+          ],
+    ),
+  );
 </script>
 
 <div class="sidebar-footer">

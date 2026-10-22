@@ -27,6 +27,6 @@ identity, driving safety, evidence, verdict ledgers, sync smoke, and teardown.
    results forward. A `focus` brief limits the pass to those flows.
 4. Return the full story table and confirmed FAIL details. Flag ambiguous spec
    language separately. Record verified gaps per `docs/spec/AGENTS.md`; hand
-   regressions back for `/bugfix` rather than patching during a report-only pass.
+   regressions back as bug reports rather than patching during a report-only pass.
 5. Release only session-owned resources when instructed by the orchestrator;
    a mesh or follow-up verifier may still need the claimed stack.

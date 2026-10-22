@@ -347,6 +347,7 @@ describe('TypeScript local-note projection', () => {
     _setLocalNoteStoreForTest(fakeStore({ search: storeSearch }));
 
     await expect(search('needle')).resolves.toEqual([]);
-    expect(storeSearch).toHaveBeenCalledWith('needle');
+    // No limit given: the store applies its own default.
+    expect(storeSearch).toHaveBeenCalledWith('needle', undefined);
   });
 });

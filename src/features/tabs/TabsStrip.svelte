@@ -2,6 +2,13 @@
   import { tabsStore, type Tab } from './tabsStore.svelte';
   import type { NotePreview } from '$shared/types/note';
   import { idLeaf } from '$lib/platform/pathSafety';
+  import {
+    isPuppetOutcome,
+    puppetRefusal,
+    puppetVerb,
+    registerPuppetVerbs,
+    type PuppetOutcome,
+  } from '$app/puppet/puppetRegistry';
   import { localizedText } from '$shared/localization';
   import { setAppWindowTitle } from '$lib/platform';
   import './tabsStrip.css';
@@ -31,6 +38,72 @@
     const activeTab = tabsStore.activeTab;
     setAppWindowTitle(activeTab.noteId === null ? undefined : titleFor(activeTab));
   });
+
+  // NewTab is the shortcut table's, as is ActivateTabByNumber, the Cmd+1..9 keys.
+  const tabAt = (index: number) => tabsStore.tabs[index];
+  /** `0=welcome 1=work/standup` — every refusal about a tab says which tabs there are. */
+  const tabList = () =>
+    tabsStore.tabs.map((tab, index) => `${index}=${tab.noteId ?? 'home'}`).join(' ');
+
+  /**
+   * Which tab a click means: the one holding `noteId`, what the caller knows. A tab with no
+   * note (Cmd+T's), or a note open in two tabs, is named by its 0-based `index` in the strip
+   * instead.
+   */
+  function targetTab(args: Record<string, unknown>): Tab | PuppetOutcome {
+    if (typeof args.noteId === 'string') {
+      return (
+        tabsStore.tabs.find((tab) => tab.noteId === args.noteId) ??
+        puppetRefusal(400, `no tab holds ${args.noteId}; open tabs: ${tabList()}`)
+      );
+    }
+    if (typeof args.index === 'number') {
+      return (
+        tabAt(args.index) ??
+        puppetRefusal(
+          400,
+          `no tab at index ${args.index}: the index is 0-based and the open tabs are ${tabList()}`,
+        )
+      );
+    }
+    return puppetRefusal(
+      400,
+      `needs {"index":<0-based>} or {"noteId":"<the note the tab holds>"}; open tabs: ${tabList()}`,
+    );
+  }
+
+  const onTargetTab = (act: (tab: Tab) => void) => (args: Record<string, unknown>) => {
+    const tab = targetTab(args);
+    if (isPuppetOutcome(tab)) return tab;
+    act(tab);
+    return undefined;
+  };
+
+  $effect(() =>
+    registerPuppetVerbs(() => [
+      puppetVerb(
+        'ActivateTab',
+        { noteId: 'string?', index: 'integer?' },
+        onTargetTab((tab) => tabsStore.activateById(tab.id)),
+        { controlsMatching: '[role="tab"]' },
+      ),
+      puppetVerb(
+        'CloseTabAt',
+        { noteId: 'string?', index: 'integer?' },
+        onTargetTab((tab) => tabsStore.closeTab(tab.id)),
+        { controls: ['tabs.closeAccessibilityLabel'] },
+      ),
+      puppetVerb('MoveTab', { fromIndex: 'integer', toIndex: 'integer' }, (args) => {
+        const from = args.fromIndex as number;
+        const to = args.toIndex as number;
+        if (!tabAt(from) || !tabAt(to)) {
+          return puppetRefusal(400, `indexes are 0-based and the open tabs are ${tabList()}`);
+        }
+        tabsStore.moveTab(from, to);
+        return undefined;
+      }),
+    ]),
+  );
 
   // HTML5 drag reorder: the tabs move live under the cursor (moveTab on
   // midpoint crossing), so the reordering strip itself is the drop feedback.

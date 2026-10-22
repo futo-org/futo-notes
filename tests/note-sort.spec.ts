@@ -19,7 +19,7 @@ async function seedNotes(page: Page): Promise<void> {
 
 async function noteOrder(page: Page): Promise<string[]> {
   return page
-    .locator('[data-note-id]')
+    .locator('.note-row[data-note-id]')
     .evaluateAll((rows) => rows.map((row) => row.getAttribute('data-note-id')));
 }
 

@@ -60,7 +60,7 @@ export function startExternalFileOpen(
     confirmCopy: (name) =>
       confirmDialog(localizedText('notes.externalOpen.confirmation', { name }), {
         title: localizedText('notes.externalOpen.title'),
-        confirmLabel: localizedText('notes.externalOpen.confirmLabel'),
+        confirmLabelKey: 'notes.externalOpen.confirmLabel',
       }),
     copy: copyExternalNoteIntoVault,
     notifySaved,

@@ -2,8 +2,11 @@
 
 Two ways to see a change running on desktop. The web dev server is faster but
 stubs out every Tauri command; the Tauri app is the real thing. When in doubt,
-use Tauri. Both need the session variables from `references/session.md` (`$SLOT`,
-`$VITE_PORT`, `$WEB_VITE_PORT`, `$TAURI_LOG`, `$PID_FILE`) — re-compute them
+use Tauri. To **act** in either, use the `puppet` skill (`.claude/skills/puppet/`) —
+every handler in the shared UI is a verb, receipts carry the diff, and it is the
+only sanctioned driver. The MCP bridge below stays for screenshots and JS
+evaluation, never for input. Both need the session variables from `references/session.md`
+(`$SLOT`, `$VITE_PORT`, `$WEB_VITE_PORT`, `$TAURI_LOG`, `$PID_FILE`) — re-compute them
 in every Bash block.
 
 ## CRITICAL — never send OS-level input, never resolve the app by name (M24)
@@ -15,8 +18,8 @@ The user's installed release app runs on this machine, on their real vault
   delivered to whatever the window server thinks is FOCUSED. It is not
   addressed to the process you picked, so no care in picking one makes it safe.
   On 2026-08-10 a QA agent sent real Cmd+Z keystrokes this way; they landed in
-  the production app. Drive the **webview bridge** below instead — it can only
-  reach the instance you connected to. If the bridge cannot do it, the story is
+  the production app. Drive the app with `just puppet` instead — it reaches only
+  the instance `qa-target.mjs` verified. If it cannot do it, the story is
   BLOCKED, not "worth one keystroke".
 - **Name/PID lookup.** Every build ships the same binary name, release included
   (`/Applications/FUTO Notes.app/Contents/MacOS/futo-notes-tauri` really is that
@@ -175,23 +178,23 @@ recommend 0.13. That warning can accompany a usable connection: check a synchron
 the verified target before treating it as a setup failure. Check command errors separately;
 the version warning alone does not identify their cause.
 
-- `webview_dom_snapshot` (type: accessibility) — UI state with `[ref=eN]` ids
-- `webview_interact` — click/scroll/swipe by ref, CSS selector, or text
-- `webview_keyboard` — type/press keys. For the editor, use
-  `webview_execute_js` with `document.execCommand('insertText', false, 'text')`
-  — a contenteditable surface in WebKit ignores synthetic key events, so the
-  keystrokes land nowhere. Better still, drive `window.__notesShellTest` (below).
 - `webview_screenshot` — save to `./test-screenshots/desktop-<description>.png`
 - `webview_execute_js` — full app context, `window.__TAURI__` available
 - `read_logs` (source: console) — webview JS console
+- `webview_dom_snapshot` (type: accessibility) — a raw a11y tree, when you need
+  one. `just puppet elements` is better for anything you intend to act on: it
+  reports the owning component and the handlers, which the a11y tree cannot.
 
-Native Tauri dialogs (`@tauri-apps/plugin-dialog`) are **not in the DOM** —
-click them by screenshot coordinates via `webview_interact`.
+**The bridge is not an input device.** Acting on the desktop app goes through
+`just puppet do <Verb>` — every handler in the shared UI is a verb, so the app
+runs its own code and answers with the diff. A confirmation is the app's own
+dialog, answered with `ConfirmDialog`/`DismissDialog`; a native file picker
+(`@tauri-apps/plugin-dialog`) is outside the DOM entirely, so the verb that opens
+one takes the `path` it would return.
 
-Dev-only sync hooks in this webview: `window.__testSync.connect(url, password)`
-/ `.status()` / `.syncNow()` / `.disconnect()` / `.pauseAutoSync()` /
-`.resumeAutoSync()` (`src/features/sync/testSync.ts`) — prefer these over UI
-automation when switching sync servers.
+The test harnesses (`just test-cross-platform`) set sync up through the dev-only
+`window.__testSync` hook (`src/features/sync/testSync.ts`, `apps/tauri/AGENTS.md`);
+a session connects with the sync verbs (`ToggleOwnServer`, `ConnectSync`, `SyncNow`).
 
 ### No MCP tools? Raw WebSocket fallback
 
@@ -253,15 +256,13 @@ from the pre-edit computed style.
 
 The editor is Milkdown (ProseMirror) and renders WYSIWYG, so `.ProseMirror`'s
 `innerText` is what the reader sees — not the markdown that gets saved. Almost
-every check means the second one. Read it through the dev-gated shell hook
-(`src/app/installNotesShellTestHook.ts`), which is also the alternative to OS
-keystrokes and strictly better: no input, no focus, no cross-app risk.
+every check means the second one: `just puppet doc` shows it for the lines on
+screen (`md`), and the dev-gated shell hook (`src/app/installNotesShellTestHook.ts`)
+reads the whole note:
 
 ```js
 const hook = window.__notesShellTest; // dev/opted-in builds only
 hook.getState().editorContent; // the note's markdown, as a save would see it
-hook.typeInEditor('## Heading'); // parsed as markdown at the caret; returns the new content
-hook.replaceEditorContent('# All new'); // whole note, one undo step
 await hook.flushSave();
 ```
 

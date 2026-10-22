@@ -16,6 +16,11 @@ export interface SaveTextFileRequest {
   /** Extensions the filter accepts, without dots. */
   extensions: string[];
   contents: string;
+  /**
+   * Where to write, in place of the dialog: the agent's `SaveRecoveryKey`. Never over an
+   * existing file — the dialog would have asked before replacing one.
+   */
+  path?: string;
 }
 
 /**
@@ -23,13 +28,20 @@ export interface SaveTextFileRequest {
  * A cancel is an outcome, not a failure; anything else throws.
  */
 export async function saveTextFile(request: SaveTextFileRequest): Promise<boolean> {
+  const { exists, writeTextFile } = await import('@tauri-apps/plugin-fs');
+  if (request.path !== undefined && (await exists(request.path))) {
+    throw new Error(`${request.path} already exists`);
+  }
+  const path = request.path ?? (await pickPath(request));
+  if (typeof path !== 'string') return false;
+  await writeTextFile(path, request.contents);
+  return true;
+}
+
+async function pickPath(request: SaveTextFileRequest): Promise<string | null> {
   const { save } = await import('@tauri-apps/plugin-dialog');
-  const path = await save({
+  return save({
     defaultPath: request.suggestedName,
     filters: [{ name: request.filterName, extensions: request.extensions }],
   });
-  if (typeof path !== 'string') return false;
-  const { writeTextFile } = await import('@tauri-apps/plugin-fs');
-  await writeTextFile(path, request.contents);
-  return true;
 }

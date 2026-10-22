@@ -44,7 +44,7 @@ test.describe('Folder support', () => {
       };
       await win.__testNotes.createNote('move-me', 'body');
     });
-    await page.locator('[data-note-id="move-me"]').click();
+    await page.locator('.note-row[data-note-id="move-me"]').click();
     await page.getByRole('button', { name: 'Note options' }).click();
     await page.getByTestId('note-menu-move').click();
 
@@ -209,7 +209,7 @@ test.describe('Folder support', () => {
       };
       await win.__testNotes.createNote('Groceries', 'milk');
     });
-    const row = page.locator('[data-note-id="Groceries"]').first();
+    const row = page.locator('.note-row[data-note-id="Groceries"]').first();
     await expect(row).toBeVisible();
 
     await row.dblclick();
@@ -219,10 +219,10 @@ test.describe('Folder support', () => {
     await renameInput.fill('grocery list');
     await page.keyboard.press('Enter');
     // The filename IS the title (AGENTS.md M2) — no case or dash prettifying.
-    await expect(page.locator('[data-note-id="grocery list"]').first()).toBeVisible();
+    await expect(page.locator('.note-row[data-note-id="grocery list"]').first()).toBeVisible();
 
     // F2 mirrors the folder row, and an illegal name is reported, not swallowed.
-    await page.locator('[data-note-id="grocery list"]').first().focus();
+    await page.locator('.note-row[data-note-id="grocery list"]').first().focus();
     await page.keyboard.press('F2');
     await page.getByTestId('note-rename-input').fill('bad:name');
     await page.keyboard.press('Enter');
@@ -230,7 +230,7 @@ test.describe('Folder support', () => {
     await expect(page.getByTestId('note-rename-input')).toHaveValue('bad:name');
     await page.keyboard.press('Escape');
     await expect(page.getByTestId('note-rename-input')).toHaveCount(0);
-    await expect(page.locator('[data-note-id="grocery list"]').first()).toBeVisible();
+    await expect(page.locator('.note-row[data-note-id="grocery list"]').first()).toBeVisible();
   });
 
   test('existing folders expose discoverable subfolder creation', async ({ page }) => {

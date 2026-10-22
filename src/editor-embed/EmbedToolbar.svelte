@@ -2,6 +2,7 @@
   import { TOOLBAR_GROUPS, TOOLBAR_DISMISS, type ToolbarItem } from '@futo-notes/editor';
   import { localizedText } from '$shared/localization';
   import type { Component } from 'svelte';
+  import { puppetVerb, registerPuppetVerbs } from '$app/puppet/puppetRegistry';
   import {
     Bold,
     Italic,
@@ -64,6 +65,17 @@
   }
 
   const DismissIcon = icon(TOOLBAR_DISMISS);
+
+  // The formatting buttons are the editor's own verbs (Bold, Heading, …); these
+  // two are the toolbar's alone.
+  $effect(() =>
+    registerPuppetVerbs(() => [
+      puppetVerb('PickImage', { source: 'camera|library' }, (args) =>
+        onpickimage(args.source as 'camera' | 'library'),
+      ),
+      puppetVerb('DismissKeyboard', {}, ondismiss),
+    ]),
+  );
 
   function activate(item: ToolbarItem): void {
     // Disabled (Undo/Redo with an empty stack — bridge `formatState.disabled`)

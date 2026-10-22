@@ -1,5 +1,6 @@
 <script lang="ts">
   import { Check, LoaderCircle, TriangleAlert, WifiOff } from '@lucide/svelte';
+  import { puppetVerb, registerPuppetVerbs } from '$app/puppet/puppetRegistry';
   import { localizedText } from '$shared/localization';
 
   interface Props {
@@ -23,6 +24,10 @@
     connected = false,
     onclear,
   }: Props = $props();
+
+  $effect(() =>
+    registerPuppetVerbs(() => (onclear ? [puppetVerb('ClearSyncStatus', {}, onclear)] : [])),
+  );
 </script>
 
 {#if offline}

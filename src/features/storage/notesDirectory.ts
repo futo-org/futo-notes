@@ -1,15 +1,23 @@
+import { throughConfirmation } from '$app/puppet/puppetConfirm';
+import { puppetRefusal, type Args, type PuppetOutcome } from '$app/puppet/puppetRegistry';
 import { isTauri } from '$lib/platform';
-import { setNotesDir, vaultDisplayPath } from '$lib/platform/tauri';
+import { puppetNotesDirRefusal, setNotesDir, vaultDisplayPath } from '$lib/platform/tauri';
 import { confirmDialog } from '$shared/dialogs/confirmDialog';
 import { flushPendingSaveBeforeExit } from '$shared/lifecycle/flushBeforeExit';
 import { showGlobalToast } from '$shared/notifications/toastBus.svelte';
 import { localizedText } from '$shared/localization';
 
-export async function chooseNotesDirectory(): Promise<void> {
+// A `chosen` path arrives from the agent's SetNotesDirectory in place of the
+// OS folder picker, which is outside the app; the confirmation is the app's own.
+export async function chooseNotesDirectory(chosen?: string): Promise<void> {
   if (!isTauri) return;
-  const { open } = await import('@tauri-apps/plugin-dialog');
-  const selected = await open({ directory: true, multiple: false });
-  if (typeof selected !== 'string') return;
+  let selected = chosen ?? null;
+  if (selected === null) {
+    const { open } = await import('@tauri-apps/plugin-dialog');
+    const picked = await open({ directory: true, multiple: false });
+    if (typeof picked !== 'string') return;
+    selected = picked;
+  }
   try {
     // Name the folder the user picked, not the `/run/user/1000/doc/…` path a
     // sandboxed file chooser hands back. Read-only on purpose: the lasting
@@ -31,6 +39,19 @@ export async function chooseNotesDirectory(): Promise<void> {
     console.warn('Failed to change notes directory', cause);
     showGlobalToast({ path: 'settings.storage.useFolderFailed' });
   }
+}
+
+/**
+ * SetNotesDirectory's run: `path` is the folder the OS picker would return. A dev build
+ * must never be pointed at another vault (AGENTS.md M3), and the agent never gets the
+ * picker's implicit "the user chose this", so Rust refuses any path that does not resolve
+ * inside this checkout's data folder.
+ */
+export async function chooseNotesDirectoryVerb(args: Args): Promise<PuppetOutcome | undefined> {
+  const path = args.path as string;
+  const refusal = await puppetNotesDirRefusal(path);
+  if (refusal) return puppetRefusal(403, refusal);
+  return throughConfirmation(() => chooseNotesDirectory(path));
 }
 
 export async function resetNotesDirectory(): Promise<void> {
