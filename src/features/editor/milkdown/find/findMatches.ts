@@ -24,7 +24,7 @@ import type { Node as ProseNode } from '@milkdown/kit/prose/model';
 
 import { localizedText } from '$shared/localization';
 
-import { foldCase } from '../../foldCase';
+import { foldCaseWithOffsets } from '../../foldCase';
 import { isLineBreak } from '../paragraphLines';
 
 export interface FindMatch {
@@ -84,11 +84,11 @@ export function findDocMatches(doc: ProseNode, query: string): FindMatch[] {
 
 export function findSegmentMatches(segments: readonly TextSegment[], query: string): FindMatch[] {
   if (!query) return [];
-  const needle = foldCase(query);
+  const needle = foldCaseWithOffsets(query);
   const width = query.length;
   const matches: FindMatch[] = [];
   for (const segment of segments) {
-    const haystack = foldCase(segment.text);
+    const haystack = foldCaseWithOffsets(segment.text);
     let at = haystack.indexOf(needle);
     while (at !== -1) {
       matches.push({ from: segment.from + at, to: segment.from + at + width });

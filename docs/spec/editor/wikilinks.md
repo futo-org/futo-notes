@@ -34,8 +34,9 @@
   src/features/editor/milkdown/wikilink/autocomplete.ts,
   src/features/editor/wikilinkSuggestions.ts
 - Autocomplete offers the note ids that contain the text typed after `[[` as a
-  case-insensitive substring, folded exactly as find folds (every Greek sigma is
-  one letter, so `[[ΟΔΟΣ` offers `ΟΔΟΣΑ`). → src/features/editor/foldCase.ts,
+  case-insensitive substring. Every Greek sigma folds to one letter, so `[[ΟΔΟΣ`
+  offers `ΟΔΟΣΑ`; expanding lowercase characters are included, so `[[i` offers
+  `İstanbul`. → src/features/editor/foldCase.ts,
   src/features/editor/wikilinkSuggestions.ts
 - A wikilink whose target does not resolve is still decorated, styled **broken**
   (`cm-md-link cm-md-wikilink cm-md-wikilink-broken`) — not undecorated, and
