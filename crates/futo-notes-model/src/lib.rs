@@ -41,6 +41,6 @@ pub use tags::{
     MAX_TAG_LENGTH,
 };
 pub use wikilinks::{
-    extract_wikilinks, find_wikilinks, note_id_leaf, resolve_wikilink, rewrite_wikilinks,
-    shortest_unique_suffix, WikilinkOccurrence,
+    extract_wikilinks, find_wikilinks, link_targets_naming, note_id_leaf, resolve_wikilink,
+    rewrite_wikilinks, shortest_unique_suffix, WikilinkOccurrence,
 };
