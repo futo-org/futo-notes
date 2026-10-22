@@ -75,8 +75,9 @@ export type DocumentLoad = ReturnType<typeof createDocumentLoad>;
  * writing-suggestions pass walks to the caret's child index per element
  * built — O(n²) in a block's inline children. Measured on WebKit, a 100 KB
  * paragraph dense with marks opened in 9 s with the caret in place and in
- * 1.4 s without. (ProseMirror's own measuring Range is the other boundary
- * that used to sit there; patches/prosemirror-view parks it.)
+ * 1.4 s without. (ProseMirror's own Ranges, the reused measuring one and the
+ * one `posAtCoords` makes, are the other boundaries that used to sit there;
+ * patches/prosemirror-view parks them.)
  * → tests/editor-open-large-paragraph.spec.ts
  */
 function loadParsedDocument(view: ProseView, parsed: ProseNode): void {
