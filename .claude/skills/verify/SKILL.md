@@ -82,6 +82,10 @@ Use the nearest `AGENTS.md` and root §7 to select the owning layer's complete c
 `justfile` owns the commands. For shared code before merge, run `just check`;
 use `just prepush` for broad or risky changes. Report any unavailable platform leg.
 
+While iterating, run only the tests you name (`just test-unit <file>`, `cargo test -p <crate>
+<filter>`, `just test-ios-native <Suite>`, `just test-android-native <filter>`); run the complete
+chain once, before the commit.
+
 For documentation/tooling-only edits, run `just check-agent-docs` and
 `just check-qa-input-safety`, plus tests for any changed executable tooling.
 Spec edits also require the workflow in `docs/spec/AGENTS.md`. CI changes need a
