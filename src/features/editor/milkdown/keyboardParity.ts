@@ -53,8 +53,9 @@
  * newline model of `paragraphLines.ts`: Enter writes one newline, Shift+Enter
  * is the same key (it is replayed as a plain Enter everywhere but a table cell,
  * so it never makes a `\` hard break), and Backspace/Delete at a paragraph
- * boundary remove one newline. While the `/` menu is open, Enter and Tab are
- * its, as they are the `[[` popup's.
+ * boundary remove one newline. Enter at the very start of a quote puts the
+ * empty line above the quote (`enterAtQuoteStart`). While the `/` menu is
+ * open, Enter and Tab are its, as they are the `[[` popup's.
  *
  * Everything it does not explicitly claim falls through untouched —
  * Mod-Enter's `exitTable`, Tab/Shift-Tab cell and list navigation, Backspace
@@ -76,6 +77,7 @@ import {
 import { enclosingListItem } from './caretContext';
 import { foldCommandInto } from './foldCommand';
 import {
+  enterAtQuoteStart,
   enterInParagraph,
   isolateSelectedLines,
   joinBackwardAsLine,
@@ -195,6 +197,7 @@ export function handleParityKeyDown(view: ProseView, event: KeyboardEvent): bool
       newlineInCode(view.state, view.dispatch) ||
       insertTableRowBelow(view.state, view.dispatch) ||
       splitCheckedTaskItem(view.state, view.dispatch) ||
+      enterAtQuoteStart(view.state, view.dispatch) ||
       enterInParagraph(view.state, view.dispatch)
     );
   }

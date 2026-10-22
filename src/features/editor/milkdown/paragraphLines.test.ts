@@ -11,6 +11,7 @@ import {
 } from '@milkdown/kit/prose/state';
 
 import {
+  enterAtQuoteStart,
   enterInParagraph,
   isolateSelectedLines,
   joinBackwardAsLine,
@@ -286,5 +287,39 @@ describe('onSelectedLines — Code block (#276)', () => {
       'code_block:',
       'code_block:z',
     ]);
+  });
+});
+
+describe('enterAtQuoteStart', () => {
+  const quote = (...blocks: ProseNode[]): ProseNode => s.nodes.blockquote.create(null, blocks);
+  const code = (text: string): ProseNode => s.nodes.code_block.create(null, s.text(text));
+  const at = (root: ProseNode, anchor: number, head = anchor): EditorState =>
+    EditorState.create({ doc: root, selection: TextSelection.create(root, anchor, head) });
+
+  it('puts an empty paragraph above the quote and keeps the caret on the quoted text', () => {
+    // doc > blockquote(0) > paragraph(1) > "ab" starts at 2.
+    const { handled, state } = run(enterAtQuoteStart, at(doc(quote(p('ab'))), 2));
+    expect(handled).toBe(true);
+    expect(state.doc.eq(doc(p(''), quote(p('ab'))))).toBe(true);
+    expect(state.selection.from).toBe(4);
+    expect(state.doc.resolve(state.selection.from).parent.textContent).toBe('ab');
+  });
+
+  it('puts it above the outermost quote the line starts', () => {
+    const { state } = run(enterAtQuoteStart, at(doc(p('x'), quote(quote(p('ab')))), 6));
+    expect(state.doc.eq(doc(p('x'), p(''), quote(quote(p('ab')))))).toBe(true);
+  });
+
+  it('deletes a selection from the start of the quote first', () => {
+    const { state } = run(enterAtQuoteStart, at(doc(quote(p('abcd'))), 2, 4));
+    expect(state.doc.eq(doc(p(''), quote(p('cd'))))).toBe(true);
+  });
+
+  it('declines mid-line, past the first line, on an empty line, in code, or outside a quote', () => {
+    expect(run(enterAtQuoteStart, at(doc(quote(p('ab'))), 3)).handled).toBe(false);
+    expect(run(enterAtQuoteStart, at(doc(quote(p('x'), p('ab'))), 5)).handled).toBe(false);
+    expect(run(enterAtQuoteStart, at(doc(quote(p(''), p('ab'))), 2)).handled).toBe(false);
+    expect(run(enterAtQuoteStart, at(doc(quote(code('ab'))), 2)).handled).toBe(false);
+    expect(run(enterAtQuoteStart, at(doc(p('ab')), 1)).handled).toBe(false);
   });
 });

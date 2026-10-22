@@ -32,6 +32,13 @@
   a quote or a code block takes the new line inside it, and a table cell moves
   down a row (Shift+Enter there is an in-cell line break). Shift+Enter in any of
   them does what Enter does.
+- Enter at the very start of a quote's first line leaves an empty line ABOVE
+  the quote (the outermost one that line starts) and the text still quoted, as
+  Enter at the start of a heading or list item leaves one above it: an empty
+  line at the start of a quote is not written (Markdown house style), so one
+  left inside it would vanish on reopen. `> ab` with the caret before `a`
+  saves `\n> ab`. → paragraphLines.ts `enterAtQuoteStart`,
+  tests/editor-embed-milkdown-interactive-quote-start.spec.ts
 - A code block inside a list item takes Enter as a new line inside it, on its last line too; it
   never closes the fence or starts a new list item. → milkdown/keyboardParity.ts
   `handleParityKeyDown`
