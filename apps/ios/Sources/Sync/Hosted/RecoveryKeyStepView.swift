@@ -16,14 +16,18 @@ struct RecoveryKeyStepView: View {
     @Binding var saved: Bool
     let busy: Bool
     let onCopy: () -> Void
-    let onContinue: () -> Void
+    let onShare: () -> Void
+    let onContinue: () async -> Void
 
     @Environment(\.localization) private var localization
 
     var body: some View {
         HostedStepHeader(
             title: "sync.hosted.recoveryKey.title",
-            explanation: "sync.hosted.recoveryKey.body")
+            explanation: "sync.hosted.recoveryKey.body"
+        )
+        // The step's verbs, on its one row that is always there.
+        .puppetVerbs { puppetVerbs }
 
         if replaced {
             Text(localization.localizedText("sync.hosted.recoveryKey.replaced"))
@@ -50,9 +54,9 @@ struct RecoveryKeyStepView: View {
         .disabled(busy)
         .accessibilityIdentifier("hosted-recovery-key-copy")
 
-        // The key alone, so what gets shared pastes straight back into the
-        // unlock field.
-        ShareLink(item: recoveryKey) {
+        // A button rather than a ShareLink, so the share sheet can be opened
+        // from code too (the agent's ShareRecoveryKey).
+        Button(action: onShare) {
             Label(
                 localization.localizedText("sync.hosted.recoveryKey.share"),
                 systemImage: "square.and.arrow.up")
@@ -72,8 +76,34 @@ struct RecoveryKeyStepView: View {
         )
         .accessibilityIdentifier("hosted-recovery-key-saved")
 
-        Button(localization.localizedText("sync.hosted.recoveryKey.continue"), action: onContinue)
-            .disabled(!saved || busy)
-            .accessibilityIdentifier("hosted-recovery-key-continue")
+        Button(localization.localizedText("sync.hosted.recoveryKey.continue")) {
+            Task { await onContinue() }
+        }
+        .disabled(!saved || busy)
+        .accessibilityIdentifier("hosted-recovery-key-continue")
+    }
+    private var puppetVerbs: [PuppetVerbs.Verb] {
+        [
+            PuppetVerbs.Verb("CopyRecoveryKey", controls: ["sync.hosted.recoveryKey.copy"]) {
+                if busy { throw PuppetVerbRefusal(409, "hosted sync is busy") }
+                onCopy()
+            },
+            PuppetVerbs.Verb("ShareRecoveryKey", controls: ["sync.hosted.recoveryKey.share"]) {
+                onShare()
+            },
+            PuppetVerbs.Verb(
+                "SetRecoveryKeySaved", required: ["saved"], booleans: ["saved"],
+                controls: ["sync.hosted.recoveryKey.confirmSaved"]
+            ) { arguments in
+                saved = (arguments["saved"] as? Bool) ?? false
+                return ["saved": saved]
+            },
+            PuppetVerbs.Verb("ContinueRecoveryKey", controls: ["sync.hosted.recoveryKey.continue"])
+            {
+                guard saved else { throw PuppetVerbRefusal(409, "tick SetRecoveryKeySaved first") }
+                if busy { throw PuppetVerbRefusal(409, "hosted sync is busy") }
+                await onContinue()
+            },
+        ]
     }
 }

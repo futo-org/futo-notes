@@ -39,6 +39,8 @@ struct SelfHostedSyncSections: View {
                     .keyboardType(.URL)
                     .disabled(sync.connected)
                     .foregroundStyle(sync.connected ? .secondary : .primary)
+                    // The section's verbs, on its one row that is always there.
+                    .puppetVerbs { puppetVerbs }
                 // Only relevant before connecting: once connected the Rust
                 // session holds the vault key and Sync Now ignores this field.
                 if !sync.connected {
@@ -118,5 +120,46 @@ struct SelfHostedSyncSections: View {
                 }
             }
         }
+    }
+    /// The buttons, as verbs, while this section is on screen — behind "Use my own server"
+    /// in a hosted build, so they are offered only once it is open. The fields are
+    /// ConnectSync's arguments, typed into them as a person would.
+    private var puppetVerbs: [PuppetVerbs.Verb] {
+        func unlessBusy() throws {
+            if sync.busy { throw PuppetVerbRefusal(409, "sync is busy; wait for it to settle") }
+        }
+        guard sync.connected else {
+            return [
+                PuppetVerbs.Verb(
+                    "ConnectSync", optional: ["url", "password"],
+                    controls: ["sync.connectAndSync", "sync.serverUrl", "sync.password"]
+                ) { arguments in
+                    try unlessBusy()
+                    if let url = arguments["url"] as? String, !url.isEmpty { sync.serverURL = url }
+                    if let typed = arguments["password"] as? String, !typed.isEmpty {
+                        password = typed
+                    }
+                    // The field is seeded from the Keychain, so a stored password is what
+                    // the user's own tap would resubmit.
+                    guard !password.isEmpty else {
+                        throw PuppetVerbRefusal(400, "ConnectSync needs a password; none is stored")
+                    }
+                    await sync.connectAndSync(notesRoot: store.notesRoot.path, password: password)
+                    return ["connected": sync.connected, "status": sync.statusMessage.path]
+                }
+            ]
+        }
+        return [
+            PuppetVerbs.Verb("SyncNow", controls: ["sync.syncNow"]) { _ in
+                try unlessBusy()
+                await sync.syncNow()
+                return ["status": sync.statusMessage.path]
+            },
+            PuppetVerbs.Verb("DisconnectSync", controls: ["sync.disconnect"]) { _ in
+                try unlessBusy()
+                await sync.disconnect()
+                return ["connected": sync.connected]
+            },
+        ]
     }
 }

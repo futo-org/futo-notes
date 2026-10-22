@@ -10,6 +10,9 @@ extension NotesStore {
         return token > retiredDraftTokensThrough && token <= draftSeq
     }
 
+    /// The notes an open editor holds edits of that are not on disk yet.
+    var unsavedNoteIds: [String] { Set(draftRegister.values.map(\.id)).sorted() }
+
     func claimDraftOwnership() -> UInt64 {
         draftSeq += 1
         return draftSeq

@@ -4,6 +4,8 @@ import SwiftUI
 /// tapping a subfolder pushes another FolderContentsView via Route.folder.
 struct FolderContentsView: View {
     @EnvironmentObject var store: NotesStore
+    /// Read by the verbs: a Settings or Sync sheet covers this list, so none are on offer.
+    @EnvironmentObject var navigation: AppNavigation
     @Environment(\.localization) var localization
     /// The folder this view shows ("" = root).
     let folder: String
@@ -131,6 +133,30 @@ struct FolderContentsView: View {
         }
         .background(Theme.background)
         .navigationTitle(title)
+        // The nav bar's two buttons, on the empty state as on the list. New folder's `name`
+        // is the dialog's next two steps, typing the name and pressing Create.
+        .puppetVerbs {
+            navigation.sheet != nil
+                ? []
+                : [
+                    PuppetVerbs.Verb("CreateNote", controls: ["notes.newNote"]) { _ in
+                        guard let id = await createNote() else {
+                            throw PuppetVerbRefusal(500, "the store could not create the note")
+                        }
+                        return ["noteId": id]
+                    },
+                    PuppetVerbs.Verb(
+                        "OpenCreateFolderDialog", optional: ["name"],
+                        controls: ["folders.newFolder"],
+                        shortcuts: [
+                            "name": [("SetNewFolderName", ["name": "$"]), ("SubmitNewFolder", [:])]
+                        ]
+                    ) { _ in
+                        openNewFolderDialog()
+                        return [:]
+                    },
+                ]
+        }
         .toolbar {
             // Two SEPARATE nav-bar buttons (desktop parity, github#5): a
             // folder button and a compose button, the way Notes/Files expose
@@ -139,8 +165,7 @@ struct FolderContentsView: View {
             // cluster, so this reads as native rather than as two loose icons.
             ToolbarItem(id: "create-folder", placement: .topBarTrailing) {
                 Button {
-                    newFolderName = ""
-                    setNewFolderDialog(visible: true)
+                    openNewFolderDialog()
                 } label: {
                     Image(systemName: "folder.badge.plus")
                 }
@@ -153,7 +178,7 @@ struct FolderContentsView: View {
                 Button {
                     // Quick capture: create + open straight into the body,
                     // no blocking title prompt (desktop parity). [list.md]
-                    createNote()
+                    Task { await createNote() }
                 } label: {
                     Image(systemName: "square.and.pencil")
                 }
@@ -179,8 +204,7 @@ struct FolderContentsView: View {
         // re-renders live — the message flips to the warning as the user types.
         .fullScreenCover(isPresented: $showingNewFolder) {
             NewFolderDialog(
-                title: localization.localizedText("folders.newFolderTitleCase"),
-                confirmLabel: localization.localizedText("common.actions.create"),
+                renaming: false,
                 message: newFolderWarningPath.map { localization.localizedText($0) }
                     ?? (folder.isEmpty
                         ? localization.localizedText("folders.createInNotesPrompt")
@@ -195,8 +219,9 @@ struct FolderContentsView: View {
                 canCreate: canCreateNewFolder,
                 onCancel: { setNewFolderDialog(visible: false) },
                 onCreate: {
-                    createFolder()
+                    let creating = Task { await createFolder() }
                     setNewFolderDialog(visible: false)
+                    return await creating.value
                 }
             )
             .presentationBackground(.clear)
@@ -221,15 +246,14 @@ struct FolderContentsView: View {
                 set: { if !$0 { setFolderRenameTarget(nil) } })
         ) {
             NewFolderDialog(
-                title: localization.localizedText("folders.renameHeading"),
-                confirmLabel: localization.localizedText("common.actions.rename"),
+                renaming: true,
                 message: renameFolderWarningPath.map { localization.localizedText($0) }
                     ?? localization.localizedText("folders.renamePrompt"),
                 messageIsWarning: renameFolderWarningPath != nil,
                 name: $renameFolderName,
                 canCreate: canRenameFolder,
                 onCancel: { setFolderRenameTarget(nil) },
-                onCreate: { renameFolder() }
+                onCreate: { await renameFolder() }
             )
             .presentationBackground(.clear)
         }
@@ -244,11 +268,12 @@ struct FolderContentsView: View {
                 message: localization.localizedText(
                     "notes.delete.thisNoteRecoverableConfirmation"
                 ),
-                destructiveLabel: localization.localizedText("notes.actions.deleteNote"),
+                destructiveLabelKey: "notes.actions.deleteNote",
                 onCancel: { setDeleteTarget(nil) },
                 onDestructive: {
-                    if let note = deleteTarget { store.deleteAsync(note.id) }
+                    let note = deleteTarget
                     setDeleteTarget(nil)
+                    if let note { _ = await store.delete(note.id) }
                 }
             )
             .presentationBackground(.clear)
@@ -262,14 +287,20 @@ struct FolderContentsView: View {
                 message: localization.localizedText(
                     "folders.delete.preservingContentsConfirmation"
                 ),
-                destructiveLabel: localization.localizedText("folders.actions.deleteFolder"),
+                destructiveLabelKey: "folders.actions.deleteFolder",
                 onCancel: { setFolderDeleteTarget(nil) },
                 onDestructive: {
-                    if let target = folderDeleteTarget { store.deleteFolder(target) }
+                    let target = folderDeleteTarget
                     setFolderDeleteTarget(nil)
+                    if let target { _ = await store.deleteFolder(target) }
                 }
             )
             .presentationBackground(.clear)
         }
+    }
+
+    private func openNewFolderDialog() {
+        newFolderName = ""
+        setNewFolderDialog(visible: true)
     }
 }

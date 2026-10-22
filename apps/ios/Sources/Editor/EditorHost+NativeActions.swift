@@ -66,6 +66,7 @@ extension EditorHost {
                 permittedFileURL: editorFileURL
             )
         else { return }
+        PuppetVerbs.shared.recordOpen(safeURL.absoluteString)
         UIApplication.shared.open(safeURL)
     }
 }

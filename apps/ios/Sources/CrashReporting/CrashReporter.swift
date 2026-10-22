@@ -29,9 +29,11 @@ final class CrashReporter: ObservableObject {
         var stack: String { report["stack"] as? String ?? "" }
     }
 
-    // nonisolated: read from the nonisolated install() as well as the actor.
-    private nonisolated static let enabledKey = "futo.crashReporting.enabled"
-    private nonisolated static let alwaysSendKey = "futo.crashReporting.alwaysSend"
+    // nonisolated: read from the nonisolated install() as well as the actor. The one
+    // home for these keys: SettingsView's toggles and the debug puppet listener read
+    // and write the same two entries.
+    nonisolated static let enabledKey = "futo.crashReporting.enabled"
+    nonisolated static let alwaysSendKey = "futo.crashReporting.alwaysSend"
 
     /// Upload endpoints — mirror src/features/system/crashReporter.ts exactly: single report
     /// to /api/crash, batch to /api/crashes.

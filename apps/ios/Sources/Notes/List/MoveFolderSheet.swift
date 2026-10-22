@@ -31,6 +31,7 @@ struct MoveFolderSheet: View {
                             isCurrent: sourceParent.isEmpty
                         )
                     }
+                    .accessibilityIdentifier(ListRowID.folder(""))
                 }
                 if !destinations.isEmpty {
                     Section(localization.localizedText("folders.heading")) {
@@ -43,6 +44,7 @@ struct MoveFolderSheet: View {
                                     system: "folder.fill",
                                     isCurrent: sourceParent == path)
                             }
+                            .accessibilityIdentifier(ListRowID.folder(path))
                         }
                     }
                 }
@@ -63,6 +65,12 @@ struct MoveFolderSheet: View {
                 }
             }
         }
+        .puppetVerbs(modal: true) {
+            moveSheetVerbs(
+                offering: destinations, of: store.folders,
+                pick: { destination in await move(to: destination).value },
+                cancel: { dismiss() })
+        }
     }
 
     @ViewBuilder
@@ -81,23 +89,28 @@ struct MoveFolderSheet: View {
         }
     }
 
-    private func move(to destination: String) {
-        Task {
-            if await store.moveFolder(from: folder, destinationParent: destination) != nil {
-                if destination.isEmpty {
-                    store.showTransient(LocalizedMessage("folders.movedToRoot"))
-                } else {
-                    store.showTransient(
-                        LocalizedMessage(
-                            "folders.movedTo",
-                            arguments: ["destination": destination]
-                        )
-                    )
-                }
-            } else {
+    /// Starts the move and closes the sheet; the task answers whether the move landed.
+    @discardableResult
+    private func move(to destination: String) -> Task<Bool, Never> {
+        let moving = Task { () async -> Bool in
+            guard await store.moveFolder(from: folder, destinationParent: destination) != nil
+            else {
                 store.showTransient(LocalizedMessage("folders.errors.moveFailed"))
+                return false
             }
+            if destination.isEmpty {
+                store.showTransient(LocalizedMessage("folders.movedToRoot"))
+            } else {
+                store.showTransient(
+                    LocalizedMessage(
+                        "folders.movedTo",
+                        arguments: ["destination": destination]
+                    )
+                )
+            }
+            return true
         }
         dismiss()
+        return moving
     }
 }

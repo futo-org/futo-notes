@@ -31,7 +31,7 @@ struct FeedbackMessageFieldTests {
     private func focusedMessageField() throws -> (UIWindow, UITextView) {
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 400))
         window.rootViewController = UIHostingController(
-            rootView: FeedbackMessageField(text: .constant("")))
+            rootView: FeedbackMessageField(text: .constant(""), editing: .constant(false)))
         window.makeKeyAndVisible()
         window.layoutIfNeeded()
         let textView = try #require(Self.firstTextView(in: window))

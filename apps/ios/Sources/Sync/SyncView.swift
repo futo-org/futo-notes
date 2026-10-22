@@ -14,23 +14,16 @@ struct SyncView: View {
 
     var body: some View {
         NavigationStack {
-            Form {
+            Group {
+                // The hosted screen owns its Form: the scanner it pushes has to be
+                // declared outside the Form's rows to be pushed at all.
                 if HostedSyncBuild.isEnabled {
                     HostedSyncSections(notesRoot: store.notesRoot.path, store: store, sync: sync)
                 } else {
-                    SelfHostedSyncSections()
-                }
-
-                // Which on-disk folder this install reads/writes. Surfaced so a
-                // "synced but no notes" report is self-diagnosing: distinct app
-                // installs (dev vs release vs custom bundle ids) use SEPARATE
-                // sandboxes, so notes pulled by one install never appear in
-                // another. This row makes the active sandbox visible at a glance.
-                Section(localization.localizedText("sync.notesFolderSection")) {
-                    Text(store.notesRoot.path)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
+                    Form {
+                        SelfHostedSyncSections()
+                        NotesFolderSection()
+                    }
                 }
             }
             .navigationTitle(localization.localizedText("sync.heading"))
@@ -46,5 +39,23 @@ struct SyncView: View {
         // banners, and a banner attached to the presenting screen renders
         // BEHIND this sheet — invisible. It belongs to whatever is on top.
         .transientMessageBanner(store)
+    }
+}
+
+/// Which on-disk folder this install reads/writes. Surfaced so a "synced but no
+/// notes" report is self-diagnosing: distinct app installs (dev vs release vs
+/// custom bundle ids) use SEPARATE sandboxes, so notes pulled by one install
+/// never appear in another. This row makes the active sandbox visible at a glance.
+struct NotesFolderSection: View {
+    @EnvironmentObject private var store: NotesStore
+    @Environment(\.localization) private var localization
+
+    var body: some View {
+        Section(localization.localizedText("sync.notesFolderSection")) {
+            Text(store.notesRoot.path)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .textSelection(.enabled)
+        }
     }
 }

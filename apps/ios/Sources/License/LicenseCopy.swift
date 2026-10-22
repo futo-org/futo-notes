@@ -101,7 +101,7 @@ private func unlicensedCard(_ localization: Localization) -> LicenseCardModel {
 /// the right as it appeared, and the rows below it shifted with it. The key
 /// arrives normalized (trimmed, uppercased) from the Rust crate, so it is masked
 /// as it stands.
-private func maskedLicenseKey(_ key: String?) -> String? {
+func maskedLicenseKey(_ key: String?) -> String? {
     guard let key else { return nil }
     guard key.count > licenseLastGroupLength else { return key }
     let hidden = key.dropLast(licenseLastGroupLength).map {

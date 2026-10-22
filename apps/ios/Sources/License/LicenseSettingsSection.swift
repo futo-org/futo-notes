@@ -43,6 +43,7 @@ struct LicenseSettingsSection: View {
 
     @Environment(\.localization) var localization
     @Environment(\.openURL) private var openURL
+    @EnvironmentObject private var navigation: AppNavigation
 
     @State var entering = false
     @State var draft = ""
@@ -94,6 +95,7 @@ struct LicenseSettingsSection: View {
                 // reveal a key the user never asked to see. Leaving Settings
                 // re-masks on its own — the sheet drops this view's @State.
                 .onChange(of: license.view?.key) { revealed = false }
+                .puppetVerbs { puppetVerbs }
                 .onChange(of: keyEntryRequest) {
                     if let status = license.view?.status, status != .licensed {
                         perform(.enterKey)
@@ -131,6 +133,61 @@ struct LicenseSettingsSection: View {
         case .restorePurchases:
             Task { await license.restorePurchases() }
         }
+    }
+
+    /// Each verb is offered exactly while its control is on the plate and no sheet covers it.
+    private var puppetVerbs: [PuppetVerbs.Verb] {
+        guard navigation.sheet == .settings else { return [] }
+        if entering {
+            return [
+                PuppetVerbs.Verb(
+                    "ActivateLicense", required: ["licenseKey"],
+                    controls: [
+                        "license.keyLabel", "license.keyPlaceholder", "license.activate",
+                        "license.activating",
+                    ]
+                ) { arguments in
+                    draft = (arguments["licenseKey"] as? String) ?? ""
+                    if license.busy { throw PuppetVerbRefusal(409, "the license is busy") }
+                    await submit()
+                    return [:]
+                },
+                PuppetVerbs.Verb("CancelLicenseEntry", controls: ["license.cancelEntry"]) {
+                    if license.busy { throw PuppetVerbRefusal(409, "the license is busy") }
+                    cancelEntry()
+                },
+            ]
+        }
+        guard license.view != nil else { return [] }
+        var verbs: [PuppetVerbs.Verb] = []
+        if shape.keyRow, !revealed {
+            verbs.append(PuppetVerbs.Verb("ShowLicenseKey") { revealed = true })
+        }
+        // The plate's buttons are labelled from their action (`copyPath`), so no verb can name
+        // one by its catalog key; only the "I already paid" row's hint is a key of its own.
+        for action in actions {
+            let tap: () async throws -> Void = { perform(action) }
+            switch action {
+            case .buy, .renew: verbs.append(PuppetVerbs.Verb("BuyLicense", tap: tap))
+            case .enterKey:
+                verbs.append(
+                    PuppetVerbs.Verb(
+                        "StartLicenseEntry", controls: ["license.enterKeyHint"], tap: tap))
+            case .lostKey: verbs.append(PuppetVerbs.Verb("OpenLostKeyHelp", tap: tap))
+            case .remove: verbs.append(PuppetVerbs.Verb("RemoveLicense", tap: tap))
+            case .buyInAppStore:
+                verbs.append(
+                    PuppetVerbs.Verb("BuyLicenseInAppStore") {
+                        // The button is disabled while a purchase or a restore is running.
+                        if license.appStoreBusy {
+                            throw PuppetVerbRefusal(409, "an App Store purchase is running")
+                        }
+                        perform(action)
+                    })
+            case .restorePurchases: verbs.append(PuppetVerbs.Verb("RestorePurchases", tap: tap))
+            }
+        }
+        return verbs
     }
 
     func submit() async {

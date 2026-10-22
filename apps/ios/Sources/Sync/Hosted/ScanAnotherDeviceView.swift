@@ -14,7 +14,9 @@ import UIKit
 /// a second sheet. A `.sheet` modifier anywhere inside that `Form` is handed
 /// down to every row it renders, which UIKit reports as a dozen simultaneous
 /// "Attempt to present … which is already presenting" and which took the Sync
-/// sheet down with it. A push is one screen, once.
+/// sheet down with it. A push is one screen, once. It is up exactly while the
+/// model's `scanPhase` is not `.closed` (HostedSyncSections), and the camera
+/// runs for exactly as long.
 struct ScanAnotherDeviceView: View {
     @ObservedObject var model: HostedSetupModel
 
@@ -37,9 +39,7 @@ struct ScanAnotherDeviceView: View {
         }
         .navigationTitle(localization.localizedText("sync.hosted.pairing.scan.title"))
         .navigationBarTitleDisplayMode(.inline)
-        // The camera runs for exactly as long as this screen is up.
-        .onAppear { model.openScanner() }
-        .onDisappear { model.closeScanner() }
+        .puppetVerbs { puppetVerbs }
         .task { await resolveCameraAccess() }
         .confirmationDialog(
             localization.localizedText("sync.hosted.pairing.scan.confirm.title"),
@@ -136,9 +136,9 @@ struct ScanAnotherDeviceView: View {
         Text(localization.localizedText("sync.hosted.pairing.scan.fallback"))
             .font(.callout)
             .accessibilityIdentifier("hosted-scan-fallback")
-        if offerSettings, let settings = URL(string: UIApplication.openSettingsURLString) {
+        if offerSettings {
             Button(localization.localizedText("sync.hosted.pairing.scan.openSettings")) {
-                UIApplication.shared.open(settings)
+                openSystemSettings()
             }
             .accessibilityIdentifier("hosted-scan-open-settings")
         }
@@ -156,6 +156,45 @@ struct ScanAnotherDeviceView: View {
         return localization.localizedText(
             "sync.hosted.pairing.scan.confirm.device",
             arguments: ["name": scanned.deviceName, "platform": platform])
+    }
+
+    private func openSystemSettings() {
+        if let settings = URL(string: UIApplication.openSettingsURLString) {
+            PuppetVerbs.shared.recordOpen(settings.absoluteString)
+            UIApplication.shared.open(settings)
+        }
+    }
+
+    /// The screen's controls. `ScanPairingCode` stands in for the camera with the string
+    /// it would have read — a simulator has none — and everything after it is what a
+    /// real scan drives: the confirmation naming the device, then Send.
+    private var puppetVerbs: [PuppetVerbs.Verb] {
+        if model.scanPhase == .confirming {
+            return [
+                PuppetVerbs.Verb("ConfirmDialog", controls: ["common.actions.send"]) {
+                    await model.sendVaultKey()
+                },
+                PuppetVerbs.Verb("DismissDialog", controls: ["common.actions.cancel"]) {
+                    model.cancelConfirmation()
+                },
+            ]
+        }
+        var verbs = [PuppetVerbs.Verb("CloseScanner") { model.closeScanner() }]
+        if model.scanPhase == .scanning {
+            verbs.append(
+                PuppetVerbs.Verb("ScanPairingCode", required: ["code"], optional: ["answer"]) {
+                    arguments in
+                    await model.readScannedCode((arguments["code"] as? String) ?? "")
+                    return [:]
+                })
+        }
+        if access == .denied {
+            verbs.append(
+                PuppetVerbs.Verb(
+                    "OpenSystemSettings", controls: ["sync.hosted.pairing.scan.openSettings"]
+                ) { openSystemSettings() })
+        }
+        return verbs
     }
 
     private func resolveCameraAccess() async {

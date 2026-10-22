@@ -53,7 +53,7 @@ loopback one, the override did not land and the run proves nothing.
 
 Two mechanics, from driving this:
 
-- **A 0x0 root from `axe describe-ui` is not an app failure.** It means the simulator
+- **A 0x0 accessibility root is not an app failure.** It means the simulator
   has no window in this WindowServer session — which, on a Mac with no Simulator.app
   (Xcode 27 ships none), is the normal state after a plain boot. `just qa-claim ios
   --reboot` fixes it; `simctl` screenshots keep working the whole time, which is why it
@@ -73,10 +73,10 @@ Two mechanics, from driving this:
   back to the baked production address, which surfaces as "Couldn't reach the server" on
   the hosted screen and looks like a hosted-sync bug. Set it on **every** launch in a
   restart story, not just the first.
-- **`axe tap -x -y` on a SwiftUI `Toggle` reports success and does nothing** — the
-  recovery-key checkbox in particular. `axe tap --id <accessibilityIdentifier>` uses the
-  element's own activation point with a physical touch and does flip it. This is
-  AGENTS.md M21 exactly: suspect the tool before the app.
+- **The recovery-key checkbox is `SetRecoveryKeySaved {saved: true}`.** A coordinate tap
+  from outside the app on a SwiftUI `Toggle` reported success and did nothing; one at the
+  element's own activation point did flip it. This is AGENTS.md M21 exactly: suspect the
+  tool before the app.
 
 Clean up: stop the server, `just qa-release`, and remove any worktree you added.
 
