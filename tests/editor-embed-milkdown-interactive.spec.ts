@@ -1,5 +1,11 @@
-import { expect } from '@playwright/test';
-import { flushFrames, getContent, messagesOfType, waitForMessages } from './lib/editorEmbedHost';
+import { expect, type Page } from '@playwright/test';
+import {
+  flushFrames,
+  getContent,
+  messagesOfType,
+  waitForMessages,
+  withCaretObserved,
+} from './lib/editorEmbedHost';
 import {
   test,
   open,
@@ -82,6 +88,113 @@ test('splitting an unchecked task item stays a task', async ({ page }) => {
   await page.keyboard.type('more');
   await settled(page);
   expect(await getContent(page)).toContain('- [ ] todo\n- [ ] more');
+});
+
+// Enter at the very start of an item moves the item's text down along with the
+// caret, so the NEW item is the empty one left above it: that one is unchecked
+// and the done task keeps its check. prosemirror-schema-list applied the new
+// item's attrs only to an end-of-item split, so both came out `[x]`.
+test('Enter at the start of a checked task item inserts an unchecked item above it', async ({
+  page,
+}) => {
+  await open(page, '- [x] a');
+  await caretAtStartOf(page, 'a');
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('y');
+  await settled(page);
+  expect((await getContent(page)).trimEnd()).toBe('- [ ]\n- [x] ya');
+});
+
+test('Enter in the middle of a checked task item starts the rest unchecked', async ({ page }) => {
+  await open(page, '- [x] abcd');
+  await caretAtStartOf(page, 'abcd');
+  await withCaretObserved(page, () => page.keyboard.press('ArrowRight'));
+  await withCaretObserved(page, () => page.keyboard.press('ArrowRight'));
+  await page.keyboard.press('Enter');
+  await settled(page);
+  expect((await getContent(page)).trimEnd()).toBe('- [x] ab\n- [ ] cd');
+});
+
+// A selection is deleted first, and Enter then acts where it started: from
+// the very start of a checked task's text, what is left moves down with the
+// caret, as it does for a caret there, so the done task keeps its check and the
+// new, unchecked item is the empty one above.
+test('Enter over a selection from the start of a checked task item keeps it checked', async ({
+  page,
+}) => {
+  await open(page, '- [x] abcd');
+  await caretAtStartOf(page, 'abcd');
+  await withCaretObserved(page, () => page.keyboard.press('Shift+ArrowRight'));
+  await withCaretObserved(page, () => page.keyboard.press('Shift+ArrowRight'));
+  await page.keyboard.press('Enter');
+  await settled(page);
+  expect((await getContent(page)).trimEnd()).toBe('- [ ]\n- [x] cd');
+});
+
+test('Enter over the whole text of a checked task item keeps the caret item checked', async ({
+  page,
+}) => {
+  await open(page, '- [x] ab');
+  await caretAtStartOf(page, 'ab');
+  await withCaretObserved(page, () => page.keyboard.press('Shift+End'));
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('y');
+  await settled(page);
+  expect((await getContent(page)).trimEnd()).toBe('- [ ]\n- [x] y');
+});
+
+// Delete is a FORWARD delete in a list item and a heading, as in a paragraph.
+// The commonmark preset bound its Backspace commands (lift the first item,
+// downgrade the heading) to Delete too.
+test('Delete at the start of a list item deletes the next character', async ({ page }) => {
+  await open(page, '- ab\n- cd');
+  await caretAtStartOf(page, 'ab');
+  await page.keyboard.press('Delete');
+  await settled(page);
+  expect((await getContent(page)).trimEnd()).toBe('- b\n- cd');
+});
+
+test('Delete at the start of a heading deletes the next character', async ({ page }) => {
+  await open(page, '## ab');
+  await caretAtStartOf(page, 'ab');
+  await page.keyboard.press('Delete');
+  await settled(page);
+  expect((await getContent(page)).trimEnd()).toBe('## b');
+});
+
+/** Click the right edge of the text run `text`, so the caret lands at its end. */
+async function caretAtRightEdgeOf(page: Page, text: string): Promise<void> {
+  const target = page.getByText(text, { exact: true }).first();
+  const box = await target.boundingBox();
+  if (!box) throw new Error(`no geometry for ${text}`);
+  await withCaretObserved(page, () =>
+    target.click({ position: { x: Math.max(box.width - 2, 0), y: box.height / 2 } }),
+  );
+}
+
+// A fence inside a list item takes Enter as a new line, as a top-level fence
+// does (docs/spec/editor/paragraphs-and-lines.md "a code block takes the new
+// line inside it"). On the fence's last line the list split ran first.
+test('Enter at the end of a fence inside a list item adds a line to the fence', async ({
+  page,
+}) => {
+  await open(page, '- item\n\n  ```js\n  code\n  ```');
+  await caretAtRightEdgeOf(page, 'code');
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('more');
+  await settled(page);
+  expect((await getContent(page)).trimEnd()).toBe('- item\n\n  ```js\n  code\n  more\n  ```');
+});
+
+test('Enter at the end of a fence inside a checked task item adds a line to the fence', async ({
+  page,
+}) => {
+  await open(page, '- [x] item\n\n  ```js\n  code\n  ```');
+  await caretAtRightEdgeOf(page, 'code');
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('more');
+  await settled(page);
+  expect((await getContent(page)).trimEnd()).toBe('- [x] item\n\n  ```js\n  code\n  more\n  ```');
 });
 
 // ============================================================
@@ -274,4 +387,64 @@ test('Backspace on a nested item with a PRECEDING sibling joins the sibling inst
   await settled(page);
   const content = (await getContent(page)).trimEnd();
   expect(content).toBe('- a\n  - x\n    b');
+});
+
+// ============================================================
+// Shortcuts with Caps Lock on (spec: "A shortcut held with Shift never runs the
+// same shortcut without Shift")
+// ============================================================
+
+// With Caps Lock on, a Shift chord's key arrives as a lowercase letter
+// (Playwright's `ControlOrMeta+Shift+i` sends that event). prosemirror-keymap
+// then retried any chord whose Shift form nothing claimed WITHOUT Shift, so
+// Ctrl+Shift+I ran Italic (Mod-i) and Ctrl+Alt+Shift+X ran Strikethrough
+// (Mod-Alt-x). With Caps Lock off the same chords do nothing in the editor.
+for (const [chord, name] of [
+  ['ControlOrMeta+Shift+i', 'italic'],
+  ['ControlOrMeta+Alt+Shift+x', 'strikethrough'],
+] as const) {
+  test(`${chord} with a lowercase key does not turn on ${name}`, async ({ page }) => {
+    await open(page, 'para');
+    await caretAtEndOf(page, 'para');
+    await page.keyboard.press(chord);
+    await page.keyboard.type('X');
+    await settled(page);
+    expect((await getContent(page)).trimEnd()).toBe('paraX');
+  });
+}
+
+// A Shift chord the editor does not use stays the browser's with Caps Lock on
+// too. An earlier version of the guard above claimed every lowercase Shift
+// chord, so Ctrl+Shift+V (paste as plain text) pasted nothing whenever Caps
+// Lock was on.
+test('ControlOrMeta+Shift+v with a lowercase key still pastes', async ({ page }) => {
+  await open(page, 'para\n\nword');
+  await caretAtEndOf(page, 'word');
+  await page.keyboard.press('Shift+Home');
+  await page.keyboard.press('ControlOrMeta+c');
+  await caretAtEndOf(page, 'para');
+  // The editor reads a moved caret on the next selectionchange; a paste before
+  // that lands over the copied "word" instead of after "para".
+  await page.waitForFunction(() => {
+    const view = (
+      window as unknown as {
+        __futoProseMirrorView: () => { state: { selection: { from: number; to: number } } };
+      }
+    ).__futoProseMirrorView();
+    return view.state.selection.from === 5 && view.state.selection.to === 5;
+  });
+  await page.evaluate(() => {
+    const w = window as unknown as { lowercaseVPrevented?: boolean };
+    window.addEventListener('keydown', (event) => {
+      if (event.key === 'v' && event.shiftKey) w.lowercaseVPrevented = event.defaultPrevented;
+    });
+  });
+  await page.keyboard.press('ControlOrMeta+Shift+v');
+  await settled(page);
+  expect((await getContent(page)).trimEnd()).toBe('paraword\n\nword');
+  expect(
+    await page.evaluate(
+      () => (window as unknown as { lowercaseVPrevented?: boolean }).lowercaseVPrevented,
+    ),
+  ).toBe(false);
 });

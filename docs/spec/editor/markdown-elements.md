@@ -115,6 +115,34 @@
   editor has no YAML model, so it shows the bytes and refuses to edit them.
   Deleting the whole note still deletes it. →
   src/features/editor/milkdown/milkdownEditor.css `.futo-frontmatter`
+- The caret never stops in front of the block: ArrowUp or ArrowLeft from the
+  top of the body leaves it at the top of the body, so the next keystroke is
+  written there rather than dropped. →
+  packages/editor/src/milkdown-compat/frontmatterCaret.ts `caretBeforeFrontmatter`,
+  tests/editor-embed-milkdown-front-matter.spec.ts
+- Ctrl+Home (Cmd+Up on an Apple keyboard) in a note with front matter moves
+  the caret to the top of the body, and with Shift selects up to it. →
+  packages/editor/src/milkdown-compat/frontmatterCaret.ts `toBodyStart`,
+  tests/editor-embed-milkdown-front-matter.spec.ts
+- Every other upward move that runs out of body reaches the top of the body,
+  as it reaches the start of a note without front matter, instead of stopping
+  partway along the first line: Ctrl+ArrowUp from anywhere in the first
+  paragraph, Shift+ArrowUp from its first line, and a PageUp that would go
+  past the top (each with Shift selecting up to it). A PageUp that lands inside
+  the body moves by a page as usual. →
+  packages/editor/src/milkdown-compat/frontmatterCaret.ts `upToBodyStart`,
+  `pageUpPastTop`, tests/editor-embed-milkdown-front-matter.spec.ts
+- The top of the body is always a caret, never a selection on a block: when
+  the body opens with a divider, Ctrl+Home, a click on the panel, or a click
+  above it puts the caret in front of the divider, and typing there writes a
+  new paragraph above it; the divider stays. →
+  packages/editor/src/milkdown-compat/frontmatterCaret.ts `bodyStart`,
+  tests/editor-embed-milkdown-front-matter.spec.ts
+- A Shift move to the top of the body selects up to the body's first text: a
+  divider that opens the body is left out of the selection, so deleting the
+  selection keeps it. →
+  packages/editor/src/milkdown-compat/frontmatterCaret.ts `selectBodyStart`,
+  tests/editor-embed-milkdown-front-matter.spec.ts
 - A note whose ONLY content is front matter gets the empty body paragraph the
   schema requires (the document's content is `frontmatter? block+`). That
   paragraph is what gives the caret somewhere to go that is not a selection ON

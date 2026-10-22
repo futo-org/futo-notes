@@ -20,11 +20,16 @@
  * `transformPasted` runs before every `handlePaste`, so the slice is repaired
  * there: an empty filler header row is dropped and every pasted cell is given the type
  * of the row it will land in. Anything that is not a pasted table is untouched.
+ *
+ * The other filler goes too: a header-only table's empty body row (the schema
+ * needs one, `isUnwrittenFillerRow`), which is in the editor's own copy of
+ * such a table and blanked out the target row under the one the header lands on.
  */
 import { Fragment, Slice, type Node as ProseNode } from '@milkdown/kit/prose/model';
 import { Plugin, PluginKey, type EditorState } from '@milkdown/kit/prose/state';
 import { isInTable, selectedRect, tableNodeTypes } from '@milkdown/kit/prose/tables';
 import { $prose } from '@milkdown/kit/utils';
+import { isUnwrittenFillerRow } from '@futo-notes/editor/milkdown-compat';
 
 /** The rows of a pasted table, or null when `slice` is not a table paste. */
 function pastedRows(slice: Slice): ProseNode[] | null {
@@ -57,8 +62,10 @@ function isBlankRow(row: ProseNode): boolean {
  */
 export function repairPastedTable(slice: Slice, state: EditorState): Slice {
   if (!isInTable(state)) return slice;
-  const rows = pastedRows(slice);
-  if (!rows) return slice;
+  // A header-only table's empty filler row (the schema needs a body row) is
+  // not the clipboard's: pasted, it would blank out a real row of the target.
+  const rows = pastedRows(slice)?.filter((row) => !isUnwrittenFillerRow(row));
+  if (!rows?.length) return slice;
 
   // The parser's mandatory header filler: a leading row of only empty cells,
   // in front of the real rows. A pasted table whose header row really is blank

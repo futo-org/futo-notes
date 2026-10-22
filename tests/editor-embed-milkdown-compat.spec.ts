@@ -21,7 +21,7 @@
  * `<br />` placeholder upstream's plugin exists for.
  */
 
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import { useCensusPage, roundTrip, twoSaves } from './lib/editorEmbedMilkdownCompat';
 
 useCensusPage();
@@ -171,5 +171,96 @@ test.describe('the parked end-of-document paragraph is not written', () => {
     const { once, twice } = await twoSaves(page, 'compat', '- a\n\n\npara\n');
     expect(once).toBe('- a\n\n\npara\n');
     expect(twice).toBe(once);
+  });
+});
+
+test.describe('typed markdown converts only where the saved line would read the same', () => {
+  // The presets' input rules (milkdown-compat/inputRules.ts) disagreed with the
+  // parser that reads a note back: a fence language with a capital or a `+`
+  // did not open a fence, seven `#` made a level-7 heading, and a delimiter run
+  // padded with spaces, or escaped with a backslash, became formatting, and so
+  // did an opener CommonMark's punctuation rule says cannot open.
+  const typed = (page: Page, variant: 'compat' | 'baseline', keys: string) =>
+    page.evaluate(([v, k]) => window.__futoCensus.typeText(v as 'compat' | 'baseline', k), [
+      variant,
+      keys,
+    ] as const);
+
+  const MARKS: [keys: string, mark: string][] = [
+    ['2 * 3 *', 'mark:emphasis'],
+    ['** not bold **', 'mark:strong'],
+    ['~~ not struck ~~', 'mark:strike_through'],
+    ['\\*not italic*', 'mark:emphasis'],
+    ['\\**not bold**', 'mark:strong'],
+    ['\\_not italic_', 'mark:emphasis'],
+    ['\\`not code`', 'mark:inlineCode'],
+    ['\\~not struck~', 'mark:strike_through'],
+    ['*foo\\*', 'mark:emphasis'],
+    ['**foo\\**', 'mark:strong'],
+    ['_foo\\_', 'mark:emphasis'],
+    ['~~foo\\~~', 'mark:strike_through'],
+    ['a*"b"*', 'mark:emphasis'],
+    ['a~~"b"~~', 'mark:strike_through'],
+    ['café_b_', 'mark:emphasis'],
+    // A closer that does not match its opener (`**` … `__`, two backticks … one).
+    ['a **x__', 'mark:strong'],
+    ['``x`', 'mark:inlineCode'],
+    // A delimiter inside a URL is the URL's.
+    ['https://x.test/*a*', 'mark:emphasis'],
+  ];
+
+  test('canary: upstream still formats padded, escaped and unflanked delimiter runs', async ({
+    page,
+  }) => {
+    for (const [keys, mark] of MARKS) {
+      expect((await typed(page, 'baseline', keys)).histogram[mark], keys).toBe(1);
+    }
+  });
+
+  test('compat leaves them text', async ({ page }) => {
+    for (const [keys, mark] of MARKS) {
+      expect((await typed(page, 'compat', keys)).histogram[mark], keys).toBeUndefined();
+    }
+  });
+
+  test('compat still formats a flanked, unescaped run', async ({ page }) => {
+    for (const [keys, mark] of [
+      ['2 *3*', 'mark:emphasis'],
+      ['**bold**', 'mark:strong'],
+      ['a _em_', 'mark:emphasis'],
+      ['~~gone~~', 'mark:strike_through'],
+      ['`code`', 'mark:inlineCode'],
+      ['\\\\*em*', 'mark:emphasis'],
+      ['a *"b"*', 'mark:emphasis'],
+      ['x `a\\`', 'mark:inlineCode'],
+      // A later opener still opens when an earlier one on the line cannot.
+      ['café_a_ _b_', 'mark:emphasis'],
+    ] as const) {
+      expect((await typed(page, 'compat', keys)).histogram[mark], keys).toBe(1);
+    }
+  });
+
+  test('canary: upstream still opens a fence for lowercase letters only', async ({ page }) => {
+    expect((await typed(page, 'baseline', '```js ')).histogram.code_block).toBe(1);
+    expect((await typed(page, 'baseline', '```c++ ')).histogram.code_block).toBeUndefined();
+    expect((await typed(page, 'baseline', '```JavaScript ')).histogram.code_block).toBeUndefined();
+  });
+
+  test('compat opens a fence for any info word', async ({ page }) => {
+    for (const language of ['js', 'c++', 'JavaScript', 'C#', 'ps1']) {
+      const out = await typed(page, 'compat', '```' + language + ' x');
+      expect(out.markdown, language).toBe('```' + language + '\nx\n```\n');
+    }
+  });
+
+  test('canary: upstream still makes a level-7 heading of seven #', async ({ page }) => {
+    expect((await typed(page, 'baseline', '####### seven')).headingLevels).toEqual([7]);
+  });
+
+  test('compat leaves seven # text and still makes headings of one to six', async ({ page }) => {
+    const seven = await typed(page, 'compat', '####### seven');
+    expect(seven.headingLevels).toEqual([]);
+    expect(seven.markdown).toBe('####### seven\n');
+    expect((await typed(page, 'compat', '###### six')).headingLevels).toEqual([6]);
   });
 });

@@ -72,6 +72,19 @@ describe('wikilinkCandidates', () => {
     expect(wikilinkCandidates('note', many, manyIndex)).toHaveLength(WIKILINK_SUGGESTION_LIMIT);
   });
 
+  // toLowerCase folds a capital sigma to ς at a word end and σ before a letter.
+  it('offers a Greek title when the upper-case query ends in sigma mid-word', () => {
+    const greek = [note('ΟΔΟΣΑ')];
+    const greekIndex = buildWikilinkIndex(greek.map((n) => n.id));
+    expect(wikilinkCandidates('ΟΔΟΣ', greek, greekIndex).map((c) => c.id)).toEqual(['ΟΔΟΣΑ']);
+  });
+
+  it('keeps dotted-I substring matches when lowercasing expands the title', () => {
+    const notes = [note('\u0130stanbul')];
+    const index = buildWikilinkIndex(notes.map((n) => n.id));
+    expect(wikilinkCandidates('i', notes, index).map((c) => c.id)).toEqual(['\u0130stanbul']);
+  });
+
   it('treats a whitespace-only query as empty', () => {
     expect(wikilinkCandidates('  ', NOTES, index)).toHaveLength(NOTES.length);
   });

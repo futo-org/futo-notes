@@ -1,7 +1,7 @@
 // Part of the futoBridge Milkdown suite: scope and input rules are in
 // editor-embed-milkdown.spec.ts.
 
-import { expect } from '@playwright/test';
+import { expect, type Page } from '@playwright/test';
 import { EDITOR_URL } from './editorEmbedBundle';
 import {
   clearMessages,
@@ -9,6 +9,7 @@ import {
   getContent,
   installFakeAndroidHost,
   waitForMessages,
+  withCaretObserved,
   type FakeHostWindow,
 } from './lib/editorEmbedHost';
 import {
@@ -17,6 +18,7 @@ import {
   hostSetContent,
   pasteClipboard,
 } from './lib/editorEmbedMilkdown';
+import { caretAtEndOf, caretAtStartOf } from './lib/editorEmbedMilkdownInteractive';
 
 // ============================================================
 // YAML front matter (the block the editor's schema owns but never edits)
@@ -112,6 +114,204 @@ test('backspace at the top of the body cannot eat the front matter', async ({ pa
     '---\ntitle: Front Matter Test\ntags: [a, b]\ndate: 2026-09-01\n---\n',
   );
 });
+
+// ProseMirror's gap cursor counted the doc start as a gap a paragraph could
+// fill, because nothing it checks looks past the front matter that has to come
+// first. ArrowUp (or ArrowLeft) from the top of the body put a gap cursor
+// there, and the next keystroke went nowhere: a paragraph cannot sit above the
+// metadata, so the insert was dropped and the file never changed.
+for (const key of ['ArrowUp', 'ArrowLeft']) {
+  test(`${key} from the top of the body keeps the caret in the body`, async ({ page }) => {
+    await hostSetContent(page, FRONT_MATTER_NOTE);
+    await caretAtStartOf(page, 'Body');
+    await page.keyboard.press(key);
+    await page.keyboard.type('X');
+    await settleChangeDebounce(page);
+
+    expect(await getContent(page)).toBe(FRONT_MATTER_NOTE.replace('# Body', '# XBody'));
+    await expect(page.locator('.ProseMirror-gapcursor')).toHaveCount(0);
+  });
+}
+
+test('ArrowUp from the empty body of a front-matter-only note keeps the caret there', async ({
+  page,
+}) => {
+  await hostSetContent(page, '---\na: 1\n---\n');
+  await page.locator('.ProseMirror > p').click();
+  await page.keyboard.press('ArrowUp');
+  await page.keyboard.type('X');
+  await settleChangeDebounce(page);
+
+  expect(await getContent(page)).toBe('---\na: 1\n---\n\nX\n');
+});
+
+// The browser's own Ctrl+Home looks for the first caret position in the
+// editable host and finds the `contenteditable="false"` metadata panel there,
+// so it did nothing at all and the next keystroke landed where the caret was.
+for (const key of ['Control+Home', 'Meta+ArrowUp']) {
+  test(`${key} moves the caret to the top of the body`, async ({ page }) => {
+    await hostSetContent(page, FRONT_MATTER_NOTE);
+    await caretAtEndOf(page, 'Content after front matter.');
+    await page.keyboard.press(key);
+    await page.keyboard.type('X');
+    await settleChangeDebounce(page);
+
+    expect(await getContent(page)).toBe(FRONT_MATTER_NOTE.replace('# Body', '# XBody'));
+  });
+}
+
+test('Ctrl+Shift+Home selects from the caret to the top of the body', async ({ page }) => {
+  await hostSetContent(page, FRONT_MATTER_NOTE);
+  await caretAtEndOf(page, 'Content after front matter.');
+  await page.keyboard.press('Control+Shift+Home');
+  await page.keyboard.type('X');
+  await settleChangeDebounce(page);
+
+  expect(await getContent(page)).toBe(
+    '---\ntitle: Front Matter Test\ntags: [a, b]\ndate: 2026-09-01\n---\n\n# X\n',
+  );
+});
+
+// Every other upward move the browser makes itself hit the same panel: from
+// the first line of the body, Ctrl+ArrowUp, Shift+ArrowUp and a PageUp that
+// overshoots the top stopped partway along that line (`# BoXdy`), where a note
+// without front matter goes to the start of it.
+const upwardMoves: [string, string, string][] = [
+  ['Control+ArrowUp', 'Body', '# XBody\n\nContent after front matter.\n'],
+  ['PageUp', 'Content after front matter.', '# XBody\n\nContent after front matter.\n'],
+  ['Shift+ArrowUp', 'Body', '# X\n\nContent after front matter.\n'],
+  ['Control+Shift+ArrowUp', 'Body', '# X\n\nContent after front matter.\n'],
+  ['Shift+PageUp', 'Content after front matter.', '# X\n'],
+];
+for (const [key, from, body] of upwardMoves) {
+  test(`${key} past the first line of the body reaches the top of the body`, async ({ page }) => {
+    await hostSetContent(page, FRONT_MATTER_NOTE);
+    await caretAtEndOf(page, from);
+    await page.keyboard.press(key);
+    await page.keyboard.type('X');
+    await settleChangeDebounce(page);
+
+    expect(await getContent(page)).toBe(
+      '---\ntitle: Front Matter Test\ntags: [a, b]\ndate: 2026-09-01\n---\n\n' + body,
+    );
+  });
+}
+
+test('Control+ArrowUp from the last line of a wrapped first paragraph reaches the top of the body', async ({
+  page,
+}) => {
+  // Ctrl+ArrowUp moves a paragraph at a time, so from anywhere in the first
+  // paragraph it goes to the start of it — not just from its first line.
+  const long = 'word '.repeat(120).trim();
+  await hostSetContent(page, `---\na: 1\n---\n\n${long}\n`);
+  await focusEditor(page);
+  await page.keyboard.press('Control+End');
+  await page.keyboard.press('Control+ArrowUp');
+  await page.keyboard.type('X');
+  await settleChangeDebounce(page);
+
+  expect(await getContent(page)).toBe(`---\na: 1\n---\n\nX${long}\n`);
+});
+
+test('Shift+ArrowUp from the text below a leading image selects up to the top of the body', async ({
+  page,
+}) => {
+  // The image is `contenteditable="false"`, so the line under it is the first
+  // one the browser's caret can reach, and its Shift+ArrowUp stopped there.
+  await hostSetContent(page, '---\na: 1\n---\n\n![alt](x.png) after\n\npara\n');
+  await caretAtEndOf(page, 'para');
+  // The first move is the browser's, so it reaches the editor on a later
+  // `selectionchange`.
+  await withCaretObserved(page, () => page.keyboard.press('Shift+ArrowUp'));
+  await page.keyboard.press('Shift+ArrowUp');
+  await page.keyboard.type('X');
+  await settleChangeDebounce(page);
+
+  expect(await getContent(page)).toBe('---\na: 1\n---\n\nX\n');
+});
+
+test('PageUp a long way below the top still moves by a page', async ({ page }) => {
+  const lines = Array.from({ length: 120 }, (_, i) => `line ${i}`).join('\n\n');
+  await hostSetContent(page, `---\na: 1\n---\n\n# Body\n\n${lines}\n`);
+  await caretAtEndOf(page, 'line 119');
+  await page.keyboard.press('PageUp');
+  await page.keyboard.type('X');
+  await settleChangeDebounce(page);
+
+  const content = await getContent(page);
+  expect(content).toContain('\n# Body\n');
+  expect(content).toMatch(/\nline (\d+)X\n/);
+  expect(Number(/\nline (\d+)X\n/.exec(content)?.[1])).toBeGreaterThan(10);
+});
+
+// A divider is a selectable leaf, so "the first place in the body" next to one
+// is a NODE selection on it, and the next keystroke replaced it: Ctrl+Home, a
+// click on the panel, or a click in the padding above it, then `X`, deleted the
+// divider. The body start there is the gap in front of the divider, where
+// typing makes a new paragraph — what Ctrl+Home does in a note without front
+// matter.
+const DIVIDER_FIRST_NOTE = '---\ntitle: T\ntags: [a, b]\n---\n\n***\n\npara\n';
+const routesToBodyStart: [string, (page: Page) => Promise<void>][] = [
+  [
+    'Control+Home',
+    async (page) => {
+      await caretAtEndOf(page, 'para');
+      await page.keyboard.press('Control+Home');
+    },
+  ],
+  [
+    'PageUp',
+    async (page) => {
+      await caretAtEndOf(page, 'para');
+      await page.keyboard.press('PageUp');
+    },
+  ],
+  [
+    'Control+ArrowUp twice',
+    async (page) => {
+      // The first press selects the divider, as without front matter.
+      await caretAtEndOf(page, 'para');
+      await page.keyboard.press('Control+ArrowUp');
+      await page.keyboard.press('Control+ArrowUp');
+    },
+  ],
+  ['a click on the panel', (page) => page.locator('.futo-frontmatter').click()],
+  [
+    'a click in the padding above the panel',
+    async (page) => {
+      const box = await page.locator('.ProseMirror').boundingBox();
+      if (!box) throw new Error('editor has no box');
+      await page.mouse.click(box.x + 5, box.y + 1);
+    },
+  ],
+];
+for (const [route, reach] of routesToBodyStart) {
+  test(`${route} in a note whose body opens with a divider keeps the divider`, async ({ page }) => {
+    await hostSetContent(page, DIVIDER_FIRST_NOTE);
+    await reach(page);
+    await page.keyboard.type('X');
+    await settleChangeDebounce(page);
+
+    expect(await getContent(page)).toBe('---\ntitle: T\ntags: [a, b]\n---\n\nX\n\n---\n\npara\n');
+  });
+}
+
+// A text selection cannot end in the gap in front of the divider, so a Shift
+// move to the top of the body stops at its first text and leaves the divider
+// out: deleting the selection keeps it.
+for (const key of ['Control+Shift+Home', 'Shift+ArrowUp']) {
+  test(`${key} in a note whose body opens with a divider selects up to its first text`, async ({
+    page,
+  }) => {
+    await hostSetContent(page, DIVIDER_FIRST_NOTE);
+    await caretAtEndOf(page, 'para');
+    await page.keyboard.press(key);
+    await page.keyboard.press('Backspace');
+    await settleChangeDebounce(page);
+
+    expect(await getContent(page)).toBe('---\ntitle: T\ntags: [a, b]\n---\n\n---\n');
+  });
+}
 
 test('a note that opens with an unclosed --- rule keeps its lists and quotes', async ({ page }) => {
   // With no closing fence the `---` is a thematic break (docs/spec/editor.md,

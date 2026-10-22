@@ -21,6 +21,9 @@
   above already ends in an empty line (an Enter at its end), the next one joins
   onto that line, so a join never leaves an empty line inside a paragraph. →
   paragraphLines.ts `joinBackwardAsLine` / `joinForwardAsLine`
+- Delete at the start of the text of a list item or a heading removes the next character, as
+  in a paragraph. It never lifts the item out of its list or changes the heading's level. →
+  milkdown/keyboardParity.ts `keepDeleteForward`
 - Formatting typed across an Enter stays one run: bold carried over a newline
   saves as one `**…**` spanning both lines. Undo after an Enter takes back
   exactly that newline.
@@ -29,6 +32,9 @@
   a quote or a code block takes the new line inside it, and a table cell moves
   down a row (Shift+Enter there is an in-cell line break). Shift+Enter in any of
   them does what Enter does.
+- A code block inside a list item takes Enter as a new line inside it, on its last line too; it
+  never closes the fence or starts a new list item. → milkdown/keyboardParity.ts
+  `handleParityKeyDown`
 - A block shortcut typed at the start of a line — `- `, `1. `, `> `, `# `,
   ` ``` `, `---`, `|2x3| ` (a table) — starts that block from that line alone;
   the lines above stay a paragraph. A block format from the toolbar or the `/`
@@ -36,6 +42,38 @@
   becoming its own block. → paragraphLines.ts `handleLineStartShortcut` /
   `isolateSelectedLines`, paragraphLines.preset.test.ts (the shortcut list
   checked against the presets)
+- Plain text pasted into a line (a paste with no rich text) is read as
+  markdown, but the characters it puts in the line are the ones copied: a space
+  or tab at either end of the paste is kept, so `hello` + a pasted ` world`
+  saves `hello world` — at the end of a copied line, before its line ending,
+  too (`x ` + newline pasted into `ab|cd` saves `abx cd`). →
+  src/features/editor/milkdown/plainTextPaste.ts,
+  tests/editor-embed-milkdown-interactive-paragraph-lines.spec.ts
+- A tab or a run of spaces inside pasted plain text is kept as it was copied,
+  never collapsed to one space. → plainTextPaste.ts `parsePasted`
+- A block pasted as plain text into a line (`# Title`, a list, a quote, a
+  fence, a table) lands as that block. On an empty line it takes the line;
+  after text it splits the line at the caret and takes a line of its own, and
+  the text on either side stays what it was (a paragraph, or a heading:
+  `## Head` + `# Title` saves the two headings). Pasted paragraphs before or
+  after the block run on into the text at the caret, as typing them would. →
+  plainTextPaste.ts `placeBlocks`
+- A block marker pasted alone into a line (`#`, `-`, `*`, `>`, `1.`, `- [ ]`)
+  goes in as the characters copied and the line stays whole: `#` pasted into
+  `ab|cd` saves `ab#cd`, not `ab`, an empty heading and `cd`. A marker with text
+  after it is that block (`1986. A great year` pasted into `ab|cd` is an ordered
+  list starting at 1986, between `ab` and `cd`), and so is a divider (`---`).
+  One copied line that starts with a tab or four spaces is the same: its
+  whitespace is kept as copied, not read as indented code (`hello` + a pasted
+  `    world` saves `hello    world`); several such lines are a code block. →
+  plainTextPaste.ts `literalLine`,
+  tests/editor-embed-milkdown-interactive-paragraph-lines.spec.ts
+- In a list or task item, a pasted block lands inside the item, under the
+  caret's line (`- item` + `# Title` saves `- item` with the heading nested
+  under it), and a paste of nothing but a list adds its items to the list
+  beside the caret's item (`- item` + `- x`/`- y` saves three items), splitting
+  the item when the caret is mid-line. → plainTextPaste.ts `placeListItems`,
+  plainTextPaste.test.ts
 - A paragraph is one block however many lines it has: the native shells'
   long-press drag moves it whole.
 - A newline at the very end of a note is not written (trailing whitespace is

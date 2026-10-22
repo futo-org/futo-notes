@@ -12,6 +12,8 @@ import {
   SMALL_TABLE,
   paragraphLines,
   openAtEnd,
+  caretAtStartOf,
+  pastePlainText,
 } from './lib/editorEmbedMilkdownInteractive';
 
 // ============================================================
@@ -347,3 +349,151 @@ test('a block format from the toolbar lands on the caret line only', async ({ pa
   await settled(page);
   expect(await getContent(page)).toBe('one\n\n- two\n\nthree\n');
 });
+
+// ============================================================
+// Plain-text paste into a line. The pasted text is read as markdown, but the
+// characters it puts in the line are the ones that were copied.
+// ============================================================
+
+// The paste was parsed as a markdown file on its own, which trims a line's
+// ends: `base` + ` x` saved `basex`, fusing the two words.
+for (const [note, place, pasted, expected] of [
+  ['base\n', 'end', ' x', 'base x\n'],
+  ['base\n', 'start', 'x ', 'x base\n'],
+  [
+    'base\n',
+    'end',
+    ' see [[Other note]] and [[Target|alias]]',
+    'base see [[Other note]] and [[Target|alias]]\n',
+  ],
+  ['## Head\n\nbody\n', 'end', ' more', '## Head more\n\nbody\n'],
+] as const) {
+  test(`pasted plain text keeps the space at its ${place === 'end' ? 'start' : 'end'}: ${JSON.stringify(pasted)}`, async ({
+    page,
+  }) => {
+    await open(page, note);
+    const word = note.replace(/^#+ /, '').split('\n')[0];
+    if (place === 'end') await caretAtEndOf(page, word);
+    else await caretAtStartOf(page, word);
+    await pastePlainText(page, pasted);
+    await settled(page);
+    expect(await getContent(page)).toBe(expected);
+  });
+}
+
+// The parsed paste went through the DOM, whose whitespace rules collapse every
+// run of spaces and tabs to one space.
+for (const [pasted, expected] of [
+  ['a\tb', 'basea\tb\n'],
+  ['a    b', 'basea    b\n'],
+] as const) {
+  test(`pasted plain text keeps its tabs and runs of spaces: ${JSON.stringify(pasted)}`, async ({
+    page,
+  }) => {
+    await open(page, 'base\n');
+    await caretAtEndOf(page, 'base');
+    await pastePlainText(page, pasted);
+    await settled(page);
+    expect(await getContent(page)).toBe(expected);
+  });
+}
+
+// Its text was merged into the paragraph, `#` and all gone: `startTitle`, or
+// `start\nTitle` on the empty line an Enter makes.
+for (const [enter, pasted, expected] of [
+  [false, '# Title', 'start\n\n# Title\n'],
+  [true, '# Title', 'start\n\n# Title\n'],
+  [true, '# Title\n\nbody', 'start\n\n# Title\n\nbody\n'],
+] as const) {
+  test(`a markdown heading pasted ${enter ? 'on the empty line after' : 'at the end of'} a line stays a heading: ${JSON.stringify(pasted)}`, async ({
+    page,
+  }) => {
+    await openAtEnd(page, 'start');
+    if (enter) await page.keyboard.press('Enter');
+    await pastePlainText(page, pasted);
+    await settled(page);
+    expect(await getContent(page)).toBe(expected);
+  });
+}
+
+// The same block after text in a heading, a list item or a task item lost its
+// markup and fused onto the text before it: `## HeadTitle`, `- itemTitle`,
+// `- [ ] taskT`, `- itemx` + `- y`. A block in a list item lands inside that
+// item; a pasted list adds items beside it.
+for (const [note, word, pasted, expected] of [
+  ['## Head\n', 'Head', '# Title', '## Head\n\n# Title\n'],
+  ['- item\n', 'item', '# Title', '- item\n  # Title\n'],
+  ['- [ ] task\n', 'task', '# T', '- [ ] task\n  # T\n'],
+  ['- item\n', 'item', '- x\n- y', '- item\n- x\n- y\n'],
+  ['- [ ] task\n', 'task', '- [ ] b', '- [ ] task\n- [ ] b\n'],
+  ['1. one\n', 'one', '- x', '1. one\n2. x\n'],
+] as const) {
+  test(`a block pasted at the end of ${JSON.stringify(note)} keeps its markup: ${JSON.stringify(pasted)}`, async ({
+    page,
+  }) => {
+    await open(page, note);
+    await caretAtEndOf(page, word);
+    await pastePlainText(page, pasted);
+    await settled(page);
+    expect(await getContent(page)).toBe(expected);
+  });
+}
+
+// A copied line carries its line ending: the space before it was dropped with
+// it, so `x ` + newline pasted into `ab|cd` saved `abxcd`.
+test('pasted plain text keeps a space before its final newline', async ({ page }) => {
+  await open(page, 'abcd\n');
+  await caretAtEndOf(page, 'abcd');
+  await page.keyboard.press('ArrowLeft');
+  await page.keyboard.press('ArrowLeft');
+  await pastePlainText(page, 'x \n');
+  await settled(page);
+  expect(await getContent(page)).toBe('abx cd\n');
+});
+
+// A block marker on its own read as an empty block (an empty heading, list
+// item, quote or task), and the line was split around it: `#` pasted into
+// `ab|cd` saved `ab`, `#`, `cd` as three blocks, and `*` came back as `-`.
+for (const [note, word, back, pasted, expected] of [
+  ['abcd\n', 'abcd', 2, '#', 'ab#cd\n'],
+  ['abcd\n', 'abcd', 2, '-', 'ab-cd\n'],
+  ['abcd\n', 'abcd', 2, '*', 'ab*cd\n'],
+  ['abcd\n', 'abcd', 2, '>', 'ab>cd\n'],
+  ['abcd\n', 'abcd', 2, '1.', 'ab1.cd\n'],
+  ['abcd\n', 'abcd', 2, '- [ ]', 'ab- [ ]cd\n'],
+  ['abcd\n', 'abcd', 2, '# \n', 'ab# cd\n'],
+  ['## Head\n', 'Head', 2, '-', '## He-ad\n'],
+  ['- item\n', 'item', 2, '#', '- it#em\n'],
+] as const) {
+  test(`a block marker pasted alone into ${JSON.stringify(note)} goes in as its characters: ${JSON.stringify(pasted)}`, async ({
+    page,
+  }) => {
+    await open(page, note);
+    await caretAtEndOf(page, word);
+    if (back > 0) await caretBack(page, back);
+    await pastePlainText(page, pasted);
+    await settled(page);
+    expect(await getContent(page)).toBe(expected);
+  });
+}
+
+// One copied line that starts with a tab or four spaces read as indented code,
+// and the line was split around a code block: `hello` + `    world` saved
+// `hello` and a fence holding `world`.
+for (const [note, word, back, pasted, expected] of [
+  ['hello\n', 'hello', 0, '    world', 'hello    world\n'],
+  ['base\n', 'base', 0, '\tx', 'base\tx\n'],
+  ['see the code\n', 'see the code', 8, '\treturn x;', 'see \treturn x;the code\n'],
+  ['see the code\n', 'see the code', 8, '\treturn x;\n', 'see \treturn x;the code\n'],
+] as const) {
+  test(`one indented line pasted into ${JSON.stringify(note)} keeps its whitespace: ${JSON.stringify(pasted)}`, async ({
+    page,
+  }) => {
+    await open(page, note);
+    await caretAtEndOf(page, word);
+    if (back > 0) await caretBack(page, back);
+    await pastePlainText(page, pasted);
+    await settled(page);
+    expect(await getContent(page)).toBe(expected);
+  });
+}

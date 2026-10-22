@@ -97,6 +97,17 @@
   while Task changes the selected items. Converting a checked task to another
   list kind drops its checkbox state. → src/features/editor/milkdown/blockCommands.ts,
   tests/editor-embed-milkdown-toolbar.spec.ts
+- A block format never lands on the empty line parked after a note's final list
+  or quote, which a save does not write: a selection that reaches it (Select
+  all) formats only the written lines before it, so Select all → Bullet →
+  Select all → Bullet returns the note's original bytes, never a stray `-`,
+  `1.`, `#` or empty fence. This holds for every list, heading, Text, Quote and
+  Code block command, and for the desktop block shortcuts. With the caret on
+  that line alone, the command formats it. →
+  src/features/editor/milkdown/blockCommands.ts `selectionWithinWrittenContent`,
+  src/features/editor/milkdown/keyboardParity.ts,
+  tests/editor-embed-milkdown-toolbar-block-formats.spec.ts,
+  tests/editor-embed-milkdown-interactive-code-blocks.spec.ts
 - A block-format command never touches a CODE BLOCK. Its content is literal
   text, so a `>` or `#` written there would BE code rather than a prefix:
   Heading, Quote, Bullet, Ordered and Task with the caret anywhere inside a

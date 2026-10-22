@@ -127,6 +127,37 @@ test.describe('a table row wider than the header keeps every value in its column
   }
 });
 
+test.describe('a table with no body row is written with none', () => {
+  // The schema needs a body row (`table_header_row table_row+`), so a
+  // header-only table reads with a row of no cells; prosemirror-tables'
+  // fixTables fills that row with empty cells on load, and from then on it is
+  // indistinguishable from a row the author wrote: the first edit anywhere in
+  // the table saved it as `|  |  |`. The row fixTables fills is marked as the
+  // schema's filler and not written while it stays empty.
+  const HEADER_ONLY = '| a | b |\n| --- | --- |\n';
+
+  test('canary: upstream still writes the row fixTables filled in', async ({ page }) => {
+    const lines = (await roundTrip(page, 'baseline', HEADER_ONLY)).trim().split('\n');
+    expect(lines).toHaveLength(3);
+    // A body row the file never had (its empty cells in upstream's `<br />` spelling).
+    expect(lines[2]).toMatch(/^\|.*\|$/);
+  });
+
+  const CASES: Record<string, string> = {
+    'a header-only table': HEADER_ONLY,
+    'a header-only table in a blockquote': '> | a |\n> | --- |\n\nend\n',
+    'a header-only table between paragraphs': 'before\n\n| a | b |\n| --- | --- |\n\nafter\n',
+    'a table whose one body row the author wrote empty': '| a | b |\n| --- | --- |\n|  |  |\n',
+  };
+  for (const [name, markdown] of Object.entries(CASES)) {
+    test(`compat keeps ${name} byte-for-byte`, async ({ page }) => {
+      const { once, twice } = await twoSaves(page, 'compat', markdown);
+      expect(once).toBe(markdown);
+      expect(twice).toBe(once);
+    });
+  }
+});
+
 test.describe('empty-label links keep their href', () => {
   const LINK = '## h\n\n[](api-plan.md)\n';
 

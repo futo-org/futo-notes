@@ -7,14 +7,14 @@
  * `@milkdown/plugin-clipboard`'s plain-text route parses the text to a
  * document, round-trips it through the DOM and hands the slice to
  * `replaceSelection`; a slice that starts with a block lands after the empty
- * paragraph it was pasted into. `plainTextBlockPaste.ts` replaces the paragraph.
+ * paragraph it was pasted into. `plainTextPaste.ts` replaces the paragraph.
  *
  * The paste goes through ProseMirror's own `handlePaste` chain — every plugin's
  * prop, in registration order — exactly as the browser's paste event does.
  */
 import { describe, expect, it, vi } from 'vitest';
 import { mount } from 'svelte';
-import { TextSelection } from '@milkdown/kit/prose/state';
+import { TextSelection, Transaction } from '@milkdown/kit/prose/state';
 import * as prosemirrorView from '@milkdown/kit/prose/view';
 import type { EditorView } from '@milkdown/kit/prose/view';
 import { splitListItem } from '@milkdown/kit/prose/schema-list';
@@ -252,5 +252,164 @@ describe('multi-line plain text pasted into a table cell keeps the neighboring c
     const md = await pasteIntoEmptyCell('- a\n- b');
     expect(md).toContain('y');
     expect(md).toMatch(/a[^|]*b/);
+  });
+});
+
+/*
+ * A pasted block after text on a line merged its text into the paragraph and
+ * lost its markup (`start` + `# Title` saved `startTitle`). The paragraph is
+ * split at the caret instead; pasted text still runs on into its neighbors.
+ */
+describe('pasting blocks into a line that has text', () => {
+  /** Opens `note` with the caret `offset` characters into its first paragraph. */
+  async function caretIn(note: string, offset: number): Promise<[EditorHandle, EditorView]> {
+    const handle = await mountEditor('');
+    handle.openNote('test-note', note);
+    const view = handle.getProseMirrorView()!;
+    view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, 1 + offset)));
+    return [handle, view];
+  }
+
+  it('a heading pasted mid-line splits the line around it, the caret after it', async () => {
+    const [handle, view] = await caretIn('start\n', 3);
+
+    expect(pastePlain(view, '# Title')).toBe(true);
+    view.dispatch(view.state.tr.insertText('!'));
+
+    expect(handle.getContent()).toBe('sta\n\n# Title!\n\nrt\n');
+  });
+
+  it('pasted paragraphs around a heading run on into the text either side', async () => {
+    const [handle, view] = await caretIn('abcd\n', 2);
+
+    expect(pastePlain(view, 'one\n\n# Two\n\nthree')).toBe(true);
+    view.dispatch(view.state.tr.insertText('!'));
+
+    expect(handle.getContent()).toBe('abone\n\n# Two\n\nthree!cd\n');
+  });
+
+  // Where a pasted line stops being characters (plainTextPaste.ts `literalLine`):
+  // a marker with text after it, several indented lines and a divider are blocks.
+  it('a numbered line with text is an ordered list, split out of the line', async () => {
+    const [handle, view] = await caretIn('abcd\n', 2);
+
+    expect(pastePlain(view, '1986. A great year')).toBe(true);
+
+    expect(handle.getContent()).toBe('ab\n\n1986. A great year\n\ncd\n');
+  });
+
+  it('several indented lines are a code block', async () => {
+    const [handle, view] = await caretIn('base\n', 4);
+
+    expect(pastePlain(view, '    a\n    b')).toBe(true);
+
+    expect(handle.getContent()).toBe('base\n\n```\na\nb\n```\n');
+  });
+
+  it('a divider is a block, split out of the line', async () => {
+    const [, view] = await caretIn('abcd\n', 2);
+
+    expect(pastePlain(view, '---')).toBe(true);
+
+    // dividerCaret.ts then leaves the caret in an empty paragraph under it.
+    expect(blockTypes(view).slice(0, 2)).toEqual(['paragraph', 'hr']);
+    expect(view.state.doc.textContent).toBe('abcd');
+  });
+
+  it('a block marker alone, with a selection, replaces it with the characters', async () => {
+    const [handle, view] = await caretIn('abcd\n', 1);
+    view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, 2, 4)));
+
+    expect(pastePlain(view, '>')).toBe(true);
+    view.dispatch(view.state.tr.insertText('!'));
+
+    expect(handle.getContent()).toBe('a>!d\n');
+  });
+
+  it('a list pasted at the start of a second line keeps the first line a paragraph', async () => {
+    const [handle, view] = await caretIn('one\ntwo\n', 4);
+    expect(view.state.selection.$from.nodeBefore?.type.name).toBe('hardbreak');
+
+    expect(pastePlain(view, '- x\n- y')).toBe(true);
+
+    expect(handle.getContent()).toBe('one\n\n- x\n- y\n\ntwo\n');
+  });
+});
+
+describe('pasting blocks mid-line in a heading or a list item', () => {
+  async function caretAfter(note: string, text: string): Promise<[EditorHandle, EditorView]> {
+    const handle = await mountEditor('');
+    handle.openNote('test-note', note);
+    const view = handle.getProseMirrorView()!;
+    let at = -1;
+    view.state.doc.descendants((node, pos) => {
+      if (at === -1 && node.isText && node.text!.includes(text)) {
+        at = pos + node.text!.indexOf(text) + text.length;
+      }
+      return at === -1;
+    });
+    expect(at).toBeGreaterThan(0);
+    view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, at)));
+    return [handle, view];
+  }
+
+  it('a heading pasted mid-heading splits the heading around it', async () => {
+    const [handle, view] = await caretAfter('## Head\n', 'He');
+
+    expect(pastePlain(view, '# Title')).toBe(true);
+    view.dispatch(view.state.tr.insertText('!'));
+
+    expect(handle.getContent()).toBe('## He\n\n# Title!\n\n## ad\n');
+  });
+
+  it('a list pasted mid-item splits the item, the pasted items between its halves', async () => {
+    const [handle, view] = await caretAfter('- item\n- next\n', 'it');
+
+    expect(pastePlain(view, '- x\n- y')).toBe(true);
+    view.dispatch(view.state.tr.insertText('!'));
+
+    expect(handle.getContent()).toBe('- it\n- x\n- y!\n- em\n- next\n');
+  });
+
+  it('a list pasted at the end of an item with a sublist hands the sublist to the last pasted item', async () => {
+    const [handle, view] = await caretAfter('- item\n  - sub\n', 'item');
+
+    expect(pastePlain(view, '- x')).toBe(true);
+    view.dispatch(view.state.tr.insertText('!'));
+
+    expect(handle.getContent()).toBe('- item\n- x!\n  - sub\n');
+  });
+
+  it('a heading pasted at the start of a list item lands in the item ahead of its text', async () => {
+    const [handle, view] = await caretAfter('- item\n', '');
+
+    expect(pastePlain(view, '# T')).toBe(true);
+
+    const md = handle.getContent()!;
+    expect(md).toContain('# T');
+    expect(md).toContain('item');
+    expect(md).not.toMatch(/Titem|Item/);
+  });
+});
+
+describe('a paste whose transaction throws', () => {
+  it('falls through to the default paste instead of throwing out of the handler', async () => {
+    const handle = await mountEditor('');
+    handle.openNote('test-note', 'base');
+    const view = handle.getProseMirrorView()!;
+    view.dispatch(
+      view.state.tr.setSelection(
+        TextSelection.create(view.state.doc, view.state.doc.content.size - 1),
+      ),
+    );
+    const spy = vi.spyOn(Transaction.prototype, 'replaceSelection').mockImplementation(() => {
+      throw new RangeError('boom');
+    });
+    try {
+      expect(() => pastePlain(view, '**bold**')).not.toThrow();
+    } finally {
+      spy.mockRestore();
+    }
+    expect(view.state.doc.textContent).toBe('base');
   });
 });

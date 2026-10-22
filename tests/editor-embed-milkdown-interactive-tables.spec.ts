@@ -2,8 +2,17 @@
 // editor-embed-milkdown-interactive.spec.ts.
 
 import { expect, type Page } from '@playwright/test';
-import { flushFrames, getContent, withCaretObserved } from './lib/editorEmbedHost';
-import { test, open, caretAtEndOf, settled, tableRows } from './lib/editorEmbedMilkdownInteractive';
+import { getContent, withCaretObserved } from './lib/editorEmbedHost';
+import {
+  test,
+  open,
+  caretAtEndOf,
+  caretAtStartOf,
+  settled,
+  tableRows,
+  pastePlainText,
+  pasteClipboardData,
+} from './lib/editorEmbedMilkdownInteractive';
 
 // ============================================================
 // Tables — in-place editing keys (spec: "Table cells are individually
@@ -153,27 +162,54 @@ test('Tab at the very last cell appends a row instead of dropping focus', async 
   ]);
 });
 
+// A table with no body row: the schema needs one (`table_header_row
+// table_row+`), so the editor shows an empty row under the header. That row
+// is not the note's — it used to be written as `|  |  |` by the first edit
+// anywhere in the table, Mod+Enter out of it included.
+const HEADER_ONLY = '| a | b |\n| - | - |\n\nafter\n';
+
+test('an edit to a header-only table writes no body row', async ({ page }) => {
+  await open(page, HEADER_ONLY);
+  await caretAtEndOf(page, 'b');
+  await page.keyboard.type('X');
+  await settled(page);
+  expect(await getContent(page)).toBe('| a | bX |\n| --- | --- |\n\nafter\n');
+});
+
+test('Mod+Enter out of a header-only table writes no body row', async ({ page }) => {
+  await open(page, HEADER_ONLY);
+  await caretAtEndOf(page, 'b');
+  await page.keyboard.press('ControlOrMeta+Enter');
+  await page.keyboard.type('new line');
+  await settled(page);
+  expect(await getContent(page)).toBe('| a | b |\n| --- | --- |\n\nnew line\n\nafter\n');
+});
+
+test('Enter in a header-only table moves into the empty row, which typing writes', async ({
+  page,
+}) => {
+  await open(page, HEADER_ONLY);
+  await caretAtEndOf(page, 'b');
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('X');
+  await settled(page);
+  expect(await getContent(page)).toBe('| a | b |\n| --- | --- |\n|  | X |\n\nafter\n');
+});
+
+test('a body row the author wrote empty is still written after an edit', async ({ page }) => {
+  await open(page, '| a | b |\n| - | - |\n|  |  |\n');
+  await caretAtEndOf(page, 'b');
+  await page.keyboard.type('X');
+  await settled(page);
+  expect(await getContent(page)).toBe('| a | bX |\n| --- | --- |\n|  |  |\n');
+});
+
 /**
- * A paste carrying an HTML `<table>` (a spreadsheet or web-table copy) while
- * the caret sits in a table cell. Nothing in Playwright or CDP can put HTML on
- * the OS clipboard, so this is a dispatched `ClipboardEvent` with a real
- * `DataTransfer` — it still goes through ProseMirror's own paste handling.
+ * A paste carrying `text/html` and its `text/plain` twin, as a spreadsheet or
+ * web-table copy does (see `pasteClipboardData`).
  */
-async function pasteHtml(page: Page, html: string, text: string): Promise<void> {
-  await page.evaluate(
-    ([h, t]) => {
-      const transfer = new DataTransfer();
-      transfer.setData('text/html', h);
-      transfer.setData('text/plain', t);
-      document
-        .querySelector('.ProseMirror')!
-        .dispatchEvent(
-          new ClipboardEvent('paste', { clipboardData: transfer, bubbles: true, cancelable: true }),
-        );
-    },
-    [html, text],
-  );
-  await flushFrames(page);
+function pasteHtml(page: Page, html: string, text: string): Promise<void> {
+  return pasteClipboardData(page, { 'text/html': html, 'text/plain': text });
 }
 
 test('pasting an HTML table into a table cell throws nothing and pastes the cells', async ({
@@ -198,7 +234,7 @@ test('pasting an HTML table into a table cell throws nothing and pastes the cell
 /*
  * Plain-text pastes into a table cell and a list item (R10-FB13-1/-2, RC-81).
  * `text/html` is left empty, so ProseMirror takes its plain-text route — the one
- * `plainTextBlockPaste.ts` touches — and only the clipboard event is synthetic.
+ * `plainTextPaste.ts` touches — and only the clipboard event is synthetic.
  */
 test('multi-line plain text pasted into a cell stays in that cell and spares the next (RC-81)', async ({
   page,
@@ -210,6 +246,57 @@ test('multi-line plain text pasted into a cell stays in that cell and spares the
   expect(tableRows(await getContent(page))).toEqual([
     ['a', 'b'],
     ['r1aP Q', 'r1b'],
+    ['r2a', 'r2b'],
+  ]);
+});
+
+test('plain text pasted into a cell keeps a space at its start', async ({ page }) => {
+  // The cell route trimmed every edge whitespace, not only the newlines it
+  // joins: `r1a` + ` world` saved `r1aworld`.
+  await open(page, TABLE);
+  await caretAtEndOf(page, 'r1a');
+  await pastePlainText(page, ' world');
+  await settled(page);
+  expect(tableRows(await getContent(page))).toEqual([
+    ['a', 'b'],
+    ['r1a world', 'r1b'],
+    ['r2a', 'r2b'],
+  ]);
+});
+
+// A cell holds one line of text, so a paste that reads as a block is put in as
+// the characters copied. It was parsed as that block and only its text merged
+// in: `r1a` + ` # h` saved `r1ah`, the space and the `#` gone.
+for (const [pasted, expected] of [
+  [' # h', 'r1a # h'],
+  [' - a', 'r1a - a'],
+  [' > q', 'r1a > q'],
+  [' 1. a', 'r1a 1. a'],
+  ['# h', 'r1a# h'],
+] as const) {
+  test(`a block pasted as plain text into a cell keeps its characters: ${JSON.stringify(pasted)}`, async ({
+    page,
+  }) => {
+    await open(page, TABLE);
+    await caretAtEndOf(page, 'r1a');
+    await pastePlainText(page, pasted);
+    await settled(page);
+    expect(tableRows(await getContent(page))).toEqual([
+      ['a', 'b'],
+      [expected, 'r1b'],
+      ['r2a', 'r2b'],
+    ]);
+  });
+}
+
+test('plain text pasted into a cell keeps a space before its final newline', async ({ page }) => {
+  await open(page, TABLE);
+  await caretAtStartOf(page, 'r1a');
+  await pastePlainText(page, 'x \n');
+  await settled(page);
+  expect(tableRows(await getContent(page))).toEqual([
+    ['a', 'b'],
+    ['x r1a', 'r1b'],
     ['r2a', 'r2b'],
   ]);
 });
@@ -261,6 +348,26 @@ test('a pasted HTML table still overwrites cell by cell, spreadsheet-style', asy
   ]);
 });
 
+// A header-only table's empty filler row is not the clipboard's: the editor's
+// own copy of one, pasted into a cell, used to blank out the row under the one
+// its header lands on.
+test('a header-only table copied out of the editor overwrites one row only', async ({ page }) => {
+  await open(page, TABLE);
+  await caretAtEndOf(page, 'r1a');
+  await pasteHtml(
+    page,
+    '<table><tbody><tr data-is-header="true"><th><p>X</p></th><th><p>Y</p></th></tr>' +
+      '<tr data-filler=""><td><p></p></td><td><p></p></td></tr></tbody></table>',
+    '| X | Y |\n| --- | --- |',
+  );
+  await settled(page);
+  expect(tableRows(await getContent(page))).toEqual([
+    ['a', 'b'],
+    ['X', 'Y'],
+    ['r2a', 'r2b'],
+  ]);
+});
+
 test('a lone heading pasted into an empty table cell does not split the table', async ({
   page,
 }) => {
@@ -270,9 +377,11 @@ test('a lone heading pasted into an empty table cell does not split the table', 
   await settled(page);
   const content = await getContent(page);
   expect(content.match(/^\|\s*a\s*\|/gm)).toHaveLength(1);
+  // A cell cannot hold a heading, so the characters copied go in as text (the
+  // `#` was dropped until a block-shaped paste into a cell went in literally).
   expect(tableRows(content)).toEqual([
     ['a', 'b'],
-    ['x', 'y'],
+    ['# x', 'y'],
   ]);
 });
 
@@ -287,6 +396,24 @@ test('a list pasted into an empty list item becomes siblings, not a nested list'
   const content = await getContent(page);
   expect(content).not.toMatch(/-\s+-\s/);
   expect(content.match(/^\s*[-*+]\s/gm)).toHaveLength(4);
+});
+
+test('a header-only table copied out of the editor pastes back with no body row', async ({
+  page,
+}) => {
+  // The HTML the editor's own copy writes for a header-only table: its filler
+  // row is marked in the DOM, so the paste keeps it unwritten.
+  await open(page, 'start');
+  await caretAtEndOf(page, 'start');
+  await page.keyboard.press('Enter');
+  await pasteHtml(
+    page,
+    '<table><tbody><tr data-is-header="true"><th><p>a</p></th><th><p>b</p></th></tr>' +
+      '<tr data-filler=""><td><p></p></td><td><p></p></td></tr></tbody></table>',
+    '| a | b |\n| --- | --- |',
+  );
+  await settled(page);
+  expect(await getContent(page)).toBe('start\n\n| a | b |\n| --- | --- |\n');
 });
 
 test('pasting an HTML table into the header row, and a <th> table into a body row, both land', async ({
@@ -313,4 +440,27 @@ test('pasting an HTML table into the header row, and a <th> table into a body ro
     ['H1', 'H2'],
     ['v1', ''],
   ]);
+});
+
+// A shifted chord never runs its unshifted twin. Ctrl+Shift+B (Quote) cannot
+// wrap a table cell, and when its key arrived as lowercase "b" (Caps Lock on —
+// Playwright's `ControlOrMeta+Shift+b` sends that event) prosemirror-keymap
+// retried it without Shift: Ctrl+B, and the next typed text came out bold.
+test('Ctrl+Shift+b with a lowercase key in a table cell does not turn on bold', async ({
+  page,
+}) => {
+  await open(page, TABLE);
+  await caretAtEndOf(page, 'r1a');
+  await page.keyboard.press('ControlOrMeta+Shift+b');
+  await page.keyboard.type('X');
+  await settled(page);
+  expect(tableRows(await getContent(page))[1]).toEqual(['r1aX', 'r1b']);
+});
+
+test('Ctrl+Shift+b with a lowercase key still quotes a paragraph', async ({ page }) => {
+  await open(page, 'para');
+  await caretAtEndOf(page, 'para');
+  await page.keyboard.press('ControlOrMeta+Shift+b');
+  await settled(page);
+  expect(await getContent(page)).toBe('> para\n');
 });

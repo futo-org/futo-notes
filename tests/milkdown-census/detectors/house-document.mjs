@@ -20,6 +20,8 @@
  *     alignment, read from the header cell, which keeps it.
  *   - a link's `title` of `""` reads the same as none; an image's missing
  *     title is the schema's `''`.
+ *   - `table_row.filler`: the editor marks the row it fills in under a
+ *     header-only table; no parse sets it.
  * Normalizations the house style makes on purpose:
  *   - whitespace at the start of a line — a paragraph's, heading's or cell's
  *     first, and in a paragraph each one after a line break — is dropped,
@@ -57,7 +59,11 @@
  *     a paragraph that is one HTML block;
  *   - a list item whose blocks still need a blank line between them — two
  *     paragraphs in a row that were not joined, or an empty paragraph between
- *     two blocks — is loose: no tight spelling keeps them apart.
+ *     two blocks — is loose: no tight spelling keeps them apart;
+ *   - a table body row with no cells (the schema's filler for a header-only
+ *     table) and a `filler` row whose cells are all empty (that row once the
+ *     editor filled it in) are dropped: a table with no body row is written
+ *     with none.
  * Text runs whose marks then agree are merged, and an emptied paragraph is an
  * empty paragraph.
  */
@@ -66,6 +72,7 @@ const SPELLING_ATTRS = {
   list_item: ['label', 'listType'],
   table_header: ['colwidth'],
   table_cell: ['colwidth', 'alignment'],
+  table_row: ['filler'],
 };
 const CONTAINERS = new Set(['blockquote', 'list_item', 'footnote_definition']);
 const lf = (value) => value.replace(/\r\n?/g, '\n');
@@ -224,6 +231,20 @@ function splitParagraph(content, afterCheckbox = false) {
   return out.length > 0 ? out : [[]];
 }
 
+/**
+ * Whether a table body row is one no file holds: no cells, or the editor's
+ * `filler` row with every cell empty. `row` is house-normalized (a cell's lone
+ * line break is already gone); the mark is read off `source`, the row as the
+ * document held it, since `houseNode` drops it from `row`.
+ */
+function unwrittenRow(row, source) {
+  if (row.type !== 'table_row') return false;
+  const cells = row.content ?? [];
+  if (cells.length === 0) return true;
+  if (source?.attrs?.filler !== true) return false;
+  return cells.every((cell) => (cell.content ?? []).every(isEmptyParagraph));
+}
+
 /** `node` house-normalized: one node, or several for a paragraph split at its empty lines. */
 function houseBlocks(node, inCell = false, afterCheckbox = false) {
   if (node.type !== 'paragraph' || inCell || !node.content) return [houseNode(node, inCell)];
@@ -280,6 +301,9 @@ function houseNode(node, inCell = false, inlineDone = false) {
     content = filler ? [content[0], ...kept] : kept;
   }
   if (tightItem && out.attrs && needsBlankLine(content)) out.attrs.spread = true;
+  // One normalized row per row of the table, so `node.content[i]` is row i's source.
+  if (node.type === 'table')
+    content = content.filter((row, i) => !unwrittenRow(row, node.content[i]));
   if (node.type === 'doc') {
     while (content.length > 0 && isEmptyParagraph(content[content.length - 1])) content.pop();
   }

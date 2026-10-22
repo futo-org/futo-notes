@@ -17,7 +17,8 @@
  * step maps (touchedRange.ts) and the selection, both O(edit) rather than
  * O(document). When it says yes, the original code runs unchanged: the
  * alignment body below is Milkdown's verbatim over the touched range, and
- * `tableEditing`'s own appendTransaction is called as is.
+ * `tableEditing`'s own appendTransaction is called as is (its repair then has
+ * the rows it filled from nothing marked, `./tableFillerRow`).
  */
 import { $prose } from '@milkdown/kit/utils';
 import type { Node as ProseNode } from '@milkdown/kit/prose/model';
@@ -29,6 +30,7 @@ import {
   type Transaction,
 } from '@milkdown/kit/prose/state';
 import { CellSelection, tableEditing } from '@milkdown/kit/prose/tables';
+import { markRowsFilledFromNothing } from './tableFillerRow';
 import { nodesInTouchedRange, touchedTopLevelRange } from './touchedRange';
 
 function isTable(node: ProseNode): boolean {
@@ -74,17 +76,21 @@ export function transactionsTouchTable(
 /**
  * prosemirror-tables' `tableEditing`, with its per-transaction pass skipped
  * when no table is involved. Same plugin key, state, props and behavior
- * otherwise, so Milkdown's table commands and Crepe's table block keep working.
+ * otherwise, so Milkdown's table commands and Crepe's table block keep working
+ * — except that a row its `fixTables` fills from nothing is marked as the
+ * schema's filler (`./tableFillerRow`), which the serializer does not write
+ * while it is empty.
  */
 export function scopedTableEditing(options: { allowTableNodeSelection?: boolean } = {}): Plugin {
   const base = tableEditing(options);
   const append = base.spec.appendTransaction;
   return new Plugin({
     ...base.spec,
-    appendTransaction: (transactions, oldState, newState) =>
-      append && transactionsTouchTable(transactions, newState)
-        ? append.call(base, transactions, oldState, newState)
-        : undefined,
+    appendTransaction: (transactions, oldState, newState) => {
+      if (!append || !transactionsTouchTable(transactions, newState)) return undefined;
+      const tr = append.call(base, transactions, oldState, newState);
+      return tr ? markRowsFilledFromNothing(tr) : tr;
+    },
   });
 }
 

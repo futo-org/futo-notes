@@ -12,7 +12,8 @@ const schema = new Schema({
     paragraph: { content: 'inline*', group: 'block' },
     text: { group: 'inline' },
     table: pm.table,
-    table_row: pm.table_row,
+    // The app's `table_row` carries the filler mark (./tableFillerRow.ts).
+    table_row: { ...pm.table_row, attrs: { filler: { default: false } } },
     table_cell: pm.table_cell,
     table_header: pm.table_header,
   },
@@ -116,6 +117,27 @@ describe('scopedTableEditing', () => {
     const tablePos = ragged.child(0).nodeSize;
     const next = state.apply(state.tr.insertText('x', tablePos + 4));
     expect(next.doc.child(1).child(1).childCount).toBe(2);
+  });
+
+  it('marks a row it fills from nothing as the filler, and no other row', () => {
+    // A header-only table reads with a body row of no cells (the schema needs
+    // one); fixTables fills it with empty cells, which a save must not write.
+    const headerOnly = doc(p('before'), table(row('a', 'b'), schema.node('table_row')));
+    const state = withPlugin(headerOnly);
+    const tablePos = headerOnly.child(0).nodeSize;
+    const next = state.apply(state.tr.insertText('x', tablePos + 4));
+    const [header, filler] = [next.doc.child(1).child(0), next.doc.child(1).child(1)];
+    expect(filler.childCount).toBe(2);
+    expect(filler.attrs.filler).toBe(true);
+    expect(header.attrs.filler).toBe(false);
+  });
+
+  it('does not mark a short row it pads', () => {
+    const ragged = doc(p('before'), table(row('a', 'b'), row('c')), p('after'));
+    const state = withPlugin(ragged);
+    const tablePos = ragged.child(0).nodeSize;
+    const next = state.apply(state.tr.insertText('x', tablePos + 4));
+    expect(next.doc.child(1).child(1).attrs.filler).toBe(false);
   });
 
   it('leaves the document alone for an edit that touches no table', () => {

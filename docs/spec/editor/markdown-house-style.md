@@ -157,6 +157,10 @@ hand-reviewed goldens, one or more per line below)
 - Every cell has one space either side of its content and the columns are not
   padded to a common width: `| a | b |`.
 - An edit to one cell never re-spells another row.
+- A table with no body row is written with none. The editor shows one empty
+  row under its header (a table needs one) and writes it only once a cell in
+  it holds something; a body row the author wrote, empty or not, is always
+  written. → packages/editor/src/milkdown-compat/tableFillerRow.ts
 - The delimiter row is `---` for a column with no alignment, `:--` left, `:-:`
   center, `--:` right. A column the author never aligned stays unaligned.
 - A `|` inside a cell is written `\|`, in code, wikilinks, and link and image

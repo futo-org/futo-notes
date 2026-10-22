@@ -59,6 +59,11 @@
  * `./tableAlignment` keeps a cell's missing alignment through a paste; and
  * `./listItemSpread` makes an item the editor creates tight.
  *
+ * `./inputRules` forks the presets' typed-markdown input rules where they read
+ * a keystroke differently from how the parser reads the saved line: a fence
+ * language with a capital or a `+`, seven `#`, emphasis padded with spaces, an
+ * escaped opener.
+ *
  * `./frontmatter` is the one member that is an ADDITION rather than a fork: the
  * preset has no front matter construct at all, so `---\ntags: [a, b]\n---`
  * parsed as a thematic break plus a setext heading and the first edit anywhere
@@ -76,13 +81,24 @@
  */
 import {
   commonmark,
+  createCodeBlockInputRule as upstreamCodeBlockInputRule,
+  emphasisStarInputRule as upstreamEmphasisStarInputRule,
+  emphasisUnderscoreInputRule as upstreamEmphasisUnderscoreInputRule,
+  inlineCodeInputRule as upstreamInlineCodeInputRule,
   inlineNodesCursorPlugin as upstreamInlineNodesCursorPlugin,
   remarkInlineLinkPlugin,
   remarkPreserveEmptyLinePlugin,
+  strongInputRule as upstreamStrongInputRule,
   syncHeadingIdPlugin,
   syncListOrderPlugin,
+  wrapInHeadingInputRule as upstreamHeadingInputRule,
 } from '@milkdown/kit/preset/commonmark';
-import { gfm, keepTableAlignPlugin, tableEditingPlugin } from '@milkdown/kit/preset/gfm';
+import {
+  gfm,
+  keepTableAlignPlugin,
+  strikethroughInputRule as upstreamStrikethroughInputRule,
+  tableEditingPlugin,
+} from '@milkdown/kit/preset/gfm';
 import type { MilkdownPlugin } from '@milkdown/kit/ctx';
 
 import { remarkExpandEmptyLinksPlugin } from './emptyLink';
@@ -90,20 +106,32 @@ import { remarkInlineHtmlIndentPlugin } from './inlineHtmlIndent';
 import { remarkEmptyTaskItemPlugin } from './emptyTaskItem';
 import { remarkImageTitlePlugin } from './imageTitle';
 import { inlineNodesCursorPlugin } from './inlineNodesCursor';
+import {
+  createCodeBlockInputRule,
+  emphasisStarInputRule,
+  emphasisUnderscoreInputRule,
+  inlineCodeInputRule,
+  strikethroughInputRule,
+  strongInputRule,
+  wrapInHeadingInputRule,
+} from './inputRules';
 import { remarkInlineUsedLinkDefinitionsPlugin } from './linkDefinitions';
 import { remarkBlankLineParagraphsPlugin } from './emptyLine';
 import { frontmatterPlugins } from './frontmatter';
+import { frontmatterCaretPlugins } from './frontmatterCaret';
 import { scopedListOrderPlugin } from './listOrder';
 import { tightListItemSchema } from './listItemSpread';
 import { ownedSerializerPlugin } from './ownedSerializer';
 import { scopedKeepTableAlignPlugin, scopedTableEditingPlugin } from './tablePasses';
 import { tableAlignmentSchemas } from './tableAlignment';
+import { tableFillerRowSchema } from './tableFillerRow';
 import { remarkPadTableRowsPlugin } from './tableWidth';
 
 export { FRONTMATTER_NODE } from './frontmatter';
 export type { MdastNode } from './mdast';
 export { editorMarkdownSerializer } from './ownedSerializer';
-export { endsInUnwrittenBlank } from './trailingParagraph';
+export { isUnwrittenFillerRow } from './tableFillerRow';
+export { endsInUnwrittenBlank, writtenContentEnd } from './trailingParagraph';
 
 /** The two entries `remarkPreserveEmptyLinePlugin` contributes to the preset. */
 const UPSTREAM_EMPTY_LINE_ENTRIES: readonly unknown[] = [
@@ -172,16 +200,34 @@ function replacePresetEntry(
   upstream: MilkdownPlugin,
   replacement: MilkdownPlugin,
   what: string,
+  preset = '@milkdown/preset-commonmark',
 ): MilkdownPlugin[] {
   const at = plugins.indexOf(upstream);
   if (at < 0) {
     throw new Error(
       `milkdown-compat: expected to replace the upstream ${what} entry in the preset, ` +
-        `found none. Re-check @milkdown/preset-commonmark's composition against this module.`,
+        `found none. Re-check ${preset}'s composition against this module.`,
     );
   }
   return plugins.map((plugin, index) => (index === at ? replacement : plugin));
 }
+
+/**
+ * The preset's input rules that read typed markdown differently from the
+ * parser that reads the note back, each swapped for its fork in `./inputRules`.
+ */
+const FORKED_INPUT_RULES: readonly (readonly [MilkdownPlugin, MilkdownPlugin, string])[] = [
+  [upstreamEmphasisStarInputRule, emphasisStarInputRule, 'emphasis-star input rule'],
+  [
+    upstreamEmphasisUnderscoreInputRule,
+    emphasisUnderscoreInputRule,
+    'emphasis-underscore input rule',
+  ],
+  [upstreamStrongInputRule, strongInputRule, 'strong input rule'],
+  [upstreamInlineCodeInputRule, inlineCodeInputRule, 'inline-code input rule'],
+  [upstreamCodeBlockInputRule, createCodeBlockInputRule, 'code-block input rule'],
+  [upstreamHeadingInputRule, wrapInHeadingInputRule, 'heading input rule'],
+];
 
 /** The upstream preset minus every plugin this module forks or drops. */
 function upstreamPresetWithoutForkedPlugins(): MilkdownPlugin[] {
@@ -205,11 +251,15 @@ function upstreamPresetWithoutForkedPlugins(): MilkdownPlugin[] {
     UPSTREAM_LIST_ORDER_ENTRIES,
     'list-order',
   );
-  return replacePresetEntry(
+  const withInlineCursor = replacePresetEntry(
     withoutListOrder,
     upstreamInlineNodesCursorPlugin,
     inlineNodesCursorPlugin,
     'inline-cursor',
+  );
+  return FORKED_INPUT_RULES.reduce(
+    (plugins, [upstream, fork, what]) => replacePresetEntry(plugins, upstream, fork, what),
+    withInlineCursor,
   );
 }
 
@@ -225,10 +275,16 @@ let cachedGfm: MilkdownPlugin[] | null = null;
  */
 export function gfmWithCompat(): MilkdownPlugin[] {
   cachedGfm ??= [
-    ...withoutPresetEntries(
-      gfm as MilkdownPlugin[],
-      UPSTREAM_TABLE_PASS_ENTRIES,
-      'table-pass',
+    ...replacePresetEntry(
+      withoutPresetEntries(
+        gfm as MilkdownPlugin[],
+        UPSTREAM_TABLE_PASS_ENTRIES,
+        'table-pass',
+        '@milkdown/preset-gfm',
+      ),
+      upstreamStrikethroughInputRule,
+      strikethroughInputRule,
+      'strikethrough input rule',
       '@milkdown/preset-gfm',
     ),
     scopedKeepTableAlignPlugin,
@@ -239,6 +295,9 @@ export function gfmWithCompat(): MilkdownPlugin[] {
     /* After the preset, whose cell nodes they re-register: a cell with no
      * alignment keeps none through a paste (see `./tableAlignment`). */
     ...tableAlignmentSchemas,
+    /* After the preset, whose `table_row` it re-registers: the empty row a
+     * header-only table needs is not written (see `./tableFillerRow`). */
+    tableFillerRowSchema,
     /* After the preset, whose task-list support extends `list_item`: an item the
      * editor makes is tight, like one read from a tight file (see `./listItemSpread`). */
     tightListItemSchema,
@@ -282,6 +341,7 @@ export function commonmarkWithCompat(): MilkdownPlugin[] {
      * by upsert — so it must be registered after the preset, and it reads the
      * registered entry back to inherit everything but the content expression. */
     ...frontmatterPlugins,
+    ...frontmatterCaretPlugins,
     /* Every byte the editor writes (`./ownedSerializer`). */
     ownedSerializerPlugin,
   ];

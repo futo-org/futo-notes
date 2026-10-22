@@ -196,6 +196,97 @@ test('a typed link is exactly what reopening the note would link', async ({ page
   );
 });
 
+/** Reopens `markdown` for real: through another note first, because a same-bytes
+ * `initialize` is skipped and would leave the typed document on screen. */
+async function reopenSaved(page: Page, markdown: string): Promise<void> {
+  await open(page, '-');
+  await open(page, markdown);
+}
+
+for (const [typed, expected] of [
+  ['[t](https://x.test) ok', [['https://x.test', 'https://x.test']]],
+  ['see [t](https://x.test) ok', [['https://x.test', 'https://x.test']]],
+  ['[t](www.x.test) ok', [['www.x.test', 'http://www.x.test']]],
+  ['[t](https://x.test)\nok', [['https://x.test', 'https://x.test']]],
+  // A literal after `[` carries no source position in remark-gfm's parse.
+  ['[https://x.test] ok', [['https://x.test', 'https://x.test']]],
+  [
+    '[https://x.test](https://x.test) ok',
+    [
+      ['https://x.test', 'https://x.test'],
+      ['https://x.test', 'https://x.test'],
+    ],
+  ],
+] as const) {
+  test(`typed link syntax "${typed}" links what reopening the note links`, async ({ page }) => {
+    // Only a GFM autolink literal is a bare URL. `[t](https://x.test)` parses
+    // as an INLINE link, and taking that as "the link reopening would give"
+    // marked the whole typed source as link text: the note saved a link quoting
+    // itself, `[\\[t\\](https://x.test)](https://x.test)`. Typed link syntax is
+    // text, saved escaped; the URL inside it is still a bare URL to the file,
+    // so it links now exactly as the next open links it.
+    const [line, rest] = typed.split('\n');
+    await typeIntoEmptyNote(page, line ?? '');
+    if (rest !== undefined) {
+      await page.keyboard.press('Enter');
+      await page.keyboard.type(rest);
+    }
+    expect(await links(page), typed).toEqual(expected);
+    await page.waitForTimeout(CHANGE_DEBOUNCE_MS + 120);
+    const saved = await getContent(page);
+    await reopenSaved(page, saved);
+    expect(await links(page), saved).toEqual(expected);
+    expect(await page.locator('.ProseMirror').innerText(), saved).toBe(typed);
+  });
+}
+
+for (const typed of ['<https://x.test> ok', 'see <https://x.test> ok']) {
+  test(`typed "${typed}" links the URL inside the brackets, and reopens the same`, async ({
+    page,
+  }) => {
+    // `<u>` is link syntax too: typed, it stays text, and the URL inside it is
+    // the link. Read as plain text, GFM would take the `>` into the literal
+    // (`https://x.test>`), a broken href; linking the parse of the typed word
+    // instead keeps the href the user typed, and the save spells the link so
+    // the next open reads that same link back.
+    await typeIntoEmptyNote(page, typed);
+    expect(await links(page), typed).toEqual([['https://x.test', 'https://x.test']]);
+    await page.waitForTimeout(CHANGE_DEBOUNCE_MS + 120);
+    const saved = await getContent(page);
+    expect(saved).toBe(`${typed.replace('<https://x.test>', '<<https://x.test>>')}\n`);
+    await reopenSaved(page, saved);
+    expect(await links(page), saved).toEqual([['https://x.test', 'https://x.test']]);
+    expect(await page.locator('.ProseMirror').innerText(), saved).toBe(typed);
+  });
+}
+
+for (const [url, linked] of [
+  [
+    'https://en.wikipedia.org/wiki/Rust_(programming_language)',
+    'https://en.wikipedia.org/wiki/Rust_(programming_language)',
+  ],
+  ['https://x.test/~user', 'https://x.test/~user'],
+  ['https://x.test/search?q=a*b', 'https://x.test/search?q=a*b'],
+  // GFM trims a trailing `_` and a closing `]` from the literal.
+  ['https://x.test/foo_', 'https://x.test/foo'],
+  ['https://x.test/[a]', 'https://x.test/[a'],
+] as const) {
+  test(`a typed URL with markdown punctuation in it links and saves bare: ${url}`, async ({
+    page,
+  }) => {
+    // Saved as plain text, these characters are escaped (`Rust\_(`), and GFM
+    // reads the backslash into the literal — so judging the word by its plain
+    // save linked nothing while typing and left a corrupted href on disk.
+    await typeIntoEmptyNote(page, `see ${url} ok`);
+    expect(await links(page), url).toEqual([[linked, linked]]);
+    await page.waitForTimeout(CHANGE_DEBOUNCE_MS + 120);
+    const saved = await getContent(page);
+    expect(saved).toBe(`see ${url} ok\n`);
+    await reopenSaved(page, saved);
+    expect(await links(page), saved).toEqual([[linked, linked]]);
+  });
+}
+
 test('a URL typed inside inline code stays code', async ({ page }) => {
   await open(page, '`https://youtube.com`\n');
   await page.locator('.ProseMirror code').click();

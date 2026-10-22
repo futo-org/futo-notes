@@ -33,6 +33,18 @@
   `insertLineBreakInTableCell`,
   src/features/editor/milkdown/table/tableLineBreak.ts (reading the `<br>` back),
   src/features/editor/milkdown/table/tableLineBreak.test.ts
+- A table pasted with the caret in a table cell overwrites the cells from
+  there, spreadsheet-style, one pasted row per row; the empty row the editor
+  shows under a header-only table is not pasted, so it never blanks out the row
+  under the one the header lands on. → src/features/editor/milkdown/table/tablePaste.ts,
+  tests/editor-embed-milkdown-interactive-tables.spec.ts
+- Plain text pasted into a table cell stays in that cell: its line breaks
+  become spaces, so no word spills into the next cell, and a space or tab at
+  either end of the paste is kept (`r1a` + a pasted ` world` saves `r1a world`).
+  A cell holds no blocks, so a paste that reads as one (` # h`, ` - a`, ` > q`)
+  goes in as the characters copied: `r1a` + ` # h` saves `r1a # h`.
+  → src/features/editor/milkdown/plainTextPaste.ts `flattenedForCell`,
+  tests/editor-embed-milkdown-interactive-tables.spec.ts
 
 - Hovering a column shows a small grip above it; hovering a row shows one at
   its left edge. Clicking a grip selects that row/column (visibly, as a cell
@@ -56,6 +68,13 @@
   `- [x] done` gives `- [ ]`, never a second `- [x]`. The item you are leaving keeps its own
   state. → src/features/editor/milkdown/keyboardParity.ts `splitCheckedTaskItem`,
   tests/editor-embed-milkdown-interactive.spec.ts
+- Enter in the middle of a checked task item's text leaves the first half checked and starts
+  the rest as a new, unchecked item.
+- Enter at the very start of a task item's text moves the text down with the caret: the new,
+  unchecked item is the empty one left above it, and the item keeps its text and its state.
+- Enter over a selection inside a task item's text removes the selection first and then acts
+  where it started: a selection from the very start of the text, even one covering all of it,
+  splits like the caret at the start (the done task keeps its check).
 - Undoing an edit that renumbered a list reverses the edit and the renumbering
   together, as one step: the renumber rides in as an `appendTransaction` that is
   not itself recorded in history. → `@milkdown/preset-commonmark`
@@ -79,6 +98,17 @@
   tests/editor-embed-milkdown.spec.ts "Undo history"
 - Opening a note starts its undo empty. Leaving a note and coming back does not
   restore what you could undo before.
+- Redo with nothing left to redo changes nothing; Redo never undoes, whatever the Caps Lock
+  state. → milkdown/keyboardParity.ts `handleCapsLockedChord`,
+  tests/editor-embed-milkdown-undo.spec.ts
+- A shortcut held with Shift never runs the same shortcut without Shift, whatever the Caps
+  Lock state: Ctrl/Cmd+Shift+B where a quote cannot go (a table cell) never turns on bold, and
+  Ctrl/Cmd+Shift+I or Ctrl/Cmd+Alt+Shift+X, which are not shortcuts, never turn on italic or
+  strikethrough. → milkdown/keyboardParity.ts `handleCapsLockedChord`,
+  tests/editor-embed-milkdown-interactive.spec.ts
+- A Shift shortcut the editor does not use is left to the browser or the OS, whatever the
+  Caps Lock state: Ctrl/Cmd+Shift+V still pastes as plain text with Caps Lock on. →
+  tests/editor-embed-milkdown-undo.spec.ts, tests/editor-embed-milkdown-interactive.spec.ts
 
 - A change that arrives from OUTSIDE the editor — a note open, a sync adopt, a
   host content push — is applied outside the undo history, so no Ctrl-Z can
@@ -93,7 +123,37 @@
   `~~strike~~`, `![alt](file)`, and `[[target]]` all convert as you type. So are
   the keyboard shortcuts in [tabs.md](../tabs.md) "Keyboard shortcuts". →
   `@milkdown/preset-commonmark`, `@milkdown/preset-gfm`,
+  packages/editor/src/milkdown-compat/inputRules.ts,
   src/features/editor/milkdown/wikilink/inputRule.ts
+
+- ` ```lang ` takes any language word a fence can open with — anything but a
+  space or a backtick, so ` ```c++ `, ` ```C# ` and ` ```JavaScript ` open a fence
+  in that language. → packages/editor/src/milkdown-compat/inputRules.ts,
+  tests/editor-embed-milkdown-interactive-code-blocks.spec.ts
+
+- Seven or more `#` and a space are not a heading: the line stays text, as a
+  file reads it. → packages/editor/src/milkdown-compat/inputRules.ts,
+  tests/editor-embed-milkdown-interactive-typed-escapes.spec.ts
+
+- A typed `*`, `_` or `~` run converts only where its opener can open by
+  CommonMark's flanking rule, as a file reads it: text padded with whitespace
+  inside its delimiters (`2 * 3 * 4`, `** not bold **`, `~~ a ~~`) stays text,
+  and so does an opener after a letter and before punctuation (`a*"b"*`) or an
+  `_` between letters of any script (`café_b_`). A closer converts only the
+  opener it matches, as a file reads it: `a **x__ b` and ``` ``x` y ``` stay
+  text; when an earlier opener on the line cannot open, a later one still
+  does (`café_a_ _b_` makes `b` italic). A delimiter typed inside a URL
+  (`https://x.test/*a*`) is a character of the URL, as a file reads it, and
+  converts nothing. →
+  packages/editor/src/milkdown-compat/inputRules.ts `flanking`,
+  tests/editor-embed-milkdown-interactive-typed-escapes.spec.ts
+
+- A delimiter escaped with a backslash, opening or closing (`\*not italic*`,
+  `*foo\*`, `` \`a` ``), converts nothing; the line is saved so it reopens
+  as the same line, backslash included. Inside a code span a backslash is
+  text, so `` `a\` `` still becomes code. →
+  packages/editor/src/milkdown-compat/inputRules.ts,
+  tests/editor-embed-milkdown-interactive-typed-escapes.spec.ts
 
 - _(desktop)_ Selecting text raises a floating toolbar just above the
   selection — Text/H1/H2/H3, Quote, Bold, Italic, Strikethrough, Code, Link,

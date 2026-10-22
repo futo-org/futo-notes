@@ -197,6 +197,62 @@ async function headingEditChurn(
   }
 }
 
+/** What typing did to an empty note: its save and its node/mark histogram. */
+export interface Typed {
+  markdown: string;
+  histogram: Record<string, number>;
+  /** Every heading's level, in document order. */
+  headingLevels: number[];
+}
+
+/**
+ * Types `keys` into an empty note one character at a time, each through every
+ * `handleTextInput` prop — the input rules among them — exactly as
+ * ProseMirror's own keypress path offers it. Not a keyboard test, like
+ * `headingEditChurn`: the rule's verdict on the typed text is what a canary
+ * asserts, and that is engine-independent.
+ */
+async function typeText(variant: CensusVariant, keys: string): Promise<Typed> {
+  const root = document.createElement('div');
+  document.body.appendChild(root);
+  const editor = await Editor.make()
+    .config((ctx) => {
+      ctx.set(rootCtx, root);
+    })
+    .use(markdownPlugins(variant))
+    .use(history)
+    .use(listener)
+    .use(clipboard)
+    .use(cursor)
+    .use(trailing)
+    .create();
+  try {
+    const view = editor.ctx.get(editorViewCtx);
+    view.dispatch(view.state.tr.setSelection(Selection.atStart(view.state.doc)));
+    for (const key of keys) {
+      const { from, to } = view.state.selection;
+      const insert = () => view.state.tr.insertText(key, from, to);
+      const handled = view.someProp('handleTextInput', (handle) =>
+        handle(view, from, to, key, insert),
+      );
+      if (!handled) view.dispatch(insert());
+    }
+    const headingLevels: number[] = [];
+    view.state.doc.descendants((node) => {
+      if (node.type.name === 'heading') headingLevels.push(Number(node.attrs.level));
+      return true;
+    });
+    return {
+      markdown: editor.action(getMarkdown()),
+      histogram: histogram(view.state.doc),
+      headingLevels,
+    };
+  } finally {
+    await editor.destroy();
+    root.remove();
+  }
+}
+
 /**
  * Pastes `markdown` as plain text into an empty editor and returns what it
  * saves. Dispatched as a real `paste` event, so it takes Milkdown's own
@@ -285,8 +341,9 @@ declare global {
       headingEditChurn: (variant: CensusVariant, markdown: string) => Promise<HeadingEditChurn>;
       pastePlainText: (variant: CensusVariant, markdown: string) => Promise<string>;
       mountForIme: typeof mountForIme;
+      typeText: (variant: CensusVariant, keys: string) => Promise<Typed>;
     };
   }
 }
 
-window.__futoCensus = { load: loadOnce, headingEditChurn, pastePlainText, mountForIme };
+window.__futoCensus = { load: loadOnce, headingEditChurn, pastePlainText, mountForIme, typeText };

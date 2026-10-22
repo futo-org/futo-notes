@@ -23,6 +23,7 @@ import {
 import marksAndBreaks from '../../../../tests/conformance/markdown-house-style-marks-and-breaks.json';
 import listsAndCode from '../../../../tests/conformance/markdown-house-style-lists-and-code.json';
 import tablesAndVerbatim from '../../../../tests/conformance/markdown-house-style-tables-and-verbatim.json';
+import tableFillerRows from '../../../../tests/conformance/markdown-house-style-table-filler-rows.json';
 import escapesAndEmptyLines from '../../../../tests/conformance/markdown-house-style-escapes-and-empty-lines.json';
 import spacesAndTyping from '../../../../tests/conformance/markdown-house-style-spaces-and-typing.json';
 // The serializer's own comparison: its parse checks accept a spelling only when this agrees.
@@ -42,6 +43,7 @@ const CASES = [
   marksAndBreaks,
   listsAndCode,
   tablesAndVerbatim,
+  tableFillerRows,
   escapesAndEmptyLines,
   spacesAndTyping,
 ].flatMap((goldens) => (goldens as { cases: Golden[] }).cases);

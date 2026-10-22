@@ -28,6 +28,9 @@
  * - Splitting a checked task item starts the new item UNCHECKED —
  *   ProseMirror's `splitListItem`
  *   otherwise clones the `checked: true` attr onto the new item.
+ * - Enter in a code block is a newline in it, inside a list item too: the
+ *   preset's list split runs before the base keymap's `newlineInCode`, and on
+ *   a fence's last line it closed the fence and started a new item.
  *
  * QA #004 (Backspace at the start of a nested list item keeps its
  * indentation rather than merging everything into the top-level item) needed
@@ -58,11 +61,18 @@
  * and Delete inside a block, and the list-split Enter for plain and unchecked
  * items.
  */
+import type { Ctx } from '@milkdown/kit/ctx';
+import { headingKeymap, listItemKeymap } from '@milkdown/kit/preset/commonmark';
+import { newlineInCode } from '@milkdown/kit/prose/commands';
 import { keydownHandler } from '@milkdown/kit/prose/keymap';
 import { splitListItem } from '@milkdown/kit/prose/schema-list';
 import { type Command } from '@milkdown/kit/prose/state';
 import type { EditorView as ProseView } from '@milkdown/kit/prose/view';
-import { changeBlockIndent, selectionTouchesCode } from './blockCommands';
+import {
+  changeBlockIndent,
+  selectionTouchesCode,
+  selectionWithinWrittenContent,
+} from './blockCommands';
 import { enclosingListItem } from './caretContext';
 import { enterInParagraph, joinBackwardAsLine, joinForwardAsLine } from './paragraphLines';
 import { isSlashMenuOpen } from './slash';
@@ -75,14 +85,45 @@ import {
 import { indentCodeBlockOnTab, outdentCodeBlockOnShiftTab } from './keyboardParityCode';
 
 /**
- * Enter in a CHECKED task item: split with the new item unchecked. An
- * unchecked or non-task item declines — the default split already clones
- * `checked: false` / `null` correctly.
+ * Enter in a CHECKED task item: split it so the NEW item is unchecked and the
+ * item being left keeps its state (docs/spec/editor/interactive-elements.md).
+ * Which half is new depends on where the caret was: at the very start of the
+ * item's text, the text moves down WITH the caret, so the new item is the
+ * empty one left above; anywhere else the caret leaves the upper half and the
+ * new item is the lower one. A selection is deleted first and Enter then acts
+ * where it started, so a selection from the start of the text, even one
+ * covering all of it, counts as a caret there. `splitListItem` alone cannot
+ * say that — it applies its `itemAttrs` only to an end-of-item split and
+ * clones `checked: true` onto both halves everywhere else — so the attrs are
+ * set on its transaction. An unchecked or non-task item declines — the default split
+ * already clones `checked: false` / `null` correctly — and so does an empty
+ * last line, which `splitListItem` answers by leaving the list or splitting
+ * the WRAPPING item, cloning nothing from this one.
  */
 const splitCheckedTaskItem: Command = (state, dispatch) => {
   const item = enclosingListItem(state.selection);
   if (!item || item.node.attrs.checked !== true) return false;
-  return splitListItem(item.node.type, { ...item.node.attrs, checked: false })(state, dispatch);
+  const { $from } = state.selection;
+  if ($from.depth < 2 || $from.node(-1) !== item.node) return false;
+  if ($from.parent.content.size === 0 && $from.indexAfter(-1) === item.node.childCount) {
+    return false;
+  }
+  const newItemAbove = $from.parentOffset === 0 && $from.index(-1) === 0;
+  return splitListItem(item.node.type)(
+    state,
+    dispatch &&
+      ((tr) => {
+        const upper = tr.doc.nodeAt(item.pos);
+        if (upper) {
+          const newPos = newItemAbove ? item.pos : item.pos + upper.nodeSize;
+          const newItem = tr.doc.nodeAt(newPos);
+          if (newItem?.type === item.node.type) {
+            tr.setNodeMarkup(newPos, undefined, { ...newItem.attrs, checked: false });
+          }
+        }
+        dispatch(tr);
+      }),
+  );
 };
 
 /**
@@ -145,6 +186,7 @@ export function handleParityKeyDown(view: ProseView, event: KeyboardEvent): bool
 
   if (event.key === 'Enter' && !event.shiftKey) {
     return (
+      newlineInCode(view.state, view.dispatch) ||
       insertTableRowBelow(view.state, view.dispatch) ||
       splitCheckedTaskItem(view.state, view.dispatch) ||
       enterInParagraph(view.state, view.dispatch)
@@ -214,22 +256,114 @@ export function handleIndentShortcut(view: ProseView, event: KeyboardEvent): boo
  * still CLAIMED: the preset claims it everywhere else, and declining here
  * would hand it straight back to that preset's keymap. Key names are the
  * preset's own, matched by the same `keydownHandler` its keymap uses.
+ *
+ * A selection reaching past the note's written content (select-all over a
+ * note ending in a list or quote) is first narrowed to that content, then the
+ * preset runs on it: otherwise the parked trailing paragraph became a saved
+ * `#` or an empty fence (blockCommands.ts `selectionWithinWrittenContent`).
+ * With no written textblock in it, the chord is claimed and does nothing.
  */
-const blockTypeChordsInCode = keydownHandler(
+const blockTypeChordGuard: Command = (state, dispatch) => {
+  if (selectionTouchesCode(state)) return true;
+  const scope = selectionWithinWrittenContent(state);
+  if (scope === state.selection) return false;
+  if (!scope) return true;
+  dispatch?.(state.tr.setSelection(scope));
+  return false;
+};
+
+const blockTypeChords = keydownHandler(
   Object.fromEntries(
     [0, 1, 2, 3, 4, 5, 6, 7, 8]
       .map((n) => `Mod-Alt-${n}`)
       .concat(['Mod-Shift-b', 'Mod-Alt-c'])
-      .map((chord): [string, Command] => [chord, (state) => selectionTouchesCode(state)]),
+      .map((chord): [string, Command] => [chord, blockTypeChordGuard]),
   ),
 );
 
 /**
  * The `handleKeyDown` direct view prop for the preset's block-type chords:
  * claims one, changing nothing, when the selection touches a code block;
- * declines everywhere else so the preset runs as before.
+ * narrows a selection that runs past the written content; declines otherwise
+ * so the preset runs as before.
  */
-export function handleBlockTypeChordInCode(view: ProseView, event: KeyboardEvent): boolean {
+export function handleBlockTypeChord(view: ProseView, event: KeyboardEvent): boolean {
   if (event.isComposing) return false;
-  return blockTypeChordsInCode(view, event);
+  return blockTypeChords(view, event);
+}
+
+/*
+ * Delete is a FORWARD delete in a list item and in a heading, as it is in a
+ * paragraph: at the start of the text it removes the next character. The
+ * commonmark preset binds the two commands that belong to Backspace at the
+ * start of a block — lift the first list item out of its list, take one level
+ * off a heading — to Delete as well, so Delete there lifted the item or
+ * downgraded the heading and deleted nothing. This keeps them on Backspace
+ * only, through the preset's own keymap configuration (each `$useKeymap`'s ctx
+ * slice), before its shortcuts are built. Called from the editor's `.config()`.
+ * `keyboardParity.preset.test.ts` holds the canary: when upstream stops binding
+ * Delete there, this can go.
+ */
+const withoutDelete = (shortcuts: string | string[]): string[] =>
+  [shortcuts].flat().filter((key) => key !== 'Delete');
+
+export function keepDeleteForward(ctx: Ctx): void {
+  ctx.update(listItemKeymap.key, (keys) => ({
+    ...keys,
+    LiftFirstListItem: {
+      ...keys.LiftFirstListItem,
+      shortcuts: withoutDelete(keys.LiftFirstListItem.shortcuts),
+    },
+  }));
+  ctx.update(headingKeymap.key, (keys) => ({
+    ...keys,
+    DowngradeHeading: {
+      ...keys.DowngradeHeading,
+      shortcuts: withoutDelete(keys.DowngradeHeading.shortcuts),
+    },
+  }));
+}
+
+/*
+ * A shortcut held with Shift never runs the same shortcut without Shift,
+ * whatever the Caps Lock state. With Caps Lock on, a Shift chord's key arrives
+ * as a LOWERCASE letter, and prosemirror-keymap answers a lowercase letter
+ * with Shift held by running the `Shift-` binding and, when none claims it,
+ * retrying the chord WITHOUT Shift. So Redo with nothing to redo undid the last
+ * edit, Ctrl+Shift+B in a table cell turned on bold, Ctrl+Shift+I ran Italic
+ * and Ctrl+Alt+Shift+X ran Strikethrough. With Caps Lock off the key arrives
+ * uppercase and that retry never matches a binding.
+ *
+ * So the event's key is rewritten to the uppercase letter the same keys send
+ * with Caps Lock off, before any other key handler reads it: this handler is
+ * the editor's own `handleKeyDown` prop, which ProseMirror asks first. Every
+ * handler then does exactly what it does with Caps Lock off, and a chord none
+ * of them takes is still left to the browser. Claiming the lowercase event
+ * instead (the earlier fix) cancelled the browser's own action, so
+ * Ctrl+Shift+V pasted nothing with Caps Lock on. The rewrite is undone once
+ * the editor's keydown listener returns, so listeners outside the editor see
+ * the event as sent. Not on a Mac for a Cmd+Shift chord: the keymap reads that
+ * key from its key code there (w3c-keyname), so it already arrives shifted.
+ * w3c-keyname tests `/Mac/` only, so an iPhone or iPad (iOS-reported) Cmd+Shift
+ * chord still arrives lowercase and is rewritten here. Not for AltGr, which
+ * types characters, nor for a key that is not a plain a-z letter.
+ */
+const keyNameReadsKeyCode = typeof navigator !== 'undefined' && /Mac/.test(navigator.platform);
+
+function isCapsLockedChord(event: KeyboardEvent): boolean {
+  if (event.isComposing || !event.shiftKey || !/^[a-z]$/.test(event.key)) return false;
+  if (!event.ctrlKey && !event.metaKey && !event.altKey) return false;
+  if (event.getModifierState('AltGraph')) return false;
+  return !(keyNameReadsKeyCode && event.metaKey && !event.ctrlKey && !event.altKey);
+}
+
+/**
+ * The first `handleKeyDown` view prop. Never claims the key: it only makes a
+ * Caps Lock Shift chord read as it does with Caps Lock off.
+ */
+export function handleCapsLockedChord(_view: ProseView, event: KeyboardEvent): boolean {
+  if (!isCapsLockedChord(event)) return false;
+  Object.defineProperty(event, 'key', { value: event.key.toUpperCase(), configurable: true });
+  queueMicrotask(() => Reflect.deleteProperty(event, 'key'));
+  return false;
 }

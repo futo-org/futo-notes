@@ -39,6 +39,21 @@ export function hasSurplusTrailingEmptyParagraphs(doc: ProseNode): boolean {
 }
 
 /**
+ * The document position where its written content ends: before its trailing
+ * empty paragraphs, which a save never writes (docs/spec/editor.md "Markdown
+ * house style"). Equal to `doc.content.size` when the last block is written.
+ */
+export function writtenContentEnd(doc: ProseNode): number {
+  let end = doc.content.size;
+  for (let index = doc.childCount - 1; index >= 0; index -= 1) {
+    const block = doc.child(index);
+    if (!isEmptyParagraph(block)) break;
+    end -= block.nodeSize;
+  }
+  return end;
+}
+
+/**
  * Whether the note's last written block is a paragraph ending in a line break
  * — an empty last line (Enter at the end of the note, src/features/editor/
  * milkdown/paragraphLines.ts) the file cannot hold: trailing whitespace is not

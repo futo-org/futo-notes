@@ -5,7 +5,7 @@
  * `<li>`, `<h1>`...) with the caret in a cell, wraps each block in a NEW CELL,
  * and prosemirror-tables' `handlePaste` then pastes that run of cells over the
  * caret's cell and the ones after it: `| c1 | c2 |` + `<p>a</p><p>b</p>` saved
- * `| a | b |`. The plain-text twin is RC-81 (`plainTextBlockPaste.ts`).
+ * `| a | b |`. The plain-text twin is RC-81 (`plainTextPaste.ts`).
  *
  * Re-emitting the HTML with every block element replaced by its own children
  * and a space on BOTH sides, before ProseMirror parses it, leaves a single inline run: the words

@@ -1,13 +1,19 @@
 import { describe, expect, it } from 'vitest';
 
 import { Schema, type Node as ProseNode } from '@milkdown/kit/prose/model';
-import { EditorState, TextSelection, type Transaction } from '@milkdown/kit/prose/state';
+import {
+  AllSelection,
+  EditorState,
+  TextSelection,
+  type Transaction,
+} from '@milkdown/kit/prose/state';
 
 import {
   blockCommand,
   blockFormatAtPos,
   changeBlockIndent,
   inIndentableContainer,
+  withinWrittenContent,
   type BlockCommandId,
 } from './blockCommands';
 import { testSchema } from './__fixtures__/schema';
@@ -202,6 +208,59 @@ describe('blockCommand — one transaction', () => {
     });
     const dispatched: Transaction[] = [];
     expect(blockCommand('bullet')(state, (tr) => dispatched.push(tr))).toBe(false);
+    expect(dispatched).toHaveLength(0);
+  });
+});
+
+describe('blockCommand — the unwritten trailing paragraph', () => {
+  const empty = (): ProseNode => s.nodes.paragraph.create();
+
+  function run(state: EditorState, command: BlockCommandId): EditorState {
+    let after = state;
+    blockCommand(command)(state, (tr) => {
+      after = after.apply(tr);
+    });
+    return after;
+  }
+
+  function selectAll(root: ProseNode): EditorState {
+    const state = EditorState.create({ doc: root });
+    return state.apply(state.tr.setSelection(new AllSelection(root)));
+  }
+
+  // The parked paragraph after a final list is never saved; select-all used to
+  // bullet it while un-bulleting the list, saving `one\n\n-`.
+  it('select-all over a list and the parked paragraph toggles only the list', () => {
+    const after = run(selectAll(doc(bullets(item('one')), empty())), 'bullet');
+    expect(shapes(after.doc)).toEqual(['paragraph:one', 'paragraph:']);
+  });
+
+  it('select-all over paragraphs and a trailing empty one makes one list of the written ones', () => {
+    const after = run(selectAll(doc(p('a'), p('b'), empty())), 'ordered');
+    expect(shapes(after.doc)).toEqual([
+      { ordered_list: [{ list_item: ['paragraph:a'] }, { list_item: ['paragraph:b'] }] },
+      'paragraph:',
+    ]);
+  });
+
+  it('still formats the trailing empty line when the caret is on it', () => {
+    const root = doc(bullets(item('a')), empty());
+    const state = EditorState.create({ doc: root });
+    const onTail = state.apply(
+      state.tr.setSelection(TextSelection.create(root, root.content.size - 1)),
+    );
+    const after = run(onTail, 'heading-1');
+    expect(shapes(after.doc)).toEqual([{ bullet_list: [{ list_item: ['paragraph:a'] }] }, 'h1:']);
+  });
+
+  it('withinWrittenContent declines when the written content holds no textblock', () => {
+    const state = selectAll(doc(s.nodes.horizontal_rule.create(), empty()));
+    const dispatched: Transaction[] = [];
+    const touch = withinWrittenContent((_state, dispatch) => {
+      dispatch?.(_state.tr.insertText('x'));
+      return true;
+    });
+    expect(touch(state, (tr) => dispatched.push(tr))).toBe(false);
     expect(dispatched).toHaveLength(0);
   });
 });

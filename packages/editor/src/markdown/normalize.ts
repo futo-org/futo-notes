@@ -25,7 +25,8 @@
  *    one paragraph (`joinParagraphs`: what Backspace at a nested item's start
  *    leaves, and no file holds). A list item whose blocks still need a blank
  *    line between them is loose, however the editor held it: no tight spelling
- *    keeps them apart (`needsBlankLine`).
+ *    keeps them apart (`needsBlankLine`). A table body row no file holds is
+ *    dropped: one with no cells, and an empty `filler` row (`isUnwrittenRow`).
  * 2. The spelling-only attributes, which a parse derives from HOW the file
  *    spelled something rather than from WHAT it holds, so they are left out of
  *    every comparison: `emphasis`/`strong` `marker` (`*` or `_`), `heading`
@@ -33,7 +34,8 @@
  *    the list and the item's position), a table cell's `colwidth` (markdown has
  *    no column widths) and a body cell's `alignment` (the column's delimiter
  *    row decides it, from the header cell), a link's empty title (`""` and no
- *    title read the same) and an image's missing title (the schema's `''`).
+ *    title read the same) and an image's missing title (the schema's `''`);
+ *    and a table row's `filler` mark, which the editor sets and no parse can.
  *
  * `canonical` applies both and is what the serializer's parse check compares.
  * The census `content_loss` detector states the same list independently
@@ -325,6 +327,22 @@ function needsBlankLine(children: readonly NodeJson[]): boolean {
 }
 
 /**
+ * A table body row no file holds, so none is written: one with no cells (the
+ * schema's filler for a table with no body row, `table_header_row
+ * table_row+`, as a parse leaves it) or an editor-marked `filler` row whose
+ * cells are all empty (the same row once prosemirror-tables filled it in,
+ * `../milkdown-compat/tableFillerRow.ts`). `row` is normalized: a cell holding
+ * one line break and nothing else is already empty.
+ */
+function isUnwrittenRow(row: NodeJson): boolean {
+  if (row.type !== NODE.tableRow) return false;
+  const cells = row.content ?? [];
+  if (cells.length === 0) return true;
+  if (row.attrs?.filler !== true) return false;
+  return cells.every((cell) => (cell.content ?? []).every(isEmptyParagraph));
+}
+
+/**
  * `node` with the house style's structural normalizations, recursively: the
  * blocks the serializer writes for it, which a reparse must reproduce. One
  * block, except a paragraph with empty lines in it (`splitAtEmptyLines`).
@@ -357,6 +375,7 @@ export function normalizeBlock(node: NodeJson, inCell = false, afterCheckbox = f
   const tightItem = node.type === NODE.listItem && node.attrs?.spread !== true;
   let children = tightItem ? joinParagraphs(parts) : parts.flat();
   if (CONTAINERS.has(node.type)) children = trimContainer(node, children);
+  if (node.type === NODE.table) children = children.filter((row) => !isUnwrittenRow(row));
   if (tightItem && needsBlankLine(children)) {
     return [{ ...node, attrs: { ...node.attrs, spread: true }, content: children }];
   }
@@ -369,6 +388,7 @@ const SPELLING_ATTRS: Partial<Record<string, readonly string[]>> = {
   [NODE.listItem]: ['label', 'listType'],
   [NODE.tableHeader]: ['colwidth'],
   [NODE.tableCell]: ['colwidth', 'alignment'],
+  [NODE.tableRow]: ['filler'],
 };
 
 /** A node as `canonical` writes it: what a parse check compares. */

@@ -115,10 +115,63 @@ for (const [where, markdown, selectAll] of [
   });
 }
 
+// A note ending in a list or quote has an empty paragraph parked after it
+// that a save never writes; select-all covers it, and the chord used to format
+// it too, saving a stray `#` or an empty fence.
+for (const [markdown, chord, expected] of [
+  ['- a\n', 'ControlOrMeta+Alt+1', '- a\n'],
+  ['> a\n', 'ControlOrMeta+Alt+1', '> # a\n'],
+  ['> a\n', 'ControlOrMeta+Alt+c', '> ```\n> a\n> ```\n'],
+] as const) {
+  test(`${chord} after select-all on ${JSON.stringify(markdown)} formats only the written lines`, async ({
+    page,
+  }) => {
+    await open(page, markdown);
+    await caretAtEndOf(page, 'a');
+    await withCaretObserved(page, () => page.keyboard.press('ControlOrMeta+a'));
+    await page.keyboard.press(chord);
+    await settled(page);
+    expect(await getContent(page)).toBe(expected);
+  });
+}
+
 test('Mod+Alt+1 still turns a paragraph into a heading', async ({ page }) => {
   await open(page, 'plain\n');
   await caretAtEndOf(page, 'plain');
   await page.keyboard.press('ControlOrMeta+Alt+1');
   await settled(page);
   expect(await getContent(page)).toBe('# plain\n');
+});
+
+// ============================================================
+// Code blocks — the ```lang shortcut takes any language a fence can name
+// (spec: interactive-elements.md "` ```lang `"). The preset's rule took
+// lowercase letters only, so `C++`, `c#`, `JavaScript` and `ps1` — names the
+// curated fence set (codeFenceLanguages.ts) itself spells — stayed an escaped
+// paragraph (`\```c++ x`).
+// ============================================================
+
+for (const language of ['js', 'c++', 'JavaScript', 'c#', 'ps1', 'Objective-C']) {
+  test(`typing \`\`\`${language} and a space opens a ${language} fence`, async ({ page }) => {
+    await open(page, '');
+    await page.locator('.ProseMirror').click();
+    await page.keyboard.type('```' + language + ' ');
+    await page.keyboard.type('x');
+    await settled(page);
+    expect(await getContent(page)).toBe('```' + language + '\nx\n```\n');
+  });
+}
+
+test('typing ```c++ and a space on a later line of a paragraph opens a fence there', async ({
+  page,
+}) => {
+  // The line-start route (paragraphLines.ts `lineStartShortcut`) mirrors the
+  // rule, so it has to take the same languages.
+  await open(page, 'Notes');
+  await caretAtEndOf(page, 'Notes');
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('```c++ ');
+  await page.keyboard.type('x');
+  await settled(page);
+  expect(await getContent(page)).toBe('Notes\n\n```c++\nx\n```\n');
 });

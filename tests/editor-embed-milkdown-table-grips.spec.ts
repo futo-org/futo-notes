@@ -104,6 +104,28 @@ test('a row grip inserts a row above it', async ({ page }) => {
   ]);
 });
 
+// A header-only table shows one empty row the note does not hold (the schema
+// needs a body row); a grip edit used to write it as a real `|  |  |` row.
+const HEADER_ONLY = '| a | b |\n| --- | --- |\n';
+
+test('inserting a row under a header-only table writes only that row', async ({ page }) => {
+  await open(page, HEADER_ONLY);
+  await hoverCell(page, 'a');
+  await page.locator('.futo-table-grip-row').click();
+  await clickMenuItem(page, 'Insert after');
+  await settled(page);
+  expect(await getContent(page)).toBe('| a | b |\n| --- | --- |\n|  |  |\n');
+});
+
+test('inserting a column into a header-only table writes no body row', async ({ page }) => {
+  await open(page, HEADER_ONLY);
+  await hoverCell(page, 'a');
+  await page.locator('.futo-table-grip-col').click();
+  await clickMenuItem(page, 'Insert after');
+  await settled(page);
+  expect(tableRows(await getContent(page))).toEqual([['a', '', 'b']]);
+});
+
 test('a row grip deletes its row', async ({ page }) => {
   await open(page, TABLE);
   await hoverCell(page, 'r1a');

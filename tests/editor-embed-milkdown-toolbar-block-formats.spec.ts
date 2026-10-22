@@ -155,6 +155,38 @@ test('heading choice gives mixed selected blocks the same level', async ({ page 
   expect((await getContent(page)).trimEnd()).toBe('# first\n\n## second');
 });
 
+// A list or quote at the end of a note gets an empty paragraph parked after it
+// (`@milkdown/plugin-trailing`) that a save never writes. Select-all covers it,
+// so a block command used to format it too: Bullet twice on `one` left `one\n\n-`.
+// Each step re-selects with a real Ctrl/Cmd-A, the way a user would.
+const SELECT_ALL_ROUND_TRIPS: Array<[string, string[], string[]]> = [
+  ['one', ['bullet-list', 'bullet-list'], ['- one', 'one']],
+  ['one\n\ntwo', ['bullet-list', 'bullet-list'], ['- one\n- two', 'one\n\ntwo']],
+  ['a\n\nb\n\nc', ['ordered-list', 'ordered-list'], ['1. a\n2. b\n3. c', 'a\n\nb\n\nc']],
+  ['one', ['ordered-list', 'ordered-list'], ['1. one', 'one']],
+  ['one', ['task-list', 'task-list'], ['- [ ] one', 'one']],
+  ['- a\n- b', ['bullet-list'], ['a\n\nb']],
+  ['one', ['quote', 'heading-1'], ['> one', '> # one']],
+  ['> one', ['code-block'], ['> ```\n> one\n> ```']],
+  ['- one', ['code-block'], ['- one']],
+];
+
+for (const [source, ids, steps] of SELECT_ALL_ROUND_TRIPS) {
+  test(`select-all then ${ids.join(', ')} on ${JSON.stringify(source)} never formats the unsaved trailing line`, async ({
+    page,
+  }) => {
+    await hostSetContent(page, source);
+    await focusEditor(page);
+    const seen: string[] = [];
+    for (const id of ids) {
+      await selectAll(page);
+      await exec(page, id);
+      seen.push((await getContent(page)).trimEnd());
+    }
+    expect(seen).toEqual(steps);
+  });
+}
+
 /**
  * The user-facing bug behind dropping `syncHeadingIdPlugin`
  * (packages/editor/src/milkdown-compat): new note, Heading, type — and the

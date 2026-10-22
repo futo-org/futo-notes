@@ -234,3 +234,176 @@ test('a LOOSE file keeps its blank lines after the same edit', async ({ page }) 
   await settled(page);
   expect(await getContent(page)).toBe('- item a\n\n- item b\n\n  - nested c!\n');
 });
+
+// ============================================================
+// Seven or more `#` are not a heading (CommonMark; markdown-house-style.md
+// "Headings are ATX: one to six #"). The preset's rule made a level-7 heading
+// node, rendered `<h7>`, that saved as six hashes — a different line.
+// ============================================================
+
+/** Opens an empty note, types `keys`, and waits for the save. */
+async function typeIntoEmpty(page: Page, keys: string): Promise<string> {
+  await openAtEnd(page, '');
+  await page.keyboard.type(keys);
+  await settled(page);
+  return getContent(page);
+}
+
+test('typing seven hashes and a space stays paragraph text', async ({ page }) => {
+  expect(await typeIntoEmpty(page, '####### seven')).toBe('####### seven\n');
+  expect(await page.locator('.ProseMirror :is(h1, h2, h3, h4, h5, h6, h7)').count()).toBe(0);
+});
+
+test('typing seven hashes and a space on a later line stays paragraph text', async ({ page }) => {
+  await openAtEnd(page, 'Hello');
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('####### seven');
+  await settled(page);
+  expect(await getContent(page)).toBe('Hello\n####### seven\n');
+  expect(await page.locator('.ProseMirror :is(h1, h2, h3, h4, h5, h6, h7)').count()).toBe(0);
+});
+
+test('typing six hashes and a space still makes a level-6 heading', async ({ page }) => {
+  expect(await typeIntoEmpty(page, '###### six')).toBe('###### six\n');
+  expect(await page.locator('.ProseMirror h6').allTextContents()).toEqual(['six']);
+});
+
+// ============================================================
+// Typed delimiters follow CommonMark (spec: interactive-elements.md "convert
+// as you type"; markdown-house-style.md "Text and escaping"). The preset's
+// emphasis, strong and strikethrough rules took a run padded with spaces as
+// formatting, and every mark rule read a backslash-escaped opener as a real
+// one, so typing what a file reads as plain text changed it: `2 * 3 * 4` saved
+// as `2 *&#x20;3&#x20;* 4`, `** not bold **` as `**not bold**`, `\*not italic*`
+// as `\\*not italic*`.
+// ============================================================
+
+/** The formatting the rendered paragraph holds, as `tag:text` pairs. */
+function renderedMarks(page: Page): Promise<string[]> {
+  return page
+    .locator('.ProseMirror p :is(em, strong, code, del, s)')
+    .evaluateAll((elements) =>
+      elements.map((element) => `${element.tagName.toLowerCase()}:${element.textContent ?? ''}`),
+    );
+}
+
+for (const typed of [
+  '2 * 3 * 4',
+  '** not bold **',
+  '__ not bold __',
+  'a * b*',
+  'a *b *',
+  '~~ not struck ~~',
+]) {
+  test(`typed "${typed}" stays text, as a file reads it`, async ({ page }) => {
+    expect(await typeIntoEmpty(page, typed)).toBe(`${typed}\n`);
+    expect(await renderedMarks(page)).toEqual([]);
+  });
+}
+
+for (const typed of [
+  '\\*not italic*',
+  '\\**not bold**',
+  '\\_not italic_',
+  '\\`not code`',
+  '\\~not struck~',
+]) {
+  test(`a typed backslash before "${typed.slice(1)}" keeps the delimiters text`, async ({
+    page,
+  }) => {
+    // The typed `\` is a character the user sees, so the saved note must read
+    // back as exactly that line — backslash included — with no formatting.
+    const saved = await typeIntoEmpty(page, typed);
+    expect(await renderedMarks(page), saved).toEqual([]);
+    await reopen(page, saved);
+    expect(await paragraphLines(page), saved).toEqual([typed]);
+    expect(await renderedMarks(page), saved).toEqual([]);
+  });
+}
+
+for (const typed of ['*foo\\* bar', '**foo\\** bar', '_foo\\_ bar', '~~foo\\~~ bar']) {
+  test(`a typed backslash before the closer of "${typed}" keeps it text`, async ({ page }) => {
+    // An escaped CLOSING delimiter closes nothing, as an escaped opener opens
+    // nothing: a file holding `*foo\* bar` reads as plain `*foo* bar`.
+    const saved = await typeIntoEmpty(page, typed);
+    expect(await renderedMarks(page), saved).toEqual([]);
+    await reopen(page, saved);
+    expect(await paragraphLines(page), saved).toEqual([typed]);
+    expect(await renderedMarks(page), saved).toEqual([]);
+  });
+}
+
+for (const typed of ['a*"b"* c', 'a**"b"** c', 'a~~"b"~~ c', 'café_b_ c']) {
+  test(`typed "${typed}" stays text: its opener cannot open`, async ({ page }) => {
+    // CommonMark's flanking rule has a punctuation half: a delimiter after a
+    // letter and before punctuation is not left-flanking, and an `_` between
+    // letters (any script's) opens nothing. A file reads each of these as text.
+    const saved = await typeIntoEmpty(page, typed);
+    expect(await renderedMarks(page), saved).toEqual([]);
+    await reopen(page, saved);
+    expect(await paragraphLines(page), saved).toEqual([typed]);
+    expect(await renderedMarks(page), saved).toEqual([]);
+  });
+}
+
+for (const typed of ['a **x__ b', 'a __x** b', '``x` y']) {
+  test(`typed "${typed}" stays text: its closer does not match its opener`, async ({ page }) => {
+    // A delimiter run closes only a run of the same character (`**` is not
+    // closed by `__`), and a code span only a backtick run of the same length.
+    // A file reads each of these as text; converting saved `a **x** b`.
+    const saved = await typeIntoEmpty(page, typed);
+    expect(await renderedMarks(page), saved).toEqual([]);
+    await reopen(page, saved);
+    expect(await paragraphLines(page), saved).toEqual([typed]);
+    expect(await renderedMarks(page), saved).toEqual([]);
+  });
+}
+
+test('a typed run converts when an earlier opener on the line cannot open', async ({ page }) => {
+  // The first `_` (between letters) opens nothing; the `_b_` after it is
+  // emphasis in a file, so it converts as it is typed.
+  const saved = await typeIntoEmpty(page, 'café_a_ _b_ c');
+  expect(await renderedMarks(page), saved).toEqual(['em:b']);
+  await reopen(page, saved);
+  expect(await paragraphLines(page), saved).toEqual(['café_a_ b c']);
+  expect(await renderedMarks(page), saved).toEqual(['em:b']);
+});
+
+for (const [typed, linked] of [
+  ['https://x.test/*a* ok', 'https://x.test/*a'],
+  ['see www.x.test/_a_ ok', 'www.x.test/_a'],
+] as const) {
+  test(`delimiters typed inside a URL stay part of it: "${typed}"`, async ({ page }) => {
+    // A file reads the `*`/`_` inside a URL as the URL's own characters (GFM
+    // trims only the trailing one), never as emphasis.
+    const saved = await typeIntoEmpty(page, typed);
+    expect(saved).toBe(`${typed}\n`);
+    expect(await renderedMarks(page), saved).toEqual([]);
+    const href = linked.startsWith('www.') ? `http://${linked}` : linked;
+    const links = () =>
+      page
+        .locator('.ProseMirror a')
+        .evaluateAll((as) => as.map((a) => [a.textContent ?? '', a.getAttribute('href') ?? '']));
+    expect(await links(), saved).toEqual([[linked, href]]);
+    await reopen(page, saved);
+    expect(await links(), saved).toEqual([[linked, href]]);
+  });
+}
+
+for (const [typed, saved, marks] of [
+  ['2 *3* 4', '2 *3* 4\n', ['em:3']],
+  ['a **b c** d', 'a **b c** d\n', ['strong:b c']],
+  // Two typed backslashes are an escaped backslash, each written escaped, so the `*` opens.
+  ['x \\\\*y* z', 'x \\\\\\\\*y* z\n', ['em:y']],
+  ['run `npm i` now', 'run `npm i` now\n', ['code:npm i']],
+  // A backslash escapes nothing inside a code span: `a\` is code, as a file reads it.
+  ['x `a\\` y', 'x `a\\` y\n', ['code:a\\']],
+  // Punctuation after an opener is fine where whitespace or punctuation precedes it.
+  ['a *"b"* c', 'a *"b"* c\n', ['em:"b"']],
+  ['("*b*")', '("*b*")\n', ['em:b']],
+] as const) {
+  test(`typed "${typed}" still converts`, async ({ page }) => {
+    expect(await typeIntoEmpty(page, typed)).toBe(saved);
+    expect(await renderedMarks(page)).toEqual(marks);
+  });
+}

@@ -29,11 +29,13 @@ import { useBlockDragPlugins } from './blockDrag.svelte';
 import { landPendingDrop } from './blockDragSession';
 import { autolink } from './autolink';
 import { dividerCaretFix } from './dividerCaret';
-import { plainTextBlockPaste } from './plainTextBlockPaste';
+import { plainTextPaste } from './plainTextPaste';
 import {
-  handleBlockTypeChordInCode,
+  handleBlockTypeChord,
+  handleCapsLockedChord,
   handleIndentShortcut,
   handleParityKeyDown,
+  keepDeleteForward,
 } from './keyboardParity';
 import { handleLineStartShortcut, softBreakView } from './paragraphLines';
 import type { MobileDndHapticKind } from './mobileBlockDnd';
@@ -162,8 +164,9 @@ function configureEditor(ctx: Ctx, assembly: EditorAssembly): void {
      * block drag carries no files and is left entirely alone. */
     handleDrop: (_view, event) => getDropHandler()?.(event as DragEvent) ?? false,
     handleKeyDown: (view, event) =>
+      handleCapsLockedChord(view, event) ||
       handleIndentShortcut(view, event) ||
-      handleBlockTypeChordInCode(view, event) ||
+      handleBlockTypeChord(view, event) ||
       handleParityKeyDown(view, event),
     /* A block shortcut (`- `, `# `, …) typed at the start of a line
      * inside a paragraph starts that block from the line, for the same
@@ -208,6 +211,8 @@ function configureEditor(ctx: Ctx, assembly: EditorAssembly): void {
     code: CODE_IME_ATTRIBUTES,
   }));
   ctx.set(inlineCodeAttr.key, () => ({ ...CODE_IME_ATTRIBUTES }));
+  /* Delete stays a forward delete in list items and headings (keyboardParity.ts). */
+  keepDeleteForward(ctx);
 
   const listeners = ctx.get(listenerCtx);
   listeners.focus(() => props.onfocuschange?.(true));
@@ -270,8 +275,8 @@ export function assembleEditor(assembly: EditorAssembly): Editor {
     .use(listener)
     .use(documentChanges(documentEdited))
     .use(readOnlyGuard(() => props.readonly))
-    // BEFORE clipboard: its handlePaste must see a plain-text block first.
-    .use(plainTextBlockPaste)
+    // BEFORE clipboard: it owns the plain-text paste route (plainTextPaste.ts).
+    .use(plainTextPaste)
     .use(clipboard)
     .use(gapCursorPlugin)
     .use(trailing)

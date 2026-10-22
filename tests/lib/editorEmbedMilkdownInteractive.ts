@@ -106,3 +106,52 @@ export async function openAtEnd(page: Page, text: string): Promise<void> {
   await page.locator('.ProseMirror').click();
   await page.keyboard.press('ControlOrMeta+End');
 }
+
+/**
+ * Dispatches a paste carrying `data` (format -> string). Nothing in Playwright
+ * can put text or HTML on the OS clipboard from a `file://` page, so the event
+ * is a dispatched `ClipboardEvent` with a real `DataTransfer`; everything after
+ * it is ProseMirror's own paste.
+ *
+ * It first waits until ProseMirror's selection is the DOM's: a key like `End`
+ * moves only the DOM caret, which ProseMirror reads from an async
+ * `selectionchange`, so a paste dispatched straight after would land at the
+ * caret from before the key (see `withCaretObserved`).
+ */
+export async function pasteClipboardData(page: Page, data: Record<string, string>): Promise<void> {
+  await page.waitForFunction(() => {
+    const view = (
+      window as unknown as {
+        __futoProseMirrorView?: () => {
+          dom: Element;
+          state: { selection: { anchor: number; head: number } };
+          posAtDOM: (node: Node, offset: number) => number;
+        } | null;
+      }
+    ).__futoProseMirrorView?.();
+    const dom = document.getSelection();
+    if (!view || !dom?.anchorNode || !dom.focusNode || !view.dom.contains(dom.anchorNode)) {
+      return true;
+    }
+    const { selection } = view.state;
+    return (
+      selection.anchor === view.posAtDOM(dom.anchorNode, dom.anchorOffset) &&
+      selection.head === view.posAtDOM(dom.focusNode, dom.focusOffset)
+    );
+  });
+  await page.evaluate((formats) => {
+    const transfer = new DataTransfer();
+    for (const [format, value] of Object.entries(formats)) transfer.setData(format, value);
+    document
+      .querySelector('.ProseMirror')!
+      .dispatchEvent(
+        new ClipboardEvent('paste', { clipboardData: transfer, bubbles: true, cancelable: true }),
+      );
+  }, data);
+  await flushFrames(page);
+}
+
+/** A plain-text-only paste (`text/plain`, no `text/html`), as from a terminal or a code editor. */
+export function pastePlainText(page: Page, text: string): Promise<void> {
+  return pasteClipboardData(page, { 'text/plain': text });
+}

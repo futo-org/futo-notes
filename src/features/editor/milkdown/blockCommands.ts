@@ -4,11 +4,13 @@ import type { Node as ProseNode, ResolvedPos, Schema } from '@milkdown/kit/prose
 import { liftListItem, sinkListItem, wrapInList } from '@milkdown/kit/prose/schema-list';
 import {
   EditorState,
+  type Selection,
   TextSelection,
   type Command,
   type Transaction,
 } from '@milkdown/kit/prose/state';
 import { Mapping, type Step } from '@milkdown/kit/prose/transform';
+import { writtenContentEnd } from '@futo-notes/editor/milkdown-compat';
 import { onSelectedLines } from './paragraphLines';
 
 import {
@@ -242,9 +244,21 @@ interface BlockRun {
   format: BlockFormat;
 }
 
-/** Group adjacent formats so a selection creates one list rather than one per paragraph. */
+/**
+ * Group adjacent formats so a selection creates one list rather than one per paragraph.
+ *
+ * A selection that reaches past the note's written content (select-all, or a
+ * drag to the very end) stops where that content ends: the empty paragraph
+ * `@milkdown/plugin-trailing` parks after a final list or quote is never
+ * saved, so formatting it would write a bare `-`, `1.` or `#` the user never
+ * typed — and, as its own `none` run, it would toggle ON while the list beside
+ * it toggles off. A selection that is only that line (the caret on it) still
+ * formats it.
+ */
 function blockRuns(state: EditorState): BlockRun[] {
-  const { from, to } = state.selection;
+  const scope = selectionWithinWrittenContent(state);
+  if (!scope) return [];
+  const { from, to } = scope;
   const runs: BlockRun[] = [];
 
   state.doc.nodesBetween(from, to, (node, pos) => {
@@ -261,6 +275,48 @@ function blockRuns(state: EditorState): BlockRun[] {
   });
 
   return runs;
+}
+
+/**
+ * The selection a block format should act on: the user's own, unless it
+ * reaches past the note's written content (the reason `blockRuns` gives) —
+ * then a text selection over the written textblocks it covers, or null when it
+ * covers none. A selection that is only the unwritten tail is left alone.
+ */
+export function selectionWithinWrittenContent(state: EditorState): Selection | null {
+  const { from, to } = state.selection;
+  const writtenEnd = writtenContentEnd(state.doc);
+  if (from >= writtenEnd || to <= writtenEnd) return state.selection;
+
+  let first = -1;
+  let last = -1;
+  state.doc.nodesBetween(from, writtenEnd, (node, pos) => {
+    if (!node.isTextblock) return true;
+    if (first === -1) first = Math.max(from, pos + 1);
+    last = pos + 1 + node.content.size;
+    return false;
+  });
+  return first === -1 ? null : TextSelection.create(state.doc, first, last);
+}
+
+/**
+ * `command`, run on `selectionWithinWrittenContent`, for a command that reads
+ * the selection itself — the preset's Code block is a bare `setBlockType` that
+ * would turn the parked trailing paragraph into an empty fence. The user's own
+ * selection is mapped forward, not replaced.
+ */
+export function withinWrittenContent(command: Command): Command {
+  return (state, dispatch) => {
+    const scope = selectionWithinWrittenContent(state);
+    if (scope === state.selection) return command(state, dispatch);
+    if (!scope) return false;
+
+    const scratch = scratchState(state);
+    const scoped = scratch.apply(scratch.tr.setSelection(scope));
+    const steps: Step[] = [];
+    if (!command(scoped, (tr) => steps.push(...tr.steps))) return false;
+    return dispatchSteps(state, dispatch, steps);
+  };
 }
 
 /**
@@ -366,7 +422,7 @@ export function inIndentableContainer(at: ResolvedPos): boolean {
 /**
  * Whether any textblock the selection touches is a code block — the guard the
  * presets' own block-type key chords need (keyboardParity.ts
- * `handleBlockTypeChordInCode`): unlike the commands above they are bare
+ * `handleBlockTypeChord`): unlike the commands above they are bare
  * `setBlockType`/`wrapIn`s that would rewrite the fence.
  */
 export function selectionTouchesCode(state: EditorState): boolean {

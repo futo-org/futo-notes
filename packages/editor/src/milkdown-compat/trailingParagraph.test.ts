@@ -5,6 +5,7 @@ import {
   endsInUnwrittenBlank,
   endsWithUnwrittenLine,
   hasSurplusTrailingEmptyParagraphs,
+  writtenContentEnd,
 } from './trailingParagraph';
 
 /** The preset's node names, which these checks match on. */
@@ -62,5 +63,23 @@ describe('endsInUnwrittenBlank', () => {
     expect(endsInUnwrittenBlank(doc(p('text'), p()))).toBe(true);
     expect(endsInUnwrittenBlank(doc(p('hey\n')))).toBe(true);
     expect(endsInUnwrittenBlank(doc(p('hey'), hr(), p()))).toBe(false);
+  });
+});
+
+describe('writtenContentEnd', () => {
+  it('stops before the trailing empty paragraphs a save does not write', () => {
+    // hr is 1, each empty paragraph 2.
+    expect(writtenContentEnd(doc(hr(), p()))).toBe(1);
+    expect(writtenContentEnd(doc(p('ab'), p(), p()))).toBe(4);
+  });
+
+  it('is the whole document when its last block is written', () => {
+    expect(writtenContentEnd(doc(p('ab')))).toBe(4);
+    expect(writtenContentEnd(doc(p(), p('ab')))).toBe(6);
+    expect(writtenContentEnd(doc(p('one\n')))).toBe(6);
+  });
+
+  it('is 0 for a document holding only empty paragraphs', () => {
+    expect(writtenContentEnd(doc(p()))).toBe(0);
   });
 });

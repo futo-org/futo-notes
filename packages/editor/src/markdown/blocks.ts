@@ -145,10 +145,9 @@ function writeTable(node: NodeJson, sites: Sites, nested: boolean): Line[] {
             : '---';
     delimiter.push(` ${spelling} |`);
   }
-  // A row with no cells is the schema's filler for a table with no body rows
-  // (`table_header_row table_row+`); the reread fills it in again.
-  const rows = body.filter((rowNode) => (rowNode.content?.length ?? 0) > 0);
-  return [row(header), delimiter, ...rows.map(row)];
+  // The schema's filler row for a table with no body rows is already gone
+  // (`isUnwrittenRow`, ./normalize.ts); the reread fills it in again.
+  return [row(header), delimiter, ...body.map(row)];
 }
 
 /**

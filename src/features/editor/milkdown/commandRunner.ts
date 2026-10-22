@@ -3,6 +3,7 @@ import type { Command } from '@milkdown/kit/prose/state';
 import type { EditorView as ProseView } from '@milkdown/kit/prose/view';
 import { callCommand } from '@milkdown/kit/utils';
 
+import { withinWrittenContent } from './blockCommands';
 import { editorView } from './caretContext';
 import { foldCommandInto } from './foldCommand';
 import { onSelectedLines } from './paragraphLines';
@@ -63,14 +64,22 @@ export function createCommandRunner(getEditor: () => Editor | null) {
       command(view.state, view.dispatch.bind(view));
       view.focus();
     },
-    /** Like `run`, landing on the selected lines only (paragraphLines.ts `onSelectedLines`). */
+    /**
+     * Like `run`, landing on the selected lines only (paragraphLines.ts
+     * `onSelectedLines`) and never past the note's written content
+     * (blockCommands.ts `withinWrittenContent`).
+     */
     runOnLines<T>(command: { key: CmdKey<T> }, payload?: T): void {
       const editor = getEditor();
       const view = editorView(editor);
       if (!editor || !view) return;
       editor.action((ctx) => {
         const commandFn = ctx.get(commandsCtx).get(command.key)(payload) as Command;
-        onSelectedLines(commandFn)(view.state, view.dispatch.bind(view), view);
+        onSelectedLines(withinWrittenContent(commandFn))(
+          view.state,
+          view.dispatch.bind(view),
+          view,
+        );
       });
       view.focus();
     },

@@ -112,6 +112,21 @@ test('a match runs across a line break inside a paragraph, as across a soft wrap
   expect(await lastFindReport(page)).toMatchObject({ current: 1, total: 1, label: '1 of 1' });
 });
 
+// toLowerCase folds a capital sigma by what follows it (ς at a word end, σ
+// before a letter), so the query `ΟΔΟΣ` must still find the `ΟΔΟΣ` in `ΟΔΟΣΑ`.
+test('an upper-case Greek query ending in sigma finds it inside a longer word', async ({
+  page,
+}) => {
+  await seed(page, 'ΟΔΟΣΑ');
+  await page.evaluate(() => {
+    const api = (window as unknown as FakeHostWindow).FutoEditor;
+    api.openFind();
+    api.setFindQuery('ΟΔΟΣ');
+  });
+  expect(await lastFindReport(page)).toMatchObject({ current: 1, total: 1, label: '1 of 1' });
+  await expect(page.locator(CURRENT)).toHaveText('ΟΔΟΣ');
+});
+
 test('editing while find is open recounts without moving the caret', async ({ page }) => {
   await seed(page, 'cat dog');
   await page.evaluate(() => {
