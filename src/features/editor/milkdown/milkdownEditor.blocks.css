@@ -143,14 +143,6 @@
   user-select: none;
 }
 
-.futo-milkdown .ProseMirror .futo-task-checkbox input {
-  width: 17px;
-  height: 17px;
-  margin: 0;
-  cursor: pointer;
-  accent-color: var(--color-primary, #f26b1f);
-}
-
 /* `#tag` decoration (tagDecorations.ts). Color only — no box, no
  * background: the document holds a tag as plain text, so its glyphs must stay
  * on the text baseline at the text's own advance width or typing inside a tag

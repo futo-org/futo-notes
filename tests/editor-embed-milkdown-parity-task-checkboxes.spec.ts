@@ -1,7 +1,7 @@
 // Part of the Milkdown parity suite: what it covers and why is described in
 // editor-embed-milkdown-parity.spec.ts.
 
-import { expect } from '@playwright/test';
+import { expect, type CDPSession, type Page } from '@playwright/test';
 import { CHECKBOX_SIZE_PX } from '../src/features/editor/milkdown/taskCheckbox';
 import {
   clearMessages,
@@ -164,6 +164,98 @@ test('the caret in an empty task item sits on the line, not above it', async ({ 
   });
   expect(geometry.display).toBe('inline');
   expect(geometry.offset).toBeGreaterThan(geometry.height * 0.3);
+});
+
+/*
+ * A phone keyboard moves the caret by offsets into the editable's text: a
+ * space-bar swipe, and the caret it leaves after deleting. Chromium's IME path
+ * counted a light-DOM checkbox `<input>` as one character, so the offset at a
+ * task's text start resolved beside the input, inside the uneditable widget.
+ * Blink dropped the selection there, and on Android the editor lost focus and
+ * the keyboard closed (#69 swipe, #71 backspace). Desktop Chromium takes the same
+ * offset path through CDP and shows the dropped selection.
+ */
+type Caret = { live: boolean; text: string | null; offset: number; item: number };
+
+function caret(page: Page): Promise<Caret> {
+  return page.evaluate(() => {
+    const selection = getSelection()!;
+    const anchor = selection.anchorNode;
+    const items = [...document.querySelectorAll('.ProseMirror li')];
+    return {
+      live: selection.rangeCount === 1 && !!document.activeElement?.contains(anchor),
+      text: anchor?.nodeType === Node.TEXT_NODE ? anchor.textContent : null,
+      offset: selection.anchorOffset,
+      item: items.findIndex((li) => li.contains(anchor)),
+    };
+  });
+}
+
+/** The IME replacing text offsets `from`..`to` with nothing; an empty range moves the caret. */
+async function imeReplace(page: Page, cdp: CDPSession, from: number, to = from): Promise<void> {
+  await cdp.send('Input.imeSetComposition', {
+    text: '',
+    selectionStart: 0,
+    selectionEnd: 0,
+    replacementStart: from,
+    replacementEnd: to,
+  });
+  await flushFrames(page);
+}
+
+/**
+ * The IME offset of `offset` characters into the text run `text`, found by
+ * trying each from a caret parked in the note's first line, so a try that
+ * does not move the caret cannot pass for one that did.
+ */
+async function imeOffsetOf(page: Page, cdp: CDPSession, text: string, offset: number) {
+  // A real click first: CDP's IME calls wait on a page that has input focus.
+  await page.getByText(text, { exact: true }).click();
+  for (let at = 0; at < 40; at++) {
+    await page.evaluate(() => {
+      (window as unknown as FakeHostWindow).FutoEditor.focus();
+      const first = document.querySelector('.ProseMirror p')!.firstChild!;
+      getSelection()!.collapse(first, 0);
+    });
+    await flushFrames(page);
+    await imeReplace(page, cdp, at);
+    const now = await caret(page);
+    if (now.text === text && now.offset === offset) return at;
+  }
+  throw new Error(`no IME offset puts the caret at ${text}:${offset}`);
+}
+
+test('an IME caret walk crosses a task text start and keeps the caret', async ({ page }) => {
+  await open(page, 'Shopping\n\n- [ ] milk\n- [ ] eggs\n');
+  const cdp = await page.context().newCDPSession(page);
+  const end = await imeOffsetOf(page, cdp, 'eggs', 4);
+
+  const walk: Caret[] = [];
+  for (let step = 1; step <= 5; step++) {
+    await imeReplace(page, cdp, end - step);
+    walk.push(await caret(page));
+  }
+
+  expect(walk.map(({ live, text, offset }) => [live, text, offset])).toEqual([
+    [true, 'eggs', 3],
+    [true, 'eggs', 2],
+    [true, 'eggs', 1],
+    [true, 'eggs', 0],
+    [true, 'milk', 4],
+  ]);
+});
+
+test('an IME backspace that empties a task keeps the caret in it', async ({ page }) => {
+  await open(page, 'Shopping\n\n- [ ] milk\n- [ ] e\n');
+  const cdp = await page.context().newCDPSession(page);
+  const afterE = await imeOffsetOf(page, cdp, 'e', 1);
+
+  await imeReplace(page, cdp, afterE - 1, afterE);
+  await cdp.send('Input.insertText', { text: '' });
+  await flushFrames(page);
+
+  expect(await getContent(page)).toBe('Shopping\n\n- [ ] milk\n- [ ]\n');
+  expect(await caret(page)).toMatchObject({ live: true, item: 1 });
 });
 
 test('clicking the item text places the caret instead of toggling', async ({ page }) => {

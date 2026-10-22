@@ -88,7 +88,17 @@ function renderCheckbox(checked: boolean, view: ProseView, getPos: () => number 
   // Not a tab stop: Tab in a list is the toolbar's indent, and a checkbox that
   // steals it would break that before the user ever reached the box.
   input.tabIndex = -1;
-  wrapper.appendChild(input);
+  // Styled inline: the editor's stylesheet does not reach into the shadow root.
+  input.style.cssText =
+    'width:17px;height:17px;margin:0;cursor:pointer;accent-color:var(--color-primary, #f26b1f)';
+  // In the wrapper's shadow root, not its light DOM. Blink's IME text counts a
+  // light-DOM `<input>` as one character, and an IME caret move to the task
+  // text's start resolves to the uneditable spot beside it: Blink drops the
+  // selection and focus, and Android takes the keyboard down. That is what an
+  // IME backspace emptying a task (#71) and a space-bar swipe to its start
+  // (#69) both did. In the shadow root the editable's text runs straight from
+  // the previous line into the task text.
+  wrapper.attachShadow({ mode: 'open' }).appendChild(input);
 
   // The one line that keeps the phone keyboard down: the browser focuses the
   // editable and places a caret on mousedown, long before click fires.

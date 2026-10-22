@@ -111,15 +111,16 @@ describe('the rendered checkbox', () => {
   }
 
   it('is a real checkbox input reflecting the item state', () => {
-    const on = render(doc(list(item(true, 'done')))).querySelector('input');
-    const off = render(doc(list(item(false, 'todo')))).querySelector('input');
+    const on = render(doc(list(item(true, 'done')))).shadowRoot?.querySelector('input');
+    const off = render(doc(list(item(false, 'todo')))).shadowRoot?.querySelector('input');
     expect(on?.type).toBe('checkbox');
     expect(on?.checked).toBe(true);
     expect(off?.checked).toBe(false);
   });
 
   it('is not a tab stop', () => {
-    expect(render(doc(list(item(false, 'todo')))).querySelector('input')?.tabIndex).toBe(-1);
+    const input = render(doc(list(item(false, 'todo')))).shadowRoot?.querySelector('input');
+    expect(input?.tabIndex).toBe(-1);
   });
 
   it('is not editable, so the caret cannot land in it', () => {
