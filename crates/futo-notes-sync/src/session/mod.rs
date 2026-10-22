@@ -1,3 +1,4 @@
+use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -46,10 +47,18 @@ pub struct HostedCredentials {
     pub vault_key: [u8; 32],
 }
 
+/// The running live task, if any, and how many stops this session has seen.
+/// A start installs its task only if no stop arrived after it was asked for.
+#[derive(Default)]
+struct LiveSlot {
+    task: Option<LiveTask>,
+    stops: u64,
+}
+
 pub struct SyncSession {
     state: Arc<Mutex<Option<ConnectedState>>>,
     cycle_gate: Arc<Mutex<()>>,
-    live: std::sync::Mutex<Option<LiveTask>>,
+    live: Arc<std::sync::Mutex<LiveSlot>>,
     journal: std::sync::Mutex<Journal>,
     clients: Result<HttpClients, HttpError>,
 }
@@ -59,7 +68,7 @@ impl Default for SyncSession {
         Self {
             state: Arc::default(),
             cycle_gate: Arc::default(),
-            live: std::sync::Mutex::default(),
+            live: Arc::default(),
             journal: std::sync::Mutex::default(),
             clients: HttpClients::new(),
         }
@@ -200,56 +209,80 @@ impl SyncSession {
         checkpoint::demote(root).map_err(SyncErrorKind::Io)
     }
 
-    pub async fn start_live(
+    /// Starts the live task. The request is taken when this is called, not
+    /// when the returned future runs: a `stop_live` or `stop_live_and_wait`
+    /// called in between voids it, and it then resolves `Ok` without starting
+    /// anything. A shell that hands the future to another task (the FFI runs
+    /// it on the runtime) can therefore stop live sync at any point after
+    /// asking for it, and the stop wins (#278).
+    pub fn start_live(
         &self,
         root: PathBuf,
         listener: Arc<dyn SyncSessionListener>,
         pre_write: Arc<PreWrite>,
-    ) -> Result<(), SyncErrorKind> {
-        if !self.is_connected().await {
-            return Err(SyncErrorKind::NotConnected);
+    ) -> impl Future<Output = Result<(), SyncErrorKind>> + Send + 'static {
+        let asked_after = self.live.lock().map(|live| live.stops).ok();
+        let live = Arc::clone(&self.live);
+        let state = Arc::clone(&self.state);
+        let cycle_gate = Arc::clone(&self.cycle_gate);
+        let journal = self.journal_handle();
+        let clients = self.clients().cloned();
+        async move {
+            if state.lock().await.is_none() {
+                return Err(SyncErrorKind::NotConnected);
+            }
+            let clients = clients?;
+            let mut live = live.lock().map_err(|_| live_lock_poisoned())?;
+            if Some(live.stops) != asked_after {
+                return Ok(());
+            }
+            if let Some(task) = live.task.take() {
+                task.abort();
+            }
+            live.task = Some(live::spawn_live_task(
+                state, cycle_gate, root, listener, pre_write, journal, clients,
+            ));
+            Ok(())
         }
-        self.stop_live();
-        let mut live = self
-            .live
-            .lock()
-            .map_err(|_| SyncErrorKind::Io("live task lock poisoned".into()))?;
-        *live = Some(live::spawn_live_task(
-            Arc::clone(&self.state),
-            Arc::clone(&self.cycle_gate),
-            root,
-            listener,
-            pre_write,
-            self.journal_handle(),
-            self.clients()?.clone(),
-        ));
-        Ok(())
     }
 
     pub fn note_changed(&self) {
         if let Ok(live) = self.live.lock() {
-            if let Some(task) = live.as_ref() {
+            if let Some(task) = live.task.as_ref() {
                 task.notify_note_changed();
             }
         }
     }
 
     pub fn stop_live(&self) {
-        if let Ok(mut live) = self.live.lock() {
-            if let Some(task) = live.take() {
-                task.abort();
-            }
+        if let Some(task) = self.end_live() {
+            task.abort();
         }
     }
 
     /// Stop the live task and wait until any cycle already holding the vault is done.
-    pub async fn stop_live_and_wait(&self) {
-        let live_task = self.live.lock().ok().and_then(|mut live| live.take());
-        if let Some(task) = live_task {
-            task.stop_and_wait().await;
+    /// Like `stop_live`, the stop takes effect when this is called.
+    pub fn stop_live_and_wait(&self) -> impl Future<Output = ()> + Send + 'static {
+        let live_task = self.end_live();
+        let cycle_gate = Arc::clone(&self.cycle_gate);
+        async move {
+            if let Some(task) = live_task {
+                task.stop_and_wait().await;
+            }
+            let _gate = cycle_gate.lock().await;
         }
-        let _gate = self.cycle_gate.lock().await;
     }
+
+    /// Takes the live task and voids every start asked for before now.
+    fn end_live(&self) -> Option<LiveTask> {
+        let mut live = self.live.lock().ok()?;
+        live.stops = live.stops.wrapping_add(1);
+        live.task.take()
+    }
+}
+
+fn live_lock_poisoned() -> SyncErrorKind {
+    SyncErrorKind::Io("live task lock poisoned".into())
 }
 
 #[cfg(test)]
@@ -343,6 +376,93 @@ mod tests {
 
         let _held = session.state.lock().await;
         assert!(session.status().is_none());
+    }
+
+    struct SilentListener;
+
+    impl SyncSessionListener for SilentListener {
+        fn on_synced(&self, _summary: SyncSummary) {}
+        fn on_connected(&self) {}
+        fn on_error(&self, _message: String) {}
+        fn on_stopped(&self) {}
+    }
+
+    fn start_args() -> (PathBuf, Arc<dyn SyncSessionListener>, Arc<PreWrite>) {
+        (
+            std::env::temp_dir().join("sync-live-never-written"),
+            Arc::new(SilentListener),
+            Arc::new(|_: &str| {}),
+        )
+    }
+
+    fn is_live(session: &SyncSession) -> bool {
+        session.live.lock().unwrap().task.is_some()
+    }
+
+    /// #278: a shell that backgrounds the app between asking for live sync and
+    /// that request being carried out must not get live sync anyway.
+    #[tokio::test]
+    async fn stop_live_voids_a_start_live_that_has_not_run_yet() {
+        let session = SyncSession::new();
+        *session.state.lock().await = Some(connected());
+        let (root, listener, pre_write) = start_args();
+
+        let start = session.start_live(root, listener, pre_write);
+        session.stop_live();
+        start.await.unwrap();
+
+        assert!(!is_live(&session));
+    }
+
+    #[tokio::test]
+    async fn stop_live_and_wait_voids_a_start_live_that_has_not_run_yet() {
+        let session = SyncSession::new();
+        *session.state.lock().await = Some(connected());
+        let (root, listener, pre_write) = start_args();
+
+        let start = session.start_live(root, listener, pre_write);
+        session.stop_live_and_wait().await;
+        start.await.unwrap();
+
+        assert!(!is_live(&session));
+    }
+
+    /// The same race inside the body: the connected check awaits the state
+    /// lock, and a stop can land while it is parked there.
+    #[tokio::test]
+    async fn stop_live_voids_a_start_live_parked_on_the_connected_check() {
+        let session = Arc::new(SyncSession::new());
+        *session.state.lock().await = Some(connected());
+        let held = session.state.lock().await;
+        let start = {
+            let session = Arc::clone(&session);
+            tokio::spawn(async move {
+                let (root, listener, pre_write) = start_args();
+                session.start_live(root, listener, pre_write).await
+            })
+        };
+
+        tokio::task::yield_now().await;
+        assert!(!start.is_finished());
+        session.stop_live();
+        drop(held);
+        start.await.unwrap().unwrap();
+
+        assert!(!is_live(&session));
+    }
+
+    /// A stop only voids starts asked for before it: a later start still runs.
+    #[tokio::test]
+    async fn start_live_after_stop_live_still_starts() {
+        let session = SyncSession::new();
+        *session.state.lock().await = Some(connected());
+        session.stop_live();
+        let (root, listener, pre_write) = start_args();
+
+        session.start_live(root, listener, pre_write).await.unwrap();
+
+        assert!(is_live(&session));
+        session.stop_live();
     }
 
     #[tokio::test]
