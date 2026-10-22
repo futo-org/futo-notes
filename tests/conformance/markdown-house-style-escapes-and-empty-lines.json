@@ -37,9 +37,9 @@
       "expected": "AT&T and \\&copy;\n"
     },
     {
-      "name": "spaces from references at a line's start are not written: the parser drops line-start whitespace",
+      "name": "spaces from references at a line's start are kept, the first still a reference: the parser drops raw line-start whitespace",
       "source": "&#x20;&#x20;a\n\n&#x20;&#x20;&#x20;&#x20;not code\n\nb\\\n&#x9;c",
-      "expected": "a\n\nnot code\n\nb\\\nc\n"
+      "expected": "&#x20; a\n\n&#x20;   not code\n\nb\\\n&#x9;c\n"
     },
     {
       "story": 7,

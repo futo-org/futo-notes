@@ -36,16 +36,26 @@ hand-reviewed goldens, one or more per line below)
   if, a parse says the two `*` runs would merge.
 - Whitespace at the end of a line is not written: the parser drops it on every
   read, so writing it would only make the next save differ.
-- Whitespace at the start of a line of a paragraph, heading or table cell is
-  not written either, also where formatting opens the line (`**  a**` is
-  written `**a**`), and never as a character reference (`&#x20;`, `&#x9;`).
-  The parser drops it on every read, so it is not content (the census
-  content-loss gate does not count it): written as typed, it would read back
-  without it and the next save would differ. Inside a
-  link's text or a code span it is kept, and so is whitespace after a task
-  item's `[ ] `, which is not a line's start in the file: the parser keeps it
-  there (`[ a](u)`, `- [ ]  x`). Code, HTML and front matter lines keep
-  theirs too.
+- Whitespace typed at the start of a line of a paragraph — its first line and
+  each line after a line break, spaces and tabs, also where formatting opens
+  the line — is kept: its first character is written as a character
+  reference (`&#x20;`, `&#x9;`) and the rest as typed (`one`, Enter, `  two`
+  is written `one\n&#x20; two`; `**  a**` is written `**&#x20; a**`). The
+  parser drops raw whitespace from a line's start on every read but keeps a
+  reference, and after one the rest of the run is no longer at the line's
+  start, so it reopens as typed, in other CommonMark apps too, and four
+  spaces stay text instead of opening indented code (`&#x20;   four`). Raw
+  whitespace at a line's start in a file is not content (the parser drops
+  it), so a save never adds a reference for it. →
+  tests/editor-embed-milkdown-interactive-leading-whitespace.spec.ts
+- Whitespace at the start of a heading or a table cell is not written, also
+  where formatting opens it (`# &#x20;h` is written `# h`, `| **&#x20;y** |`
+  is written `| **y** |`), and never as a character reference. The parser drops it on every read, so it is not
+  content (the census content-loss gate does not count it).
+- Inside a link's text or a code span whitespace at a line's start is written
+  as typed, and so is whitespace after a task item's `[ ] `, which is not a
+  line's start in the file: the parser keeps it there (`[ a](u)`,
+  `- [ ]  x`). Code, HTML and front matter lines keep theirs too.
 - A line break at the very end of a paragraph or heading is not written, for
   the same reason.
 
