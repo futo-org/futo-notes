@@ -86,7 +86,12 @@ export function createNoteTitleController(options: NoteTitleControllerOptions) {
 
   function selectAll(input: HTMLTextAreaElement): void {
     input.setSelectionRange(0, input.value.length);
-    requestAnimationFrame(() => input.setSelectionRange(0, input.value.length));
+    const untouched = input.value;
+    // A keystroke inside that frame already replaced the selection; selecting
+    // it again would let the next keystroke erase it.
+    requestAnimationFrame(() => {
+      if (input.value === untouched) input.setSelectionRange(0, input.value.length);
+    });
   }
 
   function handleFocus(event: FocusEvent): void {

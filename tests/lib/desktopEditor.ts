@@ -34,12 +34,27 @@ export async function waitForEditor(page: Page): Promise<void> {
   );
 }
 
+/**
+ * A new note focuses its editor one animation frame after it mounts
+ * (`createNoteLoader` finishNewNote). Until that frame runs, focus a spec gives
+ * the title is taken away mid-typing: `test` became title `t` and body `est`,
+ * often enough on a loaded runner to fail CI.
+ */
+async function waitForNewNoteFocus(page: Page): Promise<void> {
+  await page.waitForFunction(
+    (selector) => document.activeElement?.closest(selector) != null,
+    EDITOR,
+    { timeout: 10_000 },
+  );
+}
+
 export async function openNewNote(page: Page): Promise<void> {
   await page.goto('/');
   await page.waitForLoadState('domcontentloaded');
   await page.goto('/#/note/new');
   await page.waitForLoadState('domcontentloaded');
   await waitForEditor(page);
+  await waitForNewNoteFocus(page);
 }
 
 /** The note's markdown, exactly as the editor would hand it to a save. */
@@ -80,6 +95,7 @@ export async function openNewNoteInPlace(page: Page): Promise<void> {
     window.location.hash = '#/note/new';
   });
   await waitForEditor(page);
+  await waitForNewNoteFocus(page);
 }
 
 /** Replace the whole note, as one undoable edit. */
