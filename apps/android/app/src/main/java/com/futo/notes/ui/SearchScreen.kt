@@ -8,12 +8,14 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
@@ -29,6 +31,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -37,6 +40,8 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.unit.dp
 import com.futo.notes.NoteItem
 import com.futo.notes.NotesStore
+import com.futo.notes.puppet.PuppetListRows
+import com.futo.notes.puppet.noteRowTag
 import com.futo.notes.localization.LocalLocalization
 import com.futo.notes.ui.components.MicroLabel
 import com.futo.notes.ui.components.NoteCard
@@ -56,18 +61,26 @@ import kotlinx.coroutines.flow.debounce
 @Composable
 fun SearchScreen(
     store: NotesStore,
+    /** Hoisted to the navigator so the debug puppet listener reads and drives it. */
+    query: String,
+    onQueryChange: (String) -> Unit,
     onOpenNote: (String) -> Unit,
     onBack: () -> Unit,
 ) {
     val c = FutoTheme.colors
     val localization = LocalLocalization.current
-    var query by remember { mutableStateOf("") }
     var results by remember { mutableStateOf<List<NoteItem>>(emptyList()) }
     val q = query.trim()
     val recent = store.notes.take(8)
+    val listState = rememberLazyListState()
+    // Both lists open with their MicroLabel item.
+    PuppetListRows(listState, store, leadingItems = 1) {
+        (if (q.isBlank()) recent else results).map { noteRowTag(it.id) }
+    }
 
+    val currentQuery = rememberUpdatedState(query)
     LaunchedEffect(Unit) {
-        snapshotFlow { query.trim() to store.notes }
+        snapshotFlow { currentQuery.value.trim() to store.notes }
             .debounce(100)
             .collectLatest { (raw, notes) ->
                 if (raw.isBlank()) {
@@ -113,7 +126,7 @@ fun SearchScreen(
                         }
                         BasicTextField(
                             value = query,
-                            onValueChange = { query = it },
+                            onValueChange = onQueryChange,
                             singleLine = true,
                             textStyle = FutoType.body.copy(color = c.textPrimary),
                             cursorBrush = SolidColor(c.accent),
@@ -125,7 +138,7 @@ fun SearchScreen(
                             Icons.Filled.Close,
                             contentDescription = localization.localizedText("search.clearAccessibilityLabel"),
                             tint = c.textMuted,
-                            modifier = Modifier.size(18.dp).clickable { query = "" },
+                            modifier = Modifier.size(18.dp).clickable { onQueryChange("") },
                         )
                     }
                 }
@@ -134,6 +147,10 @@ fun SearchScreen(
         }
 
         LazyColumn(
+            // The window runs edge to edge, under the keyboard too: without this the list's
+            // last results sit behind the keyboard and no scroll brings them out.
+            modifier = Modifier.imePadding(),
+            state = listState,
             contentPadding = PaddingValues(16.dp, 6.dp, 16.dp, 32.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {

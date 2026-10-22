@@ -24,11 +24,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.futo.notes.NoteItem
+import com.futo.notes.puppet.noteRowTag
 import com.futo.notes.localization.LocalLocalization
 import com.futo.notes.ui.theme.FutoRadius
 import com.futo.notes.ui.theme.FutoTheme
@@ -75,7 +77,9 @@ fun NoteCard(
                 indication = LocalIndication.current,
                 onClick = onClick,
                 onLongClick = onLongClick,
-            ),
+            )
+            // On the clickable node, so the merged row carries its text and its tag.
+            .testTag(noteRowTag(note.id)),
     ) {
         Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 15.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {

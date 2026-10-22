@@ -44,12 +44,23 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.unit.dp
 import com.futo.notes.BuildConfig
 import com.futo.notes.NotesStore
+import com.futo.notes.puppet.PuppetListRows
+import com.futo.notes.puppet.PuppetVerb
+import com.futo.notes.puppet.PuppetVerbRefusal
+import com.futo.notes.puppet.PuppetVerbScope
+import com.futo.notes.puppet.puppetMenuFor
+import com.futo.notes.puppet.folderRowTag
+import com.futo.notes.puppet.noteRowTag
+import com.futo.notes.puppet.rowRefusal
 import com.futo.notes.localization.LocalLocalization
 import com.futo.notes.localization.LocalizedMessage
 import com.futo.notes.ui.components.FutoMenu
 import com.futo.notes.ui.components.NoteSortMenu
 import com.futo.notes.ui.components.NoteCard
 import com.futo.notes.ui.components.TopBar
+import com.futo.notes.ui.components.createFolderShortcut
+import com.futo.notes.ui.components.pickFolderShortcut
+import com.futo.notes.ui.components.renameFolderShortcut
 import com.futo.notes.ui.theme.FutoTheme
 import com.futo.notes.ui.theme.FutoType
 
@@ -82,7 +93,9 @@ internal fun NoteListScreen(
     val isRoot = folder.isEmpty()
 
     // Row actions [list.md]: long-press targets, hoisted so the dialogs/sheet
-    // live outside the LazyColumn items.
+    // live outside the LazyColumn items. `menuRow` is the row whose long-press menu is
+    // open (its tag, ListRows.kt): one at a time, as a menu takes every touch.
+    var menuRow by remember { mutableStateOf<String?>(null) }
     var deleteTarget by remember { mutableStateOf<String?>(null) }
     var moveTarget by remember { mutableStateOf<String?>(null) }
     var newFolderDialog by remember { mutableStateOf(false) }
@@ -103,6 +116,111 @@ internal fun NoteListScreen(
     // Compiled out of release builds.
     if (BuildConfig.DEBUG) LaunchedEffect(Unit) { withFrameNanos { CloseLedger.end() } }
     val title = if (isRoot) localization.localizedText("notes.heading") else folder.substringAfterLast('/')
+    val rows = { subfolders.map(::folderRowTag) + notes.map { noteRowTag(it.id) } }
+    PuppetListRows(listState, store, rows = rows)
+
+    // The FAB, the top bar's buttons, and a row's long-press, which opens its menu: only
+    // on a row of this list, as a finger can only hold a row it can see.
+    PuppetVerbScope {
+        fun openMenu(tag: String): Map<String, Any?> {
+            rowRefusal(tag, rows(), store.notes, store.folders)?.let { throw it }
+            menuRow = tag
+            return emptyMap()
+        }
+        listOf(
+            PuppetVerb("CreateNote", controls = listOf("notes.newNote")) {
+                val id = createNote(store, folder, listState, scope, context, localization, onCreate).await()
+                    ?: throw PuppetVerbRefusal(500, "the store refused the create")
+                mapOf("noteId" to id)
+            },
+            PuppetVerb(
+                "OpenCreateFolderDialog",
+                optional = listOf("name"),
+                controls = listOf("folders.newFolder"),
+                shortcuts = createFolderShortcut,
+            ) {
+                newFolderDialog = true
+            },
+            PuppetVerb(
+                "OpenNoteContextMenu",
+                required = listOf("noteId"),
+                optional = listOf("item"),
+                shortcuts = mapOf("item" to listOf("\$" to emptyMap())),
+            ) { arguments -> openMenu(noteRowTag(arguments.getString("noteId"))) },
+            PuppetVerb(
+                "OpenFolderContextMenu",
+                required = listOf("path"),
+                optional = listOf("item"),
+                shortcuts = mapOf("item" to listOf("\$" to emptyMap())),
+            ) { arguments -> openMenu(folderRowTag(arguments.getString("path"))) },
+            PuppetVerb("OpenSearch", controls = listOf("search.heading")) { onOpenSearch() },
+            PuppetVerb("OpenSettings", controls = listOf("settings.heading")) { onOpenSettings() },
+        )
+    }
+    // A row's open menu: a popup that takes every touch, so its items, acting on that row,
+    // are all a person can reach. A Delete asks first, in the dialog it opens, which its own
+    // ConfirmDialog or DismissDialog answers (ConfirmDialog.kt's; `answer` is the CLI pressing one).
+    PuppetVerbScope(modal = true) {
+        val row = menuRow?.takeIf { it in rows() } ?: return@PuppetVerbScope emptyList()
+        val name = row.substringAfter(':')
+        val close = PuppetVerb("CloseContextMenu") {
+            menuRow = null
+        }
+        if (row.startsWith("note:")) {
+            listOf(
+                PuppetVerb(
+                    "MoveNoteToFolder",
+                    optional = listOf("targetPath"),
+                    controls = listOf("notes.actions.moveToFolderEllipsis"),
+                    shortcuts = pickFolderShortcut,
+                ) {
+                    menuRow = null
+                    moveTarget = name
+                },
+                PuppetVerb(
+                    "DeleteNote",
+                    optional = listOf("answer"),
+                    controls = listOf("common.actions.delete"),
+                ) {
+                    menuRow = null
+                    deleteTarget = name
+                    mapOf("noteId" to name)
+                },
+                close,
+            )
+        } else {
+            listOf(
+                PuppetVerb(
+                    "RenameFolder",
+                    optional = listOf("name"),
+                    controls = listOf("common.actions.rename"),
+                    shortcuts = renameFolderShortcut,
+                ) {
+                    menuRow = null
+                    renameFolderTarget = name
+                },
+                PuppetVerb(
+                    "MoveFolderToFolder",
+                    optional = listOf("targetPath"),
+                    controls = listOf("folders.actions.moveToFolderEllipsis"),
+                    shortcuts = pickFolderShortcut,
+                ) {
+                    menuRow = null
+                    moveFolderTarget = name
+                },
+                PuppetVerb(
+                    "DeleteFolder",
+                    optional = listOf("answer"),
+                    controls = listOf("folders.actions.deleteFolder"),
+                ) {
+                    menuRow = null
+                    confirmDeleteFolder = name
+                    mapOf("path" to name)
+                },
+                close,
+            )
+        }
+    }
 
     Scaffold(
         containerColor = c.surface,
@@ -190,23 +308,26 @@ internal fun NoteListScreen(
                 // arrives alphabetical; notes keep engine order verbatim
                 // (ADR-0001 — no shell comparator).
                 items(subfolders, key = { "folder:$it" }) { child ->
-                    var menu by remember { mutableStateOf(false) }
                     Box {
                         FolderCard(
                             path = child,
                             onClick = { onOpenFolder(child) },
-                            onLongClick = { menu = true },
+                            onLongClick = { menuRow = folderRowTag(child) },
                         )
-                        FutoMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                        FutoMenu(
+                            expanded = menuRow == folderRowTag(child),
+                            onDismissRequest = { menuRow = null },
+                            modifier = Modifier.puppetMenuFor(folderRowTag(child)),
+                        ) {
                             DropdownMenuItem(
                                 text = { Text(localization.localizedText("common.actions.rename")) },
                                 leadingIcon = { Icon(Icons.Filled.Edit, contentDescription = null, tint = c.textSecondary) },
-                                onClick = { menu = false; renameFolderTarget = child },
+                                onClick = { menuRow = null; renameFolderTarget = child },
                             )
                             DropdownMenuItem(
                                 text = { Text(localization.localizedText("folders.actions.moveToFolderEllipsis")) },
                                 leadingIcon = { Icon(Icons.AutoMirrored.Filled.DriveFileMove, contentDescription = null, tint = c.textSecondary) },
-                                onClick = { menu = false; moveFolderTarget = child },
+                                onClick = { menuRow = null; moveFolderTarget = child },
                             )
                             DropdownMenuItem(
                                 text = {
@@ -216,30 +337,33 @@ internal fun NoteListScreen(
                                     )
                                 },
                                 leadingIcon = { Icon(Icons.Filled.Delete, contentDescription = null, tint = c.danger) },
-                                onClick = { menu = false; confirmDeleteFolder = child },
+                                onClick = { menuRow = null; confirmDeleteFolder = child },
                             )
                         }
                     }
                 }
                 items(notes, key = { "note:${it.id}" }) { note ->
                     // Long-press actions menu on each card [list.md].
-                    var menu by remember { mutableStateOf(false) }
                     Box {
                         NoteCard(
                             note,
                             onClick = { onOpenNote(note.id) },
-                            onLongClick = { menu = true },
+                            onLongClick = { menuRow = noteRowTag(note.id) },
                         )
-                        FutoMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                        FutoMenu(
+                            expanded = menuRow == noteRowTag(note.id),
+                            onDismissRequest = { menuRow = null },
+                            modifier = Modifier.puppetMenuFor(noteRowTag(note.id)),
+                        ) {
                             DropdownMenuItem(
                                 text = { Text(localization.localizedText("notes.actions.moveToFolderEllipsis")) },
                                 leadingIcon = { Icon(Icons.AutoMirrored.Filled.DriveFileMove, contentDescription = null, tint = c.textSecondary) },
-                                onClick = { menu = false; moveTarget = note.id },
+                                onClick = { menuRow = null; moveTarget = note.id },
                             )
                             DropdownMenuItem(
                                 text = { Text(localization.localizedText("common.actions.delete")) },
                                 leadingIcon = { Icon(Icons.Filled.Delete, contentDescription = null, tint = c.danger) },
-                                onClick = { menu = false; deleteTarget = note.id },
+                                onClick = { menuRow = null; deleteTarget = note.id },
                             )
                         }
                     }

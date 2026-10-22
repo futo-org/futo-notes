@@ -26,6 +26,8 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.futo.notes.R
+import com.futo.notes.puppet.PuppetVerb
+import com.futo.notes.puppet.PuppetVerbScope
 import kotlin.math.abs
 
 /// The coin and the studio it reflects, both exported by assets/coin/build-coin.py
@@ -139,6 +141,16 @@ fun SupporterCoin(
                 live?.destroy()
             }
         }
+    }
+
+    // A tap, as the gesture below reads one; a drag or a flick stays a real finger's.
+    PuppetVerbScope {
+        val live = scene ?: return@PuppetVerbScope emptyList()
+        listOf(
+            PuppetVerb("SpinCoin") {
+                live.tap()
+            },
+        )
     }
 
     Box(modifier.size(diameter)) {

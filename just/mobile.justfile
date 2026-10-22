@@ -240,7 +240,8 @@ test-android-perf *args:
     echo 'Pool emulators: just qa-claim android' >&2
     exit 1
   }
-  just android-native
+  # The bundle that ships: no puppet inspector, whose trace wraps every listener.
+  VITE_INCLUDE_TEST_HOOKS=false just android-native
   node tests/android-editor-perf.mjs "$@"
 
 # The FAST loop for the numbers above: the freshly built editor.html in the

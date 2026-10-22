@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.wrapContentHeight
+import androidx.compose.foundation.text.input.placeCursorAtEnd
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ContentCopy
@@ -58,6 +59,11 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import com.futo.notes.ImagePicker
+import com.futo.notes.puppet.PuppetOpenNote
+import com.futo.notes.puppet.PuppetVerb
+import com.futo.notes.puppet.PuppetVerbRefusal
+import com.futo.notes.puppet.PuppetVerbScope
+import com.futo.notes.puppet.recordPuppetCopy
 import com.futo.notes.NoteMutationOutcome
 import com.futo.notes.NoteShare
 import com.futo.notes.NotesStore
@@ -75,9 +81,12 @@ import com.futo.notes.ui.components.ConfirmDialog
 import com.futo.notes.ui.components.FolderPickerSheet
 import com.futo.notes.ui.components.FutoMenu
 import com.futo.notes.ui.components.TopBar
+import com.futo.notes.ui.components.pickFolderShortcut
 import com.futo.notes.ui.theme.FutoType
 import com.futo.notes.ui.theme.FutoTheme
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
@@ -218,6 +227,8 @@ fun NoteEditorScreen(
     var pendingImageInsert by remember(initialNoteId) { mutableStateOf(0) }
     var confirmDelete by remember { mutableStateOf(false) }
     var showMoveSheet by remember { mutableStateOf(false) }
+    // The top bar's ⋯ menu.
+    var actionsMenu by remember { mutableStateOf(false) }
     var interactionLocked by remember(initialNoteId) { mutableStateOf(false) }
     // The one owner of "a note is open; here is every way it ends" — the task
     // ordering, the latches, and the drain-and-commit each exit runs. See
@@ -845,51 +856,61 @@ fun NoteEditorScreen(
         }
     }
 
+    /**
+     * Rename the note to [next], as the title field's debounce does. True when the note
+     * now carries that title — renamed, or already named so; false when the title is
+     * illegal here or taken. Run inside [EditorSession.runWork].
+     */
+    suspend fun renameTo(next: String): Boolean {
+        // Flush any pending body edit to the CURRENT id and cancel the
+        // in-flight save before the file moves — otherwise a stale save
+        // would recreate a ghost note at the old id (data loss). The derived
+        // register re-keys to the new id after the rename (its content follows
+        // the live noteId), so no manual draft repointing is needed (PKT-1 R4).
+        val wantedId = editorTitleTarget(
+            currentId = noteId, rawTitle = next,
+            existingIds = store.notes.mapTo(mutableSetOf()) { it.id },
+        )
+        if (wantedId == null || wantedId == noteId) {
+            return next.isNotBlank() && sanitizeTitle(next.trim()) == splitId(noteId).title
+        }
+        saveJob?.cancel()
+        // Snapshot the body BEFORE the suspending write and advance savedContent
+        // to exactly that snapshot — never to the live `content`. If the user
+        // types during the suspended write, `content` moves ahead of the bytes
+        // on disk; assigning savedContent from live `content` would mark that
+        // newer keystroke as saved and the register would go clean, losing it on
+        // background/process death (PKT-12 F1).
+        val flushed = content
+        val titleCommit = commitEditorTitleSnapshot(
+            currentId = noteId,
+            targetId = wantedId,
+            rename = { old, wanted ->
+                store.rename(old, wanted, PendingDraft(old, savedContent, flushed), ownerToken = ownerToken).also { outcome ->
+                    if (outcome is NoteMutationOutcome.Committed) savedContent = flushed
+                }
+            },
+        )
+        retargetNoteId(titleCommit.id)
+        if (titleCommit.isCommitted && titleField.text == next) {
+            showTitleChange { titleField.commit(splitId(noteId).title) }
+        }
+        if (titleCommit.isCommitted) settleRelink(flushed, titleCommit.relinkedBody)
+        if (!titleCommit.isCommitted) {
+            Toast.makeText(
+                context,
+                localization.localizedText("notes.title.renameFailed"),
+                Toast.LENGTH_SHORT,
+            ).show()
+        }
+        return titleCommit.isCommitted
+    }
+
     // Debounced rename (500 ms) — the filename IS the title; Rust resolves
     // collisions and returns the final id.
     LaunchedEffect(initialNoteId) {
         snapshotFlow { titleField.text }.debounce(500).collect { next ->
-            // Flush any pending body edit to the CURRENT id and cancel the
-            // in-flight save before the file moves — otherwise a stale save
-            // would recreate a ghost note at the old id (data loss). The derived
-            // register re-keys to the new id after the rename (its content follows
-            // the live noteId), so no manual draft repointing is needed (PKT-1 R4).
-            session.runWork {
-                val wantedId = editorTitleTarget(
-                    currentId = noteId, rawTitle = next,
-                    existingIds = store.notes.mapTo(mutableSetOf()) { it.id },
-                )
-                if (wantedId == null || wantedId == noteId) return@runWork
-                saveJob?.cancel()
-                // Snapshot the body BEFORE the suspending write and advance savedContent
-                // to exactly that snapshot — never to the live `content`. If the user
-                // types during the suspended write, `content` moves ahead of the bytes
-                // on disk; assigning savedContent from live `content` would mark that
-                // newer keystroke as saved and the register would go clean, losing it on
-                // background/process death (PKT-12 F1).
-                val flushed = content
-                val titleCommit = commitEditorTitleSnapshot(
-                    currentId = noteId,
-                    targetId = wantedId,
-                    rename = { old, wanted ->
-                        store.rename(old, wanted, PendingDraft(old, savedContent, flushed), ownerToken = ownerToken).also { outcome ->
-                            if (outcome is NoteMutationOutcome.Committed) savedContent = flushed
-                        }
-                    },
-                )
-                retargetNoteId(titleCommit.id)
-                if (titleCommit.isCommitted && titleField.text == next) {
-                    showTitleChange { titleField.commit(splitId(noteId).title) }
-                }
-                if (titleCommit.isCommitted) settleRelink(flushed, titleCommit.relinkedBody)
-                if (!titleCommit.isCommitted) {
-                    Toast.makeText(
-                        context,
-                        localization.localizedText("notes.title.renameFailed"),
-                        Toast.LENGTH_SHORT,
-                    ).show()
-                }
-            }
+            session.runWork { renameTo(next) }
         }
     }
 
@@ -964,6 +985,312 @@ fun NoteEditorScreen(
         if (titleField.isFocused && isPlaceholderTitle(titleField.text)) titleField.selectAll()
     }
 
+    // Typing in the title field, after its filter: the field strips forbidden
+    // filesystem chars in place (desktop parity — the illegal char never
+    // persists) + caps the length.
+    fun onTitleTyped(capped: String, forbidden: Boolean) {
+        typedTitle = capped
+        if (forbidden) {
+            // Transient warning (auto-hide after 2 s).
+            titleWarning = LocalizedMessage("notes.title.forbiddenCharacter")
+            warningJob?.cancel()
+            warningJob = scope.launch { delay(2000); titleWarning = null }
+        } else {
+            showTitleValidation(capped)
+        }
+    }
+
+    fun setFind(query: String) {
+        findQuery = query
+        host.setFindQuery(query)
+    }
+
+    fun openFind() {
+        savedFindProcessToken = host.processToken
+        savedFindVisible = true
+        host.openFind()
+    }
+
+    fun copyNotePath(): String {
+        val path = "${store.rootPath}/$noteId.md"
+        clipboard.setText(AnnotatedString(path))
+        recordPuppetCopy(path)
+        Toast.makeText(context, localization.localizedText("notes.pathCopied"), Toast.LENGTH_SHORT).show()
+        return path
+    }
+
+    /** The ⋯ menu's Delete, past its confirmation. */
+    fun deleteCurrentNote(): Job? =
+        session.end(
+            EditorExit.DELETE,
+            // Deliberately does NOT override awaitPendingWork(): the
+            // session is already latched closed by the time this
+            // drains, so a picker round trip still in flight for this
+            // attachment returns null the moment it reaches
+            // EditorSession.runWork without ever writing the image
+            // file — nothing is orphaned. Waiting here would only
+            // delay a delete the user already confirmed to finish
+            // work whose sole destination is the note being discarded.
+            object : EditorExitEffects {
+                override fun prepare() {
+                    // The session has already latched closed, so a
+                    // change arriving from here on is dropped; killing
+                    // the queued debounce keeps it from waiting behind
+                    // the delete only to be refused.
+                    saveJob?.cancel()
+                    host.blur()
+                }
+
+                override suspend fun awaitCurrentBody(): String? {
+                    val current = host.awaitCurrent(noteId)
+                    return if (current.canProceed) current.latest?.content ?: content else null
+                }
+
+                override suspend fun commitBody(body: String): Boolean {
+                    val hasPendingChanges = body != savedContent
+                    val writeOutcome = if (hasPendingChanges) {
+                        store.write(noteId, body, ownerToken = ownerToken)
+                    } else {
+                        null
+                    }
+                    if (writeOutcome != null) {
+                        savedContent = confirmedSavedContent(
+                            savedContent,
+                            body,
+                            writeOutcome,
+                        )
+                    }
+                    return shouldContinueDeleteAfterEditorWrite(
+                        hasPendingChanges,
+                        writeOutcome,
+                    )
+                }
+
+                override suspend fun perform(): Boolean =
+                    shouldCompleteNoteAction(store.delete(noteId, ownerToken = ownerToken))
+
+                override fun onSucceeded() {
+                    // Mark clean only after delete commits, so onDispose
+                    // cannot recreate the deleted note from its dirty draft.
+                    savedContent = content
+                    dismissFind()
+                    Toast.makeText(
+                        context,
+                        localization.localizedText("notes.deleted"),
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                    onBack()
+                }
+
+                override fun onFailed(failure: EditorExitFailure) {
+                    Toast.makeText(
+                        context,
+                        if (failure == EditorExitFailure.BODY) {
+                            localization.localizedText("notes.delete.savePending")
+                        } else {
+                            localization.localizedText("notes.errors.deleteFailed")
+                        },
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                }
+            },
+        )
+
+    /** The move sheet's pick, and whether the move committed. */
+    fun moveCurrentNote(folder: String): Deferred<Boolean> {
+        val moved = CompletableDeferred<Boolean>()
+        val exit = session.end(
+            EditorExit.MOVE,
+            object : EditorExitEffects {
+                // Move keeps the same editor/attachment open (unlike
+                // Back, it never disposes this screen), so a picker
+                // round trip that finishes after the move would still
+                // land correctly via the ordinary onChange → autosave
+                // path — but only after a window where the moved
+                // file briefly lacks the image. Waiting here closes
+                // that window instead of leaving it to autosave.
+                override suspend fun awaitPendingWork() {
+                    snapshotFlow { pendingImageInsert }.first { it == 0 }
+                }
+
+                // Move never touches the WebView, so the live buffer IS
+                // the freshest body. Snapshot it inside the drain and
+                // advance savedContent to that snapshot, not to live
+                // `content`, so a keystroke typed during the write stays
+                // dirty in the register and survives a later background
+                // flush (PKT-12 F1 — same as the rename path).
+                override suspend fun awaitCurrentBody(): String? {
+                    val current = host.awaitCurrent(noteId)
+                    return if (current.canProceed) current.latest?.content ?: content else null
+                }
+
+                override suspend fun cancelPendingSave() {
+                    saveJob?.cancel()
+                }
+
+                // The engine will save this snapshot and move it under
+                // one guard, comparing the original saved baseline.
+                override suspend fun commitBody(body: String): Boolean {
+                    content = body
+                    return true
+                }
+
+                override suspend fun perform(): Boolean {
+                    val requestedTitle = titleField.text
+                    val flushed = content
+                    val moveOutcome = store.moveNote(
+                        noteId,
+                        folder,
+                        draft = PendingDraft(noteId, savedContent, flushed), ownerToken = ownerToken)
+                    if (moveOutcome !is NoteMutationOutcome.Committed) return false
+                    // Update the live id before releasing the drain. A
+                    // delete already waiting behind this move must
+                    // target the final id.
+                    savedContent = flushed
+                    retargetNoteId(moveOutcome.value.id)
+                    if (titleField.text == requestedTitle) {
+                        showTitleChange { titleField.commit(splitId(noteId).title) }
+                    }
+                    settleRelink(flushed, moveOutcome.value.relinkedBody)
+                    return true
+                }
+
+                override fun onSucceeded() {
+                    moved.complete(true)
+                    showMoveSheet = false
+                    Toast.makeText(
+                        context,
+                        if (folder.isEmpty()) {
+                            localization.localizedText("notes.movedToRoot")
+                        } else {
+                            localization.localizedText(
+                                "notes.movedTo",
+                                mapOf("destination" to folder),
+                            )
+                        },
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                }
+
+                override fun onFailed(failure: EditorExitFailure) {
+                    // REJECTED (a delete latched first) stays silent —
+                    // the delete reports for itself.
+                    if (failure == EditorExitFailure.REJECTED) return
+                    Toast.makeText(
+                        context,
+                        localization.localizedText("notes.errors.moveFailed"),
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                }
+            },
+        )
+        if (exit == null) moved.complete(false) else exit.invokeOnCompletion { moved.complete(false) }
+        return moved
+    }
+
+    // `loaded` is the gate onChange uses, so the listener writes only once edits are safe.
+    PuppetOpenNote(noteId, loaded)
+    // What this screen's chrome does, as verbs: the title field, the ⋯ menu and the
+    // find bar are Compose state inside this screen, so nothing outside it could reach
+    // them. Each runs the function its tap runs — `SetTitle` is the rename the user's
+    // keystrokes make, and it settles before it answers. Asked afresh for every
+    // `actions` and `do`: the find bar's verbs exist only while it is up, the ⋯ menu's
+    // items only while it is open.
+    // The ⋯ button opens its menu; with the menu open, a tap on it closes the menu.
+    fun toggleActionsMenu() = PuppetVerb(
+        "ToggleNoteActionsMenu",
+        controls = listOf("notes.actions.moreAccessibilityLabel"),
+    ) {
+        actionsMenu = !actionsMenu
+        mapOf("open" to actionsMenu)
+    }
+    PuppetVerbScope {
+        if (interactionLocked) return@PuppetVerbScope emptyList()
+        val verbs = mutableListOf(
+            PuppetVerb(
+                "SetTitle",
+                required = listOf("title"),
+                controls = listOf("notes.untitledPlaceholder"),
+            ) { arguments ->
+                titleField.textState.edit {
+                    replace(0, length, arguments.getString("title"))
+                    applyTypedTitle(::onTitleTyped)
+                    placeCursorAtEnd()
+                }
+                if (session.runWork { renameTo(titleField.text) } != true) {
+                    throw PuppetVerbRefusal(
+                        409, "the rename was refused: the title is illegal here or already taken",
+                    )
+                }
+                mapOf("noteId" to noteId)
+            },
+            toggleActionsMenu(),
+        )
+        if (findVisible) {
+            // Optional: an empty or missing query clears, which a required one cannot be.
+            verbs += PuppetVerb("SetFindQuery", optional = listOf("query")) { arguments ->
+                setFind(arguments.optString("query"))
+                mapOf("query" to findQuery)
+            }
+            // The arrows are disabled with no match, so the verb is not offered then.
+            if (canStepFind(findTotal)) {
+                verbs += PuppetVerb(
+                    "StepFind",
+                    required = listOf("direction"),
+                    integers = listOf("direction"),
+                    controls = listOf("editor.find.previousMatch", "editor.find.nextMatch"),
+                ) { arguments ->
+                    val direction = arguments.getInt("direction")
+                    if (direction != 1 && direction != -1) {
+                        throw PuppetVerbRefusal(400, "direction is 1 (next) or -1 (previous)")
+                    }
+                    host.stepFind(direction)
+                    mapOf("direction" to direction)
+                }
+            }
+            verbs += PuppetVerb("CloseFind", controls = listOf("editor.find.close")) { dismissFind() }
+        }
+        verbs
+    }
+    // The ⋯ menu while it is open: a popup that takes every touch, so its items (and the
+    // ⋯ button's close) are all a person can reach. Each closes the menu, as its tap does.
+    PuppetVerbScope(modal = true) {
+        if (interactionLocked || !actionsMenu) return@PuppetVerbScope emptyList()
+        listOf(
+            toggleActionsMenu(),
+            PuppetVerb("OpenFind", controls = listOf("editor.find.open")) {
+                actionsMenu = false
+                openFind()
+            },
+            PuppetVerb(
+                "MoveCurrentNoteToFolder",
+                optional = listOf("targetPath"),
+                controls = listOf("notes.actions.moveToFolderEllipsis"),
+                shortcuts = pickFolderShortcut,
+            ) {
+                actionsMenu = false
+                showMoveSheet = true
+            },
+            PuppetVerb(
+                "CopyCurrentNotePath",
+                controls = listOf("notes.actions.copyFilePath"),
+            ) {
+                actionsMenu = false
+                mapOf("path" to copyNotePath())
+            },
+            PuppetVerb(
+                "DeleteCurrentNote",
+                optional = listOf("answer"),
+                controls = listOf("notes.actions.deleteNote"),
+            ) {
+                // Asks first: the confirmation's own ConfirmDialog or DismissDialog answers it.
+                actionsMenu = false
+                confirmDelete = true
+                mapOf("noteId" to noteId)
+            },
+        )
+    }
+
     Box(modifier = Modifier.fillMaxSize()) {
     Scaffold(
         containerColor = c.surface,
@@ -1004,8 +1331,7 @@ fun NoteEditorScreen(
                             tint = c.textSecondary,
                         )
                     }
-                    var menu by remember { mutableStateOf(false) }
-                    IconButton(enabled = !interactionLocked, onClick = { menu = true }) {
+                    IconButton(enabled = !interactionLocked, onClick = { actionsMenu = true }) {
                         Icon(
                             Icons.Filled.MoreVert,
                             contentDescription = localization.localizedText("notes.actions.moreAccessibilityLabel"),
@@ -1013,39 +1339,32 @@ fun NoteEditorScreen(
                         )
                     }
                     // Overflow parity with the list rows [list.md].
-                    FutoMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                    FutoMenu(expanded = actionsMenu, onDismissRequest = { actionsMenu = false }) {
                         DropdownMenuItem(
                             text = { Text(localization.localizedText("editor.find.open")) },
                             leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null, tint = c.textSecondary) },
                             onClick = {
-                                menu = false
-                                savedFindProcessToken = host.processToken
-                                savedFindVisible = true
-                                host.openFind()
+                                actionsMenu = false
+                                openFind()
                             },
                         )
                         DropdownMenuItem(
                             text = { Text(localization.localizedText("notes.actions.moveToFolderEllipsis")) },
                             leadingIcon = { Icon(Icons.AutoMirrored.Filled.DriveFileMove, contentDescription = null, tint = c.textSecondary) },
-                            onClick = { menu = false; showMoveSheet = true },
+                            onClick = { actionsMenu = false; showMoveSheet = true },
                         )
                         DropdownMenuItem(
                             text = { Text(localization.localizedText("notes.actions.copyFilePath")) },
                             leadingIcon = { Icon(Icons.Filled.ContentCopy, contentDescription = null, tint = c.textSecondary) },
                             onClick = {
-                                menu = false
-                                clipboard.setText(AnnotatedString("${store.rootPath}/$noteId.md"))
-                                Toast.makeText(
-                                    context,
-                                    localization.localizedText("notes.pathCopied"),
-                                    Toast.LENGTH_SHORT,
-                                ).show()
+                                actionsMenu = false
+                                copyNotePath()
                             },
                         )
                         DropdownMenuItem(
                             text = { Text(localization.localizedText("notes.actions.deleteNote")) },
                             leadingIcon = { Icon(Icons.Filled.Delete, contentDescription = null, tint = c.danger) },
-                            onClick = { menu = false; confirmDelete = true },
+                            onClick = { actionsMenu = false; confirmDelete = true },
                         )
                     }
                 },
@@ -1070,19 +1389,7 @@ fun NoteEditorScreen(
                 // The same native-then-page focus a new note opens with, so the
                 // keyboard stays up and typing carries on into the body. [list.md]
                 onReturn = { host.focusEditor() },
-                // The field strips forbidden filesystem chars in place (desktop
-                // parity — the illegal char never persists) + caps the length.
-                onTyped = { capped, forbidden ->
-                    typedTitle = capped
-                    if (forbidden) {
-                        // Transient warning (auto-hide after 2 s).
-                        titleWarning = LocalizedMessage("notes.title.forbiddenCharacter")
-                        warningJob?.cancel()
-                        warningJob = scope.launch { delay(2000); titleWarning = null }
-                    } else {
-                        showTitleValidation(capped)
-                    }
-                },
+                onTyped = ::onTitleTyped,
                 modifier = Modifier.fillMaxWidth().padding(start = 22.dp, end = 22.dp, top = 4.dp)
                     .onFocusChanged { focus -> showTitleChange { titleField.focusChanged(focus.isFocused) } },
             )
@@ -1157,10 +1464,7 @@ fun NoteEditorScreen(
                     query = findQuery,
                     label = findLabel,
                     total = findTotal,
-                    onQueryChange = {
-                        findQuery = it
-                        host.setFindQuery(it)
-                    },
+                    onQueryChange = ::setFind,
                     onStep = host::stepFind,
                     onClose = {
                         dismissFind()
@@ -1212,83 +1516,10 @@ fun NoteEditorScreen(
         ConfirmDialog(
             title = localization.localizedText("notes.delete.thisNoteQuestion"),
             body = localization.localizedText("notes.delete.recoverableWarning"),
-            confirmLabel = localization.localizedText("common.actions.delete"),
+            confirmLabelKey = "common.actions.delete",
             onConfirm = {
                 confirmDelete = false
-                session.end(
-                    EditorExit.DELETE,
-                    // Deliberately does NOT override awaitPendingWork(): the
-                    // session is already latched closed by the time this
-                    // drains, so a picker round trip still in flight for this
-                    // attachment returns null the moment it reaches
-                    // EditorSession.runWork without ever writing the image
-                    // file — nothing is orphaned. Waiting here would only
-                    // delay a delete the user already confirmed to finish
-                    // work whose sole destination is the note being discarded.
-                    object : EditorExitEffects {
-                        override fun prepare() {
-                            // The session has already latched closed, so a
-                            // change arriving from here on is dropped; killing
-                            // the queued debounce keeps it from waiting behind
-                            // the delete only to be refused.
-                            saveJob?.cancel()
-                            host.blur()
-                        }
-
-                        override suspend fun awaitCurrentBody(): String? {
-                            val current = host.awaitCurrent(noteId)
-                            return if (current.canProceed) current.latest?.content ?: content else null
-                        }
-
-                        override suspend fun commitBody(body: String): Boolean {
-                            val hasPendingChanges = body != savedContent
-                            val writeOutcome = if (hasPendingChanges) {
-                                store.write(noteId, body, ownerToken = ownerToken)
-                            } else {
-                                null
-                            }
-                            if (writeOutcome != null) {
-                                savedContent = confirmedSavedContent(
-                                    savedContent,
-                                    body,
-                                    writeOutcome,
-                                )
-                            }
-                            return shouldContinueDeleteAfterEditorWrite(
-                                hasPendingChanges,
-                                writeOutcome,
-                            )
-                        }
-
-                        override suspend fun perform(): Boolean =
-                            shouldCompleteNoteAction(store.delete(noteId, ownerToken = ownerToken))
-
-                        override fun onSucceeded() {
-                            // Mark clean only after delete commits, so onDispose
-                            // cannot recreate the deleted note from its dirty draft.
-                            savedContent = content
-                            dismissFind()
-                            Toast.makeText(
-                                context,
-                                localization.localizedText("notes.deleted"),
-                                Toast.LENGTH_SHORT,
-                            ).show()
-                            onBack()
-                        }
-
-                        override fun onFailed(failure: EditorExitFailure) {
-                            Toast.makeText(
-                                context,
-                                if (failure == EditorExitFailure.BODY) {
-                                    localization.localizedText("notes.delete.savePending")
-                                } else {
-                                    localization.localizedText("notes.errors.deleteFailed")
-                                },
-                                Toast.LENGTH_SHORT,
-                            ).show()
-                        }
-                    },
-                )
+                deleteCurrentNote()?.join()
             },
             onDismiss = { confirmDelete = false },
         )
@@ -1298,92 +1529,7 @@ fun NoteEditorScreen(
         FolderPickerSheet(
             store = store,
             onDismiss = { showMoveSheet = false },
-            onPick = { folder ->
-                session.end(
-                    EditorExit.MOVE,
-                    object : EditorExitEffects {
-                        // Move keeps the same editor/attachment open (unlike
-                        // Back, it never disposes this screen), so a picker
-                        // round trip that finishes after the move would still
-                        // land correctly via the ordinary onChange → autosave
-                        // path — but only after a window where the moved
-                        // file briefly lacks the image. Waiting here closes
-                        // that window instead of leaving it to autosave.
-                        override suspend fun awaitPendingWork() {
-                            snapshotFlow { pendingImageInsert }.first { it == 0 }
-                        }
-
-                        // Move never touches the WebView, so the live buffer IS
-                        // the freshest body. Snapshot it inside the drain and
-                        // advance savedContent to that snapshot, not to live
-                        // `content`, so a keystroke typed during the write stays
-                        // dirty in the register and survives a later background
-                        // flush (PKT-12 F1 — same as the rename path).
-                        override suspend fun awaitCurrentBody(): String? {
-                            val current = host.awaitCurrent(noteId)
-                            return if (current.canProceed) current.latest?.content ?: content else null
-                        }
-
-                        override suspend fun cancelPendingSave() {
-                            saveJob?.cancel()
-                        }
-
-                        // The engine will save this snapshot and move it under
-                        // one guard, comparing the original saved baseline.
-                        override suspend fun commitBody(body: String): Boolean {
-                            content = body
-                            return true
-                        }
-
-                        override suspend fun perform(): Boolean {
-                            val requestedTitle = titleField.text
-                            val flushed = content
-                            val moveOutcome = store.moveNote(
-                                noteId,
-                                folder,
-                                draft = PendingDraft(noteId, savedContent, flushed), ownerToken = ownerToken)
-                            if (moveOutcome !is NoteMutationOutcome.Committed) return false
-                            // Update the live id before releasing the drain. A
-                            // delete already waiting behind this move must
-                            // target the final id.
-                            savedContent = flushed
-                            retargetNoteId(moveOutcome.value.id)
-                            if (titleField.text == requestedTitle) {
-                                showTitleChange { titleField.commit(splitId(noteId).title) }
-                            }
-                            settleRelink(flushed, moveOutcome.value.relinkedBody)
-                            return true
-                        }
-
-                        override fun onSucceeded() {
-                            showMoveSheet = false
-                            Toast.makeText(
-                                context,
-                                if (folder.isEmpty()) {
-                                    localization.localizedText("notes.movedToRoot")
-                                } else {
-                                    localization.localizedText(
-                                        "notes.movedTo",
-                                        mapOf("destination" to folder),
-                                    )
-                                },
-                                Toast.LENGTH_SHORT,
-                            ).show()
-                        }
-
-                        override fun onFailed(failure: EditorExitFailure) {
-                            // REJECTED (a delete latched first) stays silent —
-                            // the delete reports for itself.
-                            if (failure == EditorExitFailure.REJECTED) return
-                            Toast.makeText(
-                                context,
-                                localization.localizedText("notes.errors.moveFailed"),
-                                Toast.LENGTH_SHORT,
-                            ).show()
-                        }
-                    },
-                )
-            },
+            onPick = ::moveCurrentNote,
         )
     }
 }

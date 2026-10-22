@@ -25,12 +25,17 @@ import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import com.futo.notes.puppet.PuppetVerb
+import com.futo.notes.puppet.PuppetVerbRefusal
+import com.futo.notes.puppet.PuppetVerbScope
 import com.futo.notes.localization.LocalLocalization
 import com.futo.notes.sync.hosted.PairingState
 import com.futo.notes.sync.hosted.UnlockDoor
 import com.futo.notes.ui.theme.FutoRadius
 import com.futo.notes.ui.theme.FutoTheme
 import com.futo.notes.ui.theme.FutoType
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.launch
 
 /**
  * The three doors into an existing vault, all on one screen so a person picks
@@ -48,15 +53,57 @@ fun ColumnScope.UnlockStep(
     pairingPayload: String?,
     pairingExpiresAt: String?,
     onDoor: (UnlockDoor) -> Unit,
-    onVaultPassword: (String) -> Unit,
-    onRecoveryKey: (String) -> Unit,
-    onShowPairingCode: () -> Unit,
+    onVaultPassword: suspend (String) -> Unit,
+    onRecoveryKey: suspend (String) -> Unit,
+    onShowPairingCode: suspend () -> Unit,
     onCancelPairing: () -> Unit,
+    /** Runs the taps: the section's scope, because a step's own work ends the step. */
+    scope: CoroutineScope,
 ) {
     val c = FutoTheme.colors
     val localization = LocalLocalization.current
     var vaultPassword by remember { mutableStateOf("") }
     var typedRecoveryKey by remember { mutableStateOf("") }
+
+    // The open door's field is the Unlock button's one argument, typed in as a person
+    // would. The scan door's own controls are ShowPairingCode's.
+    PuppetVerbScope {
+        buildList {
+            add(
+                PuppetVerb("SelectUnlockMethod", required = listOf("method")) { arguments ->
+                    val method = arguments.getString("method")
+                    val chosen = UnlockDoor.entries.firstOrNull { unlockMethod(it) == method }
+                        ?: throw PuppetVerbRefusal(400, "method is vaultPassword, recoveryKey or anotherDevice")
+                    onDoor(chosen)
+                },
+            )
+            if (door != UnlockDoor.SCAN) {
+                val field = if (door == UnlockDoor.VAULT_PASSWORD) "vaultPassword" else "recoveryKey"
+                add(
+                    PuppetVerb(
+                        "UnlockVault",
+                        required = listOf(field),
+                        controls = listOf(
+                            "sync.hosted.unlock.vaultPasswordLabel",
+                            "sync.hosted.unlock.recoveryKeyLabel",
+                            "sync.hosted.unlock.button",
+                            "sync.working",
+                        ),
+                    ) { arguments ->
+                        refuseWhileBusy(busy)
+                        val typed = arguments.getString(field)
+                        if (door == UnlockDoor.VAULT_PASSWORD) {
+                            vaultPassword = typed
+                            onVaultPassword(typed)
+                        } else {
+                            typedRecoveryKey = typed
+                            onRecoveryKey(typed)
+                        }
+                    },
+                )
+            }
+        }
+    }
 
     HostedStepHeader(
         title = "sync.hosted.unlock.title",
@@ -106,7 +153,7 @@ fun ColumnScope.UnlockStep(
                 modifier = Modifier.fillMaxWidth(),
             )
             UnlockButton(busy = busy, enabled = vaultPassword.isNotEmpty()) {
-                onVaultPassword(vaultPassword)
+                scope.launch { onVaultPassword(vaultPassword) }
             }
         }
         UnlockDoor.SCAN -> ShowPairingCode(
@@ -116,6 +163,7 @@ fun ColumnScope.UnlockStep(
             busy = busy,
             onShow = onShowPairingCode,
             onCancel = onCancelPairing,
+            scope = scope,
         )
         UnlockDoor.RECOVERY_KEY -> {
             OutlinedTextField(
@@ -143,7 +191,7 @@ fun ColumnScope.UnlockStep(
                 color = c.textSecondary,
             )
             UnlockButton(busy = busy, enabled = typedRecoveryKey.isNotEmpty()) {
-                onRecoveryKey(typedRecoveryKey)
+                scope.launch { onRecoveryKey(typedRecoveryKey) }
             }
         }
     }
@@ -170,4 +218,12 @@ private fun UnlockButton(busy: Boolean, enabled: Boolean, onClick: () -> Unit) {
             },
         )
     }
+}
+
+/** What the agent calls each door: SCAN is THIS device showing a code for another to
+ *  scan, which a name with "scan" in it would read backwards. */
+private fun unlockMethod(door: UnlockDoor): String = when (door) {
+    UnlockDoor.VAULT_PASSWORD -> "vaultPassword"
+    UnlockDoor.RECOVERY_KEY -> "recoveryKey"
+    UnlockDoor.SCAN -> "anotherDevice"
 }

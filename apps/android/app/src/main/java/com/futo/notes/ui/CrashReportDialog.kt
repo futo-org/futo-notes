@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
@@ -22,8 +23,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
+import com.futo.notes.puppet.PuppetVerb
+import com.futo.notes.puppet.PuppetVerbScope
 import com.futo.notes.localization.LocalLocalization
 import com.futo.notes.ui.components.ClearFocusOnImeDismiss
 import com.futo.notes.ui.components.imeTargetVisible
@@ -50,6 +54,35 @@ fun CrashReportDialog(
     var showReport by remember { mutableStateOf(false) }
     var note by remember { mutableStateOf("") }
     var always by remember { mutableStateOf(false) }
+
+    // The dialog's own controls, so a crash can be answered without a tap.
+    PuppetVerbScope(modal = true) {
+        listOf(
+            PuppetVerb(
+                "SetCrashDescription",
+                required = listOf("text"),
+                controls = listOf("crashReporting.activityPromptOptional"),
+            ) { arguments ->
+                note = arguments.getString("text")
+                mapOf("text" to note)
+            },
+            PuppetVerb(
+                "SetAlwaysSendCrashReports",
+                required = listOf("enabled"),
+                booleans = listOf("enabled"),
+                controls = listOf("crashReporting.sendAutomatically"),
+            ) { arguments -> always = arguments.getBoolean("enabled"); mapOf("alwaysSend" to always) },
+            PuppetVerb(
+                "ToggleCrashDetails",
+                controls = listOf("crashReporting.viewReport", "crashReporting.hideReport"),
+            ) { showReport = !showReport; mapOf("open" to showReport) },
+            PuppetVerb(
+                "SendCrashReport",
+                controls = listOf("common.actions.send"),
+            ) { onSend(note.trim().ifEmpty { null }, always) },
+            PuppetVerb("DiscardCrashReport", controls = listOf("crashReporting.dontSend")) { onDontSend() },
+        )
+    }
 
     AlertDialog(
         onDismissRequest = onDontSend,
@@ -106,8 +139,12 @@ fun CrashReportDialog(
                     shape = RoundedCornerShape(FutoRadius.md),
                     modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
                 )
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Checkbox(checked = always, onCheckedChange = { always = it })
+                // The whole row is the checkbox: a tap on its label ticks it.
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.toggleable(always, role = Role.Checkbox) { always = it },
+                ) {
+                    Checkbox(checked = always, onCheckedChange = null)
                     Text(
                         localization.localizedText("crashReporting.sendAutomatically"),
                         style = FutoType.small,

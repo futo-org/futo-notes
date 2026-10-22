@@ -40,6 +40,9 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.futo.notes.NotesStore
 import com.futo.notes.SyncManager
+import com.futo.notes.puppet.PuppetVerb
+import com.futo.notes.puppet.PuppetVerbRefusal
+import com.futo.notes.puppet.PuppetVerbScope
 import com.futo.notes.localization.LocalLocalization
 import com.futo.notes.ui.theme.FutoRadius
 import com.futo.notes.ui.theme.FutoTheme
@@ -55,7 +58,7 @@ private const val SERVER_REPO_URL = "https://gitlab.futo.org/futo-notes/futo-not
  * Today's self-hosted sync surface: server URL and password, connect / sync /
  * disconnect, and live status.
  *
- * Extracted from [SyncScreen] unchanged so there is exactly one of it. A build
+ * Extracted from [SyncScreen] so there is exactly one of it. A build
  * with hosted sync off renders these rows directly; a build with it on
  * discloses these same rows behind "Use my own server", rather than a second
  * copy that could drift from them (parent spec user story 34).
@@ -67,6 +70,45 @@ fun ColumnScope.SelfHostedSyncSections(store: NotesStore, sync: SyncManager) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     var password by remember { mutableStateOf("") }
+
+    // The buttons, as verbs, while these rows are on screen — behind "Use my own server"
+    // in a hosted build, so they are offered only once it is open. The fields are
+    // ConnectSync's arguments, typed into them as a person would.
+    PuppetVerbScope {
+        fun notBusy() {
+            if (sync.busy) throw PuppetVerbRefusal(409, "sync is busy; wait for it to settle")
+        }
+        if (!sync.connected) {
+            listOf(
+                // The field starts empty here, so a password is required, as the button is.
+                PuppetVerb(
+                    "ConnectSync",
+                    required = listOf("password"),
+                    optional = listOf("url"),
+                    controls = listOf("sync.connectAndSync", "sync.serverUrl", "sync.password"),
+                ) { arguments ->
+                    notBusy()
+                    arguments.optString("url").ifEmpty { null }?.let { sync.serverUrl = it }
+                    password = arguments.getString("password")
+                    sync.connectAndSync(store.rootPath, password)
+                    mapOf("connected" to sync.connected, "status" to sync.statusMessage.path)
+                },
+            )
+        } else {
+            listOf(
+                PuppetVerb("SyncNow", controls = listOf("sync.syncNow")) {
+                    notBusy()
+                    sync.syncNow()
+                    mapOf("status" to sync.statusMessage.path)
+                },
+                PuppetVerb("DisconnectSync", controls = listOf("sync.disconnect")) {
+                    notBusy()
+                    sync.disconnect()
+                    mapOf("connected" to sync.connected)
+                },
+            )
+        }
+    }
 
     OutlinedTextField(
         value = sync.serverUrl,

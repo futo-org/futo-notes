@@ -58,6 +58,7 @@ import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.futo.notes.puppet.puppetSection
 import com.futo.notes.localization.LocalLocalization
 import com.futo.notes.ui.theme.FutoTheme
 
@@ -143,7 +144,7 @@ fun EditorToolbar(
     val canScrollLeading = scrollState.value > 0
     val canScrollTrailing = scrollState.value < scrollState.maxValue
 
-    Column(modifier.fillMaxWidth().background(c.surface)) {
+    Column(modifier.fillMaxWidth().background(c.surface).puppetSection("keyboard toolbar")) {
         HorizontalDivider(thickness = 0.5.dp, color = c.border)
         Row(
             modifier = Modifier.fillMaxWidth().height(44.dp),

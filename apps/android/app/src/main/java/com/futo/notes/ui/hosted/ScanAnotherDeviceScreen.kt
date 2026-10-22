@@ -46,6 +46,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import com.futo.notes.puppet.PuppetVerb
+import com.futo.notes.puppet.PuppetVerbScope
 import com.futo.notes.localization.LocalLocalization
 import com.futo.notes.localization.Localization
 import com.futo.notes.openAppSettings
@@ -110,6 +112,51 @@ fun ScanAnotherDeviceScreen(model: HostedSetupModel, onBack: () -> Unit) {
     // screen IS that moment.
     LaunchedEffect(access) {
         if (access == PairingCameraAccess.ASK) ask.launch(Manifest.permission.CAMERA)
+    }
+
+    // A full-screen dialog, so its controls are all a person can reach. ScanPairingCode
+    // stands in for the camera with the string it would have read — an emulator's camera
+    // sees no code — and everything after it is what a real scan drives: the
+    // confirmation naming the device, then Send.
+    PuppetVerbScope(modal = true) {
+        if (model.scanPhase == ScanPhase.CONFIRMING) {
+            return@PuppetVerbScope listOf(
+                PuppetVerb("ConfirmDialog", controls = listOf("common.actions.send")) {
+                    model.sendVaultKey()
+                },
+                PuppetVerb("DismissDialog", controls = listOf("common.actions.cancel")) {
+                    model.cancelConfirmation()
+                },
+            )
+        }
+        buildList {
+            add(
+                PuppetVerb("CloseScanner", controls = listOf("common.actions.back")) {
+                    onBack()
+                },
+            )
+            if (model.scanPhase == ScanPhase.SCANNING) {
+                add(
+                    PuppetVerb("ScanPairingCode", required = listOf("code"), optional = listOf("answer")) { arguments ->
+                        model.readScannedCode(arguments.getString("code"))
+                    },
+                )
+            }
+            if (access == PairingCameraAccess.RATIONALE) {
+                add(
+                    PuppetVerb("AllowCamera", controls = listOf("sync.hosted.pairing.scan.android.allowCamera")) {
+                        ask.launch(Manifest.permission.CAMERA)
+                    },
+                )
+            }
+            if (access == PairingCameraAccess.DENIED) {
+                add(
+                    PuppetVerb("OpenSystemSettings", controls = listOf("sync.hosted.pairing.scan.openSettings")) {
+                        openAppSettings(context)
+                    },
+                )
+            }
+        }
     }
 
     Scaffold(

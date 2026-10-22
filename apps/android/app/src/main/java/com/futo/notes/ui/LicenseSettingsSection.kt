@@ -27,6 +27,10 @@ import com.futo.notes.browser.openInCustomTab
 import com.futo.notes.license.LicenseCardModel
 import com.futo.notes.license.LicenseModel
 import com.futo.notes.license.licenseCardModel
+import com.futo.notes.puppet.PuppetVerb
+import com.futo.notes.puppet.PuppetVerbRefusal
+import com.futo.notes.puppet.PuppetVerbScope
+import com.futo.notes.puppet.recordPuppetOpen
 import com.futo.notes.localization.LocalLocalization
 import com.futo.notes.localization.Localization
 import com.futo.notes.ui.theme.FutoTheme
@@ -123,6 +127,7 @@ fun LicenseSettingsSection(
     var revealed by remember(view?.key) { mutableStateOf(false) }
 
     fun openMail(destination: String) {
+        recordPuppetOpen(destination)
         runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(destination))) }
             .onFailure { Log.w(LICENSE_LOG_TAG, "nothing on this device opens $destination", it) }
     }
@@ -166,6 +171,50 @@ fun LicenseSettingsSection(
     val primaryAction =
         actions.firstOrNull { it == LicenseAction.BUY || it == LicenseAction.RENEW }
     val otherActions = actions.filter { it != primaryAction }
+
+    // Each verb is offered exactly while its control is on the plate. The action buttons
+    // are labelled from their action (`catalogPath`), so those verbs name no key.
+    PuppetVerbScope {
+        if (entering) {
+            return@PuppetVerbScope listOf(
+                PuppetVerb(
+                    "ActivateLicense",
+                    required = listOf("licenseKey"),
+                    controls = listOf("license.keyLabel", "license.keyPlaceholder", "license.activate", "license.activating"),
+                ) { arguments ->
+                    draft = arguments.getString("licenseKey")
+                    if (license.busy) throw PuppetVerbRefusal(409, "the license is busy")
+                    if (license.enterKey(draft)) cancelEntry()
+                },
+                PuppetVerb("CancelLicenseEntry", controls = listOf("license.cancelEntry")) {
+                    if (license.busy) throw PuppetVerbRefusal(409, "the license is busy")
+                    cancelEntry()
+                },
+            )
+        }
+        buildList {
+            if (card?.maskedKey != null && !revealed) {
+                add(
+                    PuppetVerb("ShowLicenseKey", controls = listOf("license.card.revealKey")) {
+                        revealed = true
+                    },
+                )
+            }
+            for (action in actions) {
+                val run: suspend (org.json.JSONObject) -> Unit = {
+                    act(action)
+                }
+                when (action) {
+                    LicenseAction.BUY, LicenseAction.RENEW -> add(PuppetVerb("BuyLicense", run = run))
+                    LicenseAction.ENTER_KEY -> add(PuppetVerb("StartLicenseEntry", run = run))
+                    LicenseAction.LOST_KEY -> add(PuppetVerb("OpenLostKeyHelp", run = run))
+                    LicenseAction.REMOVE -> add(PuppetVerb("RemoveLicense", run = run))
+                    // iOS only (ADR-0009); Rust never offers these to Android.
+                    LicenseAction.BUY_IN_APP_STORE, LicenseAction.RESTORE_PURCHASES -> Unit
+                }
+            }
+        }
+    }
 
     // The state as one word, for assistive technology. It used to hang off the
     // well, and the well is now gone from two of the three states — so the

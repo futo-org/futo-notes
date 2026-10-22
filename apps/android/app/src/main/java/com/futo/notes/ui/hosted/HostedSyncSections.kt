@@ -45,6 +45,9 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.futo.notes.NotesStore
 import com.futo.notes.SecureStore
 import com.futo.notes.SyncManager
+import com.futo.notes.puppet.PuppetVerb
+import com.futo.notes.puppet.PuppetVerbRefusal
+import com.futo.notes.puppet.PuppetVerbScope
 import com.futo.notes.localization.LocalLocalization
 import com.futo.notes.sync.hosted.HostedBanner
 import com.futo.notes.sync.hosted.HostedScreen
@@ -117,6 +120,50 @@ fun ColumnScope.HostedSyncSections(store: NotesStore, sync: SyncManager, secure:
     }
 
     LaunchedEffect(model) { model.load() }
+
+    // The section's own controls; each step's are verbs in its composable. Signing in
+    // and checkout wait on a browser for minutes and the listener answers one verb at a
+    // time, so those two start the wait and answer, leaving Cancel reachable.
+    val settingUp = model.screen != HostedScreen.ACCOUNT &&
+        model.screen != HostedScreen.CHANGE_VAULT_PASSWORD &&
+        !(model.screen == HostedScreen.RECOVERY_KEY && model.recoveryKeyReplaced)
+    PuppetVerbScope {
+        buildList {
+            if (model.screen == HostedScreen.SIGN_IN) {
+                add(
+                    PuppetVerb("SignInWithFuto", controls = listOf("sync.hosted.signIn.button")) {
+                        refuseWhileBusy(model.busy)
+                        scope.launch { model.signIn() }
+                        mapOf("started" to true)
+                    },
+                )
+            }
+            if (model.screen == HostedScreen.SUBSCRIBE || model.banner == HostedBanner.SYNC_PAUSED) {
+                add(
+                    PuppetVerb("Subscribe", controls = listOf("sync.hosted.subscribe.button")) {
+                        refuseWhileBusy(model.busy)
+                        scope.launch { model.subscribe() }
+                        mapOf("started" to true)
+                    },
+                )
+            }
+            if (model.waiting != null) {
+                add(
+                    PuppetVerb("CancelWaitingForBrowser", controls = listOf("sync.hosted.cancel")) {
+                        model.cancelWaiting()
+                    },
+                )
+            }
+            if (settingUp) {
+                add(
+                    PuppetVerb("ToggleOwnServer", controls = listOf("sync.hosted.useMyOwnServer")) {
+                        model.selfHostedOpen = !model.selfHostedOpen
+                        mapOf("open" to model.selfHostedOpen)
+                    },
+                )
+            }
+        }
+    }
 
     // The refused cycle may have ended long before this screen opened, and may
     // end again while it is open; both must reach the banner. `sync` holds the
@@ -196,15 +243,17 @@ fun ColumnScope.HostedSyncSections(store: NotesStore, sync: SyncManager, secure:
             purpose = VaultPasswordPurpose.CREATE,
             minimumLength = model.minimumVaultPasswordLength,
             busy = model.busy,
-        ) { vaultPassword -> scope.launch { model.createVault(vaultPassword) } }
+            scope = scope,
+        ) { vaultPassword -> model.createVault(vaultPassword) }
         // The same screen, asking for no current secret: this device holds the
         // vault key, and one paired by QR never knew the old password.
         HostedScreen.CHANGE_VAULT_PASSWORD -> VaultPasswordStep(
             purpose = VaultPasswordPurpose.CHANGE,
             minimumLength = model.minimumVaultPasswordLength,
             busy = model.busy,
-            onCancel = { scope.launch { model.backToAccount() } },
-        ) { newPassword -> scope.launch { model.changeVaultPassword(newPassword) } }
+            scope = scope,
+            onCancel = { model.backToAccount() },
+        ) { newPassword -> model.changeVaultPassword(newPassword) }
         HostedScreen.RECOVERY_KEY -> model.recoveryKey?.let { key ->
             RecoveryKeyStep(
                 recoveryKey = key,
@@ -214,7 +263,8 @@ fun ColumnScope.HostedSyncSections(store: NotesStore, sync: SyncManager, secure:
                 onSavedChange = { model.recoveryKeySaved = it },
                 onCopy = { model.copyRecoveryKey() },
                 onShare = { model.shareRecoveryKey() },
-                onContinue = { scope.launch { model.continueAfterRecoveryKey() } },
+                onContinue = { model.continueAfterRecoveryKey() },
+                scope = scope,
             )
         }
         HostedScreen.UNLOCK -> UnlockStep(
@@ -224,21 +274,22 @@ fun ColumnScope.HostedSyncSections(store: NotesStore, sync: SyncManager, secure:
             pairingPayload = model.pairingPayload,
             pairingExpiresAt = model.pairingExpiresAt,
             onDoor = { model.chooseDoor(it) },
-            onVaultPassword = { scope.launch { model.unlockWithPassword(it) } },
-            onRecoveryKey = { scope.launch { model.unlockWithRecoveryKey(it) } },
-            onShowPairingCode = { scope.launch { model.showPairingCode() } },
+            onVaultPassword = { model.unlockWithPassword(it) },
+            onRecoveryKey = { model.unlockWithRecoveryKey(it) },
+            onShowPairingCode = { model.showPairingCode() },
             onCancelPairing = { model.cancelPairing() },
+            scope = scope,
         )
         HostedScreen.ACCOUNT -> HostedAccountCard(
             email = model.email,
             billing = model.billing,
             syncStatus = sync.localizedStatus(localization),
             busy = model.busy,
-            onManage = { scope.launch { model.manageSubscription() } },
+            onManage = { model.manageSubscription() },
             onChangeVaultPassword = { model.beginChangeVaultPassword() },
-            onNewRecoveryKey = { scope.launch { model.newRecoveryKey() } },
+            onNewRecoveryKey = { model.newRecoveryKey() },
             onScanAnotherDevice = { model.openScanner() },
-            onSignOut = { scope.launch { model.signOut() } },
+            onSignOut = { model.signOut() },
         )
     }
 
@@ -283,12 +334,9 @@ fun ColumnScope.HostedSyncSections(store: NotesStore, sync: SyncManager, secure:
     // Self-hosting is unchanged and stays available. The disclosed panel is
     // literally the rows a flag-off build renders, not a copy of them (parent
     // spec user story 34). The offer goes away once hosted sync is set up.
-    // "Use my own server" belongs to someone who has not set hosted sync up.
-    // The account card hides it, and so do the two detours off it — changing
-    // the vault password, and the replacement recovery key.
-    val settingUp = model.screen != HostedScreen.ACCOUNT &&
-        model.screen != HostedScreen.CHANGE_VAULT_PASSWORD &&
-        !(model.screen == HostedScreen.RECOVERY_KEY && model.recoveryKeyReplaced)
+    // "Use my own server" belongs to someone who has not set hosted sync up
+    // (`settingUp`): the account card hides it, and so do the two detours off it —
+    // changing the vault password, and the replacement recovery key.
     if (settingUp) {
         Surface(
             color = c.surface,
@@ -380,4 +428,9 @@ private fun ColumnScope.HostedBannerCard(
             }
         }
     }
+}
+
+/** A hosted-sync verb refused while the model is working, as its disabled control is. */
+internal fun refuseWhileBusy(busy: Boolean) {
+    if (busy) throw PuppetVerbRefusal(409, "hosted sync is busy")
 }

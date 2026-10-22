@@ -25,6 +25,8 @@ import androidx.compose.ui.graphics.painter.BitmapPainter
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import com.futo.notes.puppet.PuppetVerb
+import com.futo.notes.puppet.PuppetVerbScope
 import com.futo.notes.localization.LocalLocalization
 import com.futo.notes.sync.hosted.PairingState
 import com.futo.notes.sync.hosted.formatPairingCountdown
@@ -33,7 +35,9 @@ import com.futo.notes.sync.hosted.pairingSecondsRemaining
 import com.futo.notes.ui.theme.FutoRadius
 import com.futo.notes.ui.theme.FutoTheme
 import com.futo.notes.ui.theme.FutoType
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 /**
  * The scan door on the unlock screen: this device is the NEW one, so it draws a
@@ -53,11 +57,34 @@ fun ColumnScope.ShowPairingCode(
     /** RFC 3339, the relay's own deadline. */
     expiresAt: String?,
     busy: Boolean,
-    onShow: () -> Unit,
+    onShow: suspend () -> Unit,
     onCancel: () -> Unit,
+    /** Runs the taps: the section's scope, because a step's own work ends the step. */
+    scope: CoroutineScope,
 ) {
     val c = FutoTheme.colors
     val localization = LocalLocalization.current
+    val show: () -> Unit = { scope.launch { onShow() } }
+
+    // A code waits five minutes for the other device and the listener answers one verb
+    // at a time, so showing one starts the wait and answers, leaving Cancel reachable.
+    PuppetVerbScope {
+        when (pairing) {
+            PairingState.WAITING -> listOf(
+                PuppetVerb("CancelPairing", controls = listOf("sync.hosted.cancel")) {
+                    onCancel()
+                },
+            )
+            PairingState.RECEIVED -> emptyList()
+            else -> listOf(
+                PuppetVerb("ShowPairingCode") {
+                    refuseWhileBusy(busy)
+                    show()
+                    mapOf("started" to true)
+                },
+            )
+        }
+    }
 
     when (pairing) {
         PairingState.WAITING -> {
@@ -80,14 +107,14 @@ fun ColumnScope.ShowPairingCode(
                 title = "sync.hosted.pairing.expired.title",
                 explanation = "sync.hosted.pairing.expired.body",
             )
-            ShowCodeButton("sync.hosted.pairing.showNewCode", busy, onShow)
+            ShowCodeButton("sync.hosted.pairing.showNewCode", busy, show)
         }
         PairingState.REFUSED -> {
             HostedStepHeader(
                 title = "sync.hosted.pairing.refused.title",
                 explanation = "sync.hosted.pairing.refused.body",
             )
-            ShowCodeButton("sync.hosted.pairing.showNewCode", busy, onShow)
+            ShowCodeButton("sync.hosted.pairing.showNewCode", busy, show)
         }
         PairingState.IDLE -> {
             Text(
@@ -95,7 +122,7 @@ fun ColumnScope.ShowPairingCode(
                 style = FutoType.small,
                 color = c.textSecondary,
             )
-            ShowCodeButton("sync.hosted.pairing.showCode", busy, onShow)
+            ShowCodeButton("sync.hosted.pairing.showCode", busy, show)
         }
     }
 }
