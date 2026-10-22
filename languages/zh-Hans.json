@@ -483,6 +483,14 @@
         "unsupportedType": "不支持的图片类型",
         "pasteFailed": "无法粘贴图片",
         "cameraUnavailable": "没有可用的相机应用",
+        "cameraPermission": {
+          "refused": "FUTO Notes 需要相机权限才能拍照",
+          "off": {
+            "title": "FUTO Notes 无法使用相机",
+            "body": "FUTO Notes 的相机权限已关闭，因此无法拍照。你可以在“设置”中开启。"
+          },
+          "openSettings": "打开设置"
+        },
         "filePickerFilter": "图片"
       },
       "android": {

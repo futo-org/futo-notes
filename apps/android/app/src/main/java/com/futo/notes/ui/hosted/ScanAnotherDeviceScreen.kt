@@ -2,10 +2,7 @@ package com.futo.notes.ui.hosted
 
 import android.Manifest
 import android.content.Context
-import android.content.Intent
 import android.content.pm.PackageManager
-import android.net.Uri
-import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
@@ -51,6 +48,7 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.futo.notes.localization.LocalLocalization
 import com.futo.notes.localization.Localization
+import com.futo.notes.openAppSettings
 import com.futo.notes.sync.hosted.HostedSetupModel
 import com.futo.notes.sync.hosted.PairingCameraAccess
 import com.futo.notes.sync.hosted.ScanPhase
@@ -323,15 +321,5 @@ private fun shouldExplainCamera(context: Context): Boolean {
     return ActivityCompat.shouldShowRequestPermissionRationale(
         activity,
         Manifest.permission.CAMERA,
-    )
-}
-
-/** This app's entry in the system settings, where a final refusal is undone. */
-private fun openAppSettings(context: Context) {
-    context.startActivity(
-        Intent(
-            Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-            Uri.fromParts("package", context.packageName, null),
-        ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
     )
 }

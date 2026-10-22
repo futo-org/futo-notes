@@ -131,3 +131,10 @@
   on Android; PHPicker on iOS, camera falling back to the library on the
   simulator), saves the bytes into the vault root under a generated
   space-free name, and calls `insertImage` back into the embed.
+- _(Android)_ Camera asks for the `CAMERA` permission at the moment of use,
+  because the manifest declares it for pairing and Android then refuses the
+  camera intent without it. Granted, the system camera opens; a first refusal
+  leaves the note as it was with a toast saying why; a final refusal shows a
+  "camera access is off" dialog with Open Settings. A tap never crashes the
+  app, including after the permission is revoked. → ImagePicker.kt
+  `captureCamera`, AppSettings.kt

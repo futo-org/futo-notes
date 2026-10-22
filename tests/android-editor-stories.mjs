@@ -10,6 +10,11 @@
  * its baseline, so the next save parked a conflict copy and the typed text
  * landed in the copy.
  *
+ * The camera story guards #1819: declaring CAMERA (for pairing scans) makes
+ * Android refuse the editor's photo hand-off with a SecurityException unless the
+ * permission is held, and the toolbar's Take photo crashed every install that
+ * had never granted it.
+ *
  * Usage:
  *   eval "$(just qa-claim android)"
  *   just android-native
@@ -19,6 +24,8 @@
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { DEBUG_PACKAGE } from './lib/android-device.mjs';
+import { UI_TIMEOUT_MS } from './lib/android-native/constants.mjs';
 import {
   findAndroidLegDevice,
   HARNESS_NOTE_PREFIX,
@@ -101,6 +108,100 @@ async function selfLinkRenameThenType(client) {
   if (problems.length > 0) throw new Error(problems.join('; '));
 }
 
+const PHOTO_ID = `${HARNESS_NOTE_PREFIX}photo`;
+const PHOTO_BODY = 'a note to attach a photo to\n';
+const CAMERA = 'android.permission.CAMERA';
+
+/** The system permission prompt's refuse button, found by id so neither its
+ *  wording nor which permission controller ships on the image matters. The
+ *  second ask labels it "don't ask again". */
+function permissionPromptDenyButton(device) {
+  const xml = device.adb(['exec-out', 'uiautomator', 'dump', '/dev/tty'], { allowFailure: true });
+  const [, x1, y1, x2, y2] =
+    xml.match(
+      /resource-id="[\w.]*permissioncontroller:id\/permission_deny(?:_and_dont_ask_again)?_button"[^>]*?bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"/,
+    ) ?? [];
+  if (x1 === undefined) return null;
+  return { x: (Number(x1) + Number(x2)) >> 1, y: (Number(y1) + Number(y2)) >> 1 };
+}
+
+async function photoWithoutCameraPermission(client) {
+  const { device } = client;
+  await client.reset();
+  client.externalWriteNote(PHOTO_ID, PHOTO_BODY);
+  // Never asked: no grant, and no refusal remembered from an earlier run.
+  // Revoking kills the app, so it happens before the restart.
+  device.shell(`pm revoke ${DEBUG_PACKAGE} ${CAMERA}`, { allowFailure: true });
+  device.shell(`pm clear-permission-flags ${DEBUG_PACKAGE} ${CAMERA} user-set user-fixed`);
+  device.restart();
+  await client.openNoteInEditor(PHOTO_ID);
+  const pid = device.shell(`pidof ${DEBUG_PACKAGE}`).trim();
+  const stillRunning = () => {
+    if (device.shell(`pidof ${DEBUG_PACKAGE}`, { allowFailure: true }).trim() !== pid) {
+      throw new Error('the app died after Take photo');
+    }
+  };
+
+  // Take photo sits past the toolbar's right edge on a phone-width screen:
+  // swipe the toolbar row left (found by its fixed Dismiss keyboard button).
+  const takePhoto = async (which) => {
+    await client.focusOpenEditor();
+    const button = await device.waitFor(`the ${which} "Take photo"`, UI_TIMEOUT_MS, () => {
+      const screen = device.screen();
+      const hit = screen.node('Take photo');
+      if (hit) return hit;
+      const row = screen.node('Dismiss keyboard');
+      if (row) {
+        const { width } = device.screenSize();
+        device.shell(
+          `input swipe ${Math.round(width * 0.75)} ${row.y} ${Math.round(width * 0.05)} ${row.y} 300`,
+        );
+      }
+      return null;
+    });
+    device.tapPoint(button.x, button.y);
+  };
+  const refuse = async (which) => {
+    const deny = await device.waitFor(
+      `the ${which} camera permission prompt`,
+      UI_TIMEOUT_MS,
+      () => {
+        stillRunning();
+        return permissionPromptDenyButton(device);
+      },
+    );
+    device.tapPoint(deny.x, deny.y);
+    await device.waitFor('the app to return to the foreground', UI_TIMEOUT_MS, () =>
+      device.isForeground(),
+    );
+  };
+
+  const cameraOff = async (when) => {
+    await device.waitFor(`the camera-off dialog offering Settings ${when}`, UI_TIMEOUT_MS, () => {
+      stillRunning();
+      return device.isVisible('Open Settings');
+    });
+    await device.tap('Cancel', { scroll: false });
+  };
+
+  // Asked at the moment of use rather than crashing, and asked again after
+  // one refusal. The second refusal is final, so it gets the way to Settings
+  // at once, and so does every later tap, with no prompt in between.
+  await takePhoto('first');
+  await refuse('first');
+  await takePhoto('second');
+  await refuse('second');
+  await cameraOff('after the final refusal');
+  await takePhoto('third');
+  await cameraOff('on the next tap');
+
+  stillRunning();
+  const content = await client.readOpenEditorContent();
+  if (content !== PHOTO_BODY) {
+    throw new Error(`the editor no longer holds the note: ${JSON.stringify(content)}`);
+  }
+}
+
 async function main() {
   const leg = findAndroidLegDevice();
   if (!leg.available) throw new Error(`no usable Android device: ${leg.reason}`);
@@ -109,6 +210,9 @@ async function main() {
   try {
     await check('a self-link rename keeps one note and the text typed after it', () =>
       selfLinkRenameThenType(client),
+    );
+    await check('Take photo without the camera permission asks, then points to Settings', () =>
+      photoWithoutCameraPermission(client),
     );
   } finally {
     client.stop();

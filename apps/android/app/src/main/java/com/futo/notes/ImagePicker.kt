@@ -1,17 +1,22 @@
 package com.futo.notes
 
+import android.Manifest
 import android.content.ActivityNotFoundException
 import android.content.ClipboardManager
 import android.content.ContentResolver
 import android.content.Context
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.webkit.MimeTypeMap
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import com.futo.notes.localization.Localization
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -31,9 +36,10 @@ const val MAX_PICKED_IMAGES = 3
 /**
  * Native image pickers behind the editor's `pickImage` bridge message
  * [editor.md:121, editor.md:130]. The Photo Picker needs no permission on any
- * API level; TakePicture writes into a FileProvider cache file and needs NO
- * camera permission either (it delegates to the system camera app — that's
- * why the manifest stays CAMERA-less).
+ * API level. TakePicture writes into a FileProvider cache file through the
+ * system camera app, but because the manifest declares CAMERA (for pairing
+ * QR scans), Android refuses ACTION_IMAGE_CAPTURE with a SecurityException
+ * unless CAMERA is held — so capture asks for it first, at the moment of use.
  *
  * Must be constructed during Activity onCreate: ActivityResult contracts have
  * to register before the activity is started.
@@ -75,29 +81,72 @@ class ImagePicker(
         if (capped > 1) pickMultipleMedia.launch(request) else pickMedia.launch(request)
     }
 
+    private val requestCamera =
+        activity.registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            when {
+                // The activity was recreated under the prompt: nobody is waiting
+                // for a photo any more, so don't take one.
+                onPicked == null -> Unit
+                granted -> launchCapture()
+                // Asked just now, so no rationale means refused for good — the
+                // same reading as pairingCameraAccess's DENIED.
+                !ActivityCompat.shouldShowRequestPermissionRationale(
+                    activity,
+                    Manifest.permission.CAMERA,
+                ) -> {
+                    deliver(emptyList())
+                    showCameraOff()
+                }
+                else -> fail("editor.images.cameraPermission.refused")
+            }
+        }
+
     fun captureCamera(callback: (List<Uri>) -> Unit) {
         onPicked = callback
+        val granted = ContextCompat.checkSelfPermission(activity, Manifest.permission.CAMERA) ==
+            PackageManager.PERMISSION_GRANTED
+        if (granted) launchCapture() else requestCamera.launch(Manifest.permission.CAMERA)
+    }
+
+    private fun launchCapture() {
         val dir = File(activity.cacheDir, "camera").apply { mkdirs() }
         val file = File(dir, "capture-${System.currentTimeMillis()}.jpg")
         val uri = FileProvider.getUriForFile(activity, "${activity.packageName}.fileprovider", file)
         cameraUri = uri
+        // launch() throws synchronously here, so nothing downstream catches
+        // either failure — reset and tell the user instead of crashing.
         try {
             takePicture.launch(uri)
         } catch (e: ActivityNotFoundException) {
             // No camera app can service ACTION_IMAGE_CAPTURE (e.g. no default
-            // camera resolvable under Android 11+ package visibility). launch()
-            // throws synchronously here, so nothing downstream catches it — reset
-            // the picker state and tell the user instead of crashing.
-            onPicked = null
-            cameraUri = null
+            // camera resolvable under Android 11+ package visibility).
             android.util.Log.w("ImagePicker", "no camera activity for IMAGE_CAPTURE", e)
-            Toast.makeText(
-                activity,
-                localization().localizedText("editor.images.cameraUnavailable"),
-                Toast.LENGTH_LONG,
-            ).show()
-            callback(emptyList())
+            fail("editor.images.cameraUnavailable")
+        } catch (e: SecurityException) {
+            // CAMERA was revoked between the check and the launch (#1819).
+            android.util.Log.w("ImagePicker", "IMAGE_CAPTURE refused without CAMERA", e)
+            fail("editor.images.cameraPermission.refused")
         }
+    }
+
+    /** Reset the picker, tell the user why, and hand the editor nothing. */
+    private fun fail(message: String) {
+        cameraUri = null
+        Toast.makeText(activity, localization().localizedText(message), Toast.LENGTH_LONG).show()
+        deliver(emptyList())
+    }
+
+    /** Refused for good: only the system settings screen can undo it. */
+    private fun showCameraOff() {
+        val text = localization()
+        MaterialAlertDialogBuilder(activity)
+            .setTitle(text.localizedText("editor.images.cameraPermission.off.title"))
+            .setMessage(text.localizedText("editor.images.cameraPermission.off.body"))
+            .setPositiveButton(
+                text.localizedText("editor.images.cameraPermission.openSettings"),
+            ) { _, _ -> openAppSettings(activity) }
+            .setNegativeButton(text.localizedText("common.actions.cancel"), null)
+            .show()
     }
 }
 

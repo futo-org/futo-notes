@@ -21,11 +21,12 @@
          on http://. -->
 
     <!-- Reading a pairing QR code on an already-unlocked device (ADR 0003
-         decision 5). Requested at the moment of use, on the scanner screen and
-         nowhere else; a refusal is not a dead end, because the device being set
-         up can still be unlocked by typing the vault password. The editor's
-         image capture still needs NO camera permission — it hands off to the
-         system camera app (see the FileProvider below). -->
+         decision 5). Requested at the moment of use, on the scanner screen; a
+         refusal is not a dead end, because the device being set up can still be
+         unlocked by typing the vault password. Declaring it also makes Android
+         refuse the editor's ACTION_IMAGE_CAPTURE hand-off with a
+         SecurityException unless it is held, so ImagePicker asks for it when
+         the person takes a photo. -->
     <uses-permission android:name="android.permission.CAMERA" />
     <!-- Not required: a device with no camera installs fine and is told so on
          the scanner screen. It can still SHOW a code for another device. -->
@@ -185,8 +186,9 @@
         </activity-alias>
 
         <!-- Camera capture target for the editor's pickImage flow: TakePicture
-             writes into a cache file exposed via this provider. No CAMERA
-             permission needed — the system camera app does the capturing. -->
+             writes into a cache file exposed via this provider. The system
+             camera app does the capturing, but CAMERA must still be held (see
+             the uses-permission above). -->
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
