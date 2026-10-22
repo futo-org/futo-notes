@@ -64,7 +64,7 @@ describe('pre-merge CI routing contracts: native mobile jobs', () => {
     expect(androidSyncJob).toContain('bash "$CI_PROJECT_DIR/scripts/ci-android-sync-leg.sh"');
     expect(androidSyncJob).toContain('- job: build:android-native');
     // Same runner-exclusion as the desktop mesh; overlapping starves both.
-    expect(androidSyncJob).toContain('resource_group: cross-platform-sync');
+    expect(androidSyncJob).toContain('resource_group: $SYNC_RESOURCE_GROUP');
     expect(releaseGate).toContain('- job: test:cross-platform-sync:android');
     // The APK producer's gate must be a superset of this job's, so neither may
     // trigger on a path the other ignores (build:android-native excludes
@@ -152,7 +152,7 @@ describe('pre-merge CI routing contracts: native mobile jobs', () => {
     // Serialized against the sync suite on the shared pinned runner — a
     // concurrent full-tree compile flakes its timing-sensitive scenarios —
     // and ordered after it, so the exclusion never delays the sync suite.
-    expect(androidCheckJob).toContain('resource_group: cross-platform-sync');
+    expect(androidCheckJob).toContain('resource_group: $SYNC_RESOURCE_GROUP');
     expect(androidCheckJob).toContain('job: test:cross-platform-sync');
     expect(macosRustTask).toContain('cargo check -p futo-notes-ffi --target aarch64-apple-ios');
     expect(releaseGate).toContain('- job: test:rust:ffi-android');

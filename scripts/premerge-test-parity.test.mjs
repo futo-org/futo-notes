@@ -181,4 +181,23 @@ describe('pre-merge CI routing contracts', () => {
     expect(syncJob.match(/SYNC_SCENARIO_FLAGS: --skip-slow/g)).toHaveLength(2);
     expect(syncJob).toContain('$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH');
   });
+  it('keeps tag pipelines out of the resource groups MR pipelines hold', () => {
+    // v1.9.0's Android sync leg sat 11 minutes behind an MR's run of the same
+    // group. Each holder takes its group from a variable whose default is the
+    // shared name and whose tag rule (the first rule) swaps in -release.
+    const groups = {
+      'test:cross-platform-sync': ['SYNC_RESOURCE_GROUP', 'cross-platform-sync'],
+      'test:cross-platform-sync:android': ['SYNC_RESOURCE_GROUP', 'cross-platform-sync'],
+      'test:rust:ffi-android': ['SYNC_RESOURCE_GROUP', 'cross-platform-sync'],
+      test: ['UNIT_TESTS_RESOURCE_GROUP', 'unit-tests'],
+    };
+    for (const [job, [variable, group]] of Object.entries(groups)) {
+      const block = topLevelBlock(gitlabPipeline, new RegExp(`^${job}:$`, 'm'));
+      expect(block, job).toContain(`  resource_group: $${variable}\n`);
+      expect(block, job).toContain(`    ${variable}: ${group}\n`);
+      const rules = block.slice(block.indexOf('\n  rules:\n'));
+      const tagRule = /^ {4}- if: \$CI_COMMIT_TAG\n((?: {6}.*\n)*)/m.exec(rules);
+      expect(tagRule?.[1], job).toContain(`        ${variable}: ${group}-release\n`);
+    }
+  });
 });

@@ -37,10 +37,16 @@ test:
   # about 3 minutes. That is cheaper than the failure it replaces — a red
   # pipeline plus the attribution hunt.
   #
+  # Tag pipelines take unit-tests-release (rules below), so a release never
+  # queues behind stacked MRs; it may overlap one MR run, which is the
+  # contention above bounded to two jobs. See test:cross-platform-sync.
+  #
   # Merge trains would be the other way to stop stacked pipelines overlapping,
   # but gitlab.futo.org runs the EE binary on a Free tier and merge trains are
   # Premium-only (merge_trains_enabled is absent from the project API payload).
-  resource_group: unit-tests
+  resource_group: $UNIT_TESTS_RESOURCE_GROUP
+  variables:
+    UNIT_TESTS_RESOURCE_GROUP: unit-tests
   # TIGHTENED from the inherited 60m project default, not bumped: inside a
   # resource group a hung job is head-of-line blocking for every other MR, and
   # hangs are real here (a test:rust:workspace run hung 3870s in the same
@@ -79,6 +85,8 @@ test:
     - pnpm exec vite build --config vite.editor.config.ts
   rules:
     - if: $CI_COMMIT_TAG
+      variables:
+        UNIT_TESTS_RESOURCE_GROUP: unit-tests-release
     - if: $CI_MERGE_REQUEST_IID
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
 
