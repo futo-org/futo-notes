@@ -22,7 +22,7 @@ const SHORT_HEADING = /^##\s+Short\s*$/im;
 
 // App Review rejects "What's New" text that names another mobile platform
 // (App Store Review Guideline 2.3.10).
-const OTHER_PLATFORM = /\b(android|google play)\b/i;
+const OTHER_PLATFORM = /\b(android|google play|play store)\b/i;
 
 export const STABLE_TAG_PATTERN = /^v\d+\.\d+\.\d+$/;
 
