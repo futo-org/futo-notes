@@ -85,9 +85,16 @@ release:gate:
 # Publish + create GitLab release
 # ─────────────────────────────────────────────────────────────
 
-# Upload the iOS IPA to TestFlight. Gated by release:gate so a failing
-# test job blocks the upload. The Cirrus task pulls the IPA artifact
-# built in build:ios-native, so we don't rebuild from scratch.
+# Upload the stable-tag IPA to TestFlight as soon as build:ios-native has it —
+# deliberately NOT behind release:gate, so Apple's 5-30 minutes of build
+# processing overlaps the test wall instead of following it. TestFlight is
+# not a release: every main push already lands there (publish:ios:main) with
+# only the `test` gate. What reaches App Store REVIEW is publish:ios:appstore,
+# which still needs release:gate, so a red test still stops the submission.
+# Its own job rather than a step inside build:ios-native: release:gate needs
+# that build, so an Apple outage there would block every other store and the
+# GitLab release, and a retry would rebuild the app just to re-upload it.
+# The Cirrus task reuses the IPA artifact from build:ios-native.
 publish:ios:
   stage: release
   interruptible: false
@@ -97,7 +104,6 @@ publish:ios:
   tags:
     - macscript
   needs:
-    - job: release:gate
     - job: build:ios-native
   variables:
     GIT_STRATEGY: clone
@@ -261,7 +267,10 @@ publish:android:
 # lets the job poll for half an hour without holding it.
 #
 # needs publish:ios because the build must be UPLOADED before it can be found;
-# Apple then processes it for 5-30 minutes, which is what this job waits out.
+# Apple then processes it for 5-30 minutes, which is what this job waits out —
+# usually less here, since publish:ios uploads before the gate and processing
+# runs while the tests do. release:gate stays: nothing reaches review unless
+# every test passed.
 # Timing out is not a failure of the release — the binary is already in
 # TestFlight — so the job says so and is safe to retry without a rebuild.
 #
