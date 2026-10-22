@@ -81,7 +81,12 @@ export const testSchema = new Schema({
     // GFM tables, shaped like the preset's: one header row, then body rows.
     table: { ...pmTableSpecs.table, content: 'table_header_row table_row+' },
     table_header_row: { ...pmTableSpecs.table_row, content: 'table_header*' },
-    table_row: { ...pmTableSpecs.table_row, content: 'table_cell*' },
+    // `filler` mirrors milkdown-compat's tableFillerRow.ts override of the row.
+    table_row: {
+      ...pmTableSpecs.table_row,
+      content: 'table_cell*',
+      attrs: { filler: { default: false } },
+    },
     table_header: pmTableSpecs.table_header,
     table_cell: pmTableSpecs.table_cell,
     text: { group: 'inline' },

@@ -46,7 +46,7 @@ import { localizedText } from '$shared/localization';
 import { locateCell, type CellLocation } from './tableCommands';
 import { clampRectToViewport, columnGripRect, rowGripRect, type Rect } from './tableGripsGeometry';
 import { tableCellLineBreakRemark } from './tableLineBreak';
-import { tablePasteRepair } from './tablePaste';
+import { headerOnlyTablePaste, tablePasteRepair } from './tablePaste';
 import { type GripKind, menuActionsFor, anchorPos, cellStartPos } from './tableGripMenu';
 import {
   GRIP_CLASS,
@@ -369,4 +369,9 @@ const tableGripsView = $prose(
  * call), and the table-paste repair (`tablePaste.ts`), mirroring how
  * `wikilink/index.ts` bundles its own feature's plugins under one name.
  */
-export const tableGrips = [tableGripsView, tableCellLineBreakRemark, tablePasteRepair].flat();
+export const tableGrips = [
+  tableGripsView,
+  tableCellLineBreakRemark,
+  headerOnlyTablePaste,
+  tablePasteRepair,
+].flat();
