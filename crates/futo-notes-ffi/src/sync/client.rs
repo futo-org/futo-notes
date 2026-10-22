@@ -3,7 +3,10 @@ use std::sync::Arc;
 
 use futo_notes_sync::{SyncProgress, SyncSession, SyncSessionListener};
 
-use super::{session_listener, ConnectInfo, SyncError, SyncEventListener, SyncStatus, SyncSummary};
+use super::{
+    off_caller, session_listener, ConnectInfo, SyncError, SyncEventListener, SyncStatus,
+    SyncSummary,
+};
 
 // Native shells have neither watcher suppression nor per-phase progress UI.
 fn no_progress(_progress: SyncProgress) {}
@@ -36,25 +39,31 @@ impl SyncClient {
         })
     }
 
-    pub async fn connect(&self, password: String) -> Result<ConnectInfo, SyncError> {
-        let connected = self
-            .session
-            .connect(&self.notes_root, &self.server_url, &password)
-            .await?;
-        Ok(ConnectInfo {
-            user_id: connected.user_id,
-            collection_id: connected.collection_id,
-            auth_mode: connected.auth_mode.to_owned(),
+    pub async fn connect(self: Arc<Self>, password: String) -> Result<ConnectInfo, SyncError> {
+        off_caller(async move {
+            let connected = self
+                .session
+                .connect(&self.notes_root, &self.server_url, &password)
+                .await?;
+            Ok(ConnectInfo {
+                user_id: connected.user_id,
+                collection_id: connected.collection_id,
+                auth_mode: connected.auth_mode.to_owned(),
+            })
         })
+        .await
     }
 
     /// Runs a serialized push-first cycle without holding the status lock during network I/O.
-    pub async fn sync_now(&self) -> Result<SyncSummary, SyncError> {
-        self.session
-            .sync(&self.notes_root, &no_progress, &no_pre_write)
-            .await
-            .map(Into::into)
-            .map_err(Into::into)
+    pub async fn sync_now(self: Arc<Self>) -> Result<SyncSummary, SyncError> {
+        off_caller(async move {
+            self.session
+                .sync(&self.notes_root, &no_progress, &no_pre_write)
+                .await
+                .map(Into::into)
+                .map_err(Into::into)
+        })
+        .await
     }
 
     pub fn status(&self) -> SyncStatus {
@@ -87,10 +96,13 @@ impl SyncClient {
         listener: Box<dyn SyncEventListener>,
     ) -> Result<(), SyncError> {
         let listener: Arc<dyn SyncSessionListener> = session_listener(listener);
-        self.session
-            .start_live(self.notes_root.clone(), listener, Arc::new(no_pre_write))
-            .await
-            .map_err(Into::into)
+        off_caller(async move {
+            self.session
+                .start_live(self.notes_root.clone(), listener, Arc::new(no_pre_write))
+                .await
+                .map_err(Into::into)
+        })
+        .await
     }
 
     pub fn stop_live(&self) {
@@ -98,16 +110,19 @@ impl SyncClient {
     }
 
     /// Stops live sync and waits for any in-flight cycle to release the vault.
-    pub async fn stop_live_and_wait(&self) {
-        self.session.stop_live_and_wait().await;
+    pub async fn stop_live_and_wait(self: Arc<Self>) {
+        off_caller(async move { self.session.stop_live_and_wait().await }).await
     }
 
     /// Disconnect drops live cursor state but preserves verified ancestry for safe reconciliation
     /// after reconnect.
-    pub async fn disconnect(&self) -> Result<(), SyncError> {
-        self.session
-            .disconnect(&self.notes_root)
-            .await
-            .map_err(Into::into)
+    pub async fn disconnect(self: Arc<Self>) -> Result<(), SyncError> {
+        off_caller(async move {
+            self.session
+                .disconnect(&self.notes_root)
+                .await
+                .map_err(Into::into)
+        })
+        .await
     }
 }

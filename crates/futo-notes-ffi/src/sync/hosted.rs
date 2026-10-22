@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use futo_notes_sync::{self as sync, HostedSetup, VaultSecrets};
 
-use super::SyncClient;
+use super::{off_caller, SyncClient};
 
 mod errors;
 mod secrets;
@@ -64,31 +64,37 @@ impl HostedSetupClient {
     }
 
     /// Mints a Login Hand-off. Open the returned URL, then `await_sign_in`.
-    pub async fn begin_sign_in(&self) -> Result<SignInHandoff, HostedError> {
-        let handoff = self.setup.begin_sign_in().await?;
-        Ok(SignInHandoff {
-            url: handoff.url,
-            ticket: handoff.ticket,
+    pub async fn begin_sign_in(self: Arc<Self>) -> Result<SignInHandoff, HostedError> {
+        off_caller(async move {
+            let handoff = self.setup.begin_sign_in().await?;
+            Ok(SignInHandoff {
+                url: handoff.url,
+                ticket: handoff.ticket,
+            })
         })
+        .await
     }
 
     /// Waits for the person to finish in the browser. Call `cancel_wait` from
     /// the main thread when the auth sheet is dismissed.
     pub async fn await_sign_in(
-        &self,
+        self: Arc<Self>,
         handoff: SignInHandoff,
     ) -> Result<SignInOutcome, HostedError> {
-        let handoff = sync::SignInHandoff {
-            url: handoff.url,
-            ticket: handoff.ticket,
-        };
-        Ok(match self.setup.await_sign_in(&handoff).await? {
-            sync::SignInOutcome::SignedIn(session) => SignInOutcome::SignedIn {
-                session: session.into(),
-            },
-            sync::SignInOutcome::Cancelled => SignInOutcome::Cancelled,
-            sync::SignInOutcome::Expired => SignInOutcome::Expired,
+        off_caller(async move {
+            let handoff = sync::SignInHandoff {
+                url: handoff.url,
+                ticket: handoff.ticket,
+            };
+            Ok(match self.setup.await_sign_in(&handoff).await? {
+                sync::SignInOutcome::SignedIn(session) => SignInOutcome::SignedIn {
+                    session: session.into(),
+                },
+                sync::SignInOutcome::Cancelled => SignInOutcome::Cancelled,
+                sync::SignInOutcome::Expired => SignInOutcome::Expired,
+            })
         })
+        .await
     }
 
     /// Stops whichever wait is running.
@@ -96,54 +102,66 @@ impl HostedSetupClient {
         self.setup.cancel_wait();
     }
 
-    pub async fn billing_status(&self) -> Result<BillingStatus, HostedError> {
-        Ok(self.setup.billing_status().await?.into())
+    pub async fn billing_status(self: Arc<Self>) -> Result<BillingStatus, HostedError> {
+        off_caller(async move { Ok(self.setup.billing_status().await?.into()) }).await
     }
 
     /// A URL for the payment provider's customer portal, opened in the
     /// platform's auth sheet from the account card. Minted per press, so it is
     /// asked for when the button is pressed rather than held.
-    pub async fn billing_portal(&self) -> Result<String, HostedError> {
-        Ok(self.setup.billing_portal().await?)
+    pub async fn billing_portal(self: Arc<Self>) -> Result<String, HostedError> {
+        off_caller(async move { Ok(self.setup.billing_portal().await?) }).await
     }
 
-    pub async fn begin_checkout(&self) -> Result<Checkout, HostedError> {
-        Ok(match self.setup.begin_checkout().await? {
-            sync::Checkout::Open { url } => Checkout::Open { url },
-            sync::Checkout::AlreadyEntitled(status) => Checkout::AlreadyEntitled {
-                status: status.into(),
-            },
+    pub async fn begin_checkout(self: Arc<Self>) -> Result<Checkout, HostedError> {
+        off_caller(async move {
+            Ok(match self.setup.begin_checkout().await? {
+                sync::Checkout::Open { url } => Checkout::Open { url },
+                sync::Checkout::AlreadyEntitled(status) => Checkout::AlreadyEntitled {
+                    status: status.into(),
+                },
+            })
         })
+        .await
     }
 
     /// Which screen to show right now. Safe to call on a cold start, before
     /// anything else: a device that finished setup answers `Ready` and is
     /// never asked for a password again.
-    pub async fn current_step(&self) -> Result<SetupStep, HostedError> {
-        Ok(self.setup.current_step().await?.into())
+    pub async fn current_step(self: Arc<Self>) -> Result<SetupStep, HostedError> {
+        off_caller(async move { Ok(self.setup.current_step().await?.into()) }).await
     }
 
     /// Creates the vault and answers with its recovery key, formatted for the
     /// save screen. **This is the only time it exists** — nothing here keeps a
     /// copy, and a second call is refused.
-    pub async fn create_vault(&self, vault_password: String) -> Result<String, HostedError> {
-        Ok(self.setup.create_vault(&vault_password).await?)
+    pub async fn create_vault(
+        self: Arc<Self>,
+        vault_password: String,
+    ) -> Result<String, HostedError> {
+        off_caller(async move { Ok(self.setup.create_vault(&vault_password).await?) }).await
     }
 
     pub async fn unlock_with_vault_password(
-        &self,
+        self: Arc<Self>,
         vault_password: String,
     ) -> Result<(), HostedError> {
-        Ok(self
-            .setup
-            .unlock_with_vault_password(&vault_password)
-            .await?)
+        off_caller(async move {
+            Ok(self
+                .setup
+                .unlock_with_vault_password(&vault_password)
+                .await?)
+        })
+        .await
     }
 
     /// A mistyped character is reported as a typo without anything leaving the
     /// device.
-    pub async fn unlock_with_recovery_key(&self, typed: String) -> Result<(), HostedError> {
-        Ok(self.setup.unlock_with_recovery_key(&typed).await?)
+    pub async fn unlock_with_recovery_key(
+        self: Arc<Self>,
+        typed: String,
+    ) -> Result<(), HostedError> {
+        off_caller(async move { Ok(self.setup.unlock_with_recovery_key(&typed).await?) }).await
     }
 
     /// Sets a new vault password, from the account card. Asks for no current
@@ -153,15 +171,18 @@ impl HostedSetupClient {
     ///
     /// `VaultKeyChangedElsewhere` means another device re-wrapped in between;
     /// nothing was overwritten, and calling this again lands.
-    pub async fn change_vault_password(&self, new_password: String) -> Result<(), HostedError> {
-        Ok(self.setup.change_vault_password(&new_password).await?)
+    pub async fn change_vault_password(
+        self: Arc<Self>,
+        new_password: String,
+    ) -> Result<(), HostedError> {
+        off_caller(async move { Ok(self.setup.change_vault_password(&new_password).await?) }).await
     }
 
     /// Issues a new recovery key and answers with it, for the same save screen
     /// the wizard uses. **The old key stops working**, and like `create_vault`
     /// nothing here keeps a copy of what it returns.
-    pub async fn new_recovery_key(&self) -> Result<String, HostedError> {
-        Ok(self.setup.new_recovery_key().await?)
+    pub async fn new_recovery_key(self: Arc<Self>) -> Result<String, HostedError> {
+        off_caller(async move { Ok(self.setup.new_recovery_key().await?) }).await
     }
 
     /// Hands this device's hosted secrets to the sync engine, so cycles can
@@ -174,9 +195,12 @@ impl HostedSetupClient {
     /// A device with no vault key is `VaultLocked` and one with no session is
     /// `NotSignedIn` — both mean the wizard is not finished, not that anything
     /// broke.
-    pub async fn connect_sync(&self, sync: Arc<SyncClient>) -> Result<(), HostedError> {
-        let (session, root) = sync.parts();
-        Ok(self.setup.connect_sync(session, root).await?)
+    pub async fn connect_sync(self: Arc<Self>, sync: Arc<SyncClient>) -> Result<(), HostedError> {
+        off_caller(async move {
+            let (session, root) = sync.parts();
+            Ok(self.setup.connect_sync(session, root).await?)
+        })
+        .await
     }
 
     /// Whether this device has a hosted vault to resume, read from its secret
@@ -184,15 +208,18 @@ impl HostedSetupClient {
     /// before it is willing to spend a round trip — `currentStep` and
     /// `connectSync` both validate the saved token and resolve the collection
     /// over the network, so neither can answer this offline.
-    pub async fn has_saved_vault(&self) -> Result<bool, HostedError> {
-        Ok(self.setup.has_saved_vault().await?)
+    pub async fn has_saved_vault(self: Arc<Self>) -> Result<bool, HostedError> {
+        off_caller(async move { Ok(self.setup.has_saved_vault().await?) }).await
     }
 
     /// One action: revoke the session, forget both secrets, and demote this
     /// vault's sync state exactly as disconnect does. The notes stay.
-    pub async fn sign_out(&self, sync: Arc<SyncClient>) -> Result<(), HostedError> {
-        let (session, root) = sync.parts();
-        Ok(self.setup.sign_out(session, root).await?)
+    pub async fn sign_out(self: Arc<Self>, sync: Arc<SyncClient>) -> Result<(), HostedError> {
+        off_caller(async move {
+            let (session, root) = sync.parts();
+            Ok(self.setup.sign_out(session, root).await?)
+        })
+        .await
     }
 
     /// Opens a pairing and returns the code for this device to show as a QR.
@@ -200,12 +227,18 @@ impl HostedSetupClient {
     ///
     /// The one-time keypair's private half stays inside the engine: nothing
     /// hands it to a shell, and it dies with the process.
-    pub async fn begin_pairing(&self, device_name: String) -> Result<PairingCode, HostedError> {
-        let code = self.setup.begin_pairing(&device_name).await?;
-        Ok(PairingCode {
-            payload: code.payload,
-            expires_at: code.expires_at,
+    pub async fn begin_pairing(
+        self: Arc<Self>,
+        device_name: String,
+    ) -> Result<PairingCode, HostedError> {
+        off_caller(async move {
+            let code = self.setup.begin_pairing(&device_name).await?;
+            Ok(PairingCode {
+                payload: code.payload,
+                expires_at: code.expires_at,
+            })
         })
+        .await
     }
 
     /// Reads what the camera returned, on the **unlocked** device. Parsing
@@ -219,31 +252,40 @@ impl HostedSetupClient {
 
     /// The confirm step: seals this device's vault key to the scanned code and
     /// posts it to the relay. The only call that sends a vault key anywhere.
-    pub async fn confirm_pairing(&self, request: Arc<PairingRequest>) -> Result<(), HostedError> {
-        Ok(self.setup.confirm_pairing(&request.0).await?)
+    pub async fn confirm_pairing(
+        self: Arc<Self>,
+        request: Arc<PairingRequest>,
+    ) -> Result<(), HostedError> {
+        off_caller(async move { Ok(self.setup.confirm_pairing(&request.0).await?) }).await
     }
 
     /// Waits on the **new** device for the other one to answer, then keeps the
     /// key. `Paired` means the vault is unlocked and `current_step` answers
     /// `Ready`. `cancel_wait` ends it from the main thread.
-    pub async fn await_pairing(&self) -> Result<PairingOutcome, HostedError> {
-        Ok(match self.setup.await_pairing().await? {
-            sync::PairingOutcome::Paired => PairingOutcome::Paired,
-            sync::PairingOutcome::Cancelled => PairingOutcome::Cancelled,
+    pub async fn await_pairing(self: Arc<Self>) -> Result<PairingOutcome, HostedError> {
+        off_caller(async move {
+            Ok(match self.setup.await_pairing().await? {
+                sync::PairingOutcome::Paired => PairingOutcome::Paired,
+                sync::PairingOutcome::Cancelled => PairingOutcome::Cancelled,
+            })
         })
+        .await
     }
 
     /// Waits for the checkout to make the account entitled.
-    pub async fn await_entitled(&self) -> Result<EntitlementOutcome, HostedError> {
-        Ok(match self.setup.await_entitled().await? {
-            sync::EntitlementOutcome::Entitled(status) => EntitlementOutcome::Entitled {
-                status: status.into(),
-            },
-            sync::EntitlementOutcome::Cancelled => EntitlementOutcome::Cancelled,
-            sync::EntitlementOutcome::GaveUp(status) => EntitlementOutcome::GaveUp {
-                status: status.into(),
-            },
+    pub async fn await_entitled(self: Arc<Self>) -> Result<EntitlementOutcome, HostedError> {
+        off_caller(async move {
+            Ok(match self.setup.await_entitled().await? {
+                sync::EntitlementOutcome::Entitled(status) => EntitlementOutcome::Entitled {
+                    status: status.into(),
+                },
+                sync::EntitlementOutcome::Cancelled => EntitlementOutcome::Cancelled,
+                sync::EntitlementOutcome::GaveUp(status) => EntitlementOutcome::GaveUp {
+                    status: status.into(),
+                },
+            })
         })
+        .await
     }
 }
 
