@@ -1,54 +1,8 @@
 /*
- * The markdown typed as you go, read the way a FILE reads it.
- *
- * The presets' input rules turn typed markdown into formatting
- * (docs/spec/editor/interactive-elements.md "convert as you type"), but some
- * of them disagreed with the parser that reads the note back, so typing what a
- * file holds changed it:
- *
- *  1. The ```lang shortcut took lowercase letters only, so ```c++, ```C#,
- *     ```JavaScript and ```ps1 — names the curated fence set spells
- *     (src/features/editor/codeFenceLanguages.ts) — stayed an escaped paragraph.
- *     It now takes any info word a fence can open with: no space, no backtick.
- *  2. `####### ` made a level-7 heading node, which saved as six `#`. Seven or
- *     more `#` are not a heading; in a paragraph they stay text. (Inside a
- *     heading the preset's level bump, capped at six, is kept.)
- *  3. Emphasis, strong and strikethrough took a run padded with whitespace:
- *     `2 * 3 *` italicised ` 3 ` and saved `2 *&#x20;3&#x20;* 4`; `** not bold **`
- *     saved `**not bold**`. CommonMark's flanking rule: an opener is not followed
- *     by whitespace, a closer not preceded by it.
- *     The punctuation half of that rule too: `a*"b"*` (an opener after a
- *     letter and before punctuation) and `café_b_` (an `_` between letters of
- *     any script) open nothing. `flanking` is micromark's own test.
- *  4. Every mark rule took a backslash-escaped delimiter (`\*not italic*`,
- *     `\**x**`, `\_x_`, `` \`x` ``, `\~x~`, and the closer of `*foo\*`) as a
- *     real one. An odd run of backslashes escapes the delimiter after it; an
- *     even run is escaped backslashes, and the delimiter still counts. Inside a
- *     code span a backslash escapes nothing, so `` `a\` `` is still code.
- *  5. A closer that is not its opener's match closed it: `a **x__` made `x`
- *     bold (and saved `a **x** b`), and ``` ``x` ``` made `x` code. A run of
- *     `**` is closed only by `**`, and one backtick only by one backtick — a
- *     backtick before it makes the opener a longer run.
- *  6. A delimiter typed inside a URL (`https://x.test/*a*`, `www.x.test/_a_`)
- *     opened a mark the URL's literal swallows in a file; the autolink then
- *     saved junk like `[https://x.test/*a*](https://x.test/a)`. It stays a
- *     character of the URL (`INSIDE_URL`).
- *
- * Everything else is the preset's: the same delimiters, the same characters
- * that may not touch an opener (`\w:/` before `**`/`__`, `*` before `*`, a
- * word character before `_`; and before `~`/`~~` also `~`, since a run is one
- * delimiter: `a~~"b"~` struck `"b"` with the run's second tilde), the same
- * code-mark guards as `markRule` in `@milkdown/prose`, the same marks and
- * attributes. No look-behind: the character before an opener is matched as a
- * `lead` group instead, as src/features/editor/milkdown/imageInputRule.ts does
- * for the legacy WebView floor.
- *
- * paragraphLines.ts `lineStartShortcut` mirrors the block rules here (1, 2);
- * paragraphLines.preset.test.ts holds the two together.
- *
- * Canary: `tests/editor-embed-milkdown-compat.spec.ts` types each case into the
- * UNPATCHED presets; when upstream fixes one, its canary fails and the fork
- * here should go.
+ * Input-rule repairs for the pinned Milkdown presets. Keep candidates bounded
+ * by ProseMirror's 500-character input window; parsing each match is too slow
+ * for the typing path. The unpatched-preset canaries live in
+ * tests/editor-embed-milkdown-compat.spec.ts.
  */
 import {
   codeBlockSchema,
@@ -63,13 +17,8 @@ import { InputRule, textblockTypeInputRule } from '@milkdown/kit/prose/inputrule
 import type { EditorState, Transaction } from '@milkdown/kit/prose/state';
 import { $inputRule } from '@milkdown/kit/utils';
 
-/**
- * What may come before an opener: the start of the text, a character from
- * `allowed` (a regex class body), or any non-backslash character followed by
- * backslashes — and then an EVEN run of backslashes, each pair an escaped
- * backslash. An odd run leaves one `\` straight before the delimiter, which
- * nothing here matches, so an escaped opener never opens.
- */
+/** Retain the leading character and accept only even backslash runs before an opener.
+ * Matching context instead of lookbehind supports the legacy WebView floor. */
 function lead(allowed: string, never = ''): string {
   return String.raw`(?<lead>(?:^|[${allowed}]|[^\\${never}](?=\\))(?:\\\\)*)`;
 }
@@ -106,11 +55,7 @@ const HEADING = /^(?<hashes>#+)\s$/;
 /** CommonMark's ATX heading: one to six `#`. */
 const MAX_HEADING_LEVEL = 6;
 
-/**
- * micromark's `classifyCharacter`: 1 for whitespace or the edge of the text,
- * 2 for Unicode punctuation (P or S), 0 for anything else. The `\ufffc` an
- * input rule reads for an inline leaf is most often a hard break — a line end.
- */
+/** Micromark's character classes. Inline leaves (usually line breaks) count as whitespace. */
 function classify(char: string | undefined): 0 | 1 | 2 {
   if (char === undefined || char === '\ufffc' || /\s/.test(char)) return 1;
   return /[\p{P}\p{S}]/u.test(char) ? 2 : 0;
@@ -119,15 +64,7 @@ function classify(char: string | undefined): 0 | 1 | 2 {
 /** The delimiters micromark lets an attention run open or close against. */
 const ATTENTION_MARKERS = '*_~';
 
-/**
- * Whether a delimiter run of `marker` between `before` and `after` can open
- * (and, read the other way round, close) — micromark's attention and GFM
- * strikethrough rules, character for character: left-flanking is "not before
- * whitespace, and not before punctuation unless after whitespace or
- * punctuation"; an `_` also may not be right-flanking unless after
- * punctuation. An input rule fires on the closer's last keystroke, so what
- * follows the closer is the end of the text so far.
- */
+/** Micromark's left/right flanking, including underscore's intraword restriction. */
 function flanking(marker: string, before: string | undefined, after: string | undefined) {
   const b = classify(before);
   const a = classify(after);
@@ -140,15 +77,7 @@ function flanking(marker: string, before: string | undefined, after: string | un
   return { open: open && (b !== 0 || !close), close: close && (a !== 0 || !open) };
 }
 
-/**
- * Text that ends inside a GFM autolink literal: a `http(s)://` or `www.` where
- * a literal may start (the text's start, whitespace, or one of `(*_[]~`), with
- * something after it and no whitespace or `<` since. A literal runs on to the
- * next whitespace, so a delimiter typed there is a character of the URL, not
- * an opener: a file reads `https://x.test/*a*` as a link to
- * `https://x.test/*a` (GFM trims the last `*`). An inline leaf (`\ufffc`, most
- * often a hard break) ends it like whitespace.
- */
+/** An opener inside a GFM URL literal belongs to the URL, including its delimiters. */
 const INSIDE_URL = /(?:^|[\s\ufffc(*_[\]~])(?:https?:\/\/|www\.)[^\s\ufffc<]+$/i;
 
 /** No `String.prototype.at`: the legacy Android WebView floor (Chromium 83) lacks it. */
@@ -176,13 +105,8 @@ function rangeHasCodeMark(state: EditorState, from: number, to: number): boolean
   return found;
 }
 
-/**
- * `markType` over the `text` group of `match`, its delimiters removed —
- * `markRule`'s effect, with the `lead` group left where it is — or null when
- * that opener and closer cannot pair. `start` is where `match` begins in the
- * document. The closing delimiter's last character is the keystroke itself,
- * which an input rule never inserts.
- */
+/** Remove paired delimiters, retaining the leading context and existing inline marks.
+ * The closer’s last character is the pending keystroke, absent from the document. */
 function applyMark(
   state: EditorState,
   match: RegExpMatchArray,
@@ -220,15 +144,8 @@ function applyMark(
   return tr;
 }
 
-/**
- * A mark rule over `pattern`. The regex finds the LEFTMOST opener the closer
- * could pair with; when that one cannot open (`café_a_ _b_`: the first `_`
- * sits between letters), each later one is tried in turn, as a file's parser
- * would go on to pair the closer with `_b`.
- *
- * `delimited` is false for a code span: its backticks follow no flanking rule
- * and a backslash inside it is text.
- */
+/** Retry later openers when an earlier one cannot pair. Code spans ignore flanking
+ * and treat backslashes inside the span as literal text. */
 function delimitedMarkRule(
   pattern: RegExp,
   markType: MarkType,
