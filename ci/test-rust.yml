@@ -191,15 +191,13 @@ test:rust:ffi-android:
   # cold-cache run of this job flaked "rapid reconnect" with a bridge script
   # timeout). Same M15 root-cause fix as the sync job's own resource_group —
   # exclusion, not longer timeouts. The needs: above orders the two within a
-  # pipeline so the exclusion never delays the sync suite itself. Tags use
-  # the -release group — see test:cross-platform-sync.
-  resource_group: $SYNC_RESOURCE_GROUP
+  # pipeline so the exclusion never delays the sync suite itself.
+  resource_group: cross-platform-sync
   extends: .ci-android-image
   # Own single-ABI cache namespace instead of the fat 3-ABI + host `native`
-  # archive: restoring that one costs more than this job's warm compile.
-  # pull-push with at most two writers (one tag run, one other — the split
-  # resource groups above); a cache upload replaces the archive whole, so the
-  # later writer wins and neither can corrupt it.
+  # archive: restoring that one costs more than this job's warm compile. Safe
+  # to pull-push — the resource_group serializes every holder of this key, so
+  # no concurrent writer exists.
   cache:
     key:
       prefix: ffi-check
@@ -214,7 +212,6 @@ test:rust:ffi-android:
     GIT_DEPTH: "20"
     # See build:android-native for why ANDROID_NDK_HOME must be set explicitly.
     ANDROID_NDK_HOME: /opt/android-sdk/ndk/28.2.13676358
-    SYNC_RESOURCE_GROUP: cross-platform-sync
   script:
     - !reference [.setup-rust, script]
     - rustup target add aarch64-linux-android
@@ -232,8 +229,6 @@ test:rust:ffi-android:
   timeout: 60m
   rules:
     - if: $CI_COMMIT_TAG
-      variables:
-        SYNC_RESOURCE_GROUP: cross-platform-sync-release
     - if: $CI_MERGE_REQUEST_IID
       changes: &rust-ffi-mobile-changes
         - Cargo.toml
