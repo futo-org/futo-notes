@@ -171,6 +171,17 @@ publish:android:
     - job: release:gate
     - job: build:android-native
       artifacts: true
+  # Only a change to the venv recipe re-runs pip; when: always so a failed
+  # upload still leaves the venv for the retry.
+  cache:
+    key:
+      prefix: venv-playstore
+      files:
+        - scripts/venv-playstore.sh
+    paths:
+      - .venv-playstore/
+    policy: pull-push
+    when: always
   script:
     - |
       if [ -z "${PLAY_SERVICE_ACCOUNT_JSON:-}" ]; then
@@ -196,13 +207,27 @@ publish:android:
       else
         ROLLOUT_ARGS="--status completed"
       fi
-    # The CI android image ships python3 without the venv module / ensurepip;
-    # install python3-venv (+pip) so scripts/venv-playstore.sh can build the
-    # google-api-python-client venv.
-    - apt-get update -qq && apt-get install -y -qq python3-venv python3-pip
-    # Build the google-api-python-client venv, then upload the prebuilt signed AAB.
-    - bash scripts/venv-playstore.sh
-    - . .venv-playstore/bin/activate
+    # The google-api-python-client venv comes from the job's cache: (keyed on
+    # scripts/venv-playstore.sh). A restored venv that imports the client libs
+    # once activated is reused with no apt or pip (~90s on v1.9.0). Anything
+    # else — cold cache, a new image's Python, a different $CI_PROJECT_DIR
+    # baked into bin/activate — is deleted and rebuilt. The rebuild needs
+    # python3-venv (+pip): the CI android image ships python3 without the
+    # venv module / ensurepip.
+    - |
+      VENV="$CI_PROJECT_DIR/.venv-playstore"
+      if [ -x "$VENV/bin/python" ] && ( . "$VENV/bin/activate" && python -c 'import googleapiclient, google.auth, google_auth_httplib2' ); then
+        echo "Reusing the cached Play Store venv"
+      else
+        echo "Building the Play Store venv (no usable cached copy)"
+        rm -rf "$VENV"
+        test ! -e "$VENV"
+        apt-get update -qq
+        apt-get install -y -qq python3-venv python3-pip
+        VENV_DIR="$VENV" bash "$CI_PROJECT_DIR/scripts/venv-playstore.sh"
+      fi
+    # Then upload the prebuilt signed AAB from inside that venv.
+    - . "$CI_PROJECT_DIR/.venv-playstore/bin/activate"
     - |
       set +e
       python scripts/publish_playstore.py --sa /tmp/play-sa.json --package com.futo.notes \
