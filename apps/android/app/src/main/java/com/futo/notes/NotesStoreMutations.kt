@@ -118,7 +118,6 @@ suspend fun NotesStore.rename(oldId: String, newId: String, draft: PendingDraft?
 suspend fun NotesStore.moveNote(
     id: String,
     toFolder: String,
-    createFolder: Boolean = false,
     draft: PendingDraft? = null,
     ownerToken: Long? = null,
 ): NoteMutationOutcome<CommittedNote> {
@@ -132,9 +131,7 @@ suspend fun NotesStore.moveNote(
         runMutationTransaction {
             val mutation = withCore {
                 if (draft != null) {
-                    core.moveDraft(id, toFolder, draft.base, draft.content, createFolder)
-                } else if (createFolder) {
-                    core.moveNoteToNewFolder(id, toFolder)
+                    core.moveDraft(id, toFolder, draft.base, draft.content)
                 } else {
                     core.moveNote(id, toFolder)
                 }

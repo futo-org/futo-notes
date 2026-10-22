@@ -1,23 +1,15 @@
 import SwiftUI
 
-/// Sheet for moving a note to a destination folder. Lists Root, every existing
-/// folder, and a "New Folder…" option that creates a folder (under the note's
-/// current folder) and moves the note into it.
+/// Sheet for moving a note to a destination folder: Root and every existing folder.
 struct MoveToFolderSheet: View {
     @EnvironmentObject private var store: NotesStore
     @Environment(\.dismiss) private var dismiss
     @Environment(\.localization) private var localization
 
     let note: NoteItem
-    /// Folder currently being browsed — used as the parent for a brand-new
-    /// folder created from this sheet.
-    let currentFolder: String
     /// The editor supplies this synchronous handoff so it owns and tracks the
     /// complete asynchronous move. List-row moves use the default store task.
     var onMoveRequested: ((String) -> Void)? = nil
-
-    @State private var showingNewFolder = false
-    @State private var newFolderName = ""
 
     var body: some View {
         NavigationStack {
@@ -45,18 +37,6 @@ struct MoveToFolderSheet: View {
                         }
                     }
                 }
-                Section {
-                    Button {
-                        newFolderName = ""
-                        showingNewFolder = true
-                    } label: {
-                        Label(
-                            localization.localizedText("folders.newFolderEllipsis"),
-                            systemImage: "folder.badge.plus"
-                        )
-                        .foregroundStyle(Theme.primary)
-                    }
-                }
             }
             .navigationTitle(
                 localization.localizedText(
@@ -70,26 +50,6 @@ struct MoveToFolderSheet: View {
                     Button(localization.localizedText("common.actions.cancel")) { dismiss() }
                         .tint(Theme.primary)
                 }
-            }
-            .alert(
-                localization.localizedText("folders.newFolderTitleCase"),
-                isPresented: $showingNewFolder
-            ) {
-                TextField(
-                    localization.localizedText("folders.nameField"),
-                    text: $newFolderName
-                )
-                Button(localization.localizedText("common.actions.cancel"), role: .cancel) {}
-                Button(localization.localizedText("notes.move.createAndMove")) { createAndMove() }
-            } message: {
-                Text(
-                    currentFolder.isEmpty
-                        ? localization.localizedText("notes.move.createFolderPrompt")
-                        : localization.localizedText(
-                            "notes.move.createFolderInPrompt",
-                            arguments: ["folderName": currentFolder]
-                        )
-                )
             }
         }
     }
@@ -111,23 +71,11 @@ struct MoveToFolderSheet: View {
     }
 
     private func move(to folder: String) {
-        performMove(to: folder)
-        dismiss()
-    }
-
-    private func performMove(to folder: String) {
         if let onMoveRequested {
             onMoveRequested(folder)
         } else {
             Task { _ = await store.moveNote(note.id, toFolder: folder) }
         }
-    }
-
-    private func createAndMove() {
-        let name = newFolderName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !name.isEmpty else { return }
-        let dest = currentFolder.isEmpty ? name : currentFolder + "/" + name
-        performMove(to: dest)
         dismiss()
     }
 }

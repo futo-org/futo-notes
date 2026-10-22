@@ -1298,7 +1298,7 @@ fun NoteEditorScreen(
         FolderPickerSheet(
             store = store,
             onDismiss = { showMoveSheet = false },
-            onPick = { folder, isNew ->
+            onPick = { folder ->
                 session.end(
                     EditorExit.MOVE,
                     object : EditorExitEffects {
@@ -1341,7 +1341,6 @@ fun NoteEditorScreen(
                             val moveOutcome = store.moveNote(
                                 noteId,
                                 folder,
-                                createFolder = isNew,
                                 draft = PendingDraft(noteId, savedContent, flushed), ownerToken = ownerToken)
                             if (moveOutcome !is NoteMutationOutcome.Committed) return false
                             // Update the live id before releasing the drain. A

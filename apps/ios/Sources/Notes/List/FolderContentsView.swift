@@ -202,7 +202,7 @@ struct FolderContentsView: View {
             .presentationBackground(.clear)
         }
         .sheet(item: $moveTarget) { note in
-            MoveToFolderSheet(note: note, currentFolder: folder)
+            MoveToFolderSheet(note: note)
                 .environmentObject(store)
         }
         .sheet(
