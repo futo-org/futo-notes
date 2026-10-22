@@ -543,6 +543,14 @@
         "unsupportedType": "Unsupported image type",
         "pasteFailed": "Couldn't paste image",
         "cameraUnavailable": "No camera app available",
+        "cameraPermission": {
+          "refused": "FUTO Notes needs camera access to take a photo",
+          "off": {
+            "title": "FUTO Notes can’t use the camera",
+            "body": "Camera access is off for FUTO Notes, so it can’t take a photo. You can turn it on in Settings."
+          },
+          "openSettings": "Open Settings"
+        },
         "filePickerFilter": "Images"
       },
       "tableGrips": {
