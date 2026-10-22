@@ -2,6 +2,7 @@ mod client;
 mod contract;
 mod events;
 mod hosted;
+mod off_caller;
 #[cfg(target_os = "android")]
 mod platform_trust;
 
@@ -18,3 +19,4 @@ pub use hosted::{
 };
 
 pub(crate) use events::session_listener;
+pub(crate) use off_caller::off_caller;

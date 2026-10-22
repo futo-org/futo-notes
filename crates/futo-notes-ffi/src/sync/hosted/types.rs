@@ -62,7 +62,7 @@ impl From<sync::SignInFlow> for SignInFlow {
 /// Reads a server's capability document and says which sign-in to offer.
 #[uniffi::export(async_runtime = "tokio")]
 pub async fn probe_sign_in_flow(server_url: String) -> Result<SignInFlow, HostedError> {
-    Ok(sync::probe_sign_in_flow(&server_url).await?.into())
+    off_caller(async move { Ok(sync::probe_sign_in_flow(&server_url).await?.into()) }).await
 }
 
 #[derive(uniffi::Record)]

@@ -214,7 +214,7 @@ async fn disconnected_sync_client_has_stable_lifecycle_semantics() {
     client.note_changed();
     client.stop_live();
     assert!(matches!(
-        client.sync_now().await,
+        client.clone().sync_now().await,
         Err(SyncError::NotConnected)
     ));
     assert!(matches!(
