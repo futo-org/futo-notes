@@ -17,6 +17,16 @@
     name: gitlab.futo.org:5050/futo-notes/futo-notes/ci/test@sha256:c8cb4ab14ce1cb939a88505ae5e37f3421b7c4a64f2cacfcd73e6e19e89a32fb
     pull_policy: if-not-present
 
+# The Android SDK/NDK/emulator image, same pairing as .ci-test-image above:
+# $IMAGE_ANDROID is pinned by digest (.gitlab-ci.yml), so a cached copy can
+# never be stale, and `always` re-pulled it for ~150s per job (v1.9.0:
+# build:android-native and publish:android, 152s each). Every job extending
+# this ALSO carries `tags: [dind_fast]` — runner 55 refuses the policy.
+.ci-android-image:
+  image:
+    name: $IMAGE_ANDROID
+    pull_policy: if-not-present
+
 # ─────────────────────────────────────────────────────────────
 # Reusable script fragments
 # ─────────────────────────────────────────────────────────────

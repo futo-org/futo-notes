@@ -22,7 +22,7 @@ build:android-native:
   # Native verification is independent of the JavaScript suite; starting it
   # immediately removes that suite from the native MR critical path.
   needs: []
-  image: $IMAGE_ANDROID
+  extends: .ci-android-image
   cache:
     - !reference [.cache-pnpm, cache]
     # Native cargo work (NDK targets + host lib) is disjoint from the Tauri

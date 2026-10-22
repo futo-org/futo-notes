@@ -162,7 +162,11 @@ publish:ios:main:
 publish:android:
   stage: release
   interruptible: false
-  image: $IMAGE_ANDROID
+  extends: .ci-android-image
+  # Runner 71 only: the image's pull policy (see .ci-android-image) is refused
+  # by runner 55, and 71 keeps the image warm from build:android-native.
+  tags:
+    - dind_fast
   needs:
     - job: release:gate
     - job: build:android-native
