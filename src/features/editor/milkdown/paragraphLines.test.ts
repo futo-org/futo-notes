@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
+import { setBlockType } from '@milkdown/kit/prose/commands';
 import type { Node as ProseNode } from '@milkdown/kit/prose/model';
 import {
+  AllSelection,
   EditorState,
   TextSelection,
   type Command,
@@ -13,6 +15,7 @@ import {
   isolateSelectedLines,
   joinBackwardAsLine,
   joinForwardAsLine,
+  onSelectedLines,
 } from './paragraphLines';
 import { testSchema } from './__fixtures__/schema';
 
@@ -201,5 +204,87 @@ describe('isolateSelectedLines', () => {
   it('declines a paragraph with one line, or a block that is not a top-level paragraph', () => {
     expect(run(isolateSelectedLines, stateWith('on^e')).handled).toBe(false);
     expect(run(isolateSelectedLines, stateWith('heading:T^')).handled).toBe(false);
+  });
+
+  // #276: Select all is an AllSelection, whose ends sit in the doc itself, not
+  // in a paragraph. It touches every line, so every line gets its own paragraph
+  // — exactly what shift-selecting the same lines does.
+  it('gives every line its own paragraph under Select all, and keeps Select all', () => {
+    const { handled, state } = run(
+      isolateSelectedLines,
+      selectAll(stateWith('^one two.\nthree four.')),
+    );
+    expect(handled).toBe(true);
+    expect(show(state)).toBe('one two.|three four.');
+    expect(state.selection).toBeInstanceOf(AllSelection);
+  });
+
+  it('cuts the touched lines of every paragraph a selection spans', () => {
+    const { state } = run(isolateSelectedLines, stateWith('a\n^b|c\nd|e\nf$\ng'));
+    expect(show(state)).toBe('a|^b|c|d|e|f$|g');
+  });
+
+  it('cuts across a heading the selection also spans, leaving the heading alone', () => {
+    const { state } = run(isolateSelectedLines, stateWith('a\n^b|heading:T|c$\nd'));
+    expect(show(state)).toBe('a|^b|heading:T|c$|d');
+  });
+});
+
+/** `state` with everything selected, as Ctrl/Cmd+A does. */
+function selectAll(state: EditorState): EditorState {
+  return state.apply(state.tr.setSelection(new AllSelection(state.doc)));
+}
+
+/** The code-block toolbar command, minus Milkdown's registry (the preset's is this `setBlockType`). */
+const codeBlock = onSelectedLines(setBlockType(s.nodes.code_block));
+
+/** The text of each top-level block, prefixed by its type: what a block command left. */
+function blocksOf(state: EditorState): string[] {
+  const out: string[] = [];
+  state.doc.forEach((block) => {
+    const lines: string[] = [''];
+    block.forEach((child) => {
+      if (child.type.name === 'hardbreak') lines.push('');
+      else lines[lines.length - 1] += child.text ?? '';
+    });
+    out.push(`${block.type.name}:${lines.join('\n')}`);
+  });
+  return out;
+}
+
+describe('onSelectedLines — Code block (#276)', () => {
+  // The repro: two lines made with Enter are one paragraph with a line break.
+  // A code block holds text only, so `setBlockType` over the whole paragraph
+  // dropped the break and joined the lines: ```\none two.three four.\n```.
+  it('Select all keeps every line, each in a block of its own', () => {
+    const { state } = run(codeBlock, selectAll(stateWith('^one two.\nthree four.')));
+    expect(blocksOf(state)).toEqual(['code_block:one two.', 'code_block:three four.']);
+  });
+
+  it('Select all lands exactly where shift-selecting the same lines does', () => {
+    const shifted = run(codeBlock, stateWith('^one two.\nthree four.$')).state;
+    const all = run(codeBlock, selectAll(stateWith('^one two.\nthree four.'))).state;
+    expect(all.doc.eq(shifted.doc)).toBe(true);
+  });
+
+  it('a selection spanning paragraphs keeps every line it touches and no others', () => {
+    const { state } = run(codeBlock, stateWith('a\n^b|c\nd$\ne'));
+    expect(blocksOf(state)).toEqual([
+      'paragraph:a',
+      'code_block:b',
+      'code_block:c',
+      'code_block:d',
+      'paragraph:e',
+    ]);
+  });
+
+  it('keeps an empty paragraph between lines as an empty block, and leading spaces as typed', () => {
+    const { state } = run(codeBlock, selectAll(stateWith('^  x\n y||z')));
+    expect(blocksOf(state)).toEqual([
+      'code_block:  x',
+      'code_block: y',
+      'code_block:',
+      'code_block:z',
+    ]);
   });
 });

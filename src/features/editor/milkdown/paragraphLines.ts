@@ -31,6 +31,7 @@ import { nodesCtx } from '@milkdown/kit/core';
 import { hardbreakAttr } from '@milkdown/kit/preset/commonmark';
 import type { Mark, Node as ProseNode, ResolvedPos } from '@milkdown/kit/prose/model';
 import {
+  AllSelection,
   TextSelection,
   type Command,
   type EditorState,
@@ -158,23 +159,35 @@ export const joinForwardAsLine: Command = (state, dispatch) => {
 };
 
 /**
- * The line breaks to cut so the lines `[$from, $to]` touches stand alone: the
- * break that opens the first touched line, every break inside the range, and
- * the break that closes the last one. Empty when the range is not in one
- * top-level paragraph, or the paragraph is a single line.
+ * The line breaks to cut so the lines `[from, to]` touches stand alone: in each
+ * top-level paragraph the range reaches, the break that opens the first touched
+ * line, every break inside the range, and the break that closes the last one.
+ * A range that spans several blocks — a drag across paragraphs, or Select all,
+ * whose ends sit in the document itself rather than in any paragraph — cuts the
+ * lines it touches in each, the same as selecting them one paragraph at a time
+ * would. Empty when the range touches no top-level paragraph with two lines.
  */
-function cutsFor($from: ResolvedPos, $to: ResolvedPos): number[] {
-  if (!inLinedParagraph($from) || !$from.sameParent($to)) return [];
-  const start = $from.start();
-  const breaks: number[] = [];
-  $from.parent.forEach((child, offset) => {
-    if (isLineBreak(child)) breaks.push(start + offset);
+function cutsFor(doc: ProseNode, from: number, to: number): number[] {
+  const cuts: number[] = [];
+  // Top-level blocks only: returning false never descends into one.
+  doc.nodesBetween(from, to, (block, pos) => {
+    if (block.type.name !== 'paragraph') return false;
+    const start = pos + 1;
+    const breaks: number[] = [];
+    block.forEach((child, childOffset) => {
+      if (isLineBreak(child)) breaks.push(start + childOffset);
+    });
+    const opening = breaks.filter((at) => at + 1 <= from).pop();
+    const closing = breaks.find((at) => at >= to);
+    cuts.push(
+      ...breaks.filter(
+        (at) =>
+          (opening === undefined || at >= opening) && (closing === undefined || at <= closing),
+      ),
+    );
+    return false;
   });
-  const opening = breaks.filter((at) => at + 1 <= $from.pos).pop();
-  const closing = breaks.find((at) => at >= $to.pos);
-  return breaks.filter(
-    (at) => (opening === undefined || at >= opening) && (closing === undefined || at <= closing),
-  );
+  return cuts;
 }
 
 /** Replace each cut line break with a paragraph boundary, last first so earlier positions hold. */
@@ -200,14 +213,21 @@ function mapAcrossCuts(tr: Transaction, cuts: readonly number[], pos: number): n
  * Declines when there is nothing to cut.
  */
 export const isolateSelectedLines: Command = (state, dispatch) => {
-  const cuts = cutsFor(state.selection.$from, state.selection.$to);
+  const { selection } = state;
+  const cuts = cutsFor(state.doc, selection.from, selection.to);
   if (cuts.length === 0) return false;
   if (!dispatch) return true;
   const tr = state.tr;
   cutLines(tr, cuts);
-  const { anchor, head } = state.selection;
+  const { anchor, head } = selection;
   tr.setSelection(
-    TextSelection.create(tr.doc, mapAcrossCuts(tr, cuts, anchor), mapAcrossCuts(tr, cuts, head)),
+    selection instanceof AllSelection
+      ? new AllSelection(tr.doc)
+      : TextSelection.create(
+          tr.doc,
+          mapAcrossCuts(tr, cuts, anchor),
+          mapAcrossCuts(tr, cuts, head),
+        ),
   );
   dispatch(tr);
   return true;
@@ -281,7 +301,7 @@ export function handleLineStartShortcut(
     return false;
   }
 
-  const cuts = cutsFor($from, $from);
+  const cuts = cutsFor(state.doc, from, from);
   const tr = state.tr;
   cutLines(tr, cuts);
   view.dispatch(tr);
