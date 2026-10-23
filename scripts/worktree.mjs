@@ -165,10 +165,19 @@ function prepareBase(base, primary) {
     },
   );
   if (resolved && !resolved.startsWith('refs/remotes/')) return resolved;
-  const match = base.match(/^([^/]+)\/(.+)$/);
-  if (!match || !git(['remote'], primary).split('\n').includes(match[1])) return base;
+  // Remote HEAD aliases refresh their canonical target. Match configured
+  // remote names rather than splitting at a slash: remote names may contain one.
+  const remoteBase = resolved?.startsWith('refs/remotes/')
+    ? resolved.slice('refs/remotes/'.length)
+    : base;
+  const remote = git(['remote'], primary)
+    .split('\n')
+    .filter(Boolean)
+    .sort((a, b) => b.length - a.length)
+    .find((name) => remoteBase.startsWith(`${name}/`));
+  if (!remote) return base;
 
-  const [, remote, branch] = match;
+  const branch = remoteBase.slice(remote.length + 1);
   const branchRef = `refs/heads/${branch}`;
   const trackingRef = `refs/remotes/${remote}/${branch}`;
   const mr = branch.match(/^mr-(\d+)$/);

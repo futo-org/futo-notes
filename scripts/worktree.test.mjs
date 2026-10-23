@@ -178,6 +178,20 @@ it.each(['origin/main', 'origin/mr-448'])(
   },
 );
 
+it.each(['origin', 'team/origin'])(
+  'refreshes the target branch of the %s/HEAD remote alias',
+  (remote) => {
+    withRemoteRepo(({ git, commit, expectCreated }) => {
+      if (remote !== 'origin') git('remote', 'rename', 'origin', remote);
+      git('symbolic-ref', `refs/remotes/${remote}/HEAD`, `refs/remotes/${remote}/main`);
+      const latest = commit();
+      git('push', remote, 'main');
+      git('update-ref', `refs/remotes/${remote}/main`, 'HEAD~1');
+      expectCreated(`${remote}/HEAD`, latest);
+    });
+  },
+);
+
 it('does not create from a stale tracking ref when its remote branch was deleted', () => {
   withRemoteRepo(({ git, create, scratch }) => {
     git('push', 'origin', '--delete', 'main');
