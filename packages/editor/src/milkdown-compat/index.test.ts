@@ -1,4 +1,16 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import * as commonmark from '@milkdown/kit/preset/commonmark';
+import * as gfm from '@milkdown/kit/preset/gfm';
+
+// Snapshot once: resetting modules while re-importing the kit's export-star
+// facades through importOriginal can leave their live exports uninitialized.
+const upstreamCommonmark = { ...commonmark };
+const upstreamGfm = { ...gfm };
+
+beforeEach(() => {
+  vi.doMock('@milkdown/kit/preset/commonmark', () => ({ ...upstreamCommonmark }));
+  vi.doMock('@milkdown/kit/preset/gfm', () => ({ ...upstreamGfm }));
+});
 
 afterEach(() => {
   vi.doUnmock('@milkdown/kit/preset/commonmark');
@@ -37,34 +49,32 @@ describe('compat preset composition', () => {
   });
 
   it('refuses a commonmark preset missing a plugin it must remove', async () => {
-    vi.doMock('@milkdown/kit/preset/commonmark', async (importOriginal) => {
-      const upstream = await importOriginal<typeof import('@milkdown/kit/preset/commonmark')>();
-      return {
-        ...upstream,
-        commonmark: upstream.commonmark.filter((plugin) => plugin !== upstream.syncHeadingIdPlugin),
-      };
-    });
+    vi.doMock('@milkdown/kit/preset/commonmark', () => ({
+      ...upstreamCommonmark,
+      commonmark: upstreamCommonmark.commonmark.filter(
+        (plugin) => plugin !== upstreamCommonmark.syncHeadingIdPlugin,
+      ),
+    }));
     const { commonmarkWithCompat } = await import('./index');
     expect(commonmarkWithCompat).toThrow(/milkdown-compat:.*heading-id/);
   });
 
   it('refuses a commonmark preset missing an input rule it must replace', async () => {
-    vi.doMock('@milkdown/kit/preset/commonmark', async (importOriginal) => {
-      const upstream = await importOriginal<typeof import('@milkdown/kit/preset/commonmark')>();
-      return {
-        ...upstream,
-        commonmark: upstream.commonmark.filter((plugin) => plugin !== upstream.strongInputRule),
-      };
-    });
+    vi.doMock('@milkdown/kit/preset/commonmark', () => ({
+      ...upstreamCommonmark,
+      commonmark: upstreamCommonmark.commonmark.filter(
+        (plugin) => plugin !== upstreamCommonmark.strongInputRule,
+      ),
+    }));
     const { commonmarkWithCompat } = await import('./index');
     expect(commonmarkWithCompat).toThrow(/milkdown-compat:.*strong input rule/);
   });
 
   it('refuses a gfm preset containing a duplicated table pass', async () => {
-    vi.doMock('@milkdown/kit/preset/gfm', async (importOriginal) => {
-      const upstream = await importOriginal<typeof import('@milkdown/kit/preset/gfm')>();
-      return { ...upstream, gfm: [...upstream.gfm, upstream.tableEditingPlugin] };
-    });
+    vi.doMock('@milkdown/kit/preset/gfm', () => ({
+      ...upstreamGfm,
+      gfm: [...upstreamGfm.gfm, upstreamGfm.tableEditingPlugin],
+    }));
     const { gfmWithCompat } = await import('./index');
     expect(gfmWithCompat).toThrow(/milkdown-compat:.*table/);
   });
