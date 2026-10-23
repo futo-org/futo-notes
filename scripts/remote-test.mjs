@@ -65,7 +65,7 @@ export { ndkVersionFromGradle } from './remote-test/remote-env.mjs';
 // Local side
 // ---------------------------------------------------------------------------
 
-const RSYNC_EXCLUDES = [
+export const RSYNC_EXCLUDES = [
   '.git',
   'node_modules',
   'target',
@@ -76,6 +76,21 @@ const RSYNC_EXCLUDES = [
   '.build',
   '.build-device',
   '.build-device-release',
+  '.build-release-compliance',
+  'DerivedData',
+  '.gradle',
+  '.kotlin',
+  // Native build products are regenerated on the destination. Keep sources and
+  // the Gradle wrapper, while avoiding multi-gigabyte local caches and binaries.
+  '/apps/android/build/',
+  '/apps/android/**/build/',
+  '/apps/android/app/src/main/jniLibs/',
+  '/apps/android/app/src/main/java/uniffi/',
+  '/apps/android/app/src/main/assets/editor.html',
+  '/apps/ios/*.xcframework/',
+  '/apps/ios/*.xcodeproj/',
+  '/apps/ios/Sources/Generated/',
+  '/apps/ios/Resources/editor.html',
   // The remote's own bookkeeping; deleting it forces a needless pnpm install.
   '.remote-test-pnpm-lock-hash',
 ];
