@@ -24,12 +24,20 @@
  * The other filler goes too: a header-only table's empty body row (the schema
  * needs one, `isUnwrittenFillerRow`), which is in the editor's own copy of
  * such a table and blanked out the target row under the one the header lands on.
+ *
+ * A header-only table from anywhere else (`<thead>` and no `<tbody>`) parses
+ * with that body row holding no cells at all, and never got this far: the gfm
+ * preset's paste rule (`tablePasteRule`) counts a table's columns off its LAST
+ * row, found none, and replaced the whole table with an empty paragraph —
+ * pasted into a cell, that blanked the rest of its row and broke the table in
+ * two (#276). `fillCelllessRows` runs ahead of that rule and fills the row the
+ * way a load does.
  */
 import { Fragment, Slice, type Node as ProseNode } from '@milkdown/kit/prose/model';
 import { Plugin, PluginKey, type EditorState } from '@milkdown/kit/prose/state';
 import { isInTable, selectedRect, tableNodeTypes } from '@milkdown/kit/prose/tables';
-import { $prose } from '@milkdown/kit/utils';
-import { isUnwrittenFillerRow } from '@futo-notes/editor/milkdown-compat';
+import { $pasteRule, $prose } from '@milkdown/kit/utils';
+import { asFillerRow, isUnwrittenFillerRow } from '@futo-notes/editor/milkdown-compat';
 
 /** The rows of a pasted table, or null when `slice` is not a table paste. */
 function pastedRows(slice: Slice): ProseNode[] | null {
@@ -89,6 +97,66 @@ export function repairPastedTable(slice: Slice, state: EditorState): Slice {
   });
   return new Slice(Fragment.from(fixed), 0, 0);
 }
+
+/**
+ * `slice` with every pasted table's cell-less body row filled with empty cells
+ * to the table's width and marked as the unwritten filler — what a load makes
+ * of a header-only table — so `repairPastedTable` drops it in a table and a
+ * save does not write it outside one. Returns `slice` itself when no table in
+ * it has such a row.
+ */
+export function fillCelllessRows(slice: Slice): Slice {
+  const content = fillFragment(slice.content);
+  return content === slice.content ? slice : new Slice(content, slice.openStart, slice.openEnd);
+}
+
+function fillFragment(fragment: Fragment): Fragment {
+  let changed = false;
+  const nodes: ProseNode[] = [];
+  fragment.forEach((node) => {
+    const filled = node.type.spec.tableRole === 'table' ? fillTable(node) : fillChildren(node);
+    if (filled !== node) changed = true;
+    nodes.push(filled);
+  });
+  return changed ? Fragment.from(nodes) : fragment;
+}
+
+function fillChildren(node: ProseNode): ProseNode {
+  if (node.isLeaf) return node;
+  const content = fillFragment(node.content);
+  return content === node.content ? node : node.copy(content);
+}
+
+function fillTable(table: ProseNode): ProseNode {
+  const cellType = tableNodeTypes(table.type.schema).cell;
+  let width = 0;
+  table.forEach((row) => {
+    width = Math.max(width, row.childCount);
+  });
+  if (width === 0) return table;
+  let changed = false;
+  const rows: ProseNode[] = [];
+  table.forEach((row) => {
+    if (row.childCount > 0 || !row.type.contentMatch.matchType(cellType)) {
+      rows.push(row);
+      return;
+    }
+    const cells = Array.from({ length: width }, () => cellType.createAndFill() as ProseNode);
+    rows.push(asFillerRow(row, cells));
+    changed = true;
+  });
+  return changed ? table.copy(Fragment.from(rows)) : table;
+}
+
+/**
+ * Ahead of the gfm preset's own paste rule, which runs at the default priority
+ * (50) and would drop the whole table first. Paste rules run on HTML pastes
+ * before any plugin's `transformPasted`.
+ */
+export const headerOnlyTablePaste = $pasteRule(() => ({
+  priority: 100,
+  run: (slice, _view, isPlainText) => (isPlainText ? slice : fillCelllessRows(slice)),
+}));
 
 /** Registered with the table plugins (`tableGrips` in `./tableGrips`). */
 export const tablePasteRepair = $prose(

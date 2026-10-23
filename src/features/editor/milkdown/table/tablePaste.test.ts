@@ -3,9 +3,10 @@ import { describe, expect, it } from 'vitest';
 import { Fragment, Slice, type Node as ProseNode } from '@milkdown/kit/prose/model';
 import { EditorState, TextSelection } from '@milkdown/kit/prose/state';
 import { tableNodeTypes } from '@milkdown/kit/prose/tables';
+import { isUnwrittenFillerRow } from '@futo-notes/editor/milkdown-compat';
 
 import { testSchema } from '../__fixtures__/schema';
-import { repairPastedTable } from './tablePaste';
+import { fillCelllessRows, repairPastedTable } from './tablePaste';
 
 const types = tableNodeTypes(testSchema);
 const p = (text: string) => testSchema.node('paragraph', null, text ? [testSchema.text(text)] : []);
@@ -75,5 +76,47 @@ describe('repairPastedTable', () => {
   it('leaves a paste that is not a table alone', () => {
     const pasted = new Slice(Fragment.from(p('plain')), 0, 0);
     expect(repairPastedTable(pasted, caretIn(1))).toBe(pasted);
+  });
+});
+
+describe('fillCelllessRows', () => {
+  // `<table><thead><tr><th>x</th><th>y</th></tr></thead></table>` parses to
+  // this: the schema needs a body row, and the parser gives it no cells. The gfm
+  // preset's paste rule counts columns off that last row, finds none, and
+  // replaced the whole table with an empty paragraph (#276).
+  const headerOnly = () =>
+    new Slice(Fragment.from(table(headerRow(header('x'), header('y')), row())), 0, 0);
+
+  it('fills a cell-less body row to the table width, as the unwritten filler', () => {
+    const filled = fillCelllessRows(headerOnly());
+    const body = filled.content.child(0).child(1);
+    expect(rowsOf(new Slice(filled.content.child(0).content, 0, 0))).toEqual([
+      ['table_header:x', 'table_header:y'],
+      ['table_cell:', 'table_cell:'],
+    ]);
+    expect(isUnwrittenFillerRow(body)).toBe(true);
+  });
+
+  it('then pastes into a cell as the header row alone', () => {
+    expect(rowsOf(repairPastedTable(fillCelllessRows(headerOnly()), caretIn(1)))).toEqual([
+      ['table_cell:x', 'table_cell:y'],
+    ]);
+  });
+
+  it('fills a header-only table nested in another block', () => {
+    const quoted = new Slice(
+      Fragment.from(testSchema.node('blockquote', null, [table(headerRow(header('x')), row())])),
+      0,
+      0,
+    );
+    const inner = fillCelllessRows(quoted).content.child(0).child(0);
+    expect(inner.child(1).childCount).toBe(1);
+  });
+
+  it('leaves a slice with no cell-less row alone', () => {
+    const full = new Slice(Fragment.from(table(headerRow(header('a')), row(cell('b')))), 0, 0);
+    expect(fillCelllessRows(full)).toBe(full);
+    const plain = new Slice(Fragment.from(p('plain')), 0, 0);
+    expect(fillCelllessRows(plain)).toBe(plain);
   });
 });

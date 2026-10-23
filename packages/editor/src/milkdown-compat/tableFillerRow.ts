@@ -44,6 +44,15 @@ export function isUnwrittenFillerRow(row: ProseNode): boolean {
 }
 
 /**
+ * A body row with no cells, filled with `cells` and marked as the filler, as
+ * `fixTables` fills and `markRowsFilledFromNothing` marks it on load. For a
+ * table that has not reached a transaction yet: a pasted one.
+ */
+export function asFillerRow(row: ProseNode, cells: readonly ProseNode[]): ProseNode {
+  return row.type.create({ ...row.attrs, [FILLER_ATTR]: true }, cells, row.marks);
+}
+
+/**
  * `tr` (`fixTables`' repair) with every table row it filled from nothing
  * marked as the filler. Read off the steps: an insertion into a row that had
  * no cells just before it.

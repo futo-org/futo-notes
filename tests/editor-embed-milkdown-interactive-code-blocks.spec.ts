@@ -135,6 +135,28 @@ for (const [markdown, chord, expected] of [
   });
 }
 
+// #276: two lines typed with Enter are one paragraph with a line break, which
+// a fence cannot hold — the chord joined them into one line. Like the toolbar
+// (paragraphLines.ts `onSelectedLines`), a chord lands on each touched line.
+for (const [chord, expected] of [
+  ['ControlOrMeta+Alt+c', '```\none\n```\n\n```\ntwo\n```\n'],
+  ['ControlOrMeta+Alt+1', '# one\n\n# two\n'],
+] as const) {
+  test(`${chord} after select-all over lines typed with Enter keeps every line`, async ({
+    page,
+  }) => {
+    await open(page, 'one\ntwo\n');
+    await withCaretObserved(page, () => page.locator('.ProseMirror p').first().click());
+    await withCaretObserved(page, () => page.keyboard.press('ControlOrMeta+a'));
+    await page.keyboard.press(chord);
+    await settled(page);
+    expect(await getContent(page)).toBe(expected);
+    await page.keyboard.press('ControlOrMeta+z');
+    await settled(page);
+    expect(await getContent(page)).toBe('one\ntwo\n');
+  });
+}
+
 test('Mod+Alt+1 still turns a paragraph into a heading', async ({ page }) => {
   await open(page, 'plain\n');
   await caretAtEndOf(page, 'plain');

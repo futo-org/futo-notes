@@ -169,6 +169,11 @@ const SELECT_ALL_ROUND_TRIPS: Array<[string, string[], string[]]> = [
   ['one', ['quote', 'heading-1'], ['> one', '> # one']],
   ['> one', ['code-block'], ['> ```\n> one\n> ```']],
   ['- one', ['code-block'], ['- one']],
+  // #276: two lines typed with Enter are one paragraph with a line break; the
+  // fence dropped the break and saved `one two.three four.` on one line.
+  ['one two.\nthree four.', ['code-block'], ['```\none two.\n```\n\n```\nthree four.\n```']],
+  ['one\ntwo', ['bullet-list'], ['- one\n- two']],
+  ['one\ntwo\n\nthree', ['heading-1'], ['# one\n\n# two\n\n# three']],
 ];
 
 for (const [source, ids, steps] of SELECT_ALL_ROUND_TRIPS) {
@@ -230,6 +235,34 @@ test('typing in a heading keeps its order and never re-creates the block', async
   expect(heading.stillAttached).toBe(true);
   expect(heading.sameElement).toBe(true);
   expect(heading.idChurned).toBe(false);
+});
+
+// #276, the ticket's repro: lines typed with Enter (one paragraph with line
+// breaks), Select all, Code block. Every line is kept, each in a fence of its
+// own as shift-selecting them gives, and one undo gives back the original bytes.
+test('select-all then code-block keeps every typed line and undoes in one step', async ({
+  page,
+}) => {
+  await hostSetContent(page, '');
+  await focusEditor(page);
+  await page.keyboard.type('one two.');
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('three four.');
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('Enter');
+  await page.keyboard.type('five');
+  await settle(page);
+  const typed = (await getContent(page)).trimEnd();
+  expect(typed).toBe('one two.\nthree four.\n\nfive');
+
+  await selectAll(page);
+  await exec(page, 'code-block');
+  expect((await getContent(page)).trimEnd()).toBe(
+    '```\none two.\n```\n\n```\nthree four.\n```\n\n```\nfive\n```',
+  );
+  await page.keyboard.press('ControlOrMeta+z');
+  await settle(page);
+  expect((await getContent(page)).trimEnd()).toBe(typed);
 });
 
 // ============================================================

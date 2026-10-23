@@ -74,7 +74,13 @@ import {
   selectionWithinWrittenContent,
 } from './blockCommands';
 import { enclosingListItem } from './caretContext';
-import { enterInParagraph, joinBackwardAsLine, joinForwardAsLine } from './paragraphLines';
+import { foldCommandInto } from './foldCommand';
+import {
+  enterInParagraph,
+  isolateSelectedLines,
+  joinBackwardAsLine,
+  joinForwardAsLine,
+} from './paragraphLines';
 import { isSlashMenuOpen } from './slash';
 import { isWikilinkSuggestOpen } from './wikilink/autocomplete';
 import {
@@ -262,13 +268,19 @@ export function handleIndentShortcut(view: ProseView, event: KeyboardEvent): boo
  * preset runs on it: otherwise the parked trailing paragraph became a saved
  * `#` or an empty fence (blockCommands.ts `selectionWithinWrittenContent`).
  * With no written textblock in it, the chord is claimed and does nothing.
+ *
+ * The lines the selection touches get a paragraph each first, as they do for
+ * the toolbar (paragraphLines.ts `isolateSelectedLines`): a fence holds no
+ * line break, so Code over two lines typed with Enter joined them into one
+ * (#276), and a heading took every line of the paragraph.
  */
 const blockTypeChordGuard: Command = (state, dispatch) => {
   if (selectionTouchesCode(state)) return true;
   const scope = selectionWithinWrittenContent(state);
-  if (scope === state.selection) return false;
   if (!scope) return true;
-  dispatch?.(state.tr.setSelection(scope));
+  const tr = scope === state.selection ? state.tr : state.tr.setSelection(scope);
+  foldCommandInto(state, tr, isolateSelectedLines);
+  if (tr.selectionSet || tr.docChanged) dispatch?.(tr);
   return false;
 };
 

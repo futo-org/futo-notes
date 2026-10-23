@@ -231,6 +231,36 @@ test('pasting an HTML table into a table cell throws nothing and pastes the cell
   ]);
 });
 
+// #276: a header-only table copied from elsewhere (`<thead>` and no body, or a
+// lone `<tr>` of `<th>`) parses with a body row of no cells. The gfm preset's
+// paste rule counted the columns off that row, found none and pasted an empty
+// paragraph instead: `| r1a |  |`, then blank lines and `|` fragments.
+for (const [shape, html] of [
+  ['<thead> only', '<table><thead><tr><th>x</th><th>y</th></tr></thead></table>'],
+  ['a <tr> of <th> only', '<table><tr><th>x</th><th>y</th></tr></table>'],
+] as const) {
+  test(`pasting a header-only HTML table (${shape}) into a cell pastes its cells`, async ({
+    page,
+  }) => {
+    const errors: string[] = [];
+    page.on('pageerror', (error) => errors.push(error.message));
+    await open(page, TABLE);
+    await caretAtEndOf(page, 'r1a');
+    await pasteHtml(page, html, 'x\ty');
+    await settled(page);
+    expect(errors).toEqual([]);
+    expect(await getContent(page)).toBe('| a | b |\n| --- | --- |\n| x | y |\n| r2a | r2b |\n');
+  });
+}
+
+test('pasting a header-only HTML table into a paragraph keeps the table', async ({ page }) => {
+  await open(page, 'before\n');
+  await caretAtEndOf(page, 'before');
+  await pasteHtml(page, '<table><thead><tr><th>x</th><th>y</th></tr></thead></table>', 'x\ty');
+  await settled(page);
+  expect(await getContent(page)).toBe('before\n\n| x | y |\n| --- | --- |\n');
+});
+
 /*
  * Plain-text pastes into a table cell and a list item (R10-FB13-1/-2, RC-81).
  * `text/html` is left empty, so ProseMirror takes its plain-text route — the one
