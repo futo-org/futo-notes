@@ -41,7 +41,11 @@ export function resolveBase() {
   const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'futo-redproof-index-'));
   const env = { ...process.env, GIT_INDEX_FILE: path.join(scratch, 'index') };
   try {
-    gitOrThrow(['read-tree', head], ROOT, env);
+    // The current index knows about newly force-added ignored source that
+    // HEAD cannot supply. Git resolves a linked worktree's private index path.
+    const index = path.resolve(ROOT, gitOrThrow(['rev-parse', '--git-path', 'index']));
+    if (fs.existsSync(index)) fs.copyFileSync(index, env.GIT_INDEX_FILE);
+    else gitOrThrow(['read-tree', head], ROOT, env);
     gitOrThrow(['add', '-A', '--', '.'], ROOT, env);
     const tree = gitOrThrow(['write-tree'], ROOT, env);
     if (tree === gitOrThrow(['rev-parse', `${head}^{tree}`])) {

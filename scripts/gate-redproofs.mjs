@@ -35,7 +35,7 @@
 //
 // SOURCE SNAPSHOT. A disposable Git index captures the working tree, including
 // non-ignored untracked source, without staging files or touching refs/stash.
-// Ignored generated output remains outside the proof checkout.
+// Untracked ignored output remains outside the proof checkout.
 //
 // ADDING A GATE. Append to PROOFS below: the gate command, one seeded
 // violation that hits the gate's PRIMARY claim, the substrings its output must
