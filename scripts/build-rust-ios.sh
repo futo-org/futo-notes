@@ -65,7 +65,7 @@ cargo build -p futo-notes-ffi
 # skip that optional pass instead of warning on every otherwise healthy build.
 echo "==> Generating Swift bindings"
 rm -rf "$GEN"; mkdir -p "$GEN"
-cargo run -p futo-notes-ffi --bin uniffi-bindgen -- generate \
+cargo run -p futo-notes-ffi --features bindgen --bin uniffi-bindgen -- generate \
   --library "$TARGET_DIR/debug/libfuto_notes_ffi.dylib" \
   --language swift --no-format \
   --out-dir "$GEN"

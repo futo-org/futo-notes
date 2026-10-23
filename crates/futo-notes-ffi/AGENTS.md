@@ -19,7 +19,9 @@ yourself writing a decision here, it belongs in one of those crates.
   types.
 - **`src/localization.rs`**: ICU language-tag maximization and plural category, so the native catalogs
   pluralize the same way everywhere.
-- **`src/bin/uniffi-bindgen.rs`**: the bundled binding generator the build scripts invoke.
+- **`src/bin/uniffi-bindgen.rs`**: the bundled binding generator the build scripts invoke. It needs
+  `--features bindgen` (`required-features`), which keeps the generator and `cargo_metadata` out of
+  the library the phones link.
 
 ## Traps
 
