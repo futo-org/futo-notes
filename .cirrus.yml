@@ -72,7 +72,7 @@ test_rust_macos_task:
     - curl https://sh.rustup.rs -sSf | sh -s -- -y
     - export PATH="$HOME/.cargo/bin:$PATH"
     - corepack enable
-    - corepack prepare pnpm@10.29.2 --activate
+    - corepack prepare pnpm@10.34.7 --activate
     - pnpm install --frozen-lockfile
     - mkdir -p dist
     # Two different mtime lies have to be undone before cargo looks at the
@@ -162,7 +162,7 @@ test_desktop_smoke_macos_task:
     - curl https://sh.rustup.rs -sSf | sh -s -- -y
     - export PATH="$HOME/.cargo/bin:$PATH"
     - corepack enable
-    - corepack prepare pnpm@10.29.2 --activate
+    - corepack prepare pnpm@10.34.7 --activate
     - pnpm install --frozen-lockfile
     # Two different mtime lies have to be undone before cargo looks at the
     # restored caches — see each script's header.
