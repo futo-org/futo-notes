@@ -3,7 +3,7 @@
 //! `minWidth`/`minHeight` (tauri*.conf.json) are applied when the window is
 //! created, but tauri-plugin-window-state then restores the saved size with
 //! `set_size`, and neither macOS (its `setContentSize:` landed at 640×420
-//! with `minSize` and `contentMinSize` both 800×600) nor Windows (tao answers
+//! with `minSize` and `contentMinSize` both set larger) nor Windows (tao answers
 //! `WM_WINDOWPOSCHANGING` without the default min-size check) holds that to
 //! the minimum. So a size saved before the minimum existed reopened below it
 //! on every launch. Grow it back once that resize lands. GTK applies the

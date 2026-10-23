@@ -65,8 +65,9 @@
 - Window size, position, maximized and fullscreen state persist across launches,
   validated against the attached monitors so an unplugged display cannot strand
   the window off-screen. → application.rs (tauri-plugin-window-state)
-- The window cannot be resized below 800×600: the default sidebar plus a usable
-  editor, with room for the 600px Settings dialog and its margins. A smaller
+- The window cannot be resized below 720×600: the default sidebar plus a usable
+  editor, with room for the 600px Settings dialog and its margins, yet narrow
+  enough for two windows side by side on a 1440pt-wide screen. A smaller
   size saved before the minimum existed grows to it on the next launch.
   → tauri*.conf.json (`minWidth`/`minHeight` in every window block),
   window_minimum.rs
