@@ -14,7 +14,7 @@
   # and refuses the job — so every job extending this ALSO carries
   # `tags: [dind_fast]` (premerge-test-parity asserts the pairing).
   image:
-    name: gitlab.futo.org:5050/futo-notes/futo-notes/ci/test@sha256:c8cb4ab14ce1cb939a88505ae5e37f3421b7c4a64f2cacfcd73e6e19e89a32fb
+    name: gitlab.futo.org:5050/futo-notes/futo-notes/ci/test@sha256:75d071a3a8246e56daa733068bc41b3cce998c007e8d558aa82c72c247903766
     pull_policy: if-not-present
 
 # The Android SDK/NDK/emulator image, same pairing as .ci-test-image above:
