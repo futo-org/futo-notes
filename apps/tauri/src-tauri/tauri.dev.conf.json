@@ -2,21 +2,6 @@
   "identifier": "com.futo.notes.dev",
   "productName": "FUTO Notes Dev",
   "app": {
-    "windows": [
-      {
-        "title": "FUTO Notes (Dev)",
-        "visible": false,
-        "width": 1200,
-        "height": 800,
-        "minWidth": 720,
-        "minHeight": 600,
-        "resizable": true,
-        "titleBarStyle": "Overlay",
-        "hiddenTitle": true,
-        "trafficLightPosition": { "x": 13, "y": 22 },
-        "dragDropEnabled": false
-      }
-    ],
     "security": {
       "csp": "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' asset: https: http: data:; font-src 'self' data:; connect-src 'self' https: http: ws: wss:; media-src 'self' asset:",
       "assetProtocol": {

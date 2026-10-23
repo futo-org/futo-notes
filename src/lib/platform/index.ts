@@ -133,11 +133,10 @@ export function onAppMenuCommand(handler: (command: string) => void): () => void
 }
 
 // OS file drops onto the app window, where the WINDOW gets them instead of the
-// page. That is Linux: wry's WebKitGTK handler claims a file-URI drop, so the
-// webview's own `drop` event arrives with no files. macOS and Windows disable
-// that native layer (`dragDropEnabled: false`) and deliver a real HTML5 drop,
-// where this never fires — so a consumer wires both and takes whichever comes,
-// rather than branching on platform itself (rule 4.5).
+// page. Only wry's native drop layer delivers these, and every desktop platform
+// now disables it (`dragDropEnabled: false`, Linux too since QA #017), so the
+// page's own HTML5 `drop` is what arrives — a consumer still wires both and
+// takes whichever comes, rather than branching on platform itself (rule 4.5).
 //
 // Off Tauri (the web dev server, the native mobile embeds) there is no window
 // to drop onto, so this is a no-op subscription rather than a branch at the

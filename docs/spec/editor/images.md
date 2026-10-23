@@ -107,8 +107,8 @@
      src/lib/platform/tauri/images.ts `pickImage`, tests/image-drop.spec.ts,
      tests/slash-menu.spec.ts
 - **A file drop reaches the app as an ordinary HTML5 `drop`, but the SHAPE it
-  carries is engine-dependent.** All three desktop build configs (macOS,
-  Windows, and Linux since QA #017, 2026-09-11) set `dragDropEnabled: false`,
+  carries is engine-dependent.** The desktop window config sets
+  `dragDropEnabled: false` on every platform (Linux too since QA #017),
   which stops wry installing a native drop target, so the drop arrives in the
   page and ProseMirror's `handleDrop` prop reads it directly. Linux used to
   leave the flag at its default, reasoning that the same native layer was
@@ -132,7 +132,7 @@
   wired as a defensive fallback for a distro/compositor combination that
   still runs wry's native layer, but nothing is currently expected to deliver
   that shape.
-  _(desktop)_ → apps/tauri/src-tauri/tauri.linux.conf.json,
+  _(desktop)_ → apps/tauri/src-tauri/tauri.conf.json,
   src/lib/platform/tauri/fileDrop.ts,
   src/lib/platform/dragDropConfig.test.ts,
   src/features/editor/imageInsert.ts `filePathsFromDrop`,
