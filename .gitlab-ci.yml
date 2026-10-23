@@ -38,7 +38,7 @@ variables:
   # pushes `:latest`; moving consumers onto the new bytes is a deliberate edit of
   # this line, the same follow-up-commit dance `.ci-test-image` documents. Resolve
   # a new digest through project registry repository 163.
-  IMAGE_ANDROID: gitlab.futo.org:5050/futo-notes/futo-notes/ci/android@sha256:afed1a7a22a312e1948a7f3b464b138b516dd1149aa3bd8d0aa69827496b7f42
+  IMAGE_ANDROID: gitlab.futo.org:5050/futo-notes/futo-notes/ci/android@sha256:9147207d5ee2f2f680f137dd8fcaadc18bef058a0547542f29f1e21144696125
   #
   # quay garbage-collects manifests no tag points at, and this pin is EXPECTED
   # TO DIE PERIODICALLY. Picking a digest that an exact version tag also held
