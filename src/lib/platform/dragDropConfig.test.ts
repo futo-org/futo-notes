@@ -87,11 +87,16 @@ describe('regression gate: no platform config may leave drag-drop to a native la
 // merge element-wise. Anything the overlay does not restate is simply gone, which
 // is why each overlay repeats the whole window entry.
 describe('platform/dev overlays restate what array replacement would drop', () => {
-  it('the dev overlay keeps the prod window geometry', () => {
+  it.each([
+    'tauri.dev.conf.json',
+    'tauri.macos.conf.json',
+    'tauri.windows.conf.json',
+    'tauri.linux.conf.json',
+  ])('%s keeps the base window geometry and minimum size', (file) => {
     const base = windowConf('tauri.conf.json');
-    const dev = windowConf('tauri.dev.conf.json');
-    expect(dev?.width).toBe(base?.width);
-    expect(dev?.height).toBe(base?.height);
-    expect(dev?.resizable).toBe(base?.resizable);
+    const overlay = windowConf(file);
+    for (const key of ['width', 'height', 'minWidth', 'minHeight', 'resizable']) {
+      expect(overlay?.[key], `${file} ${key}`).toBe(base?.[key]);
+    }
   });
 });

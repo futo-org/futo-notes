@@ -65,6 +65,11 @@
 - Window size, position, maximized and fullscreen state persist across launches,
   validated against the attached monitors so an unplugged display cannot strand
   the window off-screen. → application.rs (tauri-plugin-window-state)
+- The window cannot be resized below 800×600: the default sidebar plus a usable
+  editor, with room for the 600px Settings dialog and its margins. A smaller
+  size saved before the minimum existed grows to it on the next launch.
+  → tauri*.conf.json (`minWidth`/`minHeight` in every window block),
+  window_minimum.rs
 - The window's own appearance follows the resolved app theme, so the OS draws the
   window frame, the application menu and native dialogs in the app's light/dark
   rather than the system's. On macOS the visible tell is the stroke AppKit
