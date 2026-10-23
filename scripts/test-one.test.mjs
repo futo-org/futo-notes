@@ -1,7 +1,13 @@
 import { spawnSync } from 'node:child_process';
 import { describe, expect, it } from 'vitest';
+import { testRuns } from './test-one.mjs';
 
 describe('just test-one', () => {
+  it('keeps path-shaped option values with their flags', () => {
+    const runs = testRuns(['packages/editor/src/bridge.test.ts', '-t', 'src/example']);
+    expect(runs).toHaveLength(1);
+    expect(runs[0].args).toEqual(['src/bridge.test.ts', '-t', 'src/example']);
+  });
   it.each([
     ['packages/editor/src/bridge.test.ts'],
     ['scripts/lib/spawn-result.test.mjs'],

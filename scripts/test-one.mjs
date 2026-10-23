@@ -7,14 +7,17 @@
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { parseCLI } from 'vitest/node';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 export function testRuns(args) {
+  const selectors = new Set(parseCLI(['vitest', 'run', ...args]).filter);
   const relative = (arg) =>
     path.isAbsolute(arg) ? path.relative(root, arg) : arg.replace(/^\.\//, '');
-  const editorPath = (arg) => relative(arg).startsWith('packages/editor/');
-  const rootPath = (arg) => /^(src|scripts|tests|scratch)\//.test(relative(arg));
+  const editorPath = (arg) => selectors.has(arg) && relative(arg).startsWith('packages/editor/');
+  const rootPath = (arg) =>
+    selectors.has(arg) && /^(src|scripts|tests|scratch)\//.test(relative(arg));
   if (!args.some(editorPath)) return [{ cwd: root, args }];
   const shared = args.filter((arg) => !editorPath(arg) && !rootPath(arg));
   const runs = [
