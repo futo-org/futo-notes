@@ -10,7 +10,7 @@
 // via FutoEditor.setNotes, and local images resolve against the base URL the
 // host registers via FutoEditor.setImageBaseUrl.
 
-import { mount } from 'svelte';
+import { mount, type ComponentProps } from 'svelte';
 import '../styles/app.css';
 import MilkdownEditor from '$features/editor/milkdown/MilkdownEditor.svelte';
 import type { EditorLinkGesture } from '$features/editor/editorLinkGesture';
@@ -38,7 +38,11 @@ import {
   setKeystrokeTripwire,
 } from '$shared/perf/interactionLedger';
 import type { FindMatchReport } from '$features/editor/milkdown/find';
-import { createFutoEditorApi, type EmbeddedToolbarHandle } from './createFutoEditorApi';
+import {
+  createFutoEditorApi,
+  type EmbeddedEditorHandle,
+  type EmbeddedToolbarHandle,
+} from './createFutoEditorApi';
 
 declare global {
   interface Window {
@@ -78,7 +82,7 @@ let lastPostedInContainer: boolean | null = null;
 
 const query = new URLSearchParams(window.location.search);
 
-const editor = mount(MilkdownEditor, {
+const editor = mount<ComponentProps<typeof MilkdownEditor>, EmbeddedEditorHandle>(MilkdownEditor, {
   target,
   props: {
     content: '',
