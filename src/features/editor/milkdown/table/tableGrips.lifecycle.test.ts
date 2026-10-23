@@ -47,5 +47,6 @@ it('removes the open table menu keyboard listener when the editor is destroyed',
   await unmount(handle as never);
   unmounted = true;
 
-  expect(removed).toHaveBeenCalledWith('keydown', menuKeys[0][1], true);
+  // Svelte teardown starts Milkdown's asynchronous plugin destruction.
+  await vi.waitFor(() => expect(removed).toHaveBeenCalledWith('keydown', menuKeys[0][1], true));
 });

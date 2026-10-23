@@ -13,6 +13,7 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { mount } from 'svelte';
+import { TextSelection } from '@milkdown/kit/prose/state';
 
 import { withoutLeakedCtxTimers } from '../__fixtures__/noLeakedCtxTimers';
 import { guardEditorTimers } from '../__fixtures__/editorTimerGuard';
@@ -24,6 +25,7 @@ interface EditorHandle {
   openNote: (noteId: string, text: string) => void;
   getContent: () => string | undefined;
   exec: (commandId: string) => boolean;
+  getProseMirrorView: () => import('@milkdown/kit/prose/view').EditorView | null;
 }
 
 const MilkdownEditor = (await import('../MilkdownEditor.svelte')).default;
@@ -82,6 +84,8 @@ describe('a Link URL prompt left open across a note switch', () => {
 
   it('editing one link leaves another link with the same URL and the text between them untouched', async () => {
     handle.openNote('test-note', '[one](https://example.test) gap [two](https://example.test)');
+    const view = handle.getProseMirrorView()!;
+    view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, 2)));
     handle.exec('link');
     await vi.waitFor(() => expect(promptInput()).not.toBeNull());
 
