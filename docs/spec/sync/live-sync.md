@@ -74,6 +74,15 @@
   foreground (re-foregrounding gets a fresh `ready` → catch-up). → Android
   MainActivity `onStart`/`onStop`; iOS `FutoNotesApp` `scenePhase`
   (`SyncManager.pauseLive`/`resumeLiveAsync`).
+- A stop wins over any start asked for before it: a `stop_live` (or
+  `stop_live_and_wait`, or the stop inside connect/resume/disconnect) that
+  lands after `start_live` was called but before the start ran voids that start,
+  which then returns success without opening a stream — so backgrounding the app
+  right after a foreground cannot leave live sync running in the background
+  (#278). A start asked for after the stop runs normally. → futo-notes-sync
+  `SyncSession::start_live`, guarded by
+  `stop_live_voids_a_start_live_that_has_not_run_yet` and
+  `stop_live_before_the_queued_start_live_runs_leaves_no_live_task` (FFI)
 - Live sync is wired on native **Android and iOS** — both implement the Rust FFI
   `SyncEventListener` callback over the same `start_live`/`stop_live`. → SyncScreen.kt
   (Android), SyncManager.swift + SyncView.swift (iOS)

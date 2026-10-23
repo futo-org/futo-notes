@@ -96,13 +96,12 @@ impl SyncClient {
         listener: Box<dyn SyncEventListener>,
     ) -> Result<(), SyncError> {
         let listener: Arc<dyn SyncSessionListener> = session_listener(listener);
-        off_caller(async move {
+        // Asked for here, on the caller's own poll, so a `stop_live` the shell
+        // makes before the runtime gets to the body still voids it (#278).
+        let start =
             self.session
-                .start_live(self.notes_root.clone(), listener, Arc::new(no_pre_write))
-                .await
-                .map_err(Into::into)
-        })
-        .await
+                .start_live(self.notes_root.clone(), listener, Arc::new(no_pre_write));
+        off_caller(async move { start.await.map_err(Into::into) }).await
     }
 
     pub fn stop_live(&self) {
@@ -110,8 +109,9 @@ impl SyncClient {
     }
 
     /// Stops live sync and waits for any in-flight cycle to release the vault.
+    /// The stop takes effect on the caller's poll; only the wait runs off it.
     pub async fn stop_live_and_wait(self: Arc<Self>) {
-        off_caller(async move { self.session.stop_live_and_wait().await }).await
+        off_caller(self.session.stop_live_and_wait()).await
     }
 
     /// Disconnect drops live cursor state but preserves verified ancestry for safe reconciliation
@@ -124,5 +124,82 @@ impl SyncClient {
                 .map_err(Into::into)
         })
         .await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::future::Future;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::task::Poll;
+
+    use futo_notes_sync::HostedCredentials;
+
+    use super::*;
+
+    /// Reports when the last holder lets go of it. A live task keeps its
+    /// listener for as long as it runs, so a dropped listener after
+    /// `start_live` returns means no live task was left behind.
+    struct Listener(Arc<AtomicBool>);
+
+    impl Drop for Listener {
+        fn drop(&mut self) {
+            self.0.store(true, Ordering::SeqCst);
+        }
+    }
+
+    impl SyncEventListener for Listener {
+        fn on_synced(&self, _summary: SyncSummary) {}
+        fn on_connected(&self) {}
+        fn on_error(&self, _message: String) {}
+        fn on_stopped(&self) {}
+    }
+
+    /// #278. The shell's first poll of `start_live` only queues its body on
+    /// the runtime (`off_caller`); Android backgrounding the app before that
+    /// body runs calls `stop_live`, which must still win. A current-thread
+    /// runtime holds the queued body until the test awaits it, which forces
+    /// exactly that interleaving.
+    #[tokio::test]
+    async fn stop_live_before_the_queued_start_live_runs_leaves_no_live_task() {
+        let root = std::env::temp_dir().join(format!("ffi-live-race-{}", std::process::id()));
+        std::fs::create_dir_all(&root).unwrap();
+        let client = SyncClient::new(
+            root.to_string_lossy().into_owned(),
+            "http://127.0.0.1:1".to_owned(),
+        );
+        client
+            .session
+            .connect_hosted(
+                &root,
+                HostedCredentials {
+                    server_url: "http://127.0.0.1:1".to_owned(),
+                    token: "token".to_owned(),
+                    user_id: "user".to_owned(),
+                    collection_id: "collection".to_owned(),
+                    vault_key: [3; 32],
+                },
+            )
+            .await
+            .unwrap();
+        let released = Arc::new(AtomicBool::new(false));
+
+        let mut start = Box::pin(
+            client
+                .clone()
+                .start_live(Box::new(Listener(Arc::clone(&released)))),
+        );
+        let first_poll = std::future::poll_fn(|cx| Poll::Ready(start.as_mut().poll(cx))).await;
+        assert!(
+            first_poll.is_pending(),
+            "the body should be queued, not run"
+        );
+        client.stop_live();
+        start.await.unwrap();
+
+        let leaked = !released.load(Ordering::SeqCst);
+        client.stop_live();
+        std::fs::remove_dir_all(&root).unwrap();
+        assert!(!leaked, "a live task is running after stop_live");
     }
 }
