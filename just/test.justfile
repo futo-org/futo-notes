@@ -11,7 +11,7 @@ build: check-node-version _require-node-modules
 test:
   pnpm run test:minimal
 
-# Run ONE test file or -t pattern, routing editor package paths to its config.
+# Run ONE test file or -t pattern; put a sole explicit editor package path first.
 test-one *args:
   #!/usr/bin/env bash
   set -euo pipefail
