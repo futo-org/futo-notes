@@ -60,3 +60,27 @@ it('transfers native sources while excluding generated native build trees', () =
   for (const file of sources) expect(transferred).toContain(file);
   for (const file of generated) expect(transferred).not.toContain(file);
 });
+
+it.each([
+  ['Host key verification failed.', 'Verify the host fingerprint with Justin'],
+  ['Permission denied (publickey).', 'ask Justin to authorize your public key'],
+])('explains SSH setup failure: %s', (diagnostic, hint) => {
+  const root = mkdtempSync(path.join(tmpdir(), 'remote-ssh-'));
+  scratchpads.push(root);
+  writeFileSync(
+    path.join(root, 'ssh'),
+    '#!/bin/sh\nprintf "%s\\n" "$SSH_DIAGNOSTIC" >&2\nexit 255\n',
+    { mode: 0o755 },
+  );
+  const result = spawnSync(
+    process.execPath,
+    ['scripts/remote-test.mjs', '--host', 'fixture', '--doctor'],
+    {
+      env: { ...process.env, PATH: `${root}:${process.env.PATH}`, SSH_DIAGNOSTIC: diagnostic },
+      encoding: 'utf8',
+    },
+  );
+  expect(result.status).toBe(1);
+  expect(result.stderr).toContain(hint);
+  expect(result.stderr).toContain('justin@fixture');
+});

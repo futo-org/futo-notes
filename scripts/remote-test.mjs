@@ -116,13 +116,11 @@ function git(args) {
   return execFileSync('git', args, { cwd: ROOT, encoding: 'utf8' }).trim();
 }
 
-function reachable(target) {
-  const probe = spawnSync(
-    'ssh',
-    ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=6', target, 'true'],
-    { stdio: 'ignore' },
-  );
-  return probe.status === 0;
+function probeSsh(target) {
+  return spawnSync('ssh', ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=6', target, 'true'], {
+    encoding: 'utf8',
+    stdio: ['ignore', 'ignore', 'pipe'],
+  });
 }
 
 function runDoctor(target, opts, ndkVersion) {
@@ -205,15 +203,33 @@ function main() {
   // Host resolution: Tailscale name first, tailnet IP as a fallback.
   const candidates = opts.host ? [opts.host] : [DEFAULT_HOST, ...FALLBACK_HOSTS];
   let target = null;
+  const sshFailures = [];
   for (const host of candidates) {
     const candidate = `${opts.user}@${host}`;
-    if (reachable(candidate)) {
+    const probe = probeSsh(candidate);
+    if (probe.status === 0) {
       target = candidate;
       if (host !== candidates[0]) console.log(`[remote-test] ${candidates[0]} did not answer`);
       break;
     }
+    sshFailures.push({ candidate, diagnostic: probe.stderr ?? '' });
   }
   if (!target) {
+    for (const { candidate, diagnostic } of sshFailures) {
+      if (/Host key verification failed|REMOTE HOST IDENTIFICATION HAS CHANGED/i.test(diagnostic)) {
+        console.error(
+          `remote-test: SSH host-key verification failed for ${candidate}. ` +
+            'Verify the host fingerprint with Justin before accepting or replacing a host key. ' +
+            `Then connect interactively with ssh ${candidate} true and retry.`,
+        );
+      } else if (/Permission denied.*publickey/i.test(diagnostic)) {
+        console.error(
+          `remote-test: SSH public-key authentication failed for ${candidate}; ` +
+            'ask Justin to authorize your public key for this account, then retry. ' +
+            'Use your own authorized identity through ssh config or ssh-agent.',
+        );
+      }
+    }
     console.error(
       `\nremote-test: cannot reach ${candidates.map((h) => `${opts.user}@${h}`).join(' or ')} over ssh.\n\n` +
         '  Check, in order:\n' +
