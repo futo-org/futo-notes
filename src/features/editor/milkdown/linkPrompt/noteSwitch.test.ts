@@ -79,4 +79,18 @@ describe('a Link URL prompt left open across a note switch', () => {
 
     await vi.waitFor(() => expect(handle.getContent()).toContain('https://example.com'));
   });
+
+  it('editing one link leaves another link with the same URL and the text between them untouched', async () => {
+    handle.openNote('test-note', '[one](https://example.test) gap [two](https://example.test)');
+    handle.exec('link');
+    await vi.waitFor(() => expect(promptInput()).not.toBeNull());
+
+    submitPrompt(promptInput()!, 'https://updated.test');
+
+    await vi.waitFor(() =>
+      expect(handle.getContent()).toContain(
+        '[one](https://updated.test) gap [two](https://example.test)',
+      ),
+    );
+  });
 });

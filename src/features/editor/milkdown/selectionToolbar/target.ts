@@ -6,7 +6,7 @@
  * render and position. It runs on every transaction, i.e. every keystroke
  * (AGENTS.md M5): everything here is O(selection depth), never a document walk.
  */
-import type { Mark as ProseMark, Node as ProseNode } from '@milkdown/kit/prose/model';
+import type { Mark as ProseMark } from '@milkdown/kit/prose/model';
 import { TextSelection, type EditorState } from '@milkdown/kit/prose/state';
 
 import { blockFormatAtPos } from '../blockCommands';
@@ -71,48 +71,4 @@ function linkHrefAt(marks: readonly ProseMark[]): string | null {
   if (!link) return null;
   const href = link.attrs.href;
   return typeof href === 'string' ? href : '';
-}
-
-/** A link's whole run of text, and the mark that carries its href. */
-export interface LinkRun {
-  from: number;
-  to: number;
-  mark: ProseMark;
-}
-
-/**
- * The whole run of the link that `pos` sits in — every adjacent inline node in
- * the same textblock carrying that SAME link mark — or null when `pos` is in
- * no link. Editing a link's href has to cover the whole run, not just the part
- * that happens to be selected: a range-only update would split one link into
- * two with different addresses. (Milkdown's `updateLinkCommand` covers only the
- * one text node under the selection and then collapses the selection, which is
- * why the toolbar does not use it.)
- */
-export function linkRunAt(doc: ProseNode, pos: number): LinkRun | null {
-  const $pos = doc.resolve(pos);
-  const parent = $pos.parent;
-  if (!parent.isTextblock) return null;
-  const link = $pos.marks().find((mark) => mark.type.name === 'link');
-  if (!link) return null;
-  const start = $pos.start();
-  let from = -1;
-  let to = -1;
-  parent.forEach((child, offset) => {
-    const carries = link.isInSet(child.marks);
-    const childFrom = start + offset;
-    const childTo = childFrom + child.nodeSize;
-    if (!carries) {
-      // A gap before the caret's run resets; one after it ends the run.
-      if (to !== -1 && childFrom >= pos) return;
-      if (childTo <= pos) {
-        from = -1;
-        to = -1;
-      }
-      return;
-    }
-    if (from === -1) from = childFrom;
-    to = childTo;
-  });
-  return from === -1 || pos < from || pos > to ? null : { from, to, mark: link };
 }

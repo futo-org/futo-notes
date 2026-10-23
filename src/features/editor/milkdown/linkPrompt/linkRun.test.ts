@@ -1,7 +1,7 @@
 import { expect, it } from 'vitest';
 
 import { testSchema as s } from '../__fixtures__/schema';
-import { linkRunAt } from '../selectionToolbar/target';
+import { linkRunAt } from './linkEditing';
 
 it('keeps repeated links with the same URL separate across unlinked text', () => {
   const link = s.marks.link.create({ href: 'https://example.test' });
