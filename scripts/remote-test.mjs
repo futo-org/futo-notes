@@ -96,6 +96,19 @@ export const RSYNC_EXCLUDES = [
   '.remote-test-pnpm-lock-hash',
 ];
 
+// Keep transfer arguments inspectable without requiring rsync on the local
+// machine; the real dry-run fixture also exercises rsync's filter semantics.
+export function buildRsyncArgs({ target, remoteDir, root = ROOT }) {
+  return [
+    '-az',
+    '--delete',
+    ...RSYNC_EXCLUDES.flatMap((e) => ['--exclude', e]),
+    `${root}/`,
+    // The remote shell expands ~; preserve the HOME-relative default.
+    `${target}:${remoteDir.replace(/^\$HOME/, '~')}/`,
+  ];
+}
+
 // A doctor run is only a hard failure when the box cannot run ANY suite.
 // Everything else (NDK, KVM, Postgres, browsers) gates a specific suite and is
 // reported as WARN/MISS with the command that fixes it.
@@ -345,15 +358,7 @@ function main() {
       return bootstrap.status ?? 1;
     }
 
-    const rsyncArgs = [
-      '-az',
-      '--delete',
-      ...RSYNC_EXCLUDES.flatMap((e) => ['--exclude', e]),
-      `${ROOT}/`,
-      // `~` is expanded by the remote shell rsync starts, so $HOME-relative
-      // remoteDir values need the shell form spelled out.
-      `${target}:${opts.remoteDir.replace(/^\$HOME/, '~')}/`,
-    ];
+    const rsyncArgs = buildRsyncArgs({ target, remoteDir: opts.remoteDir });
     const rsync = spawnSync('rsync', rsyncArgs, { stdio: ['ignore', 'inherit', 'inherit'] });
     if (rsync.status !== 0) {
       console.error('remote-test: rsync failed.');
