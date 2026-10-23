@@ -26,10 +26,11 @@ import { spawnSync } from 'node:child_process';
 import { copyFileSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { playwrightArtifacts } from '../playwright-artifacts.mjs';
 
 const BENCH = 'scripts/perf/editor-bench.mjs';
 const KNOWN_FAILURES = 'scripts/perf/editor-bench-gate-known-failures.json';
-const SUITE_RESULTS = 'test-results/editor-embed-results.json';
+const SUITE_RESULTS = playwrightArtifacts('editor-embed', 'editor-embed-results.json').jsonReport;
 // The bench's own noise bounds (editor-bench.mjs): a drift counts only past both.
 const NOISE_PCT = 0.5;
 const NOISE_ABS = 24;
@@ -148,6 +149,8 @@ if (!opt.suite) {
 }
 
 function runSuite(extra) {
+  // Only a report produced by this invocation can justify accepting its result.
+  rmSync(SUITE_RESULTS, { force: true });
   const run = spawnSync('pnpm', ['run', 'test:e2e:editor-embed', ...extra], {
     encoding: 'utf8',
   });
