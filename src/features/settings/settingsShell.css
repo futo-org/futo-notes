@@ -1,28 +1,18 @@
-.settings-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(var(--ink-rgb), 0.35);
-  z-index: var(--z-overlay);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 48px 24px;
-}
-
-.settings-panel {
+/* The Settings card inside the shared Modal (modal.css owns the backdrop,
+   colors and shadow). It keeps 48px clear of the window's top and bottom and
+   24px of its sides. */
+.modal-card.settings-panel {
   /* Positioning context for .connect-sync-overlay. Must NOT be the
      scroller: absolute children of a scrolling box anchor to the scrolled
      content, not the visible viewport (the invisible-overlay bug). */
   position: relative;
   display: flex;
   flex-direction: column;
-  width: 100%;
-  max-width: 600px;
-  /* 100% is the overlay's height inside its padding. */
-  max-height: min(100%, 960px);
-  background: var(--color-bg);
+  width: 600px;
+  max-width: calc(100% - 48px);
+  max-height: min(calc(100% - 96px), 960px);
+  padding: 0;
   border-radius: 16px;
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.25);
   overflow: hidden;
 }
 

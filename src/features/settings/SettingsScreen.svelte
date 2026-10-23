@@ -9,7 +9,7 @@
   import { hostedSyncEnabled } from '$features/sync/hostedSyncEnabled';
   import type { SyncSummary } from '$features/sync/syncServiceE2ee';
   import { confirmDialog } from '$shared/dialogs/confirmDialog';
-  import { dismissable } from '$shared/dialogs/dismissable';
+  import Modal from '$shared/dialogs/Modal.svelte';
   import { showGlobalToast } from '$shared/notifications/toastBus.svelte';
   import { desktopLocalization, localizedText } from '$shared/localization';
   import {
@@ -205,107 +205,89 @@
   }
 </script>
 
-<!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events -->
-<div
-  class="settings-overlay"
-  role="presentation"
-  use:dismissable={{ ondismiss: close }}
-  onclick={close}
->
-  <!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events -->
-  <div
-    class="settings-panel"
-    role="dialog"
-    aria-modal="true"
-    tabindex="-1"
-    onclick={(event) => event.stopPropagation()}
-  >
-    <div class="settings-scroll">
-      <header class="settings-header">
-        <h2 class="settings-title">{localizedText('settings.heading')}</h2>
-        <button
-          class="settings-close"
-          aria-label={localizedText('settings.closeAccessibilityLabel')}
-          onclick={close}>×</button
-        >
-      </header>
+<Modal ondismiss={close} cardClass="settings-panel" labelledBy="settings-title">
+  <div class="settings-scroll">
+    <header class="settings-header">
+      <h2 class="settings-title" id="settings-title">{localizedText('settings.heading')}</h2>
+      <button
+        class="settings-close"
+        aria-label={localizedText('settings.closeAccessibilityLabel')}
+        onclick={close}>×</button
+      >
+    </header>
 
-      <div class="settings-content">
-        <div bind:this={licenseSection}>
-          <LicenseSettingsSection />
-        </div>
-        <StorageSettingsSection
-          {notesDirectory}
-          {isCustomDirectory}
-          {vaultAvailable}
-          {accessRefused}
-          onchange={() => void chooseNotesDirectory()}
-          onreset={() => void resetNotesDirectory()}
+    <div class="settings-content">
+      <div bind:this={licenseSection}>
+        <LicenseSettingsSection />
+      </div>
+      <StorageSettingsSection
+        {notesDirectory}
+        {isCustomDirectory}
+        {vaultAvailable}
+        {accessRefused}
+        onchange={() => void chooseNotesDirectory()}
+        onreset={() => void resetNotesDirectory()}
+      />
+      <AppearanceSettingsSection preference={preferences.appearance.theme} onchange={changeTheme} />
+      <LanguageSettingsSection
+        selectedLanguageTag={desktopLocalization.selectedLanguageTag}
+        languages={desktopLocalization.availableLanguages}
+        onchange={(selectedLanguageTag) => void changeLanguage(selectedLanguageTag)}
+      />
+      {#if hostedSync}
+        <HostedSyncSettingsSection
+          hosted={hostedSync}
+          {sync}
+          backgroundError={backgroundSyncError}
+          backgroundErrorMessage={backgroundSyncErrorMessage}
+          reconnecting={syncReconnecting}
         />
-        <AppearanceSettingsSection
-          preference={preferences.appearance.theme}
-          onchange={changeTheme}
+      {:else}
+        <SyncSettingsSection
+          {sync}
+          backgroundError={backgroundSyncError}
+          backgroundErrorMessage={backgroundSyncErrorMessage}
+          reconnecting={syncReconnecting}
         />
-        <LanguageSettingsSection
-          selectedLanguageTag={desktopLocalization.selectedLanguageTag}
-          languages={desktopLocalization.availableLanguages}
-          onchange={(selectedLanguageTag) => void changeLanguage(selectedLanguageTag)}
+      {/if}
+      <IssueReportingSettingsSection
+        enabled={preferences.crashReporting.enabled}
+        alwaysSend={preferences.crashReporting.alwaysSend}
+        ontoggleenabled={toggleCrashReporting}
+        ontogglealwayssend={toggleAlwaysSend}
+      />
+      {#if updateSupported}
+        <UpdatesSettingsSection
+          enabled={preferences.updates.enabled}
+          locked={updateLocked}
+          ontoggle={toggleUpdates}
         />
-        {#if hostedSync}
-          <HostedSyncSettingsSection
-            hosted={hostedSync}
-            {sync}
-            backgroundError={backgroundSyncError}
-            backgroundErrorMessage={backgroundSyncErrorMessage}
-            reconnecting={syncReconnecting}
-          />
-        {:else}
-          <SyncSettingsSection
-            {sync}
-            backgroundError={backgroundSyncError}
-            backgroundErrorMessage={backgroundSyncErrorMessage}
-            reconnecting={syncReconnecting}
-          />
-        {/if}
-        <IssueReportingSettingsSection
-          enabled={preferences.crashReporting.enabled}
-          alwaysSend={preferences.crashReporting.alwaysSend}
-          ontoggleenabled={toggleCrashReporting}
-          ontogglealwayssend={toggleAlwaysSend}
-        />
-        {#if updateSupported}
-          <UpdatesSettingsSection
-            enabled={preferences.updates.enabled}
-            locked={updateLocked}
-            ontoggle={toggleUpdates}
-          />
-        {/if}
-        {#if import.meta.env.DEV}
-          <DevSyncErrorSettingsSection simulate={onsimulatesync} />
-        {/if}
-        <DangerSettingsSection {resetting} onreset={() => void confirmFullReset()} />
-        <div class="settings-version">
-          {localizedText('settings.about.versionLine', { version: getAppVersion() })}
-        </div>
+      {/if}
+      {#if import.meta.env.DEV}
+        <DevSyncErrorSettingsSection simulate={onsimulatesync} />
+      {/if}
+      <DangerSettingsSection {resetting} onreset={() => void confirmFullReset()} />
+      <div class="settings-version">
+        {localizedText('settings.about.versionLine', { version: getAppVersion() })}
       </div>
     </div>
-
-    {#if sync.connecting}
-      <BlockingSettingsOverlay
-        phase={sync.connectPhase}
-        error={sync.connectError}
-        oncancel={sync.cancelConnect}
-      />
-    {:else if resetting}
-      <BlockingSettingsOverlay phase={localizedText('settings.danger.deleting')} />
-    {:else if resetFailed}
-      <BlockingSettingsOverlay
-        phase=""
-        error={localizedText('settings.danger.failed')}
-        oncancel={() => {
-          resetFailed = false;
-        }}
-      />
-    {/if}
   </div>
-</div>
+
+  {#if sync.connecting}
+    <BlockingSettingsOverlay
+      phase={sync.connectPhase}
+      error={sync.connectError}
+      oncancel={sync.cancelConnect}
+    />
+  {:else if resetting}
+    <BlockingSettingsOverlay phase={localizedText('settings.danger.deleting')} />
+  {:else if resetFailed}
+    <BlockingSettingsOverlay
+      phase=""
+      error={localizedText('settings.danger.failed')}
+      oncancel={() => {
+        resetFailed = false;
+      }}
+    />
+  {/if}
+</Modal>
