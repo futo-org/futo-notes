@@ -136,6 +136,33 @@ it.each(['claude/topic', 'origin/topic', 'refs/heads/claude/topic'])(
   },
 );
 
+it('preserves the local branch when its short name also names a remote-tracking ref', () => {
+  withRemoteRepo(({ git, commit, expectCreated }) => {
+    const local = commit();
+    git('branch', 'origin/main', local);
+    expectCreated('origin/main', local);
+  });
+});
+
+it('preserves the local tag when its short name also names a remote-tracking ref', () => {
+  withRemoteRepo(({ git, commit, expectCreated }) => {
+    const local = commit();
+    git('tag', 'origin/main', local);
+    expectCreated('origin/main', local);
+  });
+});
+
+it('fails clearly when the short base names both a local branch and a local tag', () => {
+  withRemoteRepo(({ git, commit, create, scratch }) => {
+    git('branch', 'topic', commit());
+    git('tag', 'topic', 'HEAD~1');
+    const result = create('topic');
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain('ambiguous');
+    expect(fs.existsSync(path.join(scratch, 'notes-review'))).toBe(false);
+  });
+});
+
 it.each(['origin/main', 'origin/mr-448'])(
   'refreshes a real remote branch %s before creating',
   (base) => {

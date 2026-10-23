@@ -149,6 +149,14 @@ function prepareBase(base, primary) {
   // Explicit refs and local branches/tags are snapshots, even with a slash in
   // their names. Let Git's namespace resolution distinguish them from remotes.
   if (base.startsWith('refs/')) return base;
+  // Symbolic rev-parse can succeed with empty output for ambiguous short names.
+  // Check exact local namespaces before considering a remote-tracking ref.
+  const localRefs = [`refs/heads/${base}`, `refs/tags/${base}`].filter(
+    (ref) => git(['show-ref', '--verify', '--quiet', ref], primary, { check: false }) !== null,
+  );
+  if (localRefs.length > 1)
+    throw new Error(`base '${base}' is ambiguous; use a full refs/... name`);
+  if (localRefs.length === 1) return localRefs[0];
   const resolved = git(
     ['rev-parse', '--symbolic-full-name', '--verify', '--quiet', base],
     primary,
