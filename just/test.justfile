@@ -11,12 +11,12 @@ build: check-node-version _require-node-modules
 test:
   pnpm run test:minimal
 
-# Run ONE test file or -t pattern (installs deps if the worktree is fresh).
+# Run ONE test file or -t pattern, routing editor package paths to its config.
 test-one *args:
   #!/usr/bin/env bash
   set -euo pipefail
   [ -d node_modules ] || { echo "==> node_modules missing — pnpm install"; pnpm install; }
-  node_modules/.bin/vitest run "$@"
+  node scripts/test-one.mjs "$@"
 
 # Run unit tests (vitest, jsdom).
 test-unit:
