@@ -41,12 +41,12 @@
     - |
       # No `grep -q`: under pipefail its early exit can SIGPIPE `rustup` (which
       # writes a line at a time) and read as "toolchain missing" (RC-65 shape).
-      if rustup toolchain list | grep '^1.89.0' >/dev/null; then
-        echo "Rust 1.89.0 already present in the image"
+      if rustup toolchain list | grep '^1.99.1' >/dev/null; then
+        echo "Rust 1.99.1 already present in the image"
       else
-        rustup toolchain install 1.89.0 --profile minimal --component rustfmt --component clippy
+        rustup toolchain install 1.99.1 --profile minimal --component rustfmt --component clippy
       fi
-      rustup default 1.89.0
+      rustup default 1.99.1
     - |
       # Pinned, and the cached binary is checked by version: tauri-cli 2.12.3
       # changed the AppImage GTK hook patch-appimage.mjs rewrites (v1.9.0 tag).

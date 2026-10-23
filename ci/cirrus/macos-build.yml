@@ -74,7 +74,7 @@ build_macos_task:
     # (2) The cache lands after the sources, so a restored artifact can still
     #     claim to be newer than the source it was built from.
     - CI_PROJECT_DIR="${CIRRUS_WORKING_DIR:-$PWD}" node scripts/ci-cargo-cache-freshness.mjs
-    # Pinned: tauri-cli 2.12 needs rustc 1.90; rust-toolchain.toml pins 1.89.0.
+    # Pinned: see scripts/drift-registry/tauri-cli-pin.json.
     - cargo install tauri-cli --version 2.11.4 --locked
 
     # Derive version from git tag

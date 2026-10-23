@@ -142,9 +142,9 @@ fn fence_scan_matches_the_fence_regex() {
                     (
                         whole.start(),
                         whole.end(),
-                        caps[2].as_bytes()[0],
-                        caps[2].len(),
-                        caps[3].trim().is_empty(),
+                        caps.get(2).unwrap().as_str().as_bytes()[0],
+                        caps.get(2).unwrap().as_str().len(),
+                        caps.get(3).unwrap().as_str().trim().is_empty(),
                     )
                 })
                 .collect();

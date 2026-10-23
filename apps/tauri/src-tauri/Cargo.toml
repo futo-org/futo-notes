@@ -12,12 +12,12 @@ name = "futo-notes-tauri"
 path = "src/main.rs"
 
 [build-dependencies]
-tauri-build = { version = "2.0.2", features = [] }
+tauri-build = { version = "2.7", features = [] }
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-tauri = { version = "2.9.1", features = ["protocol-asset"] }
+tauri = { version = "2.12", features = ["protocol-asset"] }
 tauri-plugin-dialog = { version = "2.7", default-features = false }
 tauri-plugin-process = "2"
 tauri-plugin-clipboard-manager = "2"
@@ -32,7 +32,7 @@ futo-notes-sync = { path = "../../../crates/futo-notes-sync" }
 futo-notes-store = { path = "../../../crates/futo-notes-store" }
 time = { version = "0.3", features = ["formatting"] }
 notify = "8.2.0"
-png = "0.17"
+png = "0.18"
 libc = "0.2"
 # The vault key is 32 raw bytes; the OS keyring stores strings, so it travels
 # as hex. Already a workspace dependency (futo-notes-core).
@@ -43,8 +43,10 @@ rand = "0.8"
 # device that scans this one's QR code. Already in the tree (x11rb pulls it on
 # Linux); a direct edge just makes it available on every desktop OS.
 gethostname = "1.1"
-tauri-plugin-mcp-bridge = "0.10.0"
-tauri-plugin-deep-link = "2"
+tauri-plugin-mcp-bridge = "0.13"
+# =2.6.1: 2.6.2 does not compile on Linux — it builds `ini::ParseOption` with a struct
+# literal that misses two fields rust-ini 0.21.3 has (E0063). Lift when a fixed 2.6.x ships.
+tauri-plugin-deep-link = "=2.6.1"
 futo-notes-license = { version = "0.1.0", path = "../../../crates/futo-notes-license" }
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"] }
 

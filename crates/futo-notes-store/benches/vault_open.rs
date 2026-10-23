@@ -5,11 +5,12 @@
 //! VAULT_BENCH_NOTES sets the corpus size (default 10,000).
 
 use std::fs;
+use std::hint::black_box;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
 
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
+use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use futo_notes_store::LocalNoteStore;
 use tempfile::TempDir;
 
