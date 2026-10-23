@@ -45,22 +45,24 @@ variables:
   # was tried and did not help: sha256:8eca9c2b… was shared by v1.43.2, v1.43,
   # v1 and latest when it was pinned, and 12 days later it 404'd
   # ("manifest unknown") because upstream had rebuilt and moved every one of
-  # those tags off it. There is no digest here that stays resolvable forever.
+  # those tags off it. There is no digest here that stays resolvable forever —
+  # except one held by an `-immutable` tag, which upstream never moves; the pin
+  # below is v1.43.5-immutable's (2026-10-23). Re-pin to another `-immutable`.
   #
   # So: when `build:ci-android-image` or `build:ci-test-image` fails to pull
   # with "manifest unknown", the pin is dead — re-resolve and update this line
   # (do NOT switch it back to a floating tag; the point of the pin is that a
   # registry `:latest` cannot swap the toolchain under a pipeline):
-  #   skopeo inspect --raw docker://quay.io/buildah/stable:v1.43.2 | sha256sum
+  #   skopeo inspect --raw docker://quay.io/buildah/stable:v1.43.5-immutable | sha256sum
   # or read the `Docker-Content-Digest` response header from
-  #   GET https://quay.io/v2/buildah/stable/manifests/v1.43.2
+  #   GET https://quay.io/v2/buildah/stable/manifests/v1.43.5-immutable
   # (Accept: application/vnd.oci.image.index.v1+json). Both must agree, and the
   # raw manifest must be an OCI index containing a linux/amd64 entry — the
   # runners are amd64 and the index lists ppc64le first.
   #
   # Both jobs using this are `when: manual` and web-pipeline only, so no MR
   # pipeline pulls the image; a dead pin surfaces only when someone rebuilds.
-  IMAGE_BUILDAH: quay.io/buildah/stable@sha256:83045a38da942948cbe8ce53fcf32d76b2d9bfad33bc4586d804522030efc64f
+  IMAGE_BUILDAH: quay.io/buildah/stable@sha256:7c2b605262748ace2c5c57c5550942d0adad57aec82ede3070927722306c0ffb
 
 workflow:
   rules:
