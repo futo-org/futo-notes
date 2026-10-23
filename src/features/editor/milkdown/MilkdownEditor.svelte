@@ -32,7 +32,7 @@
    *   - toolbar commands (`toolbarExec.ts`) and the native toolbar's
    *     active-state (`formatState.ts`).
    */
-  import { onMount } from 'svelte';
+  import { onMount, untrack } from 'svelte';
 
   import './milkdownEditor.css';
   import type { Editor } from '@milkdown/kit/core';
@@ -62,6 +62,8 @@
   import { createImageInput } from './imageInput';
 
   let props: Props = $props();
+  // Capture the stable props proxy once; its property reads still follow the parent.
+  const liveProps = untrack(() => props);
 
   /* THE single gate: the Notion-style long-press-anywhere-on-the-block path
    * REPLACES the ⠿ gutter handle in the native shells — iOS and Android both —
@@ -98,7 +100,7 @@
   const { emitFormatState, emitCursorContext } = createEditorEmitters({
     pmView,
     session,
-    props,
+    props: liveProps,
   });
 
   /* Background idle work — the streamed tail of a progressive open, the
@@ -111,7 +113,7 @@
     getEditor: () => editor,
     pmView,
     emitFormatState,
-    props,
+    props: liveProps,
     scheduleIdle,
   });
   /* How host content becomes the document (documentLoad.ts). */
@@ -120,7 +122,7 @@
     pmView,
     emitFormatState,
     refreshEditable,
-    props,
+    props: liveProps,
     scheduleIdle,
   });
   /* Everything the embed and the desktop shell call (hostHandle.ts), exported
@@ -130,7 +132,7 @@
     pmView,
     emitCursorContext,
     emitFormatState,
-    props,
+    props: liveProps,
   });
   export const {
     getDocumentRef,
@@ -177,7 +179,7 @@
     handleTouchCancel,
     handleTouchEnd,
   } = createLinkTaps({
-    props,
+    props: liveProps,
     useMobileBlockDnd: () => useMobileBlockDnd,
     nudgeBlockHandle: blockDrag.nudgeBlockHandle,
   });
