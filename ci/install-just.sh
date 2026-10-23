@@ -3,8 +3,8 @@
 # images do not include just. Download the same verified binary for each job.
 set -eu
 
-JUST_VERSION=1.42.4
-JUST_SHA256=678efc1cfbd5fa5a88375daa7e2f3864a049d6d63a0296df925a2ae5f516cb56
+JUST_VERSION=1.59.0
+JUST_SHA256=409044617b6f06517c1035e55ca38c8c856ff8b650e41bc2aa1ef82d5903a23e
 just_install_dir=${JUST_INSTALL_DIR:-/usr/local/bin}
 
 if [ -x "$just_install_dir/just" ] && [ "$("$just_install_dir/just" --version)" = "just $JUST_VERSION" ]; then
