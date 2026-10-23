@@ -95,7 +95,7 @@ class TableGripsView {
   destroy(): void {
     this.view.dom.removeEventListener('mousemove', this.onMouseMove);
     this.view.dom.removeEventListener('mouseleave', this.onMouseLeave);
-    this.doc.removeEventListener('mousedown', this.onDocumentMouseDown, true);
+    this.closeMenu();
     this.colGrip?.remove();
     this.rowGrip?.remove();
     this.menu?.remove();
