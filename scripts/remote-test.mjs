@@ -46,6 +46,7 @@ import { ndkVersionFromGradle } from './remote-test/remote-env.mjs';
 import {
   buildKillScript,
   buildLockScript,
+  buildNodePreflightScript,
   buildRunScript,
   buildUnlockScript,
 } from './remote-test/remote-scripts.mjs';
@@ -233,6 +234,12 @@ function main() {
     });
     return res.status ?? 1;
   }
+
+  const preflight = spawnSync('ssh', ['-T', target, 'bash -s'], {
+    input: buildNodePreflightScript({ ndkVersion }),
+    stdio: ['pipe', 'inherit', 'inherit'],
+  });
+  if (preflight.status !== 0) return preflight.status ?? 1;
 
   const sha = git(['rev-parse', 'HEAD']);
   const dirty = git(['status', '--porcelain']).split('\n').filter(Boolean);

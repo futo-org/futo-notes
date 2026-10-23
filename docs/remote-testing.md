@@ -40,7 +40,10 @@ Every invocation re-establishes the environment, because `ssh host cmd` gets a n
 that reads no profile: the fnm environment is loaded (node is otherwise **absent from `PATH`**), and
 the exact version in `.nvmrc` is activated once the worktree is checked out. The box needs `fnm`
 installed once — `node scripts/remote-test.mjs --doctor` reports it as required and prints the
-command. `~/.local/bin` and
+command. Normal runs check for fnm before locking or transferring the worktree and stop with
+repair guidance if it is missing. A custom installation can be found through `FNM_DIR` on the
+remote host; `~/.fnm` and `~/.local/share/fnm` are also searched. Node activation failures name
+the `.nvmrc` requirement before package installation starts. `~/.local/bin` and
 `~/.cargo/bin` are prepended,
 `ANDROID_NDK_HOME` is pinned, and a repo-root `dist/` is created (M20 — `cargo build` needs it to
 exist).
