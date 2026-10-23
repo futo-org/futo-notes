@@ -48,10 +48,8 @@ describe('a note that starts with a byte order mark', () => {
 
 /**
  * The other two doors a string reaches the parser through without `parseNote`
- * (FB-8 follow-up): Milkdown's own `insert` action, and the `defaultValueCtx`
- * the engine is created with. Each strips the leading BOM itself
- * (`stripLeadingBoms`); nothing else pins either call, so removing one strip
- * would have kept the whole suite green while re-opening RC-38 through it.
+ * (FB-8 follow-up): Milkdown's own `insert` action strips the leading BOM
+ * itself; the initial content prop goes through the guarded load path.
  */
 describe('the BOM strip on the parser doors other than openNote', () => {
   const BODY = 'Intro **b** and _it_ x**y**z\n';
@@ -67,10 +65,6 @@ describe('the BOM strip on the parser doors other than openNote', () => {
   it('a note handed to the engine as its initial value keeps its emphasis', async () => {
     const mounted = document.createElement('div');
     document.body.appendChild(mounted);
-    /* `applyExternal` replaces this document with a parseNote'd copy the moment
-     * the engine is up, so only the instant BEFORE that — `onenginemounted` —
-     * shows what `defaultValueCtx` built. Every mark's source spelling: `*` or `_`. */
-    let markers: string[] | null = null;
     let initial!: EditorHandle;
     await withoutLeakedCtxTimers(async () => {
       initial = mount(MilkdownEditor, {
@@ -78,18 +72,16 @@ describe('the BOM strip on the parser doors other than openNote', () => {
         props: {
           content: `\ufeff${BODY}`,
           onchange: () => {},
-          onenginemounted: () => {
-            const found: string[] = [];
-            initial.getProseMirrorView()!.state.doc.descendants((node) => {
-              for (const mark of node.marks) found.push(`${mark.type.name}:${mark.attrs.marker}`);
-            });
-            markers = found;
-          },
         },
       }) as unknown as EditorHandle;
-      await vi.waitFor(() => expect(markers).not.toBeNull());
+      await vi.waitFor(() => expect(mounted.querySelector('strong')?.textContent).toBe('b'));
     });
 
+    const markers: string[] = [];
+    initial.getProseMirrorView()!.state.doc.descendants((node) => {
+      for (const mark of node.marks) markers.push(`${mark.type.name}:${mark.attrs.marker}`);
+    });
     expect(markers).toEqual(['strong:*', 'emphasis:_', 'strong:*']);
+    expect(initial.getContent()).toBe(`\ufeff${BODY}`);
   });
 });

@@ -38,11 +38,7 @@ import {
   setKeystrokeTripwire,
 } from '$shared/perf/interactionLedger';
 import type { FindMatchReport } from '$features/editor/milkdown/find';
-import {
-  createFutoEditorApi,
-  type EmbeddedEditorHandle,
-  type EmbeddedToolbarHandle,
-} from './createFutoEditorApi';
+import { createFutoEditorApi, type EmbeddedToolbarHandle } from './createFutoEditorApi';
 
 declare global {
   interface Window {
@@ -160,7 +156,7 @@ const editor = mount(MilkdownEditor, {
       window.__futoEditorMounted = true;
     },
   },
-}) as unknown as EmbeddedEditorHandle;
+});
 
 const toolbarTarget = document.createElement('div');
 document.body.appendChild(toolbarTarget);
@@ -239,7 +235,7 @@ if (query.has('census')) installChunkCensusHook(editor as unknown as ChunkCensus
  * See getProseMirrorView (milkdown/hostHandle.ts) for why the gauntlet needs
  * the view. */
 (window as unknown as { __futoProseMirrorView?: () => unknown }).__futoProseMirrorView = () =>
-  editor.getProseMirrorView?.() ?? null;
+  editor.getProseMirrorView();
 
 requestAnimationFrame(() => {
   post({ type: 'ready', version: BRIDGE_VERSION });
