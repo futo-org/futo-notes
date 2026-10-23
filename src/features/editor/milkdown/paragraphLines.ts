@@ -15,6 +15,8 @@
  *
  * Lists, headings, quotes, code and table cells keep their own Enter; only a
  * paragraph that is a direct child of the document is a run of lines here.
+ * The one exception is Enter at the very start of a quote, whose empty line
+ * the file can only hold above the quote (`enterAtQuoteStart`).
  *
  * Because a typed line is no longer its own paragraph, everything that used to
  * act on "the paragraph the caret is in" — a block format from a toolbar or the
@@ -100,6 +102,51 @@ export const enterInParagraph: Command = (state, dispatch) => {
     tr.insert($at.pos, lineBreak);
     tr.setSelection(TextSelection.create(tr.doc, $at.pos + 1));
   }
+  dispatch(tr.scrollIntoView());
+  return true;
+};
+
+/**
+ * The position before the outermost quote that `$at` is at the very start of —
+ * the start of a non-empty, non-code line that is the first thing in each quote
+ * around it — or null when there is none.
+ */
+function quoteStartingAt($at: ResolvedPos): number | null {
+  const line = $at.parent;
+  if (!line.isTextblock || line.type.spec.code || line.content.size === 0) return null;
+  if ($at.parentOffset !== 0) return null;
+  let quote: number | null = null;
+  for (let depth = $at.depth - 1; depth > 0; depth -= 1) {
+    if ($at.node(depth).type.name !== 'blockquote' || $at.index(depth) !== 0) break;
+    quote = $at.before(depth);
+  }
+  return quote;
+}
+
+/**
+ * Enter at the very start of a quote's first line: an empty line ABOVE the
+ * quote, the text staying quoted — what Enter at the start of a heading or a
+ * list item does. The quote's own split would leave the empty line at the
+ * start of the quote, which the file cannot hold (an empty paragraph there is
+ * not written), so the Enter vanished on save. A selection is deleted first
+ * and Enter then acts where it started. Declines anywhere else.
+ */
+export const enterAtQuoteStart: Command = (state, dispatch) => {
+  if (!(state.selection instanceof TextSelection)) return false;
+  const tr = state.tr;
+  if (!state.selection.empty) tr.deleteSelection();
+  const $at = tr.selection.$from;
+  const quote = quoteStartingAt($at);
+  if (quote === null) return false;
+  const paragraph = state.schema.nodes.paragraph;
+  const $quote = tr.doc.resolve(quote);
+  if (!paragraph || !$quote.parent.canReplaceWith($quote.index(), $quote.index(), paragraph)) {
+    return false;
+  }
+  if (!dispatch) return true;
+  const empty = paragraph.create();
+  tr.insert(quote, empty);
+  tr.setSelection(TextSelection.create(tr.doc, $at.pos + empty.nodeSize));
   dispatch(tr.scrollIntoView());
   return true;
 };

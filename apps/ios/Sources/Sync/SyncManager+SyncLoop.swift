@@ -89,8 +89,13 @@ extension SyncManager {
     /// safety-poll work and reports back via `LiveListener`; `onConnected` flips
     /// `live`. A live-start failure only surfaces as the sync error line — it must not
     /// look like the whole connection failed.
+    ///
+    /// Nothing starts while the app is in the background: a connect's first
+    /// cycle can straddle a pause, which has already stopped live sync, and Rust
+    /// cannot know a start queued behind it was meant to stay stopped for. The
+    /// next `resumeLiveAsync` starts it instead. → live-sync.md
     func startLive() async {
-        guard !resetting else { return }
+        guard !resetting, inForeground else { return }
         liveStartsInFlight += 1
         defer {
             liveStartsInFlight -= 1
@@ -112,6 +117,7 @@ extension SyncManager {
     /// Re-open the stream after returning to the foreground. No-op unless we have
     /// a connected session that isn't already live (and aren't mid-connect).
     func resumeLiveAsync() {
+        inForeground = true
         guard connected, !live, !busy, client != nil else { return }
         Task { await startLive() }
     }
@@ -119,6 +125,7 @@ extension SyncManager {
     /// Pause the stream (app backgrounded). Keeps the session; a fresh `ready` on
     /// resume drives a catch-up pull.
     func pauseLive() {
+        inForeground = false
         guard !resetting else { return }
         client?.stopLive()
         live = false

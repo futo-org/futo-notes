@@ -91,7 +91,9 @@ internal suspend fun SyncManager.afterConnect(c: SyncClient, mode: SessionMode, 
     // Refresh the list/editor if the initial (catch-up) sync changed
     // the local tree — pulls OR push-side merges (F2).
     if (wroteLocalChanges(initial)) onLocalTreeChanged?.invoke(initial)
-    c.startLive(LiveListener()) // onConnected flips `live` when the stream is up
+    // Not if the app went to the background during that cycle: the next
+    // foreground's resumeLiveAsync goes live instead.
+    startLiveInForeground { c.startLive(LiveListener()) } // onConnected flips `live`
 }
 
 // ── Hosted sessions ─────────────────────────────────────────────────────

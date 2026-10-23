@@ -20,12 +20,13 @@ fun SyncManager.noteChanged() {
 /** Re-open the live stream after returning to the foreground (no-op if not
  *  connected or already live). Fire-and-forget from the Activity lifecycle. */
 fun SyncManager.resumeLiveAsync() {
+    inForeground = true
     scope.launch {
         storageMigrationGate.runAccessIfAvailable {
             val c = client ?: return@runAccessIfAvailable
             if (!connected || live) return@runAccessIfAvailable
             try {
-                c.startLive(LiveListener())
+                startLiveInForeground { c.startLive(LiveListener()) }
             } catch (e: Exception) {
                 lastErrorDiagnostic = describe(e)
                 errorMessage = LocalizedMessage("sync.errors.liveUnavailable")
@@ -34,8 +35,18 @@ fun SyncManager.resumeLiveAsync() {
     }
 }
 
+/** Runs [start] (the client's `startLive`) unless the app is in the
+ *  background now. Both callers wait first — on the gate, or on the connect's
+ *  first cycle — and a pause during that wait has already stopped live sync,
+ *  which Rust cannot know a start queued behind it was meant to stay stopped
+ *  for. The next [resumeLiveAsync] starts it instead. → live-sync.md */
+internal suspend fun SyncManager.startLiveInForeground(start: suspend () -> Unit) {
+    if (inForeground) start()
+}
+
 /** Tear down the live stream (e.g. app backgrounded). Keeps the session. */
 fun SyncManager.pauseLive() {
+    inForeground = false
     // Storage migration owns a graceful stop. An onStop callback landing
     // between the synchronous latch and quiescence must not abort that task.
     if (storageMigrationGate.isMigrationStarted) return
