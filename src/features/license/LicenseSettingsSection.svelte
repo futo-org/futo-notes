@@ -69,7 +69,7 @@
   <h3 class="settings-section-title">{localizedText('license.sectionTitle')}</h3>
 
   <!-- Its own element rather than `.settings-card`: the geometry is the
-       plate's (a coin well beside a field column), the surface is the sheet's. -->
+       plate's (a coin well beside a field column), the surface is the dialog's. -->
   <div class="license-plate">
     <!-- The well exists only when there is a coin to sit in it. An empty one
          reads as a hole where something failed to load, not as "no license"
@@ -223,7 +223,7 @@
 <style>
   /* The plate sits on the same surface as every other Settings card
      (@justin 2026-09-17): it used to carry its own gunmetal gradient, which
-     read as a foreign object in the sheet. Only the gold accent is still the
+     read as a foreign object in the dialog. Only the gold accent is still the
      plate's own, because the app has no token for it — and it is the one thing
      redefined for dark, the way src/styles/theme.css does. CRITICAL: nothing
      here may `transition` a theme-dependent property, or a theme swap repaints

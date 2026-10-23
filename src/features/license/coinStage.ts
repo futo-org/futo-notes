@@ -81,7 +81,7 @@ export async function openStage(
 /// Frees everything a loaded glTF allocated on the GPU.
 ///
 /// three.js tracks none of it for you: dropping the scene graph leaves the
-/// buffers and textures resident, and a Settings sheet that is opened and closed
+/// buffers and textures resident, and a Settings dialog that is opened and closed
 /// all day would leak a coin per visit.
 export function disposeLoadedModel(root: import('three').Object3D): void {
   root.traverse((node) => {

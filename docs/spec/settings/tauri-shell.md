@@ -1,10 +1,10 @@
 ## Tauri shell
 
-- Settings is a sheet/modal (mobile: bottom sheet over the current screen)
-  with sections: Storage, Appearance, Sync, Issue reporting, Updates, then
-  Danger zone last, and a version footer. The sheet fully covers and blocks
-  floating editor UI. → SettingsScreen.svelte, src/styles/stacking.css (see
-  settings-visual.md for the platform-split and shared content model)
+- Settings is a centered modal dialog with sections: License, Storage,
+  Appearance, Language, Sync, Issue reporting, Updates, then Danger zone last,
+  and a version footer. Its overlay fully covers and blocks floating editor UI.
+  → SettingsScreen.svelte, src/styles/stacking.css (see settings-visual.md for
+  the platform-split and shared content model)
 - **Storage:** the section is described by `vault_status`, which answers for a
   vault that has gone missing as well as a healthy one, so it never depends on
   reading the vault it is there to fix. Both changing and resetting the root

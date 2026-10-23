@@ -74,7 +74,7 @@
   const hostedSync = hostedSyncEnabled() ? createHostedSyncSettings() : null;
 
   // Opening Settings *at* a section: the ambient license label is the only
-  // caller today. Scrolled after mount, so the sheet still opens at its top and
+  // caller today. Scrolled after mount, so the dialog still opens at its top and
   // the reveal reads as a scroll rather than a jump-cut.
   let licenseSection: HTMLDivElement | null = $state(null);
 

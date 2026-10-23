@@ -4,8 +4,9 @@
   background: rgba(var(--ink-rgb), 0.35);
   z-index: var(--z-overlay);
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   justify-content: center;
+  padding: 48px 24px;
 }
 
 .settings-panel {
@@ -17,24 +18,25 @@
   flex-direction: column;
   width: 100%;
   max-width: 600px;
-  max-height: 85vh;
+  /* 100% is the overlay's height inside its padding. */
+  max-height: min(100%, 960px);
   background: var(--color-bg);
-  border-radius: 16px 16px 0 0;
+  border-radius: 16px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.25);
   overflow: hidden;
 }
 
 .settings-scroll {
   overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
   min-height: 0;
-  padding-bottom: max(16px, env(safe-area-inset-bottom));
+  padding-bottom: 16px;
 }
 
 .settings-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 20px 20px 12px;
+  padding: 12px 12px 8px 20px;
   position: sticky;
   top: 0;
   z-index: 1;
@@ -42,15 +44,15 @@
 }
 
 .settings-title {
-  font-size: 20px;
+  font-size: 17px;
   font-weight: 600;
   margin: 0;
   color: var(--color-text);
 }
 
 .settings-close {
-  width: 36px;
-  height: 36px;
+  width: 32px;
+  height: 32px;
   border: none;
   background: var(--color-surface);
   border-radius: 10px;
