@@ -11,6 +11,8 @@
 //       sibling checkout ../<repo>-<name>, deps installed, target/ reflink-cloned
 //       from the primary checkout (btrfs / APFS; skipped with a note elsewhere),
 //       purpose recorded, ports printed.
+//       Remote branches are refreshed; fetched origin/mr-N snapshots are accepted
+//       after checking the remote MR exists. Use a full refs/... base offline.
 //   just wt list
 //   just wt clone-target <dest>   (`just qa-clone-target`)
 //       reflink-clone THIS checkout's target/ into an existing worktree; fails
@@ -143,6 +145,43 @@ function parseFlags(args) {
   return flags;
 }
 
+function prepareBase(base, primary) {
+  // Explicit refs and local branches/tags are snapshots, even with a slash in
+  // their names. Let Git's namespace resolution distinguish them from remotes.
+  if (base.startsWith('refs/')) return base;
+  const resolved = git(
+    ['rev-parse', '--symbolic-full-name', '--verify', '--quiet', base],
+    primary,
+    {
+      check: false,
+    },
+  );
+  if (resolved && !resolved.startsWith('refs/remotes/')) return resolved;
+  const match = base.match(/^([^/]+)\/(.+)$/);
+  if (!match || !git(['remote'], primary).split('\n').includes(match[1])) return base;
+
+  const [, remote, branch] = match;
+  const branchRef = `refs/heads/${branch}`;
+  const trackingRef = `refs/remotes/${remote}/${branch}`;
+  const mr = branch.match(/^mr-(\d+)$/);
+  const mrRef = mr ? `refs/merge-requests/${mr[1]}/head` : null;
+  // A failed probe is fatal. In particular, never turn a fetch failure or a
+  // deleted remote branch into success using a stale remote-tracking ref.
+  const advertised = git(
+    ['ls-remote', '--refs', remote, branchRef, ...(mrRef ? [mrRef] : [])],
+    primary,
+  )
+    .split('\n')
+    .map((line) => line.split('\t')[1]);
+  if (advertised.includes(branchRef)) {
+    info(`fetching ${base}…`);
+    git(['fetch', '--quiet', remote, `+${branchRef}:${trackingRef}`], primary);
+    return trackingRef;
+  }
+  if (mrRef && advertised.includes(mrRef) && resolved === trackingRef) return trackingRef;
+  throw new Error(`remote branch ${remote} ${branchRef} does not exist`);
+}
+
 function cmdNew(flags) {
   const name = flags._[0];
   if (!name)
@@ -155,13 +194,9 @@ function cmdNew(flags) {
   const base = typeof flags.base === 'string' ? flags.base : 'origin/main';
   if (fs.existsSync(dest)) die(`${dest} already exists`);
 
-  const remoteMatch = base.match(/^([^/]+)\/(.+)$/);
-  if (remoteMatch) {
-    info(`fetching ${base}…`);
-    git(['fetch', '--quiet', remoteMatch[1], remoteMatch[2]], primary);
-  }
+  const startPoint = prepareBase(base, primary);
   info(`git worktree add -b ${branch} ${dest} ${base}`);
-  git(['worktree', 'add', '-b', branch, dest, base], primary);
+  git(['worktree', 'add', '-b', branch, dest, startPoint], primary);
 
   const gitDir = path.resolve(dest, git(['rev-parse', '--git-dir'], dest));
   fs.writeFileSync(
