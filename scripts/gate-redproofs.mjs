@@ -1,6 +1,7 @@
 // Targeted gate red-proof harness — proves changed gates work.
 //
 //   node scripts/gate-redproofs.mjs
+//   node scripts/gate-redproofs.mjs --help         (usage only; no worktree)
 //   node scripts/gate-redproofs.mjs --self-test    (only the harness self-test)
 //   node scripts/gate-redproofs.mjs --include-cargo  (adds the cargo-dependent proof)
 //
@@ -301,6 +302,20 @@ function runSelfTest(wt) {
 
 function main() {
   const argv = process.argv.slice(2);
+  const unknown = argv.find(
+    (arg) => !['--help', '-h', '--self-test', '--include-cargo'].includes(arg),
+  );
+  if (unknown) {
+    console.error(`Unknown argument: ${unknown}`);
+    console.error('Usage: node scripts/gate-redproofs.mjs [--self-test] [--include-cargo]');
+    return 1;
+  }
+  if (argv.includes('--help') || argv.includes('-h')) {
+    console.log('Usage: node scripts/gate-redproofs.mjs [--self-test] [--include-cargo]');
+    console.log('  --self-test      Run only the harness self-test.');
+    console.log('  --include-cargo  Include proofs that need a Rust toolchain.');
+    return 0;
+  }
   const selfTestOnly = argv.includes('--self-test');
   const includeCargo = argv.includes('--include-cargo');
 
