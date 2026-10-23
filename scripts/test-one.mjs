@@ -12,25 +12,43 @@ import { parseCLI } from 'vitest/node';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 export function testRuns(args) {
-  const selectors = new Set(parseCLI(['vitest', 'run', ...args]).filter);
+  parseCLI(['vitest', 'run', ...args]); // Validate the original invocation first.
+  // Ask Vitest about each token occurrence. Matching filter strings loses the
+  // distinction when, for example, a -t operand equals a positional filename.
+  // Marking one occurrence also avoids maintaining our own list of CLI options.
+  const selectors = new Set();
+  for (let index = 0; index < args.length; index += 1) {
+    if (args[index].startsWith('-')) continue;
+    let marker = `__test_one_position_${index}__`;
+    while (args.includes(marker)) marker += '_';
+    const probe = args.with(index, marker);
+    try {
+      if (parseCLI(['vitest', 'run', ...probe]).filter.includes(marker)) selectors.add(index);
+    } catch {
+      // A numeric/enum option operand may reject the marker. A positional file
+      // filter accepts any string, so this occurrence is not a file filter.
+    }
+  }
   const relative = (arg) =>
     path.isAbsolute(arg) ? path.relative(root, arg) : arg.replace(/^\.\//, '');
-  const editorPath = (arg) => selectors.has(arg) && relative(arg).startsWith('packages/editor/');
-  const rootPath = (arg) =>
-    selectors.has(arg) && /^(src|scripts|tests|scratch)\//.test(relative(arg));
+  const editorPath = (arg, index) =>
+    selectors.has(index) && relative(arg).startsWith('packages/editor/');
+  const rootPath = (arg, index) => selectors.has(index) && !editorPath(arg, index);
   if (!args.some(editorPath)) return [{ cwd: root, args }];
-  const shared = args.filter((arg) => !editorPath(arg) && !rootPath(arg));
+  const routedArgs = (editor) =>
+    args.flatMap((arg, index) => {
+      if (!selectors.has(index)) return [arg];
+      if (editorPath(arg, index) !== editor) return [];
+      return [editor ? relative(arg).slice('packages/editor/'.length) : arg];
+    });
   const runs = [
     {
       cwd: path.join(root, 'packages/editor'),
-      args: [
-        ...args.filter(editorPath).map((arg) => relative(arg).slice('packages/editor/'.length)),
-        ...shared,
-      ],
+      args: routedArgs(true),
     },
   ];
   if (args.some(rootPath)) {
-    runs.push({ cwd: root, args: [...args.filter(rootPath), ...shared] });
+    runs.push({ cwd: root, args: routedArgs(false) });
   }
   return runs;
 }

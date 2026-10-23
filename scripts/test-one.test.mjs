@@ -8,10 +8,20 @@ describe('just test-one', () => {
     expect(runs).toHaveLength(1);
     expect(runs[0].args).toEqual(['src/bridge.test.ts', '-t', 'src/example']);
   });
+  it('keeps an option operand identical to a positional selector in its original role', () => {
+    const editor = 'packages/editor/src/bridge.test.ts';
+    const root = 'scripts/lib/spawn-result.test.mjs';
+    const runs = testRuns([editor, root, '-t', editor, '--maxWorkers=2']);
+    expect(runs.map((run) => run.args)).toEqual([
+      ['src/bridge.test.ts', '-t', editor, '--maxWorkers=2'],
+      [root, '-t', editor, '--maxWorkers=2'],
+    ]);
+  });
   it.each([
     ['packages/editor/src/bridge.test.ts'],
     ['scripts/lib/spawn-result.test.mjs'],
     ['./packages/editor/src/bridge.test.ts', 'scripts/lib/spawn-result.test.mjs'],
+    ['packages/editor/src/bridge.test.ts', 'spawn-result.test.mjs'],
   ])('runs explicit paths through their owning config: %s', (...files) => {
     const result = spawnSync('just', ['test-one', ...files, '--maxWorkers=2'], {
       encoding: 'utf8',
