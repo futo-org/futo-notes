@@ -42,7 +42,9 @@ struct DestructiveConfirmDialog: View {
                     }
                     Divider()
                         .frame(height: 44)
-                    Button(role: .destructive) { Task { await onDestructive() } } label: {
+                    Button(role: .destructive) {
+                        Task { await onDestructive() }
+                    } label: {
                         Text(localization.localizedText(destructiveLabelKey))
                             .foregroundStyle(Theme.danger)
                             .frame(maxWidth: .infinity, minHeight: 44)

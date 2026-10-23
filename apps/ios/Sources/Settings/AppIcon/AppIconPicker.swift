@@ -335,7 +335,9 @@ private struct AppIconAskSheet: View {
                     .padding(.top, 4)
                 link("license.enterKey", id: "app-icon-ask-already-paid", onAlreadyPaid)
             case .linkOut(let primary):
-                filled(primary == .renew ? "license.renew" : "license.buy", id: "app-icon-ask-buy", buy)
+                filled(
+                    primary == .renew ? "license.renew" : "license.buy", id: "app-icon-ask-buy", buy
+                )
                 HStack(spacing: 32) {
                     link("license.enterKey", id: "app-icon-ask-already-paid", onAlreadyPaid)
                     link("settings.appIcon.license.notNow", id: "app-icon-ask-not-now", onNotNow)
