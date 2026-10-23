@@ -12,7 +12,9 @@
  * that causes them:
  *
  * 1. An inline `<br>` — the only legal way to break a line inside a GFM table
- *    cell — is deleted with no replacement, fusing the words on either side.
+ *    cell — is deleted with no replacement, fusing the words on either side
+ *    (fixed upstream in @milkdown/kit 7.22.3; the replacement below stays for
+ *    the rest of what it does).
  *    `@milkdown/preset-commonmark`'s `remarkPreserveEmptyLinePlugin` is
  *    replaced (`./emptyLine`), and the replacement goes further: the preset's
  *    `<br />` stand-in for an empty paragraph is retired altogether, and blank

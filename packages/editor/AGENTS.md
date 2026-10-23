@@ -23,7 +23,7 @@ This package owns the sanctioned synchronous TS mirrors of Rust note rules, the 
 
 ## Milkdown compat plugins — the M6 carve-out
 
-`src/milkdown-compat/` adapts `@milkdown/kit` 7.22.1 on the way IN — what a
+`src/milkdown-compat/` adapts `@milkdown/kit` 7.22.3 on the way IN — what a
 note's bytes parse into — and installs the editor's own serializer
 (`ownedSerializer.ts`, below) as Milkdown's `serializerCtx`. Nothing here
 patches remark-stringify any more: Milkdown's own serializer is never called.
