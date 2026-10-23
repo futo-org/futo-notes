@@ -69,7 +69,8 @@ create` will not say so.** This project is public, so every _read_ succeeds with
   that "cannot recognize the repository" is the same root cause.
 
 - **File uploads need `--form`, not `-F`.** `-F`/`--field` sends JSON, so
-  `-F file=@path` uploads the literal _string_ `"@path"` and the API answers
+  `-F file=@path` reads the file into a JSON value rather than a multipart upload,
+  and the API answers
   `400 {"error":"file is invalid"}` — never mentioning the flag. `--form` sends
   `multipart/form-data`, which is what an upload endpoint requires:
 
@@ -151,6 +152,51 @@ create` will not say so.** This project is public, so every _read_ succeeds with
 merge_request.target=main -o merge_request.title='...'`. GitLab only reads
   them when the push actually updates a ref, so a branch that is already
   pushed needs a new commit before they take effect.
+
+## Merge request descriptions from a file
+
+`glab mr create --description` takes a string; it has no `--description-file` or
+`--body-file` flag. For a reviewed Markdown body, build a JSON request with a
+serializer and send it with `glab api --input`. This preserves newlines, quotes,
+backticks, and dollar signs without putting the body through shell interpolation.
+Set `source_branch` and `mr_title` first; the source branch must exist on the remote.
+
+```bash
+set -euo pipefail
+mr_scratch=$(mktemp -d)
+cat > "$mr_scratch/body.md" <<'MD'
+Describe the concrete problem and resulting behavior here.
+
+Verified: list the relevant commands and results.
+MD
+python3 - "$mr_scratch/body.md" "$mr_scratch/request.json" "$source_branch" "$mr_title" <<'PYTHON'
+import json
+from pathlib import Path
+import sys
+
+payload = {
+    "source_branch": sys.argv[3],
+    "target_branch": "main",
+    "title": sys.argv[4],
+    "description": Path(sys.argv[1]).read_text(),
+}
+Path(sys.argv[2]).write_text(json.dumps(payload))
+PYTHON
+glab api --hostname gitlab.futo.org --method POST projects/488/merge_requests \
+  --header 'Content-Type: application/json' --input "$mr_scratch/request.json"
+```
+
+Keep the explicit JSON `Content-Type`: versions that omit it for raw `--input`
+bodies return HTTP 415 from GitLab. `--input -` also accepts JSON through stdin,
+such as Python `subprocess.run(..., input=json.dumps(payload), text=True)`.
+Neither route needs a description/body-file flag on `mr create`. For a file field
+in a JSON request, `--field description=@body.md` is another supported API shape;
+it differs from multipart file uploads, which use `--form` as described above.
+
+The numeric project endpoint bypasses path-based project lookup if that lookup
+returns 404. Both `projects/488` and `projects/futo-notes%2Ffuto-notes` currently
+resolve to this project; a historical path-lookup failure alone does not prove
+the credentials or MR permissions are wrong.
 
 ## Merge requests as a triage surface
 
