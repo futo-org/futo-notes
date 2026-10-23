@@ -120,7 +120,9 @@ mobileDndTest(
     await expect
       .poll(() =>
         page.evaluate(() => {
-          const img = document.querySelector('.futo-mobile-dnd-reflow-curtain img');
+          const img = document.querySelector(
+            '.futo-mobile-dnd-reflow-curtain img:not(.ProseMirror-separator)',
+          );
           return img instanceof HTMLImageElement && img.complete ? img.naturalHeight : 0;
         }),
       )
@@ -230,7 +232,9 @@ for (const change of ['viewport', 'image'] as const) {
         await expect
           .poll(() =>
             page.evaluate(() => {
-              const img = document.querySelector('.ProseMirror[contenteditable] img');
+              const img = document.querySelector(
+                '.ProseMirror[contenteditable] img:not(.ProseMirror-separator)',
+              );
               return img instanceof HTMLImageElement && img.complete ? img.naturalHeight : 0;
             }),
           )

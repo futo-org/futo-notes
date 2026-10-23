@@ -60,9 +60,11 @@ export function dragLayout(
       ? (document.querySelector('.futo-mobile-dnd-reflow-curtain') as HTMLElement | null)
       : editor;
     const view = editor.getBoundingClientRect();
+    // Not the first <img>: prosemirror-view 1.42.6+ puts an invisible
+    // img.ProseMirror-separator in front of an inline image that starts a block.
     const keyOf = (el: Element) =>
       (el.textContent ?? '').replace(/\s+/g, ' ').trim() ||
-      el.querySelector('img')?.getAttribute('alt') ||
+      el.querySelector('img:not(.ProseMirror-separator)')?.getAttribute('alt') ||
       el.tagName;
     const lineRects = (el: Element): DOMRect[] => {
       const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
@@ -83,7 +85,8 @@ export function dragLayout(
       const key = keyOf(block);
       if (block.classList.contains('futo-mobile-dnd-reflow-source')) source = key;
       const lines = lineRects(block);
-      const drawn = block.querySelector('img, hr')?.getBoundingClientRect() ?? box;
+      const drawn =
+        block.querySelector('img:not(.ProseMirror-separator), hr')?.getBoundingClientRect() ?? box;
       blocks[key] = lines.length
         ? {
             top: Math.min(...lines.map((r) => r.top)),
@@ -280,7 +283,10 @@ export const SLIDE_NOTE =
 export function realOrder(page: Page): Promise<string[]> {
   return page.evaluate(() =>
     [...document.querySelectorAll('.ProseMirror[contenteditable] > *')].map(
-      (el) => (el.textContent ?? '').trim() || el.querySelector('img')?.alt || el.tagName,
+      (el) =>
+        (el.textContent ?? '').trim() ||
+        el.querySelector('img:not(.ProseMirror-separator)')?.alt ||
+        el.tagName,
     ),
   );
 }

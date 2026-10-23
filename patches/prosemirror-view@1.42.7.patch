@@ -1,5 +1,5 @@
 diff --git a/dist/index.cjs b/dist/index.cjs
-index 6ee53e1db4c61e2eeca5617e84cb16ce8b4730a0..1cb75a35c8fbb737da86e4e6817b732f34a9b9c3 100644
+index a746f3d..e30db5b 100644
 --- a/dist/index.cjs
 +++ b/dist/index.cjs
 @@ -45,6 +45,12 @@ var textRange = function textRange(node, from, to) {
@@ -15,7 +15,7 @@ index 6ee53e1db4c61e2eeca5617e84cb16ce8b4730a0..1cb75a35c8fbb737da86e4e6817b732f
  var isEquivalentPosition = function isEquivalentPosition(node, off, targetNode, targetOff) {
    return targetNode && (scanFor(node, off, targetNode, targetOff, -1) || scanFor(node, off, targetNode, targetOff, 1));
  };
-@@ -376,7 +382,10 @@ function findOffsetInText(node, coords) {
+@@ -384,7 +390,10 @@ function findOffsetInText(node, coords) {
        break;
      }
    }
@@ -27,7 +27,7 @@ index 6ee53e1db4c61e2eeca5617e84cb16ce8b4730a0..1cb75a35c8fbb737da86e4e6817b732f
    return result || {
      node: node,
      offset: 0
-@@ -663,6 +672,8 @@ var ViewDesc = function () {
+@@ -671,6 +680,8 @@ var ViewDesc = function () {
      this.dom = dom;
      this.contentDOM = contentDOM;
      this.dirty = NOT_DIRTY;
@@ -36,7 +36,7 @@ index 6ee53e1db4c61e2eeca5617e84cb16ce8b4730a0..1cb75a35c8fbb737da86e4e6817b732f
      dom.pmViewDesc = this;
    }
    _createClass(ViewDesc, [{
-@@ -717,6 +728,7 @@ var ViewDesc = function () {
+@@ -725,6 +736,7 @@ var ViewDesc = function () {
    }, {
      key: "posBeforeChild",
      value: function posBeforeChild(child) {
@@ -44,7 +44,7 @@ index 6ee53e1db4c61e2eeca5617e84cb16ce8b4730a0..1cb75a35c8fbb737da86e4e6817b732f
        for (var i = 0, pos = this.posAtStart;; i++) {
          var cur = this.children[i];
          if (cur == child) return pos;
-@@ -1416,12 +1428,31 @@ var NodeViewDesc = function (_ViewDesc4) {
+@@ -1436,12 +1448,31 @@ var NodeViewDesc = function (_ViewDesc4) {
    }, {
      key: "updateInner",
      value: function updateInner(node, outerDeco, innerDeco, view) {
@@ -77,9 +77,9 @@ index 6ee53e1db4c61e2eeca5617e84cb16ce8b4730a0..1cb75a35c8fbb737da86e4e6817b732f
    }, {
      key: "updateOuterDeco",
      value: function updateOuterDeco(outerDeco) {
-@@ -3921,11 +3952,12 @@ var DecorationSet = function () {
+@@ -3967,11 +3998,12 @@ var DecorationSet = function () {
      value: function addInner(doc, decorations, offset) {
-       var _this11 = this;
+       var _this12 = this;
        var children,
 -        childIndex = 0;
 +        childIndex = 0,
@@ -89,10 +89,10 @@ index 6ee53e1db4c61e2eeca5617e84cb16ce8b4730a0..1cb75a35c8fbb737da86e4e6817b732f
            found;
 -        if (!(found = takeSpansForNode(decorations, childNode, baseOffset))) return;
 +        if (!(found = takeSpansForNode(childNode, baseOffset))) return;
-         if (!children) children = _this11.children.slice();
+         if (!children) children = _this12.children.slice();
          while (childIndex < children.length && children[childIndex] < childOffset) childIndex += 3;
          if (children[childIndex] == childOffset) children[childIndex + 2] = children[childIndex + 2].addInner(childNode, found, baseOffset + 1);else children.splice(childIndex, 0, childOffset, childOffset + childNode.nodeSize, buildTree(found, childNode, baseOffset + 1, noSpec));
-@@ -3946,30 +3978,50 @@ var DecorationSet = function () {
+@@ -3995,30 +4027,50 @@ var DecorationSet = function () {
      value: function removeInner(decorations, offset) {
        var children = this.children,
          local = this.local;
@@ -127,8 +127,12 @@ index 6ee53e1db4c61e2eeca5617e84cb16ce8b4730a0..1cb75a35c8fbb737da86e4e6817b732f
 +          decorations[j] = null;
 +          if (!found) found = new Map();
 +          if (spans = found.get(i)) spans.push(span);else found.set(i, [span]);
-+        }
-+      }
+         }
+       }
+-      if (local.length) for (var _i8 = 0, _span; _i8 < decorations.length; _i8++) if (_span = decorations[_i8]) {
+-        for (var _j2 = 0; _j2 < local.length; _j2++) if (local[_j2].eq(_span, offset)) {
+-          if (local == this.local) local = this.local.slice();
+-          local.splice(_j2--, 1);
 +      if (found) {
 +        children = this.children.slice();
 +        var touched = Array.from(found.keys()).sort(function (a, b) {
@@ -138,12 +142,8 @@ index 6ee53e1db4c61e2eeca5617e84cb16ce8b4730a0..1cb75a35c8fbb737da86e4e6817b732f
 +          var ti = touched[t];
 +          var removed = children[ti + 2].removeInner(found.get(ti), children[ti] + offset + 1);
 +          if (removed != empty) children[ti + 2] = removed;else children.splice(ti, 3);
-         }
-       }
--      if (local.length) for (var _i8 = 0, _span; _i8 < decorations.length; _i8++) if (_span = decorations[_i8]) {
--        for (var _j2 = 0; _j2 < local.length; _j2++) if (local[_j2].eq(_span, offset)) {
--          if (local == this.local) local = this.local.slice();
--          local.splice(_j2--, 1);
++        }
++      }
 +      if (local.length) {
 +        var byFrom = null;
 +        for (var _i8 = 0, _span; _i8 < decorations.length; _i8++) if (_span = decorations[_i8]) {
@@ -164,7 +164,7 @@ index 6ee53e1db4c61e2eeca5617e84cb16ce8b4730a0..1cb75a35c8fbb737da86e4e6817b732f
          }
        }
        if (children == this.children && local == this.local) return this;
-@@ -3981,10 +4033,13 @@ var DecorationSet = function () {
+@@ -4030,10 +4082,13 @@ var DecorationSet = function () {
        if (this == empty) return this;
        if (node.isLeaf) return DecorationSet.empty;
        var child, local;
@@ -181,7 +181,7 @@ index 6ee53e1db4c61e2eeca5617e84cb16ce8b4730a0..1cb75a35c8fbb737da86e4e6817b732f
        var start = offset + 1,
          end = start + node.content.size;
        for (var _i9 = 0; _i9 < this.local.length; _i9++) {
-@@ -4212,17 +4267,27 @@ function mapAndGatherRemainingDecorations(children, oldChildren, decorations, ma
+@@ -4261,17 +4316,27 @@ function mapAndGatherRemainingDecorations(children, oldChildren, decorations, ma
    for (var i = 0; i < children.length; i += 3) if (children[i + 1] == -1) gather(children[i + 2], oldChildren[i] + oldOffset + 1);
    return decorations;
  }
@@ -219,7 +219,7 @@ index 6ee53e1db4c61e2eeca5617e84cb16ce8b4730a0..1cb75a35c8fbb737da86e4e6817b732f
  }
  function withoutNulls(array) {
    var result = [];
-@@ -4231,9 +4296,10 @@ function withoutNulls(array) {
+@@ -4280,9 +4345,10 @@ function withoutNulls(array) {
  }
  function buildTree(spans, node, offset, options) {
    var children = [],
@@ -232,7 +232,7 @@ index 6ee53e1db4c61e2eeca5617e84cb16ce8b4730a0..1cb75a35c8fbb737da86e4e6817b732f
      if (found) {
        hasNulls = true;
        var subtree = buildTree(found, childNode, offset + localStart + 1, options);
-@@ -5165,8 +5231,9 @@ var EditorView = function () {
+@@ -5229,8 +5295,9 @@ var EditorView = function () {
          this.domObserver.stop();
          var forceSelUpdate = updateDoc && (ie || chrome) && !this.composing && !prev.selection.empty && !state.selection.empty && selectionContextChanged(prev.selection, state.selection);
          if (updateDoc) {
@@ -244,7 +244,7 @@ index 6ee53e1db4c61e2eeca5617e84cb16ce8b4730a0..1cb75a35c8fbb737da86e4e6817b732f
              this.docView.updateOuterDeco(outerDeco);
              this.docView.destroy();
 diff --git a/dist/index.js b/dist/index.js
-index 012237dd813a21d86d6d527263b49c5af0a0e2f0..65ffe8ca02e7126383ee667fbc84e58dbd531095 100644
+index ba1e1ca..9bbc36a 100644
 --- a/dist/index.js
 +++ b/dist/index.js
 @@ -26,6 +26,18 @@ const textRange = function (node, from, to) {
@@ -266,7 +266,7 @@ index 012237dd813a21d86d6d527263b49c5af0a0e2f0..65ffe8ca02e7126383ee667fbc84e58d
  // Scans forward and backward through DOM positions equivalent to the
  // given one to see if the two are in the same place (i.e. after a
  // text node vs at the end of that text node)
-@@ -382,7 +394,10 @@ function findOffsetInText(node, coords) {
+@@ -387,7 +399,10 @@ function findOffsetInText(node, coords) {
              break;
          }
      }
@@ -278,7 +278,7 @@ index 012237dd813a21d86d6d527263b49c5af0a0e2f0..65ffe8ca02e7126383ee667fbc84e58d
      return result || { node, offset: 0 };
  }
  function inRect(coords, rect) {
-@@ -751,6 +766,10 @@ class ViewDesc {
+@@ -755,6 +770,10 @@ class ViewDesc {
          this.dom = dom;
          this.contentDOM = contentDOM;
          this.dirty = NOT_DIRTY;
@@ -289,7 +289,7 @@ index 012237dd813a21d86d6d527263b49c5af0a0e2f0..65ffe8ca02e7126383ee667fbc84e58d
          // An expando property on the DOM node provides a link back to its
          // description.
          dom.pmViewDesc = this;
-@@ -786,6 +805,8 @@ class ViewDesc {
+@@ -790,6 +809,8 @@ class ViewDesc {
              this.children[i].destroy();
      }
      posBeforeChild(child) {
@@ -298,7 +298,7 @@ index 012237dd813a21d86d6d527263b49c5af0a0e2f0..65ffe8ca02e7126383ee667fbc84e58d
          for (let i = 0, pos = this.posAtStart;; i++) {
              let cur = this.children[i];
              if (cur == child)
-@@ -1476,13 +1497,38 @@ class NodeViewDesc extends ViewDesc {
+@@ -1493,13 +1514,38 @@ class NodeViewDesc extends ViewDesc {
          return true;
      }
      updateInner(node, outerDeco, innerDeco, view) {
@@ -338,7 +338,7 @@ index 012237dd813a21d86d6d527263b49c5af0a0e2f0..65ffe8ca02e7126383ee667fbc84e58d
      updateOuterDeco(outerDeco) {
          if (sameOuterDeco(outerDeco, this.outerDeco))
              return;
-@@ -4204,10 +4250,10 @@ class DecorationSet {
+@@ -4252,10 +4298,10 @@ class DecorationSet {
          return this.addInner(doc, decorations, 0);
      }
      addInner(doc, decorations, offset) {
@@ -351,7 +351,7 @@ index 012237dd813a21d86d6d527263b49c5af0a0e2f0..65ffe8ca02e7126383ee667fbc84e58d
                  return;
              if (!children)
                  children = this.children.slice();
-@@ -4236,39 +4282,76 @@ class DecorationSet {
+@@ -4287,39 +4333,76 @@ class DecorationSet {
      }
      removeInner(decorations, offset) {
          let children = this.children, local = this.local;
@@ -451,7 +451,7 @@ index 012237dd813a21d86d6d527263b49c5af0a0e2f0..65ffe8ca02e7126383ee667fbc84e58d
          if (children == this.children && local == this.local)
              return this;
          return local.length || children.length ? new DecorationSet(local, children) : empty;
-@@ -4279,12 +4362,19 @@ class DecorationSet {
+@@ -4330,12 +4413,19 @@ class DecorationSet {
          if (node.isLeaf)
              return DecorationSet.empty;
          let child, local;
@@ -477,7 +477,7 @@ index 012237dd813a21d86d6d527263b49c5af0a0e2f0..65ffe8ca02e7126383ee667fbc84e58d
          let start = offset + 1, end = start + node.content.size;
          for (let i = 0; i < this.local.length; i++) {
              let dec = this.local[i];
-@@ -4530,17 +4620,29 @@ function mapAndGatherRemainingDecorations(children, oldChildren, decorations, ma
+@@ -4581,17 +4671,29 @@ function mapAndGatherRemainingDecorations(children, oldChildren, decorations, ma
              gather(children[i + 2], oldChildren[i] + oldOffset + 1);
      return decorations;
  }
@@ -517,7 +517,7 @@ index 012237dd813a21d86d6d527263b49c5af0a0e2f0..65ffe8ca02e7126383ee667fbc84e58d
  }
  function withoutNulls(array) {
      let result = [];
-@@ -4554,9 +4656,9 @@ function withoutNulls(array) {
+@@ -4605,9 +4707,9 @@ function withoutNulls(array) {
  // positions in the spans (so that we don't have to allocate new spans
  // for recursive calls).
  function buildTree(spans, node, offset, options) {
@@ -529,7 +529,7 @@ index 012237dd813a21d86d6d527263b49c5af0a0e2f0..65ffe8ca02e7126383ee667fbc84e58d
          if (found) {
              hasNulls = true;
              let subtree = buildTree(found, childNode, offset + localStart + 1, options);
-@@ -5583,9 +5685,11 @@ class EditorView {
+@@ -5649,9 +5751,11 @@ class EditorView {
                  // Chrome sometimes starts misreporting the selection, so this
                  // tracks that and forces a selection reset when our update
                  // did write to the node.
@@ -543,10 +543,10 @@ index 012237dd813a21d86d6d527263b49c5af0a0e2f0..65ffe8ca02e7126383ee667fbc84e58d
                      this.docView.updateOuterDeco(outerDeco);
                      this.docView.destroy();
 diff --git a/src/decoration.ts b/src/decoration.ts
-index 31ee3700a3da54a83f37c61a5a2e1c874d5e1ece..68ca3e22e307c41f0e8e83363760110bc3502c7f 100644
+index d917b4a..ca691af 100644
 --- a/src/decoration.ts
 +++ b/src/decoration.ts
-@@ -433,10 +433,16 @@ export class DecorationSet implements DecorationSource {
+@@ -454,10 +454,16 @@ export class DecorationSet implements DecorationSource {
      if (node.isLeaf) return DecorationSet.empty
  
      let child, local: Decoration[] | undefined
@@ -567,7 +567,7 @@ index 31ee3700a3da54a83f37c61a5a2e1c874d5e1ece..68ca3e22e307c41f0e8e83363760110b
      for (let i = 0; i < this.local.length; i++) {
        let dec = this.local[i]
 diff --git a/src/dom.ts b/src/dom.ts
-index 07b47c811826825956118e989522ebdf8b488666..07a4a689a4514171dc192058560a6f1f83fe805f 100644
+index 6388264..6b4f98c 100644
 --- a/src/dom.ts
 +++ b/src/dom.ts
 @@ -33,6 +33,18 @@ export const clearReusedRange = function() {
@@ -590,15 +590,15 @@ index 07b47c811826825956118e989522ebdf8b488666..07a4a689a4514171dc192058560a6f1f
  // given one to see if the two are in the same place (i.e. after a
  // text node vs at the end of that text node)
 diff --git a/src/index.ts b/src/index.ts
-index 54f4d0eccf9ba6845984e32a148c537d1c203ca5..9d648892c8c141276fd635cad7277d00fe2a9403 100644
+index 7d42057..031d2bb 100644
 --- a/src/index.ts
 +++ b/src/index.ts
 @@ -10,7 +10,7 @@ import {selectionToDOM, anchorInRightPlace, syncNodeSelection} from "./selection
  import {Decoration, viewDecorations, DecorationSource} from "./decoration"
  import {DOMObserver, safariShadowSelectionRange} from "./domobserver"
  import {readDOMChange} from "./domchange"
--import {DOMSelection, DOMNode, DOMSelectionRange, deepActiveElement, clearReusedRange} from "./dom"
-+import {DOMSelection, DOMNode, DOMSelectionRange, deepActiveElement, clearReusedRange, parkReusedRange} from "./dom"
+-import {DOMSelection, DOMNode, DOMSelectionRange, deepActiveElement, clearReusedRange, isElt, contains} from "./dom"
++import {DOMSelection, DOMNode, DOMSelectionRange, deepActiveElement, clearReusedRange, parkReusedRange, isElt, contains} from "./dom"
  import * as browser from "./browser"
  
  export {Decoration, DecorationSet, DecorationAttrs, DecorationSource} from "./decoration"
@@ -618,12 +618,12 @@ index 54f4d0eccf9ba6845984e32a148c537d1c203ca5..9d648892c8c141276fd635cad7277d00
            this.docView.updateOuterDeco(outerDeco)
            this.docView.destroy()
 diff --git a/src/viewdesc.ts b/src/viewdesc.ts
-index 18a0caa29fd2ed9ac3b90ab4653dd86c025ac9b2..482381ca9708160a862850da7f867dd0777e535a 100644
+index 30e4f84..6fbe08a 100644
 --- a/src/viewdesc.ts
 +++ b/src/viewdesc.ts
 @@ -3,7 +3,7 @@ import {TextSelection} from "prosemirror-state"
  
- import {domIndex, isEquivalentPosition, DOMNode} from "./dom"
+ import {domIndex, isEquivalentPosition, DOMNode, isElt, isText, contains} from "./dom"
  import * as browser from "./browser"
 -import {Decoration, DecorationSource, WidgetConstructor, WidgetType, NodeType} from "./decoration"
 +import {Decoration, DecorationSet, DecorationSource, WidgetConstructor, WidgetType, NodeType} from "./decoration"
@@ -650,7 +650,7 @@ index 18a0caa29fd2ed9ac3b90ab4653dd86c025ac9b2..482381ca9708160a862850da7f867dd0
      for (let i = 0, pos = this.posAtStart;; i++) {
        let cur = this.children[i]
        if (cur == child) return pos
-@@ -874,13 +880,40 @@ export class NodeViewDesc extends ViewDesc {
+@@ -883,13 +889,40 @@ export class NodeViewDesc extends ViewDesc {
    }
  
    updateInner(node: Node, outerDeco: readonly Decoration[], innerDeco: DecorationSource, view: EditorView) {
@@ -691,4 +691,4 @@ index 18a0caa29fd2ed9ac3b90ab4653dd86c025ac9b2..482381ca9708160a862850da7f867dd0
 +
    updateOuterDeco(outerDeco: readonly Decoration[]) {
      if (sameOuterDeco(outerDeco, this.outerDeco)) return
-     let needsWrap = this.nodeDOM.nodeType != 1
+     let needsWrap = !isElt(this.nodeDOM)
