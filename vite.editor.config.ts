@@ -26,9 +26,9 @@ function stageNativeEditorBundle() {
   return {
     name: 'stage-native-editor-bundle',
     closeBundle() {
-      const source = path.resolve(__dirname, nativeEditorOutDir, 'editor.html');
+      const source = path.resolve(import.meta.dirname, nativeEditorOutDir, 'editor.html');
       for (const target of stagedEditorTargets) {
-        const output = path.resolve(__dirname, target);
+        const output = path.resolve(import.meta.dirname, target);
         mkdirSync(path.dirname(output), { recursive: true });
         copyFileSync(source, output);
       }
@@ -54,7 +54,7 @@ export default defineConfig({
     // device. editor.html shims those (replaceAll, at) and
     // tests/editor-embed-webview-floor.spec.ts audits the BUILT bundle for any
     // that no shim covers.
-    target: 'ES2020',
+    target: 'es2020',
     outDir: nativeEditorOutDir,
     sourcemap: false,
     // Inline everything: a single self-contained HTML file is the goal, so
@@ -62,19 +62,19 @@ export default defineConfig({
     chunkSizeWarningLimit: 100000,
     assetsInlineLimit: 100000000,
     cssCodeSplit: false,
-    rollupOptions: {
-      input: path.resolve(__dirname, 'editor.html'),
+    rolldownOptions: {
+      input: path.resolve(import.meta.dirname, 'editor.html'),
     },
   },
   resolve: {
     alias: {
-      $lib: path.resolve(__dirname, './src/lib'),
-      $app: path.resolve(__dirname, './src/app'),
-      $features: path.resolve(__dirname, './src/features'),
-      $shared: path.resolve(__dirname, './src/shared'),
-      '@': path.resolve(__dirname, './'),
-      '/src': path.resolve(__dirname, './src'),
-      '@futo-notes/editor': path.resolve(__dirname, './packages/editor/src'),
+      $lib: path.resolve(import.meta.dirname, './src/lib'),
+      $app: path.resolve(import.meta.dirname, './src/app'),
+      $features: path.resolve(import.meta.dirname, './src/features'),
+      $shared: path.resolve(import.meta.dirname, './src/shared'),
+      '@': path.resolve(import.meta.dirname, './'),
+      '/src': path.resolve(import.meta.dirname, './src'),
+      '@futo-notes/editor': path.resolve(import.meta.dirname, './packages/editor/src'),
     },
   },
 });
