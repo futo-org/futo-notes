@@ -57,7 +57,7 @@ build_macos_task:
     - fnm use --install-if-missing
     - node --version
     - corepack enable
-    - corepack prepare pnpm@10.34.7 --activate
+    - corepack prepare pnpm@12.15.0 --activate
 
     # Install Rust. We ship a universal (x86_64 + arm64) DMG so a single
     # download runs native on both Apple Silicon and Intel Macs — both target
@@ -178,7 +178,7 @@ build_macos_internal_task:
     - fnm use --install-if-missing
     - node --version
     - corepack enable
-    - corepack prepare pnpm@10.34.7 --activate
+    - corepack prepare pnpm@12.15.0 --activate
 
     - curl https://sh.rustup.rs -sSf | sh -s -- -y
     - export PATH="$HOME/.cargo/bin:$PATH"

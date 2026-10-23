@@ -8,8 +8,8 @@ packages:
 auditConfig:
   ignoreGhsas: []
 
-onlyBuiltDependencies:
-  - esbuild
+allowBuilds:
+  esbuild: true
 
 overrides:
   devalue@<5.8.1: 5.8.1
