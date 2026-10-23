@@ -31,7 +31,7 @@ RUN mkdir -p "$ANDROID_HOME/cmdline-tools" && \
     rm /tmp/cmdtools.zip && \
     yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null 2>&1 && \
     "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
-      "platform-tools" "platforms;android-36" "build-tools;36.0.0" "ndk;28.2.13676358"
+      "platform-tools" "platforms;android-37.0" "build-tools;36.0.0" "ndk;28.2.13676358"
 
 # Rust Android targets
 RUN . "$HOME/.cargo/env" 2>/dev/null || true && \
