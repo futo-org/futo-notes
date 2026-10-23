@@ -108,7 +108,7 @@ export class AndroidNativeAppClient {
     await this.#fillField('Password', password);
     // The soft keyboard covers the buttons; a tap would land on a key instead
     // (and silently type into the field), so drop the IME before tapping.
-    await this.#dismissKeyboard();
+    await this.dismissKeyboard();
 
     await this.device.tap('Connect & Sync', { scroll: false });
     // Connected == the session buttons replaced the connect form. The status
@@ -163,7 +163,12 @@ export class AndroidNativeAppClient {
     });
   }
 
-  async #dismissKeyboard() {
+  /** Close the soft keyboard with Back and return once it is gone. Returning
+   *  only then is what makes it safe to focus something next: the app drops
+   *  focus app-wide when a Back dismisses the keyboard, keyed off the hide
+   *  animation's START (docs/spec/app/soft-keyboard.md), so a focus requested
+   *  straight after the Back press races that drop and loses it. */
+  async dismissKeyboard() {
     if (!this.device.isImeVisible()) return;
     this.device.pressBack();
     await this.device.waitFor(
