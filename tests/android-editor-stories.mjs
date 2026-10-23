@@ -10,6 +10,9 @@
  * its baseline, so the next save parked a conflict copy and the typed text
  * landed in the copy.
  *
+ * The task-Enter story guards #275: Enter at the start of a task item's text
+ * closed the soft keyboard, so the next keystrokes went nowhere.
+ *
  * The camera story guards #1819: declaring CAMERA (for pairing scans) makes
  * Android refuse the editor's photo hand-off with a SecurityException unless the
  * permission is held, and the toolbar's Take photo crashed every install that
@@ -107,6 +110,48 @@ async function selfLinkRenameThenType(client) {
     problems.push(`the renamed note lost the typed text: ${JSON.stringify(body)}`);
   if (!body.includes(`[[${SELF_RENAMED}]]`)) {
     problems.push(`the renamed note lost its relinked self-link: ${JSON.stringify(body)}`);
+  }
+  if (problems.length > 0) throw new Error(problems.join('; '));
+}
+
+const TASK_ID = `${HARNESS_NOTE_PREFIX}tasks`;
+
+/**
+ * Enter at the very start of a task item's text (a checked one and an unchecked
+ * one), then keep typing. Guards #275: the checkbox <input> sat in the
+ * editable's light DOM, Blink's IME offsets counted it as a character, and the
+ * caret the keyboard re-asserted after the split resolved inside the uneditable
+ * widget. Blink dropped focus, Android took the keyboard down, and what the
+ * user typed next went nowhere.
+ */
+async function enterAtTaskTextStartKeepsTyping(client) {
+  const { device } = client;
+  await client.reset();
+  // A line above the list, so a task text start is never IME offset 0: on the
+  // first line the miscounted offset still landed on the text.
+  client.externalWriteNote(TASK_ID, 'Tasks\n\n- [x] done\n- [ ] todo\n');
+  device.restart();
+  await client.openNoteInEditor(TASK_ID);
+  await client.focusOpenEditor();
+
+  const problems = [];
+  for (const text of ['done', 'todo']) {
+    await client.placeCaretAtStartOf(text);
+    device.shell('input keyevent KEYCODE_ENTER');
+    // The split itself is right either way; give a dropped focus time to show.
+    await sleep(1_000);
+    if (!(await client.isOpenEditorFocused()))
+      problems.push(`Enter before "${text}" blurred the editor`);
+    if (!device.isImeVisible()) problems.push(`Enter before "${text}" closed the keyboard`);
+    device.shell(`input text '${text[0]}x'`);
+  }
+  const expected = 'Tasks\n\n- [ ]\n- [x] dxdone\n- [ ]\n- [ ] txtodo\n';
+  try {
+    await client.waitForNoteContent(TASK_ID, expected, 10_000);
+  } catch {
+    problems.push(
+      `the note holds ${JSON.stringify(client.readNote(TASK_ID))}, expected ${JSON.stringify(expected)}`,
+    );
   }
   if (problems.length > 0) throw new Error(problems.join('; '));
 }
@@ -210,6 +255,11 @@ const STORIES = [
     id: 'self-link-rename',
     name: 'a self-link rename keeps one note and the text typed after it',
     run: selfLinkRenameThenType,
+  },
+  {
+    id: 'enter-task-start-keyboard',
+    name: 'Enter at the start of a task item keeps the keyboard up for typing',
+    run: enterAtTaskTextStartKeepsTyping,
   },
   {
     id: 'camera-permission',
