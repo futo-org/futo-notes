@@ -198,7 +198,8 @@
   has adopted another note (or been torn down) by the time the bytes land,
   nothing is inserted anywhere — never into the note now on screen — and the
   image file that insertion just created is deleted from the vault, so an
-  abandoned drop leaves no blob nothing points at. Silent: there is no
+  abandoned drop leaves no blob nothing points at. Equal text in the two notes
+  does not preserve the outgoing note's claim. Silent: there is no
   message, because the note the user is looking at is correct and untouched.
   _(desktop)_ → src/features/editor/imageInsertTarget.ts, imageInsert.ts,
   imagePasteSink.ts, milkdown/documentSession.svelte.ts `documentIdentity`,
