@@ -98,17 +98,20 @@ _preflight-android: editor-deps
 
 # ── Native unit tests ──
 
+# The unit and UI recipes build the Rust bridge in `dev`, like `just ios-native`,
+# so testing and running share one build; `-full` builds `release-ffi`, as CI
+# does. An explicit FUTO_IOS_FFI_PROFILE overrides either.
 # iOS unit tests (Swift Testing, FutoNotesNativeTests) — CI's MR tier; name suites to run only those.
 test-ios-native *suites:
-  just _test-ios FutoNotesNativeTests "$@"
+  FUTO_IOS_FFI_PROFILE="${FUTO_IOS_FFI_PROFILE:-dev}" just _test-ios FutoNotesNativeTests "$@"
 
 # iOS UI tests (XCTest, FutoNotesNativeUITests; minutes per run); name test classes to run only those.
 test-ios-native-ui *classes:
-  just _test-ios FutoNotesNativeUITests "$@"
+  FUTO_IOS_FFI_PROFILE="${FUTO_IOS_FFI_PROFILE:-dev}" just _test-ios FutoNotesNativeUITests "$@"
 
 # iOS unit + UI tests together — what main pushes and tags run in CI.
 test-ios-native-full:
-  just _test-ios all
+  FUTO_IOS_FFI_PROFILE="${FUTO_IOS_FFI_PROFILE:-release-ffi}" just _test-ios all
 
 # Runs on a CONCRETE simulator ($SIM, else the booted one). `bundle` is a test
 # target, or `all`; each further argument narrows to one suite/class in it.

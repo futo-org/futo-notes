@@ -5,7 +5,8 @@
 # Built with the `release-ffi` profile (Cargo.toml) by default: the workspace
 # release profile uses panic="abort", which breaks UniFFI's panic catching.
 # FUTO_IOS_FFI_PROFILE=dev skips LTO so this script reruns in ~10s instead of
-# ~50s after a crate edit; apps/ios/run.sh and run-device.sh set it.
+# ~50s after a crate edit; apps/ios/run.sh, run-device.sh and the test-ios-native
+# and test-ios-native-ui recipes set it.
 set -euo pipefail
 
 PROFILE="${FUTO_IOS_FFI_PROFILE:-release-ffi}"
