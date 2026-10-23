@@ -1,10 +1,9 @@
 #!/usr/bin/env node
 import { execFileSync, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
-import { ndkVersionFromGradle } from './remote-test.mjs';
+import { resolveAndroidNdk, resolveAndroidSdk } from './lib/android-toolchain.mjs';
 
 const USAGE = 'Usage: just setup [portable|desktop|ios|android] [--check]';
 if (process.argv.slice(2).some((arg) => arg === '--help' || arg === '-h')) {
@@ -112,26 +111,8 @@ if (target === 'android') {
       throw new Error('set JAVA_HOME to JDK 17 or 21');
     return version;
   });
-  check('Android SDK', () =>
-    requiredFile(
-      process.env.ANDROID_HOME ??
-        `Set ANDROID_HOME (usually ${path.join(os.homedir(), process.platform === 'darwin' ? 'Library/Android/sdk' : 'Android/Sdk')})`,
-    ),
-  );
-  check('Android NDK pin', () => {
-    const expected = ndkVersionFromGradle(
-      fs.readFileSync('apps/android/app/build.gradle.kts', 'utf8'),
-    );
-    if (!process.env.ANDROID_NDK_HOME)
-      throw new Error(`set ANDROID_NDK_HOME to the installed NDK ${expected}`);
-    const properties = fs.readFileSync(
-      path.join(process.env.ANDROID_NDK_HOME, 'source.properties'),
-      'utf8',
-    );
-    if (!properties.includes(`Pkg.Revision = ${expected}`))
-      throw new Error(`ANDROID_NDK_HOME must contain NDK ${expected}`);
-    return expected;
-  });
+  check('Android SDK', () => resolveAndroidSdk());
+  check('Android NDK pin', () => resolveAndroidNdk().version);
   check('cargo-ndk', () => output('cargo', ['ndk', '--version']));
 }
 if (failures.length) {
