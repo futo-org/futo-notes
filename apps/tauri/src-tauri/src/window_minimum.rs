@@ -1,6 +1,6 @@
 //! Hold the window to its configured minimum size after a restored resize.
 //!
-//! `minWidth`/`minHeight` (tauri*.conf.json) are applied when the window is
+//! `minWidth`/`minHeight` (tauri.conf.json) are applied when the window is
 //! created, but tauri-plugin-window-state then restores the saved size with
 //! `set_size`, and neither macOS (its `setContentSize:` landed at 640×420
 //! with `minSize` and `contentMinSize` both set larger) nor Windows (tao answers
