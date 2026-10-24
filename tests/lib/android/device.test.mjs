@@ -8,6 +8,47 @@ import {
 } from './device.mjs';
 
 describe('Android safe labeled taps', () => {
+  it('keeps default matching exact when only a composite prefix is visible', async () => {
+    const taps = [];
+    const adb = {
+      dumpUiXml: () => '<node text="Target&#10;body" bounds="[20,200][80,220]" />',
+      tapPoint: (...args) => taps.push(args),
+    };
+    const device = createAndroidDevice({ adbClientFactory: () => adb, pollIntervalMs: 0 });
+    await expect(device.tap('Target', { scroll: false, timeoutMs: 25 })).rejects.toThrow(
+      'timed out',
+    );
+    expect(taps).toEqual([]);
+  });
+
+  it('reuses an explicit matcher when an inset swipe changes the composite label', async () => {
+    let centerY = 11;
+    let preview = 'before';
+    const taps = [];
+    const swipes = [];
+    const adb = {
+      shell: (command) =>
+        command === 'wm size'
+          ? 'Physical size: 720x1600'
+          : 'InsetsSource type=statusBars frame=[0,0][720,48] visible=true',
+      dumpUiXml: () =>
+        `<node text="Target&#10;${preview}" bounds="[20,${centerY - 10}][80,${centerY + 10}]" />`,
+      swipe: (...args) => {
+        swipes.push(args);
+        centerY = 92;
+        preview = 'after';
+      },
+      tapPoint: (...args) => taps.push(args),
+    };
+    const device = createAndroidDevice({ adbClientFactory: () => adb, pollIntervalMs: 0 });
+    const result = await device.tap('Target', {
+      timeoutMs: 25,
+      matchLabel: (label) => label.startsWith('Target\n'),
+    });
+    expect(swipes).toEqual([[360, 480, 360, 1200]]);
+    expect(taps).toEqual([[50, 92]]);
+    expect(result.label).toBe('Target\nafter');
+  });
   it('reads the visible status bar inset from WindowManager geometry', () => {
     const dump =
       'InsetsSource id=dcdd0000 type=statusBars frame=[0,0][720,48] visible=true flags= sideHint=TOP';
