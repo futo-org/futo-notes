@@ -25,10 +25,15 @@ import { ensureAvd } from './android-emulators.mjs';
 describe('pooled emulator soft keyboard baseline', () => {
   let running;
   let showIme;
+  let boot;
+  let persist;
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.assertTarget.mockReset();
     running = true;
     showIme = '0';
+    boot = 0;
+    persist = true;
     mocks.spawn.mockImplementation(() => {
       running = true;
       return { unref: vi.fn() };
@@ -39,8 +44,16 @@ describe('pooled emulator soft keyboard baseline', () => {
       if (command === 'adb' && text === 'devices') return running ? 'emulator-9998\tdevice\n' : '';
       if (text === '-s emulator-9998 emu avd name') return 'futo-qa-0\nOK\n';
       if (text === '-s emulator-9998 emu kill') {
+        // SettingsProvider has acknowledged the put but has not flushed it.
+        showIme = '0';
         running = false;
         return 'OK';
+      }
+      if (text.endsWith('cat /proc/sys/kernel/random/boot_id')) return `boot-${boot}`;
+      if (text === '-s emulator-9998 reboot') {
+        boot += 1;
+        if (!persist) showIme = '0';
+        return '';
       }
       if (text.includes('settings get secure show_ime_with_hard_keyboard')) return showIme;
       if (text.includes('settings put secure show_ime_with_hard_keyboard 1')) {
@@ -55,14 +68,15 @@ describe('pooled emulator soft keyboard baseline', () => {
     });
   });
 
-  it('pins the software IME and cold-boots once when a hardware keyboard disabled it', async () => {
+  it('preserves an acknowledged but unflushed setting by rebooting Android gracefully', async () => {
     expect(await ensureAvd('futo-qa-0')).toBe('emulator-9998');
     const commands = mocks.tryRun.mock.calls.map(([, args]) => args.join(' '));
     expect(commands).toContain(
       '-s emulator-9998 shell settings put secure show_ime_with_hard_keyboard 1',
     );
-    expect(commands).toContain('-s emulator-9998 emu kill');
-    expect(mocks.spawn).toHaveBeenCalledTimes(1);
+    expect(commands).toContain('-s emulator-9998 reboot');
+    expect(commands).not.toContain('-s emulator-9998 emu kill');
+    expect(mocks.spawn).not.toHaveBeenCalled();
     expect(showIme).toBe('1');
     expect(mocks.assertTarget).toHaveBeenCalled();
   });
@@ -81,21 +95,16 @@ describe('pooled emulator soft keyboard baseline', () => {
   it('honors an explicit Android reboot even when the keyboard baseline is already correct', async () => {
     showIme = '1';
     expect(await ensureAvd('futo-qa-0', { reboot: true })).toBe('emulator-9998');
-    expect(mocks.spawn).toHaveBeenCalledWith(
-      'fake-emulator',
-      ['-avd', 'futo-qa-0', '-no-snapshot-load'],
-      expect.any(Object),
-    );
+    expect(mocks.tryRun).toHaveBeenCalledWith('adb', ['-s', 'emulator-9998', 'reboot'], {
+      timeout: 5000,
+    });
+    expect(mocks.spawn).not.toHaveBeenCalled();
   });
 
   it('fails rather than rebooting forever if the setting is lost on every boot', async () => {
-    mocks.spawn.mockImplementation(() => {
-      running = true;
-      showIme = '0';
-      return { unref: vi.fn() };
-    });
+    persist = false;
     await expect(ensureAvd('futo-qa-0')).rejects.toThrow('did not persist after rebooting');
-    expect(mocks.spawn).toHaveBeenCalledTimes(1);
+    expect(mocks.tryRun.mock.calls.filter(([, args]) => args.at(-1) === 'reboot')).toHaveLength(1);
   });
 
   it('fails before changing a device whose identity check is refused', async () => {
@@ -106,5 +115,27 @@ describe('pooled emulator soft keyboard baseline', () => {
     expect(
       mocks.tryRun.mock.calls.some(([, args]) => args.includes('put') || args.includes('kill')),
     ).toBe(false);
+  });
+  it('refuses a recycled emulator before probing its package installer', async () => {
+    let ready = false;
+    const run = mocks.tryRun.getMockImplementation();
+    mocks.tryRun.mockImplementation((command, args, ...options) => {
+      const result = run(command, args, ...options);
+      if (boot > 0 && args.includes('package')) ready = true;
+      return result;
+    });
+    mocks.assertTarget.mockImplementation(() => {
+      if (ready) throw new Error('serial now belongs to another worktree');
+    });
+    await expect(ensureAvd('futo-qa-0')).rejects.toThrow('another worktree');
+    expect(mocks.tryRun.mock.calls.some(([, args]) => args.includes('install-create'))).toBe(false);
+  });
+  it('also refuses a recycled serial during first-boot package readiness', async () => {
+    running = false;
+    mocks.assertTarget.mockImplementation(() => {
+      throw new Error('wrong first-boot owner');
+    });
+    await expect(ensureAvd('futo-qa-0')).rejects.toThrow('wrong first-boot owner');
+    expect(mocks.tryRun.mock.calls.some(([, args]) => args.includes('install-create'))).toBe(false);
   });
 });

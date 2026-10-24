@@ -42,10 +42,10 @@ app data. `just qa-release android` releases all Android claims this worktree
 holds. `just qa-gc` releases stale legacy claims without deleting those fixtures.
 
 Pooled AVDs pin `show_ime_with_hard_keyboard=1` on each claim. If host-keyboard
-input turned it off, the claim sets it and cold-boots that owned emulator once,
-then verifies the setting survived. `just qa-claim android --reboot` explicitly
-cold-boots the selected owned emulator. Named legacy fixtures keep their existing
-keyboard setup. If host-keyboard input changes this setting after a claim,
+input turned it off, the claim sets it and gracefully reboots Android on that
+owned emulator once, then verifies the setting survived. `just qa-claim android --reboot` explicitly
+reboots Android on the selected owned emulator. Named legacy fixtures keep their
+existing keyboard setup. If host-keyboard input changes this setting after a claim,
 re-run `just qa-claim android` (or add `--reboot`) before instrumentation QA.
 
 `qa-claim` also exports `ANDROID_AVD_NAME`. Keep both exports: emulator serial

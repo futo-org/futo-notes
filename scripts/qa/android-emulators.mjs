@@ -159,20 +159,51 @@ function pinSoftKeyboard(name, serial) {
   return true;
 }
 
-async function stopAvd(name, serial) {
+// Reboot Android, not its host process: SettingsProvider can acknowledge a
+// secure-setting write before its asynchronous persistence has completed.
+async function rebootGuest(name, serial) {
+  const options = { timeout: 5000 };
+  const deadline = Date.now() + 180_000;
   assertAndroidTarget({ serial, expectedAvd: name, allowPending: true });
-  if (tryRun('adb', ['-s', serial, 'emu', 'kill']) === null) die(`could not stop ${name}`);
-  for (let i = 0; i < 60; i++) {
-    if (!runningEmus()[name]) return;
-    await sleep(500);
+  const before = (
+    tryRun('adb', ['-s', serial, 'shell', 'cat', '/proc/sys/kernel/random/boot_id'], options) || ''
+  ).trim();
+  if (!before) die(`cannot read the Android boot identity on ${name}`);
+  assertAndroidTarget({ serial, expectedAvd: name, allowPending: true });
+  if (tryRun('adb', ['-s', serial, 'reboot'], options) === null)
+    die(`could not reboot Android on ${name}`);
+  for (let i = 0; i < 90 && Date.now() < deadline; i++) {
+    const after = (
+      tryRun('adb', ['-s', serial, 'shell', 'cat', '/proc/sys/kernel/random/boot_id'], options) ||
+      ''
+    ).trim();
+    const booted = (
+      tryRun('adb', ['-s', serial, 'shell', 'getprop', 'sys.boot_completed'], options) || ''
+    ).trim();
+    const packageService =
+      tryRun('adb', ['-s', serial, 'shell', 'service', 'check', 'package'], options) || '';
+    if (after && after !== before && booted === '1' && packageService.includes('found')) {
+      assertAndroidTarget({ serial, expectedAvd: name, allowPending: true });
+      const created = tryRun('adb', ['-s', serial, 'shell', 'pm', 'install-create'], options) || '';
+      const session = created.match(/\[(\d+)\]/);
+      if (created.includes('Success') && session) {
+        assertAndroidTarget({ serial, expectedAvd: name, allowPending: true });
+        if (
+          tryRun('adb', ['-s', serial, 'shell', 'pm', 'install-abandon', session[1]], options) ===
+          null
+        ) {
+          die(`could not abandon the package-readiness probe on ${name}`);
+        }
+        assertAndroidTarget({ serial, expectedAvd: name, allowPending: true });
+        return;
+      }
+    }
+    await sleep(2000);
   }
-  die(`emulator ${name} did not stop for its requested reboot`);
+  die(`Android on ${name} did not finish rebooting`);
 }
 
-export async function ensureAvd(
-  name,
-  { preserveConfig = false, reboot = false, keyboardRestarted = false, coldBoot = false } = {},
-) {
+export async function ensureAvd(name, { preserveConfig = false, reboot = false } = {}) {
   if (!avdNames().includes(name)) {
     if (preserveConfig)
       die(`legacy QA AVD ${name} does not exist; create the pinned fixture first`);
@@ -189,13 +220,11 @@ export async function ensureAvd(
   let serial = runningEmus()[name];
   if (serial && reboot) {
     if (!preserveConfig) pinSoftKeyboard(name, serial);
-    await stopAvd(name, serial);
-    serial = null;
-    coldBoot = true;
+    await rebootGuest(name, serial);
   }
   if (!serial) {
     info(`booting emulator ${name} (first boot can take a couple of minutes)`);
-    const child = spawn(EMULATOR, ['-avd', name, ...(coldBoot ? ['-no-snapshot-load'] : [])], {
+    const child = spawn(EMULATOR, ['-avd', name], {
       detached: true,
       stdio: 'ignore',
     });
@@ -227,10 +256,19 @@ export async function ensureAvd(
     // wait on it rather than assuming package-service readiness covers it.
     let storageReady = false;
     for (let i = 0; i < 60; i++) {
-      const created = tryRun('adb', ['-s', serial, 'shell', 'pm', 'install-create']) || '';
+      assertAndroidTarget({ serial, expectedAvd: name, allowPending: true });
+      const created =
+        tryRun('adb', ['-s', serial, 'shell', 'pm', 'install-create'], { timeout: 5000 }) || '';
       const match = created.match(/\[(\d+)\]/);
       if (created.includes('Success') && match) {
-        tryRun('adb', ['-s', serial, 'shell', 'pm', 'install-abandon', match[1]]);
+        assertAndroidTarget({ serial, expectedAvd: name, allowPending: true });
+        if (
+          tryRun('adb', ['-s', serial, 'shell', 'pm', 'install-abandon', match[1]], {
+            timeout: 5000,
+          }) === null
+        ) {
+          die(`could not abandon the package-readiness probe on ${name}`);
+        }
         storageReady = true;
         break;
       }
@@ -239,10 +277,19 @@ export async function ensureAvd(
     if (!storageReady) die(`emulator ${name} (${serial}): storage manager never came up`);
   }
   if (!preserveConfig && pinSoftKeyboard(name, serial)) {
-    if (keyboardRestarted) die(`software-keyboard setting did not persist after rebooting ${name}`);
-    info(`rebooting ${name} after enabling the software keyboard`);
-    await stopAvd(name, serial);
-    return ensureAvd(name, { keyboardRestarted: true, coldBoot: true });
+    info(`rebooting Android on ${name} after enabling the software keyboard`);
+    await rebootGuest(name, serial);
+    const setting = tryRun('adb', [
+      '-s',
+      serial,
+      'shell',
+      'settings',
+      'get',
+      'secure',
+      'show_ime_with_hard_keyboard',
+    ]);
+    if (setting?.trim() !== '1')
+      die(`software-keyboard setting did not persist after rebooting ${name}`);
   }
   return serial;
 }
