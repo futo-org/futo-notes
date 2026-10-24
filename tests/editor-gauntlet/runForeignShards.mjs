@@ -234,7 +234,7 @@ async function prepare(opts, root, dir) {
   const testEnv = Object.fromEntries(
     Object.entries(process.env)
       .filter(([key]) => key.startsWith('EDITOR_GAUNTLET_'))
-      .sort(([a], [b]) => a.localeCompare(b)),
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)),
   );
   for (const key of [
     'EDITOR_GAUNTLET_REPORT_PATH',
@@ -245,7 +245,7 @@ async function prepare(opts, root, dir) {
   const buildEnv = Object.fromEntries(
     Object.entries(process.env)
       .filter(([key]) => key.startsWith('VITE_'))
-      .sort(([a], [b]) => a.localeCompare(b)),
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)),
   );
   const config = {
     schema: 1,
@@ -292,7 +292,16 @@ async function prepare(opts, root, dir) {
   writeJson(path.join(dir, 'plan.json'), plan);
   return plan;
 }
-async function sweep(argv) {
+export async function withSchedulerLock(file, command) {
+  const child = spawn('flock', ['--nonblock', '--conflict-exit-code', '73', file, ...command], {
+    stdio: 'inherit',
+  });
+  return new Promise((resolve, reject) => {
+    child.once('error', reject);
+    child.once('exit', (code) => resolve(code ?? 1));
+  });
+}
+async function sweep(argv, locked = false) {
   if (argv.includes('--help')) {
     console.log(usage);
     return;
@@ -307,6 +316,18 @@ async function sweep(argv) {
   const parent = path.join(root, 'tests/editor-gauntlet/local/sweeps');
   fs.mkdirSync(parent, { recursive: true });
   const dir = path.join(parent, opts.name);
+  if (!locked) {
+    process.exitCode = await withSchedulerLock(path.join(parent, `.${opts.name}.lock`), [
+      process.execPath,
+      '--experimental-strip-types',
+      script,
+      '--locked',
+      ...argv,
+    ]);
+    if (process.exitCode === 73)
+      console.error(`another scheduler already owns sweep ${opts.name}; inspect that run instead`);
+    return;
+  }
   const plan = await prepare(opts, root, dir);
   const waiting = new Set();
   const running = new Set();
@@ -397,7 +418,12 @@ async function sweep(argv) {
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const args = process.argv.slice(2);
-  (args[0] === '--shard' ? runShard(args[1], Number(args[2])) : sweep(args)).catch((error) => {
+  (args[0] === '--shard'
+    ? runShard(args[1], Number(args[2]))
+    : args[0] === '--locked'
+      ? sweep(args.slice(1), true)
+      : sweep(args)
+  ).catch((error) => {
     console.error(error.message);
     process.exitCode = 1;
   });

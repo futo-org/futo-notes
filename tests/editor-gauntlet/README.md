@@ -157,7 +157,9 @@ before using the foreign corpus, and do not commit derived fixtures.
 ### Memory-bounded Linux fleets
 
 `just gauntlet-milkdown-sweep <name>` runs modulo shards in separate systemd
-user services. Each service has a memory cap (default 6 GiB, swap disabled),
+user services (requires `flock` as well as systemd). An OS lock rejects a
+second live scheduler for the same run with exit 73, and is released when
+that scheduler dies. Each service has a memory cap (default 6 GiB, swap disabled),
 and the scheduler starts at most two at once, reduced further by current
 available memory minus 4 GiB reserved for other work. It refuses to start a
 shard when that headroom is unavailable. A browser OOM belongs to that

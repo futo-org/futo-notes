@@ -4,7 +4,12 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { memorySlots, resumableShard, serviceArgs } from './runForeignShards.mjs';
+import {
+  memorySlots,
+  resumableShard,
+  serviceArgs,
+  withSchedulerLock,
+} from './runForeignShards.mjs';
 
 describe('corpus sweep resource and resume contract', () => {
   it('reserves headroom and caps parallelism instead of launching every shard', () => {
@@ -93,3 +98,36 @@ it('shows help or rejects unknown arguments before creating a run or calling sys
     fs.rmSync(scratch, { recursive: true, force: true });
   }
 });
+
+it.skipIf(process.platform !== 'linux')(
+  'rejects a concurrent scheduler through an OS lock and releases it after exit',
+  async () => {
+    const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'futo-corpus-lock-'));
+    const ready = path.join(scratch, 'ready');
+    const release = path.join(scratch, 'release');
+    const lock = path.join(scratch, 'scheduler.lock');
+    const first = withSchedulerLock(lock, [
+      process.execPath,
+      '-e',
+      "const fs=require('node:fs');fs.writeFileSync(process.argv[1],'');setInterval(()=>{if(fs.existsSync(process.argv[2]))process.exit(0)},10)",
+      ready,
+      release,
+    ]);
+    try {
+      const until = Date.now() + 3000;
+      while (!fs.existsSync(ready)) {
+        if (Date.now() > until) throw new Error('first scheduler did not acquire its lock');
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      expect(await withSchedulerLock(lock, [process.execPath, '-e', 'process.exit(0)'])).toBe(73);
+    } finally {
+      fs.writeFileSync(release, '');
+      await first;
+    }
+    try {
+      expect(await withSchedulerLock(lock, [process.execPath, '-e', 'process.exit(0)'])).toBe(0);
+    } finally {
+      fs.rmSync(scratch, { recursive: true, force: true });
+    }
+  },
+);
