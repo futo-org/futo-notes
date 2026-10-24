@@ -62,3 +62,13 @@ it('cleans only its private output when a build fails', async () => {
   await expect(setup()).rejects.toThrow('bundle failed');
   expect(fs.readdirSync('build')).toEqual(before);
 });
+
+it('rejects a freshly built bundle that differs from a sweep snapshot', async () => {
+  vi.stubEnv('FUTO_EDITOR_EMBED_EXPECTED_SHA256', '0'.repeat(64));
+  build.mockImplementation(async (config) => {
+    fs.mkdirSync(config.build.outDir, { recursive: true });
+    fs.writeFileSync(path.join(config.build.outDir, 'editor.html'), 'changed build');
+  });
+  const { default: setup } = await import('../editorEmbedBundle.ts');
+  await expect(setup()).rejects.toThrow(/bundle.*differs.*snapshot/i);
+});

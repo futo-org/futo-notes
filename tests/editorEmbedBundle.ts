@@ -1,4 +1,5 @@
-import { existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { Plugin, PluginOption } from 'vite';
@@ -46,6 +47,10 @@ export default async function buildEditorEmbedBundle(): Promise<() => void> {
     });
     if (!existsSync(bundle)) {
       throw new Error(`editor-embed harness: bundle was not produced at ${bundle}`);
+    }
+    const expected = process.env.FUTO_EDITOR_EMBED_EXPECTED_SHA256;
+    if (expected && createHash('sha256').update(readFileSync(bundle)).digest('hex') !== expected) {
+      throw new Error('editor-embed harness: fresh bundle differs from the sweep snapshot');
     }
     process.env.FUTO_EDITOR_EMBED_BUNDLE_PATH = bundle;
     return cleanup;
