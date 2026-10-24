@@ -18,6 +18,11 @@ production app or real notes.
 
 ## Toolchain
 
+macOS does not include GNU `timeout`. For bounded process calls in portable
+Node tooling, use `execFileSync(command, args, { timeout: milliseconds })` or
+`spawnSync`'s `timeout`; do not rely on an uninstalled shell command to bound a
+simctl or AXe operation.
+
 Everything below assumes: Xcode (with a downloaded simulator runtime),
 `xcodegen` (brew), the Rust iOS targets (`aarch64-apple-ios-sim`), and `axe`.
 `just ios-native` fails with a clear message when something is missing.
@@ -134,7 +139,12 @@ axe batch --udid $SIM --wait-timeout 8 \
 ```
 
 `axe type` sends HID keyboard events; its success does not prove every character
-arrived or that the software keyboard remains visible. On iOS 26.x HID input can
+arrived or that the software keyboard remains visible. On iOS 27 HID text can
+also deliver nothing: `IOS_TEXT_INPUT=softwareKeyboard just test-ios-stories`
+uses real touches on the software keys instead. A story must confirm the saved
+marker, not AXe's exit code. AXe can also report `No translation object` after
+delivering a touch; the self-link story observes the expected rename/edit on
+disk before deciding whether input failed. On iOS 26.x HID input can
 hide the software keys even when the text arrives. When keyboard visibility,
 virtual-key hit-testing, or the editor accessory is part of the assertion, tap
 the currently visible keyboard keys with `axe tap` and re-read the tree after
@@ -222,15 +232,19 @@ axe button home --udid $SIM && cat "$NOTES/<note>.md"   # → **boldtext**
 ```
 
 On a 402pt-wide iPhone only the first eight sit inside the toolbar's viewport;
-`checklist`, `camera`, and `photo` report at x-centers past the right edge and
-cannot be tapped where they are. **This is a tooling limit, not an app defect.**
-The bar is a real `ScrollView(.horizontal)` with a measured trailing inset that
-peeks the edge icon (`EditorToolbar.swift` `computeSnap`, spec'd under "Scroll
-affordance" in `docs/spec/editor.md`) — but `axe` cannot scroll it: `gesture` is
-a no-op and an explicit `swipe` across the accessory row left every item's frame
-unchanged. So the trailing items are **unexercised by automation**, and their
-absence from `--on-screen-only` is not evidence they are broken. Verify them by
-hand on a device, or on a wider simulator where they start on-screen.
+`checklist`, `camera`, and `photo` initially report at x-centers past the right
+edge. Read their frames before tapping. `gesture` and some `swipe` paths can
+report success without moving this horizontal row; use explicit move events:
+
+```bash
+axe drag --udid "$SIM" --start-x 330 --start-y "$TOOLBAR_Y" \
+  --end-x 80 --end-y "$TOOLBAR_Y" --duration 0.6 --steps 30
+```
+
+Derive `TOOLBAR_Y` from a currently visible toolbar button's frame, keep the drag
+inside the row, then re-read the tree and confirm the intended button's center
+is on-screen before tapping. An off-screen AX frame is evidence to scroll,
+not evidence the control is unreachable.
 
 ### What axe cannot reach
 
@@ -250,6 +264,13 @@ iPhone simulators.
 just sim-screenshot ios-dark-list    # → ./test-screenshots/ios/s<SLOT>/<SIM>/ios-dark-list.png
 just sim-appearance dark             # system dark mode (app + editor follow live)
 just sim-appearance light
+```
+
+If a PNG exceeds an image reader's input limit, re-encode the owned capture as
+JPEG; resizing the PNG alone can still leave it too large:
+
+```bash
+sips -s format jpeg -s formatOptions 80 "$CAPTURE_PNG" --out "$CAPTURE_JPEG"
 ```
 
 Editor-story warmup and failure screenshots use the same worktree-slot and

@@ -24,6 +24,22 @@ auto-seeds `Welcome.md` — wipe-and-relaunch can never show the bare
 "No notes yet" state. To reach true-empty, delete the last note **in-app**
 (row long-press → Delete → confirm) and don't relaunch afterward.
 
+### Preferences and device-container safety
+
+Change preferences through the app UI when possible. Otherwise terminate the
+debug app **before** `xcrun simctl spawn "$SIM" defaults write ...`, then launch
+it again: a running app can retain a different cached value even while
+`defaults read` shows your new one. Editing the container's preferences plist
+directly is unreliable even after termination because `cfprefsd` caches it;
+`plutil -replace` is not a substitute. In plutil keypaths, literal dots need
+escaping (`futo\.serverURL`), whereas `defaults` takes the literal key.
+
+For physical-device fixtures, `devicectl device copy to` must not use
+`--remove-existing-content true`: it can remove the app's whole Documents tree,
+even when the destination names one subdirectory and the command exits nonzero.
+Copy into a dedicated fixture directory without that option and retain a backup
+of any container holding data you did not create.
+
 ### The flush-and-read trick (editor content verification)
 
 The editor WKWebView is not reachable via CDP or JS from outside (no
@@ -65,3 +81,8 @@ sync server" in SKILL.md; when this machine cannot reach the package registry
 and `~/.cache/futo-notes` is cold, record sync happy-path stories as
 **Blocked**, not failed.
 
+A simulator keychain `reset` does **not** reliably remove a root installed with
+`keychain add-root-cert`. For a negative TLS-trust test, present a certificate
+from a second CA that was never installed; do not infer untrusted state from a
+successful reset command. The claim handoff resets app credentials, but that
+is not proof of a clean trust store.

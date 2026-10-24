@@ -57,11 +57,14 @@ cargo build -p futo-notes-ffi --target x86_64-apple-ios --profile "$PROFILE"
 echo "==> Building host lib (for binding generation metadata)"
 cargo build -p futo-notes-ffi
 
+# UniFFI's optional formatter is the unrelated `swiftformat` executable, not
+# Xcode's `swift-format`. These generated files are excluded from Swift lint;
+# skip that optional pass instead of warning on every otherwise healthy build.
 echo "==> Generating Swift bindings"
 rm -rf "$GEN"; mkdir -p "$GEN"
 cargo run -p futo-notes-ffi --bin uniffi-bindgen -- generate \
   --library "$TARGET_DIR/debug/libfuto_notes_ffi.dylib" \
-  --language swift \
+  --language swift --no-format \
   --out-dir "$GEN"
 
 echo "==> Assembling module headers"
