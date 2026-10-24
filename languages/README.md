@@ -140,9 +140,10 @@ source lines containing single/double quotes or backticks. The default roots are
 for example `just audit-localization-source src/features/settings apps/ios`.
 `--root <checkout>` selects another checkout and its language catalogs.
 
-Patterns are passed directly to ripgrep as arguments, so mixed quotes,
-backticks and interpolated source text never undergo shell evaluation. Catalog
-paths come from the same validated catalog model as `check:languages`, including
+The pinned Node filesystem globber inventories source directly; no external search binary is
+required. Patterns stay inside JavaScript, so mixed quotes, backticks and interpolated source
+text never undergo shell evaluation. Dependency, build, generated and hidden directories
+are omitted from directory scans. Catalog paths come from the same validated catalog model as `check:languages`, including
 plural leaves. Scan errors fail the command; a source with no matches produces
 empty arrays.
 

@@ -71,3 +71,20 @@ it('reports no matches as empty data, and rejects missing paths and broken catal
   fs.writeFileSync(path.join(dir, 'languages/en.json'), '{');
   expect(run(dir, '.').status).toBe(1);
 });
+
+it('runs on the pinned Node toolchain without external search binaries and omits dependency/build output', () => {
+  const dir = fixture();
+  const emptyPath = path.join(dir, 'empty-path');
+  fs.mkdirSync(emptyPath);
+  for (const ignored of ['node_modules', 'build', '.build', 'Generated']) {
+    fs.mkdirSync(path.join(dir, ignored));
+    fs.writeFileSync(path.join(dir, ignored, 'Output.ts'), 'localizedText("ignored.generated")');
+  }
+  const result = spawnSync(
+    process.execPath,
+    ['scripts/localization-source-audit.mjs', '--root', dir, '.'],
+    { encoding: 'utf8', timeout: 10000, env: { ...process.env, PATH: emptyPath } },
+  );
+  expect(result.status, result.stderr).toBe(0);
+  expect(JSON.parse(result.stdout).calls).toHaveLength(4);
+});

@@ -1,11 +1,10 @@
 #!/usr/bin/env node
-// Read-only localization review inventory. Uses ripgrep JSON, passed as argv,
-// so quote/backtick patterns never pass through shell evaluation. This is a
-// line inventory for human review, not a parser or a localization-compliance gate.
+// Read-only localization review inventory using pinned Node filesystem globbing.
+// Patterns stay in JavaScript, so quote/backtick source never passes through a shell.
+// A line inventory for human review, not a parser or a localization-compliance gate.
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { spawnSync } from 'node:child_process';
 import { validateLanguageCatalogs } from './language-catalogs.mjs';
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -13,47 +12,42 @@ const defaultPaths = ['src', 'packages/editor', 'apps/ios', 'apps/android'];
 const quoted = '["\x27`]';
 
 function matchingLines(root, paths, pattern) {
-  const result = spawnSync(
-    'rg',
-    [
-      '--json',
-      '--line-number',
-      '--glob',
-      '*.ts',
-      '--glob',
-      '*.svelte',
-      '--glob',
-      '*.swift',
-      '--glob',
-      '*.kt',
-      '--regexp',
-      pattern,
-      '--',
-      ...paths,
-    ],
-    { cwd: root, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 },
-  );
-  if (result.error) throw result.error;
-  if (result.status !== 0 && result.status !== 1)
-    throw new Error(`Localization source scan failed: ${result.stderr.trim() || result.status}`);
-  return result.stdout
-    .split('\n')
-    .filter(Boolean)
-    .flatMap((line) => {
-      const event = JSON.parse(line);
-      if (event.type !== 'match') return [];
-      return [
-        {
-          path: path
-            .relative(root, path.resolve(root, event.data.path.text))
-            .split(path.sep)
-            .join('/'),
-          line: event.data.line_number,
-          text: event.data.lines.text.replace(/\r?\n$/, ''),
-        },
-      ];
-    })
-    .sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : a.line - b.line));
+  const files = new Set();
+  for (const source of paths) {
+    const absolute = path.resolve(root, source);
+    const candidates = fs.statSync(absolute).isDirectory()
+      ? fs
+          .globSync('**/*.{ts,svelte,swift,kt}', {
+            cwd: absolute,
+            exclude: [
+              '**/node_modules/**',
+              '**/build/**',
+              '**/target/**',
+              '**/Generated/**',
+              '**/generated/**',
+              '**/.*',
+            ],
+          })
+          .map((file) => path.join(absolute, file))
+      : [absolute];
+    for (const file of candidates) {
+      if (/\.(ts|svelte|swift|kt)$/.test(file) && fs.statSync(file).isFile()) files.add(file);
+    }
+  }
+  const rows = [];
+  const expression = new RegExp(pattern);
+  for (const file of files) {
+    const lines = fs.readFileSync(file, 'utf8').split(/\r?\n/);
+    for (let index = 0; index < lines.length; index++) {
+      if (expression.test(lines[index]))
+        rows.push({
+          path: path.relative(root, file).split(path.sep).join('/'),
+          line: index + 1,
+          text: lines[index],
+        });
+    }
+  }
+  return rows.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : a.line - b.line));
 }
 
 export function auditLocalizationSource({ root = repositoryRoot, paths = defaultPaths } = {}) {
