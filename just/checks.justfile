@@ -108,3 +108,11 @@ release-notes-check tag="":
 # this same script non-blocking (docs/architecture-gates.md).
 quality *args:
   node scripts/bca-quality.mjs "$@"
+
+# Run a JavaScript probe as an ES module (top-level await; trailing args stay literal).
+node-eval code *args: check-node-version
+  @node --input-type=module --eval "$@"
+
+# Check Svelte components with the same warning policy as just check.
+check-svelte: check-node-version _require-node-modules
+  pnpm run check:svelte
