@@ -154,8 +154,8 @@ Connect `driver_session` with action `start` and **`port` = the discovered
 
 A newer MCP server may warn that the pinned 0.10 bridge cannot report its plugin version and
 recommend 0.13. That warning can accompany a usable connection: check a synchronous read against
-the verified target before treating it as a setup failure. It does not grant permission to upgrade
-dependencies or bypass a command error.
+the verified target before treating it as a setup failure. Check command errors separately;
+the version warning alone does not identify their cause.
 
 - `webview_dom_snapshot` (type: accessibility) — UI state with `[ref=eN]` ids
 - `webview_interact` — click/scroll/swipe by ref, CSS selector, or text
