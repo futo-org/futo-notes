@@ -30,6 +30,16 @@ SDK/pinned NDK/cargo-ndk/JDK 17 or 21. Set `ANDROID_HOME`, `ANDROID_NDK_HOME` an
 `JAVA_HOME` as directed by the Android manual. Setup does not provision SDKs, claim
 devices, launch apps or prove device readiness. Existing `pnpm prepare` hooks still run.
 
+For one Vitest file in a fresh worktree, use the public recipe:
+
+```bash
+just test-one scripts/package-safety-policy.test.mjs
+```
+
+`test-one` installs dependencies when `node_modules` is absent, then runs the requested file.
+Raw `pnpm exec vitest` requires an existing install. The full `just check` keeps its read-only
+prerequisite guard; run `just install` before it when dependencies are missing.
+
 For a check that cannot install Node or dependencies, use:
 
 ```bash
