@@ -111,7 +111,11 @@ quality *args:
 
 # Run a JavaScript probe as an ES module (top-level await; trailing args stay literal).
 node-eval code *args: check-node-version
-  @node --input-type=module --eval "$@"
+  #!/usr/bin/env bash
+  set -euo pipefail
+  probe_source="$1"
+  shift
+  exec node --input-type=module --eval "$probe_source" -- "$@"
 
 # Check Svelte components with the same warning policy as just check.
 check-svelte: check-node-version _require-node-modules
