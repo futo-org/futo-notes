@@ -22,6 +22,22 @@ describe('parseTarget', () => {
   });
 });
 
+describe('pipeline ID targets', () => {
+  it('accepts bare and explicit IDs, while allowing numeric refs and SHAs explicitly', () => {
+    expect(parseTarget('42345')).toEqual({ kind: 'pipeline', id: 42345 });
+    expect(parseTarget('pipeline:42345')).toEqual({ kind: 'pipeline', id: 42345 });
+    expect(parseTarget('12345678')).toEqual({ kind: 'pipeline', id: 12345678 });
+    expect(parseTarget('ref:12345678')).toEqual({ kind: 'ref', ref: '12345678' });
+    expect(parseTarget('sha:12345678')).toEqual({ kind: 'sha', sha: '12345678' });
+  });
+
+  it('fetches the exact pipeline instead of searching refs', async () => {
+    const api = fakeApi([['/pipelines/42345', [{ id: 42345, status: 'success' }]]]);
+    expect(await findPipeline(parseTarget('42345'), api)).toEqual({ id: 42345, status: 'success' });
+    expect(api.calls).toEqual(['/pipelines/42345']);
+  });
+});
+
 describe('exitCodeFor', () => {
   it('is 0 only for success, 1 for every other terminal state, 2 otherwise', () => {
     expect(exitCodeFor('success')).toBe(0);

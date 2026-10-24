@@ -15,10 +15,9 @@ test:rust:workspace:
     - !reference [.cache-cargo-tauri, cache]
   script:
     # `cargo test --workspace` compiles the futo-notes-tauri desktop crate,
-    # which links gtk-sys/gobject-sys and needs the GTK/webkit dev libs. The
-    # default kitchensink image does not ship them, so install them here — the
-    # same pattern the linux build + cross-platform-sync jobs already use.
-    # Without this the job dies at `gobject-2.0 not found`.
+    # which links gtk-sys/gobject-sys and needs the GTK/WebKit dev libs.
+    # .ci-test-image already includes them; .setup-linux-deps is a no-op there
+    # and supplies them if this job is moved to an image without baked deps.
     - !reference [.setup-linux-deps, script]
     - !reference [.setup-rust, script]
     # One metadata traversal replaces the former standalone dep-guard job.
