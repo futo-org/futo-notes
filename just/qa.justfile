@@ -165,3 +165,7 @@ qa-android-target:
 # Verify the installed dev APK matches this worktree (or the supplied APK).
 qa-android-apk *args:
   @node scripts/qa.mjs android-apk "$@"
+
+# Restart only the claimed Android emulator with a PNG camera poster and enter its image room.
+emu-camera-poster png:
+  @node scripts/qa.mjs camera-poster "$@"

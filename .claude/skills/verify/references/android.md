@@ -117,6 +117,7 @@ just android-drive tree                     # labeled tap targets: "  114,121   
 just android-drive tap 'Settings'           # find by label (scrolling if needed), tap once
 just android-drive wait shellVisible=true storageMode=DEVICE
 just android-drive hook storage-mode mode=DEVICE
+just android-drive text --replace 'replacement value'  # replace a focused native field
 just android-drive logs                     # the app's tagged logs
 just android-drive shot android-dark-list   # → ./test-screenshots/android-dark-list.png
 just android-drive relaunch                 # restart and wait until it answers again
@@ -138,6 +139,7 @@ code under test.
 ```bash
 just android-drive hook state              # every field of the state snapshot
 just android-drive hook storage-mode mode=DEVICE
+just android-drive text --replace 'replacement value'  # replace a focused native field
 just android-drive hook confirm-storage
 just android-drive hook nonesuch           # errors listing the hooks that DO exist
 ```
@@ -152,7 +154,7 @@ few lines in `MainActivity.testHooks()` (`MainActivityTestHooks.kt`); see `apps/
 adb shell input swipe 850 1459 150 1459 300  # swipe row left → reveal actions
 adb shell input swipe X Y X Y 700            # long-press (same point, 700ms)
 adb shell input text 'grocery%slist'         # type into focused field (%s = space)
-adb shell input keyevent 4                   # Back (also drops the keyboard)
+just android-drive back                     # navigation-mode-aware Back / IME dismissal
 adb shell input keyevent 67                  # Backspace
 ```
 
@@ -172,6 +174,12 @@ you `state`/`waitForState`/`callHook`/`tap`/`waitForLabel`/`shellBatch` plus
 out. `tests/android-storage-migration.mjs` is the worked example — six
 user-level stories, hook-driven except where the UI itself is under test.
 Prefer it over ad-hoc `adb` pipelines pasted into a shell block.
+
+Back follows the device navigation mode: `back`, `key back`, `key 4`, and
+`key KEYCODE_BACK` use a left-edge gesture on gesture-navigation devices and a
+Back key on button-navigation devices. Unknown modes fail with a diagnostic.
+`text` appends by default; use `text --replace` to select all, clear, and enter a
+new native-field value. A missing tap label fails the command.
 
 ## 4. Drive the editor WebView via CDP
 
@@ -261,6 +269,26 @@ host-side service (sync server URL in Settings, etc.). There is no sync hook yet
 so connect through Settings → Sync in the app UI; if you find yourself tapping
 that flow repeatedly, add one to `MainActivity.testHooks()` (`MainActivityTestHooks.kt`) instead. Server
 setup: see "Features that need a sync server" in SKILL.md.
+
+## Camera poster for QR stories
+
+Save and close the current QA app first: this command restarts its claimed
+emulator. It preserves AVD config and app data, validates the PNG and SDK macro
+before stopping anything, and enables the virtual-scene back camera with the
+image on both wall and table posters.
+
+```bash
+eval "$(just emu-camera-poster /absolute/path/to/qr.png)"
+```
+
+Keep the refreshed serial/name exports, then open the scanner. The helper plays
+the SDK's `Walk_to_image_room` macro; wait for an actual preview rather than a
+camera splash screen before judging the QR image. A fresh system Camera app may
+show onboarding first. PNGs must decode and fit within 4096 by 4096 pixels.
+
+To swap a QR code, overwrite the same PNG path and close/reopen the app's camera
+session. The emulator rereads the poster on a new camera session, not when the
+file changes. A different poster path requires running the helper again.
 
 ## Known gotchas
 

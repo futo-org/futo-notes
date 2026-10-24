@@ -24,6 +24,7 @@
 // `claim` prints `export SIM=…` / `export ANDROID_SERIAL=…` lines on stdout
 // (progress goes to stderr), so shells can `eval "$(node scripts/qa.mjs claim all)"`.
 
+import { showCameraPoster } from './qa/android-camera.mjs';
 import { verifyAndroidApk } from './qa/android-apk.mjs';
 import { assertAndroidTarget } from './qa/android-target.mjs';
 import fs from 'node:fs';
@@ -253,7 +254,7 @@ function cmdStatus() {
 // ── main ───────────────────────────────────────────────────────────────────
 
 const USAGE =
-  'usage: qa.mjs claim [ios|android|all] [--reboot] [--avd legacy-name] | android-target | android-apk [path] | status | release [ios|android] [--shutdown] | gc | server-start [--standin] | server-stop [--drop] | avd-baseline';
+  'usage: qa.mjs claim [ios|android|all] [--reboot] [--avd legacy-name] | camera-poster <png> | android-target | android-apk [path] | status | release [ios|android] [--shutdown] | gc | server-start [--standin] | server-stop [--drop] | avd-baseline';
 const [cmd, ...args] = process.argv.slice(2);
 // Handle help before worktree discovery or invoking any platform tool. A help
 // request must never acquire an owner file, boot a device, or wipe app data.
@@ -280,6 +281,19 @@ switch (cmd) {
     }
     if (positional.length > 1) die('claim accepts at most one platform: ios, android or all');
     await cmdClaim(positional[0] || 'all', { reboot, avd });
+    break;
+  }
+  case 'camera-poster': {
+    if (args.length !== 1) die('camera-poster needs one PNG path');
+    try {
+      const result = await showCameraPoster(args[0]);
+      process.stdout.write(
+        `export ANDROID_SERIAL=${result.serial}\nexport ANDROID_AVD_NAME=${result.name}\n`,
+      );
+      info('Camera poster ready; reopen the camera/scanner to load the PNG.');
+    } catch (error) {
+      die(error.message);
+    }
     break;
   }
   case 'android-apk':

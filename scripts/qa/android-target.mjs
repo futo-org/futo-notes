@@ -22,15 +22,24 @@ export function assertAndroidTarget({
     throw new Error(`${target} is ${name}, expected ${expectedAvd}; re-run just qa-claim android`);
   }
   if (/^futo-qa-\d+$/.test(name) || LEGACY_ANDROID_AVDS.includes(name)) {
-    const owner = readOwner('android', name);
-    if (!owner) throw new Error(`${name} is unclaimed; run just qa-claim android`);
-    if (owner.worktree !== worktreeRoot()) {
-      throw new Error(
-        `${name} is claimed by another worktree (${owner.worktree}); re-run just qa-claim android`,
-      );
-    }
-    if (owner.wipePending && !allowPending)
-      throw new Error(`${name} claim is not ready; re-run just qa-claim android`);
+    assertAndroidClaim(name, { allowPending });
   }
   return target;
+}
+
+// Ownership can be checked while the emulator is offline during a controlled
+// restart, when there is no adb transport with which to verify its live name.
+export function assertAndroidClaim(name, { allowPending = false } = {}) {
+  if (!/^futo-qa-\d+$/.test(name) && !LEGACY_ANDROID_AVDS.includes(name)) {
+    throw new Error(`${name} is not a managed QA AVD`);
+  }
+  const owner = readOwner('android', name);
+  if (!owner) throw new Error(`${name} is unclaimed; run just qa-claim android`);
+  if (owner.worktree !== worktreeRoot()) {
+    throw new Error(
+      `${name} is claimed by another worktree (${owner.worktree}); re-run just qa-claim android`,
+    );
+  }
+  if (owner.wipePending && !allowPending)
+    throw new Error(`${name} claim is not ready; re-run just qa-claim android`);
 }

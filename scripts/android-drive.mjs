@@ -29,8 +29,8 @@ const USAGE = `android-drive — drive the native Android app (debug build)
   state                    the app's own state snapshot as JSON (fast; no UI dump)
   tree                     labeled tap targets from the accessibility tree
   tap <label>              tap the control carrying <label>, scrolling to find it
-  text <string>            type into the focused field (not the editor WebView)
-  key <code> | back | home send a key event (4 = back, 3 = home)
+  text [--replace] <text>  append to, or replace, a focused native field
+  key <code> | back | home navigation-mode-aware Back; other keys use key events
   hook <name> [k=v ...]    run a named debug hook and wait for its ack
   wait <field>=<value>     wait until the state snapshot reports that field
   logs [tags...]           dump the app's tagged logs
@@ -93,11 +93,18 @@ async function run(command, args, device) {
       return;
     }
 
-    case 'text':
-      device.typeText(args.join(' '));
+    case 'text': {
+      const replace = args[0] === '--replace';
+      device.typeText((replace ? args.slice(1) : args).join(' '), { replace });
       return;
+    }
 
     case 'key':
+      if (['back', '4', 'KEYCODE_BACK'].includes(args[0])) {
+        device.back();
+        return;
+      }
+      if (!args[0]) throw new Error('key needs a key code');
       device.adb.keyevent(args[0]);
       device.invalidateUi();
       return;

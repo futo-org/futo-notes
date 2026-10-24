@@ -203,7 +203,10 @@ async function rebootGuest(name, serial) {
   die(`Android on ${name} did not finish rebooting`);
 }
 
-export async function ensureAvd(name, { preserveConfig = false, reboot = false } = {}) {
+export async function ensureAvd(
+  name,
+  { preserveConfig = false, reboot = false, emulatorArgs = [] } = {},
+) {
   if (!avdNames().includes(name)) {
     if (preserveConfig)
       die(`legacy QA AVD ${name} does not exist; create the pinned fixture first`);
@@ -224,7 +227,7 @@ export async function ensureAvd(name, { preserveConfig = false, reboot = false }
   }
   if (!serial) {
     info(`booting emulator ${name} (first boot can take a couple of minutes)`);
-    const child = spawn(EMULATOR, ['-avd', name], {
+    const child = spawn(EMULATOR, ['-avd', name, ...emulatorArgs], {
       detached: true,
       stdio: 'ignore',
     });

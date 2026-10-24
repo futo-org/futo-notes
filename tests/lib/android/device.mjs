@@ -17,6 +17,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { createAdbClient } from './adbClient.mjs';
+import { navigateBack, readDisplaySize } from './navigation.mjs';
 import { describeUiNodes, parseUiNodes } from './uiTree.mjs';
 import {
   createTokenSource,
@@ -198,15 +199,10 @@ export function createAndroidDevice({
   const findLabel = (label, options) =>
     uiNodes(options).find((node) => node.label === label) ?? null;
 
-  /** Physical size, read once — swipe distances derive from it so the driver is
+  /** Effective display size, read once — swipe distances derive from it so the driver is
    *  not tuned to one AVD's resolution. */
   function screenSize() {
-    cachedScreen ??= (() => {
-      const match = adb.shell('wm size', { allowFailure: true }).match(/(\d+)x(\d+)/);
-      return match
-        ? { width: Number(match[1]), height: Number(match[2]) }
-        : { width: 1080, height: 1920 };
-    })();
+    cachedScreen ??= readDisplaySize(adb);
     return cachedScreen;
   }
 
@@ -279,7 +275,7 @@ export function createAndroidDevice({
   // ── Input that invalidates the tree ─────────────────────────────
 
   const back = () => {
-    adb.keyevent(4);
+    navigateBack(adb);
     invalidateUi();
   };
 
@@ -289,8 +285,9 @@ export function createAndroidDevice({
     invalidateUi();
   };
 
-  const typeText = (text) => {
-    adb.typeText(text);
+  const typeText = (text, { replace = false } = {}) => {
+    if (replace) adb.replaceText(text);
+    else adb.typeText(text);
     invalidateUi();
   };
 

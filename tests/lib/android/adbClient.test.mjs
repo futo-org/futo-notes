@@ -145,4 +145,35 @@ describe('pooled Android target identity', () => {
     });
     expect(() => client.shell('echo identity-probe')).toThrow(/claimed by another worktree/);
   });
+  it('replaces a native field through the shared client and accepts quoted text in the sync sibling', async () => {
+    const commands = [];
+    const execFile = vi.fn((_command, args) => {
+      commands.push(args.at(-1));
+      return '';
+    });
+    const client = createAdbClient({ pkg: 'com.futo.notes.dev', serial: 'fake-phone', execFile });
+    client.replaceText('https://10.0.2.2:8445');
+    expect(commands).toEqual([
+      'input keycombination 113 29',
+      'input keyevent 67',
+      "input text 'https://10.0.2.2:8445'",
+    ]);
+    const { AndroidDevice } = await import('../android-device.mjs');
+    expect(() =>
+      new AndroidDevice('fake-phone', { execFile }).typeReplacingSelection("Bob's note"),
+    ).not.toThrow();
+    expect(commands.at(-1)).toContain('Bob');
+  });
+  it('uses the gesture Back driver in the sync harness sibling too', async () => {
+    const commands = [];
+    const execFile = vi.fn((_command, args) => {
+      const text = args.at(-1);
+      commands.push(text);
+      return text === 'wm size' ? 'Physical size: 720x1600' : '2';
+    });
+    const { AndroidDevice } = await import('../android-device.mjs');
+    new AndroidDevice('fake-phone', { execFile }).pressBack();
+    expect(commands.some((command) => command.startsWith('input swipe 2 '))).toBe(true);
+    expect(commands).not.toContain('input keyevent 4');
+  });
 });

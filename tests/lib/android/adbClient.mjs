@@ -161,6 +161,12 @@ export function createAdbClient({
     return last;
   };
 
+  const replaceText = (text) => {
+    shell('input keycombination 113 29'); // CTRL_LEFT + A
+    shell('input keyevent 67'); // DEL: also clears the field when text is empty.
+    return typeText(text);
+  };
+
   /**
    * The accessibility tree as XML. This is the expensive call in the whole client
    * — a measured ~1.9s, because uiautomator waits for the window to go idle.
@@ -202,6 +208,7 @@ export function createAdbClient({
     swipe,
     keyevent,
     typeText,
+    replaceText,
     dumpUiXml,
     screencapPng,
     broadcast,
