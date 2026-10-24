@@ -37,7 +37,21 @@ def main(args):
     root = subprocess.check_output(["git", "rev-parse", "--show-toplevel"], text=True).strip()
     # Persist the inode: unlinking a locked file lets a second process lock a
     # replacement while the original holder is still running.
-    with Path(git_path).open("a+") as record:
+    inherited = os.environ.get("FUTO_IOS_TEST_LOCK_FD") if option is None else None
+    if inherited is not None:
+        try:
+            inherited_fd = int(inherited)
+            existing = os.fstat(inherited_fd)
+            expected = Path(git_path).stat()
+            if (existing.st_dev, existing.st_ino) != (expected.st_dev, expected.st_ino):
+                raise ValueError("descriptor points at another file")
+            record_file = os.fdopen(os.dup(inherited_fd), "a+")
+        except (OSError, ValueError) as error:
+            print(f"Invalid inherited iOS test lock: {error}", file=sys.stderr)
+            return 2
+    else:
+        record_file = Path(git_path).open("a+")
+    with record_file as record:
         try:
             fcntl.flock(record.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
@@ -78,7 +92,8 @@ def main(args):
             json.dump(owner, record)
             record.flush()
 
-        save_owner()
+        if inherited is None:
+            save_owner()
         print(
             f"iOS tests: verbose simulator diagnostics = {diagnostics} (FUTO_IOS_TEST_DIAGNOSTICS)",
             file=sys.stderr, flush=True,
@@ -92,13 +107,15 @@ def main(args):
                 args[1:], cwd=root, start_new_session=True,
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                 pass_fds=(record.fileno(),),
+                env={**os.environ, "FUTO_IOS_TEST_LOCK_FD": str(record.fileno())},
             )
         except OSError as error:
             print(f"Could not start iOS test command: {error}", file=sys.stderr)
             return 127
 
         owner["child_pid"] = child.pid
-        save_owner()
+        if inherited is None:
+            save_owner()
         stop_deadline = None
 
         def forward(sig):
@@ -137,7 +154,8 @@ def main(args):
                         collecting = re.search(r"collecting[^\n]*diagnos|simctl diagnose", recent, re.I)
                         if owner["phase"] != "collecting diagnostics" and collecting:
                             owner["phase"] = "collecting diagnostics"
-                            save_owner()
+                            if inherited is None:
+                                save_owner()
                             print(
                                 "iOS tests: collecting diagnostics; lock retained until xcodebuild exits",
                                 file=sys.stderr, flush=True,
@@ -157,8 +175,9 @@ def main(args):
         finally:
             for sig, old in old_handlers.items():
                 signal.signal(sig, old)
-            record.seek(0)
-            record.truncate()
+            if inherited is None:
+                record.seek(0)
+                record.truncate()
 
 
 if __name__ == "__main__":

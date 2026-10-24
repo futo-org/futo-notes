@@ -18,6 +18,12 @@ UniFFI Swift bindings. Both are generated — edit `project.yml` or the FFI crat
 | Unit tests (Swift Testing), or only named suites | `just test-ios-native [Suite…]` |
 | UI tests (XCTest, minutes), or only named classes | `just test-ios-native-ui [Class…]` |
 | Both, as main-branch CI runs them | `just test-ios-native-full` |
+| Native checks from Linux on an isolated Mac checkout | `just ios-remote <recipe> [Suite/Class…]` |
+
+Native Rust builds check free space on the actual Cargo target volume before compiling.
+`FUTO_IOS_MIN_FREE_GIB` is a positive minimum (default 2 GiB); cold builds may need more.
+Low-space errors give a dry-run inventory command rather than deleting shared caches.
+Remote setup, source identity and cleanup boundaries: `docs/remote-ios-testing.md`.
 
 After **any** change to `futo-notes-ffi` or a crate it re-exports, run `just build-rust-ios` before
 building — otherwise you are testing old bindings, and the symptom looks like "my change did

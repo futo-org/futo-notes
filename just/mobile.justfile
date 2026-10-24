@@ -284,3 +284,7 @@ deploy-ios:
 # Regenerate selectable mobile icon catalogs, adaptive layers, and previews.
 app-icons:
   node scripts/generate-app-icons.mjs
+
+# Run current source on an isolated Mac checkout (including targeted native UI classes).
+ios-remote *args: check-node-version
+  @node scripts/ios-remote.mjs "$@"

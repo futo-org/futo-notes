@@ -9,6 +9,13 @@ const script = fileURLToPath(new URL('./ios-test-session.py', import.meta.url));
 const dirs = [];
 const children = [];
 
+function fixtureEnv() {
+  const env = { ...process.env };
+  // These child repositories intentionally own independent OS locks.
+  delete env.FUTO_IOS_TEST_LOCK_FD;
+  return env;
+}
+
 function fixture() {
   const root = mkdtempSync(join(tmpdir(), 'ios-test-session-'));
   dirs.push(root);
@@ -21,6 +28,7 @@ const run = (root, ...args) =>
     cwd: root,
     encoding: 'utf8',
     timeout: 5000,
+    env: fixtureEnv(),
   });
 
 async function waitForFile(file, child) {
@@ -58,6 +66,7 @@ function hold(root, { diagnostics = false } = {}) {
     {
       cwd: root,
       stdio: ['ignore', 'pipe', 'pipe'],
+      env: fixtureEnv(),
     },
   );
   children.push(child);
@@ -212,5 +221,43 @@ it.skipIf(process.platform === 'win32')(
     expect(result.status).toBe(2);
     expect(result.stderr).toContain('FUTO_IOS_TEST_DIAGNOSTICS');
     expect(existsSync(join(root, '.git'))).toBe(false);
+  },
+);
+
+it.skipIf(process.platform === 'win32')(
+  'lets a nested public test recipe adopt the exact inherited lock',
+  () => {
+    const root = fixture();
+    const result = run(
+      root,
+      '--',
+      'python3',
+      script,
+      '--',
+      process.execPath,
+      '-e',
+      'console.log("nested")',
+    );
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout.trim()).toBe('nested');
+  },
+);
+
+it.skipIf(process.platform === 'win32')(
+  'refuses a bogus inherited descriptor before running a command',
+  () => {
+    const root = fixture();
+    const result = spawnSync(
+      'python3',
+      [script, '--', process.execPath, '-e', 'console.log("bad")'],
+      {
+        cwd: root,
+        encoding: 'utf8',
+        env: { ...process.env, FUTO_IOS_TEST_LOCK_FD: '999999' },
+      },
+    );
+    expect(result.status).toBe(2);
+    expect(result.stderr).toContain('Invalid inherited iOS test lock');
+    expect(result.stdout).toBe('');
   },
 );

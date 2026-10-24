@@ -30,4 +30,34 @@ describe('iOS build host preflight', () => {
     expect(result.stderr).toContain('iOS builds require macOS');
     expect(fs.existsSync(cargoMarker)).toBe(false);
   });
+
+  it('rejects inadequate target-volume space before invoking Cargo', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ios-build-storage-'));
+    scratch.push(dir);
+    fs.mkdirSync(path.join(dir, 'scripts'));
+    for (const file of ['build-rust-ios.sh', 'ios-build-space.mjs']) {
+      fs.copyFileSync(path.join(root, 'scripts', file), path.join(dir, 'scripts', file));
+    }
+    const bin = path.join(dir, 'bin');
+    fs.mkdirSync(bin);
+    const marker = path.join(dir, 'cargo-was-run');
+    fs.writeFileSync(path.join(bin, 'uname'), '#!/bin/sh\nprintf Darwin\n', { mode: 0o755 });
+    fs.writeFileSync(path.join(bin, 'cargo'), `#!/bin/sh\nprintf called > '${marker}'\n`, {
+      mode: 0o755,
+    });
+    const result = spawnSync('bash', ['scripts/build-rust-ios.sh'], {
+      cwd: dir,
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        PATH: `${bin}${path.delimiter}${process.env.PATH}`,
+        CARGO_TARGET_DIR: path.join(dir, 'future-target'),
+        FUTO_IOS_MIN_FREE_GIB: '999999',
+      },
+    });
+    expect(result.status, result.stderr).toBe(1);
+    expect(result.stderr).toContain('iOS build storage');
+    expect(result.stderr).toContain('just wt gc --sizes');
+    expect(fs.existsSync(marker)).toBe(false);
+  });
 });

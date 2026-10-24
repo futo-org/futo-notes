@@ -27,6 +27,8 @@ fi
 # shared across worktrees); the hardcoded target/… paths below would then miss
 # the freshly built artifacts (pc_2439ab43fc9b, Android sibling).
 TARGET_DIR="${CARGO_TARGET_DIR:-$ROOT/target}"
+# Fail before expensive compilation when the target volume is already full.
+node scripts/ios-build-space.mjs "$TARGET_DIR"
 
 # Rust's aarch64-apple-ios target defaults to a 10.0 minimum, but C objects
 # built by cc-rs deps (zstd-sys via tantivy in futo-notes-search) reference
