@@ -134,3 +134,5 @@ or `FUTO_NOTES_E2EE_SERVER_BIN` at a binary you already have.
   testing matrix.
 - `docs/spec/` — behavioral source of truth, by surface.
 - `just check` — the gate to pass before pushing.
+- [QA TLS fixtures](docs/agents/tls-fixtures.md) — generate local CA/server files with macOS
+  LibreSSL or Linux OpenSSL.

@@ -157,3 +157,7 @@ qa-shot *args:
 #   just qa-target list | status | pid <pid> | port <port> | kill
 qa-target *args:
   @node scripts/qa-target.mjs "$@"
+
+# Generate a disposable CA/server TLS fixture (OpenSSL or macOS LibreSSL; never installs trust).
+test-tls-fixture out *hosts: check-node-version
+  @node scripts/test-tls-fixture.mjs "$@"
