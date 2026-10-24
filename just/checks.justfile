@@ -108,3 +108,7 @@ release-notes-check tag="":
 # this same script non-blocking (docs/architecture-gates.md).
 quality *args:
   node scripts/bca-quality.mjs "$@"
+
+# Read-only catalog/call/quoted-source inventory for localization review (JSON).
+audit-localization-source *args:
+  node scripts/localization-source-audit.mjs "$@"
