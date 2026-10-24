@@ -33,6 +33,18 @@ For top-level OCI index digests, platform checks and the verbose-manifest child-
 [CI image pinning](ci-image-pins.md). Resolve the intended image before changing its pin; CI lint
 validates configuration syntax and cannot prove image architecture coverage.
 
+## skill-validate
+
+`just skill-validate .claude/skills/bugfix` runs the installed Codex skill-creator validator.
+It uses `$CODEX_HOME/skills/.system/skill-creator/scripts/quick_validate.py`, with
+`~/.codex` as the home default. A missing validator reports the installation/path issue.
+
+The optional command requires `uv` and an installed Python. It provisions PyYAML in a private
+temporary environment/cache, skips project Python configuration and interpreter downloads,
+then removes only that temporary directory. System Python and installed skills are unchanged.
+The original validator's output and failure exit are preserved. This checks skill structure;
+workflow behavior still needs its owning verification. It is outside routine CI commands.
+
 ## rust-format / rust-format-check
 
 The repo rule is that every command goes through `just`, but only the TypeScript side had
