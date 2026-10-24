@@ -1,4 +1,4 @@
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -47,7 +47,17 @@ function fixture({ corrupt = false, platform = 'Linux/x86_64', fallback = false 
     { mode: 0o755 },
   );
   if (fallback) {
-    for (const tool of ['node', 'tar', 'install', 'mktemp', 'dirname', 'mkdir', 'rm', 'gzip']) {
+    for (const tool of [
+      'node',
+      'tar',
+      'install',
+      'mktemp',
+      'dirname',
+      'mkdir',
+      'rm',
+      'gzip',
+      'mv',
+    ]) {
       const resolved = spawnSync('/bin/sh', ['-c', 'command -v "$1"', 'lookup', tool], {
         encoding: 'utf8',
       });
@@ -75,6 +85,7 @@ process.exit(got===line.slice(0,at)?0:1);
   };
   return {
     dir,
+    env,
     run: () =>
       spawnSync('/bin/sh', [path.join(dir, 'ci/install-nextest.sh')], { env, encoding: 'utf8' }),
   };
@@ -105,4 +116,61 @@ it('verifies the portable shasum fallback when GNU sha256sum is unavailable', ()
   const f = fixture({ platform: 'Darwin/arm64', fallback: true });
   const result = f.run();
   expect(result.status, result.stderr).toBe(0);
+});
+
+it('never publishes a partial tool while two first installs overlap', async () => {
+  const f = fixture();
+  const target = path.join(f.dir, 'installed/cargo-nextest');
+  const old = '#!/bin/sh\necho "cargo-nextest 0.0.0 (old)"\n';
+  fs.writeFileSync(target, old, { mode: 0o755 });
+  f.env.TEST_BLOCKED = path.join(f.dir, 'blocked');
+  f.env.TEST_RELEASE = path.join(f.dir, 'release');
+  fs.writeFileSync(
+    path.join(f.dir, 'bin/install'),
+    `#!/usr/bin/env node
+const fs=require('node:fs'),src=process.argv.at(-2),dst=process.argv.at(-1);
+fs.writeFileSync(dst,fs.readFileSync(src).subarray(0,8));
+fs.appendFileSync(process.env.TEST_BLOCKED,dst+'\\n');
+const timer=setInterval(()=>{if(fs.existsSync(process.env.TEST_RELEASE)){fs.copyFileSync(src,dst);fs.chmodSync(dst,0o755);clearInterval(timer)}},10);
+`,
+    { mode: 0o755 },
+  );
+  const children = [0, 1].map(() =>
+    spawn('/bin/sh', [path.join(f.dir, 'ci/install-nextest.sh')], { env: f.env, stdio: 'ignore' }),
+  );
+  const done = Promise.all(
+    children.map((child) => new Promise((resolve) => child.once('exit', resolve))),
+  );
+  try {
+    const until = Date.now() + 3000;
+    while (
+      !fs.existsSync(f.env.TEST_BLOCKED) ||
+      fs.readFileSync(f.env.TEST_BLOCKED, 'utf8').trim().split('\n').length !== 2
+    ) {
+      if (Date.now() > until) throw new Error('both installers did not reach publication');
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    expect(fs.readFileSync(target, 'utf8')).toBe(old);
+  } finally {
+    fs.writeFileSync(f.env.TEST_RELEASE, '');
+    await done;
+  }
+  expect(await done).toEqual([0, 0]);
+  expect(fs.readFileSync(target, 'utf8')).toContain('0.9.149');
+  expect(fs.readdirSync(path.dirname(target))).toEqual(['cargo-nextest']);
+});
+
+it('keeps the old tool and removes staging when publication fails', () => {
+  const f = fixture();
+  const target = path.join(f.dir, 'installed/cargo-nextest');
+  const old = '#!/bin/sh\necho "cargo-nextest 0.0.0 (old)"\n';
+  fs.writeFileSync(target, old, { mode: 0o755 });
+  fs.writeFileSync(
+    path.join(f.dir, 'bin/install'),
+    '#!/bin/sh\nfor last do :; done\nprintf partial > "$last"\nexit 7\n',
+    { mode: 0o755 },
+  );
+  expect(f.run().status).not.toBe(0);
+  expect(fs.readFileSync(target, 'utf8')).toBe(old);
+  expect(fs.readdirSync(path.dirname(target))).toEqual(['cargo-nextest']);
 });

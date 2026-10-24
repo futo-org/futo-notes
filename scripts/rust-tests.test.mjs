@@ -1,3 +1,6 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import { spawnSync } from 'node:child_process';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import path from 'node:path';
 afterEach(() => vi.unstubAllEnvs());
@@ -92,4 +95,62 @@ it('resolves a relative install directory against the repository, including path
   });
   expect(binary).toBe(path.resolve('/repo', 'install tools', 'cargo-nextest'));
   expect(calls[1].options.env.NEXTEST_INSTALL_DIR).toBe(path.resolve('/repo', 'install tools'));
+});
+
+it('executes a symlinked CLI entrypoint rather than silently succeeding', () => {
+  const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'futo-rust-entry-'));
+  try {
+    const alias = path.join(scratch, 'aliased runner.mjs');
+    fs.symlinkSync(path.resolve('scripts/rust-tests.mjs'), alias);
+    const result = spawnSync(process.execPath, [alias, 'invalid-scope'], { encoding: 'utf8' });
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('usage: just test-sync');
+  } finally {
+    fs.rmSync(scratch, { recursive: true, force: true });
+  }
+});
+
+it('uses the pinned preinstalled Windows exe without invoking the POSIX installer', () => {
+  const calls = [];
+  const binary = ensureNextest(
+    'C:\\work\\notes',
+    (command, args) => {
+      calls.push({ command, args });
+      return { status: 0, stdout: 'cargo-nextest 0.9.149 (fixture)' };
+    },
+    { platform: 'win32', env: { CARGO_HOME: 'C:\\Tool Cache\\Cargo' } },
+  );
+  expect(binary).toBe('C:\\Tool Cache\\Cargo\\bin\\cargo-nextest.exe');
+  expect(calls).toEqual([{ command: binary, args: ['--version'] }]);
+});
+
+it('explains the Windows prerequisite instead of invoking an unsupported installer', () => {
+  const calls = [];
+  expect(() =>
+    ensureNextest(
+      'C:\\work\\notes',
+      (command) => {
+        calls.push(command);
+        return { status: null };
+      },
+      { platform: 'win32', env: { CARGO_HOME: 'C:\\Cargo' } },
+    ),
+  ).toThrow(/pinned Windows nextest.*required.*installation/);
+  expect(calls).toHaveLength(1);
+});
+
+it('shows help through a symlinked timeout-proof entrypoint without building or running tests', () => {
+  const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'futo-timeout-entry-'));
+  try {
+    const alias = path.join(scratch, 'proof alias.mjs');
+    fs.symlinkSync(path.resolve('scripts/rust-test-timeout-proof.mjs'), alias);
+    const result = spawnSync(process.execPath, [alias, '--help'], {
+      encoding: 'utf8',
+      timeout: 1000,
+    });
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('usage: just test-sync-timeout-proof');
+  } finally {
+    fs.rmSync(scratch, { recursive: true, force: true });
+  }
 });

@@ -12,6 +12,7 @@ struct GateState {
     released: bool,
 }
 
+#[must_use]
 pub(super) struct ResponseReleaseGuard(ResponseGate);
 
 impl Drop for ResponseReleaseGuard {
@@ -46,8 +47,10 @@ impl ResponseGate {
                     !state.request_blocked
                 })
                 .unwrap();
+            let request_blocked = state.request_blocked;
+            drop(state);
             assert!(
-                state.request_blocked && !timeout.timed_out(),
+                request_blocked && !timeout.timed_out(),
                 "response was not blocked before the safety timeout"
             );
         })
@@ -57,7 +60,10 @@ impl ResponseGate {
 
     pub(super) fn release(&self) {
         let (state, changed) = &*self.state;
-        state.lock().unwrap().released = true;
+        state
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner())
+            .released = true;
         changed.notify_all();
     }
 }
@@ -116,4 +122,26 @@ async fn response_gate_releases_when_a_test_assertion_unwinds() {
     });
     assert!(panic.is_err());
     blocked.join().unwrap();
+}
+
+#[test]
+fn a_poisoned_response_gate_still_releases_without_a_second_panic() {
+    let gate = ResponseGate::default();
+    let poisoned = std::panic::catch_unwind(|| {
+        let _state = gate.state.0.lock().unwrap();
+        panic!("seeded panic while holding the gate mutex");
+    });
+    assert!(poisoned.is_err());
+    let cleanup = std::panic::catch_unwind(|| drop(gate.release_on_drop()));
+    assert!(
+        cleanup.is_ok(),
+        "cleanup must preserve the original failure"
+    );
+    assert!(
+        gate.state
+            .0
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner())
+            .released
+    );
 }

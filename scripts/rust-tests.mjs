@@ -10,27 +10,36 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const pin = JSON.parse(fs.readFileSync(path.join(root, 'scripts/cargo-nextest-pin.json'), 'utf8'));
 
-export function ensureNextest(repoRoot = root, exec = spawnSync) {
-  const installDir = path.resolve(
+export function ensureNextest(
+  repoRoot = root,
+  exec = spawnSync,
+  { platform = process.platform, env = process.env } = {},
+) {
+  const paths = platform === 'win32' ? path.win32 : path;
+  const installDir = paths.resolve(
     repoRoot,
-    process.env.NEXTEST_INSTALL_DIR ??
-      path.join(process.env.CARGO_HOME ?? path.join(os.homedir(), '.cargo'), 'bin'),
+    env.NEXTEST_INSTALL_DIR ??
+      paths.join(env.CARGO_HOME ?? paths.join(os.homedir(), '.cargo'), 'bin'),
   );
-  const binary = path.join(
+  const binary = paths.join(
     installDir,
-    process.platform === 'win32' ? 'cargo-nextest.exe' : 'cargo-nextest',
+    platform === 'win32' ? 'cargo-nextest.exe' : 'cargo-nextest',
   );
   const current = exec(binary, ['--version'], { encoding: 'utf8' });
   if (current.status === 0 && current.stdout.split(/\s+/)[1] === pin.version) return binary;
+  if (platform === 'win32')
+    throw new Error(
+      `pinned Windows nextest ${pin.version} is required at ${binary}; install the exact version from https://nexte.st/docs/installation/pre-built-binaries/ or set NEXTEST_INSTALL_DIR`,
+    );
   const setup = exec('sh', [path.join(repoRoot, 'ci/install-nextest.sh')], {
     cwd: repoRoot,
     stdio: 'inherit',
-    env: { ...process.env, NEXTEST_INSTALL_DIR: installDir },
+    env: { ...env, NEXTEST_INSTALL_DIR: installDir },
   });
   if (setup.status !== 0)
     throw new Error('nextest setup failed; install the pinned binary before running Rust tests');
@@ -84,7 +93,7 @@ export function runRustTests({
   }
   return 0;
 }
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (import.meta.main) {
   const args = process.argv.slice(2);
   try {
     if (args.length > 1 || (args[0] && !['sync', 'workspace'].includes(args[0])))

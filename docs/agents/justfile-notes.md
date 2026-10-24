@@ -259,3 +259,10 @@ and [timeout behavior](https://nexte.st/docs/features/slow-tests/) describe the
 maintained runner. `just test-sync-timeout-proof` runs a healthy fixture beside
 an intentional deadlock under the real repository policy, and succeeds only
 when nextest reports that deadlock by name as TIMEOUT with a nonzero test exit.
+
+On Windows, install the exact pinned prebuilt version as
+`$CARGO_HOME/bin/cargo-nextest.exe` (normally `~/.cargo/bin/cargo-nextest.exe`),
+or point `NEXTEST_INSTALL_DIR` at its directory. The POSIX checksum installer
+supports Linux/macOS; the test route supports the preinstalled Windows exe
+and fails with the pinned-version/path requirement before any tests if it is
+missing or wrong. It never silently falls through to unbounded Cargo tests.
