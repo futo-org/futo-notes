@@ -18,6 +18,10 @@ machine ready.
   `cargo install cargo-ndk` for Android. See AGENTS.md §2, the nested mobile
   `AGENTS.md` files, and the `ANDROID_*` vars in `.env.example`.
 
+For dependencies owned by the workspace root, use `pnpm add -w <package>` (or
+`pnpm add -Dw <package>` for a development dependency). Use the owning package's directory
+for a package-local dependency; do not disable pnpm's workspace-root guard.
+
 ## 2. First build
 
 For a fresh task, fetch main and create a sibling worktree, then run `just orient` there.

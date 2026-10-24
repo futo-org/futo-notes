@@ -4,7 +4,7 @@ Tauri v2 **desktop** shell. This is the **Tauri adapter**: a Rust backend that e
 
 **Stack**: Rust + Tauri v2 + serde. Plugins: dialog, process, clipboard-manager, opener, fs, deep-link, updater, window-state, single-instance (desktop), mcp-bridge (debug).
 
-From the monorepo root, prefer the `just` wrappers: `just tauri-dev`, `just tauri-build`, and `just test-rust`. (Mobile is native: `just ios-native` / `just android-native` / `just deploy-ios`.) Desktop dev pointed at production endpoints has no `just` wrapper any more — the command is preserved in `docs/agents/justfile-notes.md`'s "Removed recipes" section.
+From the monorepo root, prefer the `just` wrappers: `just tauri-dev`, `just tauri-build`, and `just test-rust-full`. (Mobile is native: `just ios-native` / `just android-native` / `just deploy-ios`.) Desktop dev pointed at production endpoints has no `just` wrapper any more — the command is preserved in `docs/agents/justfile-notes.md`'s "Removed recipes" section.
 
 ## Architecture
 
@@ -99,6 +99,10 @@ Desktop dev pointed at production endpoints has no `just` wrapper any more — t
 preserved in `docs/agents/justfile-notes.md`'s "Removed recipes" section.
 
 (Mobile builds are native: `just ios-native` / `just android-native` / `just deploy-ios` — see root AGENTS.md.)
+
+For a focused direct Cargo test, first run `mkdir -p dist` from the repository root.
+`tauri::generate_context!` requires that frontend directory even for library tests; it may be
+empty for this purpose. `just test-rust-full` creates it before running the workspace.
 
 ## Verification (Required)
 
