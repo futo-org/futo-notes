@@ -65,6 +65,18 @@ only the ABI it built — none if it failed or was stopped — and crashes at
 library load anywhere else. Rebuild for the device you test on. A release build refuses to
 start until every shipped ABI is staged (guard in `app/build.gradle.kts`).
 
+## Release installs from a fresh worktree
+
+`just deploy-android` requires `apps/android/keystore.properties` in that checkout; the
+release recipe names the missing file before the Rust build. If it is already configured in
+the primary checkout, copy that gitignored configuration into the same path in the worktree
+and verify its `storeFile` path still resolves correctly. Keep credentials out of logs and git.
+Use `just android-native` for a development install that does not need release credentials.
+
+For iOS, `just deploy-ios` already resolves `FUTO_DEV_TEAM`, then the worktree's
+`apps/ios/.signing-team`, then the primary checkout's file. Its missing-team diagnostic names
+both supported locations; there is no need to duplicate that team file in every worktree.
+
 ## Distribution flavors — `direct` and `play`
 
 Every variant is `<flavor><BuildType>`: `directDebug`, `playDebug`,
