@@ -5,10 +5,11 @@
 // re-issued. 15 of the 40 slowest tool calls in a month of transcripts were
 // exactly that loop (docs/plan/agent-dx.md §2.6).
 //
-//   just ci-wait <pipeline-id>    # exact pipeline by project ID
+//   just ci-wait <pipeline-id>    # exact pipeline in this project
 //   just ci-wait <sha>            # newest pipeline for that sha
 //   just ci-wait mr:291           # the MR's head pipeline (also `!291`)
 //   just ci-wait <branch>         # newest pipeline for that ref
+//   Numeric names: use sha:<sha> or ref:<branch> to distinguish them from IDs.
 //   options: --timeout <min> (45) --interval <sec> (20) --json --no-trace
 //   exit: 0 success · 1 failed/canceled/skipped/blocked-on-manual · 2 timeout
 //         3 usage/auth/no pipeline
