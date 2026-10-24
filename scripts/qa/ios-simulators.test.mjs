@@ -1,15 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { tryRun } = vi.hoisted(() => ({ tryRun: vi.fn() }));
+const { run, tryRun } = vi.hoisted(() => ({ run: vi.fn(), tryRun: vi.fn() }));
 vi.mock('./pool.mjs', () => ({
   SIM_DEVICE_TYPE: 'test-device',
   die: vi.fn(),
   info: vi.fn(),
-  run: vi.fn(),
+  run,
   sleep: vi.fn(),
   tryRun,
 }));
-import { wipeDevApp } from './ios-simulators.mjs';
+import { findSim, wipeDevApp } from './ios-simulators.mjs';
 
 describe('iOS pool handoff wipe', () => {
   beforeEach(() => tryRun.mockReset());
@@ -40,4 +40,14 @@ describe('iOS pool handoff wipe', () => {
     tryRun.mockReturnValueOnce(null).mockReturnValueOnce(null);
     expect(wipeDevApp('claimed-udid')).toContain('keychain reset failed');
   });
+});
+
+it('bounds simulator identity reads used between destructive recovery steps', () => {
+  run.mockReturnValue(
+    JSON.stringify({
+      devices: { runtime: [{ name: 'futo-qa-1', udid: 'owned', state: 'Shutdown' }] },
+    }),
+  );
+  expect(findSim('futo-qa-1').udid).toBe('owned');
+  expect(run.mock.lastCall[2]).toEqual({ timeout: 30000 });
 });

@@ -129,6 +129,16 @@ describe('qa.mjs claim arguments', () => {
     expect(fs.existsSync(path.join(scratch, '.futo-notes-qa'))).toBe(false);
   });
 
+  it.each([[], ['all'], ['android']])(
+    'requires an explicit ios target for erase %j',
+    (...target) => {
+      const result = claim(...target, '--erase');
+      expect(result.status).not.toBe(0);
+      expect(result.stderr).toContain('--erase requires the explicit ios target');
+      expect(fs.existsSync(path.join(scratch, '.futo-notes-qa'))).toBe(false);
+    },
+  );
+
   it.each([['--typo'], ['android', 'ios'], ['android', '--typo']])(
     'rejects invalid arguments %j before creating a claim',
     (...args) => {

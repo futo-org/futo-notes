@@ -2,7 +2,7 @@
 
 # ── Parallel QA isolation (multiple worktrees, one machine; model: scripts/qa.mjs) ──
 
-# Claim a pooled device, or an existing legacy Android fixture (--avd futo-api28/29/30).
+# Claim a QA device; --erase resets one existing owned iOS claim (all simulator data); --avd selects legacy Android.
 qa-claim target="all" *flags:
   @node scripts/qa.mjs claim "$@"
 

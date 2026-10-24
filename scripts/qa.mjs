@@ -14,7 +14,7 @@
 // heartbeats. Pool devices plus explicitly named futo-api28/29/30 fixtures are managed.
 // Named fixtures retain their images and app data; personal devices are never touched.
 //
-//   node scripts/qa.mjs claim [ios|android|all] [--reboot] [--avd legacy-name]   # ensure+boot devices, print exports
+//   node scripts/qa.mjs claim [ios|android|all] [--reboot] [--erase (ios only)] [--avd legacy-name]
 //   node scripts/qa.mjs status                    # pool devices + servers, owners, state
 //   node scripts/qa.mjs release [ios|android] [--shutdown]  # release this worktree's claims
 //   node scripts/qa.mjs gc                        # reap devices/servers of deleted worktrees
@@ -26,6 +26,7 @@
 
 import { verifyAndroidApk } from './qa/android-apk.mjs';
 import { assertAndroidTarget } from './qa/android-target.mjs';
+import { eraseClaimedPoolSimulator, existingIosRecoveryClaim } from './qa/ios-recovery.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import { slotOf } from './lib/slot.mjs';
@@ -80,7 +81,8 @@ function wipeOnFreshClaim(platform, name, fresh, wipe) {
   info(`${platform}: wiped com.futo.notes.dev data on ${name} (new claim)`);
 }
 
-async function cmdClaim(target, { reboot = false, avd } = {}) {
+async function cmdClaim(target, { reboot = false, erase = false, avd } = {}) {
+  if (erase && target !== 'ios') die('--erase requires the explicit ios target');
   const root = worktreeRoot();
   if (avd) {
     if (target !== 'android') die('--avd requires the android target');
@@ -95,9 +97,18 @@ async function cmdClaim(target, { reboot = false, avd } = {}) {
 
   const exports = [];
   if (wantIos && IS_MAC) {
-    const { name, fresh } = claimPoolName('ios', root);
+    const { name, fresh } = erase
+      ? { name: existingIosRecoveryClaim(myDevices(root)), fresh: false }
+      : claimPoolName('ios', root);
+    if (erase) {
+      info(
+        `ios: explicit erase of ${name}; all simulator apps, vaults and settings will be removed`,
+      );
+      await eraseClaimedPoolSimulator(name, root);
+    }
     const udid = await ensureSim(name, { reboot });
-    wipeOnFreshClaim('ios', name, fresh, () => wipeIosDevApp(udid));
+    if (erase) markWiped('ios', name);
+    else wipeOnFreshClaim('ios', name, fresh, () => wipeIosDevApp(udid));
     info(`ios: ${name} → ${udid}`);
     exports.push(`export SIM=${udid}`);
   } else if (wantIos) {
@@ -253,7 +264,7 @@ function cmdStatus() {
 // ── main ───────────────────────────────────────────────────────────────────
 
 const USAGE =
-  'usage: qa.mjs claim [ios|android|all] [--reboot] [--avd legacy-name] | android-target | android-apk [path] | status | release [ios|android] [--shutdown] | gc | server-start [--standin] | server-stop [--drop] | avd-baseline';
+  'usage: qa.mjs claim [ios|android|all] [--reboot] [--erase (ios only)] [--avd legacy-name] | android-target | android-apk [path] | status | release [ios|android] [--shutdown] | gc | server-start [--standin] | server-stop [--drop] | avd-baseline';
 const [cmd, ...args] = process.argv.slice(2);
 // Handle help before worktree discovery or invoking any platform tool. A help
 // request must never acquire an owner file, boot a device, or wipe app data.
@@ -267,10 +278,12 @@ switch (cmd) {
     // for an already-booted sim whose UI reads as a 0x0 root (see ensureSim).
     let avd;
     let reboot = false;
+    let erase = false;
     const positional = [];
     for (let i = 0; i < args.length; i++) {
       const arg = args[i];
       if (arg === '--reboot') reboot = true;
+      else if (arg === '--erase') erase = true;
       else if (arg === '--avd') {
         if (avd) die('claim accepts --avd only once');
         avd = args[++i];
@@ -279,7 +292,7 @@ switch (cmd) {
       else positional.push(arg);
     }
     if (positional.length > 1) die('claim accepts at most one platform: ios, android or all');
-    await cmdClaim(positional[0] || 'all', { reboot, avd });
+    await cmdClaim(positional[0] || 'all', { reboot, erase, avd });
     break;
   }
   case 'android-apk':
