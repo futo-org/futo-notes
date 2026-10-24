@@ -138,6 +138,7 @@ async fn recreated_note_during_delete_conflict_recovery_is_not_overwritten() {
     )
     .unwrap();
     let blob_response = ResponseGate::default();
+    let _blob_response_release = blob_response.release_on_drop();
     let response_gate = blob_response.clone();
     Mock::given(method("GET"))
         .and(path("/api/blobs/peer-blob"))

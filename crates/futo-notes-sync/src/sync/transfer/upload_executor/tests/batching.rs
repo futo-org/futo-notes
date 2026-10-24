@@ -86,6 +86,7 @@ async fn update_is_not_skipped_when_the_final_checkpoint_fails() {
 async fn completed_batch_chunk_is_checkpointed_before_a_later_chunk_finishes() {
     let server = MockServer::start().await;
     let slow_batch = ResponseGate::default();
+    let _slow_batch_release = slow_batch.release_on_drop();
     let response_gate = slow_batch.clone();
     Mock::given(method("POST"))
         .and(path("/api/collections/collection/blob-objects/batch"))
@@ -205,6 +206,7 @@ async fn edit_before_replay_response_still_runs_the_successor_update() {
     let server = MockServer::start().await;
     let object_id = "01890000-0000-7000-8000-00000000c003";
     let replay_response = ResponseGate::default();
+    let _replay_response_release = replay_response.release_on_drop();
     let response_gate = replay_response.clone();
     Mock::given(method("POST"))
         .and(path("/api/collections/collection/blob-objects"))
@@ -282,6 +284,7 @@ async fn edit_during_replay_successor_remains_dirty_for_the_next_push() {
     let server = MockServer::start().await;
     let object_id = "01890000-0000-7000-8000-00000000c002";
     let successor_response = ResponseGate::default();
+    let _successor_response_release = successor_response.release_on_drop();
     let response_gate = successor_response.clone();
     Mock::given(method("PUT"))
         .and(path(format!(

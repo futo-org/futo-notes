@@ -7,6 +7,7 @@ async fn deletion_before_a_live_replay_response_keeps_the_server_version() {
     let object_id = "01890000-0000-7000-8000-00000000e005";
     let server = MockServer::start().await;
     let replay_response = ResponseGate::default();
+    let _replay_response_release = replay_response.release_on_drop();
     let response_gate = replay_response.clone();
     Mock::given(method("POST"))
         .and(path("/api/collections/collection/blob-objects"))
