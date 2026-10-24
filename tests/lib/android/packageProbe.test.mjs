@@ -13,7 +13,13 @@ const fs = require('node:fs');
 const args = process.argv.slice(2);
 fs.appendFileSync(process.env.QA_PM_RECORD, JSON.stringify(args) + '\\n');
 const command = args.slice(2).join(' ');
-if (command === 'get-state') {
+if (command === 'emu avd name') {
+  process.on('SIGTERM', () => {});
+  setTimeout(() => {
+    fs.writeFileSync(process.env.QA_PM_FINISHED, 'identity finished');
+    process.stdout.write('ci\\nOK\\n');
+  }, 1200);
+} else if (command === 'get-state') {
   if (process.env.QA_PM_STATE === 'stall') {
     process.on('SIGTERM', () => {});
     setTimeout(() => fs.writeFileSync(process.env.QA_PM_FINISHED, 'transport finished'), 3500);
@@ -63,6 +69,32 @@ describe('bounded Android package presence probes', () => {
     kind === 'sync'
       ? value.isPackageInstalled('com.futo.notes.dev', { timeoutMs: 250 })
       : value.isInstalled({ timeoutMs: 250 });
+
+  it.each(['sync', 'shared'])(
+    'bounds the owned identity child before the %s package query',
+    (kind) => {
+      const observed = [];
+      const execFile = (_command, args, options) => {
+        observed.push({ args, timeout: options.timeout });
+        // Keep the production identity deadline assertion while shortening only
+        // this owned fake child for the regression. Preserve the chosen signal.
+        return execFileSync(process.execPath, [fake, ...args], {
+          ...options,
+          timeout: Math.min(options.timeout, 250),
+          env: { QA_PM_RECORD: record, QA_PM_FINISHED: finished },
+        });
+      };
+      const value =
+        kind === 'sync'
+          ? new AndroidDevice('emulator-5558', { execFile })
+          : createAdbClient({ pkg: 'com.futo.notes.dev', serial: 'emulator-5558', execFile });
+      expect(() => installed(value, kind)).toThrow(/ETIMEDOUT/);
+      expect(observed).toHaveLength(1);
+      expect(observed[0].timeout).toBe(5000);
+      expect(observed[0].args.slice(2)).toEqual(['emu', 'avd', 'name']);
+      expect(fs.existsSync(finished)).toBe(false);
+    },
+  );
 
   it.each(['sync', 'shared'])(
     'distinguishes a stalled PM from responsive adb in the %s driver',

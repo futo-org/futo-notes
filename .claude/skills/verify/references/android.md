@@ -175,6 +175,10 @@ out. `tests/android-storage-migration.mjs` is the worked example — six
 user-level stories, hook-driven except where the UI itself is under test.
 Prefer it over ad-hoc `adb` pipelines pasted into a shell block.
 
+An engine-ready state does not put every `LazyColumn` row in the viewport.
+Use the label driver's scrolling tap for seeded root notes; `openEditorPage`
+does this without changing the persisted sort order.
+
 Back follows the device navigation mode: `back`, `key back`, `key 4`, and
 `key KEYCODE_BACK` use a left-edge gesture on gesture-navigation devices and a
 Back key on button-navigation devices. Unknown modes fail with a diagnostic.

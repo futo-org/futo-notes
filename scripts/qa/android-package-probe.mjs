@@ -39,7 +39,8 @@ export function runPackageProbe(
   validateProbe(pmArgs);
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0)
     throw new Error('Package probe timeout must be a positive integer');
-  const execAdb = (_command, args, options) => execFile(adbPath, args, options);
+  const execAdb = (_command, args, options) =>
+    execFile(adbPath, args, { ...options, killSignal: 'SIGKILL' });
   const target = assertAndroidTarget({ serial, expectedAvd, execFile: execAdb });
   const execute = (args, timeout) =>
     execFile(adbPath, ['-s', target, ...args], {
