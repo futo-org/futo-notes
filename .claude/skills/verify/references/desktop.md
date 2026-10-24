@@ -46,6 +46,12 @@ editor decorations, markdown rendering. Anything touching `invoke()`,
 `@tauri-apps/*`, `rustCore`, file I/O, dialogs, clipboard, or window
 management needs the Tauri app instead.
 
+For tab-strip and sidebar-toggle styling, `just desktop-chrome-preview` prints a browser URL
+and serves a fixture that mounts the shipping `DesktopTopBand` component with fixture notes
+and web platform stubs. It supports real tab creation/selection and sidebar toggling without
+changing platform detection in the app. Native window controls and the OS title bar still need
+the real Tauri app. The fixture is a dev-server entry; the production build does not include it.
+
 Uses `agent-browser` (Rust CLI) — faster than Playwright MCP, types into
 contenteditable natively, and annotates screenshots. Run `agent-browser` with
 no args for the full command reference.
@@ -146,6 +152,11 @@ nothing — the refusal reason tells you what is actually running.
 Connect `driver_session` with action `start` and **`port` = the discovered
 `$MCP_PORT`** (never hardcode 9223). Then:
 
+A newer MCP server may warn that the pinned 0.10 bridge cannot report its plugin version and
+recommend 0.13. That warning can accompany a usable connection: check a synchronous read against
+the verified target before treating it as a setup failure. It does not grant permission to upgrade
+dependencies or bypass a command error.
+
 - `webview_dom_snapshot` (type: accessibility) — UI state with `[ref=eN]` ids
 - `webview_interact` — click/scroll/swipe by ref, CSS selector, or text
 - `webview_keyboard` — type/press keys. For the editor, use
@@ -184,15 +195,40 @@ ws.onmessage = (m) => { console.log(m.data); ws.close(); };
 EOF
 ```
 
-Gotchas: (1) `execute_js` has a ~2–3s server-side timeout, but the script
+Gotchas: (1) the pinned 0.10 bridge's `execute_js` has a **5-second server-side timeout**, but the script
 **keeps running in the webview** after the timeout error — never assume a
-timed-out script didn't execute; for longer work, stash results on
-`window.__x` and collect them with a second call. (2) Vite module singletons
+timed-out script didn't execute. Increasing the MCP tool's timeout does not increase that
+deadline. Short Promises work; start longer operations without returning their Promise and
+poll synchronous state in later calls:
+
+```js
+window.__qaAsyncProbe = { done: false };
+void (async () => {
+  try {
+    const value = await window.__testSync.status(); // the operation being investigated
+    window.__qaAsyncProbe = { done: true, value };
+  } catch (error) {
+    window.__qaAsyncProbe = { done: true, error: String(error) };
+  }
+})();
+return 'started';
+```
+
+Read `window.__qaAsyncProbe` until `done` is true, with an outer deadline appropriate to the
+operation. Check `error`, retain the result, then delete only that probe property. Do not restart
+an operation solely because a previous call timed out. (2) Vite module singletons
 are importable — `await import('/src/lib/foo.svelte.ts')` returns the same
 instance the app uses. (3) Killing a backgrounded `tauri dev` task can orphan
 the debug binary, which keeps its bridge port and pushes the next launch to the
 next port — `node scripts/qa-target.mjs kill` (this worktree's instances only)
 and re-check with `node scripts/qa-target.mjs list`.
+
+For CSS verification, confirm the edited rule through `getComputedStyle` before measuring or
+capturing. Imported feature styles and shared styles both support HMR in the real Tauri dev
+webview; a rule being present in a source file is insufficient evidence that it reached the
+current page. Check whether watching was deliberately disabled, confirm the module is imported,
+and reload the verified webview if it still reports stale values. Never infer a layout result
+from the pre-edit computed style.
 
 ### Reaching the app's real editor state
 
@@ -265,6 +301,12 @@ probe that awaits a frame (`scripts/perf/tab-switch-probe.js`, anything measurin
 paint) hangs rather than fails — budget a wall-clock timeout around every frame
 wait of your own. `document.visibilityState` is the check;
 `document.hasFocus()` can be `true` while the page is `hidden`.
+
+Revealing a hidden verified dev window is permitted by the current
+`core:window:allow-show` capability: evaluate
+`await window.__TAURI__.window.getCurrentWindow().show()` through its bridge, then check
+`isVisible()`. Showing does not establish focus or unoccluded frame delivery; check visibility
+and actual frames separately before a paint measurement.
 
 The webview cannot raise itself: `getCurrentWindow().setFocus()` is denied
 (`core:window:allow-set-focus`). Launch a second copy of the same debug binary

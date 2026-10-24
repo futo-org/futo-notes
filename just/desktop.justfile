@@ -6,6 +6,11 @@
 tauri-dev *args:
   node scripts/tauri-dev.mjs "$@"
 
+# Preview the shipping desktop top band in a browser with web stubs and fixture notes.
+desktop-chrome-preview:
+  @node --input-type=module -e 'import { webPort } from "./scripts/lib/slot.mjs"; console.log(`Desktop chrome: http://localhost:${webPort()}/tests/fixtures/desktop-chrome/index.html`)'
+  pnpm run dev
+
 # Build the desktop AppImage/bundle for this platform.
 tauri-build:
   pnpm run build
