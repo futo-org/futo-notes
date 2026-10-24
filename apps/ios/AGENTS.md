@@ -63,6 +63,17 @@ does not match Xcode's SDK, since local StoreKit cannot run there; CI does not o
 they fail instead. `ServerUrlConformanceTests.swift` reads the full
 shared `validateServerUrl` fixture — it is a lock, not a sample.
 
+The three local test recipes hold an OS lock for this worktree through the complete build,
+test and diagnostic-collection process. A second invocation exits 75 before rebuilding.
+`just ios-test-status` reports whether the process is still active and names diagnostic
+collection when Xcode announces it; wait for the real process exit before rerunning.
+A killed runner's inherited lock stays with its live command and is released by the OS;
+`just ios-test-clear-stale` clears only old metadata and refuses a live lock.
+Local runs use `-collect-test-diagnostics never` to avoid optional multi-minute simulator
+sysdiagnose collection; set `FUTO_IOS_TEST_DIAGNOSTICS=on-failure` when that evidence is needed.
+Test failures and regular result bundles remain available, and CI invocation is unchanged.
+The lock runner uses Python 3's standard Unix `fcntl.flock`, with no extra Python packages.
+
 Device/simulator QA of the changed flow is required; keyboard, safe-area, and scroll changes need
 the full matrix (new note, existing note, toolbar, scroll-during-IME). Drive the app with
 `xcrun simctl` + AXe; the full playbook is the `/verify` skill's `references/ios.md`.

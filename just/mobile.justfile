@@ -103,15 +103,23 @@ _preflight-android: editor-deps
 # does. An explicit FUTO_IOS_FFI_PROFILE overrides either.
 # iOS unit tests (Swift Testing, FutoNotesNativeTests) — CI's MR tier; name suites to run only those.
 test-ios-native *suites:
-  FUTO_IOS_FFI_PROFILE="${FUTO_IOS_FFI_PROFILE:-dev}" just _test-ios FutoNotesNativeTests "$@"
+  FUTO_IOS_FFI_PROFILE="${FUTO_IOS_FFI_PROFILE:-dev}" python3 scripts/ios-test-session.py -- just _test-ios FutoNotesNativeTests "$@"
 
 # iOS UI tests (XCTest, FutoNotesNativeUITests; minutes per run); name test classes to run only those.
 test-ios-native-ui *classes:
-  FUTO_IOS_FFI_PROFILE="${FUTO_IOS_FFI_PROFILE:-dev}" just _test-ios FutoNotesNativeUITests "$@"
+  FUTO_IOS_FFI_PROFILE="${FUTO_IOS_FFI_PROFILE:-dev}" python3 scripts/ios-test-session.py -- just _test-ios FutoNotesNativeUITests "$@"
 
 # iOS unit + UI tests together — what main pushes and tags run in CI.
 test-ios-native-full:
-  FUTO_IOS_FFI_PROFILE="${FUTO_IOS_FFI_PROFILE:-release-ffi}" just _test-ios all
+  FUTO_IOS_FFI_PROFILE="${FUTO_IOS_FFI_PROFILE:-release-ffi}" python3 scripts/ios-test-session.py -- just _test-ios all
+
+# Inspect this worktree's native iOS test process, including diagnostic collection.
+ios-test-status:
+  @python3 scripts/ios-test-session.py --status
+
+# Clear only stale session metadata; the OS refuses this while the test lock is held.
+ios-test-clear-stale:
+  @python3 scripts/ios-test-session.py --clear-stale
 
 # Runs on a CONCRETE simulator ($SIM, else the booted one). `bundle` is a test
 # target, or `all`; each further argument narrows to one suite/class in it.
@@ -145,7 +153,10 @@ _test-ios bundle *names: _preflight-ios build-rust-ios
   # rather than fail or hang. CI does not set this, so there it stays a failure.
   export TEST_RUNNER_FUTO_STOREKIT_TESTS_OPTIONAL=1
   # Concrete destination + ad-hoc sign: see justfile-notes.md.
+  # Avoid the optional multi-minute simctl sysdiagnose after a local test failure.
+  # Ordinary test output, failure status and result bundles remain available.
   xcodebuild test -project FutoNotesNative.xcodeproj \
+    -collect-test-diagnostics "${FUTO_IOS_TEST_DIAGNOSTICS:-never}" \
     -scheme FutoNotesNative \
     ${ONLY_TESTING[@]+"${ONLY_TESTING[@]}"} \
     -destination "id=$SIM" \
