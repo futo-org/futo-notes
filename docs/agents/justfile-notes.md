@@ -27,6 +27,12 @@ For shared build-directory waits and constrained ICU lockfile downgrades, see
 [Rust build troubleshooting](rust-builds.md). Preserve the cache and the owning process; use a
 separate target for an independent Rust check.
 
+## CI image pins
+
+For top-level OCI index digests, platform checks and the verbose-manifest child-digest trap, see
+[CI image pinning](ci-image-pins.md). Resolve the intended image before changing its pin; CI lint
+validates configuration syntax and cannot prove image architecture coverage.
+
 ## rust-format / rust-format-check
 
 The repo rule is that every command goes through `just`, but only the TypeScript side had
