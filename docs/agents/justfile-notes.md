@@ -21,6 +21,12 @@ that forward user-supplied text — a label, a test-name pattern, a path — pas
 that reason (enabled by `set positional-arguments := true` at the top of the file);
 flag-only recipes still interpolate with `{{args}}`.
 
+## CI image pins
+
+For top-level OCI index digests, platform checks and the verbose-manifest child-digest trap, see
+[CI image pinning](ci-image-pins.md). Resolve the intended image before changing its pin; CI lint
+validates configuration syntax and cannot prove image architecture coverage.
+
 ## rust-format / rust-format-check
 
 The repo rule is that every command goes through `just`, but only the TypeScript side had
@@ -46,9 +52,9 @@ on `ubuntu:22.04` where stock strip matches, so this is local-only noise.
 
 ## build-ios-native / test-ios-native (simulator destination)
 
-`build-ios-native` uses the *generic* simulator destination, which links both arm64 and
+`build-ios-native` uses the _generic_ simulator destination, which links both arm64 and
 x86_64 — `build-rust-ios.sh` lipos a universal simulator slice so both resolve.
-`test-ios-native` instead resolves a *concrete* `-destination "id=$SIM"`, which links only
+`test-ios-native` instead resolves a _concrete_ `-destination "id=$SIM"`, which links only
 ONE arm64 simulator, so the arm64-only FFI sim slice links without `EXCLUDED_ARCHS`. It
 also ad-hoc signs so the app test host launches with its keychain entitlement (mirrors
 `run.sh`).
