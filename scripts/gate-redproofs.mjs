@@ -66,6 +66,7 @@ const GATES = {
   'theme-single-pace': ['node', ['scripts/check-theme-single-pace.mjs']],
   'supporter-coin-glyph': ['node', ['scripts/check-supporter-coin-glyph.mjs']],
   'rust-dependency-boundaries': ['node', ['scripts/check-rust-dependency-boundaries.mjs']],
+  'cargo-cache-freshness': ['node', ['scripts/__fixtures__/gate-redproofs/cargo-cache-target.mjs']],
 };
 
 // Gates whose proof needs a Rust toolchain. Kept out of the default run so the

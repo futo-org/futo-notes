@@ -3,6 +3,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  renameSync,
   rmSync,
   statSync,
   utimesSync,
@@ -80,7 +81,7 @@ function restoreCache(dir, { stamp } = {}) {
   }
 }
 
-function runGuard(dir, args = []) {
+function runGuard(dir, args = [], env = {}) {
   try {
     const stdout = execFileSync('node', [GUARD, ...args], {
       cwd: dir,
@@ -92,7 +93,7 @@ function runGuard(dir, args = []) {
       // target/", and exit 0 — five tests asserting exit 1 then failed. Green on
       // a normal Mac, red under any runner that exports CARGO_TARGET_DIR, which
       // is how it surfaced (pc_7f277346768b).
-      env: { ...process.env, CI_PROJECT_DIR: dir, CARGO_TARGET_DIR: undefined },
+      env: { ...process.env, CI_PROJECT_DIR: dir, CARGO_TARGET_DIR: undefined, ...env },
       // execFileSync inherits stderr by default, so every expected SKEWED
       // failure also printed into the Vitest run and read as a real warning
       // (pc_69840db25618). Piped, it still reaches `error.stderr` below.
@@ -119,6 +120,24 @@ describe('restored cargo cache freshness guard', () => {
     expect(result.output).toContain('SKEWED');
     expect(result.output).toContain(base.slice(0, 8));
   });
+
+  it.each(['absolute', 'relative'])(
+    'checks and repairs the selected %s CARGO_TARGET_DIR, including spaces',
+    (kind) => {
+      const { dir, base, head } = makeRepo();
+      restoreCache(dir, { stamp: base });
+      const selected = join(dir, 'selected cache');
+      renameSync(join(dir, 'target'), selected);
+      const env = { CARGO_TARGET_DIR: kind === 'absolute' ? selected : 'selected cache' };
+
+      const check = runGuard(dir, ['--check'], env);
+      expect(check.status, check.output).toBe(1);
+      expect(check.output).toContain('SKEWED');
+      expect(runGuard(dir, [], env).status).toBe(0);
+      expect(readFileSync(join(selected, '.ci-source-stamp'), 'utf8').trim()).toBe(head);
+      expect(runGuard(dir, ['--check'], env).status).toBe(0);
+    },
+  );
 
   it('fails --check when the restored target/ carries no stamp at all', () => {
     const { dir } = makeRepo();

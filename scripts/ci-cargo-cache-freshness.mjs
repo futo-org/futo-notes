@@ -40,14 +40,14 @@ import {
   utimesSync,
   writeFileSync,
 } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 // $CI_PROJECT_DIR-anchored in CI (M12); the script's own location covers local
 // runs and the tests, which point it at a throwaway repo.
 const ROOT = process.env.CI_PROJECT_DIR ?? join(dirname(fileURLToPath(import.meta.url)), '..');
 const TARGET_DIR = process.env.CARGO_TARGET_DIR
-  ? join(ROOT, process.env.CARGO_TARGET_DIR)
+  ? resolve(ROOT, process.env.CARGO_TARGET_DIR)
   : join(ROOT, 'target');
 const STAMP = join(TARGET_DIR, '.ci-source-stamp');
 
