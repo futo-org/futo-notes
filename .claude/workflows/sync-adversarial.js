@@ -17,7 +17,7 @@ const BASE_SCHEMA = {
   type: 'object',
   required: ['rustPass', 'crossPlatformRan', 'crossPlatformPass', 'notes'],
   properties: {
-    rustPass: { type: 'boolean', description: 'cargo test -p futo-notes-sync passes' },
+    rustPass: { type: 'boolean', description: 'just test-sync passes' },
     crossPlatformRan: {
       type: 'boolean',
       description: 'just test-cross-platform actually ran (downloads the pinned server)',
@@ -28,7 +28,7 @@ const BASE_SCHEMA = {
 };
 const baseline = await agent(
   `From the repo root:
-   1. Run \`cargo test -p futo-notes-sync\` → rustPass.
+   1. Run \`just test-sync\` → rustPass.
    2. Attempt \`just test-cross-platform\` (boots 2 Tauri instances + the E2EE
       server; needs access to the pinned server package). If the infra is unavailable, set
       crossPlatformRan=false and say why in notes — do NOT treat that as a

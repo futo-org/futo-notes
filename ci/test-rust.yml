@@ -38,7 +38,7 @@ test:rust:workspace:
     # Same command as `just rust-lint`: [workspace.lints] denies the print
     # macros that panic (and abort the release app) once stderr is gone.
     - cargo clippy --workspace
-    - cargo test --workspace
+    - node "$CI_PROJECT_DIR/scripts/rust-tests.mjs" workspace
     - node --experimental-strip-types "$CI_PROJECT_DIR/tests/conformance/title-rules-differential.mjs"
   # Job 189242 exhausted the default 60m on a completely cold cache while
   # still compiling dependencies. Give that first run enough wall time to
@@ -59,6 +59,10 @@ test:rust:workspace:
         - Cargo.toml
         - Cargo.lock
         - rust-toolchain.toml
+        - .config/nextest.toml
+        - scripts/rust-tests.mjs
+        - scripts/cargo-nextest-pin.json
+        - ci/install-nextest.sh
         - .cargo/**/*
         - crates/**/*
         # Every TypeScript copy the note-rule differential runs against Rust
@@ -127,6 +131,10 @@ test:rust:macos:
       changes:
         - Cargo.toml
         - rust-toolchain.toml
+        - .config/nextest.toml
+        - scripts/rust-tests.mjs
+        - scripts/cargo-nextest-pin.json
+        - ci/install-nextest.sh
         - crates/futo-notes-core/**/*
         - crates/futo-notes-license/**/*
         - crates/futo-notes-model/**/*
@@ -148,6 +156,10 @@ test:rust:macos:
         - Cargo.toml
         - Cargo.lock
         - rust-toolchain.toml
+        - .config/nextest.toml
+        - scripts/rust-tests.mjs
+        - scripts/cargo-nextest-pin.json
+        - ci/install-nextest.sh
         - crates/**/*
         - apps/tauri/src-tauri/**/*
         - scripts/build-rust-ios.sh
@@ -234,6 +246,10 @@ test:rust:ffi-android:
         - Cargo.toml
         - Cargo.lock
         - rust-toolchain.toml
+        - .config/nextest.toml
+        - scripts/rust-tests.mjs
+        - scripts/cargo-nextest-pin.json
+        - ci/install-nextest.sh
         - .cargo/**/*
         - crates/**/*
         - scripts/build-rust-android.sh

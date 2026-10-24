@@ -37,9 +37,7 @@ BLOB_GC_ENABLED=false "$(node ~/Developer/futo-notes/scripts/lib/sync-server.mjs
 Then in the client worktree:
 
 ```sh
-FUTO_TEST_SERVER=http://127.0.0.1:<port> \
-  cargo test -p futo-notes-sync --test server_integration --test sse_live \
-  -- --ignored --test-threads=1
+just test-sync-integration
 node tests/cross-platform-sync.mjs
 ```
 

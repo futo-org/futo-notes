@@ -1,0 +1,5 @@
+# A libtest process can deadlock after its last visible test. Give each sync
+# test its own nextest process, report it as slow, then fail by its exact name.
+[profile.sync]
+test-threads = 4
+slow-timeout = { period = "30s", terminate-after = 4, grace-period = "5s" }

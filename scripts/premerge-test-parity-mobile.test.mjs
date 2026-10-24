@@ -192,7 +192,7 @@ describe('pre-merge CI routing contracts: native mobile jobs', () => {
 
     // MRs get only the iOS compile check (the workspace suite is the hard
     // Linux gate); the Cirrus task keys the full run off tag/default-branch.
-    expect(macosRustTask).toContain('cargo test --workspace');
+    expect(macosRustTask).toContain('/scripts/rust-tests.mjs\" workspace');
     expect(macosRustTask).toContain('"${CI_COMMIT_BRANCH:-}" = "${CI_DEFAULT_BRANCH}"');
     expect(macosRustJob).toContain('$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH');
   });
