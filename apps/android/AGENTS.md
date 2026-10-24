@@ -10,6 +10,7 @@ WebView. There is no Tauri Android shell.
 just android-native            # Rust ffi (device ABI) → editor bundle → installDirectDebug → launch
 just build-android-native      # compile-only sanity (BOTH distribution flavors)
 just test-android-native       # JVM unit tests (BOTH distribution flavors)
+just test-android-native com.futo.notes.DistributionFlavorTest # one JVM class, both flavors
 just test-android-native-ui    # all Compose instrumentation tests on $ANDROID_SERIAL (direct)
 just test-android-native-ui com.futo.notes.DialogImeDismissTest # one class; add #method for one test
 just android-drive             # drive the running app; no args prints the commands
@@ -39,6 +40,12 @@ unrelated to what you changed:
 Running `just android-native` once in a new worktree gets you past both; after
 that, direct gradle invocations work. (Cost two dead-end builds before it was
 written down.)
+
+For a targeted JVM test, use `just test-android-native <fully.qualified.Class>`
+or a quoted Gradle `Class.method` pattern. The recipe rebuilds missing bindings
+before Gradle and applies each filter to both distribution flavors. Filtering
+selects which tests run; Gradle still compiles the app module, so a bare
+`./gradlew ... --tests ...` in a fresh worktree cannot skip binding generation.
 
 The JDK is **not** one of these traps any more, and must not become one again.
 `apps/android/gradle/gradle-daemon-jvm.properties` pins the Gradle daemon to 21,

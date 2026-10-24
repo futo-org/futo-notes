@@ -122,12 +122,22 @@ test-ios-native: _preflight-ios build-rust-ios
     -derivedDataPath .build \
     CODE_SIGNING_ALLOWED=YES CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="-"
 
-# JVM unit tests for the native Android app, under BOTH flavors; see justfile-notes.md.
-test-android-native: _preflight-android android-env-check (build-rust-android "device")
+# JVM unit tests under BOTH flavors; optional Gradle Class[.method] patterns.
+test-android-native *tests: _preflight-android android-env-check (build-rust-android "device")
+  #!/usr/bin/env bash
+  set -euo pipefail
   # Stages the CURRENT editor.html into the assets, like every other native
   # recipe: a stale gitignored copy would otherwise be what gets tested (L1-008).
   node_modules/.bin/vite build --config vite.editor.config.ts
-  cd apps/android && ./gradlew :app:testDirectDebugUnitTest :app:testPlayDebugUnitTest
+  TEST_ARGS=()
+  for task in :app:testDirectDebugUnitTest :app:testPlayDebugUnitTest; do
+    TEST_ARGS+=("$task")
+    for selector in "$@"; do
+      TEST_ARGS+=(--tests "$selector")
+    done
+  done
+  cd apps/android
+  ./gradlew "${TEST_ARGS[@]}"
 
 # `direct` only: the flavors compile the same androidTest sources against the
 # same applicationId, so running both would install one over the other for no

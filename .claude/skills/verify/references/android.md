@@ -153,7 +153,7 @@ few lines in `MainActivity.testHooks()` (`MainActivityTestHooks.kt`); see `apps/
 ```bash
 adb shell input swipe 850 1459 150 1459 300  # swipe row left → reveal actions
 adb shell input swipe X Y X Y 700            # long-press (same point, 700ms)
-adb shell input text 'grocery%slist'         # type into focused field (%s = space)
+adb shell input text 'grocery%slist'         # focused native field (%s = space)
 just android-drive back                     # navigation-mode-aware Back / IME dismissal
 adb shell input keyevent 67                  # Backspace
 ```
@@ -208,6 +208,14 @@ native hook surface in §3, driven by broadcast rather than JS.
 `cdp-invoke.mjs` awaits promises and bypasses page CSP; re-run
 `just cdp-forward` after an app restart (the WebView pid changes).
 
+For an editor typing story, an `adb input text` exit code and a focused WebView
+do not prove the whole string arrived. Check `__futoTest.readDocument()` and
+the saved note. If adb delivers a prefix or no text, a CDP harness can use the
+existing `connectPage` client (`tests/lib/editorDevicePerfSnippets.mjs`): focus
+the editor, send `cdp.send('Input.insertText', { text })`, then assert the exact
+document change and persistence. This drives the editor's input path; it does
+not verify a physical keyboard or the real IME's composition behavior.
+
 ## 5. Logs
 
 The app logs under stable tags — scope logcat to them instead of grepping the
@@ -246,6 +254,7 @@ journal outranks the stored preference at startup.
 ```bash
 adb shell find '/storage/emulated/0/Documents/FUTO Notes Dev' -name '*.md'   # device storage
 adb shell run-as com.futo.notes.dev ls files/futo-notes                      # app storage
+adb shell 'stat -c "%y %n" /data/local/tmp'                                 # Toybox mtime syntax
 
 # Seed a fixture (device-storage vault), then relaunch so the scan picks it up:
 printf '# Seeded\n' | adb shell sh -c 'cat > "/storage/emulated/0/Documents/FUTO Notes Dev/Seeded Note.md"'
@@ -261,6 +270,19 @@ both when it hands you a pool emulator another worktree used.
 Like iOS, backgrounding the app (`adb shell input keyevent 3` = HOME) flushes
 pending editor edits to disk — background, then read the file to verify editor
 content.
+
+Android's Toybox `stat`/`ls` do not support GNU `--time-style=full-iso`.
+Use `stat -c '%y %n' <path>` for timestamps; add `run-as com.futo.notes.dev`
+before `stat` for app-private files.
+
+### Recordings and tap markers
+
+`show_touches=1` can display a pointer on the emulator while `adb screenrecord`
+omits it from the recording. Inspect the actual movie before treating that
+setting as recorded evidence. If markers are needed, retain the driven tap
+coordinates and timestamps and overlay them during video processing; identify
+those markers as annotations. Confirm each action through its rendered or
+saved result, since an annotated tap does not prove delivery.
 
 ## 7. Sync features
 
@@ -299,5 +321,6 @@ file changes. A different poster path requires running the helper again.
   device/emulator QA — Playwright can't see them.
 - Some Compose surfaces (dialogs, menus) render in separate windows; if a
   node is missing from the uiautomator dump, poll fresh dumps for the expected label with a bounded timeout.
-- `adb shell input text` can't type into the editor WebView reliably — focus
-  it first via tap, or use CDP `setContent`/`exec` for content-level work.
+- `adb shell input text` can deliver a prefix or nothing to a focused editor
+  WebView. Verify the whole string; use CDP `Input.insertText` for input stories
+  or `setContent`/`exec` for content-level work, with the persistence checks above.
