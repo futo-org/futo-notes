@@ -130,7 +130,7 @@ sync scenarios need a DEV-mode server, the hosted ones a STAND-IN-mode server
 each family at its own, and stops both by PID. The hosted leg runs only when the resolved
 server can do stand-in mode (`standinMode` in `scripts/sync-server-pin.json`, or
 `FUTO_NOTES_E2EE_SERVER_STANDIN=1` with your own build); when it cannot, those scenarios
-stay covered by the in-test stub (`cargo test -p futo-notes-sync --test hosted_setup`).
+stay covered by the in-test stub (`just test-sync`).
 
 ## chunk-census
 
@@ -260,3 +260,33 @@ node scripts/remote-test.mjs build-android-native \
 
 `--rsync`/other flags go before the recipe name, same as before. See `docs/remote-testing.md`
 for the full flag list and the macOS-only/interactive/local-machine refusal tiers.
+
+## Rust sync timeouts
+
+`just test-sync` runs the complete ordinary sync suite through a pinned,
+checksum-verified nextest binary and then invokes Cargo explicitly for doctests
+(which nextest does not support). `just test-rust-full` and the Linux/macOS CI
+workspace paths retain Cargo coverage for every other crate and route sync
+through the same bounded runner. Four sync tests can run at once; a test is
+reported SLOW every 30 seconds and fails by name after 120 seconds, with a
+five-second termination grace. Server-only cases remain ignored in that run.
+`just test-sync-integration` selects the ignored server binaries serially and
+continues to state whether the hosted stand-in leg actually ran.
+
+The first use installs the prebuilt version and archive hashes in
+`scripts/cargo-nextest-pin.json` through `ci/install-nextest.sh`; it does not
+change `rust-toolchain.toml`. `just install-nextest` installs it separately.
+On platforms without an archive in the pin, install that exact version under
+Cargo's bin directory (or `NEXTEST_INSTALL_DIR`) before running the suite.
+The official [installation guide](https://nexte.st/docs/installation/pre-built-binaries/)
+and [timeout behavior](https://nexte.st/docs/features/slow-tests/) describe the
+maintained runner. `just test-sync-timeout-proof` runs a healthy fixture beside
+an intentional deadlock under the real repository policy, and succeeds only
+when nextest reports that deadlock by name as TIMEOUT with a nonzero test exit.
+
+On Windows, install the exact pinned prebuilt version as
+`$CARGO_HOME/bin/cargo-nextest.exe` (normally `~/.cargo/bin/cargo-nextest.exe`),
+or point `NEXTEST_INSTALL_DIR` at its directory. The POSIX checksum installer
+supports Linux/macOS; the test route supports the preinstalled Windows exe
+and fails with the pinned-version/path requirement before any tests if it is
+missing or wrong. It never silently falls through to unbounded Cargo tests.

@@ -1,0 +1,18 @@
+{
+  "version": "0.9.149",
+  "source": "https://github.com/nextest-rs/nextest/releases/tag/cargo-nextest-0.9.149",
+  "archives": {
+    "Linux/x86_64": {
+      "asset": "x86_64-unknown-linux-gnu.tar.gz",
+      "sha256": "32d1d8c0567b7a80bee2bad8bb09125c846da96bc009b2de11ec08557290c770"
+    },
+    "Linux/aarch64": {
+      "asset": "aarch64-unknown-linux-gnu.tar.gz",
+      "sha256": "6f82e375187cf3a1f3e336879a51940c315a5d0ce7253f7e517ad28295b74189"
+    },
+    "Darwin": {
+      "asset": "universal-apple-darwin.tar.gz",
+      "sha256": "47b9941765a9ff94e304a3fe5444ac1c7593da655525b8b69f8f2b31a9217507"
+    }
+  }
+}

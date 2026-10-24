@@ -328,6 +328,7 @@ async fn deletion_before_a_tombstoned_replay_response_clears_the_create_identity
         .mount(&server)
         .await;
     let replay_response = ResponseGate::default();
+    let _replay_response_release = replay_response.release_on_drop();
     let response_gate = replay_response.clone();
     Mock::given(method("POST"))
         .and(path("/api/collections/collection/blob-objects"))

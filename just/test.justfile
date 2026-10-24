@@ -48,10 +48,26 @@ test-rust:
   cargo test -p futo-notes-license
   node --experimental-strip-types tests/conformance/title-rules-differential.mjs
 
-# The full Rust workspace + the differential.
+# Install the pinned, verified nextest binary without changing the Rust toolchain.
+install-nextest:
+  sh ci/install-nextest.sh
+
+# All ordinary sync tests with per-test timeouts, then Cargo doctests; server tests stay ignored.
+test-sync:
+  node scripts/rust-tests.mjs sync
+
+# Prove a deliberately deadlocked test fails with its name under the actual timeout policy.
+test-sync-timeout-proof:
+  node scripts/rust-test-timeout-proof.mjs
+
+# Prove model fixture embedding and dynamic license goldens survive checkout relocation.
+test-conformance-relocation:
+  node scripts/conformance-relocation-proof.mjs
+
+# The full Rust workspace + doctests + differential; sync uses bounded per-test processes.
 test-rust-full:
   mkdir -p dist
-  cargo test --workspace
+  node scripts/rust-tests.mjs workspace
   node --experimental-strip-types tests/conformance/title-rules-differential.mjs
 
 # Shared search engine correctness; see crates/futo-notes-search/benches/search.rs.
