@@ -397,7 +397,7 @@ function compareVersions(a, b) {
   return 0;
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (import.meta.main) {
   const command = process.argv[2] || 'path';
   try {
     if (command === 'version') console.log(PINNED_SERVER_VERSION);

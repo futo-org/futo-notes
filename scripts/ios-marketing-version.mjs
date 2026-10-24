@@ -15,8 +15,6 @@
 // Mirrors the convention in polycentric's tools/expo/resolve-version.js.
 // Reads CI_COMMIT_TAG, CI_API_V4_URL, CI_PROJECT_ID, CI_JOB_TOKEN.
 
-import { pathToFileURL } from 'node:url';
-
 const TAG_PATTERN = /^v(\d+\.\d+\.\d+.*)$/;
 const FALLBACK_VERSION = '0.0.1';
 
@@ -77,6 +75,6 @@ async function main() {
 }
 
 // Run only when invoked directly so the test can import the pure helpers.
-if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
+if (import.meta.main) {
   main();
 }

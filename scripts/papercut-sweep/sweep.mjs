@@ -27,7 +27,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 import { parsePapercutLog } from '../lib/papercut-log.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -317,7 +317,7 @@ async function runSweep({
   return { status, result };
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (import.meta.main) {
   const dryRun = process.argv.includes('--dry-run');
   runSweep({ dryRun })
     .then((out) => process.exit(out.status === 'no-result' ? 1 : 0))

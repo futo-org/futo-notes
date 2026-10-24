@@ -3,7 +3,7 @@
 // Its one module export is `export const meta`; await/return belong to the body.
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -74,7 +74,7 @@ function main(args) {
   return 0;
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (import.meta.main) {
   try {
     process.exitCode = main(process.argv.slice(2));
   } catch (error) {

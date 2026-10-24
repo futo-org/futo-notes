@@ -18,7 +18,6 @@
 // Format and limits: scripts/lib/release-notes.mjs.
 
 import { readFileSync, readdirSync } from 'node:fs';
-import { pathToFileURL } from 'node:url';
 
 import {
   STABLE_TAG_PATTERN,
@@ -139,6 +138,6 @@ function main() {
   process.stdout.write(args.target === 'ios' ? notes.appStore : notes.play);
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
+if (import.meta.main) {
   main();
 }

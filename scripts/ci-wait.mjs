@@ -16,7 +16,6 @@
 // Uses curl-equivalent fetch against the REST API with $GITLAB_TOKEN — the
 // `glab` CLI cannot authenticate writes from agent shells and mis-parses branch
 // names as dates, both filed as papercuts.
-import { pathToFileURL } from 'node:url';
 
 export const API = 'https://gitlab.futo.org/api/v4';
 export const PROJECT = 'futo-notes%2Ffuto-notes';
@@ -235,7 +234,7 @@ async function main() {
   process.exit(result.timedOut ? 2 : exitCodeFor(result.status));
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (import.meta.main) {
   main().catch((error) => {
     process.stderr.write(`${error.message}\n`);
     process.exit(3);

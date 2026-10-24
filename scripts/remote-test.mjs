@@ -32,7 +32,6 @@ import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { hostname, userInfo } from 'node:os';
 import path from 'node:path';
-import { pathToFileURL } from 'node:url';
 
 import { readJustCommands } from './lib/justfile.mjs';
 import { HELP, parseCliArgs } from './remote-test/cli.mjs';
@@ -370,6 +369,6 @@ function main() {
   return status;
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (import.meta.main) {
   process.exit(main());
 }

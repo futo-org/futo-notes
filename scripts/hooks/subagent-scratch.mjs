@@ -10,7 +10,6 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { pathToFileURL } from 'node:url';
 
 const SAFE = /[^A-Za-z0-9._-]/g;
 
@@ -64,7 +63,7 @@ async function main() {
   process.stdout.write(JSON.stringify(decide(input)) + '\n');
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (import.meta.main) {
   main().catch((error) => {
     process.stderr.write(`subagent-scratch hook error (ignored): ${error.message}\n`);
   });

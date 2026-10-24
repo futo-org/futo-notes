@@ -6,7 +6,7 @@
 // primary checkout (EnterWorktree sessions), so orientation is computed there.
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ORIENT = path.join(HERE, '..', 'agent-orient.mjs');
@@ -40,7 +40,7 @@ async function main() {
   );
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (import.meta.main) {
   main().catch((error) => {
     process.stderr.write(`session-orient hook error (ignored): ${error.message}\n`);
   });

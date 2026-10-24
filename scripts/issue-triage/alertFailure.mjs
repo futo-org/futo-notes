@@ -22,7 +22,6 @@
  *
  * Exit codes: 0 posted or deliberately throttled, 1 the alert could not be sent.
  */
-import { pathToFileURL } from 'node:url';
 
 import { beginOutage, loadHealth, markAlerted, saveHealth, shouldAlert } from './healthState.mjs';
 import { stateDir } from './triageState.mjs';
@@ -75,6 +74,6 @@ async function main() {
   }
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (import.meta.main) {
   main();
 }

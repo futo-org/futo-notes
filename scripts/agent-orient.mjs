@@ -12,7 +12,6 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { pathToFileURL } from 'node:url';
 
 import { ENV_NAMES, portsFor, slotOf } from './lib/slot.mjs';
 import { parsePapercutLog } from './lib/papercut-log.mjs';
@@ -296,7 +295,7 @@ function formatOrientation(d) {
   return L.join('\n');
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (import.meta.main) {
   const USAGE = 'Usage: just orient [--json] [--base <ref>]';
   const args = process.argv.slice(2);
   let base = 'origin/main';

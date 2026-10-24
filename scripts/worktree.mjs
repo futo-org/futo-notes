@@ -26,7 +26,6 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { pathToFileURL } from 'node:url';
 
 import { sweepDevAppStorage } from './lib/dev-app-storage.mjs';
 import { envLines } from './lib/slot.mjs';
@@ -343,7 +342,7 @@ function cmdCloneTarget(dest) {
   info(`Cloned target/ → ${dst} (copy-on-write)`);
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (import.meta.main) {
   const [cmd, ...rest] = process.argv.slice(2);
   const flags = parseFlags(rest);
   try {

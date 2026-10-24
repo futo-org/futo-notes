@@ -18,7 +18,6 @@
  *   node scripts/issue-triage/poll.mjs            # live: post + record
  *   node scripts/issue-triage/poll.mjs --dry-run  # print what it would post
  */
-import { pathToFileURL } from 'node:url';
 
 import { classifyIssue } from './classifyIssue.mjs';
 import { fetchIssuesSince } from './githubIssues.mjs';
@@ -154,6 +153,6 @@ async function main(argv) {
   }
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (import.meta.main) {
   main(process.argv.slice(2));
 }

@@ -21,7 +21,7 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const EXTENSIONS = ['.ts', '.svelte', '.js', '.mjs', '.cjs', '.css'];
@@ -79,4 +79,4 @@ function main() {
 
 // House guard: run only when executed directly, so the exported helper can be
 // imported (vitest, `node -e`) without triggering a full format run.
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) main();
+if (import.meta.main) main();
