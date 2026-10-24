@@ -13,6 +13,7 @@
  * once per drag, outside the timed frames.
  */
 import { previewMode } from './preview-mode';
+import { nextBenchFrame as raf } from '../frame-clock';
 
 type AppPlan = {
   sizes: number[];
@@ -39,7 +40,6 @@ function snapshot(path: string): Promise<void> {
   });
 }
 
-const raf = () => new Promise<number>((resolve) => requestAnimationFrame(resolve));
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 function post(message: unknown): void {
@@ -247,7 +247,9 @@ async function runPlan(plan: AppPlan): Promise<void> {
     }
     post({ runs, screen: { dpr: devicePixelRatio, width: innerWidth, height: innerHeight } });
   } catch (error) {
-    post({ error: String((error as Error)?.stack ?? error) });
+    post({
+      error: error instanceof Error ? `${error.toString()}\n${error.stack ?? ''}` : String(error),
+    });
   }
 }
 

@@ -6,6 +6,10 @@
 tauri-dev *args:
   node scripts/tauri-dev.mjs "$@"
 
+# Run an owned desktop stack under a private Linux compositor (verify frame delivery separately).
+desktop-headless +args:
+  bash scripts/run-under-virtual-kwin.sh "$@"
+
 # Build the desktop AppImage/bundle for this platform.
 tauri-build:
   pnpm run build

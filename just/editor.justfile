@@ -70,3 +70,8 @@ gauntlet-milkdown-foreign *args:
 # Findings write-up: docs/editor/milkdown-roundtrip-census.md.
 milkdown-census *args:
   node tests/milkdown-census/run.mjs "$@"
+
+# Memory-capped, resumable Linux corpus fleet (requires a clean commit and full-corpus env).
+# Run detached: just detached start corpus just gauntlet-milkdown-sweep <name>
+gauntlet-milkdown-sweep +args:
+  node --experimental-strip-types tests/editor-gauntlet/runForeignShards.mjs "$@"

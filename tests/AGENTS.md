@@ -3,12 +3,12 @@
 Four different kinds of test share this directory. Knowing which one you are touching decides how
 you run it and what a green result actually proves.
 
-| What | Where | Runner |
-|---|---|---|
-| Browser end-to-end | `*.spec.ts` | Playwright, against the Vite dev server |
-| Editor-embed | `editor-embed-*.spec.ts` | Playwright, its own config, `file://` |
-| Cross-language goldens | `conformance/`, `localization/cases.json` | Rust, Vitest, Swift, Kotlin |
-| Real-app harnesses | `*.mjs` + `lib/` | plain Node against a running app or device |
+| What                   | Where                                     | Runner                                     |
+| ---------------------- | ----------------------------------------- | ------------------------------------------ |
+| Browser end-to-end     | `*.spec.ts`                               | Playwright, against the Vite dev server    |
+| Editor-embed           | `editor-embed-*.spec.ts`                  | Playwright, its own config, `file://`      |
+| Cross-language goldens | `conformance/`, `localization/cases.json` | Rust, Vitest, Swift, Kotlin                |
+| Real-app harnesses     | `*.mjs` + `lib/`                          | plain Node against a running app or device |
 
 Unit tests live next to the code they test, not here. `lib/*.test.mjs` is the exception — those test
 the harness helpers themselves and run under Vitest.
@@ -33,7 +33,9 @@ pnpm exec playwright test -g 'partial test title'   # one test
 Milkdown round-trip suites untested unless you also run `pnpm run test:e2e:editor-embed`.
 That run always starts with a production Vite build of the editor bundle (its globalSetup,
 `tests/editorEmbedBundle.ts`, rebuilds so a stale `editor.html` cannot pass), so it counts as a
-build when a task rules builds out.
+build when a task rules builds out. Every run builds into a private
+`build/editor-embed-*/` directory and removes only that directory on teardown.
+Native builds and simultaneous embed/gauntlet runs cannot erase its bundle.
 
 `just test-one` is **Vitest**, not Playwright — use it for the co-located unit tests and the
 harness helpers under `lib/`, not for a `.spec.ts` here.

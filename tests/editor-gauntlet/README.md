@@ -153,3 +153,50 @@ notes. Reports are `foreign-preservation-v4`, which is not comparable to a v3 on
 
 Corpus-derived inputs and reports must stay local. Read `~/Developer/futo-notes-ml/NOTICE.md`
 before using the foreign corpus, and do not commit derived fixtures.
+
+### Memory-bounded Linux fleets
+
+`just gauntlet-milkdown-sweep <name>` runs modulo shards in separate systemd
+user services (requires `flock` as well as systemd). An OS lock rejects a
+second live scheduler for the same run with exit 73, and is released when
+that scheduler dies. Each service has a memory cap (default 6 GiB, swap disabled),
+and the scheduler starts at most two at once, reduced further by current
+available memory minus 4 GiB reserved for other work. It refuses to start a
+shard when that headroom is unavailable. A browser OOM belongs to that
+service, rather than the terminal's whole process scope.
+
+Start from a clean committed worktree, read the corpus NOTICE, and set the
+full count. A run name owns its directory under the ignored `local/sweeps/`:
+
+```sh
+EDITOR_GAUNTLET_CORPUS=~/Developer/futo-notes-ml/dataset/notes_corpus.jsonl.gz \
+EDITOR_GAUNTLET_EXPECTED_RECORDS=30995 \
+just detached start foreign just gauntlet-milkdown-sweep corpus-v1 --shards 16
+just detached tail foreign
+just detached wait foreign --timeout 60
+```
+
+The detached wait's exit 124 means it is still running; inspect the same run
+again. The scheduler and each shard preserve logs and exit status. Shards use
+absolute Node paths, so a minimal service PATH cannot lose the Node selected
+by the parent. `--max-parallel`, `--memory-gib` and `--reserve-gib` change the
+resource plan; start a new run name when changing it. The helper is Linux-only;
+individual shard recipes above remain available on other hosts.
+
+Rerun the exact sweep command with the same name to attach to live services,
+retain completed matching shards, and retry failed or missing ones. After a
+detached scheduler exits, rerunning its `just detached start` command resumes
+that sweep too. It never accepts a missing report or a zero process exit by
+itself. The source commit must stay clean and unchanged, corpus bytes and
+configuration must match, and every shard's freshly built production bundle
+must match the run's saved SHA-256 snapshot. Changed inputs require a new run.
+The existing strict aggregate verifier still rejects incomplete coverage,
+capped runs, mismatched fingerprints and failed accounting.
+
+Read `plan.json` alongside `aggregate.json`: the plan pins the source,
+configuration, corpus hash and actual editor-bundle hash. Per-shard `.log`,
+`.exit.json` and custom `.json` reports stay there even if the scheduler dies.
+The printed service name is its process identity; inspect it with
+`systemctl --user status <unit>` or `journalctl --user -u <unit>`. Stopping the
+scheduler leaves its active shard services running. Stop only the printed
+units from the run you own if you also need to stop those shards.
