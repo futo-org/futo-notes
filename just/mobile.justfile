@@ -98,10 +98,47 @@ _preflight-android: editor-deps
 
 # ── Native unit tests ──
 
-# Swift Testing for the native iOS app on a CONCRETE simulator ($SIM, else the booted one).
-test-ios-native: _preflight-ios build-rust-ios
+# The unit and UI recipes build the Rust bridge in `dev`, like `just ios-native`,
+# so testing and running share one build; `-full` builds `release-ffi`, as CI
+# does. An explicit FUTO_IOS_FFI_PROFILE overrides either.
+# iOS unit tests (Swift Testing, FutoNotesNativeTests) — CI's MR tier; name suites to run only those.
+test-ios-native *suites:
+  FUTO_IOS_FFI_PROFILE="${FUTO_IOS_FFI_PROFILE:-dev}" python3 scripts/ios-test-session.py -- just _test-ios FutoNotesNativeTests "$@"
+
+# iOS UI tests (XCTest, FutoNotesNativeUITests; minutes per run); name test classes to run only those.
+test-ios-native-ui *classes:
+  FUTO_IOS_FFI_PROFILE="${FUTO_IOS_FFI_PROFILE:-dev}" python3 scripts/ios-test-session.py -- just _test-ios FutoNotesNativeUITests "$@"
+
+# iOS unit + UI tests together — what main pushes and tags run in CI.
+test-ios-native-full:
+  FUTO_IOS_FFI_PROFILE="${FUTO_IOS_FFI_PROFILE:-release-ffi}" python3 scripts/ios-test-session.py -- just _test-ios all
+
+# Inspect this worktree's native iOS test process, including diagnostic collection.
+ios-test-status:
+  @python3 scripts/ios-test-session.py --status
+
+# Clear only stale session metadata; the OS refuses this while the test lock is held.
+ios-test-clear-stale:
+  @python3 scripts/ios-test-session.py --clear-stale
+
+# Runs on a CONCRETE simulator ($SIM, else the booted one). `bundle` is a test
+# target, or `all`; each further argument narrows to one suite/class in it.
+[private]
+_test-ios bundle *names: _preflight-ios build-rust-ios
   #!/usr/bin/env bash
   set -euo pipefail
+  BUNDLE="$1"; shift
+  ONLY_TESTING=()
+  if [ "$BUNDLE" != all ]; then
+    DIR=apps/ios/Tests; [ "$BUNDLE" = FutoNotesNativeUITests ] && DIR=apps/ios/UITests
+    [ $# -eq 0 ] && ONLY_TESTING=("-only-testing:$BUNDLE")
+    for name in "$@"; do
+      # xcodebuild runs zero tests and reports success for a name it does not know.
+      grep -rqwE "(struct|class|enum|actor) ${name%%/*}" "$DIR" \
+        || { echo "No suite or class named '${name%%/*}' in $DIR" >&2; exit 1; }
+      ONLY_TESTING+=("-only-testing:$BUNDLE/$name")
+    done
+  fi
   node_modules/.bin/vite build --config vite.editor.config.ts
   SIM="${SIM:-$(xcrun simctl list devices booted | sed -n 's/.*(\([0-9A-Fa-f-]\{36\}\)).*Booted.*/\1/p' | head -1)}"
   if [ -z "$SIM" ]; then
@@ -116,18 +153,31 @@ test-ios-native: _preflight-ios build-rust-ios
   # rather than fail or hang. CI does not set this, so there it stays a failure.
   export TEST_RUNNER_FUTO_STOREKIT_TESTS_OPTIONAL=1
   # Concrete destination + ad-hoc sign: see justfile-notes.md.
+  # Avoid the optional multi-minute simctl sysdiagnose after a local test failure.
+  # Ordinary test output, failure status and result bundles remain available.
   xcodebuild test -project FutoNotesNative.xcodeproj \
+    -collect-test-diagnostics "${FUTO_IOS_TEST_DIAGNOSTICS:-never}" \
     -scheme FutoNotesNative \
+    ${ONLY_TESTING[@]+"${ONLY_TESTING[@]}"} \
     -destination "id=$SIM" \
     -derivedDataPath .build \
     CODE_SIGNING_ALLOWED=YES CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="-"
 
-# JVM unit tests for the native Android app, under BOTH flavors; see justfile-notes.md.
-test-android-native: _preflight-android android-env-check (build-rust-android "device")
+# Android JVM unit tests, BOTH flavors; pass Gradle --tests filters to run only those, on direct.
+test-android-native *filters: _preflight-android android-env-check (build-rust-android "device")
+  #!/usr/bin/env bash
+  set -euo pipefail
   # Stages the CURRENT editor.html into the assets, like every other native
   # recipe: a stale gitignored copy would otherwise be what gets tested (L1-008).
   node_modules/.bin/vite build --config vite.editor.config.ts
-  cd apps/android && ./gradlew :app:testDirectDebugUnitTest :app:testPlayDebugUnitTest
+  cd apps/android
+  if [ $# -eq 0 ]; then
+    ./gradlew :app:testDirectDebugUnitTest :app:testPlayDebugUnitTest
+  else
+    # A filter is the fix loop. Per-flavor checks (DistributionFlavorTest) need the bare run.
+    TESTS=(); for filter in "$@"; do TESTS+=(--tests "$filter"); done
+    ./gradlew :app:testDirectDebugUnitTest "${TESTS[@]}"
+  fi
 
 # `direct` only: the flavors compile the same androidTest sources against the
 # same applicationId, so running both would install one over the other for no
@@ -234,3 +284,7 @@ deploy-ios:
 # Regenerate selectable mobile icon catalogs, adaptive layers, and previews.
 app-icons:
   node scripts/generate-app-icons.mjs
+
+# Run current source on an isolated Mac checkout (including targeted native UI classes).
+ios-remote *args: check-node-version
+  @node scripts/ios-remote.mjs "$@"

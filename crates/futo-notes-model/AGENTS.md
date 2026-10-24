@@ -38,5 +38,5 @@ cargo test -p futo-notes-model    # unit + the conformance goldens
 just test-rust                    # goldens + the TS↔Rust title differential
 ```
 
-Any rule change also needs `pnpm run test:editor:full` and, for anything reaching a note's identity
+Any rule change also needs `just test-unit packages/editor` and, for anything reaching a note's identity
 on disk, `cargo test -p futo-notes-store`.

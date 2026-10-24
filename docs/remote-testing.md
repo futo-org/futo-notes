@@ -1,5 +1,8 @@
 # Remote testing (Linux over Tailscale)
 
+For the other direction — native iOS tests from Linux on a Mac — use
+[`just ios-remote`](remote-ios-testing.md).
+
 Everything in this repo that does **not** need macOS runs on a Linux box over Tailscale, so the Mac
 stays free for the work only it can do: Xcode builds, the iOS simulator, and the WKWebView desktop
 app.
@@ -92,7 +95,7 @@ prove Windows WebView2): a passing run on the wrong engine is not evidence about
 `remote-test` encodes that boundary in three tiers rather than leaving it to be read:
 
 1. **Refused** (exit 2, before any network call) — recipes that need Xcode, the iOS simulator or
-   swift-format (`build-rust-ios`, `build-ios-native`, `test-ios-native`, `ios-native*`,
+   swift-format (`build-rust-ios`, `build-ios-native`, `test-ios-native*`, `ios-native*`,
    `deploy-ios`, `lint-swift`, every `sim-*`), recipes whose _purpose_ is the shipped desktop engine
    (`test-desktop-smoke`), interactive dev/QA commands
    (`tauri-dev`, `android-drive`, …), recipes needing root

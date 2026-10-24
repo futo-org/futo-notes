@@ -66,7 +66,7 @@ build when a task rules builds out. Every run builds into a private
 `build/editor-embed-*/` directory and removes only that directory on teardown.
 Native builds and simultaneous embed/gauntlet runs cannot erase its bundle.
 
-`just test-one` is **Vitest**, not Playwright — use it for the co-located unit tests and the
+`just test-unit` is **Vitest**, not Playwright — use it for the co-located unit tests and the
 harness helpers under `lib/`, not for a `.spec.ts` here.
 
 Playwright **wipes** `test-results/` at the start of every run, so a failed run's trace and video

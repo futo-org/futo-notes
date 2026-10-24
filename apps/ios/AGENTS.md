@@ -15,17 +15,26 @@ UniFFI Swift bindings. Both are generated — edit `project.yml` or the FFI crat
 | Connected iPhone, Debug (`com.futo.notes.dev`) | `just ios-native-device` |
 | Connected iPhone, Release (prod `com.futo.notes`) | `just deploy-ios` |
 | Compile-only sanity | `just build-ios-native` |
-| Swift Testing suite | `just test-ios-native` |
+| Unit tests (Swift Testing), or only named suites | `just test-ios-native [Suite…]` |
+| UI tests (XCTest, minutes), or only named classes | `just test-ios-native-ui [Class…]` |
+| Both, as main-branch CI runs them | `just test-ios-native-full` |
+| Native checks from Linux on an isolated Mac checkout | `just ios-remote <recipe> [Suite/Class…]` |
+
+Native Rust builds check free space on the actual Cargo target volume before compiling.
+`FUTO_IOS_MIN_FREE_GIB` is a positive minimum (default 2 GiB); cold builds may need more.
+Low-space errors give a dry-run inventory command rather than deleting shared caches.
+Remote setup, source identity and cleanup boundaries: `docs/remote-ios-testing.md`.
 
 After **any** change to `futo-notes-ffi` or a crate it re-exports, run `just build-rust-ios` before
 building — otherwise you are testing old bindings, and the symptom looks like "my change did
 nothing" or a Swift compile error on a missing symbol. The `just *-native` recipes do this for you;
 a direct `xcodebuild` does not.
 
-`build-rust-ios.sh` builds the Rust core with the `release-ffi` profile, which is what CI, the
-Swift tests, and `just deploy-ios` ship. `just ios-native` and `just ios-native-device` set
-`FUTO_IOS_FFI_PROFILE=dev` for a fast incremental edit loop; set it to `release-ffi` there to run
-the shipped Rust on a simulator or device.
+`build-rust-ios.sh` builds the Rust core with the `release-ffi` profile, which is what CI,
+`just test-ios-native-full`, and `just deploy-ios` ship. `just ios-native`, `just ios-native-device`,
+`just test-ios-native` and `just test-ios-native-ui` set `FUTO_IOS_FFI_PROFILE=dev` for a fast
+incremental edit loop, so running and testing share one build; set it to `release-ffi` to run or
+test the shipped Rust on a simulator or device.
 
 `build-rust-ios.sh` lipos a universal (arm64 + x86_64) simulator slice, so both the generic
 simulator destination `just build-ios-native` uses and the single concrete simulator
@@ -52,12 +61,24 @@ simulator destination `just build-ios-native` uses and the single concrete simul
 
 ## Testing and QA
 
-Unit tests are Swift Testing in `apps/ios/Tests/`, run by `just test-ios-native` (needs a booted
-simulator; honors `$SIM` from `just qa-claim ios`). The recipe skips the StoreKit suites
+Unit tests are Swift Testing in `apps/ios/Tests/`, run by `just test-ios-native`; UI tests are
+XCTest in `apps/ios/UITests/`, run by `just test-ios-native-ui`. Both need a booted simulator and
+honor `$SIM` from `just qa-claim ios`. The recipes skip the StoreKit suites
 (`LicenseAppStoreTests`, `AppStorePurchaseTests`) with a stated reason when the simulator's runtime
 does not match Xcode's SDK, since local StoreKit cannot run there; CI does not opt out, so there
 they fail instead. `ServerUrlConformanceTests.swift` reads the full
 shared `validateServerUrl` fixture — it is a lock, not a sample.
+
+The three local test recipes hold an OS lock for this worktree through the complete build,
+test and diagnostic-collection process. A second invocation exits 75 before rebuilding.
+`just ios-test-status` reports whether the process is still active and names diagnostic
+collection when Xcode announces it; wait for the real process exit before rerunning.
+A killed runner's inherited lock stays with its live command and is released by the OS;
+`just ios-test-clear-stale` clears only old metadata and refuses a live lock.
+Local runs use `-collect-test-diagnostics never` to avoid optional multi-minute simulator
+sysdiagnose collection; set `FUTO_IOS_TEST_DIAGNOSTICS=on-failure` when that evidence is needed.
+Test failures and regular result bundles remain available, and CI invocation is unchanged.
+The lock runner uses Python 3's standard Unix `fcntl.flock`, with no extra Python packages.
 
 Device/simulator QA of the changed flow is required; keyboard, safe-area, and scroll changes need
 the full matrix (new note, existing note, toolbar, scroll-during-IME). Drive the app with

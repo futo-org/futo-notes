@@ -106,7 +106,7 @@ describe('android FFI ABI selection', () => {
       'test-android-native-ui',
     ]) {
       expect(justfile).toMatch(
-        new RegExp(`^${recipeName}:[^\\n]*\\(build-rust-android "device"\\)`, 'm'),
+        new RegExp(`^${recipeName}(?=\\s|:)[^\\n]*\\(build-rust-android "device"\\)`, 'm'),
       );
     }
   });

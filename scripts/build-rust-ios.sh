@@ -5,7 +5,8 @@
 # Built with the `release-ffi` profile (Cargo.toml) by default: the workspace
 # release profile uses panic="abort", which breaks UniFFI's panic catching.
 # FUTO_IOS_FFI_PROFILE=dev skips LTO so this script reruns in ~10s instead of
-# ~50s after a crate edit; apps/ios/run.sh and run-device.sh set it.
+# ~50s after a crate edit; apps/ios/run.sh, run-device.sh and the test-ios-native
+# and test-ios-native-ui recipes set it.
 set -euo pipefail
 
 PROFILE="${FUTO_IOS_FFI_PROFILE:-release-ffi}"
@@ -26,6 +27,8 @@ fi
 # shared across worktrees); the hardcoded target/… paths below would then miss
 # the freshly built artifacts (pc_2439ab43fc9b, Android sibling).
 TARGET_DIR="${CARGO_TARGET_DIR:-$ROOT/target}"
+# Fail before expensive compilation when the target volume is already full.
+node scripts/ios-build-space.mjs "$TARGET_DIR"
 
 # Rust's aarch64-apple-ios target defaults to a 10.0 minimum, but C objects
 # built by cc-rs deps (zstd-sys via tantivy in futo-notes-search) reference

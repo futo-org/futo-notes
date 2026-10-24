@@ -58,12 +58,10 @@ to writing a script in this directory.
 ## Testing
 
 Most scripts have a co-located `*.test.mjs`. `vitest.config.ts` includes `scripts/**/*.test.mjs`,
-so `just check` (via `pnpm run test:full`) runs all of them; the minimal set in
-`pnpm run test:unit` is a faster subset.
+so `just check` (via `pnpm run test:full`) and a bare `just test-unit` run all of them.
 
 ```bash
-just test-unit            # includes the script tests in the minimal set
-just test-one scripts/qa-target.test.mjs
+just test-unit scripts/qa-target.test.mjs   # only the tests you name
 node scripts/gate-redproofs.mjs --include-cargo   # only when you changed a gate
 just arch-gate            # the focused checks CI's mandatory job runs
 ```

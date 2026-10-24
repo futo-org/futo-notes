@@ -131,6 +131,6 @@ localdev-key may appear), the stable-only channel-regex guard
 verifies; prod pubkey / tampered bytes / corrupted key → rejected), and
 `scripts/{build-updater-manifest,release-build}.test.mjs`, including executable
 tag/MR signing-environment checks. All run in
-`test:unit:minimal` (so CI gates them). The real download→verify→swap→relaunch
+`pnpm run test:full`, which CI gates. The real download→verify→swap→relaunch
 is a per-release manual smoke per OS (an OS-level op, not unit-testable) —
 `node scripts/release-build.mjs e2e` is the closest automated rehearsal.

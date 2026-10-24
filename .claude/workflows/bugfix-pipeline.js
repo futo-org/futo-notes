@@ -156,7 +156,7 @@ ${JSON.stringify(fix, null, 2)}
 
 Verify adversarially:
 1. Run the regression test at ${diag.testPath} — does it ACTUALLY pass now?
-2. Run the appropriate BROADER verification chain for the changed files (AGENTS.md §7 "Quality bar per deliverable" — e.g. \`just build\`, \`just test-unit\`, \`just test-editor\`, \`just test-rust\`, or a specific Playwright spec). Hunt for REGRESSIONS the fix introduced.
+2. Run the appropriate BROADER verification chain for the changed files (AGENTS.md §7 "Quality bar per deliverable" — e.g. \`just build\`, \`just test-unit <changed tests>\`, \`just test-rust\`, or a specific Playwright spec). Hunt for REGRESSIONS the fix introduced.
 3. Judge whether the fix targets the ROOT CAUSE or merely games the test green (special-casing the test's exact input, weakened assertions, deleted coverage). Set gamingRisk=true if you suspect gaming.
 4. Sanity-check that the new test genuinely covers the bug (would fail if the fix were reverted).
 

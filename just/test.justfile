@@ -7,24 +7,9 @@ build: check-node-version _require-node-modules
   pnpm exec tsc --noEmit | head -30
   pnpm run build | tail -20
 
-# Run the minimal (fast-loop) test suite.
-test:
-  pnpm run test:minimal
-
-# Run ONE test file or -t pattern (installs deps if the worktree is fresh).
-test-one *args:
-  #!/usr/bin/env bash
-  set -euo pipefail
-  [ -d node_modules ] || { echo "==> node_modules missing — pnpm install"; pnpm install; }
+# Every vitest test (app, editor package, scripts); pass files, folders or -t <name> to run only those.
+test-unit *args: editor-deps
   node_modules/.bin/vitest run "$@"
-
-# Run unit tests (vitest, jsdom).
-test-unit:
-  pnpm run test:unit
-
-# Run the editor package's test suite.
-test-editor:
-  pnpm run test:editor
 
 # Run the Playwright smoke E2E suite.
 test-e2e:

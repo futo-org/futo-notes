@@ -22,7 +22,7 @@ catches "we changed it in one language only". Neither subsumes the other.
 ```bash
 just test-rust        # Rust goldens + the full differential
 just test-rust-full   # the whole cargo workspace + the full differential
-pnpm run test:editor:minimal   # the TypeScript side of the goldens
+just test-unit packages/editor   # the TypeScript side of the goldens
 ```
 
 The model test embeds its eight reviewed JSON files, so its executable does not need the original
@@ -215,7 +215,7 @@ implementation, it does not belong in the differential — say so in
 `FIXTURES_OUTSIDE_THE_DIFFERENTIAL` and lock it with a fixture instead.
 
 **A rule change (M7).** Change canonical Rust _and_ the TypeScript copy, update the
-reviewed goldens, run `just test-rust` and `pnpm run test:editor:minimal`, and record
+reviewed goldens, run `just test-rust` and `just test-unit packages/editor`, and record
 the behavior change in `docs/spec/`. If the change is title-shaped, also
 `just title-spec` for the native constants.
 
