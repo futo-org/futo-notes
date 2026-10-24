@@ -120,3 +120,7 @@ node-eval code *args: check-node-version
 # Check Svelte components with the same warning policy as just check.
 check-svelte: check-node-version _require-node-modules
   pnpm run check:svelte
+
+# Read-only catalog/call/quoted-source inventory for localization review (JSON).
+audit-localization-source *args:
+  node scripts/localization-source-audit.mjs "$@"
