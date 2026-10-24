@@ -21,6 +21,18 @@ that forward user-supplied text — a label, a test-name pattern, a path — pas
 that reason (enabled by `set positional-arguments := true` at the top of the file);
 flag-only recipes still interpolate with `{{args}}`.
 
+## skill-validate
+
+`just skill-validate .claude/skills/bugfix` runs the installed Codex skill-creator validator.
+It uses `$CODEX_HOME/skills/.system/skill-creator/scripts/quick_validate.py`, with
+`~/.codex` as the home default. A missing validator reports the installation/path issue.
+
+The optional command requires `uv` and an installed Python. It provisions PyYAML in a private
+temporary environment/cache, skips project Python configuration and interpreter downloads,
+then removes only that temporary directory. System Python and installed skills are unchanged.
+The original validator's output and failure exit are preserved. This checks skill structure;
+workflow behavior still needs its owning verification. It is outside routine CI commands.
+
 ## rust-format / rust-format-check
 
 The repo rule is that every command goes through `just`, but only the TypeScript side had
@@ -46,9 +58,9 @@ on `ubuntu:22.04` where stock strip matches, so this is local-only noise.
 
 ## build-ios-native / test-ios-native (simulator destination)
 
-`build-ios-native` uses the *generic* simulator destination, which links both arm64 and
+`build-ios-native` uses the _generic_ simulator destination, which links both arm64 and
 x86_64 — `build-rust-ios.sh` lipos a universal simulator slice so both resolve.
-`test-ios-native` instead resolves a *concrete* `-destination "id=$SIM"`, which links only
+`test-ios-native` instead resolves a _concrete_ `-destination "id=$SIM"`, which links only
 ONE arm64 simulator, so the arm64-only FFI sim slice links without `EXCLUDED_ARCHS`. It
 also ad-hoc signs so the app test host launches with its keychain entitlement (mirrors
 `run.sh`).

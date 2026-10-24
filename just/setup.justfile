@@ -73,6 +73,10 @@ _require-node-modules:
 skills-link:
   @node scripts/skills-link.mjs
 
+# Validate a skill with the installed Codex validator and isolated PyYAML (requires uv).
+skill-validate skill: check-node-version
+  node scripts/skill-validate.mjs "$1"
+
 # Restore the former vendored Swift references from a pinned repository snapshot.
 # Optional, per-worktree, and refuses to overwrite any installed skill or link.
 skills-swift:
