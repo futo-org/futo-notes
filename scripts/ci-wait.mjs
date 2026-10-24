@@ -5,6 +5,7 @@
 // re-issued. 15 of the 40 slowest tool calls in a month of transcripts were
 // exactly that loop (docs/plan/agent-dx.md §2.6).
 //
+//   just ci-wait <pipeline-id>    # exact pipeline by project ID
 //   just ci-wait <sha>            # newest pipeline for that sha
 //   just ci-wait mr:291           # the MR's head pipeline (also `!291`)
 //   just ci-wait <branch>         # newest pipeline for that ref
@@ -26,6 +27,11 @@ export function parseTarget(arg) {
   if (!arg) return null;
   const mr = arg.match(/^(?:!|mr:)(\d+)$/);
   if (mr) return { kind: 'mr', iid: Number(mr[1]) };
+  const pipeline = arg.match(/^(?:pipeline:)?([1-9]\d*)$/);
+  if (pipeline && Number.isSafeInteger(Number(pipeline[1])))
+    return { kind: 'pipeline', id: Number(pipeline[1]) };
+  if (arg.startsWith('ref:')) return { kind: 'ref', ref: arg.slice(4) };
+  if (/^sha:[0-9a-f]{7,40}$/i.test(arg)) return { kind: 'sha', sha: arg.slice(4) };
   if (/^[0-9a-f]{7,40}$/i.test(arg)) return { kind: 'sha', sha: arg };
   return { kind: 'ref', ref: arg };
 }
@@ -56,6 +62,7 @@ export function makeApi(token, fetchImpl = globalThis.fetch) {
 }
 
 export async function findPipeline(target, api) {
+  if (target.kind === 'pipeline') return api.json(`/pipelines/${target.id}`);
   if (target.kind === 'mr') {
     const mr = await api.json(`/merge_requests/${target.iid}`);
     if (mr.head_pipeline) return mr.head_pipeline;
@@ -213,13 +220,13 @@ async function main() {
   }
   if (cmd !== 'wait') {
     process.stderr.write(
-      'usage: ci-wait.mjs wait <sha|mr:N|branch> [--timeout min] [--interval sec] [--json] [--no-trace] | ci-wait.mjs mr-status\n',
+      'usage: ci-wait.mjs wait <pipeline-id|sha|mr:N|branch> [--timeout min] [--interval sec] [--json] [--no-trace] | ci-wait.mjs mr-status\n',
     );
     process.exit(3);
   }
   const target = parseTarget(flags._[0]);
   if (!target) {
-    process.stderr.write('usage: just ci-wait <sha|mr:N|branch>\n');
+    process.stderr.write('usage: just ci-wait <pipeline-id|sha|mr:N|branch>\n');
     process.exit(3);
   }
   const result = await waitForPipeline(target, {
