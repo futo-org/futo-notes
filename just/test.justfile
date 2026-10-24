@@ -30,6 +30,22 @@ test-editor:
 test-e2e:
   pnpm run test:e2e:smoke
 
+# Install browsers matching this worktree's Playwright lockfile (Chromium by default).
+browser-install *browsers='chromium':
+  PLAYWRIGHT_SKIP_BROWSER_GC=1 pnpm exec playwright install "$@"
+
+# Serve this worktree for browser diagnostics without consuming file watchers; no HMR.
+web-diagnostic *args:
+  FUTO_VITE_NO_WATCH=1 pnpm run dev "$@"
+
+# Run selected Playwright tests against this worktree's already-running diagnostic server.
+test-e2e-reuse *args:
+  PLAYWRIGHT_REUSE_DEV_SERVER=1 pnpm exec playwright test "$@"
+
+# Run browser tests in a matching official image via rootless Podman (Linux; no host library changes).
+test-browser-container browser='webkit' *args:
+  node scripts/browser-container.mjs "$@"
+
 # EXACTLY what CI's test:e2e:rest job runs (everything but the P0 crash/IME spec).
 test-e2e-rest:
   pnpm run test:e2e:rest
