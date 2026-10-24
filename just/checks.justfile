@@ -124,3 +124,7 @@ check-svelte: check-node-version _require-node-modules
 # Read-only catalog/call/quoted-source inventory for localization review (JSON).
 audit-localization-source *args:
   node scripts/localization-source-audit.mjs "$@"
+
+# Validate workflow async bodies and metadata exports without running their agents.
+check-workflows *files: check-node-version _require-node-modules
+  @node scripts/workflow-syntax.mjs "$@"

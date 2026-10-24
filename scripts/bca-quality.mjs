@@ -27,7 +27,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -236,5 +236,4 @@ function main() {
 }
 
 // Run only as a script, not under `import` in the unit test.
-if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href)
-  main();
+if (import.meta.main) main();

@@ -1,6 +1,7 @@
 // Targeted gate red-proof harness — proves changed gates work.
 //
 //   node scripts/gate-redproofs.mjs
+//   node scripts/gate-redproofs.mjs --help         (usage only; no worktree)
 //   node scripts/gate-redproofs.mjs --self-test    (only the harness self-test)
 //   node scripts/gate-redproofs.mjs --include-cargo  (adds the cargo-dependent proof)
 //
@@ -32,12 +33,9 @@
 // assert → revert → assert the worktree is byte-clean again. The real
 // checkout is never touched.
 //
-// LIMITATION, read this before trusting a green run: the proof worktree is
-// built from `git stash create` (your tracked edits, staged or not) or, with a
-// clean tree, from HEAD. UNTRACKED files do not exist in it. A brand-new gate
-// script that has never been `git add`ed therefore cannot be proved — the
-// harness prints the untracked files it had to leave behind rather than
-// pretending otherwise.
+// SOURCE SNAPSHOT. A disposable Git index captures the working tree, including
+// non-ignored untracked source, without staging files or touching refs/stash.
+// Untracked ignored output remains outside the proof checkout.
 //
 // ADDING A GATE. Append to PROOFS below: the gate command, one seeded
 // violation that hits the gate's PRIMARY claim, the substrings its output must
@@ -55,6 +53,8 @@ import { spawnSync } from 'node:child_process';
 // ---------------------------------------------------------------------------
 
 const GATES = {
+  'workflow-syntax': ['node', ['scripts/workflow-syntax.mjs']],
+  'node-modules': ['node', ['scripts/check-node-modules.mjs']],
   'command-reachability': ['node', ['scripts/check-command-reachability.mjs']],
   'platform-discipline': ['node', ['scripts/check-platform-discipline.mjs']],
   'drift-check': ['node', ['scripts/drift-check.mjs']],
@@ -237,7 +237,7 @@ const REMEDIATION = {
     'the gate could not be launched in a fresh checkout. Run `pnpm install` (tsx gates need node_modules), then re-run.',
   'green-not-clean':
     'the gate is ALREADY red on a pristine checkout, so its red-proof would prove nothing. Fix the violation the gate is reporting (above), or fix the gate. ' +
-    'If the gate names a path that DOES exist in your working tree, check the NOT PROVED line above: the proof worktree is built from tracked state, so a new file you have not `git add`ed is absent there and reads as a broken reference.',
+    'The proof snapshot includes tracked edits and non-ignored untracked source; check whether the reported path is ignored or generated.',
   'inject-failed':
     'the seeded violation could not be applied — the file or literal this proof edits moved. Update the proof in scripts/gate-redproofs.mjs so it seeds the same violation against the current code.',
   'red-spawn-failed': 'the gate could not be launched. Run `pnpm install`, then re-run.',
@@ -302,6 +302,20 @@ function runSelfTest(wt) {
 
 function main() {
   const argv = process.argv.slice(2);
+  const unknown = argv.find(
+    (arg) => !['--help', '-h', '--self-test', '--include-cargo'].includes(arg),
+  );
+  if (unknown) {
+    console.error(`Unknown argument: ${unknown}`);
+    console.error('Usage: node scripts/gate-redproofs.mjs [--self-test] [--include-cargo]');
+    return 1;
+  }
+  if (argv.includes('--help') || argv.includes('-h')) {
+    console.log('Usage: node scripts/gate-redproofs.mjs [--self-test] [--include-cargo]');
+    console.log('  --self-test      Run only the harness self-test.');
+    console.log('  --include-cargo  Include proofs that need a Rust toolchain.');
+    return 0;
+  }
   const selfTestOnly = argv.includes('--self-test');
   const includeCargo = argv.includes('--include-cargo');
 
@@ -319,12 +333,6 @@ function main() {
     console.log('Gate red-proof harness — every guard must actually fail on its own violation.');
     console.log(`  proving: ${base.label}`);
     console.log(`  worktree: ${worktree.wt}`);
-    if (base.untracked.length > 0) {
-      console.log(
-        `  NOT PROVED: ${base.untracked.length} untracked file(s) are absent from the proof worktree ` +
-          `(git add them to include): ${base.untracked.slice(0, 5).join(', ')}${base.untracked.length > 5 ? ', …' : ''}`,
-      );
-    }
     console.log('');
 
     failures += runSelfTest(worktree.wt);

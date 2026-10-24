@@ -16,7 +16,6 @@
 import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { pathToFileURL } from 'node:url';
 
 const WRAPPER = [
   '"$@" >>"$DETACHED_LOG" 2>&1',
@@ -191,7 +190,7 @@ async function main() {
   }
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (import.meta.main) {
   main().catch((error) => {
     process.stderr.write(`${error.message}\n`);
     process.exit(1);

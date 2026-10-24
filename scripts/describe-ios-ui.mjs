@@ -352,7 +352,7 @@ export function captureTree({ file, udid }) {
   }
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (import.meta.main) {
   try {
     const options = parseArgs(process.argv.slice(2));
     const summary = summarizeAccessibilityTree(captureTree(options), {

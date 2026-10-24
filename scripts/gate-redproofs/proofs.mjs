@@ -20,6 +20,7 @@
 //   fix         remediation printed when the proof fails
 // ---------------------------------------------------------------------------
 
+import { seed } from './seed.mjs';
 import { BOUNDARIES_AND_DOCS_PROOFS } from './boundaries-and-docs.mjs';
 import { THEME_AND_QA_INPUT_PROOFS } from './theme-and-qa-input.mjs';
 import { GENERATED_SPECS_PROOFS } from './generated-specs.mjs';
@@ -37,6 +38,34 @@ export const PROOFS = [
     absent: ['no restored target/'],
     marker: 'claim',
     fix: 'resolve CARGO_TARGET_DIR against the repository root; path.join prefixes absolute paths and can silently inspect a nonexistent cache instead.',
+  },
+  {
+    gate: 'workflow-syntax',
+    id: 'invalid-async-workflow-body',
+    seeded: 'invalid declaration in a workflow body that has valid metadata and top-level return',
+    claim: 'workflow syntax must fail without executing the body',
+    inject: (wt) =>
+      seed.append(
+        wt,
+        '.claude/workflows/bugfix-pipeline.js',
+        '\nconst __workflow_redproof__ = ;\n',
+      ),
+    expect: [
+      '.claude/workflows/bugfix-pipeline.js',
+      '__workflow_redproof__',
+      'Expression expected',
+    ],
+    fix: 'repair the named workflow declaration; do not run the workflow to check syntax',
+  },
+  {
+    gate: 'node-modules',
+    id: 'stale-installed-lock',
+    seeded: 'changed pnpm-lock.yaml without updating the installed snapshot',
+    claim: 'source lockfile must match the installed dependency snapshot',
+    inject: (wt) => seed.append(wt, 'pnpm-lock.yaml', '\n# redproof stale snapshot\n'),
+    expect: ['installed dependency snapshot differs', 'pnpm-lock.yaml'],
+    marker: 'claim',
+    fix: 'run pnpm install --frozen-lockfile before checking the changed dependency tree',
   },
   ...BOUNDARIES_AND_DOCS_PROOFS,
   ...THEME_AND_QA_INPUT_PROOFS,

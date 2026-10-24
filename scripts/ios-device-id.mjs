@@ -47,7 +47,6 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { pathToFileURL } from 'node:url';
 
 const SIMULATOR_TRANSPORT = 'sameMachine';
 
@@ -151,6 +150,6 @@ function main() {
 }
 
 // Run only when invoked directly so the test can import the pure selector.
-if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
+if (import.meta.main) {
   main();
 }

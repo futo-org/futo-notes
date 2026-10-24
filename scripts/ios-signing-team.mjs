@@ -15,7 +15,7 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 
 const TEAM_FILE = path.join('apps', 'ios', '.signing-team');
 
@@ -65,6 +65,6 @@ function main() {
 }
 
 // Run only when invoked directly so the test can import the resolver.
-if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
+if (import.meta.main) {
   main();
 }

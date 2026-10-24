@@ -129,4 +129,4 @@ function main(argv) {
   console.log(`cirrus cache mtimes: done in ${Date.now() - started}ms`);
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) main(process.argv.slice(2));
+if (import.meta.main) main(process.argv.slice(2));

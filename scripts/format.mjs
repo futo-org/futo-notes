@@ -21,7 +21,7 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const EXTENSIONS = ['.ts', '.svelte', '.js', '.mjs', '.cjs', '.css'];
@@ -38,6 +38,13 @@ export function dropMissingPaths(files, pathExists = (f) => fs.existsSync(path.j
 
 function main() {
   const write = process.argv.includes('--write');
+  const prettier = path.join(ROOT, 'node_modules/prettier/bin/prettier.cjs');
+  if (!fs.existsSync(prettier)) {
+    console.error(
+      'Local Prettier is missing. Run `just install` from the repository root, then retry.',
+    );
+    process.exit(1);
+  }
 
   const tracked = execFileSync(
     'git',
@@ -61,11 +68,7 @@ function main() {
     const batch = targets.slice(i, i + CHUNK);
     const result = spawnSync(
       process.execPath,
-      [
-        path.join(ROOT, 'node_modules/prettier/bin/prettier.cjs'),
-        write ? '--write' : '--check',
-        ...batch,
-      ],
+      [prettier, write ? '--write' : '--check', ...batch],
       { cwd: ROOT, stdio: 'inherit' },
     );
     if (result.status !== 0) failed = true;
@@ -76,4 +79,4 @@ function main() {
 
 // House guard: run only when executed directly, so the exported helper can be
 // imported (vitest, `node -e`) without triggering a full format run.
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) main();
+if (import.meta.main) main();

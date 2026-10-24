@@ -23,7 +23,7 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 
 import { loadState, stateDir, updateState } from './triageState.mjs';
 import { postAlert } from './zulipAlerts.mjs';
@@ -514,6 +514,6 @@ async function main(argv) {
   }
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (import.meta.main) {
   main(process.argv.slice(2));
 }

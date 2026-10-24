@@ -19,7 +19,7 @@
 
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 
 import { STABLE_TAG_PATTERN, parseReleaseNotes, releaseNotesPath } from './lib/release-notes.mjs';
 
@@ -161,7 +161,7 @@ export async function publishWebsitePost({ tag, env, fetchImpl = fetch, readNote
   return 'committed';
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
+if (import.meta.main) {
   const flag = process.argv.indexOf('--tag');
   const tag = (flag > -1 ? process.argv[flag + 1] : '') || process.env.CI_COMMIT_TAG;
   publishWebsitePost({

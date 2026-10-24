@@ -27,7 +27,8 @@ import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
+import { parsePapercutLog } from '../lib/papercut-log.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SYSTEM_PROMPT_FILE = path.join(HERE, 'sweep-prompt.md');
@@ -44,19 +45,7 @@ function stateDir() {
 
 /** Open cuts (no matching resolve) from the text of the append-only log. */
 function openCuts(logText) {
-  const entries = logText
-    .split('\n')
-    .filter(Boolean)
-    .map((line) => {
-      try {
-        return JSON.parse(line);
-      } catch {
-        return null;
-      }
-    })
-    .filter(Boolean);
-  const resolved = new Set(entries.filter((e) => e.kind === 'resolve').map((e) => e.id));
-  return entries.filter((e) => e.kind === 'cut' && !resolved.has(e.id));
+  return parsePapercutLog(logText).open;
 }
 
 /** Blockers and majors first, then oldest first; capped so the prompt stays readable. */
@@ -328,7 +317,7 @@ async function runSweep({
   return { status, result };
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (import.meta.main) {
   const dryRun = process.argv.includes('--dry-run');
   runSweep({ dryRun })
     .then((out) => process.exit(out.status === 'no-result' ? 1 : 0))

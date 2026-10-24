@@ -199,3 +199,69 @@ describe('patchedDependencies guard', () => {
     expect(readFileSync(join(pkgDir, 'lib/b.js'), 'utf8')).toBe(B_UPSTREAM);
   });
 });
+
+describe('installed dependency snapshot', () => {
+  function installed(lock = 'lockfileVersion: 9\n') {
+    mkdirSync(join(scratch, 'node_modules', '.pnpm'), { recursive: true });
+    writeFileSync(join(scratch, 'pnpm-lock.yaml'), lock);
+    writeFileSync(join(scratch, 'node_modules', '.pnpm', 'lock.yaml'), lock);
+  }
+
+  it('rejects a changed lockfile before running tools from the old install', () => {
+    installed();
+    writeFileSync(join(scratch, 'pnpm-lock.yaml'), 'lockfileVersion: 9\nchanged: true\n');
+    const result = runGuard(scratch);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('installed dependency snapshot');
+    expect(result.stderr).toContain('pnpm install --frozen-lockfile');
+  });
+
+  it('rejects an installation without its pnpm snapshot', () => {
+    installed();
+    rmSync(join(scratch, 'node_modules', '.pnpm', 'lock.yaml'));
+    const result = runGuard(scratch);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('installed dependency snapshot');
+  });
+
+  it('accepts an unchanged pnpm snapshot without using timestamps', () => {
+    installed();
+    expect(runGuard(scratch).status).toBe(0);
+  });
+
+  it('accepts equivalent CRLF and LF snapshots', () => {
+    installed('lockfileVersion: 9\n');
+    writeFileSync(join(scratch, 'node_modules', '.pnpm', 'lock.yaml'), 'lockfileVersion: 9\r\n');
+    expect(runGuard(scratch).status).toBe(0);
+  });
+
+  it.each([
+    ['ajv', 'ajv/dist/2020.js'],
+    ['@playwright/test', 'playwright-core/browsers.json'],
+  ])('accepts declared %s when its required tooling file is present', (dependency, file) => {
+    installed();
+    writeFileSync(
+      join(scratch, 'package.json'),
+      JSON.stringify({ devDependencies: { [dependency]: '*' } }),
+    );
+    const target = join(scratch, 'node_modules', file);
+    mkdirSync(dirname(target), { recursive: true });
+    writeFileSync(target, '{}');
+    expect(runGuard(scratch).status).toBe(0);
+  });
+
+  it.each([
+    ['ajv', 'ajv/dist/2020.js'],
+    ['@playwright/test', 'playwright-core/browsers.json'],
+  ])('rejects missing files needed by tooling that declares %s', (dependency, file) => {
+    installed();
+    writeFileSync(
+      join(scratch, 'package.json'),
+      JSON.stringify({ devDependencies: { [dependency]: '*' } }),
+    );
+    const result = runGuard(scratch);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain(file);
+    expect(result.stderr).toContain('pnpm install --force --frozen-lockfile');
+  });
+});
