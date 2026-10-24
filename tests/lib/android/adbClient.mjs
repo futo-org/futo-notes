@@ -10,6 +10,7 @@
 import { execFileSync } from 'node:child_process';
 import { verifyAndroidApk } from '../../../scripts/qa/android-apk.mjs';
 import { assertAndroidTarget } from '../../../scripts/qa/android-target.mjs';
+import { isAndroidPackageInstalled } from '../../../scripts/qa/android-package-probe.mjs';
 
 /** Marks the boundary between batched commands' output. */
 const BATCH_DELIMITER = '__futo_adb_batch__';
@@ -71,7 +72,8 @@ export function createAdbClient({
 
   const isReachable = () => shell('echo ok', { allowFailure: true }).includes('ok');
 
-  const isInstalled = () => shell(`pm path ${pkg}`, { allowFailure: true }).includes('package:');
+  const isInstalled = ({ timeoutMs } = {}) =>
+    isAndroidPackageInstalled(pkg, { timeoutMs, serial, execFile });
 
   // ── App lifecycle ───────────────────────────────────────────────
 

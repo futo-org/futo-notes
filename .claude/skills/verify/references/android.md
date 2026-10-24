@@ -236,6 +236,19 @@ Prefer clearing the log only when you must: tokens make hook acks
 self-identifying, so nothing here needs a `logcat -c` first, and clearing is a
 device-wide side effect that races anything else watching.
 
+### Package Manager stalls during an install
+
+`pm list packages` and `pm path` can block while an APK install is in progress,
+even while adb transport is responsive. Use
+`just qa-android-package --installed com.futo.notes.dev` with the claimed target
+exports: it bounds the PM command at five seconds, then bounds a separate
+`get-state` diagnostic at two seconds. `get-state=device` means the transport
+answered and Package Manager may be busy; wait for your owned install to finish
+before retrying. An offline state or transport timeout identifies a connection
+problem instead. Only a completed successful query can report package absence;
+timeouts and PM errors fail with their diagnostic. The same probe backs the
+device drivers and CI readiness checks; APK installs keep their own lifecycle.
+
 ## 6. App data: seeding and verification
 
 The vault location depends on the onboarding storage choice — don't guess which

@@ -168,24 +168,41 @@ ci_emulator_framework_booted() {
 #     writing anything (jobs 257114 / 257078); the session is abandoned;
 #   - the pid is unchanged after the probes, so they all saw one generation.
 CI_EMULATOR_FRAMEWORK_PID=""
+# Short PM probes have a per-command bound and a separate bounded transport
+# diagnostic. Real APK installs retain their existing lifecycle below.
+ci_emulator_package_probe() {
+  node "$CI_PROJECT_DIR/scripts/qa/android-package-probe.mjs" \
+    --serial "$ANDROID_SERIAL" --adb "$ADB" --avd "$AVD_NAME" "$@"
+}
+
 ci_emulator_wait_framework_ready() {
-  local attempt pid waiting_for="" session_output="" session_id
+  local attempt pid waiting_for="" session_output="" session_id package_output cleanup_output cleanup_ok
+  local deadline=$((SECONDS + 180))
   for attempt in $(seq 1 90); do
+    ((SECONDS < deadline)) || break
     pid="$(ci_emulator_framework_pid)"
     if ! ci_emulator_framework_booted "$pid"; then
       waiting_for="system_server ${pid:-<not running>} to finish booting"
-    elif [[ "$("$ADB" -s "$ANDROID_SERIAL" shell service check package 2>/dev/null | tr -d '\r')" != "Service package: found" ]] \
-      || ! "$ADB" -s "$ANDROID_SERIAL" shell pm list packages >/dev/null 2>&1; then
+    elif [[ "$("$ADB" -s "$ANDROID_SERIAL" shell service check package 2>/dev/null | tr -d '\r')" != "Service package: found" ]]; then
       waiting_for="the package service"
-    elif ! session_output="$("$ADB" -s "$ANDROID_SERIAL" shell pm install-create 2>&1)" \
+    elif ! package_output="$(ci_emulator_package_probe -- list packages 2>&1)"; then
+      waiting_for="Package Manager (${package_output:-<none>})"
+    elif ! session_output="$(ci_emulator_package_probe -- install-create 2>&1)" \
       || [[ "$session_output" != *Success* ]]; then
       waiting_for="pm install-create (last output: ${session_output:-<none>})"
     else
       session_id="$(printf '%s' "$session_output" | grep -o '\[[0-9]*\]' | tr -d '[]')"
-      if [[ -n "$session_id" ]]; then
-        "$ADB" -s "$ANDROID_SERIAL" shell pm install-abandon "$session_id" >/dev/null 2>&1 || true
+      if [[ -z "$session_id" ]]; then
+        echo "ERROR: cannot identify the readiness install session: $session_output" >&2
+        return 1
       fi
+      cleanup_ok=true
+      cleanup_output="$(ci_emulator_package_probe -- install-abandon "$session_id" 2>&1)" || cleanup_ok=false
       if [[ "$(ci_emulator_framework_pid)" == "$pid" ]]; then
+        if [[ "$cleanup_ok" != true ]]; then
+          echo "ERROR: cannot abandon readiness install session $session_id: $cleanup_output" >&2
+          return 1
+        fi
         CI_EMULATOR_FRAMEWORK_PID="$pid"
         return 0
       fi

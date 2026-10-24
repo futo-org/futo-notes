@@ -14,6 +14,10 @@ qa-status:
 ports selector="json":
   @node scripts/lib/slot.mjs "$@"
 
+# Bound a package presence/readiness probe and diagnose a blocked Package Manager.
+qa-android-package *args:
+  @node scripts/qa/android-package-probe.mjs "$@"
+
 # Release this worktree's devices + server; `ios`/`android` releases that platform, server left up (--shutdown powers off).
 qa-release *flags:
   @node scripts/qa.mjs release "$@"

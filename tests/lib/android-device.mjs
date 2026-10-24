@@ -14,6 +14,7 @@ import net from 'node:net';
 import { navigateBack } from './android/navigation.mjs';
 import { createAdbClient } from './android/adbClient.mjs';
 import { assertAndroidTarget } from '../../scripts/qa/android-target.mjs';
+import { isAndroidPackageInstalled } from '../../scripts/qa/android-package-probe.mjs';
 
 import {
   createTokenSource,
@@ -110,8 +111,12 @@ export class AndroidDevice {
     return this.shell('echo ok', { allowFailure: true }).includes('ok');
   }
 
-  isPackageInstalled(pkg = DEBUG_PACKAGE) {
-    return this.shell(`pm path ${pkg}`, { allowFailure: true }).includes('package:');
+  isPackageInstalled(pkg = DEBUG_PACKAGE, { timeoutMs } = {}) {
+    return isAndroidPackageInstalled(pkg, {
+      timeoutMs,
+      serial: this.serial,
+      execFile: this.execFile,
+    });
   }
 
   // ── Conditions ────────────────────────────────────────────────
