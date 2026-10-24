@@ -28,3 +28,6 @@ workstation) reads the open entries, fixes up to five that are tooling-, docs-, 
 its own worktree, resolves them with a note saying what changed, and opens one draft MR. It never
 merges and never touches a device. `just orient` shows the last run's date, status, and MR; the
 operator manual is `scripts/papercut-sweep/README.md`.
+
+For recurring shell quoting, async probes, and parser/tool differences, see
+[shell probes](shell-probes.md).
