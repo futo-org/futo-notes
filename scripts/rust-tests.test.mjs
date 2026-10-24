@@ -60,7 +60,7 @@ describe('bounded Rust sync entrypoint', () => {
   });
 });
 
-describe('nextest bootstrap', () => {
+describe.skipIf(process.platform === 'win32')('nextest bootstrap', () => {
   it('rechecks the exact installed tool after successful setup', () => {
     const calls = [];
     const script = [
@@ -81,34 +81,40 @@ describe('nextest bootstrap', () => {
   });
 });
 
-it('resolves a relative install directory against the repository, including paths with spaces', () => {
-  vi.stubEnv('NEXTEST_INSTALL_DIR', 'install tools');
-  const calls = [];
-  const responses = [
-    { status: null },
-    { status: 0 },
-    { status: 0, stdout: 'cargo-nextest 0.9.149 (fixture)' },
-  ];
-  const binary = ensureNextest('/repo', (command, args, options) => {
-    calls.push({ command, args, options });
-    return responses.shift();
-  });
-  expect(binary).toBe(path.resolve('/repo', 'install tools', 'cargo-nextest'));
-  expect(calls[1].options.env.NEXTEST_INSTALL_DIR).toBe(path.resolve('/repo', 'install tools'));
-});
+it.skipIf(process.platform === 'win32')(
+  'resolves a relative install directory against the repository, including paths with spaces',
+  () => {
+    vi.stubEnv('NEXTEST_INSTALL_DIR', 'install tools');
+    const calls = [];
+    const responses = [
+      { status: null },
+      { status: 0 },
+      { status: 0, stdout: 'cargo-nextest 0.9.149 (fixture)' },
+    ];
+    const binary = ensureNextest('/repo', (command, args, options) => {
+      calls.push({ command, args, options });
+      return responses.shift();
+    });
+    expect(binary).toBe(path.resolve('/repo', 'install tools', 'cargo-nextest'));
+    expect(calls[1].options.env.NEXTEST_INSTALL_DIR).toBe(path.resolve('/repo', 'install tools'));
+  },
+);
 
-it('executes a symlinked CLI entrypoint rather than silently succeeding', () => {
-  const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'futo-rust-entry-'));
-  try {
-    const alias = path.join(scratch, 'aliased runner.mjs');
-    fs.symlinkSync(path.resolve('scripts/rust-tests.mjs'), alias);
-    const result = spawnSync(process.execPath, [alias, 'invalid-scope'], { encoding: 'utf8' });
-    expect(result.status).toBe(1);
-    expect(result.stderr).toContain('usage: just test-sync');
-  } finally {
-    fs.rmSync(scratch, { recursive: true, force: true });
-  }
-});
+it.skipIf(process.platform === 'win32')(
+  'executes a symlinked CLI entrypoint rather than silently succeeding',
+  () => {
+    const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'futo-rust-entry-'));
+    try {
+      const alias = path.join(scratch, 'aliased runner.mjs');
+      fs.symlinkSync(path.resolve('scripts/rust-tests.mjs'), alias);
+      const result = spawnSync(process.execPath, [alias, 'invalid-scope'], { encoding: 'utf8' });
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain('usage: just test-sync');
+    } finally {
+      fs.rmSync(scratch, { recursive: true, force: true });
+    }
+  },
+);
 
 it('uses the pinned preinstalled Windows exe without invoking the POSIX installer', () => {
   const calls = [];
@@ -139,18 +145,21 @@ it('explains the Windows prerequisite instead of invoking an unsupported install
   expect(calls).toHaveLength(1);
 });
 
-it('shows help through a symlinked timeout-proof entrypoint without building or running tests', () => {
-  const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'futo-timeout-entry-'));
-  try {
-    const alias = path.join(scratch, 'proof alias.mjs');
-    fs.symlinkSync(path.resolve('scripts/rust-test-timeout-proof.mjs'), alias);
-    const result = spawnSync(process.execPath, [alias, '--help'], {
-      encoding: 'utf8',
-      timeout: 1000,
-    });
-    expect(result.status).toBe(0);
-    expect(result.stdout).toContain('usage: just test-sync-timeout-proof');
-  } finally {
-    fs.rmSync(scratch, { recursive: true, force: true });
-  }
-});
+it.skipIf(process.platform === 'win32')(
+  'shows help through a symlinked timeout-proof entrypoint without building or running tests',
+  () => {
+    const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'futo-timeout-entry-'));
+    try {
+      const alias = path.join(scratch, 'proof alias.mjs');
+      fs.symlinkSync(path.resolve('scripts/rust-test-timeout-proof.mjs'), alias);
+      const result = spawnSync(process.execPath, [alias, '--help'], {
+        encoding: 'utf8',
+        timeout: 1000,
+      });
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain('usage: just test-sync-timeout-proof');
+    } finally {
+      fs.rmSync(scratch, { recursive: true, force: true });
+    }
+  },
+);

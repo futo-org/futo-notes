@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, expect, it } from 'vitest';
 
+const installerTest = it.skipIf(!['linux', 'darwin'].includes(process.platform));
 const scratchDirs = [];
 afterEach(() => {
   for (const dir of scratchDirs.splice(0)) fs.rmSync(dir, { recursive: true, force: true });
@@ -91,7 +92,7 @@ process.exit(got===line.slice(0,at)?0:1);
   };
 }
 
-it.each(['Linux/x86_64', 'Linux/aarch64', 'Darwin/arm64'])(
+installerTest.each(['Linux/x86_64', 'Linux/aarch64', 'Darwin/arm64'])(
   'installs a verified %s archive and reuses the pinned tool without downloading again',
   (platform) => {
     const f = fixture({ platform });
@@ -101,7 +102,7 @@ it.each(['Linux/x86_64', 'Linux/aarch64', 'Darwin/arm64'])(
   },
 );
 
-it('rejects a checksum mismatch without replacing an existing tool', () => {
+installerTest('rejects a checksum mismatch without replacing an existing tool', () => {
   const f = fixture({ corrupt: true });
   const installed = path.join(f.dir, 'installed/cargo-nextest');
   const old = '#!/bin/sh\necho "cargo-nextest 0.0.0 (old)"\n';
@@ -112,13 +113,13 @@ it('rejects a checksum mismatch without replacing an existing tool', () => {
   expect(fs.readFileSync(installed, 'utf8')).toBe(old);
 });
 
-it('verifies the portable shasum fallback when GNU sha256sum is unavailable', () => {
+installerTest('verifies the portable shasum fallback when GNU sha256sum is unavailable', () => {
   const f = fixture({ platform: 'Darwin/arm64', fallback: true });
   const result = f.run();
   expect(result.status, result.stderr).toBe(0);
 });
 
-it('never publishes a partial tool while two first installs overlap', async () => {
+installerTest('never publishes a partial tool while two first installs overlap', async () => {
   const f = fixture();
   const target = path.join(f.dir, 'installed/cargo-nextest');
   const old = '#!/bin/sh\necho "cargo-nextest 0.0.0 (old)"\n';
@@ -160,7 +161,7 @@ const timer=setInterval(()=>{if(fs.existsSync(process.env.TEST_RELEASE)){fs.copy
   expect(fs.readdirSync(path.dirname(target))).toEqual(['cargo-nextest']);
 });
 
-it('keeps the old tool and removes staging when publication fails', () => {
+installerTest('keeps the old tool and removes staging when publication fails', () => {
   const f = fixture();
   const target = path.join(f.dir, 'installed/cargo-nextest');
   const old = '#!/bin/sh\necho "cargo-nextest 0.0.0 (old)"\n';
