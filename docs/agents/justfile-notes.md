@@ -91,6 +91,21 @@ Debug builds only; re-run after every app restart (the WebView pid changes). `ad
 host ports are machine-global, so the port is per-worktree (15000 + slot; override with
 `$CDP_PORT`). `scripts/cdp-invoke.mjs` honors `$CDP_PORT`.
 
+## Local crash and feedback collectors
+
+`just ports` includes `crashlog` (`5100 + slot`); `eval "$(just ports env)"`
+exports it as `CRASHLOG_PORT` for a local collector's bind address. Debug web,
+Android and iOS builds target that worktree's collector. Vite embeds the port,
+Gradle projects it into BuildConfig, and the iOS post-build phase runs
+`ios-dev-ports` to write the Debug app's resource on the actual build host.
+Rebuild native apps after moving a checkout to another path or machine. The
+feedback form shows the resulting target; its staging toggle still selects the
+shared staging service. Release builds always select production.
+
+The slot hash has 50 positions, so two worktrees can share a slot. Check
+`just orient` for shared slots and verify the collector listener belongs to
+your QA run before sending fixture traffic; the port alone is not an owner.
+
 ## prepush (--retries=1)
 
 The local 30s Playwright test timeout (CI gets 90s) makes a ~250-test run flake on the odd

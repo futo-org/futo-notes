@@ -59,10 +59,15 @@ ci_emulator_start --read-only
 # ci-android-emulator.sh): 31 of 133 runs died right here before it existed.
 ci_emulator_install_apk "$APK" -r -g
 
-# No `grep -q` here: with pipefail its early exit SIGPIPEs adb (a package list is
-# many buffers) and the check reads "not installed" although it is (RC-65).
-if ! "$ADB" -s "$ANDROID_SERIAL" shell pm list packages | tr -d '\r' | grep -x "package:$PACKAGE" >/dev/null; then
+# A completed filtered query can prove absence; a blocked PM cannot. The shared
+# probe bounds it and checks adb transport separately on timeout.
+package_status=0
+package_output="$(ci_emulator_package_probe --installed "$PACKAGE" 2>&1)" || package_status=$?
+if [[ "$package_status" -eq 1 ]]; then
   echo "ERROR: $PACKAGE is not installed after adb install" >&2
+  exit 1
+elif [[ "$package_status" -ne 0 ]]; then
+  echo "ERROR: cannot determine whether $PACKAGE is installed: $package_output" >&2
   exit 1
 fi
 echo "Installed $PACKAGE on $ANDROID_SERIAL"

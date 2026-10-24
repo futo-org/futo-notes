@@ -36,15 +36,27 @@ const save = () => fs.writeFileSync(file, JSON.stringify(st));
 const out = (s, code = 0) => { save(); if (s) process.stdout.write(s + '\n'); process.exit(code); };
 const gone = "cmd: Can't find service: package";
 const cmd = args.join(' ');
-if (cmd === 'get-state') out('device');
+if (cmd === 'get-state') {
+  if (st.pmStalled) st.transportProbesAfterStall += 1;
+  out('device');
+}
+if (cmd === 'emu avd name') out('ci\nOK');
 if (cmd === 'emu kill') out('');
 if (cmd === 'shell getprop sys.boot_completed') out('1');
 if (cmd === 'shell getprop sys.system_server.start_count') out(String(st.generation));
 if (cmd === 'shell pidof system_server') st.phase === 'down' ? out('', 1) : out(String(st.pid));
 if (cmd === 'shell service check package') out(st.phase === 'down' ? 'Service package: not found' : 'Service package: found');
-if (cmd === 'shell pm list packages') st.phase === 'down' ? out(gone, 1) : out('package:android' + (st.installed ? '\npackage:com.futo.notes.dev' : ''));
+if (cmd.startsWith('shell pm list packages')) {
+  const respond = () => st.phase === 'down' ? out(gone, 1) : out('package:android' + (st.installed ? '\npackage:com.futo.notes.dev' : ''));
+  const shouldStall = !st.pmStalled && (st.stallAt === 'framework' ? !st.installed : st.stallAt === 'post-install' && st.installed);
+  if (shouldStall) {
+    st.pmStalled = true;
+    save();
+    setTimeout(() => { st.pmCompleted = true; respond(); }, 6500);
+  } else respond();
+} else {
 if (cmd === 'shell pm install-create') st.phase === 'down' ? out(gone, 1) : out('Success: created install session [42]');
-if (cmd.startsWith('shell pm install-abandon')) out('Success');
+if (cmd.startsWith('shell pm install-abandon')) out(st.failAbandon ? 'Failure: cleanup failed' : 'Success', st.failAbandon ? 1 : 0);
 if (cmd === 'logcat -b events -d -v threadtime') {
   out(st.booted.map((pid) => '10-08 16:10:21.794  ' + pid + '  ' + (pid + 1) + ' I boot_progress_enable_screen: 1234').join('\n'));
 }
@@ -65,9 +77,10 @@ if (args[0] === 'install') {
   out('Performing Streamed Install\nSuccess');
 }
 out('fake adb: unhandled ' + cmd, 2);
+}
 `;
 
-function runSyncLeg({ restartOnInstall }) {
+function runSyncLeg({ restartOnInstall, stallAt, failAbandon = false }) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'android-sync-leg-'));
   scratch.push(dir);
   const bin = path.join(dir, 'bin');
@@ -80,6 +93,11 @@ function runSyncLeg({ restartOnInstall }) {
   for (const script of ['ci-android-sync-leg.sh', 'ci-android-emulator.sh']) {
     fs.symlinkSync(path.join(root, 'scripts', script), path.join(project, 'scripts', script));
   }
+  fs.mkdirSync(path.join(project, 'scripts/qa'), { recursive: true });
+  fs.symlinkSync(
+    path.join(root, 'scripts/qa/android-package-probe.mjs'),
+    path.join(project, 'scripts/qa/android-package-probe.mjs'),
+  );
   const apkDir = path.join(project, 'apps/android/app/build/outputs/apk/direct/debug');
   fs.mkdirSync(apkDir, { recursive: true });
   fs.writeFileSync(path.join(apkDir, 'app-direct-debug.apk'), 'apk');
@@ -96,13 +114,23 @@ function runSyncLeg({ restartOnInstall }) {
       installed: false,
       installAttempts: 0,
       restartOnInstall,
+      stallAt,
+      pmStalled: false,
+      pmCompleted: false,
+      transportProbesAfterStall: 0,
+      failAbandon,
     }),
   );
   const harnessArgs = path.join(dir, 'harness-args');
+  const emulatorPid = path.join(dir, 'emulator-pid');
   fs.writeFileSync(path.join(sdk, 'platform-tools', 'adb'), FAKE_ADB, { mode: 0o755 });
-  fs.writeFileSync(path.join(sdk, 'emulator', 'emulator'), '#!/bin/sh\nexec /bin/sleep 60\n', {
-    mode: 0o755,
-  });
+  fs.writeFileSync(
+    path.join(sdk, 'emulator', 'emulator'),
+    '#!/bin/sh\nprintf "%s" "$$" > "$FAKE_EMULATOR_PID"\nexec /bin/sleep 60\n',
+    {
+      mode: 0o755,
+    },
+  );
   fs.writeFileSync(path.join(bin, 'sleep'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
   fs.writeFileSync(
     path.join(bin, 'xvfb-run'),
@@ -121,8 +149,20 @@ function runSyncLeg({ restartOnInstall }) {
       CI_PROJECT_DIR: project,
       ANDROID_HOME: sdk,
       FAKE_ADB_STATE: state,
+      FAKE_EMULATOR_PID: emulatorPid,
+      ANDROID_CI_AVD: 'ci',
     },
   });
+  let emulatorStopped = true;
+  if (fs.existsSync(emulatorPid)) {
+    try {
+      process.kill(Number(fs.readFileSync(emulatorPid, 'utf8')), 0);
+      emulatorStopped = false;
+    } catch (error) {
+      if (error.code !== 'ESRCH') throw error;
+    }
+  }
+  expect(emulatorStopped, 'the CI script left its owned fake emulator running').toBe(true);
   return {
     ...result,
     adb: JSON.parse(fs.readFileSync(state, 'utf8')),
@@ -131,6 +171,31 @@ function runSyncLeg({ restartOnInstall }) {
 }
 
 describe('native-Android sync leg against a framework that restarts after boot', () => {
+  it('fails instead of accepting a readiness session that was not abandoned', () => {
+    const run = runSyncLeg({ restartOnInstall: [], failAbandon: true });
+    expect(run.status).not.toBe(0);
+    expect(run.stderr).toContain('cannot abandon readiness install session');
+    expect(run.adb.installAttempts).toBe(0);
+    expect(run.harness).toBeNull();
+  });
+  it('bounds a stalled readiness query and distinguishes the responding adb transport', () => {
+    const run = runSyncLeg({ restartOnInstall: [], stallAt: 'framework' });
+    expect(run.status, run.stdout + run.stderr).toBe(0);
+    expect(run.adb.pmStalled).toBe(true);
+    expect(run.adb.pmCompleted).toBe(false);
+    expect(run.adb.transportProbesAfterStall).toBeGreaterThan(0);
+    expect(run.harness).toContain('--android-only');
+  }, 20_000);
+
+  it('reports post-install PM timeouts as unknown presence and never starts the harness', () => {
+    const run = runSyncLeg({ restartOnInstall: [], stallAt: 'post-install' });
+    expect(run.status).not.toBe(0);
+    expect(run.stdout + run.stderr).toMatch(/Package Manager.*timed out[\s\S]*get-state=device/);
+    expect(run.stderr).not.toContain('is not installed after adb install');
+    expect(run.adb.pmCompleted).toBe(false);
+    expect(run.harness).toBeNull();
+  }, 20_000);
+
   it('installs once and starts the harness when the framework stays up', () => {
     const run = runSyncLeg({ restartOnInstall: [] });
 

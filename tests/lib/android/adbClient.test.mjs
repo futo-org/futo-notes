@@ -98,6 +98,7 @@ describe('pooled Android target identity', () => {
     const execFile = vi.fn((_cmd, args) => {
       if (args.includes('avd')) return 'futo-qa-1\nOK\n';
       if (args.includes('echo ok')) return 'ok';
+      if (args.join(' ').includes('pm list packages')) return 'package:com.futo.notes.dev\n';
       if (args.some((arg) => arg.includes('pm path'))) return 'package:/data/app/test/base.apk\n';
       if (args.includes('sha256sum')) return '0'.repeat(64) + '  /data/app/test/base.apk\n';
       return '';
@@ -145,4 +146,61 @@ describe('pooled Android target identity', () => {
     });
     expect(() => client.shell('echo identity-probe')).toThrow(/claimed by another worktree/);
   });
+  it('replaces a native field through the shared client and accepts quoted text in the sync sibling', async () => {
+    const commands = [];
+    const execFile = vi.fn((_command, args) => {
+      commands.push(args.at(-1));
+      return '';
+    });
+    const client = createAdbClient({ pkg: 'com.futo.notes.dev', serial: 'fake-phone', execFile });
+    client.replaceText('https://10.0.2.2:8445');
+    expect(commands).toEqual([
+      'input keycombination 113 29',
+      'input keyevent 67',
+      "input text 'https://10.0.2.2:8445'",
+    ]);
+    const { AndroidDevice } = await import('../android-device.mjs');
+    expect(() =>
+      new AndroidDevice('fake-phone', { execFile }).typeReplacingSelection("Bob's note"),
+    ).not.toThrow();
+    expect(commands.at(-1)).toContain('Bob');
+  });
+  it('uses the gesture Back driver in the sync harness sibling too', async () => {
+    const commands = [];
+    const execFile = vi.fn((_command, args) => {
+      const text = args.at(-1);
+      commands.push(text);
+      return text === 'wm size' ? 'Physical size: 720x1600' : '2';
+    });
+    const { AndroidDevice } = await import('../android-device.mjs');
+    new AndroidDevice('fake-phone', { execFile }).pressBack();
+    expect(commands.some((command) => command.startsWith('input swipe 2 '))).toBe(true);
+    expect(commands).not.toContain('input keyevent 4');
+  });
+  it.each(['shared', 'sync'])(
+    'rechecks ownership before a PM timeout diagnostic in the %s driver',
+    async (kind) => {
+      owner('futo-qa-1', root);
+      const execFile = vi.fn((_command, args) => {
+        if (args.includes('avd')) return 'futo-qa-1\nOK\n';
+        if (args.join(' ').includes('pm list packages')) {
+          owner('futo-qa-1', '/another/live-worktree');
+          throw Object.assign(new Error('fixture PM timeout'), { code: 'ETIMEDOUT' });
+        }
+        return 'device';
+      });
+      const { AndroidDevice } = await import('../android-device.mjs');
+      const probe =
+        kind === 'shared'
+          ? () =>
+              createAdbClient({
+                pkg: 'com.futo.notes.dev',
+                serial: 'emulator-5556',
+                execFile,
+              }).isInstalled()
+          : () => new AndroidDevice('emulator-5556', { execFile }).isPackageInstalled();
+      expect(probe).toThrow(/claimed by another worktree/);
+      expect(execFile.mock.calls.some(([, args]) => args.includes('get-state'))).toBe(false);
+    },
+  );
 });

@@ -10,9 +10,13 @@ qa-claim target="all" *flags:
 qa-status:
   @node scripts/qa.mjs status
 
-# Print every port this worktree owns.
-ports:
-  @node scripts/lib/slot.mjs
+# Print this worktree's ports, shell exports (`env`), or one named port.
+ports selector="json":
+  @node scripts/lib/slot.mjs "$@"
+
+# Bound a package presence/readiness probe and diagnose a blocked Package Manager.
+qa-android-package *args:
+  @node scripts/qa/android-package-probe.mjs "$@"
 
 # Release this worktree's devices + server; `ios`/`android` releases that platform, server left up (--shutdown powers off).
 qa-release *flags:
@@ -168,3 +172,7 @@ qa-android-target:
 # Verify the installed dev APK matches this worktree (or the supplied APK).
 qa-android-apk *args:
   @node scripts/qa.mjs android-apk "$@"
+
+# Restart only the claimed Android emulator with a PNG camera poster and enter its image room.
+emu-camera-poster png:
+  @node scripts/qa.mjs camera-poster "$@"

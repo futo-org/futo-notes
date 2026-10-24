@@ -2,6 +2,7 @@ import { defineConfig } from 'vitest/config';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
 import path from 'path';
 import { UNIT_TEST_MAX_WORKERS } from './scripts/lib/test-worker-budget.mjs';
+import { portsFor } from './scripts/lib/slot.mjs';
 
 const nodeDefinesWebStorage =
   Object.getOwnPropertyDescriptor(globalThis, 'localStorage') !== undefined;
@@ -12,6 +13,7 @@ export default defineConfig({
     // One `vitest run` covers the app (this config) and the editor package
     // (its own config), so `just test-unit <path>` reaches either.
     projects: [{ extends: true, test: { name: 'app' } }, 'packages/editor'],
+    env: { VITE_DEV_CRASHLOG_PORT: String(portsFor(__dirname).crashlog) },
     globals: true,
     include: [
       'src/**/*.test.ts',

@@ -54,6 +54,11 @@ targets:
       - sdk: Security.framework
       - sdk: SystemConfiguration.framework
     postBuildScripts:
+      - name: Project this worktree's developer collector port
+        script: |
+          node "${SRCROOT}/../../scripts/ios-dev-ports.mjs" \
+            "${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}" \
+            "${CONFIGURATION}"
       - name: Generate configuration-specific localized Info.plist strings
         script: |
           node "${SRCROOT}/../../scripts/generate-native-language-resources.mjs" \

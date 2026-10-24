@@ -107,3 +107,85 @@ describe('Android safe labeled taps', () => {
     expect(taps).toEqual([]);
   });
 });
+
+// Gesture navigation can ignore injected Back key events. Exercise the same
+// device interface used by the CLI against controlled navigation state.
+describe('Android native navigation and field input', () => {
+  it('uses a left-edge swipe for Back on a gesture-navigation device', () => {
+    const events = [];
+    const adb = {
+      shell: (command) => (command === 'wm size' ? 'Physical size: 720x1600' : '2'),
+      swipe: (...args) => events.push(['swipe', ...args]),
+      keyevent: (code) => events.push(['key', code]),
+    };
+    const device = createAndroidDevice({ adbClientFactory: () => adb });
+    device.back();
+    expect(events).toHaveLength(1);
+    expect(events[0][0]).toBe('swipe');
+    expect(events[0][1]).toBeLessThan(5);
+    expect(events[0][3]).toBeGreaterThan(400);
+  });
+
+  it('keeps key Back on a button-navigation device', () => {
+    const events = [];
+    const adb = {
+      shell: () => '0',
+      keyevent: (code) => events.push(code),
+    };
+    createAndroidDevice({ adbClientFactory: () => adb }).back();
+    expect(events).toEqual([4]);
+  });
+
+  it('uses explicit replacement when asked, and appends otherwise', () => {
+    let field = 'http://10.0.2.2:3005';
+    const adb = {
+      typeText: (text) => {
+        field += text;
+      },
+      replaceText: (text) => {
+        field = text;
+      },
+    };
+    const device = createAndroidDevice({ adbClientFactory: () => adb });
+    device.typeText('https://10.0.2.2:8445', { replace: true });
+    expect(field).toBe('https://10.0.2.2:8445');
+    device.typeText('/api');
+    expect(field).toBe('https://10.0.2.2:8445/api');
+  });
+});
+
+describe('Back navigation geometry and refusal', () => {
+  it('uses the effective override size instead of a larger physical panel', () => {
+    const swipes = [];
+    const adb = {
+      shell: (command) =>
+        command === 'wm size' ? 'Physical size: 1080x1920\nOverride size: 720x1600' : '2',
+      swipe: (...args) => swipes.push(args),
+    };
+    createAndroidDevice({ adbClientFactory: () => adb }).back();
+    expect(swipes[0][2]).toBeLessThanOrEqual(720);
+  });
+
+  it('uses the overlay resource when the secure navigation setting is absent', () => {
+    const keys = [];
+    const adb = {
+      shell: (command) => (command.includes('settings get') ? 'null' : '0'),
+      keyevent: (code) => keys.push(code),
+    };
+    createAndroidDevice({ adbClientFactory: () => adb }).back();
+    expect(keys).toEqual([4]);
+  });
+
+  it('refuses Back when the navigation mode cannot be measured', () => {
+    const events = [];
+    const adb = {
+      shell: () => '',
+      keyevent: (code) => events.push(code),
+      swipe: () => events.push('swipe'),
+    };
+    expect(() => createAndroidDevice({ adbClientFactory: () => adb }).back()).toThrow(
+      'cannot determine',
+    );
+    expect(events).toEqual([]);
+  });
+});

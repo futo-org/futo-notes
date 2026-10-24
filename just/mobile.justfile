@@ -163,21 +163,26 @@ _test-ios bundle *names: _preflight-ios build-rust-ios
     -derivedDataPath .build \
     CODE_SIGNING_ALLOWED=YES CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="-"
 
-# Android JVM unit tests, BOTH flavors; pass Gradle --tests filters to run only those, on direct.
-test-android-native *filters: _preflight-android android-env-check (build-rust-android "device")
+# Write this build host's Debug collector port into an iOS built resource directory.
+ios-dev-ports output configuration="Debug":
+  node scripts/ios-dev-ports.mjs "$@"
+
+# JVM unit tests under BOTH flavors; optional Gradle Class[.method] patterns.
+test-android-native *tests: _preflight-android android-env-check (build-rust-android "device")
   #!/usr/bin/env bash
   set -euo pipefail
   # Stages the CURRENT editor.html into the assets, like every other native
   # recipe: a stale gitignored copy would otherwise be what gets tested (L1-008).
   node_modules/.bin/vite build --config vite.editor.config.ts
+  TEST_ARGS=()
+  for task in :app:testDirectDebugUnitTest :app:testPlayDebugUnitTest; do
+    TEST_ARGS+=("$task")
+    for selector in "$@"; do
+      TEST_ARGS+=(--tests "$selector")
+    done
+  done
   cd apps/android
-  if [ $# -eq 0 ]; then
-    ./gradlew :app:testDirectDebugUnitTest :app:testPlayDebugUnitTest
-  else
-    # A filter is the fix loop. Per-flavor checks (DistributionFlavorTest) need the bare run.
-    TESTS=(); for filter in "$@"; do TESTS+=(--tests "$filter"); done
-    ./gradlew :app:testDirectDebugUnitTest "${TESTS[@]}"
-  fi
+  ./gradlew "${TEST_ARGS[@]}"
 
 # `direct` only: the flavors compile the same androidTest sources against the
 # same applicationId, so running both would install one over the other for no

@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('$lib/platform', () => ({ platformName: 'tauri' }));
 vi.mock('$features/system/crashHandler', () => ({ getAppVersion: () => '1.2.3' }));
@@ -14,10 +14,12 @@ function sentBody(): Record<string, unknown> {
 
 describe('submitFeedback', () => {
   beforeEach(() => {
+    vi.stubEnv('VITE_DEV_CRASHLOG_PORT', '5127');
     fetchMock.mockReset();
     fetchMock.mockResolvedValue({ ok: true, status: 201 });
     globalThis.fetch = fetchMock as unknown as typeof fetch;
   });
+  afterEach(() => vi.unstubAllEnvs());
 
   // The field names are the server schema, and the key list is the privacy
   // rule: nothing derived from the vault or the open note (no route, no session
@@ -26,7 +28,7 @@ describe('submitFeedback', () => {
     await submitFeedback({ message: 'it broke', images: [] });
 
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(url).toBe('http://localhost:5100/api/feedback');
+    expect(url).toBe('http://localhost:5127/api/feedback');
     expect(init.method).toBe('POST');
     expect(sentBody()).toEqual({
       message: 'it broke',

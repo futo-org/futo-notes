@@ -2,7 +2,7 @@ import { defineConfig } from 'vite';
 import tailwindcss from '@tailwindcss/vite';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
 import path from 'path';
-import { webPort } from './scripts/lib/slot.mjs';
+import { portsFor, webPort } from './scripts/lib/slot.mjs';
 
 // The only CodeMirror code the app still imports STATICALLY: the Lezer
 // tokenizer and highlighter that `milkdown/codeHighlight.ts` paints code
@@ -44,6 +44,9 @@ const IGNORED_WATCH_DIRS = [
 ].map((dir) => path.resolve(__dirname, dir).split(path.sep).join('/'));
 
 export default defineConfig({
+  define: {
+    'import.meta.env.VITE_DEV_CRASHLOG_PORT': JSON.stringify(String(portsFor(__dirname).crashlog)),
+  },
   plugins: [tailwindcss(), svelte()],
   root: '.',
   base: './',

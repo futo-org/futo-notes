@@ -1,4 +1,6 @@
 import { expect, type Page, test } from '@playwright/test';
+import path from 'node:path';
+import { portsFor } from '../scripts/lib/slot.mjs';
 
 async function openSettings(page: Page): Promise<void> {
   await page.goto('/');
@@ -105,7 +107,9 @@ test('a dev build shows which server the feedback goes to, and can switch it', a
   await page.getByRole('button', { name: /Send feedback/ }).click();
 
   const devToggle = page.locator('.feedback-dev-endpoint');
-  await expect(devToggle).toContainText('http://localhost:5100');
+  await expect(devToggle).toContainText(
+    `http://localhost:${portsFor(path.resolve(import.meta.dirname, '..')).crashlog}`,
+  );
 
   await devToggle.locator('input[type="checkbox"]').check();
 
