@@ -23,8 +23,21 @@
 import { BOUNDARIES_AND_DOCS_PROOFS } from './boundaries-and-docs.mjs';
 import { THEME_AND_QA_INPUT_PROOFS } from './theme-and-qa-input.mjs';
 import { GENERATED_SPECS_PROOFS } from './generated-specs.mjs';
+import { seed } from './seed.mjs';
 
 export const PROOFS = [
+  {
+    gate: 'cargo-cache-freshness',
+    id: 'unstamped-absolute-target',
+    seeded: 'created an artifact in the selected absolute cache without a source stamp',
+    claim:
+      'an absolute CARGO_TARGET_DIR must inspect the selected cache and fail on unknown freshness',
+    inject: (wt) => seed.write(wt, 'scripts/__fixtures__/cache-redproof-target/artifact', 'stale'),
+    expect: ['cargo cache freshness: SKEWED', 'carries no source stamp'],
+    absent: ['no restored target/'],
+    marker: 'claim',
+    fix: 'resolve CARGO_TARGET_DIR against the repository root; path.join prefixes absolute paths and can silently inspect a nonexistent cache instead.',
+  },
   ...BOUNDARIES_AND_DOCS_PROOFS,
   ...THEME_AND_QA_INPUT_PROOFS,
   ...GENERATED_SPECS_PROOFS,
