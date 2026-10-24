@@ -4,7 +4,7 @@ The shipping iOS app is the native SwiftUI shell in `apps/ios` (Rust core via
 `futo-notes-ffi`, editor embedded as a WKWebView). There is no Tauri iOS shell
 and no MCP bridge on iOS — you drive the app from outside via `xcrun simctl`
 and `axe` ([AXe](https://github.com/cameroncooke/AXe)), and you verify editor
-content through the filesystem (see "The flush-and-read trick" below).
+content through the filesystem (see [saved-content verification](ios-data-and-sync.md#the-flush-and-read-trick-editor-content-verification)).
 
 `axe` replaced `idb` on 2026-07-27. This is not a cosmetic swap: `idb ui
 describe-all` returns a shallow ~11-element tree on iOS 26.5 and never shows
@@ -207,6 +207,31 @@ _successfully_ — they print `✓` and change nothing.
 - **Text starting with `-` is parsed as a flag.** `type "-marker-"` fails with
   `CommandError error 1`; use a marker without a leading dash.
 
+### The editor toolbar is drivable
+
+With the keyboard up, every accessory-toolbar item is in the tree under a
+stable SF-Symbol identifier — `bold`, `italic`, `strikethrough`, `link`,
+`textformat.size`, `text.quote`, `list.bullet`, `list.number`, `checklist`,
+`camera`, `photo`, `keyboard.chevron.compact.down`. This is the surface
+generated from `packages/editor/src/toolbar.ts` by `just toolbar-spec`, so it
+can be QA'd directly:
+
+```bash
+axe tap --udid $SIM --id bold --element-type Button && axe type "boldtext" --udid $SIM
+axe button home --udid $SIM && cat "$NOTES/<note>.md"   # → **boldtext**
+```
+
+On a 402pt-wide iPhone only the first eight sit inside the toolbar's viewport;
+`checklist`, `camera`, and `photo` report at x-centers past the right edge and
+cannot be tapped where they are. **This is a tooling limit, not an app defect.**
+The bar is a real `ScrollView(.horizontal)` with a measured trailing inset that
+peeks the edge icon (`EditorToolbar.swift` `computeSnap`, spec'd under "Scroll
+affordance" in `docs/spec/editor.md`) — but `axe` cannot scroll it: `gesture` is
+a no-op and an explicit `swipe` across the accessory row left every item's frame
+unchanged. So the trailing items are **unexercised by automation**, and their
+absence from `--on-screen-only` is not evidence they are broken. Verify them by
+hand on a device, or on a wider simulator where they start on-screen.
+
 ### What axe cannot reach
 
 Out-of-process system UI — the "Save Password?" sheet, the Photos picker,
@@ -244,92 +269,10 @@ non-interactive shell until it is interrupted. Use the bounded `log show --last`
 above to read what already happened; when you need `log stream`, start it with
 `run_in_background` and redirect it to a file.
 
-## 5. App data: seeding and verification
+## 5. App data and sync
 
-The debug app's vault is plain files in the app container — use it in both
-directions (fixtures in, verification out):
-
-```bash
-NOTES="$(xcrun simctl get_app_container "$SIM" com.futo.notes.dev data)/Documents/fake-notes"
-ls "$NOTES"
-cat "$NOTES/grocery list.md"
-
-# Seed fixtures, then relaunch so the scan picks them up:
-mkdir -p "$NOTES/QA Folder"
-printf '# Seeded\n\n- [ ] task\n' > "$NOTES/QA Folder/Seeded Note.md"
-xcrun simctl terminate "$SIM" com.futo.notes.dev; xcrun simctl launch "$SIM" com.futo.notes.dev
-```
-
-**Empty-vault Welcome seed**: launching into a completely empty vault
-auto-seeds `Welcome.md` — wipe-and-relaunch can never show the bare
-"No notes yet" state. To reach true-empty, delete the last note **in-app**
-(row long-press → Delete → confirm) and don't relaunch afterward.
-
-### The flush-and-read trick (editor content verification)
-
-The editor WKWebView is not reachable via CDP or JS from outside (no
-`window.__testSync`, no MCP bridge on iOS). To verify what the editor holds:
-background the app — backgrounding flushes pending edits to disk — then read
-the file:
-
-```bash
-axe button home --udid $SIM
-sleep 1
-cat "$NOTES/<note>.md"
-```
-
-Type into the editor with `axe type` after tapping the title/body to focus;
-verify the result on disk, not by screenshot-squinting.
-
-Two things the a11y tree _does_ give you without a disk read: the note title is
-the editor's `TextField` `AXValue`, and the editor's accessory toolbar only
-exists while the keyboard is up — so its presence is itself the evidence that a
-field is focused.
-
-**IME mangles typed text in note fields**: autocapitalize/predictive-text
-rewrite things like `para-1-ios` → `Para-1-iOS` (the Sync settings fields
-suppress this; note fields don't). `axe type` also APPENDS to prefilled
-fields — clear them first (tap the field's right edge, then `axe key --keycode
-42` backspaces). For exact text, `xcrun simctl pbcopy $SIM` + long-press →
-Paste usually works but has silently no-op'd in some fields. The robust
-patterns are: use markers autocorrect can't rewrite (digits/hyphens) and verify
-byte-for-byte on disk, or tap the on-screen keyboard's own keys — they are in
-the a11y tree with their letters as labels, so the IME never gets a say.
-
-### The editor toolbar is drivable
-
-With the keyboard up, every accessory-toolbar item is in the tree under a
-stable SF-Symbol identifier — `bold`, `italic`, `strikethrough`, `link`,
-`textformat.size`, `text.quote`, `list.bullet`, `list.number`, `checklist`,
-`camera`, `photo`, `keyboard.chevron.compact.down`. This is the surface
-generated from `packages/editor/src/toolbar.ts` by `just toolbar-spec`, so it
-can be QA'd directly:
-
-```bash
-axe tap --udid $SIM --id bold --element-type Button && axe type "boldtext" --udid $SIM
-axe button home --udid $SIM && cat "$NOTES/<note>.md"   # → **boldtext**
-```
-
-On a 402pt-wide iPhone only the first eight sit inside the toolbar's viewport;
-`checklist`, `camera`, and `photo` report at x-centers past the right edge and
-cannot be tapped where they are. **This is a tooling limit, not an app defect.**
-The bar is a real `ScrollView(.horizontal)` with a measured trailing inset that
-peeks the edge icon (`EditorToolbar.swift` `computeSnap`, spec'd under "Scroll
-affordance" in `docs/spec/editor.md`) — but `axe` cannot scroll it: `gesture` is
-a no-op and an explicit `swipe` across the accessory row left every item's frame
-unchanged. So the trailing items are **unexercised by automation**, and their
-absence from `--on-screen-only` is not evidence they are broken. Verify them by
-hand on a device, or on a wider simulator where they start on-screen.
-
-## 6. Sync features
-
-The simulator shares the Mac's network — `http://127.0.0.1:<port>` reaches a
-host server directly (unlike Android's `10.0.2.2`; a **physical** iPhone needs
-the Mac's LAN IP instead). Native shells have no `__testSync` hook — connect
-through Settings → Sync in the app UI. Server setup: see "Features that need a
-sync server" in SKILL.md; when this machine cannot reach the package registry
-and `~/.cache/futo-notes` is cold, record sync happy-path stories as
-**Blocked**, not failed.
+For fixture seeding, saved-content verification and sync setup, read
+[iOS app data and sync verification](ios-data-and-sync.md).
 
 ## Known gotchas
 
