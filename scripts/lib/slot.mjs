@@ -25,6 +25,8 @@ export const PORT_BASES = {
   // dev server can be up at once, which is the normal case: you tune the coin
   // against the real app beside it.
   coinTuner: 5300,
+  // Debug crash/feedback collectors must not receive another worktree's traffic.
+  crashlog: 5100,
 };
 
 // The cross-platform sync harness is the one consumer that needs a RANGE, not a
@@ -155,6 +157,7 @@ export const ENV_NAMES = {
   cdp: 'CDP_PORT',
   mcp: 'FUTO_MCP_BASE_PORT',
   coinTuner: 'COIN_TUNER_PORT',
+  crashlog: 'CRASHLOG_PORT',
 };
 
 export function envLines(root) {

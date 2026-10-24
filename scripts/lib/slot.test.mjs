@@ -68,6 +68,7 @@ describe('portsFor', () => {
       cdp: PORT_BASES.cdp + slot,
       mcp: PORT_BASES.mcp + slot * 100,
       coinTuner: PORT_BASES.coinTuner + slot,
+      crashlog: PORT_BASES.crashlog + slot,
     });
   });
 
@@ -82,7 +83,20 @@ describe('portsFor', () => {
       cdp: 15000,
       mcp: 9223,
       coinTuner: 5300,
+      crashlog: 5100,
     });
+  });
+
+  it('isolates local crash collectors across worktree slots', () => {
+    expect(slotOf(ROOTS[0])).not.toBe(slotOf(ROOTS[1]));
+    expect(portsFor(ROOTS[0]).crashlog).toBe(5113);
+    expect(portsFor(ROOTS[0]).crashlog).not.toBe(portsFor(ROOTS[1]).crashlog);
+    const otherPorts = Object.entries(PORT_BASES)
+      .filter(([name]) => name !== 'crashlog')
+      .flatMap(([name, base]) =>
+        Array.from({ length: 50 }, (_, slot) => base + slot * (name === 'mcp' ? 100 : 1)),
+      );
+    for (let port = 5100; port <= 5149; port++) expect(otherPorts).not.toContain(port);
   });
 
   it('keeps the tauri-dev and web ranges disjoint so both can run at once', () => {
@@ -199,6 +213,12 @@ describe('probeBand', () => {
 // The justfile and skills call these strings; renaming one breaks them with
 // nothing else red.
 describe('CLI selectors', () => {
+  it('exposes shell exports through the ports recipe', () => {
+    const root = JSON.parse(runCli('json')).root;
+    expect(execFileSync('just', ['ports', 'env'], { cwd: root, encoding: 'utf8' }).trim()).toBe(
+      envLines(root),
+    );
+  });
   it('prints the slot of the repo it runs in', () => {
     const { root } = JSON.parse(runCli('json'));
     expect(runCli('slot')).toBe(String(slotOf(root)));
@@ -241,6 +261,7 @@ describe('CLI selectors', () => {
       cdp: 'CDP_PORT',
       mcp: 'FUTO_MCP_BASE_PORT',
       coinTuner: 'COIN_TUNER_PORT',
+      crashlog: 'CRASHLOG_PORT',
     });
   });
 

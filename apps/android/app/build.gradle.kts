@@ -15,6 +15,11 @@ if (hasReleaseKeystore) {
 }
 
 val repositoryRootDirectory = rootProject.file("../..")
+// Resolve at build time on this host; the worktree path is the slot identity.
+val devCrashlogPort = providers.exec {
+    workingDir(repositoryRootDirectory)
+    commandLine("node", "scripts/lib/slot.mjs", "crashlog")
+}.standardOutput.asText.get().trim().toInt()
 val generatedLocalizationDirectory = layout.buildDirectory.dir("generated/localization")
 val generateLocalizationResources = tasks.register<Exec>("generateLocalizationResources") {
     inputs.dir(repositoryRootDirectory.resolve("languages"))
@@ -72,6 +77,7 @@ android {
         versionName = System.getenv("VERSION_NAME") ?: "0.1.0"
         manifestPlaceholders["appLabel"] = "@string/app_name"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        buildConfigField("int", "DEV_CRASHLOG_PORT", devCrashlogPort.toString())
     }
 
     // ── Distribution flavors ────────────────────────────────────────────────

@@ -122,6 +122,10 @@ test-ios-native: _preflight-ios build-rust-ios
     -derivedDataPath .build \
     CODE_SIGNING_ALLOWED=YES CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="-"
 
+# Write this build host's Debug collector port into an iOS built resource directory.
+ios-dev-ports output configuration="Debug":
+  node scripts/ios-dev-ports.mjs "$@"
+
 # JVM unit tests under BOTH flavors; optional Gradle Class[.method] patterns.
 test-android-native *tests: _preflight-android android-env-check (build-rust-android "device")
   #!/usr/bin/env bash

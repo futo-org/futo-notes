@@ -10,9 +10,9 @@ qa-claim target="all" *flags:
 qa-status:
   @node scripts/qa.mjs status
 
-# Print every port this worktree owns.
-ports:
-  @node scripts/lib/slot.mjs
+# Print this worktree's ports, shell exports (`env`), or one named port.
+ports selector="json":
+  @node scripts/lib/slot.mjs "$@"
 
 # Release this worktree's devices + server; `ios`/`android` releases that platform, server left up (--shutdown powers off).
 qa-release *flags:

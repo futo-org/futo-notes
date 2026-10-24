@@ -1,6 +1,7 @@
 import { defineConfig } from 'vitest/config';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
 import path from 'path';
+import { portsFor } from './scripts/lib/slot.mjs';
 
 const nodeDefinesWebStorage =
   Object.getOwnPropertyDescriptor(globalThis, 'localStorage') !== undefined;
@@ -8,6 +9,7 @@ const nodeDefinesWebStorage =
 export default defineConfig({
   plugins: [svelte({ hot: false })],
   test: {
+    env: { VITE_DEV_CRASHLOG_PORT: String(portsFor(__dirname).crashlog) },
     globals: true,
     include: [
       'src/**/*.test.ts',
