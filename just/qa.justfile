@@ -157,3 +157,11 @@ qa-shot *args:
 #   just qa-target list | status | pid <pid> | port <port> | kill
 qa-target *args:
   @node scripts/qa-target.mjs "$@"
+
+# Verify the selected Android AVD still belongs to this worktree.
+qa-android-target:
+  @node scripts/qa.mjs android-target
+
+# Verify the installed dev APK matches this worktree (or the supplied APK).
+qa-android-apk *args:
+  @node scripts/qa.mjs android-apk "$@"

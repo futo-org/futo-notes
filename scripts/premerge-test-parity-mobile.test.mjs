@@ -90,7 +90,7 @@ describe('pre-merge CI routing contracts: native mobile jobs', () => {
     const deployRecipe = topLevelBlock(justfile, /^deploy-android[^\n]*:[^\n]*$/m);
     const buildRecipe = topLevelBlock(justfile, /^build-android-native:[^\n]*$/m);
     const unitTestRecipe = topLevelBlock(justfile, /^test-android-native:[^\n]*$/m);
-    const uiTestRecipe = topLevelBlock(justfile, /^test-android-native-ui:[^\n]*$/m);
+    const uiTestRecipe = topLevelBlock(justfile, /^test-android-native-ui(?: [^:]*)?:[^\n]*$/m);
 
     // L1-008: the Android test recipes must test the editor.html of the checkout,
     // not whatever gitignored copy an earlier build left in the assets.

@@ -11,6 +11,7 @@
 
 import { execFileSync, spawnSync } from 'node:child_process';
 import net from 'node:net';
+import { assertAndroidTarget } from '../../scripts/qa/android-target.mjs';
 
 import {
   createTokenSource,
@@ -71,7 +72,8 @@ export function listAttachedDevices() {
 }
 
 export class AndroidDevice {
-  constructor(serial) {
+  constructor(serial, { execFile = execFileSync } = {}) {
+    this.execFile = execFile;
     this.serial = serial;
     this.forwardedPorts = [];
     this.nextHookToken = createTokenSource();
@@ -82,8 +84,9 @@ export class AndroidDevice {
   }
 
   adb(args, { allowFailure = false, input } = {}) {
+    assertAndroidTarget({ serial: this.serial, execFile: this.execFile });
     try {
-      return execFileSync('adb', ['-s', this.serial, ...args], {
+      return this.execFile('adb', ['-s', this.serial, ...args], {
         encoding: 'utf8',
         input,
         maxBuffer: 64 * 1024 * 1024,

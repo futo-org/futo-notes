@@ -24,6 +24,8 @@
 // `claim` prints `export SIM=…` / `export ANDROID_SERIAL=…` lines on stdout
 // (progress goes to stderr), so shells can `eval "$(node scripts/qa.mjs claim all)"`.
 
+import { verifyAndroidApk } from './qa/android-apk.mjs';
+import { assertAndroidTarget } from './qa/android-target.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import { slotOf } from './lib/slot.mjs';
@@ -99,6 +101,7 @@ async function cmdClaim(target, { reboot = false } = {}) {
     wipeOnFreshClaim('android', name, fresh, () => wipeAndroidDevApp(serial));
     info(`android: ${name} → ${serial}`);
     exports.push(`export ANDROID_SERIAL=${serial}`);
+    exports.push(`export ANDROID_AVD_NAME=${name}`);
   }
   info('claimed for ' + root + ' (slot ' + slotOf(root) + '). Set these in your shell:');
   process.stdout.write(exports.join('\n') + '\n');
@@ -222,16 +225,42 @@ function cmdStatus() {
 
 // ── main ───────────────────────────────────────────────────────────────────
 
+const USAGE =
+  'usage: qa.mjs claim [ios|android|all] [--reboot] | android-target | android-apk [path] | status | release [ios|android] [--shutdown] | gc | server-start [--standin] | server-stop [--drop] | avd-baseline';
 const [cmd, ...args] = process.argv.slice(2);
+// Handle help before worktree discovery or invoking any platform tool. A help
+// request must never acquire an owner file, boot a device, or wipe app data.
+if (cmd === '--help' || cmd === '-h' || args.includes('--help') || args.includes('-h')) {
+  console.log(USAGE);
+  process.exit(0);
+}
 switch (cmd) {
   case 'claim': {
     // --reboot forces a simulator shutdown/boot cycle, the only reliable repair
     // for an already-booted sim whose UI reads as a 0x0 root (see ensureSim).
-    const reboot = args.includes('--reboot');
-    const positional = args.find((a) => !a.startsWith('--'));
-    await cmdClaim(positional || 'all', { reboot });
+    const unknown = args.find((arg) => arg.startsWith('-') && arg !== '--reboot');
+    if (unknown) die(`unknown claim option ${unknown}`);
+    const positional = args.filter((arg) => !arg.startsWith('-'));
+    if (positional.length > 1) die('claim accepts at most one platform: ios, android or all');
+    await cmdClaim(positional[0] || 'all', { reboot: args.includes('--reboot') });
     break;
   }
+  case 'android-apk':
+    if (args.length > 1) die('android-apk accepts at most one APK path');
+    try {
+      info(`android APK verified: ${verifyAndroidApk({ apkPath: args[0] })}`);
+    } catch (error) {
+      die(error.message);
+    }
+    break;
+  case 'android-target':
+    if (args.length) die('android-target accepts no arguments');
+    try {
+      info(`android target verified: ${assertAndroidTarget()}`);
+    } catch (error) {
+      die(error.message);
+    }
+    break;
   case 'status':
     cmdStatus();
     break;
@@ -252,7 +281,5 @@ switch (cmd) {
     for (let i = 0; i < POOL; i++) applyAvdBaseline(`futo-qa-${i}`);
     break;
   default:
-    die(
-      'usage: qa.mjs claim [ios|android|all] [--reboot] | status | release [ios|android] [--shutdown] | gc | server-start [--standin] | server-stop [--drop] | avd-baseline',
-    );
+    die(USAGE);
 }

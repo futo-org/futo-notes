@@ -10,7 +10,8 @@ WebView. There is no Tauri Android shell.
 just android-native            # Rust ffi (device ABI) → editor bundle → installDirectDebug → launch
 just build-android-native      # compile-only sanity (BOTH distribution flavors)
 just test-android-native       # JVM unit tests (BOTH distribution flavors)
-just test-android-native-ui    # Compose instrumentation tests on $ANDROID_SERIAL (direct)
+just test-android-native-ui    # all Compose instrumentation tests on $ANDROID_SERIAL (direct)
+just test-android-native-ui com.futo.notes.DialogImeDismissTest # one class; add #method for one test
 just android-drive             # drive the running app; no args prints the commands
 just test-android-storage      # user-level storage stories on a real device
 just test-android-perf         # editor perf budgets on the low-end reference phone

@@ -30,6 +30,13 @@ just qa-claim android       # THE way in a shared/parallel session: claims this
 adb devices                 # solo alternative: anything already attached?
 ```
 
+`qa-claim` also exports `ANDROID_AVD_NAME`. Keep both exports: emulator serial
+ports can be reused by another AVD after a shutdown. `just qa-android-target`
+checks the live AVD name and its worktree owner; the native install recipe and
+`android-drive` check it automatically. Re-run the claim when it refuses a stale
+serial. Direct `adb` and Gradle calls bypass that guard, so run
+`just qa-android-target` immediately before using those tools.
+
 `adb` honors `$ANDROID_SERIAL` natively; with multiple devices attached every
 `adb` call is ambiguous without it. Driving a device another session claimed
 (see `just qa-status`) causes install-thrashing — don't. Release with
@@ -41,6 +48,14 @@ simulator this worktree claimed.
 ```bash
 just android-native         # full chain: Rust ffi (device ABI) → editor bundle → gradle installDirectDebug → launch
 ```
+
+Before QA, run `just qa-android-apk` to compare the installed APK SHA-256 with
+this worktree's built debug APK. `android-drive` and the native story helpers
+perform this check at readiness; `android-native` checks immediately after
+installing. Set `FUTO_ANDROID_FLAVOR=play` for a Play-flavor debug build, or pass
+an explicit APK path to `just qa-android-apk <path>`. A mismatch means the
+installed build changed; rebuild/reinstall before interpreting screenshots or
+plugin behavior as this branch's result.
 
 For app-only iteration (no Rust/editor changes), skip the Rust rebuild. The APK
 carries only the ABI the last Rust build targeted (none if it failed or was

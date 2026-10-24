@@ -12,6 +12,9 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT"
 
+# Serial ports are reusable: reject a peer-owned AVD before building.
+node scripts/qa.mjs android-target
+
 # Refuse in ~2s — before the 10-25 minute Rust build — when this machine
 # cannot run Gradle (no JDK 21 discoverable for Gradle's daemon-JVM pin, or a
 # missing SDK location). Shared with the justfile recipes that call gradlew:
@@ -60,9 +63,12 @@ cp apps/ios/Resources/editor.html apps/android/app/src/main/assets/editor.html
 echo "==> Building + installing the app ($FLAVOR flavor)"
 cd apps/android
 if [ -x ./gradlew ]; then GRADLE=./gradlew; else GRADLE=gradle; fi
+node "$ROOT/scripts/qa.mjs" android-target
 "$GRADLE" ":app:install${VARIANT}"
+node "$ROOT/scripts/qa.mjs" android-apk "app/build/outputs/apk/$FLAVOR/debug/app-$FLAVOR-debug.apk"
 
 echo "==> Launching"
+node "$ROOT/scripts/qa.mjs" android-target
 # `am start -n` rather than monkey: monkey exits 251 without launching on
 # some emulators (observed on API 36 images). The --es extra carries
 # FUTO_HOSTED_SERVER across the process boundary (an Android app inherits no

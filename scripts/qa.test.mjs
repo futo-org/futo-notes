@@ -95,3 +95,47 @@ describe('qa.mjs release', () => {
     expect(fs.existsSync(ownerFile('ios'))).toBe(true);
   });
 });
+
+// Argument mistakes must never claim, boot, or wipe a device.
+describe('qa.mjs claim arguments', () => {
+  let scratch;
+  beforeEach(() => {
+    scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'qa-args-'));
+    execFileSync('git', ['init', '-q', scratch]);
+    fs.mkdirSync(path.join(scratch, 'bin'));
+    for (const tool of ['adb', 'xcrun', 'open']) {
+      fs.writeFileSync(path.join(scratch, 'bin', tool), '#!/bin/sh\nexit 1\n', { mode: 0o755 });
+    }
+  });
+  afterEach(() => fs.rmSync(scratch, { recursive: true, force: true }));
+
+  function claim(...args) {
+    return spawnSync(process.execPath, [QA, 'claim', ...args], {
+      cwd: scratch,
+      env: {
+        ...process.env,
+        HOME: scratch,
+        ANDROID_HOME: path.join(scratch, 'absent-sdk'),
+        PATH: path.join(scratch, 'bin') + path.delimiter + process.env.PATH,
+      },
+      encoding: 'utf8',
+    });
+  }
+
+  it('prints help without creating a claim or invoking a device tool', () => {
+    const result = claim('--help');
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain('usage:');
+    expect(fs.existsSync(path.join(scratch, '.futo-notes-qa'))).toBe(false);
+  });
+
+  it.each([['--typo'], ['android', 'ios'], ['android', '--typo']])(
+    'rejects invalid arguments %j before creating a claim',
+    (...args) => {
+      const result = claim(...args);
+      expect(result.status).not.toBe(0);
+      expect(result.stderr).toMatch(/unknown claim option|at most one platform/);
+      expect(fs.existsSync(path.join(scratch, '.futo-notes-qa'))).toBe(false);
+    },
+  );
+});
