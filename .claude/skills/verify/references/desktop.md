@@ -67,6 +67,20 @@ agent-browser eval 'document.querySelector("[data-wikilink]").click()'
 agent-browser close                    # cleanup (and kill the dev server)
 ```
 
+### Host-IP browser previews
+
+A preview service may proxy a host IP while Vite's default listener accepts only loopback.
+Start `just web-diagnostic --host 0.0.0.0 --strictPort` in the worktree and select the `web`
+port printed by `just ports` in that service. This explicit Vite listener serves the same
+web-platform preview; keep the desktop MCP bridge on loopback.
+
+Use the preview service's HTTPS URL. A raw HTTP host-IP URL is not a browser secure context;
+`crypto.randomUUID` can be unavailable and leave the app blank even when Vite answers 200.
+Verify `window.isSecureContext` and the rendered shell before measuring. In a reproduced
+probe, the default listener refused host-IP traffic, the explicit listener answered 200,
+and an HTTPS proxy rendered the shell without page errors. Stop the Vite process you started
+when finished; the diagnostic recipe disables file watching and needs a restart after edits.
+
 ## Tauri desktop (the default)
 
 Debug builds include `tauri-plugin-mcp-bridge`, exposing the Tauri MCP tools
