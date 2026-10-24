@@ -2,6 +2,7 @@
 import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import { assertAndroidTarget } from './android-target.mjs';
 import {
   AVDMANAGER,
   AVD_DIR,
@@ -141,8 +142,40 @@ export function applyAvdBaseline(name) {
   fs.rmSync(path.join(dir, 'hardware-qemu.ini'), { force: true });
 }
 
-export async function ensureAvd(name) {
+// Android can turn this off after host-keyboard input. Pin it before the app
+// runs, then reboot when changed so InputMethodManager observes the setting.
+function pinSoftKeyboard(name, serial) {
+  assertAndroidTarget({ serial, expectedAvd: name, allowPending: true });
+  const args = ['-s', serial, 'shell', 'settings'];
+  const read = () => tryRun('adb', [...args, 'get', 'secure', 'show_ime_with_hard_keyboard']);
+  const current = read();
+  if (current === null) die(`cannot read the software-keyboard setting on ${name}`);
+  if (current.trim() === '1') return false;
+  if (
+    tryRun('adb', [...args, 'put', 'secure', 'show_ime_with_hard_keyboard', '1']) === null ||
+    read()?.trim() !== '1'
+  )
+    die(`cannot enable the software keyboard on ${name}`);
+  return true;
+}
+
+async function stopAvd(name, serial) {
+  assertAndroidTarget({ serial, expectedAvd: name, allowPending: true });
+  if (tryRun('adb', ['-s', serial, 'emu', 'kill']) === null) die(`could not stop ${name}`);
+  for (let i = 0; i < 60; i++) {
+    if (!runningEmus()[name]) return;
+    await sleep(500);
+  }
+  die(`emulator ${name} did not stop for its requested reboot`);
+}
+
+export async function ensureAvd(
+  name,
+  { preserveConfig = false, reboot = false, keyboardRestarted = false, coldBoot = false } = {},
+) {
   if (!avdNames().includes(name)) {
+    if (preserveConfig)
+      die(`legacy QA AVD ${name} does not exist; create the pinned fixture first`);
     const image = installedSystemImage();
     info(`creating AVD ${name} (${image})`);
     // avdmanager prompts "create a custom hardware profile?" — answer no.
@@ -152,11 +185,20 @@ export async function ensureAvd(name) {
     });
     if (res.status !== 0) die(`avdmanager create failed:\n${res.stderr || res.stdout}`);
   }
-  applyAvdBaseline(name);
+  if (!preserveConfig) applyAvdBaseline(name);
   let serial = runningEmus()[name];
+  if (serial && reboot) {
+    if (!preserveConfig) pinSoftKeyboard(name, serial);
+    await stopAvd(name, serial);
+    serial = null;
+    coldBoot = true;
+  }
   if (!serial) {
     info(`booting emulator ${name} (first boot can take a couple of minutes)`);
-    const child = spawn(EMULATOR, ['-avd', name], { detached: true, stdio: 'ignore' });
+    const child = spawn(EMULATOR, ['-avd', name, ...(coldBoot ? ['-no-snapshot-load'] : [])], {
+      detached: true,
+      stdio: 'ignore',
+    });
     child.unref();
     for (let i = 0; i < 60 && !serial; i++) {
       await sleep(2000);
@@ -195,6 +237,12 @@ export async function ensureAvd(name) {
       await sleep(2000);
     }
     if (!storageReady) die(`emulator ${name} (${serial}): storage manager never came up`);
+  }
+  if (!preserveConfig && pinSoftKeyboard(name, serial)) {
+    if (keyboardRestarted) die(`software-keyboard setting did not persist after rebooting ${name}`);
+    info(`rebooting ${name} after enabling the software keyboard`);
+    await stopAvd(name, serial);
+    return ensureAvd(name, { keyboardRestarted: true, coldBoot: true });
   }
   return serial;
 }

@@ -2,12 +2,13 @@
 // its name and verify the worktree's claim immediately before device access.
 // Physical devices and CI's non-pool AVDs retain their existing explicit setup.
 import { execFileSync } from 'node:child_process';
-import { readOwner, worktreeRoot } from './pool.mjs';
+import { LEGACY_ANDROID_AVDS, readOwner, worktreeRoot } from './pool.mjs';
 
 export function assertAndroidTarget({
   serial = process.env.ANDROID_SERIAL,
   expectedAvd = process.env.ANDROID_AVD_NAME,
   execFile = execFileSync,
+  allowPending = false,
 } = {}) {
   const options = { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 5000 };
   const target = serial || execFile('adb', ['get-serialno'], options).trim();
@@ -20,7 +21,7 @@ export function assertAndroidTarget({
   if (expectedAvd && expectedAvd !== name) {
     throw new Error(`${target} is ${name}, expected ${expectedAvd}; re-run just qa-claim android`);
   }
-  if (/^futo-qa-\d+$/.test(name)) {
+  if (/^futo-qa-\d+$/.test(name) || LEGACY_ANDROID_AVDS.includes(name)) {
     const owner = readOwner('android', name);
     if (!owner) throw new Error(`${name} is unclaimed; run just qa-claim android`);
     if (owner.worktree !== worktreeRoot()) {
@@ -28,7 +29,7 @@ export function assertAndroidTarget({
         `${name} is claimed by another worktree (${owner.worktree}); re-run just qa-claim android`,
       );
     }
-    if (owner.wipePending)
+    if (owner.wipePending && !allowPending)
       throw new Error(`${name} claim is not ready; re-run just qa-claim android`);
   }
   return target;

@@ -135,4 +135,14 @@ describe('pooled Android target identity', () => {
     expect(() => verifyAndroidApk({ serial: 'fake-phone', apkPath, execFile })).toThrow(error);
     expect(execFile.mock.calls.some(([, args]) => args.includes('sha256sum'))).toBe(false);
   });
+  it('requires ownership for legacy-WebView AVDs as well as pooled devices', () => {
+    owner('futo-api28', '/another/live-worktree');
+    const execFile = fakeAdb('futo-api28');
+    const client = createAdbClient({
+      pkg: 'com.futo.notes.dev',
+      serial: 'emulator-5556',
+      execFile,
+    });
+    expect(() => client.shell('echo identity-probe')).toThrow(/claimed by another worktree/);
+  });
 });

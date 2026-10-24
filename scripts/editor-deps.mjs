@@ -24,6 +24,31 @@ function resolveLocal(requireFromRoot, nodeModules, moduleName) {
   }
 }
 
+// Milkdown exposes import-only subpaths, so createRequire.resolve cannot check
+// them. Let Node resolve in a module rooted at the checkout, then require the
+// resolved file to exist inside this checkout's installed dependency tree.
+function resolvesLocalImport(root, nodeModules, moduleName) {
+  try {
+    const result = spawnSync(
+      process.execPath,
+      [
+        '--input-type=module',
+        '--eval',
+        'console.log(import.meta.resolve(process.argv[1]))',
+        moduleName,
+      ],
+      { cwd: root, encoding: 'utf8' },
+    );
+    if (result.status !== 0) return false;
+    return isInside(
+      fs.realpathSync(nodeModules),
+      fs.realpathSync(fileURLToPath(result.stdout.trim())),
+    );
+  } catch {
+    return false;
+  }
+}
+
 function hasCompatibleWs(requireFromRoot, nodeModules, packagePath) {
   const entry = resolveLocal(requireFromRoot, nodeModules, 'ws');
   const metadataPath = resolveLocal(requireFromRoot, nodeModules, 'ws/package.json');
@@ -62,6 +87,18 @@ export function missingWorkspaceDependencies(root = SCRIPT_ROOT) {
 
   if (!hasCompatibleWs(requireFromRoot, nodeModules, packagePath)) {
     missing.push('the workspace-compatible ws package');
+  }
+
+  const manifest = JSON.parse(fs.readFileSync(packagePath, 'utf8'));
+  const declared = { ...manifest.dependencies, ...manifest.devDependencies };
+  if (declared['@milkdown/kit'] && !resolvesLocalImport(root, nodeModules, '@milkdown/kit/core')) {
+    missing.push('@milkdown/kit/core');
+  }
+  if (
+    declared['vite-plugin-singlefile'] &&
+    !resolveLocal(requireFromRoot, nodeModules, 'vite-plugin-singlefile')
+  ) {
+    missing.push('vite-plugin-singlefile');
   }
 
   return missing;

@@ -11,10 +11,10 @@
 // Ownership is an owner-file per device under ~/.futo-notes-qa/devices/,
 // containing the claiming worktree path. Staleness is self-healing: an owner
 // whose worktree directory no longer exists is reclaimable — no TTLs, no
-// heartbeats. Pool devices are the ONLY devices this tool touches; your own
-// simulators/AVDs are never claimed, booted, or deleted.
+// heartbeats. Pool devices plus explicitly named futo-api28/29/30 fixtures are managed.
+// Named fixtures retain their images and app data; personal devices are never touched.
 //
-//   node scripts/qa.mjs claim [ios|android|all] [--reboot]   # ensure+boot devices, print exports
+//   node scripts/qa.mjs claim [ios|android|all] [--reboot] [--avd legacy-name]   # ensure+boot devices, print exports
 //   node scripts/qa.mjs status                    # pool devices + servers, owners, state
 //   node scripts/qa.mjs release [ios|android] [--shutdown]  # release this worktree's claims
 //   node scripts/qa.mjs gc                        # reap devices/servers of deleted worktrees
@@ -41,9 +41,11 @@ import {
   AVDMANAGER,
   DEV_DIR,
   IS_MAC,
+  LEGACY_ANDROID_AVDS,
   POOL,
   SRV_DIR,
   claimPoolName,
+  claimNamedAndroid,
   markWiped,
   die,
   info,
@@ -78,8 +80,14 @@ function wipeOnFreshClaim(platform, name, fresh, wipe) {
   info(`${platform}: wiped com.futo.notes.dev data on ${name} (new claim)`);
 }
 
-async function cmdClaim(target, { reboot = false } = {}) {
+async function cmdClaim(target, { reboot = false, avd } = {}) {
   const root = worktreeRoot();
+  if (avd) {
+    if (target !== 'android') die('--avd requires the android target');
+    if (!LEGACY_ANDROID_AVDS.includes(avd)) die(`unsupported QA AVD ${avd}`);
+    if (!avdNames().includes(avd))
+      die(`legacy QA AVD ${avd} does not exist; create the pinned fixture first`);
+  }
   const wantIos = target === 'ios' || target === 'all';
   const wantAndroid = target === 'android' || target === 'all';
   if (target !== 'ios' && target !== 'android' && target !== 'all') die(`unknown target ${target}`);
@@ -96,9 +104,20 @@ async function cmdClaim(target, { reboot = false } = {}) {
     info('ios: skipped (not macOS)');
   }
   if (wantAndroid) {
-    const { name, fresh } = claimPoolName('android', root);
-    const serial = await ensureAvd(name);
-    wipeOnFreshClaim('android', name, fresh, () => wipeAndroidDevApp(serial));
+    let claim;
+    try {
+      claim = avd ? claimNamedAndroid(root, avd) : claimPoolName('android', root);
+    } catch (error) {
+      die(error.message);
+    }
+    const { name, fresh } = claim;
+    const serial = await ensureAvd(name, { preserveConfig: Boolean(avd), reboot });
+    if (avd) {
+      // Explicit legacy fixtures preserve their app data and pinned WebView.
+      markWiped('android', name);
+    } else {
+      wipeOnFreshClaim('android', name, fresh, () => wipeAndroidDevApp(serial));
+    }
     info(`android: ${name} → ${serial}`);
     exports.push(`export ANDROID_SERIAL=${serial}`);
     exports.push(`export ANDROID_AVD_NAME=${name}`);
@@ -163,6 +182,11 @@ function cmdGc() {
       const owner = readOwner(m[1], m[2]);
       if (!owner || !ownerIsStale(owner)) continue;
       info(`gc: ${m[1]} ${m[2]} owned by deleted worktree ${owner.worktree}`);
+      // Legacy fixture images belong to the developer: gc only releases the claim.
+      if (m[1] === 'android' && LEGACY_ANDROID_AVDS.includes(m[2])) {
+        fs.rmSync(ownerPath(m[1], m[2]), { force: true });
+        continue;
+      }
       shutdownDevice(m[1], m[2]);
       if (m[1] === 'ios' && IS_MAC) {
         const sim = findSim(m[2]);
@@ -190,9 +214,12 @@ function cmdStatus() {
   const emus = runningEmus();
   const platforms = IS_MAC ? ['ios', 'android'] : ['android'];
   for (const platform of platforms) {
-    info(`— ${platform} pool (${POOL} max) —`);
-    for (let i = 0; i < POOL; i++) {
-      const name = `futo-qa-${i}`;
+    info(
+      `— ${platform} QA devices (${POOL} pooled${platform === 'android' ? ' + legacy fixtures' : ''}) —`,
+    );
+    const names = Array.from({ length: POOL }, (_, i) => `futo-qa-${i}`);
+    if (platform === 'android') names.push(...LEGACY_ANDROID_AVDS);
+    for (const name of names) {
       const owner = readOwner(platform, name);
       let state = 'absent';
       if (platform === 'ios' && IS_MAC) {
@@ -226,7 +253,7 @@ function cmdStatus() {
 // ── main ───────────────────────────────────────────────────────────────────
 
 const USAGE =
-  'usage: qa.mjs claim [ios|android|all] [--reboot] | android-target | android-apk [path] | status | release [ios|android] [--shutdown] | gc | server-start [--standin] | server-stop [--drop] | avd-baseline';
+  'usage: qa.mjs claim [ios|android|all] [--reboot] [--avd legacy-name] | android-target | android-apk [path] | status | release [ios|android] [--shutdown] | gc | server-start [--standin] | server-stop [--drop] | avd-baseline';
 const [cmd, ...args] = process.argv.slice(2);
 // Handle help before worktree discovery or invoking any platform tool. A help
 // request must never acquire an owner file, boot a device, or wipe app data.
@@ -238,11 +265,21 @@ switch (cmd) {
   case 'claim': {
     // --reboot forces a simulator shutdown/boot cycle, the only reliable repair
     // for an already-booted sim whose UI reads as a 0x0 root (see ensureSim).
-    const unknown = args.find((arg) => arg.startsWith('-') && arg !== '--reboot');
-    if (unknown) die(`unknown claim option ${unknown}`);
-    const positional = args.filter((arg) => !arg.startsWith('-'));
+    let avd;
+    let reboot = false;
+    const positional = [];
+    for (let i = 0; i < args.length; i++) {
+      const arg = args[i];
+      if (arg === '--reboot') reboot = true;
+      else if (arg === '--avd') {
+        if (avd) die('claim accepts --avd only once');
+        avd = args[++i];
+        if (!avd || avd.startsWith('-')) die('--avd needs a legacy QA AVD name');
+      } else if (arg.startsWith('-')) die(`unknown claim option ${arg}`);
+      else positional.push(arg);
+    }
     if (positional.length > 1) die('claim accepts at most one platform: ios, android or all');
-    await cmdClaim(positional[0] || 'all', { reboot: args.includes('--reboot') });
+    await cmdClaim(positional[0] || 'all', { reboot, avd });
     break;
   }
   case 'android-apk':

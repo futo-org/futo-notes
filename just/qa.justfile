@@ -2,11 +2,11 @@
 
 # ── Parallel QA isolation (multiple worktrees, one machine; model: scripts/qa.mjs) ──
 
-# Claim (create + boot if needed) this worktree's pooled simulator/emulator.
+# Claim a pooled device, or an existing legacy Android fixture (--avd futo-api28/29/30).
 qa-claim target="all" *flags:
   @node scripts/qa.mjs claim "$@"
 
-# Show pool devices + per-slot sync servers, and which worktree owns each.
+# Show pooled/named QA devices + per-slot sync servers, and their owners.
 qa-status:
   @node scripts/qa.mjs status
 
@@ -14,7 +14,7 @@ qa-status:
 ports:
   @node scripts/lib/slot.mjs
 
-# Release this worktree's devices + sync server; `ios`/`android` releases one device, server left up (--shutdown powers off).
+# Release this worktree's devices + server; `ios`/`android` releases that platform, server left up (--shutdown powers off).
 qa-release *flags:
   @node scripts/qa.mjs release "$@"
 
