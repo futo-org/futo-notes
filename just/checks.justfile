@@ -108,3 +108,7 @@ release-notes-check tag="":
 # this same script non-blocking (docs/architecture-gates.md).
 quality *args:
   node scripts/bca-quality.mjs "$@"
+
+# Validate workflow async bodies and metadata exports without running their agents.
+check-workflows *files: check-node-version _require-node-modules
+  @node scripts/workflow-syntax.mjs "$@"

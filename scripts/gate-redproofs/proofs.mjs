@@ -27,6 +27,24 @@ import { GENERATED_SPECS_PROOFS } from './generated-specs.mjs';
 
 export const PROOFS = [
   {
+    gate: 'workflow-syntax',
+    id: 'invalid-async-workflow-body',
+    seeded: 'invalid declaration in a workflow body that has valid metadata and top-level return',
+    claim: 'workflow syntax must fail without executing the body',
+    inject: (wt) =>
+      seed.append(
+        wt,
+        '.claude/workflows/bugfix-pipeline.js',
+        '\nconst __workflow_redproof__ = ;\n',
+      ),
+    expect: [
+      '.claude/workflows/bugfix-pipeline.js',
+      '__workflow_redproof__',
+      'Expression expected',
+    ],
+    fix: 'repair the named workflow declaration; do not run the workflow to check syntax',
+  },
+  {
     gate: 'node-modules',
     id: 'stale-installed-lock',
     seeded: 'changed pnpm-lock.yaml without updating the installed snapshot',

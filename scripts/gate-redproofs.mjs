@@ -53,6 +53,7 @@ import { spawnSync } from 'node:child_process';
 // ---------------------------------------------------------------------------
 
 const GATES = {
+  'workflow-syntax': ['node', ['scripts/workflow-syntax.mjs']],
   'node-modules': ['node', ['scripts/check-node-modules.mjs']],
   'command-reachability': ['node', ['scripts/check-command-reachability.mjs']],
   'platform-discipline': ['node', ['scripts/check-platform-discipline.mjs']],
