@@ -12,25 +12,26 @@
 //! questions through the SAME op dispatcher this file uses (`tests/support/
 //! rule_ops.rs`) and fails on any disagreement. See `tests/conformance/README.md`.
 
-use std::path::PathBuf;
-
 // `run_op` + helpers, shared with examples/title_rule_oracle.rs. Also brings
 // `futo_notes_model as model` and `serde_json::Value` into scope.
 include!("support/rule_ops.rs");
 
-fn conformance_dir() -> PathBuf {
-    // crates/futo-notes-model/tests/ -> repo root -> tests/conformance
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../tests/conformance")
-        .canonicalize()
-        .expect("tests/conformance must exist")
-}
-
 fn load(name: &str) -> Value {
-    let path = conformance_dir().join(format!("{name}.json"));
-    let text =
-        std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
-    serde_json::from_str(&text).expect("fixture is valid JSON")
+    // Keep the reviewed fixture bytes in the test executable. Cached binaries
+    // must not depend on their original build checkout still being available;
+    // include_str! also makes each JSON file a compiler-tracked input.
+    let text = match name {
+        "filename" => include_str!("../../../tests/conformance/filename.json"),
+        "tags" => include_str!("../../../tests/conformance/tags.json"),
+        "image" => include_str!("../../../tests/conformance/image.json"),
+        "preview" => include_str!("../../../tests/conformance/preview.json"),
+        "wikilinks-resolve" => include_str!("../../../tests/conformance/wikilinks-resolve.json"),
+        "wikilinks-suffix" => include_str!("../../../tests/conformance/wikilinks-suffix.json"),
+        "wikilinks-rewrite" => include_str!("../../../tests/conformance/wikilinks-rewrite.json"),
+        "constants" => include_str!("../../../tests/conformance/constants.json"),
+        _ => panic!("unknown conformance fixture: {name}"),
+    };
+    serde_json::from_str(text).expect("fixture is valid JSON")
 }
 
 /// Compare two JSON values, normalizing integer vs float (serde emits usize as

@@ -60,6 +60,10 @@ test-sync:
 test-sync-timeout-proof:
   node scripts/rust-test-timeout-proof.mjs
 
+# Prove model fixture embedding and dynamic license goldens survive checkout relocation.
+test-conformance-relocation:
+  node scripts/conformance-relocation-proof.mjs
+
 # The full Rust workspace + doctests + differential; sync uses bounded per-test processes.
 test-rust-full:
   mkdir -p dist

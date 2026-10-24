@@ -25,6 +25,17 @@ just test-rust-full   # the whole cargo workspace + the full differential
 pnpm run test:editor:minimal   # the TypeScript side of the goldens
 ```
 
+The model test embeds its eight reviewed JSON files, so its executable does not need the original
+build checkout. The license loader discovers every `license/*.json` part at runtime in the current
+checkout; Cargo runs its tests with the package directory as the working directory. A manually
+launched license test binary must use that same package working directory.
+
+`just test-conformance-relocation` builds both real test binaries in an owned copy, runs the model
+without its fixture directory, and runs the license after moving the checkout. It then adds a
+contradictory named license part without recompiling and requires that vector to fail, proving new
+parts are still discovered. It preserves repository fixtures and removes only its own scratch copy;
+dependencies must already be fetched because the proof builds offline.
+
 Straight from Node, with the flags that matter while debugging:
 
 ```bash

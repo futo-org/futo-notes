@@ -13,13 +13,10 @@ use super::*;
 /// `dist/` to exist (tauri::generate_context!).
 #[test]
 fn suppression_window_matches_cross_language_constant() {
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../tests/conformance/constants.json")
-        .canonicalize()
-        .expect("tests/conformance/constants.json must exist");
-    let text =
-        std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
-    let json: serde_json::Value = serde_json::from_str(&text).expect("fixture is valid JSON");
+    let json: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../../../../tests/conformance/constants.json"
+    ))
+    .expect("fixture is valid JSON");
     let expected = json["watcherSuppressionWindowMs"]
         .as_i64()
         .expect("watcherSuppressionWindowMs");
