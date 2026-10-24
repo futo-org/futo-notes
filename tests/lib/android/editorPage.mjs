@@ -49,10 +49,10 @@ export async function openEditorPage(device, { root, noteTitle, onEvent, pkg = D
   await device.waitForState('the note list', (s) => s.shellVisible, { timeoutMs: 60_000 });
   // A ready engine can hold a root note outside LazyColumn's viewport under
   // the persisted sort. The label driver scrolls and resolves one safe tap.
-  const visibleRow = device
-    .uiNodes({ refresh: true })
-    .find((n) => n.label === noteTitle || n.label.startsWith(`${noteTitle}\n`));
-  await device.tap(visibleRow?.label ?? noteTitle, { timeoutMs: 30_000 });
+  await device.tap(noteTitle, {
+    timeoutMs: 30_000,
+    matchLabel: (label) => label === noteTitle || label.startsWith(`${noteTitle}\n`),
+  });
 
   // Slot-derived like `just cdp-forward`, so parallel worktrees never steal
   // each other's forward; $CDP_PORT still wins.
