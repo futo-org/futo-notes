@@ -75,6 +75,10 @@ agent-browser close                    # cleanup (and kill the dev server)
 
 ## Tauri desktop (the default)
 
+Cold-start deep links need an embedded frontend, because the dev supervisor owns Vite's lifetime.
+On Linux, use `just test-desktop-cold-link`; [the cold-start workflow](../../../../docs/desktop-cold-start-links.md)
+owns its fixed invalid fixture, data isolation and evidence. It uses no real license or account.
+
 Debug builds include `tauri-plugin-mcp-bridge`, exposing the Tauri MCP tools
 (`driver_session`, `webview_*`). The bridge binds **loopback only** and scans
 upward from a per-worktree base port (`scripts/lib/slot.mjs` -> `mcp`, passed as

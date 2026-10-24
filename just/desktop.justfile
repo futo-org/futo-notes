@@ -38,6 +38,15 @@ build-desktop-test:
   cd apps/tauri && cargo clean -p futo-notes-tauri
   cargo build -p futo-notes-tauri
 
+# Linux: verify a fixed invalid cold-start link with an embedded frontend and isolated app data.
+test-desktop-cold-link:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  unset CARGO_TARGET_DIR
+  node tests/desktop-cold-link.mjs --preflight
+  just build-desktop-test
+  node tests/desktop-cold-link.mjs
+
 # Complete user journeys with a synthetic vault and real process restarts.
 test-desktop-journeys: build-desktop-test
   node tests/desktop-journeys.mjs
