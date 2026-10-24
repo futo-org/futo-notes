@@ -20,11 +20,22 @@
 //   fix         remediation printed when the proof fails
 // ---------------------------------------------------------------------------
 
+import { seed } from './seed.mjs';
 import { BOUNDARIES_AND_DOCS_PROOFS } from './boundaries-and-docs.mjs';
 import { THEME_AND_QA_INPUT_PROOFS } from './theme-and-qa-input.mjs';
 import { GENERATED_SPECS_PROOFS } from './generated-specs.mjs';
 
 export const PROOFS = [
+  {
+    gate: 'node-modules',
+    id: 'stale-installed-lock',
+    seeded: 'changed pnpm-lock.yaml without updating the installed snapshot',
+    claim: 'source lockfile must match the installed dependency snapshot',
+    inject: (wt) => seed.append(wt, 'pnpm-lock.yaml', '\n# redproof stale snapshot\n'),
+    expect: ['installed dependency snapshot differs', 'pnpm-lock.yaml'],
+    marker: 'claim',
+    fix: 'run pnpm install --frozen-lockfile before checking the changed dependency tree',
+  },
   ...BOUNDARIES_AND_DOCS_PROOFS,
   ...THEME_AND_QA_INPUT_PROOFS,
   ...GENERATED_SPECS_PROOFS,
