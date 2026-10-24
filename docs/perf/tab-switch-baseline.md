@@ -25,13 +25,13 @@ keypress → the frame that shows the new note. Nothing was dirty, so no save ra
 
 ## Baseline
 
-| Phase | p50 | Notes |
-|---|---|---|
-| keydown → transition entered | 2 ms | store update + Svelte effect |
-| `flushSave` | 0 ms | nothing dirty |
-| → `readNote` resolved | ~31 ms | see below — this is *not* IPC cost |
-| → `contentApplied` (editor holds the new doc) | ~60 ms | CM6 doc replace + live-preview decorations |
-| → **painted** | **~127–148 ms** | one long 50–87 ms frame after the work finishes |
+| Phase                                         | p50             | Notes                                           |
+| --------------------------------------------- | --------------- | ----------------------------------------------- |
+| keydown → transition entered                  | 2 ms            | store update + Svelte effect                    |
+| `flushSave`                                   | 0 ms            | nothing dirty                                   |
+| → `readNote` resolved                         | ~31 ms          | see below — this is _not_ IPC cost              |
+| → `contentApplied` (editor holds the new doc) | ~60 ms          | CM6 doc replace + live-preview decorations      |
+| → **painted**                                 | **~127–148 ms** | one long 50–87 ms frame after the work finishes |
 
 Range across 21+ switches: **99–272 ms**, p90 ~145 ms.
 
@@ -42,12 +42,12 @@ drops the switch from ~148 ms to **22 ms**; restoring it returns it to ~148 ms.
 Cost scales with the number of rendered rows, at roughly **0.05 ms/row**:
 
 | Sidebar rows rendered | paint p50 |
-|---|---|
-| 0 (tree hidden) | 22 ms |
-| 25 | 17 ms |
-| 400 | 24 ms |
-| 1,200 | 50 ms |
-| 2,533 (all) | 148 ms |
+| --------------------- | --------- |
+| 0 (tree hidden)       | 22 ms     |
+| 25                    | 17 ms     |
+| 400                   | 24 ms     |
+| 1,200                 | 50 ms     |
+| 2,533 (all)           | 148 ms    |
 
 Two things this rules out:
 
@@ -106,12 +106,12 @@ of overscan) and represents the rest with two spacer divs, so the scrollbar and
 scroll offsets still reflect the full row count. Same vault, same 7 tabs, same
 probe — **16–25 rows mounted instead of 2,533**:
 
-| | before | after |
-|---|---|---|
-| `readNote` resolved | ~31 ms | 1 ms |
-| `contentApplied` | ~60 ms | 5 ms |
-| **painted (p50)** | **147 ms** | **15 ms** |
-| painted (p90) | ~145 ms | 26 ms |
+|                     | before      | after     |
+| ------------------- | ----------- | --------- |
+| `readNote` resolved | ~31 ms      | 1 ms      |
+| `contentApplied`    | ~60 ms      | 5 ms      |
+| **painted (p50)**   | **147 ms**  | **15 ms** |
+| painted (p90)       | ~145 ms     | 26 ms     |
 | painted (min / max) | 99 / 272 ms | 9 / 35 ms |
 
 n=28 switches on a freshly started app (not an HMR-patched one), sampled with
@@ -133,7 +133,7 @@ Things deliberately not done, with reasons:
   state and `readDragSources` falls back to them when `dataTransfer` is empty.
 - **CSS containment.** The rows already set `contain: layout style paint`, and
   adding `contain: strict` to the scroll container measured 143 ms — no help.
-  Containment stops layout *propagating*; it does not stop WebKit laying out
+  Containment stops layout _propagating_; it does not stop WebKit laying out
   mounted children.
 
 An inline folder rename **is** pinned into the window — its `<input>` would
@@ -146,12 +146,12 @@ The numbers above are WebKitGTK on Linux. Re-measured on macOS/WebKit against a
 `.tauri-data` — see "Reproducing the corpus"), same debug build, same session,
 same tabs, virtualization toggled by patching `window_` to return the full range:
 
-| | all 3,388 rows mounted | virtualized (17 rows) |
-|---|---|---|
-| `readNote` resolved | 94 ms | 1 ms |
-| `contentApplied` | 245 ms | 6 ms |
-| **painted (p50)** | **522 ms** | **33 ms** |
-| painted (p90) | 3,538 ms | 34 ms |
+|                     | all 3,388 rows mounted | virtualized (17 rows) |
+| ------------------- | ---------------------- | --------------------- |
+| `readNote` resolved | 94 ms                  | 1 ms                  |
+| `contentApplied`    | 245 ms                 | 6 ms                  |
+| **painted (p50)**   | **522 ms**             | **33 ms**             |
+| painted (p90)       | 3,538 ms               | 34 ms                 |
 
 n=10 measured switches after 4 warmups per leg. Absolute numbers are much larger
 than the Linux ones (bigger tree, different engine and machine) but the shape is
@@ -159,23 +159,21 @@ identical: ~16× at p50, and the phases the sidebar was starving — `readNote`,
 `contentApplied` — collapse on their own. The claim in the "After" section holds
 on both platforms; the specific figures are per-platform.
 
-The window must be **visible** for any of this: WebKit suspends
-`requestAnimationFrame` while it is occluded, so `paint` is unmeasurable from a
-background window and `scripts/perf/tab-switch-probe.js` simply hangs on a frame
-that never arrives (`document.hasFocus()` can be `true` while the page is
-`hidden` — `visibilityState` is the check). To bring the window forward with no
-OS-level input automation, launch a second copy of the same debug binary —
-`tauri-plugin-single-instance`'s handler calls `window.set_focus()` from Rust,
-which no capability gates:
+The window must receive animation frames for painted timing. The probe's
+`check()` verifies actual frame delivery; every frame wait is bounded at 1200 ms
+and throws `FramesStalledError` if it stalls. Focus and `visibilityState` alone
+do not establish that the compositor is painting the window.
 
-```bash
-FUTO_NOTES_DATA_DIR=$PWD/.tauri-data ./target/debug/futo-notes-tauri
-```
+The old second-instance focus request may raise a verified dev window on
+macOS, but KDE Wayland can refuse it and a locked session may send no frames.
+For Linux, start an owned stack with `just desktop-headless just tauri-dev`
+and check frame delivery again. The private compositor is a route to try,
+not proof that the host supplies frames. Setup and platform screenshot limits
+are in `.claude/skills/verify/references/desktop.md`.
 
-Parallel sessions steal focus back within seconds, so re-run that in a 1s loop
-for the duration of a run and record `visibilityState` alongside the result.
-Making the probe itself report a stalled frame clock instead of hanging is a
-worthwhile follow-up, deliberately left out of this branch.
+If only the completed content transition is needed, the probe supports
+`await __tabSwitchProbe.measure(7, 7, { frameless: true })`. It reports no
+painted latency; a frameless run cannot substantiate the visual figures above.
 
 ## The blank-sidebar frames, and what actually fixes them
 
@@ -184,14 +182,14 @@ Virtualizing introduced a defect: during a fast fling the sidebar painted
 (~84 ms) on a 3,388-row tree.
 
 Diagnosing it needs ground truth, because **in-page rAF sampling cannot see
-it**: `getBoundingClientRect` reports geometry against the *main thread's* scroll
+it**: `getBoundingClientRect` reports geometry against the _main thread's_ scroll
 offset, so a probe that samples the DOM every frame happily reports "rows cover
 the viewport" while the screen shows nothing. Capture the real window surface
 instead — the MCP bridge's `capture_native_screenshot` returns a frame in ~19 ms,
 fast enough to catch a 5-frame event — and score the sidebar's row area for ink.
 
 Correlating captures with per-frame DOM samples on one clock showed the cause: at
-every blank frame the DOM *did* cover the viewport (25 rows spanning −383…841 px
+every blank frame the DOM _did_ cover the viewport (25 rows spanning −383…841 px
 of a 408 px viewport), so **WebKit had painted a scroll offset the main thread
 had not been told about yet**. It scrolls this container on its own thread; a
 fling moves 1,000–5,500 px between consecutive scroll notifications, and 8 rows
@@ -202,13 +200,13 @@ the scroll handler (`flushSync`) cannot help — the paint already happened — 
 measurably **made it worse**, because the extra synchronous render per scroll
 event pushes the main thread further behind the compositor:
 
-| variant (10 reps, ~130 native captures each) | blank frames | longest run |
-|---|---|---|
-| virtualized, 8-row overscan | 12 | 4 frames / 84 ms |
-| + `flushSync` in `handleScroll` | 32 | 7 frames / 101 ms |
-| + lead the window by the last jump | 3 | 1 frame |
-| + one-viewport floor (no cap) | 1 | 1 frame |
-| + 128-row lead cap (**shipped**) | 5 | 1 frame |
+| variant (10 reps, ~130 native captures each) | blank frames | longest run       |
+| -------------------------------------------- | ------------ | ----------------- |
+| virtualized, 8-row overscan                  | 12           | 4 frames / 84 ms  |
+| + `flushSync` in `handleScroll`              | 32           | 7 frames / 101 ms |
+| + lead the window by the last jump           | 3            | 1 frame           |
+| + one-viewport floor (no cap)                | 1            | 1 frame           |
+| + 128-row lead cap (**shipped**)             | 5            | 1 frame           |
 
 The shipped fix leads the window in the direction of travel by the larger of the
 last scroll jump and one viewport, decays that lead as the fling slows, caps it
@@ -219,10 +217,10 @@ frame for a bounded worst case.
 
 Cost of the lead, steady scroll (70 × 400 px steps, 150 sampled frames):
 
-| | scroll handler p50 / max | frame interval p50 / p95 / max | frames > 20 ms |
-|---|---|---|---|
-| 8-row overscan | 1 / 3 ms | 17 / 19 / 22 ms | 1 |
-| with the lead | 1 / 3 ms | 17 / 19 / 28 ms | 5 |
+|                | scroll handler p50 / max | frame interval p50 / p95 / max | frames > 20 ms |
+| -------------- | ------------------------ | ------------------------------ | -------------- |
+| 8-row overscan | 1 / 3 ms                 | 17 / 19 / 22 ms                | 1              |
+| with the lead  | 1 / 3 ms                 | 17 / 19 / 28 ms                | 5              |
 
 (`flushSync`, for contrast, cost 4 ms p50 and 10 ms max per scroll event.)
 

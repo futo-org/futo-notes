@@ -172,7 +172,8 @@ above — send `{"id":"r1","command":"…","args":{…}}`, receive
 `{"id","success","data"}`. The id must be a **string**: the plugin echoes a
 string id but answers a numeric one with `"id":""`, so a client matching
 replies on `id: 1` waits forever. Commands: `execute_js` (`args:{script}`; async
-IIFEs are awaited), `capture_native_screenshot` (returns a base64 data URL),
+IIFEs are awaited), `capture_native_screenshot` (macOS/Windows: base64 data URL;
+Linux: not implemented),
 `list_windows`, `invoke_tauri`. Node ≥21's built-in WebSocket needs no deps:
 
 ```bash
@@ -238,14 +239,15 @@ typing in a terminal on another space. Anything that activates an app — `open 
 or the window-raise below — yanks them mid-sentence. Treat activation as a cost
 you justify, not a default.
 
-You almost never need it: a window's surface stays live and current while it
-sits on another space, so capture it where it is.
+On macOS, a window's surface stays live and current while it sits on another
+space, so capture it where it is. These native capture paths do not work on Linux.
 
-| Situation                                 | Use                                                       |
-| ----------------------------------------- | --------------------------------------------------------- |
-| Live bridge (the normal case)             | `capture_native_screenshot` — ~19 ms, no extra permission |
-| No bridge, or an unknown/dead bridge port | `just qa-shot pid <pid>` \| `port <port>` \| `list`       |
-| iOS simulator content                     | `just sim-screenshot` (`simctl` needs no foreground app)  |
+| Situation                   | Use                                                                   |
+| --------------------------- | --------------------------------------------------------------------- |
+| macOS/Windows live bridge   | `capture_native_screenshot` (macOS ~19 ms, no extra permission)       |
+| macOS without a live bridge | `just qa-shot pid <pid>` \| `port <port>` \| `list`                   |
+| Linux webview content       | `webview_screenshot` (does not prove native window/compositor pixels) |
+| iOS simulator content       | `just sim-screenshot` (`simctl` needs no foreground app)              |
 
 `just qa-shot` captures by window id (`screencapture -l`), which is why it
 reaches a window on another space — that window is not "on screen", so a naive
@@ -260,43 +262,49 @@ no Simulator.app, `SHOW=1` refuses rather than opening DeviceHub.
 
 ### Frame-dependent measurements need a VISIBLE window
 
-WebKit suspends `requestAnimationFrame` while the window is occluded, so any
-probe that awaits a frame (`scripts/perf/tab-switch-probe.js`, anything measuring
-paint) hangs rather than fails — budget a wall-clock timeout around every frame
-wait of your own. `document.visibilityState` is the check;
-`document.hasFocus()` can be `true` while the page is `hidden`.
+WebKit can suspend `requestAnimationFrame` while a window is occluded or the
+Wayland session is locked. `document.hasFocus()` and `visibilityState` alone
+cannot prove frame delivery. Run `await __tabSwitchProbe.check()` after loading
+`scripts/perf/tab-switch-probe.js`; it checks the actual frame clock and returns
+`framesLive` within 1200 ms. Bound any new frame waits too. The block-drag bench
+also fails with a named stalled-frame error after 1200 ms without a frame.
 
-The webview cannot raise itself: `getCurrentWindow().setFocus()` is denied
-(`core:window:allow-set-focus`). Launch a second copy of the same debug binary
-instead — `tauri-plugin-single-instance`'s handler calls `window.set_focus()`
-from Rust, which no capability gates, and the second process exits immediately:
+On macOS, launching a second copy of the verified worktree debug binary can
+request focus through `tauri-plugin-single-instance`. KDE Wayland may refuse
+that request; repeating it does not unlock the session or prove live frames.
+Never send OS-level input to raise a window (M24).
+
+On Linux, start the complete owned test stack under a private compositor:
 
 ```bash
-FUTO_NOTES_DATA_DIR="$WORKTREE_ROOT/.tauri-data" \
-  "$WORKTREE_ROOT/target/debug/futo-notes-tauri" >/dev/null 2>&1
+just desktop-headless just bench-block-drag current --repeat 1
+# Or launch this worktree's dev stack there, then attach its verified bridge:
+just desktop-headless just tauri-dev
 ```
 
-Parallel sessions steal focus back within seconds, so arm the measurement on
-`visibilitychange` (or re-run that command in a 1s loop for the run's duration)
-and record `visibilityState` in the result so a stolen-focus run is discardable
-rather than silently wrong.
+This wraps `scripts/run-under-virtual-kwin.sh`, which needs `kwin_wayland` and
+`dbus-run-session`. It owns a separate Wayland socket and D-Bus session, and
+terminates only the compositor it started. It relays output after the command
+exits. An existing app stays on its original compositor; restart the owned stack
+inside the wrapper. A virtual compositor can still fail to deliver frames on
+some hosts, so re-check `framesLive` there before claiming paint or scroll QA.
+If no owned compositor delivers frames, record that leg as BLOCKED.
 
-This raise is the one thing in this file that legitimately takes the screen from
-the user, so keep it scoped to measurements that actually await a frame — never
-to "see" the app, which the capture options above do without disturbing anyone.
-On a single-display machine there is no way to make it polite; a second display
-(a real one, or a virtual/dummy display) is what buys an unoccluded window that
-nobody is looking at.
+For tab-switch work that only needs the completed content transition,
+`await __tabSwitchProbe.measure(7, 7, { frameless: true })` is supported. It
+reports content timing without a paint claim; it cannot prove animation,
+scrolling, visual stability, or painted latency.
 
 ### What the DOM says is not what the screen shows
 
 For scroll/animation defects, in-page sampling can be structurally blind:
 `getBoundingClientRect` reports geometry against the **main thread's** scroll
 offset, while WebKit scrolls this container on its own thread — so a rAF probe
-can report "rows cover the viewport" for a frame that painted empty. The bridge's
-`capture_native_screenshot` returns the real window surface in ~19 ms (fast
-enough to catch a 5-frame event); decode with `pngjs` (already a dev dependency)
-and score the region. Worked example + numbers:
+can report "rows cover the viewport" for a frame that painted empty. On macOS,
+the bridge's `capture_native_screenshot` returns the real window surface in
+~19 ms (fast enough to catch a 5-frame event); decode with `pngjs` (already a
+dev dependency) and score the region. Linux's unimplemented native capture
+cannot establish this evidence; a DOM screenshot does not substitute for it. Worked example + numbers:
 `docs/perf/tab-switch-baseline.md`.
 
 ### Cleanup (this worktree only)
