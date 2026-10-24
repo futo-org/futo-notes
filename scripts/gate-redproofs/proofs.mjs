@@ -20,7 +20,6 @@
 //   fix         remediation printed when the proof fails
 // ---------------------------------------------------------------------------
 
-import { seed } from './seed.mjs';
 import { BOUNDARIES_AND_DOCS_PROOFS } from './boundaries-and-docs.mjs';
 import { THEME_AND_QA_INPUT_PROOFS } from './theme-and-qa-input.mjs';
 import { GENERATED_SPECS_PROOFS } from './generated-specs.mjs';
