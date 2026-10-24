@@ -182,11 +182,26 @@ test-android-native *filters: _preflight-android android-env-check (build-rust-a
 # `direct` only: the flavors compile the same androidTest sources against the
 # same applicationId, so running both would install one over the other for no
 # extra signal.
-# Runs Compose instrumentation tests on $ANDROID_SERIAL.
-test-android-native-ui: _preflight-android android-env-check (build-rust-android "device")
+# Runs Compose instrumentation tests on $ANDROID_SERIAL; optional fully qualified Class[#method] selectors.
+test-android-native-ui *classes: qa-android-target _preflight-android android-env-check (build-rust-android "device")
+  #!/usr/bin/env bash
+  set -euo pipefail
+  TEST_ARGS=()
+  SELECTOR_RE='^([[:alpha:]_$][[:alnum:]_$]*\.)+[[:alpha:]_$][[:alnum:]_$]*(#[[:alpha:]_$][[:alnum:]_$]*)?$'
+  for selector in "$@"; do
+    if [[ ! "$selector" =~ $SELECTOR_RE ]]; then
+      echo "Expected a fully qualified Android test class, optionally #method: $selector" >&2
+      exit 2
+    fi
+  done
+  if [ "$#" -gt 0 ]; then
+    TEST_ARGS+=("-Pandroid.testInstrumentationRunnerArguments.class=$(IFS=,; printf '%s' "$*")")
+  fi
   # The Compose tests drive the bundled editor.html: rebuild it first (L1-008).
   node_modules/.bin/vite build --config vite.editor.config.ts
-  cd apps/android && ./gradlew :app:connectedDirectDebugAndroidTest
+  node scripts/qa.mjs android-target
+  cd apps/android
+  ./gradlew :app:connectedDirectDebugAndroidTest ${TEST_ARGS[@]+"${TEST_ARGS[@]}"}
 
 # Editor performance stories against the REAL native Android app on an
 # explicitly claimed device — written for the low-end reference phone, where

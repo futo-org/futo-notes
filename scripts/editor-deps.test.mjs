@@ -110,4 +110,47 @@ describe('workspace dependency preflight', () => {
     expect(packageJson.scripts['check:languages']).toMatch(/^node scripts\/editor-deps\.mjs &&/);
     expect(packageJson.scripts['test:full']).toMatch(/^node scripts\/editor-deps\.mjs &&/);
   });
+  it('repairs a stale install missing the import-only Milkdown core before the native build', () => {
+    const root = createFixture();
+    installAll(root);
+    const manifest = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
+    manifest.dependencies = { '@milkdown/kit': '7.22.1' };
+    fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify(manifest));
+    let installs = 0;
+    const result = ensureWorkspaceDependencies(root, (workspace) => {
+      installs += 1;
+      const dir = path.join(workspace, 'node_modules/@milkdown/kit');
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(
+        path.join(dir, 'package.json'),
+        JSON.stringify({
+          type: 'module',
+          exports: { './core': { import: './core.js' } },
+        }),
+      );
+      fs.writeFileSync(path.join(dir, 'core.js'), 'export const Editor = {};');
+    });
+    expect(result.installed).toBe(true);
+    expect(installs).toBe(1);
+    expect(missingWorkspaceDependencies(root)).toEqual([]);
+  });
+
+  it('repairs a stale install missing the native bundle singlefile plugin', () => {
+    const root = createFixture();
+    installAll(root);
+    fs.writeFileSync(
+      path.join(root, 'package.json'),
+      JSON.stringify({
+        devDependencies: { ws: '^8.21.3', 'vite-plugin-singlefile': '^2.3.3' },
+      }),
+    );
+    expect(missingWorkspaceDependencies(root)).toEqual(['vite-plugin-singlefile']);
+    const result = ensureWorkspaceDependencies(root, (workspace) => {
+      const dir = path.join(workspace, 'node_modules/vite-plugin-singlefile');
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(path.join(dir, 'package.json'), '{"main":"index.js"}');
+      fs.writeFileSync(path.join(dir, 'index.js'), 'module.exports = {};');
+    });
+    expect(result.installed).toBe(true);
+  });
 });

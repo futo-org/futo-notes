@@ -30,6 +30,31 @@ just qa-claim android       # THE way in a shared/parallel session: claims this
 adb devices                 # solo alternative: anything already attached?
 ```
 
+For a pinned legacy-WebView fixture, claim its exact name instead:
+
+```bash
+just qa-claim android --avd futo-api28   # also futo-api29 / futo-api30
+```
+
+The named AVD must already exist. This registers ownership, boots it if needed,
+and includes it in `just qa-status`; it preserves its pinned config, WebView and
+app data. `just qa-release android` releases all Android claims this worktree
+holds. `just qa-gc` releases stale legacy claims without deleting those fixtures.
+
+Pooled AVDs pin `show_ime_with_hard_keyboard=1` on each claim. If host-keyboard
+input turned it off, the claim sets it and gracefully reboots Android on that
+owned emulator once, then verifies the setting survived. `just qa-claim android --reboot` explicitly
+reboots Android on the selected owned emulator. Named legacy fixtures keep their
+existing keyboard setup. If host-keyboard input changes this setting after a claim,
+re-run `just qa-claim android` (or add `--reboot`) before instrumentation QA.
+
+`qa-claim` also exports `ANDROID_AVD_NAME`. Keep both exports: emulator serial
+ports can be reused by another AVD after a shutdown. `just qa-android-target`
+checks the live AVD name and its worktree owner; the native install recipe and
+`android-drive` check it automatically. Re-run the claim when it refuses a stale
+serial. Direct `adb` and Gradle calls bypass that guard, so run
+`just qa-android-target` immediately before using those tools.
+
 `adb` honors `$ANDROID_SERIAL` natively; with multiple devices attached every
 `adb` call is ambiguous without it. Driving a device another session claimed
 (see `just qa-status`) causes install-thrashing — don't. Release with
@@ -41,6 +66,14 @@ simulator this worktree claimed.
 ```bash
 just android-native         # full chain: Rust ffi (device ABI) → editor bundle → gradle installDirectDebug → launch
 ```
+
+Before QA, run `just qa-android-apk` to compare the installed APK SHA-256 with
+this worktree's built debug APK. `android-drive` and the native story helpers
+perform this check at readiness; `android-native` checks immediately after
+installing. Set `FUTO_ANDROID_FLAVOR=play` for a Play-flavor debug build, or pass
+an explicit APK path to `just qa-android-apk <path>`. A mismatch means the
+installed build changed; rebuild/reinstall before interpreting screenshots or
+plugin behavior as this branch's result.
 
 For app-only iteration (no Rust/editor changes), skip the Rust rebuild. The APK
 carries only the ABI the last Rust build targeted (none if it failed or was
@@ -237,6 +270,6 @@ setup: see "Features that need a sync server" in SKILL.md.
   `docs/spec/editor.md`, "Backspace on an empty note"). IME/status-bar issues generally need
   device/emulator QA — Playwright can't see them.
 - Some Compose surfaces (dialogs, menus) render in separate windows; if a
-  node is missing from the uiautomator dump, re-dump after a short sleep.
+  node is missing from the uiautomator dump, poll fresh dumps for the expected label with a bounded timeout.
 - `adb shell input text` can't type into the editor WebView reliably — focus
   it first via tap, or use CDP `setContent`/`exec` for content-level work.

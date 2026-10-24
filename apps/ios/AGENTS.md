@@ -25,6 +25,10 @@ Native Rust builds check free space on the actual Cargo target volume before com
 Low-space errors give a dry-run inventory command rather than deleting shared caches.
 Remote setup, source identity and cleanup boundaries: `docs/remote-ios-testing.md`.
 
+For a software keyboard that remains parked off-screen after reboot, see
+[simulator recovery](../../docs/ios-simulator-recovery.md). Explicit `just qa-claim ios --erase`
+requires one existing claim and removes all of that simulator's state; it is never automatic.
+
 After **any** change to `futo-notes-ffi` or a crate it re-exports, run `just build-rust-ios` before
 building — otherwise you are testing old bindings, and the symptom looks like "my change did
 nothing" or a Swift compile error on a missing symbol. The `just *-native` recipes do this for you;

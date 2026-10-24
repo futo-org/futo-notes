@@ -2,11 +2,11 @@
 
 # ── Parallel QA isolation (multiple worktrees, one machine; model: scripts/qa.mjs) ──
 
-# Claim (create + boot if needed) this worktree's pooled simulator/emulator.
+# Claim a QA device; --erase resets one existing owned iOS claim (all simulator data); --avd selects legacy Android.
 qa-claim target="all" *flags:
   @node scripts/qa.mjs claim "$@"
 
-# Show pool devices + per-slot sync servers, and which worktree owns each.
+# Show pooled/named QA devices + per-slot sync servers, and their owners.
 qa-status:
   @node scripts/qa.mjs status
 
@@ -14,7 +14,7 @@ qa-status:
 ports:
   @node scripts/lib/slot.mjs
 
-# Release this worktree's devices + sync server; `ios`/`android` releases one device, server left up (--shutdown powers off).
+# Release this worktree's devices + server; `ios`/`android` releases that platform, server left up (--shutdown powers off).
 qa-release *flags:
   @node scripts/qa.mjs release "$@"
 
@@ -161,3 +161,10 @@ qa-target *args:
 # Generate a disposable CA/server TLS fixture (OpenSSL or macOS LibreSSL; never installs trust).
 test-tls-fixture out *hosts: check-node-version
   @node scripts/test-tls-fixture.mjs "$@"
+# Verify the selected Android AVD still belongs to this worktree.
+qa-android-target:
+  @node scripts/qa.mjs android-target
+
+# Verify the installed dev APK matches this worktree (or the supplied APK).
+qa-android-apk *args:
+  @node scripts/qa.mjs android-apk "$@"

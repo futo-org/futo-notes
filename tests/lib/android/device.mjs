@@ -323,6 +323,7 @@ export function createAndroidDevice({
     if (!adb.isInstalled()) {
       throw new Error(`${pkg} is not installed — run: just android-native`);
     }
+    adb.verifyInstallation();
   }
 
   return {
