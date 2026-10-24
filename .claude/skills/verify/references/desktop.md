@@ -46,6 +46,12 @@ editor decorations, markdown rendering. Anything touching `invoke()`,
 `@tauri-apps/*`, `rustCore`, file I/O, dialogs, clipboard, or window
 management needs the Tauri app instead.
 
+For tab-strip and sidebar-toggle styling, `just desktop-chrome-preview` prints a browser URL
+and serves a fixture that mounts the shipping `DesktopTopBand` component with fixture notes
+and web platform stubs. It supports real tab creation/selection and sidebar toggling without
+changing platform detection in the app. Native window controls and the OS title bar still need
+the real Tauri app. The fixture is a dev-server entry; the production build does not include it.
+
 Uses `agent-browser` (Rust CLI) — faster than Playwright MCP, types into
 contenteditable natively, and annotates screenshots. Run `agent-browser` with
 no args for the full command reference.
@@ -82,6 +88,10 @@ and an HTTPS proxy rendered the shell without page errors. Stop the Vite process
 when finished; the diagnostic recipe disables file watching and needs a restart after edits.
 
 ## Tauri desktop (the default)
+
+Cold-start deep links need an embedded frontend, because the dev supervisor owns Vite's lifetime.
+On Linux, use `just test-desktop-cold-link`; [the cold-start workflow](../../../../docs/desktop-cold-start-links.md)
+owns its fixed invalid fixture, data isolation and evidence. It uses no real license or account.
 
 Debug builds include `tauri-plugin-mcp-bridge`, exposing the Tauri MCP tools
 (`driver_session`, `webview_*`). The bridge binds **loopback only** and scans
@@ -160,6 +170,11 @@ nothing — the refusal reason tells you what is actually running.
 Connect `driver_session` with action `start` and **`port` = the discovered
 `$MCP_PORT`** (never hardcode 9223). Then:
 
+A newer MCP server may warn that the pinned 0.10 bridge cannot report its plugin version and
+recommend 0.13. That warning can accompany a usable connection: check a synchronous read against
+the verified target before treating it as a setup failure. Check command errors separately;
+the version warning alone does not identify their cause.
+
 - `webview_dom_snapshot` (type: accessibility) — UI state with `[ref=eN]` ids
 - `webview_interact` — click/scroll/swipe by ref, CSS selector, or text
 - `webview_keyboard` — type/press keys. For the editor, use
@@ -199,15 +214,40 @@ ws.onmessage = (m) => { console.log(m.data); ws.close(); };
 EOF
 ```
 
-Gotchas: (1) `execute_js` has a ~2–3s server-side timeout, but the script
+Gotchas: (1) the pinned 0.10 bridge's `execute_js` has a **5-second server-side timeout**, but the script
 **keeps running in the webview** after the timeout error — never assume a
-timed-out script didn't execute; for longer work, stash results on
-`window.__x` and collect them with a second call. (2) Vite module singletons
+timed-out script didn't execute. Increasing the MCP tool's timeout does not increase that
+deadline. Short Promises work; start longer operations without returning their Promise and
+poll synchronous state in later calls:
+
+```js
+window.__qaAsyncProbe = { done: false };
+void (async () => {
+  try {
+    const value = await window.__testSync.status(); // the operation being investigated
+    window.__qaAsyncProbe = { done: true, value };
+  } catch (error) {
+    window.__qaAsyncProbe = { done: true, error: String(error) };
+  }
+})();
+return 'started';
+```
+
+Read `window.__qaAsyncProbe` until `done` is true, with an outer deadline appropriate to the
+operation. Check `error`, retain the result, then delete only that probe property. Do not restart
+an operation solely because a previous call timed out. (2) Vite module singletons
 are importable — `await import('/src/lib/foo.svelte.ts')` returns the same
 instance the app uses. (3) Killing a backgrounded `tauri dev` task can orphan
 the debug binary, which keeps its bridge port and pushes the next launch to the
 next port — `node scripts/qa-target.mjs kill` (this worktree's instances only)
 and re-check with `node scripts/qa-target.mjs list`.
+
+For CSS verification, confirm the edited rule through `getComputedStyle` before measuring or
+capturing. Imported feature styles and shared styles both support HMR in the real Tauri dev
+webview; a rule being present in a source file is insufficient evidence that it reached the
+current page. Check whether watching was deliberately disabled, confirm the module is imported,
+and reload the verified webview if it still reports stale values. Never infer a layout result
+from the pre-edit computed style.
 
 ### Reaching the app's real editor state
 
@@ -246,80 +286,10 @@ A plain `import('prosemirror-history')` resolves to a _different_ module
 instance whose plugin state is not the app's, which is why depth reads come
 back 0 and undo appears to do nothing. Same trick for any dep the app loaded.
 
-### Screenshots without stealing focus
+### Screenshots and frame evidence
 
-Several sessions QA this app in parallel on one Mac, and the human is usually
-typing in a terminal on another space. Anything that activates an app — `open -a`,
-or the window-raise below — yanks them mid-sentence. Treat activation as a cost
-you justify, not a default.
-
-On macOS, a window's surface stays live and current while it sits on another
-space, so capture it where it is. These native capture paths do not work on Linux.
-
-| Situation                   | Use                                                                   |
-| --------------------------- | --------------------------------------------------------------------- |
-| macOS/Windows live bridge   | `capture_native_screenshot` (macOS ~19 ms, no extra permission)       |
-| macOS without a live bridge | `just qa-shot pid <pid>` \| `port <port>` \| `list`                   |
-| Linux webview content       | `webview_screenshot` (does not prove native window/compositor pixels) |
-| iOS simulator content       | `just sim-screenshot` (`simctl` needs no foreground app)              |
-
-`just qa-shot` captures by window id (`screencapture -l`), which is why it
-reaches a window on another space — that window is not "on screen", so a naive
-enumeration misses it and tempts you into activating the app to make it appear.
-It refuses any process `qa-target.mjs` will not verify as this worktree's debug
-build: a capture reads pixels, and the release app's window shows the user's
-real vault (M24).
-
-`just sim-boot` no longer foregrounds Simulator.app. Pass `SHOW=1` when a human
-wants to watch, or for the frame-dependent case below. On Xcode 27, which ships
-no Simulator.app, `SHOW=1` refuses rather than opening DeviceHub.
-
-### Frame-dependent measurements need a VISIBLE window
-
-WebKit can suspend `requestAnimationFrame` while a window is occluded or the
-Wayland session is locked. `document.hasFocus()` and `visibilityState` alone
-cannot prove frame delivery. Run `await __tabSwitchProbe.check()` after loading
-`scripts/perf/tab-switch-probe.js`; it checks the actual frame clock and returns
-`framesLive` within 1200 ms. Bound any new frame waits too. The block-drag bench
-also fails with a named stalled-frame error after 1200 ms without a frame.
-
-On macOS, launching a second copy of the verified worktree debug binary can
-request focus through `tauri-plugin-single-instance`. KDE Wayland may refuse
-that request; repeating it does not unlock the session or prove live frames.
-Never send OS-level input to raise a window (M24).
-
-On Linux, start the complete owned test stack under a private compositor:
-
-```bash
-just desktop-headless just bench-block-drag current --repeat 1
-# Or launch this worktree's dev stack there, then attach its verified bridge:
-just desktop-headless just tauri-dev
-```
-
-This wraps `scripts/run-under-virtual-kwin.sh`, which needs `kwin_wayland` and
-`dbus-run-session`. It owns a separate Wayland socket and D-Bus session, and
-terminates only the compositor it started. It relays output after the command
-exits. An existing app stays on its original compositor; restart the owned stack
-inside the wrapper. A virtual compositor can still fail to deliver frames on
-some hosts, so re-check `framesLive` there before claiming paint or scroll QA.
-If no owned compositor delivers frames, record that leg as BLOCKED.
-
-For tab-switch work that only needs the completed content transition,
-`await __tabSwitchProbe.measure(7, 7, { frameless: true })` is supported. It
-reports content timing without a paint claim; it cannot prove animation,
-scrolling, visual stability, or painted latency.
-
-### What the DOM says is not what the screen shows
-
-For scroll/animation defects, in-page sampling can be structurally blind:
-`getBoundingClientRect` reports geometry against the **main thread's** scroll
-offset, while WebKit scrolls this container on its own thread — so a rAF probe
-can report "rows cover the viewport" for a frame that painted empty. On macOS,
-the bridge's `capture_native_screenshot` returns the real window surface in
-~19 ms (fast enough to catch a 5-frame event); decode with `pngjs` (already a
-dev dependency) and score the region. Linux's unimplemented native capture
-cannot establish this evidence; a DOM screenshot does not substitute for it. Worked example + numbers:
-`docs/perf/tab-switch-baseline.md`.
+Use [desktop capture](desktop-capture.md) for screenshots without focus changes, bounded frame
+checks, private Linux compositors, and the distinction between DOM and painted-pixel evidence.
 
 ### Cleanup (this worktree only)
 
