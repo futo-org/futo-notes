@@ -1,0 +1,10 @@
+[Unit]
+Description=DM the operator that the FUTO Notes MR factory failed
+Documentation=file:__REPO_DIR__/scripts/mr-factory/README.md
+# Deliberately NO OnFailure= of its own: when Zulip is what is down this cannot
+# post either, and one red unit in the journal beats a self-triggering loop.
+
+[Service]
+Type=oneshot
+ExecStart=__NODE_BIN__ __REPO_DIR__/scripts/mr-factory/alertFailure.mjs
+EnvironmentFile=%h/.config/futo-notes-mr-factory/env
