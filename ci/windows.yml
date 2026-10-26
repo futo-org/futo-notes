@@ -301,7 +301,8 @@ windows:sign:
     - |
       if ! command -v aws >/dev/null 2>&1 || ! command -v java >/dev/null 2>&1 || ! command -v python3 >/dev/null 2>&1 || ! command -v npx >/dev/null 2>&1; then
         apt-get update
-        DEBIAN_FRONTEND=noninteractive apt-get install -y ca-certificates curl jq awscli default-jre-headless python3 nodejs npm
+        # --no-install-recommends: 438 packages instead of 719 on this image.
+        DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ca-certificates curl jq awscli default-jre-headless python3 nodejs npm
       fi
     # Download fullchain.pem from GitLab secure files
     - |
