@@ -23,8 +23,30 @@
 import { BOUNDARIES_AND_DOCS_PROOFS } from './boundaries-and-docs.mjs';
 import { THEME_AND_QA_INPUT_PROOFS } from './theme-and-qa-input.mjs';
 import { GENERATED_SPECS_PROOFS } from './generated-specs.mjs';
+import { seed } from './seed.mjs';
 
 export const PROOFS = [
+  {
+    gate: 'editor-bench-artifacts',
+    id: 'redirected-current-failure',
+    seeded: 'a fresh redirected embed report fails while the default report passes',
+    claim: 'the benchmark gate reads the current artifact destination',
+    inject: (wt) =>
+      seed.write(wt, 'scripts/__fixtures__/gate-redproofs/editor-bench-violation', 'fail\n'),
+    expect: ['redproof-artifact-failure', 'REJECT'],
+    fix: 'resolve embed JSON through playwrightArtifacts rather than the stale default filename',
+  },
+  {
+    gate: 'editor-bench-artifacts',
+    id: 'stale-report-after-crash',
+    seeded: 'a child crashes without replacing a stale passing report',
+    claim: 'only JSON produced by this invocation can justify accepting the suite',
+    inject: (wt) =>
+      seed.write(wt, 'scripts/__fixtures__/gate-redproofs/editor-bench-crash', 'crash\n'),
+    expect: ['fixture child crashed'],
+    absent: ['ACCEPT'],
+    fix: 'remove only the exact expected JSON before spawning so a crashed run cannot reuse evidence',
+  },
   ...BOUNDARIES_AND_DOCS_PROOFS,
   ...THEME_AND_QA_INPUT_PROOFS,
   ...GENERATED_SPECS_PROOFS,
