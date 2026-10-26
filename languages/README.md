@@ -16,6 +16,7 @@ file shape is defined in [`catalog.schema.json`](catalog.schema.json).
 4. Run `pnpm run check:languages`. It reports all invalid catalog files and
    message paths together. `pnpm run audit:languages` is the separate
    completeness audit; it blocks CI, so add every new message to every catalog.
+   The exception is `cli.*` (the dogfood CLI), which stays English-only for now.
 
 Anyone may edit a catalog directly. Machine translation during development is
 allowed. There is no translation command or required external service or review.
