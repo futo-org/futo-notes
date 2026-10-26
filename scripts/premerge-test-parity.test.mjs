@@ -78,7 +78,7 @@ describe('pre-merge CI routing contracts', () => {
     const syncJob = topLevelBlock(gitlabPipeline, /^test:cross-platform-sync:$/m);
 
     expect(rustWorkspaceJob).toContain('CARGO_CACHE_POLICY: pull');
-    expect(rustWorkspaceJob).toContain('- dind_fast');
+    expect(rustWorkspaceJob).toContain('- $LINUX_RUNNER_TAG');
     expect(rustWorkspaceJob).toContain('needs: []');
     expect(syncJob).toMatch(/^\s{4}CARGO_CACHE_POLICY: pull$/m);
     expect(syncJob).toContain('CARGO_CACHE_POLICY: pull-push');
@@ -130,7 +130,14 @@ describe('pre-merge CI routing contracts', () => {
     ];
     for (const jobName of [/^test:e2e:editor-embed:$/m, /^test:ios-native:$/m]) {
       const job = topLevelBlock(gitlabPipeline, jobName);
-      const mrRule = job.slice(job.indexOf('$CI_MERGE_REQUEST_IID'));
+      // The anchored rule is the bundle gate; test:ios-native puts its
+      // apps/ios-only UI-tier rule ahead of it.
+      const anchor = job.indexOf('changes: &');
+      const start =
+        anchor >= 0
+          ? job.lastIndexOf('$CI_MERGE_REQUEST_IID', anchor)
+          : job.indexOf('$CI_MERGE_REQUEST_IID');
+      const mrRule = job.slice(start);
       const changes = mrRule.slice(mrRule.indexOf('changes:'), mrRule.indexOf('- if:'));
       for (const glob of bundleInputs) {
         expect(changes, `${jobName} MR changes: is missing ${glob}`).toContain(`- ${glob}\n`);
@@ -172,14 +179,64 @@ describe('pre-merge CI routing contracts', () => {
     expect(androidJob).toContain("-name 'TEST-*.xml' -type f -print -quit");
   });
 
-  it('skips slow sync scenarios only on MR pipelines, never on main or tags', () => {
+  it('runs the full sync scenario set on every MR, alone on a serial runner', () => {
     const syncJob = topLevelBlock(gitlabPipeline, /^test:cross-platform-sync:$/m);
+    const androidSyncJob = topLevelBlock(gitlabPipeline, /^test:cross-platform-sync:android:$/m);
+    const ffiJob = topLevelBlock(gitlabPipeline, /^test:rust:ffi-android:$/m);
 
     expect(syncJob).toContain('node tests/cross-platform-sync.mjs $SYNC_SCENARIO_FLAGS');
-    // Exactly the two auto-run MR rules (lockfile, sync-critical) set the
-    // flag; the tag, default-branch, and manual rules run the full set.
-    expect(syncJob.match(/SYNC_SCENARIO_FLAGS: --skip-slow/g)).toHaveLength(2);
+    // No rule trims the scale probes any more, and no MR rule is manual or
+    // path-gated: the suite blocks every merge.
+    expect(syncJob).not.toContain('--skip-slow');
+    expect(syncJob).toMatch(/\n {4}- if: \$CI_MERGE_REQUEST_IID\n {4}# /);
+    expect(syncJob).not.toContain('when: manual');
     expect(syncJob).toContain('$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH');
+    // The serial runners (one job at a time) are the exclusion that the
+    // project-wide resource_group used to be; the FFI compile that once shared
+    // that group now runs on the shared slots and no longer orders itself
+    // behind the suite.
+    for (const job of [syncJob, androidSyncJob]) {
+      expect(job).toContain('    - futo_notes_serial');
+      expect(job).not.toContain('resource_group');
+    }
+    expect(ffiJob).toContain('    - $LINUX_RUNNER_TAG');
+    expect(ffiJob).not.toContain('resource_group');
+    expect(ffiJob).not.toContain('- job: test:cross-platform-sync');
+  });
+
+  it('benchmarks the editor alone on a serial runner and gates the release on it', () => {
+    const bench = topLevelBlock(gitlabPipeline, /^bench:editor:$/m);
+    const releaseGate = topLevelBlock(gitlabPipeline, /^release:gate:$/m);
+
+    expect(bench).toContain('    - futo_notes_serial');
+    expect(bench).toContain('editor-bench-gate.mjs" --regression-only');
+    expect(bench).not.toContain('--accept');
+    expect(bench).toContain('$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH');
+    expect(bench).toContain('$CI_COMMIT_TAG');
+    expect(releaseGate).toContain('- job: bench:editor');
+  });
+
+  it('runs the Windows Rust tests on crate MRs behind the bring-up switch', () => {
+    const win = topLevelBlock(gitlabPipeline, /^test:rust:windows:$/m);
+    const releaseGate = topLevelBlock(gitlabPipeline, /^release:gate:$/m);
+
+    expect(win).toContain('    - windows_persist');
+    // PowerShell shell: the bash default before_script must not run.
+    expect(win).toContain('before_script: []');
+    expect(win).toContain('cargo test --workspace --locked');
+    expect(win).toMatch(/- if: \$WINDOWS_PERSIST_RUNNER != "1"\n {6}when: never/);
+    expect(win).toContain('        - crates/**/*');
+    expect(releaseGate).toMatch(/- job: test:rust:windows\n {6}optional: true/);
+  });
+
+  it('sends every Linux job to the office runners through one variable', () => {
+    expect(gitlabPipeline).toMatch(
+      /^default:\n(?: {2}#.*\n)* {2}tags:\n {4}- \$LINUX_RUNNER_TAG$/m,
+    );
+    expect(gitlabPipeline).toContain('LINUX_RUNNER_TAG: dind_fast');
+    // No job names a Linux runner tag directly; the outage path (runner 55)
+    // is a run-pipeline variable, not an edit.
+    expect(gitlabPipeline).not.toMatch(/^ {4}- dind(_fast)?$/m);
   });
   it('uploads stable-tag iOS builds to TestFlight before the gate, but submits after it', () => {
     const upload = topLevelBlock(gitlabPipeline, /^publish:ios:$/m);

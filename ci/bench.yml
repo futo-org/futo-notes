@@ -1,0 +1,32 @@
+# Included by .gitlab-ci.yml: the editor benchmark, on a serial runner.
+
+# Counts of browser work (elements restyled, layout scope, JS calls) for eight
+# editor interactions in headless Chromium, held against
+# docs/perf/editor-bench-baseline.json. The counts repeat within 0.15 % on a
+# quiet machine and mean nothing on a shared one, so this runs only on the
+# futo_notes_serial boxes, which run one job at a time. Main and tags block on
+# it; an MR plays it by hand. A red main from a count that got worse is fixed
+# by an MR that commits a new baseline with `just bench-climb-gate --accept`
+# (docs/perf/editor-bench-climb.md). Exit 1 is REJECT, 2 is a crash (M11).
+bench:editor:
+  extends: .ci-test-image
+  stage: test
+  needs: []
+  tags:
+    - futo_notes_serial
+  variables:
+    GIT_DEPTH: "20"
+  cache:
+    - !reference [.cache-pnpm, cache]
+    - !reference [.cache-playwright, cache]
+  script:
+    - pnpm install --frozen-lockfile
+    - !reference [.setup-playwright, script]
+    - node --experimental-strip-types "$CI_PROJECT_DIR/scripts/perf/editor-bench-gate.mjs" --regression-only
+  timeout: 20m
+  rules:
+    - if: $CI_COMMIT_TAG
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+    - if: $CI_MERGE_REQUEST_IID
+      when: manual
+      allow_failure: true

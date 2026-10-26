@@ -18,7 +18,7 @@ build:android-native:
   # vs 1-2s otherwise), and since the JavaScript jobs moved here too (`test`,
   # test:e2e:*) those five slots are this repo's main MR bottleneck.
   tags:
-    - dind_fast
+    - $LINUX_RUNNER_TAG
   # Native verification is independent of the JavaScript suite; starting it
   # immediately removes that suite from the native MR critical path.
   needs: []

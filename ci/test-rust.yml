@@ -8,7 +8,7 @@ test:rust:workspace:
   # tests on the fast office runner that already owns the warm archive until
   # the R2 distributed cache is configured on every runner manager.
   tags:
-    - dind_fast
+    - $LINUX_RUNNER_TAG
   variables:
     CARGO_CACHE_POLICY: pull
   cache:
@@ -182,31 +182,18 @@ test:rust:macos:
 # that remains native-build-only coverage.
 test:rust:ffi-android:
   stage: test
-  # Run AFTER the sync suite when both are in the pipeline: the 12-minute
-  # sync run is the critical path and must never queue behind this check
-  # (pipeline 31106 lost 7 minutes that way). optional covers pipelines where
-  # the sync job is absent; when sync is present only as a manual job
-  # (allow_failure: true), GitLab lets needing jobs proceed without waiting.
-  needs:
-    - job: test:cross-platform-sync
-      optional: true
-      artifacts: false
-  # Pin to the fast office runner — see build:android-native.
+  needs: []
+  # A shared-slot runner. The sync suites run alone on the serial boxes now,
+  # so this full-tree compile can no longer starve them (pipeline 31084's
+  # "rapid reconnect" flake was that overlap); the project-wide lock and the
+  # needs: ordering that kept the two apart are gone with it.
   tags:
-    - dind_fast
-  # Never overlap the cross-platform sync suite on the pinned runner — not
-  # even one from another pipeline: a concurrent full-tree compile starves
-  # its timing-sensitive scenarios into flaking (observed: pipeline 31084's
-  # cold-cache run of this job flaked "rapid reconnect" with a bridge script
-  # timeout). Same M15 root-cause fix as the sync job's own resource_group —
-  # exclusion, not longer timeouts. The needs: above orders the two within a
-  # pipeline so the exclusion never delays the sync suite itself.
-  resource_group: cross-platform-sync
+    - $LINUX_RUNNER_TAG
   extends: .ci-android-image
   # Own single-ABI cache namespace instead of the fat 3-ABI + host `native`
-  # archive: restoring that one costs more than this job's warm compile. Safe
-  # to pull-push — the resource_group serializes every holder of this key, so
-  # no concurrent writer exists.
+  # archive: restoring that one costs more than this job's warm compile.
+  # Two MRs may upload this key at once; GitLab replaces the archive whole,
+  # so the loser's upload is wasted, never corrupting.
   cache:
     key:
       prefix: ffi-check

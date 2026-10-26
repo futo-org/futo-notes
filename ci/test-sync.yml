@@ -4,21 +4,25 @@ test:cross-platform-sync:
   extends: .ci-test-image
   stage: test
   needs: []
-  # Serialize across pipelines: two concurrent runs = 4 Tauri instances + 2
-  # servers on the same pinned runner, which starves the suite into flaking
-  # ("active note reload" et al. — reliably green single-pipeline, red only
-  # when overlapping). Root-cause fix per M15: contention, not timeouts.
-  resource_group: cross-platform-sync
-  # Pin to the fast office runner — see build:android-native.
+  # Runs alone on a serial runner: the futo_notes_serial boxes
+  # (futonotesdebianrunner1 and 2) run ONE job at a time, so nothing overlaps
+  # this suite on its machine. That replaces the project-wide
+  # cross-platform-sync lock GitLab used to hold. Two concurrent runs on one box
+  # were 4 Tauri instances + 2 servers, which starved the suite into flaking
+  # ("active note reload" et al.), and the lock made every MR's sync run wait
+  # for every other's (17.9 h of waits in five October days). With the box as
+  # the lock, two MRs run on two boxes, each alone (M15: contention, not
+  # timeouts).
   tags:
-    - dind_fast
+    - futo_notes_serial
   variables:
     # Nothing in this job reads git history (the changed-file classifier runs
     # in the `test` job); a full fetch cost ~70s of the job wall.
     GIT_DEPTH: "20"
-    # The isolated namespace is already seeded on the pinned fast runner.
-    # Source-only MRs consume it without spending ~90s recompressing target/;
-    # tags and lockfile changes refresh it in the rules below.
+    # The isolated namespace is seeded through the shared runner cache, so a
+    # source-only MR consumes it on any serial box without spending ~90s
+    # recompressing target/; tags and lockfile changes refresh it in the
+    # rules below.
     CARGO_CACHE_POLICY: pull
   cache:
     - !reference [.cache-pnpm, cache]
@@ -62,9 +66,9 @@ test:cross-platform-sync:
     # `cargo tauri build --debug` with VITE_INCLUDE_TEST_HOOKS, including the
     # clean -p guard against a cached hooks-free crate). A job-side pre-build
     # here would be a second identical build.
-    # Run cross-platform sync tests under xvfb. MR rules set
-    # SYNC_SCENARIO_FLAGS to --skip-slow (registry-marked scale probes);
-    # main-branch and tag pipelines run the full scenario set.
+    # Run cross-platform sync tests under xvfb. No CI rule sets
+    # SYNC_SCENARIO_FLAGS: MRs, main, and tags all run the full scenario set,
+    # registry-marked scale probes included.
     - >-
       WEBKIT_DISABLE_DMABUF_RENDERER=1
       xvfb-run -a --server-args="-screen 0 1280x800x24"
@@ -89,16 +93,16 @@ test:cross-platform-sync:
         - Cargo.lock
       variables:
         CARGO_CACHE_POLICY: pull-push
-        SYNC_SCENARIO_FLAGS: --skip-slow
-    # Sync-critical paths auto-run and BLOCK the merge — this suite guards
-    # user data, and a failure here nearly shipped a broken release twice.
+    # Every MR runs the full scenario set and BLOCKS the merge: this suite
+    # guards user data, and a failure here nearly shipped a broken release
+    # twice. The path gate and the scale-probe trim it carried on MRs existed
+    # for the shared runner slots; the serial boxes took it off those.
     # Tags and lockfile MRs refresh the isolated archive; ordinary source MRs
-    # reuse that seed without paying the post-test upload cost. MRs skip the
-    # registry-marked slow scale probes; the default-branch rule below runs
-    # them on every merged sync change so a scale regression still surfaces
-    # before tag time.
+    # reuse that seed without paying the post-test upload cost.
     - if: $CI_MERGE_REQUEST_IID
-      changes: &sync-critical-changes
+    # Main re-runs it on every merged sync change and reseeds the archive.
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      changes:
         - crates/futo-notes-sync/**/*
         - crates/futo-notes-core/**/*
         # The whole desktop sync + note-session layer, not just sync*: this
@@ -118,16 +122,7 @@ test:cross-platform-sync:
         - ci/*.yml
         - .gitlab-ci.yml
       variables:
-        SYNC_SCENARIO_FLAGS: --skip-slow
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
-      changes: *sync-critical-changes
-      variables:
         CARGO_CACHE_POLICY: pull-push
-    # Anything else that could plausibly affect sync stays one click away.
-    # Deliberate manual runs get the full scenario set.
-    - if: $CI_MERGE_REQUEST_IID
-      when: manual
-      allow_failure: true
       changes:
         - apps/tauri/**/*
         - src/**/*
@@ -149,11 +144,11 @@ test:cross-platform-sync:android:
   # build:android-native. It is still a blocking test job (release:gate.needs).
   stage: build
   extends: .ci-android-image
-  # Both tags resolve to the office runner: dind_fast for the warm cargo cache
-  # (see build:android-native), android_kvm because the emulator wants /dev/kvm.
-  # The boot falls back to unaccelerated with a warning if it is missing.
+  # A serial box (see test:cross-platform-sync) that also offers /dev/kvm;
+  # android_kvm keeps it off a serial runner without KVM. The boot falls back
+  # to unaccelerated with a warning if it is missing.
   tags:
-    - dind_fast
+    - futo_notes_serial
     - android_kvm
   # The debug APK comes from build:android-native's artifacts instead of a
   # second 3-ABI Rust FFI + gradle build here (8-45m depending on cache).
@@ -163,9 +158,8 @@ test:cross-platform-sync:android:
     - job: build:android-native
       optional: true
       artifacts: true
-  # Share the desktop suite's exclusion: both run Tauri clients on the one
-  # pinned runner, and overlapping starves timing-sensitive scenarios (M15).
-  resource_group: cross-platform-sync
+  # No project-wide lock: the serial runner is the exclusion (M15), see
+  # test:cross-platform-sync.
   variables:
     GIT_DEPTH: "20"
     # Only build:android-native writes the native archive; this job reads the

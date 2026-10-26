@@ -1,9 +1,15 @@
 default:
+  # Every Linux job lands on an office runner (71 futocoredebianrunner1 and
+  # the two futonotesdebianrunner boxes carry dind_fast). Runner 55, the
+  # DigitalOcean box, is the outage path only: it re-pulls the image every
+  # job, misses the pnpm store every job, and ran the unit job at 7m15
+  # against 1m27 here. To use it, run the pipeline with LINUX_RUNNER_TAG=dind.
+  # Only the kitchensink-image jobs can take that path: 55 is locked to
+  # pull_policy always and refuses .ci-test-image.
   tags:
-    - dind
-  # Keep the lightweight org image as the default for the untagged jobs that
-  # can land on runner 55, which refuses .ci-test-image's pull policy. Jobs
-  # pinned to runner 71 (dind_fast) opt into that larger image below.
+    - $LINUX_RUNNER_TAG
+  # Keep the lightweight org image as the default: it is the one runner 55
+  # accepts, and the jobs that matter opt into .ci-test-image below.
   image: gitlab.futo.org:5050/futocore/ci/kitchensink@sha256:2df4951967506d9dc31ad4dea6d7b03eb4ddea21f3bd5e500ef3d3be924e589f
   interruptible: true
   before_script:
@@ -21,6 +27,7 @@ default:
     - export PATH="$CARGO_HOME/bin:$PATH"
 
 variables:
+  LINUX_RUNNER_TAG: dind_fast
   CARGO_HOME: $CI_PROJECT_DIR/.cargo-home
   # Main/tag pipelines seed shared Cargo archives. Source-only MRs consume
   # them without spending minutes recompressing tens of thousands of unchanged
@@ -92,6 +99,7 @@ include:
   - local: ci/templates.yml
   - local: ci/test-checks.yml
   - local: ci/test-e2e.yml
+  - local: ci/bench.yml
   - local: ci/test-rust.yml
   - local: ci/test-sync.yml
   - local: ci/build-linux.yml
