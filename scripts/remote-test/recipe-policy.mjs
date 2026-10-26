@@ -24,7 +24,7 @@ const REFUSED = [
   // Xcode / iOS simulator / Swift toolchain.
   ['build-rust-ios', 'macos'],
   ['build-ios-native', 'macos'],
-  ['test-ios-native', 'macos'],
+  [/^test-ios-native/, 'macos'],
   ['test-ios-stories', 'macos'],
   ['ios-native', 'macos'],
   ['ios-native-device', 'macos'],

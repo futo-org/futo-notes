@@ -6,7 +6,7 @@
 // `ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL  Command "tsx" not found` — which names
 // tsx, never the missing install, and sends the reader looking for a broken
 // dependency (pc_40406aa84bc1, and pc_cd6fa6e7aa76 for the vitest spelling of
-// the same error). `just test-one` solves this by installing; `check` is a
+// the same error). `just test-unit` solves this by installing; `check` is a
 // gate, so it refuses instead of mutating the tree it is about to verify.
 //
 // It also verifies that every `patchedDependencies` entry (pnpm-workspace.yaml,
