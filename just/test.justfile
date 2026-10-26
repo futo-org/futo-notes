@@ -62,6 +62,12 @@ cli *args:
 build-cli:
   cargo build --release -p futo-notes-cli
 
+# A static x86_64 CLI that runs on any Linux distro: target/x86_64-unknown-linux-musl/release/futo-notes.
+# Needs a musl C compiler for ring and zstd (Debian/Ubuntu: musl-tools).
+build-cli-static:
+  rustup target add x86_64-unknown-linux-musl
+  cargo build --release --locked -p futo-notes-cli --target x86_64-unknown-linux-musl
+
 # Every CLI test, including sign-in and sync against the pinned sync server.
 test-cli:
   #!/usr/bin/env bash

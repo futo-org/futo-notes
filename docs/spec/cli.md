@@ -131,7 +131,9 @@ Global options, accepted before or after the command: `--vault <path>` and `--js
 - Sync goes through `SyncSession`. The CLI keeps no sync state of its own.
 - Building the CLI does not build Tauri, the editor bundle, or the mobile bindings.
 - Root `just` recipes build, run, and test the CLI, and a CI job runs its tests and is listed in `release:gate.needs`.
-- There is no CLI release artifact yet; `just build-cli` produces the Linux binary.
+- The CLI is dogfood, not a release product: no tag job builds it and no GitLab Release or package carries it.
+- `just build-cli-static` builds a static x86_64 binary that runs on any Linux distribution; the manual CI job `build:cli:linux` builds the same binary as a download.
+- Sync over HTTPS verifies the server against the system's CA certificates, so the machine needs them installed (`ca-certificates` on Debian and Ubuntu).
 
 ## Acceptance
 

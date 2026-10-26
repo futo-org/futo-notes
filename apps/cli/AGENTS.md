@@ -36,7 +36,8 @@ error codes, exit status). This crate builds the `futo-notes` binary for headles
 |---|---|
 | Anything in this crate | `just test-cli` (unit + `tests/local.rs` + `tests/server.rs` against the pinned server) |
 | A store/sync/core workflow the CLI calls | that crate's own chain + `just test-cli` |
-| Release binary | `just build-cli`, then run `target/release/futo-notes` |
+| Release binary | `just build-cli` (this machine), or `just build-cli-static` (any distro; needs musl-tools) |
+| `build:cli:linux` (manual CI download) | rehearse its script in its pinned image before pushing |
 
 Tests give every process its own `HOME`, `XDG_*` directories, and `TMPDIR`, start it with no
 controlling terminal (`setsid`), and clear `VISUAL`/`EDITOR`, so no test can touch real settings,
