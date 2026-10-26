@@ -13,6 +13,7 @@ The rules, settled 2026-10-26:
 | Rule                                                                                                                                         | Where                            |
 | -------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------- |
 | Picks open, non-draft MRs into `main` by `justin` or `mason`, oldest first, at most 5 per sweep                                              | `rules.mjs` `selectMrs`          |
+| Mason's MRs wait until Justin presses **Approve** in GitLab (for now)                                                                        | `rules.mjs` `APPROVER_FOR`       |
 | Skips MRs labelled `factory::hold`; taking an MR out of draft means "merge it if it passes"                                                  | `rules.mjs`                      |
 | Judges each head commit once; a new push makes the MR eligible again                                                                         | `state.json`, keyed by SHA       |
 | SHIP → merged by the agent, no comment, no DM                                                                                                | `factory-prompt.md`              |

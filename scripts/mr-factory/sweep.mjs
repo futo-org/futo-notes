@@ -15,6 +15,9 @@
  * problem the agent reports — exits non-zero, and the unit's OnFailure=
  * handler (alertFailure.mjs) DMs the operator.
  *
+ * Mason's MRs also wait for Justin to press Approve in GitLab (rules.mjs
+ * APPROVER_FOR).
+ *
  * Authors are the two maintainers only (rules.mjs AUTHORS), so the agent runs
  * with the operator's normal environment like the other timers on this
  * machine: `/mr-qa` needs the device pool, the Mac over Tailscale, and the
@@ -35,10 +38,12 @@ import {
   formatComment,
   formatCommentDm,
   formatRecoveryDm,
+  needsApproval,
   parseResult,
   selectMrs,
 } from './rules.mjs';
 import {
+  getApprovers,
   getMr,
   listOpenMrs,
   loadHealth,
@@ -269,7 +274,10 @@ export async function runSweep({
     }
   }
 
-  const selected = selectMrs(await listOpenMrs(), state);
+  const openMrs = await listOpenMrs();
+  const approvers = new Map();
+  for (const mr of openMrs.filter(needsApproval)) approvers.set(mr.iid, await getApprovers(mr.iid));
+  const selected = selectMrs(openMrs, state, approvers);
   if (selected.length === 0) {
     process.stdout.write('mr-factory: no MR needs a verdict\n');
     if (!dryRun) await endOutage(dir);
