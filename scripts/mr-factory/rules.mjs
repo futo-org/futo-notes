@@ -148,8 +148,8 @@ export function formatCommentDm({ iid, webUrl, noteId }) {
 export function formatFailureDm({ error, sinceIso, alertCount }) {
   return [
     alertCount === 0
-      ? "**The MR factory is broken.** Non-draft MRs are not being QA'd or merged until this is fixed."
-      : `**The MR factory is still broken** (since ${sinceIso ?? 'unknown'}).`,
+      ? "**The MR factory hit a problem.** Some MRs may not get QA'd or merged until it's fixed."
+      : `**The MR factory still has a problem** (since ${sinceIso ?? 'unknown'}).`,
     '',
     '```',
     error ?? 'the unit failed without recording a reason (a crash before the error handler)',
@@ -160,7 +160,7 @@ export function formatFailureDm({ error, sinceIso, alertCount }) {
 }
 
 export function formatRecoveryDm({ sinceIso }) {
-  return `**The MR factory is working again** (it was broken since ${sinceIso ?? 'unknown'}).`;
+  return `**The MR factory is working again** (the problem started ${sinceIso ?? 'at an unknown time'}).`;
 }
 
 /** Should this failure DM the operator? First failure always; then once per window. */
