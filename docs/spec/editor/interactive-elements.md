@@ -184,6 +184,10 @@
   edges), and emptying the field unlinks it — the selection and the bar stay
   put, so an unlink can follow a URL change. → selectionToolbar/index.ts
   `applyLink`, selectionToolbar/target.ts `linkRunAt`
+- _(desktop)_ Editing the note while the URL field is open (the user clicked
+  back into the text) closes the field without applying anything: it belonged
+  to a selection that may no longer exist. → selectionToolbar/index.ts
+  `refresh`, tests/selection-toolbar.spec.ts
 - _(desktop)_ Typing `/` as the first character of a line opens a filterable
   menu: Text, Heading 1-3, Bullet list, Numbered list, Task list, Quote, Code
   block, Divider, Table, Link, Image. Typing narrows it (label prefix beats a
