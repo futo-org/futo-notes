@@ -1973,6 +1973,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "futo-notes-cli"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "dirs",
+ "futo-notes-core",
+ "futo-notes-model",
+ "futo-notes-store",
+ "futo-notes-sync",
+ "hex",
+ "libc",
+ "rpassword",
+ "serde",
+ "serde_json",
+ "sha2",
+ "shlex",
+ "tokio",
+]
+
+[[package]]
 name = "futo-notes-core"
 version = "0.1.0"
 dependencies = [
@@ -5374,6 +5394,27 @@ dependencies = [
  "libc",
  "untrusted",
  "windows-sys 0.52.0",
+]
+
+[[package]]
+name = "rpassword"
+version = "7.5.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2da316a15f47e3d053de9cb2c439650bd8fa4aaeb9365f2e5f27f492ff73c196"
+dependencies = [
+ "libc",
+ "rtoolbox",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "rtoolbox"
+version = "0.0.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9a1efe12a1469752d0e6ff5ebec0b6ef4924cc5c4c71046b0ec730040535819d"
+dependencies = [
+ "libc",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

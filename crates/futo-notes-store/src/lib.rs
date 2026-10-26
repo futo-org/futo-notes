@@ -56,6 +56,10 @@ pub struct NoteSortOrder {
     pub direction: SortDirection,
 }
 
+/// The error a workflow returns when the note it must act on is not there.
+/// Stable and untranslated, so a caller classifies it without parsing prose.
+pub const NOTE_NOT_FOUND: &str = "note does not exist";
+
 /// Whether a path names a supported Markdown source, independent of whether it
 /// currently exists. Shared by OS-open routing and the import workflow so the
 /// shell cannot advertise a file the store will later reject.
