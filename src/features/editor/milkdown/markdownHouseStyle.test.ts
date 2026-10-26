@@ -195,6 +195,33 @@ describe('the per-block save cache', () => {
     expect(cached.prime(doc, () => 1000)).toBe(true);
     expect(cached.isPrimed(doc)).toBe(true);
   });
+
+  it('rechecks unchanged syntax against new reference definitions without rewriting plain prose', () => {
+    const writes: NodeJson[] = [];
+    const cached = createCachedSerializer(
+      {
+        ...serializer,
+        serializeBlock: (block, context) => {
+          writes.push(block);
+          return serializer.serializeBlock(block, context);
+        },
+      },
+      adapter,
+    );
+    const doc = parser.parse('plain\n\n\\[label]\n\n[label]: /old');
+    cached.serialize(doc);
+    writes.length = 0;
+    const replacement = parser.parse('[label]: /new').content ?? [];
+    const [plain, literal] = doc.content ?? [];
+    const edited: NodeJson = {
+      ...doc,
+      content: [...(doc.content ?? []).slice(0, -1), ...replacement],
+    };
+    expect(cached.serialize(edited)).toBe(serializer.serialize(edited));
+    expect(writes).toContain(literal);
+    expect(writes).not.toContain(plain);
+    expect(cached.isPrimed(edited)).toBe(true);
+  });
 });
 
 /*

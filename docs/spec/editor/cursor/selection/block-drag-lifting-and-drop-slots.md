@@ -20,7 +20,7 @@
   regardless of focus, so a phone's long-press-to-select-a-word was always
   read as "lift this block" instead — reported by QA on the 1.7.2-4 builds.
   Checked once, at touch-down; a press already in flight does not re-arbitrate
-  mid-gesture. → src/features/editor/milkdown/mobileBlockDndGesture.ts
+  mid-gesture. → src/features/editor/milkdown/mobileBlockDnd.ts
   `onPointerDown`, src/features/editor/milkdown/mobileBlockDnd.test.ts,
   tests/editor-embed-milkdown-long-press.spec.ts _(native shells)_
 - The lifted ghost shows the WHOLE block from its very first frame, sits over
@@ -75,7 +75,7 @@
   its landing slot, rather than some drags drawing a drop line instead. (List
   items used to drag on their own within their list, with only the line,
   because the preview handles top-level blocks only; a drag flipped between the
-  two depending on what was grabbed.) → src/features/editor/milkdown/mobileBlockDndGesture.ts
+  two depending on what was grabbed.) → src/features/editor/milkdown/mobileBlockDnd.ts
   `onPointerDown`, src/features/editor/milkdown/handleSource.ts `handleSourceFor`,
   src/features/editor/milkdown/blockDragCurtain.ts,
   src/features/editor/milkdown/handleSource.test.ts, tests/editor-embed-milkdown-gutter-handle.spec.ts

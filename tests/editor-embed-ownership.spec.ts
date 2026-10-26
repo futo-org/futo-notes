@@ -33,6 +33,45 @@ test('a switch inside the debounce reports the outgoing document with its identi
   await context.close();
 });
 
+for (const history of ['undo', 'redo'] as const) {
+  test(`switching to a different note with identical bytes clears ${history}`, async ({
+    browser,
+  }) => {
+    const { context, page } = await openEmbed(browser, EDITOR_URL);
+    await page.evaluate(() =>
+      (window as unknown as FakeHostWindow).FutoEditor.setContent('a', 'base'),
+    );
+    await expect(page.locator('.ProseMirror')).toHaveText('base');
+    await focusEditor(page);
+    await page.keyboard.press('End');
+    await page.keyboard.type('!');
+    await expect(page.locator('.ProseMirror')).toHaveText('base!');
+    if (history === 'redo') {
+      await page.keyboard.press('ControlOrMeta+z');
+      await expect(page.locator('.ProseMirror')).toHaveText('base');
+    }
+    const next = await page.evaluate(() => {
+      const w = window as unknown as FakeHostWindow;
+      w.FutoEditor.flush('before-switch');
+      const live = w.__futoTest.readDocument();
+      w.__msgs.length = 0;
+      w.FutoEditor.setContent('b', live);
+      return live;
+    });
+    expect(await messages(page)).toContainEqual(
+      expect.objectContaining({ type: 'documentLoaded', noteId: 'b' }),
+    );
+
+    await focusEditor(page);
+    await page.keyboard.press(history === 'undo' ? 'ControlOrMeta+z' : 'ControlOrMeta+Shift+z');
+
+    expect(
+      await page.evaluate(() => (window as unknown as FakeHostWindow).__futoTest.readDocument()),
+    ).toBe(next);
+    await context.close();
+  });
+}
+
 test('edited is a synchronous transition and flush echoes its token once', async ({ browser }) => {
   const { context, page } = await openEmbed(browser, EDITOR_URL);
   await page.evaluate(() =>
@@ -216,18 +255,18 @@ test('retargeting an acknowledged live document preserves the typed tail, caret 
   await page.evaluate(() => {
     const w = window as unknown as FakeHostWindow;
     w.FutoEditor.flush('before-retarget');
-    const live = w.__futoTest.readDocument();
-    w.FutoEditor.setContent('new', live);
+    w.__msgs.length = 0;
+    w.FutoEditor.retarget('old', 'new');
   });
   await expect(page.locator('.ProseMirror')).toHaveText('base tail');
+  expect((await messages(page)).filter((m) => m.type === 'change')).toEqual([
+    expect.objectContaining({ noteId: 'new', content: 'base tail\n' }),
+  ]);
   await page.keyboard.type('!');
   await expect(page.locator('.ProseMirror')).toHaveText('base tail!');
   await page.keyboard.press('ControlOrMeta+z');
   await page.keyboard.press('ControlOrMeta+z');
   await expect(page.locator('.ProseMirror')).toHaveText('base');
-  expect(await messages(page)).toContainEqual(
-    expect.objectContaining({ type: 'documentLoaded', noteId: 'new' }),
-  );
   await context.close();
 });
 

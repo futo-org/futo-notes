@@ -22,14 +22,7 @@ export function createNoteCommands(
 
   function setContent(noteId: string, text: string): void {
     const editor = getEditor();
-    if (editor && holdsExactly(text)) {
-      if (session.currentNoteId === noteId) return;
-      if (session.unreported && props.nativeShell) flush();
-      session.currentNoteId = noteId;
-      session.documentGeneration += 1;
-      props.ondocumentloaded?.(session.documentRef(), 'load');
-      return;
-    }
+    if (editor && session.currentNoteId === noteId && holdsExactly(text)) return;
     // A streaming edited departure pays the remaining parse before changing identity.
     if (
       session.currentNoteId !== null &&

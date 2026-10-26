@@ -10,7 +10,7 @@
 // via FutoEditor.setNotes, and local images resolve against the base URL the
 // host registers via FutoEditor.setImageBaseUrl.
 
-import { mount } from 'svelte';
+import { mount, type ComponentProps } from 'svelte';
 import '../styles/app.css';
 import MilkdownEditor from '$features/editor/milkdown/MilkdownEditor.svelte';
 import type { EditorLinkGesture } from '$features/editor/editorLinkGesture';
@@ -82,7 +82,7 @@ let lastPostedInContainer: boolean | null = null;
 
 const query = new URLSearchParams(window.location.search);
 
-const editor = mount(MilkdownEditor, {
+const editor = mount<ComponentProps<typeof MilkdownEditor>, EmbeddedEditorHandle>(MilkdownEditor, {
   target,
   props: {
     content: '',
@@ -160,7 +160,7 @@ const editor = mount(MilkdownEditor, {
       window.__futoEditorMounted = true;
     },
   },
-}) as unknown as EmbeddedEditorHandle;
+});
 
 const toolbarTarget = document.createElement('div');
 document.body.appendChild(toolbarTarget);
@@ -239,7 +239,7 @@ if (query.has('census')) installChunkCensusHook(editor as unknown as ChunkCensus
  * See getProseMirrorView (milkdown/hostHandle.ts) for why the gauntlet needs
  * the view. */
 (window as unknown as { __futoProseMirrorView?: () => unknown }).__futoProseMirrorView = () =>
-  editor.getProseMirrorView?.() ?? null;
+  editor.getProseMirrorView();
 
 requestAnimationFrame(() => {
   post({ type: 'ready', version: BRIDGE_VERSION });

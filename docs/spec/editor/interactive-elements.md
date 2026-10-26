@@ -97,7 +97,9 @@
   src/features/editor/milkdown/progressiveLoad.ts,
   tests/editor-embed-milkdown.spec.ts "Undo history"
 - Opening a note starts its undo empty. Leaving a note and coming back does not
-  restore what you could undo before.
+  restore what you could undo before. This also holds when the next note has
+  exactly the same text as the one being left. →
+  src/features/editor/milkdown/MilkdownEditor.test.ts
 - Redo with nothing left to redo changes nothing; Redo never undoes, whatever the Caps Lock
   state. → milkdown/keyboardParity.ts `handleCapsLockedChord`,
   tests/editor-embed-milkdown-undo.spec.ts
@@ -185,8 +187,10 @@
   as it was. On a selection inside an existing link the field is prefilled with
   its address, Enter updates the WHOLE link (never splitting it at the selection
   edges), and emptying the field unlinks it — the selection and the bar stay
-  put, so an unlink can follow a URL change. → selectionToolbar/index.ts
-  `applyLink`, selectionToolbar/target.ts `linkRunAt`
+  put, so an unlink can follow a URL change. Separate links with the same URL
+  remain separate: editing one never links the plain text between them or
+  changes the other's address. → milkdown/linkPrompt/linkEditing.ts,
+  milkdown/linkPrompt/noteSwitch.test.ts
 - _(desktop)_ Typing `/` as the first character of a line opens a filterable
   menu: Text, Heading 1-3, Bullet list, Numbered list, Task list, Quote, Code
   block, Divider, Table, Link, Image. Typing narrows it (label prefix beats a

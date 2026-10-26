@@ -12,30 +12,31 @@ import { setVaultImageBaseUrl } from '$features/images/vaultImageSrc';
 import { setNotesUniverse } from '$features/notes/notes.svelte';
 import type { NotePreview } from '$shared/types/note';
 import { desktopLocalization } from '$shared/localization';
+import type MilkdownEditor from '$features/editor/milkdown/MilkdownEditor.svelte';
 
-export interface EmbeddedEditorHandle {
-  applyEdit: (text: string) => void;
-  blur: () => void;
-  flush: (token?: string) => void;
-  applyExternalContent: (noteId: string, text: string, expectedGeneration: number) => void;
-  closeFind: () => void;
-  focus: () => void;
-  getContent: () => string;
-  getDocumentRef: () => import('@futo-notes/editor').DocumentRef;
-  insertMarkdown: (text: string) => void;
-  refreshDecorations: () => void;
-  revealSelection: () => void;
-  resetHistory: () => void;
-  openFind: () => void;
-  setContent: (noteId: string, text: string) => void;
-  retarget: (fromId: string, toId: string) => void;
-  setFindOverlayInset: (bottomOverlayPx: number) => void;
-  setFindQuery: (query: string) => void;
-  stepFind: (direction: 1 | -1) => void;
-  exec: (commandId: string) => boolean;
-  /* The harness probe main.ts exposes for the editor gauntlet. */
-  getProseMirrorView?: () => unknown;
-}
+export type EmbeddedEditorHandle = Pick<
+  ReturnType<typeof MilkdownEditor>,
+  | 'applyEdit'
+  | 'blur'
+  | 'flush'
+  | 'applyExternalContent'
+  | 'closeFind'
+  | 'focus'
+  | 'getContent'
+  | 'getDocumentRef'
+  | 'insertMarkdown'
+  | 'refreshDecorations'
+  | 'revealSelection'
+  | 'resetHistory'
+  | 'openFind'
+  | 'setContent'
+  | 'retarget'
+  | 'setFindOverlayInset'
+  | 'setFindQuery'
+  | 'stepFind'
+  | 'exec'
+  | 'getProseMirrorView'
+>;
 
 export interface EmbeddedToolbarHandle {
   setCursorContext: (inContainer: boolean) => void;
