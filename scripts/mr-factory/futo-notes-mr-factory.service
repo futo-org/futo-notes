@@ -1,0 +1,25 @@
+[Unit]
+Description=FUTO Notes MR factory — hourly headless /mr-qa over non-draft MRs; merges SHIPs, DMs the author otherwise
+Documentation=file:__REPO_DIR__/scripts/mr-factory/README.md
+Wants=network-online.target
+After=network-online.target
+# Any failure — GitLab, Zulip, the agent, a problem the agent reported — DMs
+# the operator (throttled). A red unit alone is not an alarm: the papercut
+# sweep's unit went red on 2026-10-26 and nobody heard.
+OnFailure=futo-notes-mr-factory-failure.service
+
+[Service]
+Type=oneshot
+# __NODE_BIN__, __REPO_DIR__, __PATH__ and __ANDROID_HOME__ are substituted by
+# install-timer.sh so this unit carries no machine-specific path in git. PATH
+# is baked in because systemd's has none of node, pnpm, just, cargo, codex, or
+# the claude CLI the agent needs.
+ExecStart=__NODE_BIN__ __REPO_DIR__/scripts/mr-factory/sweep.mjs
+EnvironmentFile=%h/.config/futo-notes-mr-factory/env
+Environment=PATH=__PATH__
+Environment=ANDROID_HOME=__ANDROID_HOME__
+# The launcher's own timebox is 3.5 hours plus checkout refresh and reporting.
+# While a sweep runs, the hourly timer's ticks are no-ops.
+TimeoutStartSec=4h
+Nice=10
+IOSchedulingClass=best-effort
