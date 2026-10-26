@@ -8,6 +8,13 @@ The sync server lives in a separate repo:
 
 <https://gitlab.futo.org/futo-notes/futo-notes-server>
 
+## Command-line client (early preview)
+
+`futo-notes`, a terminal client for one vault on a headless Linux machine, lives in
+[apps/cli](./apps/cli/AGENTS.md); its behavior is specified in [docs/spec/cli.md](./docs/spec/cli.md).
+It is an early preview for dogfooding, not a release: build it with `just build-cli-static`, or
+download the binary from the manual `build:cli:linux` CI job.
+
 ## Development
 
 New here? See [CONTRIBUTING.md](./CONTRIBUTING.md) for machine setup, then
