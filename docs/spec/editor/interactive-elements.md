@@ -144,9 +144,12 @@
   text; when an earlier opener on the line cannot open, a later one still
   does (`café_a_ _b_` makes `b` italic). A delimiter typed inside a URL
   (`https://x.test/*a*`) is a character of the URL, as a file reads it, and
-  converts nothing. →
+  converts nothing — a closer too, so `x *b https://x.test/a*b` stays text;
+  a closer the URL ends on converts when the space after it is typed
+  (`x *b https://x.test/a* `), since GFM trims it off the URL. →
   packages/editor/src/milkdown-compat/inputRules.ts `flanking`,
-  tests/editor-embed-milkdown-interactive-typed-escapes.spec.ts
+  tests/editor-embed-milkdown-interactive-typed-escapes.spec.ts,
+  tests/editor-embed-milkdown-interactive-typed-urls.spec.ts
 
 - A delimiter escaped with a backslash, opening or closing (`\*not italic*`,
   `*foo\*`, `` \`a` ``), converts nothing; the line is saved so it reopens

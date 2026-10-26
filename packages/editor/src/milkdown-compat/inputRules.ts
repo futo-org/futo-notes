@@ -28,23 +28,32 @@ function flanked(edge: string, inner: string): string {
   return String.raw`(?<text>[^\s${edge}](?:${inner}*?[^\s${edge}])?)`;
 }
 
+/** A closer left in a URL converts when the whitespace that ends the URL is typed after it. */
+const CLOSED = String.raw`(?<after>\s?)$`;
+
 const EMPHASIS_STAR = new RegExp(
   lead(String.raw`^*\\`) +
     String.raw`(?<open>\*)` +
     flanked(String.raw`*`, '[^*]') +
-    String.raw`\*$`,
+    String.raw`\*` +
+    CLOSED,
 );
 const EMPHASIS_UNDERSCORE = new RegExp(
-  lead(String.raw`^\w\\`) + '(?<open>_)' + flanked('_', '.') + '_$',
+  lead(String.raw`^\w\\`) + '(?<open>_)' + flanked('_', '.') + '_' + CLOSED,
 );
 const STRONG = new RegExp(
   lead(String.raw`^\w:/\\`) +
     String.raw`(?<open>\*\*|__)` +
     flanked(String.raw`*_`, '[^*_]') +
-    String.raw`\k<open>$`,
+    String.raw`\k<open>` +
+    CLOSED,
 );
 const STRIKETHROUGH = new RegExp(
-  lead(String.raw`^\w:/~\\`) + '(?<open>~{1,2})' + flanked('~', '.') + String.raw`\k<open>$`,
+  lead(String.raw`^\w:/~\\`) +
+    '(?<open>~{1,2})' +
+    flanked('~', '.') +
+    String.raw`\k<open>` +
+    CLOSED,
 );
 /** A backtick before the opener would make it a longer run, which one backtick cannot close. */
 const INLINE_CODE = new RegExp(lead('^\\\\`', '`') + '(?<open>`)(?<text>[^`]+)`$');
@@ -77,7 +86,8 @@ function flanking(marker: string, before: string | undefined, after: string | un
   return { open: open && (b !== 0 || !close), close: close && (a !== 0 || !open) };
 }
 
-/** An opener inside a GFM URL literal belongs to the URL, including its delimiters. */
+/** Text ending inside a GFM URL literal: a delimiter typed next belongs to the URL, unless
+ * whitespace follows it (GFM trims a trailing `*`, `_` or `~` off a literal). */
 const INSIDE_URL = /(?:^|[\s\ufffc(*_[\]~])(?:https?:\/\/|www\.)[^\s\ufffc<]+$/i;
 
 /** No `String.prototype.at`: the legacy Android WebView floor (Chromium 83) lacks it. */
@@ -106,7 +116,8 @@ function rangeHasCodeMark(state: EditorState, from: number, to: number): boolean
 }
 
 /** Remove paired delimiters, retaining the leading context and existing inline marks.
- * The closer’s last character is the pending keystroke, absent from the document. */
+ * The pending keystroke, absent from the document, is the closer’s last character —
+ * or, for a closer left in a URL, the whitespace after it (`after`), inserted here. */
 function applyMark(
   state: EditorState,
   match: RegExpMatchArray,
@@ -115,11 +126,15 @@ function applyMark(
   mark: (open: string) => Mark,
   delimited: boolean,
 ): Transaction | null {
-  const { lead: before = '', open = '', text = '' } = match.groups ?? {};
+  const { lead: before = '', open = '', text = '', after = '' } = match.groups ?? {};
   if (text.trim() === '') return null;
-  const textBefore = (match.input ?? '').slice(0, (match.index ?? 0) + before.length);
-  if (INSIDE_URL.test(textBefore)) return null;
+  const input = match.input ?? '';
+  const openIndex = (match.index ?? 0) + before.length;
+  if (INSIDE_URL.test(input.slice(0, openIndex))) return null;
   if (delimited) {
+    // A code span outranks a literal, so only `*`, `_` and `~` runs defer to one.
+    const closerInUrl = INSIDE_URL.test(input.slice(0, openIndex + open.length + text.length));
+    if (closerInUrl !== (after !== '')) return null;
     if (endsEscaped(text)) return null;
     const marker = open.charAt(0);
     if (!flanking(marker, lastChar(before), text.charAt(0)).open) return null;
@@ -137,9 +152,11 @@ function applyMark(
   }
   const tr = state.tr;
   const storedMarks = tr.storedMarks ?? [];
+  const afterMarks = state.storedMarks ?? state.doc.resolve(end).marks();
   if (textEnd < end) tr.delete(textEnd, end);
   tr.delete(from, textStart);
   tr.addMark(from, from + text.length, mark(open));
+  if (after) tr.insert(from + text.length, state.schema.text(after, afterMarks));
   tr.setStoredMarks(storedMarks);
   return tr;
 }
