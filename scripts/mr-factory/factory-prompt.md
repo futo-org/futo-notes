@@ -8,6 +8,10 @@ the SHIP checklist, the closed list of holds, device claiming, and teardown.
 
 ## Overrides
 
+0. **Your session ends when your turn ends.** This is `claude -p`: the moment you reply
+   without a tool call, the process exits and every background subagent still running is
+   killed mid-leg. While any leg or fixer runs, keep the turn alive by waiting on it (a
+   blocking wait or a foreground poll); finish only after the result file is final.
 1. **Scope.** QA only the MRs in the task prompt. Do not QA, comment on, merge, or modify any
    other MR, even if the skill's MR query shows more.
 2. **Never ask, never wait.** Anywhere the skill would ask the user or wait for a decision, that
