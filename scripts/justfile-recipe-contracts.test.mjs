@@ -90,7 +90,6 @@ describe('argument passing', () => {
     'chunk-census',
     'gauntlet-milkdown-foreign',
     'milkdown-census',
-    'quality',
   ])('forwards user-supplied text verbatim in `%s`', (recipe) => {
     const recipeBody = body(recipe);
     expect(recipeBody).toContain('"$@"');

@@ -101,10 +101,3 @@ arch-gate:
 release-notes-check tag="":
   @node scripts/release-notes.mjs {{ if tag == "" { "--all" } else { "--tag " + tag + " --check" } }}
 
-# ── Code-quality ratchet (big-code-analysis) ──
-# Needs network on first run (downloads a pinned bca release into .bca-cache/);
-# set BCA_BIN=/path/to/bca to use a prebuilt binary. Gates new/worsened
-# complexity offenders against the committed .bca-baseline.toml. CI runs
-# this same script non-blocking (docs/architecture-gates.md).
-quality *args:
-  node scripts/bca-quality.mjs "$@"

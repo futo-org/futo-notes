@@ -153,11 +153,17 @@ describe('language catalogs', () => {
     );
   });
 
-  it('keeps completeness findings in the non-blocking audit', () => {
+  it('reports completeness findings, except for English-only CLI messages', () => {
     const directory = temporaryCatalogDirectory();
     writeFileSync(
       path.join(directory, 'en.json'),
-      JSON.stringify(catalog('English', 'English', { save: 'Save', cancel: 'Cancel {name}' })),
+      JSON.stringify(
+        catalog('English', 'English', {
+          save: 'Save',
+          cancel: 'Cancel {name}',
+          cli: { help: 'Show help' },
+        }),
+      ),
     );
     writeFileSync(
       path.join(directory, 'fr.json'),
@@ -170,7 +176,7 @@ describe('language catalogs', () => {
 
     expect(validation.errors).toEqual([]);
     expect(auditLanguageCatalogs(validation)).toEqual({
-      summaries: ['fr: 1/2 messages (50%)'],
+      summaries: ['fr: 1/3 messages (33%)'],
       warnings: [
         'fr.json: cancel: missing translation',
         'fr.json: extra: message does not exist in en.json',
