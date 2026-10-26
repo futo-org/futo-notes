@@ -13,7 +13,8 @@ The sync server lives in a separate repo:
 `futo-notes`, a terminal client for one vault on a headless Linux machine, lives in
 [apps/cli](./apps/cli/AGENTS.md); its behavior is specified in [docs/spec/cli.md](./docs/spec/cli.md).
 It is an early preview for dogfooding, not a release: build it with `just build-cli-static`, or
-download the binary from the manual `build:cli:linux` CI job.
+download the binary from the manual `build:cli:linux` CI job. Do not point it at a vault the
+desktop app has open: the two do not coordinate writes, so running both on one vault can lose edits.
 
 ## Development
 
