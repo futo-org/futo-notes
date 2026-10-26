@@ -74,6 +74,12 @@ export function listOpenMrs() {
   return gitlab('/merge_requests?state=opened&order_by=created_at&sort=asc&per_page=100');
 }
 
+/** Usernames of everyone who has pressed Approve on the MR. */
+export async function getApprovers(iid) {
+  const approvals = await gitlab(`/merge_requests/${iid}/approvals`);
+  return (approvals.approved_by ?? []).map((entry) => entry.user.username);
+}
+
 export function getMr(iid) {
   return gitlab(`/merge_requests/${iid}`);
 }

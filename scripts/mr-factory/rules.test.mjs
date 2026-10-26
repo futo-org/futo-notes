@@ -31,9 +31,22 @@ describe('selectMrs', () => {
       mr(2, { author: { username: 'outside-contributor' } }),
       mr(3, { labels: [HOLD_LABEL] }),
       mr(4, { target_branch: 'editor-hillclimb-faster' }),
-      mr(5, { author: { username: 'mason' } }),
+      mr(5),
     ];
     expect(selectMrs(open, { mrs: {} }).map((m) => m.iid)).toEqual([5]);
+  });
+
+  it("waits for Justin's approval on Mason's MRs", () => {
+    const open = [
+      mr(1, { author: { username: 'mason' } }),
+      mr(2, { author: { username: 'mason' } }),
+    ];
+    const approvers = new Map([
+      [1, ['justin']],
+      [2, ['mason']],
+    ]);
+    expect(selectMrs(open, { mrs: {} }, approvers).map((m) => m.iid)).toEqual([1]);
+    expect(selectMrs(open, { mrs: {} }).map((m) => m.iid)).toEqual([]);
   });
 
   it('judges a head commit once, and again after a new push', () => {

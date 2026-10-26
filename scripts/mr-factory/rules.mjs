@@ -10,6 +10,12 @@
 /** GitLab username → Zulip user id. Only these authors' MRs are touched. */
 export const AUTHORS = Object.freeze({ justin: 1557, mason: 3633 });
 
+/**
+ * Authors whose MRs wait for a named approver to press Approve in GitLab
+ * before the factory touches them (Justin, 2026-10-26: "for now").
+ */
+export const APPROVER_FOR = Object.freeze({ mason: 'justin' });
+
 /** Bug reports about the factory itself go to the operator. */
 export const OPERATOR_ZULIP_ID = AUTHORS.justin;
 
@@ -32,22 +38,39 @@ const SHA = /^[0-9a-f]{40}$/;
  * A recorded verdict is keyed by head SHA, so a new push makes the MR
  * eligible again — that is how a `factory::needs-human` MR re-enters.
  *
+ * An author listed in APPROVER_FOR also needs that approver among the MR's
+ * approvers. GitLab's own `approved` flag is no use here: the project
+ * requires zero approvals, so it reads true for every MR.
+ *
  * @param {Array<object>} openMrs GitLab merge request objects
  * @param {{ mrs: Record<string, { sha: string }> }} state
+ * @param {Map<number, string[]>} [approvers] usernames who approved, per iid
  * @param {number} [max]
  */
-export function selectMrs(openMrs, state, max = MAX_MRS_PER_SWEEP) {
+export function selectMrs(openMrs, state, approvers = new Map(), max = MAX_MRS_PER_SWEEP) {
   return openMrs
-    .filter(
-      (mr) =>
-        !mr.draft &&
-        mr.target_branch === TARGET_BRANCH &&
-        Object.hasOwn(AUTHORS, mr.author?.username ?? '') &&
-        !(mr.labels ?? []).includes(HOLD_LABEL) &&
-        state.mrs[mr.iid]?.sha !== mr.sha,
-    )
+    .filter((mr) => isCandidate(mr) && state.mrs[mr.iid]?.sha !== mr.sha)
+    .filter((mr) => {
+      const approver = APPROVER_FOR[mr.author.username];
+      return !approver || (approvers.get(mr.iid) ?? []).includes(approver);
+    })
     .sort((a, b) => a.iid - b.iid)
     .slice(0, max);
+}
+
+/** Open, non-draft, into main, by a known author, not held. */
+export function isCandidate(mr) {
+  return (
+    !mr.draft &&
+    mr.target_branch === TARGET_BRANCH &&
+    Object.hasOwn(AUTHORS, mr.author?.username ?? '') &&
+    !(mr.labels ?? []).includes(HOLD_LABEL)
+  );
+}
+
+/** Which MRs need their approvers looked up before selection. */
+export function needsApproval(mr) {
+  return isCandidate(mr) && Object.hasOwn(APPROVER_FOR, mr.author.username);
 }
 
 /**
