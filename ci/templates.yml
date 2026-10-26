@@ -194,9 +194,14 @@
 
 .cache-cargo-tauri:
   cache:
-    key:
-      files:
-        - Cargo.lock
+    # Rolling per-ref keys, not a Cargo.lock hash: a hash key misses for every
+    # MR whose lockfile differs from the last one cached, and pull-only MRs
+    # never write it, so they built cold. A ref with no archive of its own
+    # (every pull-only MR) starts from main's last build and cargo recompiles
+    # only what differs. Bump CARGO_CACHE_EPOCH to drop a bloated target/.
+    key: cargo-tauri-$CARGO_CACHE_EPOCH-$CI_COMMIT_REF_SLUG
+    fallback_keys:
+      - cargo-tauri-$CARGO_CACHE_EPOCH-$CI_DEFAULT_BRANCH
     paths:
       - .cargo-home/
       - target/
@@ -212,10 +217,10 @@
 # namespace until remote sccache replaces target archives entirely.
 .cache-cargo-sync:
   cache:
-    key:
-      prefix: sync
-      files:
-        - Cargo.lock
+    # Rolling per-ref key with a main fallback; see .cache-cargo-tauri.
+    key: sync-$CARGO_CACHE_EPOCH-$CI_COMMIT_REF_SLUG
+    fallback_keys:
+      - sync-$CARGO_CACHE_EPOCH-$CI_DEFAULT_BRANCH
     paths:
       - .cargo-home/
       - target/
@@ -230,10 +235,10 @@
 # the native cargo work its own key.
 .cache-cargo-native:
   cache:
-    key:
-      prefix: native
-      files:
-        - Cargo.lock
+    # Rolling per-ref key with a main fallback; see .cache-cargo-tauri.
+    key: native-$CARGO_CACHE_EPOCH-$CI_COMMIT_REF_SLUG
+    fallback_keys:
+      - native-$CARGO_CACHE_EPOCH-$CI_DEFAULT_BRANCH
     paths:
       - .cargo-home/
       - target/
