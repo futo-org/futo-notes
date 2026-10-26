@@ -105,7 +105,7 @@ export function validateReferences(refs, { justRecipes, pnpmScripts, pathExists 
 }
 
 const VERIFY_SKILL_PATH = '.claude/skills/verify/SKILL.md';
-const SHARED_NOTE_RULE_COMMANDS = ['pnpm run test:editor:minimal', 'just test-rust'];
+const SHARED_NOTE_RULE_COMMANDS = ['just test-unit packages/editor', 'just test-rust'];
 
 export function validateRequiredVerificationChains(file, text) {
   if (file.replaceAll(path.sep, '/') !== VERIFY_SKILL_PATH) return [];

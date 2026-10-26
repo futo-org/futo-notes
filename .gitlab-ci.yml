@@ -26,6 +26,14 @@ variables:
   # them without spending minutes recompressing tens of thousands of unchanged
   # target files; lockfile MRs opt back into pull-push in their job rules.
   CARGO_CACHE_POLICY: pull-push
+  # Part of every rolling Rust cache key (ci/templates.yml). Those keys no
+  # longer reset when Cargo.lock changes, so stale dependency builds pile up
+  # in target/; bump this to start every Rust cache fresh.
+  CARGO_CACHE_EPOCH: "1"
+  # Cache archives are 4 GB Cargo trees on a LAN S3 server: zip time, not
+  # transfer, is the cost, so trade size for speed.
+  FF_USE_FASTZIP: "true"
+  CACHE_COMPRESSION_LEVEL: fastest
   PNPM_STORE_DIR: $CI_PROJECT_DIR/.pnpm-store
   PLAYWRIGHT_BROWSERS_PATH: $CI_PROJECT_DIR/.cache-ms-playwright
   # Base images are pinned by digest so a registry `:latest` cannot swap the

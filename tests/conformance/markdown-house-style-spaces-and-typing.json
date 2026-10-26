@@ -2,7 +2,7 @@
   "description": "The editor's markdown house style (docs/spec/editor.md \"Markdown house style\", #266): what a save writes for a note, as hand-reviewed {source, expected} pairs. `source` is read with the app's own parser; `doc` instead gives an editor-made document no file could produce (ProseMirror toJSON shape). Every case also asserts that `expected` reads back as the same document and writes itself again unchanged. TypeScript only: the serializer has no Rust consumer. Runner: src/features/editor/milkdown/markdownHouseStyle.test.ts.",
   "cases": [
     {
-      "name": "spaces typed at the start or the end of a line are not written",
+      "name": "whitespace typed at the start of a paragraph's line is written, its first character as a reference; at the end of a line it is not",
       "doc": {
         "type": "doc",
         "content": [
@@ -27,10 +27,10 @@
           }
         ]
       },
-      "expected": "indented\nnext\n"
+      "expected": "&#x20; indented\n&#x9;next\n"
     },
     {
-      "name": "bold that starts with spaces at a line's start is written without them, never with a reference",
+      "name": "bold that starts with spaces at a line's start keeps them: the first is a reference, so the bold still opens",
       "doc": {
         "type": "doc",
         "content": [
@@ -53,7 +53,63 @@
           }
         ]
       },
-      "expected": "**a**\n"
+      "expected": "**&#x20; a**\n"
+    },
+    {
+      "name": "one, Enter, then two typed spaces and two: the spaces survive save and reopen",
+      "doc": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "one"
+              },
+              {
+                "type": "hardbreak",
+                "attrs": {
+                  "isInline": true
+                }
+              },
+              {
+                "type": "text",
+                "text": "  two"
+              }
+            ]
+          }
+        ]
+      },
+      "expected": "one\n&#x20; two\n"
+    },
+    {
+      "name": "four spaces typed at a paragraph's first line stay text: the reference keeps them out of an indented code block",
+      "doc": {
+        "type": "doc",
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "    four"
+              }
+            ]
+          }
+        ]
+      },
+      "expected": "&#x20;   four\n"
+    },
+    {
+      "name": "a list item's and a quote's lines keep their leading whitespace the same way",
+      "source": "- &#x20; a\n  &#x9;b\n\n> &#x20;&#x20;q",
+      "expected": "- &#x20; a\n  &#x9;b\n\n> &#x20; q\n"
+    },
+    {
+      "name": "raw whitespace at a line's start in a file is not content: the parser drops it, so a save does not invent it",
+      "source": "  one\n   two",
+      "expected": "one\ntwo\n"
     },
     {
       "name": "a heading's and a cell's leading spaces are not written",

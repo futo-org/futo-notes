@@ -3,9 +3,18 @@ import { Schema } from '@milkdown/kit/prose/model';
 import { EditorState, NodeSelection, TextSelection } from '@milkdown/kit/prose/state';
 import { CellSelection, tableNodes } from '@milkdown/kit/prose/tables';
 
-import { scopedTableEditing, selectionTouchesTable, transactionsTouchTable } from './tablePasses';
+import {
+  scopedKeepTableAlign,
+  scopedTableEditing,
+  selectionTouchesTable,
+  transactionsTouchTable,
+} from './tablePasses';
 
-const pm = tableNodes({ tableGroup: 'block', cellContent: 'paragraph', cellAttributes: {} });
+const pm = tableNodes({
+  tableGroup: 'block',
+  cellContent: 'paragraph',
+  cellAttributes: { alignment: { default: null } },
+});
 const schema = new Schema({
   nodes: {
     doc: { content: 'block+' },
@@ -148,5 +157,48 @@ describe('scopedTableEditing', () => {
     const next = state.apply(state.tr.insertText('x', 3));
     expect(next.doc.child(1).child(1).childCount).toBe(1);
     expect(next.doc.child(0).textContent).toBe('bexfore');
+  });
+});
+
+describe('scopedKeepTableAlign', () => {
+  const alignments = [null, 'left', 'center', 'right'];
+  const wideTable = () =>
+    table(
+      schema.node(
+        'table_row',
+        null,
+        alignments.map((alignment) =>
+          schema.node('table_header', { alignment }, [p(String(alignment))]),
+        ),
+      ),
+      row('a', 'b', 'c', 'd'),
+      row('e', 'f', 'g', 'h'),
+    );
+
+  it('copies each header column alignment to every body row, keeping missing alignment unset', () => {
+    const state = EditorState.create({
+      doc: doc(p('before'), wideTable(), p('after')),
+      plugins: [scopedKeepTableAlign()],
+    });
+    const tablePos = state.doc.child(0).nodeSize;
+    const next = state.apply(state.tr.insertText('x', tablePos + 4));
+    const aligned = next.doc.child(1);
+    for (let rowIndex = 1; rowIndex < aligned.childCount; rowIndex += 1) {
+      const actual: unknown[] = [];
+      aligned.child(rowIndex).forEach((cell) => actual.push(cell.attrs.alignment));
+      expect(actual).toEqual(alignments);
+    }
+    expect(next.doc.child(0)).toBe(state.doc.child(0));
+    expect(next.doc.child(2)).toBe(state.doc.child(2));
+  });
+
+  it('does not visit a table when only an unrelated paragraph changes', () => {
+    const state = EditorState.create({
+      doc: doc(p('before'), wideTable()),
+      plugins: [scopedKeepTableAlign()],
+    });
+    const next = state.apply(state.tr.insertText('x', 3));
+    expect(next.doc.child(1)).toBe(state.doc.child(1));
+    expect(next.doc.child(1).child(1).child(2).attrs.alignment).toBeNull();
   });
 });

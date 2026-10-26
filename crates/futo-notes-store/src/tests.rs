@@ -74,6 +74,7 @@ fn uncached(root: &TestRoot) -> Snapshot {
     )
 }
 
+mod append;
 mod bootstrap;
 mod create_and_recovery;
 mod external_changes;

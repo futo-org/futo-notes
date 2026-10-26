@@ -39,6 +39,10 @@ test:rust:workspace:
     # macros that panic (and abort the release app) once stderr is gone.
     - cargo clippy --workspace
     - cargo test --workspace
+    # The CLI's sign-in and sync tests are #[ignore]d in a plain workspace run
+    # because they start the pinned sync server; run them here against it.
+    - !reference [.setup-futo-notes-server, script]
+    - cargo test -p futo-notes-cli --test server -- --ignored
     - node --experimental-strip-types "$CI_PROJECT_DIR/tests/conformance/title-rules-differential.mjs"
   # Job 189242 exhausted the default 60m on a completely cold cache while
   # still compiling dependencies. Give that first run enough wall time to
@@ -72,6 +76,11 @@ test:rust:workspace:
         - src/shared/note/wikilinks.ts
         - apps/tauri/src-tauri/**/*
         - apps/tauri/Cargo.toml
+        - apps/cli/**/*
+        # The CLI reads its text from the catalog at build time.
+        - languages/en.json
+        - scripts/lib/sync-server.mjs
+        - scripts/sync-server-pin.json
         - src/features/sync/syncContract.generated.ts
         - scripts/build-rust-android.sh
         - scripts/build-rust-ios.sh

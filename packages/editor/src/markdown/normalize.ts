@@ -3,9 +3,10 @@
  *
  * 1. The house style's deliberate normalizations (docs/spec/editor.md
  *    "Markdown house style"), applied to a document before it is written:
- *    whitespace at the start of a line (`stripLineStart`: not inside a link or
- *    a code span, nor right after a task item's `[ ] `, where the parser keeps
- *    it) and at the end of one, and a line break at the end of a
+ *    whitespace at the start of a heading or a cell (`stripLineStart`: not
+ *    inside a link or a code span, where the parser keeps it; a paragraph's
+ *    lines keep theirs, which `./inline.ts` writes so a read keeps it) and at
+ *    the end of a line, and a line break at the end of a
  *    paragraph or heading are dropped (the parser drops them on every read; a
  *    cell keeps its last `<br>`), a cell holding one line break and nothing
  *    else is empty (a lone `<br>` reads back as one), a heading's line breaks
@@ -134,16 +135,8 @@ function stripLineEnd(nodes: NodeJson[], end: number): void {
   }
 }
 
-/**
- * The house style's inline normalizations (see the module header).
- * `afterCheckbox`: the content is a task item's first paragraph, whose first
- * line follows `[ ] ` in the file, so the parser keeps its leading whitespace.
- */
-export function normalizeInline(
-  content: readonly NodeJson[],
-  kind: InlineKind,
-  afterCheckbox = false,
-): NodeJson[] {
+/** The house style's inline normalizations (see the module header). */
+export function normalizeInline(content: readonly NodeJson[], kind: InlineKind): NodeJson[] {
   let nodes = content.map((node) => {
     if (node.type === NODE.html) return normalizedHtml(node);
     return kind === 'heading' && node.type === NODE.hardbreak
@@ -154,13 +147,9 @@ export function normalizeInline(
   for (let index = 0; index < nodes.length; index += 1) {
     if (isSoftBreak(nodes[index])) stripLineEnd(nodes, index);
   }
-  // A line starts the content, and in a paragraph each line break starts one.
-  if (!afterCheckbox) stripLineStart(nodes, 0);
-  for (let index = 0; index < nodes.length; index += 1) {
-    if (kind === 'paragraph' && nodes[index]?.type === NODE.hardbreak) {
-      stripLineStart(nodes, index + 1);
-    }
-  }
+  // A paragraph's lines keep their leading whitespace: `./inline.ts` writes it
+  // so a read keeps it. A heading's or a cell's is dropped.
+  if (kind !== 'paragraph') stripLineStart(nodes, 0);
   nodes = mergeText(nodes);
   for (;;) {
     stripLineEnd(nodes, nodes.length);
@@ -232,11 +221,7 @@ const linkEdge = (node: NodeJson, previous: NodeJson | undefined): boolean =>
  * counts as nothing at all. `content` is already `normalizeInline`d, so a line
  * holding only whitespace is empty.
  */
-function splitAtEmptyLines(
-  paragraph: NodeJson,
-  content: NodeJson[],
-  afterCheckbox: boolean,
-): NodeJson[] {
+function splitAtEmptyLines(paragraph: NodeJson, content: NodeJson[]): NodeJson[] {
   const blocks: NodeJson[] = [];
   let run: NodeJson[] = [];
   let split = false;
@@ -245,8 +230,7 @@ function splitAtEmptyLines(
   let lineEmpty = true;
   let previous: NodeJson | undefined;
   const endRun = () => {
-    const first = afterCheckbox && !started && emptyLines === 0;
-    const text = normalizeInline(run, 'paragraph', first);
+    const text = normalizeInline(run, 'paragraph');
     run = [];
     if (text.length === 0) return;
     const empties = started ? emptyLines - 1 : emptyLines;
@@ -346,9 +330,8 @@ function isUnwrittenRow(row: NodeJson): boolean {
  * `node` with the house style's structural normalizations, recursively: the
  * blocks the serializer writes for it, which a reparse must reproduce. One
  * block, except a paragraph with empty lines in it (`splitAtEmptyLines`).
- * `afterCheckbox`: see `normalizeInline`.
  */
-export function normalizeBlock(node: NodeJson, inCell = false, afterCheckbox = false): NodeJson[] {
+export function normalizeBlock(node: NodeJson, inCell = false): NodeJson[] {
   // Front matter is written byte for byte, line endings included.
   if (node.type === NODE.frontmatter) return [node];
   if (node.type === NODE.codeBlock) {
@@ -358,20 +341,11 @@ export function normalizeBlock(node: NodeJson, inCell = false, afterCheckbox = f
   if (!node.content) return [node];
   const kind = inCell && node.type === NODE.paragraph ? 'cell' : INLINE_KIND[node.type];
   if (kind === 'paragraph') {
-    return splitAtEmptyLines(
-      node,
-      normalizeInline(node.content, kind, afterCheckbox),
-      afterCheckbox,
-    );
+    return splitAtEmptyLines(node, normalizeInline(node.content, kind));
   }
   if (kind) return [{ ...node, content: normalizeInline(node.content, kind) }];
   const cell = node.type === NODE.tableHeader || node.type === NODE.tableCell;
-  // A task item's first paragraph is written on the marker line, after `[ ] `.
-  const task = node.type === NODE.listItem && typeof node.attrs?.checked === 'boolean';
-  const first = task ? node.content.findIndex((child) => !isEmptyParagraph(child)) : -1;
-  const parts = node.content.map((child, index) =>
-    normalizeBlock(child, cell, index === first && child.type === NODE.paragraph),
-  );
+  const parts = node.content.map((child) => normalizeBlock(child, cell));
   const tightItem = node.type === NODE.listItem && node.attrs?.spread !== true;
   let children = tightItem ? joinParagraphs(parts) : parts.flat();
   if (CONTAINERS.has(node.type)) children = trimContainer(node, children);

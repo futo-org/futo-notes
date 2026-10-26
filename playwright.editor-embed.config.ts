@@ -1,4 +1,5 @@
 import { defineConfig, devices } from '@playwright/test';
+import { playwrightArtifacts } from './scripts/playwright-artifacts.mjs';
 
 // Dedicated config for the editor-embed futoBridge harness. Unlike the main
 // web e2e config it needs NO dev server: globalSetup builds the single-file
@@ -22,6 +23,7 @@ import { defineConfig, devices } from '@playwright/test';
 // editor.html only contains the patched one.
 
 const isCI = !!process.env.CI;
+const artifacts = playwrightArtifacts('editor-embed', 'editor-embed-results.json');
 
 export default defineConfig({
   testDir: './tests',
@@ -32,12 +34,13 @@ export default defineConfig({
   forbidOnly: isCI,
   retries: 0,
   workers: 1,
+  outputDir: artifacts.outputDir,
   reporter: [
     [isCI ? 'dot' : 'list'],
-    ['json', { outputFile: 'test-results/editor-embed-results.json' }],
+    ['json', { outputFile: artifacts.jsonReport }],
     // open: 'never' so a local run never pops a browser tab; CI uploads the
     // folder as an artifact instead (see .gitlab-ci.yml).
-    ['html', { open: 'never', outputFolder: 'playwright-report' }],
+    ['html', { open: 'never', outputFolder: artifacts.htmlReport }],
   ],
   use: {
     hasTouch: true,

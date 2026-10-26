@@ -51,7 +51,7 @@ describe('validateRequiredVerificationChains', () => {
       {
         line: 1,
         message:
-          'shared note-rule verification chain is missing: pnpm run test:editor:minimal, just test-rust',
+          'shared note-rule verification chain is missing: just test-unit packages/editor, just test-rust',
       },
     ]);
   });

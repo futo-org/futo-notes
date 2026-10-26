@@ -8,7 +8,7 @@
  * through `EditorAssembly`, and every value that can change is a getter, read
  * when the plugin asks — never a snapshot taken at mount.
  */
-import { Editor, defaultValueCtx, editorViewOptionsCtx, rootCtx } from '@milkdown/kit/core';
+import { Editor, editorViewOptionsCtx, rootCtx } from '@milkdown/kit/core';
 import type { Ctx } from '@milkdown/kit/ctx';
 import { codeBlockAttr, inlineCodeAttr } from '@milkdown/kit/preset/commonmark';
 import { commonmarkWithCompat, gfmWithCompat } from '@futo-notes/editor/milkdown-compat';
@@ -42,7 +42,6 @@ import type { MobileDndHapticKind } from './mobileBlockDnd';
 import { codeHighlight } from './codeHighlight';
 import { createSelectionToolbarPlugin } from './selectionToolbar';
 import { createSlashMenuPlugin } from './slash';
-import { stripLeadingBoms } from './parseNote';
 import { createFindMatchReport, findEngine, type FindBarState, type FindMatchReport } from './find';
 import { tagDecorations } from './tagDecorations';
 import { documentChanges } from './documentChanges';
@@ -64,8 +63,8 @@ const CODE_IME_ATTRIBUTES = {
 
 /** The component props a plugin calls back into. Getters: each read is the CURRENT prop. */
 export interface EditorPluginProps {
-  readonly nativeShell: boolean;
-  readonly readonly: boolean;
+  readonly nativeShell?: boolean;
+  readonly readonly?: boolean;
   readonly onfocuschange?: (focused: boolean) => void;
   readonly onfindmatches?: (report: FindMatchReport, ref: DocumentRef) => void;
   readonly onhaptic?: (kind: MobileDndHapticKind) => void;
@@ -83,8 +82,6 @@ export interface EditorAssembly {
   useSlashMenu: () => boolean;
   useSelectionToolbar: () => boolean;
   getEditor: () => Editor | null;
-  /** The note to open with, if the host sent one before the engine was up. */
-  getPendingContent: () => string | null;
   getPasteHandler: () => ((event: ClipboardEvent) => boolean) | null;
   getDropHandler: () => ((event: DragEvent) => boolean) | null;
   isLoadFailed: () => boolean;
@@ -108,7 +105,6 @@ function configureEditor(ctx: Ctx, assembly: EditorAssembly): void {
     container,
     props,
     useMobileBlockDnd,
-    getPendingContent,
     getPasteHandler,
     getDropHandler,
     isLoadFailed,
@@ -119,7 +115,6 @@ function configureEditor(ctx: Ctx, assembly: EditorAssembly): void {
     nudgeBlockHandle,
   } = assembly;
   ctx.set(rootCtx, container);
-  ctx.set(defaultValueCtx, stripLeadingBoms(getPendingContent() ?? ''));
   /* The editable's IME behavior.
    *
    * Red squiggles off, iOS autocorrect ON. Those are separate
@@ -274,7 +269,7 @@ export function assembleEditor(assembly: EditorAssembly): Editor {
     .use(history)
     .use(listener)
     .use(documentChanges(documentEdited))
-    .use(readOnlyGuard(() => props.readonly))
+    .use(readOnlyGuard(() => props.readonly ?? false))
     // BEFORE clipboard: it owns the plain-text paste route (plainTextPaste.ts).
     .use(plainTextPaste)
     .use(clipboard)

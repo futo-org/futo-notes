@@ -18,7 +18,7 @@ import XCTest
 ///
 /// Configured by `FUTO_CLOSE_PERF_CONFIG` (JSON: `{"sizes":[1000,10000],
 /// "repeat":5}`) and `FUTO_CLOSE_PERF_OUT` (an absolute results path on this
-/// machine); without both it skips, so a plain `just test-ios-native` run is
+/// machine); without both it skips, so a plain `just test-ios-native-ui` run is
 /// unaffected. Each sample launches the app fresh against its own seeded vault
 /// under the results directory — never a developer's vault.
 final class EditorClosePerfTests: XCTestCase {

@@ -17,6 +17,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { tick } from 'svelte';
+import { redo, undo } from '@milkdown/kit/prose/history';
 import {
   POISONED,
   changes,
@@ -31,6 +32,33 @@ import {
 } from './__fixtures__/milkdownEditorHarness';
 
 useMountedEditor();
+
+describe('switching between notes with identical bytes', () => {
+  it('does not undo an edit from the outgoing note', () => {
+    handle.openNote('note-a', 'body\n');
+    const view = handle.getProseMirrorView()!;
+    view.dispatch(view.state.tr.insertText(' edited', 5));
+    const next = handle.getContent()!;
+
+    handle.openNote('note-b', next);
+
+    expect(undo(view.state, view.dispatch)).toBe(false);
+    expect(handle.getContent()).toBe(next);
+  });
+
+  it('does not redo an edit from the outgoing note', () => {
+    handle.openNote('note-a', 'body\n');
+    const view = handle.getProseMirrorView()!;
+    view.dispatch(view.state.tr.insertText(' edited', 5));
+    expect(undo(view.state, view.dispatch)).toBe(true);
+    const next = handle.getContent()!;
+
+    handle.openNote('note-b', next);
+
+    expect(redo(view.state, view.dispatch)).toBe(false);
+    expect(handle.getContent()).toBe(next);
+  });
+});
 
 describe('an editor holding no note', () => {
   it('reports nothing at all, not an empty note', () => {

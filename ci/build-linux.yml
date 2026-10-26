@@ -169,3 +169,46 @@ build:linux-appimage:
         - scripts/release-build.test.mjs
       when: manual
       allow_failure: true
+
+# Dogfood download of the futo-notes CLI (apps/cli): a static musl binary that
+# runs on any x86_64 Linux. Manual on purpose: the CLI is not a release
+# product yet, so it never runs on tags, never reaches a GitLab Release, and is
+# not in release:gate.needs. Its tests run in test:rust:workspace.
+build:cli:linux:
+  # The stock Rust image, pinned by digest, at the toolchain rust-toolchain.toml
+  # names. It needs no GTK or Node, only a musl C compiler for ring and zstd.
+  image: docker.io/library/rust@sha256:948f9b08a66e7fe01b03a98ef1c7568292e07ec2e4fe90d88c07bb14563c84ff
+  stage: build
+  needs: []
+  before_script: []
+  script:
+    - apt-get update -qq
+    - DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends musl-tools
+    - sh "$CI_PROJECT_DIR/ci/install-just.sh"
+    - just --justfile "$CI_PROJECT_DIR/justfile" build-cli-static
+    - |
+      BIN="$CI_PROJECT_DIR/target/x86_64-unknown-linux-musl/release/futo-notes"
+      # A dynamic binary here would download fine and then fail on any older
+      # distro, so prove it is static and that it runs before publishing it (M11).
+      ldd "$BIN" 2>&1 | grep -F "statically linked"
+      SMOKE="$(mktemp -d)"
+      HOME="$SMOKE" XDG_CONFIG_HOME="$SMOKE/c" XDG_STATE_HOME="$SMOKE/s" XDG_CACHE_HOME="$SMOKE/k" sh -c '
+        set -e
+        "$0" --version
+        "$0" init "$HOME/vault" >/dev/null
+        "$0" create smoke --body ok >/dev/null
+        test "$("$0" read smoke)" = ok
+      ' "$BIN"
+      mkdir -p "$CI_PROJECT_DIR/cli-dist"
+      cp "$BIN" "$CI_PROJECT_DIR/cli-dist/futo-notes-linux-x86_64"
+      sha256sum "$CI_PROJECT_DIR/cli-dist/futo-notes-linux-x86_64"
+  artifacts:
+    paths:
+      - cli-dist/futo-notes-linux-x86_64
+    expire_in: 4 weeks
+  rules:
+    - if: $CI_COMMIT_TAG
+      when: never
+    - if: $CI_MERGE_REQUEST_IID || $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH || $CI_PIPELINE_SOURCE == "web"
+      when: manual
+      allow_failure: true

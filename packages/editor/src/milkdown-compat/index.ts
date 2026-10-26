@@ -1,86 +1,4 @@
-/**
- * Milkdown round-trip compatibility plugins, and the editor's own serializer.
- *
- * WRITING. Every byte the editor writes comes out of the owned serializer
- * (`../markdown`, #266, house style in docs/spec/editor.md), which
- * `./ownedSerializer` installs as Milkdown's `serializerCtx`. Milkdown's
- * remark-stringify serializer is never called, so nothing here patches it.
- *
- * READING. A 30,995-note census of the real Milkdown pipeline (docs/plan/
- * milkdown-transition.md §2) found two classes of silent content loss and one
- * corruption class on the way in. All three are repaired here, at the layer
- * that causes them:
- *
- * 1. An inline `<br>` — the only legal way to break a line inside a GFM table
- *    cell — is deleted with no replacement, fusing the words on either side
- *    (fixed upstream in @milkdown/kit 7.22.3; the replacement below stays for
- *    the rest of what it does).
- *    `@milkdown/preset-commonmark`'s `remarkPreserveEmptyLinePlugin` is
- *    replaced (`./emptyLine`), and the replacement goes further: the preset's
- *    `<br />` stand-in for an empty paragraph is retired altogether, and blank
- *    lines read back as the empty paragraphs the serializer writes them for.
- * 2. `[](url)` loses its href along with its empty label. A remark transformer
- *    gives the link its URL as visible text (`./emptyLink`).
- * 3a. A title-less `![alt](src)` parses to `title: null`, which the preset's own
- *    image schema rejects; `./imageTitle` gives it the empty string.
- * 3b. An EMPTY task item has no text for GFM's `[ ]` marker to be followed by,
- *    so `- [ ]` parsed as a bullet holding the literal text `[ ]`.
- *    `./emptyTaskItem` reads it as the empty task item the serializer wrote.
- * Ambiguous bullet contents use CommonMark's interpretation.
- *
- * A fourth upstream plugin is dropped rather than forked:
- *
- * 4. Typing inside a heading comes out REVERSED on WebKit. `syncHeadingIdPlugin`
- *    dispatches a SECOND transaction after every document change, re-stamping
- *    each heading's slug `id` attribute — so a keystroke inside a heading
- *    changes that heading's own markup, ProseMirror cannot update its DOM node
- *    in place (`sameMarkup` is false once an attribute differs) and re-creates
- *    the element the caret is in, mid-typing. WKWebView then puts the NEXT
- *    character at the start of the block: typing `12345` into a heading lands
- *    `# 54321` (measured on the iOS simulator and in Playwright WebKit;
- *    Chromium survives the same churn). Nothing reads heading ids — the
- *    wikilink syntax rejects `[[note#heading]]` — and `headingSchema`'s `toDOM`
- *    still stamps the slug when it creates the element, so a heading rendered
- *    from a note's bytes carries the same anchor id it always did; only a
- *    heading being typed into keeps the id it was created with, which no code
- *    and no rendered output reads. Dropping it also takes a whole-document walk off
- *    every keystroke (AGENTS.md M5).
- *
- * One more fork is not a round-trip fix but an input one (FB-19, L6f-2):
- * `./inlineNodesCursor` replaces `inlineNodesCursorPlugin`, whose
- * `compositionend` handler claimed the event and so kept ProseMirror from ever
- * ending an IME composition that committed between two non-text inline nodes
- * (two wikilink chips, an image and a chip). `view.composing` stayed set: `- `
- * stopped making a list and the host's `isComposing()` stuck true.
- *
- * From the 2026-09 hardening campaign: `./inlineHtmlIndent` gives a multi-line
- * inline HTML tag back the continuation indent the parser strips, which
- * otherwise shrank every save; `./linkDefinitions` keeps a link reference
- * definition nothing uses (upstream deleted every one); `./tableWidth` pads a
- * ragged table at the end rather than letting `fixTables` shift its rows;
- * `./tableAlignment` keeps a cell's missing alignment through a paste; and
- * `./listItemSpread` makes an item the editor creates tight.
- *
- * `./inputRules` forks the presets' typed-markdown input rules where they read
- * a keystroke differently from how the parser reads the saved line: a fence
- * language with a capital or a `+`, seven `#`, emphasis padded with spaces, an
- * escaped opener.
- *
- * `./frontmatter` is the one member that is an ADDITION rather than a fork: the
- * preset has no front matter construct at all, so `---\ntags: [a, b]\n---`
- * parsed as a thematic break plus a setext heading and the first edit anywhere
- * in the note rewrote the metadata. It has no canary to go red, because
- * upstream is not wrong; it just does not ship the extension.
- *
- * These are adapters to one editor library's implementation, not note rules, so
- * they carry no Rust mirror — the M6 carve-out recorded in this package's
- * AGENTS.md. Both native hosts and the census harness consume this module, so
- * there is exactly one definition of what the editor does to a note's bytes.
- *
- * Pinned to `@milkdown/kit` 7.22.1. `tests/editor-embed-milkdown-compat.spec.ts`
- * reproduces each upstream bug against the *unpatched* preset: when upstream
- * fixes one, its canary fails and the corresponding fork here should be deleted.
- */
+/** Parse-side repairs for pinned Milkdown presets; upstream canaries live in the editor-embed compat suites. */
 import {
   commonmark,
   createCodeBlockInputRule as upstreamCodeBlockInputRule,
@@ -135,90 +53,21 @@ export { editorMarkdownSerializer } from './ownedSerializer';
 export { asFillerRow, isUnwrittenFillerRow } from './tableFillerRow';
 export { endsInUnwrittenBlank, writtenContentEnd } from './trailingParagraph';
 
-/** The two entries `remarkPreserveEmptyLinePlugin` contributes to the preset. */
-const UPSTREAM_EMPTY_LINE_ENTRIES: readonly unknown[] = [
-  remarkPreserveEmptyLinePlugin.options,
-  remarkPreserveEmptyLinePlugin.plugin,
-];
-
-/** `remarkInlineLinkPlugin`'s two entries — replaced by `./linkDefinitions`. */
-const UPSTREAM_INLINE_LINK_ENTRIES: readonly unknown[] = [
-  remarkInlineLinkPlugin.options,
-  remarkInlineLinkPlugin.plugin,
-];
-
-/** `syncHeadingIdPlugin`'s one entry — removed with no replacement (see 4). */
-const UPSTREAM_HEADING_ID_ENTRIES: readonly unknown[] = [syncHeadingIdPlugin];
-
-/**
- * The three preset plugins that walk the WHOLE document on every transaction,
- * each replaced by the same logic over only the top-level blocks the
- * transaction touched (see `./listOrder` and `./tablePasses`). Not a round-trip
- * fix but the same kind of adapter: what a plugin walks is an implementation
- * detail of one editor library, and the per-item rules are kept verbatim.
- *
- * Measured on the low-end Android reference phone at 10k lines (5,000 blocks,
- * `just test-android-perf-quick --profile`, 2026-09-05): `syncListOrderPlugin`'s
- * `doc.descendants` alone was ~12 ms of a 22 ms keystroke, against a 16 ms
- * budget for the whole keystroke (AGENTS.md M5).
- */
-const UPSTREAM_LIST_ORDER_ENTRIES: readonly unknown[] = [syncListOrderPlugin];
-const UPSTREAM_TABLE_PASS_ENTRIES: readonly unknown[] = [keepTableAlignPlugin, tableEditingPlugin];
-
-/**
- * `plugins` without `entries`.
- *
- * A Milkdown upgrade that changes how the preset is composed makes this throw
- * rather than silently keep the plugin: failing loudly beats shipping an editor
- * that quietly runs a broken plugin next to its replacement, or that never
- * dropped the one it was supposed to drop.
- */
-function withoutPresetEntries(
-  plugins: MilkdownPlugin[],
-  entries: readonly unknown[],
-  what: string,
-  preset = '@milkdown/preset-commonmark',
-): MilkdownPlugin[] {
-  const kept = plugins.filter((plugin) => !entries.includes(plugin));
-  const removed = plugins.length - kept.length;
-  if (removed !== entries.length) {
-    throw new Error(
-      `milkdown-compat: expected to remove ${entries.length} upstream ${what} entries ` +
-        `from the preset, removed ${removed}. ` +
-        `Re-check ${preset}'s composition against this module.`,
-    );
-  }
-  return kept;
-}
-
-/**
- * `plugins` with `upstream` swapped for `replacement` at the same index — for a
- * fork whose position matters: where a `handleDOMEvents` plugin sits in the
- * list decides which of two plugins claims an event first. Throws, like
- * `withoutPresetEntries`, when the preset no longer holds `upstream`.
- */
-function replacePresetEntry(
-  plugins: MilkdownPlugin[],
+type PresetPatch = readonly [
   upstream: MilkdownPlugin,
-  replacement: MilkdownPlugin,
-  what: string,
-  preset = '@milkdown/preset-commonmark',
-): MilkdownPlugin[] {
-  const at = plugins.indexOf(upstream);
-  if (at < 0) {
-    throw new Error(
-      `milkdown-compat: expected to replace the upstream ${what} entry in the preset, ` +
-        `found none. Re-check ${preset}'s composition against this module.`,
-    );
-  }
-  return plugins.map((plugin, index) => (index === at ? replacement : plugin));
-}
+  replacement: MilkdownPlugin | null,
+  name: string,
+];
 
-/**
- * The preset's input rules that read typed markdown differently from the
- * parser that reads the note back, each swapped for its fork in `./inputRules`.
- */
-const FORKED_INPUT_RULES: readonly (readonly [MilkdownPlugin, MilkdownPlugin, string])[] = [
+const COMMONMARK_PATCHES: readonly PresetPatch[] = [
+  [remarkPreserveEmptyLinePlugin.options, null, 'empty-line options'],
+  [remarkPreserveEmptyLinePlugin.plugin, null, 'empty-line plugin'],
+  [remarkInlineLinkPlugin.options, null, 'inline-link options'],
+  [remarkInlineLinkPlugin.plugin, null, 'inline-link plugin'],
+  // Updating the heading id rebuilds its DOM during typing on WebKit.
+  [syncHeadingIdPlugin, null, 'heading-id plugin'],
+  [syncListOrderPlugin, null, 'list-order plugin'],
+  [upstreamInlineNodesCursorPlugin, inlineNodesCursorPlugin, 'inline-cursor plugin'],
   [upstreamEmphasisStarInputRule, emphasisStarInputRule, 'emphasis-star input rule'],
   [
     upstreamEmphasisUnderscoreInputRule,
@@ -231,121 +80,81 @@ const FORKED_INPUT_RULES: readonly (readonly [MilkdownPlugin, MilkdownPlugin, st
   [upstreamHeadingInputRule, wrapInHeadingInputRule, 'heading input rule'],
 ];
 
-/** The upstream preset minus every plugin this module forks or drops. */
-function upstreamPresetWithoutForkedPlugins(): MilkdownPlugin[] {
-  const withoutEmptyLine = withoutPresetEntries(
-    commonmark as MilkdownPlugin[],
-    UPSTREAM_EMPTY_LINE_ENTRIES,
-    'empty-line',
+const GFM_PATCHES: readonly PresetPatch[] = [
+  [keepTableAlignPlugin, null, 'table-alignment plugin'],
+  [tableEditingPlugin, null, 'table-editing plugin'],
+  [upstreamStrikethroughInputRule, strikethroughInputRule, 'strikethrough input rule'],
+];
+
+/** Preserve event-handler priority and fail closed if an upstream preset changes shape. */
+function patchPreset(
+  plugins: readonly MilkdownPlugin[],
+  patches: readonly PresetPatch[],
+  preset: string,
+): MilkdownPlugin[] {
+  const changes = new Map(
+    patches.map(([upstream, replacement, name]) => [upstream, { replacement, name, count: 0 }]),
   );
-  const withoutInlineLink = withoutPresetEntries(
-    withoutEmptyLine,
-    UPSTREAM_INLINE_LINK_ENTRIES,
-    'inline-link',
-  );
-  const withoutHeadingId = withoutPresetEntries(
-    withoutInlineLink,
-    UPSTREAM_HEADING_ID_ENTRIES,
-    'heading-id',
-  );
-  const withoutListOrder = withoutPresetEntries(
-    withoutHeadingId,
-    UPSTREAM_LIST_ORDER_ENTRIES,
-    'list-order',
-  );
-  const withInlineCursor = replacePresetEntry(
-    withoutListOrder,
-    upstreamInlineNodesCursorPlugin,
-    inlineNodesCursorPlugin,
-    'inline-cursor',
-  );
-  return FORKED_INPUT_RULES.reduce(
-    (plugins, [upstream, fork, what]) => replacePresetEntry(plugins, upstream, fork, what),
-    withInlineCursor,
-  );
+  const result: MilkdownPlugin[] = [];
+  for (const plugin of plugins) {
+    const change = changes.get(plugin);
+    if (!change) {
+      result.push(plugin);
+      continue;
+    }
+    change.count += 1;
+    if (change.replacement !== null) result.push(change.replacement);
+  }
+  for (const { name, count } of changes.values()) {
+    if (count !== 1) {
+      throw new Error(
+        `milkdown-compat: expected one upstream ${name} entry in ${preset}, found ${count}. ` +
+          'Re-check the preset composition against this module.',
+      );
+    }
+  }
+  return result;
 }
 
-let cached: MilkdownPlugin[] | null = null;
+let cachedCommonmark: MilkdownPlugin[] | null = null;
 let cachedGfm: MilkdownPlugin[] | null = null;
 
-/**
- * The gfm preset with its two whole-document passes scoped to the blocks a
- * transaction touched — use this in place of `gfm`, and always together with
- * `commonmarkWithCompat()`: both presets' scoped replacements read the same
- * `touchedRange` helpers, and a table pass left running whole-document next to
- * its scoped twin would do the walk twice.
- */
+/** The GFM preset with scoped table passes and lossless schema overrides; pair with commonmarkWithCompat(). */
 export function gfmWithCompat(): MilkdownPlugin[] {
   cachedGfm ??= [
-    ...replacePresetEntry(
-      withoutPresetEntries(
-        gfm as MilkdownPlugin[],
-        UPSTREAM_TABLE_PASS_ENTRIES,
-        'table-pass',
-        '@milkdown/preset-gfm',
-      ),
-      upstreamStrikethroughInputRule,
-      strikethroughInputRule,
-      'strikethrough input rule',
-      '@milkdown/preset-gfm',
-    ),
+    ...patchPreset(gfm, GFM_PATCHES, '@milkdown/preset-gfm'),
     scopedKeepTableAlignPlugin,
     scopedTableEditingPlugin,
-    /* Ragged rows squared up at the end, before `fixTables` can pad them at
-     * the start (see `./tableWidth`). */
+    // Pad at the end before fixTables can shift values under the wrong header.
     ...remarkPadTableRowsPlugin,
-    /* After the preset, whose cell nodes they re-register: a cell with no
-     * alignment keeps none through a paste (see `./tableAlignment`). */
+    // Schema overrides must follow the GFM registrations they extend.
     ...tableAlignmentSchemas,
-    /* After the preset, whose `table_row` it re-registers: the empty row a
-     * header-only table needs is not written (see `./tableFillerRow`). */
     tableFillerRowSchema,
-    /* After the preset, whose task-list support extends `list_item`: an item the
-     * editor makes is tight, like one read from a tight file (see `./listItemSpread`). */
     tightListItemSchema,
   ];
   return cachedGfm;
 }
 
 /**
- * The commonmark preset with every round-trip fix applied, writing through the
- * editor's own serializer — use this in place of `commonmark`.
- *
- * Shipped as one array on purpose: filtering the preset without adding the
- * replacement drops every blank line the author typed (see `./emptyLine`), and
- * adding the replacement without filtering leaves the broken plugin running
- * AND brings the `<br />` placeholder back. Neither half is usable alone.
- *
- * A function, not a const, and that matters: this package's barrel re-exports
- * the module, so a preset built at module scope would run its upstream-shape
- * check — and could throw — on any import of `@futo-notes/editor`, and would
- * pull `@milkdown/kit` into every bundle that touches the barrel, including the
- * CodeMirror one and the codegen scripts. A top-level side effect is also not
- * tree-shakeable, so that cost could not be optimized away. Memoized, because
- * the plugin identities have to be stable across editor instances.
+ * The complete parse-side compat set and owned serializer. Built lazily so a
+ * barrel import does not validate the preset or force Milkdown into codegen;
+ * memoized to keep plugin identities stable across editors.
  */
 export function commonmarkWithCompat(): MilkdownPlugin[] {
-  cached ??= [
-    ...upstreamPresetWithoutForkedPlugins(),
+  cachedCommonmark ??= [
+    ...patchPreset(commonmark, COMMONMARK_PATCHES, '@milkdown/preset-commonmark'),
     ...remarkBlankLineParagraphsPlugin,
-    /* After the blank-line restore, which counts gaps by source line: a used
-     * definition deleted before it left its lines behind as empty paragraphs. */
+    // Restore source-line gaps before deleting used definitions.
     ...remarkInlineUsedLinkDefinitionsPlugin,
     ...remarkExpandEmptyLinksPlugin,
     ...remarkInlineHtmlIndentPlugin,
     ...remarkImageTitlePlugin,
     ...remarkEmptyTaskItemPlugin,
-    /* The preset's list numbering over the touched blocks only (see
-     * UPSTREAM_LIST_ORDER_ENTRIES). */
     scopedListOrderPlugin,
-    /* After the preset, and it has to be: the front matter set overrides the
-     * preset's own `doc` node by re-registering that id, which `$node` resolves
-     * by upsert — so it must be registered after the preset, and it reads the
-     * registered entry back to inherit everything but the content expression. */
+    // Frontmatter extends the preset's registered doc schema.
     ...frontmatterPlugins,
     ...frontmatterCaretPlugins,
-    /* Every byte the editor writes (`./ownedSerializer`). */
     ownedSerializerPlugin,
   ];
-  return cached;
+  return cachedCommonmark;
 }

@@ -10,7 +10,8 @@ simulator selection, and debug data guards are applied consistently.
 
 ```bash
 just build-ios-native
-just test-ios-native
+just test-ios-native        # unit tests; name suites to run only those
+just test-ios-native-ui     # UI tests; name classes to run only those
 just ios-native
 ```
 

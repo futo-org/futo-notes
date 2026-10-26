@@ -4,7 +4,8 @@ import type { Node as ProseNode } from '@milkdown/kit/prose/model';
 import { EditorState, NodeSelection, TextSelection } from '@milkdown/kit/prose/state';
 
 import { testSchema } from '../__fixtures__/schema';
-import { linkRunAt, resolveSelectionToolbar, selectionToolbarTarget } from './target';
+import { resolveSelectionToolbar, selectionToolbarTarget } from './target';
+import { linkRunAt } from '../linkPrompt/linkEditing';
 
 const s = testSchema;
 const p = (...content: ProseNode[]): ProseNode => s.nodes.paragraph.create(null, content);

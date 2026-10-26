@@ -92,5 +92,5 @@
   block too. Verified on the emulator with gesture navigation (API 36, System
   WebView 133.0.6943.137) 2026-09-23, on a fresh one-block note and a
   five-block one. → apps/ios/Sources/Editor/EditorWebView.swift
-  `navigationPopGestures`, src/features/editor/milkdown/mobileBlockDndGesture.ts
+  `navigationPopGestures`, src/features/editor/milkdown/mobileBlockDnd.ts
   `onPointerCancel` _(native shells)_

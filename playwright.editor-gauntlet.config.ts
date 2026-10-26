@@ -1,4 +1,5 @@
 import { defineConfig, devices } from '@playwright/test';
+import { playwrightArtifacts } from './scripts/playwright-artifacts.mjs';
 import { gauntletArtifactCapture } from './tests/editor-gauntlet/artifactCapture';
 
 // Dedicated config for the editor gauntlet.
@@ -14,6 +15,7 @@ import { gauntletArtifactCapture } from './tests/editor-gauntlet/artifactCapture
 // finishes in seconds look like it hangs.
 
 const isCI = !!process.env.CI;
+const artifacts = playwrightArtifacts('editor-gauntlet', 'editor-gauntlet-results.json');
 // The foreign sweep's report fingerprints this, so it must be the value the
 // run actually used.
 const captureOff = gauntletArtifactCapture() === 'off-retry-on-failure';
@@ -32,10 +34,11 @@ export default defineConfig({
   forbidOnly: isCI,
   retries: 0,
   workers: 1,
+  outputDir: artifacts.outputDir,
   reporter: [
     [isCI ? 'dot' : 'list'],
-    ['json', { outputFile: 'test-results/editor-gauntlet-results.json' }],
-    ['html', { open: 'never', outputFolder: 'playwright-report' }],
+    ['json', { outputFile: artifacts.jsonReport }],
+    ['html', { open: 'never', outputFolder: artifacts.htmlReport }],
   ],
   use: {
     hasTouch: true,

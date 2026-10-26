@@ -137,15 +137,15 @@ package or dependency assertions into one generic contract.
 
 Prefer net-negative production LOC. Do not add replacement tests that restate
 the same implementation, and do not convert uncertain candidates into cleanup
-to increase deletion counts. A deleted test that CI names explicitly (the
-`test:unit:minimal` list in `package.json`, a justfile recipe, a CI job) is
+to increase deletion counts. A deleted test that CI names explicitly (a justfile
+recipe, a CI job) is
 removed from that list in the same commit.
 
 ## Validation
 
 Never edit source or tests while a test run is in progress in the checkout.
 
-1. Run the smallest owner and sibling tests: `just test-one <path-or-filter>`
+1. Run the smallest owner and sibling tests: `just test-unit <path-or-filter>`
    for Vitest, `cargo test -p <crate> <filter>` for Rust, and the nearest
    nested `AGENTS.md` recipe for Swift/Kotlin/Playwright.
 2. For removed source greps or plan assertions, run the executable script or

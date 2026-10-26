@@ -161,6 +161,7 @@ build.env
 
 # Rust
 target/
+/cli-dist/
 # proptest writes a failing seed here; the failure output already prints it, and
 # a stray generated dir must never land in a commit (AGENTS.md M16).
 proptest-regressions/
