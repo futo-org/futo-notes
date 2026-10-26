@@ -209,15 +209,17 @@ fn a_vault_connected_to_one_server_refuses_another() {
 #[ignore = "needs the pinned sync server; run `just test-cli`"]
 fn a_failed_first_sync_keeps_the_configuration_for_a_retry() {
     let server = Server::start();
+    let peer = Env::new("first-sync-peer");
+    peer.init();
+    peer.run(&["create", "work/plan", "--body", "x"])
+        .assert_ok();
+    peer.login(&server).assert_ok();
+    // A plain file where the downloaded note needs its folder makes the first
+    // cycle incomplete, even for root (CI runs as root).
     let env = Env::new("first-sync");
     let root = env.init();
-    env.run(&["create", "pending", "--body", "x"]).assert_ok();
-    // A note that cannot be read makes the first cycle incomplete.
-    let blocked = env.note("blocked");
-    fs::write(&blocked, "b").unwrap();
-    fs::set_permissions(&blocked, fs::Permissions::from_mode(0o000)).unwrap();
+    fs::write(root.join("work"), "not a folder").unwrap();
     let run = env.login(&server);
-    fs::set_permissions(&blocked, fs::Permissions::from_mode(0o644)).unwrap();
     run.assert_status(1);
     assert_eq!(run.error_code(), "sync_incomplete");
     assert!(run.json()["error"]["message"]
@@ -227,7 +229,9 @@ fn a_failed_first_sync_keeps_the_configuration_for_a_retry() {
     assert!(fs::read_to_string(env.config_file())
         .unwrap()
         .contains(&server.url));
+    fs::remove_file(root.join("work")).unwrap();
     env.run(&["sync"]).assert_ok();
+    assert_eq!(env.run(&["read", "work/plan"]).stdout, "x");
 }
 
 #[test]

@@ -469,13 +469,14 @@ fn a_failed_save_keeps_the_draft() {
     let env = Env::new("edit-save-fails");
     let root = env.init();
     env.run(&["create", "n", "--body", "base"]).assert_ok();
+    // A directory where the note was makes the save fail, even for root
+    // (CI runs as root, which ignores file permissions).
     let editor = editor_script(
         &env,
         "editor",
         &format!(
-            "printf 'mine' > \"$1\"\nchmod 0555 '{}'\nchmod 0444 '{}'",
-            root.display(),
-            root.join("n.md").display()
+            "printf 'mine' > \"$1\"\nrm '{note}'\nmkdir '{note}'",
+            note = root.join("n.md").display()
         ),
     );
     let output = env
@@ -484,7 +485,6 @@ fn a_failed_save_keeps_the_draft() {
         .args(["--json", "edit", "n"])
         .output()
         .unwrap();
-    fs::set_permissions(&root, fs::Permissions::from_mode(0o755)).unwrap();
     assert_eq!(output.status.code(), Some(1), "{output:?}");
     let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     let draft = value["data"]["draftPath"].as_str().unwrap();
