@@ -31,8 +31,8 @@
         static let portEnvironmentKey = "FUTO_PUPPET_PORT"
         static let maximumRequestBytes = 256 * 1024
         static let queries = [
-            "elements", "state", "notes", "search", "observe", "clipboard", "doc", "at", "show",
-            "events", "diff", "trace", "touches",
+            "elements", "state", "notes", "search", "file", "observe", "clipboard", "doc", "at",
+            "show", "events", "diff", "trace", "touches",
         ]
         /// Queries the WEBVIEW answers about the page it is showing. The webview is one
         /// long-lived instance, so it still holds the last note's document after a GoBack:

@@ -44,6 +44,7 @@ mod app;
 mod batch;
 mod call;
 mod desktop_bridge;
+mod file;
 mod gesture;
 mod gesture_arguments;
 mod json_text;
@@ -70,6 +71,7 @@ mod verified_app;
 use batch::*;
 use call::*;
 use desktop_bridge::*;
+use file::*;
 use gesture::*;
 use gesture_arguments::*;
 use json_text::*;
@@ -101,6 +103,7 @@ const USAGE: &str = "usage:
   futo-puppet do '[[\"Verb\",{…}],[\"Verb\"],…]'
   futo-puppet notes                              every note id and folder path in the vault
   futo-puppet search '{\"query\":\"…\"[,\"limit\":N]}'    the app's own search, best match first (default 10)
+  futo-puppet file '{\"noteId\":\"…\"[,\"save\":false][,\"lines\":\"40-60\"][,\"find\":\"…\"][,\"around\":N]}'   the note's markdown on disk, every line unless narrowed. It saves the open note's pending edits first (409 if the note asked for has edits that cannot save); \"save\":false reads the disk as it is, saving nothing, so any edits not saved yet are not in it. Its numbers are the file's lines, not doc's
   futo-puppet elements|state|doc|at|show|events|diff ['<json args>']   doc: the note's lines on screen; show {\"text\"}: where that text shows
   futo-puppet click '{\"x\":N,\"y\":N[,\"hold\":seconds][,\"button\":\"right\"][,\"count\":2]}'   (desktop)
   futo-puppet tap '{\"x\":N,\"y\":N[,\"hold\":seconds]}'        (ios, android)
@@ -122,12 +125,13 @@ Add {\"json\":true} to any args for the raw typed form.
 Target: FUTO_PUPPET_TARGET=desktop|ios|android (default desktop), FUTO_PUPPET_PORT=<port> (phones only; default: worktree slot).
 How to drive the app with this (read first): .claude/skills/puppet/SKILL.md";
 
-const QUERIES: [&str; 11] = [
+const QUERIES: [&str; 12] = [
     "actions",
     "elements",
     "state",
     "notes",
     "search",
+    "file",
     "doc",
     "at",
     "show",

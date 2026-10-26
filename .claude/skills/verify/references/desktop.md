@@ -257,14 +257,8 @@ from the pre-edit computed style.
 The editor is Milkdown (ProseMirror) and renders WYSIWYG, so `.ProseMirror`'s
 `innerText` is what the reader sees — not the markdown that gets saved. Almost
 every check means the second one: `just puppet doc` shows it for the lines on
-screen (`md`), and the dev-gated shell hook (`src/app/installNotesShellTestHook.ts`)
-reads the whole note:
-
-```js
-const hook = window.__notesShellTest; // dev/opted-in builds only
-hook.getState().editorContent; // the note's markdown, as a save would see it
-await hook.flushSave();
-```
+screen (`md`), and `just puppet file '{"noteId":"…"}'` reads the whole note as it is
+on disk, the open note's edits saved first unless `"save":false` (`"find"`/`"lines"` narrow it).
 
 The mount is `.futo-milkdown` and the editable element is `.ProseMirror`; wait
 for both plus `window.__notesShellTest` before driving anything.

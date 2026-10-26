@@ -239,6 +239,36 @@ async function searchNotes(args: Args): Promise<PuppetOutcome> {
   return ok({ query, hits: await search(query, limit as number) });
 }
 
+/**
+ * A note's markdown as it is on disk, read once the open note's edits are saved, so they are in
+ * it; refused while they are not on disk. `save: false` reads the disk as it is, saving nothing.
+ * The CLI narrows it to lines or matches.
+ */
+async function readFile(args: Args): Promise<PuppetOutcome> {
+  const { noteId, save } = args;
+  if (typeof noteId !== 'string' || !noteId) return refuse(400, 'file needs {"noteId":"…"}');
+  const shell = puppetProviders.shell;
+  if (!shell?.saveOpenNote || !shell.readNote) {
+    return refuse(501, 'this shell does not read files yet');
+  }
+  if (save !== false && (await shell.saveOpenNote()).includes(noteId)) {
+    return refuse(
+      409,
+      `${JSON.stringify(noteId)} has edits that did not save, so its file is not what the editor shows; "save":false reads the disk as it is`,
+    );
+  }
+  const text = await shell.readNote(noteId);
+  return text === null
+    ? refuse(404, `no note ${JSON.stringify(noteId)} in the vault; \`notes\` lists every one`)
+    : ok({ noteId, text });
+}
+
+/** The commands that answer with a promise: the search engine and the disk are async. */
+const asyncCommands = new Map([
+  ['search', searchNotes],
+  ['file', readFile],
+]);
+
 function at(args: Args): PuppetOutcome {
   const { x, y } = args;
   if (typeof x !== 'number' || typeof y !== 'number')
@@ -387,9 +417,9 @@ export function runPuppetCommand(command: string, args: unknown): PuppetOutcome 
 }
 
 /**
- * The wire form: JSON in, JSON out, so every host bridge can carry it as a string. `search`
- * alone answers with a promise (the engine is async); the desktop bridge awaits the script,
- * and the phones answer `search` natively, so no synchronous host ever receives one.
+ * The wire form: JSON in, JSON out, so every host bridge can carry it as a string. Only the
+ * async commands answer with a promise; the desktop bridge awaits the script, and the phones
+ * answer those natively, so no synchronous host ever receives one.
  */
 export function runPuppetCommandJson(command: string, argsJson: string): string | Promise<string> {
   let args: unknown;
@@ -398,12 +428,16 @@ export function runPuppetCommandJson(command: string, argsJson: string): string 
   } catch {
     return JSON.stringify(refuse(400, `${command}: arguments are not valid JSON`));
   }
-  if (command === 'search' && isRecord(args)) {
-    return searchNotes(args).then(
+  const asyncCommand = asyncCommands.get(command);
+  if (asyncCommand && isRecord(args)) {
+    return asyncCommand(args).then(
       (outcome) => JSON.stringify(outcome),
       (error: unknown) =>
         JSON.stringify(
-          refuse(500, `search threw: ${error instanceof Error ? error.message : String(error)}`),
+          refuse(
+            500,
+            `${command} threw: ${error instanceof Error ? error.message : String(error)}`,
+          ),
         ),
     );
   }

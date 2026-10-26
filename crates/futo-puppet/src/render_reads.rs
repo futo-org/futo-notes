@@ -365,6 +365,7 @@ pub(crate) fn render_query(command: &str, body: &Value) -> String {
         "elements" => render_elements(body),
         "notes" => render_notes(body),
         "search" => render_search(body),
+        "file" => render_file(body),
         "doc" => render_doc(body),
         "events" if body["events"].is_array() => {
             render_events(body["events"].as_array().unwrap(), false)

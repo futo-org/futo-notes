@@ -222,6 +222,48 @@ describe('wire form', () => {
     expect(typeof runPuppetCommandJson('notes', '{}')).toBe('string');
   });
 
+  it('file saves the open note first, then reads the disk; refused while an edit is unsaved', async () => {
+    const run = async (args: Record<string, unknown>) =>
+      JSON.parse(await runPuppetCommandJson('file', JSON.stringify(args))) as {
+        status: number;
+        body: { noteId?: string; text?: string; error?: string };
+      };
+    expect((await run({ noteId: 'work/retro' })).status).toBe(501);
+    const disk = new Map([['work/retro', '# Retro\n']]);
+    const steps: string[] = [];
+    let unsaved: string[] = [];
+    registerPuppetShell({
+      screen: () => 'editor:work/retro',
+      state: () => ({}),
+      saveOpenNote: async () => {
+        steps.push('save');
+        return unsaved;
+      },
+      readNote: async (noteId) => {
+        steps.push(`read ${noteId}`);
+        return disk.get(noteId) ?? null;
+      },
+    });
+    expect(await run({ noteId: 'work/retro' })).toEqual({
+      status: 200,
+      body: { noteId: 'work/retro', text: '# Retro\n' },
+    });
+    expect(steps).toEqual(['save', 'read work/retro']);
+    expect((await run({ noteId: 'gone' })).status).toBe(404);
+    unsaved = ['work/retro'];
+    expect((await run({ noteId: 'work/retro' })).status).toBe(409);
+    // Without saving: the disk as it is, the save never asked for.
+    steps.length = 0;
+    expect(await run({ noteId: 'work/retro', save: false })).toEqual({
+      status: 200,
+      body: { noteId: 'work/retro', text: '# Retro\n' },
+    });
+    expect(steps).toEqual(['read work/retro']);
+    // Another note's failed save does not stand between the agent and this one.
+    expect((await run({ noteId: 'gone' })).status).toBe(404);
+    expect((await run({})).status).toBe(400);
+  });
+
   it('takes JSON text and returns JSON text', () => {
     expect(JSON.parse(runPuppetCommandJson('actions', ''))).toMatchObject({
       status: 200,

@@ -4,9 +4,11 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.findViewTreeLifecycleOwner
+import com.futo.notes.flushPendingEditorAndWait
 import com.futo.notes.puppet.PuppetServer.Binding
 import com.futo.notes.ui.navigation.Screen
 import com.futo.notes.unsavedNoteIds
+import kotlinx.coroutines.CancellationException
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -26,6 +28,38 @@ internal suspend fun search(bound: Binding, body: String): PuppetReply {
     val known = bound.store.notes.map { it.id }.toSet()
     val hits = bound.store.search(query, limit).map { it.noteId }.filter { it in known }
     return PuppetReply(200, JSONObject().put("query", query).put("hits", JSONArray(hits)).toString())
+}
+
+/**
+ * `file {"noteId", "save"?}`: the note's markdown as it is on disk, read once the open
+ * editor's edits are written, so they are in it; refused while they are not on disk.
+ * `"save":false` reads the disk as it is, writing nothing. The CLI narrows it to lines or
+ * matches.
+ */
+internal suspend fun file(bound: Binding, body: String): PuppetReply {
+    val request = arguments(body)
+    val noteId = request.optString("noteId")
+    if (noteId.isEmpty()) return PuppetContract.refusal(400, "file needs {\"noteId\":\"…\"}")
+    if (request.optBoolean("save", true)) {
+        bound.store.flushPendingEditorAndWait()
+        if (noteId in bound.store.unsavedNoteIds()) {
+            return PuppetContract.refusal(
+                409,
+                "\"$noteId\" has edits that did not save, so its file is not what the editor " +
+                    "shows; \"save\":false reads the disk as it is",
+            )
+        }
+    }
+    // Only an id `notes` lists: a case-insensitive disk would read "Work/Retro" as
+    // work/retro.
+    val text = try {
+        if (bound.store.notes.none { it.id == noteId }) null else bound.store.readIfExists(noteId)
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        return PuppetContract.refusal(500, "reading \"$noteId\" failed: ${e.message}")
+    } ?: return PuppetContract.refusal(404, "no note \"$noteId\" in the vault; `notes` lists every one")
+    return PuppetReply(200, JSONObject().put("noteId", noteId).put("text", text).toString())
 }
 
 /**

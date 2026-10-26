@@ -18,6 +18,7 @@ pub(super) fn strings(parts: &[&str]) -> Vec<String> {
 
 mod arguments;
 mod batch;
+mod file;
 mod gesture_arguments;
 mod gestures;
 mod look_and_relaunch;

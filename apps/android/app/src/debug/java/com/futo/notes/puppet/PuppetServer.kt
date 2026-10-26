@@ -220,6 +220,7 @@ internal object PuppetServer {
                 PuppetReply(200, PuppetTouches.since(cursor, covered).toString())
             }
             route.command == "search" -> search(bound, body)
+            route.command == "file" -> file(bound, body)
             route.command == "observe" -> observe(bound)
             route.command in PuppetContract.pageQueries && bound.navigator.currentScreen !is Screen.Editor ->
                 PuppetContract.refusal(

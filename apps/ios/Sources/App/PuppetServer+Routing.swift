@@ -54,6 +54,8 @@
                 return (200, PuppetServerContract.json(PuppetTouches.since(body)))
             case .query("search"):
                 return await search(body: body)
+            case .query("file"):
+                return await file(body: body)
             case .query("observe"):
                 return await observe()
             case .query(let command):

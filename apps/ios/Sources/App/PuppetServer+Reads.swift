@@ -39,6 +39,39 @@
             return (200, PuppetServerContract.json(["query": request.query, "hits": hits]))
         }
 
+        /// `file {"noteId", "save"?}`: the note's markdown as it is on disk, read once the open
+        /// editor's edits are written, so they are in it; refused while they are not on disk.
+        /// `"save":false` reads the disk as it is, writing nothing. The CLI narrows it to lines
+        /// or matches.
+        @MainActor
+        func file(body: Data) async -> PuppetReply {
+            let arguments = PuppetServerContract.decodeArguments(from: body)
+            guard let noteId = arguments["noteId"] as? String, !noteId.isEmpty
+            else { return PuppetServerContract.refusal(400, #"file needs {"noteId":"…"}"#) }
+            if arguments["save"] as? Bool ?? true {
+                await store.flushPendingEditorAndWait()
+                if store.unsavedNoteIds.contains(noteId) {
+                    return PuppetServerContract.refusal(
+                        409,
+                        "\"\(noteId)\" has edits that did not save, so its file is not what the "
+                            + #"editor shows; "save":false reads the disk as it is"#)
+                }
+            }
+            do {
+                // Only an id `notes` lists: a case-insensitive disk would read "Work/Retro" as
+                // work/retro.
+                guard store.notes.contains(where: { $0.id == noteId }),
+                    let text = try await store.readIfExists(noteId)
+                else {
+                    return PuppetServerContract.refusal(
+                        404, "no note \"\(noteId)\" in the vault; `notes` lists every one")
+                }
+                return (200, PuppetServerContract.json(["noteId": noteId, "text": text]))
+            } catch {
+                return PuppetServerContract.refusal(500, "reading \"\(noteId)\" failed: \(error)")
+            }
+        }
+
         /// The search screen's rows: the list's own query, run as the list runs it. Nil when
         /// the query is blank, so the list shows its folders instead.
         @MainActor

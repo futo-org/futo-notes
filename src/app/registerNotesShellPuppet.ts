@@ -1,6 +1,6 @@
 import { listVaultFolders } from '$features/folders/emptyFolders.svelte';
 import { openFolderPaths } from '$features/folders/folderExpansion.svelte';
-import { getAllNotes, search as searchVault } from '$features/notes/notes.svelte';
+import { getAllNotes, readNote, search as searchVault } from '$features/notes/notes.svelte';
 import type { NoteSession } from '$features/notes/noteSession.svelte';
 import { isSyncing } from '$features/sync/autoSync';
 import type { SyncManager } from '$features/sync/syncManager.svelte';
@@ -64,6 +64,23 @@ export function registerNotesShellPuppet(view: NotesShellPuppetView): () => void
       return { notes: noteIds, folders: listVaultFolders(notes), modified };
     },
     search: async (query, limit) => (await searchVault(query, limit)).map((note) => note.id),
+    // `file` reads the body, so only a body the save did not land counts: a title
+    // the save refused still saves the body under the note's name. Not the save's
+    // own test: a note cleared inside the editor's change debounce reads as a lost
+    // note, which the save will not write, and its disk still holds the old body.
+    saveOpenNote: async () => {
+      await session.flushSave().catch(() => {});
+      const { originalId, editorContent } = session;
+      return originalId !== null &&
+        editorContent !== undefined &&
+        editorContent !== session.savedContent
+        ? [originalId]
+        : [];
+    },
+    // Only an id `notes` lists: a case-insensitive disk reads "Work/Retro" as work/retro.
+    // ponytail: a note deleted between this check and the read prints as empty, not 404.
+    readNote: async (noteId) =>
+      view.notes().some((note) => note.id === noteId) ? readNote(noteId) : null,
     // A note switch saves a dirty note before loading the next: until the new note
     // is in the editor, the receipt of whatever verb asked for it waits, and a save
     // that fails keeps the old tab, which the receipt must say.

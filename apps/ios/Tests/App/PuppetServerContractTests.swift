@@ -72,7 +72,8 @@ import Testing
             // `futo-puppet step` — so `drive` — needs observe, notes and clipboard; a receipt
             // asks touches whether a tap reached the app.
             for query in [
-                "elements", "at", "trace", "search", "observe", "notes", "clipboard", "touches",
+                "elements", "at", "trace", "search", "file", "observe", "notes", "clipboard",
+                "touches",
             ] {
                 #expect(
                     PuppetServerContract.route(method: "POST", path: "/\(query)") == .query(query))
@@ -281,7 +282,7 @@ import Testing
         func pageBoundQueries() {
             #expect(PuppetServerContract.pageQueries.contains("doc"))
             #expect(PuppetServerContract.pageQueries.contains("elements"))
-            for shellQuery in ["state", "notes", "observe", "clipboard", "touches"] {
+            for shellQuery in ["state", "notes", "file", "observe", "clipboard", "touches"] {
                 #expect(!PuppetServerContract.pageQueries.contains(shellQuery))
             }
             #expect(
