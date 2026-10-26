@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process';
 import { readdirSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -238,4 +239,30 @@ describe('pre-merge CI routing contracts: native mobile jobs', () => {
   // it. An MR touching only a file in that import graph used to drop these jobs
   // to manual+allow_failure. The graph was derived from a real build (rollup
   // getModuleIds over vite.editor.config.ts); the globs below are its directories.
+});
+
+it.each([
+  ['', 0, 1],
+  ['Executed 0 tests, with 0 failures', 0, 1],
+  ['Executed 1 test, with 0 failures', 0, 0],
+  ['Test run with 12 tests in 2 suites passed', 0, 0],
+  ['Executed 1 test, with 1 failure', 65, 65],
+])('rejects empty iOS test runs: %s (xcode exit %s)', (output, code, expected) => {
+  const recipe = topLevelBlock(justfile, /^_test-ios [^\n]*$/m);
+  const command = recipe.slice(recipe.indexOf('  xcodebuild test')).replace(/^  /gm, '');
+  const result = spawnSync(
+    'bash',
+    [
+      '-c',
+      `
+    set -euo pipefail
+    ONLY_TESTING=(); SIM=fixture
+    xcodebuild() { printf '%s\\n' "$TEST_OUTPUT"; return "$TEST_EXIT"; }
+    ${command}
+  `,
+    ],
+    { encoding: 'utf8', env: { ...process.env, TEST_OUTPUT: output, TEST_EXIT: String(code) } },
+  );
+  expect(result.status, result.stderr).toBe(expected);
+  expect(result.stdout).toContain(output);
 });

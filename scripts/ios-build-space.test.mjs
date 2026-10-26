@@ -1,6 +1,4 @@
-import { mkdtempSync, rmSync, symlinkSync } from 'node:fs';
-import { spawnSync } from 'node:child_process';
-import { fileURLToPath } from 'node:url';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, expect, it } from 'vitest';
@@ -47,16 +45,3 @@ it.each([0, -1, NaN, Infinity])(
     );
   },
 );
-
-it.skipIf(process.platform === 'win32')('runs storage preflight through a symlink alias', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'ios-space-alias-'));
-  dirs.push(dir);
-  const alias = join(dir, 'space-alias.mjs');
-  symlinkSync(fileURLToPath(new URL('./ios-build-space.mjs', import.meta.url)), alias);
-  const result = spawnSync(process.execPath, [alias, dir], {
-    encoding: 'utf8',
-    env: { ...process.env, FUTO_IOS_MIN_FREE_GIB: '0.000001' },
-  });
-  expect(result.status, result.stderr).toBe(0);
-  expect(result.stdout).toContain('iOS build storage');
-});

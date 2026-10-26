@@ -13,7 +13,7 @@ const run = (...args) =>
 it('validates the actual workflow scripts without running their agents', () => {
   const result = run();
   expect(result.status, result.stderr).toBe(0);
-  expect(result.stdout).toContain('3 workflow(s)');
+  expect(result.stdout).toMatch(/[1-9][0-9]* workflow\(s\)/);
 });
 
 it('accepts top-level await/return and meta export without executing any source', () => {

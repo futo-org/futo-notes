@@ -12,7 +12,9 @@ vi.mock('node:child_process', () => ({ execFileSync: vi.fn() }));
 
 const cleanups = [];
 beforeEach(() => {
-  loadConfigFromFile.mockResolvedValue({ config: { plugins: [], build: {} } });
+  loadConfigFromFile.mockResolvedValue({
+    config: { plugins: [{ name: 'stage-native-editor-bundle' }], build: {} },
+  });
 });
 afterEach(() => {
   for (const cleanup of cleanups.splice(0)) cleanup();
@@ -71,4 +73,15 @@ it('rejects a freshly built bundle that differs from a sweep snapshot', async ()
   });
   const { default: setup } = await import('../editorEmbedBundle.ts');
   await expect(setup()).rejects.toThrow(/bundle.*differs.*snapshot/i);
+});
+
+it.each([0, 2])('refuses a native config with %s staging plugins', async (count) => {
+  loadConfigFromFile.mockResolvedValue({
+    config: {
+      plugins: Array.from({ length: count }, () => ({ name: 'stage-native-editor-bundle' })),
+    },
+  });
+  const { default: setup } = await import('../editorEmbedBundle.ts');
+  await expect(setup()).rejects.toThrow(/exactly one.*stage-native-editor-bundle/);
+  expect(build).not.toHaveBeenCalled();
 });

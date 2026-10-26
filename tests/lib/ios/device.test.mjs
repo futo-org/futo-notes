@@ -22,39 +22,28 @@ import { createIosDevice } from './device.mjs';
 beforeEach(() => vi.clearAllMocks());
 
 describe('observed iOS typing', () => {
-  it('finishes a marker after AXe translation errors when the disk oracle proves it landed', async () => {
-    typeCharacter.mockImplementationOnce(() => {
-      throw new Error('No translation object');
+  it.each([
+    ['confirmed translation error', 'No translation object', true, null],
+    ['unconfirmed translation error', 'No translation object', undefined, 'No translation object'],
+    ['unrelated error with an oracle', 'simulator disconnected', true, 'simulator disconnected'],
+    ['unobserved input', null, false, 'waiting for the typed text to be observed'],
+  ])('handles %s', async (_name, error, observed, expected) => {
+    if (error)
+      typeCharacter.mockImplementationOnce(() => {
+        throw new Error(error);
+      });
+    const confirm = observed === undefined ? undefined : vi.fn(() => observed);
+    const typing = createIosDevice({ udid: 'claimed' }).typeText('qq77', {
+      keySettleMs: 0,
+      confirmationTimeoutMs: 0,
+      confirm,
     });
-    const confirm = vi.fn(() => true);
-    await createIosDevice({ udid: 'claimed' }).typeText('qq77', { keySettleMs: 0, confirm });
-    expect(typeCharacter.mock.calls.map(([character]) => character).join('')).toBe('qq77');
-    expect(confirm).toHaveBeenCalled();
-  });
-
-  it('never turns an unconfirmed translation error into successful input', async () => {
-    typeCharacter.mockImplementation(() => {
-      throw new Error('No translation object');
-    });
-    await expect(createIosDevice({ udid: 'claimed' }).typeText('q')).rejects.toThrow(
-      'No translation object',
-    );
-  });
-
-  it('preserves unrelated input errors even with an oracle', async () => {
-    typeCharacter.mockImplementation(() => {
-      throw new Error('simulator disconnected');
-    });
-    await expect(
-      createIosDevice({ udid: 'claimed' }).typeText('q', { confirm: () => true }),
-    ).rejects.toThrow('simulator disconnected');
-  });
-
-  it('fails when the oracle never observes the input', async () => {
-    const device = createIosDevice({ udid: 'claimed' });
-    await expect(
-      device.typeText('q', { confirm: () => false, confirmationTimeoutMs: 0 }),
-    ).rejects.toThrow('waiting for the typed text to be observed');
+    if (expected) await expect(typing).rejects.toThrow(expected);
+    else {
+      await typing;
+      expect(typeCharacter.mock.calls.map(([character]) => character).join('')).toBe('qq77');
+      expect(confirm).toHaveBeenCalled();
+    }
   });
 });
 

@@ -31,6 +31,8 @@ Runs current tracked and untracked source on macOS; ignored build/cache files st
 Recipes: ${[...ALLOWED].join(', ')}.
 Defaults: FUTO_IOS_REMOTE_HOST or justins-macbook-pro; FUTO_IOS_REMOTE_USER or local user;
 FUTO_IOS_REMOTE_REPO or $HOME/Developer/futo-notes/futo-notes.
+Repository paths must be absolute or start with $HOME/ or ~/.
+Mac prerequisites: noninteractive SSH, Xcode/runtime, xcodegen, Python 3, Git, pnpm and pinned Node.
 Tests claim a pooled simulator for the dedicated worktree and release it after real process exit.
 `;
 

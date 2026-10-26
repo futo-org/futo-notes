@@ -29,21 +29,20 @@ separate target for an independent Rust check.
 
 ## CI image pins
 
-For top-level OCI index digests, platform checks and the verbose-manifest child-digest trap, see
-[CI image pinning](ci-image-pins.md). Resolve the intended image before changing its pin; CI lint
-validates configuration syntax and cannot prove image architecture coverage.
+Resolve multi-platform pins with `docker buildx imagetools inspect <image>` (or `--raw`).
+Pin the top-level `Digest:` only after confirming OCI index/Docker manifest-list media type
+and the required platforms under `Manifests`. Preserve intentional platform-specific pins.
+`docker manifest inspect -v` may return child descriptors: `[0].Descriptor.digest` pins only
+one platform. GitLab CI lint cannot prove architecture coverage; resolve the intended image anew.
 
 ## skill-validate
 
-`just skill-validate .claude/skills/bugfix` runs the installed Codex skill-creator validator.
-It uses `$CODEX_HOME/skills/.system/skill-creator/scripts/quick_validate.py`, with
-`~/.codex` as the home default. A missing validator reports the installation/path issue.
-
-The optional command requires `uv` and an installed Python. It provisions PyYAML in a private
-temporary environment/cache, skips project Python configuration and interpreter downloads,
-then removes only that temporary directory. System Python and installed skills are unchanged.
-The original validator's output and failure exit are preserved. This checks skill structure;
-workflow behavior still needs its owning verification. It is outside routine CI commands.
+`just skill-validate .claude/skills/bugfix` runs
+`$CODEX_HOME/skills/.system/skill-creator/scripts/quick_validate.py` (`CODEX_HOME` defaults to
+`~/.codex`); a missing validator reports the path issue. Requires `uv` and installed Python.
+PyYAML uses a private temporary environment/cache, removed afterwards; project Python config,
+interpreter downloads, system Python and installed skills are untouched. Validator output/exit
+are preserved. This optional, non-CI check proves structure; verify workflow behavior separately.
 
 ## rust-format / rust-format-check
 
@@ -93,18 +92,12 @@ host ports are machine-global, so the port is per-worktree (15000 + slot; overri
 
 ## Local crash and feedback collectors
 
-`just ports` includes `crashlog` (`5100 + slot`); `eval "$(just ports env)"`
-exports it as `CRASHLOG_PORT` for a local collector's bind address. Debug web,
-Android and iOS builds target that worktree's collector. Vite embeds the port,
-Gradle projects it into BuildConfig, and the iOS post-build phase runs
-`ios-dev-ports` to write the Debug app's resource on the actual build host.
-Rebuild native apps after moving a checkout to another path or machine. The
-feedback form shows the resulting target; its staging toggle still selects the
-shared staging service. Release builds always select production.
-
-The slot hash has 50 positions, so two worktrees can share a slot. Check
-`just orient` for shared slots and verify the collector listener belongs to
-your QA run before sending fixture traffic; the port alone is not an owner.
+`eval "$(just ports env)"` exports `CRASHLOG_PORT` (`5100 + slot`) for the local collector.
+Debug Vite embeds it, Android projects it into BuildConfig, and iOS runs `ios-dev-ports` on the
+actual build host to write its Debug resource. Rebuild native apps after moving a checkout
+between paths/hosts. The feedback form shows the target; its staging toggle selects the shared
+staging service, and Release always uses production. The 50 slots can collide: check `just orient`
+and verify listener ownership before fixture traffic; a port alone does not establish ownership.
 
 ## prepush (--retries=1)
 
@@ -278,30 +271,20 @@ for the full flag list and the macOS-only/interactive/local-machine refusal tier
 
 ## Rust sync timeouts
 
-`just test-sync` runs the complete ordinary sync suite through a pinned,
-checksum-verified nextest binary and then invokes Cargo explicitly for doctests
-(which nextest does not support). `just test-rust-full` and the Linux/macOS CI
-workspace paths retain Cargo coverage for every other crate and route sync
-through the same bounded runner. Four sync tests can run at once; a test is
-reported SLOW every 30 seconds and fails by name after 120 seconds, with a
-five-second termination grace. Server-only cases remain ignored in that run.
-`just test-sync-integration` selects the ignored server binaries serially and
-continues to state whether the hosted stand-in leg actually ran.
+`just test-sync` runs ordinary sync tests through pinned, checksum-verified nextest, then Cargo
+for doctests (unsupported by nextest). `just test-rust-full` and Linux/macOS CI workspace runs
+use the same bounded sync runner and retain Cargo for other crates. Four tests run concurrently;
+SLOW is reported every 30s, TIMEOUT after 120s, with 5s termination grace. Server-only cases stay
+ignored; `just test-sync-integration` runs those binaries serially and reports whether hosted
+stand-in coverage ran.
 
-The first use installs the prebuilt version and archive hashes in
-`scripts/cargo-nextest-pin.json` through `ci/install-nextest.sh`; it does not
-change `rust-toolchain.toml`. `just install-nextest` installs it separately.
-On platforms without an archive in the pin, install that exact version under
-Cargo's bin directory (or `NEXTEST_INSTALL_DIR`) before running the suite.
-The official [installation guide](https://nexte.st/docs/installation/pre-built-binaries/)
-and [timeout behavior](https://nexte.st/docs/features/slow-tests/) describe the
-maintained runner. `just test-sync-timeout-proof` runs a healthy fixture beside
-an intentional deadlock under the real repository policy, and succeeds only
-when nextest reports that deadlock by name as TIMEOUT with a nonzero test exit.
+First use installs `scripts/cargo-nextest-pin.json` through `ci/install-nextest.sh`;
+`just install-nextest` installs separately without changing the Rust toolchain. The POSIX
+installer supports Linux/macOS. Without a pinned archive, preinstall that exact version in
+Cargo's bin directory or `NEXTEST_INSTALL_DIR`. On Windows the binary is `cargo-nextest.exe`
+(normally `~/.cargo/bin/cargo-nextest.exe`). Missing/wrong versions fail before testing;
+there is no fallback to unbounded Cargo. See nextest's [installation](https://nexte.st/docs/installation/pre-built-binaries/)
+and [timeouts](https://nexte.st/docs/features/slow-tests/).
 
-On Windows, install the exact pinned prebuilt version as
-`$CARGO_HOME/bin/cargo-nextest.exe` (normally `~/.cargo/bin/cargo-nextest.exe`),
-or point `NEXTEST_INSTALL_DIR` at its directory. The POSIX checksum installer
-supports Linux/macOS; the test route supports the preinstalled Windows exe
-and fails with the pinned-version/path requirement before any tests if it is
-missing or wrong. It never silently falls through to unbounded Cargo tests.
+`just test-sync-timeout-proof` runs a healthy fixture beside an intentional deadlock under
+repository policy; it succeeds only when nextest names the deadlock as TIMEOUT and exits nonzero.

@@ -80,11 +80,20 @@ describe('corpus sweep resource and resume contract', () => {
   });
 });
 
-it('shows help or rejects unknown arguments before creating a run or calling systemd', () => {
+const cliPaths = process.platform === 'win32' ? [false] : [false, true];
+it.each(cliPaths)('validates CLI input before side effects (alias=%s)', (alias) => {
   const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'futo-corpus-cli-'));
   try {
-    const entry = fileURLToPath(new URL('./runForeignShards.mjs', import.meta.url));
-    const help = spawnSync(process.execPath, [entry, '--help'], { cwd: scratch, encoding: 'utf8' });
+    let entry = fileURLToPath(new URL('./runForeignShards.mjs', import.meta.url));
+    if (alias) {
+      const link = path.join(scratch, 'runner.mjs');
+      fs.symlinkSync(entry, link);
+      entry = link;
+    }
+    const help = spawnSync(process.execPath, [entry, '--help'], {
+      cwd: scratch,
+      encoding: 'utf8',
+    });
     expect(help.status).toBe(0);
     expect(help.stdout).toContain('gauntlet-milkdown-sweep');
     const invalid = spawnSync(process.execPath, [entry, '--unknown'], {
@@ -93,7 +102,7 @@ it('shows help or rejects unknown arguments before creating a run or calling sys
     });
     expect(invalid.status).toBe(1);
     expect(invalid.stderr).toContain('unknown argument --unknown');
-    expect(fs.readdirSync(scratch)).toEqual([]);
+    expect(fs.readdirSync(scratch)).toEqual(alias ? ['runner.mjs'] : []);
   } finally {
     fs.rmSync(scratch, { recursive: true, force: true });
   }

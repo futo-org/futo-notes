@@ -63,7 +63,13 @@ function defaults() {
 
 function main(args) {
   if (args.includes('--help') || args.includes('-h')) {
-    console.log('Usage: just check-workflows [file.js ...] (default: repository workflows)');
+    console.log(`Usage: just check-workflows [file.js ...] (default: repository workflows)
+Example: just check-workflows .claude/workflows/bugfix-pipeline.js
+Checks async function bodies with top-level await/return and export const meta.
+Plain node --check rejects valid workflow returns. This checker parses declarations,
+removes only meta's export keyword, then compiles without executing source or metadata.
+Other exports fail; errors name the file (parser errors include source lines).
+No agents or devices run. Proves syntax, not runtime APIs or agent responses.`);
     return 0;
   }
   if (args.some((arg) => arg.startsWith('-'))) throw new Error('Unknown workflow-check option');

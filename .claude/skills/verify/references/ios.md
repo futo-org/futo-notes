@@ -16,6 +16,31 @@ Debug builds install as `com.futo.notes.dev` ("FUTO Notes Dev") with notes at
 `Documents/fake-notes` inside the app container — they can never touch the
 production app or real notes.
 
+## Recover a parked software keyboard
+
+After `just qa-claim ios --reboot`, take a fresh tree and screenshot if keyboard rows remain
+off-screen. The hardware-keyboard preference does not prove visibility; iOS 27 letter keys can
+be Buttons. Check frames and rendered input rather than requiring one accessibility type.
+For a claimed, disposable QA simulator:
+
+```bash
+just qa-claim ios --erase
+just ios-native
+```
+
+**Erase removes every app, vault, preference and keychain item on that simulator.** Use only
+state this task created, or obtain approval before discarding preexisting expensive/real data
+(root `AGENTS.md` §11); ownership does not establish disposability.
+
+Erase requires exactly one existing claim owned by this worktree, accepts no personal-device
+override, and never acquires another device. It rechecks ownership and the original UDID before
+shutdown/erase, waits for observed Shutdown, and refuses identity changes or ambiguous claims.
+Normal claiming then boots the same device and disconnects its hardware keyboard. Failed retries
+never erase automatically. Reinstall the dev app, confirm Done/letter-key frames are on-screen,
+touch a visible key and observe the complete rendered/saved marker before resuming. Tap success
+alone proves nothing; recovery discards simulator state without diagnosing an app defect or
+proving the original corruption reproducible.
+
 ## Toolchain
 
 macOS does not include GNU `timeout`. For bounded process calls in portable

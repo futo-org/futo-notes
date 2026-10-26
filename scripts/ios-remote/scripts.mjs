@@ -86,7 +86,7 @@ ${bundle ? 'git -C "$SOURCE_REPO" fetch --quiet "$RUN_DIR/source.bundle" HEAD' :
 git -C "$SOURCE_REPO" cat-file -e ${shQuote(`${sha}^{commit}`)}
 if [ ! -e "$REMOTE_DIR" ]; then
   node "$RUN_DIR/space.mjs" "$SOURCE_REPO/target"
-  (cd "$SOURCE_REPO" && just wt new ${shQuote(`remote-ios-${id}`)} --branch "remote-ios/${id}-$(basename "$RUN_DIR")" --base ${shQuote(sha)} --no-install)
+  (cd "$SOURCE_REPO" && just wt new ${shQuote(`remote-ios-${id}`)} --branch "remote-ios/${id}-$(basename "$RUN_DIR")" --base ${shQuote(sha)} --no-install --no-target)
   OWNER=$(git -C "$REMOTE_DIR" rev-parse --git-path futo-ios-remote-owner)
   case "$OWNER" in /*) ;; *) OWNER="$REMOTE_DIR/$OWNER" ;; esac
   printf '%s\n' ${shQuote(id)} > "$OWNER"
@@ -135,6 +135,10 @@ cd "$REMOTE_DIR"
 git reset --mixed ${shQuote(sha)} >/dev/null
 python3 "$RUN_DIR/apply.py" "$REMOTE_DIR" "$RUN_DIR/manifest.json" "$RUN_DIR/source.tar.gz"
 echo ${shQuote(`[ios-remote] source sha=${sha} snapshot=${digest} worktree=${id}`)}
+if ! cmp -s pnpm-lock.yaml node_modules/.pnpm/lock.yaml; then
+  pnpm install --frozen-lockfile
+fi
+node scripts/check-node-modules.mjs
 just editor-deps
 CLAIMED=0
 release_device() {

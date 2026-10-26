@@ -54,6 +54,8 @@ describe('bounded Android package presence probes', () => {
     const execFile = (_command, args, options) =>
       execFileSync(process.execPath, [fake, ...args], {
         ...options,
+        // Inject short deadlines only at the owned fake-child boundary.
+        timeout: Math.min(options.timeout, 250),
         env: {
           QA_PM_RECORD: record,
           QA_PM_FINISHED: finished,

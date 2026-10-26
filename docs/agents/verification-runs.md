@@ -33,10 +33,10 @@ devices, launch apps or prove device readiness. Existing `pnpm prepare` hooks st
 For one Vitest file in a fresh worktree, use the public recipe:
 
 ```bash
-just test-one scripts/package-safety-policy.test.mjs
+just test-unit scripts/package-safety-policy.test.mjs
 ```
 
-`test-one` installs dependencies when `node_modules` is absent, then runs the requested file.
+`test-unit` installs dependencies when `node_modules` is absent, then runs the requested file.
 Raw `pnpm exec vitest` requires an existing install. The full `just check` keeps its read-only
 prerequisite guard; run `just install` before it when dependencies are missing.
 

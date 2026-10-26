@@ -3,6 +3,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { assertAndroidTarget } from './android-target.mjs';
+import { isAndroidPackageInstallerReady } from './android-package-probe.mjs';
 import {
   AVDMANAGER,
   AVD_DIR,
@@ -183,17 +184,7 @@ async function rebootGuest(name, serial) {
     const packageService =
       tryRun('adb', ['-s', serial, 'shell', 'service', 'check', 'package'], options) || '';
     if (after && after !== before && booted === '1' && packageService.includes('found')) {
-      assertAndroidTarget({ serial, expectedAvd: name, allowPending: true });
-      const created = tryRun('adb', ['-s', serial, 'shell', 'pm', 'install-create'], options) || '';
-      const session = created.match(/\[(\d+)\]/);
-      if (created.includes('Success') && session) {
-        assertAndroidTarget({ serial, expectedAvd: name, allowPending: true });
-        if (
-          tryRun('adb', ['-s', serial, 'shell', 'pm', 'install-abandon', session[1]], options) ===
-          null
-        ) {
-          die(`could not abandon the package-readiness probe on ${name}`);
-        }
+      if (isAndroidPackageInstallerReady({ serial, expectedAvd: name, allowPending: true })) {
         assertAndroidTarget({ serial, expectedAvd: name, allowPending: true });
         return;
       }
@@ -249,29 +240,11 @@ export async function ensureAvd(
       await sleep(2000);
       if (i === 89) die(`emulator ${name} (${serial}) did not finish booting`);
     }
-    // The package service being registered doesn't mean system_server has
-    // finished wiring every system service class an install touches. An
-    // install issued in that gap dies instead with a NullPointerException
-    // from `StorageManager.getVolumes()` inside
-    // `PackageInstallerService.createSessionInternal` (same race hit CI:
-    // main pipeline 36733/36730, scripts/ci-android-emulator.sh). `pm
-    // install-create` exercises that exact path without writing anything, so
-    // wait on it rather than assuming package-service readiness covers it.
+    // Probe the install path too: a registered package service can still hit
+    // StorageManager.getVolumes() before system_server finishes wiring services.
     let storageReady = false;
     for (let i = 0; i < 60; i++) {
-      assertAndroidTarget({ serial, expectedAvd: name, allowPending: true });
-      const created =
-        tryRun('adb', ['-s', serial, 'shell', 'pm', 'install-create'], { timeout: 5000 }) || '';
-      const match = created.match(/\[(\d+)\]/);
-      if (created.includes('Success') && match) {
-        assertAndroidTarget({ serial, expectedAvd: name, allowPending: true });
-        if (
-          tryRun('adb', ['-s', serial, 'shell', 'pm', 'install-abandon', match[1]], {
-            timeout: 5000,
-          }) === null
-        ) {
-          die(`could not abandon the package-readiness probe on ${name}`);
-        }
+      if (isAndroidPackageInstallerReady({ serial, expectedAvd: name, allowPending: true })) {
         storageReady = true;
         break;
       }

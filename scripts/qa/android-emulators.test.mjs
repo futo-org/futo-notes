@@ -7,7 +7,15 @@ const mocks = vi.hoisted(() => ({
     throw new Error(message);
   }),
 }));
-vi.mock('node:child_process', () => ({ spawn: mocks.spawn, spawnSync: vi.fn() }));
+vi.mock('node:child_process', () => ({
+  spawn: mocks.spawn,
+  spawnSync: vi.fn(),
+  execFileSync: (...args) => {
+    const result = mocks.tryRun(...args);
+    if (result === null) throw new Error('package service unavailable');
+    return result;
+  },
+}));
 vi.mock('./android-target.mjs', () => ({ assertAndroidTarget: mocks.assertTarget }));
 vi.mock('./pool.mjs', () => ({
   AVDMANAGER: 'fake-avdmanager',
@@ -29,7 +37,7 @@ describe('pooled emulator soft keyboard baseline', () => {
   let persist;
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.assertTarget.mockReset();
+    mocks.assertTarget.mockImplementation(({ serial }) => serial);
     running = true;
     showIme = '0';
     boot = 0;
@@ -137,5 +145,38 @@ describe('pooled emulator soft keyboard baseline', () => {
     });
     await expect(ensureAvd('futo-qa-0')).rejects.toThrow('wrong first-boot owner');
     expect(mocks.tryRun.mock.calls.some(([, args]) => args.includes('install-create'))).toBe(false);
+  });
+
+  it('retries a package service failure but never ignores session cleanup failure', async () => {
+    running = false;
+    const run = mocks.tryRun.getMockImplementation();
+    let attempts = 0;
+    mocks.tryRun.mockImplementation((command, args, ...options) => {
+      if (args.includes('install-create') && attempts++ === 0) return null;
+      if (args.includes('install-abandon')) return null;
+      return run(command, args, ...options);
+    });
+    await expect(ensureAvd('futo-qa-0')).rejects.toThrow('package service unavailable');
+    expect(attempts).toBe(2);
+    expect(mocks.tryRun.mock.calls.some(([, args]) => args.includes('install-abandon'))).toBe(true);
+  });
+
+  it.each([false, true])('bounds package readiness during boot (reboot=%s)', async (reboot) => {
+    running = reboot;
+    // The shared boundary must permit a pending claim without losing target identity.
+    await expect(ensureAvd('futo-qa-0', { reboot })).resolves.toBe('emulator-9998');
+    expect(mocks.assertTarget).toHaveBeenCalledWith(
+      expect.objectContaining({
+        serial: 'emulator-9998',
+        expectedAvd: 'futo-qa-0',
+        allowPending: true,
+        execFile: expect.any(Function),
+      }),
+    );
+    const probes = mocks.tryRun.mock.calls.filter(([, args]) => args.includes('pm'));
+    expect(probes.length).toBeGreaterThan(0);
+    expect(
+      probes.every(([, , options]) => options.timeout === 5000 && options.killSignal === 'SIGKILL'),
+    ).toBe(true);
   });
 });

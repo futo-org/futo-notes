@@ -1,7 +1,18 @@
 #!/usr/bin/env node
-// Linux cold-start fixture through an embedded debug build, never a dev server.
-// Only a fixed malformed license pair is used: no real key, activation or account.
-// Storage and desktop registration files stay inside this run; stop only its child.
+// `just test-desktop-cold-link` verifies a link arriving before the webview exists.
+// The dev supervisor stops Vite when its child exits: restarting a raw dev binary
+// can leave a dead URL. This Linux recipe refuses an occupied worktree Vite port
+// and builds current sources with `just build-desktop-test` (custom-protocol),
+// loading tauri://localhost without Vite. Requires a working desktop session.
+// Fixed fixture: futonotes://license/not-a-license/not-an-activation; no URL args,
+// real key or account. Checks the catalog invalid-link toast, drained inbox and
+// unlicensed state, then a clean restart. A running-app bridge tests another lifecycle.
+// App data, notes and Linux registration files are isolated in a new
+// verification-runs/desktop-cold-link-* directory. The launcher verifies qa-target
+// identity before connecting; logs, binary identity, rendered/restart state and
+// owned data are retained. Stops only its children; does not prove native pixels
+// or other platforms' URL delivery. startDesktopTauriInstance accepts literal args;
+// restarting without args drops the link while reusing the isolated data directories.
 import fs from 'node:fs';
 import path from 'node:path';
 import net from 'node:net';

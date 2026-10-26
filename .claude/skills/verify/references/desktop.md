@@ -90,7 +90,7 @@ when finished; the diagnostic recipe disables file watching and needs a restart 
 ## Tauri desktop (the default)
 
 Cold-start deep links need an embedded frontend, because the dev supervisor owns Vite's lifetime.
-On Linux, use `just test-desktop-cold-link`; [the cold-start workflow](../../../../docs/desktop-cold-start-links.md)
+On Linux, use `just test-desktop-cold-link`; [the harness header](../../../../tests/desktop-cold-link.mjs)
 owns its fixed invalid fixture, data isolation and evidence. It uses no real license or account.
 
 Debug builds include `tauri-plugin-mcp-bridge`, exposing the Tauri MCP tools

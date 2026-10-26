@@ -52,7 +52,7 @@ if (cmd.startsWith('shell pm list packages')) {
   if (shouldStall) {
     st.pmStalled = true;
     save();
-    setTimeout(() => { st.pmCompleted = true; respond(); }, 6500);
+    setTimeout(() => { st.pmCompleted = true; respond(); }, 1200);
   } else respond();
 } else {
 if (cmd === 'shell pm install-create') st.phase === 'down' ? out(gone, 1) : out('Success: created install session [42]');
@@ -130,6 +130,19 @@ function runSyncLeg({ restartOnInstall, stallAt, failAbandon = false }) {
     {
       mode: 0o755,
     },
+  );
+  // Keep production probe deadlines; inject the short bound through its CLI
+  // only for this fixture. Other Node children (including fake adb) run normally.
+  fs.writeFileSync(
+    path.join(bin, 'node'),
+    `#!/bin/sh
+case "$1" in */android-package-probe.mjs)
+  probe="$1"; shift
+  exec "${process.execPath}" "$probe" --timeout-ms 250 "$@" ;;
+*) exec "${process.execPath}" "$@" ;;
+esac
+`,
+    { mode: 0o755 },
   );
   fs.writeFileSync(path.join(bin, 'sleep'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
   fs.writeFileSync(

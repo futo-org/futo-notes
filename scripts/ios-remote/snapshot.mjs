@@ -40,8 +40,6 @@ export function snapshotSource(root, scratch) {
         throw new Error(`Cannot snapshot source through a directory symlink: ${file}`);
       parent = path.dirname(parent);
     }
-    if (lstatSync(path.join(root, file)).isDirectory())
-      throw new Error(`Source directory needs explicit handling: ${file}`);
   }
   writeFileSync(path.join(scratch, 'files.nul'), files.join('\0') + '\0');
   writeFileSync(path.join(scratch, 'manifest.json'), JSON.stringify(files));

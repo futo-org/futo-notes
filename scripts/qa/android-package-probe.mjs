@@ -31,6 +31,7 @@ export function runPackageProbe(
   {
     serial = process.env.ANDROID_SERIAL,
     expectedAvd = process.env.ANDROID_AVD_NAME,
+    allowPending = false,
     adbPath = 'adb',
     execFile = execFileSync,
     timeoutMs = PACKAGE_PROBE_TIMEOUT_MS,
@@ -41,7 +42,7 @@ export function runPackageProbe(
     throw new Error('Package probe timeout must be a positive integer');
   const execAdb = (_command, args, options) =>
     execFile(adbPath, args, { ...options, killSignal: 'SIGKILL' });
-  const target = assertAndroidTarget({ serial, expectedAvd, execFile: execAdb });
+  const target = assertAndroidTarget({ serial, expectedAvd, allowPending, execFile: execAdb });
   const execute = (args, timeout) =>
     execFile(adbPath, ['-s', target, ...args], {
       encoding: 'utf8',
@@ -63,7 +64,7 @@ export function runPackageProbe(
     }
     // Recheck ownership before the diagnostic too: a dead emulator's serial
     // can be recycled while pm is blocked. Identity errors must escape intact.
-    assertAndroidTarget({ serial: target, expectedAvd, execFile: execAdb });
+    assertAndroidTarget({ serial: target, expectedAvd, allowPending, execFile: execAdb });
     let transport;
     try {
       const state = execute(['get-state'], TRANSPORT_PROBE_TIMEOUT_MS).trim();
@@ -81,6 +82,22 @@ export function runPackageProbe(
       { cause: error },
     );
   }
+}
+
+// An install session exercises StorageManager too; service registration alone
+// is too early. Retry PM failures, but let ownership/identity errors escape.
+export function isAndroidPackageInstallerReady(options) {
+  let created;
+  try {
+    created = runPackageProbe(['install-create'], options);
+  } catch (error) {
+    if (error.cause) return false;
+    throw error;
+  }
+  const session = created.match(/\[(\d+)\]/);
+  if (!created.includes('Success') || !session) return false;
+  runPackageProbe(['install-abandon', session[1]], options);
+  return true;
 }
 
 export function isAndroidPackageInstalled(packageName, options) {

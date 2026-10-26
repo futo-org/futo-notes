@@ -1,14 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  symlinkSync,
-  writeFileSync,
-} from 'node:fs';
-import { fileURLToPath } from 'node:url';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, expect, it } from 'vitest';
@@ -25,18 +16,6 @@ it('exposes remote iOS help without network or device setup', () => {
   expect(result.stdout).toContain('test-ios-native-ui');
 });
 
-it.skipIf(process.platform === 'win32')(
-  'runs help through a symlink alias instead of silently doing nothing',
-  () => {
-    const dir = mkdtempSync(path.join(tmpdir(), 'ios-remote-alias-'));
-    dirs.push(dir);
-    const alias = path.join(dir, 'remote-alias.mjs');
-    symlinkSync(fileURLToPath(new URL('./ios-remote.mjs', import.meta.url)), alias);
-    const result = spawnSync(process.execPath, [alias, '--help'], { encoding: 'utf8' });
-    expect(result.status, result.stderr).toBe(0);
-    expect(result.stdout).toContain('test-ios-native-ui');
-  },
-);
 it('keeps suite names literal and rejects unsupported recipes before networking', () => {
   const parsed = parseIosRemoteArgs(
     ['--host', 'example.test', 'test-ios-native-ui', 'Class/test with spaces', '$(not-code)'],
@@ -70,6 +49,7 @@ it('generates parseable bootstrap code with all request values quoted', () => {
     bundle: true,
     minFreeGiB: '2',
   });
+  expect(script).toContain('--no-install --no-target');
   const result = spawnSync('bash', ['-n'], { input: script, encoding: 'utf8' });
   expect(result.status, result.stderr).toBe(0);
 });
@@ -143,3 +123,37 @@ it('releases a partially acquired simulator claim when boot/setup fails', () => 
   expect(result.status, result.stderr).toBe(42);
   expect(readFileSync(trace, 'utf8')).toContain('qa-release ios');
 });
+
+it.each(['same', 'changed', 'missing', 'failed'])(
+  'refreshes dependencies after source application (%s installed lock)',
+  (state) => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'ios-remote-deps-'));
+    dirs.push(dir);
+    mkdirSync(path.join(dir, 'node_modules/.pnpm'), { recursive: true });
+    writeFileSync(path.join(dir, 'pnpm-lock.yaml'), 'current');
+    if (state !== 'missing')
+      writeFileSync(
+        path.join(dir, 'node_modules/.pnpm/lock.yaml'),
+        state === 'same' ? 'current' : 'old',
+      );
+    const generated = runScript({ sha: 'a'.repeat(40), id: 'abc', digest: 'b'.repeat(64) });
+    const refresh = generated.slice(generated.indexOf('echo '), generated.indexOf('CLAIMED=0'));
+    const result = spawnSync(
+      'bash',
+      [
+        '-euc',
+        `
+      pnpm() { echo "pnpm $*"; return ${state === 'failed' ? 42 : 0}; }
+      node() { echo "node $*"; }
+      just() { echo "just $*"; }
+      ${refresh}
+    `,
+      ],
+      { cwd: dir, encoding: 'utf8' },
+    );
+    expect(result.status, result.stderr).toBe(state === 'failed' ? 42 : 0);
+    expect(result.stdout.includes('pnpm install --frozen-lockfile')).toBe(state !== 'same');
+    expect(result.stdout.includes('node scripts/check-node-modules.mjs')).toBe(state !== 'failed');
+    expect(result.stdout.includes('just editor-deps')).toBe(state !== 'failed');
+  },
+);

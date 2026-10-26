@@ -13,7 +13,7 @@ import { createReadStream } from 'node:fs';
 import { createRequire } from 'node:module';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 
 const script = fileURLToPath(import.meta.url);
 const require = createRequire(import.meta.url);
@@ -416,7 +416,7 @@ async function sweep(argv, locked = false) {
     { cwd: root, stdio: 'inherit' },
   );
 }
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (import.meta.main) {
   const args = process.argv.slice(2);
   (args[0] === '--shard'
     ? runShard(args[1], Number(args[2]))

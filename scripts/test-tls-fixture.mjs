@@ -10,10 +10,19 @@ import { execFileSync } from 'node:child_process';
 
 function main(args) {
   if (args.includes('--help') || args.includes('-h')) {
-    console.log('Usage: just test-tls-fixture <new-output-directory> [DNS-or-IP ...]');
-    console.log(
-      'Creates ca.pem, server.pem and PKCS8 keys; default SANs: localhost,127.0.0.1,::1,10.0.2.2. Does not install trust.',
-    );
+    console.log(`Usage: just test-tls-fixture <new-output-directory> [DNS-or-IP ...]
+Example: mkdir -p verification-runs
+         just test-tls-fixture verification-runs/tls-example notes.test
+Parent must exist; existing output paths are refused. Creates two-day ca.pem,
+server.pem, PKCS8 ca-key.pem/server-key.pem and config/CSR/serial files.
+CA:TRUE with signing usage; server CA:FALSE with server-auth and SANs for
+localhost,127.0.0.1,::1,10.0.2.2 plus requested hosts. Trust the CA in the test
+client; use the server certificate/key on the test server. Never installs OS/device trust.
+Uses shared config syntax for macOS LibreSSL 3.3.6/Linux OpenSSL (no -addext/-ext).
+Inspect with: openssl x509 -in <certificate> -noout -text
+Generation verifies the chain with openssl verify; tests also perform a TLS handshake.
+Failure removes only this invocation's new directory; existing paths and production keys
+are never read, overwritten or removed.`);
     return;
   }
   const [directory, ...extraHosts] = args;

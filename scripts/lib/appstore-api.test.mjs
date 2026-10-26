@@ -56,22 +56,18 @@ describe('createToken', () => {
     expect(exp - iat).toBeGreaterThan(0);
   });
 
-  it.each([
-    [
-      'fresh token',
-      () => ({ token: createToken({ keyId: 'k', issuerId: 'i', privateKey }), publicKey }),
-      undefined,
-    ],
-    ['valid signature beginning with 0x30', () => prefixFixture, 0x30],
-  ])('signs with verifiable raw r||s (%s)', (_name, fixture, firstByte) => {
-    const { token, publicKey: verificationKey } = fixture();
+  it.each(['fresh', '0x30'])('signs with verifiable raw r||s (%s)', (variant) => {
+    const { token, publicKey: verificationKey } =
+      variant === '0x30'
+        ? prefixFixture
+        : { token: createToken({ keyId: 'k', issuerId: 'i', privateKey }), publicKey };
     const [header, payload, signature] = token.split('.');
-    const raw = Buffer.from(signature.replace(/-/g, '+').replace(/_/g, '/'), 'base64');
+    const raw = Buffer.from(signature, 'base64url');
 
     // A P-256 JOSE signature is exactly 64 bytes and must verify as raw r||s.
     // Its first byte can also be 0x30; that byte alone does not identify DER.
     expect(raw).toHaveLength(64);
-    if (firstByte !== undefined) expect(raw[0]).toBe(firstByte);
+    if (variant === '0x30') expect(raw[0]).toBe(0x30);
 
     const verified = createVerify('SHA256')
       .update(`${header}.${payload}`)

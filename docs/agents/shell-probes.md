@@ -1,62 +1,48 @@
 # Shell probes without quoting surprises
 
-Use `just node-eval '<JavaScript>' [argument ...]` for a small asynchronous probe. It runs
-an ES module with the pinned Node version, so top-level `await` works without `tsx -e`'s
-CommonJS transform. Arguments after the source are available as `process.argv.slice(1)`.
-The recipe passes source and arguments as positional values, without another shell evaluation.
+Use `just node-eval '<JavaScript>' [argument ...]` for async probes: it runs an ES module
+with pinned Node, supports top-level `await`, and passes source/arguments literally without
+another shell evaluation. Arguments are `process.argv.slice(1)`; `tsx -e` transforms to CommonJS.
 
 ```sh
 just node-eval 'console.log(await Promise.resolve(42))'
 just node-eval 'console.log(JSON.stringify(process.argv.slice(1)))' 'two words' '$HOME'
 ```
 
-For multiline programs or patterns containing both quote styles, write a `.mjs` file in your
-private scratch directory with a **quoted** heredoc delimiter, then run that file. The shell
-must not interpret Markdown fences, dollar signs, or backticks in the program. Keep unrelated
-patches separate and read the current file before choosing replacement bounds. An inline
-`node -e "..."` is still shell code: backticks inside those double quotes execute before Node
-starts. Compare values as separate `console.log` arguments or parenthesize equality expressions
-before concatenating a label. Wrap recursive callbacks explicitly (`rows.flatMap(row => scan(row))`)
-when the helper's second parameter is an accumulator; `flatMap(scan)` passes the row index there.
+For multiline or mixed-quote programs, write a scratch `.mjs` with a **quoted** heredoc delimiter.
+Double-quoted `node -e` still lets the shell execute backticks and expand dollar signs, including
+Markdown fences. Read current files before choosing replacement bounds; keep unrelated patches separate.
+Compare values as separate `console.log` arguments or parenthesize equality before concatenating labels.
+Wrap recursive callbacks (`rows.flatMap(row => scan(row))`): `flatMap(scan)` passes an index as the
+second argument, which may overwrite an accumulator.
 
-## Search and shell state
+## Search, shell state and failures
 
-- `rg -n 'pattern' path` searches recursively by default. Its `-r` means **replace matched
-  output**, so `rg -rn` silently substitutes `n`; it is not grep's recursive flag.
-- After editing a file, cross-check surprising search output against `git diff` and a direct
-  file read before deciding the edit failed. Check the working directory and exact path too.
-- Use names such as `pipeline_state` or `probe_result`. `status` is read-only in zsh. Avoid
-  `HOME`, `home`, and other shell/system parameters for task variables.
-- Use a command's working-directory option or `(cd /some/path && command)` for a temporary
-  excursion. Do not rely on a persistent tool session keeping its previous directory.
-- A multiline verification script starts with `set -e` (and `set -o pipefail` in Bash).
-  Otherwise the exit code of a later `git diff` can hide a failed check.
-- macOS's system Bash is 3.2 and has no associative arrays. Portable shell helpers use a
-  `case` statement or a Node `Map`. GNU `timeout` is absent on a stock Mac; check for `gtimeout`
-  before using it. Node's `spawnSync` supports a `timeout` in milliseconds without coreutils.
-- Use `/usr/bin/log` for macOS device logging; a login-shell function named `log` can shadow it.
+- `rg -n 'pattern' path` is recursive; `-r` replaces output, so `rg -rn` substitutes `n`.
+  Cross-check surprising results against `git diff`, a direct read, the working directory and path.
+- Use task variables such as `probe_result`; `status` is read-only in zsh. Avoid `HOME`/`home`
+  and other system parameters. Use a tool's working-directory option or `(cd /path && command)`;
+  do not assume sessions preserve cwd.
+- Verification scripts use `set -e` and, in Bash, `set -o pipefail`; a later `git diff` must not
+  hide an earlier failure. Check install exit codes and resolved versions after dependency changes:
+  workspace-root `pnpm add` needs `-w`, and hidden diagnostics can conceal `ERR_PNPM_ADDING_TO_ROOT`.
+- macOS Bash 3.2 has no associative arrays: use `case` or a Node `Map`. Stock macOS has no GNU
+  `timeout`; check for `gtimeout` or use Node's `spawnSync` timeout in milliseconds.
+  Use `/usr/bin/log` to avoid a login-shell function shadowing device logging.
 
-## Use the owning verifier
+## Use the owning verifier and parser
 
-`just check` runs the repository's formatter policy; that policy excludes Markdown. A separate
-Prettier invocation on an existing hand-formatted Markdown table does not establish a regression.
-Svelte is checked with `just check-svelte` (the `check:svelte` package script); the ESLint script covers TypeScript and a targeted
-ESLint invocation on `.svelte` can report an ignored file. In Svelte 5, multiple `svelte-ignore`
-codes are comma-separated.
+`just check` owns formatter policy (Markdown is excluded); separately formatting an existing
+hand-formatted table does not prove a regression. Use `just check-svelte` for Svelte: targeted
+ESLint may ignore `.svelte`. Svelte 5 `svelte-ignore` codes are comma-separated.
 
-For a small ordinary YAML file, use the installed parser rather than assuming Python has PyYAML:
+For ordinary YAML, use installed `js-yaml` rather than assuming PyYAML exists:
 
 ```sh
 just node-eval 'import yaml from "js-yaml"; import { readFileSync } from "node:fs"; yaml.load(readFileSync(process.argv[1], "utf8")); console.log("YAML parsed")' path/to/file.yml
 ```
 
-GitLab YAML's `!reference` needs its custom schema; use GitLab CI lint for the full pipeline.
-For Cargo manifests, `cargo metadata --no-deps --format-version 1` checks the real TOML with Cargo.
-For other TOML, check that the available Python has `tomllib` before choosing it as a parser.
-Cargo-audit's TOML setting is `advisories.severity_threshold`; the JSON report calls it
-`settings.severity`. Validate a fixture by running the consuming tool, rather than deriving its
-input schema from an output field.
-
-After changing a dependency, check the resolved package version and the install exit code.
-`pnpm add` at this workspace root requires `-w`; redirecting its diagnostics can hide
-`ERR_PNPM_ADDING_TO_ROOT`. Never infer a successful dependency bisect from a quiet command.
+GitLab `!reference` needs its custom schema; use GitLab CI lint for the full pipeline.
+Use `cargo metadata --no-deps --format-version 1` for Cargo TOML; check Python has `tomllib`
+for other TOML. Cargo-audit config uses `advisories.severity_threshold`, while its JSON report
+uses `settings.severity`: validate fixtures with the consumer, not its output schema.

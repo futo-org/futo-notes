@@ -161,7 +161,11 @@ _test-ios bundle *names: _preflight-ios build-rust-ios
     ${ONLY_TESTING[@]+"${ONLY_TESTING[@]}"} \
     -destination "id=$SIM" \
     -derivedDataPath .build \
-    CODE_SIGNING_ALLOWED=YES CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="-"
+    CODE_SIGNING_ALLOWED=YES CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="-" 2>&1 | awk '
+      { print; fflush() }
+      /Executed [1-9][0-9]* tests?/ || /Test run with [1-9][0-9]* tests?/ { ran = 1 }
+      END { if (!ran) { print "No iOS tests executed" > "/dev/stderr"; exit 1 } }
+    '
 
 # Write this build host's Debug collector port into an iOS built resource directory.
 ios-dev-ports output configuration="Debug":
