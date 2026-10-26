@@ -4,8 +4,6 @@
 with a self-hosted server in password mode. Every line in this file is about the CLI unless it
 names shared engine behavior.
 
-> **Gap:** Not built. There is no `apps/cli` on main; every line below is a requirement for the first version.
-
 ## Scope
 
 - The CLI runs with no graphical session, no FUTO Notes app, no Tauri runtime, no WebView, and no Node.js.
@@ -23,6 +21,7 @@ names shared engine behavior.
 - `init` on a different path replaces the configured vault and clears the server and password command, so the new directory never syncs into the account until `auth login`.
 - The CLI never seeds a welcome note and never runs the store's launch bootstrap or `.txt` migration; it opens the vault with `LocalNoteStore::new`. → `crates/futo-notes-store/src/bootstrap.rs`
 - Every vault command uses the configured vault, or the path given with the global `--vault <path>` for that one command.
+- `sync`, `auth login`, and `auth logout` act only on the configured vault; `--vault` naming another directory fails with `invalid_argument`, so no directory but the one `init` set can sync into the account.
 - With no configured vault and no `--vault`, vault commands fail and name `init`; the CLI never guesses a location, uses the working directory, or finds a GUI app's vault.
 - A configured vault directory that no longer exists is an error; only `init` creates a vault directory.
 - `--help` and `--version` need no vault, no password, and no network.
@@ -54,11 +53,12 @@ Global options, accepted before or after the command: `--vault <path>` and `--js
 - An ID is the vault-relative note path with `/` separators and no `.md` suffix: `release checklist`, `work/release checklist`.
 - The filename is the title. The CLI never prettifies a title, strips a suffix it guesses at, or matches an ID fuzzily.
 - Path safety, filename sanitizing, collision allocation, folder rules, and backlink rewriting all come from the shared Rust rules; the CLI implements none of them.
+- An ID, including one given to `create`, must pass the shared note-ID check; a character that check forbids (`< > : " | ? *`, control characters) fails with `invalid_argument` rather than being sanitized away.
 - An absolute path, `..` traversal, or a symlink escape is rejected by the shared path check before anything is written.
 - `read`, `append`, `edit`, `rename`, and `move` on a missing note fail with `note_not_found`; an existing empty note is valid.
 - `create` and `append` take exactly one of `--body` or `--stdin`. `--stdin` reads to end of input as UTF-8; invalid UTF-8 fails before anything is written.
 - An empty `create` body creates an empty note; an empty `append` changes nothing.
-- `append` adds no separator or newline. It is one atomic read-and-write in the store, so two appends both land exactly once. → `LocalNoteStore::append` (to be added in `crates/futo-notes-store`)
+- `append` adds no separator or newline. It is one atomic read-and-write in the store, so two appends both land exactly once. → `crates/futo-notes-store/src/notes.rs`
 - A note ID starting with `-` is accepted after `--`.
 - `list` and `search` with no results succeed with empty output.
 - `search` passes the query through unchanged, trailing whitespace included, so the shared prefix rule still applies. → [search.md](search.md)

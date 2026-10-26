@@ -13,7 +13,7 @@ primitives (path safety, atomic writes, conflict names, the vault mutation guard
 - **`lib.rs`**: `LocalNoteStore`, the public result types, sort order, search access, `reset`,
   and the vault-migration entry points. The rest of the public workflow surface is split by job,
   each an `impl LocalNoteStore` block: `bootstrap.rs` (`bootstrap`, `startup_listing`, `.txt`
-  migration), `notes.rs` (`snapshot`, `read`, `create`, `write`, `rename`, `move_note`, `delete`,
+  migration), `notes.rs` (`snapshot`, `read`, `create`, `append`, `write`, `rename`, `move_note`, `delete`,
   external-change projection), `flush.rs` (`save`, `flush_draft`), `folders.rs` (the folder
   workflows), `relink.rs` (file moves with rollback and backlink rewrites), and `commit.rs`
   (no-replace installs and the post-commit `MutationResult`).
