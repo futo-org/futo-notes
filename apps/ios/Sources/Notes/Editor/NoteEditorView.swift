@@ -180,7 +180,6 @@ struct NoteEditorView: View {
                 // Keep the complete move in this editor's tracked mutation chain.
                 MoveToFolderSheet(
                     note: currentItem,
-                    currentFolder: splitId(id: noteId).folder,
                     onMoveRequested: { folder in
                         moveNote(to: folder)
                     }

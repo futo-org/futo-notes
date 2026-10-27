@@ -217,34 +217,6 @@ fn native_folder_delete_numbers_a_near_limit_unicode_attachment() {
 }
 
 #[test]
-fn create_folder_and_move_note_rolls_back_the_folder_when_move_fails() {
-    let root = TestRoot::new();
-    let store = store(&root);
-
-    assert!(store
-        .move_note_to_new_folder("missing", "Projects")
-        .is_err());
-    assert!(
-        !root.0.join("Projects").exists(),
-        "the failed workflow must not leave an unintended empty folder"
-    );
-}
-
-#[test]
-fn create_folder_and_move_note_commits_both_changes() {
-    let root = TestRoot::new();
-    let store = store(&root);
-    store.write("note", "body", None).unwrap();
-
-    let mutation = store.move_note_to_new_folder("note", "Projects").unwrap();
-
-    assert_eq!(mutation.final_id.as_deref(), Some("Projects/note"));
-    assert!(root.0.join("Projects").is_dir());
-    assert_eq!(store.read("Projects/note").unwrap(), "body");
-    assert!(!store.exists("note"));
-}
-
-#[test]
 fn moving_a_folder_is_one_collision_safe_workflow_and_rewrites_links() {
     let root = TestRoot::new();
     let store = store(&root);

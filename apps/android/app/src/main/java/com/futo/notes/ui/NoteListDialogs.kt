@@ -77,10 +77,10 @@ internal fun NoteListDialogs(
         FolderPickerSheet(
             store = store,
             onDismiss = { onMoveTargetChange(null) },
-            onPick = { destination, isNew ->
+            onPick = { destination ->
                 val id = moveTarget ?: return@FolderPickerSheet
                 scope.launch {
-                    when (store.moveNote(id, destination, createFolder = isNew)) {
+                    when (store.moveNote(id, destination)) {
                         is NoteMutationOutcome.Committed -> {
                             onMoveTargetChange(null)
                             Toast.makeText(
@@ -169,9 +169,8 @@ internal fun NoteListDialogs(
                 mapOf("folderName" to target.substringAfterLast('/')),
             ),
             excludePaths = listOf(target),
-            allowCreate = false,
             onDismiss = { onMoveFolderTargetChange(null) },
-            onPick = { destination, _ ->
+            onPick = { destination ->
                 onMoveFolderTargetChange(null)
                 scope.launch {
                     val finalFolder = store.moveFolder(target, destination)

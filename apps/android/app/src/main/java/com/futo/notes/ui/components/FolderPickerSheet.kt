@@ -12,22 +12,15 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CreateNewFolder
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import com.futo.notes.NotesStore
@@ -36,27 +29,22 @@ import com.futo.notes.ui.theme.FutoTheme
 import com.futo.notes.ui.theme.FutoType
 
 /**
- * "Move to folder" bottom-sheet picker [list.md]: a Root row,
- * one row per folder (full path, like the drawer), and an inline "New Folder…"
- * that names a folder and picks it in one step. [onPick] receives the chosen
- * folder path ("" = root) and whether the picker created it for an atomic note
- * move. Folder moves disable creation and ignore that second value.
+ * "Move to folder" bottom-sheet picker [list.md]: a Root row and one row per folder (full
+ * path, like the drawer). [onPick] receives the chosen folder path ("" = root).
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FolderPickerSheet(
     store: NotesStore,
-    onPick: (folder: String, isNew: Boolean) -> Unit,
+    onPick: (folder: String) -> Unit,
     onDismiss: () -> Unit,
     title: String? = null,
     excludePaths: List<String> = emptyList(),
-    allowCreate: Boolean = true,
 ) {
-    val c = FutoTheme.colors
     val localization = LocalLocalization.current
-    var newFolder by remember { mutableStateOf(false) }
+    val destinations = eligibleFolderDestinations(store.folders, excludePaths)
 
-    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = c.surface) {
+    ModalBottomSheet(onDismissRequest = onDismiss, containerColor = FutoTheme.colors.surface) {
         Column(
             modifier = Modifier
                 .heightIn(max = 480.dp)
@@ -70,32 +58,12 @@ fun FolderPickerSheet(
             SheetRow(
                 label = localization.localizedText("folders.root"),
                 icon = Icons.Filled.Home,
-            ) { onPick("", false) }
-            eligibleFolderDestinations(store.folders, excludePaths).forEach { folder ->
-                SheetRow(label = folder, icon = Icons.Filled.Folder) { onPick(folder, false) }
-            }
-            if (allowCreate) {
-                HorizontalDivider(color = c.border, modifier = Modifier.padding(vertical = 6.dp))
-                SheetRow(
-                    label = localization.localizedText("folders.newFolderEllipsis"),
-                    icon = Icons.Filled.CreateNewFolder,
-                    tint = c.textAccent,
-                    labelColor = c.textAccent,
-                ) { newFolder = true }
+                onClick = { onPick("") },
+            )
+            destinations.forEach { folder ->
+                SheetRow(label = folder, icon = Icons.Filled.Folder, onClick = { onPick(folder) })
             }
         }
-    }
-
-    if (newFolder) {
-        NewFolderDialog(
-            parent = "",
-            store = store,
-            onCreate = { path ->
-                newFolder = false
-                onPick(path, true)
-            },
-            onDismiss = { newFolder = false },
-        )
     }
 }
 
@@ -107,13 +75,7 @@ internal fun eligibleFolderDestinations(
 }
 
 @Composable
-private fun SheetRow(
-    label: String,
-    icon: ImageVector,
-    tint: Color = FutoTheme.colors.textMuted,
-    labelColor: Color = FutoTheme.colors.textPrimary,
-    onClick: () -> Unit,
-) {
+private fun SheetRow(label: String, icon: ImageVector, onClick: () -> Unit) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
@@ -121,8 +83,8 @@ private fun SheetRow(
             .clickable(onClick = onClick)
             .padding(horizontal = 24.dp, vertical = 14.dp),
     ) {
-        Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(20.dp))
+        Icon(icon, contentDescription = null, tint = FutoTheme.colors.textMuted, modifier = Modifier.size(20.dp))
         Spacer(Modifier.width(14.dp))
-        Text(label, style = FutoType.body, color = labelColor)
+        Text(label, style = FutoType.body, color = FutoTheme.colors.textPrimary)
     }
 }

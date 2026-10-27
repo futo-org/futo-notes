@@ -1,7 +1,7 @@
 //! Baseline-aware editor identity changes. Ordinary CRUD remains in the store.
 use super::{
-    io_error, make_id, paths, sanitize_folder_path, split_id, vault, vault_fs,
-    vault_mutation_guard, ErrorKind, FlushDisposition, LocalNoteStore, MutationResult,
+    io_error, make_id, paths, sanitize_folder_path, split_id, vault, vault_mutation_guard,
+    ErrorKind, FlushDisposition, LocalNoteStore, MutationResult,
 };
 
 impl LocalNoteStore {
@@ -56,27 +56,18 @@ impl LocalNoteStore {
         }
     }
 
-    /// The editor move variant also owns optional folder creation.
+    /// The editor's move: its draft saved under the note's id in `folder`.
     pub fn move_draft(
         &self,
         id: &str,
         folder: &str,
         base: &str,
         content: &str,
-        create_folder: bool,
     ) -> Result<MutationResult, String> {
         let _gate = self.lock_gate()?;
         let _vault_mutation = vault_mutation_guard()?;
         let folder = sanitize_folder_path(folder);
         let (_, title) = split_id(id);
-        if create_folder {
-            paths::folder_path(&self.root, &folder)?;
-            vault_fs::create_dir(&self.root, &folder)?;
-        }
-        let result = self.save_draft_as_locked(id, &make_id(&folder, &title), base, content);
-        if result.is_err() && create_folder {
-            let _ = vault_fs::remove_dir(&self.root, &folder, false);
-        }
-        result
+        self.save_draft_as_locked(id, &make_id(&folder, &title), base, content)
     }
 }
