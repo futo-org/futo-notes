@@ -1,6 +1,6 @@
 default:
   # Every Linux job lands on an office runner (71 futocoredebianrunner1 and
-  # the two futonotesdebianrunner boxes carry dind_fast). Runner 55, the
+  # 112 futonotesdebianrunner1 carry dind_fast). Runner 55, the
   # DigitalOcean box, is the outage path only: it re-pulls the image every
   # job, misses the pnpm store every job, and ran the unit job at 7m15
   # against 1m27 here. To use it, run the pipeline with LINUX_RUNNER_TAG=dind.

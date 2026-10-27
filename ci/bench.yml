@@ -4,7 +4,7 @@
 # editor interactions in headless Chromium, held against
 # docs/perf/editor-bench-baseline.json. The counts repeat within 0.15 % on a
 # quiet machine and mean nothing on a shared one, so this runs only on the
-# futo_notes_serial boxes, which run one job at a time. Main and tags block on
+# futo_notes_serial runner, which runs one job at a time. Main and tags block on
 # it; an MR plays it by hand. A red main from a count that got worse is fixed
 # by an MR that commits a new baseline with `just bench-climb-gate --accept`
 # (docs/perf/editor-bench-climb.md). Exit 1 is REJECT, 2 is a crash (M11).

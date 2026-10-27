@@ -4,15 +4,15 @@ test:cross-platform-sync:
   extends: .ci-test-image
   stage: test
   needs: []
-  # Runs alone on a serial runner: the futo_notes_serial boxes
-  # (futonotesdebianrunner1 and 2) run ONE job at a time, so nothing overlaps
-  # this suite on its machine. That replaces the project-wide
-  # cross-platform-sync lock GitLab used to hold. Two concurrent runs on one box
-  # were 4 Tauri instances + 2 servers, which starved the suite into flaking
-  # ("active note reload" et al.), and the lock made every MR's sync run wait
-  # for every other's (17.9 h of waits in five October days). With the box as
-  # the lock, two MRs run on two boxes, each alone (M15: contention, not
-  # timeouts).
+  # Runs alone on a serial runner: the futo_notes_serial box
+  # (114 futonotesdebianrunner2) runs ONE job at a time and takes no shared-slot
+  # work, so nothing overlaps this suite on its machine. That replaces the
+  # project-wide cross-platform-sync lock GitLab used to hold. Two concurrent
+  # runs on one box were 4 Tauri instances + 2 servers, which starved the suite
+  # into flaking ("active note reload" et al.), and the lock also held the
+  # shared slots while it waited (17.9 h of waits in five October days). MRs
+  # still queue for the box; a second futo_notes_serial runner is the fix if
+  # that wait grows (M15: contention, not timeouts).
   tags:
     - futo_notes_serial
   variables:
@@ -96,7 +96,7 @@ test:cross-platform-sync:
     # Every MR runs the full scenario set and BLOCKS the merge: this suite
     # guards user data, and a failure here nearly shipped a broken release
     # twice. The path gate and the scale-probe trim it carried on MRs existed
-    # for the shared runner slots; the serial boxes took it off those.
+    # for the shared runner slots; the serial runner took it off those.
     # Tags and lockfile MRs refresh the isolated archive; ordinary source MRs
     # reuse that seed without paying the post-test upload cost.
     - if: $CI_MERGE_REQUEST_IID

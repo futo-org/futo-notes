@@ -183,7 +183,7 @@ test:rust:macos:
 test:rust:ffi-android:
   stage: test
   needs: []
-  # A shared-slot runner. The sync suites run alone on the serial boxes now,
+  # A shared-slot runner. The sync suites run alone on the serial runner now,
   # so this full-tree compile can no longer starve them (pipeline 31084's
   # "rapid reconnect" flake was that overlap); the project-wide lock and the
   # needs: ordering that kept the two apart are gone with it.

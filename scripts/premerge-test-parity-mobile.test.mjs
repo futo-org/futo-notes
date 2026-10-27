@@ -159,7 +159,7 @@ describe('pre-merge CI routing contracts: native mobile jobs', () => {
 
     expect(androidCheckJob).toContain('- crates/**/*');
     expect(androidCheckJob).toContain('build -p futo-notes-ffi --profile release-ffi');
-    // On the shared slots, not the serial boxes the sync suites own: a
+    // On the shared slots, not the serial runner the sync suites own: a
     // concurrent full-tree compile used to flake their timing-sensitive
     // scenarios, which the serial runners now rule out without a lock.
     expect(androidCheckJob).toContain('    - $LINUX_RUNNER_TAG');
