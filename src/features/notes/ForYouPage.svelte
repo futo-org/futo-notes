@@ -16,9 +16,14 @@
   $effect(() => {
     const asked = notes;
     let live = true;
-    void readRecentNoteIds(FOR_YOU_LIMIT).then((ids) => {
-      if (live && asked === notes) recentIds = ids;
-    });
+    // A failed read (the vault folder is gone) leaves the last answer, so a fresh
+    // mount shows nothing: the vault banner explains it, and the empty-vault
+    // heading would be a false claim.
+    void readRecentNoteIds(FOR_YOU_LIMIT)
+      .then((ids) => {
+        if (live && asked === notes) recentIds = ids;
+      })
+      .catch((error) => console.warn('Failed to read recent notes:', error));
     return () => {
       live = false;
     };
