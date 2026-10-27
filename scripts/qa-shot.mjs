@@ -52,7 +52,7 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 
 import {
   allCandidatePids,
@@ -417,6 +417,6 @@ function main(argv) {
   return capture(window, captureDestination(window, { out, defaultDir }));
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (import.meta.main) {
   process.exit(main(process.argv.slice(2)));
 }

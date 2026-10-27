@@ -2,7 +2,16 @@ const STORAGE_KEY = 'futo_crashlog_staging';
 
 const PRODUCTION_BASE_URL = 'https://notes-crashlog.futo.org';
 const STAGING_BASE_URL = 'https://staging-notes-crashlog.futo.org';
-const LOCAL_BASE_URL = 'http://localhost:5100';
+
+function localBaseUrl(): string {
+  const port = Number(import.meta.env.VITE_DEV_CRASHLOG_PORT);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new Error(
+      'Missing or invalid development crashlog collector port; rebuild this worktree',
+    );
+  }
+  return `http://localhost:${port}`;
+}
 
 export function usingStagingCrashlog(): boolean {
   if (!import.meta.env.DEV) return false;
@@ -23,7 +32,7 @@ export function setUsingStagingCrashlog(useStaging: boolean): void {
 }
 
 export function devCrashlogBaseUrl(useStaging: boolean): string {
-  return useStaging ? STAGING_BASE_URL : LOCAL_BASE_URL;
+  return useStaging ? STAGING_BASE_URL : localBaseUrl();
 }
 
 export function crashlogBaseUrl(): string {

@@ -13,7 +13,13 @@ shells project it rather than reconstructing the protocol.
 
 ## Verification
 
-- Any change: `cargo test -p futo-notes-sync`.
+- Any change: `just test-sync`. It runs every ordinary test through the pinned,
+  checksum-verified nextest runner (slow after 30s, named failure after 120s,
+  up to 5s termination grace), then runs Cargo doctests explicitly. Server-only
+  tests remain ignored here; the real-server command below selects them serially.
+  `just test-rust-full` and CI use the same sync route while retaining other crates'
+  Cargo test/doctest coverage. `just test-sync-timeout-proof` proves the actual
+  policy with a deliberately deadlocked test; allow about two minutes.
 - Protocol/engine change: add a scenario under `tests/cross-platform-sync/`, register it in
   `scenarios` in `tests/cross-platform-sync/scenario-registry.mjs`, then run `just test-cross-platform`.
 - Server-contract change: `just test-sync-integration` (`node tests/sync-integration.mjs`). It
@@ -24,9 +30,9 @@ shells project it rather than reconstructing the protocol.
   `server_integration.rs` needs TWO servers, because its two families need two modes that cannot
   be one process:
 
-  | Family | Server | Variable |
-  |---|---|---|
-  | sync scenarios (dev login) | `AUTH_MODE=dev` | `$FUTO_TEST_SERVER` |
+  | Family                                       | Server              | Variable                   |
+  | -------------------------------------------- | ------------------- | -------------------------- |
+  | sync scenarios (dev login)                   | `AUTH_MODE=dev`     | `$FUTO_TEST_SERVER`        |
   | hosted scenarios (Log in with FUTO, billing) | `STANDIN_MODE=true` | `$FUTO_TEST_HOSTED_SERVER` |
 
   Against the wrong one the sync family fails `connect: Auth("unauthorized")` and the hosted family
@@ -35,7 +41,7 @@ shells project it rather than reconstructing the protocol.
   skipping — unset it to skip deliberately.
 
 - SSE changes are covered: the runner includes `sse_live`.
-- Hosted-flow change: `cargo test -p futo-notes-sync --test hosted_setup` (an in-test stub of the
+- Hosted-flow change: `just test-sync` (an in-test stub of the
   hosted routes, which is what CI gets today), then the same scenarios against a real server:
 
   ```bash
@@ -48,6 +54,7 @@ shells project it rather than reconstructing the protocol.
   release cannot yet, which is `"standinMode": false` in `scripts/sync-server-pin.json`, and the
   runner says so on every run. The stub goes away when the pin moves to a release carrying
   futo-notes-server#14-#17 (#185).
+
 - Crypto, merge, conflict, or tombstone work uses `/sync-adversarial` and merits `/slow-review`.
 
 Update `docs/spec/sync.md` with behavior and name the guarding test/scenario.

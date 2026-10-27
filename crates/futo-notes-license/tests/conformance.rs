@@ -13,7 +13,6 @@
 //! Decisions).
 
 use std::cell::RefCell;
-use std::path::PathBuf;
 
 use futo_notes_license::{
     activation_url, buy_url, enter_license_key, evaluate, evidence_includes, is_valid_license_key,

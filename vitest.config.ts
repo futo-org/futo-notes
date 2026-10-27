@@ -1,6 +1,8 @@
 import { defineConfig } from 'vitest/config';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
 import path from 'path';
+import { UNIT_TEST_MAX_WORKERS } from './scripts/lib/test-worker-budget.mjs';
+import { portsFor } from './scripts/lib/slot.mjs';
 
 const nodeDefinesWebStorage =
   Object.getOwnPropertyDescriptor(globalThis, 'localStorage') !== undefined;
@@ -11,6 +13,7 @@ export default defineConfig({
     // One `vitest run` covers the app (this config) and the editor package
     // (its own config), so `just test-unit <path>` reaches either.
     projects: [{ extends: true, test: { name: 'app' } }, 'packages/editor'],
+    env: { VITE_DEV_CRASHLOG_PORT: String(portsFor(__dirname).crashlog) },
     globals: true,
     include: [
       'src/**/*.test.ts',
@@ -40,11 +43,9 @@ export default defineConfig({
       jsdom: { url: 'http://localhost/' },
     },
     server: { deps: { inline: [/^svelte/] } },
-    // Under CI, several test-stage jobs land on the same shared runner host
-    // at once (each an uncapped container reporting the host's full core
-    // count), so the default numCpus-1 workers oversubscribe the box and
-    // starve tests into timeouts (PKT-20). Local dev keeps full parallelism.
-    maxWorkers: process.env.CI ? 4 : undefined,
+    // Local native builds and peer worktrees compete for the same resources
+    // as CI jobs. Keep the same bounded process pool in both environments.
+    maxWorkers: UNIT_TEST_MAX_WORKERS,
   },
   resolve: {
     // 'browser' picks svelte's index-client.js (where `mount` lives) for

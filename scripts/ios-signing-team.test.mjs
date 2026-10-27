@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -20,9 +20,12 @@ describe('resolveSigningTeam', () => {
   let worktree;
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), 'signing-team-'));
+    const actualPrimary = join(dir, 'physical-primary');
+    mkdirSync(actualPrimary);
     primary = join(dir, 'primary');
+    // Exercise macOS /var → /private/var path aliases on every host.
+    symlinkSync(actualPrimary, primary, process.platform === 'win32' ? 'junction' : 'dir');
     worktree = join(dir, 'wt');
-    mkdirSync(primary);
     git(primary, 'init', '-q');
     git(
       primary,
@@ -44,7 +47,7 @@ describe('resolveSigningTeam', () => {
     writeTeam(primary, 'PRIMARY123');
     expect(resolveSigningTeam({ root: worktree, env: {} })).toEqual({
       team: 'PRIMARY123',
-      source: join(primary, 'apps', 'ios', '.signing-team'),
+      source: realpathSync(join(primary, 'apps', 'ios', '.signing-team')),
     });
   });
 

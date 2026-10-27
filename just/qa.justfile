@@ -2,19 +2,23 @@
 
 # ── Parallel QA isolation (multiple worktrees, one machine; model: scripts/qa.mjs) ──
 
-# Claim (create + boot if needed) this worktree's pooled simulator/emulator.
+# Claim a QA device; --erase resets one existing owned iOS claim (all simulator data); --avd selects legacy Android.
 qa-claim target="all" *flags:
   @node scripts/qa.mjs claim "$@"
 
-# Show pool devices + per-slot sync servers, and which worktree owns each.
+# Show pooled/named QA devices + per-slot sync servers, and their owners.
 qa-status:
   @node scripts/qa.mjs status
 
-# Print every port this worktree owns.
-ports:
-  @node scripts/lib/slot.mjs
+# Print this worktree's ports, shell exports (`env`), or one named port.
+ports selector="json":
+  @node scripts/lib/slot.mjs "$@"
 
-# Release this worktree's devices + sync server; `ios`/`android` releases one device, server left up (--shutdown powers off).
+# Bound a package presence/readiness probe and diagnose a blocked Package Manager.
+qa-android-package *args:
+  @node scripts/qa/android-package-probe.mjs "$@"
+
+# Release this worktree's devices + server; `ios`/`android` releases that platform, server left up (--shutdown powers off).
 qa-release *flags:
   @node scripts/qa.mjs release "$@"
 
@@ -157,3 +161,18 @@ qa-shot *args:
 #   just qa-target list | status | pid <pid> | port <port> | kill
 qa-target *args:
   @node scripts/qa-target.mjs "$@"
+
+# Generate a disposable CA/server TLS fixture (OpenSSL or macOS LibreSSL; never installs trust).
+test-tls-fixture out *hosts: check-node-version
+  @node scripts/test-tls-fixture.mjs "$@"
+# Verify the selected Android AVD still belongs to this worktree.
+qa-android-target:
+  @node scripts/qa.mjs android-target
+
+# Verify the installed dev APK matches this worktree (or the supplied APK).
+qa-android-apk *args:
+  @node scripts/qa.mjs android-apk "$@"
+
+# Restart only the claimed Android emulator with a PNG camera poster and enter its image room.
+emu-camera-poster png:
+  @node scripts/qa.mjs camera-poster "$@"

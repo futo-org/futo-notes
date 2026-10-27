@@ -48,7 +48,9 @@ if (plan) {
     view: () => editor.getProseMirrorView(),
     setContent: (noteId, text) => editor.setContent(noteId, text),
   });
-  bench
-    .runPlan(plan)
-    .then(post, (error) => post({ error: String((error as Error)?.stack ?? error) }));
+  bench.runPlan(plan).then(post, (error) =>
+    post({
+      error: error instanceof Error ? `${error.toString()}\n${error.stack ?? ''}` : String(error),
+    }),
+  );
 }

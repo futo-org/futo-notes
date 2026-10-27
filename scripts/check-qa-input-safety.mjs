@@ -63,7 +63,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 
 import { justfilePaths } from './lib/justfile.mjs';
 
@@ -347,4 +347,4 @@ function main() {
   );
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) main();
+if (import.meta.main) main();

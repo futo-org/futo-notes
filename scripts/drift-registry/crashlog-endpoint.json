@@ -1,8 +1,8 @@
 {
   "concept": "crashlog-endpoint",
-  "description": "The crashlog base URLs (production, staging, local dev collector) and the debug-only staging switch exist once per shell, because each reads its own preference store and each debug build reaches localhost differently (browser localhost, simulator localhost, emulator 10.0.2.2).",
+  "description": "The crashlog base URLs (production, staging, slot-derived local dev collector) and the debug-only staging switch exist once per shell, because each reads its own preference store and each debug build reaches localhost differently (browser localhost, simulator localhost, emulator 10.0.2.2).",
   "lockStatus": "unlocked",
-  "note": "Change a host in all three copies in one commit. Release builds must always resolve to production; only debug/dev builds may select local or staging. Deliberately NOT generated: these are deployment constants that change about never, so a generator plus its gate would cost more than the drift it prevents.",
+  "note": "Change a host in all three copies in one commit. Release builds must always resolve to production; only debug/dev builds may select local or staging. Production/staging hosts remain deployment constants. The local port comes only from scripts/lib/slot.mjs: Vite embeds it, Gradle projects it into BuildConfig, and the iOS post-build phase writes developer ports into the Debug bundle on the build host.",
   "copies": [
     {
       "location": "src/features/system/crashlogEndpoint.ts",

@@ -5,10 +5,26 @@ enum CrashlogEndpoint {
 
     private static let productionBaseUrl = "https://notes-crashlog.futo.org"
     private static let stagingBaseUrl = "https://staging-notes-crashlog.futo.org"
-    private static let localBaseUrl = "http://localhost:5100"
+    #if DEBUG
+        private struct DevPorts: Decodable { let crashlogPort: Int }
+        private static let localBaseUrl: String = {
+            guard let url = Bundle.main.url(forResource: "futo-dev-ports", withExtension: "json"),
+                let data = try? Data(contentsOf: url),
+                let ports = try? JSONDecoder().decode(DevPorts.self, from: data),
+                (1...65535).contains(ports.crashlogPort)
+            else {
+                preconditionFailure("Missing developer collector port; rebuild this worktree")
+            }
+            return "http://localhost:\(ports.crashlogPort)"
+        }()
+    #endif
 
     static func devBaseUrl(useStaging: Bool) -> String {
-        useStaging ? stagingBaseUrl : localBaseUrl
+        #if DEBUG
+            useStaging ? stagingBaseUrl : localBaseUrl
+        #else
+            productionBaseUrl
+        #endif
     }
 
     static var baseUrl: String {

@@ -131,3 +131,27 @@ ordinal, message-reference, date, currency, or unit expression syntax.
 Translations may reorder or omit English placeholders, but they may not add a
 placeholder that English does not declare. An omitted English placeholder is a
 non-blocking audit warning.
+
+## Review source call sites and literal candidates
+
+Run `just audit-localization-source > verification-runs/localization-source.json`
+(after creating `verification-runs/`) for a repeatable, read-only JSON inventory.
+It contains English catalog leaf paths, source lines calling `localizedText`, and
+source lines containing single/double quotes or backticks. The default roots are
+`src`, `packages/editor`, and both native apps; pass paths to narrow the review,
+for example `just audit-localization-source src/features/settings apps/ios`.
+`--root <checkout>` selects another checkout and its language catalogs.
+
+The pinned Node filesystem globber inventories source directly; no external search binary is
+required. Patterns stay inside JavaScript, so mixed quotes, backticks and interpolated source
+text never undergo shell evaluation. Dependency, build, generated and hidden directories
+are omitted from directory scans. Catalog paths come from the same validated catalog model as `check:languages`, including
+plural leaves. Scan errors fail the command; a source with no matches produces
+empty arrays.
+
+This is a line inventory for manual review, including dynamic call expressions.
+Quoted lines also contain imports, comments, test data, URLs and user data; they
+are candidates rather than localization violations. It does not parse multiline
+calls or prove that every UI literal was found. Keep user titles, filenames and
+paths verbatim, and use `check:languages` for catalog validity and
+`audit:languages` for translation completeness.

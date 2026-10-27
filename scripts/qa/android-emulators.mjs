@@ -2,6 +2,8 @@
 import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import { assertAndroidTarget } from './android-target.mjs';
+import { isAndroidPackageInstallerReady } from './android-package-probe.mjs';
 import {
   AVDMANAGER,
   AVD_DIR,
@@ -141,8 +143,64 @@ export function applyAvdBaseline(name) {
   fs.rmSync(path.join(dir, 'hardware-qemu.ini'), { force: true });
 }
 
-export async function ensureAvd(name) {
+// Android can turn this off after host-keyboard input. Pin it before the app
+// runs, then reboot when changed so InputMethodManager observes the setting.
+function pinSoftKeyboard(name, serial) {
+  assertAndroidTarget({ serial, expectedAvd: name, allowPending: true });
+  const args = ['-s', serial, 'shell', 'settings'];
+  const read = () => tryRun('adb', [...args, 'get', 'secure', 'show_ime_with_hard_keyboard']);
+  const current = read();
+  if (current === null) die(`cannot read the software-keyboard setting on ${name}`);
+  if (current.trim() === '1') return false;
+  if (
+    tryRun('adb', [...args, 'put', 'secure', 'show_ime_with_hard_keyboard', '1']) === null ||
+    read()?.trim() !== '1'
+  )
+    die(`cannot enable the software keyboard on ${name}`);
+  return true;
+}
+
+// Reboot Android, not its host process: SettingsProvider can acknowledge a
+// secure-setting write before its asynchronous persistence has completed.
+async function rebootGuest(name, serial) {
+  const options = { timeout: 5000 };
+  const deadline = Date.now() + 180_000;
+  assertAndroidTarget({ serial, expectedAvd: name, allowPending: true });
+  const before = (
+    tryRun('adb', ['-s', serial, 'shell', 'cat', '/proc/sys/kernel/random/boot_id'], options) || ''
+  ).trim();
+  if (!before) die(`cannot read the Android boot identity on ${name}`);
+  assertAndroidTarget({ serial, expectedAvd: name, allowPending: true });
+  if (tryRun('adb', ['-s', serial, 'reboot'], options) === null)
+    die(`could not reboot Android on ${name}`);
+  for (let i = 0; i < 90 && Date.now() < deadline; i++) {
+    const after = (
+      tryRun('adb', ['-s', serial, 'shell', 'cat', '/proc/sys/kernel/random/boot_id'], options) ||
+      ''
+    ).trim();
+    const booted = (
+      tryRun('adb', ['-s', serial, 'shell', 'getprop', 'sys.boot_completed'], options) || ''
+    ).trim();
+    const packageService =
+      tryRun('adb', ['-s', serial, 'shell', 'service', 'check', 'package'], options) || '';
+    if (after && after !== before && booted === '1' && packageService.includes('found')) {
+      if (isAndroidPackageInstallerReady({ serial, expectedAvd: name, allowPending: true })) {
+        assertAndroidTarget({ serial, expectedAvd: name, allowPending: true });
+        return;
+      }
+    }
+    await sleep(2000);
+  }
+  die(`Android on ${name} did not finish rebooting`);
+}
+
+export async function ensureAvd(
+  name,
+  { preserveConfig = false, reboot = false, emulatorArgs = [] } = {},
+) {
   if (!avdNames().includes(name)) {
+    if (preserveConfig)
+      die(`legacy QA AVD ${name} does not exist; create the pinned fixture first`);
     const image = installedSystemImage();
     info(`creating AVD ${name} (${image})`);
     // avdmanager prompts "create a custom hardware profile?" — answer no.
@@ -152,11 +210,18 @@ export async function ensureAvd(name) {
     });
     if (res.status !== 0) die(`avdmanager create failed:\n${res.stderr || res.stdout}`);
   }
-  applyAvdBaseline(name);
+  if (!preserveConfig) applyAvdBaseline(name);
   let serial = runningEmus()[name];
+  if (serial && reboot) {
+    if (!preserveConfig) pinSoftKeyboard(name, serial);
+    await rebootGuest(name, serial);
+  }
   if (!serial) {
     info(`booting emulator ${name} (first boot can take a couple of minutes)`);
-    const child = spawn(EMULATOR, ['-avd', name], { detached: true, stdio: 'ignore' });
+    const child = spawn(EMULATOR, ['-avd', name, ...emulatorArgs], {
+      detached: true,
+      stdio: 'ignore',
+    });
     child.unref();
     for (let i = 0; i < 60 && !serial; i++) {
       await sleep(2000);
@@ -175,26 +240,32 @@ export async function ensureAvd(name) {
       await sleep(2000);
       if (i === 89) die(`emulator ${name} (${serial}) did not finish booting`);
     }
-    // The package service being registered doesn't mean system_server has
-    // finished wiring every system service class an install touches. An
-    // install issued in that gap dies instead with a NullPointerException
-    // from `StorageManager.getVolumes()` inside
-    // `PackageInstallerService.createSessionInternal` (same race hit CI:
-    // main pipeline 36733/36730, scripts/ci-android-emulator.sh). `pm
-    // install-create` exercises that exact path without writing anything, so
-    // wait on it rather than assuming package-service readiness covers it.
+    // Probe the install path too: a registered package service can still hit
+    // StorageManager.getVolumes() before system_server finishes wiring services.
     let storageReady = false;
     for (let i = 0; i < 60; i++) {
-      const created = tryRun('adb', ['-s', serial, 'shell', 'pm', 'install-create']) || '';
-      const match = created.match(/\[(\d+)\]/);
-      if (created.includes('Success') && match) {
-        tryRun('adb', ['-s', serial, 'shell', 'pm', 'install-abandon', match[1]]);
+      if (isAndroidPackageInstallerReady({ serial, expectedAvd: name, allowPending: true })) {
         storageReady = true;
         break;
       }
       await sleep(2000);
     }
     if (!storageReady) die(`emulator ${name} (${serial}): storage manager never came up`);
+  }
+  if (!preserveConfig && pinSoftKeyboard(name, serial)) {
+    info(`rebooting Android on ${name} after enabling the software keyboard`);
+    await rebootGuest(name, serial);
+    const setting = tryRun('adb', [
+      '-s',
+      serial,
+      'shell',
+      'settings',
+      'get',
+      'secure',
+      'show_ime_with_hard_keyboard',
+    ]);
+    if (setting?.trim() !== '1')
+      die(`software-keyboard setting did not persist after rebooting ${name}`);
   }
   return serial;
 }

@@ -85,6 +85,7 @@ case "$(uname -s)" in
 esac
 rm -rf "$KOTLIN_OUT/uniffi"; mkdir -p "$KOTLIN_OUT"
 cargo run -p futo-notes-ffi --bin uniffi-bindgen -- generate \
+  --no-format \
   --library "$HOST_LIB" \
   --language kotlin \
   --out-dir "$KOTLIN_OUT"

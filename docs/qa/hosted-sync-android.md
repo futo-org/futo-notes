@@ -261,5 +261,5 @@ neither server, so the heal had cleared the password.
 `Connect & Sync` sits below the IME once a field is focused, and `android-drive tap` happily
 reported `tapped "Connect & Sync" at 201,1252` three times while hitting the keyboard —
 status stayed `Not connected` with nothing in logcat, which reads as a broken connect. Check
-`adb shell dumpsys input_method | grep mInputShown` and send `keyevent 4` until it is
+`adb shell dumpsys input_method | grep mInputShown` and use `just android-drive back` until it is
 `false` before tapping anything low on the screen. AGENTS.md M21: suspect the tool first.

@@ -46,6 +46,12 @@ editor decorations, markdown rendering. Anything touching `invoke()`,
 `@tauri-apps/*`, `rustCore`, file I/O, dialogs, clipboard, or window
 management needs the Tauri app instead.
 
+For tab-strip and sidebar-toggle styling, `just desktop-chrome-preview` prints a browser URL
+and serves a fixture that mounts the shipping `DesktopTopBand` component with fixture notes
+and web platform stubs. It supports real tab creation/selection and sidebar toggling without
+changing platform detection in the app. Native window controls and the OS title bar still need
+the real Tauri app. The fixture is a dev-server entry; the production build does not include it.
+
 Uses `agent-browser` (Rust CLI) — faster than Playwright MCP, types into
 contenteditable natively, and annotates screenshots. Run `agent-browser` with
 no args for the full command reference.
@@ -67,7 +73,25 @@ agent-browser eval 'document.querySelector("[data-wikilink]").click()'
 agent-browser close                    # cleanup (and kill the dev server)
 ```
 
+### Host-IP browser previews
+
+A preview service may proxy a host IP while Vite's default listener accepts only loopback.
+Start `just web-diagnostic --host 0.0.0.0 --strictPort` in the worktree and select the `web`
+port printed by `just ports` in that service. This explicit Vite listener serves the same
+web-platform preview; keep the desktop MCP bridge on loopback.
+
+Use the preview service's HTTPS URL. A raw HTTP host-IP URL is not a browser secure context;
+`crypto.randomUUID` can be unavailable and leave the app blank even when Vite answers 200.
+Verify `window.isSecureContext` and the rendered shell before measuring. In a reproduced
+probe, the default listener refused host-IP traffic, the explicit listener answered 200,
+and an HTTPS proxy rendered the shell without page errors. Stop the Vite process you started
+when finished; the diagnostic recipe disables file watching and needs a restart after edits.
+
 ## Tauri desktop (the default)
+
+Cold-start deep links need an embedded frontend, because the dev supervisor owns Vite's lifetime.
+On Linux, use `just test-desktop-cold-link`; [the harness header](../../../../tests/desktop-cold-link.mjs)
+owns its fixed invalid fixture, data isolation and evidence. It uses no real license or account.
 
 Debug builds include `tauri-plugin-mcp-bridge`, exposing the Tauri MCP tools
 (`driver_session`, `webview_*`). The bridge binds **loopback only** and scans
@@ -146,6 +170,11 @@ nothing — the refusal reason tells you what is actually running.
 Connect `driver_session` with action `start` and **`port` = the discovered
 `$MCP_PORT`** (never hardcode 9223). Then:
 
+A newer MCP server may warn that the pinned 0.10 bridge cannot report its plugin version and
+recommend 0.13. That warning can accompany a usable connection: check a synchronous read against
+the verified target before treating it as a setup failure. Check command errors separately;
+the version warning alone does not identify their cause.
+
 - `webview_dom_snapshot` (type: accessibility) — UI state with `[ref=eN]` ids
 - `webview_interact` — click/scroll/swipe by ref, CSS selector, or text
 - `webview_keyboard` — type/press keys. For the editor, use
@@ -172,7 +201,8 @@ above — send `{"id":"r1","command":"…","args":{…}}`, receive
 `{"id","success","data"}`. The id must be a **string**: the plugin echoes a
 string id but answers a numeric one with `"id":""`, so a client matching
 replies on `id: 1` waits forever. Commands: `execute_js` (`args:{script}`; async
-IIFEs are awaited), `capture_native_screenshot` (returns a base64 data URL),
+IIFEs are awaited), `capture_native_screenshot` (macOS/Windows: base64 data URL;
+Linux: not implemented),
 `list_windows`, `invoke_tauri`. Node ≥21's built-in WebSocket needs no deps:
 
 ```bash
@@ -184,15 +214,40 @@ ws.onmessage = (m) => { console.log(m.data); ws.close(); };
 EOF
 ```
 
-Gotchas: (1) `execute_js` has a ~2–3s server-side timeout, but the script
+Gotchas: (1) the pinned 0.10 bridge's `execute_js` has a **5-second server-side timeout**, but the script
 **keeps running in the webview** after the timeout error — never assume a
-timed-out script didn't execute; for longer work, stash results on
-`window.__x` and collect them with a second call. (2) Vite module singletons
+timed-out script didn't execute. Increasing the MCP tool's timeout does not increase that
+deadline. Short Promises work; start longer operations without returning their Promise and
+poll synchronous state in later calls:
+
+```js
+window.__qaAsyncProbe = { done: false };
+void (async () => {
+  try {
+    const value = await window.__testSync.status(); // the operation being investigated
+    window.__qaAsyncProbe = { done: true, value };
+  } catch (error) {
+    window.__qaAsyncProbe = { done: true, error: String(error) };
+  }
+})();
+return 'started';
+```
+
+Read `window.__qaAsyncProbe` until `done` is true, with an outer deadline appropriate to the
+operation. Check `error`, retain the result, then delete only that probe property. Do not restart
+an operation solely because a previous call timed out. (2) Vite module singletons
 are importable — `await import('/src/lib/foo.svelte.ts')` returns the same
 instance the app uses. (3) Killing a backgrounded `tauri dev` task can orphan
 the debug binary, which keeps its bridge port and pushes the next launch to the
 next port — `node scripts/qa-target.mjs kill` (this worktree's instances only)
 and re-check with `node scripts/qa-target.mjs list`.
+
+For CSS verification, confirm the edited rule through `getComputedStyle` before measuring or
+capturing. Imported feature styles and shared styles both support HMR in the real Tauri dev
+webview; a rule being present in a source file is insufficient evidence that it reached the
+current page. Check whether watching was deliberately disabled, confirm the module is imported,
+and reload the verified webview if it still reports stale values. Never infer a layout result
+from the pre-edit computed style.
 
 ### Reaching the app's real editor state
 
@@ -231,73 +286,10 @@ A plain `import('prosemirror-history')` resolves to a _different_ module
 instance whose plugin state is not the app's, which is why depth reads come
 back 0 and undo appears to do nothing. Same trick for any dep the app loaded.
 
-### Screenshots without stealing focus
+### Screenshots and frame evidence
 
-Several sessions QA this app in parallel on one Mac, and the human is usually
-typing in a terminal on another space. Anything that activates an app — `open -a`,
-or the window-raise below — yanks them mid-sentence. Treat activation as a cost
-you justify, not a default.
-
-You almost never need it: a window's surface stays live and current while it
-sits on another space, so capture it where it is.
-
-| Situation                                 | Use                                                       |
-| ----------------------------------------- | --------------------------------------------------------- |
-| Live bridge (the normal case)             | `capture_native_screenshot` — ~19 ms, no extra permission |
-| No bridge, or an unknown/dead bridge port | `just qa-shot pid <pid>` \| `port <port>` \| `list`       |
-| iOS simulator content                     | `just sim-screenshot` (`simctl` needs no foreground app)  |
-
-`just qa-shot` captures by window id (`screencapture -l`), which is why it
-reaches a window on another space — that window is not "on screen", so a naive
-enumeration misses it and tempts you into activating the app to make it appear.
-It refuses any process `qa-target.mjs` will not verify as this worktree's debug
-build: a capture reads pixels, and the release app's window shows the user's
-real vault (M24).
-
-`just sim-boot` no longer foregrounds Simulator.app. Pass `SHOW=1` when a human
-wants to watch, or for the frame-dependent case below. On Xcode 27, which ships
-no Simulator.app, `SHOW=1` refuses rather than opening DeviceHub.
-
-### Frame-dependent measurements need a VISIBLE window
-
-WebKit suspends `requestAnimationFrame` while the window is occluded, so any
-probe that awaits a frame (`scripts/perf/tab-switch-probe.js`, anything measuring
-paint) hangs rather than fails — budget a wall-clock timeout around every frame
-wait of your own. `document.visibilityState` is the check;
-`document.hasFocus()` can be `true` while the page is `hidden`.
-
-The webview cannot raise itself: `getCurrentWindow().setFocus()` is denied
-(`core:window:allow-set-focus`). Launch a second copy of the same debug binary
-instead — `tauri-plugin-single-instance`'s handler calls `window.set_focus()`
-from Rust, which no capability gates, and the second process exits immediately:
-
-```bash
-FUTO_NOTES_DATA_DIR="$WORKTREE_ROOT/.tauri-data" \
-  "$WORKTREE_ROOT/target/debug/futo-notes-tauri" >/dev/null 2>&1
-```
-
-Parallel sessions steal focus back within seconds, so arm the measurement on
-`visibilitychange` (or re-run that command in a 1s loop for the run's duration)
-and record `visibilityState` in the result so a stolen-focus run is discardable
-rather than silently wrong.
-
-This raise is the one thing in this file that legitimately takes the screen from
-the user, so keep it scoped to measurements that actually await a frame — never
-to "see" the app, which the capture options above do without disturbing anyone.
-On a single-display machine there is no way to make it polite; a second display
-(a real one, or a virtual/dummy display) is what buys an unoccluded window that
-nobody is looking at.
-
-### What the DOM says is not what the screen shows
-
-For scroll/animation defects, in-page sampling can be structurally blind:
-`getBoundingClientRect` reports geometry against the **main thread's** scroll
-offset, while WebKit scrolls this container on its own thread — so a rAF probe
-can report "rows cover the viewport" for a frame that painted empty. The bridge's
-`capture_native_screenshot` returns the real window surface in ~19 ms (fast
-enough to catch a 5-frame event); decode with `pngjs` (already a dev dependency)
-and score the region. Worked example + numbers:
-`docs/perf/tab-switch-baseline.md`.
+Use [desktop capture](desktop-capture.md) for screenshots without focus changes, bounded frame
+checks, private Linux compositors, and the distinction between DOM and painted-pixel evidence.
 
 ### Cleanup (this worktree only)
 

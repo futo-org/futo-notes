@@ -98,6 +98,8 @@ function liveCargo() {
     cargoReport,
   );
   if (!json) return null;
+  // TOML names this option advisories.severity_threshold; cargo-audit reports
+  // it as settings.severity in JSON. Report fixtures must use the JSON key.
   const { ignore, severity, informational_warnings: informational } = json.settings;
   const unfiltered =
     !ignore?.length &&

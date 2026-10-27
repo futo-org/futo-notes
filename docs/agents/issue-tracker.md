@@ -80,6 +80,10 @@ create` will not say so.** This project is public, so every _read_ succeeds with
 
   Do not mix `--form` with `--field`, `--raw-field`, or `--input`.
 
+- **JSON request files need an explicit media type.** With `glab api --input <file.json>`,
+  add `--header 'Content-Type: application/json'`. The installed CLI does not infer the
+  header from a raw input file; GitLab can reject the unchanged JSON body with HTTP415.
+
 - **Output format is `-F json`, not `--json`.** `glab mr view --json iid,title`
   is rejected by the installed CLI. Use `glab mr view <n> -F json` (and
   `glab issue list -F json`). Note the overload: on `glab api`, `-F` means

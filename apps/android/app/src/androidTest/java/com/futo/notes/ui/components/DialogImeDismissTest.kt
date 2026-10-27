@@ -1,6 +1,10 @@
 package com.futo.notes.ui.components
 
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.imeAnimationTarget
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
@@ -8,6 +12,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -68,12 +73,20 @@ class DialogImeDismissTest {
     private fun imeShownInSystem(): Boolean =
         shell("dumpsys input_method").contains("mInputShown=true")
 
+    @OptIn(ExperimentalLayoutApi::class)
     @Test
     fun dialogFieldKeepsFocusAndKeyboardWhileImeShows() {
         var activityImeVisible = false
+        var activityImeSettled = false
         compose.setContent {
             val imeVisible = imeTargetVisible()
-            SideEffect { activityImeVisible = imeVisible }
+            val density = LocalDensity.current
+            val currentBottom = WindowInsets.ime.getBottom(density)
+            val targetBottom = WindowInsets.imeAnimationTarget.getBottom(density)
+            SideEffect {
+                activityImeVisible = imeVisible
+                activityImeSettled = targetBottom > 0 && currentBottom == targetBottom
+            }
             Dialog(onDismissRequest = {}) {
                 Column {
                     ClearFocusOnImeDismiss(imeVisible)
@@ -90,9 +103,17 @@ class DialogImeDismissTest {
             compose.onNodeWithTag("name").performClick()
             compose.onNodeWithTag("name").assertIsFocused()
             compose.waitUntil(timeoutMillis = 5_000) { imeShownInSystem() }
-            // Real clock: the phantom hide fired as the IME's show animation
-            // settled, which the compose test clock does not drive.
-            Thread.sleep(1_500)
+            if (Build.VERSION.SDK_INT >= 35) {
+                // Wait for both delivery and the real animation end; target
+                // visibility alone flips at the start of the show animation.
+                compose.waitUntil(timeoutMillis = 5_000) {
+                    activityImeVisible && activityImeSettled
+                }
+            } else {
+                // API 34 dispatches no usable Activity IME insets. Preserve
+                // its existing stability window rather than weaken that leg.
+                Thread.sleep(1_500)
+            }
             compose.waitForIdle()
             compose.onNodeWithTag("name").assertIsFocused()
             assertTrue("keyboard closed itself after opening", imeShownInSystem())

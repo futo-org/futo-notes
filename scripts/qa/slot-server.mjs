@@ -49,6 +49,27 @@ export const pidAlive = (pid) => {
   }
 };
 
+/** Retain the log path and a bounded tail from this invocation, never an older run. */
+export function serverStartupFailureMessage(logPath, startOffset) {
+  let output = '';
+  let fd;
+  try {
+    fd = fs.openSync(logPath, 'r');
+    const size = fs.fstatSync(fd).size;
+    const start = Math.max(startOffset, size - 16 * 1024);
+    const buffer = Buffer.alloc(Math.max(0, size - start));
+    output = buffer
+      .subarray(0, fs.readSync(fd, buffer, 0, buffer.length, start))
+      .toString()
+      .trim();
+  } catch (error) {
+    output = `Cannot read startup log: ${error.message}`;
+  } finally {
+    if (fd !== undefined) fs.closeSync(fd);
+  }
+  return `server did not become healthy — see ${logPath}${output ? `\nStartup output:\n${output}` : ''}`;
+}
+
 /**
  * `--standin` starts the server in hosted stand-in test mode instead of
  * password mode: Log in with FUTO and the payment provider answered by
@@ -119,20 +140,28 @@ export async function cmdServerStart(args) {
   // parallel worktrees share nothing: no database server to reach, and nothing
   // one session can wipe out from under another.
   let serverEstablished = false;
+  const logPath = path.join(dir, 'server.log');
+  let startOffset = 0;
   try {
     const { path: binary, source } = await syncServerBinary();
-    const log = fs.openSync(path.join(dir, 'server.log'), 'a');
-    const child = spawn(binary, [], {
-      // cwd is the slot's own directory: the server reads a `.env` from wherever
-      // it starts, and no checkout of ours should supply one by accident.
-      cwd: dir,
-      detached: true,
-      stdio: ['ignore', log, log],
-      // serverProcessEnv, not a spread: stand-in mode REFUSES TO BOOT next to an
-      // inherited AUTH_MODE or OIDC_*, so those keys have to be deleted from the
-      // child's environment rather than merged over.
-      env: serverProcessEnv(syncServerEnv({ port, dataDir: dir, mode })),
-    });
+    const log = fs.openSync(logPath, 'a');
+    let child;
+    try {
+      startOffset = fs.fstatSync(log).size;
+      child = spawn(binary, [], {
+        // cwd is the slot's own directory: the server reads a `.env` from wherever
+        // it starts, and no checkout of ours should supply one by accident.
+        cwd: dir,
+        detached: true,
+        stdio: ['ignore', log, log],
+        // serverProcessEnv, not a spread: stand-in mode REFUSES TO BOOT next to an
+        // inherited AUTH_MODE or OIDC_*, so those keys have to be deleted from the
+        // child's environment rather than merged over.
+        env: serverProcessEnv(syncServerEnv({ port, dataDir: dir, mode })),
+      });
+    } finally {
+      fs.closeSync(log);
+    }
     child.unref();
     fs.writeFileSync(pidFile, String(child.pid));
     fs.writeFileSync(
@@ -164,7 +193,7 @@ export async function cmdServerStart(args) {
       if (res.ok) break;
     } catch {}
     await sleep(1000);
-    if (i === 29) die(`server did not become healthy — see ${path.join(dir, 'server.log')}`);
+    if (i === 29) die(serverStartupFailureMessage(logPath, startOffset));
   }
   const reported = (await serverCapabilities(`http://127.0.0.1:${port}`)).auth_mode;
   if (reported !== REPORTED_AUTH_MODE[mode]) {

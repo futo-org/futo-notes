@@ -18,6 +18,10 @@ machine ready.
   `cargo install cargo-ndk` for Android. See AGENTS.md §2, the nested mobile
   `AGENTS.md` files, and the `ANDROID_*` vars in `.env.example`.
 
+For dependencies owned by the workspace root, use `pnpm add -w <package>` (or
+`pnpm add -Dw <package>` for a development dependency). Use the owning package's directory
+for a package-local dependency; do not disable pnpm's workspace-root guard.
+
 ## 2. First build
 
 For a fresh task, fetch main and create a sibling worktree, then run `just orient` there.
@@ -63,7 +67,8 @@ This repo ships shared Claude Code config under `.claude/`:
   `/zulip`, and more (`ls .claude/skills`). Available automatically when you
   open the repo in Claude Code. Note `/release`, `/verify`, and `/zulip` need
   `GITLAB_TOKEN` / `ZULIP_API_KEY` (see step 3).
-- **Workflows** (`.claude/workflows/`) — multi-agent flows like `sync-adversarial`.
+- **Workflows** (`.claude/workflows/`) — multi-agent flows like `sync-adversarial`;
+  syntax checks: `just check-workflows --help`.
 - **Shared settings** (`.claude/settings.json`) — a small project permission
   allowlist plus the repo's hooks. Personal overrides go in
   `.claude/settings.local.json` (gitignored).
@@ -130,3 +135,5 @@ or `FUTO_NOTES_E2EE_SERVER_BIN` at a binary you already have.
   testing matrix.
 - `docs/spec/` — behavioral source of truth, by surface.
 - `just check` — the gate to pass before pushing.
+- `just test-tls-fixture --help` — generate local QA CA/server files with macOS LibreSSL
+  or Linux OpenSSL.

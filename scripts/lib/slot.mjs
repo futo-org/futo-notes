@@ -2,7 +2,7 @@
 // claimed devices and running servers. scripts/drift-check.mjs scans for copies.
 import { createHash } from 'node:crypto';
 import path from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 
 const SLOTS = 50;
 
@@ -25,6 +25,8 @@ export const PORT_BASES = {
   // dev server can be up at once, which is the normal case: you tune the coin
   // against the real app beside it.
   coinTuner: 5300,
+  // Debug crash/feedback collectors must not receive another worktree's traffic.
+  crashlog: 5100,
 };
 
 // The cross-platform sync harness is the one consumer that needs a RANGE, not a
@@ -155,6 +157,7 @@ export const ENV_NAMES = {
   cdp: 'CDP_PORT',
   mcp: 'FUTO_MCP_BASE_PORT',
   coinTuner: 'COIN_TUNER_PORT',
+  crashlog: 'CRASHLOG_PORT',
 };
 
 export function envLines(root) {
@@ -166,7 +169,7 @@ export function envLines(root) {
 }
 
 // CLI for shell callers, which must not hash inline: stock macOS has no md5sum.
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (import.meta.main) {
   const root = worktreeRoot();
   const ports = portsFor(root);
   const what = process.argv[2] || 'json';

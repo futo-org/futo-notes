@@ -7,6 +7,7 @@ async fn replay_successor_conflict_does_not_merge_over_a_newer_disk_edit() {
     let object_id = "01890000-0000-7000-8000-00000000e007";
     let server = MockServer::start().await;
     let replay_response = ResponseGate::default();
+    let _replay_response_release = replay_response.release_on_drop();
     let response_gate = replay_response.clone();
     Mock::given(method("POST"))
         .and(path("/api/collections/collection/blob-objects"))
@@ -134,6 +135,7 @@ async fn edit_during_replay_conflict_resolution_is_not_overwritten() {
         .mount(&server)
         .await;
     let conflict_copy_response = ResponseGate::default();
+    let _conflict_copy_response_release = conflict_copy_response.release_on_drop();
     let response_gate = conflict_copy_response.clone();
     Mock::given(method("POST"))
         .and(path("/api/collections/collection/blob-objects"))

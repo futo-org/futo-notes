@@ -21,6 +21,29 @@ that forward user-supplied text — a label, a test-name pattern, a path — pas
 that reason (enabled by `set positional-arguments := true` at the top of the file);
 flag-only recipes still interpolate with `{{args}}`.
 
+## Rust build troubleshooting
+
+For shared build-directory waits and constrained ICU lockfile downgrades, see
+[Rust build troubleshooting](rust-builds.md). Preserve the cache and the owning process; use a
+separate target for an independent Rust check.
+
+## CI image pins
+
+Resolve multi-platform pins with `docker buildx imagetools inspect <image>` (or `--raw`).
+Pin the top-level `Digest:` only after confirming OCI index/Docker manifest-list media type
+and the required platforms under `Manifests`. Preserve intentional platform-specific pins.
+`docker manifest inspect -v` may return child descriptors: `[0].Descriptor.digest` pins only
+one platform. GitLab CI lint cannot prove architecture coverage; resolve the intended image anew.
+
+## skill-validate
+
+`just skill-validate .claude/skills/bugfix` runs
+`$CODEX_HOME/skills/.system/skill-creator/scripts/quick_validate.py` (`CODEX_HOME` defaults to
+`~/.codex`); a missing validator reports the path issue. Requires `uv` and installed Python.
+PyYAML uses a private temporary environment/cache, removed afterwards; project Python config,
+interpreter downloads, system Python and installed skills are untouched. Validator output/exit
+are preserved. This optional, non-CI check proves structure; verify workflow behavior separately.
+
 ## rust-format / rust-format-check
 
 The repo rule is that every command goes through `just`, but only the TypeScript side had
@@ -46,9 +69,9 @@ on `ubuntu:22.04` where stock strip matches, so this is local-only noise.
 
 ## build-ios-native / test-ios-native* (simulator destination)
 
-`build-ios-native` uses the *generic* simulator destination, which links both arm64 and
+`build-ios-native` uses the _generic_ simulator destination, which links both arm64 and
 x86_64 — `build-rust-ios.sh` lipos a universal simulator slice so both resolve.
-The `test-ios-native*` recipes instead resolve a *concrete* `-destination "id=$SIM"`, which links only
+The `test-ios-native*` recipes instead resolve a _concrete_ `-destination "id=$SIM"`, which links only
 ONE arm64 simulator, so the arm64-only FFI sim slice links without `EXCLUDED_ARCHS`. It
 also ad-hoc signs so the app test host launches with its keychain entitlement (mirrors
 `run.sh`).
@@ -66,6 +89,15 @@ window has its rendering suspended.
 Debug builds only; re-run after every app restart (the WebView pid changes). `adb forward`
 host ports are machine-global, so the port is per-worktree (15000 + slot; override with
 `$CDP_PORT`). `scripts/cdp-invoke.mjs` honors `$CDP_PORT`.
+
+## Local crash and feedback collectors
+
+`eval "$(just ports env)"` exports `CRASHLOG_PORT` (`5100 + slot`) for the local collector.
+Debug Vite embeds it, Android projects it into BuildConfig, and iOS runs `ios-dev-ports` on the
+actual build host to write its Debug resource. Rebuild native apps after moving a checkout
+between paths/hosts. The feedback form shows the target; its staging toggle selects the shared
+staging service, and Release always uses production. The 50 slots can collide: check `just orient`
+and verify listener ownership before fixture traffic; a port alone does not establish ownership.
 
 ## prepush (--retries=1)
 
@@ -106,7 +138,7 @@ sync scenarios need a DEV-mode server, the hosted ones a STAND-IN-mode server
 each family at its own, and stops both by PID. The hosted leg runs only when the resolved
 server can do stand-in mode (`standinMode` in `scripts/sync-server-pin.json`, or
 `FUTO_NOTES_E2EE_SERVER_STANDIN=1` with your own build); when it cannot, those scenarios
-stay covered by the in-test stub (`cargo test -p futo-notes-sync --test hosted_setup`).
+stay covered by the in-test stub (`just test-sync`).
 
 ## chunk-census
 
@@ -236,3 +268,23 @@ node scripts/remote-test.mjs build-android-native \
 
 `--rsync`/other flags go before the recipe name, same as before. See `docs/remote-testing.md`
 for the full flag list and the macOS-only/interactive/local-machine refusal tiers.
+
+## Rust sync timeouts
+
+`just test-sync` runs ordinary sync tests through pinned, checksum-verified nextest, then Cargo
+for doctests (unsupported by nextest). `just test-rust-full` and Linux/macOS CI workspace runs
+use the same bounded sync runner and retain Cargo for other crates. Four tests run concurrently;
+SLOW is reported every 30s, TIMEOUT after 120s, with 5s termination grace. Server-only cases stay
+ignored; `just test-sync-integration` runs those binaries serially and reports whether hosted
+stand-in coverage ran.
+
+First use installs `scripts/cargo-nextest-pin.json` through `ci/install-nextest.sh`;
+`just install-nextest` installs separately without changing the Rust toolchain. The POSIX
+installer supports Linux/macOS. Without a pinned archive, preinstall that exact version in
+Cargo's bin directory or `NEXTEST_INSTALL_DIR`. On Windows the binary is `cargo-nextest.exe`
+(normally `~/.cargo/bin/cargo-nextest.exe`). Missing/wrong versions fail before testing;
+there is no fallback to unbounded Cargo. See nextest's [installation](https://nexte.st/docs/installation/pre-built-binaries/)
+and [timeouts](https://nexte.st/docs/features/slow-tests/).
+
+`just test-sync-timeout-proof` runs a healthy fixture beside an intentional deadlock under
+repository policy; it succeeds only when nextest names the deadlock as TIMEOUT and exits nonzero.

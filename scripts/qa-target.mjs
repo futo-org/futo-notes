@@ -33,7 +33,7 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 
 import {
   PROD_VAULT_RELATIVE,
@@ -371,9 +371,7 @@ function main(argv) {
   return 2;
 }
 
-// `process.argv[1]` is undefined under `node -e`/`node --eval`, where
-// pathToFileURL() throws — and this module is meant to be imported (tests, ad-hoc
-// classification checks), not only run.
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+// Native entrypoint identity also handles directory aliases; imports remain inert.
+if (import.meta.main) {
   process.exit(main(process.argv.slice(2)));
 }

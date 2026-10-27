@@ -15,10 +15,9 @@ test:rust:workspace:
     - !reference [.cache-cargo-tauri, cache]
   script:
     # `cargo test --workspace` compiles the futo-notes-tauri desktop crate,
-    # which links gtk-sys/gobject-sys and needs the GTK/webkit dev libs. The
-    # default kitchensink image does not ship them, so install them here — the
-    # same pattern the linux build + cross-platform-sync jobs already use.
-    # Without this the job dies at `gobject-2.0 not found`.
+    # which links gtk-sys/gobject-sys and needs the GTK/WebKit dev libs.
+    # .ci-test-image already includes them; .setup-linux-deps is a no-op there
+    # and supplies them if this job is moved to an image without baked deps.
     - !reference [.setup-linux-deps, script]
     - !reference [.setup-rust, script]
     # One metadata traversal replaces the former standalone dep-guard job.
@@ -38,7 +37,7 @@ test:rust:workspace:
     # Same command as `just rust-lint`: [workspace.lints] denies the print
     # macros that panic (and abort the release app) once stderr is gone.
     - cargo clippy --workspace
-    - cargo test --workspace
+    - node "$CI_PROJECT_DIR/scripts/rust-tests.mjs" workspace
     # The CLI's sign-in and sync tests are #[ignore]d in a plain workspace run
     # because they start the pinned sync server; run them here against it.
     - !reference [.setup-futo-notes-server, script]
@@ -63,6 +62,10 @@ test:rust:workspace:
         - Cargo.toml
         - Cargo.lock
         - rust-toolchain.toml
+        - .config/nextest.toml
+        - scripts/rust-tests.mjs
+        - scripts/cargo-nextest-pin.json
+        - ci/install-nextest.sh
         - .cargo/**/*
         - crates/**/*
         # Every TypeScript copy the note-rule differential runs against Rust
@@ -136,6 +139,10 @@ test:rust:macos:
       changes:
         - Cargo.toml
         - rust-toolchain.toml
+        - .config/nextest.toml
+        - scripts/rust-tests.mjs
+        - scripts/cargo-nextest-pin.json
+        - ci/install-nextest.sh
         - crates/futo-notes-core/**/*
         - crates/futo-notes-license/**/*
         - crates/futo-notes-model/**/*
@@ -157,6 +164,10 @@ test:rust:macos:
         - Cargo.toml
         - Cargo.lock
         - rust-toolchain.toml
+        - .config/nextest.toml
+        - scripts/rust-tests.mjs
+        - scripts/cargo-nextest-pin.json
+        - ci/install-nextest.sh
         - crates/**/*
         - apps/tauri/src-tauri/**/*
         - scripts/build-rust-ios.sh
@@ -230,6 +241,10 @@ test:rust:ffi-android:
         - Cargo.toml
         - Cargo.lock
         - rust-toolchain.toml
+        - .config/nextest.toml
+        - scripts/rust-tests.mjs
+        - scripts/cargo-nextest-pin.json
+        - ci/install-nextest.sh
         - .cargo/**/*
         - crates/**/*
         - scripts/build-rust-android.sh

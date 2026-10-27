@@ -18,10 +18,12 @@ const SELF_BODY = 'back to [[Selfy]]\n';
 const SELF_RENAMED_NOTE = 'SelfyX.md';
 const SELF_TYPED = 'qq77';
 const SELF_RELINKED_BODY = 'back to [[SelfyX]]\n';
-// The iOS keyboard autocapitalizes and its shift state can bend the typed
-// characters; what must hold is that SOMETHING typed landed in the note, next to
-// the relinked self-link. `typedLanded` checks exactly that.
-const typedLanded = (body) => body.includes(SELF_RELINKED_BODY) && body !== SELF_RELINKED_BODY;
+// Autocapitalization may change the marker's case. Remove exactly that marker
+// and require the rest of the relinked body to survive; its final newline is
+// not an insertion boundary (typing commonly lands before it).
+export function selfLinkTypedLanded(body) {
+  return /qq77/i.test(body) && body.replace(/qq77/i, '').trimEnd() === SELF_RELINKED_BODY.trimEnd();
+}
 
 /** The native title field's center: tapping past a short title puts the caret at its end. */
 function titleFieldCentre() {
@@ -55,12 +57,11 @@ export async function selfLinkRenameThenType() {
   device.client.tapPoint(title.x, title.y);
   // The keyboard's own `done` key is the readiness signal focusEditorBody uses;
   // typing needs only the title field to hold focus.
-  await device.waitFor(
-    'the title field to hold focus',
-    () => JSON.stringify(device.client.describeUiTree()).includes('"Caps Lock"'),
-    { timeoutMs: 10_000 },
-  );
-  await device.typeText('X');
+  await device.waitForLabel('done', { timeoutMs: 10_000 });
+  await device.typeText('X', {
+    confirm: () => titleFieldReads('SelfyX'),
+    confirmationTimeoutMs: 20_000,
+  });
   await device.waitFor(
     'the title rename to relink the note to itself',
     () =>
@@ -72,17 +73,18 @@ export async function selfLinkRenameThenType() {
     },
   );
 
-  // Tap into the first body line (the title field's frame ends just above it). The
-  // typed text landing in the note is the oracle, so no toolbar wait is needed.
-  device.client.tapPoint(40, title.y + 60);
-  await new Promise((resolveWait) => setTimeout(resolveWait, 1_500));
-  await device.typeText(SELF_TYPED, { keySettleMs: 60 });
+  // Re-read the editor bounds after the title keyboard transition before typing.
+  await device.focusEditorBody();
+  await device.typeText(SELF_TYPED, {
+    keySettleMs: 60,
+    confirm: () => selfLinkTypedLanded(device.readNote(SELF_RENAMED_NOTE)),
+  });
   await device.waitFor(
     'the typed text to reach the renamed note, or a conflict copy',
     () => {
       const violations = vaultInvariant(before, device.vaultFiles(), [TXT_MIGRATION_SENTINEL]);
       if (violations.some(({ kind }) => kind === 'conflict-copy')) return true;
-      return typedLanded(device.readNote(SELF_RENAMED_NOTE));
+      return selfLinkTypedLanded(device.readNote(SELF_RENAMED_NOTE));
     },
     {
       timeoutMs: 30_000,
@@ -107,7 +109,7 @@ export async function selfLinkRenameThenType() {
       `vault holds ${JSON.stringify(files)}, expected ${JSON.stringify(expectedFiles)}`,
     );
   }
-  if (!typedLanded(body))
+  if (!selfLinkTypedLanded(body))
     problems.push(`the renamed note lost the typed text: ${JSON.stringify(body)}`);
   if (!body.includes('[[SelfyX]]'))
     problems.push(`the renamed note lost its relinked self-link: ${JSON.stringify(body)}`);

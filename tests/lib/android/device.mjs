@@ -17,6 +17,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { createAdbClient } from './adbClient.mjs';
+import { navigateBack, readDisplaySize } from './navigation.mjs';
 import { describeUiNodes, parseUiNodes } from './uiTree.mjs';
 import {
   createTokenSource,
@@ -195,18 +196,13 @@ export function createAndroidDevice({
     return cachedNodes;
   }
 
-  const findLabel = (label, options) =>
-    uiNodes(options).find((node) => node.label === label) ?? null;
+  const findLabel = (label, { matchLabel = (candidate) => candidate === label, ...options } = {}) =>
+    uiNodes(options).find((node) => matchLabel(node.label)) ?? null;
 
-  /** Physical size, read once — swipe distances derive from it so the driver is
+  /** Effective display size, read once — swipe distances derive from it so the driver is
    *  not tuned to one AVD's resolution. */
   function screenSize() {
-    cachedScreen ??= (() => {
-      const match = adb.shell('wm size', { allowFailure: true }).match(/(\d+)x(\d+)/);
-      return match
-        ? { width: Number(match[1]), height: Number(match[2]) }
-        : { width: 1080, height: 1920 };
-    })();
+    cachedScreen ??= readDisplaySize(adb);
     return cachedScreen;
   }
 
@@ -224,17 +220,19 @@ export function createAndroidDevice({
 
   /**
    * Tap the control carrying [label], scrolling to reach it if needed.
+   * An explicit matchLabel can recognize composite accessibility labels;
+   * ordinary callers retain exact matching.
    *
    * Deliberately taps ONCE. Re-tapping until something changes reads as
    * robustness, but a dialog that closes between the look and the tap leaves the
    * extra taps landing on whatever is underneath — which is how a retry loop
    * ended up hitting the Settings screen's Danger zone.
    */
-  async function tap(label, { scroll = true, timeoutMs: limit } = {}) {
+  async function tap(label, { scroll = true, timeoutMs: limit, matchLabel } = {}) {
     let node = await waitFor(
       `"${label}" to appear`,
       () => {
-        const hit = findLabel(label, { refresh: true });
+        const hit = findLabel(label, { refresh: true, matchLabel });
         if (hit) return hit;
         if (scroll) scrollDown();
         return null;
@@ -255,7 +253,7 @@ export function createAndroidDevice({
         // Finger-down moves list content down, clearing a row from the status bar.
         adb.swipe(swipe.x, swipe.startY, swipe.x, swipe.endY);
         invalidateUi();
-        const relocated = findLabel(label, { refresh: true });
+        const relocated = findLabel(label, { refresh: true, matchLabel });
         if (!relocated || tapTargetNeedsMoveDown(relocated, topInset)) {
           throw new Error(
             `refusing to tap "${label}" under the status bar (${topInset}px): ` +
@@ -279,7 +277,7 @@ export function createAndroidDevice({
   // ── Input that invalidates the tree ─────────────────────────────
 
   const back = () => {
-    adb.keyevent(4);
+    navigateBack(adb);
     invalidateUi();
   };
 
@@ -289,8 +287,9 @@ export function createAndroidDevice({
     invalidateUi();
   };
 
-  const typeText = (text) => {
-    adb.typeText(text);
+  const typeText = (text, { replace = false } = {}) => {
+    if (replace) adb.replaceText(text);
+    else adb.typeText(text);
     invalidateUi();
   };
 
@@ -323,6 +322,7 @@ export function createAndroidDevice({
     if (!adb.isInstalled()) {
       throw new Error(`${pkg} is not installed — run: just android-native`);
     }
+    adb.verifyInstallation();
   }
 
   return {

@@ -65,7 +65,7 @@ export async function buildCensusPage(dir = outDir) {
   return `file://${path.join(dir, 'page.html')}`;
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (import.meta.main) {
   await buildCensusPage();
   console.log(`built ${pageUrl}`);
 }

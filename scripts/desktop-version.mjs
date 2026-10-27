@@ -1,6 +1,6 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 export const TAURI_CONF = resolve(ROOT, 'apps', 'tauri', 'src-tauri', 'tauri.conf.json');
@@ -114,6 +114,6 @@ function main(argv) {
   process.stdout.write(`stamped desktop version ${version} in tauri.conf.json and Cargo.toml\n`);
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (import.meta.main) {
   main(process.argv.slice(2));
 }

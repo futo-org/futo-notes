@@ -5,7 +5,7 @@ import android.content.SharedPreferences
 object CrashlogEndpoint {
     private const val PRODUCTION_BASE_URL = "https://notes-crashlog.futo.org"
     private const val STAGING_BASE_URL = "https://staging-notes-crashlog.futo.org"
-    private const val LOCAL_BASE_URL = "http://10.0.2.2:5100"
+    private val localBaseUrl = "http://10.0.2.2:${BuildConfig.DEV_CRASHLOG_PORT}"
 
     @Volatile private var prefs: SharedPreferences? = null
 
@@ -14,7 +14,7 @@ object CrashlogEndpoint {
     }
 
     fun devBaseUrl(useStaging: Boolean): String =
-        if (useStaging) STAGING_BASE_URL else LOCAL_BASE_URL
+        if (useStaging) STAGING_BASE_URL else localBaseUrl
 
     val baseUrl: String
         get() {

@@ -20,7 +20,8 @@ impl TempRoot {
         static COUNTER: AtomicU32 = AtomicU32::new(0);
         let sequence = COUNTER.fetch_add(1, Ordering::Relaxed);
         let root = std::env::temp_dir().join(format!(
-            "futo-sync-pull-test-{}-{sequence}",
+            "futo-sync-pull-test-{}-{}-{sequence}",
+            std::process::id(),
             futo_notes_core::files::now_ms()
         ));
         std::fs::create_dir_all(&root).unwrap();
@@ -90,7 +91,11 @@ async fn completed_batch_is_applied_and_checkpointed_before_a_slow_single_finish
         .respond_with(ResponseTemplate::new(200).set_body_bytes(batch))
         .mount(&server)
         .await;
+    // wiremock runs each server on one thread. A blocked responder must not
+    // stop the primary server from delivering the concurrent batch response.
+    let slow_server = MockServer::start().await;
     let slow_download = ResponseGate::default();
+    let _slow_download_release = slow_download.release_on_drop();
     let response_gate = slow_download.clone();
     Mock::given(method("GET"))
         .and(path("/api/blobs/b3"))
@@ -98,6 +103,15 @@ async fn completed_batch_is_applied_and_checkpointed_before_a_slow_single_finish
             response_gate.block_response();
             ResponseTemplate::new(200).set_body_bytes(slow.clone())
         })
+        .mount(&slow_server)
+        .await;
+
+    Mock::given(method("GET"))
+        .and(path("/api/blobs/b3"))
+        .respond_with(
+            ResponseTemplate::new(307)
+                .insert_header("Location", format!("{}/api/blobs/b3", slow_server.uri())),
+        )
         .mount(&server)
         .await;
 

@@ -1,5 +1,6 @@
 package com.futo.notes.license
 
+import android.content.ClipData
 import android.content.ClipboardManager
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.rememberScrollState
@@ -284,13 +285,21 @@ class LicensePlateTest : LicenseSurfaceFixture() {
         compose.onNodeWithText(storedKey).performScrollTo().performTouchInput { longClick() }
         compose.waitForIdle()
 
+        // Compose idleness does not guarantee that the provider coroutine has
+        // published the menu produced by the real selection gesture.
+        compose.waitUntil(5_000) { menu.item(TextContextMenuKeys.CopyKey) != null }
         val copy = menu.item(TextContextMenuKeys.CopyKey)
         assertNotNull("no Copy was offered over the revealed key: ${menu.components}", copy)
 
         // And Copy copies the key. A long press selects the word under it, so
         // what lands on the clipboard is a run of the key rather than all of it.
         val clipboard = checkNotNull(context.getSystemService(ClipboardManager::class.java))
-        compose.runOnUiThread { checkNotNull(copy).onClick(NoopSession) }
+        val sentinel = "clipboard sentinel before license Copy"
+        compose.runOnUiThread {
+            clipboard.setPrimaryClip(ClipData.newPlainText("license-copy-test", sentinel))
+            assertEquals(sentinel, clipboard.primaryClip?.getItemAt(0)?.text?.toString())
+            checkNotNull(copy).onClick(NoopSession)
+        }
         compose.waitForIdle()
         val copied = clipboard.primaryClip?.getItemAt(0)?.text?.toString()
         assertNotNull("Copy put nothing on the clipboard", copied)

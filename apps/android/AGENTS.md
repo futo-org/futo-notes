@@ -10,8 +10,9 @@ WebView. There is no Tauri Android shell.
 just android-native            # Rust ffi (device ABI) → editor bundle → installDirectDebug → launch
 just build-android-native      # compile-only sanity (BOTH distribution flavors)
 just test-android-native       # JVM unit tests (BOTH distribution flavors)
-just test-android-native 'com.futo.notes.FooTest'   # only those (Gradle --tests filter), direct flavor
-just test-android-native-ui    # Compose instrumentation tests on $ANDROID_SERIAL (direct)
+just test-android-native com.futo.notes.DistributionFlavorTest # one JVM class, both flavors
+just test-android-native-ui    # all Compose instrumentation tests on $ANDROID_SERIAL (direct)
+just test-android-native-ui com.futo.notes.DialogImeDismissTest # one class; add #method for one test
 just android-drive             # drive the running app; no args prints the commands
 just test-android-storage      # user-level storage stories on a real device
 just test-android-perf         # editor perf budgets on the low-end reference phone
@@ -40,6 +41,12 @@ Running `just android-native` once in a new worktree gets you past both; after
 that, direct gradle invocations work. (Cost two dead-end builds before it was
 written down.)
 
+For a targeted JVM test, use `just test-android-native <fully.qualified.Class>`
+or a quoted Gradle `Class.method` pattern. The recipe rebuilds missing bindings
+before Gradle and applies each filter to both distribution flavors. Filtering
+selects which tests run; Gradle still compiles the app module, so a bare
+`./gradlew ... --tests ...` in a fresh worktree cannot skip binding generation.
+
 The JDK is **not** one of these traps any more, and must not become one again.
 `apps/android/gradle/gradle-daemon-jvm.properties` pins the Gradle daemon to 21,
 so gradle runs correctly whatever `java` your PATH resolves to — do not "fix" a
@@ -66,6 +73,18 @@ Each build starts `jniLibs/` empty, so a later bare `./gradlew` install carries
 only the ABI it built — none if it failed or was stopped — and crashes at
 library load anywhere else. Rebuild for the device you test on. A release build refuses to
 start until every shipped ABI is staged (guard in `app/build.gradle.kts`).
+
+## Release installs from a fresh worktree
+
+`just deploy-android` requires `apps/android/keystore.properties` in that checkout; the
+release recipe names the missing file before the Rust build. If it is already configured in
+the primary checkout, copy that gitignored configuration into the same path in the worktree
+and verify its `storeFile` path still resolves correctly. Keep credentials out of logs and git.
+Use `just android-native` for a development install that does not need release credentials.
+
+For iOS, `just deploy-ios` already resolves `FUTO_DEV_TEAM`, then the worktree's
+`apps/ios/.signing-team`, then the primary checkout's file. Its missing-team diagnostic names
+both supported locations; there is no need to duplicate that team file in every worktree.
 
 ## Distribution flavors — `direct` and `play`
 

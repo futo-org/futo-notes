@@ -24,7 +24,8 @@ impl TempRoot {
         static COUNTER: AtomicU32 = AtomicU32::new(0);
         let n = COUNTER.fetch_add(1, Ordering::Relaxed);
         let root = std::env::temp_dir().join(format!(
-            "futo-sync-upload-executor-test-{}-{n}",
+            "futo-sync-upload-executor-test-{}-{}-{n}",
+            std::process::id(),
             futo_notes_core::files::now_ms()
         ));
         std::fs::create_dir_all(&root).unwrap();

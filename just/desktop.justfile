@@ -6,6 +6,15 @@
 tauri-dev *args:
   node scripts/tauri-dev.mjs "$@"
 
+# Run an owned desktop stack under a private Linux compositor (verify frame delivery separately).
+desktop-headless +args:
+  bash scripts/run-under-virtual-kwin.sh "$@"
+
+# Preview the shipping desktop top band in a browser with web stubs and fixture notes.
+desktop-chrome-preview:
+  @node --input-type=module -e 'import { webPort } from "./scripts/lib/slot.mjs"; console.log(`Desktop chrome: http://localhost:${webPort()}/tests/fixtures/desktop-chrome/index.html`)'
+  pnpm run dev
+
 # Build the desktop AppImage/bundle for this platform.
 tauri-build:
   pnpm run build
@@ -32,6 +41,15 @@ build-desktop-test:
   # local or CI — gets it, and CI doesn't pay for a second identical build.
   cd apps/tauri && cargo clean -p futo-notes-tauri
   cargo build -p futo-notes-tauri
+
+# Linux: verify a fixed invalid cold-start link with an embedded frontend and isolated app data.
+test-desktop-cold-link:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  unset CARGO_TARGET_DIR
+  node tests/desktop-cold-link.mjs --preflight
+  just build-desktop-test
+  node tests/desktop-cold-link.mjs
 
 # Complete user journeys with a synthetic vault and real process restarts.
 test-desktop-journeys: build-desktop-test

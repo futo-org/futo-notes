@@ -6,6 +6,7 @@ import { crashlogBaseUrl, setUsingStagingCrashlog, usingStagingCrashlog } from '
 describe('crashlogEndpoint', () => {
   beforeEach(() => {
     window.localStorage.clear();
+    vi.stubEnv('VITE_DEV_CRASHLOG_PORT', '5127');
   });
 
   afterEach(() => {
@@ -14,7 +15,7 @@ describe('crashlogEndpoint', () => {
 
   it('defaults a dev build to the local collector', () => {
     expect(usingStagingCrashlog()).toBe(false);
-    expect(crashlogBaseUrl()).toBe('http://localhost:5100');
+    expect(crashlogBaseUrl()).toBe('http://localhost:5127');
   });
 
   it('sends to staging once the toggle is on', () => {
@@ -28,11 +29,26 @@ describe('crashlogEndpoint', () => {
     setUsingStagingCrashlog(true);
     setUsingStagingCrashlog(false);
 
-    expect(crashlogBaseUrl()).toBe('http://localhost:5100');
+    expect(crashlogBaseUrl()).toBe('http://localhost:5127');
+  });
+
+  it('uses each build worktree collector without cross-routing', () => {
+    vi.stubEnv('VITE_DEV_CRASHLOG_PORT', '5113');
+    expect(crashlogBaseUrl()).toBe('http://localhost:5113');
+    vi.stubEnv('VITE_DEV_CRASHLOG_PORT', '5141');
+    expect(crashlogBaseUrl()).toBe('http://localhost:5141');
+  });
+
+  it('refuses missing or malformed developer collector ports', () => {
+    for (const port of ['', 'NaN', '0', '65536', '5127.5']) {
+      vi.stubEnv('VITE_DEV_CRASHLOG_PORT', port);
+      expect(() => crashlogBaseUrl()).toThrow('collector port');
+    }
   });
 
   it('a release build always resolves to production, whatever the toggle says', () => {
     vi.stubEnv('DEV', false);
+    vi.stubEnv('VITE_DEV_CRASHLOG_PORT', 'invalid');
     setUsingStagingCrashlog(true);
     window.localStorage.setItem('futo_crashlog_staging', 'true');
 

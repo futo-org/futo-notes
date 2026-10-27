@@ -5,7 +5,7 @@ import { SIM_DEVICE_TYPE, die, info, run, sleep, tryRun } from './pool.mjs';
 // ── iOS simulators ─────────────────────────────────────────────────────────
 
 function simDevices() {
-  const json = JSON.parse(run('xcrun', ['simctl', 'list', '-j', 'devices']));
+  const json = JSON.parse(run('xcrun', ['simctl', 'list', '-j', 'devices'], { timeout: 30000 }));
   const out = [];
   for (const [runtime, devices] of Object.entries(json.devices)) {
     for (const d of devices) out.push({ ...d, runtime });

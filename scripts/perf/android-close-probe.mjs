@@ -40,6 +40,7 @@ import WebSocket from 'ws';
 
 import { portsFor } from '../lib/slot.mjs';
 import { createAndroidDevice } from '../../tests/lib/android/device.mjs';
+import { prepareBack, readDisplaySize } from '../../tests/lib/android/navigation.mjs';
 import { quoteForDeviceShell } from '../../tests/lib/android/adbClient.mjs';
 import { blockFixture, median } from '../../tests/lib/editorDevicePerf.mjs';
 import { connectPage } from '../../tests/lib/editorDevicePerfSnippets.mjs';
@@ -223,13 +224,17 @@ async function main() {
   async function runScenario(scenario) {
     const [kind, key] = scenario.split('-');
     await openNote(key);
+    // Resolve mode/geometry before the dirty burst, preserving its 200ms
+    // unreported-edit window. The 120ms gesture is a fast system Back swipe.
+    const sendBack =
+      kind === 'clean' || kind === 'dirty' ? prepareBack(adb, { durationMs: 120 }) : null;
     adb.shell('logcat -c', { allowFailure: true });
     // Frame stats cover the whole exit, not just the list's first frame: a
     // relayout of the leaving editor lands on the frames after it.
     const resetFrames = () => adb.shell(`dumpsys gfxinfo ${PACKAGE} reset`, { allowFailure: true });
     if (kind !== 'ime') resetFrames();
     if (kind === 'clean') {
-      adb.keyevent(4);
+      sendBack();
     } else if (kind === 'arrow') {
       await device.tap('Back', { scroll: false });
     } else if (kind === 'dirty') {
@@ -249,11 +254,11 @@ async function main() {
       })()`);
       await sleep(150);
       await cdp.evaluate('window.__closeProbeStop = true');
-      adb.keyevent(4);
+      sendBack();
     } else if (kind === 'ime') {
       // A real tap into the body raises the soft keyboard; CDP focus does not.
-      const size = adb.shell('wm size').match(/(\d+)x(\d+)/);
-      adb.tapPoint(Math.round(Number(size[1]) / 2), Math.round(Number(size[2]) * 0.6));
+      const size = readDisplaySize(adb);
+      adb.tapPoint(Math.round(size.width / 2), Math.round(size.height * 0.6));
       await device.waitFor(
         'the soft keyboard to show',
         () => /mInputShown=true/.test(adb.shell('dumpsys input_method', { allowFailure: true })),
