@@ -20,10 +20,9 @@ export function remoteEnvPreamble({ ndkVersion }) {
     // downloads now (scripts/lib/sync-server.mjs), so nothing here needs bun.
     // .local/share/fnm and linuxbrew cover fnm's two install layouts; this must
     // precede the `fnm env` below, which needs fnm itself on PATH.
-    'export PATH="$HOME/.local/bin:$HOME/.local/share/fnm:/home/linuxbrew/.linuxbrew/bin:$HOME/.cargo/bin:$PATH"',
-    // A missing fnm is not fatal here; it fails at `fnm use` in the runner script,
-    // which is under `set -e`. remote-doctor lists fnm as required and prints the
-    // install command, because the box needs it once.
+    'export PATH="${FNM_DIR:-$HOME/.local/share/fnm}:$HOME/.fnm:$HOME/.local/bin:$HOME/.local/share/fnm:/home/linuxbrew/.linuxbrew/bin:$HOME/.cargo/bin:$PATH"',
+    // Doctor must still run without fnm. Normal runs check it before taking
+    // the worktree lock or transferring sources.
     'if command -v fnm >/dev/null 2>&1; then eval "$(fnm env --shell bash)"; fi',
     'export ANDROID_HOME="${ANDROID_HOME:-$HOME/Android/Sdk}"',
     'export ANDROID_SDK_ROOT="$ANDROID_HOME"',
