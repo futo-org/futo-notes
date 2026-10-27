@@ -153,6 +153,15 @@ is detected without trusting a tool that under-reports is documented in `scripts
 which both a local run and CI's `test:audit` call directly — the pinned CI image has no `just`, the
 same reason arch-gate's command list lives in `package.json`.
 
+## Not here: the puppet gates
+
+`check-puppet-verbs` (a UI handler or labelled control no `futo-puppet` verb claims, or a stale
+`scripts/puppet-verbs-allowlist.json` entry) and `check-puppet-first` (an instruction surface that
+teaches driving the app with anything but `just puppet`) are described in
+`docs/agents/justfile-notes.md`. They warn rather than block, by design: CI runs both in
+`test:puppet-gates`, `allow_failure: true` and deliberately absent from `release:gate.needs`, and
+`just arch-gate` leaves them out. Run them with `just check-puppet-verbs` and `just check-puppet-first`.
+
 ## Not here: the localization completeness audit
 
 `pnpm run audit:languages` reports missing, extra, unchanged, and placeholder-omitting translations.

@@ -24,6 +24,7 @@ import { BOUNDARIES_AND_DOCS_PROOFS } from './boundaries-and-docs.mjs';
 import { THEME_AND_QA_INPUT_PROOFS } from './theme-and-qa-input.mjs';
 import { GENERATED_SPECS_PROOFS } from './generated-specs.mjs';
 import { seed } from './seed.mjs';
+import { PUPPET_PROOFS } from './puppet.mjs';
 
 export const PROOFS = [
   {
@@ -87,6 +88,7 @@ export const PROOFS = [
     absent: ['ACCEPT'],
     fix: 'remove only the exact expected JSON before spawning so a crashed run cannot reuse evidence',
   },
+  ...PUPPET_PROOFS,
   ...BOUNDARIES_AND_DOCS_PROOFS,
   ...THEME_AND_QA_INPUT_PROOFS,
   ...GENERATED_SPECS_PROOFS,

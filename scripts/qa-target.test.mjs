@@ -4,7 +4,10 @@ import {
   classifyDataDir,
   classifyExecPath,
   classifyVault,
+  documentsDirFromUserDirs,
   isDesktopExecutableName,
+  parseNetstatListener,
+  parseTasklist,
   parseWorktreeRoots,
   verifyTarget,
 } from './qa-target.mjs';
@@ -20,7 +23,12 @@ import {
 const HOME = '/Users/dev';
 const SELF = '/repo/.claude/worktrees/mr-42';
 const OTHER = '/repo/.claude/worktrees/mr-7';
-const CONTEXT = { worktreeRoots: ['/repo', SELF, OTHER], selfRoot: SELF, home: HOME };
+const CONTEXT = {
+  worktreeRoots: ['/repo', SELF, OTHER],
+  selfRoot: SELF,
+  home: HOME,
+  releaseVault: `${HOME}/Documents/futo-notes`,
+};
 
 describe('parseWorktreeRoots', () => {
   it('reads every worktree path out of `git worktree list --porcelain`', () => {
@@ -158,6 +166,38 @@ describe('classifyVault', () => {
     expect(verdict.ok).toBe(true);
     expect(verdict.warning).toBeNull();
   });
+
+  // The release app's vault is in the OS Documents folder, which XDG can localize.
+  it('REFUSES the real vault in a Documents folder elsewhere, inside it or around it', () => {
+    const context = { ...CONTEXT, releaseVault: `${HOME}/Dokumente/futo-notes` };
+    for (const notesDir of [
+      `${HOME}/Dokumente/futo-notes/Projects`,
+      `${HOME}/Dokumente`,
+      `${HOME}/Documents/futo-notes`,
+    ]) {
+      expect(classifyVault(notesDir, context).code, notesDir).toBe('production-vault');
+    }
+  });
+
+  it('REFUSES every vault when where the release vault lives could not be read', () => {
+    expect(
+      classifyVault(`${SELF}/.tauri-data/notes`, { ...CONTEXT, releaseVault: null }).code,
+    ).toBe('release-vault-unknown');
+  });
+});
+
+describe('documentsDirFromUserDirs', () => {
+  it('reads XDG_DOCUMENTS_DIR as the app does, home-relative or absolute', () => {
+    const userDirs = (value) =>
+      `# written by xdg-user-dirs-update\nXDG_DESKTOP_DIR="$HOME/Desktop"\nXDG_DOCUMENTS_DIR=${value}\n`;
+    expect(documentsDirFromUserDirs(userDirs('"$HOME/Dokumente"'), HOME)).toBe(`${HOME}/Dokumente`);
+    expect(documentsDirFromUserDirs(userDirs('"/data/My\\ Docs"'), HOME)).toBe('/data/My Docs');
+    // "$HOME/" disables the folder; an unquoted or relative value is not read.
+    for (const value of ['"$HOME/"', '$HOME/Documents', '"Documents"']) {
+      expect(documentsDirFromUserDirs(userDirs(value), HOME), value).toBeNull();
+    }
+    expect(documentsDirFromUserDirs('', HOME)).toBeNull();
+  });
 });
 
 describe('verifyTarget', () => {
@@ -221,5 +261,75 @@ describe('verifyTarget', () => {
     );
     expect(result.verdict).toBe('REFUSED');
     expect(result.refusals[0].code).toBe('data-dir-unset');
+  });
+});
+
+// Windows: the same verdicts from Windows paths (drive letters, backslashes, any case), which
+// are judged by Windows path rules on every OS, plus the process listings Windows gives.
+describe('on Windows', () => {
+  const WIN_SELF = 'C:\\src\\futo-notes';
+  const WIN = {
+    worktreeRoots: ['C:/src/futo-notes', 'C:/src/futo-notes-mr-7'],
+    selfRoot: 'C:/src/futo-notes',
+    home: 'C:\\Users\\dev',
+    releaseVault: 'C:\\Users\\dev\\OneDrive\\Documents\\futo-notes',
+  };
+
+  it("verifies this checkout's debug build and its isolated vault, whatever the slashes or case", () => {
+    const result = verifyTarget(
+      {
+        pid: 8212,
+        execPath: `${WIN_SELF}\\target\\debug\\futo-notes-tauri.exe`,
+        dataDir: `c:\\src\\futo-notes\\.tauri-data`,
+        notesDir: `${WIN_SELF}\\.tauri-data\\notes`,
+      },
+      WIN,
+    );
+    expect(result).toMatchObject({ verdict: 'verified', refusals: [] });
+  });
+
+  it('REFUSES the installed app, per-user or in Program Files', () => {
+    for (const execPath of [
+      'C:\\Users\\dev\\AppData\\Local\\FUTO Notes\\futo-notes-tauri.exe',
+      'C:\\Program Files\\FUTO Notes\\futo-notes-tauri.exe',
+    ]) {
+      expect(classifyExecPath(execPath, WIN).code).toBe('system-install');
+    }
+  });
+
+  it("REFUSES another checkout's build, a release build, and the real vault", () => {
+    expect(
+      classifyExecPath('C:\\src\\futo-notes-mr-7\\target\\debug\\futo-notes-tauri.exe', WIN).code,
+    ).toBe('other-worktree');
+    expect(classifyExecPath(`${WIN_SELF}\\target\\release\\futo-notes-tauri.exe`, WIN).code).toBe(
+      'release-profile',
+    );
+    for (const notesDir of [
+      'C:\\Users\\dev\\Documents\\futo-notes',
+      // Documents backed up to OneDrive, as GetFolderPath('MyDocuments') reports it.
+      'c:/users/dev/onedrive/documents/futo-notes/Work',
+    ]) {
+      expect(classifyVault(notesDir, WIN).code, notesDir).toBe('production-vault');
+    }
+  });
+
+  it('reads the listener and the candidates out of netstat and tasklist', () => {
+    const netstat = [
+      'Active Connections',
+      '  Proto  Local Address          Foreign Address        State           PID',
+      '  TCP    0.0.0.0:135            0.0.0.0:0              LISTENING       1012',
+      '  TCP    127.0.0.1:11223        0.0.0.0:0              LISTENING       8212',
+      '  TCP    127.0.0.1:51000        127.0.0.1:11223        ESTABLISHED     9001',
+    ].join('\r\n');
+    expect(parseNetstatListener(netstat, 11223)).toBe(8212);
+    expect(parseNetstatListener(netstat, 1122)).toBeNull();
+    expect(
+      parseTasklist(
+        '"futo-notes-tauri.exe","8212","Console","1","120,000 K"\r\n"svchost.exe","4","Services","0","1 K"',
+      ),
+    ).toEqual([
+      { image: 'futo-notes-tauri.exe', pid: 8212 },
+      { image: 'svchost.exe', pid: 4 },
+    ]);
   });
 });

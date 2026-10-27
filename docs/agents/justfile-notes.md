@@ -14,8 +14,8 @@ read all of them through `readJustfileSource` in `scripts/lib/justfile.mjs`.
 ## positional-arguments
 
 `just` runs each unshebanged line via a fresh `sh -c`, and a variadic `*args` is joined
-with spaces before `{{args}}` is interpolated — so the shell re-splits it. `just
-android-drive tap 'Connect & Sync'` ran `node ... tap Connect` in the background and then
+with spaces before `{{args}}` is interpolated — so the shell re-splits it. A label
+`'Connect & Sync'` forwarded that way ran `node ... Connect` in the background and then
 `Sync` (pc_9b7fd5dba746), and `just journal where --dir '/tmp/a b'` read `/tmp/a`. Recipes
 that forward user-supplied text — a label, a test-name pattern, a path — pass `"$@"` for
 that reason (enabled by `set positional-arguments := true` at the top of the file);
@@ -75,6 +75,18 @@ The `test-ios-native*` recipes instead resolve a _concrete_ `-destination "id=$S
 ONE arm64 simulator, so the arm64-only FFI sim slice links without `EXCLUDED_ARCHS`. It
 also ad-hoc signs so the app test host launches with its keychain entitlement (mirrors
 `run.sh`).
+
+## Debug builds take the editor bundle with the puppet inspector
+
+A Debug app's `editor.html` carries the puppet inspector, a Release app's does not: `editor.html`
+is one staged file, so a Debug recipe that built it without the inspector left every later Debug
+install without one. `build-ios-native`, `build-android-native` and `test-ios-native` (whose test
+host IS the Debug app) all build it with `VITE_INCLUDE_TEST_HOOKS=true`: the shipped, minified
+bundle plus the inspector, with function names kept for its trace (`vite.editor.config.ts`).
+`test-android-perf` builds without it, so the gate measures the bundle that ships.
+
+`test-ios-native` also turns the simulator's accessibility back on however the run ends: the UI
+tests switch it off when they finish, and the puppet listener's screen reader needs it on.
 
 ## sim-boot (SHOW=1)
 
@@ -216,6 +228,52 @@ list below even though the 2026-09 usage audit flagged it as zero-invocation —
 asserted live by `scripts/premerge-test-parity-mobile.test.mjs` ("builds both Android
 distribution flavors..."), which requires `deploy-android flavor="direct":` to exist in the
 justfile.
+
+## check-puppet-verbs / check-puppet-first
+
+Both warn rather than block, by design: CI runs them in `test:puppet-gates` (`allow_failure`),
+not in `arch-gate` (docs/architecture-gates.md).
+
+`check-puppet-verbs` fails if a TS module under `src/` wires its own DOM listener
+(`addEventListener` or `el.onX =` for an event in `DOM_EVENTS`, `scripts/lib/puppet-controls.mjs`:
+click, dblclick, auxclick, the mouse, pointer, touch and key events, input, change, submit,
+contextmenu, focus, blur, drag and drop, paste, copy, cut, wheel; a window keydown shortcut table
+is one), or a SwiftUI view or Compose screen has a control, with no verb registered beside it and
+no allowlist entry: every user-triggerable action must be a `futo-puppet` verb
+(`docs/research/agent-native-app-design.md`). Svelte is checked per control, as every labelled
+SwiftUI and Compose control is: a control labelled with a catalog key must be claimed by a verb's
+`controls`, and a verb's controls must exist, read from source at build time. Exceptions with
+reasons: `scripts/puppet-verbs-allowlist.json` (files) and
+`scripts/puppet-controls-allowlist/<platform>.json` (controls and verbs). It does not see a
+ProseMirror plugin's `handleClick`/`handleDOMEvents`/`handleKeyDown` props.
+
+`check-puppet-first` fails if any instruction surface teaches an agent to DRIVE this app with
+anything but `just puppet`: the retired simulator/emulator input tools (axe, idb, adb input),
+OS-level input (xdotool, ydotool, wtype), the legacy per-platform UI readers, or the MCP bridge's
+input calls. Oracles (screenshots, the vault on disk, device lifecycle, state hooks) are
+untouched; the `puppet` skill lists what stays. A surface the verbs genuinely cannot reach marks
+its section with `<!-- check-puppet-first: <why> -->`, which covers it up to the next heading of
+any level; one-off prose that names a retired idiom in order to forbid it pins the exact line in
+`scripts/puppet-first-allowlist.json`. Measured cause: five pilot agents given a real bug report
+and the CLI documented in-repo; one used it, once.
+
+## puppet
+
+The agent's hands and eyes (`crates/futo-puppet`, design: `docs/research/agent-native-app-design.md`;
+the full command guide is the `puppet` skill). The target comes from the environment, never
+flags: `FUTO_PUPPET_TARGET=desktop` (default, found through `scripts/qa-target.mjs` on this
+worktree's mcp band), `ios` (`just ios-native` launches the listener on this worktree's puppet
+port; the first request checks the app runs on this worktree's simulator), or `android` (the CLI
+forwards this worktree's Android port into its claimed emulator, and refuses a port another
+worktree's emulator holds: `FUTO_PUPPET_ANDROID_PORT` picks a free one). Every action's record
+lands in `.puppet/trace.jsonl`.
+
+`cargo run` spent 0.4-0.7 s of every call deciding nothing had changed, so the recipe execs the
+built binary while it is provably current: the stamp is written BEFORE the build that made the
+binary (an edit landing mid-build is newer, so it rebuilds) and names this checkout (a `target/`
+cloned by `qa-clone-target` has another worktree's paths baked in). Anything newer than the
+stamp, or any doubt, goes through cargo. It is one line, not a shebang script: just writes a
+shebang recipe to a fresh temp file, and executing that costs ~35 ms more.
 
 ## Removed recipes
 

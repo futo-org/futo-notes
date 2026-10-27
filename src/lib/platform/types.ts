@@ -47,7 +47,12 @@ export interface PickedImage {
 }
 
 export interface NativeCapabilities {
-  pickImages?(options: { limit?: number; filterName: string }): Promise<PickedImage[]>;
+  /** `paths` skips the dialog and reads those files: the agent's `AttachImage`/`InsertImage`. */
+  pickImages?(options: {
+    limit?: number;
+    filterName: string;
+    paths?: readonly string[];
+  }): Promise<PickedImage[]>;
   /**
    * Copy an image the OS handed us as a PATH, with no bytes, into the vault and
    * return its vault filename. That shape is a Linux WebKitGTK drop and Tauri's

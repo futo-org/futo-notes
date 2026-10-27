@@ -1,0 +1,15 @@
+{
+  "concept": "puppet-control-verb-label",
+  "description": "Which verb a control stands for, from its label: the verb whose label is the control's text, or leads it (a toggle row reads its title, then its description), the longest winning. The desktop page applies it to its own rows; the CLI applies it to a phone's native rows, which have no page to ask.",
+  "lockStatus": "unlocked",
+  "copies": [
+    {
+      "location": "src/app/puppet/puppetElements.ts",
+      "pattern": "export function verbsFor"
+    },
+    {
+      "location": "crates/futo-puppet/src/native.rs",
+      "pattern": "fn verb_for"
+    }
+  ]
+}

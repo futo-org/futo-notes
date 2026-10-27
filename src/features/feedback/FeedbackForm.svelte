@@ -9,6 +9,7 @@
   import { createFeedbackForm } from './createFeedbackForm.svelte';
   import { localizedText } from '$shared/localization';
   import './feedback.css';
+  import { puppetRefusal, puppetVerb, registerPuppetVerbs } from '$app/puppet/puppetRegistry';
 
   interface Props {
     onsent: () => void;
@@ -21,6 +22,53 @@
   let useStaging = $state(usingStagingCrashlog());
 
   $effect(() => () => form.dispose());
+
+  $effect(() =>
+    registerPuppetVerbs(() => [
+      puppetVerb(
+        'SetFeedbackMessage',
+        { message: 'string' },
+        (args) => form.setMessage(args.message as string),
+        { controls: ['feedback.placeholder'] },
+      ),
+      // The file dialog is the OS's; the verb names the file instead.
+      puppetVerb(
+        'AttachImage',
+        { path: 'string' },
+        (args) => {
+          if (!form.canAttach) return puppetRefusal(409, 'attachment limit reached');
+          return form.attachImages([args.path as string]);
+        },
+        { controls: ['feedback.addScreenshot'] },
+      ),
+      puppetVerb('RemoveFeedbackAttachment', { index: 'integer' }, (args) => {
+        const index = args.index as number;
+        if (!form.attachments[index]) {
+          return puppetRefusal(400, `there are ${form.attachments.length} attachments`);
+        }
+        form.removeAttachment(index);
+        return undefined;
+      }),
+      puppetVerb(
+        'SendFeedback',
+        {},
+        () => {
+          if (!form.canSend) return puppetRefusal(409, 'nothing to send, or already sending');
+          return form.send();
+        },
+        { controls: ['common.actions.send'] },
+      ),
+      puppetVerb(
+        'SetStagingCrashlog',
+        { enabled: 'boolean' },
+        (args) => {
+          useStaging = args.enabled as boolean;
+          setUsingStagingCrashlog(useStaging);
+        },
+        { controls: ['feedback.stagingServer'] },
+      ),
+    ]),
+  );
 </script>
 
 <div class="feedback-form">

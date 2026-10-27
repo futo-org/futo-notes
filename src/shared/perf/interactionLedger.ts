@@ -94,7 +94,7 @@ export function clearInteractions(kind?: InteractionKind): void {
  * longest, so the sample is that frame's worst case.
  *
  * Off by default. A harness enables it: `__perfCourse` in a dev/test desktop
- * build (installPerfCourse.ts, behind testHooksEnabled), or the native embed's
+ * build (installPerfCourse.ts, behind TEST_HOOKS_ENABLED), or the native embed's
  * `?test` URL, which only a debug Android build loads. Until then
  * `noteKeystroke` is one boolean read. Enabled, it costs one record and ONE
  * requestAnimationFrame per frame, however many transactions land in it.

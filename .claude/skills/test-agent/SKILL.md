@@ -218,7 +218,7 @@ Use these as starting points. Adapt and combine them based on the test targets.
 ## Important notes
 
 - **Ephemeral tests only.** Do not commit generated test files. They live in `/tmp/` and die with the session.
-- **If a scenario finds a real bug**, tell the user clearly and suggest creating a permanent regression test (using the `/bugfix` skill's test-first approach).
+- **If a scenario finds a real bug**, tell the user clearly and suggest creating a permanent regression test that fails before the fix (AGENTS.md section 7.9).
 - **Reuse existing test infrastructure.** Extend `tests/cross-platform-sync.mjs` and the crate test helpers rather than writing a new harness.
 - **Screenshots are evidence.** For any UI scenario, capture before and after states.
 - **Coverage over speed.** Prefer a scenario that could find a new bug over finishing quickly.

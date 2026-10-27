@@ -3,7 +3,7 @@
 Every new issue on the GitHub mirror
 ([futo-org/futo-notes](https://github.com/futo-org/futo-notes/issues)) is posted
 to Zulip **#futo-notes-alerts**; bugs additionally get an autonomous
-reproduction attempt, and — when reproduced — a `/bugfix`-protocol fix MR on
+reproduction attempt, and — when reproduced — a fix MR on
 GitLab that links back to the issue. **No bot ever writes to GitHub.**
 
 Design rationale and decisions live in

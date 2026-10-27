@@ -17,8 +17,29 @@ export function isDesktopExecutableName(fileName) {
 }
 
 // The release app's default vault (M3). Never a QA target, and the single most
-// important string in this file.
-export const PROD_VAULT_RELATIVE = path.join('Documents', 'futo-notes');
+// important string in this file. The app puts it in the OS's Documents folder, which can be
+// elsewhere (a localized XDG folder, OneDrive): that one is the context's `releaseVault`.
+export const PROD_VAULT_RELATIVE = 'Documents/futo-notes';
+
+/**
+ * XDG_DOCUMENTS_DIR from the text of user-dirs.dirs, read as the app's `dirs` crate reads it:
+ * the first double-quoted `"$HOME/…"` or `"/…"` value, its backslash escapes undone; `"$HOME/"`
+ * means none. null when there is none.
+ */
+export function documentsDirFromUserDirs(text, home) {
+  for (const line of text.split('\n')) {
+    const value = /^\s*XDG_DOCUMENTS_DIR\s*=\s*"(.*)"\s*$/.exec(line)?.[1];
+    if (value === undefined || value === '$HOME/') continue;
+    const unescape = (raw) => raw.replace(/\\(.)/g, '$1');
+    if (value.startsWith('$HOME/')) return path.join(home, unescape(value.slice('$HOME/'.length)));
+    if (value.startsWith('/')) return unescape(value);
+  }
+  return null;
+}
+
+// A Windows path (a drive letter) is compared by Windows rules — case-insensitive,
+// either slash — wherever this runs, so the Windows branch is tested on every OS.
+const pathFor = (somePath) => (/^[A-Za-z]:[\\/]/.test(somePath) ? path.win32 : path);
 
 const SYSTEM_INSTALL_PREFIXES = [
   '/Applications/',
@@ -30,6 +51,9 @@ const SYSTEM_INSTALL_PREFIXES = [
   '/snap/',
   '/var/lib/flatpak/',
 ];
+// Where the Windows installer puts the app: per-user under AppData\Local, or Program Files.
+const WINDOWS_INSTALL =
+  /^[A-Za-z]:[\\/](Program Files( \(x86\))?|Users[\\/][^\\/]+[\\/]AppData[\\/]Local)[\\/]/i;
 
 // ---------------------------------------------------------------------------
 // Pure classification (unit-tested in scripts/qa-target.test.mjs)
@@ -43,10 +67,31 @@ export function parseWorktreeRoots(porcelainText) {
     .filter(Boolean);
 }
 
+/** `tasklist /FO CSV /NH` → [{ image, pid }]. */
+export function parseTasklist(csvText) {
+  return csvText
+    .split(/\r?\n/)
+    .map((line) => /^"([^"]*)","(\d+)"/.exec(line))
+    .filter(Boolean)
+    .map((match) => ({ image: match[1], pid: Number(match[2]) }));
+}
+
+/** The pid `netstat -ano -p TCP` shows LISTENING on `port`, or null. */
+export function parseNetstatListener(netstatText, port) {
+  for (const line of netstatText.split(/\r?\n/)) {
+    const [protocol, local, , state, pid] = line.trim().split(/\s+/);
+    if (protocol === 'TCP' && state === 'LISTENING' && local?.endsWith(`:${port}`)) {
+      return Number(pid);
+    }
+  }
+  return null;
+}
+
 function isInside(parent, child) {
   if (!parent || !child) return false;
-  const rel = path.relative(parent, child);
-  return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
+  const paths = pathFor(child);
+  const rel = paths.relative(parent, child);
+  return rel === '' || (!rel.startsWith('..') && !paths.isAbsolute(rel));
 }
 
 /**
@@ -66,7 +111,7 @@ export function classifyExecPath(execPath, { worktreeRoots, selfRoot }) {
   // from ANOTHER worktree resolves inside THIS one and passes every check below.
   // Callers resolve relative paths against the process's own cwd; if one still
   // arrives here, refuse.
-  if (!path.isAbsolute(execPath)) {
+  if (!pathFor(execPath).isAbsolute(execPath)) {
     return {
       ok: false,
       code: 'exec-path-not-absolute',
@@ -81,7 +126,10 @@ export function classifyExecPath(execPath, { worktreeRoots, selfRoot }) {
       detail: `${execPath} is an INSTALLED APPLICATION BUNDLE — the user's production app, which owns the real vault (~/${PROD_VAULT_RELATIVE}). Never drive it, never send it input, never kill it.`,
     };
   }
-  if (SYSTEM_INSTALL_PREFIXES.some((prefix) => execPath.startsWith(prefix))) {
+  if (
+    SYSTEM_INSTALL_PREFIXES.some((prefix) => execPath.startsWith(prefix)) ||
+    WINDOWS_INSTALL.test(execPath)
+  ) {
     return {
       ok: false,
       code: 'system-install',
@@ -118,7 +166,8 @@ export function classifyExecPath(execPath, { worktreeRoots, selfRoot }) {
   }
   // Exact owner, not containment: run from the main checkout, `isInside` would
   // accept every nested worktree's instance as "mine".
-  if (selfRoot && path.resolve(owningRoot) !== path.resolve(selfRoot)) {
+  const paths = pathFor(execPath);
+  if (selfRoot && paths.resolve(owningRoot) !== paths.resolve(selfRoot)) {
     return {
       ok: false,
       code: 'other-worktree',
@@ -171,16 +220,24 @@ export function classifyDataDir(dataDir, { worktreeRoots, envReadable = true }) 
  * ~/Documents/fake-notes — shared between parallel sessions, so QA should not
  * write there, but it is not the user's data.
  */
-export function classifyVault(notesDir, { worktreeRoots, home }) {
+export function classifyVault(notesDir, { worktreeRoots, home, releaseVault }) {
   if (!notesDir) return { ok: true, code: 'vault-unknown', warning: null, detail: null };
 
-  const prodVault = path.join(home, PROD_VAULT_RELATIVE);
-  if (isInside(prodVault, notesDir) || isInside(notesDir, prodVault)) {
+  if (!releaseVault) {
     return {
       ok: false,
-      code: 'production-vault',
-      detail: `this instance's vault is ${notesDir}, which is the USER'S REAL VAULT (${prodVault}). Stop. Do not drive, write to, or kill this process.`,
+      code: 'release-vault-unknown',
+      detail: `could not read where the release app keeps its vault (the OS Documents folder), so ${notesDir} cannot be proven not to be it.`,
     };
+  }
+  for (const prodVault of [pathFor(home).join(home, PROD_VAULT_RELATIVE), releaseVault]) {
+    if (isInside(prodVault, notesDir) || isInside(notesDir, prodVault)) {
+      return {
+        ok: false,
+        code: 'production-vault',
+        detail: `this instance's vault is ${notesDir}, which is the USER'S REAL VAULT (${prodVault}). Stop. Do not drive, write to, or kill this process.`,
+      };
+    }
   }
   if (!worktreeRoots.some((root) => isInside(root, notesDir))) {
     return {

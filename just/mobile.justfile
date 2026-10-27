@@ -36,7 +36,8 @@ ios-native-device: _preflight-ios
 build-ios-native: _preflight-ios build-rust-ios
   #!/usr/bin/env bash
   set -euo pipefail
-  node_modules/.bin/vite build --config vite.editor.config.ts
+  # Debug app: the editor bundle carries the puppet inspector; see justfile-notes.md.
+  VITE_INCLUDE_TEST_HOOKS=true node_modules/.bin/vite build --config vite.editor.config.ts
   cd apps/ios
   xcodegen generate
   # Generic destination: links both arches; see justfile-notes.md.
@@ -84,7 +85,8 @@ android-env-check:
 build-android-native: _preflight-android android-env-check (build-rust-android "device")
   #!/usr/bin/env bash
   set -euo pipefail
-  node_modules/.bin/vite build --config vite.editor.config.ts
+  # Debug app: the editor bundle carries the puppet inspector (see build-ios-native).
+  VITE_INCLUDE_TEST_HOOKS=true node_modules/.bin/vite build --config vite.editor.config.ts
   cd apps/android
   ./gradlew :app:assembleDirectDebug :app:assemblePlayDebug
 
@@ -139,13 +141,16 @@ _test-ios bundle *names: _preflight-ios build-rust-ios
       ONLY_TESTING+=("-only-testing:$BUNDLE/$name")
     done
   fi
-  node_modules/.bin/vite build --config vite.editor.config.ts
+  # The test host IS the Debug app, so its editor bundle carries the puppet inspector too.
+  VITE_INCLUDE_TEST_HOOKS=true node_modules/.bin/vite build --config vite.editor.config.ts
   SIM="${SIM:-$(xcrun simctl list devices booted | sed -n 's/.*(\([0-9A-Fa-f-]\{36\}\)).*Booted.*/\1/p' | head -1)}"
   if [ -z "$SIM" ]; then
     echo "No simulator — set SIM=<udid> or run: just qa-claim ios" >&2
     exit 1
   fi
   echo "==> Simulator: $SIM"
+  # UI tests switch accessibility off; the puppet listener needs it on. See justfile-notes.md.
+  trap 'xcrun simctl spawn "$SIM" defaults write com.apple.Accessibility ApplicationAccessibilityEnabled -bool true' EXIT
   cd apps/ios
   xcodegen generate
   # A pool simulator whose runtime does not match Xcode (iOS 26.5 under Xcode

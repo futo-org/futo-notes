@@ -86,6 +86,14 @@ check-qa-input-safety:
 check-theme-single-pace:
   node scripts/check-theme-single-pace.mjs
 
+# Fail on a UI handler with no puppet verb, or a control no verb claims; see justfile-notes.md.
+check-puppet-verbs:
+  node scripts/check-puppet-verbs.mjs
+
+# Fail if an instruction surface teaches driving the app with anything but `just puppet`.
+check-puppet-first:
+  node scripts/check-puppet-first.mjs
+
 # Fail on a broken `just`/`pnpm run`/repo-path reference in an instruction surface.
 check-agent-docs:
   node scripts/check-agent-docs.mjs

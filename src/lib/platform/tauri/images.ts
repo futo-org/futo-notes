@@ -30,6 +30,15 @@ const IMAGE_MIME_TYPES: Record<string, string> = {
   heic: 'image/heic',
 };
 
+async function pickImagePaths(options: { filterName: string }, limit: number): Promise<string[]> {
+  const { open } = await import('@tauri-apps/plugin-dialog');
+  const picked = await open({
+    multiple: limit > 1,
+    filters: [{ name: options.filterName, extensions: [...IMAGE_EXTENSIONS] }],
+  });
+  return typeof picked === 'string' ? [picked] : (picked ?? []);
+}
+
 export function imageMimeForExtension(extension: string): string {
   return IMAGE_MIME_TYPES[extension.toLowerCase()] ?? 'image/png';
 }
@@ -110,12 +119,7 @@ export function createTauriImages({ getNotesRoot }: TauriImageDependencies): Tau
 
     async pickImages(options) {
       const limit = Math.max(1, options.limit ?? 1);
-      const { open } = await import('@tauri-apps/plugin-dialog');
-      const picked = await open({
-        multiple: limit > 1,
-        filters: [{ name: options.filterName, extensions: [...IMAGE_EXTENSIONS] }],
-      });
-      const paths = typeof picked === 'string' ? [picked] : (picked ?? []);
+      const paths = options.paths ? [...options.paths] : await pickImagePaths(options, limit);
       const images: PickedImage[] = [];
       for (const path of paths.slice(0, limit)) {
         const extension = validateImageExtension(extensionOf(path));

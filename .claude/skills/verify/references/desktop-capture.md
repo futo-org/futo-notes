@@ -12,12 +12,12 @@ you justify, not a default.
 On macOS, a window's surface stays live and current while it sits on another
 space, so capture it where it is. These native capture paths do not work on Linux.
 
-| Situation                   | Use                                                                   |
-| --------------------------- | --------------------------------------------------------------------- |
-| macOS/Windows live bridge   | `capture_native_screenshot` (macOS ~19 ms, no extra permission)       |
-| macOS without a live bridge | `just qa-shot pid <pid>` \| `port <port>` \| `list`                   |
-| Linux webview content       | `webview_screenshot` (does not prove native window/compositor pixels) |
-| iOS simulator content       | `just sim-screenshot` (`simctl` needs no foreground app)              |
+| Situation                   | Use                                                                                                    |
+| --------------------------- | ------------------------------------------------------------------------------------------------------ |
+| macOS/Windows live bridge   | `just puppet screenshot` (the bridge's `capture_native_screenshot`; macOS ~19 ms, no extra permission) |
+| macOS without a live bridge | `just qa-shot pid <pid>` \| `port <port>` \| `list`                                                    |
+| Linux webview content       | `just puppet screenshot` (WebKitGTK's own snapshot; does not prove native window/compositor pixels)    |
+| iOS simulator content       | `just sim-screenshot` (`simctl` needs no foreground app)                                               |
 
 `just qa-shot` captures by window id (`screencapture -l`), which is why it
 reaches a window on another space — that window is not "on screen", so a naive
@@ -83,4 +83,3 @@ the bridge's `capture_native_screenshot` returns the real window surface in
 dev dependency) and score the region. Linux's unimplemented native capture
 cannot establish this evidence; a DOM screenshot does not substitute for it. Worked example + numbers:
 `docs/perf/tab-switch-baseline.md`.
-

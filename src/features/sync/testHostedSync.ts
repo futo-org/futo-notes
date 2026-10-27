@@ -21,7 +21,7 @@
  * completes on its own — through the real `await_sign_in` / `await_entitled`
  * polling, not a shortcut past it.
  *
- * Installed only when `testHooksEnabled()` is true, alongside the rest of
+ * Installed only when `TEST_HOOKS_ENABLED` is true, alongside the rest of
  * `__testSync`.
  */
 

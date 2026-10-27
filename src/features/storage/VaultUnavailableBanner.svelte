@@ -2,7 +2,10 @@
   import type { VaultStatus } from '$lib/platform/tauri';
   import { localizedText } from '$shared/localization';
 
-  import { chooseNotesDirectory } from './notesDirectory';
+  import { ANSWER_PARAM } from '$app/puppet/puppetConfirm';
+  import { puppetVerb, registerPuppetVerbs } from '$app/puppet/puppetRegistry';
+
+  import { chooseNotesDirectory, chooseNotesDirectoryVerb } from './notesDirectory';
   import { vaultAvailability } from './vaultAvailability.svelte';
 
   // Stays up for the rest of the launch, unlike a toast: while it is up every
@@ -10,6 +13,22 @@
   // The folder is named on purpose — github#44's reporter read an unnamed
   // failure as a server fault and audited a healthy server first.
   const status = $derived(vaultAvailability.unavailable ? vaultAvailability.status : null);
+
+  // The button's folder picker is the OS's, so the verb takes the folder it would return.
+  $effect(() =>
+    registerPuppetVerbs(() =>
+      !status
+        ? []
+        : [
+            puppetVerb(
+              'SetNotesDirectory',
+              { path: 'string', ...ANSWER_PARAM },
+              chooseNotesDirectoryVerb,
+              { controls: ['storage.unavailableBanner.chooseFolder'] },
+            ),
+          ],
+    ),
+  );
 
   function reasonPath(unusable: VaultStatus): string {
     if (unusable.accessRefused) return 'storage.unavailableBanner.accessRefused';

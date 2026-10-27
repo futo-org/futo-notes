@@ -114,6 +114,9 @@ data/
 experiments/
 .tmp
 
+# futo-puppet trace (one JSONL per worktree; crates/futo-puppet)
+.puppet/
+
 # Agent scratch (handoff notes)
 handoff/
 

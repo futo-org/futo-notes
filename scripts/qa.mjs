@@ -15,6 +15,7 @@
 // Named fixtures retain their images and app data; personal devices are never touched.
 //
 //   node scripts/qa.mjs claim [ios|android|all] [--reboot] [--erase (ios only)] [--avd legacy-name]
+//   node scripts/qa.mjs device ios|android        # this worktree's device as JSON, claimed on first use
 //   node scripts/qa.mjs status                    # pool devices + servers, owners, state
 //   node scripts/qa.mjs release [ios|android] [--shutdown]  # release this worktree's claims
 //   node scripts/qa.mjs gc                        # reap devices/servers of deleted worktrees
@@ -54,6 +55,7 @@ import {
   ownerIsStale,
   ownerPath,
   readOwner,
+  recordId,
   tryRun,
   worktreeRoot,
 } from './qa/pool.mjs';
@@ -110,6 +112,7 @@ async function cmdClaim(target, { reboot = false, erase = false, avd } = {}) {
     const udid = await ensureSim(name, { reboot });
     if (erase) markWiped('ios', name);
     else wipeOnFreshClaim('ios', name, fresh, () => wipeIosDevApp(udid));
+    recordId('ios', name, udid);
     info(`ios: ${name} → ${udid}`);
     exports.push(`export SIM=${udid}`);
   } else if (wantIos) {
@@ -130,6 +133,7 @@ async function cmdClaim(target, { reboot = false, erase = false, avd } = {}) {
     } else {
       wipeOnFreshClaim('android', name, fresh, () => wipeAndroidDevApp(serial));
     }
+    recordId('android', name, serial);
     info(`android: ${name} → ${serial}`);
     exports.push(`export ANDROID_SERIAL=${serial}`);
     exports.push(`export ANDROID_AVD_NAME=${name}`);
@@ -138,14 +142,45 @@ async function cmdClaim(target, { reboot = false, erase = false, avd } = {}) {
   process.stdout.write(exports.join('\n') + '\n');
 }
 
+// The device this worktree drives on `platform`, as `{"name","id"}` on stdout (adb's serial
+// or the simulator's udid), recorded in its owner file. `just puppet` reads that record and
+// asks here when it has none or the device is not answering, so it reaches only this
+// worktree's claim. A worktree with none claims here exactly as `claim` does, never a device
+// another live worktree owns, and a claimed device that is off is booted.
+async function cmdDevice(platform) {
+  if (platform !== 'ios' && platform !== 'android') die(`unknown target ${platform}`);
+  if (platform === 'ios' && !IS_MAC) die('iOS simulators need macOS');
+  const root = worktreeRoot();
+  let { name, fresh } = myDevices(root).find((device) => device.platform === platform) ?? {};
+  let id;
+  if (name && platform === 'ios') {
+    const sim = findSim(name);
+    if (sim?.state === 'Booted') id = sim.udid;
+  } else if (name) {
+    id = runningEmus()[name];
+  } else {
+    ({ name, fresh } = claimPoolName(platform, root));
+    info(`claimed ${platform} ${name} for ${root}`);
+  }
+  // ensureSim also fronts Simulator.app, so it runs only when the device needs booting.
+  id ??= platform === 'ios' ? await ensureSim(name) : await ensureAvd(name);
+  const wipe = platform === 'ios' ? wipeIosDevApp : wipeAndroidDevApp;
+  wipeOnFreshClaim(platform, name, fresh, () => wipe(id));
+  recordId(platform, name, id);
+  process.stdout.write(JSON.stringify({ name, id }) + '\n');
+}
+
 function myDevices(root) {
   const mine = [];
   if (!fs.existsSync(DEV_DIR)) return mine;
-  for (const f of fs.readdirSync(DEV_DIR)) {
+  // By name, as `just puppet` reads them (futo-puppet's recorded_device).
+  for (const f of fs.readdirSync(DEV_DIR).sort()) {
     const m = f.match(/^(ios|android)-(.+)\.json$/);
     if (!m) continue;
     const owner = readOwner(m[1], m[2]);
-    if (owner?.worktree === root) mine.push({ platform: m[1], name: m[2] });
+    if (owner?.worktree === root) {
+      mine.push({ platform: m[1], name: m[2], fresh: owner.wipePending === true });
+    }
   }
   return mine;
 }
@@ -265,7 +300,7 @@ function cmdStatus() {
 // ── main ───────────────────────────────────────────────────────────────────
 
 const USAGE =
-  'usage: qa.mjs claim [ios|android|all] [--reboot] [--erase (ios only)] [--avd legacy-name] | camera-poster <png> | android-target | android-apk [path] | status | release [ios|android] [--shutdown] | gc | server-start [--standin] | server-stop [--drop] | avd-baseline';
+  'usage: qa.mjs claim [ios|android|all] [--reboot] [--erase (ios only)] [--avd legacy-name] | device ios|android | camera-poster <png> | android-target | android-apk [path] | status | release [ios|android] [--shutdown] | gc | server-start [--standin] | server-stop [--drop] | avd-baseline';
 const [cmd, ...args] = process.argv.slice(2);
 // Handle help before worktree discovery or invoking any platform tool. A help
 // request must never acquire an owner file, boot a device, or wipe app data.
@@ -324,6 +359,9 @@ switch (cmd) {
     } catch (error) {
       die(error.message);
     }
+    break;
+  case 'device':
+    await cmdDevice(args[0]);
     break;
   case 'status':
     cmdStatus();

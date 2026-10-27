@@ -1,11 +1,17 @@
 <script lang="ts">
+  import { ANSWER_PARAM, throughConfirmation } from '$app/puppet/puppetConfirm';
+  import { puppetRefusal, puppetVerb } from '$app/puppet/puppetRegistry';
   import { isTauri } from '$lib/platform';
   import { vaultStatus } from '$lib/platform/tauri';
   import { applyThemePreference } from '$features/system/theme';
   import { getAppVersion } from '$features/system/crashHandler';
   import { updateChecker } from '$features/system/updateChecker.svelte';
   import { selfUpdateSupported, updaterSupported } from '$features/system/updater';
-  import { chooseNotesDirectory, resetNotesDirectory } from '$features/storage/notesDirectory';
+  import {
+    chooseNotesDirectory,
+    chooseNotesDirectoryVerb,
+    resetNotesDirectory,
+  } from '$features/storage/notesDirectory';
   import { hostedSyncEnabled } from '$features/sync/hostedSyncEnabled';
   import type { SyncSummary } from '$features/sync/syncServiceE2ee';
   import { confirmDialog } from '$shared/dialogs/confirmDialog';
@@ -95,6 +101,38 @@
       updateChecker.phase === 'installing' ||
       updateChecker.phase === 'restart',
   );
+
+  // Registered by the Modal, beside its sections' verbs: nothing behind the dialog is on offer.
+  const settingsVerbs = () => [
+    puppetVerb(
+      'CloseSettings',
+      {},
+      () => {
+        if (!canClose()) return puppetRefusal(409, 'a reset or sync connection is in progress');
+        close();
+        return undefined;
+      },
+      { controls: ['settings.closeAccessibilityLabel'] },
+    ),
+    puppetVerb(
+      'SetNotesDirectory',
+      { path: 'string', ...ANSWER_PARAM },
+      async (args) => {
+        if (!isTauri) return puppetRefusal(409, 'the web build has no notes directory');
+        return chooseNotesDirectoryVerb(args);
+      },
+      { controls: ['settings.storage.changeDirectory'] },
+    ),
+    puppetVerb(
+      'ResetNotesDirectory',
+      ANSWER_PARAM,
+      () => {
+        if (!isTauri) return puppetRefusal(409, 'the web build has no notes directory');
+        return throughConfirmation(resetNotesDirectory);
+      },
+      { controls: ['settings.storage.resetToDefault'] },
+    ),
+  ];
 
   function copyPreferences(source: AppPreferences): AppPreferences {
     return {
@@ -205,7 +243,12 @@
   }
 </script>
 
-<Modal ondismiss={close} cardClass="settings-panel" labelledBy="settings-title">
+<Modal
+  ondismiss={close}
+  cardClass="settings-panel"
+  labelledBy="settings-title"
+  verbs={settingsVerbs}
+>
   <div class="settings-scroll">
     <header class="settings-header">
       <h2 class="settings-title" id="settings-title">{localizedText('settings.heading')}</h2>
@@ -266,7 +309,7 @@
       {#if import.meta.env.DEV}
         <DevSyncErrorSettingsSection simulate={onsimulatesync} />
       {/if}
-      <DangerSettingsSection {resetting} onreset={() => void confirmFullReset()} />
+      <DangerSettingsSection {resetting} onreset={confirmFullReset} />
       <div class="settings-version">
         {localizedText('settings.about.versionLine', { version: getAppVersion() })}
       </div>

@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { PairingState, UnlockDoor } from '../createHostedSyncSettings.svelte';
+  import { puppetRefusal, puppetVerb, registerPuppetVerbs } from '$app/puppet/puppetRegistry';
   import { localizedText } from '$shared/localization';
 
   import ScanDoor from './ScanDoor.svelte';
@@ -14,10 +15,10 @@
     pairingPayload: string | null;
     pairingExpiresAt: string | null;
     ondoor: (door: UnlockDoor) => void;
-    onvaultpassword: (vaultPassword: string) => void;
-    onrecoverykey: (typed: string) => void;
-    onshowpairingcode: () => void;
-    oncancelpairing: () => void;
+    onvaultpassword: (vaultPassword: string) => Promise<void>;
+    onrecoverykey: (typed: string) => Promise<void>;
+    onshowpairingcode: () => Promise<void>;
+    oncancelpairing: () => Promise<void>;
   }
 
   let {
@@ -40,11 +41,55 @@
   // 19), so they are all here from the start.
   const DOORS: UnlockDoor[] = ['vaultPassword', 'scan', 'recoveryKey'];
 
-  function submit(): void {
-    if (busy) return;
-    if (door === 'vaultPassword' && vaultPassword) onvaultpassword(vaultPassword);
-    if (door === 'recoveryKey' && typedRecoveryKey) onrecoverykey(typedRecoveryKey);
+  /** Unlock's click: nothing while the open field is empty, as the button is then disabled. */
+  function submit(): Promise<void> | undefined {
+    if (busy) return undefined;
+    if (door === 'vaultPassword' && vaultPassword) return onvaultpassword(vaultPassword);
+    if (door === 'recoveryKey' && typedRecoveryKey) return onrecoverykey(typedRecoveryKey);
+    return undefined;
   }
+
+  // What the agent calls each door: `scan` is THIS device showing a code for another to
+  // scan, which a name with "scan" in it would read backwards.
+  const METHODS: Record<UnlockDoor, string> = {
+    vaultPassword: 'vaultPassword',
+    recoveryKey: 'recoveryKey',
+    scan: 'anotherDevice',
+  };
+  const doorOf = (method: string) => DOORS.find((option) => METHODS[option] === method)!;
+
+  // The open door's field is the Unlock button's one argument, typed in as a person would.
+  $effect(() =>
+    registerPuppetVerbs(() => [
+      puppetVerb(
+        'SelectUnlockMethod',
+        { method: Object.values(METHODS).join('|') as `${string}|${string}` },
+        (args) => ondoor(doorOf(args.method as string)),
+      ),
+      ...(door === 'scan'
+        ? []
+        : [
+            puppetVerb(
+              'UnlockVault',
+              door === 'vaultPassword' ? { vaultPassword: 'string' } : { recoveryKey: 'string' },
+              (args) => {
+                if (busy) return puppetRefusal(409, 'hosted sync is busy');
+                if (door === 'vaultPassword') vaultPassword = args.vaultPassword as string;
+                else typedRecoveryKey = args.recoveryKey as string;
+                return submit() ?? puppetRefusal(409, 'the field is empty, so Unlock is disabled');
+              },
+              {
+                controls: [
+                  'sync.hosted.unlock.vaultPasswordPlaceholder',
+                  'sync.hosted.unlock.recoveryKeyPlaceholder',
+                  'sync.hosted.unlock.button',
+                  'sync.working',
+                ],
+              },
+            ),
+          ]),
+    ]),
+  );
 </script>
 
 <p class="hosted-title">{localizedText('sync.hosted.unlock.title')}</p>

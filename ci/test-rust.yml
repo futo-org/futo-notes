@@ -131,7 +131,8 @@ test:rust:macos:
     # second VM boot on the same proof. That is futo-notes-ffi itself,
     # Cargo.lock and build-rust-ios.sh. The other crates are listed one by one
     # (every one sits in the FFI tree, and test:ios-native does not watch
-    # them); premerge-test-parity fails when a new crate is in neither list.
+    # them); premerge-test-parity fails when a new crate in that tree is in
+    # neither list.
     # apps/tauri/src-tauri is out too: the desktop crate is not in the FFI
     # tree, so it cannot change what this MR check compiles. .cirrus.yml and
     # .gitlab-ci.yml stay, because they can break this job's own environment.

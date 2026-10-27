@@ -25,8 +25,30 @@ export function createTabNoteTransition(deps: TabNoteTransitionDeps) {
   let previousTabId: string | null = null;
   let loadedNoteId: string | null = null;
   let transitionVersion = 0;
+  // The switch whose scroll restore is still to run: it ends there, not at the load.
+  let restoringVersion: number | null = null;
+  let waiters: Array<(failure?: unknown) => void> = [];
+
+  function answerWaiters(failure?: unknown): void {
+    for (const resolve of waiters) resolve(failure);
+    waiters = [];
+  }
+
+  const caughtUp = (): boolean =>
+    restoringVersion !== transitionVersion &&
+    previousTabId === tabsStore.activeTabId &&
+    loadedNoteId === tabsStore.activeNoteId;
 
   async function transition(
+    nextTabId: string,
+    nextNoteId: string | null,
+    savedScroll: number,
+  ): Promise<void> {
+    await switchTo(nextTabId, nextNoteId, savedScroll);
+    if (caughtUp()) answerWaiters();
+  }
+
+  async function switchTo(
     nextTabId: string,
     nextNoteId: string | null,
     savedScroll: number,
@@ -42,9 +64,10 @@ export function createTabNoteTransition(deps: TabNoteTransitionDeps) {
     }
     try {
       await deps.loadNote(nextNoteId);
-    } catch {
+    } catch (error) {
       if (version === transitionVersion && previousTabId) {
         tabsStore.restoreAfterFailedNavigation(previousTabId, loadedNoteId);
+        answerWaiters(error);
       }
       endNoteSwitch();
       return;
@@ -57,20 +80,24 @@ export function createTabNoteTransition(deps: TabNoteTransitionDeps) {
       // Where the view waits for the stream; moved from there, it is the reader's.
       let parkedAt: number | null = null;
       const restore = () => {
-        if (stale()) return;
-        const body = deps.getNoteBody();
-        if (body && (parkedAt === null || body.scrollTop === parkedAt)) {
-          const reachable = body.scrollHeight - body.clientHeight >= savedScroll;
-          if (!reachable && deps.isNoteStreaming()) {
-            parkedAt = body.scrollTop;
-            requestAnimationFrame(restore);
-            return;
+        if (!stale()) {
+          const body = deps.getNoteBody();
+          if (body && (parkedAt === null || body.scrollTop === parkedAt)) {
+            const reachable = body.scrollHeight - body.clientHeight >= savedScroll;
+            if (!reachable && deps.isNoteStreaming()) {
+              parkedAt = body.scrollTop;
+              requestAnimationFrame(restore);
+              return;
+            }
+            body.scrollTop = savedScroll;
           }
-          body.scrollTop = savedScroll;
+          markNoteSwitch('scrollRestored');
+          endNoteSwitch();
         }
-        markNoteSwitch('scrollRestored');
-        endNoteSwitch();
+        if (restoringVersion === version) restoringVersion = null;
+        if (caughtUp()) answerWaiters();
       };
+      restoringVersion = version;
       requestAnimationFrame(() => requestAnimationFrame(restore));
       return;
     }
@@ -79,6 +106,17 @@ export function createTabNoteTransition(deps: TabNoteTransitionDeps) {
 
   return {
     transition,
+    /**
+     * Nothing once the loaded note is the active tab's and its scroll is restored; until
+     * then a promise that resolves when a transition lands there. Changing tabs is
+     * synchronous and the load is not, so this is what "the note is open" waits on. It
+     * resolves with the error instead when the outgoing draft could not be saved and its
+     * tab came back.
+     */
+    settled(): Promise<unknown> | undefined {
+      if (caughtUp()) return undefined;
+      return new Promise((resolve) => waiters.push(resolve));
+    },
     setLoadedNoteId(noteId: string | null): void {
       transitionVersion += 1;
       loadedNoteId = noteId;

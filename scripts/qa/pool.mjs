@@ -63,6 +63,15 @@ export function readOwner(platform, name) {
 
 export const ownerIsStale = (owner) => !fs.existsSync(owner.worktree);
 
+// The device's id (adb serial or simulator udid) in its owner file, which `just puppet` reads
+// without starting node. An emulator's serial can change when it restarts; `device` rewrites it.
+export function recordId(platform, name, id) {
+  const owner = readOwner(platform, name);
+  if (owner && owner.id !== id) {
+    fs.writeFileSync(ownerPath(platform, name), JSON.stringify({ ...owner, id }, null, 2));
+  }
+}
+
 // Atomically claim a device name for this worktree. Exclusive create (wx)
 // makes two SIMULTANEOUS claimers of the same name resolve safely: exactly
 // one wins, the loser re-reads and moves on. (Reclaiming a stale owner has a

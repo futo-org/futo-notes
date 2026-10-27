@@ -6,7 +6,7 @@ import {
 } from '$shared/perf/noteSwitchTimeline';
 
 import { noteEditIntent } from '$shared/lifecycle/editIntent';
-import { testHooksEnabled } from './testHooksEnabled';
+import { TEST_HOOKS_ENABLED } from './testHooksEnabled';
 
 /**
  * The slice of the editor the harnesses drive. Deliberately narrower than
@@ -74,7 +74,7 @@ type TestHookWindow = typeof window & { __notesShellTest?: NotesShellTestHook };
  * behavior override, not just an observation point.
  */
 export function installNotesShellTestHook(options: NotesShellTestHookOptions): () => void {
-  if (!testHooksEnabled()) return () => {};
+  if (!TEST_HOOKS_ENABLED) return () => {};
   const testWindow = window as TestHookWindow;
   testWindow.__notesShellTest = {
     handleSyncComplete: options.handleSyncComplete,

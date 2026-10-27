@@ -16,7 +16,7 @@ test.describe('Folder support', () => {
     });
 
     await page.locator('[data-folder-path="Work"]').first().click();
-    await page.locator('[data-note-id="Work/open-note"]').click();
+    await page.locator('.note-row[data-note-id="Work/open-note"]').click();
     await expect(page).toHaveURL(/#\/note\/Work%2Fopen-note/);
 
     await page.locator('[data-folder-path="Work"]').first().click({ button: 'right' });
@@ -24,8 +24,8 @@ test.describe('Folder support', () => {
     await confirmModal(page, 'Delete folder');
     await expect(page.locator('.toast')).toContainText('Folder deleted; moved 1 note');
     await expect(page).toHaveURL(/#\/note\/open-note/);
-    await expect(page.locator('[data-note-id="Work/open-note"]')).toHaveCount(0);
-    await expect(page.locator('[data-note-id="open-note"]')).toBeVisible();
+    await expect(page.locator('.note-row[data-note-id="Work/open-note"]')).toHaveCount(0);
+    await expect(page.locator('.note-row[data-note-id="open-note"]')).toBeVisible();
   });
 
   test('folder context menu exposes Move to folder and applies the picked destination', async ({
@@ -127,7 +127,7 @@ test.describe('Folder support', () => {
 
     await expect(page.locator('[data-folder-path="seed-folder"]').first()).toBeVisible();
     await page.locator('[data-folder-path="seed-folder"]').first().click();
-    await expect(page.locator('[data-note-id="seed-folder/inside"]')).toBeVisible();
+    await expect(page.locator('.note-row[data-note-id="seed-folder/inside"]')).toBeVisible();
 
     const transitions = await page.evaluate(async () => {
       const noteRows = [...document.querySelectorAll('.note-row')];

@@ -46,15 +46,16 @@ export function createNoteCommands(
 
   /**
    * The open note was renamed (or parked, or renamed by a peer): relabel the
-   * live document and report it under the new identity. Never a load — the
-   * shell's copy can lag a keystroke typed after its flush, and replacing the
-   * document with it dropped that keystroke and the undo history.
+   * live document and report it to a native host under the new identity. Never
+   * a load — the shell's copy can lag a keystroke typed after its flush, and
+   * replacing the document with it dropped that keystroke and the undo history.
+   * The desktop shell's saves read the editor themselves, so it gets no report.
    */
   function retarget(fromId: string, toId: string): void {
     if (session.currentNoteId !== fromId || fromId === toId) return;
     session.currentNoteId = toId;
     session.documentGeneration += 1;
-    flush();
+    if (props.nativeShell) flush();
   }
 
   function applyExternalContent(noteId: string, text: string, expectedGeneration: number): void {

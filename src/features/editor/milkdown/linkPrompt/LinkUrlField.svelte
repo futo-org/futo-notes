@@ -12,6 +12,7 @@
    */
   import { untrack } from 'svelte';
 
+  import { puppetVerb, registerPuppetVerbs } from '$app/puppet/puppetRegistry';
   import { localizedText } from '$shared/localization';
 
   interface Props {
@@ -37,6 +38,24 @@
   function commit(): void {
     onsubmit(draft.trim());
   }
+
+  /* The field and its button as verbs while the field is up, wherever it is mounted (the
+   * selection toolbar's Link button, the `/` menu's Link item, the toolbar's Link command):
+   * typing the URL, Add/Update (or Enter), and Escape. */
+  $effect(() =>
+    registerPuppetVerbs(() => [
+      puppetVerb('SetLinkUrl', { url: 'string' }, (args) => void (draft = args.url as string), {
+        controls: ['editor.linkPrompt.urlAccessibilityLabel'],
+      }),
+      puppetVerb('ApplyLink', {}, commit, {
+        controls: [
+          'editor.linkPrompt.addAccessibilityLabel',
+          'editor.linkPrompt.updateAccessibilityLabel',
+        ],
+      }),
+      puppetVerb('CancelLink', {}, oncancel),
+    ]),
+  );
 
   function handleKeydown(event: KeyboardEvent): void {
     if (event.key === 'Enter') {

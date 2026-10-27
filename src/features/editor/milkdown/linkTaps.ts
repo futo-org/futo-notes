@@ -205,6 +205,14 @@ export function createLinkTaps(deps: LinkTapDeps) {
     if (!useMobileBlockDnd()) nudgeBlockHandle(event.clientY);
   }
 
+  /** What a plain click (or, `newTab`, a middle click) on this rendered link or chip does. */
+  function openLinkElement(element: HTMLElement | null, newTab: boolean): boolean {
+    const link = linkAt(element);
+    if (!link) return false;
+    activateLink(link, { ...NEUTRAL_GESTURE, button: newTab ? 1 : 0 });
+    return true;
+  }
+
   return {
     handleClick,
     handleAuxClick,
@@ -213,5 +221,6 @@ export function createLinkTaps(deps: LinkTapDeps) {
     handleTouchMove,
     handleTouchCancel,
     handleTouchEnd,
+    openLinkElement,
   };
 }

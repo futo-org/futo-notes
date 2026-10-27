@@ -1,0 +1,147 @@
+{
+  "computed": {
+    "src/shared/dialogs/DropdownMenu.svelte": {
+      "count": 2,
+      "why": "the toggle, labelled by its owner's label prop, and each item, labelled from its entries: the owner's verbs (ToggleNoteActionsMenu and the note menu's items; ToggleSortMenu, SetSortOrder)"
+    },
+    "src/app/components/NoteWorkspace.svelte": {
+      "count": 1,
+      "why": "the note body's empty margin: a press there blurs the title or puts the caret on the first line, which PlaceCaret does"
+    },
+    "src/app/components/WindowControls.svelte": {
+      "count": 1,
+      "why": "one button per window control, labelled from LABEL_PATHS: MinimizeWindow, ToggleMaximizeWindow, CloseWindow"
+    },
+    "src/editor-embed/EmbedToolbar.svelte": {
+      "count": 3,
+      "why": "the phones' toolbar and its items, labelled from the toolbar manifest (packages/editor/src/toolbar.ts); each item is an editor verb"
+    },
+    "src/features/editor/NoteTagBar.svelte": {
+      "count": 1,
+      "why": "a tag suggestion under the tag field, labelled by the tag: AddTag"
+    },
+    "src/features/folders/CreateFolderModal.svelte": {
+      "count": 1,
+      "why": "the confirm button, labelled by the caller (Create, Create and move): SubmitNewFolder"
+    },
+    "src/features/folders/FolderPickerModal.svelte": {
+      "count": 1,
+      "why": "a destination row, labelled by its folder path: PickFolder"
+    },
+    "src/features/folders/FolderTreeEmptyRow.svelte": {
+      "count": 1,
+      "why": "an empty folder's drop target: dropping a row there is MoveNote or MoveFolder"
+    },
+    "src/features/folders/FolderTreeFolderRow.svelte": {
+      "count": 1,
+      "why": "a folder row, labelled by its path: ToggleFolder, OpenFolderContextMenu, StartRenamingFolder, by folder="
+    },
+    "src/features/folders/FolderTreeNoteRow.svelte": {
+      "count": 1,
+      "why": "a note row, labelled by its title: OpenNote, OpenNoteContextMenu, StartRenamingNote, by note="
+    },
+    "src/features/folders/FolderTreeView.svelte": {
+      "count": 1,
+      "why": "the tree itself as the root drop target: dropping a row there is MoveNote or MoveFolder to the root"
+    },
+    "src/features/folders/TreeRowRename.svelte": {
+      "count": 1,
+      "why": "the inline rename field, labelled by the row that opened it: SetNewName, SubmitRename, CancelRename"
+    },
+    "src/features/notes/ForYouPage.svelte": {
+      "count": 1,
+      "why": "a note card, labelled by the note's title: OpenNote"
+    },
+    "src/features/search/SearchPopup.svelte": {
+      "count": 3,
+      "why": "the backdrop (CloseSearch), the panel's keys (StepSearchResult, OpenSearchResult, CloseSearch) and a result row labelled by its note's title (OpenSearchResult)"
+    },
+    "src/features/settings/DevSyncErrorSettingsSection.svelte": {
+      "count": 1,
+      "why": "dev-only buttons, each labelled by the fake sync error it raises: SimulateSyncError"
+    },
+    "src/features/settings/LanguageSettingsSection.svelte": {
+      "count": 3,
+      "why": "the language picker: its trigger shows the chosen language (ToggleLanguageOptions), its list takes arrow keys, and each option is a language's own name (SetLanguage)"
+    },
+    "src/features/sidebar/SidebarImageView.svelte": {
+      "count": 1,
+      "why": "an image thumbnail, labelled by its file name: SelectImage"
+    },
+    "src/features/sidebar/SidebarTagView.svelte": {
+      "count": 2,
+      "why": "a tag header, labelled by the tag (ToggleTagGroup), and a note under it, labelled by its title (OpenNote)"
+    },
+    "src/features/sidebar/components/ContextMenu.svelte": {
+      "count": 1,
+      "why": "an item of the open context menu, labelled from the items the caller builds: each is a verb of its own while the menu is open (MenuItem.verb)"
+    },
+    "src/features/tabs/TabsStrip.svelte": {
+      "count": 1,
+      "why": "a tab, labelled by its note's title: ActivateTab, MoveTab"
+    },
+    "src/shared/dialogs/Modal.svelte": {
+      "count": 2,
+      "why": "the backdrop and the card's Escape: DismissDialog"
+    },
+    "src/features/editor/milkdown/selectionToolbar/SelectionToolbar.svelte": {
+      "count": 2,
+      "why": "the floating toolbar's block and mark buttons, labelled from the toolbar manifest and its BUTTONS table; each runs a toolbar command, already an editor verb (Bold, Quote, Indent…)"
+    },
+    "src/features/settings/hosted/UnlockStep.svelte": {
+      "count": 1,
+      "why": "the three unlock-method buttons, each labelled from its method (sync.hosted.unlock.doors.*): SelectUnlockMethod"
+    }
+  },
+  "noControl": {
+    "desktop:OpenNote": "a note row (tree, tab, search result, For You card), labelled by the note's title; futo-puppet pairs it by the row's note=",
+    "desktop:CloseActiveTab": "Cmd+W, a keyboard shortcut (registerNotesShellShortcuts.ts); a tab's own × is CloseTabAt",
+    "desktop:StepTab": "Ctrl+Tab and Ctrl+Shift+Tab, keyboard shortcuts (registerNotesShellShortcuts.ts)",
+    "desktop:StartRenamingNote": "a double-click or F2 on a note row, labelled by its title",
+    "desktop:StartRenamingFolder": "a double-click or F2 on a folder row, labelled by its path",
+    "desktop:SubmitRename": "Enter in the inline rename field, or leaving it (TreeRowRename.svelte)",
+    "desktop:CancelRename": "Escape in the inline rename field (TreeRowRename.svelte)",
+    "desktop:ToggleSortMenu": "the sort button is DropdownMenu.svelte's toggle, labelled through its label prop",
+    "desktop:ReopenTab": "a keyboard shortcut (registerNotesShellShortcuts.ts)",
+    "desktop:ActivateTabByNumber": "Cmd+1..9, a keyboard shortcut (registerNotesShellShortcuts.ts); a tab click is ActivateTab",
+    "desktop:PickImage": "a toolbar item, labelled from the toolbar manifest (packages/editor/src/toolbar.ts)",
+    "desktop:DismissKeyboard": "the toolbar's dismiss item, labelled from the toolbar manifest (packages/editor/src/toolbar.ts)",
+    "desktop:CancelAddingTag": "Escape in the tag field, AddTag's control",
+    "desktop:SubmitNewFolder": "the dialog's confirm button, labelled by its caller (Create, Create and move)",
+    "desktop:ToggleFolder": "a folder row, labelled by its path; futo-puppet pairs it by the row's folder=",
+    "desktop:OpenFolderContextMenu": "a right-click on a folder row, labelled by its path",
+    "desktop:OpenNoteContextMenu": "a right-click on a note row, labelled by its title",
+    "desktop:MoveNote": "dragging a note row onto a folder row, both labelled by their names",
+    "desktop:MoveFolder": "dragging a folder row onto another, both labelled by their paths",
+    "desktop:StepSearchResult": "↑/↓ in the search field, SetSearchQuery's control",
+    "desktop:OpenSearchResult": "Enter in the search field, or a result row labelled by its note's title",
+    "desktop:CloseSearch": "Escape, or a click on the backdrop",
+    "desktop:SimulateSyncError": "dev-only buttons, each labelled by the fake sync error it raises",
+    "desktop:SetLanguage": "a language option, labelled by the language's own name",
+    "desktop:ToggleLanguageOptions": "the language picker's trigger, labelled by the chosen language",
+    "desktop:SelectImage": "an image thumbnail, labelled by its file name",
+    "desktop:ToggleTagGroup": "a tag header, labelled by the tag",
+    "desktop:CloseContextMenu": "Escape, or a click outside the menu",
+    "desktop:ActivateTab": "a tab, labelled by its note's title",
+    "desktop:MoveTab": "dragging a tab along the strip",
+    "desktop:RemoveTag": "each tag's remove button, labelled with its tag (editor.tags.removeAccessibilityLabel takes the tag's name)",
+    "desktop:ClearSyncStatus": "the sync error pill, labelled with the error (sync.errors.dismissWithMessageAccessibilityLabel takes it)",
+    "desktop:RemoveFeedbackAttachment": "each screenshot's remove button, labelled with its number (feedback.removeScreenshot takes it)",
+    "desktop:CancelLink": "Escape in the Link field, or a press outside it: keys and a dismissal, not a labelled control",
+    "desktop:OpenTableColumnMenu": "the column grip, a button tableGrips.ts builds in TypeScript (editor.tableGrips.columnOptionsAccessibilityLabel)",
+    "desktop:OpenTableRowMenu": "the row grip, a button tableGrips.ts builds in TypeScript (editor.tableGrips.rowOptionsAccessibilityLabel)",
+    "desktop:PickLinkSuggestion": "a row of the [[ suggestions, labelled by the note's title",
+    "desktop:PickSlashItem": "a row of the `/` menu, labelled by the item's own name (slash/items.ts); the menu is built in TypeScript",
+    "desktop:SelectUnlockMethod": "the three unlock-method buttons are labelled from the method's name, so no one key names them",
+    "desktop:SpinCoin": "a click on the supporter coin, a 3D canvas with no label",
+    "desktop:ToggleNoteActionsMenu": "the note's ⋯ button, labelled through DropdownMenu's label prop, which the source scan does not follow",
+    "desktop:SetSortOrder": "a row of the sort menu, labelled from its entries (DropdownMenu.svelte)"
+  },
+  "unclaimed": {
+    "desktop:editor.tags.removeAccessibilityLabel": "RemoveTag, whose label takes the tag's name",
+    "desktop:editor.tags.createTag": "the create-tag suggestion under the tag field: AddTag, whose label takes the typed name",
+    "desktop:sync.errors.dismissWithMessageAccessibilityLabel": "ClearSyncStatus, whose label takes the error",
+    "desktop:feedback.removeScreenshot": "RemoveFeedbackAttachment, whose label takes the screenshot's number",
+    "desktop:sync.hosted.vaultPassword.placeholder": "the vault password field: CreateVault's and ChangeVaultPassword's vaultPassword; its placeholder carries {minimum}, so no row can be matched to it"
+  }
+}

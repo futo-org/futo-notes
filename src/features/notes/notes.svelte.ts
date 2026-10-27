@@ -411,12 +411,12 @@ export async function deleteAllNotes(): Promise<void> {
   }
 }
 
-export async function search(query: string): Promise<NotePreview[]> {
+export async function search(query: string, limit?: number): Promise<NotePreview[]> {
   if (!query.trim()) return getAllNotes();
   // Never let a rejected readiness promise throw out of search — degrade to the
   // store query, which returns empty gracefully when the index isn't ready (A4).
   if (searchReady) await searchReady.catch(() => {});
-  const hits = await getLocalNoteStoreSync().search(query);
+  const hits = await getLocalNoteStoreSync().search(query, limit);
   const byId = new Map(notesCache.map((note) => [note.id, note]));
   return hits.flatMap((hit) => {
     const note = byId.get(hit.noteId);

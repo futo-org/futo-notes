@@ -8,7 +8,7 @@ release:gate:
   stage: verify
   needs:
     # EVERY test job that runs on tag pipelines must be listed here, except
-    # test:audit, which is allow_failure and non-blocking by design. With
+    # test:audit and test:puppet-gates, which are allow_failure and non-blocking by design. With
     # DAG `needs`, release/publish:ios run as soon as their needs succeed —
     # a failed test job NOT in this list does not stop the publish (this
     # nearly shipped v1.4.0 twice: once past a failed test:e2e:rest, once

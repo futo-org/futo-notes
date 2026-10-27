@@ -31,7 +31,7 @@ async function newNoteBeside(page: Page, title: string, body: string): Promise<v
   await page.evaluate(() =>
     (window as unknown as NotesHookWindow).__testNotes.createNote('test', 'body one\n'),
   );
-  await expect(page.locator('[data-note-id="test"]')).toBeVisible();
+  await expect(page.locator('.note-row[data-note-id="test"]')).toBeVisible();
   await openNewNoteInPlace(page);
   await page.locator('.title-input').pressSequentially(title);
   await typeInEditor(page, body);
@@ -42,7 +42,7 @@ test.describe('a duplicate title', () => {
     await newNoteBeside(page, 'test', 'body two');
     await expect(page.locator('.title-warning')).toHaveText('A note with this name already exists');
 
-    await page.locator('[data-note-id="test"]').click();
+    await page.locator('.note-row[data-note-id="test"]').click();
 
     await expect.poll(() => noteFiles(page)).toEqual(['Untitled.md', 'test.md']);
     const stored = (id: string) =>
@@ -58,7 +58,7 @@ test.describe('a duplicate title', () => {
     await newNoteBeside(page, 'Test', 'body two');
     await expect(page.locator('.title-warning')).toHaveText('A note with this name already exists');
 
-    await page.locator('[data-note-id="test"]').click();
+    await page.locator('.note-row[data-note-id="test"]').click();
 
     await expect.poll(() => noteFiles(page)).toEqual(['Untitled.md', 'test.md']);
   });

@@ -23,6 +23,8 @@
     "check:agent-docs": "node scripts/check-agent-docs.mjs",
     "check:qa-input-safety": "node scripts/check-qa-input-safety.mjs",
     "check:theme-single-pace": "node scripts/check-theme-single-pace.mjs",
+    "check:puppet-verbs": "node scripts/check-puppet-verbs.mjs",
+    "check:puppet-first": "node scripts/check-puppet-first.mjs",
     "check:supporter-coin-glyph": "node scripts/check-supporter-coin-glyph.mjs",
     "check:gate-redproofs": "node scripts/gate-redproofs.mjs",
     "check:languages": "node scripts/editor-deps.mjs && node scripts/language-catalogs.mjs",

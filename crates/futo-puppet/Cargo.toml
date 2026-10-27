@@ -1,0 +1,24 @@
+[package]
+name = "futo-puppet"
+version = "0.1.0"
+edition = "2021"
+description = "Drive and inspect the running FUTO Notes debug app from a shell"
+
+[[bin]]
+name = "futo-puppet"
+path = "src/main.rs"
+
+[dependencies]
+base64 = "0.22"
+serde_json = "1"
+# Desktop debug builds already expose tauri-plugin-mcp-bridge's WebSocket;
+# this is the client half of that same protocol (no TLS: loopback only).
+tungstenite = { version = "0.28", default-features = false, features = ["handshake"] }
+
+# Windows has no lsof/ps: the port's listener and its identity come from the system
+# (verified_app.rs `listener_process`). The windows-sys generation already in Cargo.lock.
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_NetworkManagement_IpHelper", "Win32_Networking_WinSock", "Win32_System_Threading"] }
+
+[lints]
+workspace = true

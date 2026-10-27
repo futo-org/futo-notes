@@ -58,6 +58,9 @@ export async function buildCensusPage(dir = outDir) {
     outfile: path.join(dir, 'bundle.js'),
     absWorkingDir: repoRoot,
     alias: { '@futo-notes/editor': path.join(repoRoot, 'packages/editor/src') },
+    // Vite's env, which an iife has no `import.meta` for: empty, so no test hook installs
+    // (src/app/testHooksEnabled.ts). Nothing drives this page through one.
+    define: { 'import.meta.env': '{}' },
     plugins: [appAliases],
     logLevel: 'warning',
   });

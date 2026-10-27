@@ -54,6 +54,8 @@ export interface NoteSession {
   runWithSaveLock: <T>(operation: () => Promise<T>) => Promise<T>;
   loadNote: (id: string | null) => Promise<void>;
   handleTitleInput: (event: Event) => void;
+  /** Types `value` into the title field; false when no field is mounted. */
+  setTitle: (value: string) => boolean;
   handleTitleKeydown: (event: KeyboardEvent) => void;
   handleTitleBlur: () => void;
   handleTitleFocus: (event: FocusEvent) => void;

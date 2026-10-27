@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { puppetRefusal, puppetVerb, registerPuppetVerbs } from '$app/puppet/puppetRegistry';
   import { localizedText } from '$shared/localization';
 
   import { license } from './license.svelte';
@@ -63,6 +64,57 @@
     entering = false;
     draft = '';
   }
+
+  // Each verb is offered exactly while its control is on the plate.
+  $effect(() =>
+    registerPuppetVerbs(() => {
+      if (entering) {
+        return [
+          puppetVerb(
+            'ActivateLicense',
+            { licenseKey: 'string' },
+            (args) => {
+              draft = args.licenseKey as string;
+              return license.busy ? puppetRefusal(409, 'the license is busy') : submit();
+            },
+            { controls: ['license.keyPlaceholder', 'license.activate', 'license.activating'] },
+          ),
+          puppetVerb('CancelLicenseEntry', {}, cancel, { controls: ['license.cancelEntry'] }),
+        ];
+      }
+      return [
+        ...(card.maskedKey !== null && !revealed
+          ? [
+              puppetVerb(
+                'ShowLicenseKey',
+                {},
+                () => {
+                  revealed = true;
+                },
+                {
+                  controls: ['license.card.revealKey'],
+                },
+              ),
+            ]
+          : []),
+        ...(licensed
+          ? [
+              puppetVerb('RemoveLicense', {}, () => license.remove(), {
+                controls: ['license.remove'],
+              }),
+            ]
+          : [
+              puppetVerb('BuyLicense', {}, () => license.openBuyPage(), {
+                controls: ['license.buy', 'license.renew'],
+              }),
+              puppetVerb('StartLicenseEntry', {}, startEntry, { controls: ['license.enterKey'] }),
+              puppetVerb('OpenLostKeyHelp', {}, () => license.openSupport(), {
+                controls: ['license.lostKey'],
+              }),
+            ]),
+      ];
+    }),
+  );
 </script>
 
 <section class="settings-section">

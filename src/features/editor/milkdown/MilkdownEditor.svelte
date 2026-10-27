@@ -60,6 +60,8 @@
   import type { Props } from './milkdownEditorProps';
   import { createEditorEmitters } from './editorEmitters';
   import { createImageInput } from './imageInput';
+  import { createPuppetEditorProvider } from './puppetEditorProvider';
+  import { registerPuppetEditor } from '$app/puppet/puppetRegistry';
 
   let props: Props = $props();
   // Capture the stable props proxy once; its property reads still follow the parent.
@@ -178,11 +180,15 @@
     handleTouchMove,
     handleTouchCancel,
     handleTouchEnd,
+    openLinkElement,
   } = createLinkTaps({
     props: liveProps,
     useMobileBlockDnd: () => useMobileBlockDnd,
     nudgeBlockHandle: blockDrag.nudgeBlockHandle,
   });
+
+  /* Withdraws the view lent to the puppet inspector (dev and opted-in builds). */
+  let unregisterPuppetEditor: (() => void) | null = null;
 
   /* The note every asynchronous image completion belongs to. ONE target for
    * all three doors — clipboard paste, the `/` menu's Image item, an OS drop —
@@ -279,7 +285,21 @@
       }
       session.pendingContent = null;
 
-      imageInput.install();
+      const imageInserter = imageInput.install();
+
+      unregisterPuppetEditor = registerPuppetEditor(
+        createPuppetEditorProvider({
+          pmView,
+          loading: () => session.streamingTail,
+          note: () => session.currentNoteId,
+          getEditor: () => editor,
+          execIds: hostHandle.execIds,
+          exec,
+          openFind,
+          openLinkElement,
+          imageInserter,
+        }),
+      );
 
       if (!useMobileBlockDnd) blockDrag.mountGutterHandle(created);
     })().catch((error: unknown) => {
@@ -311,6 +331,8 @@
       serialization.stopPriming();
       serialization.detach();
       imageInput.dispose();
+      unregisterPuppetEditor?.();
+      unregisterPuppetEditor = null;
       detachInteractionHold();
       container.removeEventListener('click', handleClick);
       container.removeEventListener('auxclick', handleAuxClick);

@@ -1,6 +1,13 @@
 import { closeAppWindow, onAppMenuCommand } from '$lib/platform';
 import { tabsStore } from '$features/tabs/tabsStore.svelte';
 
+import {
+  puppetProviders,
+  puppetRefusal,
+  puppetVerb,
+  registerPuppetVerbs,
+} from './puppet/puppetRegistry';
+
 export interface NotesShellShortcutDeps {
   openSearch: () => void;
   createNote: () => void;
@@ -146,8 +153,71 @@ export function registerNotesShellShortcuts(deps: NotesShellShortcutDeps): () =>
 
   window.addEventListener('keydown', handleKeydown);
   const stopMenu = onAppMenuCommand((command) => runCommand(command as ShellCommand, deps));
+  // Every chord above as a verb; Find's two are the editor's own (OpenFind, StepFind). The
+  // window takes them whatever dialog is open, so they stay on offer behind one.
+  const unregisterVerbs = registerPuppetVerbs(
+    () => [
+      puppetVerb(
+        'CreateNote',
+        {},
+        () => {
+          // New note on a new note with nothing in it yet does nothing: the buffer only becomes a
+          // note once it has text or a title. Answered as a plain 200, a driver that "created two
+          // notes" this way wrote into neither and had no id to report.
+          const doc = puppetProviders.editor?.getView()?.state.doc;
+          if (
+            tabsStore.activeNoteId === 'new' &&
+            doc?.childCount === 1 &&
+            doc.firstChild?.content.size === 0
+          ) {
+            return puppetRefusal(
+              409,
+              'a new note is already open and empty, so nothing new was created. It becomes a note once it has text or a title: write into it first',
+            );
+          }
+          runCommand('new-note', deps);
+          return undefined;
+        },
+        { controls: ['notes.newNote'] },
+      ),
+      puppetVerb('OpenSearch', {}, () => runCommand('search', deps), {
+        controls: ['search.heading'],
+      }),
+      puppetVerb('OpenSettings', {}, () => runCommand('settings', deps), {
+        controls: ['settings.openAccessibilityLabel'],
+      }),
+      puppetVerb('NewTab', {}, () => runCommand('new-tab', deps), {
+        controls: ['tabs.newAccessibilityLabel'],
+      }),
+      // Cmd+W: the tab you are on. A tab's own × is `CloseTabAt`.
+      puppetVerb('CloseActiveTab', {}, () => runCommand('close-tab', deps)),
+      puppetVerb('ReopenTab', {}, () => runCommand('reopen-tab', deps)),
+      // Ctrl+Tab and Ctrl+Shift+Tab.
+      puppetVerb('StepTab', { direction: 'integer' }, (args) => {
+        if (args.direction === 1) tabsStore.nextTab();
+        else if (args.direction === -1) tabsStore.prevTab();
+        else return puppetRefusal(400, 'direction must be 1 (next) or -1 (previous)');
+        return undefined;
+      }),
+      // Cmd+1..9: 9 is always the last tab (tabs.md), like the key.
+      puppetVerb('ActivateTabByNumber', { number: 'integer' }, (args) => {
+        const number = args.number as number;
+        if (number < 1 || number > 9) {
+          return puppetRefusal(
+            400,
+            'number is 1-9, the Cmd+1..9 key (9 = the last tab); a click on a tab is ActivateTab {noteId} instead',
+          );
+        }
+        if (number === 9) tabsStore.activateLast();
+        else tabsStore.activateByIndex(number - 1);
+        return undefined;
+      }),
+    ],
+    { windowShortcuts: true },
+  );
   return () => {
     window.removeEventListener('keydown', handleKeydown);
     stopMenu();
+    unregisterVerbs();
   };
 }

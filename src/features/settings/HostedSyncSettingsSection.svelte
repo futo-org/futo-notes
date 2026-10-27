@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { puppetRefusal, puppetVerb, registerPuppetVerbs } from '$app/puppet/puppetRegistry';
   import { localizedText } from '$shared/localization';
 
   import type { HostedSyncSettings, UnlockDoor } from './createHostedSyncSettings.svelte';
@@ -41,6 +42,57 @@
     if (door !== 'scan' && hosted.pairing !== 'idle') void hosted.cancelPairing();
     hosted.unlockDoor = door;
   }
+
+  /** What a disabled button says to a verb. */
+  const unlessBusy = (act: () => Promise<void>) => () =>
+    hosted.busy ? puppetRefusal(409, 'hosted sync is busy') : act();
+
+  // The steps' own controls are verbs in their components; these are the section's.
+  $effect(() =>
+    registerPuppetVerbs(() => [
+      ...(hosted.screen === 'signIn'
+        ? [
+            puppetVerb(
+              'SignInWithFuto',
+              {},
+              unlessBusy(() => hosted.signIn()),
+              { controls: ['sync.hosted.signIn.button'] },
+            ),
+          ]
+        : []),
+      ...(hosted.screen === 'subscribe' || hosted.banner === 'syncPaused'
+        ? [
+            puppetVerb(
+              'Subscribe',
+              {},
+              unlessBusy(() => hosted.subscribe()),
+              {
+                controls: ['sync.hosted.subscribe.button', 'sync.hosted.banner.syncPaused.action'],
+              },
+            ),
+          ]
+        : []),
+      ...(hosted.waiting
+        ? [
+            puppetVerb('CancelWaitingForBrowser', {}, () => hosted.cancelWaiting(), {
+              controls: ['sync.hosted.cancel'],
+            }),
+          ]
+        : []),
+      ...(settingUp
+        ? [
+            puppetVerb(
+              'ToggleOwnServer',
+              {},
+              () => {
+                hosted.selfHostedOpen = !hosted.selfHostedOpen;
+              },
+              { controls: ['sync.hosted.useMyOwnServer'] },
+            ),
+          ]
+        : []),
+    ]),
+  );
 </script>
 
 <section class="settings-section">
@@ -119,7 +171,7 @@
         purpose="create"
         minimumLength={hosted.minVaultPasswordLength}
         busy={hosted.busy}
-        onsubmit={(vaultPassword) => void hosted.createVault(vaultPassword)}
+        onsubmit={(vaultPassword) => hosted.createVault(vaultPassword)}
       />
     {:else if hosted.screen === 'changeVaultPassword'}
       <!-- The same screen, asking for no current secret: this device holds
@@ -128,8 +180,8 @@
         purpose="change"
         minimumLength={hosted.minVaultPasswordLength}
         busy={hosted.busy}
-        onsubmit={(vaultPassword) => void hosted.changeVaultPassword(vaultPassword)}
-        oncancel={() => void hosted.backToAccount()}
+        onsubmit={(vaultPassword) => hosted.changeVaultPassword(vaultPassword)}
+        oncancel={() => hosted.backToAccount()}
       />
     {:else if hosted.screen === 'recoveryKey' && hosted.recoveryKey}
       <RecoveryKeyStep
@@ -138,9 +190,9 @@
         saved={hosted.recoveryKeySaved}
         busy={hosted.busy}
         onsavedchange={(saved) => (hosted.recoveryKeySaved = saved)}
-        oncopy={() => void hosted.copyRecoveryKey()}
-        onsavefile={() => void hosted.saveRecoveryKeyToFile()}
-        oncontinue={() => void hosted.continueAfterRecoveryKey()}
+        oncopy={() => hosted.copyRecoveryKey()}
+        onsavefile={(path) => hosted.saveRecoveryKeyToFile(path)}
+        oncontinue={() => hosted.continueAfterRecoveryKey()}
       />
     {:else if hosted.screen === 'unlock'}
       <UnlockStep
@@ -150,20 +202,20 @@
         pairingPayload={hosted.pairingPayload}
         pairingExpiresAt={hosted.pairingExpiresAt}
         ondoor={chooseDoor}
-        onvaultpassword={(vaultPassword) => void hosted.unlockWithPassword(vaultPassword)}
-        onrecoverykey={(typed) => void hosted.unlockWithRecoveryKey(typed)}
-        onshowpairingcode={() => void hosted.showPairingCode()}
-        oncancelpairing={() => void hosted.cancelPairing()}
+        onvaultpassword={(vaultPassword) => hosted.unlockWithPassword(vaultPassword)}
+        onrecoverykey={(typed) => hosted.unlockWithRecoveryKey(typed)}
+        onshowpairingcode={() => hosted.showPairingCode()}
+        oncancelpairing={() => hosted.cancelPairing()}
       />
     {:else if hosted.screen === 'account'}
       <HostedAccountCard
         email={hosted.email}
         billing={hosted.billing}
         busy={hosted.busy}
-        onmanage={() => void hosted.manageSubscription()}
+        onmanage={() => hosted.manageSubscription()}
         onchangevaultpassword={() => hosted.beginChangeVaultPassword()}
-        onnewrecoverykey={() => void hosted.newRecoveryKey()}
-        onsignout={() => void hosted.signOut()}
+        onnewrecoverykey={() => hosted.newRecoveryKey()}
+        onsignout={() => hosted.signOut()}
       />
     {/if}
 

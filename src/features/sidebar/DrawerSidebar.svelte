@@ -12,6 +12,13 @@
   import SidebarImageView from './SidebarImageView.svelte';
   import SidebarTagView from './SidebarTagView.svelte';
   import { createSidebarFolderWorkflows } from './createSidebarFolderWorkflows.svelte';
+  import { listVaultFolders } from '$features/folders/emptyFolders.svelte';
+  import {
+    puppetRefusal,
+    puppetVerb,
+    registerPuppetVerbs,
+    SHORTCUT_STEPS,
+  } from '$app/puppet/puppetRegistry';
   import { localizedText, resolveLocalizedMessage } from '$shared/localization';
 
   interface Props {
@@ -72,6 +79,64 @@
     onActiveNoteMoved: (fromId, toId, title) => onactivenotemoved(fromId, toId, title),
     onNewNoteInFolder: (folder) => onnewnoteinfolder(folder),
   });
+
+  // The workflows this sidebar owns, as verbs. Tree rows, menus and dialogs
+  // register the handlers they own themselves.
+  $effect(() =>
+    registerPuppetVerbs(() => [
+      // The sidebar's New folder button. A folder's own "New Folder" is its context menu's
+      // `NewSubfolder`.
+      puppetVerb(
+        'OpenCreateFolderDialog',
+        { name: 'string?' },
+        () => workflows.openCreateFolder(''),
+        {
+          controls: ['folders.newFolder'],
+          shortcuts: { name: SHORTCUT_STEPS.newFolderName },
+        },
+      ),
+      puppetVerb(
+        'SetSidebarWidth',
+        { width: 'integer' },
+        (args) => {
+          onresize(args.width as number);
+          onresizeend(args.width as number);
+        },
+        { controls: ['sidebar.resizeAccessibilityLabel'] },
+      ),
+      // A tree row's double-click or F2: the inline rename field the menu's Rename opens.
+      ...(view === 'notes'
+        ? [
+            puppetVerb(
+              'StartRenamingNote',
+              { noteId: 'string', title: 'string?' },
+              (args) => {
+                const id = args.noteId as string;
+                if (!notes.some((note) => note.id === id)) {
+                  return puppetRefusal(400, `no such note: ${id}`);
+                }
+                workflows.requestNoteRename(id);
+                return undefined;
+              },
+              { shortcuts: { title: SHORTCUT_STEPS.newName } },
+            ),
+            puppetVerb(
+              'StartRenamingFolder',
+              { path: 'string', name: 'string?' },
+              (args) => {
+                const path = args.path as string;
+                if (!listVaultFolders(notes).includes(path)) {
+                  return puppetRefusal(400, `no such folder: ${path}`);
+                }
+                workflows.requestFolderRename(path);
+                return undefined;
+              },
+              { shortcuts: { name: SHORTCUT_STEPS.newName } },
+            ),
+          ]
+        : []),
+    ]),
+  );
 
   let asideEl: HTMLElement | undefined = $state();
   let resizing = false;
@@ -187,6 +252,7 @@
     x={workflows.contextMenu.x}
     y={workflows.contextMenu.y}
     items={workflows.contextMenu.items}
+    openFor={workflows.contextMenu.openFor}
     onclose={workflows.closeContextMenu}
   />
 {/if}

@@ -51,6 +51,7 @@ vi.mock('@futo-notes/editor/markdown', async (importOriginal) => {
 export interface EditorHandle {
   openNote: (noteId: string, text: string) => void;
   setContent: (noteId: string, text: string) => void;
+  retarget: (fromId: string, toId: string) => void;
   applyEdit: (text: string) => void;
   insertMarkdown: (text: string) => void;
   getContent: () => string | undefined;

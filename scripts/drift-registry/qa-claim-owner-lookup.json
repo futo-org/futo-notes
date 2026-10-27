@@ -1,0 +1,15 @@
+{
+  "concept": "qa-claim-owner-lookup",
+  "description": "Which pool device a worktree owns for a platform: the first owner file in ~/.futo-notes-qa/devices, by name, whose worktree is this checkout. qa.mjs claims and records the device id there; the CLI reads it without starting node on every phone command.",
+  "lockStatus": "unlocked",
+  "copies": [
+    {
+      "location": "scripts/qa.mjs",
+      "pattern": "function myDevices"
+    },
+    {
+      "location": "crates/futo-puppet/src/target.rs",
+      "pattern": "fn recorded_device"
+    }
+  ]
+}

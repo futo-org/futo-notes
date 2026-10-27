@@ -9,6 +9,7 @@
   } from '$features/notes/noteSortOrder';
   import type { NoteSortKey, NoteSortOrder, SortDirection } from '$lib/localNoteStore';
   import { localizedText } from '$shared/localization';
+  import { puppetRefusal, puppetVerb, registerPuppetVerbs } from '$app/puppet/puppetRegistry';
 
   let open = $state(false);
 
@@ -33,6 +34,34 @@
       onclick: () => choose(withSortDirection(order, direction)),
     };
   }
+
+  // The sort button, and while its menu is open one pick from it, as a click on its row makes:
+  // a key keeps the list's position (newest first stays first), a direction applies to the
+  // key in use.
+  $effect(() =>
+    registerPuppetVerbs(() => [
+      puppetVerb('ToggleSortMenu', {}, () => void (open = !open)),
+      ...(open
+        ? [
+            puppetVerb(
+              'SetSortOrder',
+              { key: 'name|lastModified?', direction: 'ascending|descending?' },
+              (args) => {
+                if ((args.key === undefined) === (args.direction === undefined)) {
+                  return puppetRefusal(400, 'one pick at a time: {"key":…} or {"direction":…}');
+                }
+                const order = getNoteSortOrder();
+                return setNoteSortOrder(
+                  args.key !== undefined
+                    ? withSortKey(order, args.key as NoteSortKey)
+                    : withSortDirection(order, args.direction as SortDirection),
+                );
+              },
+            ),
+          ]
+        : []),
+    ]),
+  );
 
   const entries = $derived.by((): DropdownMenuEntry[] => {
     const order = getNoteSortOrder();

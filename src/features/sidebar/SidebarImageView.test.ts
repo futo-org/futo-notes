@@ -2,6 +2,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mount, unmount, flushSync } from 'svelte';
 import SidebarImageView from './SidebarImageView.svelte';
+import { registeredVerbs } from '$app/puppet/puppetRegistry';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -55,5 +56,20 @@ describe('SidebarImageView size + date metadata', () => {
 
     expect(target.querySelector('.sidebar-image-info-name')?.textContent).toBe('photo.png');
     expect(target.querySelector('.sidebar-image-info-size')?.textContent).toBe('2 KB · 3 days ago');
+  });
+
+  it('offers each verb only while its control is drawn', async () => {
+    app = mount(SidebarImageView, { target, props: {} });
+    const offered = (): string[] => (flushSync(), registeredVerbs().map((verb) => verb.name));
+    const run = (name: string, args = {}) =>
+      registeredVerbs()
+        .find((verb) => verb.name === name)!
+        .run(args);
+
+    await vi.waitFor(() => expect(offered()).toEqual(['SelectImage']));
+    await run('SelectImage', { filename: 'photo.png' });
+    expect(offered()).toEqual(['DeselectImage', 'ToggleImageMenu']);
+    await run('ToggleImageMenu');
+    expect(offered()).toEqual(['DeselectImage', 'ToggleImageMenu', 'DeleteSelectedImage']);
   });
 });

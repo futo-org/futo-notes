@@ -8,6 +8,7 @@ members = [
   "crates/futo-notes-store",
   "crates/futo-notes-ffi",
   "crates/futo-notes-search",
+  "crates/futo-puppet",
   "apps/tauri/src-tauri",
   "apps/cli",
 ]

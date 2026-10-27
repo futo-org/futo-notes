@@ -16,6 +16,8 @@ vi.mock('$shared/notifications/toastBus.svelte', () => ({
 
 vi.mock('$features/system/theme', () => ({ applyThemePreference: vi.fn() }));
 
+import { runPuppetCommand } from '$app/puppet/puppetInspector';
+
 import SettingsScreen from './SettingsScreen.svelte';
 
 let target: HTMLDivElement;
@@ -74,5 +76,16 @@ describe('SettingsScreen dialog', () => {
     const dialog = document.querySelector('[role="dialog"]')!;
     const heading = document.getElementById(dialog.getAttribute('aria-labelledby')!);
     expect(heading?.textContent).toBe('Settings');
+  });
+
+  // Settings registered its verbs in a modal scope of its own, outside the Modal's, so the
+  // Modal hid them: `actions` offered DismissDialog and the sections' verbs, not these.
+  it('offers its own verbs while it is up', () => {
+    mountSettings();
+
+    const actions = runPuppetCommand('actions', {}).body as { actions: Array<{ name: string }> };
+    expect(actions.actions.map((action) => action.name)).toEqual(
+      expect.arrayContaining(['CloseSettings', 'SetNotesDirectory', 'ResetNotesDirectory']),
+    );
   });
 });

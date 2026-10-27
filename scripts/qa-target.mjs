@@ -5,6 +5,7 @@
 //   node scripts/qa-target.mjs list            # every desktop instance, classified
 //   node scripts/qa-target.mjs pid <pid>       # verify one PID
 //   node scripts/qa-target.mjs port <port>     # verify whoever listens on <port>
+//   … pid|port … --json                        # the verdict as one JSON line, for programs
 //   node scripts/qa-target.mjs kill            # stop THIS worktree's verified instances
 //
 // Exit codes: 0 verified · 2 usage · 3 REFUSED (unsafe target) · 4 no such target.
@@ -38,7 +39,10 @@ import { fileURLToPath } from 'node:url';
 import {
   PROD_VAULT_RELATIVE,
   classifyExecPath,
+  documentsDirFromUserDirs,
   isDesktopExecutableName,
+  parseNetstatListener,
+  parseTasklist,
   parseWorktreeRoots,
   verifyTarget,
 } from './qa-target/classify.mjs';
@@ -49,7 +53,10 @@ export {
   classifyDataDir,
   classifyExecPath,
   classifyVault,
+  documentsDirFromUserDirs,
   isDesktopExecutableName,
+  parseNetstatListener,
+  parseTasklist,
   parseWorktreeRoots,
   verifyTarget,
 } from './qa-target/classify.mjs';
@@ -60,6 +67,10 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 // Process inspection (thin OS wrappers)
 // ---------------------------------------------------------------------------
 
+function powershell(command) {
+  return run('powershell', ['-NoProfile', '-NonInteractive', '-Command', command]).trim();
+}
+
 function run(command, args) {
   const result = spawnSync(command, args, {
     encoding: 'utf8',
@@ -69,6 +80,44 @@ function run(command, args) {
     env: command === 'ps' ? { ...process.env, LC_ALL: 'en_US.UTF-8' } : process.env,
   });
   return result.status === 0 ? (result.stdout ?? '') : '';
+}
+
+// The release app's default vault where the app itself resolves it (vault_location.rs
+// default_root): Tauri's document_dir(), else app_data_dir(), joined with futo-notes. On
+// Linux that is the `dirs` crate reading user-dirs.dirs, not `xdg-user-dir` or the
+// environment. null when Windows does not answer, which refuses every vault (classifyVault).
+function releaseVault() {
+  const home = os.homedir();
+  if (process.platform === 'win32') {
+    const documents = powershell("[Environment]::GetFolderPath('MyDocuments')");
+    return documents ? path.win32.join(documents, 'futo-notes') : null;
+  }
+  if (process.platform !== 'linux') return path.join(home, PROD_VAULT_RELATIVE);
+  const xdg = (name, fallback) =>
+    path.isAbsolute(process.env[name] ?? '') ? process.env[name] : path.join(home, fallback);
+  let userDirs = '';
+  try {
+    userDirs = fs.readFileSync(
+      path.join(xdg('XDG_CONFIG_HOME', '.config'), 'user-dirs.dirs'),
+      'utf8',
+    );
+  } catch {
+    /* no file: the app falls back to its data dir */
+  }
+  const documents =
+    documentsDirFromUserDirs(userDirs, home) ??
+    path.join(xdg('XDG_DATA_HOME', '.local/share'), 'com.futo.notes');
+  return path.join(documents, 'futo-notes');
+}
+
+/** What every verdict is judged against: this repo's worktrees and the user's real vault. */
+export function targetContext(selfRoot) {
+  return {
+    worktreeRoots: worktreeRoots(selfRoot),
+    selfRoot,
+    home: os.homedir(),
+    releaseVault: releaseVault(),
+  };
 }
 
 export function worktreeRoots(selfRoot) {
@@ -85,6 +134,8 @@ export function repoRoot() {
 // base for a relative argv[0]. Resolving one against OUR cwd is how a sibling
 // worktree's instance got reported as this worktree's own (see execPathOf).
 function cwdOf(pid) {
+  // Windows reports an absolute executable path, so nothing there needs a cwd.
+  if (process.platform === 'win32') return null;
   if (process.platform === 'linux') {
     try {
       return fs.realpathSync(`/proc/${pid}/cwd`);
@@ -106,6 +157,11 @@ function cwdOf(pid) {
 // our own directory (observed: mr-208's `./target/debug/futo-notes-tauri` was
 // reported as this worktree's instance and VERIFIED).
 function execPathOf(pid) {
+  if (process.platform === 'win32') {
+    return (
+      powershell(`(Get-Process -Id ${Number(pid)} -ErrorAction SilentlyContinue).Path`) || null
+    );
+  }
   if (process.platform === 'linux') {
     try {
       return fs.realpathSync(`/proc/${pid}/exe`);
@@ -140,6 +196,26 @@ function execPathOf(pid) {
 }
 
 function envOf(pid) {
+  if (process.platform === 'win32') {
+    // No /proc and no `ps -E`: read the environment block out of the process (lib/process-environment.ps1).
+    const lines = run('powershell', [
+      '-NoProfile',
+      '-NonInteractive',
+      '-ExecutionPolicy',
+      'Bypass',
+      '-File',
+      path.join(HERE, 'lib', 'process-environment.ps1'),
+      '-ProcessId',
+      String(Number(pid)),
+    ]);
+    if (!lines.trim()) return null;
+    return Object.fromEntries(
+      lines
+        .split(/\r?\n/)
+        .filter((line) => line.indexOf('=') > 0)
+        .map((line) => [line.slice(0, line.indexOf('=')), line.slice(line.indexOf('=') + 1)]),
+    );
+  }
   if (process.platform === 'linux') {
     try {
       const raw = fs.readFileSync(`/proc/${pid}/environ`, 'utf8');
@@ -197,6 +273,11 @@ export function candidateFor(pid) {
  * executable path with spaces intact; Linux truncates it, so read /proc there.
  */
 export function allCandidatePids() {
+  if (process.platform === 'win32') {
+    return parseTasklist(run('tasklist', ['/FO', 'CSV', '/NH']))
+      .filter(({ image }) => isDesktopExecutableName(image.replace(/\.exe$/i, '')))
+      .map(({ pid }) => pid);
+  }
   if (process.platform === 'linux') {
     const pids = [];
     for (const entry of fs.readdirSync('/proc')) {
@@ -222,6 +303,9 @@ export function allCandidatePids() {
 }
 
 function pidListeningOn(port) {
+  if (process.platform === 'win32') {
+    return parseNetstatListener(run('netstat', ['-ano', '-p', 'TCP']), port);
+  }
   const viaLsof = run('lsof', ['-nP', `-iTCP:${port}`, '-sTCP:LISTEN', '-t'])
     .split('\n')
     .map((line) => Number(line.trim()))
@@ -283,12 +367,13 @@ const USAGE = `usage:
   node scripts/qa-target.mjs status        THIS worktree's verified instances
   node scripts/qa-target.mjs pid <pid>     verify one PID  (exit 3 = refused)
   node scripts/qa-target.mjs port <port>   verify whoever listens on <port>
+    add --json to pid/port for the verdict as one JSON line
   node scripts/qa-target.mjs kill          stop THIS worktree's verified instances`;
 
 function main(argv) {
   const [command, argument] = argv;
   const selfRoot = repoRoot();
-  const context = { worktreeRoots: worktreeRoots(selfRoot), selfRoot, home: os.homedir() };
+  const context = targetContext(selfRoot);
 
   if (command === 'list') {
     const candidates = allCandidatePids().map(candidateFor);
@@ -344,6 +429,10 @@ function main(argv) {
       return 4;
     }
     const result = verifyTarget(candidate, context);
+    if (argv.includes('--json')) {
+      console.log(JSON.stringify(result));
+      return result.verdict === 'verified' ? 0 : 3;
+    }
     printVerdict(result);
     // Its own refusal already named it; this is about the OTHER app that may be
     // running while you look for a QA target.

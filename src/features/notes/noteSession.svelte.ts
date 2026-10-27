@@ -448,6 +448,7 @@ export function createNoteSession(deps: NoteSessionDeps): NoteSession {
     runWithSaveLock,
     loadNote: noteLoader.load,
     handleTitleInput: titleController.handleInput,
+    setTitle: titleController.setTitle,
     handleTitleKeydown: titleController.handleKeydown,
     handleTitleBlur,
     handleTitleFocus: titleController.handleFocus,

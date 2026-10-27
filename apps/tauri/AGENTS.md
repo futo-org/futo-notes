@@ -24,12 +24,17 @@ The desktop adapter is split by responsibility:
 - **`app_data.rs`**: app-data writes (`.app-state.json`, `.app-config.json`, crash logs) through `vault_fs` (`app_data_write`), so a vault that refuses them is marked unusable like one that refuses a note save.
 - **`portal_vault.rs`**: document-portal vaults — path recognition, grant persistence, host-path display, and the watcher-backend reliability probe.
 - **`app_menu.rs`**: the macOS application menu; frontend-performed items are forwarded as `app-menu` events whose ids the frontend shortcut registry dispatches on.
+- **`puppet_input.rs`**: `puppet_pointer`, the debug-only command behind `just puppet click`/`drag`/`scroll`: builds a platform mouse or wheel event and hands it to this window's own web view (an `NSEvent` to the WKWebView, a `GdkEvent` to WebKitGTK, DevTools `Input.dispatchMouseEvent` on WebView2), so the page sees trusted, hit-tested input without anything reaching the window server or the window being activated (M24).
+- **`puppet_keys.rs`**: `puppet_key`, the debug-only command behind `just puppet type`/`press`: the keyboard's counterpart of `puppet_pointer`, each key described once and sent the same three ways.
+- **`puppet_notes_dir.rs`**: `puppet_notes_dir_refusal`, the debug-only check behind `SetNotesDirectory`: a path is accepted only if it resolves, symlinks followed, inside `FUTO_NOTES_DATA_DIR` (M3).
+- **`puppet_screenshot.rs`**: `puppet_screenshot`, WebKitGTK's snapshot of the web view, for `just puppet screenshot` on Linux, where the debug bridge has no capture.
+- **`dev_open_url.rs`**: how a debug build opens a link — on macOS `open -g` into `FUTO_DEV_BROWSER` (Safari when unset), so an agent pressing "Buy a license" never brings a browser over the developer's window. Linux and Windows debug builds, and every release build, use the opener plugin.
 - **`window_reveal.rs`**: shows the initially hidden window once the shell paints, with a timeout fallback so a frontend that never paints cannot hide the app.
 - **`window_minimum.rs`**: grows a window whose restored size is below the configured `minWidth`/`minHeight` back up to them.
 - **`instance_journal.rs`**: installs the instance journal (`futo_notes_core::journal`) under the app data dir.
 - **`license.rs`**: the desktop projection of `futo-notes-license` — where the key/activation pair is stored, the single activation request, and `futonotes://` deep-link delivery. Owns no license rule; the crate owns every one.
 - **`system_trash.rs`**: recoverable desktop delete policy plus the headless hard-delete fallback.
-- **`platform_integration.rs`**: Linux log/theme/decorations, the NVIDIA-only WebKitGTK software-render (DMA-BUF) workaround, single-instance setup, and Unix file-descriptor preparation.
+- **`platform_integration.rs`**: Linux log/theme/decorations, the NVIDIA-only WebKitGTK software-render (DMA-BUF) workaround, single-instance setup, Unix file-descriptor preparation, and the debug-only macOS App Nap opt-out (so a backgrounded QA app keeps answering `just puppet`).
 - **`updater_commands.rs`**, **`panic_reporter.rs`**: updater capability and Rust crash persistence.
 - **`background_tasks.rs`**: the shared `spawn_blocking`/thread boundary and uniform join/I/O error mapping.
 - **`main.rs`**: process entry point; only calls `run()`.
@@ -57,9 +62,9 @@ TypeScript handles reactive note projection state, preferences, and sync coordin
 
 ## Tauri MCP
 
-Debug builds include the MCP bridge. Prefer `webview_execute_js` for deterministic automation over brittle UI clicking when possible.
+Debug builds include the MCP bridge, for JS evaluation and screenshots; acting on the app is `just puppet` (root AGENTS.md §9).
 
-For sync server switching, use the dev-only webview hook:
+The test harnesses (`just test-cross-platform`, `tests/lib/tauri-test-client/`) set sync up through the dev-only webview hook:
 
 - `await window.__testSync.connect(serverUrl, password)` — password-mode login
 - `await window.__testSync.status()`
@@ -91,7 +96,7 @@ Notes:
 ## Building & Testing
 
 ```bash
-just tauri-dev       # Desktop dev (Wayland-first)
+just tauri-dev       # Desktop dev (forces Wayland on Linux)
 just tauri-build     # Production desktop build
 just test-rust-full  # Full Rust workspace, this crate included (creates dist/ first)
 ```

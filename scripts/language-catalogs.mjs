@@ -70,7 +70,7 @@ function messageTemplates(value) {
   return Object.values(value.variants).filter((variant) => typeof variant === 'string');
 }
 
-function flattenMessages(messages, fileName, errors) {
+export function flattenMessages(messages, fileName, errors) {
   const flattened = new Map();
 
   function visit(value, segments) {

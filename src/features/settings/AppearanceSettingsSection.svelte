@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { ThemePreference } from '$features/system/theme';
+  import { puppetVerb, registerPuppetVerbs } from '$app/puppet/puppetRegistry';
   import { localizedText } from '$shared/localization';
 
   interface Props {
@@ -8,6 +9,23 @@
   }
 
   let { preference, onchange }: Props = $props();
+
+  $effect(() =>
+    registerPuppetVerbs(() => [
+      puppetVerb(
+        'SetTheme',
+        { theme: 'auto|dark|light' },
+        (args) => onchange(args.theme as ThemePreference),
+        {
+          controls: [
+            'settings.appearance.light',
+            'settings.appearance.dark',
+            'settings.appearance.auto',
+          ],
+        },
+      ),
+    ]),
+  );
 </script>
 
 <section class="settings-section">

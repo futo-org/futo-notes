@@ -3,6 +3,7 @@
   import { getAllTagNames } from '$features/tags/noteTags';
   import type { NotePreview } from '$shared/types/note';
   import { localizedText } from '$shared/localization';
+  import { puppetRefusal, puppetVerb, registerPuppetVerbs } from '$app/puppet/puppetRegistry';
 
   interface Props {
     content: string;
@@ -17,6 +18,8 @@
      */
     writeMarkdown: (markdown: string) => void;
     notes: NotePreview[];
+    /** Whether the workspace around this bar is on screen: it stays mounted behind home. */
+    active: boolean;
     /** The bar's own box, for the shell's blank-space reach. */
     element?: HTMLElement;
     /** Tags show but cannot be added or removed: the vault refuses writes. */
@@ -28,6 +31,7 @@
     readMarkdown,
     writeMarkdown,
     notes,
+    active,
     element = $bindable(),
     readonly = false,
   }: Props = $props();
@@ -59,6 +63,47 @@
     if (allTags.some((t) => t.toLowerCase() === lower)) return false;
     return true;
   });
+
+  $effect(() =>
+    registerPuppetVerbs(() =>
+      // Hidden behind the home screen, these tags belong to no note the user can see; a
+      // read-only vault draws them without the add and remove buttons.
+      !active || readonly
+        ? []
+        : [
+            puppetVerb('RemoveTag', { name: 'string' }, (args) => {
+              const wanted = normalizeTagName(args.name as string).toLowerCase();
+              const tag = tags.find((t) => t.toLowerCase().replace(/^#/, '') === wanted);
+              if (!tag) return puppetRefusal(400, `this note has no tag ${wanted}`);
+              removeTag(tag);
+              return undefined;
+            }),
+            // The tag field's verbs only while it is open; `name` on the + types one in.
+            ...(adding
+              ? [
+                  puppetVerb(
+                    'AddTag',
+                    { name: 'string' },
+                    (args) => {
+                      const name = normalizeTagName(args.name as string);
+                      if (!isValidTagName(name))
+                        return puppetRefusal(400, `not a valid tag name: ${name}`);
+                      addTag(name);
+                      return undefined;
+                    },
+                    { controls: ['editor.tags.inputPlaceholder'] },
+                  ),
+                  puppetVerb('CancelAddingTag', {}, cancelAdding),
+                ]
+              : [
+                  puppetVerb('StartAddingTag', { name: 'string?' }, startAdding, {
+                    controls: ['editor.tags.addTag'],
+                    shortcuts: { name: [['AddTag', { name: '$' }]] },
+                  }),
+                ]),
+          ],
+    ),
+  );
 
   function startAdding() {
     adding = true;

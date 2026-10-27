@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { puppetRefusal, puppetVerb, registerPuppetVerbs } from '$app/puppet/puppetRegistry';
   import type { SyncSummary } from '$features/sync/syncServiceE2ee';
   import { localizedText } from '$shared/localization';
 
@@ -7,6 +8,19 @@
   }
 
   let { simulate }: Props = $props();
+
+  $effect(() =>
+    registerPuppetVerbs(() => [
+      puppetVerb('SimulateSyncError', { scenario: 'integer' }, (args) => {
+        const scenario = scenarios[args.scenario as number];
+        if (!scenario) return puppetRefusal(400, `there are ${scenarios.length} scenarios`);
+        return simulate(fakeSummary(scenario.failures, scenario.message));
+      }),
+      puppetVerb('SimulateSyncSuccess', {}, () => simulate(fakeSummary([]), 'manual'), {
+        controls: ['settings.debug.syncErrorTest.successfulSync'],
+      }),
+    ]),
+  );
 
   function fakeSummary(
     failures: SyncSummary['failures'],

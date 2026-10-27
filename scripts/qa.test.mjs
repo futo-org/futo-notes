@@ -247,3 +247,86 @@ exit 1
     expect(fs.existsSync(path.join(scratch, '.futo-notes-qa/devices'))).toBe(false);
   });
 });
+
+// `just puppet` claims through `device` on a worktree's first phone command, so it must never
+// take a pool device another live worktree owns. With the whole pool owned by one, it refuses
+// before touching adb or the emulator, and every owner file is left as it was.
+describe('qa.mjs device', () => {
+  let home;
+  let root;
+  let other;
+
+  const ownerFile = (index) =>
+    path.join(home, '.futo-notes-qa', 'devices', `android-futo-qa-${index}.json`);
+
+  beforeEach(() => {
+    home = fs.mkdtempSync(path.join(os.tmpdir(), 'qa-home-'));
+    root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'qa-wt-')));
+    other = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'qa-other-')));
+    execFileSync('git', ['init', '-q', root]);
+    fs.mkdirSync(path.dirname(ownerFile(0)), { recursive: true });
+    for (let index = 0; index < 7; index++) {
+      fs.writeFileSync(ownerFile(index), JSON.stringify({ worktree: other }));
+    }
+  });
+
+  afterEach(() => {
+    for (const dir of [home, root, other]) fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('never takes a device another live worktree owns', () => {
+    const result = spawnSync(process.execPath, [QA, 'device', 'android'], {
+      cwd: root,
+      env: { ...process.env, HOME: home },
+      encoding: 'utf8',
+    });
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain('owned by live worktrees');
+    expect(result.stdout).toBe('');
+    for (let index = 0; index < 7; index++) {
+      expect(JSON.parse(fs.readFileSync(ownerFile(index), 'utf8')).worktree).toBe(other);
+    }
+  });
+
+  // A free slot is claimed by name and handed over wiped, as `claim` does. A stub adb and
+  // emulator stand in for one running pool emulator; calls.log records what reached adb.
+  it('claims a free device and wipes the debug app before handing it out', () => {
+    const name = `futo-qa-${slotOf(root) % 7}`;
+    fs.rmSync(ownerFile(slotOf(root) % 7));
+    const bin = path.join(home, 'bin');
+    const calls = path.join(home, 'calls.log');
+    fs.mkdirSync(path.join(home, 'sdk', 'emulator'), { recursive: true });
+    fs.mkdirSync(bin);
+    const stub = (file, body) =>
+      fs.writeFileSync(file, `#!/bin/sh\necho "$*" >> ${calls}\n${body}\n`, { mode: 0o755 });
+    stub(path.join(home, 'sdk', 'emulator', 'emulator'), `echo ${name}`);
+    stub(
+      path.join(bin, 'adb'),
+      [
+        'case "$*" in',
+        '  devices) printf "List of devices attached\\nemulator-5554\\tdevice\\n" ;;',
+        `  *"emu avd name") printf "${name}\\nOK\\n" ;;`,
+        '  *"settings get secure show_ime_with_hard_keyboard") echo 1 ;;',
+        '  *" shell ls "*|*" shell pm path "*) exit 1 ;;',
+        'esac',
+      ].join('\n'),
+    );
+    const result = spawnSync(process.execPath, [QA, 'device', 'android'], {
+      cwd: root,
+      env: {
+        ...process.env,
+        HOME: home,
+        ANDROID_HOME: path.join(home, 'sdk'),
+        ANDROID_AVD_HOME: path.join(home, 'avd'),
+        PATH: `${bin}${path.delimiter}${process.env.PATH}`,
+      },
+      encoding: 'utf8',
+    });
+    expect(result.status, result.stderr).toBe(0);
+    expect(JSON.parse(result.stdout)).toEqual({ name, id: 'emulator-5554' });
+    const owner = JSON.parse(fs.readFileSync(ownerFile(slotOf(root) % 7), 'utf8'));
+    expect(owner).toMatchObject({ worktree: root, id: 'emulator-5554' });
+    expect(owner.wipePending).toBeUndefined();
+    expect(fs.readFileSync(calls, 'utf8')).toContain('shell rm -rf');
+  });
+});

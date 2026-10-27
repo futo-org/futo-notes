@@ -8,6 +8,8 @@
     type LocalizedMessage,
   } from '$shared/localization';
 
+  import { puppetVerb } from '$app/puppet/puppetRegistry';
+
   interface Props {
     initialValue?: string;
     title?: string;
@@ -52,6 +54,19 @@
     }
   }
 
+  const verbs = () => [
+    puppetVerb(
+      'SetNewFolderName',
+      { name: 'string' },
+      (args) => {
+        value = args.name as string;
+        error = null;
+      },
+      { controls: ['folders.nameField'] },
+    ),
+    puppetVerb('SubmitNewFolder', {}, handleSubmit),
+  ];
+
   function handleKey(e: KeyboardEvent): void {
     // Escape is not handled here: Modal owns dismissal for every dialog.
     if (e.key === 'Enter') {
@@ -61,7 +76,7 @@
   }
 </script>
 
-<Modal title={resolvedTitle} ondismiss={oncancel}>
+<Modal title={resolvedTitle} ondismiss={oncancel} {verbs}>
   <label class="modal-label">
     {localizedText('folders.nameField')}
     <input

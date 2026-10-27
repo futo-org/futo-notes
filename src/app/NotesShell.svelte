@@ -32,7 +32,9 @@
   import { createCurrentNoteActions } from './createCurrentNoteActions.svelte';
   import { createNewNote } from './createNewNote';
   import { createTabNoteTransition } from './createTabNoteTransition';
+  import { puppetRefusal, puppetVerb, registerPuppetVerbs } from './puppet/puppetRegistry';
   import { installNotesShellTestHook } from './installNotesShellTestHook';
+  import { registerNotesShellPuppet } from './registerNotesShellPuppet';
   import { registerNotesShellShortcuts } from './registerNotesShellShortcuts';
   import { resetAllNotes } from './resetAllNotes';
   import {
@@ -96,6 +98,10 @@
     getPendingFolder: () => tabsStore.activeTab.pendingFolder ?? null,
     clearPendingFolder: () => tabsStore.setPendingFolder(tabsStore.activeTabId, null),
     onNoteRenamed: (fromId, toId) => {
+      // No `fromId` is a first save, which names the editor's untitled '' document, or a park,
+      // which moves the tab's note to its copy.
+      const heldId = fromId ?? (tabsStore.activeNoteId === 'new' ? '' : tabsStore.activeNoteId);
+      if (heldId !== null) editor?.retarget(heldId, toId);
       if (fromId) tabsStore.applyRename(fromId, toId);
       else tabsStore.replaceTabNoteId(tabsStore.activeTabId, toId);
       // A rename landing mid-switch would otherwise stamp a note the transition
@@ -111,6 +117,7 @@
     session,
     showToast: showGlobalToast,
     onRename: (fromId, toId) => {
+      editor?.retarget(fromId, toId);
       tabsStore.applyRename(fromId, toId);
       if (session.originalId === fromId) tabTransition.setLoadedNoteId(toId);
     },
@@ -131,6 +138,7 @@
     tabsStore.applyRename(fromId, toId);
     // The session follows only a note it still holds; it may have moved on.
     if (session.originalId !== fromId) return;
+    editor?.retarget(fromId, toId);
     session.applyRemoteRename(toId, title);
     tabTransition.setLoadedNoteId(toId);
   }
@@ -339,6 +347,41 @@
     }),
   });
 
+  const unregisterPuppetShell = registerNotesShellPuppet({
+    session,
+    sync,
+    tabTransition,
+    notes: () => notes,
+    settingsOpen: () => settingsOpen,
+    searchOpen: () => searchOpen,
+  });
+
+  // The verbs for the handlers this component owns (puppetRegistry.ts). `mode`
+  // is the modifier a click would carry: current, foreground or background tab.
+  const unregisterPuppetVerbs = registerPuppetVerbs(() => [
+    puppetVerb(
+      'OpenNote',
+      { noteId: 'string', mode: 'current|foreground|background?' },
+      (args) => {
+        const noteId = args.noteId as string;
+        const mode = (args.mode as OpenMode | undefined) ?? 'current';
+        if (!notes.some((note) => note.id === noteId)) {
+          return puppetRefusal(
+            400,
+            `no such note: ${noteId} (an id is the vault path without .md, e.g. work/standup; sidebar rows list theirs as "note")`,
+          );
+        }
+        tabsStore.openNote(noteId, mode);
+        if (mode !== 'background') searchOpen = false;
+        return undefined;
+      },
+      { controlsMatching: '[data-note-id]' },
+    ),
+    puppetVerb('ToggleSidebar', {}, toggleSidebar, {
+      controls: ['sidebar.expandAccessibilityLabel', 'sidebar.collapseAccessibilityLabel'],
+    }),
+  ]);
+
   $effect(() => {
     if (!tabsStore.hydrated) return;
     const tab = tabsStore.activeTab;
@@ -385,6 +428,8 @@
       window.removeEventListener('hashchange', handleHashChange);
       removeTestHook();
       stopRelinks();
+      unregisterPuppetShell();
+      unregisterPuppetVerbs();
       stopNativeShell();
       stopExternalFileOpen();
       stopShortcuts();

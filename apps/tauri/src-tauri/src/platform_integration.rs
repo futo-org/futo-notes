@@ -10,6 +10,24 @@ pub(crate) fn prepare_process() {
         configure_linux_renderer();
         install_linux_log_filters();
     }
+    #[cfg(all(target_os = "macos", debug_assertions))]
+    opt_out_of_app_nap();
+}
+
+/// Debug builds only. App Nap throttles an app whose windows are hidden or
+/// occluded, and hardest while other worktrees compile: the debug app then
+/// answered `just puppet` calls seconds late or not at all. A user-initiated
+/// activity keeps it out of App Nap for the life of the process; the
+/// `AllowingIdleSystemSleep` variant still lets an idle Mac sleep.
+#[cfg(all(target_os = "macos", debug_assertions))]
+fn opt_out_of_app_nap() {
+    use objc2_foundation::{NSActivityOptions, NSProcessInfo, NSString};
+    let activity = NSProcessInfo::processInfo().beginActivityWithOptions_reason(
+        NSActivityOptions::UserInitiatedAllowingIdleSystemSleep,
+        &NSString::from_str("FUTO Notes debug build: answer the QA bridge while in the background"),
+    );
+    // Held until exit: ending the activity would let App Nap back in.
+    std::mem::forget(activity);
 }
 
 pub(crate) fn is_flatpak() -> bool {

@@ -3,8 +3,11 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mount, unmount, flushSync } from 'svelte';
 import FolderTreeView from './FolderTreeView.svelte';
 import { setFolderSnapshot } from './emptyFolders.svelte';
-import { setFolderOpen } from './folderExpansion.svelte';
+import { isFolderOpen, setFolderOpen } from './folderExpansion.svelte';
 import type { NotePreview } from '$shared/types/note';
+import { runPuppetCommand } from '$app/puppet/puppetInspector';
+import { clearPuppetVerbs, puppetVerb, registerPuppetVerbs } from '$app/puppet/puppetRegistry';
+import { collectElements } from '$app/puppet/puppetElements';
 
 const platformState = vi.hoisted(() => ({ isLinux: false }));
 vi.mock('$lib/platform', async (importOriginal) => {
@@ -232,6 +235,34 @@ describe('FolderTreeView virtualization', { timeout: 30_000 }, () => {
     }
   });
 
+  it('ScrollToRow brings a row below the fold on screen and answers once it has landed', async () => {
+    const items = Array.from({ length: 300 }, (_, i) => note(`note-${String(i).padStart(3, '0')}`));
+    mountWithViewport(items, VIEWPORT_PX);
+    const scroller = target.querySelector<HTMLElement>('.folder-tree-scroll')!;
+    expect(target.querySelector('[data-note-id="note-250"]')).toBeNull();
+
+    const reply = runPuppetCommand('do', { verb: 'ScrollToRow', args: { noteId: 'note-250' } });
+
+    expect(scroller.scrollTop).toBe(251 * ROW_PITCH - VIEWPORT_PX);
+    // The receipt waits for the browser's own scroll event (puppetScroll.ts scrollLanded),
+    // whose handler mounts the row.
+    expect(reply.status).toBe(202);
+    scroller.dispatchEvent(new Event('scroll'));
+    flushSync();
+    expect(target.querySelector('[data-note-id="note-250"]')).not.toBeNull();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const action = (reply.body as { action: number }).action;
+    expect(runPuppetCommand('diff', { action }).body).not.toMatchObject({ pending: true });
+  });
+
+  it('ScrollToRow answers at once when the row is already on screen', () => {
+    const items = Array.from({ length: 300 }, (_, i) => note(`note-${String(i).padStart(3, '0')}`));
+    mountWithViewport(items, VIEWPORT_PX);
+    expect(
+      runPuppetCommand('do', { verb: 'ScrollToRow', args: { noteId: 'note-001' } }).status,
+    ).toBe(200);
+  });
+
   it('renders every row when no viewport height is measurable', () => {
     // jsdom's default (clientHeight 0) stands in for the frame before the
     // ResizeObserver first reports: guessing a window there would hide rows a
@@ -329,5 +360,120 @@ describe('FolderTreeView drag image is WebKitGTK-only', () => {
     fireDrag(noteRow, 'dragend', dt);
     flushSync();
     expect(document.body.querySelector(':scope > .note-row')).toBeNull();
+  });
+});
+
+// A folder inside a collapsed parent is in the vault, so the folder verbs take it as the note
+// verbs take a note there: once every folder verb refused it `400 no such folder`.
+describe('FolderTreeView puppet verbs', () => {
+  const VAULT = [note('reading/articles/one'), note('personal/family/gifts'), note('inbox/idea')];
+  let target: HTMLDivElement;
+  let app: ReturnType<typeof mount> | null = null;
+
+  const doVerb = (verb: string, args: Record<string, unknown>) =>
+    runPuppetCommand('do', { verb, args });
+
+  function mountTree(props: Record<string, unknown> = {}) {
+    app = mount(FolderTreeView, { target, props: { items: VAULT, ...props } });
+    flushSync();
+  }
+
+  beforeEach(() => {
+    target = document.createElement('div');
+    document.body.appendChild(target);
+  });
+
+  afterEach(() => {
+    if (app) unmount(app);
+    app = null;
+    clearPuppetVerbs();
+    target.remove();
+    for (const path of ['reading', 'reading/articles', 'personal', 'personal/family', 'inbox']) {
+      setFolderOpen(path, false);
+    }
+  });
+
+  it('a drop takes its target by path, and refuses one that does not exist', () => {
+    const movedNote = vi.fn();
+    const movedFolder = vi.fn();
+    mountTree({ ondropnoteonfolder: movedNote, ondropfolderonfolder: movedFolder });
+
+    expect(doVerb('MoveNote', { noteId: 'inbox/idea', targetPath: 'personal/family' }).status).toBe(
+      200,
+    );
+    expect(movedNote).toHaveBeenCalledWith('inbox/idea', 'personal/family');
+    expect(
+      doVerb('MoveFolder', { path: 'personal/family', targetPath: 'reading/articles' }).status,
+    ).toBe(200);
+    expect(movedFolder).toHaveBeenCalledWith('personal/family', 'reading/articles');
+    expect(doVerb('MoveFolder', { path: 'reading/nothing', targetPath: '' })).toMatchObject({
+      status: 400,
+      body: { error: 'no such folder: reading/nothing' },
+    });
+  });
+
+  it('a move answers once it has landed, so the next verb sees the moved note', async () => {
+    // tidy-work: `MoveNote work/standup → ""` answered 200, then a rename of the new id
+    // refused `no such note` because the note list had not been updated yet.
+    const landings: Array<() => void> = [];
+    const pending = () => new Promise<void>((resolve) => landings.push(resolve));
+    mountTree({ ondropnoteonroot: pending, ondropfolderonfolder: pending });
+
+    const actionOf = (receipt: { status: number; body: unknown }) => {
+      expect(receipt.status).toBe(202);
+      return (receipt.body as { action: number }).action;
+    };
+    const moves = [
+      actionOf(doVerb('MoveNote', { noteId: 'inbox/idea', targetPath: '' })),
+      actionOf(doVerb('MoveFolder', { path: 'inbox', targetPath: 'reading' })),
+    ];
+    for (const [index, action] of moves.entries()) {
+      await Promise.resolve();
+      expect(runPuppetCommand('diff', { action }).body).toMatchObject({ pending: true });
+      landings[index]();
+      await vi.waitFor(() =>
+        expect(runPuppetCommand('diff', { action }).body).toMatchObject({ status: 200 }),
+      );
+    }
+  });
+
+  it('ScrollToRow refuses a row a collapsed folder hides, as no scroll would show it', () => {
+    mountTree();
+    expect(doVerb('ScrollToRow', { noteId: 'reading/articles/one' })).toMatchObject({
+      status: 409,
+      body: { error: 'reading/articles/one has no row: a folder above it is collapsed' },
+    });
+    expect(doVerb('ScrollToRow', {}).status).toBe(400);
+  });
+
+  it('a row reads the verb its click runs: ToggleFolder on a folder, OpenNote on a note', () => {
+    setFolderOpen('inbox', true);
+    mountTree();
+    // NotesShell's OpenNote, declared as it is there.
+    registerPuppetVerbs(() => [
+      puppetVerb('OpenNote', { noteId: 'string' }, () => {}, {
+        controlsMatching: '[data-note-id]',
+      }),
+    ]);
+    const rows = collectElements({ all: true });
+    expect(rows.find((row) => row.note === 'inbox/idea')?.verb).toBe('OpenNote');
+    expect(rows.find((row) => row.folder === 'reading')?.verb).toBe('ToggleFolder');
+  });
+
+  it('a toggle or a context menu acts on a row whose parents are open', () => {
+    const folderMenu = vi.fn();
+    const noteMenu = vi.fn();
+    mountTree({ onfoldercontextmenu: folderMenu, onnotecontextmenu: noteMenu });
+
+    expect(doVerb('ToggleFolder', { path: 'personal' }).status).toBe(200);
+    expect(doVerb('ToggleFolder', { path: 'personal/family' }).status).toBe(200);
+    expect(isFolderOpen('personal/family')).toBe(true);
+    flushSync();
+    expect(target.textContent).toContain('gifts');
+
+    expect(doVerb('OpenFolderContextMenu', { path: 'reading' }).status).toBe(200);
+    expect(folderMenu).toHaveBeenCalledWith('reading', 0, 0);
+    expect(doVerb('OpenNoteContextMenu', { noteId: 'personal/family/gifts' }).status).toBe(200);
+    expect(noteMenu).toHaveBeenCalledWith('personal/family/gifts', 0, 0);
   });
 });

@@ -64,6 +64,10 @@ export default defineConfig({
     cssCodeSplit: false,
     rolldownOptions: {
       input: path.resolve(import.meta.dirname, 'editor.html'),
+      // The native debug recipes build with VITE_INCLUDE_TEST_HOOKS=true, which puts
+      // the puppet inspector (src/app/puppet) in; its trace names handlers by
+      // function name, which minification would otherwise turn into `Id`.
+      output: { keepNames: process.env.VITE_INCLUDE_TEST_HOOKS === 'true' },
     },
   },
   resolve: {

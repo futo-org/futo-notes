@@ -10,8 +10,8 @@ import { isTauri } from '$lib/platform';
  *
  * On for the desktop dev build, and for any build that opts in with
  * `VITE_HOSTED_SYNC=true` — which is how the cross-platform harness gets a
- * packaged binary with the flow on. The same shape as `testHooksEnabled()`,
- * deliberately: one env-driven build decision should not have two idioms.
+ * packaged binary with the flow on. The same env check as `TEST_HOOKS_ENABLED`
+ * (src/app/testHooksEnabled.ts).
  *
  * `isTauri` is part of the flag rather than a check at each call site because
  * the whole flow is `e2ee_hosted_*` Tauri commands; in the browser harness

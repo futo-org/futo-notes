@@ -1,3 +1,4 @@
+import { recordPuppetCopy } from '$app/puppet/puppetRegistry';
 import { getPlatformFS, isTauri } from '$lib/platform';
 import { idLeaf, safeNotePath } from '$lib/platform/pathSafety';
 import { getConfig } from '$lib/platform/tauri';
@@ -34,12 +35,13 @@ export function createCurrentNoteActions(deps: CurrentNoteActionsDeps) {
     const id = deps.getActiveNoteId();
     if (!id) return;
     try {
+      const text = isTauri ? safeNotePath((await getConfig()).notesDir, id) : `${id}.md`;
       if (isTauri) {
-        const config = await getConfig();
-        await (await getPlatformFS()).writeClipboardText(safeNotePath(config.notesDir, id));
+        await (await getPlatformFS()).writeClipboardText(text);
       } else {
-        await navigator.clipboard?.writeText(`${id}.md`);
+        await navigator.clipboard?.writeText(text);
       }
+      recordPuppetCopy(text);
       deps.showToast({ path: 'notes.pathCopied' });
     } catch (error) {
       console.warn('Failed to copy file path:', error);
