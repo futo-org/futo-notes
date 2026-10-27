@@ -123,11 +123,6 @@ test:cross-platform-sync:
         - .gitlab-ci.yml
       variables:
         CARGO_CACHE_POLICY: pull-push
-      changes:
-        - apps/tauri/**/*
-        - src/**/*
-        - crates/**/*
-        - packages/editor/**/*
 
 # The native-Android leg of the same harness: one desktop Tauri client paired
 # with the REAL Compose app on the baked "ci" emulator. It covers the Android

@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { load, Schema, Type } from 'js-yaml';
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -15,7 +16,17 @@ import {
   ROOT,
 } from './premerge-test-parity.helpers.mjs';
 
+const gitlabYamlSchema = new Schema([new Type('!reference', { kind: 'sequence' })]);
+
 describe('pre-merge CI routing contracts', () => {
+  it('has no duplicate mapping keys in any pipeline file', () => {
+    // GitLab keeps the last of two same-named keys without a warning: a stale
+    // second `changes:` once replaced main's sync-suite path list.
+    for (const [file, source] of Object.entries(gitlabPipelineSources)) {
+      expect(() => load(source, { schema: gitlabYamlSchema, filename: file })).not.toThrow();
+    }
+  });
+
   it('keeps the internal Windows VM chain together when its build script changes', () => {
     // A ci/win-build.ps1-only MR previously included the build without its
     // provision job, so GitLab rejected the entire pipeline before any job ran.
