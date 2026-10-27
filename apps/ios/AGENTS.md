@@ -85,11 +85,9 @@ Test failures and regular result bundles remain available, and CI invocation is 
 The lock runner uses Python 3's standard Unix `fcntl.flock`, with no extra Python packages.
 
 Device/simulator QA of the changed flow is required; keyboard, safe-area, and scroll changes need
-the full matrix (new note, existing note, toolbar, scroll-during-IME). Drive the app with
-`xcrun simctl` + AXe; the full playbook is the `/verify` skill's `references/ios.md`.
-
-**iOS 26 nav-bar toolbar items only show up in AXe's deep a11y tree.** When
-automation reports "nothing happened", suspect the tool before the app and follow the AXe playbook.
+the full matrix (new note, existing note, toolbar, scroll-during-IME). Drive and read the app
+with `FUTO_PUPPET_TARGET=ios just puppet` (the `puppet` skill); building, launching and the
+simulator are the `/verify` skill's `references/ios.md`.
 
 `xcrun simctl spawn "$SIM" log stream --level=debug --predicate 'process == "FutoNotesNative"'`
 streams os_log and never exits (run it in the background to a file, or read the past with

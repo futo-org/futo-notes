@@ -13,6 +13,7 @@ struct FeedbackView: View {
     #endif
 
     @State private var images: [Data] = []
+    @State private var messageEditing = false
     @State private var sending = false
     @State private var errorMessage = ""
 
@@ -38,6 +39,79 @@ struct FeedbackView: View {
         .tint(Theme.primary)
         .navigationTitle(localization.localizedText("settings.issueReporting.sendFeedback"))
         .navigationBarTitleDisplayMode(.inline)
+        .puppetVerbs { puppetVerbs }
+    }
+
+    /// The composer's controls. `AttachImage` takes a path because the picker is the
+    /// OS's: a verb arrives past it with the file the user would have chosen.
+    private var puppetVerbs: [PuppetVerbs.Verb] {
+        // The Send button is `.disabled(!canSend)` and the picker `.disabled` at three
+        // attachments: the menu says the same, so what is offered is what can be tapped.
+        var verbs: [PuppetVerbs.Verb] = [
+            PuppetVerbs.Verb("SetFeedbackMessage", required: ["message"]) { arguments in
+                draft = (arguments["message"] as? String) ?? ""
+                return ["message": draft]
+            },
+            PuppetVerbs.Verb(
+                "AttachImage", required: ["path"], controls: ["feedback.addScreenshot"]
+            ) { arguments in
+                let path = (arguments["path"] as? String) ?? ""
+                guard let data = FileManager.default.contents(atPath: path) else {
+                    throw PuppetVerbRefusal(400, "no readable file at \(path)")
+                }
+                let picked = PickedImage(
+                    data: data, ext: (path as NSString).pathExtension.lowercased())
+                guard let normalized = FeedbackImages.normalize(picked) else {
+                    throw PuppetVerbRefusal(409, "that image is too large to attach")
+                }
+                images.append(normalized)
+                return ["attachments": images.count]
+            },
+            PuppetVerbs.Verb(
+                "RemoveFeedbackAttachment", required: ["index"], integers: ["index"]
+            ) { arguments in
+                let index = (arguments["index"] as? NSNumber)?.intValue ?? -1
+                guard images.indices.contains(index) else {
+                    throw PuppetVerbRefusal(
+                        400, "no attachment \(index); there are \(images.count)")
+                }
+                images.remove(at: index)
+                return ["attachments": images.count]
+            },
+            PuppetVerbs.Verb("SendFeedback", controls: ["common.actions.send"]) {
+                await send()
+                guard errorMessage.isEmpty else {
+                    throw PuppetVerbRefusal(502, errorMessage)
+                }
+            },
+        ]
+        if !canSend { verbs.removeAll { $0.name == "SendFeedback" } }
+        if images.count >= FeedbackImages.maxAttachments {
+            verbs.removeAll { $0.name == "AttachImage" }
+        }
+        if images.isEmpty { verbs.removeAll { $0.name == "RemoveFeedbackAttachment" } }
+        // The keyboard's dismiss capsule, while the message field has the keyboard.
+        if messageEditing {
+            verbs.append(
+                PuppetVerbs.Verb("DismissKeyboard") {
+                    UIApplication.shared.sendAction(
+                        #selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+                })
+        }
+        #if DEBUG
+            verbs.append(
+                PuppetVerbs.Verb(
+                    "SetStagingCrashlog", required: ["enabled"], booleans: ["enabled"],
+                    controls: ["feedback.stagingServer"]
+                ) { arguments in
+                    guard let enabled = arguments["enabled"] as? Bool else {
+                        throw PuppetVerbRefusal(400, "enabled is true or false")
+                    }
+                    useStagingCrashlog = enabled
+                    return ["staging": useStagingCrashlog]
+                })
+        #endif
+        return verbs
     }
 
     private var attachmentStrip: some View {
@@ -87,7 +161,7 @@ struct FeedbackView: View {
     #endif
 
     private var messageField: some View {
-        FeedbackMessageField(text: $draft)
+        FeedbackMessageField(text: $draft, editing: $messageEditing)
             .frame(minHeight: 160)
             .padding(EdgeInsets(top: 10, leading: 10, bottom: 44, trailing: 10))
             .background(Theme.surface, in: RoundedRectangle(cornerRadius: 12))

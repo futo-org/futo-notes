@@ -58,7 +58,9 @@ test_ios_native_task:
     - CI_PROJECT_DIR="${CIRRUS_WORKING_DIR:-$PWD}" node scripts/ci-cargo-cache-freshness.mjs
     # Shared Rust FFI -> FutoNotesFfi.xcframework + Swift bindings.
     - bash scripts/build-rust-ios.sh
-    # Embedded editor bundle used by the native bridge tests.
+    # Embedded editor bundle used by the native bridge tests: the one that ships.
+    # `just test-ios-native` adds the puppet inspector only because the Debug app it
+    # installs shares the one staged editor.html (docs/agents/justfile-notes.md).
     - pnpm exec vite build --config vite.editor.config.ts
     - (cd apps/ios && xcodegen generate)
     # xcodebuild test requires one concrete simulator. Prefer an already-booted

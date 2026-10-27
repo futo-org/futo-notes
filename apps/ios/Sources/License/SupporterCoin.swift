@@ -166,6 +166,8 @@ struct SupporterCoin: View {
 
     /// Motion is opt-out at the OS level, so ask before spinning anything.
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// Whether a sheet covers the Settings card the coin is on.
+    @EnvironmentObject private var navigation: AppNavigation
 
     @State private var turn = CoinTurn()
     @State private var loadFailed = false
@@ -234,6 +236,18 @@ struct SupporterCoin: View {
         )
         .onChange(of: reduceMotion, initial: true) { _, paused in
             turn.animates = !paused
+        }
+        // A tap, as the gesture reads one; a drag or a flick stays a real finger's.
+        .puppetVerbs {
+            navigation.sheet != .settings
+                ? []
+                : [
+                    PuppetVerbs.Verb("SpinCoin") {
+                        turn.grab()
+                        turn.release(nil)
+                        turn.tap()
+                    }
+                ]
         }
     }
 

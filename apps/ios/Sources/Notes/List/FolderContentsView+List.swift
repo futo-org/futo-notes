@@ -2,6 +2,16 @@ import SwiftUI
 
 extension FolderContentsView {
     var list: some View {
+        ScrollViewReader { proxy in
+            rows
+                .puppetVerbs {
+                    navigation.sheet != nil
+                        ? [] : [scrollToRowVerb(proxy, notes: { notes }, folders: { subfolders })]
+                }
+        }
+    }
+
+    private var rows: some View {
         List {
             if !subfolders.isEmpty {
                 Section {
@@ -16,6 +26,8 @@ extension FolderContentsView {
                             }
                         }
                         .listRowBackground(Theme.surface)
+                        .id(ListRowID.folder(child))
+                        .accessibilityIdentifier(ListRowID.folder(child))
                         // allowsFullSwipe off: a destructive full swipe animates
                         // the row away even though we only show a confirmation.
                         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
@@ -70,6 +82,8 @@ extension FolderContentsView {
                             NoteRow(note: note, showFolder: false)
                         }
                         .listRowBackground(Theme.surface)
+                        .id(ListRowID.note(note.id))
+                        .accessibilityIdentifier(ListRowID.note(note.id))
                         // allowsFullSwipe off — see the folder rows above.
                         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                             Button(role: .destructive) {

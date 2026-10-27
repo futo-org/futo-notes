@@ -82,12 +82,7 @@ extension NoteEditorView {
         ToolbarItem(placement: .topBarTrailing) {
             Menu {
                 Button {
-                    findVisible = true
-                    // Re-measure for this presentation: the bar has not been
-                    // laid out yet, so the inset arrives a frame later and
-                    // the engine re-reveals the current match against it.
-                    findOverlayInset = 0
-                    EditorHost.shared.openFind()
+                    openFind()
                 } label: {
                     Label(
                         localization.localizedText("editor.find.open"),
@@ -112,7 +107,7 @@ extension NoteEditorView {
                     )
                 }
                 Button {
-                    UIPasteboard.general.string = store.notePath(noteId)
+                    copyPath()
                 } label: {
                     Label(
                         localization.localizedText("notes.actions.copyFilePath"),

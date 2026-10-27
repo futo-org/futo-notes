@@ -80,11 +80,53 @@ struct CrashReportSheet: View {
         // Resolution must be explicit (Send / Don't Send) — swipe-dismiss would
         // leave the files in limbo.
         .interactiveDismissDisabled()
+        // The sheet's own controls, so a crash can be answered without a tap. Modal: it
+        // covers the app, and resolution must be explicit.
+        .puppetVerbs(modal: true) {
+            // Resolving empties the queue first, so an answered sheet offers nothing.
+            reporter.pendingReports.isEmpty
+                ? []
+                : [
+                    PuppetVerbs.Verb(
+                        "SetCrashDescription", required: ["text"],
+                        controls: ["crashReporting.optionalDetails"]
+                    ) { arguments in
+                        userNote = (arguments["text"] as? String) ?? ""
+                        return ["text": userNote]
+                    },
+                    PuppetVerbs.Verb(
+                        "SetAlwaysSendCrashReports", required: ["enabled"], booleans: ["enabled"],
+                        controls: ["crashReporting.sendAutomatically"]
+                    ) { arguments in
+                        guard let enabled = arguments["enabled"] as? Bool else {
+                            throw PuppetVerbRefusal(400, "enabled is true or false")
+                        }
+                        alwaysSend = enabled
+                        return ["alwaysSend": alwaysSend]
+                    },
+                    PuppetVerbs.Verb("ToggleCrashDetails", controls: ["crashReporting.viewReport"])
+                    {
+                        _ in
+                        showDetails.toggle()
+                        return ["open": showDetails]
+                    },
+                    PuppetVerbs.Verb("SendCrashReport", controls: ["common.actions.send"]) {
+                        guard !sending else { throw PuppetVerbRefusal(409, "already resolving") }
+                        await finish(send: true).value
+                    },
+                    PuppetVerbs.Verb("DiscardCrashReport", controls: ["crashReporting.dontSend"]) {
+                        guard !sending else { throw PuppetVerbRefusal(409, "already resolving") }
+                        await finish(send: false).value
+                    },
+                ]
+        }
     }
 
-    private func finish(send: Bool) {
+    /// Send and Don't Send, tapped or as verbs; the task ends once the report is resolved.
+    @discardableResult
+    private func finish(send: Bool) -> Task<Void, Never> {
         sending = true
-        Task {
+        return Task {
             await reporter.resolve(send: send, alwaysSend: alwaysSend, userNote: userNote)
             sending = false
         }

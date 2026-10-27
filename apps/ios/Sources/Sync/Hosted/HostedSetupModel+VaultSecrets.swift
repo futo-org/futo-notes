@@ -46,6 +46,11 @@ extension HostedSetupModel {
         shell.announce(LocalizedMessage("sync.hosted.recoveryKey.copied"))
     }
 
+    func shareRecoveryKey() {
+        guard let recoveryKey else { return }
+        shell.share(recoveryKey)
+    }
+
     func continueAfterRecoveryKey() async {
         recoveryKey = nil
         recoveryKeyReplaced = false

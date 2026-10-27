@@ -87,7 +87,7 @@ final class NotesStore: ObservableObject {
     var flushedThisEpisode: [String: PendingDraft] = [:]
     let editorDraftCoordinator = EditorDraftCoordinator()
     var editorDraftTail: Task<Void, Never>?
-    var folderMutationTail: Task<Void, Never>?
+    var folderMutationTail: Task<Bool, Never>?
     // Serialized so Rust and the shell always end on the same pick.
     private var sortOrderTail: Task<Void, Never>?
     private var localTreeChangeTail: Task<Void, Never>?
@@ -249,7 +249,7 @@ final class NotesStore: ObservableObject {
             editorDraftCoordinator.endReset()
         }
         await editorDraftTail?.value
-        await folderMutationTail?.value
+        _ = await folderMutationTail?.value
         await localTreeChangeTail?.value
         try await vault.reset(epoch: epoch)
         notes = []

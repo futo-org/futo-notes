@@ -2,7 +2,7 @@ import Foundation
 import UIKit
 
 /// The live wiring behind the hosted wizard: the iOS auth sheet, the
-/// pasteboard, and the app's transient banner. Every one of these is a thing
+/// pasteboard, the share sheet, and the app's transient banner. Every one of these is a thing
 /// Rust cannot do; nothing here decides anything.
 @MainActor
 final class LiveHostedSetupShell: HostedSetupShell {
@@ -22,6 +22,7 @@ final class LiveHostedSetupShell: HostedSetupShell {
     var deviceName: String { UIDevice.current.name }
 
     func openAuthSheet(_ url: URL, onDismiss: @escaping () -> Void) {
+        PuppetVerbs.shared.recordOpen(url.absoluteString)
         authSheet.open(url, onDismiss: onDismiss)
     }
 
@@ -31,6 +32,26 @@ final class LiveHostedSetupShell: HostedSetupShell {
 
     func copyToPasteboard(_ text: String) {
         UIPasteboard.general.string = text
+        PuppetVerbs.shared.recordCopy(text)
+    }
+
+    /// The system share sheet with the text alone, so what gets shared pastes
+    /// straight back into the unlock field. Presented from whatever is on top —
+    /// the Sync sheet — since the sheet's own `Form` cannot present a second one.
+    func share(_ text: String) {
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        var top = scenes.compactMap(\.keyWindow).first?.rootViewController
+        while let presented = top?.presentedViewController { top = presented }
+        guard let presenter = top else { return }
+        let sheet = UIActivityViewController(activityItems: [text], applicationActivities: nil)
+        // An iPad presents it as a popover, which UIKit refuses to show without an anchor.
+        if let popover = sheet.popoverPresentationController {
+            popover.sourceView = presenter.view
+            popover.sourceRect = CGRect(
+                x: presenter.view.bounds.midX, y: presenter.view.bounds.midY, width: 0, height: 0)
+            popover.permittedArrowDirections = []
+        }
+        presenter.present(sheet, animated: true)
     }
 
     func announce(_ message: LocalizedMessage) {

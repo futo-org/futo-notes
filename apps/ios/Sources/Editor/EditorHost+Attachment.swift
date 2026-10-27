@@ -44,6 +44,7 @@ extension EditorHost {
         )
         guard nextGeneration != generation else { return }
         generation = nextGeneration
+        loadedNoteId = nil
         onFocusChange = { _ in }
         onDocumentLoaded = { _ in }
         onOpenNote = nil
@@ -126,6 +127,12 @@ extension EditorHost {
             lastPushedContent = content
         }
         return applied
+    }
+
+    /// The attached note's initial body is in `content` and on its way to the editor;
+    /// `noteId` is the id its navigation route carries.
+    func noteDidLoad(_ noteId: String) {
+        loadedNoteId = noteId
     }
 
     func updateDesired(noteId: String, content: String, theme: String, localization: Localization) {

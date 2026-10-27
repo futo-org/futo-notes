@@ -3,6 +3,8 @@ import UIKit
 
 struct FeedbackMessageField: UIViewRepresentable {
     @Binding var text: String
+    /// True while the field has the keyboard, which is while its dismiss capsule is up.
+    @Binding var editing: Bool
     @Environment(\.localization) private var localization
 
     func makeUIView(context: Context) -> UITextView {
@@ -24,20 +26,23 @@ struct FeedbackMessageField: UIViewRepresentable {
 
     func updateUIView(_ view: UITextView, context: Context) {
         context.coordinator.text = $text
+        context.coordinator.editing = $editing
         context.coordinator.toolbarLocalization.update(localization)
         if view.text != text { view.text = text }
     }
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(text: $text, localization: localization)
+        Coordinator(text: $text, editing: $editing, localization: localization)
     }
 
     final class Coordinator: NSObject, UITextViewDelegate {
         var text: Binding<String>
+        var editing: Binding<Bool>
         let toolbarLocalization: EditorToolbarLocalization
 
-        init(text: Binding<String>, localization: Localization) {
+        init(text: Binding<String>, editing: Binding<Bool>, localization: Localization) {
             self.text = text
+            self.editing = editing
             toolbarLocalization = EditorToolbarLocalization(localization)
         }
 
@@ -60,6 +65,9 @@ struct FeedbackMessageField: UIViewRepresentable {
             }
             return false
         }
+
+        func textViewDidBeginEditing(_ textView: UITextView) { editing.wrappedValue = true }
+        func textViewDidEndEditing(_ textView: UITextView) { editing.wrappedValue = false }
 
         func textViewDidChange(_ textView: UITextView) {
             // Backstop for input that skipped the delegate, such as an IME

@@ -142,17 +142,6 @@ extension EditorHost {
         }
     }
 
-    /// Encode an arbitrary Swift string as a safe JS string literal.
-    func jsLiteral(_ s: String) -> String {
-        let data =
-            (try? JSONSerialization.data(withJSONObject: [s], options: []))
-            ?? Data("[\"\"]".utf8)
-        var json = String(data: data, encoding: .utf8) ?? "[\"\"]"
-        // Strip the surrounding [ ] to get just the quoted string literal.
-        json = json.trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
-        return json
-    }
-
     func pushContent(_ content: String) {
         lastPushedContent = content
         lastPushedNoteId = desiredNoteId

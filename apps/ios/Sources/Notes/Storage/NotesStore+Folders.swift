@@ -1,38 +1,44 @@
 import Foundation
 
 extension NotesStore {
-    func deleteFolder(_ folder: String) {
-        let epoch = resetEpoch
-        guard !resetting else { return }
-        let previous = folderMutationTail
-        folderMutationTail = Task {
-            await previous?.value
-            guard !resetting else { return }
-            do {
-                applyMutation(
-                    try await vault.deleteFolder(folder, epoch: epoch), expectedEpoch: epoch)
-                onLocalChange?()
-            } catch {
-                print("deleteFolder failed for \(folder): \(error)")
-            }
+    /// Returns once the folder list has the change, and whether it landed.
+    @discardableResult
+    func deleteFolder(_ folder: String) async -> Bool {
+        await serializedFolderMutation("deleteFolder failed for \(folder)") { [vault] epoch in
+            try await vault.deleteFolder(folder, epoch: epoch)
         }
     }
 
-    func createFolder(_ path: String) {
+    /// Returns once the folder list has the change, and whether it landed.
+    @discardableResult
+    func createFolder(_ path: String) async -> Bool {
+        await serializedFolderMutation("createFolder failed for \(path)") { [vault] epoch in
+            try await vault.createFolder(path, epoch: epoch)
+        }
+    }
+
+    /// Runs one folder mutation after the previous one settles, under the epoch it was asked
+    /// in; `failure` prefixes the log line when it throws.
+    private func serializedFolderMutation(
+        _ failure: String, _ mutate: @escaping (UInt64) async throws -> NoteMutation
+    ) async -> Bool {
         let epoch = resetEpoch
-        guard !resetting else { return }
+        guard !resetting else { return false }
         let previous = folderMutationTail
-        folderMutationTail = Task {
-            await previous?.value
-            guard !resetting else { return }
+        let mutation = Task {
+            _ = await previous?.value
+            guard !resetting else { return false }
             do {
-                applyMutation(
-                    try await vault.createFolder(path, epoch: epoch), expectedEpoch: epoch)
+                applyMutation(try await mutate(epoch), expectedEpoch: epoch)
                 onLocalChange?()
+                return true
             } catch {
-                print("createFolder failed for \(path): \(error)")
+                print("\(failure): \(error)")
+                return false
             }
         }
+        folderMutationTail = mutation
+        return await mutation.value
     }
 
     func renameFolder(from: String, to: String) async -> String? {
