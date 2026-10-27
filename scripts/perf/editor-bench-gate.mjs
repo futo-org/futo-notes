@@ -5,6 +5,7 @@
 //
 //   node --experimental-strip-types scripts/perf/editor-bench-gate.mjs [--accept]
 //       [--baseline <file>] [--workers N] [--min-win 0.5] [--skip-suite]
+//       [--regression-only]
 //
 // In order, cheapest first, stopping at the first REJECT:
 //   1. The bench, rebuilt, 3 count passes, median (`editor-bench.mjs`). Any
@@ -21,6 +22,9 @@
 // ACCEPT exits 0, and with --accept writes the new counts as the baseline.
 // REJECT exits 1. A crash or bad argument exits 2.
 // `--skip-suite` stops after step 3 and never accepts: it is for triage.
+// `--regression-only` is the CI mode (bench:editor): steps 1 and 3 only, so a
+// change that is not a win still passes, and the suite is left to its own
+// job. It ACCEPTs without ever writing the baseline (--accept is refused).
 
 import { spawnSync } from 'node:child_process';
 import { copyFileSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
@@ -43,6 +47,7 @@ const opt = {
   workers: 16,
   minWin: 0.5,
   suite: true,
+  regressionOnly: false,
 };
 for (let i = 0; i < args.length; i++) {
   const a = args[i];
@@ -51,10 +56,16 @@ for (let i = 0; i < args.length; i++) {
   else if (a === '--workers') opt.workers = Number(args[++i]);
   else if (a === '--min-win') opt.minWin = Number(args[++i]);
   else if (a === '--skip-suite') opt.suite = false;
+  else if (a === '--regression-only') opt.regressionOnly = true;
   else {
     console.error(`Unrecognized argument: ${a}`);
     process.exit(2);
   }
+}
+
+if (opt.regressionOnly && opt.accept) {
+  console.error('--regression-only never writes the baseline; drop --accept');
+  process.exit(2);
 }
 
 const t0 = performance.now();
@@ -129,6 +140,10 @@ const scoreLine = `score ${score.toFixed(4)} (1.0000 = baseline; a win needs ≤
 if (regressions.length) {
   rmSync(dir, { recursive: true, force: true });
   verdict('REJECT', [scoreLine, 'counts that got worse past the noise:', ...regressions]);
+}
+if (opt.regressionOnly) {
+  rmSync(dir, { recursive: true, force: true });
+  verdict('ACCEPT', [scoreLine, 'regression-only: no count got worse past the noise']);
 }
 if (score > 1 - opt.minWin / 100) {
   rmSync(dir, { recursive: true, force: true });
