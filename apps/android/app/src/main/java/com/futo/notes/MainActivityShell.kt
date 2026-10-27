@@ -4,6 +4,8 @@ import android.provider.Settings
 import androidx.compose.runtime.Composable
 import androidx.lifecycle.lifecycleScope
 import com.futo.notes.localization.LocalLocalization
+import com.futo.notes.puppet.PuppetServerStart
+import com.futo.notes.puppet.PuppetScreen
 import com.futo.notes.storage.NotesStorage
 import com.futo.notes.storage.storageAdoptionMessage
 import com.futo.notes.storage.StorageAdoptionSummary
@@ -36,9 +38,13 @@ internal fun MainActivity.AppShell(
         availableFolderPaths = s.folders,
         effects = { navigator ->
             LicenseLandingEffect(license, navigator, modalUp = pendingCrashJson.value != null)
+            // Debug builds only — compiles to nothing in release (puppet/PuppetServer.kt).
+            PuppetServerStart(navigator, s, sync, prefs)
         },
     ) { screen, navigator, noteListState ->
-        when (screen) {
+        // Tags the entry, so a screen's verbs retire with it and not with the
+        // transition that keeps it composed a moment longer.
+        PuppetScreen(screen) { when (screen) {
             is Screen.Folder -> NoteListScreen(
                 store = s,
                 state = noteListState,
@@ -64,6 +70,8 @@ internal fun MainActivity.AppShell(
             )
             is Screen.Search -> SearchScreen(
                 store = s,
+                query = navigator.searchQuery,
+                onQueryChange = { navigator.searchQuery = it },
                 onOpenNote = navigator::openNote,
                 onBack = navigator::goBack,
             )
@@ -104,7 +112,7 @@ internal fun MainActivity.AppShell(
                 onBack = navigator::goBack,
                 onSent = navigator::goBack,
             )
-        }
+        } }
     }
 
     // Crash Report dialog [app.md:61]: shown when the startup scan found
@@ -151,7 +159,7 @@ internal fun MainActivity.AppShell(
                 adoptionMessage.path,
                 adoptionMessage.arguments,
             ),
-            confirmLabel = currentLocalization.localizedText("storage.android.openExistingAction"),
+            confirmLabelKey = "storage.android.openExistingAction",
             onConfirm = {
                 pendingStorageAdoption.value = null
                 adoptExistingStorage(adoption)

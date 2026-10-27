@@ -1,0 +1,81 @@
+{
+  "computed": {
+    "apps/android/app/src/main/java/com/futo/notes/ui/EditorToolbar.kt": {
+      "count": 1,
+      "why": "the keyboard toolbar's items, labelled from ToolbarSpec (generated from packages/editor/src/toolbar.ts); each is an editor verb"
+    },
+    "apps/android/app/src/main/java/com/futo/notes/ui/FeedbackScreen.kt": {
+      "count": 1,
+      "why": "the message field's call site; the field itself is labelled feedback.placeholder inside MessageField"
+    },
+    "apps/android/app/src/main/java/com/futo/notes/ui/components/FolderPickerSheet.kt": {
+      "count": 1,
+      "why": "the move sheet's destination rows, labelled by their paths: PickFolder"
+    },
+    "apps/android/app/src/main/java/com/futo/notes/ui/NoteListScreen.kt": {
+      "count": 2,
+      "why": "a folder card and a note card, labelled by their names: OpenFolder and OpenNote, by folder= and note="
+    },
+    "apps/android/app/src/main/java/com/futo/notes/ui/SearchScreen.kt": {
+      "count": 2,
+      "why": "result cards, labelled by their notes' titles: OpenNote"
+    },
+    "apps/android/app/src/main/java/com/futo/notes/ui/SettingsControls.kt": {
+      "count": 3,
+      "why": "the language row and its menu items, labelled by language names (SetLanguage), and a segmented button inside its component, labelled by its caller's options (Segmented: SetTheme)"
+    },
+    "apps/android/app/src/main/java/com/futo/notes/ui/settings/appicon/AppIconSettingsGroup.kt": {
+      "count": 2,
+      "why": "the app icon row, labelled with the chosen icon's name (OpenAppIcons), and the picker's onSelect, its tiles labelled with each icon's name (SelectAppIcon)"
+    },
+    "apps/android/app/src/main/java/com/futo/notes/ui/components/ConfirmDialog.kt": {
+      "count": 1,
+      "why": "the confirm button, labelled by the catalog key its caller passes (Delete, Delete everything, Open existing), which ConfirmDialog claims"
+    },
+    "apps/android/app/src/main/java/com/futo/notes/ui/LicensePlate.kt": {
+      "count": 2,
+      "why": "the plate's action buttons, filled and text, each labelled from its action (catalogPath): BuyLicense, StartLicenseEntry, OpenLostKeyHelp, RemoveLicense"
+    },
+    "apps/android/app/src/main/java/com/futo/notes/ui/hosted/UnlockStep.kt": {
+      "count": 2,
+      "why": "the three unlock-method rows (the row and its selectable), each labelled from its method (sync.hosted.unlock.doors.*): SelectUnlockMethod"
+    },
+    "apps/android/app/src/main/java/com/futo/notes/ui/components/NoteSortMenu.kt": {
+      "count": 2,
+      "why": "the menu's key and direction rows, each labelled from NoteSortPreference: SetSortOrder"
+    }
+  },
+  "noControl": {
+    "android:OpenNote": "a note card, labelled by the note's title; futo-puppet pairs it by the row's note=",
+    "android:SetSortOrder": "a row of the open sort menu, labelled from NoteSortPreference (counted under computed)",
+    "android:OpenNoteContextMenu": "a long press on a note card, labelled by the note's title",
+    "android:OpenFolderContextMenu": "a long press on a folder card, labelled with its name",
+    "android:CloseContextMenu": "a tap outside the open row menu",
+    "android:DismissDialog": "the move sheet's swipe down or a tap on its scrim, the sheet having no Cancel button; and the license ask's Not now, a button labelled through its helper",
+    "android:SetSearchQuery": "the search field, whose placeholder is a Text drawn beside it rather than the field's label",
+    "android:SetFindQuery": "the find bar's query, a classic EditText inside an AndroidView that the source scan does not read (the listener reads it at runtime, PuppetHostedField)",
+    "android:SetLanguage": "a language row, labelled by the language's own name",
+    "android:RemoveFeedbackAttachment": "each screenshot's remove button, labelled with its number (feedback.removeScreenshot takes it)",
+    "android:OpenFolder": "a folder card, labelled with its name (folders.rowAccessibilityLabel takes it); futo-puppet pairs it by the row's folder=",
+    "android:BuyLicense": "one of the license plate's action buttons, labelled from its action (counted under computed)",
+    "android:StartLicenseEntry": "one of the license plate's action buttons, labelled from its action (counted under computed)",
+    "android:OpenLostKeyHelp": "one of the license plate's action buttons, labelled from its action (counted under computed)",
+    "android:RemoveLicense": "one of the license plate's action buttons, labelled from its action (counted under computed)",
+    "android:SpinCoin": "a tap on the supporter coin, a 3D view with no label",
+    "android:ConfirmDialog": "ConfirmDialog.kt's ConfirmDialog claims the key its caller passes (Delete, Delete everything, Open existing), which this check, reading only quoted keys, cannot see",
+    "android:ScanPairingCode": "the camera reading a pairing code; the verb takes the string it would have read",
+    "android:ShowPairingCode": "the show-a-code button, labelled for the state (a code, or a new one) by ShowCodeButton's caller",
+    "android:SelectUnlockMethod": "the three unlock-method rows are labelled from the method's name, so no one key names them",
+    "android:SetRecoveryKeySaved": "the recovery-key checkbox, whose label is the Text beside it rather than its own",
+    "android:SelectAppIcon": "an icon tile, labelled with the icon's name",
+    "android:OpenAppIcons": "the app icon row, labelled with the chosen icon's name"
+  },
+  "unclaimed": {
+    "android:notes.actions.share": "hands the note to the OS share sheet; the app does nothing more",
+    "android:settings.about.openSource": "opens the project's page in the browser: the OS's act",
+    "android:sync.serverSetupLink": "opens the server setup guide in the browser: the OS's act",
+    "android:editor.android.legacyWebView.updateAction": "opens the System WebView's store listing: the OS's act",
+    "android:feedback.removeScreenshot": "RemoveFeedbackAttachment, whose label takes the screenshot's number",
+    "android:folders.rowAccessibilityLabel": "OpenFolder, whose label takes the folder's name"
+  }
+}

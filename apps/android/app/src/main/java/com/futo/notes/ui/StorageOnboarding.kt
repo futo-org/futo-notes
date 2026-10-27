@@ -1,7 +1,6 @@
 package com.futo.notes.ui
 
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -13,6 +12,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -33,8 +33,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.futo.notes.puppet.PuppetVerb
+import com.futo.notes.puppet.PuppetVerbRefusal
+import com.futo.notes.puppet.PuppetVerbScope
 import com.futo.notes.storage.NotesStorage
 import com.futo.notes.storage.StorageMode
 import com.futo.notes.localization.LocalLocalization
@@ -69,6 +73,56 @@ fun StorageOnboarding(
     var showRationale by remember { mutableStateOf(false) }
     val c = FutoTheme.colors
     val localization = LocalLocalization.current
+
+    fun proceed() {
+        // Confirm what is actually selected: hardcoding a mode here
+        // would migrate the user's notes somewhere they did not pick
+        // the moment `selected` can hold anything else.
+        if (selected == StorageMode.DEVICE && deviceModeSupported) {
+            showRationale = true
+        } else {
+            onConfirm(selected)
+        }
+    }
+
+    // The option cards and Continue, then the rationale's own two buttons. Cancel is
+    // the screen's Back, which the listener's GoBack already is.
+    PuppetVerbScope {
+        if (showRationale && deviceModeSupported) {
+            listOf(
+                PuppetVerb(
+                    "ContinueStorage",
+                    controls = listOf("common.actions.continue"),
+                ) { onConfirm(StorageMode.DEVICE) },
+                PuppetVerb(
+                    "DismissStorageRationale",
+                    controls = listOf("common.actions.back"),
+                ) { showRationale = false },
+            )
+        } else {
+            listOf(
+                PuppetVerb(
+                    "SelectStorageMode",
+                    required = listOf("mode"),
+                    controls = listOf("storage.onboarding.deviceStorage", "storage.onboarding.appStorage"),
+                ) { arguments ->
+                    val mode = when (arguments.getString("mode").trim().lowercase()) {
+                        "device" -> StorageMode.DEVICE.takeIf { deviceModeSupported }
+                        "app" -> StorageMode.APP
+                        else -> null
+                    } ?: throw PuppetVerbRefusal(
+                        400, if (deviceModeSupported) "mode is device or app" else "mode is app; this device has no device storage",
+                    )
+                    selected = mode
+                    mapOf("mode" to mode.name.lowercase())
+                },
+                PuppetVerb(
+                    "ContinueStorage",
+                    controls = listOf("common.actions.continue"),
+                ) { proceed(); mapOf("mode" to selected.name.lowercase()) },
+            )
+        }
+    }
 
     Surface(color = c.surface, modifier = Modifier.fillMaxSize()) {
         if (showRationale && deviceModeSupported) {
@@ -129,16 +183,7 @@ fun StorageOnboarding(
 
             Spacer(Modifier.height(28.dp))
             Button(
-                onClick = {
-                    // Confirm what is actually selected: hardcoding a mode here
-                    // would migrate the user's notes somewhere they did not pick
-                    // the moment `selected` can hold anything else.
-                    if (selected == StorageMode.DEVICE && deviceModeSupported) {
-                        showRationale = true
-                    } else {
-                        onConfirm(selected)
-                    }
-                },
+                onClick = ::proceed,
                 colors = ButtonDefaults.buttonColors(containerColor = c.accent, contentColor = c.textOnInk),
                 shape = RoundedCornerShape(FutoRadius.pill),
                 modifier = Modifier.fillMaxWidth().height(52.dp),
@@ -259,13 +304,14 @@ private fun StorageOptionCard(
         color = if (selected) c.surfaceSelected else c.surface,
         shape = RoundedCornerShape(FutoRadius.md),
         border = BorderStroke(if (selected) 2.dp else 1.dp, if (selected) c.accent else c.border),
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
+        // The whole card is the radio button, read as one choice with its title and bullets.
+        modifier = Modifier.fillMaxWidth().selectable(selected, role = Role.RadioButton, onClick = onClick),
     ) {
         Column(Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 RadioButton(
                     selected = selected,
-                    onClick = onClick,
+                    onClick = null,
                     colors = RadioButtonDefaults.colors(selectedColor = c.accent, unselectedColor = c.textMuted),
                 )
                 Spacer(Modifier.width(4.dp))

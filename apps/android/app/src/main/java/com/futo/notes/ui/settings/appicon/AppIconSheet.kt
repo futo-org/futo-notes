@@ -39,6 +39,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.futo.notes.puppet.PuppetVerb
+import com.futo.notes.puppet.PuppetVerbRefusal
+import com.futo.notes.puppet.PuppetVerbScope
 import androidx.compose.ui.unit.em
 import com.futo.notes.R
 import com.futo.notes.license.catalogPath
@@ -89,6 +92,34 @@ fun AppIconSheet(
     val included = includes?.contains(LicenseInclusion.APP_ICON) == true
     LaunchedEffect(included) { if (included) asking = null }
 
+    /** A tap on [icon]'s tile: the ask, the confirm before an OS change, or nothing (false) for the current icon. */
+    fun pick(icon: AppIcon): Boolean {
+        when {
+            shape.asks(icon) -> asking = icon
+            icon != controller.selected -> pending = icon
+            else -> return false
+        }
+        return true
+    }
+    // The picker's verbs while nothing is up over it: the ask and the confirmation have their own.
+    PuppetVerbScope(modal = true) {
+        if (asking != null || pending != null) return@PuppetVerbScope emptyList()
+        listOf(
+            // A tap on a tile: the ask for an icon a license includes, otherwise the
+            // confirmation, which its ConfirmDialog or DismissDialog answers.
+            PuppetVerb("SelectAppIcon", required = listOf("icon"), optional = listOf("answer")) { arguments ->
+                val id = arguments.optString("icon")
+                val icon = AppIcon.entries.firstOrNull { it.id == id }
+                    ?: throw PuppetVerbRefusal(400, "no icon $id: one of ${AppIcon.entries.joinToString { it.id }}")
+                if (controller.changing) throw PuppetVerbRefusal(409, "the icons are disabled while one is changing")
+                if (!shape.resolved) throw PuppetVerbRefusal(503, "the icons are disabled until the license is read")
+                if (!pick(icon)) throw PuppetVerbRefusal(409, "$id is already the icon")
+            },
+            PuppetVerb("CloseAppIcons", controls = listOf("common.actions.back")) {
+                onDismiss()
+            },
+        )
+    }
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
@@ -118,14 +149,7 @@ fun AppIconSheet(
                     selected = controller.selected == icon,
                     coined = icon in shape.coined,
                     enabled = !controller.changing && shape.resolved,
-                ) {
-                    // The ask, the confirm before an OS change, or nothing for
-                    // the current icon.
-                    when {
-                        shape.asks(icon) -> asking = icon
-                        icon != controller.selected -> pending = icon
-                    }
-                }
+                ) { pick(icon) }
             }
             if (shape.footnote) {
                 item(span = { GridItemSpan(maxLineSpan) }) { Footnote(shape.footnoteKey) }
@@ -211,9 +235,9 @@ private fun ConfirmIconChange(icon: AppIcon, onConfirm: () -> Unit, onDismiss: (
         title = localization.localizedText("settings.appIcon.confirm.title",
             mapOf("iconName" to localization.localizedText(icon.labelKey))),
         body = localization.localizedText("settings.appIcon.confirm.body"),
-        confirmLabel = localization.localizedText("settings.appIcon.confirm.action"),
+        confirmLabelKey = "settings.appIcon.confirm.action",
         destructive = false,
-        onConfirm = onConfirm,
+        onConfirm = { onConfirm() },
         onDismiss = onDismiss,
     )
 }
@@ -326,6 +350,15 @@ private fun AppIconAskSheet(
 ) {
     val localization = LocalLocalization.current
     val colors = FutoTheme.colors
+    PuppetVerbScope(modal = true) {
+        buildList {
+            if (ask is AppIconPickerShape.Ask.LinkOut) {
+                add(PuppetVerb("BuyLicense") { onBuy() })
+            }
+            add(PuppetVerb("StartLicenseEntry") { onAlreadyPaid() })
+            add(PuppetVerb("DismissDialog") { onNotNow() })
+        }
+    }
     ModalBottomSheet(
         onDismissRequest = onNotNow,
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),

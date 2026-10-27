@@ -26,6 +26,8 @@ import com.futo.notes.browser.openInCustomTab
 import com.futo.notes.license.LICENSE_LOG_TAG
 import com.futo.notes.license.LicenseModel
 import com.futo.notes.localization.LocalLocalization
+import com.futo.notes.puppet.PuppetVerb
+import com.futo.notes.puppet.PuppetVerbScope
 import com.futo.notes.ui.SettingsGroup
 import com.futo.notes.ui.SettingsRow
 import com.futo.notes.ui.theme.FutoTheme
@@ -62,6 +64,14 @@ internal fun AppIconSettingsGroup(
         showsLanding = true
         // Already open (the user paid from its ask): it only gains the header.
         showAppIcons = true
+    }
+
+    PuppetVerbScope {
+        listOf(
+            PuppetVerb("OpenAppIcons") {
+                showAppIcons = true
+            },
+        )
     }
 
     SettingsGroup(localization.localizedText("settings.appIcon.heading")) {

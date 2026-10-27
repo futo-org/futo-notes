@@ -99,6 +99,9 @@ fun NotesStore.releaseDraftOwnership(token: Long) = pendingEditor.release(token)
 fun NotesStore.setEditorFlushWaiter(token: Long, refresher: suspend () -> Unit) =
     pendingEditor.setFlushWaiter(token, refresher)
 
+/** The notes an open editor holds edits of that are not on disk yet. */
+fun NotesStore.unsavedNoteIds(): List<String> = pendingEditor.currentDrafts().map { it.id }.distinct().sorted()
+
 /** Flush the open editor's pending draft to disk if it has unsaved edits.
  *  Called from MainActivity.onPause (the first leave-foreground signal).
  *  Fire-and-forget via [flushAsync], which uses persist-or-park semantics.

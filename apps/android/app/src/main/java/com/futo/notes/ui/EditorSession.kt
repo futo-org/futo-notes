@@ -216,24 +216,27 @@ internal class EditorSession(
      * dispatches on the next frame, so a `suspend fun` called from `launch`
      * would leave the whole frame open for a keystroke, a second Back, or a
      * queued save to slip past.
+     *
+     * Returns the work it started, which a caller may join to answer after the
+     * exit has reported; null when nothing was started.
      */
-    fun end(exit: EditorExit, effects: EditorExitEffects) {
+    fun end(exit: EditorExit, effects: EditorExitEffects): Job? {
         val plan = requireNotNull(EXIT_PLANS[exit]) { "no exit plan for $exit" }
 
         if (!effects.isAttached()) {
             effects.exitWithoutEditor()
-            return
+            return null
         }
         // A destructive exit (delete, or a peer's delete) owns the leave. A
         // navigation that left alongside it would pop a second screen.
-        if (plan.leavesFirst && closed) return
+        if (plan.leavesFirst && closed) return null
         if (plan.locksInteraction) {
-            if (exiting) return
+            if (exiting) return null
             exiting = true
             setInteractionLocked(true)
         }
         if (plan.closes) {
-            if (closed) return
+            if (closed) return null
             closed = true
         }
         // This exit takes over the mailbox wait; cancel the competing reconciliation.
@@ -242,12 +245,9 @@ internal class EditorSession(
         wait?.cancel()
         effects.prepare()
 
-        if (plan.leavesFirst) {
-            leaveThenCommit(effects, interrupted)
-            return
-        }
+        if (plan.leavesFirst) return leaveThenCommit(effects, interrupted)
 
-        scope.launch {
+        return scope.launch {
             // `succeeded` gates the unlatch in `finally` below: a completed
             // NAVIGATE/MOVE/DELETE leaves its latches set on purpose (the
             // screen is going away), so only an exit that did NOT leave
@@ -352,8 +352,8 @@ internal class EditorSession(
      * still commits — the body was captured while it was ours — but does not
      * navigate, and unlatches so this editor stays usable.
      */
-    private fun leaveThenCommit(effects: EditorExitEffects, interrupted: (suspend () -> Unit)?) {
-        scope.launch {
+    private fun leaveThenCommit(effects: EditorExitEffects, interrupted: (suspend () -> Unit)?): Job {
+        return scope.launch {
             var left = false
             try {
                 effects.awaitPendingWork()

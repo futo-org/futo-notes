@@ -10,6 +10,7 @@ import android.provider.Settings
 import android.widget.Toast
 import com.futo.notes.SecureStore
 import com.futo.notes.SyncManager
+import com.futo.notes.puppet.recordPuppetCopy
 import com.futo.notes.localization.Localization
 import com.futo.notes.localization.LocalizedMessage
 import uniffi.futo_notes_ffi.HostedSetupClient
@@ -55,6 +56,7 @@ class LiveHostedSetupShell(
     override fun copyToClipboard(text: String) {
         val clipboard = activity.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         clipboard.setPrimaryClip(ClipData.newPlainText(shareLabel(), text))
+        recordPuppetCopy(text)
     }
 
     override fun share(text: String) {

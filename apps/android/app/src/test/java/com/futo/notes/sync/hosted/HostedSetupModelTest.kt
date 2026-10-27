@@ -1,5 +1,9 @@
 package com.futo.notes.sync.hosted
 
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -121,6 +125,18 @@ class HostedSetupModelTest {
 
         assertEquals(HostedScreen.UNAVAILABLE, wizard.screen)
         assertTrue(shell.openedUrls.isEmpty())
+    }
+
+    @Test
+    fun `a step cancelled because its screen went away reports nothing`() = runBlocking {
+        val wizard = model(unlockedSetup())
+        val step = launch(start = CoroutineStart.UNDISPATCHED) { wizard.step { awaitCancellation() } }
+        assertTrue(wizard.busy)
+
+        step.cancelAndJoin()
+
+        assertNull(wizard.errorMessage)
+        assertFalse(wizard.busy)
     }
 
     // ── The browser tab ──────────────────────────────────────────────────

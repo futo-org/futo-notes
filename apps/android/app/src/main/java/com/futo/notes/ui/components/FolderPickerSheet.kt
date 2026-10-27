@@ -21,28 +21,59 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import com.futo.notes.NotesStore
+import com.futo.notes.puppet.PuppetVerb
+import com.futo.notes.puppet.PuppetVerbRefusal
+import com.futo.notes.puppet.PuppetVerbScope
+import com.futo.notes.puppet.folderRowTag
 import com.futo.notes.localization.LocalLocalization
 import com.futo.notes.ui.theme.FutoTheme
 import com.futo.notes.ui.theme.FutoType
+import kotlinx.coroutines.Deferred
 
 /**
  * "Move to folder" bottom-sheet picker [list.md]: a Root row and one row per folder (full
- * path, like the drawer). [onPick] receives the chosen folder path ("" = root).
+ * path, like the drawer). [onPick] receives the chosen folder path ("" = root) and returns
+ * whether the move it started committed, or null when it started none.
+ *
+ * Its verbs: `PickFolder {path?}` is a tap on a row (no path, or "", is the Root row), and
+ * `DismissDialog` a swipe away. Each row carries its folder (`folder=` in `elements`), so the
+ * CLI refuses a row scrolled out of the sheet.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun FolderPickerSheet(
     store: NotesStore,
-    onPick: (folder: String) -> Unit,
+    onPick: (folder: String) -> Deferred<Boolean>?,
     onDismiss: () -> Unit,
     title: String? = null,
     excludePaths: List<String> = emptyList(),
 ) {
     val localization = LocalLocalization.current
     val destinations = eligibleFolderDestinations(store.folders, excludePaths)
+
+    // A sheet over the screen: its rows and its dismissal are all there is.
+    PuppetVerbScope(modal = true) {
+        listOf(
+            PuppetVerb("PickFolder", optional = listOf("path"), controls = listOf("folders.root")) { arguments ->
+                val path = arguments.optString("path")
+                if (path.isNotEmpty() && path !in destinations) {
+                    throw if (path in store.folders) {
+                        PuppetVerbRefusal(409, "`$path` is not a destination this sheet offers")
+                    } else {
+                        PuppetVerbRefusal(400, "no such folder: $path")
+                    }
+                }
+                // Answers once the move has reported, so the receipt shows where the note went.
+                if (onPick(path)?.await() == false) throw PuppetVerbRefusal(409, "the move was refused")
+                mapOf("path" to path)
+            },
+            PuppetVerb("DismissDialog") { onDismiss() },
+        )
+    }
 
     ModalBottomSheet(onDismissRequest = onDismiss, containerColor = FutoTheme.colors.surface) {
         Column(
@@ -56,12 +87,13 @@ fun FolderPickerSheet(
                 Modifier.padding(start = 24.dp, bottom = 8.dp),
             )
             SheetRow(
+                path = "",
                 label = localization.localizedText("folders.root"),
                 icon = Icons.Filled.Home,
                 onClick = { onPick("") },
             )
             destinations.forEach { folder ->
-                SheetRow(label = folder, icon = Icons.Filled.Folder, onClick = { onPick(folder) })
+                SheetRow(path = folder, label = folder, icon = Icons.Filled.Folder, onClick = { onPick(folder) })
             }
         }
     }
@@ -74,12 +106,14 @@ internal fun eligibleFolderDestinations(
     excludePaths.none { excluded -> folder == excluded || folder.startsWith("$excluded/") }
 }
 
+/** One destination row, tagged with its folder ("" is the Root row) as the list's rows are. */
 @Composable
-private fun SheetRow(label: String, icon: ImageVector, onClick: () -> Unit) {
+private fun SheetRow(path: String, label: String, icon: ImageVector, onClick: () -> Unit) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .fillMaxWidth()
+            .testTag(folderRowTag(path))
             .clickable(onClick = onClick)
             .padding(horizontal = 24.dp, vertical = 14.dp),
     ) {
@@ -88,3 +122,6 @@ private fun SheetRow(label: String, icon: ImageVector, onClick: () -> Unit) {
         Text(label, style = FutoType.body, color = FutoTheme.colors.textPrimary)
     }
 }
+
+/** A move verb's `targetPath` shortcut: the sheet's row for that folder ("" is the Root row). */
+internal val pickFolderShortcut = mapOf("targetPath" to listOf("PickFolder" to mapOf("path" to "\$")))

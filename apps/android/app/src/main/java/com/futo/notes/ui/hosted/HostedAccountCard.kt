@@ -12,14 +12,18 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.futo.notes.puppet.PuppetVerb
+import com.futo.notes.puppet.PuppetVerbScope
 import com.futo.notes.localization.LocalLocalization
 import com.futo.notes.sync.hosted.subscriptionStateMessage
 import com.futo.notes.ui.theme.FutoRadius
 import com.futo.notes.ui.theme.FutoTheme
 import com.futo.notes.ui.theme.FutoType
+import kotlinx.coroutines.launch
 import uniffi.futo_notes_ffi.BillingStatus
 
 /**
@@ -41,15 +45,58 @@ fun ColumnScope.HostedAccountCard(
      */
     syncStatus: String,
     busy: Boolean,
-    onManage: () -> Unit,
+    onManage: suspend () -> Unit,
     onChangeVaultPassword: () -> Unit,
-    onNewRecoveryKey: () -> Unit,
+    onNewRecoveryKey: suspend () -> Unit,
     onScanAnotherDevice: () -> Unit,
-    onSignOut: () -> Unit,
+    onSignOut: suspend () -> Unit,
 ) {
     val c = FutoTheme.colors
     val localization = LocalLocalization.current
+    val scope = rememberCoroutineScope()
     var confirmingSignOut by remember { mutableStateOf(false) }
+
+    // Sign out asks first: the confirmation's own ConfirmDialog or DismissDialog answers it.
+    PuppetVerbScope {
+        if (confirmingSignOut) {
+            listOf(
+                PuppetVerb("ConfirmDialog", controls = listOf("sync.hosted.account.signOut")) {
+                    confirmingSignOut = false
+                    onSignOut()
+                },
+                PuppetVerb("DismissDialog", controls = listOf("common.actions.cancel")) {
+                    confirmingSignOut = false
+                },
+            )
+        } else {
+            listOf(
+                PuppetVerb("ManageSubscription", controls = listOf("sync.hosted.account.manageSubscription")) {
+                    refuseWhileBusy(busy)
+                    onManage()
+                },
+                PuppetVerb("OpenVaultPasswordChange", controls = listOf("sync.hosted.account.changeVaultPassword")) {
+                    refuseWhileBusy(busy)
+                    onChangeVaultPassword()
+                },
+                PuppetVerb("ReplaceRecoveryKey", controls = listOf("sync.hosted.account.newRecoveryKey")) {
+                    refuseWhileBusy(busy)
+                    onNewRecoveryKey()
+                },
+                PuppetVerb("OpenScanner", controls = listOf("sync.hosted.pairing.scan.action")) {
+                    refuseWhileBusy(busy)
+                    onScanAnotherDevice()
+                },
+                PuppetVerb(
+                    "SignOutOfFuto",
+                    optional = listOf("answer"),
+                    controls = listOf("sync.hosted.account.signOut"),
+                ) {
+                    refuseWhileBusy(busy)
+                    confirmingSignOut = true
+                },
+            )
+        }
+    }
 
     Text(
         localization.localizedText("sync.hosted.account.heading"),
@@ -97,7 +144,7 @@ fun ColumnScope.HostedAccountCard(
         OutlinedButton(
             enabled = !busy,
             shape = RoundedCornerShape(FutoRadius.md),
-            onClick = onNewRecoveryKey,
+            onClick = { scope.launch { onNewRecoveryKey() } },
         ) {
             Text(
                 localization.localizedText("sync.hosted.account.newRecoveryKey"),
@@ -123,7 +170,7 @@ fun ColumnScope.HostedAccountCard(
         OutlinedButton(
             enabled = !busy,
             shape = RoundedCornerShape(FutoRadius.md),
-            onClick = onManage,
+            onClick = { scope.launch { onManage() } },
         ) {
             Text(
                 localization.localizedText("sync.hosted.account.manageSubscription"),
@@ -149,7 +196,7 @@ fun ColumnScope.HostedAccountCard(
             confirmButton = {
                 TextButton(onClick = {
                     confirmingSignOut = false
-                    onSignOut()
+                    scope.launch { onSignOut() }
                 }) {
                     Text(
                         localization.localizedText("sync.hosted.account.signOut"),

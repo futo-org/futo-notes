@@ -24,6 +24,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.Modifier
@@ -33,6 +34,9 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import com.futo.notes.localization.LocalLocalization
+import com.futo.notes.puppet.PuppetHostedField
+import com.futo.notes.puppet.puppetHostedField
+import com.futo.notes.puppet.puppetSection
 import com.futo.notes.ui.theme.FutoTheme
 import com.futo.notes.ui.theme.FutoType
 
@@ -99,11 +103,13 @@ internal fun FindInNoteBar(
     val localization = LocalLocalization.current
     val queryHint = localization.localizedText("editor.find.queryHint")
     val queryLabel = localization.localizedText("editor.find.queryLabel")
+    val queryField = remember { arrayOfNulls<FindQueryEditText>(1) }
 
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .background(c.surface),
+            .background(c.surface)
+            .puppetSection("bottom bar"),
     ) {
         HorizontalDivider(thickness = 0.5.dp, color = c.border)
         Row(
@@ -116,6 +122,7 @@ internal fun FindInNoteBar(
             AndroidView(
                 factory = {
                     FindQueryEditText(context).apply {
+                        queryField[0] = this
                         background = null
                         hint = queryHint
                         contentDescription = queryLabel
@@ -153,7 +160,12 @@ internal fun FindInNoteBar(
                 },
                 modifier = Modifier
                     .height(55.dp)
-                    .weight(1f),
+                    .weight(1f)
+                    .puppetHostedField {
+                        queryField[0]?.let {
+                            PuppetHostedField(it.text.toString(), it.contentDescription?.toString(), it.isFocused)
+                        }
+                    },
             )
 
             Text(

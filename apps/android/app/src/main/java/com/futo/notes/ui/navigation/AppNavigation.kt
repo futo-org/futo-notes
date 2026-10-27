@@ -11,8 +11,11 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.ui.unit.IntOffset
 import com.futo.notes.ui.NoteListState
@@ -92,9 +95,20 @@ internal class AppNavigator internal constructor(
     internal val canGoBack: Boolean
         get() = stack.size > 1
 
+    /** Every screen on the stack, root first. */
+    internal val entries: List<Screen>
+        get() = stack.toList()
+
     /** The folder whose contents are showing, or null on a non-folder screen. */
     internal val currentFolder: String?
         get() = (currentScreen as? Screen.Folder)?.path
+
+    /**
+     * The Search screen's field. Owned here, not in the screen's `remember`, so
+     * the debug puppet listener reads and drives the same text the user types
+     * (PuppetServer.kt), as iOS's `AppNavigation.searchQuery` does.
+     */
+    var searchQuery by mutableStateOf("")
 
     fun openFolder(path: String) {
         require(path.isNotEmpty()) { "The root folder is the stack floor, not a push target" }
@@ -114,6 +128,8 @@ internal class AppNavigator internal constructor(
     }
 
     fun openSearch() {
+        // A fresh field every time, as the screen-local state it replaced gave.
+        searchQuery = ""
         stack.add(Screen.Search)
     }
 

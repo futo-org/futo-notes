@@ -25,12 +25,18 @@ import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import com.futo.notes.puppet.PuppetVerb
+import com.futo.notes.puppet.PuppetVerbRefusal
+import com.futo.notes.puppet.PuppetVerbScope
 import com.futo.notes.localization.LocalLocalization
 import com.futo.notes.sync.hosted.VaultPasswordStrength
 import com.futo.notes.sync.hosted.vaultPasswordStrength
 import com.futo.notes.ui.theme.FutoRadius
 import com.futo.notes.ui.theme.FutoTheme
 import com.futo.notes.ui.theme.FutoType
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.launch
+import org.json.JSONObject
 
 /**
  * Which of the two vault-password screens this is: the wizard's "choose one",
@@ -60,13 +66,68 @@ fun ColumnScope.VaultPasswordStep(
     purpose: VaultPasswordPurpose,
     minimumLength: Int,
     busy: Boolean,
-    onCancel: (() -> Unit)? = null,
-    onSubmit: (String) -> Unit,
+    /** Runs the taps: the section's scope, because a step's own work ends the step. */
+    scope: CoroutineScope,
+    onCancel: (suspend () -> Unit)? = null,
+    onSubmit: suspend (String) -> Unit,
 ) {
     val c = FutoTheme.colors
     val localization = LocalLocalization.current
     var password by remember { mutableStateOf("") }
     var repeated by remember { mutableStateOf("") }
+
+    // Both fields are the button's arguments, typed in as a person would, so a short or
+    // mismatched password is left on screen the way the disabled button leaves it.
+    PuppetVerbScope {
+        val typeAndSubmit: suspend (JSONObject) -> Unit = { arguments ->
+            password = arguments.getString("vaultPassword")
+            repeated = arguments.optString("repeat").ifEmpty { password }
+            refuseWhileBusy(busy)
+            if (password.codePointCount(0, password.length) < minimumLength) {
+                throw PuppetVerbRefusal(409, "a vault password needs $minimumLength characters")
+            }
+            if (repeated != password) throw PuppetVerbRefusal(409, "the repeat does not match")
+            onSubmit(password)
+        }
+        buildList {
+            if (purpose == VaultPasswordPurpose.CREATE) {
+                add(
+                    PuppetVerb(
+                        "CreateVault",
+                        required = listOf("vaultPassword"),
+                        optional = listOf("repeat"),
+                        controls = listOf(
+                            "sync.hosted.vaultPassword.label",
+                            "sync.hosted.vaultPassword.repeatLabel",
+                            "sync.working",
+                        ),
+                        run = typeAndSubmit,
+                    ),
+                )
+            } else {
+                add(
+                    PuppetVerb(
+                        "ChangeVaultPassword",
+                        required = listOf("vaultPassword"),
+                        optional = listOf("repeat"),
+                        controls = listOf(
+                            "sync.hosted.vaultPassword.label",
+                            "sync.hosted.vaultPassword.repeatLabel",
+                            "sync.working",
+                        ),
+                        run = typeAndSubmit,
+                    ),
+                )
+            }
+            onCancel?.let { cancel ->
+                add(
+                    PuppetVerb("CancelVaultPasswordChange", controls = listOf("sync.hosted.cancel")) {
+                        cancel()
+                    },
+                )
+            }
+        }
+    }
 
     val strength = vaultPasswordStrength(password, minimumLength)
     val strengthLabel = if (strength == VaultPasswordStrength.TOO_SHORT) {
@@ -154,7 +215,7 @@ fun ColumnScope.VaultPasswordStep(
             contentColor = Color.White,
         ),
         shape = RoundedCornerShape(FutoRadius.md),
-        onClick = { onSubmit(password) },
+        onClick = { scope.launch { onSubmit(password) } },
     ) {
         Text(
             if (busy) {
@@ -169,7 +230,7 @@ fun ColumnScope.VaultPasswordStep(
 
     // Only the change screen offers a way back; the wizard has none.
     if (onCancel != null) {
-        TextButton(onClick = onCancel) {
+        TextButton(onClick = { scope.launch { onCancel() } }) {
             Text(localization.localizedText("sync.hosted.cancel"), color = c.textSecondary)
         }
     }

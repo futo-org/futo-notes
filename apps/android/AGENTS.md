@@ -148,10 +148,10 @@ read the list there, not from a copy here that would rot.
 
 ## Source sets
 
-| Set | Contents |
-| --- | --- |
-| `app/src/main` | the app |
-| `app/src/debug` | debug-only surfaces — currently `testhook/` |
+| Set               | Contents                                                 |
+| ----------------- | -------------------------------------------------------- |
+| `app/src/main`    | the app                                                  |
+| `app/src/debug`   | debug-only surfaces — `testhook/` and `puppet/`          |
 | `app/src/release` | no-op stand-ins for debug-only surfaces, at the same FQN |
 | `app/src/test` | JVM unit tests; compiled against `main + debug + the flavor` |
 | `app/src/androidTest` | Compose instrumentation tests (`just test-android-native-ui`, CI's emulator job) |
@@ -270,8 +270,8 @@ the other.
 - **Programmatic-looking input lies.** An unfocused emulator throttles Compose
   frames, so `adb screencap` can show stale UI; verify via disk, logcat, or the
   `state` hook (M21). A programmatic DOM `click()` inside the editor WebView does
-  not fire Svelte 5 handlers — tap at CSS-rect-center × devicePixelRatio with
-  `adb input tap`.
+  not fire Svelte 5 handlers — run the control's verb (`just puppet do …`), or
+  `just puppet tap '{"ref":"e12"}'` for a real touch.
 - **Dialogs and menus render in separate windows**, so a node can be absent from
   a dump taken too early.
 - **`run-as … ls files` hides dotfiles**, including the storage-migration journal
@@ -297,9 +297,35 @@ Emulator/device QA of the changed flow is required. Respect `$ANDROID_SERIAL`
 (from `just qa-claim android`) and never touch a device you did not claim; the
 full playbook is the `/verify` skill's `references/android.md`.
 
-`just emu-logs` gives tag-scoped logcat. For the editor WebView, `just cdp-forward`
-then `node scripts/cdp-invoke.mjs "document.title"` — debug builds only, and
-re-run the forward after every app restart because the WebView pid changes. The
-emulator reaches host services (a local sync server) via `10.0.2.2`.
+**Act on and read the running app with `FUTO_PUPPET_TARGET=android just puppet`**
+before reaching for an accessibility dump. `app/src/debug/java/com/futo/notes/puppet/`
+answers the same wire the iOS listener does: every editor verb and inspect query
+is forwarded to the WebView's own inspector, the navigation verbs call the navigator
+the UI calls, and `tap`/`drag` aim `adb shell input` at a CSS pixel through the
+WebView's box in `/tree`. The native screens are read through `/tree`: the merged Compose semantics of
+every window, in device pixels, cut to what a tap can reach — a row under the top bar
+or the keyboard is not on it. Each node names its `section` in the words iOS uses
+(`top bar`, `list`, `bottom bar`, `keyboard toolbar`, `scroll`, `content`, prefixed
+`dialog · ` or `sheet · `, or just `menu`), placed from the tree's shape; a bar no list
+can place declares itself with `Modifier.puppetSection(…)`
+(`app/src/main/java/com/futo/notes/puppet/PuppetSection.kt`). Each scrolling container
+says which ways it scrolls, and a list of rows which rows are on screen of how many
+(`scroll`). A list row's test tag (`note:<id>`, `folder:<path>`) is
+its name there, and `OpenNote`/`OpenFolder`/`Open…ContextMenu` take only a row of the list
+on screen, as a tap or a hold does (`app/src/main/java/com/futo/notes/puppet/ListRows.kt`).
+A screen's own controls (the title field, New note, a row's menu, the ⋯ menu, a dialog or
+sheet) are verbs it registers with `PuppetVerbScope { … }` beside the handlers, calling the
+same function the tap does; an open menu, dialog or sheet registers `modal = true`, so its
+items are all that is offered while it is up. A flow's shortcut (`RenameFolder {name?}`
+standing for `SetNewName`, then `SubmitRename`) is a `shortcuts` argument on the verb that
+starts it, which the CLI expands; `run` never sees it.
+`just check-puppet-verbs` fails a Compose control with no verb.
+The CLI opens its own `adb forward` to this worktree's claimed emulator whenever it is gone.
 
-The native shell never evaluates JavaScript to learn the document. It reads its per-note mailbox; only a behind mailbox requests a bounded `flush`.
+`just emu-logs` gives tag-scoped logcat (the listener logs under `FutoPuppet`). For
+the editor WebView, `just cdp-forward` then `node scripts/cdp-invoke.mjs "document.title"` —
+debug builds only, and re-run the forward after every app restart because the
+WebView pid changes. The emulator reaches host services (a local sync server) via
+`10.0.2.2`.
+
+Outside the debug listener, the native shell never evaluates JavaScript to learn the document. It reads its per-note mailbox; only a behind mailbox requests a bounded `flush`.

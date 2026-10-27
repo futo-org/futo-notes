@@ -92,6 +92,23 @@ class EditorSessionDeleteTest {
     }
 
     @Test
+    fun `end hands back the delete it started, and nothing for one it refused`() = runBlocking {
+        val scope = scope()
+        val session = EditorSession(scope)
+        val hold = CompletableDeferred<Unit>()
+        val log = mutableListOf<String>()
+        val effects = RecordingEffects(log, name = "delete")
+        scope.launch { session.runWork { hold.await() } }
+
+        val delete = session.end(EditorExit.DELETE, effects)
+        assertNull(session.end(EditorExit.DELETE, RecordingEffects(log, name = "again")))
+
+        hold.complete(Unit)
+        delete!!.join()
+        assertTrue(effects.succeeded)
+    }
+
+    @Test
     fun `a failed delete unlatches so the editor is usable again`() = runBlocking {
         val scope = scope()
         val session = EditorSession(scope)

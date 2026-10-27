@@ -24,10 +24,15 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
+import com.futo.notes.puppet.PuppetVerb
+import com.futo.notes.puppet.PuppetVerbRefusal
+import com.futo.notes.puppet.PuppetVerbScope
 import com.futo.notes.localization.LocalLocalization
 import com.futo.notes.ui.theme.FutoRadius
 import com.futo.notes.ui.theme.FutoTheme
 import com.futo.notes.ui.theme.FutoType
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.launch
 
 /**
  * The recovery key, shown exactly once.
@@ -52,10 +57,38 @@ fun ColumnScope.RecoveryKeyStep(
     onSavedChange: (Boolean) -> Unit,
     onCopy: () -> Unit,
     onShare: () -> Unit,
-    onContinue: () -> Unit,
+    onContinue: suspend () -> Unit,
+    /** Runs the taps: the section's scope, because a step's own work ends the step. */
+    scope: CoroutineScope,
 ) {
     val c = FutoTheme.colors
     val localization = LocalLocalization.current
+
+    PuppetVerbScope {
+        listOf(
+            PuppetVerb("CopyRecoveryKey", controls = listOf("sync.hosted.recoveryKey.copy")) {
+                refuseWhileBusy(busy)
+                onCopy()
+            },
+            PuppetVerb("ShareRecoveryKey", controls = listOf("sync.hosted.recoveryKey.share")) {
+                refuseWhileBusy(busy)
+                onShare()
+            },
+            PuppetVerb(
+                "SetRecoveryKeySaved",
+                required = listOf("saved"),
+                booleans = listOf("saved"),
+            ) { arguments ->
+                onSavedChange(arguments.getBoolean("saved"))
+                mapOf("saved" to arguments.getBoolean("saved"))
+            },
+            PuppetVerb("ContinueRecoveryKey", controls = listOf("sync.hosted.recoveryKey.continue")) {
+                if (!saved) throw PuppetVerbRefusal(409, "tick SetRecoveryKeySaved first")
+                refuseWhileBusy(busy)
+                onContinue()
+            },
+        )
+    }
 
     HostedStepHeader(
         title = "sync.hosted.recoveryKey.title",
@@ -143,7 +176,7 @@ fun ColumnScope.RecoveryKeyStep(
             contentColor = Color.White,
         ),
         shape = RoundedCornerShape(FutoRadius.md),
-        onClick = onContinue,
+        onClick = { scope.launch { onContinue() } },
     ) {
         Text(localization.localizedText("sync.hosted.recoveryKey.continue"))
     }
