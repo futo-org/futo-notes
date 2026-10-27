@@ -1,0 +1,13 @@
+--- a/AGENTS.md	2026-10-05 19:59:46
++++ b/AGENTS.md	2026-10-05 19:59:46
+@@ -25,6 +25,10 @@
+ Use `just` from the repo root (`just install`, `just tauri-dev`, `just check`). The justfile owns
+ commands, overlays, dev IDs, worktree isolation, and device detection. Never call `cargo tauri`.
+ `just tauri-dev` is desktop dev: Wayland, port 5180.
++
++**A bug report, "fix this" or "does X work" starts in the running app**: reproduce it with
++`just puppet` (load the `puppet` skill) before reading source, and check the fix there too
++(§9). A passing unit test is not a reproduction.
+ 
+ ## 2. CRITICAL — mobile is native, not Tauri
+ 

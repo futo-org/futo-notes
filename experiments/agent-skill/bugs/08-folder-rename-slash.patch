@@ -1,0 +1,149 @@
+diff --git a/src/features/folders/folderOperations.test.ts b/src/features/folders/folderOperations.test.ts
+index 8a748f9a..38789450 100644
+--- a/src/features/folders/folderOperations.test.ts
++++ b/src/features/folders/folderOperations.test.ts
+@@ -27,7 +27,6 @@ vi.mock('./folderExpansion.svelte', () => ({
+ import {
+   createFolder,
+   moveFolder,
+-  renameFolderInPlace,
+   renameOrMoveFolder,
+ } from './folderOperations';
+ 
+@@ -87,74 +86,6 @@ describe('moveFolder', () => {
+   });
+ });
+ 
+-describe('renameFolderInPlace', () => {
+-  beforeEach(() => {
+-    vi.clearAllMocks();
+-  });
+-
+-  // Regression: the inline rename used to splice the typed text straight into
+-  // the destination PATH, so "a/b" quietly MOVED the folder into a brand-new
+-  // "a" — both components being individually legal — instead of reporting the
+-  // separator as an illegal character in a name.
+-  it('rejects a path separator in the new name instead of nesting the folder', async () => {
+-    const result = await renameFolderInPlace('Work', 'a/b', []);
+-
+-    expect(result).toEqual({
+-      ok: false,
+-      error: { path: 'folders.validation.forbiddenCharacter' },
+-    });
+-    expect(mocks.renameFolder).not.toHaveBeenCalled();
+-  });
+-
+-  // Same root cause: an empty name collapsed the destination path to the
+-  // parent, so the store was asked to rename the folder onto its own parent.
+-  it('rejects an empty name instead of renaming the folder onto its parent', async () => {
+-    const result = await renameFolderInPlace('Projects/Work', '   ', []);
+-
+-    expect(result).toEqual({ ok: false, error: { path: 'folders.validation.empty' } });
+-    expect(mocks.renameFolder).not.toHaveBeenCalled();
+-  });
+-
+-  it('reports a forbidden character against a folder, not a note title', async () => {
+-    await expect(renameFolderInPlace('Work', 'a:b', [])).resolves.toEqual({
+-      ok: false,
+-      error: { path: 'folders.validation.forbiddenCharacter' },
+-    });
+-  });
+-
+-  it('rejects a case-insensitive sibling collision', async () => {
+-    await expect(renameFolderInPlace('Work', 'archive', ['Archive'])).resolves.toEqual({
+-      ok: false,
+-      error: { path: 'folders.duplicateName' },
+-    });
+-    expect(mocks.renameFolder).not.toHaveBeenCalled();
+-  });
+-
+-  it('is a no-op when the name is unchanged', async () => {
+-    await expect(renameFolderInPlace('Projects/Work', 'Work', [])).resolves.toEqual({ ok: true });
+-    expect(mocks.renameFolder).not.toHaveBeenCalled();
+-  });
+-
+-  it('renames within the current parent when the name is legal', async () => {
+-    const mutation = {
+-      removed: [],
+-      upserted: [],
+-      renamed: [{ from: 'Projects/Work/Note', to: 'Projects/Archive/Note' }],
+-      folders: ['Projects', 'Projects/Archive'],
+-      finalId: null,
+-      finalFolder: 'Projects/Archive',
+-      warnings: [],
+-    };
+-    mocks.renameFolder.mockResolvedValue(mutation);
+-
+-    const result = await renameFolderInPlace('Projects/Work', ' Archive ', []);
+-
+-    expect(mocks.renameFolder).toHaveBeenCalledWith('Projects/Work', 'Projects/Archive');
+-    expect(result.ok).toBe(true);
+-    expect(result.finalFolder).toBe('Projects/Archive');
+-  });
+-});
+-
+ describe('createFolder', () => {
+   beforeEach(() => {
+     vi.clearAllMocks();
+diff --git a/src/features/folders/folderOperations.ts b/src/features/folders/folderOperations.ts
+index 675d7764..3eed23cb 100644
+--- a/src/features/folders/folderOperations.ts
++++ b/src/features/folders/folderOperations.ts
+@@ -163,36 +163,6 @@ export async function renameOrMoveFolder(
+   }
+ }
+ 
+-/**
+- * Rename a folder to a new NAME inside its current parent.
+- *
+- * Distinct from `renameOrMoveFolder`, which takes a destination PATH: a name
+- * typed into the inline rename field is a single path component, so `a/b` is an
+- * illegal name — not an instruction to move the folder into a new `a`. Splicing
+- * the typed text into the destination path is exactly how that used to happen
+- * silently.
+- */
+-export async function renameFolderInPlace(
+-  path: string,
+-  newName: string,
+-  siblings: Iterable<string>,
+-): Promise<{
+-  ok: boolean;
+-  error?: LocalizedMessage;
+-  renames?: LocalNoteRename[];
+-  finalFolder?: string;
+-}> {
+-  const parent = idParent(path);
+-  const trimmed = newName.trim();
+-  if (trimmed === idLeaf(path)) return { ok: true };
+-
+-  const siblingList = [...siblings];
+-  const error = validateNewFolderName(parent, trimmed, siblingList);
+-  if (error) return { ok: false, error };
+-
+-  return renameOrMoveFolder(path, parent ? `${parent}/${trimmed}` : trimmed, siblingList);
+-}
+-
+ export async function moveFolder(
+   fromPath: string,
+   destinationParent: string,
+diff --git a/src/features/sidebar/sidebarFolderMutations.ts b/src/features/sidebar/sidebarFolderMutations.ts
+index 475c3918..bd97b6f2 100644
+--- a/src/features/sidebar/sidebarFolderMutations.ts
++++ b/src/features/sidebar/sidebarFolderMutations.ts
+@@ -1,6 +1,6 @@
+ import { clearDragHoverExpanded } from '$features/folders/folderExpansion.svelte';
+ import { getEmptyFolders } from '$features/folders/emptyFolders.svelte';
+-import { deleteFolder, moveFolder, renameFolderInPlace } from '$features/folders/folderOperations';
++import { deleteFolder, moveFolder, renameOrMoveFolder } from '$features/folders/folderOperations';
+ import {
+   folderDeleteConfirmation,
+   noteDeleteIsPermanent,
+@@ -80,7 +80,7 @@ export async function renameSidebarFolder(
+   const parent = idParent(path);
+   const siblings = collectSiblingFolders(parent).filter((name) => name !== idLeaf(path));
+   return runWithActiveNoteLockIfInFolder(path, options, async () => {
+-    const result = await renameFolderInPlace(path, newName, siblings);
++    const result = await renameOrMoveFolder(path, parent ? `${parent}/${newName}` : newName, siblings);
+     if (!result.ok) return result.error ?? { path: 'folders.errors.renameFailed' };
+     options.onNoteIdsRenamed(result.renames ?? []);
+     retargetActiveNote(result.renames, options);

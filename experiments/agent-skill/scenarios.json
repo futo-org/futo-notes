@@ -1,0 +1,51 @@
+[
+ {
+  "id": "table-band-click",
+  "sha": "7f392d7e",
+  "platform": "desktop",
+  "grader": "overlap",
+  "symptom": "In a note that starts with a table — the table is the very first thing in the note, nothing above it — clicking the thin strip along the top edge of the table does nothing at all. Every other click on the table works. If I put a line of text above the table first, that same strip works fine."
+ },
+ {
+  "id": "find-decorations-linger",
+  "sha": "c19ded77",
+  "platform": "desktop",
+  "grader": "test",
+  "symptom": "I open find, type something to search for, and the matches get highlighted like they should. Then I clear the search box so it's empty, and the highlights are still sitting there on the text. I have to close find entirely to get rid of them."
+ },
+ {
+  "id": "language-dropdown-reopens",
+  "sha": "d735775d",
+  "platform": "desktop",
+  "grader": "test",
+  "symptom": "In Settings, I open the language dropdown and then click the same button again to close it. It flickers and stays open. I can only get rid of it by clicking somewhere else on the page. My coworker on Windows says it closes fine for her; I'm on a Mac."
+ },
+ {
+  "id": "sidebar-grabbing-hand",
+  "sha": "68f34d2e",
+  "platform": "desktop",
+  "grader": "overlap",
+  "symptom": "When I press and hold on a note in the sidebar, the mouse pointer sometimes turns into the little grabbing hand and sometimes stays a normal arrow. It seems random. Nothing else in the app does that."
+ },
+ {
+  "id": "external-renumber",
+  "sha": "773b6498",
+  "platform": "desktop",
+  "grader": "test",
+  "symptom": "I keep my shopping list numbered \"1.\" on every line on purpose, so I can paste lines around without renumbering. It stays that way while I type. But if I leave the note open on my laptop and edit it on my other machine, when the change comes across the list gets rewritten to 1. 2. 3. and then that renumbered version syncs back and wins. I lose the formatting on both machines."
+ },
+ {
+  "id": "word-count",
+  "kind": "feature",
+  "platform": "desktop",
+  "request": "I'd like to see how many words are in the note I'm editing. Show a live word count for the open note somewhere unobtrusive in the editor, and keep it up to date as I type.",
+  "check": "open a known note; the count shown equals the note's real word count; typing a word raises it by one"
+ },
+ {
+  "id": "folder-counts",
+  "kind": "feature",
+  "platform": "desktop",
+  "request": "In the sidebar, show how many notes are in each folder next to the folder's name, so I can see at a glance which folders are big.",
+  "check": "each folder row shows the number of notes directly inside it (or including subfolders — either, if stated); counts change when a note is moved or created"
+ }
+]

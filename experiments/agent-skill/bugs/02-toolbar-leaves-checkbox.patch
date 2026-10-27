@@ -1,0 +1,446 @@
+diff --git a/src/features/editor/toolbar/blockFormatting.test.ts b/src/features/editor/toolbar/blockFormatting.test.ts
+deleted file mode 100644
+index b30235dd..00000000
+--- a/src/features/editor/toolbar/blockFormatting.test.ts
++++ /dev/null
+@@ -1,172 +0,0 @@
+-// @vitest-environment jsdom
+-import { afterEach, describe, expect, it } from 'vitest';
+-import { EditorView } from '@codemirror/view';
+-
+-import {
+-  cycleHeading,
+-  isListLine,
+-  parseLine,
+-  serializeLine,
+-  toggleBlockquote,
+-  toggleBulletList,
+-  toggleOrderedList,
+-  toggleTaskList,
+-} from './blockFormatting';
+-
+-const views: EditorView[] = [];
+-
+-afterEach(() => {
+-  for (const view of views) view.destroy();
+-  views.length = 0;
+-});
+-
+-function setup(
+-  doc: string,
+-  selection: { anchor: number; head?: number } = { anchor: 0 },
+-): EditorView {
+-  const view = new EditorView({ doc, selection, parent: document.body });
+-  views.push(view);
+-  return view;
+-}
+-
+-function applyCommand(
+-  text: string,
+-  command: (view: EditorView) => void,
+-  selection: { anchor: number; head?: number } = { anchor: 0 },
+-): string {
+-  const view = setup(text, selection);
+-  command(view);
+-  return view.state.doc.toString();
+-}
+-
+-describe('block formatting transitions', () => {
+-  it('converts a task to a bullet without retaining checkbox syntax', () => {
+-    expect(applyCommand('- [ ] foo', toggleBulletList)).toBe('- foo');
+-  });
+-
+-  it.each(['- [x] foo', '- [X] foo'])('drops checked task syntax when converting %s', (task) => {
+-    expect(applyCommand(task, toggleBulletList)).toBe('- foo');
+-  });
+-
+-  it('converts a task to an ordered item without retaining checkbox syntax', () => {
+-    expect(applyCommand('- [ ] foo', toggleOrderedList)).toBe('1. foo');
+-  });
+-
+-  it('converts a task to a heading without retaining checkbox syntax', () => {
+-    expect(applyCommand('- [ ] foo', cycleHeading)).toBe('# foo');
+-  });
+-
+-  it('preserves indentation while removing a bullet', () => {
+-    expect(applyCommand('  - foo', toggleBulletList)).toBe('  foo');
+-  });
+-
+-  const starts = {
+-    none: '  foo',
+-    bullet: '  - foo',
+-    ordered: '  7. foo',
+-    task: '  - [ ] foo',
+-    heading: '  # foo',
+-    quote: '  > foo',
+-  } as const;
+-
+-  const transitions = {
+-    bullet: {
+-      command: toggleBulletList,
+-      expected: ['  - foo', '  foo', '  - foo', '  - foo', '  - foo', '  - foo'],
+-    },
+-    ordered: {
+-      command: toggleOrderedList,
+-      expected: ['  1. foo', '  1. foo', '  foo', '  1. foo', '  1. foo', '  1. foo'],
+-    },
+-    task: {
+-      command: toggleTaskList,
+-      expected: [
+-        '  - [ ] foo',
+-        '  - [ ] foo',
+-        '  - [ ] foo',
+-        '  foo',
+-        '  - [ ] foo',
+-        '  - [ ] foo',
+-      ],
+-    },
+-    heading: {
+-      command: cycleHeading,
+-      expected: ['  # foo', '  # foo', '  # foo', '  # foo', '  ## foo', '  # foo'],
+-    },
+-    quote: {
+-      command: toggleBlockquote,
+-      expected: ['  > foo', '  > foo', '  > foo', '  > foo', '  > foo', '  foo'],
+-    },
+-  } as const;
+-
+-  for (const [commandName, transition] of Object.entries(transitions)) {
+-    it(`canonicalizes every starting kind when applying ${commandName}`, () => {
+-      Object.values(starts).forEach((start, index) => {
+-        expect(applyCommand(start, transition.command)).toBe(transition.expected[index]);
+-      });
+-    });
+-  }
+-
+-  it.each([
+-    ['bullet', toggleBulletList, '- foo'],
+-    ['ordered', toggleOrderedList, '1. foo'],
+-    ['task', toggleTaskList, '- [ ] foo'],
+-    ['quote', toggleBlockquote, '> foo'],
+-  ] as const)('returns a bare line after toggling %s on and off', (_name, command, once) => {
+-    const view = setup('foo');
+-
+-    command(view);
+-    expect(view.state.doc.toString()).toBe(once);
+-    command(view);
+-    expect(view.state.doc.toString()).toBe('foo');
+-  });
+-
+-  it('cycles a heading through h1, h2, h3, and none', () => {
+-    const view = setup('foo');
+-
+-    for (const expected of ['# foo', '## foo', '### foo', 'foo']) {
+-      cycleHeading(view);
+-      expect(view.state.doc.toString()).toBe(expected);
+-    }
+-  });
+-
+-  it('applies transitions independently to every selected line', () => {
+-    const text = '- one\n- [ ] two\nplain';
+-
+-    expect(applyCommand(text, toggleBulletList, { anchor: 0, head: text.length })).toBe(
+-      'one\n- two\n- plain',
+-    );
+-  });
+-});
+-
+-describe('line parsing and serialization', () => {
+-  it('recognizes a task before the overlapping bullet prefix', () => {
+-    expect(parseLine('  - [x] done')).toEqual({
+-      indent: '  ',
+-      lineKind: { kind: 'task', checked: true },
+-      content: 'done',
+-    });
+-  });
+-
+-  it.each([
+-    '',
+-    'foo',
+-    '  foo',
+-    '- foo',
+-    '\t12. item',
+-    '- [ ] task',
+-    '- [x] done',
+-    '### heading',
+-    '> quote',
+-  ])('round-trips %j', (text) => {
+-    expect(serializeLine(parseLine(text))).toBe(text);
+-  });
+-
+-  it.each(['- item', '  3. item', '\t- [X] done'])('identifies indented list line %j', (text) => {
+-    expect(isListLine(text)).toBe(true);
+-  });
+-
+-  it.each(['plain', '  # heading', '> quote'])('rejects non-list line %j', (text) => {
+-    expect(isListLine(text)).toBe(false);
+-  });
+-});
+diff --git a/src/features/editor/toolbar/blockFormatting.ts b/src/features/editor/toolbar/blockFormatting.ts
+index d00fcbca..8a2df7f2 100644
+--- a/src/features/editor/toolbar/blockFormatting.ts
++++ b/src/features/editor/toolbar/blockFormatting.ts
+@@ -1,137 +1,22 @@
+ import type { EditorView } from '@codemirror/view';
+ 
+-export type LineKind =
+-  | { kind: 'none' }
+-  | { kind: 'bullet' }
+-  | { kind: 'ordered'; n: number }
+-  | { kind: 'task'; checked: boolean }
+-  | { kind: 'heading'; level: number }
+-  | { kind: 'quote' };
+-
+-export interface ParsedLine {
+-  indent: string;
+-  lineKind: LineKind;
+-  content: string;
+-}
+-
+-type BlockCommand = 'bullet' | 'ordered' | 'task' | 'heading' | 'quote';
+-
+-const INDENT_RE = /^[\t ]*/;
+-const TASK_RE = /^- \[([ xX])\] /;
+ const BULLET_RE = /^- /;
+-const ORDERED_RE = /^(\d+)\. /;
++const ORDERED_RE = /^\d+\. /;
++const TASK_RE = /^- \[([ x])\] /;
+ const HEADING_RE = /^(#{1,3}) /;
+ const QUOTE_RE = /^> /;
+-
+-export function parseLine(text: string): ParsedLine {
+-  const indent = text.match(INDENT_RE)?.[0] ?? '';
+-  const remainder = text.slice(indent.length);
+-
+-  const task = remainder.match(TASK_RE);
+-  if (task) {
+-    return {
+-      indent,
+-      lineKind: { kind: 'task', checked: task[1] !== ' ' },
+-      content: remainder.slice(task[0].length),
+-    };
+-  }
+-
+-  const bullet = remainder.match(BULLET_RE);
+-  if (bullet) {
+-    return {
+-      indent,
+-      lineKind: { kind: 'bullet' },
+-      content: remainder.slice(bullet[0].length),
+-    };
+-  }
+-
+-  const ordered = remainder.match(ORDERED_RE);
+-  if (ordered) {
+-    return {
+-      indent,
+-      lineKind: { kind: 'ordered', n: Number.parseInt(ordered[1], 10) },
+-      content: remainder.slice(ordered[0].length),
+-    };
+-  }
+-
+-  const heading = remainder.match(HEADING_RE);
+-  if (heading) {
+-    return {
+-      indent,
+-      lineKind: { kind: 'heading', level: heading[1].length },
+-      content: remainder.slice(heading[0].length),
+-    };
+-  }
+-
+-  const quote = remainder.match(QUOTE_RE);
+-  if (quote) {
+-    return {
+-      indent,
+-      lineKind: { kind: 'quote' },
+-      content: remainder.slice(quote[0].length),
+-    };
+-  }
+-
+-  return { indent, lineKind: { kind: 'none' }, content: remainder };
+-}
+-
+-function serializeLineKind(lineKind: LineKind): string {
+-  let prefix: string;
+-
+-  switch (lineKind.kind) {
+-    case 'none':
+-      prefix = '';
+-      break;
+-    case 'bullet':
+-      prefix = '- ';
+-      break;
+-    case 'ordered':
+-      prefix = `${lineKind.n}. `;
+-      break;
+-    case 'task':
+-      prefix = lineKind.checked ? '- [x] ' : '- [ ] ';
+-      break;
+-    case 'heading':
+-      prefix = `${'#'.repeat(lineKind.level)} `;
+-      break;
+-    case 'quote':
+-      prefix = '> ';
+-      break;
+-  }
+-
+-  return prefix;
+-}
+-
+-export function serializeLine({ indent, lineKind, content }: ParsedLine): string {
+-  return `${indent}${serializeLineKind(lineKind)}${content}`;
+-}
++const ALL_LINE_PREFIXES = [BULLET_RE, ORDERED_RE, TASK_RE, HEADING_RE, QUOTE_RE];
+ 
+ export function isListLine(text: string): boolean {
+-  const kind = parseLine(text).lineKind.kind;
+-  return kind === 'bullet' || kind === 'ordered' || kind === 'task';
+-}
+-
+-function transitionLineKind(current: LineKind, command: BlockCommand): LineKind {
+-  switch (command) {
+-    case 'bullet':
+-      return current.kind === 'bullet' ? { kind: 'none' } : { kind: 'bullet' };
+-    case 'ordered':
+-      return current.kind === 'ordered' ? { kind: 'none' } : { kind: 'ordered', n: 1 };
+-    case 'task':
+-      return current.kind === 'task' ? { kind: 'none' } : { kind: 'task', checked: false };
+-    case 'heading':
+-      if (current.kind !== 'heading') return { kind: 'heading', level: 1 };
+-      return current.level < 3 ? { kind: 'heading', level: current.level + 1 } : { kind: 'none' };
+-    case 'quote':
+-      return current.kind === 'quote' ? { kind: 'none' } : { kind: 'quote' };
+-  }
++  const trimmed = text.trimStart();
++  return BULLET_RE.test(trimmed) || ORDERED_RE.test(trimmed) || TASK_RE.test(trimmed);
+ }
+ 
+-function prefixLength(parsed: ParsedLine): number {
+-  return serializeLineKind(parsed.lineKind).length;
+-}
+-
+-function applyBlockCommand(view: EditorView, command: BlockCommand): void {
++function toggleLinePrefix(
++  view: EditorView,
++  prefix: string,
++  matchPrefix: (lineText: string) => RegExpMatchArray | null,
++): void {
+   const { state } = view;
+   const { from, to } = state.selection.main;
+   const startLine = state.doc.lineAt(from);
+@@ -141,13 +26,20 @@ function applyBlockCommand(view: EditorView, command: BlockCommand): void {
+ 
+   for (let lineNumber = startLine.number; lineNumber <= endLine.number; lineNumber++) {
+     const line = state.doc.line(lineNumber);
+-    const parsed = parseLine(line.text);
+-    const rewritten = { ...parsed, lineKind: transitionLineKind(parsed.lineKind, command) };
+-    const nextText = serializeLine(rewritten);
++    const match = matchPrefix(line.text);
++    if (match) {
++      changes.push({ from: line.from, to: line.from + match[0].length, insert: '' });
++      if (lineNumber === startLine.number) selectionDelta = -match[0].length;
++      continue;
++    }
+ 
+-    changes.push({ from: line.from, to: line.to, insert: nextText });
+-    if (lineNumber === startLine.number) {
+-      selectionDelta = prefixLength(rewritten) - prefixLength(parsed);
++    const otherMatch = ALL_LINE_PREFIXES.map((pattern) => line.text.match(pattern)).find(Boolean);
++    if (otherMatch) {
++      changes.push({ from: line.from, to: line.from + otherMatch[0].length, insert: prefix });
++      if (lineNumber === startLine.number) selectionDelta = prefix.length - otherMatch[0].length;
++    } else {
++      changes.push({ from: line.from, to: line.from, insert: prefix });
++      if (lineNumber === startLine.number) selectionDelta = prefix.length;
+     }
+   }
+ 
+@@ -159,21 +51,56 @@ function applyBlockCommand(view: EditorView, command: BlockCommand): void {
+ }
+ 
+ export function toggleBulletList(view: EditorView): void {
+-  applyBlockCommand(view, 'bullet');
++  toggleLinePrefix(view, '- ', (text) => text.match(BULLET_RE));
+ }
+ 
+ export function toggleOrderedList(view: EditorView): void {
+-  applyBlockCommand(view, 'ordered');
++  toggleLinePrefix(view, '1. ', (text) => text.match(ORDERED_RE));
+ }
+ 
+ export function toggleTaskList(view: EditorView): void {
+-  applyBlockCommand(view, 'task');
++  toggleLinePrefix(view, '- [ ] ', (text) => text.match(TASK_RE));
+ }
+ 
+ export function cycleHeading(view: EditorView): void {
+-  applyBlockCommand(view, 'heading');
++  const { state } = view;
++  const { from } = state.selection.main;
++  const line = state.doc.lineAt(from);
++  const headingMatch = line.text.match(HEADING_RE);
++
++  if (headingMatch) {
++    const level = headingMatch[1].length;
++    if (level < 3) {
++      const prefix = `${'#'.repeat(level + 1)} `;
++      view.dispatch({
++        changes: { from: line.from, to: line.from + headingMatch[0].length, insert: prefix },
++        selection: { anchor: from + prefix.length - headingMatch[0].length },
++      });
++    } else {
++      view.dispatch({
++        changes: { from: line.from, to: line.from + headingMatch[0].length, insert: '' },
++        selection: { anchor: Math.max(line.from, from - headingMatch[0].length) },
++      });
++    }
++    view.focus();
++    return;
++  }
++
++  const existingPrefix = ALL_LINE_PREFIXES.map((pattern) => line.text.match(pattern)).find(Boolean);
++  if (existingPrefix) {
++    view.dispatch({
++      changes: { from: line.from, to: line.from + existingPrefix[0].length, insert: '# ' },
++      selection: { anchor: Math.max(line.from, from + 2 - existingPrefix[0].length) },
++    });
++  } else {
++    view.dispatch({
++      changes: { from: line.from, to: line.from, insert: '# ' },
++      selection: { anchor: from + 2 },
++    });
++  }
++  view.focus();
+ }
+ 
+ export function toggleBlockquote(view: EditorView): void {
+-  applyBlockCommand(view, 'quote');
++  toggleLinePrefix(view, '> ', (text) => text.match(QUOTE_RE));
+ }
+diff --git a/tests/editor-embed-bridge.spec.ts b/tests/editor-embed-bridge.spec.ts
+index 7115ef31..4919af6c 100644
+--- a/tests/editor-embed-bridge.spec.ts
++++ b/tests/editor-embed-bridge.spec.ts
+@@ -582,22 +582,6 @@ test('exec task-list toggles a - [ ] marker', async ({ page }) => {
+   expect(await execOnLine(page, 'hello', 'task-list')).toBe('- [ ] hello');
+ });
+ 
+-test('exec converts task, bullet, and ordered line kinds without accumulating prefixes', async ({
+-  page,
+-}) => {
+-  await hostSetContent(page, 'hello');
+-  await page.evaluate(() => (window as unknown as FakeHostWindow).FutoEditor.focus());
+-
+-  await exec(page, 'task-list');
+-  expect(await getContent(page)).toBe('- [ ] hello');
+-
+-  await exec(page, 'bullet-list');
+-  expect(await getContent(page)).toBe('- hello');
+-
+-  await exec(page, 'ordered-list');
+-  expect(await getContent(page)).toBe('1. hello');
+-});
+-
+ test('exec link wraps a selection as [sel]() with the caret in the URL slot', async ({ page }) => {
+   await hostSetContent(page, 'word');
+   await page.evaluate(() => (window as unknown as FakeHostWindow).FutoEditor.focus());

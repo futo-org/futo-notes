@@ -1,0 +1,429 @@
+diff --git a/src/features/editor/milkdown/imageInsertIdentity.test.ts b/src/features/editor/milkdown/imageInsertIdentity.test.ts
+index 42be992..564ec94 100644
+--- a/src/features/editor/milkdown/imageInsertIdentity.test.ts
++++ b/src/features/editor/milkdown/imageInsertIdentity.test.ts
+@@ -44,7 +44,6 @@ vi.mock('$lib/platform', async (importOriginal) => ({
+   ...(await importOriginal<Record<string, unknown>>()),
+   hasFileSystem: true,
+   getFS: () => fsMock,
+-  getPlatformFS: async () => fsMock,
+   onFileDrop: (listener: (payload: FileDropPayload) => void) => {
+     fileDropListeners.push(listener);
+     return () => {};
+diff --git a/src/features/images/imageFiles.test.ts b/src/features/images/imageFiles.test.ts
+index 7b1e5e5..3599468 100644
+--- a/src/features/images/imageFiles.test.ts
++++ b/src/features/images/imageFiles.test.ts
+@@ -33,15 +33,6 @@ describe('listImageFiles', () => {
+ });
+ 
+ describe('deleteImage', () => {
+-  it('deletes an image that lives in a folder', async () => {
+-    fs.mkdirSync(path.join(testFS.root, 'trip'));
+-    fs.writeFileSync(path.join(testFS.root, 'trip', 'beach.png'), 'image-data');
+-
+-    await deleteImage('trip/beach.png');
+-
+-    expect(await listImageFiles()).toEqual([]);
+-  });
+-
+   it('rejects non-image extensions', async () => {
+     await expect(deleteImage('note.md')).rejects.toThrow('not an image filename');
+     await expect(deleteImage('file.txt')).rejects.toThrow('not an image filename');
+diff --git a/src/features/images/imageFiles.ts b/src/features/images/imageFiles.ts
+index f48d62f..b747c2d 100644
+--- a/src/features/images/imageFiles.ts
++++ b/src/features/images/imageFiles.ts
+@@ -1,29 +1,28 @@
+-import { getPlatformFS } from '$lib/platform';
++import { getFS } from '$lib/platform';
+ import { isImageFilename } from '$shared/media/imageFiles';
+ 
+ export interface ImageFileEntry {
+-  /** Vault-relative path — `photo.png` at the top level, `trip/photo.png` in a folder. */
+   filename: string;
+   size: number;
+   mtime: number;
+ }
+ 
+-// `getPlatformFS()` rather than the synchronous `getFS()`: the sidebar restores
+-// whichever tab was last open, so this can run before bootstrap has resolved the
+-// platform — and the images tab then sat on "No images" until you switched tabs
+-// and back.
+ export async function listImageFiles(): Promise<ImageFileEntry[]> {
+-  const files = await (await getPlatformFS()).listVaultFiles(isImageFilename);
++  const files = await getFS().listDirFiles();
+   return files
++    .filter((file) => isImageFilename(file.name))
+     .map((file) => ({ filename: file.name, size: file.size, mtime: file.mtime }))
+     .sort((left, right) => right.mtime - left.mtime);
+ }
+ 
+ export async function deleteImage(filename: string): Promise<void> {
+   if (!isImageFilename(filename)) throw new Error('not an image filename');
+-  await (await getPlatformFS()).deleteFile(filename);
++  if (filename.includes('..') || filename.includes('/') || filename.includes('\\')) {
++    throw new Error('invalid filename');
++  }
++  await getFS().deleteFile(filename);
+ }
+ 
+ export async function getImageWebPath(filename: string): Promise<string> {
+-  return (await getPlatformFS()).getImageUrl(filename);
++  return getFS().getImageUrl(filename);
+ }
+diff --git a/src/features/images/imageFilesStartup.test.ts b/src/features/images/imageFilesStartup.test.ts
+deleted file mode 100644
+index 448a848..0000000
+--- a/src/features/images/imageFilesStartup.test.ts
++++ /dev/null
+@@ -1,25 +0,0 @@
+-import { describe, expect, it, vi } from 'vitest';
+-
+-// The sidebar reopens on whichever tab was last used, so the images tab can
+-// mount before app bootstrap has resolved the platform. With the synchronous
+-// accessor that threw, and the tab showed "No images" until you switched tabs
+-// and back.
+-const vaultFiles = [{ name: 'trip/beach.png', size: 10, mtime: 5 }];
+-
+-vi.mock('$lib/platform', () => ({
+-  getFS: () => {
+-    throw new Error('Platform FS not initialized — call getPlatformFS() first');
+-  },
+-  getPlatformFS: async () => ({
+-    listVaultFiles: async (include: (path: string) => boolean) =>
+-      vaultFiles.filter((f) => include(f.name)),
+-  }),
+-}));
+-
+-describe('listImageFiles before the platform is ready', () => {
+-  it('waits for the platform instead of reporting an empty vault', async () => {
+-    const { listImageFiles } = await import('./imageFiles');
+-
+-    expect(await listImageFiles()).toEqual([{ filename: 'trip/beach.png', size: 10, mtime: 5 }]);
+-  });
+-});
+diff --git a/src/lib/platform/__test__/nodeFS.ts b/src/lib/platform/__test__/nodeFS.ts
+index a1108c8..24aa510 100644
+--- a/src/lib/platform/__test__/nodeFS.ts
++++ b/src/lib/platform/__test__/nodeFS.ts
+@@ -1,7 +1,6 @@
+ import fs from 'node:fs';
+ import os from 'node:os';
+ import path from 'node:path';
+-import { ensureSafeRelativePath } from '../pathSafety';
+ import type { DirFileEntry, PlatformFS } from '../types';
+ 
+ export interface TestPlatformFS extends PlatformFS {
+@@ -15,10 +14,8 @@ export interface TestPlatformFS extends PlatformFS {
+ export function createNodeFS(): TestPlatformFS {
+   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'futo-platform-test-'));
+ 
+-  // Same traversal rule the Tauri adapter applies, so a test that asserts a
+-  // rejection is asserting the shipped one.
+   function full(relative: string): string {
+-    ensureSafeRelativePath(relative);
++    if (relative.includes('..') || path.isAbsolute(relative)) throw new Error('invalid path');
+     return path.join(root, relative);
+   }
+ 
+@@ -55,19 +52,14 @@ export function createNodeFS(): TestPlatformFS {
+         return [];
+       }
+     },
+-    async listVaultFiles(include: (path: string) => boolean): Promise<DirFileEntry[]> {
+-      const walk = (prefix: string): DirFileEntry[] =>
+-        fs
+-          .readdirSync(prefix ? path.join(root, prefix) : root, { withFileTypes: true })
+-          .filter((entry) => !entry.name.startsWith('.'))
+-          .flatMap((entry) => {
+-            const relative = prefix ? `${prefix}/${entry.name}` : entry.name;
+-            if (entry.isDirectory()) return walk(relative);
+-            if (!entry.isFile() || !include(relative)) return [];
+-            const metadata = fs.statSync(path.join(root, relative));
+-            return [{ name: relative, size: metadata.size, mtime: metadata.mtimeMs }];
+-          });
+-      return walk('');
++    async listDirFiles(): Promise<DirFileEntry[]> {
++      return fs
++        .readdirSync(root, { withFileTypes: true })
++        .filter((entry) => entry.isFile())
++        .map((entry) => {
++          const metadata = fs.statSync(path.join(root, entry.name));
++          return { name: entry.name, size: metadata.size, mtime: metadata.mtimeMs };
++        });
+     },
+     async deleteFile(filename) {
+       fs.rmSync(full(filename), { force: true });
+diff --git a/src/lib/platform/pathSafety.ts b/src/lib/platform/pathSafety.ts
+index 4a0055a..0c56787 100644
+--- a/src/lib/platform/pathSafety.ts
++++ b/src/lib/platform/pathSafety.ts
+@@ -62,24 +62,15 @@ export function idLeaf(id: string): string {
+   return slash === -1 ? id : id.slice(slash + 1);
+ }
+ 
+-/**
+- * Reject anything that could escape the vault: an absolute path, a Windows
+- * separator, or a `.`/`..`/empty component. Vault-relative file paths (the form
+- * `listVaultFiles` returns, e.g. `trip/photo.png`) and app-data paths share
+- * this rule; unlike `ensureSafeNoteId` it says nothing about the extension.
+- */
+-export function ensureSafeRelativePath(relPath: string): void {
+-  if (relPath.startsWith('/') || relPath.includes('\\')) {
++export function safeAppdataPath(base: string, relPath: string): string {
++  if (relPath.startsWith('/')) {
+     throw new Error('path traversal blocked');
+   }
+-  for (const component of relPath.split('/')) {
+-    if (component === '..' || component === '.' || component === '') {
++  const components = relPath.split('/');
++  for (const c of components) {
++    if (c === '..' || c === '.' || c === '') {
+       throw new Error('path traversal blocked');
+     }
+   }
+-}
+-
+-export function safeAppdataPath(base: string, relPath: string): string {
+-  ensureSafeRelativePath(relPath);
+   return `${base}/${relPath}`;
+ }
+diff --git a/src/lib/platform/tauri/adapter.contract.test.ts b/src/lib/platform/tauri/adapter.contract.test.ts
+index b3ef9af..c3cfacc 100644
+--- a/src/lib/platform/tauri/adapter.contract.test.ts
++++ b/src/lib/platform/tauri/adapter.contract.test.ts
+@@ -113,41 +113,30 @@ describe('Tauri adapter public contract', () => {
+     await expect(tauriFS.readAppData('.private.json')).rejects.toThrow('Operation not permitted');
+   });
+ 
+-  it('lists every readable vault file, folders included, with normalized metadata', async () => {
++  it('lists only readable root files with normalized metadata', async () => {
+     const { tauriFS } = await import('../tauri');
+     const modified = new Date('2026-07-15T12:00:00Z');
+-    native.readDir.mockImplementation(async (directory: string) => {
+-      if (directory === DEFAULT_ROOT) {
+-        return [
+-          { name: 'kept.png', isFile: true },
+-          { name: 'trip', isDirectory: true },
+-          { name: '.crashlogs', isDirectory: true },
+-          { name: 'elsewhere', isDirectory: true, isSymlink: true },
+-          { name: 'unreadable.png', isFile: true },
+-        ];
+-      }
+-      if (directory === `${DEFAULT_ROOT}/trip`) return [{ name: 'nested.png', isFile: true }];
+-      throw new Error(`unexpected readDir: ${directory}`);
+-    });
++    native.readDir.mockResolvedValueOnce([
++      { name: 'kept.png', isFile: true },
++      { name: 'folder', isFile: false },
++      { name: 'unreadable.png', isFile: true },
++    ]);
+     native.stat.mockImplementation(async (path: string) => {
+       if (path.endsWith('unreadable.png')) throw new Error('broken symlink');
+       return { size: 9, mtime: modified };
+     });
+ 
+-    expect(await tauriFS.listVaultFiles((path) => path.endsWith('.png'))).toEqual([
++    expect(await tauriFS.listDirFiles()).toEqual([
+       { name: 'kept.png', size: 9, mtime: modified.getTime() },
+-      { name: 'trip/nested.png', size: 9, mtime: modified.getTime() },
+     ]);
+   });
+ 
+-  it('rejects image and delete paths that leave the vault, before plugin I/O', async () => {
++  it('rejects unsafe flat image operations before plugin I/O', async () => {
+     const { tauriFS } = await import('../tauri');
+ 
+-    await expect(tauriFS.deleteFile('../secret.png')).rejects.toThrow('path traversal blocked');
++    await expect(tauriFS.deleteFile('../secret.png')).rejects.toThrow('invalid filename');
+     await expect(tauriFS.getImageUrl('notes.txt')).rejects.toThrow('not an image filename');
+-    await expect(tauriFS.getImageUrl('../outside/image.png')).rejects.toThrow(
+-      'path traversal blocked',
+-    );
++    await expect(tauriFS.getImageUrl('nested/image.png')).rejects.toThrow('invalid filename');
+     expect(native.invoke).not.toHaveBeenCalled();
+     expect(native.mkdir).not.toHaveBeenCalled();
+     expect(native.remove).not.toHaveBeenCalled();
+diff --git a/src/lib/platform/tauri/images.ts b/src/lib/platform/tauri/images.ts
+index bbf2e82..5806d1e 100644
+--- a/src/lib/platform/tauri/images.ts
++++ b/src/lib/platform/tauri/images.ts
+@@ -4,7 +4,6 @@ import { IMAGE_EXTENSIONS } from '@futo-notes/editor';
+ 
+ import { isImageFilename, validateImageExtension } from '$shared/media/imageFiles';
+ 
+-import { ensureSafeRelativePath } from '../pathSafety';
+ import type { PickedImage, PlatformFS } from '../types';
+ import { invokeVaultCommand } from './vaultCommands';
+ 
+@@ -65,11 +64,11 @@ function extensionOf(path: string): string {
+   return dot > 0 ? basename.slice(dot + 1) : 'jpg';
+ }
+ 
+-/** Images live wherever the note that shows them does, so the path may name a
+- * folder (`trip/photo.png`) — it just may not leave the vault. */
+-function validateImagePath(path: string): void {
+-  if (!isImageFilename(path)) throw new Error('not an image filename');
+-  ensureSafeRelativePath(path);
++function validateImageFilename(filename: string): void {
++  if (!isImageFilename(filename)) throw new Error('not an image filename');
++  if (filename.includes('..') || filename.includes('/') || filename.includes('\\')) {
++    throw new Error('invalid filename');
++  }
+ }
+ 
+ export function createTauriImages({ getNotesRoot }: TauriImageDependencies): TauriImages {
+@@ -92,7 +91,7 @@ export function createTauriImages({ getNotesRoot }: TauriImageDependencies): Tau
+     saveImageBytes,
+ 
+     async getImageUrl(filename) {
+-      validateImagePath(filename);
++      validateImageFilename(filename);
+       const path = `${await getNotesRoot()}/${filename}`;
+       const assetUrl = convertFileSrc(path);
+       if (await canUseAssetProtocol(assetUrl)) return assetUrl;
+diff --git a/src/lib/platform/tauri/storage.ts b/src/lib/platform/tauri/storage.ts
+index 20d1509..54430f9 100644
+--- a/src/lib/platform/tauri/storage.ts
++++ b/src/lib/platform/tauri/storage.ts
+@@ -2,14 +2,14 @@ import { exists, readDir, readTextFile, remove, stat } from '@tauri-apps/plugin-
+ import { toWellFormedText } from '@futo-notes/editor';
+ 
+ import { isNotFound } from '../fsErrors';
+-import { ensureSafeRelativePath, safeAppdataPath } from '../pathSafety';
++import { safeAppdataPath } from '../pathSafety';
+ import { sweepStaleAtomicTemps } from '../staleAtomicTemps';
+ import type { DirFileEntry, PlatformFS } from '../types';
+ import { invokeVaultCommand } from './vaultCommands';
+ 
+ type TauriStorage = Pick<
+   PlatformFS,
+-  'readAppData' | 'writeAppData' | 'deleteAppData' | 'listAppData' | 'listVaultFiles' | 'deleteFile'
++  'readAppData' | 'writeAppData' | 'deleteAppData' | 'listAppData' | 'listDirFiles' | 'deleteFile'
+ >;
+ 
+ export type TauriStorageWithSweep = TauriStorage & {
+@@ -46,6 +46,12 @@ function dateToMs(date: Date | null | undefined): number {
+   return date?.getTime() ?? Date.now();
+ }
+ 
++function validateRootFilename(filename: string): void {
++  if (filename.includes('..') || filename.includes('/') || filename.includes('\\')) {
++    throw new Error('invalid filename');
++  }
++}
++
+ // The directories the TS writer's `writeAppData` targeted: the vault root
+ // (.app-config.json, .app-state.json) and the crash-log folder.
+ const APP_DATA_DIRS = ['', '.crashlogs'];
+@@ -101,47 +107,29 @@ export function createTauriStorage({
+       }
+     },
+ 
+-    async listVaultFiles(include) {
++    async listDirFiles() {
+       const root = await getNotesRoot();
+-
+-      // Folders are part of the vault: a note can sit in one, and so can the
+-      // image it shows. Listing only the top level is why the desktop images
+-      // tab showed one picture for a vault that had several (reported
+-      // 2026-09-16). Dot-directories hold app data, not user files, and a
+-      // symlinked directory could point anywhere or back at the vault itself.
+-      async function walk(prefix: string): Promise<DirFileEntry[]> {
+-        const directory = prefix ? `${root}/${prefix}` : root;
+-        let entries: Awaited<ReturnType<typeof readDir>>;
+-        try {
+-          entries = await readDir(directory);
+-        } catch {
+-          return [];
+-        }
+-        const collected = await Promise.all(
+-          entries.map(async (entry): Promise<DirFileEntry[]> => {
+-            if (!entry.name || entry.name.startsWith('.')) return [];
+-            const path = prefix ? `${prefix}/${entry.name}` : entry.name;
+-            if (entry.isDirectory) return entry.isSymlink ? [] : walk(path);
+-            if (!entry.isFile || !include(path)) return [];
+-            try {
+-              const metadata = await stat(`${root}/${path}`);
+-              return [{ name: path, size: metadata.size, mtime: dateToMs(metadata.mtime) }];
+-            } catch {
+-              // Skip what cannot be read (a broken symlink, a race with a
+-              // delete) — matches the Rust scan's `filter_map(Result::ok)`.
+-              return [];
+-            }
+-          }),
+-        );
+-        return collected.flat();
+-      }
+-
+-      return walk('');
++      const files = (await readDir(root)).filter((entry) => entry.isFile && entry.name);
++      const entries = await Promise.all(
++        files.map(async (entry): Promise<DirFileEntry | null> => {
++          try {
++            const metadata = await stat(`${root}/${entry.name}`);
++            return {
++              name: entry.name!,
++              size: metadata.size,
++              mtime: dateToMs(metadata.mtime),
++            };
++          } catch {
++            return null;
++          }
++        }),
++      );
++      return entries.filter((entry): entry is DirFileEntry => entry !== null);
+     },
+ 
+-    async deleteFile(path) {
+-      ensureSafeRelativePath(path);
+-      await remove(`${await getNotesRoot()}/${path}`);
++    async deleteFile(filename) {
++      validateRootFilename(filename);
++      await remove(`${await getNotesRoot()}/${filename}`);
+     },
+   };
+ }
+diff --git a/src/lib/platform/types.ts b/src/lib/platform/types.ts
+index ccaf5fd..49c83e7 100644
+--- a/src/lib/platform/types.ts
++++ b/src/lib/platform/types.ts
+@@ -6,7 +6,6 @@ export interface FileChangeEvent {
+ }
+ 
+ export interface DirFileEntry {
+-  /** Vault-relative path, forward-slash separated (e.g. `trip/photo.png`). */
+   name: string;
+   size: number;
+   mtime: number;
+@@ -28,14 +27,8 @@ export interface PlatformStorage {
+   writeAppData(path: string, content: string): Promise<void>;
+   deleteAppData(path: string): Promise<void>;
+   listAppData(dir: string): Promise<string[]>;
+-  /**
+-   * Every file in the vault that `include` keeps, folders included — not just
+-   * the top level. Metadata costs one call per kept file, so pass the narrowest
+-   * test you have: on a 2,500-note vault, statting everything takes 581ms
+-   * against 9ms for the images alone.
+-   */
+-  listVaultFiles(include: (path: string) => boolean): Promise<DirFileEntry[]>;
+-  deleteFile(path: string): Promise<void>;
++  listDirFiles(): Promise<DirFileEntry[]>;
++  deleteFile(filename: string): Promise<void>;
+   saveImageBytes?(data: ArrayBuffer, ext: string): Promise<string>;
+   getImageUrl(filename: string): Promise<string>;
+   getAppVersion(): Promise<string>;
+diff --git a/src/lib/platform/web.ts b/src/lib/platform/web.ts
+index 2103bc5..738a8e9 100644
+--- a/src/lib/platform/web.ts
++++ b/src/lib/platform/web.ts
+@@ -10,7 +10,7 @@ export const webFS: PlatformFS = {
+   async listAppData(_dir: string): Promise<string[]> {
+     return [];
+   },
+-  async listVaultFiles(_include: (path: string) => boolean) {
++  async listDirFiles() {
+     return [];
+   },
+   async deleteFile(_filename: string): Promise<void> {},

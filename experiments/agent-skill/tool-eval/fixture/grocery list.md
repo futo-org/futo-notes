@@ -1,0 +1,4 @@
+- milk
+- eggs
+- bread
+- [ ] coffee
