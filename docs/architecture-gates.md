@@ -121,10 +121,16 @@ either caller.
 because it needs the network — the RUSTSEC database and the npm registry — while every gate above is
 an offline source scan.
 
+**It fails only on a vulnerability in code that ships.** On npm that is `--prod`. On Rust it is a
+crate `cargo tree -e normal --target all` reaches from `futo-notes-tauri` or `futo-notes-ffi`; a
+vulnerability in a dev- or build-only crate is listed as `unshipped`, and unmaintained/unsound
+warnings are listed too, but neither fails the run. The app is offline-first, not offline: sync,
+license activation and the updater all speak TLS, so a shipped-crate advisory is worth a yellow.
+
 **CI runs it as a reporter, not a blocker.** `test:audit` is `allow_failure: true` and is deliberately
-*absent* from `release:gate.needs` — a documented exception to M14. This app is an offline-first local
-editor: nearly every advisory that reaches it is in build tooling or on a code path no user input
-travels, so a hard gate would stop releases far more often than it would stop a real risk. Restoring
+*absent* from `release:gate.needs` — a documented exception to M14. An advisory appears when the
+database moves, not when our code does, so a hard gate would stop a release over a finding nobody
+has had time to read. Restoring
 either turns this back into a release blocker, which is a product decision rather than a hardening
 fix.
 
@@ -133,10 +139,10 @@ Acknowledgments live in the tools' own ignore lists:
 - Rust: `[advisories] ignore` in `.cargo/audit.toml`
 - npm: `auditConfig.ignoreGhsas` in `pnpm-workspace.yaml`
 
-**Both ship empty, and an empty list is the normal state.** An id there says a person looked at that
-advisory and decided it is fine to ship, so nothing is added on anyone else's behalf — and because
-the job only reports, a real finding is allowed to sit there unacknowledged and yellow. Silencing an
-advisory is a choice someone makes and signs, not a step in going green. Add the id with a comment
+An id there says a person looked at that advisory and decided it is fine to ship, so nothing is
+added on anyone else's behalf. Silencing an advisory is a choice someone makes and signs, not a step
+in going green: the normal fix is the bump, and an acknowledgment is for an advisory with no fixed
+release that does not reach users (the zip entries in `.cargo/audit.toml` are the model). Add the id with a comment
 recording whether it ships, how it goes away, and who owns it.
 
 `node scripts/audit.mjs` also names ignore entries the audits no longer report, and
@@ -150,32 +156,7 @@ same reason arch-gate's command list lives in `package.json`.
 ## Not here: the localization completeness audit
 
 `pnpm run audit:languages` reports missing, extra, unchanged, and placeholder-omitting translations.
-It stays outside `arch-gate` because these are translation-quality findings, not invalid catalogs or
-broken runtime behavior. `test:localization-audit` is `allow_failure: true` and deliberately absent
-from `release:gate.needs`. Catalog syntax and executable message structure remain blocking through
-the language-catalog unit test in the mandatory `test` job.
-
-## Not here: the code-quality ratchet
-
-`just quality` (`scripts/bca-quality.mjs`, also CI's `test:quality-report`) runs the pinned
-big-code-analysis `bca` release over `src/`, `packages/`, `crates/`, `apps/`, and `scripts/`. It
-stays outside `arch-gate` because it needs the network on first run (the binary download) while
-every gate above is an offline source scan.
-
-**The gate is a ratchet, not a verdict.** `bca.toml` pins thresholds (cyclomatic 15, cognitive 20,
-lloc 200) and `.bca-baseline.toml` pins the current offenders; only a NEW or WORSENED function
-fails. `scripts/`, tests and test harnesses are measured but exempt from the gate. On an MR the gate
-judges only the files the MR changed, and every main pipeline publishes a report so the MR Code
-Quality widget has a base to diff against — without one it lists the whole backlog as new. Paying debt down means deleting baseline rows — `bca check --write-baseline` regenerates, and
-a shrinking baseline is the goal. In-source `bca: suppress` markers are the tool for debt nobody
-intends to pay down; both can coexist.
-
-**CI runs it as a reporter first, not a blocker.** `test:quality-report` is `allow_failure: true`
-and deliberately absent from `release:gate.needs` — a documented M14 exception, phase 1 of the
-adoption plan: observe thresholds, the sha-pinned cache, and the MR Code Quality widget on real
-pipelines before letting the gate block publication. Promotion is two same-commit edits: drop
-`allow_failure` and enter `release:gate.needs`. Exit 2 means findings; exit 1 plus a
-`BCA-DID-NOT-RUN` marker means the tool never ran (M11).
-
-Measured surface caveat: bca has no Svelte language, so `.svelte` files are skipped and the
-TypeScript numbers cover `.ts` only; the manifest records this too.
+It stays outside `arch-gate` because it is a translation-completeness check, not a source scan, but
+CI's `test:localization-audit` is blocking and in `release:gate.needs`: every committed catalog
+translates every `en.json` message. Catalog syntax and executable message structure are checked
+separately by the language-catalog unit test in the mandatory `test` job.

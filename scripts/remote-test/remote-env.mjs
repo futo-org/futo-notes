@@ -1,22 +1,11 @@
 // remote-test.mjs remote environment: the NDK pin and the shell preamble every remote script
 // starts with.
 import { GRADLE_JDK_CANDIDATES } from './settings.mjs';
+export { ndkVersionFromGradle } from '../lib/android-toolchain.mjs';
 
 // ---------------------------------------------------------------------------
 // Remote environment
 // ---------------------------------------------------------------------------
-
-/**
- * The NDK AGP is pinned to. cargo-ndk must build the Rust .so with the SAME
- * NDK — apps/android/app/build.gradle.kts warns that a mismatch breaks NDK
- * resolution and silently skips stripping — so read the pin instead of
- * defaulting to "newest installed", which is how the two drift apart.
- */
-export function ndkVersionFromGradle(gradleText) {
-  const m = /ndkVersion\s*=\s*"([^"]+)"/.exec(gradleText);
-  if (!m) throw new Error('no ndkVersion found in apps/android/app/build.gradle.kts');
-  return m[1];
-}
 
 /**
  * Sourced on EVERY invocation: `ssh host cmd` is a non-interactive shell, so it

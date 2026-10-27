@@ -244,8 +244,9 @@ function listedIds(file, blockStart) {
     .filter(Boolean);
 }
 
-// The gating scans; their own output is the report.
-if (run('cargo-audit', ['audit']) !== 0) status = 1;
+// The human-readable report. Only the npm scan gates here: `cargo audit` fails on every
+// crate in Cargo.lock, so the Rust gate is the shipped-crate filter further down.
+run('cargo-audit', ['audit']);
 if (run('pnpm', ['audit', '--prod']) !== 0) status = 1;
 
 // `--prod` is the gate, so the all-scope run is what makes dev-only findings visible at all.
@@ -299,8 +300,37 @@ if (stale.length) {
 
 // ── Everything found, in one place ──
 
-// A third cargo run: the gating scan prints text, and liveCargo's is unfiltered. `--no-fetch`
-// because the gating scan already updated the database.
+// Every crate compiled into an app — the desktop binary and the mobile FFI library, on every
+// target — through normal edges only: dev- and build-dependencies never reach a user.
+const shipped = (() => {
+  let stdout;
+  try {
+    const args =
+      'tree --locked --target all -e normal -p futo-notes-tauri -p futo-notes-ffi --prefix none -f {p}';
+    stdout = execFileSync('cargo', args.split(' '), {
+      cwd: ROOT,
+      encoding: 'utf8',
+      maxBuffer: 64 * 1024 * 1024,
+    });
+  } catch (error) {
+    return fail(`cargo tree could not list the shipped crates: ${error.message}`);
+  }
+  // `{p}` prints `name vX.Y.Z`, plus a path or `(*)` suffix that is not part of the key.
+  const crates = new Set(
+    stdout
+      .split('\n')
+      .filter(Boolean)
+      .map((line) => line.split(' ').slice(0, 2).join(' ')),
+  );
+  // An empty set would pass every vulnerability as unshipped.
+  if (!crates.has('futo-notes-core v0.1.0')) {
+    return fail(`cargo tree listed ${crates.size} crates without futo-notes-core.`);
+  }
+  return crates;
+})();
+
+// A third cargo run: the report scan prints text, and liveCargo's is unfiltered. `--no-fetch`
+// because the report scan already updated the database.
 const cargoRows = (() => {
   const json = runJson('cargo-audit', ['audit', '--json', '--no-fetch'], ROOT, cargoReport);
   if (!json) return null;
@@ -312,8 +342,14 @@ const cargoRows = (() => {
   const warnings = Object.entries(json.warnings).flatMap(([kind, list]) =>
     list.map((entry) => row(kind, entry)),
   );
+  const ships = (entry) => shipped?.has(`${entry.package.name} v${entry.package.version}`);
+  const vulnerabilities = json.vulnerabilities.list.map((entry) =>
+    row(ships(entry) ? 'vulnerability' : 'unshipped', entry),
+  );
+  // The Rust gate: a vulnerability in a shipped crate the ignore list has not acknowledged.
+  if (vulnerabilities.some((row) => row.state === 'vulnerability')) status = 1;
   return [
-    ...json.vulnerabilities.list.map((entry) => row('vulnerability', entry)),
+    ...vulnerabilities,
     ...warnings.sort((a, b) => a.state.localeCompare(b.state) || a.what.localeCompare(b.what)),
   ];
 })();
@@ -364,10 +400,11 @@ const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 // `?` rather than 0: an unreadable list is not an empty one.
 const listed = (file) => groups.find((group) => group.file === file)?.ids?.length ?? '?';
 
-const isVuln = (row) => row.state === 'vulnerability';
+const isVuln = (row) => row.state === 'vulnerability' || row.state === 'unshipped';
 const rust = cargoRows
   ? [
-      plural(tally(cargoRows, isVuln), 'vulnerability', 'vulnerabilities'),
+      `${tally(cargoRows, (row) => row.state === 'vulnerability')} gated`,
+      `${tally(cargoRows, (row) => row.state === 'unshipped')} unshipped`,
       plural(
         tally(cargoRows, (row) => !isVuln(row)),
         'warning',

@@ -32,7 +32,7 @@
    *   - toolbar commands (`toolbarExec.ts`) and the native toolbar's
    *     active-state (`formatState.ts`).
    */
-  import { onMount } from 'svelte';
+  import { onMount, untrack } from 'svelte';
 
   import './milkdownEditor.css';
   import type { Editor } from '@milkdown/kit/core';
@@ -61,84 +61,9 @@
   import { createEditorEmitters } from './editorEmitters';
   import { createImageInput } from './imageInput';
 
-  let {
-    content = '',
-    onchange,
-    onedited,
-    ondocumentloaded,
-    onflushfailed,
-    onexternalrefused,
-    onfocuschange,
-    oncompositionend,
-    oncursorcontext,
-    onopenlink,
-    onopenurl,
-    onformatstate,
-    nativeShell = false,
-    onhaptic,
-    onblockdrag,
-    onblockpress,
-    onfindmatches,
-    onfindstate,
-    readonly = false,
-    onenginemounted,
-  }: Props = $props();
-
-  /* The props the editor's modules call back into, as getters: every call
-   * reads the CURRENT prop, never the value at mount (src/AGENTS.md). */
-  const liveProps = {
-    get onchange() {
-      return onchange;
-    },
-    get onedited() {
-      return onedited;
-    },
-    get ondocumentloaded() {
-      return ondocumentloaded;
-    },
-    get onflushfailed() {
-      return onflushfailed;
-    },
-    get onexternalrefused() {
-      return onexternalrefused;
-    },
-    get onfindstate() {
-      return onfindstate;
-    },
-    get onopenlink() {
-      return onopenlink;
-    },
-    get onopenurl() {
-      return onopenurl;
-    },
-    get nativeShell() {
-      return nativeShell;
-    },
-    get readonly() {
-      return readonly;
-    },
-    get onfocuschange() {
-      return onfocuschange;
-    },
-    get onformatstate() {
-      return onformatstate;
-    },
-    get oncursorcontext() {
-      return oncursorcontext;
-    },
-    get onfindmatches() {
-      return onfindmatches;
-    },
-    get onhaptic() {
-      return onhaptic;
-    },
-    get onblockdrag() {
-      return onblockdrag;
-    },
-    get onblockpress() {
-      return onblockpress;
-    },
-  };
+  let props: Props = $props();
+  // Capture the stable props proxy once; its property reads still follow the parent.
+  const liveProps = untrack(() => props);
 
   /* THE single gate: the Notion-style long-press-anywhere-on-the-block path
    * REPLACES the ⠿ gutter handle in the native shells — iOS and Android both —
@@ -151,14 +76,18 @@
    * the embed never flips `nativeShell` on a live editor, and swapping drag
    * mechanisms under a mounted ProseMirror view is not something this
    * supports. */
-  const useMobileBlockDnd = $derived(resolveBlockDragMode(nativeShell) === 'long-press');
+  const useMobileBlockDnd = $derived(
+    resolveBlockDragMode(props.nativeShell ?? false) === 'long-press',
+  );
   /* The `/` block menu, desktop only (slash/index.ts `resolveSlashMenu`).
    * Same one-shot read as useMobileBlockDnd above: the plugin set is fixed when
    * the engine is built. */
-  const useSlashMenu = $derived(resolveSlashMenu(nativeShell) === 'enabled');
+  const useSlashMenu = $derived(resolveSlashMenu(props.nativeShell ?? false) === 'enabled');
   /* The floating selection toolbar, desktop only (selectionToolbar/target.ts
    * `resolveSelectionToolbar`) — same gate, same one-shot read. */
-  const useSelectionToolbar = $derived(resolveSelectionToolbar(nativeShell) === 'enabled');
+  const useSelectionToolbar = $derived(
+    resolveSelectionToolbar(props.nativeShell ?? false) === 'enabled',
+  );
 
   let container: HTMLDivElement;
   let editor: Editor | null = null;
@@ -277,7 +206,7 @@
    * stops), and a native shell's note is flushed. */
   function pageLeaving(): void {
     landPendingDrop(pmView());
-    if (nativeShell) flush();
+    if (props.nativeShell) flush();
   }
 
   onMount(() => {
@@ -286,10 +215,10 @@
     // Read the initial prop here rather than at the top level: the embed host
     // feeds content through setContent, and a top-level read is a Svelte 5
     // "captures only the initial value" warning.
-    if (content) {
-      session.pendingContent = content;
-      session.hostMarkdown = content;
-      session.liveMarkdown = content;
+    if (props.content) {
+      session.pendingContent = props.content;
+      session.hostMarkdown = props.content;
+      session.liveMarkdown = props.content;
     }
     const visibility = (): void => {
       if (document.visibilityState === 'hidden') pageLeaving();
@@ -309,12 +238,11 @@
     (async () => {
       const created = await assembleEditor({
         container,
-        props: liveProps,
+        props,
         useMobileBlockDnd: () => useMobileBlockDnd,
         useSlashMenu: () => useSlashMenu,
         useSelectionToolbar: () => useSelectionToolbar,
         getEditor: () => editor,
-        getPendingContent: () => session.pendingContent,
         getPasteHandler: imageInput.getPasteHandler,
         getDropHandler: imageInput.getDropHandler,
         isLoadFailed: () => session.loadFailed,
@@ -345,7 +273,7 @@
       // parsed: the question this answers is "can this WebView run the editor
       // engine", and tying it to a parse would make a big note look like an
       // unsupported WebView on a slow phone (the host's boot grace is 10 s).
-      onenginemounted?.();
+      props.onenginemounted?.();
       if (session.pendingContent !== null) {
         documentLoad.applyExternal(session.pendingContent);
       }
@@ -411,7 +339,7 @@
   }
 
   $effect(() => {
-    void readonly;
+    void props.readonly;
     refreshEditable();
   });
 
@@ -434,7 +362,7 @@
   class:mobile-dnd={useMobileBlockDnd}
   style="--futo-checkbox-slot: {CHECKBOX_SIZE_PX}px"
   bind:this={container}
-  oncompositionend={() => oncompositionend?.()}
+  oncompositionend={() => props.oncompositionend?.()}
 >
   <!-- The streaming tail of a large note (progressiveLoad.ts). Absolutely
        positioned so it never enters the editor's layout, and rendered inside

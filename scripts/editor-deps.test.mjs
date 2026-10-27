@@ -108,6 +108,6 @@ describe('workspace dependency preflight', () => {
   it('places the same preflight before direct language and full-unit scripts', () => {
     const packageJson = JSON.parse(fs.readFileSync(path.resolve('package.json'), 'utf8'));
     expect(packageJson.scripts['check:languages']).toMatch(/^node scripts\/editor-deps\.mjs &&/);
-    expect(packageJson.scripts['test:unit:full']).toMatch(/^node scripts\/editor-deps\.mjs &&/);
+    expect(packageJson.scripts['test:full']).toMatch(/^node scripts\/editor-deps\.mjs &&/);
   });
 });

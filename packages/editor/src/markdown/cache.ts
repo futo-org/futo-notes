@@ -57,8 +57,6 @@ export function createCachedSerializer<Block extends object, Doc>(
   adapter: DocumentAdapter<Block, Doc>,
 ): CachedSerializer<Doc> {
   const cache = new WeakMap<Block, Entry>();
-  /** The last `references` string, reused while equal so the per-block test is a pointer compare. */
-  let lastReferences = '';
 
   function entry(block: Block): Entry {
     let found = cache.get(block);
@@ -78,11 +76,10 @@ export function createCachedSerializer<Block extends object, Doc>(
     const entries = blocks.map(entry);
     const summaries = entries.map((found) => found.summary);
     const refs = references(summaries);
-    if (refs !== lastReferences) lastReferences = refs;
     const plan = planDocument(summaries);
     return blocks.map((block, index) => {
       const position = plan[index];
-      const context = position ? { ...position, references: lastReferences } : null;
+      const context = position ? { ...position, references: refs } : null;
       return { block, entry: entries[index] as Entry, context };
     });
   }

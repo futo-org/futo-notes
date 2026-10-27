@@ -34,6 +34,16 @@ describe('pre-merge CI routing contracts: native mobile jobs', () => {
     expect(iosStoryAvailabilityGate).toContain('iOS DEVICE STORIES SKIPPED');
   });
 
+  it('runs the same iOS unit bundle locally as CI runs on merge requests', () => {
+    // `just test-ios-native` once ran the UI bundle too: minutes of XCUITest per
+    // run for ~12s of unit tests, while the MR tier ran only the unit bundle.
+    const unitRecipe = topLevelBlock(justfile, /^test-ios-native(?=\s|:)[^\n]*$/m);
+    const iosTestTask = topLevelBlock(cirrusTasks, /^test_ios_native_task:$/m);
+    expect(unitRecipe).toContain('just _test-ios FutoNotesNativeTests');
+    expect(justfile).toContain('ONLY_TESTING=("-only-testing:$BUNDLE")');
+    expect(iosTestTask).toContain('ONLY_TESTING=(-only-testing:FutoNotesNativeTests)');
+  });
+
   it('runs Android instrumentation tests in the required native build job', () => {
     const androidJob = topLevelBlock(gitlabPipeline, /^build:android-native:$/m);
     const releaseGate = topLevelBlock(gitlabPipeline, /^release:gate:$/m);
@@ -63,8 +73,8 @@ describe('pre-merge CI routing contracts: native mobile jobs', () => {
 
     expect(androidSyncJob).toContain('bash "$CI_PROJECT_DIR/scripts/ci-android-sync-leg.sh"');
     expect(androidSyncJob).toContain('- job: build:android-native');
-    // Same runner-exclusion as the desktop mesh; overlapping starves both.
-    expect(androidSyncJob).toContain('resource_group: cross-platform-sync');
+    // Alone on a serial runner, like the desktop mesh; overlapping starves both.
+    expect(androidSyncJob).toContain('    - futo_notes_serial');
     expect(releaseGate).toContain('- job: test:cross-platform-sync:android');
     // The APK producer's gate must be a superset of this job's, so neither may
     // trigger on a path the other ignores (build:android-native excludes
@@ -89,7 +99,7 @@ describe('pre-merge CI routing contracts: native mobile jobs', () => {
     const releaseJob = topLevelBlock(gitlabPipeline, /^release:$/m);
     const deployRecipe = topLevelBlock(justfile, /^deploy-android[^\n]*:[^\n]*$/m);
     const buildRecipe = topLevelBlock(justfile, /^build-android-native:[^\n]*$/m);
-    const unitTestRecipe = topLevelBlock(justfile, /^test-android-native:[^\n]*$/m);
+    const unitTestRecipe = topLevelBlock(justfile, /^test-android-native(?=\s|:)[^\n]*$/m);
     const uiTestRecipe = topLevelBlock(justfile, /^test-android-native-ui:[^\n]*$/m);
 
     // L1-008: the Android test recipes must test the editor.html of the checkout,
@@ -149,11 +159,11 @@ describe('pre-merge CI routing contracts: native mobile jobs', () => {
 
     expect(androidCheckJob).toContain('- crates/**/*');
     expect(androidCheckJob).toContain('build -p futo-notes-ffi --profile release-ffi');
-    // Serialized against the sync suite on the shared pinned runner — a
-    // concurrent full-tree compile flakes its timing-sensitive scenarios —
-    // and ordered after it, so the exclusion never delays the sync suite.
-    expect(androidCheckJob).toContain('resource_group: cross-platform-sync');
-    expect(androidCheckJob).toContain('job: test:cross-platform-sync');
+    // On the shared slots, not the serial runner the sync suites own: a
+    // concurrent full-tree compile used to flake their timing-sensitive
+    // scenarios, which the serial runners now rule out without a lock.
+    expect(androidCheckJob).toContain('    - $LINUX_RUNNER_TAG');
+    expect(androidCheckJob).not.toContain('resource_group');
     expect(macosRustTask).toContain('cargo check -p futo-notes-ffi --target aarch64-apple-ios');
     expect(releaseGate).toContain('- job: test:rust:ffi-android');
   });
@@ -166,7 +176,11 @@ describe('pre-merge CI routing contracts: native mobile jobs', () => {
     // them or an MR touching only it gets no iOS compile until main.
     const mrChanges = (jobPattern) => {
       const job = topLevelBlock(gitlabPipeline, jobPattern);
-      const mrRule = job.slice(job.indexOf('- if: $CI_MERGE_REQUEST_IID\n      changes:'));
+      // The anchored rule is the crate gate; test:ios-native puts its
+      // apps/ios-only UI-tier rule ahead of it.
+      const anchor = job.indexOf('changes: &');
+      const head = '- if: $CI_MERGE_REQUEST_IID\n      changes:';
+      const mrRule = job.slice(anchor >= 0 ? job.lastIndexOf(head, anchor) : job.indexOf(head));
       return mrRule.slice(0, mrRule.indexOf('- if:', 1));
     };
     const macosMr = mrChanges(/^test:rust:macos:$/m);

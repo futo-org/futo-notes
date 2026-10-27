@@ -289,7 +289,7 @@ build:windows:
 windows:sign:
   stage: build
   tags:
-    - dind
+    - $LINUX_RUNNER_TAG
   image: debian@sha256:3a39a0592364683e6bab97937b72cad5a8fa6dcbbee90edb3bb48c7f8e94f258
   needs:
     - job: build:windows
@@ -301,7 +301,8 @@ windows:sign:
     - |
       if ! command -v aws >/dev/null 2>&1 || ! command -v java >/dev/null 2>&1 || ! command -v python3 >/dev/null 2>&1 || ! command -v npx >/dev/null 2>&1; then
         apt-get update
-        DEBIAN_FRONTEND=noninteractive apt-get install -y ca-certificates curl jq awscli default-jre-headless python3 nodejs npm
+        # --no-install-recommends: 438 packages instead of 719 on this image.
+        DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends ca-certificates curl jq awscli default-jre-headless python3 nodejs npm
       fi
     # Download fullchain.pem from GitLab secure files
     - |
@@ -401,3 +402,52 @@ windows:cleanup:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
       when: manual
       allow_failure: true
+
+# ─────────────────────────────────────────────────────────────
+# Windows Rust tests on MRs (persistent VM, no clone)
+# ─────────────────────────────────────────────────────────────
+# The clone chain above is tag-only and costs ~8 min of provisioning per run,
+# so nothing ran on Windows before tag time, and the cfg(not(unix)) vault
+# filesystem bug (github#48, M26) shipped for three releases. This job runs
+# on a PERSISTENT VM on the same Proxmox host: a one-time full clone of
+# template 101 with the Windows gitlab-runner inside (shell executor, pwsh,
+# tag windows_persist, CARGO_HOME and CARGO_TARGET_DIR on fixed paths so the
+# build cache outlives the checkout). It holds no secrets. The VM's own
+# snapshot is the recovery path; the MR that added this job carries the setup.
+#
+# Bring-up switch: the job exists only while the project CI/CD variable
+# WINDOWS_PERSIST_RUNNER is "1", so a VM that is down or not yet registered
+# cannot leave every crates/ MR pending forever. release:gate lists it as
+# optional for the same reason.
+test:rust:windows:
+  stage: test
+  needs: []
+  tags:
+    - windows_persist
+  # The default before_script is bash + fnm; this shell is PowerShell.
+  before_script: []
+  variables:
+    GIT_DEPTH: "20"
+  script:
+    # rust-toolchain.toml pins the toolchain; install it if the VM lacks it.
+    - rustup toolchain install --profile minimal
+    - rustup show active-toolchain
+    - New-Item -ItemType Directory -Force -Path "$env:CI_PROJECT_DIR\dist" | Out-Null
+    - cargo test --workspace --locked
+  timeout: 45m
+  rules:
+    - if: $WINDOWS_PERSIST_RUNNER != "1"
+      when: never
+    - if: $CI_COMMIT_TAG
+    - if: $CI_MERGE_REQUEST_IID
+      changes: &windows-rust-changes
+        - Cargo.toml
+        - Cargo.lock
+        - rust-toolchain.toml
+        - .cargo/**/*
+        - crates/**/*
+        - apps/tauri/src-tauri/**/*
+        - ci/windows.yml
+        - .gitlab-ci.yml
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      changes: *windows-rust-changes

@@ -16,7 +16,7 @@ before changing behavior.
   `check-rust-dependency-boundaries.mjs` is the exception — it needs `cargo metadata`, so it runs only in CI's Rust workspace job.
   `language-catalogs.mjs` is a gate too but does not match that filename pattern: it backs
   `pnpm run check:languages`, which every new user-visible string must pass, and its `--audit` mode
-  backs the deliberately non-blocking `test:localization-audit` CI job. Neither is in
+  backs the blocking `test:localization-audit` CI job. Neither is in
   `check:arch-gate`, so check the membership before assuming a local `just check` covered your
   change.
 - **Generators**: `gen-toolbar-spec.ts`, `gen-title-spec.ts` and `gen-bridge-spec.ts` each take
@@ -58,12 +58,10 @@ to writing a script in this directory.
 ## Testing
 
 Most scripts have a co-located `*.test.mjs`. `vitest.config.ts` includes `scripts/**/*.test.mjs`,
-so `just check` (via `pnpm run test:full`) runs all of them; the minimal set in
-`pnpm run test:unit` is a faster subset.
+so `just check` (via `pnpm run test:full`) and a bare `just test-unit` run all of them.
 
 ```bash
-just test-unit            # includes the script tests in the minimal set
-just test-one scripts/qa-target.test.mjs
+just test-unit scripts/qa-target.test.mjs   # only the tests you name
 node scripts/gate-redproofs.mjs --include-cargo   # only when you changed a gate
 just arch-gate            # the focused checks CI's mandatory job runs
 ```

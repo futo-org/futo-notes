@@ -35,6 +35,7 @@ satisfy it yet — that's what makes gaps visible.
 | File | Surface |
 |---|---|
 | [app.md](app.md) | Cross-cutting: render lifecycle, data safety, where logic lives |
+| [cli.md](cli.md) | `futo-notes` terminal client: headless Linux, self-hosted password-mode sync |
 | [desktop-rust.md](desktop-rust.md) | Desktop Rust adapter architecture, naming, IPC/event stability, and compatibility rules |
 | [editor.md](editor.md) | The Markdown editor (shared WYSIWYG Milkdown WebView) |
 | [editor-visual.md](editor-visual.md) | Markdown editor appearance and layout |

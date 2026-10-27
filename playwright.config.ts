@@ -1,14 +1,11 @@
 import { defineConfig, devices } from '@playwright/test';
 import { webPort } from './scripts/lib/slot.mjs';
+import { playwrightArtifacts } from './scripts/playwright-artifacts.mjs';
 
 const isCI = !!process.env.CI;
 const baseURL = `http://localhost:${webPort()}`;
 
-// Sanitized: this becomes a path segment, so anything that could escape
-// test-results/ is stripped rather than trusted.
-const runId = (process.env.PW_RUN_ID ?? '').replace(/[^A-Za-z0-9._-]/g, '').slice(0, 64);
-const evidenceDir = process.env.FUTO_VERIFICATION_DIR;
-const reportRoot = evidenceDir ? `${evidenceDir}/playwright` : null;
+const artifacts = playwrightArtifacts('desktop', 'results.json');
 
 export default defineConfig({
   testDir: './tests',
@@ -29,30 +26,13 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
   retries: 0,
   workers: 1,
-  // Playwright WIPES outputDir at the start of every run, so a failing run's
-  // trace, video and error-context.md are gone the moment you re-run to check
-  // whether it was a flake — exactly when you need them (pc_fa46ccbcefea).
-  // Set PW_RUN_ID to keep runs side by side:
-  //   PW_RUN_ID=before pnpm exec playwright test tests/foo.spec.ts
-  //   PW_RUN_ID=after  pnpm exec playwright test tests/foo.spec.ts
-  // Unset (CI included) it stays 'test-results', so artifact paths are unchanged.
-  outputDir: reportRoot
-    ? `${reportRoot}/test-output`
-    : runId
-      ? `test-results/${runId}`
-      : 'test-results',
+  outputDir: artifacts.outputDir,
   reporter: [
     [isCI ? 'dot' : 'list'],
-    [
-      'json',
-      { outputFile: reportRoot ? `${reportRoot}/results.json` : 'test-results/results.json' },
-    ],
+    ['json', { outputFile: artifacts.jsonReport }],
     // open: 'never' so a local run never pops a browser tab; CI uploads the
     // folder as an artifact instead (see .gitlab-ci.yml).
-    [
-      'html',
-      { open: 'never', outputFolder: reportRoot ? `${reportRoot}/report` : 'playwright-report' },
-    ],
+    ['html', { open: 'never', outputFolder: artifacts.htmlReport }],
   ],
   use: {
     baseURL,

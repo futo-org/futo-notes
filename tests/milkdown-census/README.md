@@ -48,9 +48,8 @@ decorates is left out. The wikilink plugin reads the app's note index, a Svelte
 runes module esbuild cannot bundle; `build.mjs` resolves it to
 `noteIndexStub.ts`, an empty vault, so every link renders as broken and
 autocomplete offers nothing — neither changes a parse or a save. It mirrors
-the app's load path exactly:
-`defaultValueCtx` at creation followed by an immediate `replaceAll` of the same
-content. A `defaultValueCtx`-only reading manufactures instability on every
+the app's load sequence: create an empty engine, then replace its document
+through a transaction. A `defaultValueCtx`-only reading manufactures instability on every
 list/table/quote/fence note, because the `trailing` plugin has not settled.
 
 ## Variants
@@ -93,10 +92,10 @@ must not raise either.
   reads as differ, once everything the house style may change on purpose is
   taken out (`houseDocument` in `detectors.mjs` lists each thing and why:
   spelling-only attributes such as the `*`/`_` marker and a list item's label,
-  whitespace at a line's start or end, a heading's line breaks, empty
-  paragraphs no spelling reaches, CR line endings outside front matter, an
-  HTML block's indentation). The save lost or changed something the author
-  wrote.
+  whitespace at a heading's or cell's start or at a line's end, a heading's
+  line breaks, empty paragraphs no spelling reaches, CR line endings outside
+  front matter, an HTML block's indentation). The save lost or changed
+  something the author wrote.
 - `second_pass_unstable` — write, parse with the bare parser, write again: the
   bytes differ. A second save must be a no-op.
 

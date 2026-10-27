@@ -86,13 +86,15 @@ test_rust_macos_task:
     - CI_PROJECT_DIR="${CIRRUS_WORKING_DIR:-$PWD}" node scripts/ci-cargo-cache-freshness.mjs
     # Whole workspace so the new core crates (model/index/sync) are covered on
     # macOS too; ignored server tests stay skipped (no FUTO_TEST_SERVER).
+    # Except the CLI: docs/spec/cli.md supports Linux only ("built and tested
+    # there and nowhere else"), and its tests assume the Linux XDG layout.
     # Main pushes and tags only: on MR pipelines the same command is already
     # the hard Linux gate (test:rust:workspace), and rerunning it here spent
     # ~6 min of the single macscript runner per Rust MR for an allow_failure
     # result. MRs keep only the iOS compile check below.
     - |
       if [ -n "${CI_COMMIT_TAG:-}" ] || { [ -n "${CI_DEFAULT_BRANCH:-}" ] && [ "${CI_COMMIT_BRANCH:-}" = "${CI_DEFAULT_BRANCH}" ]; }; then
-        cargo test --workspace
+        cargo test --workspace --exclude futo-notes-cli
       else
         echo "MR pipeline: skipping cargo test --workspace (hard-gated on Linux in test:rust:workspace); running the iOS target check only"
       fi

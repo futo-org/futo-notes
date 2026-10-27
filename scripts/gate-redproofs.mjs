@@ -55,6 +55,10 @@ import { spawnSync } from 'node:child_process';
 // ---------------------------------------------------------------------------
 
 const GATES = {
+  'editor-bench-artifacts': [
+    'node',
+    ['scripts/__fixtures__/gate-redproofs/editor-bench-artifacts.mjs'],
+  ],
   'command-reachability': ['node', ['scripts/check-command-reachability.mjs']],
   'platform-discipline': ['node', ['scripts/check-platform-discipline.mjs']],
   'drift-check': ['node', ['scripts/drift-check.mjs']],
