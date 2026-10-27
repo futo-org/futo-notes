@@ -81,12 +81,14 @@ impl HostedSetupClient {
         self: Arc<Self>,
         handoff: SignInHandoff,
     ) -> Result<SignInOutcome, HostedError> {
+        // Before `off_caller`: see its module doc.
+        let request = self.setup.request_wait();
         off_caller(async move {
             let handoff = sync::SignInHandoff {
                 url: handoff.url,
                 ticket: handoff.ticket,
             };
-            Ok(match self.setup.await_sign_in(&handoff).await? {
+            Ok(match self.setup.await_sign_in(&handoff, request).await? {
                 sync::SignInOutcome::SignedIn(session) => SignInOutcome::SignedIn {
                     session: session.into(),
                 },
@@ -97,7 +99,8 @@ impl HostedSetupClient {
         .await
     }
 
-    /// Stops whichever wait is running.
+    /// Stops every wait asked for so far, including one whose body has not
+    /// started yet.
     pub fn cancel_wait(&self) {
         self.setup.cancel_wait();
     }
@@ -263,8 +266,10 @@ impl HostedSetupClient {
     /// key. `Paired` means the vault is unlocked and `current_step` answers
     /// `Ready`. `cancel_wait` ends it from the main thread.
     pub async fn await_pairing(self: Arc<Self>) -> Result<PairingOutcome, HostedError> {
+        // Before `off_caller`: see its module doc.
+        let request = self.setup.request_wait();
         off_caller(async move {
-            Ok(match self.setup.await_pairing().await? {
+            Ok(match self.setup.await_pairing(request).await? {
                 sync::PairingOutcome::Paired => PairingOutcome::Paired,
                 sync::PairingOutcome::Cancelled => PairingOutcome::Cancelled,
             })
@@ -274,8 +279,10 @@ impl HostedSetupClient {
 
     /// Waits for the checkout to make the account entitled.
     pub async fn await_entitled(self: Arc<Self>) -> Result<EntitlementOutcome, HostedError> {
+        // Before `off_caller`: see its module doc.
+        let request = self.setup.request_wait();
         off_caller(async move {
-            Ok(match self.setup.await_entitled().await? {
+            Ok(match self.setup.await_entitled(request).await? {
                 sync::EntitlementOutcome::Entitled(status) => EntitlementOutcome::Entitled {
                     status: status.into(),
                 },
@@ -402,5 +409,36 @@ mod tests {
             min_vault_password_length(),
             sync::MIN_VAULT_PASSWORD_CHARS as u32
         );
+    }
+
+    /// Issue #279: a sheet dismissed after the shell's call but before the
+    /// spawned body first runs still ends that wait. On a current-thread
+    /// runtime the body cannot run between the one poll (the shell's call) and
+    /// the cancel, so no server is needed: a wait that polled would fail —
+    /// sign-in to connect, entitlement for want of a session — instead of
+    /// answering `Cancelled`.
+    #[tokio::test]
+    async fn a_cancel_before_the_wait_starts_ends_it() {
+        use std::future::Future;
+
+        let client =
+            HostedSetupClient::at("http://127.0.0.1:1".into(), Box::new(StubSecrets(None)))
+                .expect("client");
+        let mut signing_in = Box::pin(Arc::clone(&client).await_sign_in(SignInHandoff {
+            url: "http://127.0.0.1:1/login".into(),
+            ticket: "ticket".into(),
+        }));
+        let mut paying = Box::pin(Arc::clone(&client).await_entitled());
+        std::future::poll_fn(|context| {
+            assert!(signing_in.as_mut().poll(context).is_pending());
+            assert!(paying.as_mut().poll(context).is_pending());
+            std::task::Poll::Ready(())
+        })
+        .await;
+
+        client.cancel_wait();
+
+        assert!(matches!(signing_in.await, Ok(SignInOutcome::Cancelled)));
+        assert!(matches!(paying.await, Ok(EntitlementOutcome::Cancelled)));
     }
 }

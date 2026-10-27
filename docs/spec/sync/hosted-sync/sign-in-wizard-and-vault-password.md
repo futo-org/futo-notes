@@ -53,6 +53,14 @@
   > return lands on the step the engine reports, and is not mistaken for a
   > dismissal. Closing this needs either a return deep link, which ADR 0003
   > decision 1 rules out, or a foreground-service exemption.
+- **Cancelling a wait ends that wait, and no later one.** Cancel, choosing
+  another unlock door, or dismissing the sign-in or checkout sheet or tab ends
+  the wait already asked for, even before its first poll, and a cancel with no
+  wait running (a tab's close reported after sign-in finished) does not end the
+  next wait. → `HostedSetup::request_wait`,
+  `futo-notes-ffi` `a_cancel_before_the_wait_starts_ends_it`, `hosted/tests/cancel_wait.rs`
+  `a_cancel_with_nothing_waiting_does_not_end_the_next_wait` and
+  `a_cancel_during_a_poll_ends_the_wait_when_the_poll_answers`
 - **A vault password is at least 12 characters, with a strength estimate and no
   composition rules.** The minimum is read from Rust
   (`e2ee_hosted_min_vault_password_length`) so the button and the engine cannot

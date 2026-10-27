@@ -148,14 +148,15 @@ pub async fn e2ee_hosted_await_sign_in(
     handoff: SignInHandoffOutput,
 ) -> Result<SignInOutcomeOutput, HostedErrorOutput> {
     let setup = state.hosted.current()?;
+    let request = setup.request_wait();
     let handoff = futo_notes_sync::SignInHandoff {
         url: handoff.url,
         ticket: handoff.ticket,
     };
-    Ok(setup.await_sign_in(&handoff).await?.into())
+    Ok(setup.await_sign_in(&handoff, request).await?.into())
 }
 
-/// Stops whichever wait is running — what closing the browser window means.
+/// Stops every wait asked for so far; see `HostedSetup::cancel_wait`.
 #[tauri::command]
 pub async fn e2ee_hosted_cancel_wait(state: State<'_, AppState>) -> Result<(), HostedErrorOutput> {
     if let Ok(setup) = state.hosted.current() {
@@ -217,7 +218,7 @@ pub async fn e2ee_hosted_await_entitled(
 ) -> Result<EntitlementOutcomeOutput, HostedErrorOutput> {
     let setup = state.hosted.current()?;
     setup
-        .await_entitled()
+        .await_entitled(setup.request_wait())
         .await
         .map(Into::into)
         .map_err(Into::into)
@@ -398,7 +399,7 @@ pub async fn e2ee_hosted_await_pairing(
 ) -> Result<PairingOutcomeOutput, HostedErrorOutput> {
     let setup = state.hosted.current()?;
     setup
-        .await_pairing()
+        .await_pairing(setup.request_wait())
         .await
         .map(Into::into)
         .map_err(Into::into)

@@ -61,7 +61,7 @@ export function awaitHostedSignIn(handoff: SignInHandoffOutput): Promise<SignInO
   return invoke<SignInOutcomeOutput>('e2ee_hosted_await_sign_in', { handoff });
 }
 
-/** Stops whichever wait is running — what closing the browser window means. */
+/** Stops every wait asked for so far; see `HostedSetup::cancel_wait`. */
 export function cancelHostedWait(): Promise<void> {
   return invoke<void>('e2ee_hosted_cancel_wait');
 }

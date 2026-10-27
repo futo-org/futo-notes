@@ -232,7 +232,11 @@ async fn mint_handoff(setup: &HostedSetup) -> SignInHandoff {
 async fn sign_in(setup: &HostedSetup) {
     let handoff = mint_handoff(setup).await;
     browser_visit(&handoff.url).await;
-    match setup.await_sign_in(&handoff).await.expect("await sign in") {
+    match setup
+        .await_sign_in(&handoff, setup.request_wait())
+        .await
+        .expect("await sign in")
+    {
         SignInOutcome::SignedIn(_) => {}
         other => panic!("expected a session, got {other:?}"),
     }
@@ -330,7 +334,11 @@ async fn subscribe(setup: &HostedSetup) {
         Checkout::Open { url } => browser_visit(&url).await,
         Checkout::AlreadyEntitled(status) => panic!("expected a checkout URL, got {status:?}"),
     }
-    match setup.await_entitled().await.expect("await entitled") {
+    match setup
+        .await_entitled(setup.request_wait())
+        .await
+        .expect("await entitled")
+    {
         EntitlementOutcome::Entitled(status) => assert!(status.entitled),
         other => panic!("expected entitlement, got {other:?}"),
     }
