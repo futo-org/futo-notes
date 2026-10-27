@@ -3,7 +3,6 @@ package com.futo.notes.ui
 import android.content.Context
 import android.net.Uri
 import android.graphics.BitmapFactory
-import android.widget.Toast
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -104,7 +103,7 @@ fun FeedbackScreen(picker: ImagePicker, onBack: () -> Unit, onSent: () -> Unit) 
             prefs.edit().remove(Prefs.FEEDBACK_DRAFT).apply()
             message = ""
             images = emptyList()
-            Toast.makeText(context, localization.localizedText("feedback.sentThanks"), Toast.LENGTH_SHORT).show()
+            showToast(context, localization.localizedText("feedback.sentThanks"))
             onSent()
         } else {
             error = localization.localizedText("feedback.sendFailedRetry")

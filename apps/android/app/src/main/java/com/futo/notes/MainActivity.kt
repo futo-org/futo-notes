@@ -4,7 +4,6 @@ import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
-import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.compose.BackHandler
@@ -44,6 +43,7 @@ import com.futo.notes.ui.navigation.DropLicenseLandingWithoutShell
 import com.futo.notes.ui.StorageOnboarding
 import com.futo.notes.ui.StorageRegrantScreen
 import com.futo.notes.ui.ThemeMode
+import com.futo.notes.ui.showToast
 import com.futo.notes.ui.theme.FutoNotesTheme
 import com.futo.notes.license.LicenseModel
 import com.futo.notes.license.LicenseStorage
@@ -170,11 +170,7 @@ class MainActivity : ComponentActivity() {
         // (M3).
         license = LicenseModel(LicenseStorage(prefs), BuildConfig.APPLICATION_ID)
         license.showMessage = { message ->
-            Toast.makeText(
-                this,
-                localization.localizedText(message.path, message.arguments),
-                Toast.LENGTH_LONG,
-            ).show()
+            showToast(this, localization.localizedText(message.path, message.arguments), long = true)
         }
         // Only on a genuinely NEW launch. A recreation — process death, a
         // configuration change outside the list above — re-delivers the SAME
@@ -194,11 +190,11 @@ class MainActivity : ComponentActivity() {
             if (NotesStorage.hasDeviceAccess()) {
                 action?.invoke()
             } else {
-                Toast.makeText(
+                showToast(
                     this,
                     localization.localizedText("storage.android.permission.denied"),
-                    Toast.LENGTH_LONG,
-                ).show()
+                    long = true,
+                )
             }
         }
 

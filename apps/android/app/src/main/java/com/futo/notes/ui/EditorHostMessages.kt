@@ -3,7 +3,6 @@ package com.futo.notes.ui
 import android.util.Log
 import android.view.HapticFeedbackConstants
 import android.webkit.WebView
-import android.widget.Toast
 import com.futo.notes.BuildConfig
 import org.json.JSONObject
 
@@ -52,7 +51,7 @@ internal fun EditorHost.handle(msg: JSONObject) {
             )
             if (BuildConfig.DEBUG) {
                 localization?.let {
-                    Toast.makeText(
+                    showToast(
                         appContext,
                         it.localizedText(
                             "editor.android.bridgeVersionMismatch",
@@ -61,8 +60,8 @@ internal fun EditorHost.handle(msg: JSONObject) {
                                 "nativeVersion" to hostVersion.toString(),
                             ),
                         ),
-                        Toast.LENGTH_LONG,
-                    ).show()
+                        long = true,
+                    )
                 }
             }
         }

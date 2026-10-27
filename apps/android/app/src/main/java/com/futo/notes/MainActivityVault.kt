@@ -1,10 +1,10 @@
 package com.futo.notes
 
-import android.widget.Toast
 import androidx.activity.compose.setContent
 import androidx.lifecycle.lifecycleScope
 import com.futo.notes.storage.NotesStorage
 import com.futo.notes.storage.StorageMode
+import com.futo.notes.ui.showToast
 import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -15,11 +15,11 @@ internal fun MainActivity.selectLanguage(store: NotesStore, languageTag: String?
         if (store.settlePendingEditorDrafts()) {
             appLanguage.select(languageTag)
         } else {
-            Toast.makeText(
+            showToast(
                 this@selectLanguage,
                 localization.localizedText("settings.language.android.draftSaveFailed"),
-                Toast.LENGTH_LONG,
-            ).show()
+                long = true,
+            )
         }
     }
 }
