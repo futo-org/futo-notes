@@ -288,15 +288,16 @@ editor resolve from the catalogs on desktop, Android, and iOS.
   shapes, empty or whitespace-padded messages, malformed braces or placeholders,
   unsupported placeholder names, invalid plural categories or exact selectors,
   plurals without `other`, and translated placeholders not declared by English.
-- A separate non-blocking audit reports missing and extra messages, translation
+- A separate audit reports missing and extra messages, translation
   completeness, translations that omit English placeholders, likely stale
-  translations, and other translation-quality warnings. It is allowed to fail
-  and is not part of the release gate.
+  translations, and other translation-quality warnings. It is blocking and part
+  of the release gate: every committed catalog translates every English message.
 - Formatter and adapter behavior tests are blocking. Their shared, data-only
   vectors live in `tests/localization/cases.json`; the fixture is not an
   implementation or a formatter.
-- Catalogs may be incomplete, but every value they contain must be executable and
-  safe. The syntax and structure test is blocking; completeness is not.
+- The runtime tolerates an incomplete catalog (the fallback rules above), and
+  every value a catalog contains must be executable and safe. Both the syntax and
+  structure test and the completeness audit are blocking.
 - Catalog files are edited directly in the repository. Machine translation during
   development is allowed. Version 1 requires no translation command, service,
   pseudolocalization system, or fluent-speaker review.

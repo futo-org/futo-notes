@@ -12,8 +12,9 @@
  * timebox, the result contract, the comment, the label, the DM, and the state
  * that keeps a commit from being judged twice. The agent runs `/mr-qa` and
  * writes a JSON result. Any part breaking — GitLab, Zulip, the agent, a
- * problem the agent reports — exits non-zero, and the unit's OnFailure=
- * handler (alertFailure.mjs) DMs the operator.
+ * problem that kept the agent from a verdict — exits non-zero, and the unit's
+ * OnFailure= handler (alertFailure.mjs) DMs the operator. Friction the agent
+ * got around is filed as papercuts instead (factory-prompt.md).
  *
  * Mason's MRs also wait for Justin to press Approve in GitLab (rules.mjs
  * APPROVER_FOR).
@@ -132,8 +133,22 @@ function buildTaskPrompt({ mrs, resultFile }) {
   ].join('\n');
 }
 
-function runAgent({ checkout, taskPrompt, resultFile, logFile, model, timeoutMs = TIMEBOX_MS }) {
-  const env = { ...process.env, FUTO_MR_FACTORY_RESULT_FILE: resultFile };
+function runAgent({
+  checkout,
+  repoDirectory,
+  taskPrompt,
+  resultFile,
+  logFile,
+  model,
+  timeoutMs = TIMEBOX_MS,
+}) {
+  const env = {
+    ...process.env,
+    FUTO_MR_FACTORY_RESULT_FILE: resultFile,
+    // The checkout is reset every sweep, so friction is filed where the
+    // maintainer's own sessions file theirs and commits it from.
+    FUTO_MR_FACTORY_PAPERCUTS_FILE: path.join(repoDirectory, '.papercuts.jsonl'),
+  };
   // The launcher owns every Zulip message; the agent cannot send one.
   delete env.ZULIP_FACTORY_BOT_EMAIL;
   delete env.ZULIP_FACTORY_BOT_KEY;
@@ -312,7 +327,14 @@ export async function runSweep({
   process.stdout.write(
     `mr-factory: /mr-qa on ${selected.map((mr) => `!${mr.iid}`).join(' ')} — log ${logFile}\n`,
   );
-  const { exitCode, raw } = await runAgent({ checkout, taskPrompt, resultFile, logFile, model });
+  const { exitCode, raw } = await runAgent({
+    checkout,
+    repoDirectory,
+    taskPrompt,
+    resultFile,
+    logFile,
+    model,
+  });
 
   const result =
     raw === null

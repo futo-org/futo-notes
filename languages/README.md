@@ -14,13 +14,15 @@ file shape is defined in [`catalog.schema.json`](catalog.schema.json).
 3. Put translated UI text below `messages`. Catalog objects are nested; call
    sites use the equivalent dot-separated path.
 4. Run `pnpm run check:languages`. It reports all invalid catalog files and
-   message paths together. `pnpm run audit:languages` is the separate,
-   non-blocking completeness audit.
+   message paths together. `pnpm run audit:languages` is the separate
+   completeness audit; it blocks CI, so add every new message to every catalog.
+   The exception is `cli.*` (the dogfood CLI), which stays English-only for now.
 
 Anyone may edit a catalog directly. Machine translation during development is
 allowed. There is no translation command or required external service or review.
-A catalog can be incomplete; missing values fall back according to the product
-spec. Anything present must satisfy the schema and message rules.
+The runtime tolerates an incomplete catalog (missing values fall back according
+to the product spec), but CI does not: every committed catalog translates every
+English message. Anything present must satisfy the schema and message rules.
 
 Adding a valid catalog file is the only source change required for a language.
 The build will discover and bundle it and generate required platform language

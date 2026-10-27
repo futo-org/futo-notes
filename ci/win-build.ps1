@@ -167,12 +167,10 @@ if ($HostedSync -eq "true") {
     $env:FUTO_HOSTED_SERVER_BAKED = $HostedServer
 }
 
-Invoke-Step "Building frontend" {
-    pnpm run build
-}
-
+# No separate frontend step: tauri.conf.json's beforeBuildCommand runs
+# `pnpm run build` (with the hosted env above), as on Linux and macOS.
 Set-Location apps\tauri
-Invoke-Step "Building Tauri (Windows)" {
+Invoke-Step "Building frontend + Tauri (Windows)" {
     cargo tauri build --bundles nsis
 }
 

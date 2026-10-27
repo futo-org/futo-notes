@@ -20,9 +20,8 @@ if [ ! -f "$ENV_FILE" ]; then
 fi
 
 # Resolve the node binary now; the units bake in an absolute path so systemd
-# (which has a minimal PATH and never sees nvm) can find it.
-NODE_BIN="$(command -v node)"
-[ -n "$NODE_BIN" ] || { echo "node not found on PATH" >&2; exit 1; }
+# (which has a minimal PATH and never sees fnm) can find it.
+. "$REPO_DIR/scripts/lib/stable-node-path.sh"
 
 echo "node:  $NODE_BIN"
 echo "repo:  $REPO_DIR"
