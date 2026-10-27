@@ -119,7 +119,7 @@ A stable tag submits the build to App Store review with no console step:
 - `publish:ios` uploads the IPA to TestFlight (`xcrun altool`, on the macOS
   Cirrus runner) as soon as `build:ios-native` finishes — before `release:gate`,
   so Apple processes the build while the tests run. A tag whose tests fail can
-  therefore leave its build in TestFlight, as every main push already does; it
+  therefore leave its build in TestFlight, as the nightly main build does; it
   never reaches review.
 - `publish:ios:appstore` waits for `release:gate`, then runs `scripts/submit-appstore.mjs` **on Linux** —
   everything past the upload is the App Store Connect REST API, so it does not

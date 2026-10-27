@@ -27,6 +27,17 @@
     name: $IMAGE_ANDROID
     pull_policy: if-not-present
 
+# The project's one pipeline schedule is the nightly TestFlight build, and
+# GitLab counts every `changes:` filter as matched in a scheduled pipeline —
+# so any job whose rules can match main must open them with
+# `- !reference [.not-scheduled, rules]`, or it joins the nightly run. Only
+# `test`, `build:ios-native` and `publish:ios:main` leave it out
+# (scripts/ci-scheduled-pipeline.test.mjs enforces exactly that set).
+.not-scheduled:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+      when: never
+
 # ─────────────────────────────────────────────────────────────
 # Reusable script fragments
 # ─────────────────────────────────────────────────────────────

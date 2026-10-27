@@ -192,6 +192,7 @@ build:android-native:
   # warms the next attempt.
   timeout: 90m
   rules:
+    - !reference [.not-scheduled, rules]
     - if: $CI_MERGE_REQUEST_IID
       changes:
         - Cargo.lock
