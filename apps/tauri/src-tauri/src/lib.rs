@@ -29,6 +29,7 @@ mod system_trash;
 mod updater_commands;
 mod vault_location;
 mod window_controls;
+mod window_minimum;
 mod window_reveal;
 
 pub fn run() {

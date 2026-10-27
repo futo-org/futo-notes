@@ -20,7 +20,7 @@ test.describe('License card', () => {
     // which means both the .glb and the .hdr arrived and the first frame drew.
     const stage = page.locator('.supporter-coin-stage-live');
     await expect(stage).toBeAttached({ timeout: 15000 });
-    // The plate sits well down a scrolling Settings sheet. The coin stops its
+    // The plate sits in a scrolling Settings dialog. The coin stops its
     // own render loop while off screen (it is one keystroke from the editor),
     // so a test that never scrolls to it is reading a frame that happens to be
     // left over rather than one the app is actually drawing.

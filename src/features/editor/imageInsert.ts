@@ -14,8 +14,8 @@
  *
  *   - FILES (`insertFiles`): an HTML5 `drop` where the webview already read
  *     the bytes into `dataTransfer.files`. This is what macOS and Windows
- *     deliver: every desktop build config sets `dragDropEnabled: false`
- *     (`tauri.macos/windows/linux.conf.json`), so wry installs no native drop
+ *     deliver: the desktop window config sets `dragDropEnabled: false`
+ *     (`tauri.conf.json`), so wry installs no native drop
  *     target on any of the three and each webview's own DOM drop handles it —
  *     Linux joined them in QA #017 (2026-09-11), because on a native-Wayland
  *     compositor wry's own GTK-signal relay never fires a real drop at all.

@@ -18,45 +18,61 @@ vi.mock('$features/system/theme', () => ({ applyThemePreference: vi.fn() }));
 
 import SettingsScreen from './SettingsScreen.svelte';
 
+let target: HTMLDivElement;
+let app: ReturnType<typeof mount> | null = null;
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  target = document.createElement('div');
+  document.body.appendChild(target);
+});
+
+afterEach(() => {
+  if (app) unmount(app);
+  app = null;
+  target.remove();
+});
+
+// Settings portals to <body> (the shared Modal), so queries go to `document`,
+// not `target`.
+function mountSettings(): void {
+  app = mount(SettingsScreen, {
+    target,
+    props: {
+      onclose: vi.fn(),
+      backgroundSyncError: false,
+      backgroundSyncErrorMessage: '',
+      syncReconnecting: false,
+      onsimulatesync: vi.fn(),
+      onreset: vi.fn(),
+    },
+  });
+  flushSync();
+}
+
 // Crash #1788: a vault the app cannot write to used to reach the user as a crash
 // report; the toggle now says the change was not saved.
 describe('SettingsScreen when a preference cannot be saved', () => {
-  let target: HTMLDivElement;
-  let app: ReturnType<typeof mount> | null = null;
-
-  beforeEach(() => {
-    vi.clearAllMocks();
-    target = document.createElement('div');
-    document.body.appendChild(target);
-  });
-
-  afterEach(() => {
-    if (app) unmount(app);
-    app = null;
-    target.remove();
-  });
-
   it('tells the user', async () => {
     savePreferences.mockResolvedValue(false);
-    app = mount(SettingsScreen, {
-      target,
-      props: {
-        onclose: vi.fn(),
-        backgroundSyncError: false,
-        backgroundSyncErrorMessage: '',
-        syncReconnecting: false,
-        onsimulatesync: vi.fn(),
-        onreset: vi.fn(),
-      },
-    });
-    flushSync();
+    mountSettings();
 
-    const dark = [...target.querySelectorAll<HTMLButtonElement>('.settings-segment')].find(
+    const dark = [...document.querySelectorAll<HTMLButtonElement>('.settings-segment')].find(
       (button) => button.textContent === 'Dark',
     );
     dark!.click();
     await vi.waitFor(() =>
       expect(showGlobalToast).toHaveBeenCalledWith({ path: 'settings.saveFailed' }),
     );
+  });
+});
+
+describe('SettingsScreen dialog', () => {
+  it('is named by its own heading', () => {
+    mountSettings();
+
+    const dialog = document.querySelector('[role="dialog"]')!;
+    const heading = document.getElementById(dialog.getAttribute('aria-labelledby')!);
+    expect(heading?.textContent).toBe('Settings');
   });
 });
