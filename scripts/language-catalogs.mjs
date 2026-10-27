@@ -231,6 +231,16 @@ function sameMessageValue(left, right) {
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
+/**
+ * Message namespaces that stay English-only for now, so a catalog missing them
+ * is not a finding: the dogfood CLI's strings (Justin, 2026-10-26).
+ */
+const ENGLISH_ONLY_PREFIXES = ['cli.'];
+
+function isEnglishOnly(messagePath) {
+  return ENGLISH_ONLY_PREFIXES.some((prefix) => messagePath.startsWith(prefix));
+}
+
 export function auditLanguageCatalogs(validation) {
   const warnings = [];
   const english = validation.catalogs.get('en');
@@ -256,7 +266,7 @@ export function auditLanguageCatalogs(validation) {
       `${catalog.languageTag}: ${translated}/${english.messages.size} messages (${completeness}%)`,
     );
 
-    for (const messagePath of missing)
+    for (const messagePath of missing.filter((path) => !isEnglishOnly(path)))
       warnings.push(`${catalog.fileName}: ${messagePath}: missing translation`);
     for (const messagePath of extra)
       warnings.push(`${catalog.fileName}: ${messagePath}: message does not exist in en.json`);

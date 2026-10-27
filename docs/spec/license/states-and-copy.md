@@ -21,7 +21,7 @@ only ever said blank or "Perpetual". That leaves **Key** as the whole ledger, an
 with no key there is no ledger at all, because one blank row is the same void the
 well was. The plate also sits on the **same surface as every other Settings card**
 rather than on a slab of its own material — a gunmetal gradient on desktop and
-iOS, the same gradient on Android — which read as a foreign object in the sheet;
+iOS, the same gradient on Android — which read as a foreign object in Settings;
 only the gold accent is still the plate's own, because no shell has a token for
 it. `licenseCardModel` **keeps returning `since` and `term`**: it is shared law
 across the three shells and did not change, and the shells stopped rendering

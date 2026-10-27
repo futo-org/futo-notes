@@ -7,6 +7,7 @@ import {
   formatResult,
   makeApi,
   parseTarget,
+  resolveToken,
   summarizeJobs,
   tailLines,
   waitForPipeline,
@@ -215,5 +216,52 @@ describe('makeApi', () => {
       'https://gitlab.futo.org/api/v4/projects/futo-notes%2Ffuto-notes/pipelines',
     );
     expect(seen[0][1]['PRIVATE-TOKEN']).toBe('tok');
+  });
+});
+
+describe('resolveToken', () => {
+  it('prefers the environment without reading glab credentials', () => {
+    expect(
+      resolveToken({
+        env: { GITLAB_TOKEN: 'env-secret' },
+        run: () => {
+          throw new Error('must not run');
+        },
+      }),
+    ).toBe('env-secret');
+  });
+
+  it('captures a configured glab token without forwarding credential output', () => {
+    const calls = [];
+    expect(
+      resolveToken({
+        env: {},
+        run: (...args) => {
+          calls.push(args);
+          return { status: 0, stdout: 'configured-secret\n' };
+        },
+      }),
+    ).toBe('configured-secret');
+    expect(calls).toEqual([
+      [
+        'glab',
+        ['config', 'get', 'token', '--host', 'gitlab.futo.org'],
+        {
+          encoding: 'utf8',
+          stdio: ['ignore', 'pipe', 'pipe'],
+        },
+      ],
+    ]);
+  });
+
+  it.each([
+    { status: 1, stderr: 'sensitive diagnostic', stdout: 'do-not-use' },
+    { status: null, error: new Error('ENOENT') },
+    { status: 0, stdout: '  \n' },
+  ])('reports a safe repair hint if glab has no usable credential', (result) => {
+    expect(() => resolveToken({ env: {}, run: () => result })).toThrow(
+      'Set GITLAB_TOKEN (read_api scope) or run glab auth login --hostname gitlab.futo.org',
+    );
+    expect(() => resolveToken({ env: {}, run: () => result })).not.toThrow(/sensitive|do-not-use/);
   });
 });

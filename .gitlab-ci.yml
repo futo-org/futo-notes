@@ -1,9 +1,15 @@
 default:
+  # Every Linux job lands on an office runner (71 futocoredebianrunner1 and
+  # 112 futonotesdebianrunner1 carry dind_fast). Runner 55, the
+  # DigitalOcean box, is the outage path only: it re-pulls the image every
+  # job, misses the pnpm store every job, and ran the unit job at 7m15
+  # against 1m27 here. To use it, run the pipeline with LINUX_RUNNER_TAG=dind.
+  # Only the kitchensink-image jobs can take that path: 55 is locked to
+  # pull_policy always and refuses .ci-test-image.
   tags:
-    - dind
-  # Keep the lightweight org image as the default for the untagged jobs that
-  # can land on runner 55, which refuses .ci-test-image's pull policy. Jobs
-  # pinned to runner 71 (dind_fast) opt into that larger image below.
+    - $LINUX_RUNNER_TAG
+  # Keep the lightweight org image as the default: it is the one runner 55
+  # accepts, and the jobs that matter opt into .ci-test-image below.
   image: gitlab.futo.org:5050/futocore/ci/kitchensink@sha256:2df4951967506d9dc31ad4dea6d7b03eb4ddea21f3bd5e500ef3d3be924e589f
   interruptible: true
   before_script:
@@ -16,16 +22,25 @@ default:
     - eval "$(fnm env --shell bash)"
     - fnm use --install-if-missing
     - corepack enable
-    - corepack prepare pnpm@10.29.2 --activate
+    - corepack prepare pnpm@10.34.7 --activate
     - pnpm config set store-dir "$PNPM_STORE_DIR"
     - export PATH="$CARGO_HOME/bin:$PATH"
 
 variables:
+  LINUX_RUNNER_TAG: dind_fast
   CARGO_HOME: $CI_PROJECT_DIR/.cargo-home
   # Main/tag pipelines seed shared Cargo archives. Source-only MRs consume
   # them without spending minutes recompressing tens of thousands of unchanged
   # target files; lockfile MRs opt back into pull-push in their job rules.
   CARGO_CACHE_POLICY: pull-push
+  # Part of every rolling Rust cache key (ci/templates.yml). Those keys no
+  # longer reset when Cargo.lock changes, so stale dependency builds pile up
+  # in target/; bump this to start every Rust cache fresh.
+  CARGO_CACHE_EPOCH: "1"
+  # Cache archives are 4 GB Cargo trees on a LAN S3 server: zip time, not
+  # transfer, is the cost, so trade size for speed.
+  FF_USE_FASTZIP: "true"
+  CACHE_COMPRESSION_LEVEL: fastest
   PNPM_STORE_DIR: $CI_PROJECT_DIR/.pnpm-store
   PLAYWRIGHT_BROWSERS_PATH: $CI_PROJECT_DIR/.cache-ms-playwright
   # Base images are pinned by digest so a registry `:latest` cannot swap the
@@ -38,29 +53,31 @@ variables:
   # pushes `:latest`; moving consumers onto the new bytes is a deliberate edit of
   # this line, the same follow-up-commit dance `.ci-test-image` documents. Resolve
   # a new digest through project registry repository 163.
-  IMAGE_ANDROID: gitlab.futo.org:5050/futo-notes/futo-notes/ci/android@sha256:afed1a7a22a312e1948a7f3b464b138b516dd1149aa3bd8d0aa69827496b7f42
+  IMAGE_ANDROID: gitlab.futo.org:5050/futo-notes/futo-notes/ci/android@sha256:9147207d5ee2f2f680f137dd8fcaadc18bef058a0547542f29f1e21144696125
   #
   # quay garbage-collects manifests no tag points at, and this pin is EXPECTED
   # TO DIE PERIODICALLY. Picking a digest that an exact version tag also held
   # was tried and did not help: sha256:8eca9c2b… was shared by v1.43.2, v1.43,
   # v1 and latest when it was pinned, and 12 days later it 404'd
   # ("manifest unknown") because upstream had rebuilt and moved every one of
-  # those tags off it. There is no digest here that stays resolvable forever.
+  # those tags off it. There is no digest here that stays resolvable forever —
+  # except one held by an `-immutable` tag, which upstream never moves; the pin
+  # below is v1.43.5-immutable's (2026-10-23). Re-pin to another `-immutable`.
   #
   # So: when `build:ci-android-image` or `build:ci-test-image` fails to pull
   # with "manifest unknown", the pin is dead — re-resolve and update this line
   # (do NOT switch it back to a floating tag; the point of the pin is that a
   # registry `:latest` cannot swap the toolchain under a pipeline):
-  #   skopeo inspect --raw docker://quay.io/buildah/stable:v1.43.2 | sha256sum
+  #   skopeo inspect --raw docker://quay.io/buildah/stable:v1.43.5-immutable | sha256sum
   # or read the `Docker-Content-Digest` response header from
-  #   GET https://quay.io/v2/buildah/stable/manifests/v1.43.2
+  #   GET https://quay.io/v2/buildah/stable/manifests/v1.43.5-immutable
   # (Accept: application/vnd.oci.image.index.v1+json). Both must agree, and the
   # raw manifest must be an OCI index containing a linux/amd64 entry — the
   # runners are amd64 and the index lists ppc64le first.
   #
   # Both jobs using this are `when: manual` and web-pipeline only, so no MR
   # pipeline pulls the image; a dead pin surfaces only when someone rebuilds.
-  IMAGE_BUILDAH: quay.io/buildah/stable@sha256:83045a38da942948cbe8ce53fcf32d76b2d9bfad33bc4586d804522030efc64f
+  IMAGE_BUILDAH: quay.io/buildah/stable@sha256:7c2b605262748ace2c5c57c5550942d0adad57aec82ede3070927722306c0ffb
 
 workflow:
   rules:
@@ -84,6 +101,7 @@ include:
   - local: ci/templates.yml
   - local: ci/test-checks.yml
   - local: ci/test-e2e.yml
+  - local: ci/bench.yml
   - local: ci/test-rust.yml
   - local: ci/test-sync.yml
   - local: ci/build-linux.yml

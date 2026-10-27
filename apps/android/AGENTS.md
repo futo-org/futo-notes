@@ -51,9 +51,10 @@ The JDK is **not** one of these traps any more, and must not become one again.
 `apps/android/gradle/gradle-daemon-jvm.properties` pins the Gradle daemon to 21,
 so gradle runs correctly whatever `java` your PATH resolves to — do not "fix" a
 gradle failure by exporting `JAVA_HOME` in a script, a recipe, or your shell.
-Gradle 8.14.3 cannot run on 25 and says so only as the bare text `25.0.2`; if you
-see that, the pin was bypassed. `scripts/gradle-jdk-pin.test.mjs` fails if an
-entry point re-adds a JAVA_HOME export.
+The Gradle 8.14.3 wrapper this replaced could not run on JDK 25 at all and said so
+only as the bare text `25.0.2`; on the 9.x wrapper the pin keeps the daemon on
+CI's JDK. `scripts/gradle-jdk-pin.test.mjs` fails if an entry point re-adds a
+JAVA_HOME export.
 
 After changing `futo-notes-ffi` or a crate it re-exports, rebuild the bindings
 first (`just build-rust-android device`) or you are testing yesterday's Rust (M9) — the

@@ -129,6 +129,25 @@ beforeEach(async () => {
 });
 
 describe('an image saved while the note changes', () => {
+  it.each(['drop', 'paste'])(
+    'discards an image from %s when the next note has identical bytes',
+    async (door) => {
+      const save = deferred<string>();
+      if (door === 'drop') fsMock.saveImagePath.mockReturnValue(save.promise);
+      else fsMock.saveImageBytes.mockReturnValue(save.promise);
+
+      handle.openNote('note-a', 'same body\n');
+      if (door === 'drop') dropPath('/pics/holiday.png');
+      else pasteImage();
+
+      handle.openNote('note-b', 'same body\n');
+      save.resolve('image-holiday.png');
+
+      await vi.waitFor(() => expect(fsMock.deleteFile).toHaveBeenCalledWith('image-holiday.png'));
+      expect(handle.getContent()).toBe('same body\n');
+    },
+  );
+
   it('does not reach the note the user moved on to, and its file is removed', async () => {
     const save = deferred<string>();
     fsMock.saveImagePath.mockReturnValue(save.promise);

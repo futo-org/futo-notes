@@ -69,10 +69,19 @@ Native builds and simultaneous embed/gauntlet runs cannot erase its bundle.
 `just test-unit` is **Vitest**, not Playwright — use it for the co-located unit tests and the
 harness helpers under `lib/`, not for a `.spec.ts` here.
 
-Playwright **wipes** `test-results/` at the start of every run, so a failed run's trace and video
-are gone the moment you re-run to check whether it was a flake; set `PW_RUN_ID=before` /
-`PW_RUN_ID=after` to keep runs side by side. The default config runs single-worker
-(`workers: 1`, `fullyParallel: false`); CI's `test:e2e:rest` job overrides that with `--workers=2`.
+Playwright **wipes** its output directory at the start of every run. All three configs isolate
+artifacts under `test-results/<runner>/default` and HTML under
+`playwright-report/<runner>/default` (`desktop`, `editor-embed`, `editor-gauntlet`). Set
+`PW_RUN_ID=before` / `PW_RUN_ID=after` to retain runs under sibling `run-before` / `run-after`
+directories, including their JSON and HTML reports; an unnamed run cannot erase them.
+Unnamed JSON reports keep the CI filenames directly under `test-results/`: `results.json`,
+`editor-embed-results.json`, and `editor-gauntlet-results.json`.
+`FUTO_VERIFICATION_DIR` takes precedence over `PW_RUN_ID`: desktop keeps its existing
+`<dir>/playwright/{test-output,results.json,report}` layout, while embed and gauntlet use
+`<dir>/playwright/<runner>/{test-output,results.json,report}`. Repeating the same runner with
+the same run ID or verification directory replaces that runner's previous evidence.
+The default config runs single-worker (`workers: 1`, `fullyParallel: false`); CI's
+`test:e2e:rest` job overrides that with `--workers=2`.
 CI splits `test:e2e:rest` and `test:e2e:editor-embed` into three jobs each by file
 (`--shard=N/3`), so a red shard holds only its share of the specs; reproduce one with
 `pnpm run test:e2e:rest --shard=2/3`. Put the flag straight after the script name: after a `--`,

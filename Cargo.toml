@@ -9,6 +9,7 @@ members = [
   "crates/futo-notes-ffi",
   "crates/futo-notes-search",
   "apps/tauri/src-tauri",
+  "apps/cli",
 ]
 
 # Shipped code logs through `futo_notes_core::log_to_stderr!`: `println!`/`eprintln!`

@@ -5,8 +5,11 @@ opening and re-saving each note would change.
 
 ```
 just milkdown-census --limit 200                        # ~4s smoke
-just milkdown-census --variant baseline                 # the UNPATCHED preset
-just milkdown-census --diff build/milkdown-census/baseline
+# Before a change (or at the prior reviewed MR head):
+just milkdown-census --variant compat --out build/milkdown-census/before
+# After the change, using the same corpus and selection:
+just milkdown-census --variant compat --out build/milkdown-census/after --diff build/milkdown-census/before
+just milkdown-census --variant baseline                 # optional upstream diagnostic
 just milkdown-census --vault ~/Documents/futo-notes --out build/milkdown-census/vault  # your own notes
 ```
 
@@ -24,14 +27,14 @@ the transition plan); two are hard gates since #266: `content_loss` and
 
 ## Layout
 
-| file | what it is |
-|---|---|
-| `entry.ts` | the browser side — a real editor with the app's plugin chain and load sequence, exposed as one `load(variant, markdown)` call |
-| `build.mjs` | esbuild bundle + page, also used by `tests/editor-embed-milkdown-compat.spec.ts` |
-| `noteIndexStub.ts` | the empty note index the wikilink plugin renders with on the census page (below) |
-| `detectors.mjs` | what counts as a flag |
-| `knownExceptions.mjs` | the gate notes the maintainer accepted, and the gate verdict |
-| `run.mjs` | the driver: corpus in, `results.jsonl` + `summary.json` out |
+| file                  | what it is                                                                                                                    |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `entry.ts`            | the browser side — a real editor with the app's plugin chain and load sequence, exposed as one `load(variant, markdown)` call |
+| `build.mjs`           | esbuild bundle + page, also used by `tests/editor-embed-milkdown-compat.spec.ts`                                              |
+| `noteIndexStub.ts`    | the empty note index the wikilink plugin renders with on the census page (below)                                              |
+| `detectors.mjs`       | what counts as a flag                                                                                                         |
+| `knownExceptions.mjs` | the gate notes the maintainer accepted, and the gate verdict                                                                  |
+| `run.mjs`             | the driver: corpus in, `results.jsonl` + `summary.json` out                                                                   |
 
 `entry.ts` imports from source, so the census can never drift from what the app
 ships. On `compat` it mounts every plugin of the app's chain
@@ -45,9 +48,8 @@ decorates is left out. The wikilink plugin reads the app's note index, a Svelte
 runes module esbuild cannot bundle; `build.mjs` resolves it to
 `noteIndexStub.ts`, an empty vault, so every link renders as broken and
 autocomplete offers nothing — neither changes a parse or a save. It mirrors
-the app's load path exactly:
-`defaultValueCtx` at creation followed by an immediate `replaceAll` of the same
-content. A `defaultValueCtx`-only reading manufactures instability on every
+the app's load sequence: create an empty engine, then replace its document
+through a transaction. A `defaultValueCtx`-only reading manufactures instability on every
 list/table/quote/fence note, because the `trailing` plugin has not settled.
 
 ## Variants
@@ -55,10 +57,17 @@ list/table/quote/fence note, because the `trailing` plugin has not settled.
 `--variant compat` (default) is what the app ships: the compat presets read
 the note and the editor's own serializer writes it. It is the variant the
 serializer's two hard gates are stated against (below). `--variant baseline` is
-the unpatched upstream preset, reading and writing with remark, and it is how a
-comparison gets produced from this harness rather than from a set of numbers
-nobody can re-derive: run baseline, run compat with `--diff`, read the
-newly-raised flags. `--diff` exits non-zero if there are any.
+the unpatched upstream preset, reading and writing with remark. It is useful for
+diagnosing differences from upstream, but it uses a different serializer from
+`compat`, so its broad flags are not a regression baseline for an app change.
+
+For a change under review, compare `compat` at the prior reviewed MR head with
+`compat` at the new head. Keep the corpus, limit (or full run), and vault selection
+the same. Preserve the prior results with a distinct `--out` directory; when using
+separate worktrees, pass the prior directory's absolute path to `--diff`.
+`--diff` exits non-zero for any newly raised flag. Both `compat` runs must also
+pass the `content_loss` and `second_pass_unstable` hard gates; choosing a prior
+head for broad-flag comparison does not change those gates or their exceptions.
 
 There was an `owned` variant while the serializer was being built beside
 remark-stringify; it became `compat` the day the serializer shipped (#266).
@@ -83,10 +92,10 @@ must not raise either.
   reads as differ, once everything the house style may change on purpose is
   taken out (`houseDocument` in `detectors.mjs` lists each thing and why:
   spelling-only attributes such as the `*`/`_` marker and a list item's label,
-  whitespace at a line's start or end, a heading's line breaks, empty
-  paragraphs no spelling reaches, CR line endings outside front matter, an
-  HTML block's indentation). The save lost or changed something the author
-  wrote.
+  whitespace at a heading's or cell's start or at a line's end, a heading's
+  line breaks, empty paragraphs no spelling reaches, CR line endings outside
+  front matter, an HTML block's indentation). The save lost or changed
+  something the author wrote.
 - `second_pass_unstable` — write, parse with the bare parser, write again: the
   bytes differ. A second save must be a no-op.
 
@@ -100,8 +109,8 @@ flagged is printed so the list can shrink. The list today, all
 `notes_corpus.jsonl.gz`, all `content_loss`, accepted by the maintainer
 (decision 1, 2026-10-06):
 
-| note | repro | why it is accepted |
-|---|---|---|
+| note             | repro                                   | why it is accepted                                                                                                                                                                                                                          |
+| ---------------- | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 8761, 9151, 9478 | `> 1. A\n> \t- B\n> \t\t- C\n> \n>2. D` | the parser reads the one-item list `C` as loose (mdast `spread`) only through the tab indentation and the whitespace-only `> ` line; the save writes it with spaces, which reads tight, as CommonMark's own rule reads it in both spellings |
 
 Not a flag but a scorecard beside them: `first_save_churn` counts the notes

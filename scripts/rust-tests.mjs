@@ -5,6 +5,7 @@
  * Cargo still owns doctests (nextest cannot run them). Other workspace crates
  * retain their existing cargo test coverage. Server-only tests remain ignored
  * here; `just test-sync-integration` explicitly selects them against real servers.
+ * The Linux-only CLI (docs/spec/cli.md) is left out of the workspace run elsewhere.
  */
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -77,10 +78,22 @@ export function runRustTests({
   root: repoRoot = root,
   nextest = ensureNextest(repoRoot),
   exec = spawnSync,
+  platform = process.platform,
 } = {}) {
   const commands = [
     ...(scope === 'workspace'
-      ? [['cargo', ['test', '--workspace', '--exclude', 'futo-notes-sync']]]
+      ? [
+          [
+            'cargo',
+            [
+              'test',
+              '--workspace',
+              '--exclude',
+              'futo-notes-sync',
+              ...(platform === 'linux' ? [] : ['--exclude', 'futo-notes-cli']),
+            ],
+          ],
+        ]
       : []),
     [nextest, syncNextestArgs()],
     ['cargo', ['test', '-p', 'futo-notes-sync', '--doc']],

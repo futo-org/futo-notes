@@ -1,22 +1,11 @@
 // remote-test.mjs remote environment: the NDK pin and the shell preamble every remote script
 // starts with.
 import { GRADLE_JDK_CANDIDATES } from './settings.mjs';
+export { ndkVersionFromGradle } from '../lib/android-toolchain.mjs';
 
 // ---------------------------------------------------------------------------
 // Remote environment
 // ---------------------------------------------------------------------------
-
-/**
- * The NDK AGP is pinned to. cargo-ndk must build the Rust .so with the SAME
- * NDK — apps/android/app/build.gradle.kts warns that a mismatch breaks NDK
- * resolution and silently skips stripping — so read the pin instead of
- * defaulting to "newest installed", which is how the two drift apart.
- */
-export function ndkVersionFromGradle(gradleText) {
-  const m = /ndkVersion\s*=\s*"([^"]+)"/.exec(gradleText);
-  if (!m) throw new Error('no ndkVersion found in apps/android/app/build.gradle.kts');
-  return m[1];
-}
 
 /**
  * Sourced on EVERY invocation: `ssh host cmd` is a non-interactive shell, so it
@@ -31,10 +20,9 @@ export function remoteEnvPreamble({ ndkVersion }) {
     // downloads now (scripts/lib/sync-server.mjs), so nothing here needs bun.
     // .local/share/fnm and linuxbrew cover fnm's two install layouts; this must
     // precede the `fnm env` below, which needs fnm itself on PATH.
-    'export PATH="$HOME/.local/bin:$HOME/.local/share/fnm:/home/linuxbrew/.linuxbrew/bin:$HOME/.cargo/bin:$PATH"',
-    // A missing fnm is not fatal here; it fails at `fnm use` in the runner script,
-    // which is under `set -e`. remote-doctor lists fnm as required and prints the
-    // install command, because the box needs it once.
+    'export PATH="${FNM_DIR:-$HOME/.local/share/fnm}:$HOME/.fnm:$HOME/.local/bin:$HOME/.local/share/fnm:/home/linuxbrew/.linuxbrew/bin:$HOME/.cargo/bin:$PATH"',
+    // Doctor must still run without fnm. Normal runs check it before taking
+    // the worktree lock or transferring sources.
     'if command -v fnm >/dev/null 2>&1; then eval "$(fnm env --shell bash)"; fi',
     'export ANDROID_HOME="${ANDROID_HOME:-$HOME/Android/Sdk}"',
     'export ANDROID_SDK_ROOT="$ANDROID_HOME"',

@@ -11,10 +11,11 @@
   # 192833: prepare_executor 308s vs 4s; job 252177 still re-pulled
   # kitchensink for 166s on runner 71). Only the dind_fast runner allows the
   # override — runner 55 (dind) is locked to allowed_pull_policies [always]
-  # and refuses the job — so every job extending this ALSO carries
-  # `tags: [dind_fast]` (premerge-test-parity asserts the pairing).
+  # and refuses the job — so every job extending this ALSO carries a
+  # dind_fast ($LINUX_RUNNER_TAG) or futo_notes_serial tag
+  # (premerge-test-parity asserts the pairing).
   image:
-    name: gitlab.futo.org:5050/futo-notes/futo-notes/ci/test@sha256:c8cb4ab14ce1cb939a88505ae5e37f3421b7c4a64f2cacfcd73e6e19e89a32fb
+    name: gitlab.futo.org:5050/futo-notes/futo-notes/ci/test@sha256:75d071a3a8246e56daa733068bc41b3cce998c007e8d558aa82c72c247903766
     pull_policy: if-not-present
 
 # The Android SDK/NDK/emulator image, same pairing as .ci-test-image above:
@@ -41,12 +42,12 @@
     - |
       # No `grep -q`: under pipefail its early exit can SIGPIPE `rustup` (which
       # writes a line at a time) and read as "toolchain missing" (RC-65 shape).
-      if rustup toolchain list | grep '^1.89.0' >/dev/null; then
-        echo "Rust 1.89.0 already present in the image"
+      if rustup toolchain list | grep '^1.99.1' >/dev/null; then
+        echo "Rust 1.99.1 already present in the image"
       else
-        rustup toolchain install 1.89.0 --profile minimal --component rustfmt --component clippy
+        rustup toolchain install 1.99.1 --profile minimal --component rustfmt --component clippy
       fi
-      rustup default 1.89.0
+      rustup default 1.99.1
     - |
       # Pinned, and the cached binary is checked by version: tauri-cli 2.12.3
       # changed the AppImage GTK hook patch-appimage.mjs rewrites (v1.9.0 tag).
@@ -194,9 +195,14 @@
 
 .cache-cargo-tauri:
   cache:
-    key:
-      files:
-        - Cargo.lock
+    # Rolling per-ref keys, not a Cargo.lock hash: a hash key misses for every
+    # MR whose lockfile differs from the last one cached, and pull-only MRs
+    # never write it, so they built cold. A ref with no archive of its own
+    # (every pull-only MR) starts from main's last build and cargo recompiles
+    # only what differs. Bump CARGO_CACHE_EPOCH to drop a bloated target/.
+    key: cargo-tauri-$CARGO_CACHE_EPOCH-$CI_COMMIT_REF_SLUG
+    fallback_keys:
+      - cargo-tauri-$CARGO_CACHE_EPOCH-$CI_DEFAULT_BRANCH
     paths:
       - .cargo-home/
       - target/
@@ -212,10 +218,10 @@
 # namespace until remote sccache replaces target archives entirely.
 .cache-cargo-sync:
   cache:
-    key:
-      prefix: sync
-      files:
-        - Cargo.lock
+    # Rolling per-ref key with a main fallback; see .cache-cargo-tauri.
+    key: sync-$CARGO_CACHE_EPOCH-$CI_COMMIT_REF_SLUG
+    fallback_keys:
+      - sync-$CARGO_CACHE_EPOCH-$CI_DEFAULT_BRANCH
     paths:
       - .cargo-home/
       - target/
@@ -230,10 +236,10 @@
 # the native cargo work its own key.
 .cache-cargo-native:
   cache:
-    key:
-      prefix: native
-      files:
-        - Cargo.lock
+    # Rolling per-ref key with a main fallback; see .cache-cargo-tauri.
+    key: native-$CARGO_CACHE_EPOCH-$CI_COMMIT_REF_SLUG
+    fallback_keys:
+      - native-$CARGO_CACHE_EPOCH-$CI_DEFAULT_BRANCH
     paths:
       - .cargo-home/
       - target/

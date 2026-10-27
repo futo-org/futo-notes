@@ -31,10 +31,13 @@ test.describe('inline <br> survives (upstream deletes it with no replacement)', 
   const TABLE = '| a | b |\n| --- | --- |\n| one.<br>two. | x |\n';
   const TABLE_IN_QUOTE = '> | a | b |\n> | --- | --- |\n> | one.<br>two. | x |\n';
 
-  test('canary: upstream still fuses the words on either side', async ({ page }) => {
-    expect(await roundTrip(page, 'baseline', SENTENCES)).toContain('sentence one.sentence two.');
-    expect(await roundTrip(page, 'baseline', TABLE)).toContain('one.two.');
-    expect(await roundTrip(page, 'baseline', TABLE_IN_QUOTE)).toContain('one.two.');
+  // @milkdown/kit 7.22.3 stopped deleting the tag. `./emptyLine` stays: it also
+  // retires the `<br />` empty-paragraph placeholder and restores blank lines, so
+  // this canary now only records that the upstream half is fixed.
+  test('canary: upstream keeps the tag since @milkdown/kit 7.22.3', async ({ page }) => {
+    expect(await roundTrip(page, 'baseline', SENTENCES)).toBe(SENTENCES);
+    expect(await roundTrip(page, 'baseline', TABLE)).toContain('one.<br>two.');
+    expect(await roundTrip(page, 'baseline', TABLE_IN_QUOTE)).toContain('one.<br>two.');
   });
 
   test('compat keeps the tag between two sentences', async ({ page }) => {

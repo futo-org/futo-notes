@@ -25,7 +25,8 @@ import type { Node as ProseNode } from '@milkdown/kit/prose/model';
  *
  * EVERY route from a string to a document must go through this: `parseNote`
  * for loads, and `stripLeadingBoms` for the two Milkdown actions that parse for
- * themselves (`replaceAll` in `applyEdit`, `insert`) and the initial value.
+ * themselves (`replaceAll` in `applyEdit`, `insert`). Initial content loads
+ * through `parseNote` after the empty engine mounts.
  * `planMarkdownChunks` never starts a chunk at a U+FEFF in the MIDDLE of a
  * note (it stops), so no later chunk can lose one here.
  */

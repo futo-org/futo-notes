@@ -23,7 +23,7 @@ This package owns the sanctioned synchronous TS mirrors of Rust note rules, the 
 
 ## Milkdown compat plugins — the M6 carve-out
 
-`src/milkdown-compat/` adapts `@milkdown/kit` 7.22.1 on the way IN — what a
+`src/milkdown-compat/` adapts `@milkdown/kit` 7.22.3 on the way IN — what a
 note's bytes parse into — and installs the editor's own serializer
 (`ownedSerializer.ts`, below) as Milkdown's `serializerCtx`. Nothing here
 patches remark-stringify any more: Milkdown's own serializer is never called.
@@ -118,10 +118,13 @@ Rules that do bind here:
   reproduces each upstream bug against the _unpatched_ preset. A red canary means
   upstream shipped a fix — delete our fork, do not relax the canary. The
   `@milkdown/kit` version is pinned (not a range) so this stays meaningful.
-- Any change to these plugins is measured, not argued:
-  `just milkdown-census --variant baseline` then
-  `just milkdown-census --diff build/milkdown-census/baseline`. Zero newly-raised
-  flags over ~31k real notes. `tests/milkdown-census/README.md` owns the harness.
+- Any change to these plugins is measured, not argued: run
+  `just milkdown-census --variant compat --out build/milkdown-census/before` at the
+  prior reviewed head, then `just milkdown-census --variant compat --out build/milkdown-census/after --diff build/milkdown-census/before`
+  at the new head, with the same corpus and selection. Zero newly-raised flags over
+  ~31k real notes; both runs must pass `content_loss` and `second_pass_unstable`
+  hard gates. The upstream `baseline` variant is diagnostic, not a regression
+  baseline for the owned serializer. `tests/milkdown-census/README.md` owns the harness.
 
 ## The markdown serializer — `src/markdown/` (#266)
 

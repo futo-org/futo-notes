@@ -29,8 +29,8 @@ RUN apt-get update && \
 
 # Match rust-toolchain.toml and keep the tools shared by all Rust/Tauri jobs in
 # the immutable image instead of the GitLab target archive.
-RUN rustup toolchain install 1.89.0 --component rustfmt --component clippy && \
-    rustup default 1.89.0 && \
+RUN rustup toolchain install 1.99.1 --component rustfmt --component clippy && \
+    rustup default 1.99.1 && \
     curl -L --proto '=https' --tlsv1.2 -sSf \
       https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash && \
     cargo binstall tauri-cli@2.11.4 sccache --no-confirm --locked
@@ -49,4 +49,4 @@ RUN sh /tmp/install-fnm.sh && \
 # npx comes from the baked Node on PATH above.
 RUN mkdir -p "$BUN_INSTALL" && \
     curl -fsSL https://bun.sh/install | bash -s "bun-v1.3.14" && \
-    npx --yes playwright@1.62.1 install --only-shell chromium
+    npx --yes playwright@1.64.1 install --only-shell chromium

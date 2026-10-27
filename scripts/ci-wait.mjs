@@ -15,9 +15,9 @@
 //         3 usage/auth/no pipeline
 //   just mr-status                # open MRs, oldest first, with head pipeline
 //
-// Uses curl-equivalent fetch against the REST API with $GITLAB_TOKEN — the
-// `glab` CLI cannot authenticate writes from agent shells and mis-parses branch
-// names as dates, both filed as papercuts.
+// Uses the REST API with $GITLAB_TOKEN, falling back to the configured glab
+// credential for gitlab.futo.org when the environment does not supply one.
+import { spawnSync } from 'node:child_process';
 
 export const API = 'https://gitlab.futo.org/api/v4';
 export const PROJECT = 'futo-notes%2Ffuto-notes';
@@ -40,6 +40,21 @@ export function exitCodeFor(status) {
   if (status === 'success') return 0;
   if (TERMINAL.has(status)) return 1;
   return 2;
+}
+
+// Capture both streams: neither a token nor glab's credential diagnostics belong
+// in CI output. The caller gets a repair hint without credential contents.
+export function resolveToken({ env = process.env, run = spawnSync } = {}) {
+  if (env.GITLAB_TOKEN) return env.GITLAB_TOKEN;
+  const result = run('glab', ['config', 'get', 'token', '--host', 'gitlab.futo.org'], {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  const token = result.status === 0 ? result.stdout?.trim() : '';
+  if (token) return token;
+  throw new Error(
+    'Set GITLAB_TOKEN (read_api scope) or run glab auth login --hostname gitlab.futo.org',
+  );
 }
 
 export function makeApi(token, fetchImpl = globalThis.fetch) {
@@ -207,11 +222,7 @@ function parseArgs(argv) {
 async function main() {
   const [cmd, ...rest] = process.argv.slice(2);
   const flags = parseArgs(rest);
-  const token = process.env.GITLAB_TOKEN;
-  if (!token) {
-    process.stderr.write('GITLAB_TOKEN is not set — the pipelines API answers 403 anonymously\n');
-    process.exit(3);
-  }
+  const token = resolveToken();
   const api = makeApi(token);
 
   if (cmd === 'mr-status') {

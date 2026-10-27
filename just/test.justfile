@@ -71,6 +71,28 @@ test-rust-full:
   node scripts/rust-tests.mjs workspace
   node --experimental-strip-types tests/conformance/title-rules-differential.mjs
 
+# Run the futo-notes CLI from source (a debug build: its own futo-notes-cli-dev settings).
+cli *args:
+  cargo run -q -p futo-notes-cli -- "$@"
+
+# The Linux CLI binary: target/release/futo-notes.
+build-cli:
+  cargo build --release -p futo-notes-cli
+
+# A static x86_64 CLI that runs on any Linux distro: target/x86_64-unknown-linux-musl/release/futo-notes.
+# Needs a musl C compiler for ring and zstd (Debian/Ubuntu: musl-tools).
+build-cli-static:
+  rustup target add x86_64-unknown-linux-musl
+  cargo build --release --locked -p futo-notes-cli --target x86_64-unknown-linux-musl
+
+# Every CLI test, including sign-in and sync against the pinned sync server.
+test-cli:
+  #!/usr/bin/env bash
+  set -euo pipefail
+  FUTO_NOTES_E2EE_SERVER_BIN="${FUTO_NOTES_E2EE_SERVER_BIN:-$(node scripts/lib/sync-server.mjs path)}"
+  export FUTO_NOTES_E2EE_SERVER_BIN
+  cargo test -p futo-notes-cli -- --include-ignored
+
 # Shared search engine correctness; see crates/futo-notes-search/benches/search.rs.
 test-search *args:
   cargo test -p futo-notes-search "$@"

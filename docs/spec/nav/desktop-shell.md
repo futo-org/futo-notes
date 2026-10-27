@@ -38,7 +38,7 @@
   retain the `FUTO Notes (Dev)` identity in both forms, so tab changes cannot
   erase the dev/prod distinction. This is the title shown by the compositor in
   Alt+Tab and overview surfaces. → TabsStrip.svelte, App.svelte,
-  windowTitle.ts, tauri.dev.conf.json
+  windowTitle.ts
 - A `just tauri-dev` instance names itself after its git branch, verbatim, so
   parallel dev instances are distinguishable: the window title's dev identity
   becomes `FUTO Notes (Dev) · <branch>`, the branch shows under the sidebar's
@@ -65,6 +65,11 @@
 - Window size, position, maximized and fullscreen state persist across launches,
   validated against the attached monitors so an unplugged display cannot strand
   the window off-screen. → application.rs (tauri-plugin-window-state)
+- The window cannot be resized below 720×600: the default sidebar plus a usable
+  editor, with room for the 600px Settings dialog and its margins, and no
+  wider than half of a 1440pt screen. A smaller size saved before the minimum
+  existed grows to it on the next launch. → tauri.conf.json
+  (`minWidth`/`minHeight`), window_minimum.rs
 - The window's own appearance follows the resolved app theme, so the OS draws the
   window frame, the application menu and native dialogs in the app's light/dark
   rather than the system's. On macOS the visible tell is the stroke AppKit

@@ -3,9 +3,9 @@
 - **Escape dismisses the top-most dialog or overlay, from wherever focus is** —
   including from a text field inside it — and never more than one at a time. It
   is a property of dialog composition, not of each dialog: `Modal.svelte` (used
-  by every standard modal) and the `use:dismissable` action (used by overlays
-  with bespoke chrome — crash report, context menu, search, settings) share one
-  document-level handler and a dialog stack. Escape consumed by an open overlay
+  by every standard modal, Settings included) and the `use:dismissable` action
+  (used by overlays with bespoke chrome — crash report, context menu, search)
+  share one document-level handler and a dialog stack. Escape consumed by an open overlay
   does not also reach the editor or the screen behind it. → shared/dialogs/dismissable.ts,
   shared/dialogs/Modal.svelte, shared/dialogs/dismissable.test.ts,
   tests/folder-support.spec.ts

@@ -3,11 +3,12 @@
 //! Set SEARCH_BENCH_NOTES to vary the corpus size (default: 5,000).
 
 use std::fs;
+use std::hint::black_box;
 use std::path::Path;
 use std::sync::{mpsc, Arc};
 use std::time::Duration;
 
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
+use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use futo_notes_search::{SearchConfig, SearchEngine};
 use tempfile::TempDir;
 

@@ -1,8 +1,18 @@
-# Advisories `cargo audit` should not fail on. Empty on purpose: an id here says a person read
-# that advisory and decided it is fine to ship, so nothing goes in until someone has. Add the id
-# with a comment saying why; `node scripts/audit.mjs --fix` removes entries whose advisory is gone.
+# Advisories `cargo audit` should not fail on. An id here says a person read that advisory and
+# decided it is fine to ship, so nothing goes in until someone has. Add the id with a comment
+# saying why; `node scripts/audit.mjs --fix` removes entries whose advisory is gone.
 #
-# Unmaintained/unsound advisories arrive as "allowed warnings" that never fail the run.
+# Unmaintained/unsound advisories arrive as "allowed warnings" that never fail the run, and
+# scripts/audit.mjs gates only on crates that ship in an app.
 
 [advisories]
-ignore = []
+ignore = [
+  # zip 4.6.1 extraction escapes (symlink targets, SUID bits, permissions through symlinks).
+  # Ships only through tauri-plugin-updater, which unzips solely on Windows and solely after
+  # the download passed its minisign check against our updater key — whoever could sign a
+  # malicious archive could already ship a malicious installer. Goes away when the plugin
+  # moves to zip >= 9 (2.14.0 and 3.0.0-alpha.3 still require zip ^4). Owner: Justin.
+  "RUSTSEC-2026-0367",
+  "RUSTSEC-2026-0368",
+  "RUSTSEC-2026-0369",
+]

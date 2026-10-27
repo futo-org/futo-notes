@@ -36,7 +36,7 @@ describe('bounded Rust sync entrypoint', () => {
   });
   it('keeps the rest of the workspace and its doctests while routing sync through the bounded runner', () => {
     const h = harness();
-    expect(runRustTests({ ...h, scope: 'workspace' })).toBe(0);
+    expect(runRustTests({ ...h, scope: 'workspace', platform: 'linux' })).toBe(0);
     expect(h.calls[0]).toEqual({
       command: 'cargo',
       args: ['test', '--workspace', '--exclude', 'futo-notes-sync'],
@@ -44,6 +44,21 @@ describe('bounded Rust sync entrypoint', () => {
     expect(h.calls[1].command).toBe('/tools/cargo-nextest');
     expect(h.calls[2].args).toContain('--doc');
   });
+  it.each(['darwin', 'win32'])(
+    'leaves the Linux-only CLI out of the workspace run on %s',
+    (platform) => {
+      const h = harness();
+      expect(runRustTests({ ...h, scope: 'workspace', platform })).toBe(0);
+      expect(h.calls[0].args).toEqual([
+        'test',
+        '--workspace',
+        '--exclude',
+        'futo-notes-sync',
+        '--exclude',
+        'futo-notes-cli',
+      ]);
+    },
+  );
   it.each([
     [100, 1],
     [0, 101],

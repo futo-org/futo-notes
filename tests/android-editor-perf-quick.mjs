@@ -121,7 +121,6 @@ if (build) {
 if (!existsSync(BUNDLE)) throw new Error(`${BUNDLE} is missing — run without --no-build`);
 
 const ports = portsFor(process.cwd());
-const webPort = Number(process.env.WEB_VITE_PORT || ports.web);
 const cdpPort = Number(process.env.CDP_PORT || ports.cdp);
 
 const server = createServer((req, res) => {
@@ -130,7 +129,13 @@ const server = createServer((req, res) => {
   res.setHeader('Cache-Control', 'no-store');
   res.end(readFileSync(BUNDLE));
 });
-await new Promise((resolve) => server.listen(webPort, '127.0.0.1', resolve));
+// Chrome only needs adb reverse, so let the OS choose a free port instead of
+// competing with this worktree's desktop Vite/Playwright server.
+await new Promise((resolve, reject) => {
+  server.once('error', reject);
+  server.listen(0, '127.0.0.1', resolve);
+});
+const webPort = server.address().port;
 
 const adb = createAdbClient({ pkg: CHROME });
 adb.adb(['reverse', `tcp:${webPort}`, `tcp:${webPort}`]);

@@ -111,19 +111,6 @@
 }
 
 /* ===========================
-   Mobile adjustments
-   =========================== */
-@media (max-width: 480px) {
-  .fab {
-    height: 44px;
-    padding: 0 16px;
-    bottom: max(12px, calc(12px + env(safe-area-inset-bottom)));
-    right: max(12px, calc(12px + env(safe-area-inset-right)));
-    font-size: 14px;
-  }
-}
-
-/* ===========================
    Note Menu (three-dot)
    =========================== */
 .note-menu-anchor {

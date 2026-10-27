@@ -72,7 +72,7 @@ test_rust_macos_task:
     - curl https://sh.rustup.rs -sSf | sh -s -- -y
     - export PATH="$HOME/.cargo/bin:$PATH"
     - corepack enable
-    - corepack prepare pnpm@10.29.2 --activate
+    - corepack prepare pnpm@10.34.7 --activate
     - pnpm install --frozen-lockfile
     - mkdir -p dist
     # Two different mtime lies have to be undone before cargo looks at the
@@ -86,6 +86,9 @@ test_rust_macos_task:
     - CI_PROJECT_DIR="${CIRRUS_WORKING_DIR:-$PWD}" node scripts/ci-cargo-cache-freshness.mjs
     # Whole workspace so the new core crates (model/index/sync) are covered on
     # macOS too; ignored server tests stay skipped (no FUTO_TEST_SERVER).
+    # Except the CLI: docs/spec/cli.md supports Linux only ("built and tested
+    # there and nowhere else"), and its tests assume the Linux XDG layout;
+    # scripts/rust-tests.mjs leaves futo-notes-cli out on non-Linux hosts.
     # Main pushes and tags only: on MR pipelines the same command is already
     # the hard Linux gate (test:rust:workspace), and rerunning it here spent
     # ~6 min of the single macscript runner per Rust MR for an allow_failure
@@ -162,7 +165,7 @@ test_desktop_smoke_macos_task:
     - curl https://sh.rustup.rs -sSf | sh -s -- -y
     - export PATH="$HOME/.cargo/bin:$PATH"
     - corepack enable
-    - corepack prepare pnpm@10.29.2 --activate
+    - corepack prepare pnpm@10.34.7 --activate
     - pnpm install --frozen-lockfile
     # Two different mtime lies have to be undone before cargo looks at the
     # restored caches — see each script's header.

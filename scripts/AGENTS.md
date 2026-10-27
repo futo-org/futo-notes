@@ -16,7 +16,7 @@ before changing behavior.
   `check-rust-dependency-boundaries.mjs` is the exception — it needs `cargo metadata`, so it runs only in CI's Rust workspace job.
   `language-catalogs.mjs` is a gate too but does not match that filename pattern: it backs
   `pnpm run check:languages`, which every new user-visible string must pass, and its `--audit` mode
-  backs the deliberately non-blocking `test:localization-audit` CI job. Neither is in
+  backs the blocking `test:localization-audit` CI job. Neither is in
   `check:arch-gate`, so check the membership before assuming a local `just check` covered your
   change.
 - **Generators**: `gen-toolbar-spec.ts`, `gen-title-spec.ts` and `gen-bridge-spec.ts` each take

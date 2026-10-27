@@ -1,0 +1,12 @@
+[Unit]
+Description=Run the FUTO Notes MR factory every hour
+Documentation=file:__REPO_DIR__/scripts/mr-factory/README.md
+
+[Timer]
+OnCalendar=hourly
+RandomizedDelaySec=5m
+# Catch up with one run if the workstation slept through a tick.
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -23,14 +23,7 @@
  * upstream bugs are still there — the day one is fixed upstream, its canary
  * fails and the corresponding local fork should be deleted.
  */
-import {
-  Editor,
-  defaultValueCtx,
-  editorViewCtx,
-  parserCtx,
-  rootCtx,
-  serializerCtx,
-} from '@milkdown/kit/core';
+import { Editor, editorViewCtx, parserCtx, rootCtx, serializerCtx } from '@milkdown/kit/core';
 import { commonmark } from '@milkdown/kit/preset/commonmark';
 import { gfm } from '@milkdown/kit/preset/gfm';
 import { clipboard } from '@milkdown/kit/plugin/clipboard';
@@ -97,11 +90,9 @@ function visibleText(doc: ProseNode): string {
 }
 
 /**
- * Mirrors `MilkdownEditor.svelte`'s load path exactly: `defaultValueCtx` at
- * creation followed by an immediate `replaceAll` of the same content, which is
- * what `applyExternal` does. Reading a `defaultValueCtx`-only editor manufactures
- * instability on every list/table/quote/fence note, because the `trailing`
- * plugin has not settled — that mistake cost the first census run.
+ * Creates an empty engine, then loads the note through a transaction, as
+ * `documentLoad.applyExternal` does. Loading through `defaultValueCtx` alone
+ * would leave the `trailing` plugin unsettled and manufacture instability.
  */
 async function loadOnce(variant: CensusVariant, markdown: string): Promise<RoundTrip> {
   const root = document.createElement('div');
@@ -109,7 +100,6 @@ async function loadOnce(variant: CensusVariant, markdown: string): Promise<Round
   const editor = await Editor.make()
     .config((ctx) => {
       ctx.set(rootCtx, root);
-      ctx.set(defaultValueCtx, markdown);
     })
     .use(markdownPlugins(variant))
     .use(history)
@@ -167,7 +157,6 @@ async function headingEditChurn(
   const editor = await Editor.make()
     .config((ctx) => {
       ctx.set(rootCtx, root);
-      ctx.set(defaultValueCtx, markdown);
     })
     .use(markdownPlugins(variant))
     .use(history)
@@ -302,7 +291,6 @@ async function mountForIme(
   const editor = await Editor.make()
     .config((ctx) => {
       ctx.set(rootCtx, root);
-      ctx.set(defaultValueCtx, markdown);
     })
     .use(markdownPlugins(variant))
     .use(history)

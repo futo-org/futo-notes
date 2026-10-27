@@ -89,8 +89,8 @@ describe('markdown house style goldens', () => {
 /*
  * Both copies of the house normalizations (normalize.ts `canonical`, which the
  * serializer's parse checks compare through, and the census `houseDocument`,
- * the content_loss gate) forgive whitespace at a line's start only where a
- * read drops it anyway.
+ * the content_loss gate) keep a paragraph line's leading whitespace, which a
+ * save writes, and forgive a heading's or a cell's, which it does not.
  */
 describe('the comparisons on whitespace at a line start', () => {
   const gate = (markdown: string) => houseDocument(parser.parse(markdown));
@@ -102,6 +102,9 @@ describe('the comparisons on whitespace at a line start', () => {
     ['after a checked task box, before bold', '1. [x]   **a**', '1. [x] **a**'],
     ['inside a link at the line start', '[ a](u)', '[a](u)'],
     ['inside a code span at the line start', '` c`', '`c`'],
+    ["at a paragraph's first line", '&#x20; a', 'a'],
+    ['at a line after a line break', 'a\n&#x9;b', 'a\nb'],
+    ['inside bold at a line start', '**&#x20; a**', '**a**'],
   ])('flag a save that drops the space %s', (_where, kept, dropped) => {
     expect(gate(dropped), 'houseDocument').not.toBe(gate(kept));
     expect(serializerReading(parser.parse(dropped)), 'canonical').not.toBe(
@@ -109,22 +112,16 @@ describe('the comparisons on whitespace at a line start', () => {
     );
   });
 
-  it('forgive line-start whitespace the parser drops on read', () => {
-    const typed: NodeJson = {
-      type: 'doc',
-      content: [
-        {
-          type: 'paragraph',
-          content: [
-            { type: 'text', text: '  a', marks: [{ type: 'strong', attrs: { marker: '*' } }] },
-            { type: 'hardbreak', attrs: { isInline: true } },
-            { type: 'text', text: '\tb' },
-          ],
-        },
-      ],
-    };
-    expect(houseDocument(typed)).toBe(gate('**a**\nb'));
-    expect(serializerReading(typed)).toBe(serializerReading(parser.parse('**a**\nb')));
+  it("forgive a heading's and a cell's line-start whitespace", () => {
+    for (const [kept, dropped] of [
+      ['# &#x20;h', '# h'],
+      ['| &#x20;x |\n| --- |', '| x |\n| --- |'],
+    ] as const) {
+      expect(gate(kept), 'houseDocument').toBe(gate(dropped));
+      expect(serializerReading(parser.parse(kept)), 'canonical').toBe(
+        serializerReading(parser.parse(dropped)),
+      );
+    }
   });
 });
 
@@ -197,6 +194,33 @@ describe('the per-block save cache', () => {
     expect(cached.isPrimed(doc)).toBe(false);
     expect(cached.prime(doc, () => 1000)).toBe(true);
     expect(cached.isPrimed(doc)).toBe(true);
+  });
+
+  it('rechecks unchanged syntax against new reference definitions without rewriting plain prose', () => {
+    const writes: NodeJson[] = [];
+    const cached = createCachedSerializer(
+      {
+        ...serializer,
+        serializeBlock: (block, context) => {
+          writes.push(block);
+          return serializer.serializeBlock(block, context);
+        },
+      },
+      adapter,
+    );
+    const doc = parser.parse('plain\n\n\\[label]\n\n[label]: /old');
+    cached.serialize(doc);
+    writes.length = 0;
+    const replacement = parser.parse('[label]: /new').content ?? [];
+    const [plain, literal] = doc.content ?? [];
+    const edited: NodeJson = {
+      ...doc,
+      content: [...(doc.content ?? []).slice(0, -1), ...replacement],
+    };
+    expect(cached.serialize(edited)).toBe(serializer.serialize(edited));
+    expect(writes).toContain(literal);
+    expect(writes).not.toContain(plain);
+    expect(cached.isPrimed(edited)).toBe(true);
   });
 });
 

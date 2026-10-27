@@ -2,7 +2,8 @@
 # Build futo-notes-ffi for Android (every shipped ABI, or $ABIS), generate the
 # UniFFI Kotlin bindings, and stage the per-ABI .so into apps/android's jniLibs.
 #
-# Requires: ANDROID_NDK_HOME + `cargo install cargo-ndk` + the android rust
+# Requires: the Gradle-pinned NDK (discovered under the SDK, or set via
+# ANDROID_NDK_HOME) + `cargo install cargo-ndk` + the android rust
 # targets (`rustup target add aarch64-linux-android armv7-linux-androideabi
 # x86_64-linux-android i686-linux-android`).
 #
@@ -28,22 +29,11 @@ if [[ -n "${FUTO_LICENSE_ENV:-}" ]]; then
 fi
 
 # ── Early environment checks with actionable errors ──────────────────────
-# ANDROID_NDK_HOME is often not exported even when the NDK is installed —
-# fall back to the newest NDK under the SDK before giving up.
-if [[ -z "${ANDROID_NDK_HOME:-}" || ! -d "${ANDROID_NDK_HOME}" ]]; then
-  SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$HOME/Library/Android/sdk}}"
-  NEWEST_NDK=$(ls -1 "$SDK/ndk" 2>/dev/null | sort -V | tail -1)
-  if [[ -n "$NEWEST_NDK" && -d "$SDK/ndk/$NEWEST_NDK" ]]; then
-    export ANDROID_NDK_HOME="$SDK/ndk/$NEWEST_NDK"
-    echo "==> ANDROID_NDK_HOME not set; using detected NDK: $ANDROID_NDK_HOME"
-  fi
-fi
-if [[ -z "${ANDROID_NDK_HOME:-}" || ! -d "${ANDROID_NDK_HOME}" ]]; then
-  echo "ERROR: ANDROID_NDK_HOME is unset or not a directory." >&2
-  echo "  Install the NDK via Android Studio (SDK Manager → NDK) and export e.g.:" >&2
-  echo "  export ANDROID_NDK_HOME=\"\$HOME/Library/Android/sdk/ndk/<version>\"" >&2
-  exit 1
-fi
+# Use the same discovery and pin validation as setup; selecting the newest
+# installed NDK can disagree with AGP and silently skip library stripping.
+ANDROID_NDK_HOME="$(node "$ROOT/scripts/lib/android-toolchain.mjs")"
+export ANDROID_NDK_HOME
+echo "==> Using Android NDK: $ANDROID_NDK_HOME"
 if ! command -v cargo-ndk >/dev/null 2>&1; then
   echo "ERROR: cargo-ndk not found. Install it:  cargo install cargo-ndk" >&2
   exit 1

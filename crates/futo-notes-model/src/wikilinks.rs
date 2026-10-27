@@ -202,19 +202,37 @@ pub fn resolve_wikilink(target: &str, all_ids: &[String]) -> Option<String> {
     None
 }
 
+/// Every link target that can resolve to `id`: the id itself, then each tail
+/// that starts after a `/` (`A/B/C`, `B/C`, `C`). [`resolve_wikilink`] returns
+/// `id` only for a target that equals it (exact rule) or matches its last
+/// `/`-separated components (bare-leaf and path-suffix rules), and either way
+/// the target is one of these.
+pub fn link_targets_naming(id: &str) -> impl Iterator<Item = &str> {
+    std::iter::once(id).chain(
+        id.match_indices('/')
+            .map(move |(slash, _)| &id[slash + 1..]),
+    )
+}
+
 /// Rewrite every wikilink in `text` whose target resolves to `old_id` (per
 /// the resolution rules) so the on-disk text uses `new_id`. Returns the
 /// rewritten text and the count of rewrites. Mirrors `rewriteWikilinks`,
 /// including its text-level scope: links inside code fences/inline code are
 /// rewritten too (the TS makes no markdown-context exception).
+///
+/// Unlike the TS, it resolves only the links [`link_targets_naming`] allows,
+/// so a folder rename does not resolve every link in the vault against every
+/// id once per moved note. The output is the same.
 pub fn rewrite_wikilinks(
     text: &str,
     old_id: &str,
     new_id: &str,
     all_ids: &[String],
 ) -> (String, u32) {
+    let could_name_old_id =
+        |target: &str| link_targets_naming(old_id).any(|naming| naming == target);
     let occurrences = find_wikilinks(text);
-    if occurrences.is_empty() {
+    if !occurrences.iter().any(|occ| could_name_old_id(&occ.target)) {
         return (text.to_string(), 0);
     }
     // The id-resolution context must include `old_id` so legacy bare-filename
@@ -232,9 +250,10 @@ pub fn rewrite_wikilinks(
     let mut cursor = 0usize;
     let mut out = String::with_capacity(text.len());
     for occ in &occurrences {
-        let resolved = resolve_wikilink(&occ.target, &ctx);
         out.push_str(&text[cursor..occ.start]);
-        if resolved.as_deref() == Some(old_id) {
+        if could_name_old_id(&occ.target)
+            && resolve_wikilink(&occ.target, &ctx).as_deref() == Some(old_id)
+        {
             out.push_str("[[");
             out.push_str(new_id);
             out.push_str("]]");

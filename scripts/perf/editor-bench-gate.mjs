@@ -5,6 +5,7 @@
 //
 //   node --experimental-strip-types scripts/perf/editor-bench-gate.mjs [--accept]
 //       [--baseline <file>] [--workers N] [--min-win 0.5] [--skip-suite]
+//       [--regression-only]
 //
 // In order, cheapest first, stopping at the first REJECT:
 //   1. The bench, rebuilt, 3 count passes, median (`editor-bench.mjs`). Any
@@ -21,15 +22,19 @@
 // ACCEPT exits 0, and with --accept writes the new counts as the baseline.
 // REJECT exits 1. A crash or bad argument exits 2.
 // `--skip-suite` stops after step 3 and never accepts: it is for triage.
+// `--regression-only` is the CI mode (bench:editor): steps 1 and 3 only, so a
+// change that is not a win still passes, and the suite is left to its own
+// job. It ACCEPTs without ever writing the baseline (--accept is refused).
 
 import { spawnSync } from 'node:child_process';
 import { copyFileSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { playwrightArtifacts } from '../playwright-artifacts.mjs';
 
 const BENCH = 'scripts/perf/editor-bench.mjs';
 const KNOWN_FAILURES = 'scripts/perf/editor-bench-gate-known-failures.json';
-const SUITE_RESULTS = 'test-results/editor-embed-results.json';
+const SUITE_RESULTS = playwrightArtifacts('editor-embed', 'editor-embed-results.json').jsonReport;
 // The bench's own noise bounds (editor-bench.mjs): a drift counts only past both.
 const NOISE_PCT = 0.5;
 const NOISE_ABS = 24;
@@ -42,6 +47,7 @@ const opt = {
   workers: 16,
   minWin: 0.5,
   suite: true,
+  regressionOnly: false,
 };
 for (let i = 0; i < args.length; i++) {
   const a = args[i];
@@ -50,10 +56,16 @@ for (let i = 0; i < args.length; i++) {
   else if (a === '--workers') opt.workers = Number(args[++i]);
   else if (a === '--min-win') opt.minWin = Number(args[++i]);
   else if (a === '--skip-suite') opt.suite = false;
+  else if (a === '--regression-only') opt.regressionOnly = true;
   else {
     console.error(`Unrecognized argument: ${a}`);
     process.exit(2);
   }
+}
+
+if (opt.regressionOnly && opt.accept) {
+  console.error('--regression-only never writes the baseline; drop --accept');
+  process.exit(2);
 }
 
 const t0 = performance.now();
@@ -129,6 +141,10 @@ if (regressions.length) {
   rmSync(dir, { recursive: true, force: true });
   verdict('REJECT', [scoreLine, 'counts that got worse past the noise:', ...regressions]);
 }
+if (opt.regressionOnly) {
+  rmSync(dir, { recursive: true, force: true });
+  verdict('ACCEPT', [scoreLine, 'regression-only: no count got worse past the noise']);
+}
 if (score > 1 - opt.minWin / 100) {
   rmSync(dir, { recursive: true, force: true });
   verdict('REJECT', [scoreLine, 'not a win: within the noise of the baseline']);
@@ -148,6 +164,8 @@ if (!opt.suite) {
 }
 
 function runSuite(extra) {
+  // Only a report produced by this invocation can justify accepting its result.
+  rmSync(SUITE_RESULTS, { force: true });
   const run = spawnSync('pnpm', ['run', 'test:e2e:editor-embed', ...extra], {
     encoding: 'utf8',
   });

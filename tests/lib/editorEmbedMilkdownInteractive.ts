@@ -3,7 +3,7 @@
 // editor-embed-milkdown-interactive.spec.ts.
 
 import type { Page } from '@playwright/test';
-import { flushFrames, withCaretObserved, type FakeHostWindow } from './editorEmbedHost';
+import { flushFrames, getContent, withCaretObserved, type FakeHostWindow } from './editorEmbedHost';
 import { CHANGE_DEBOUNCE_MS, embedTest, hostConfig, initialize } from './editorEmbedSpec';
 
 export const test = embedTest;
@@ -154,4 +154,21 @@ export async function pasteClipboardData(page: Page, data: Record<string, string
 /** A plain-text-only paste (`text/plain`, no `text/html`), as from a terminal or a code editor. */
 export function pastePlainText(page: Page, text: string): Promise<void> {
   return pasteClipboardData(page, { 'text/plain': text });
+}
+
+/** Opens an empty note, types `keys`, and waits for the save. */
+export async function typeIntoEmpty(page: Page, keys: string): Promise<string> {
+  await openAtEnd(page, '');
+  await page.keyboard.type(keys);
+  await settled(page);
+  return getContent(page);
+}
+
+/** The formatting the rendered paragraph holds, as `tag:text` pairs. */
+export function renderedMarks(page: Page): Promise<string[]> {
+  return page
+    .locator('.ProseMirror p :is(em, strong, code, del, s)')
+    .evaluateAll((elements) =>
+      elements.map((element) => `${element.tagName.toLowerCase()}:${element.textContent ?? ''}`),
+    );
 }

@@ -138,7 +138,7 @@ Invoke-Step "Loading the fnm environment" {
 }
 Invoke-Step "Activating Node from .nvmrc" { fnm use --install-if-missing }
 Invoke-Step "Enabling corepack" { corepack enable }
-Invoke-Step "Pinning pnpm" { corepack prepare pnpm@10.29.2 --activate }
+Invoke-Step "Pinning pnpm" { corepack prepare pnpm@10.34.7 --activate }
 
 # Redundant with `fnm use` by design: activation here goes through
 # Invoke-Expression of piped output, which is the one step no test covers.
@@ -167,12 +167,10 @@ if ($HostedSync -eq "true") {
     $env:FUTO_HOSTED_SERVER_BAKED = $HostedServer
 }
 
-Invoke-Step "Building frontend" {
-    pnpm run build
-}
-
+# No separate frontend step: tauri.conf.json's beforeBuildCommand runs
+# `pnpm run build` (with the hosted env above), as on Linux and macOS.
 Set-Location apps\tauri
-Invoke-Step "Building Tauri (Windows)" {
+Invoke-Step "Building frontend + Tauri (Windows)" {
     cargo tauri build --bundles nsis
 }
 
