@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { load, Schema, Type } from 'js-yaml';
+import { CORE_SCHEMA, defineSequenceTag, load } from 'js-yaml';
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -16,7 +16,13 @@ import {
   ROOT,
 } from './premerge-test-parity.helpers.mjs';
 
-const gitlabYamlSchema = new Schema([new Type('!reference', { kind: 'sequence' })]);
+const gitlabYamlSchema = CORE_SCHEMA.withTags(
+  defineSequenceTag('!reference', {
+    create: () => [],
+    addItem: (carrier, item) => void carrier.push(item),
+    identify: () => false,
+  }),
+);
 
 describe('pre-merge CI routing contracts', () => {
   it('has no duplicate mapping keys in any pipeline file', () => {

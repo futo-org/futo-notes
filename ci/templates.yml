@@ -15,7 +15,7 @@
   # dind_fast ($LINUX_RUNNER_TAG) or futo_notes_serial tag
   # (premerge-test-parity asserts the pairing).
   image:
-    name: gitlab.futo.org:5050/futo-notes/futo-notes/ci/test@sha256:c8cb4ab14ce1cb939a88505ae5e37f3421b7c4a64f2cacfcd73e6e19e89a32fb
+    name: gitlab.futo.org:5050/futo-notes/futo-notes/ci/test@sha256:75d071a3a8246e56daa733068bc41b3cce998c007e8d558aa82c72c247903766
     pull_policy: if-not-present
 
 # The Android SDK/NDK/emulator image, same pairing as .ci-test-image above:
@@ -42,12 +42,12 @@
     - |
       # No `grep -q`: under pipefail its early exit can SIGPIPE `rustup` (which
       # writes a line at a time) and read as "toolchain missing" (RC-65 shape).
-      if rustup toolchain list | grep '^1.89.0' >/dev/null; then
-        echo "Rust 1.89.0 already present in the image"
+      if rustup toolchain list | grep '^1.99.1' >/dev/null; then
+        echo "Rust 1.99.1 already present in the image"
       else
-        rustup toolchain install 1.89.0 --profile minimal --component rustfmt --component clippy
+        rustup toolchain install 1.99.1 --profile minimal --component rustfmt --component clippy
       fi
-      rustup default 1.89.0
+      rustup default 1.99.1
     - |
       # Pinned, and the cached binary is checked by version: tauri-cli 2.12.3
       # changed the AppImage GTK hook patch-appimage.mjs rewrites (v1.9.0 tag).

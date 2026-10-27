@@ -28,7 +28,7 @@ build:linux-packages:
     - sh "$CI_PROJECT_DIR/ci/install-fnm.sh"
     - cd "$CI_PROJECT_DIR" && eval "$(fnm env --shell bash)" && fnm use --install-if-missing
     - corepack enable
-    - corepack prepare pnpm@10.29.2 --activate
+    - corepack prepare pnpm@10.34.7 --activate
     - pnpm config set store-dir "$PNPM_STORE_DIR"
     - export PATH="$CARGO_HOME/bin:$PATH"
   cache:

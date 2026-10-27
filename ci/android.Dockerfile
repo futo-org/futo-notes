@@ -19,8 +19,13 @@ ENV FNM_DIR=/root/.local/share/fnm
 # Makes the baked Node the image default, for jobs that never run `fnm use`.
 ENV PATH=$FNM_DIR/aliases/default/bin:$PATH
 
-# JDK 21
-RUN curl -sL https://download.oracle.com/java/21/latest/jdk-21_linux-x64_bin.tar.gz | tar xz -C /opt && \
+# JDK 21: Eclipse Temurin, pinned with its checksum. Oracle's floating
+# jdk/21/latest URL started answering 404 (job 275631), and an unverified
+# `curl | tar` turned that into "gzip: stdin: not in gzip format".
+RUN curl -fsSL -o /tmp/jdk.tar.gz \
+      https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.13%2B9/OpenJDK21U-jdk_x64_linux_hotspot_21.0.13_9.tar.gz && \
+    echo "d7f5d5cf865a2902b70ff549b97586a7d3f234e016f041ab447ea740c7d66d1c  /tmp/jdk.tar.gz" | sha256sum -c - && \
+    tar xzf /tmp/jdk.tar.gz -C /opt && rm /tmp/jdk.tar.gz && \
     mv /opt/jdk-21* /opt/jdk-21
 
 # Android SDK command-line tools + platform + build tools + NDK
@@ -31,7 +36,7 @@ RUN mkdir -p "$ANDROID_HOME/cmdline-tools" && \
     rm /tmp/cmdtools.zip && \
     yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null 2>&1 && \
     "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
-      "platform-tools" "platforms;android-36" "build-tools;36.0.0" "ndk;28.2.13676358"
+      "platform-tools" "platforms;android-37.0" "build-tools;36.0.0" "ndk;28.2.13676358"
 
 # Rust Android targets
 RUN . "$HOME/.cargo/env" 2>/dev/null || true && \

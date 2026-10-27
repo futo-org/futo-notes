@@ -12,7 +12,7 @@ futo-notes-core = { path = "../futo-notes-core" }
 # `regex` lacks lookaround; the tag grammar (`tags.ts` TAG_REGEX) uses a
 # lookbehind for whitespace-or-start and a lookahead for the terminator, so we
 # need `fancy-regex` (already in the tree via the inference tokenizer).
-fancy-regex = "0.14"
+fancy-regex = "0.19"
 # SIMD byte search for the tag-extraction hot path (fence/backtick scanning
 # over a note's full body); already in the workspace lockfile transitively.
 memchr = "2"

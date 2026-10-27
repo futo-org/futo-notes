@@ -25,9 +25,9 @@ futo-notes-sync = { path = "../futo-notes-sync" }
 # rustls stack futo-notes-sync already links into this library — so the license
 # projection adds a call site, not a second HTTP implementation on the phones.
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
-icu_locale = { version = "=2.2.0", features = ["compiled_data"] }
-icu_plurals = { version = "=2.2.0", features = ["compiled_data"] }
-thiserror = "1"
+icu_locale = { version = "2.4", features = ["compiled_data"] }
+icu_plurals = { version = "2.4", features = ["compiled_data"] }
+thiserror = "2"
 
 [lints]
 workspace = true

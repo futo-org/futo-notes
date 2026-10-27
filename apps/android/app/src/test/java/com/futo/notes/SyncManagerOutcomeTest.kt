@@ -1,7 +1,14 @@
 package com.futo.notes
 
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.setMain
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Before
 import org.junit.Test
 import uniffi.futo_notes_ffi.SyncException
 import uniffi.futo_notes_ffi.SyncFailure
@@ -14,7 +21,17 @@ import uniffi.futo_notes_ffi.WriteRefusal
  * `failureMessage` selects the error state; catalog messages provide the
  * visible wording, including file-specific failures.
  */
+@OptIn(ExperimentalCoroutinesApi::class)
 class SyncManagerOutcomeTest {
+    // SyncManager builds its scope on Dispatchers.Main.immediate, which a JVM
+    // test has no platform dispatcher for; kotlinx-coroutines-test 1.11 throws
+    // on that access (1.8 tolerated it).
+    @Before
+    fun mainIsTheTestThread() = Dispatchers.setMain(UnconfinedTestDispatcher())
+
+    @After
+    fun restoreMain() = Dispatchers.resetMain()
+
     private fun summary(
         failures: List<SyncFailure> = emptyList(),
         failureMessage: String? = null,

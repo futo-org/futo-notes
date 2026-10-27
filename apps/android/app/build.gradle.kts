@@ -3,7 +3,6 @@ import java.util.Properties
 
 plugins {
     id("com.android.application")
-    id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
@@ -42,11 +41,13 @@ val stageCoinAssets = tasks.register<Copy>("stageCoinAssets") {
 
 android {
     namespace = "com.futo.notes"
-    // compileSdk 36 is the floor required by the modernized androidx stack.
-    // targetSdk 36 is required for Play updates from 2026-08-31; targeting it
-    // accepts mandatory edge-to-edge, predictive back by default, and ignored
-    // orientation/resizability restrictions on large screens.
-    compileSdk = 36
+    // compileSdk 37 is the floor required by the androidx stack (Compose 1.12,
+    // core 1.19, lifecycle 2.11). It only changes which APIs we compile against;
+    // runtime behavior follows targetSdk. targetSdk 36 is required for Play
+    // updates from 2026-08-31; targeting it accepts mandatory edge-to-edge,
+    // predictive back by default, and ignored orientation/resizability
+    // restrictions on large screens.
+    compileSdk = 37
 
     // Pin the NDK AGP uses for native lib stripping + debug-symbol extraction
     // (the release build's debugSymbolLevel below). Without this AGP looks for
@@ -221,22 +222,23 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-    kotlinOptions {
-        jvmTarget = "17"
-    }
     buildFeatures {
         compose = true
         buildConfig = true
     }
+    // AGP 9's source-set DSL takes plain paths, not Providers, so the generated
+    // directories are resolved here; the preBuild dependsOn below is what makes
+    // the merge wait for the tasks that fill them.
     sourceSets {
         getByName("main") {
-            res.srcDir(generatedLocalizationDirectory.map { it.dir("res") })
-            java.srcDir(generatedLocalizationDirectory.map { it.dir("kotlin") })
-            assets.srcDir(generatedCoinAssetsDirectory)
+            val localization = generatedLocalizationDirectory.get().asFile
+            res.directories += localization.resolve("res").path
+            kotlin.directories += localization.resolve("kotlin").path
+            assets.directories += generatedCoinAssetsDirectory.get().asFile.path
         }
         getByName("androidTest") {
-            assets.srcDir(repositoryRootDirectory.resolve("tests/localization"))
-            assets.srcDir(repositoryRootDirectory.resolve("tests/conformance"))
+            assets.directories += repositoryRootDirectory.resolve("tests/localization").path
+            assets.directories += repositoryRootDirectory.resolve("tests/conformance").path
         }
     }
     // libfuto_notes_ffi.so per-ABI is staged by scripts/build-rust-android.sh.
@@ -271,34 +273,34 @@ tasks.configureEach {
 }
 
 dependencies {
-    // BOM bumped to the Compose 1.9.x train so material3/foundation/ui stay
-    // consistent with the Compose 1.9.2 that activity 1.12.x pulls in transitively
-    // (a stale BOM would leave material3 on 1.3.x against foundation 1.9.2 — skew).
-    val composeBom = platform("androidx.compose:compose-bom:2025.09.01")
+    // Keep the BOM on the Compose train that activity-compose pulls in
+    // transitively, so material3/foundation/ui stay consistent (a stale BOM
+    // once left material3 on 1.3.x against foundation 1.9.2 — skew).
+    val composeBom = platform("androidx.compose:compose-bom:2026.09.00")
     implementation(composeBom)
     // enableEdgeToEdge() only stops calling the deprecated
     // Window.setStatusBarColor/setNavigationBarColor internally on API 35 as of
     // androidx.activity 1.12.0 (it draws bar scrims via a ProtectionLayout overlay
     // instead). Below 1.12 the Play "deprecated edge-to-edge APIs" warning fires
-    // even through enableEdgeToEdge(). 1.12.x requires compileSdk 36 + AGP 8.9.1+.
-    implementation("androidx.activity:activity-compose:1.12.4")
+    // even through enableEdgeToEdge(), so 1.12.0 is the floor.
+    implementation("androidx.activity:activity-compose:1.13.0")
     // FileProvider (camera capture staging for the editor image picker).
-    implementation("androidx.core:core-ktx:1.13.1")
+    implementation("androidx.core:core-ktx:1.19.1")
     // Chrome Custom Tabs: the hosted sign-in / checkout / customer-portal
     // surface (ADR 0003 decision 1). A tab keeps the browser's own cookies, so
     // an existing FUTO session makes a second sign-in one tap — which is
     // exactly what an embedded WebView cannot do.
-    implementation("androidx.browser:browser:1.8.0")
+    implementation("androidx.browser:browser:1.10.0")
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.material3:material3")
     // View-based Material Components: supplies the app's manifest theme
     // (Theme.Material3.DayNight.NoActionBar) used as the Activity window theme.
-    implementation("com.google.android.material:material:1.12.0")
+    implementation("com.google.android.material:material:1.14.0")
     implementation("androidx.compose.material:material-icons-extended")
-    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.5")
+    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.11.0")
     // LocalLifecycleOwner: the hosted wizard watches pause/resume to notice the
     // person coming back from a Custom Tab (which has no dismissal callback).
-    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.5")
+    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.11.0")
 
     // Pairing's camera (ADR 0003 decision 5): CameraX for the preview and the
     // frame stream, ZXing for both halves of the QR code — drawing the one this
@@ -312,20 +314,21 @@ dependencies {
     // exactly the people this repo cares most about. ZXing core is plain Java
     // with no Google dependency at all, so the scanner behaves identically on a
     // device with no Play services.
-    implementation("androidx.camera:camera-core:1.4.2")
-    implementation("androidx.camera:camera-camera2:1.4.2")
-    implementation("androidx.camera:camera-lifecycle:1.4.2")
-    implementation("androidx.camera:camera-view:1.4.2")
+    implementation("androidx.camera:camera-core:1.6.2")
+    implementation("androidx.camera:camera-camera2:1.6.2")
+    implementation("androidx.camera:camera-lifecycle:1.6.2")
+    implementation("androidx.camera:camera-view:1.6.2")
     implementation("com.google.zxing:core:3.5.4")
 
     // UniFFI-generated Kotlin bindings use JNA to call libfuto_notes_ffi.so.
     // 5.17.0: first version whose bundled libjnidispatch.so is 16 KB-page-aligned
-    // (the fix landed across 5.16.0 + 5.17.0; 5.16.0 alone was incomplete). 5.14.0
-    // SIGSEGVs on 16 KB-page devices — part of the Play 16 KB block.
-    implementation("net.java.dev.jna:jna:5.17.0@aar")
+    // (the fix landed across 5.16.0 + 5.17.0; 5.16.0 alone was incomplete), so it
+    // is the floor. 5.14.0 SIGSEGVs on 16 KB-page devices — part of the Play 16 KB
+    // block. Re-check libjnidispatch.so's LOAD alignment on every bump.
+    implementation("net.java.dev.jna:jna:5.19.1@aar")
 
     // Coroutines for the async SyncClient FFI methods.
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
 
     // Filament draws the supporter coin (com.futo.notes.ui.SupporterCoin). It is
     // the only 3D content in the app, and the reason it is worth an engine is
@@ -345,13 +348,13 @@ dependencies {
 
     // JVM unit tests (pure logic only — e.g. SyncManager's seed-URL selection).
     testImplementation("junit:junit:4.13.2")
-    testImplementation("org.json:json:20240303")
+    testImplementation("org.json:json:20260814")
     // A test Main dispatcher for SyncManager's lifecycle races; same version as
     // kotlinx-coroutines-android above.
-    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1")
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.11.0")
 
     androidTestImplementation(composeBom)
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
-    androidTestImplementation("androidx.test.ext:junit:1.2.1")
-    androidTestImplementation("androidx.test:runner:1.6.2")
+    androidTestImplementation("androidx.test.ext:junit:1.3.0")
+    androidTestImplementation("androidx.test:runner:1.7.0")
 }
