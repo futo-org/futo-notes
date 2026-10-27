@@ -394,3 +394,38 @@ fn mutations_report_the_post_commit_folder_projection() {
     let deleted_folder = store.delete_folder("Projects").unwrap();
     assert!(deleted_folder.folders.is_empty());
 }
+
+// Folder rename once re-resolved every link in the vault against every note id
+// for each moved note, then still scanned every note once per moved note. The
+// link-rewrite pass must grow with neither again: this moves half the vault.
+// Links skip the moved folder, so the timer measures that pass rather than
+// fsync'd rewrites.
+#[test]
+fn folder_rename_in_a_large_linked_vault_is_fast() {
+    let root = TestRoot::new();
+    let total = 1000;
+    for note in 0..total {
+        let folder = root.0.join(format!("Folder {}", note % 2));
+        fs::create_dir_all(&folder).unwrap();
+        let links = (1..=4)
+            .map(|step| format!("[[note {}]]", ((note * 7 + step * 13) % total) | 1))
+            .collect::<Vec<_>>()
+            .join(" ");
+        let prose = "Some ordinary words for a realistic body length. ".repeat(40);
+        fs::write(folder.join(format!("note {note}.md")), prose + &links).unwrap();
+    }
+    fs::write(root.0.join("pointer.md"), "[[note 0]]").unwrap();
+    let store = store(&root);
+
+    let started = Instant::now();
+    let mutation = store.rename_folder("Folder 0", "Renamed").unwrap();
+    let elapsed = started.elapsed();
+
+    assert_eq!(mutation.renamed.len(), 500);
+    assert_eq!(mutation.relinked, ["pointer"]);
+    assert_eq!(store.read("pointer").unwrap(), "[[Renamed/note 0]]");
+    assert!(
+        elapsed < Duration::from_secs(1),
+        "folder rename over {total} linked notes must be fast (was {elapsed:?})"
+    );
+}
