@@ -41,14 +41,19 @@ const IGNORED_WATCH_DIRS = [
   'apps/ios/.build-device',
   'apps/ios/.build-device-release',
   'apps/ios/Resources/editor.html',
-].map((dir) => path.resolve(__dirname, dir).split(path.sep).join('/'));
+].map((dir) =>
+  path
+    .resolve(import.meta.dirname, dir)
+    .split(path.sep)
+    .join('/'),
+);
 
 export default defineConfig({
   plugins: [tailwindcss(), svelte()],
   root: '.',
   base: './',
   build: {
-    target: 'ES2020',
+    target: 'es2020',
     outDir: 'dist',
     emptyOutDir: true,
     sourcemap: false,
@@ -56,7 +61,7 @@ export default defineConfig({
     // warning threshold above that known chunk so new unexpected growth still
     // shows up in the asset table without noisy CI warnings.
     chunkSizeWarningLimit: 700,
-    rollupOptions: {
+    rolldownOptions: {
       output: {
         manualChunks(id) {
           if (id.includes('@codemirror') || id.includes('codemirror') || id.includes('@lezer')) {
@@ -85,13 +90,13 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      $lib: path.resolve(__dirname, './src/lib'),
-      $app: path.resolve(__dirname, './src/app'),
-      $features: path.resolve(__dirname, './src/features'),
-      $shared: path.resolve(__dirname, './src/shared'),
-      '@': path.resolve(__dirname, './'),
-      '/src': path.resolve(__dirname, './src'),
-      '@futo-notes/editor': path.resolve(__dirname, './packages/editor/src'),
+      $lib: path.resolve(import.meta.dirname, './src/lib'),
+      $app: path.resolve(import.meta.dirname, './src/app'),
+      $features: path.resolve(import.meta.dirname, './src/features'),
+      $shared: path.resolve(import.meta.dirname, './src/shared'),
+      '@': path.resolve(import.meta.dirname, './'),
+      '/src': path.resolve(import.meta.dirname, './src'),
+      '@futo-notes/editor': path.resolve(import.meta.dirname, './packages/editor/src'),
     },
   },
   server: {

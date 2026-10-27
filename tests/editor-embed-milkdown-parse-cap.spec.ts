@@ -36,7 +36,7 @@ import { settleChangeDebounce, test, hostConfig } from './lib/editorEmbedMilkdow
 // micromark's text resolver merging adjacent data events with one `splice` per
 // run, which is quadratic in the number of runs — and a paragraph of
 // single-newline lines produces one run per line. Patched to compact in one
-// pass (patches/micromark@4.0.2.patch): 20,000 lines went 4.8 s -> 1.6 s and
+// pass (patches/micromark@4.0.3.patch): 20,000 lines went 4.8 s -> 1.6 s and
 // 50,000 went 18.1 s -> 0.9 s, linear in the note.
 //
 // There is deliberately NO cap and no read-only mode. An earlier attempt

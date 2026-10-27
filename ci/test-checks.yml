@@ -21,7 +21,7 @@ test:
   # to 11 jobs at once. Runner 71 caps out at five concurrent jobs, so these
   # can queue behind it there; they no longer queue behind a slow box.
   tags:
-    - dind_fast
+    - $LINUX_RUNNER_TAG
   # Never overlap another pipeline's unit-test job. The contention is between
   # concurrent JOBS on one runner, not within vitest (which already caps
   # maxWorkers:4 in CI): with 3 stacked-MR pipelines in flight,

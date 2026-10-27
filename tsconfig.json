@@ -17,14 +17,13 @@
     "resolveJsonModule": true,
     "isolatedModules": true,
     "noEmit": true,
-    "baseUrl": ".",
     "paths": {
-      "$lib/*": ["src/lib/*"],
-      "$app/*": ["src/app/*"],
-      "$features/*": ["src/features/*"],
-      "$shared/*": ["src/shared/*"],
+      "$lib/*": ["./src/lib/*"],
+      "$app/*": ["./src/app/*"],
+      "$features/*": ["./src/features/*"],
+      "$shared/*": ["./src/shared/*"],
       "@/*": ["./*"],
-      "@futo-notes/editor": ["packages/editor/src"]
+      "@futo-notes/editor": ["./packages/editor/src"]
     },
     "types": ["svelte", "vite/client"]
   },

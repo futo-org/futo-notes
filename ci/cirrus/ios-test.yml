@@ -42,7 +42,7 @@ test_ios_native_task:
     - eval "$(fnm env --shell bash)"
     - fnm use --install-if-missing
     - corepack enable
-    - corepack prepare pnpm@10.29.2 --activate
+    - corepack prepare pnpm@10.34.7 --activate
     - curl https://sh.rustup.rs -sSf | sh -s -- -y
     - export PATH="$HOME/.cargo/bin:$PATH"
     - rustup target add aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios
@@ -79,12 +79,12 @@ test_ios_native_task:
       export SIM
     # Two tiers, keyed the same way testRustMacOS keys its full run. MR
     # pipelines run only the FutoNotesNativeTests unit bundle (Swift Testing,
-    # 323 tests in ~13s in job 264124); main pushes and tags also run the
+    # 323 tests in ~13s in job 264124); main pushes, tags, and MRs that touch
+    # apps/ios (IOS_UI_TESTS=1 from ci/ios.yml) also run the
     # FutoNotesNativeUITests bundle, the XCTest UI cases, which took 173s of that
-    # job's 226s test phase when the bundle held 8 of them. A UI regression
-    # therefore surfaces on the main push, before tag time, rather than on the MR.
+    # job's 226s test phase when the bundle held 8 of them.
     - |
-      if [ -n "${CI_COMMIT_TAG:-}" ] || { [ -n "${CI_DEFAULT_BRANCH:-}" ] && [ "${CI_COMMIT_BRANCH:-}" = "${CI_DEFAULT_BRANCH}" ]; }; then
+      if [ -n "${CI_COMMIT_TAG:-}" ] || [ "${IOS_UI_TESTS:-}" = 1 ] || { [ -n "${CI_DEFAULT_BRANCH:-}" ] && [ "${CI_COMMIT_BRANCH:-}" = "${CI_DEFAULT_BRANCH}" ]; }; then
         export IOS_TEST_TIER=full
       else
         export IOS_TEST_TIER=unit

@@ -71,6 +71,14 @@ test:ios-native:
     expire_in: 1 week
   rules:
     - !reference [.not-scheduled, rules]
+    # An MR that touches the iOS app also runs the UI bundle (the full tier,
+    # +173 s): the Macs 110/111 averaged under 30 min of work a day in
+    # October, so the MR can afford what used to wait for the main push.
+    - if: $CI_MERGE_REQUEST_IID
+      changes:
+        - apps/ios/**/*
+      variables:
+        IOS_UI_TESTS: "1"
     - if: $CI_MERGE_REQUEST_IID
       changes: &native-ios-test-changes
         - apps/ios/**/*

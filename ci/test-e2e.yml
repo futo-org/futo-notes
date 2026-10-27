@@ -5,7 +5,7 @@ test:e2e:smoke:
   stage: test
   # Runner 71 — see the `test` job. Median 2m28 on runner 55 vs 1m37 on runner 71.
   tags:
-    - dind_fast
+    - $LINUX_RUNNER_TAG
   cache:
     - !reference [.cache-pnpm, cache]
     - !reference [.cache-playwright, cache]
@@ -39,7 +39,7 @@ test:e2e:rest:
   stage: test
   # Runner 71 — see the `test` job. Median 10m10 on runner 55 vs 3m02 on runner 71.
   tags:
-    - dind_fast
+    - $LINUX_RUNNER_TAG
   # Three shards by file (188 tests split 63/71/54 on 2026-10-08). Each shard
   # starts its own dev server; the docker executor gives every job its own
   # network namespace, so the shards cannot collide on the port. July's
@@ -88,7 +88,7 @@ test:e2e:editor-embed:
   stage: test
   # Runner 71 — see the `test` job. Median 23m30 on runner 55 vs 8m16 on runner 71.
   tags:
-    - dind_fast
+    - $LINUX_RUNNER_TAG
   # Three shards by file (630 tests split 235/198/197 on 2026-10-08); each
   # shard's globalSetup builds its own editor.html.
   parallel: 3

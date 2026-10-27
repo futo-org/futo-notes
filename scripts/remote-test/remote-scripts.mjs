@@ -1,11 +1,25 @@
 // remote-test.mjs remote shell scripts: the lock / run / unlock phases of the two-phase
 // protocol, and the kill script.
 import { remoteEnvPreamble, shQuote } from './remote-env.mjs';
-import { EXIT_LOCKED, EXIT_MOVED } from './settings.mjs';
+import { EXIT_LOCKED, EXIT_MOVED, EXIT_REFUSED } from './settings.mjs';
 
 // ---------------------------------------------------------------------------
 // Remote scripts
 // ---------------------------------------------------------------------------
+
+// Run before locking or transferring: missing fnm is a host setup problem, not
+// a failed suite. Node itself is activated from .nvmrc only after checkout.
+export function buildNodePreflightScript({ ndkVersion }) {
+  return `
+set -uo pipefail
+${remoteEnvPreamble({ ndkVersion })}
+if ! command -v fnm >/dev/null 2>&1; then
+  echo "remote-test: fnm is missing; install fnm on the remote host or set FNM_DIR to its install directory." >&2
+  echo "  Run node scripts/remote-test.mjs --doctor for the install command before retrying." >&2
+  exit ${EXIT_REFUSED}
+fi
+`;
+}
 
 // Phase 1 of the two-phase remote protocol: take the worktree lock in its OWN
 // ssh session, BEFORE any transfer.
@@ -199,7 +213,14 @@ fi`
 # .nvmrc exists only once the worktree is checked out, so this cannot live in the
 # preamble (whose CWD is $HOME). It must precede the install below, or native
 # modules compile against the box default and the pin buys nothing.
-fnm use --install-if-missing
+if ! fnm use --install-if-missing; then
+  echo "remote-test: could not activate the Node version in .nvmrc; repair fnm on the remote host and run node scripts/remote-test.mjs --doctor." >&2
+  exit ${EXIT_REFUSED}
+fi
+if ! command -v node >/dev/null 2>&1; then
+  echo "remote-test: node is missing after fnm activation; repair the remote fnm installation and run node scripts/remote-test.mjs --doctor." >&2
+  exit ${EXIT_REFUSED}
+fi
 
 # pnpm install only when the lockfile actually moved: it is 40s that most runs
 # do not need, and skipping it silently would be worse than paying it. The stamp

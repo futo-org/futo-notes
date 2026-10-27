@@ -40,7 +40,7 @@ the renderer.
 2. **micromark's text resolver — fixed.** `resolveAllText` merges adjacent `data` events with one
    `events.splice()` per run, and every splice shifts the whole tail: quadratic in the number of
    runs, and a paragraph of single-newline lines produces one run per line. Patched to collect the
-   removals and compact in ONE pass, in place (`patches/micromark@4.0.2.patch`, applied by pnpm;
+   removals and compact in ONE pass, in place (`patches/micromark@4.0.3.patch`, applied by pnpm;
    upstreamable as written).
 
 | one paragraph | before | after |

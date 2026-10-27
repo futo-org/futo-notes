@@ -1,8 +1,8 @@
 diff --git a/dev/lib/initialize/text.js b/dev/lib/initialize/text.js
-index 7192e70a0972e808d779999e57153bf3ed7bfc3a..776a5be6e229b53b2028912f25f043e446941b83 100644
+index af0ff9f..d271f13 100644
 --- a/dev/lib/initialize/text.js
 +++ b/dev/lib/initialize/text.js
-@@ -119,6 +119,17 @@ function createResolver(extraResolver) {
+@@ -120,6 +120,17 @@ function createResolver(extraResolver) {
  
      // A rather boring computation (to merge adjacent `data` events) which
      // improves mm performance by 29%.
@@ -20,7 +20,7 @@ index 7192e70a0972e808d779999e57153bf3ed7bfc3a..776a5be6e229b53b2028912f25f043e4
      while (++index <= events.length) {
        if (enter === undefined) {
          if (events[index] && events[index][1].type === types.data) {
-@@ -129,14 +140,33 @@ function createResolver(extraResolver) {
+@@ -130,14 +141,33 @@ function createResolver(extraResolver) {
          // Don’t do anything if there is one data token.
          if (index !== enter + 2) {
            events[enter][1].end = events[index - 1][1].end
@@ -57,10 +57,10 @@ index 7192e70a0972e808d779999e57153bf3ed7bfc3a..776a5be6e229b53b2028912f25f043e4
    }
  }
 diff --git a/lib/initialize/text.js b/lib/initialize/text.js
-index b9383cb721b95c68bd0e684da6cbf441ed82b8eb..038850fb8cd0a4b1562d42929d4a790496229a5e 100644
+index f9c110b..f59ff4a 100644
 --- a/lib/initialize/text.js
 +++ b/lib/initialize/text.js
-@@ -110,6 +110,17 @@ function createResolver(extraResolver) {
+@@ -111,6 +111,17 @@ function createResolver(extraResolver) {
  
      // A rather boring computation (to merge adjacent `data` events) which
      // improves mm performance by 29%.
@@ -78,7 +78,7 @@ index b9383cb721b95c68bd0e684da6cbf441ed82b8eb..038850fb8cd0a4b1562d42929d4a7904
      while (++index <= events.length) {
        if (enter === undefined) {
          if (events[index] && events[index][1].type === "data") {
-@@ -120,12 +131,31 @@ function createResolver(extraResolver) {
+@@ -121,12 +132,31 @@ function createResolver(extraResolver) {
          // Don’t do anything if there is one data token.
          if (index !== enter + 2) {
            events[enter][1].end = events[index - 1][1].end;

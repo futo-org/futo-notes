@@ -8,6 +8,11 @@
  * `Editor` does (with a short timeout instead of the fixed 3000ms default,
  * so the test is fast) rather than a full `Editor.make()`, to isolate the
  * timer leak from everything else a real editor does.
+ *
+ * @milkdown/ctx 7.22.3 fixed the leak upstream (`Timer` now stores the
+ * timeout id and clears it when the gate resolves), so the first case below
+ * asserts the FIX holds: it fails if the dependency moves back to a leaking
+ * version. `withoutLeakedCtxTimers` is redundant from that version on.
  */
 import { afterEach, describe, expect, it } from 'vitest';
 import { Clock, Container, Ctx, createTimer } from '@milkdown/ctx';
@@ -44,7 +49,7 @@ describe('withoutLeakedCtxTimers', () => {
     process.off('uncaughtException', onUncaught);
   });
 
-  it('documents the bug: an unwrapped ctx gate leaks a native timer that throws once its global is gone', async () => {
+  it('upstream fix holds: an unwrapped ctx gate no longer leaks a native timer past its global', async () => {
     const ctx = new Ctx(new Container(), new Clock());
     await settleAndDoneOneGate(ctx, 30);
 
@@ -55,8 +60,7 @@ describe('withoutLeakedCtxTimers', () => {
 
     await new Promise((resolve) => setTimeout(resolve, 80)); // past the 30ms deadline
 
-    expect(uncaught).toHaveLength(1);
-    expect(String((uncaught[0] as Error).message)).toContain('removeEventListener is not defined');
+    expect(uncaught).toEqual([]);
   });
 
   it('fixes it: wrapping the gate cancels the native timer so nothing fires later', async () => {

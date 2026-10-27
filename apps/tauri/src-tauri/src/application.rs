@@ -74,6 +74,7 @@ pub(crate) fn run() {
 
     builder
         .on_window_event(crate::close_deadline::on_window_event)
+        .on_window_event(crate::window_minimum::on_window_event)
         .on_page_load(|_webview, payload| {
             // A new page has not reported anything yet; the old one's dirty flag is void.
             if matches!(payload.event(), tauri::webview::PageLoadEvent::Started) {

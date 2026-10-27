@@ -1,29 +1,29 @@
 {
   "comment": "The futo-notes-server release every sync harness runs against. Bump `version` and the five sha256s together (scripts/lib/sync-server.mjs --refresh prints the new block). Checksums are pinned here, not fetched, so a rebuilt or tampered asset fails the download instead of silently changing what the suite tested.",
-  "version": "v0.7.0",
-  "standinModeComment": "Whether the pinned release carries STAND-IN TEST MODE (STANDIN_MODE=true, futo-notes-server#14-#17) — the hosted-mode server the Rust hosted scenarios in crates/futo-notes-sync/tests/server_integration.rs need. v0.7.0 predates it, so those scenarios run only against the in-test stub (cargo test -p futo-notes-sync --test hosted_setup). Flip this to true in the SAME commit as the version bump once a release carries it; tests/sync-integration.mjs then starts the second server and the scenarios must pass. FUTO_NOTES_E2EE_SERVER_STANDIN=1 forces it on for a locally built server.",
+  "version": "v0.7.1",
+  "standinModeComment": "Whether the pinned release carries STAND-IN TEST MODE (STANDIN_MODE=true, futo-notes-server#14-#17) — the hosted-mode server the Rust hosted scenarios in crates/futo-notes-sync/tests/server_integration.rs need. v0.7.1 predates it, so those scenarios run only against the in-test stub (cargo test -p futo-notes-sync --test hosted_setup). Flip this to true in the SAME commit as the version bump once a release carries it; tests/sync-integration.mjs then starts the second server and the scenarios must pass. FUTO_NOTES_E2EE_SERVER_STANDIN=1 forces it on for a locally built server.",
   "standinMode": false,
   "packageUrl": "https://gitlab.futo.org/api/v4/projects/547/packages/generic/futo-notes-server",
   "binaries": {
     "linux-x64": {
-      "asset": "futo-notes-server_v0.7.0_linux_amd64",
-      "sha256": "2ceb9922984af3976218d4eccd14e552a9ba4afa1d176d6daed6a6f9389dd629"
+      "asset": "futo-notes-server_v0.7.1_linux_amd64",
+      "sha256": "2dd7dc647f9f389a965f22ecd559b5e39d713a9c437f51fe87916ffdf6eec978"
     },
     "linux-arm64": {
-      "asset": "futo-notes-server_v0.7.0_linux_arm64",
-      "sha256": "0f071102258448879abfcea8251534f1517d824360eb35b4273c8d7ed30aedf9"
+      "asset": "futo-notes-server_v0.7.1_linux_arm64",
+      "sha256": "d5069a9a5767d2a2a5a282ab7c97e1d628abef9efaed8f82fd85734b4b2089c2"
     },
     "darwin-x64": {
-      "asset": "futo-notes-server_v0.7.0_darwin_amd64",
-      "sha256": "8b9a1473b7f7affb248d9c6e4b2201e41377e9e9fd7e197e630d06d66f7722b3"
+      "asset": "futo-notes-server_v0.7.1_darwin_amd64",
+      "sha256": "76a0c711fbf3099edcaaef8be0dc8d331cfbb9a73a7fb04317002159d54be7fa"
     },
     "darwin-arm64": {
-      "asset": "futo-notes-server_v0.7.0_darwin_arm64",
-      "sha256": "4ebd47fa27d8bf1dc6b35acdf5d737989067b2ca6f83c976c928c7412438423a"
+      "asset": "futo-notes-server_v0.7.1_darwin_arm64",
+      "sha256": "253d267859b1915f764fe02e07decfa8dda14f7b9f4cf6df802e3fb8355059ed"
     },
     "win32-x64": {
-      "asset": "futo-notes-server_v0.7.0_windows_amd64.exe",
-      "sha256": "0ed7e87607efad1fc1b7176c7699c19b97ea71b1856be503ebdf24ae1da37bab"
+      "asset": "futo-notes-server_v0.7.1_windows_amd64.exe",
+      "sha256": "e1a9e343ff15f1a6afb51ffca6801bc0ed7559ec71543fbf13001139c91c92c3"
     }
   }
 }

@@ -1,10 +1,17 @@
 package com.futo.notes
 
 import java.io.File
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.setMain
 import org.json.JSONObject
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Test
 
 /**
@@ -16,7 +23,17 @@ import org.junit.Test
  * generated BuildConfig.DEBUG; the production wiring (`defaultServer()`) feeds
  * the real BuildConfig.DEBUG into this same function.
  */
+@OptIn(ExperimentalCoroutinesApi::class)
 class SyncManagerDefaultsTest {
+    // SyncManager builds its scope on Dispatchers.Main.immediate, which a JVM
+    // test has no platform dispatcher for; kotlinx-coroutines-test 1.11 throws
+    // on that access (1.8 tolerated it).
+    @Before
+    fun mainIsTheTestThread() = Dispatchers.setMain(UnconfinedTestDispatcher())
+
+    @After
+    fun restoreMain() = Dispatchers.resetMain()
+
     @Test
     fun debugSeedsEmulatorDevServer() {
         assertEquals(

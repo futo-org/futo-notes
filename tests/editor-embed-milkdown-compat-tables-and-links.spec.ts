@@ -96,7 +96,11 @@ test.describe('a table row wider than the header keeps every value in its column
   const WIDE_LAST = 'Prices\n\n| item | price |\n| - | - |\n| apple | 3 |\n| pear | 4 | |\n\nend\n';
 
   test('canary: upstream still shifts the rows above the wide one', async ({ page }) => {
-    expect(await roundTrip(page, 'baseline', WIDE_LAST)).toMatch(/^\| <br \/> \| apple +\|/m);
+    // The inserted leading cell was a `<br />` placeholder before @milkdown/kit 7.22.3
+    // and is an empty cell since; either way `apple` lands under `price`.
+    expect(await roundTrip(page, 'baseline', WIDE_LAST)).toMatch(
+      /^\| (?:<br \/>| *) \| apple +\|/m,
+    );
   });
 
   // Written in the house style: no column padding, `---` delimiters.
