@@ -1,40 +1,32 @@
-.settings-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(var(--ink-rgb), 0.35);
-  z-index: var(--z-overlay);
-  display: flex;
-  align-items: flex-end;
-  justify-content: center;
-}
-
-.settings-panel {
+/* The Settings card inside the shared Modal (modal.css owns the backdrop,
+   colors and shadow). It keeps 48px clear of the window's top and bottom and
+   24px of its sides. */
+.modal-card.settings-panel {
   /* Positioning context for .connect-sync-overlay. Must NOT be the
      scroller: absolute children of a scrolling box anchor to the scrolled
      content, not the visible viewport (the invisible-overlay bug). */
   position: relative;
   display: flex;
   flex-direction: column;
-  width: 100%;
-  max-width: 600px;
-  max-height: 85vh;
-  background: var(--color-bg);
-  border-radius: 16px 16px 0 0;
+  width: 600px;
+  max-width: calc(100% - 48px);
+  max-height: min(calc(100% - 96px), 960px);
+  padding: 0;
+  border-radius: 16px;
   overflow: hidden;
 }
 
 .settings-scroll {
   overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
   min-height: 0;
-  padding-bottom: max(16px, env(safe-area-inset-bottom));
+  padding-bottom: 16px;
 }
 
 .settings-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 20px 20px 12px;
+  padding: 12px 12px 8px 20px;
   position: sticky;
   top: 0;
   z-index: 1;
@@ -42,15 +34,15 @@
 }
 
 .settings-title {
-  font-size: 20px;
+  font-size: 17px;
   font-weight: 600;
   margin: 0;
   color: var(--color-text);
 }
 
 .settings-close {
-  width: 36px;
-  height: 36px;
+  width: 32px;
+  height: 32px;
   border: none;
   background: var(--color-surface);
   border-radius: 10px;

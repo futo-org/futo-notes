@@ -5,7 +5,7 @@ use std::fs;
 use std::path::Path;
 
 use futo_notes_core::files::{collides_but_differs, file_mtime_ms, vault_fs};
-use futo_notes_model::{rewrite_wikilinks, split_id};
+use futo_notes_model::{find_wikilinks, link_targets_naming, rewrite_wikilinks, split_id};
 
 use crate::{note_filename, paths, vault, FileChange, LocalNoteStore, MutationResult, NoteRename};
 
@@ -132,50 +132,77 @@ pub(crate) fn prepare_relinks(root: &Path, mappings: &[(String, String)]) -> Rel
     let raw = vault::bodies(root);
     // Every note counts toward link resolution, decodable or not.
     let mut ids = raw.keys().cloned().collect::<Vec<_>>();
-    let mut original = HashMap::new();
-    // A lossy view of each undecodable note, used ONLY to learn whether the
+    // An undecodable note gets a lossy view, used ONLY to learn whether the
     // rename would have rewritten it. It is never written.
-    let mut undecodable = HashMap::new();
-    for (id, bytes) in raw {
-        match String::from_utf8(bytes) {
-            Ok(body) => {
-                original.insert(id, body);
-            }
-            Err(error) => {
-                undecodable.insert(id, String::from_utf8_lossy(error.as_bytes()).into_owned());
-            }
+    let notes = raw
+        .into_iter()
+        .map(|(id, bytes)| match String::from_utf8(bytes) {
+            Ok(body) => (id, body, true),
+            Err(error) => (
+                id,
+                String::from_utf8_lossy(error.as_bytes()).into_owned(),
+                false,
+            ),
+        })
+        .collect::<Vec<_>>();
+    let mut bodies = notes
+        .iter()
+        .map(|(_, body, _)| body.clone())
+        .collect::<Vec<_>>();
+
+    // The mappings each link target could name.
+    let mut naming = HashMap::<&str, Vec<usize>>::new();
+    for (index, (old, _)) in mappings.iter().enumerate() {
+        for target in link_targets_naming(old) {
+            naming.entry(target).or_default().push(index);
         }
     }
-    let mut bodies = original.clone();
-    let mut lossy = undecodable.clone();
-    for (old, new) in mappings {
-        for body in bodies.values_mut().chain(lossy.values_mut()) {
-            if !body.contains("[[") {
-                continue;
+    // Queue a note for each mapping from `first` on that one of its links could
+    // name. A body is scanned once up front and again after each rewrite of it:
+    // the mappings apply in order, and a later one may rewrite the new link.
+    let queue = |queued: &mut [HashSet<usize>], note: usize, body: &str, first: usize| {
+        for link in find_wikilinks(body) {
+            for &index in naming.get(link.target.as_str()).into_iter().flatten() {
+                if index >= first {
+                    queued[index].insert(note);
+                }
             }
-            let (rewritten, count) = rewrite_wikilinks(body, old, new, &ids);
+        }
+    };
+    let mut queued = vec![HashSet::new(); mappings.len()];
+    for (note, body) in bodies.iter().enumerate() {
+        queue(&mut queued, note, body, 0);
+    }
+    // ponytail: each queued link still resolves against every id; index the ids
+    // if moving most of a large vault at once gets slow.
+    for (index, (old, new)) in mappings.iter().enumerate() {
+        for note in std::mem::take(&mut queued[index]) {
+            let (rewritten, count) = rewrite_wikilinks(&bodies[note], old, new, &ids);
             if count > 0 {
-                *body = rewritten;
+                queue(&mut queued, note, &rewritten, index + 1);
+                bodies[note] = rewritten;
             }
         }
         if let Some(position) = ids.iter().position(|id| id == old) {
             ids[position] = new.clone();
         }
     }
+
     let final_ids = mappings.iter().cloned().collect::<HashMap<_, _>>();
-    let final_id = |old_id: String| final_ids.get(&old_id).cloned().unwrap_or(old_id);
-    let rewritten = bodies
-        .into_iter()
-        .filter(|(old_id, body)| original.get(old_id) != Some(body))
-        .map(|(old_id, body)| (final_id(old_id), body))
-        .collect();
-    let mut skipped = lossy
-        .into_iter()
-        .filter(|(old_id, body)| undecodable.get(old_id) != Some(body))
-        .map(|(old_id, _)| final_id(old_id))
-        .collect::<Vec<_>>();
-    skipped.sort();
-    Relinks { rewritten, skipped }
+    let mut relinks = Relinks::default();
+    for ((old_id, original, decodable), body) in notes.into_iter().zip(bodies) {
+        if body == original {
+            continue;
+        }
+        let id = final_ids.get(&old_id).cloned().unwrap_or(old_id);
+        if decodable {
+            relinks.rewritten.insert(id, body);
+        } else {
+            relinks.skipped.push(id);
+        }
+    }
+    relinks.skipped.sort();
+    relinks
 }
 
 pub(crate) fn rename_changes(mappings: &[(String, String)]) -> Vec<FileChange> {

@@ -11,9 +11,9 @@
  *
  * Fixed, not decided by a parse (docs/spec/editor.md "Markdown house style"):
  * a code span's fence is one backtick longer than the longest run inside it.
- * (A paragraph never reaches here with an empty line in it, or with whitespace
- * at a line's start outside a link or code span: `./normalize.ts` splits it at
- * the one and drops the other.)
+ * (A paragraph never reaches here with an empty line in it: `./normalize.ts`
+ * splits it there. A heading or a cell never reaches here with whitespace at
+ * its start outside a link or code span: `./normalize.ts` drops it.)
  */
 import { MARK, type NodeJson } from './docJson';
 import { type InlineKind } from './normalize';
@@ -102,7 +102,13 @@ function textPieces(
   const every = sites.scope === 'every';
   for (let index = 0; index < characters.length; index += 1) {
     const character = characters[index] as string;
+    // Whitespace that starts a line is dropped by a read (not after a task
+    // item's `[ ] `: the parse decides), so its other spelling is a reference,
+    // after which the rest of the run is not at the line's start and four
+    // spaces cannot open indented code.
+    const lineStartSpace = index === 0 && context.lineStart && /^[ \t]$/.test(character);
     const edge =
+      lineStartSpace ||
       (index === 0 && context.afterDelimiter) ||
       (index === characters.length - 1 && context.beforeDelimiter);
     const escapable = plausible(characters, index, { ...context, every });

@@ -41,7 +41,7 @@ Their nested manuals own build, device, release, and test variants. Missing
   safety + atomic files) · `-store` (THE local note engine) · `-sync` (push-first `run_sync`, SSE) ·
   `-license` (the paid-client-license rule: v2 FUTOpay activation, offline verification) ·
   `-search` (Tantivy BM25) · `-ffi` (UniFFI projection; bindings gitignored).
-- `apps/`: Tauri desktop plus native iOS and Android shells.
+- `apps/`: Tauri desktop, iOS and Android shells, Linux CLI.
 - `docs/spec/`: behavioral truth; `docs/qa/`: story documents for what only a real
   device can show (a camera, an OS auth sheet, a keychain), each carrying the result of
   the last run and what that run could not prove; `tests/` (unit, Playwright, and the
@@ -80,8 +80,9 @@ infrastructure owner.
 - **Every new user-visible string is a catalog entry.** Authored UI text — labels, headings,
   buttons, placeholders, toasts, errors, accessibility and OS-facing labels — is added to
   `languages/en.json` and read back through the platform's accessor (`localizedText` in TS/Swift/
-  Kotlin), never written as a literal at the call site. An English entry is the minimum bar; a
-  translation is welcome but never required to land. User data is the opposite rule: note titles,
+  Kotlin), never written as a literal at the call site. Every catalog in `languages/`
+  translates it in the same change (the `translator` agent); `test:localization-audit`
+  blocks otherwise. Exception for now: `cli.*` messages (the dogfood CLI) stay English-only. User data is the opposite rule: note titles,
   filenames, folder names, tags, paths and URLs render verbatim (M2). `languages/README.md` owns
   the naming and placeholder grammar; `pnpm run check:languages` validates the catalogs.
 - The note cache (`notesCache` in `src/features/notes/notes.svelte.ts`) is a projection. Apply the
@@ -107,7 +108,7 @@ infrastructure owner.
   rule at runtime, so follow them by hand: never `git stash` outside the primary checkout —
   refs/stash is shared by every worktree of this repo, so a pop can restore a parallel lane's
   work-in-progress over yours. Sessions open with `just orient`; agent worktrees come from `just wt new
-  <name>` and go via `just wt gc`.
+<name>` and go via `just wt gc`.
 
 ## 6. Named mistakes — and the rule that prevents each
 
@@ -160,9 +161,8 @@ These are observed failures, not generic advice.
 - **M13 — Untested tag job.** Exercise tag-gated work before tagging, propagate secrets into nested
   VMs, and upload caches `when: always`. Use `/ci-doctor`.
 - **M14 — Missing release dependency.** Every new test job enters `release:gate.needs` in the same
-  commit or it cannot block publication. Deliberate exceptions: `test:audit`,
-  `test:localization-audit`, and `test:quality-report` (phase-1 ratchet) are non-blocking by
-  design (docs/architecture-gates.md).
+  commit or it cannot block publication. Deliberate exception: `test:audit` is
+  non-blocking by design (docs/architecture-gates.md).
 - **M15 — Loosening instead of diagnosing.** Wait on conditions, not sleeps; avoid exact
   cross-platform UI strings. A second timeout bump means stop and root-cause.
 - **M16 — Landed artifacts/debugging.** Gitignore generated paths before building, inspect status,
@@ -217,18 +217,18 @@ These are observed failures, not generic advice.
 
 Every logic change gets a test; a bug regression fails before the fix. Report commands and results.
 
-| ID | Change | Required chain |
-|---|---|---|
-| **7.1** | UI/Svelte | `src/AGENTS.md` |
-| **7.2** | Milkdown editor | `src/AGENTS.md` |
-| **7.3** | Note/editor rule | `packages/editor/AGENTS.md` + both Rust/TS consumers + `just test-rust` (goldens + TS↔Rust differential) |
-| **7.4** | Rust core/Tauri | nearest crate or `apps/tauri/AGENTS.md` |
-| **7.5** | Sync | `crates/futo-notes-sync/AGENTS.md`; preserve push-first |
-| **7.6** | iOS | `apps/ios/AGENTS.md` |
-| **7.7** | Android | `apps/android/AGENTS.md` |
-| **7.8** | CI | real pipeline + `/ci-doctor` |
-| **7.9** | Any bug | failing regression first, then owner chain |
-| **7.10** | Before merge | `just check`; use `just prepush` for broad/risky work |
+| ID       | Change           | Required chain                                                                                           |
+| -------- | ---------------- | -------------------------------------------------------------------------------------------------------- |
+| **7.1**  | UI/Svelte        | `src/AGENTS.md`                                                                                          |
+| **7.2**  | Milkdown editor  | `src/AGENTS.md`                                                                                          |
+| **7.3**  | Note/editor rule | `packages/editor/AGENTS.md` + both Rust/TS consumers + `just test-rust` (goldens + TS↔Rust differential) |
+| **7.4**  | Rust core/Tauri  | nearest crate or `apps/tauri/AGENTS.md`                                                                  |
+| **7.5**  | Sync             | `crates/futo-notes-sync/AGENTS.md`; preserve push-first                                                  |
+| **7.6**  | iOS              | `apps/ios/AGENTS.md`                                                                                     |
+| **7.7**  | Android          | `apps/android/AGENTS.md`                                                                                 |
+| **7.8**  | CI               | real pipeline + `/ci-doctor`                                                                             |
+| **7.9**  | Any bug          | failing regression first, then owner chain                                                               |
+| **7.10** | Before merge     | `just check`; use `just prepush` for broad/risky work                                                    |
 
 ## 8. Testing map
 
@@ -266,6 +266,7 @@ Put choices to the user as numbered options in plain text (1A/1B/2A), never a pi
 wall-clock in one month of transcripts.
 
 **Stop and ask first — exact list:**
+
 1. Anything under `keys/`, signing keys, or the updater trust boundary (M23).
 2. Weakening a CRITICAL guard: dev/prod data, push-first, release gate, dep guard, hash/crypto.
 3. Real-data destruction or expensive local state: the user's `~/Documents/futo-notes`, the prod

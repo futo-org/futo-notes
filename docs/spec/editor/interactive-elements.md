@@ -97,7 +97,9 @@
   src/features/editor/milkdown/progressiveLoad.ts,
   tests/editor-embed-milkdown.spec.ts "Undo history"
 - Opening a note starts its undo empty. Leaving a note and coming back does not
-  restore what you could undo before.
+  restore what you could undo before. This also holds when the next note has
+  exactly the same text as the one being left. →
+  src/features/editor/milkdown/MilkdownEditor.test.ts
 - Redo with nothing left to redo changes nothing; Redo never undoes, whatever the Caps Lock
   state. → milkdown/keyboardParity.ts `handleCapsLockedChord`,
   tests/editor-embed-milkdown-undo.spec.ts
@@ -144,9 +146,12 @@
   text; when an earlier opener on the line cannot open, a later one still
   does (`café_a_ _b_` makes `b` italic). A delimiter typed inside a URL
   (`https://x.test/*a*`) is a character of the URL, as a file reads it, and
-  converts nothing. →
+  converts nothing — a closer too, so `x *b https://x.test/a*b` stays text;
+  a closer the URL ends on converts when the space after it is typed
+  (`x *b https://x.test/a* `), since GFM trims it off the URL. →
   packages/editor/src/milkdown-compat/inputRules.ts `flanking`,
-  tests/editor-embed-milkdown-interactive-typed-escapes.spec.ts
+  tests/editor-embed-milkdown-interactive-typed-escapes.spec.ts,
+  tests/editor-embed-milkdown-interactive-typed-urls.spec.ts
 
 - A delimiter escaped with a backslash, opening or closing (`\*not italic*`,
   `*foo\*`, `` \`a` ``), converts nothing; the line is saved so it reopens
@@ -182,8 +187,10 @@
   as it was. On a selection inside an existing link the field is prefilled with
   its address, Enter updates the WHOLE link (never splitting it at the selection
   edges), and emptying the field unlinks it — the selection and the bar stay
-  put, so an unlink can follow a URL change. → selectionToolbar/index.ts
-  `applyLink`, selectionToolbar/target.ts `linkRunAt`
+  put, so an unlink can follow a URL change. Separate links with the same URL
+  remain separate: editing one never links the plain text between them or
+  changes the other's address. → milkdown/linkPrompt/linkEditing.ts,
+  milkdown/linkPrompt/noteSwitch.test.ts
 - _(desktop)_ Editing the note while the URL field is open (the user clicked
   back into the text) closes the field without applying anything: it belonged
   to a selection that may no longer exist. → selectionToolbar/index.ts

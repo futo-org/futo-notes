@@ -22,17 +22,16 @@
 import type { Editor } from '@milkdown/kit/core';
 import type { Ctx, MilkdownPlugin } from '@milkdown/kit/ctx';
 import { tooltipFactory, TooltipProvider } from '@milkdown/kit/plugin/tooltip';
-import { toggleLinkCommand } from '@milkdown/kit/preset/commonmark';
 import type { PluginSpec } from '@milkdown/kit/prose/state';
 import type { EditorView as ProseView } from '@milkdown/kit/prose/view';
-import { callCommand } from '@milkdown/kit/utils';
 import { mount, unmount } from 'svelte';
 
 import { editorView } from '../caretContext';
 import { computeActiveFormats } from '../formatState';
 import { createToolbarExec } from '../toolbarExec';
+import { applyLinkToSelection, linkRunAt } from '../linkPrompt/linkEditing';
 import SelectionToolbar from './SelectionToolbar.svelte';
-import { linkRunAt, selectionToolbarTarget, type SelectionToolbarTarget } from './target';
+import { selectionToolbarTarget, type SelectionToolbarTarget } from './target';
 
 export { resolveSelectionToolbar } from './target';
 
@@ -94,23 +93,8 @@ export function createSelectionToolbarPlugin(
             const editor = getEditor();
             const live = editorView(editor);
             if (!editor || !live || !target) return;
-            const { state } = live;
-            const run = linkRunAt(state.doc, state.selection.head);
-            if (run) {
-              const linkType = run.mark.type;
-              if (href === null || href === '') {
-                live.dispatch(state.tr.removeMark(run.from, run.to, linkType));
-              } else if (href !== run.mark.attrs.href) {
-                live.dispatch(
-                  state.tr
-                    .removeMark(run.from, run.to, linkType)
-                    .addMark(run.from, run.to, linkType.create({ ...run.mark.attrs, href })),
-                );
-              }
-            } else if (href !== null && href !== '') {
-              editor.action(callCommand(toggleLinkCommand.key, { href }));
-            }
-            live.focus();
+            const run = linkRunAt(live.state.doc, live.state.selection.head);
+            applyLinkToSelection(editor, live, run, href);
           };
 
           const ui = mount(SelectionToolbar, {

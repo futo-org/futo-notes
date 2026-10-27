@@ -57,8 +57,11 @@ gauntlet-milkdown-foreign *args:
 # and the editor's own serializer (#266; the default `compat` variant writes
 # with it), and the way to prove a change to either costs nothing:
 #
-#   just milkdown-census --variant baseline          # the UNPATCHED upstream preset
-#   just milkdown-census --diff build/milkdown-census/baseline
+# At the prior reviewed head, then the new head, with matching corpus/selection:
+#   just milkdown-census --variant compat --out build/milkdown-census/before
+#   just milkdown-census --variant compat --out build/milkdown-census/after --diff build/milkdown-census/before
+# Both compat runs must pass content_loss and second_pass_unstable hard gates.
+#   just milkdown-census --variant baseline          # optional upstream diagnostic
 #   just milkdown-census --vault ~/Documents/futo-notes   # your own notes, locally
 #   just milkdown-census --limit 200                 # quick smoke, ~4s
 #

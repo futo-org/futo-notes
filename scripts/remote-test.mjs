@@ -46,6 +46,7 @@ import { ndkVersionFromGradle } from './remote-test/remote-env.mjs';
 import {
   buildKillScript,
   buildLockScript,
+  buildNodePreflightScript,
   buildRunScript,
   buildUnlockScript,
 } from './remote-test/remote-scripts.mjs';
@@ -65,7 +66,7 @@ export { ndkVersionFromGradle } from './remote-test/remote-env.mjs';
 // Local side
 // ---------------------------------------------------------------------------
 
-const RSYNC_EXCLUDES = [
+export const RSYNC_EXCLUDES = [
   '.git',
   'node_modules',
   'target',
@@ -76,9 +77,37 @@ const RSYNC_EXCLUDES = [
   '.build',
   '.build-device',
   '.build-device-release',
+  '.build-release-compliance',
+  'DerivedData',
+  '.gradle',
+  '.kotlin',
+  // Native build products are regenerated on the destination. Keep sources and
+  // the Gradle wrapper, while avoiding multi-gigabyte local caches and binaries.
+  '/apps/android/build/',
+  '/apps/android/**/build/',
+  '/apps/android/app/src/main/jniLibs/',
+  '/apps/android/app/src/main/java/uniffi/',
+  '/apps/android/app/src/main/assets/editor.html',
+  '/apps/ios/*.xcframework/',
+  '/apps/ios/*.xcodeproj/',
+  '/apps/ios/Sources/Generated/',
+  '/apps/ios/Resources/editor.html',
   // The remote's own bookkeeping; deleting it forces a needless pnpm install.
   '.remote-test-pnpm-lock-hash',
 ];
+
+// Keep transfer arguments inspectable without requiring rsync on the local
+// machine; the real dry-run fixture also exercises rsync's filter semantics.
+export function buildRsyncArgs({ target, remoteDir, root = ROOT }) {
+  return [
+    '-az',
+    '--delete',
+    ...RSYNC_EXCLUDES.flatMap((e) => ['--exclude', e]),
+    `${root}/`,
+    // The remote shell expands ~; preserve the HOME-relative default.
+    `${target}:${remoteDir.replace(/^\$HOME/, '~')}/`,
+  ];
+}
 
 // A doctor run is only a hard failure when the box cannot run ANY suite.
 // Everything else (NDK, KVM, Postgres, browsers) gates a specific suite and is
@@ -100,13 +129,11 @@ function git(args) {
   return execFileSync('git', args, { cwd: ROOT, encoding: 'utf8' }).trim();
 }
 
-function reachable(target) {
-  const probe = spawnSync(
-    'ssh',
-    ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=6', target, 'true'],
-    { stdio: 'ignore' },
-  );
-  return probe.status === 0;
+function probeSsh(target) {
+  return spawnSync('ssh', ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=6', target, 'true'], {
+    encoding: 'utf8',
+    stdio: ['ignore', 'ignore', 'pipe'],
+  });
 }
 
 function runDoctor(target, opts, ndkVersion) {
@@ -189,15 +216,33 @@ function main() {
   // Host resolution: Tailscale name first, tailnet IP as a fallback.
   const candidates = opts.host ? [opts.host] : [DEFAULT_HOST, ...FALLBACK_HOSTS];
   let target = null;
+  const sshFailures = [];
   for (const host of candidates) {
     const candidate = `${opts.user}@${host}`;
-    if (reachable(candidate)) {
+    const probe = probeSsh(candidate);
+    if (probe.status === 0) {
       target = candidate;
       if (host !== candidates[0]) console.log(`[remote-test] ${candidates[0]} did not answer`);
       break;
     }
+    sshFailures.push({ candidate, diagnostic: probe.stderr ?? '' });
   }
   if (!target) {
+    for (const { candidate, diagnostic } of sshFailures) {
+      if (/Host key verification failed|REMOTE HOST IDENTIFICATION HAS CHANGED/i.test(diagnostic)) {
+        console.error(
+          `remote-test: SSH host-key verification failed for ${candidate}. ` +
+            'Verify the host fingerprint with Justin before accepting or replacing a host key. ' +
+            `Then connect interactively with ssh ${candidate} true and retry.`,
+        );
+      } else if (/Permission denied.*publickey/i.test(diagnostic)) {
+        console.error(
+          `remote-test: SSH public-key authentication failed for ${candidate}; ` +
+            'ask Justin to authorize your public key for this account, then retry. ' +
+            'Use your own authorized identity through ssh config or ssh-agent.',
+        );
+      }
+    }
     console.error(
       `\nremote-test: cannot reach ${candidates.map((h) => `${opts.user}@${h}`).join(' or ')} over ssh.\n\n` +
         '  Check, in order:\n' +
@@ -218,6 +263,12 @@ function main() {
     });
     return res.status ?? 1;
   }
+
+  const preflight = spawnSync('ssh', ['-T', target, 'bash -s'], {
+    input: buildNodePreflightScript({ ndkVersion }),
+    stdio: ['pipe', 'inherit', 'inherit'],
+  });
+  if (preflight.status !== 0) return preflight.status ?? 1;
 
   const sha = git(['rev-parse', 'HEAD']);
   const dirty = git(['status', '--porcelain']).split('\n').filter(Boolean);
@@ -307,15 +358,7 @@ function main() {
       return bootstrap.status ?? 1;
     }
 
-    const rsyncArgs = [
-      '-az',
-      '--delete',
-      ...RSYNC_EXCLUDES.flatMap((e) => ['--exclude', e]),
-      `${ROOT}/`,
-      // `~` is expanded by the remote shell rsync starts, so $HOME-relative
-      // remoteDir values need the shell form spelled out.
-      `${target}:${opts.remoteDir.replace(/^\$HOME/, '~')}/`,
-    ];
+    const rsyncArgs = buildRsyncArgs({ target, remoteDir: opts.remoteDir });
     const rsync = spawnSync('rsync', rsyncArgs, { stdio: ['ignore', 'inherit', 'inherit'] });
     if (rsync.status !== 0) {
       console.error('remote-test: rsync failed.');

@@ -36,11 +36,25 @@ Override with `$FUTO_REMOTE_HOST` / `$FUTO_REMOTE_USER` (or `--host` / `--user`)
 fresh box tells you what is missing and prints the exact commands for anything needing root, so a
 second Linux box is cheap to add.
 
+SSH uses your own key selected by `ssh-agent` or your SSH configuration, connecting as
+`justin@jfedora` by default. There is no shared private key in this repo. If the probe reports
+`Permission denied (publickey)`, ask Justin to authorize your public key for that account; a
+working tailnet connection alone does not grant SSH access. For a different host/account, ask
+that host's owner and pass `--host` / `--user`.
+
+If host-key verification fails, verify the expected fingerprint with Justin (or the configured
+host's owner) before accepting or replacing a host key in an interactive `ssh <user>@<host> true`
+connection. The runner and doctor use the same SSH probe and identify these two setup failures;
+neither changes SSH configuration or host-key trust for you.
+
 Every invocation re-establishes the environment, because `ssh host cmd` gets a non-interactive shell
 that reads no profile: the fnm environment is loaded (node is otherwise **absent from `PATH`**), and
 the exact version in `.nvmrc` is activated once the worktree is checked out. The box needs `fnm`
 installed once — `node scripts/remote-test.mjs --doctor` reports it as required and prints the
-command. `~/.local/bin` and
+command. Normal runs check for fnm before locking or transferring the worktree and stop with
+repair guidance if it is missing. A custom installation can be found through `FNM_DIR` on the
+remote host; `~/.fnm` and `~/.local/share/fnm` are also searched. Node activation failures name
+the `.nvmrc` requirement before package installation starts. `~/.local/bin` and
 `~/.cargo/bin` are prepended,
 `ANDROID_NDK_HOME` is pinned, and a repo-root `dist/` is created (M20 — `cargo build` needs it to
 exist).
@@ -92,7 +106,7 @@ prove Windows WebView2): a passing run on the wrong engine is not evidence about
 `remote-test` encodes that boundary in three tiers rather than leaving it to be read:
 
 1. **Refused** (exit 2, before any network call) — recipes that need Xcode, the iOS simulator or
-   swift-format (`build-rust-ios`, `build-ios-native`, `test-ios-native`, `ios-native*`,
+   swift-format (`build-rust-ios`, `build-ios-native`, `test-ios-native*`, `ios-native*`,
    `deploy-ios`, `lint-swift`, every `sim-*`), recipes whose _purpose_ is the shipped desktop engine
    (`test-desktop-smoke`), interactive dev/QA commands
    (`tauri-dev`, `android-drive`, …), recipes needing root

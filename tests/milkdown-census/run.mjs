@@ -4,15 +4,15 @@
  * editor and record what came back.
  *
  *   node tests/milkdown-census/run.mjs --variant compat
- *   node tests/milkdown-census/run.mjs --variant baseline --out build/milkdown-census/baseline
+ *   node tests/milkdown-census/run.mjs --variant compat --out build/milkdown-census/before
  *   node tests/milkdown-census/run.mjs --vault ~/Documents/futo-notes   # local leg
- *   node tests/milkdown-census/run.mjs --diff build/milkdown-census/baseline
+ *   node tests/milkdown-census/run.mjs --out build/milkdown-census/after --diff build/milkdown-census/before
  *
  * `--variant compat` (the default) is what the app ships: the compat presets,
  * writing with the editor's own serializer. `--variant baseline` runs the
- * unpatched upstream preset, which is how the "did anything regress"
- * comparison is produced from this same harness rather than from a set of
- * numbers nobody can re-derive.
+ * unpatched upstream preset for diagnostics. For regression review, compare
+ * compat at the prior reviewed head with compat at the new head, using the
+ * same corpus and selection. The upstream variant uses a different serializer.
  *
  * On `compat` it ends with the gate verdict (`./knownExceptions.mjs`): every
  * note `content_loss` or `second_pass_unstable` flagged, and a non-zero exit

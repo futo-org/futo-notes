@@ -22,7 +22,7 @@ Each of these produced an error message that named nothing useful, and each was
 reported more than once.
 
 - **A write that fails `Unauthenticated.` is a per-machine setup gap, and `glab mr
-  create` will not say so.** This project is public, so every *read* succeeds with no
+create` will not say so.** This project is public, so every _read_ succeeds with no
   credentials at all — the CLI looks authenticated right up to the first write. The
   write then prints a generic "ensure you are authenticated / merge requests are
   enabled / your role allows it" checklist plus a recovery file, hiding the API's
@@ -36,7 +36,7 @@ reported more than once.
 
   glab authenticates from a `gitlab.futo.org` entry in its own config file
   (`glab auth login --hostname gitlab.futo.org`, once per machine) or from
-  `GITLAB_TOKEN` in the environment. Exporting that token from an *interactive*
+  `GITLAB_TOKEN` in the environment. Exporting that token from an _interactive_
   profile only is the usual trap: a non-interactive agent shell never sources
   `~/.zshrc`, so the command works by hand and fails under an agent. Two routes
   need neither — the REST API with the token passed explicitly:
@@ -49,12 +49,12 @@ reported more than once.
   ```
 
   and git push options over SSH (`git push -u origin <branch>
-  -o merge_request.create -o merge_request.target=main -o merge_request.title=...`),
+-o merge_request.create -o merge_request.target=main -o merge_request.title=...`),
   which ride your git credentials. Push options are only transmitted when the push
   actually updates a ref, so an already-pushed branch needs a new commit first.
 
 - **Run it from inside the checkout, or set the host.** `glab api` fills the
-  endpoint's repo placeholders from *the repository of the current directory*, so
+  endpoint's repo placeholders from _the repository of the current directory_, so
   run outside one it silently targets `gitlab.com` and returns `401`. That reads
   as "my token is broken" when the real problem is the host. Fix by running from
   the worktree, or being explicit:
@@ -63,11 +63,14 @@ reported more than once.
   GITLAB_HOST=gitlab.futo.org glab api "projects/futo-notes%2Ffuto-notes"
   ```
 
-  `--hostname gitlab.futo.org` does the same per-invocation. A bare `glab mr view`
+  `glab api --hostname gitlab.futo.org` does the same per-invocation for API calls.
+  `glab issue view` and `glab mr view` do not accept `--hostname`; use
+  `GITLAB_HOST=gitlab.futo.org` with those commands. A bare `glab mr view`
   that "cannot recognize the repository" is the same root cause.
 
 - **File uploads need `--form`, not `-F`.** `-F`/`--field` sends JSON, so
-  `-F file=@path` uploads the literal *string* `"@path"` and the API answers
+  `-F file=@path` reads the file into a JSON value rather than a multipart upload,
+  and the API answers
   `400 {"error":"file is invalid"}` — never mentioning the flag. `--form` sends
   `multipart/form-data`, which is what an upload endpoint requires:
 
@@ -80,7 +83,44 @@ reported more than once.
 - **Output format is `-F json`, not `--json`.** `glab mr view --json iid,title`
   is rejected by the installed CLI. Use `glab mr view <n> -F json` (and
   `glab issue list -F json`). Note the overload: on `glab api`, `-F` means
-  *field*; on `issue`/`mr` subcommands it means *output format*.
+  _field_; on `issue`/`mr` subcommands it means _output format_.
+
+- **`glab api` has no `--jq` flag.** Some `mr`/`issue`/`ci` commands do have it;
+  flags are not shared across subcommands. Pipe API JSON into `jq` (or save it
+  and parse it with Python). Use `pipefail` so an API failure cannot become an
+  empty successful result, and reject missing data rather than polling `null`:
+
+  ```bash
+  set -euo pipefail
+  glab api --hostname gitlab.futo.org "projects/488/merge_requests/$mr_iid" \
+    | jq -e '.head_pipeline // error("MR has no head pipeline") | {id, status, web_url}'
+  ```
+
+  Set `mr_iid` to the merge request number first. Project **488** is
+  `futo-notes/futo-notes` on this host. Numeric IDs also avoid project-path
+  lookup differences between CLI versions and server routes.
+
+- **Pipeline `view` is an interactive terminal UI.** It requires a TTY even
+  for a read. For scripts, use `glab ci get --pipeline-id "$pipeline_id" --output json`,
+  `glab ci status`, or the REST API. For waiting on the MR's actual head
+  pipeline, use `just ci-wait "mr:$mr_iid" --json`.
+
+  `glab pipeline list` uses `--ref` on the installed CLI, not `--branch`;
+  `glab ci get` and `glab ci status` do accept `--branch`. Check the specific
+  subcommand's `--help` when working on another machine. A branch's latest
+  pipeline can differ from an MR's head pipeline. To query a branch directly:
+
+  ```bash
+  set -euo pipefail
+  glab api --hostname gitlab.futo.org --method GET projects/488/pipelines \
+    -f "ref=$branch" -f per_page=1 \
+    | jq -e '.[0] // error("No pipeline for ref") | {id, status, ref, web_url}'
+  ```
+
+  Set `branch` first. The explicit `--method GET` matters: adding fields to
+  `glab api` otherwise changes its default method to POST. These command
+  shapes were checked with `glab 1.114.0`; inspect local help before borrowing
+  flags from another command or from `gh`.
 
 - **Reads work unauthenticated; writes need a token the shell can see.** The
   project is public, so `glab issue list` and `glab api` GETs answer fine with
@@ -109,9 +149,54 @@ reported more than once.
 
   Git push options are the other route, and need no token at all because they
   ride the SSH push: `git push -u origin <branch> -o merge_request.create -o
-  merge_request.target=main -o merge_request.title='...'`. GitLab only reads
+merge_request.target=main -o merge_request.title='...'`. GitLab only reads
   them when the push actually updates a ref, so a branch that is already
   pushed needs a new commit before they take effect.
+
+## Merge request descriptions from a file
+
+`glab mr create --description` takes a string; it has no `--description-file` or
+`--body-file` flag. For a reviewed Markdown body, build a JSON request with a
+serializer and send it with `glab api --input`. This preserves newlines, quotes,
+backticks, and dollar signs without putting the body through shell interpolation.
+Set `source_branch` and `mr_title` first; the source branch must exist on the remote.
+
+```bash
+set -euo pipefail
+mr_scratch=$(mktemp -d)
+cat > "$mr_scratch/body.md" <<'MD'
+Describe the concrete problem and resulting behavior here.
+
+Verified: list the relevant commands and results.
+MD
+python3 - "$mr_scratch/body.md" "$mr_scratch/request.json" "$source_branch" "$mr_title" <<'PYTHON'
+import json
+from pathlib import Path
+import sys
+
+payload = {
+    "source_branch": sys.argv[3],
+    "target_branch": "main",
+    "title": sys.argv[4],
+    "description": Path(sys.argv[1]).read_text(),
+}
+Path(sys.argv[2]).write_text(json.dumps(payload))
+PYTHON
+glab api --hostname gitlab.futo.org --method POST projects/488/merge_requests \
+  --header 'Content-Type: application/json' --input "$mr_scratch/request.json"
+```
+
+Keep the explicit JSON `Content-Type`: versions that omit it for raw `--input`
+bodies return HTTP 415 from GitLab. `--input -` also accepts JSON through stdin,
+such as Python `subprocess.run(..., input=json.dumps(payload), text=True)`.
+Neither route needs a description/body-file flag on `mr create`. For a file field
+in a JSON request, `--field description=@body.md` is another supported API shape;
+it differs from multipart file uploads, which use `--form` as described above.
+
+The numeric project endpoint bypasses path-based project lookup if that lookup
+returns 404. Both `projects/488` and `projects/futo-notes%2Ffuto-notes` currently
+resolve to this project; a historical path-lookup failure alone does not prove
+the credentials or MR permissions are wrong.
 
 ## Merge requests as a triage surface
 

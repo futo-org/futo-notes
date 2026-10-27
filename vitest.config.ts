@@ -8,6 +8,9 @@ const nodeDefinesWebStorage =
 export default defineConfig({
   plugins: [svelte({ hot: false })],
   test: {
+    // One `vitest run` covers the app (this config) and the editor package
+    // (its own config), so `just test-unit <path>` reaches either.
+    projects: [{ extends: true, test: { name: 'app' } }, 'packages/editor'],
     globals: true,
     include: [
       'src/**/*.test.ts',

@@ -1,4 +1,8 @@
 import { describe, expect, it } from 'vitest';
+import { spawnSync } from 'node:child_process';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 
 import {
   fingerprintForeignSweepConfig,
@@ -53,6 +57,28 @@ function shard(index: number, count = 2): ForeignSweepShardReport {
 }
 
 describe('mergeForeignSweepShardReports', () => {
+  it.each([true, false])('aggregates CLI inputs with output flag: %s', (withOutput) => {
+    const directory = mkdtempSync(path.join(tmpdir(), 'foreign-aggregate-'));
+    try {
+      const inputs = [0, 1].map((index) => {
+        const file = path.join(directory, `shard-${index}.json`);
+        writeFileSync(file, JSON.stringify(shard(index)));
+        return file;
+      });
+      const output = path.join(directory, 'aggregate.json');
+      const args = withOutput ? ['--', '--output', output, ...inputs] : inputs;
+      const result = spawnSync('pnpm', ['run', 'test:editor-gauntlet:foreign:aggregate', ...args], {
+        encoding: 'utf8',
+      });
+      expect(result.stderr).toBe('');
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain('EDITOR_GAUNTLET_FOREIGN_AGGREGATE');
+      if (withOutput) expect(JSON.parse(readFileSync(output, 'utf8')).shards).toBe(2);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
   it('sums the loss counters and unions the lost-word samples across shards', () => {
     const first = shard(0);
     first.sweep.lossyEdits = 2;

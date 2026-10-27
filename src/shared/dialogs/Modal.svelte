@@ -18,6 +18,9 @@
   interface Props {
     /** Heading rendered at the top of the card and used as the accessible name. */
     title?: string;
+    /** Id of a heading inside `children` that names the dialog, for a card that
+     *  draws its own header instead of `title`. */
+    labelledBy?: string;
     /** Extra classes for the card (e.g. `modal-card-scroll`). */
     cardClass?: string;
     /** Whether clicking the backdrop dismisses. Off for dialogs that must be answered. */
@@ -26,7 +29,14 @@
     children: Snippet;
   }
 
-  let { title, cardClass = '', dismissOnBackdrop = true, ondismiss, children }: Props = $props();
+  let {
+    title,
+    labelledBy,
+    cardClass = '',
+    dismissOnBackdrop = true,
+    ondismiss,
+    children,
+  }: Props = $props();
 
   const titleId = `modal-title-${Math.random().toString(36).slice(2, 10)}`;
 
@@ -91,7 +101,7 @@
     class="modal-card {cardClass}"
     role="dialog"
     aria-modal="true"
-    aria-labelledby={title ? titleId : undefined}
+    aria-labelledby={title ? titleId : labelledBy}
     tabindex="-1"
     onclick={(event) => event.stopPropagation()}
     onkeydown={handleKeydown}

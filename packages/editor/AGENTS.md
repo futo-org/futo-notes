@@ -118,10 +118,13 @@ Rules that do bind here:
   reproduces each upstream bug against the _unpatched_ preset. A red canary means
   upstream shipped a fix — delete our fork, do not relax the canary. The
   `@milkdown/kit` version is pinned (not a range) so this stays meaningful.
-- Any change to these plugins is measured, not argued:
-  `just milkdown-census --variant baseline` then
-  `just milkdown-census --diff build/milkdown-census/baseline`. Zero newly-raised
-  flags over ~31k real notes. `tests/milkdown-census/README.md` owns the harness.
+- Any change to these plugins is measured, not argued: run
+  `just milkdown-census --variant compat --out build/milkdown-census/before` at the
+  prior reviewed head, then `just milkdown-census --variant compat --out build/milkdown-census/after --diff build/milkdown-census/before`
+  at the new head, with the same corpus and selection. Zero newly-raised flags over
+  ~31k real notes; both runs must pass `content_loss` and `second_pass_unstable`
+  hard gates. The upstream `baseline` variant is diagnostic, not a regression
+  baseline for the owned serializer. `tests/milkdown-census/README.md` owns the harness.
 
 ## The markdown serializer — `src/markdown/` (#266)
 
@@ -171,7 +174,7 @@ languages satisfy it.
    `tests/conformance/*.json` golden.
 2. Change both this package and canonical Rust (`futo-notes-model` / `futo-notes-core`) until each
    satisfies that independent expectation.
-3. Run `pnpm run test:editor:minimal` and `just test-rust` — the goldens on both sides, plus the
+3. Run `just test-unit packages/editor` and `just test-rust` — the goldens on both sides, plus the
    batched TS↔Rust rule differential (`tests/conformance/title-rules-differential.mjs`),
    which asks both implementations the same broad corpus and fails on any divergence.
 4. Search Swift/Kotlin for un-fixtured sibling copies.

@@ -1,6 +1,6 @@
 //! Show the main window only once it has something to show.
 //!
-//! Every window config declares `"visible": false`. A WKWebView paints its own
+//! The window config declares `"visible": false`. A WKWebView paints its own
 //! opaque white until the page's first frame, so a visible-from-birth window
 //! flashes white on every launch — measured at ~9 consecutive captured frames
 //! on this app — and the flash is at its worst in dark mode, where it is the

@@ -35,8 +35,8 @@ export interface TurnTarget {
 /// Pointer events cover all three input kinds in one path, and pointer capture
 /// means a drag that wanders off the element keeps tracking instead of
 /// sticking. `touch-action: pan-y` is a deliberate half-measure: a vertical
-/// swipe still scrolls the Settings sheet under the finger, a horizontal one
-/// turns the coin. Claiming the whole gesture would trap the scroll on a phone.
+/// swipe still scrolls the Settings dialog under the finger, a horizontal one
+/// turns the coin. Claiming the whole gesture would trap the scroll on a touchscreen.
 export function attachDragToTurn(mount: HTMLElement, target: TurnTarget): () => void {
   let pointer = -1;
   let lastX = 0;

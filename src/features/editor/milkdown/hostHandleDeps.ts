@@ -5,7 +5,7 @@ import { type FindBarState } from './find';
 
 /** The component props the handle reports through. Getters: each read is the CURRENT prop. */
 export interface HostHandleProps {
-  readonly nativeShell: boolean;
+  readonly nativeShell?: boolean;
   readonly ondocumentloaded?: (ref: DocumentRef, source: 'load' | 'external') => void;
   readonly onflushfailed?: (ref: DocumentRef, token: string, reason: FlushFailureReason) => void;
   readonly onexternalrefused?: (ref: DocumentRef) => void;

@@ -109,6 +109,25 @@ impl LocalNoteStore {
         ))
     }
 
+    /// Appends `text` verbatim to an existing note as one check-and-write span,
+    /// so two appenders each land exactly once and neither overwrites the
+    /// other. No separator is added. A missing note is [`crate::NOTE_NOT_FOUND`];
+    /// an empty append writes nothing and reports the note as it is.
+    pub fn append(&self, id: &str, text: &str) -> Result<MutationResult, String> {
+        let _gate = self.lock_gate()?;
+        let _vault_mutation = vault_mutation_guard()?;
+        let current = self
+            .read_existing(id)?
+            .ok_or_else(|| crate::NOTE_NOT_FOUND.to_owned())?;
+        if text.is_empty() {
+            let metadata =
+                vault::metadata(&self.root, id).ok_or_else(|| crate::NOTE_NOT_FOUND.to_owned())?;
+            return Ok(self.upsert_mutation(metadata));
+        }
+        let metadata = self.write_raw(id, &(current + text), None)?;
+        Ok(self.upsert_mutation(metadata))
+    }
+
     pub fn create(
         &self,
         folder: &str,

@@ -15,26 +15,27 @@
   import DropdownMenu, { type DropdownMenuEntry } from '$shared/dialogs/DropdownMenu.svelte';
 
   // The subset of the editor's imperative API the shell drives.
-  export interface EditorApi {
-    setContent: (noteId: string, text: string) => void;
-    openNote: (noteId: string | null, text: string) => void;
-    isStreaming: () => boolean;
-    applyEdit: (markdown: string) => void;
-    insertMarkdown: (text: string) => void;
-    focus: () => void;
-    blur: () => void;
-    getContent: () => string | undefined;
-    hasFocus: () => boolean;
-    isComposing: () => boolean;
-    refreshDecorations: () => void;
-    openFind: () => void;
-    stepFind: (direction: 1 | -1) => void;
-    setFindQuery: (query: string) => void;
-    setFindOverlayInset: (bottomOverlayPx: number) => void;
-    dismissFind: () => void;
-    contentElement: () => HTMLElement | null;
-    placeCaretAtCoords: (x: number, y: number) => boolean;
-  }
+  export type EditorApi = Pick<
+    ReturnType<typeof MilkdownEditor>,
+    | 'setContent'
+    | 'openNote'
+    | 'isStreaming'
+    | 'applyEdit'
+    | 'insertMarkdown'
+    | 'focus'
+    | 'blur'
+    | 'getContent'
+    | 'hasFocus'
+    | 'isComposing'
+    | 'refreshDecorations'
+    | 'openFind'
+    | 'stepFind'
+    | 'setFindQuery'
+    | 'setFindOverlayInset'
+    | 'dismissFind'
+    | 'contentElement'
+    | 'placeCaretAtCoords'
+  >;
 
   interface Props {
     session: NoteSession;
