@@ -19,9 +19,8 @@ if [ ! -f "$ENV_FILE" ]; then
   exit 1
 fi
 
-# Absolute paths, because systemd never sees nvm or the shell profile.
-NODE_BIN="$(command -v node)"
-[ -n "$NODE_BIN" ] || { echo "node not found on PATH" >&2; exit 1; }
+# Absolute paths, because systemd never sees fnm or the shell profile.
+. "$REPO_DIR/scripts/lib/stable-node-path.sh"
 command -v claude >/dev/null || { echo "claude CLI not found on PATH — the agent cannot start" >&2; exit 1; }
 command -v just >/dev/null || { echo "just not found on PATH — the agent cannot run checks" >&2; exit 1; }
 

@@ -28,8 +28,7 @@ if [ ! -f "$ENV_FILE" ]; then
   exit 1
 fi
 
-NODE_BIN="$(command -v node)"
-[ -n "$NODE_BIN" ] || { echo "node not found on PATH" >&2; exit 1; }
+. "$REPO_DIR/scripts/lib/stable-node-path.sh"
 for tool in claude codex just pnpm adb; do
   command -v "$tool" >/dev/null || { echo "$tool not found on PATH — /mr-qa needs it" >&2; exit 1; }
 done
