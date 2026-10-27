@@ -9,6 +9,10 @@
   orders those ids and the shell maps them onto its cache verbatim, holding no
   comparator of its own (ADR-0001). Card previews truncate to 60 characters.
   → futo-notes-store `LocalNoteStore::recent_note_ids`, forYou.ts
+- When the recent-notes read fails (the vault folder is gone), the feed is left
+  as it was — blank whenever home opens with the vault already gone — so a
+  failure never brings up the empty-vault heading, and it is not filed as a
+  crash; the vault-unavailable banner explains it. → ForYouPage.svelte
 - Relative modified times in the desktop feed and images view and in Android
   and iOS note rows resolve through each shell's catalog-backed
   `localizedRelativeTime`. → shared/localization/localization.ts, Android
