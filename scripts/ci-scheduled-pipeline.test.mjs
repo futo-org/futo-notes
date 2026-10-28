@@ -7,22 +7,24 @@ import { readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import yaml from 'js-yaml';
+import { CORE_SCHEMA, defineSequenceTag, load } from 'js-yaml';
 import { describe, expect, it } from 'vitest';
 
 import { gitlabCiPaths } from './lib/gitlab-ci.mjs';
 
 const ROOT = resolve(fileURLToPath(new URL('.', import.meta.url)), '..');
 
-const referenceType = new yaml.Type('!reference', {
-  kind: 'sequence',
-  construct: (path) => ({ reference: path }),
-});
-const schema = yaml.DEFAULT_SCHEMA.extend([referenceType]);
+const schema = CORE_SCHEMA.withTags(
+  defineSequenceTag('!reference', {
+    create: () => ({ reference: [] }),
+    addItem: (carrier, item) => void carrier.reference.push(item),
+    identify: () => false,
+  }),
+);
 
 const config = {};
 for (const file of gitlabCiPaths(ROOT)) {
-  Object.assign(config, yaml.load(readFileSync(join(ROOT, file), 'utf8'), { schema }));
+  Object.assign(config, load(readFileSync(join(ROOT, file), 'utf8'), { schema }));
 }
 
 const NOT_JOBS = new Set(['default', 'variables', 'workflow', 'stages', 'include']);
