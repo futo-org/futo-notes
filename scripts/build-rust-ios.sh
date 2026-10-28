@@ -48,24 +48,31 @@ GEN="$APP/Sources/Generated"
 XCF="$APP/FutoNotesFfi.xcframework"
 HEADERS="$TARGET_DIR/uniffi-headers"
 
+# A host/default SDK can resolve Security.framework from the macOS SDK while
+# linking an iOS library. Select the SDK per invocation, including the host
+# library and binding generator, rather than inheriting one SDK for all targets.
+IOS_DEVICE_SDK="$(xcrun --sdk iphoneos --show-sdk-path)"
+IOS_SIMULATOR_SDK="$(xcrun --sdk iphonesimulator --show-sdk-path)"
+IOS_HOST_SDK="$(xcrun --sdk macosx --show-sdk-path)"
+
 echo "==> Building futo-notes-ffi for device (aarch64-apple-ios)"
-cargo build -p futo-notes-ffi --target aarch64-apple-ios --profile "$PROFILE"
+SDKROOT="$IOS_DEVICE_SDK" cargo build -p futo-notes-ffi --target aarch64-apple-ios --profile "$PROFILE"
 
 echo "==> Building futo-notes-ffi for simulator (aarch64-apple-ios-sim)"
-cargo build -p futo-notes-ffi --target aarch64-apple-ios-sim --profile "$PROFILE"
+SDKROOT="$IOS_SIMULATOR_SDK" cargo build -p futo-notes-ffi --target aarch64-apple-ios-sim --profile "$PROFILE"
 
 echo "==> Building futo-notes-ffi for simulator (x86_64-apple-ios)"
-cargo build -p futo-notes-ffi --target x86_64-apple-ios --profile "$PROFILE"
+SDKROOT="$IOS_SIMULATOR_SDK" cargo build -p futo-notes-ffi --target x86_64-apple-ios --profile "$PROFILE"
 
 echo "==> Building host lib (for binding generation metadata)"
-cargo build -p futo-notes-ffi
+SDKROOT="$IOS_HOST_SDK" cargo build -p futo-notes-ffi
 
 # UniFFI's optional formatter is the unrelated `swiftformat` executable, not
 # Xcode's `swift-format`. These generated files are excluded from Swift lint;
 # skip that optional pass instead of warning on every otherwise healthy build.
 echo "==> Generating Swift bindings"
 rm -rf "$GEN"; mkdir -p "$GEN"
-cargo run -p futo-notes-ffi --features bindgen --bin uniffi-bindgen -- generate \
+SDKROOT="$IOS_HOST_SDK" cargo run -p futo-notes-ffi --features bindgen --bin uniffi-bindgen -- generate \
   --library "$TARGET_DIR/debug/libfuto_notes_ffi.dylib" \
   --language swift --no-format \
   --out-dir "$GEN"
