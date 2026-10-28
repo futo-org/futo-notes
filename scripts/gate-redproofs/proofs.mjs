@@ -68,6 +68,17 @@ export const PROOFS = [
     fix: 'run pnpm install --frozen-lockfile before checking the changed dependency tree',
   },
   {
+    gate: 'node-modules',
+    id: 'stale-application-settings',
+    seeded: 'changed application dependency settings after the package-manager document',
+    claim: 'comparing the application document must still reject stale install settings',
+    inject: (wt) =>
+      seed.replace(wt, 'pnpm-lock.yaml', '  autoInstallPeers: true', '  autoInstallPeers: false'),
+    expect: ['installed dependency snapshot differs', 'pnpm-lock.yaml'],
+    marker: 'claim',
+    fix: 'compare the complete application document, including its install settings',
+  },
+  {
     gate: 'editor-bench-artifacts',
     id: 'redirected-current-failure',
     seeded: 'a fresh redirected embed report fails while the default report passes',
