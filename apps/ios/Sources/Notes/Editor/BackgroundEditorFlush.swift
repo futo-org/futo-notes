@@ -54,9 +54,15 @@ final class BackgroundEditorFlush {
         runId = nil
         waiters.removeAll()
     }
+    /// Waits for each open note to hand its editor's live document to its draft.
+    func readEditors() async {
+        for wait in Array(waiters.values) {
+            guard !Task.isCancelled else { return }
+            await wait()
+        }
+    }
     func run(flush: @escaping @MainActor () async -> Void) {
         guard pending == nil else { return }
-        let waits = Array(waiters.values)
         let id = UUID()
         runId = id
         let lease = EditorBackgroundLease(background)
@@ -72,10 +78,7 @@ final class BackgroundEditorFlush {
                     runId = nil
                 }
             }
-            for wait in waits {
-                guard !Task.isCancelled else { break }
-                await wait()
-            }
+            await readEditors()
             await flush()
         }
     }

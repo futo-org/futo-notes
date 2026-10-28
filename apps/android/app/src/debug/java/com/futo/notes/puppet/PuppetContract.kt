@@ -62,7 +62,7 @@ internal object PuppetContract {
         "ClearSearchQuery" to listOf("search.clearAccessibilityLabel"),
     )
     val queries = listOf(
-        "elements", "state", "notes", "search", "observe", "clipboard", "doc", "at", "show",
+        "elements", "state", "notes", "search", "file", "observe", "clipboard", "doc", "at", "show",
         "events", "diff", "trace", "touches",
     )
 

@@ -188,7 +188,7 @@ class PuppetContractTest {
         assert(PuppetContract.pageQueries.all { it in PuppetContract.queries })
         assert("elements" in PuppetContract.pageQueries && "doc" in PuppetContract.pageQueries)
         // The agent's clipboard and the shell's own answers survive navigation.
-        for (query in listOf("clipboard", "state", "notes", "observe", "touches")) {
+        for (query in listOf("clipboard", "state", "notes", "file", "observe", "touches")) {
             assert(query in PuppetContract.queries && query !in PuppetContract.pageQueries) { query }
         }
     }

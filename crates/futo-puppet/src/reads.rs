@@ -7,6 +7,9 @@ use super::*;
 /// reads, which exist only while the editor is up, speak the screen's units there.
 pub(crate) fn query(target: &Target, command: &str, args: &Value) -> Result<Reply, String> {
     const PAGE_ONLY: [&str; 5] = ["doc", "at", "events", "diff", "show"];
+    if command == "file" {
+        return file(target, args);
+    }
     let Target::Native(..) = target else {
         return call(target, command, args);
     };

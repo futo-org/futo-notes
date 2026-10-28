@@ -198,7 +198,7 @@ the touches it gets). An iOS `tap` is a 0.1 s press, as a finger's is: SwiftUI's
 ignore a touch that lasts no time. A read costs about 0.05 s on either phone; an action with its receipt
 about 0.7 s (a tap on iOS about 1.3 s, most of it `axe` delivering the touch). `doc`,
 `at`, `events`, `diff` and `show {"text"}` need the editor's page and refuse on a native
-screen; `state`, `notes`, `search` and `clipboard` answer everywhere. A native control with no
+screen; `state`, `notes`, `search`, `file` and `clipboard` answer everywhere. A native control with no
 verb and no row is a papercut (`papercuts add … --tag puppet`), not a reason to reach for `adb shell input` or `axe`.
 iOS builds the accessibility tree only while the simulator's accessibility setting is on:
 `just ios-native` switches it on before every launch, and a read with it off fails saying

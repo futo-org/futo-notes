@@ -114,6 +114,14 @@ fun NotesStore.requestPendingEditorFlush() {
     scope.launch { pendingEditor.flushAfterEditor() }
 }
 
+/** [requestPendingEditorFlush], awaited: each open editor's live document read and
+ *  written, then every write queued behind it, so a read of the vault after this
+ *  sees the editors' edits. */
+suspend fun NotesStore.flushPendingEditorAndWait() {
+    pendingEditor.flushAfterEditor()
+    awaitEditorLeaves()
+}
+
 suspend fun NotesStore.settlePendingEditorDrafts(): Boolean =
     settlePendingDrafts(
         drafts = pendingEditor.currentDrafts(),

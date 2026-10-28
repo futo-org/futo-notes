@@ -83,7 +83,7 @@ note refuses 409 — that note belongs to its session.
 - **A phone's page queries refuse off the editor screen**, rather than answering about
   the note the webview still holds: `doc`, `at`, `events`, `diff` and `show {"text"}` are
   409 from `list` or a folder, where `elements` and `show {"ref"}` read the native rows.
-  `state`, `notes`, `search` and `clipboard` answer everywhere.
+  `state`, `notes`, `search`, `file` and `clipboard` answer everywhere.
 - Desktop real input (`click`, `drag`, `scroll`, `type`, `press`) is handed by the app to its
   own web view, on macOS, Linux and Windows alike. `tap` on desktop refuses and
   names `click`; `click` on a phone refuses and names `tap`. The window need not be focused

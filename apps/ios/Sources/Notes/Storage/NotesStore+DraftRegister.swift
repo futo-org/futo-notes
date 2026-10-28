@@ -136,4 +136,12 @@ extension NotesStore {
             await self.waitForEditorFlushes()
         }
     }
+
+    /// What ``requestPendingEditorFlush()`` runs, awaited, so a read of the vault after it sees
+    /// the editors' edits.
+    func flushPendingEditorAndWait() async {
+        await backgroundEditorFlush.readEditors()
+        flushPendingEditor()
+        await waitForEditorFlushes()
+    }
 }

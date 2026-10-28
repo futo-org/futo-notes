@@ -3,8 +3,8 @@
 
 use super::*;
 
-/// The in-page call the desktop evaluates. Awaited: `search` answers with a promise, and
-/// awaiting any other command's plain string is a no-op.
+/// The in-page call the desktop evaluates. Awaited: `search` and `file` answer with a promise,
+/// and awaiting any other command's plain string is a no-op.
 pub(crate) fn forward_script(command: &str, args: &Value) -> String {
     format!(
         "window.__futoPuppet ? await window.__futoPuppet.run({}, {}) : null",

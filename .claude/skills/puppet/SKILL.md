@@ -105,11 +105,15 @@ JSON holding an apostrophe goes in double quotes, its own quotes escaped:
 `do OpenNote "{\"noteId\":\"mom's list\"}"`. The `'\''` and `'"'"'` tricks are refused as
 brace expansion; a refusal's suggested command is already written this way.
 
-Reads answer about the whole app, whatever the screen shows, and never change it:
+Reads answer about the whole app, whatever the screen shows, and never change it, except that
+`file` saves the open note first unless given `"save":false`:
 
 ```bash
 just puppet notes                    # the whole vault: every note id and folder
 just puppet search '{"query":"…"}'   # the vault ranked by what the notes say, as the search box ranks it
+just puppet file '{"noteId":"…"}'    # the note's markdown on disk, the open note saved first: every line
+                                     #   unless "lines":"40-60" or "find":"…" (+ "around":N) narrows it;
+                                     #   "save":false saves nothing: the disk as it is
 just puppet show '{"text":"…"}'      # where text on screen is: its positions, line and box
 just puppet at '{"x":…,"y":…}'       # what is under a point: hit stack, owners, cursor, editor position
 just puppet show '{"ref":"e3"}'      # one element: box, stacking, clipping, cursor
@@ -206,19 +210,7 @@ page never received is refused, not reported as `no change`. Every receipt is ap
 Full command surface, verb map per platform, receipts and exit codes:
 `references/commands.md`. Traps that have cost real runs: `references/gotchas.md`.
 
-## Scrolling: fast, or real
-
-`ScrollToRow {"noteId"}` (or `{"path"}` for a folder) brings a row on screen in one call: a
-desktop sidebar row, or a row of the phone list you are on. On desktop `ScrollBy
-{"x","y","dy"}` moves whatever scrolls under a point by that many pixels. They are
-near-instant on desktop (about 70 ms, up to 0.3 s while the window is hidden) and **not input
-a person produces**, so `actions` marks them `"convenience": true`. `ScrollToRow` only reaches
-what scrolling reaches: a desktop row inside a collapsed folder, or a phone row on another
-list, is refused with the batch that opens the way. Use them to get somewhere.
-When the behaviour is about **scrolling itself** (wheel handlers, scroll-linked UI, a bug
-that needs a real scroll), use the real gesture: `scroll` on desktop (about 0.25 s), `drag`
-on a phone.
-
+Scrolling, fast or real: `references/scrolling.md`.
 Writing text, fast or real, and the argument names agents guess wrong most: `references/commands/editor-verbs.md`.
 
 ## The rules

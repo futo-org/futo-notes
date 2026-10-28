@@ -19,7 +19,7 @@ futo-puppet  ──▶  per-shell debug listener  ──▶  the real app on a r
    │                (desktop / iOS / Android)
    ├─ act      do <Verb> <json> · a JSON array of steps is a batch
    ├─ input    click · tap · drag · scroll · type · press — real platform input
-   └─ read     look · actions · elements · state · notes · search · doc · at · show · events · diff · screenshot
+   └─ read     look · actions · elements · state · notes · search · file · doc · at · show · events · diff · screenshot
 ```
 
 - **Syntax.** One process per call: a command name and one JSON object, checked against a
@@ -52,6 +52,7 @@ futo-puppet  ──▶  per-shell debug listener  ──▶  the real app on a r
 | `doc`      | the open note's lines on screen: positions, kind, text, and the saved markdown where it differs                            |
 | `notes`    | every note id and folder path in the vault                                                                                 |
 | `search`   | the app's own search, ranked note ids                                                                                      |
+| `file`     | a note's markdown on disk, the open note saved first unless `save:false`; narrowed in the CLI, never capped                |
 | `at`       | the element stack at a point, hit and painted, and the owner of each pointer event                                         |
 | `show`     | one element in depth (box, clipping, handlers, hit versus paint); `{"text"}`: where that text shows                        |
 | `events`   | the trace: the input events the page saw and each handler that ran                                                         |

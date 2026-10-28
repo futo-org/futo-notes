@@ -96,6 +96,13 @@ interface PuppetShellProvider {
   /** The note ids the app's own search ranks for `query`, best first: the search box's engine. */
   search?(query: string, limit: number): Promise<string[]>;
   /**
+   * Save the open note's pending edits now, then say which notes' bodies are still not on disk:
+   * `file` reads after it, so what it reads holds the editor's edits.
+   */
+  saveOpenNote?(): Promise<string[]>;
+  /** A note's markdown as it is on disk; null when the vault has no such note. */
+  readNote?(noteId: string): Promise<string | null>;
+  /**
    * A promise while the screen is still catching up with what a verb asked for
    * (desktop: a note switch, which saves a dirty note before loading the next),
    * nothing once it has. `do` settles every receipt after it, so a receipt shows
