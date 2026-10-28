@@ -20,6 +20,7 @@ test:e2e:smoke:
       - playwright-report/
     expire_in: 1 week
   rules:
+    - !reference [.not-scheduled, rules]
     - if: $CI_COMMIT_TAG
     - if: $CI_MERGE_REQUEST_IID
       changes: &web-e2e-smoke-changes

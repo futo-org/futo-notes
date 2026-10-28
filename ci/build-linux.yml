@@ -207,6 +207,7 @@ build:cli:linux:
       - cli-dist/futo-notes-linux-x86_64
     expire_in: 4 weeks
   rules:
+    - !reference [.not-scheduled, rules]
     - if: $CI_COMMIT_TAG
       when: never
     - if: $CI_MERGE_REQUEST_IID || $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH || $CI_PIPELINE_SOURCE == "web"

@@ -31,12 +31,18 @@ build:ios-native:
     # every iOS-touching MR for no extra signal. test:ios-native's changes:
     # cover this job's former MR paths (apps/ios, futo-notes-ffi, Cargo.lock,
     # build-rust-ios.sh).
-    # Every push to the default branch builds a SIGNED IPA (no changes: filter)
-    # so publish:ios:main can ship the latest main to TestFlight. Editor/UI
-    # changes live in src/ and packages/editor and bundle into the app, so a
-    # path filter would miss most feedback-relevant changes.
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
     - if: $CI_COMMIT_TAG
+    # Main ships to TestFlight (publish:ios:main) once a night from the
+    # pipeline schedule, plus on demand: pressing this job on any main
+    # pipeline builds the SIGNED IPA and the upload follows. Every merge used
+    # to upload, and with the MR factory merging hourly that was a TestFlight
+    # build per merge and the single Mac runner tied up for each. No changes:
+    # filter — editor/UI changes in src/ and packages/editor bundle into the
+    # app too.
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      when: manual
+      allow_failure: true
 
 # Native iOS tests on a concrete simulator via Cirrus. This separately
 # enforces the FutoNotesNativeTests target that build:ios-native only compiles.
@@ -64,6 +70,7 @@ test:ios-native:
       - testFutoNotesIOSNative/ios_test_results/**/*
     expire_in: 1 week
   rules:
+    - !reference [.not-scheduled, rules]
     # An MR that touches the iOS app also runs the UI bundle (the full tier,
     # +173 s): the Macs 110/111 averaged under 30 min of work a day in
     # October, so the MR can afford what used to wait for the main push.

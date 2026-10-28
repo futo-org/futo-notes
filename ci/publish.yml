@@ -93,7 +93,7 @@ release:gate:
 # Upload the stable-tag IPA to TestFlight as soon as build:ios-native has it —
 # deliberately NOT behind release:gate, so Apple's 5-30 minutes of build
 # processing overlaps the test wall instead of following it. TestFlight is
-# not a release: every main push already lands there (publish:ios:main) with
+# not a release: main already lands there nightly (publish:ios:main) with
 # only the `test` gate. What reaches App Store REVIEW is publish:ios:appstore,
 # which still needs release:gate, so a red test still stops the submission.
 # Its own job rather than a step inside build:ios-native: release:gate needs
@@ -104,7 +104,7 @@ publish:ios:
   stage: release
   interruptible: false
   # Shared with publish:ios:main so two pipelines can never run altool against
-  # the same App Store Connect app concurrently (main pushes are frequent).
+  # the same App Store Connect app concurrently.
   resource_group: ios-testflight
   tags:
     - macscript
@@ -123,8 +123,10 @@ publish:ios:
     # would ship an -rc or throwaway tag straight to TestFlight.
     - if: $CI_COMMIT_TAG =~ /^v[0-9]+\.[0-9]+\.[0-9]+$/
 
-# Ship the latest default-branch build to TestFlight on every push — the
-# maintainer's dogfood feedback loop, so the newest main is always on-device.
+# Ship main to TestFlight — the maintainer's dogfood feedback loop. Runs in
+# the nightly scheduled pipeline, and on any main pipeline where someone
+# pressed the manual build:ios-native (that job's rules are the switch; this
+# one follows its IPA).
 # Publishes the PROD app (com.futo.notes); build:ios-native signs the same
 # bundle id on main as on a tag. Gated on the `test` hard gate (lint + tsc +
 # test:full + build) instead of the tag-only release:gate, so a red main is not
