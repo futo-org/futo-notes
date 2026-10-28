@@ -41,7 +41,14 @@ if (!existsSync(path.join(root, 'node_modules'))) {
 // (worktree/cache copies can preserve or skew timestamps).
 const lockfile = path.join(root, 'pnpm-lock.yaml');
 const installedLockfile = path.join(root, 'node_modules/.pnpm/lock.yaml');
-const lockText = (file) => readFileSync(file, 'utf8').replace(/\r\n/g, '\n');
+// pnpm 12 prepends a separate YAML document for the package manager itself.
+// The installed snapshot holds only the final, application-dependency document.
+// Compare that document verbatim, retaining the pre-pnpm-12 single-document case.
+const lockText = (file) =>
+  readFileSync(file, 'utf8')
+    .replace(/\r\n/g, '\n')
+    .split(/^---[ \t]*\n/m)
+    .at(-1);
 if (
   existsSync(lockfile) &&
   (!existsSync(installedLockfile) || lockText(lockfile) !== lockText(installedLockfile))

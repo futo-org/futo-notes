@@ -83,7 +83,9 @@ for (const c of LATE_LAYOUT_CASES) {
         await expect
           .poll(() =>
             page.evaluate(() => {
-              const img = document.querySelector('.ProseMirror[contenteditable] img');
+              const img = document.querySelector(
+                '.ProseMirror[contenteditable] img:not(.ProseMirror-separator)',
+              );
               return img instanceof HTMLImageElement && img.complete ? img.naturalHeight : 0;
             }),
           )
@@ -150,7 +152,9 @@ mobileDndTest(
     await expect
       .poll(() =>
         page.evaluate(() => {
-          const img = document.querySelector('.ProseMirror[contenteditable] img');
+          const img = document.querySelector(
+            '.ProseMirror[contenteditable] img:not(.ProseMirror-separator)',
+          );
           return img instanceof HTMLImageElement && img.complete ? img.naturalHeight : 0;
         }),
       )
@@ -238,7 +242,7 @@ mobileDndTest(
     await page.evaluate(() => {
       const w = window as unknown as { __idle: Array<() => void> };
       const dom = document.querySelector('.ProseMirror') as HTMLElement;
-      const img = dom.querySelector('img') as HTMLElement;
+      const img = dom.querySelector('img:not(.ProseMirror-separator)') as HTMLElement;
       img.style.width = '200px';
       img.style.height = '200px';
       void dom.scrollHeight;
@@ -271,7 +275,9 @@ mobileDndTest(
 
     await page.evaluate(() => {
       const grow = () => {
-        const img = document.querySelector('.ProseMirror[contenteditable] img') as HTMLElement;
+        const img = document.querySelector(
+          '.ProseMirror[contenteditable] img:not(.ProseMirror-separator)',
+        ) as HTMLElement;
         img.style.width = '200px';
         img.style.height = '200px';
       };
@@ -282,7 +288,9 @@ mobileDndTest(
 
     const imgHeight = await page.evaluate(
       () =>
-        document.querySelector('.ProseMirror[contenteditable] img')!.getBoundingClientRect().height,
+        document
+          .querySelector('.ProseMirror[contenteditable] img:not(.ProseMirror-separator)')!
+          .getBoundingClientRect().height,
     );
     expect(imgHeight).toBe(200);
     // The finger was over the grown image: alpha lands beside it, not after

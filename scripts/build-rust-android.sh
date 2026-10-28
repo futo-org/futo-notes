@@ -84,7 +84,7 @@ case "$(uname -s)" in
   *)      HOST_LIB="$TARGET_DIR/debug/libfuto_notes_ffi.so" ;;
 esac
 rm -rf "$KOTLIN_OUT/uniffi"; mkdir -p "$KOTLIN_OUT"
-cargo run -p futo-notes-ffi --bin uniffi-bindgen -- generate \
+cargo run -p futo-notes-ffi --features bindgen --bin uniffi-bindgen -- generate \
   --no-format \
   --library "$HOST_LIB" \
   --language kotlin \

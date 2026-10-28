@@ -229,6 +229,32 @@ describe('installed dependency snapshot', () => {
     expect(runGuard(scratch).status).toBe(0);
   });
 
+  it.each(['\n', '\r\n'])('accepts pnpm 12 application snapshots with %j newlines', (newline) => {
+    const application = "lockfileVersion: '9.0'\nsettings:\n  autoInstallPeers: true\n";
+    installed(application);
+    writeFileSync(
+      join(scratch, 'pnpm-lock.yaml'),
+      (
+        "---\nlockfileVersion: '9.0'\nimporters:\n  .:\n    packageManagerDependencies:\n      pnpm:\n        version: 12.15.0\n\n---\n" +
+        application
+      ).replace(/\n/g, newline),
+    );
+    const result = runGuard(scratch);
+    expect(result.stderr).toBe('');
+    expect(result.status).toBe(0);
+  });
+
+  it('rejects stale application dependencies after the pnpm 12 package-manager document', () => {
+    installed("lockfileVersion: '9.0'\npackages:\n  fakepkg@1.0.0: {}\n");
+    writeFileSync(
+      join(scratch, 'pnpm-lock.yaml'),
+      "---\nlockfileVersion: '9.0'\nimporters:\n  .:\n    packageManagerDependencies: {}\n---\nlockfileVersion: '9.0'\npackages:\n  fakepkg@2.0.0: {}\n",
+    );
+    const result = runGuard(scratch);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('installed dependency snapshot differs');
+  });
+
   it('accepts equivalent CRLF and LF snapshots', () => {
     installed('lockfileVersion: 9\n');
     writeFileSync(join(scratch, 'node_modules', '.pnpm', 'lock.yaml'), 'lockfileVersion: 9\r\n');

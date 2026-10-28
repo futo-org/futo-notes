@@ -61,3 +61,48 @@ describe('iOS build host preflight', () => {
     expect(fs.existsSync(marker)).toBe(false);
   });
 });
+
+it.each(['', '/sdk/inherited-macos'])(
+  'selects the matching SDK for every Rust build (inherited %j)',
+  (sdkroot) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ios-build-sdk-'));
+    scratch.push(dir);
+    fs.mkdirSync(path.join(dir, 'scripts'));
+    for (const file of ['build-rust-ios.sh', 'ios-build-space.mjs']) {
+      fs.copyFileSync(path.join(root, 'scripts', file), path.join(dir, 'scripts', file));
+    }
+    const bin = path.join(dir, 'bin');
+    fs.mkdirSync(bin);
+    const trace = path.join(dir, 'sdk-trace');
+    fs.writeFileSync(path.join(bin, 'uname'), '#!/bin/sh\nprintf Darwin\n', { mode: 0o755 });
+    fs.writeFileSync(path.join(bin, 'xcrun'), '#!/bin/sh\nprintf "/sdk/%s" "$2"\n', {
+      mode: 0o755,
+    });
+    fs.writeFileSync(
+      path.join(bin, 'cargo'),
+      '#!/bin/sh\nprintf "%s\\n" "$SDKROOT" >> "$SDK_TRACE"\nif [ "$1" = run ]; then echo "binding generation reached" >&2; exit 42; fi\n',
+      { mode: 0o755 },
+    );
+    const result = spawnSync('bash', ['scripts/build-rust-ios.sh'], {
+      cwd: dir,
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        PATH: `${bin}${path.delimiter}${process.env.PATH}`,
+        SDKROOT: sdkroot,
+        SDK_TRACE: trace,
+        CARGO_TARGET_DIR: path.join(dir, 'target'),
+        FUTO_IOS_MIN_FREE_GIB: '0.001',
+      },
+    });
+    expect(result.status, result.stderr).toBe(42);
+    expect(result.stderr).toContain('binding generation reached');
+    expect(fs.readFileSync(trace, 'utf8').trim().split('\n')).toEqual([
+      '/sdk/iphoneos',
+      '/sdk/iphonesimulator',
+      '/sdk/iphonesimulator',
+      '/sdk/macosx',
+      '/sdk/macosx',
+    ]);
+  },
+);

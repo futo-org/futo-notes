@@ -67,9 +67,11 @@ describe('mergeForeignSweepShardReports', () => {
       });
       const output = path.join(directory, 'aggregate.json');
       const args = withOutput ? ['--', '--output', output, ...inputs] : inputs;
-      const result = spawnSync('pnpm', ['run', 'test:editor-gauntlet:foreign:aggregate', ...args], {
-        encoding: 'utf8',
-      });
+      const result = spawnSync(
+        'pnpm',
+        ['--silent', 'run', 'test:editor-gauntlet:foreign:aggregate', ...args],
+        { encoding: 'utf8' },
+      );
       expect(result.stderr).toBe('');
       expect(result.status).toBe(0);
       expect(result.stdout).toContain('EDITOR_GAUNTLET_FOREIGN_AGGREGATE');

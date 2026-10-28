@@ -42,7 +42,7 @@ test_ios_native_task:
     - eval "$(fnm env --shell bash)"
     - fnm use --install-if-missing
     - corepack enable
-    - corepack prepare pnpm@10.34.7 --activate
+    - corepack prepare pnpm@12.15.0 --activate
     - curl https://sh.rustup.rs -sSf | sh -s -- -y
     - export PATH="$HOME/.cargo/bin:$PATH"
     - rustup target add aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios

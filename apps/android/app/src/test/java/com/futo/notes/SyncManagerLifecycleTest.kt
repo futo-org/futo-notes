@@ -13,7 +13,7 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Before
 import org.junit.Test
-import uniffi.futo_notes_ffi.NoPointer
+import uniffi.futo_notes_ffi.NoHandle
 import uniffi.futo_notes_ffi.SyncClient
 import uniffi.futo_notes_ffi.SyncEventListener
 import uniffi.futo_notes_ffi.SyncSummary
@@ -30,7 +30,7 @@ import uniffi.futo_notes_ffi.SyncSummary
 class SyncManagerLifecycleTest {
     /** The Rust client, as far as the manager can tell: the first cycle waits
      *  until the test lets it finish, and live starts are counted. */
-    private class StandInClient : SyncClient(NoPointer) {
+    private class StandInClient : SyncClient(NoHandle) {
         val cycle = CompletableDeferred<SyncSummary>()
         var liveStarts = 0
 

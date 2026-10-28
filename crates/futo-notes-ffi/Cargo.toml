@@ -11,10 +11,16 @@ crate-type = ["staticlib", "cdylib", "lib"]
 [[bin]]
 name = "uniffi-bindgen"
 path = "src/bin/uniffi-bindgen.rs"
+# The generator (uniffi_bindgen, cargo_metadata, …) stays out of the library the
+# phones link: only this bin turns it on, via `--features bindgen`.
+required-features = ["bindgen"]
+
+[features]
+bindgen = ["uniffi/cli", "uniffi/cargo-metadata"]
 
 [dependencies]
-# `tokio` exports async methods; `cli` builds the bundled binding generator.
-uniffi = { version = "0.28", features = ["tokio", "cli"] }
+# `tokio` exports async methods; the `bindgen` feature above adds the generator.
+uniffi = { version = "0.32", default-features = false, features = ["tokio"] }
 tokio = { version = "1", features = ["sync", "macros", "rt-multi-thread", "time"] }
 futo-notes-core = { path = "../futo-notes-core" }
 futo-notes-license = { path = "../futo-notes-license" }

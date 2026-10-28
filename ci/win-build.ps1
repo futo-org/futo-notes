@@ -138,7 +138,7 @@ Invoke-Step "Loading the fnm environment" {
 }
 Invoke-Step "Activating Node from .nvmrc" { fnm use --install-if-missing }
 Invoke-Step "Enabling corepack" { corepack enable }
-Invoke-Step "Pinning pnpm" { corepack prepare pnpm@10.34.7 --activate }
+Invoke-Step "Pinning pnpm" { corepack prepare pnpm@12.15.0 --activate }
 
 # Redundant with `fnm use` by design: activation here goes through
 # Invoke-Expression of piped output, which is the one step no test covers.
