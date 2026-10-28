@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Install (or refresh) the systemd user timer that runs the MR factory hourly.
+# Install (or refresh) the systemd user timer that runs the MR factory hourly overnight.
 # Idempotent — re-run after pulling new units or upgrading node.
 #
 # Prerequisites: ~/.config/futo-notes-mr-factory/env exists (copy env.example,

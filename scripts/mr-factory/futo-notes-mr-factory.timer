@@ -1,12 +1,13 @@
 [Unit]
-Description=Run the FUTO Notes MR factory every hour
+Description=Run the FUTO Notes MR factory hourly overnight (20:00-06:00 starts)
 Documentation=file:__REPO_DIR__/scripts/mr-factory/README.md
 
 [Timer]
-OnCalendar=hourly
+# Hourly starts from 20:00 through 06:00 local time, so nothing new starts during
+# the workday. A sweep can run 3.5 hours, so a 06:00 start may finish mid-morning.
+OnCalendar=*-*-* 20..23,00..06:00:00
 RandomizedDelaySec=5m
-# Catch up with one run if the workstation slept through a tick.
-Persistent=true
+# No Persistent=: a catch-up run after waking from sleep would start in the day.
 
 [Install]
 WantedBy=timers.target
