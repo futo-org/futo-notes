@@ -30,7 +30,7 @@
 <!-- Full-width desktop top band: chrome column (mirrors the sidebar, holds the
      sole sidebar toggle + the macOS traffic-light gutter) then the tab strip.
      The band is a drag region so the window moves from its empty areas. -->
-<div class="desktop-topband" data-tauri-drag-region>
+<div class="desktop-topband" data-tauri-drag-region data-puppet-section="top bar">
   <div class="topband-chrome" data-tauri-drag-region>
     {#if windowControls?.left.length}
       <WindowControls side="left" buttons={windowControls.left} />

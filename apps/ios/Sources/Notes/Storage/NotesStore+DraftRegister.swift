@@ -10,6 +10,9 @@ extension NotesStore {
         return token > retiredDraftTokensThrough && token <= draftSeq
     }
 
+    /// The notes an open editor holds edits of that are not on disk yet.
+    var unsavedNoteIds: [String] { Set(draftRegister.values.map(\.id)).sorted() }
+
     func claimDraftOwnership() -> UInt64 {
         draftSeq += 1
         return draftSeq
@@ -132,5 +135,13 @@ extension NotesStore {
             self.flushPendingEditor()
             await self.waitForEditorFlushes()
         }
+    }
+
+    /// What ``requestPendingEditorFlush()`` runs, awaited, so a read of the vault after it sees
+    /// the editors' edits.
+    func flushPendingEditorAndWait() async {
+        await backgroundEditorFlush.readEditors()
+        flushPendingEditor()
+        await waitForEditorFlushes()
     }
 }

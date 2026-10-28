@@ -14,6 +14,15 @@ extension NoteEditorView {
         EditorHost.shared.setFindOverlayInset(inset)
     }
 
+    func openFind() {
+        findVisible = true
+        // Re-measure for this presentation: the bar has not been
+        // laid out yet, so the inset arrives a frame later and
+        // the engine re-reveals the current match against it.
+        findOverlayInset = 0
+        EditorHost.shared.openFind()
+    }
+
     func closeFind() {
         findVisible = false
         if let editorAttachment,

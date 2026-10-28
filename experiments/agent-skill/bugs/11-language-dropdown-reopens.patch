@@ -1,0 +1,402 @@
+diff --git a/src/features/settings/LanguageSettingsSection.svelte b/src/features/settings/LanguageSettingsSection.svelte
+index 063c7f2..9beedee 100644
+--- a/src/features/settings/LanguageSettingsSection.svelte
++++ b/src/features/settings/LanguageSettingsSection.svelte
+@@ -1,7 +1,7 @@
+ <script lang="ts">
+   import { puppetRefusal, puppetVerb, registerPuppetVerbs } from '$app/puppet/puppetRegistry';
+   import { Check, ChevronDown, Globe } from '@lucide/svelte';
+-  import { tick } from 'svelte';
++  import { onMount, tick } from 'svelte';
+   import { dismissable } from '$shared/dialogs/dismissable';
+   import { desktopLocalization, type Language } from '$shared/localization';
+ 
+@@ -17,6 +17,7 @@
+   }
+ 
+   let { selectedLanguageTag, languages, onchange }: Props = $props();
++  let languagePickerElement: HTMLDivElement | undefined = $state();
+   let languagePickerTriggerElement: HTMLButtonElement | undefined = $state();
+   let languageOptionsElement: HTMLDivElement | undefined = $state();
+   let languageOptionsOpen = $state(false);
+@@ -33,6 +34,17 @@
+     languageOptions.find((language) => language.tag === selectedLanguageTag)?.name ?? systemOption,
+   );
+ 
++  onMount(() => {
++    function closeLanguageOptionsOnOutsidePointer(event: PointerEvent): void {
++      if (languageOptionsOpen && !languagePickerElement?.contains(event.target as Node)) {
++        closeLanguageOptions();
++      }
++    }
++
++    document.addEventListener('pointerdown', closeLanguageOptionsOnOutsidePointer);
++    return () => document.removeEventListener('pointerdown', closeLanguageOptionsOnOutsidePointer);
++  });
++
+   function languageOptionElements(): HTMLButtonElement[] {
+     return Array.from(
+       languageOptionsElement?.querySelectorAll<HTMLButtonElement>('.settings-language-option') ??
+@@ -63,9 +75,11 @@
+     else void openLanguageOptions();
+   }
+ 
+-  function selectLanguageOption(selectedTag: string | null): void {
+-    closeLanguageOptions(true);
++  async function selectLanguageOption(selectedTag: string | null): Promise<void> {
++    languageOptionsOpen = false;
+     onchange(selectedTag);
++    await tick();
++    languagePickerTriggerElement?.focus();
+   }
+ 
+   // No tag: the system language, as the first option.
+@@ -100,6 +114,13 @@
+     const nextIndex = (currentIndex + step + options.length) % options.length;
+     options[nextIndex]?.focus();
+   }
++
++  function handleLanguagePickerFocusout(event: FocusEvent): void {
++    if (!languageOptionsOpen) return;
++    const nextTarget = event.relatedTarget;
++    if (nextTarget instanceof Node && languagePickerElement?.contains(nextTarget)) return;
++    closeLanguageOptions();
++  }
+ </script>
+ 
+ <section class="settings-section">
+@@ -110,11 +131,8 @@
+   <div class="settings-card settings-language-card">
+     <div
+       class="settings-language-picker"
+-      use:dismissable={{
+-        ondismiss: (reason) => closeLanguageOptions(reason === 'escape'),
+-        enabled: languageOptionsOpen,
+-        outside: true,
+-      }}
++      bind:this={languagePickerElement}
++      onfocusout={handleLanguagePickerFocusout}
+     >
+       <button
+         bind:this={languagePickerTriggerElement}
+@@ -125,7 +143,6 @@
+         aria-haspopup="listbox"
+         aria-expanded={languageOptionsOpen}
+         aria-controls="settings-language-options"
+-        onmousedown={(event) => event.preventDefault()}
+         onclick={toggleLanguageOptions}
+         onkeydown={handleLanguageTriggerKeydown}
+       >
+@@ -145,6 +162,7 @@
+       {#if languageOptionsOpen}
+         <div
+           bind:this={languageOptionsElement}
++          use:dismissable={{ ondismiss: () => closeLanguageOptions(true) }}
+           id="settings-language-options"
+           class="settings-language-options"
+           role="listbox"
+@@ -160,7 +178,7 @@
+               role="option"
+               aria-selected={selectedLanguageTag === languageOption.tag}
+               tabindex={selectedLanguageTag === languageOption.tag ? 0 : -1}
+-              onclick={() => selectLanguageOption(languageOption.tag)}
++              onclick={() => void selectLanguageOption(languageOption.tag)}
+             >
+               <span>{languageOption.name}</span>
+               {#if selectedLanguageTag === languageOption.tag}
+diff --git a/src/features/settings/LanguageSettingsSection.svelte.test.ts b/src/features/settings/LanguageSettingsSection.svelte.test.ts
+deleted file mode 100644
+index 9c87882..0000000
+--- a/src/features/settings/LanguageSettingsSection.svelte.test.ts
++++ /dev/null
+@@ -1,88 +0,0 @@
+-// @vitest-environment jsdom
+-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+-import { flushSync, mount, tick, unmount } from 'svelte';
+-
+-import LanguageSettingsSection from './LanguageSettingsSection.svelte';
+-
+-describe('LanguageSettingsSection dropdown dismissal', () => {
+-  let target: HTMLDivElement;
+-  let outsideButton: HTMLButtonElement;
+-  let app: ReturnType<typeof mount> | null = null;
+-
+-  beforeEach(() => {
+-    target = document.createElement('div');
+-    outsideButton = document.createElement('button');
+-    document.body.append(target, outsideButton);
+-    app = mount(LanguageSettingsSection, {
+-      target,
+-      props: {
+-        selectedLanguageTag: null,
+-        languages: [{ tag: 'zh-Hans', nativeName: '简体中文', direction: 'ltr' }],
+-        onchange: vi.fn(),
+-      },
+-    });
+-    flushSync();
+-  });
+-
+-  afterEach(() => {
+-    if (app) unmount(app);
+-    app = null;
+-    target.remove();
+-    outsideButton.remove();
+-  });
+-
+-  function trigger(): HTMLButtonElement {
+-    return target.querySelector<HTMLButtonElement>('.settings-language-trigger')!;
+-  }
+-
+-  function listbox(): HTMLElement | null {
+-    return target.querySelector<HTMLElement>('#settings-language-options');
+-  }
+-
+-  function press(element: Element): boolean {
+-    const defaultAllowed = element.dispatchEvent(
+-      new MouseEvent('pointerdown', { bubbles: true, cancelable: true }),
+-    );
+-    element.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+-    flushSync();
+-    return defaultAllowed;
+-  }
+-
+-  async function open(): Promise<void> {
+-    press(trigger());
+-    trigger().click();
+-    flushSync();
+-    await tick();
+-    expect(listbox()).not.toBeNull();
+-    expect(listbox()!.contains(document.activeElement)).toBe(true);
+-  }
+-
+-  it('closes once when the trigger is clicked while open, without letting the press move focus', async () => {
+-    await open();
+-    const mousedown = new MouseEvent('mousedown', { bubbles: true, cancelable: true });
+-    trigger().dispatchEvent(mousedown);
+-    expect(mousedown.defaultPrevented).toBe(true);
+-    expect(listbox()).not.toBeNull();
+-
+-    trigger().click();
+-    flushSync();
+-    expect(listbox()).toBeNull();
+-    await tick();
+-    expect(document.activeElement).toBe(trigger());
+-  });
+-
+-  it('closes on a pointer press outside the picker without stealing focus', async () => {
+-    await open();
+-    press(outsideButton);
+-    expect(listbox()).toBeNull();
+-    await tick();
+-    expect(document.activeElement).not.toBe(trigger());
+-  });
+-
+-  it('closes when focus lands outside the picker', async () => {
+-    await open();
+-    outsideButton.focus();
+-    flushSync();
+-    expect(listbox()).toBeNull();
+-  });
+-});
+diff --git a/src/features/sidebar/components/ContextMenu.svelte b/src/features/sidebar/components/ContextMenu.svelte
+index 1534897..942dbb3 100644
+--- a/src/features/sidebar/components/ContextMenu.svelte
++++ b/src/features/sidebar/components/ContextMenu.svelte
+@@ -1,4 +1,5 @@
+ <script lang="ts">
++  import { onMount } from 'svelte';
+   import { dismissable } from '$shared/dialogs/dismissable';
+   import { portal } from '$shared/dom/portal';
+   import { puppetRefusal, puppetVerb, registerPuppetVerbs } from '$app/puppet/puppetRegistry';
+@@ -19,6 +20,24 @@
+   }
+ 
+   let { x, y, items, onclose }: Props = $props();
++  let menuEl: HTMLDivElement | undefined = $state();
++
++  onMount(() => {
++    function handleDocClick(e: MouseEvent): void {
++      if (menuEl && !menuEl.contains(e.target as Node)) onclose();
++    }
++    // Escape comes from the shared dialog stack (use:dismissable below), which
++    // also guarantees a menu opened over a modal closes the menu, not both.
++    const tid = setTimeout(() => {
++      document.addEventListener('mousedown', handleDocClick);
++      document.addEventListener('touchstart', handleDocClick as unknown as EventListener);
++    }, 0);
++    return () => {
++      clearTimeout(tid);
++      document.removeEventListener('mousedown', handleDocClick);
++      document.removeEventListener('touchstart', handleDocClick as unknown as EventListener);
++    };
++  });
+ 
+   function handleItemClick(item: MenuItem): void {
+     item.onclick();
+@@ -40,8 +59,9 @@
+ </script>
+ 
+ <div
++  bind:this={menuEl}
+   use:portal
+-  use:dismissable={{ ondismiss: onclose, outside: true }}
++  use:dismissable={{ ondismiss: onclose }}
+   class="context-menu"
+   style="left: {x}px; top: {y}px"
+   role="menu"
+diff --git a/src/features/sidebar/components/ContextMenu.svelte.test.ts b/src/features/sidebar/components/ContextMenu.svelte.test.ts
+deleted file mode 100644
+index 00e40d7..0000000
+--- a/src/features/sidebar/components/ContextMenu.svelte.test.ts
++++ /dev/null
+@@ -1,50 +0,0 @@
+-// @vitest-environment jsdom
+-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+-import { flushSync, mount, unmount } from 'svelte';
+-
+-import ContextMenu from './ContextMenu.svelte';
+-
+-describe('ContextMenu dismissal', () => {
+-  let target: HTMLDivElement;
+-  let outside: HTMLDivElement;
+-  let app: ReturnType<typeof mount> | null = null;
+-  const onclose = vi.fn();
+-
+-  beforeEach(() => {
+-    target = document.createElement('div');
+-    outside = document.createElement('div');
+-    document.body.append(target, outside);
+-    app = mount(ContextMenu, {
+-      target,
+-      props: {
+-        x: 0,
+-        y: 0,
+-        items: [{ label: { path: 'sidebar.contextMenu.rename' }, onclick: vi.fn() }],
+-        onclose,
+-      },
+-    });
+-    flushSync();
+-  });
+-
+-  afterEach(() => {
+-    if (app) unmount(app);
+-    app = null;
+-    target.remove();
+-    outside.remove();
+-  });
+-
+-  function press(element: Element): void {
+-    element.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true }));
+-    flushSync();
+-  }
+-
+-  it('closes on a pointer press outside the menu', () => {
+-    press(outside);
+-    expect(onclose).toHaveBeenCalledTimes(1);
+-  });
+-
+-  it('stays open on a pointer press inside the menu', () => {
+-    press(document.querySelector('.context-menu .menu-item')!);
+-    expect(onclose).not.toHaveBeenCalled();
+-  });
+-});
+diff --git a/src/shared/dialogs/dismissable.ts b/src/shared/dialogs/dismissable.ts
+index 82695d3..3ba2ccf 100644
+--- a/src/shared/dialogs/dismissable.ts
++++ b/src/shared/dialogs/dismissable.ts
+@@ -1,6 +1,5 @@
+ /**
+- * Dismissal, owned once for every overlay in the app: Escape for all of them,
+- * plus acting outside for popovers that opt in with `outside`.
++ * Escape-to-dismiss, owned once for every overlay in the app.
+  *
+  * Before this existed each dialog wired its own key handler — so a dialog that
+  * simply forgot (FolderPickerModal) had no Escape at all, and one that attached
+@@ -17,20 +16,12 @@
+  *   because the listener sits on `document` in the capture phase.
+  * - Propagation stops at the listener, so the editor, slash menu, or a screen
+  *   behind the overlay never also sees that Escape.
+- * - The listeners exist only while something is registered, and unregistering
++ * - The listener exists only while something is registered, and unregistering
+  *   happens on unmount, so nothing leaks.
+- * - With `outside`, a pointer press or focus landing outside the node also
+- *   dismisses, and `ondismiss` receives the reason. Apply it to the element
+- *   holding BOTH trigger and popover so a press on the trigger counts as inside
+- *   and only the trigger's click toggles.
+  */
+ 
+-export type DismissReason = 'escape' | 'outside';
+-
+ interface Registration {
+-  node: HTMLElement;
+-  outside: boolean;
+-  ondismiss: (reason: DismissReason) => void;
++  ondismiss: () => void;
+ }
+ 
+ const stack: Registration[] = [];
+@@ -41,24 +32,12 @@ function handleKeydown(event: KeyboardEvent): void {
+   if (!top) return;
+   event.preventDefault();
+   event.stopPropagation();
+-  top.ondismiss('escape');
+-}
+-
+-function handleOutside(event: Event): void {
+-  const target = event.target;
+-  if (!(target instanceof Node)) return;
+-  for (const registration of [...stack]) {
+-    if (registration.outside && !registration.node.contains(target)) {
+-      registration.ondismiss('outside');
+-    }
+-  }
++  top.ondismiss();
+ }
+ 
+ function register(registration: Registration): void {
+   if (stack.length === 0) {
+     document.addEventListener('keydown', handleKeydown, true);
+-    document.addEventListener('pointerdown', handleOutside, true);
+-    document.addEventListener('focusin', handleOutside, true);
+   }
+   stack.push(registration);
+ }
+@@ -68,18 +47,21 @@ function unregister(registration: Registration): void {
+   if (index !== -1) stack.splice(index, 1);
+   if (stack.length === 0) {
+     document.removeEventListener('keydown', handleKeydown, true);
+-    document.removeEventListener('pointerdown', handleOutside, true);
+-    document.removeEventListener('focusin', handleOutside, true);
+   }
+ }
+ 
+ export interface DismissableOptions {
+-  ondismiss: (reason: DismissReason) => void;
++  /** Called when this overlay is the top-most one and Escape is pressed. */
++  ondismiss: () => void;
++  /** Set false to keep the overlay mounted but out of the Escape stack. */
+   enabled?: boolean;
+-  outside?: boolean;
+ }
+ 
+-export function dismissable(node: HTMLElement, options: DismissableOptions) {
++/**
++ * Svelte action: while the node is mounted (and `enabled`), Escape dismisses it
++ * if it is the top-most dismissable overlay.
++ */
++export function dismissable(_node: HTMLElement, options: DismissableOptions) {
+   let current: Registration | null = null;
+ 
+   function sync(next: DismissableOptions): void {
+@@ -90,10 +72,9 @@ export function dismissable(node: HTMLElement, options: DismissableOptions) {
+     }
+     if (current) {
+       current.ondismiss = next.ondismiss;
+-      current.outside = next.outside === true;
+       return;
+     }
+-    current = { node, outside: next.outside === true, ondismiss: next.ondismiss };
++    current = { ondismiss: next.ondismiss };
+     register(current);
+   }
+ 

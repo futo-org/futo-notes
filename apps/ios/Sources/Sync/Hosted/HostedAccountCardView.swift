@@ -5,7 +5,7 @@ import SwiftUI
 ///
 /// The app writes no billing state — cancellation, invoices, and cards live
 /// behind the portal (ADR 0003, decision 8).
-struct HostedAccountCardView<ScanDestination: View>: View {
+struct HostedAccountCardView: View {
     let email: String
     let billing: BillingStatus?
     /// What this vault's sync session is doing, in words the sync screen
@@ -14,12 +14,12 @@ struct HostedAccountCardView<ScanDestination: View>: View {
     /// watching `0 B of 10 GB used` with no sign anything had started.
     let syncStatus: String
     let busy: Bool
-    let onManage: () -> Void
+    let onManage: () async -> Void
     let onChangeVaultPassword: () -> Void
-    let onNewRecoveryKey: () -> Void
-    let onSignOut: () -> Void
-    /// The scanner, pushed rather than presented — see ScanAnotherDeviceView.
-    @ViewBuilder let scanDestination: () -> ScanDestination
+    let onNewRecoveryKey: () async -> Void
+    /// Opens the scanner, which the Sync screen pushes (see ScanAnotherDeviceView).
+    let onScan: () -> Void
+    let onSignOut: () async -> Void
 
     @Environment(\.localization) private var localization
     @State private var confirmingSignOut = false
@@ -27,6 +27,8 @@ struct HostedAccountCardView<ScanDestination: View>: View {
     var body: some View {
         Text(localization.localizedText("sync.hosted.account.heading"))
             .font(.headline)
+            // The card's verbs, on its one row that is always there.
+            .puppetVerbs { puppetVerbs }
 
         Text(email)
             .font(.callout)
@@ -59,9 +61,9 @@ struct HostedAccountCardView<ScanDestination: View>: View {
             .foregroundStyle(.secondary)
             .accessibilityIdentifier("hosted-account-sync-status")
 
-        Button(
-            localization.localizedText("sync.hosted.account.manageSubscription"), action: onManage
-        )
+        Button(localization.localizedText("sync.hosted.account.manageSubscription")) {
+            Task { await onManage() }
+        }
         .disabled(busy)
         .accessibilityIdentifier("hosted-manage-subscription")
 
@@ -75,18 +77,15 @@ struct HostedAccountCardView<ScanDestination: View>: View {
         .disabled(busy)
         .accessibilityIdentifier("hosted-change-vault-password")
 
-        Button(
-            localization.localizedText("sync.hosted.account.newRecoveryKey"),
-            action: onNewRecoveryKey
-        )
+        Button(localization.localizedText("sync.hosted.account.newRecoveryKey")) {
+            Task { await onNewRecoveryKey() }
+        }
         .disabled(busy)
         .accessibilityIdentifier("hosted-new-recovery-key")
 
         // This device holds the vault key, so it is the one that can hand it to
         // a new device: phones scan, laptops show (ADR 0003, decision 5).
-        NavigationLink {
-            scanDestination()
-        } label: {
+        Button(action: onScan) {
             Label(
                 localization.localizedText("sync.hosted.pairing.scan.action"),
                 systemImage: "qrcode.viewfinder")
@@ -105,14 +104,60 @@ struct HostedAccountCardView<ScanDestination: View>: View {
             isPresented: $confirmingSignOut,
             titleVisibility: .visible
         ) {
-            Button(
-                localization.localizedText("sync.hosted.account.signOut"),
-                role: .destructive,
-                action: onSignOut
-            )
+            Button(localization.localizedText("sync.hosted.account.signOut"), role: .destructive) {
+                Task { await onSignOut() }
+            }
             Button(localization.localizedText("common.actions.cancel"), role: .cancel) {}
         } message: {
             Text(localization.localizedText("sync.hosted.signOut.ios.confirmationBody"))
         }
+    }
+    /// The card's buttons. Sign out asks first: the confirmation's own ConfirmDialog or
+    /// DismissDialog answers it.
+    private var puppetVerbs: [PuppetVerbs.Verb] {
+        func unlessBusy() throws {
+            if busy { throw PuppetVerbRefusal(409, "hosted sync is busy") }
+        }
+        if confirmingSignOut {
+            return [
+                PuppetVerbs.Verb("ConfirmDialog", controls: ["sync.hosted.account.signOut"]) {
+                    confirmingSignOut = false
+                    await onSignOut()
+                },
+                PuppetVerbs.Verb("DismissDialog", controls: ["common.actions.cancel"]) {
+                    confirmingSignOut = false
+                },
+            ]
+        }
+        return [
+            PuppetVerbs.Verb(
+                "ManageSubscription", controls: ["sync.hosted.account.manageSubscription"]
+            ) {
+                try unlessBusy()
+                await onManage()
+            },
+            PuppetVerbs.Verb(
+                "OpenVaultPasswordChange", controls: ["sync.hosted.account.changeVaultPassword"]
+            ) {
+                try unlessBusy()
+                onChangeVaultPassword()
+            },
+            PuppetVerbs.Verb(
+                "ReplaceRecoveryKey", controls: ["sync.hosted.account.newRecoveryKey"]
+            ) {
+                try unlessBusy()
+                await onNewRecoveryKey()
+            },
+            PuppetVerbs.Verb("OpenScanner", controls: ["sync.hosted.pairing.scan.action"]) {
+                onScan()
+            },
+            PuppetVerbs.Verb(
+                "SignOutOfFuto", optional: ["answer"], controls: ["sync.hosted.account.signOut"]
+            ) { _ in
+                try unlessBusy()
+                confirmingSignOut = true
+                return [:]
+            },
+        ]
     }
 }

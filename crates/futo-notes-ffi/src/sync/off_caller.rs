@@ -13,7 +13,11 @@
 //! Every `async` export in this crate therefore runs its body through
 //! [`off_caller`], which hands it to the Tokio runtime and leaves the foreign
 //! poll with nothing to do but wait for the result. Doing it here, once, fixes
-//! every shell at the same time and leaves no call site to forget.
+//! every shell at the same time.
+//!
+//! The body runs on its own task, in no fixed order with the caller's next
+//! export, so anything a later export is measured against (a `WaitRequest`)
+//! is taken before the hand-off.
 
 use std::future::Future;
 

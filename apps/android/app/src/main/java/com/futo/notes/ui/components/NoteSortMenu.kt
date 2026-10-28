@@ -22,17 +22,58 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.futo.notes.NoteSortPreference
 import com.futo.notes.R
+import com.futo.notes.puppet.PuppetVerb
+import com.futo.notes.puppet.PuppetVerbRefusal
+import com.futo.notes.puppet.PuppetVerbScope
 import com.futo.notes.localization.LocalLocalization
 import com.futo.notes.ui.theme.FutoTheme
 import com.futo.notes.ui.theme.FutoType
 import uniffi.futo_notes_ffi.NoteSortKey
 import uniffi.futo_notes_ffi.NoteSortOrder
+import uniffi.futo_notes_ffi.SortDirection
 
 @Composable
 fun NoteSortMenu(sortOrder: NoteSortOrder, onPick: (NoteSortOrder) -> Unit) {
     val c = FutoTheme.colors
     val localization = LocalLocalization.current
     var expanded by remember { mutableStateOf(false) }
+    // The sort button, and while its menu is open one pick from it, as a tap on its row makes:
+    // a key keeps the list's position (newest first stays first), a direction applies to the
+    // key in use. The same verbs as desktop's sort menu. The open menu is a popup that takes
+    // every touch, so its rows (and the button's close) are all a person can reach.
+    fun toggle() = PuppetVerb("ToggleSortMenu", controls = listOf("notes.sort.heading")) {
+        expanded = !expanded
+    }
+    PuppetVerbScope { listOf(toggle()) }
+    PuppetVerbScope(modal = true) {
+        if (!expanded) return@PuppetVerbScope emptyList()
+        listOf(
+            toggle(),
+            PuppetVerb("SetSortOrder", optional = listOf("key", "direction")) { arguments ->
+                if (arguments.optString("key").isEmpty() == arguments.optString("direction").isEmpty()) {
+                    throw PuppetVerbRefusal(400, "one pick at a time: {\"key\":…} or {\"direction\":…}")
+                }
+                var order = sortOrder
+                arguments.optString("key").ifEmpty { null }?.let { name ->
+                    val key = when (name) {
+                        "name" -> NoteSortKey.NAME
+                        "lastModified" -> NoteSortKey.LAST_MODIFIED
+                        else -> throw PuppetVerbRefusal(400, "key is name or lastModified, not $name")
+                    }
+                    order = NoteSortPreference.withKey(key, order)
+                }
+                arguments.optString("direction").ifEmpty { null }?.let { name ->
+                    val direction = when (name) {
+                        "ascending" -> SortDirection.ASCENDING
+                        "descending" -> SortDirection.DESCENDING
+                        else -> throw PuppetVerbRefusal(400, "direction is ascending or descending, not $name")
+                    }
+                    order = NoteSortOrder(order.key, direction)
+                }
+                onPick(order)
+            },
+        )
+    }
     Box {
         // Picking deliberately leaves the menu open so key and direction are one visit.
         IconButton(onClick = { expanded = true }) {

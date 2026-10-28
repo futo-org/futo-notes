@@ -88,12 +88,13 @@
   > its cover does not trigger editor-leave draft cleanup. →
   > DestructiveConfirmDialog.swift, NoteListView.swift, NoteEditorView.swift
 - **iOS native** note rows expose **Move to Folder…** and **Delete** via
-  long-press context menu / swipe actions; the move sheet lists Root, every
-  folder, and an inline "New Folder…" option, and the move is applied on
-  disk immediately (verified 2026-06-09). → NoteListView.swift
+  long-press context menu / swipe actions; the move sheet lists Root and every
+  folder, and the move is applied on disk immediately (verified 2026-06-09).
+  The sheet does not create folders: it could not show where a new one would
+  go (dropped 2026-10-19). → NoteListView.swift
 - **Android native** note rows expose the same Move to Folder… / Delete via
-  long-press; the move sheet matches iOS (Root, every folder, inline "New
-  Folder…") and applies the move + backlink relink immediately, with a
+  long-press; the move sheet matches iOS (Root and every folder, no folder
+  creation) and applies the move + backlink relink immediately, with a
   "Moved to {folder}" toast. Its shared file placement falls back down the
   no-replace install chain when Android storage rejects hard links — an atomic
   no-replace rename on Android 11+, an exclusive create plus copy on the
@@ -106,10 +107,9 @@
   outcome. Success toasts, editor navigation, note-id changes, and move-sheet
   dismissal occur only after commit. On failure the editor/list and current
   folder identity remain in place, the move picker stays open for retry, and a
-  failure toast states that the note was not deleted or moved. Creating an
-  inline destination folder is likewise a prerequisite: its failure stops the
-  move. The standalone New Folder dialog also dismisses only after a committed
-  create; failure leaves it open for retry and shows a failure toast. →
+  failure toast states that the note was not deleted or moved. The New Folder
+  dialog also dismisses only after a committed create; failure leaves it open
+  for retry and shows a failure toast. →
   NotesStore.kt, NoteEditorScreen.kt, NoteListScreen.kt,
   NoteActionCompletionTest
 - Android's FAB → New note consumes the same explicit outcome: the editor opens

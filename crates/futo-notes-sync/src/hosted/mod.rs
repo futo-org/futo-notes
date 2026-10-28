@@ -22,10 +22,9 @@ mod secrets;
 mod tests;
 mod vault;
 
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 
-use tokio::sync::Notify;
+use tokio::sync::watch;
 
 use crate::server::{HandoffPoll, Http, HttpClients, HttpError};
 
@@ -115,6 +114,16 @@ pub enum EntitlementOutcome {
     GaveUp(BillingStatus),
 }
 
+/// One wait, as asked for: the number of cancels seen at that moment.
+///
+/// Any later [`HostedSetup::cancel_wait`] ends the wait, even one that lands
+/// before its first poll, while a cancel from before the ask ends nothing.
+/// Take it in the shell's own call, before the wait is handed to another task:
+/// taken inside that task, it already counts a cancel that beat the task
+/// there (issue #279).
+#[derive(Debug)]
+pub struct WaitRequest(u64);
+
 /// How a wait ended, before it is named in the caller's own words.
 enum Waited<T> {
     Got(T),
@@ -153,8 +162,10 @@ pub struct HostedSetup {
     pairing: Mutex<Option<pairing::PendingPairing>>,
     sign_in_schedule: PollSchedule,
     entitlement_schedule: PollSchedule,
-    cancelled: AtomicBool,
-    cancel: Notify,
+    /// How many times `cancel_wait` has been called. A watch rather than a
+    /// notification, so a cancel that lands while nothing is listening — before
+    /// the first poll, or during one — is still there to be read.
+    cancels: watch::Sender<u64>,
 }
 
 impl HostedSetup {
@@ -186,8 +197,7 @@ impl HostedSetup {
             pairing: Mutex::new(None),
             sign_in_schedule: PollSchedule::SIGN_IN,
             entitlement_schedule: PollSchedule::ENTITLEMENT,
-            cancelled: AtomicBool::new(false),
-            cancel: Notify::new(),
+            cancels: watch::Sender::new(0),
         })
     }
 
@@ -209,11 +219,17 @@ impl HostedSetup {
         self.session.lock().expect("hosted session lock").clone()
     }
 
-    /// Stops whichever wait is running, promptly. Safe to call when nothing
-    /// is waiting: the next wait clears the flag before it starts.
+    /// Asks for the next wait. Pass it to `await_sign_in`, `await_entitled`, or
+    /// `await_pairing`; see [`WaitRequest`] for where to take it.
+    pub fn request_wait(&self) -> WaitRequest {
+        WaitRequest(*self.cancels.borrow())
+    }
+
+    /// Stops every wait requested so far, promptly — including one whose first
+    /// poll has not run yet. Safe to call when nothing is waiting: a wait
+    /// requested after this does not count it.
     pub fn cancel_wait(&self) {
-        self.cancelled.store(true, Ordering::SeqCst);
-        self.cancel.notify_waiters();
+        self.cancels.send_modify(|cancels| *cancels += 1);
     }
 
     /// Step 1: mint a Login Hand-off. Takes no credentials. Open the returned
@@ -227,10 +243,11 @@ impl HostedSetup {
     pub async fn await_sign_in(
         &self,
         handoff: &SignInHandoff,
+        request: WaitRequest,
     ) -> Result<SignInOutcome, HostedError> {
         let ticket = handoff.ticket.clone();
         let waited = self
-            .wait(self.sign_in_schedule, || async {
+            .wait(request, self.sign_in_schedule, || async {
                 match self.http()?.redeem_handoff(&ticket).await? {
                     HandoffPoll::Pending => Ok(None),
                     HandoffPoll::Session(session) => Ok(Some(Some(session))),
@@ -281,10 +298,13 @@ impl HostedSetup {
     /// wait runs out. Entitlement moves when the payment provider's webhook
     /// lands, which is why nothing about the checkout itself can be trusted
     /// to say whether payment succeeded.
-    pub async fn await_entitled(&self) -> Result<EntitlementOutcome, HostedError> {
+    pub async fn await_entitled(
+        &self,
+        request: WaitRequest,
+    ) -> Result<EntitlementOutcome, HostedError> {
         let last = Mutex::new(None);
         let waited = self
-            .wait(self.entitlement_schedule, || async {
+            .wait(request, self.entitlement_schedule, || async {
                 // Per poll, not per wait: `authorized` is where the TLS trust
                 // is re-checked, and a root removed during a five-minute wait
                 // must end it rather than vouch for the rest of it.
@@ -330,6 +350,7 @@ impl HostedSetup {
     /// out. `step` returns `None` to mean "still waiting".
     async fn wait<T, F, Fut>(
         &self,
+        request: WaitRequest,
         schedule: PollSchedule,
         step: F,
     ) -> Result<Waited<T>, HostedError>
@@ -337,13 +358,11 @@ impl HostedSetup {
         F: Fn() -> Fut,
         Fut: std::future::Future<Output = Result<Option<T>, HostedError>>,
     {
-        // A cancel that arrived while nothing was waiting must not kill this
-        // wait before its first poll.
-        self.cancelled.store(false, Ordering::SeqCst);
+        let mut cancels = self.cancels.subscribe();
         let deadline = std::time::Instant::now() + schedule.give_up_after;
         let mut interval = schedule.first;
         loop {
-            if self.cancelled.load(Ordering::SeqCst) {
+            if *cancels.borrow() > request.0 {
                 return Ok(Waited::Cancelled);
             }
             if let Some(value) = step().await? {
@@ -356,7 +375,10 @@ impl HostedSetup {
             let nap = interval.min(deadline - now);
             tokio::select! {
                 _ = tokio::time::sleep(nap) => {}
-                _ = self.cancel.notified() => return Ok(Waited::Cancelled),
+                // The sender lives in `self`, so this cannot see it closed.
+                _ = cancels.wait_for(|&cancels| cancels > request.0) => {
+                    return Ok(Waited::Cancelled)
+                }
             }
             interval = schedule.next(interval);
         }

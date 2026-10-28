@@ -50,8 +50,9 @@ worktree on both machines.
   (`pc_dd41a046601b`), headless-booted simulators return a 0×0 a11y root (`pc` 08-11), and the
   documented repair flag was never implemented (`pc_3c182ee6440d`). The iOS pre-push story gate fails
   on a pristine `origin/main` for the same keyboard reason (`pc` 08-31).
-- **Gap (Android):** `android-drive tap` scrolls the target under the status bar (`pc` 08-17); a
-  bare `&` in a label is eaten by `just` argument parsing (`pc_9b7fd5dba746`); no-args help exits 2.
+- **Gap (Android, closed by retiring the driver):** `android-drive`'s label tap scrolled the target
+  under the status bar (`pc` 08-17); a bare `&` in a label was eaten by `just` argument parsing
+  (`pc_9b7fd5dba746`); no-args help exited 2. `just puppet do <Verb>` and `tap` replaced it.
 
 ### 2.5 Observe what the app did
 

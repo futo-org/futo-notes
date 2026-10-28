@@ -16,6 +16,7 @@ import { undo } from '@milkdown/kit/prose/history';
 import type { EditorView } from '@milkdown/kit/prose/view';
 import { generateNote } from './note.mjs';
 import { previewMode } from './preview-mode';
+import { nextBenchFrame as raf } from '../frame-clock';
 
 /** What a host page hands the benchmark: the live view, and a way to replace
  * the document. */
@@ -33,8 +34,6 @@ export interface BenchPlan {
   cursorLayer: boolean;
   reps: Record<string, { lift: number; gap: number; drop: number; frames: number }>;
 }
-
-const raf = () => new Promise<number>((resolve) => requestAnimationFrame(resolve));
 
 /** Lets the lift's own pop (120ms) and first slide (180ms) finish before a
  * frame-paced benchmark starts timing: no finger reaches a gap or the

@@ -15,7 +15,7 @@ struct ShowPairingCodeView: View {
     /// RFC 3339, the relay's own deadline.
     let expiresAt: String?
     let busy: Bool
-    let onShow: () -> Void
+    let onShow: () async -> Void
     let onCancel: () -> Void
 
     @Environment(\.localization) private var localization
@@ -38,12 +38,15 @@ struct ShowPairingCodeView: View {
                     ? "sync.hosted.pairing.expired.body" : "sync.hosted.pairing.refused.body"
             )
             .accessibilityIdentifier(
-                pairing == .expired ? "hosted-pairing-expired" : "hosted-pairing-refused")
+                pairing == .expired ? "hosted-pairing-expired" : "hosted-pairing-refused"
+            )
+            .puppetVerbs { puppetVerbs }
             showButton("sync.hosted.pairing.showNewCode")
         case .idle:
             Text(localization.localizedText("sync.hosted.pairing.body"))
                 .font(.caption)
                 .foregroundStyle(.secondary)
+                .puppetVerbs { puppetVerbs }
             showButton("sync.hosted.pairing.showCode")
         }
     }
@@ -51,7 +54,9 @@ struct ShowPairingCodeView: View {
     @ViewBuilder
     private var waiting: some View {
         HostedStepHeader(
-            title: "sync.hosted.pairing.title", explanation: "sync.hosted.pairing.body")
+            title: "sync.hosted.pairing.title", explanation: "sync.hosted.pairing.body"
+        )
+        .puppetVerbs { puppetVerbs }
 
         if let payload, let code = pairingCodeImage(payload: payload) {
             // Fixed black on white in both themes, deliberately: a camera reads
@@ -97,8 +102,29 @@ struct ShowPairingCodeView: View {
     }
 
     private func showButton(_ title: String) -> some View {
-        Button(localization.localizedText(title), action: onShow)
-            .disabled(busy)
-            .accessibilityIdentifier("hosted-pairing-show")
+        Button(localization.localizedText(title)) {
+            Task { await onShow() }
+        }
+        .disabled(busy)
+        .accessibilityIdentifier("hosted-pairing-show")
+    }
+
+    /// Every state's first row carries these, since no one row is there in all four.
+    private var puppetVerbs: [PuppetVerbs.Verb] {
+        switch pairing {
+        case .waiting:
+            return [
+                PuppetVerbs.Verb("CancelPairing", controls: ["sync.hosted.cancel"]) { onCancel() }
+            ]
+        case .received:
+            return []
+        case .idle, .expired, .refused:
+            return [
+                PuppetVerbs.Verb("ShowPairingCode") { _ in
+                    if busy { throw PuppetVerbRefusal(409, "hosted sync is busy") }
+                    return await PuppetVerbs.begin { await onShow() }
+                }
+            ]
+        }
     }
 }

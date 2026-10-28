@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { puppetRefusal, puppetVerb, registerPuppetVerbs } from '$app/puppet/puppetRegistry';
   import { getAppVersion } from '$features/system/crashHandler';
   import { updateChecker } from '$features/system/updateChecker.svelte';
   import { localizedText } from '$shared/localization';
@@ -11,14 +12,41 @@
 
   let { enabled, locked, ontoggle }: Props = $props();
 
+  $effect(() =>
+    registerPuppetVerbs(() => [
+      puppetVerb(
+        'ToggleAutoUpdates',
+        {},
+        () => {
+          if (locked) return puppetRefusal(409, 'an update is in progress');
+          ontoggle();
+          return undefined;
+        },
+        { controls: ['settings.updates.automaticChecks'] },
+      ),
+      // The one button says what it will do: check, install, or restart.
+      updateChecker.phase === 'restart'
+        ? puppetVerb('RestartToUpdate', {}, () => void updateChecker.restart(), {
+            controls: ['settings.updates.restartNow'],
+          })
+        : installs()
+          ? puppetVerb('InstallUpdate', {}, () => void updateChecker.install(), {
+              controls: ['settings.updates.updateAndRestart'],
+            })
+          : puppetVerb('CheckForUpdates', {}, () => void updateChecker.check(), {
+              controls: ['settings.updates.checkForUpdates'],
+            }),
+    ]),
+  );
+
+  const installs = () =>
+    updateChecker.phase === 'available' ||
+    (updateChecker.phase === 'error' && updateChecker.pending);
+
   function runUpdateAction(): void {
     if (updateChecker.phase === 'restart') void updateChecker.restart();
-    else if (
-      updateChecker.phase === 'available' ||
-      (updateChecker.phase === 'error' && updateChecker.pending)
-    ) {
-      void updateChecker.install();
-    } else void updateChecker.check();
+    else if (installs()) void updateChecker.install();
+    else void updateChecker.check();
   }
 </script>
 

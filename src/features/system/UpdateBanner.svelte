@@ -1,10 +1,21 @@
 <script lang="ts">
+  import { puppetVerb, registerPuppetVerbs } from '$app/puppet/puppetRegistry';
   import { updateChecker as upd } from './updateChecker.svelte';
   import { localizedText } from '$shared/localization';
 
   function primary(): void {
     void upd.install();
   }
+
+  // The banner is the only way to install an update, and it is on screen only when there is
+  // one: without the guard `actions` offered InstallUpdate on every screen, always.
+  $effect(() =>
+    registerPuppetVerbs(() =>
+      upd.bannerVisible
+        ? [puppetVerb('InstallUpdate', {}, primary, { controls: ['settings.updates.failed'] })]
+        : [],
+    ),
+  );
 </script>
 
 {#if upd.bannerVisible}

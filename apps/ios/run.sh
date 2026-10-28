@@ -35,7 +35,9 @@ echo "==> Building Rust note + sync core (UniFFI) -> FutoNotesFfi.xcframework + 
 FUTO_IOS_FFI_PROFILE="${FUTO_IOS_FFI_PROFILE:-dev}" bash scripts/build-rust-ios.sh
 
 echo "==> Building embedded editor web bundle (single self-contained editor.html)"
-node_modules/.bin/vite build --config vite.editor.config.ts
+# The shipped bundle plus the puppet inspector (src/app/puppet), with function
+# names kept for its trace. Release scripts (deploy.sh) build it without.
+VITE_INCLUDE_TEST_HOOKS=true node_modules/.bin/vite build --config vite.editor.config.ts
 
 echo "==> Generating Xcode project (xcodegen)"
 ( cd apps/ios && xcodegen generate )
@@ -73,5 +75,15 @@ BUNDLE_ID=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$APP/Info.pl
   || echo "com.futo.notes.dev")
 echo "==> Installing $APP"
 xcrun simctl install "$SIM" "$APP"
-xcrun simctl launch "$SIM" "$BUNDLE_ID"
-echo "==> Launched $BUNDLE_ID"
+# The debug-only puppet listener (PuppetServer.swift) binds a slot-derived
+# loopback port so parallel worktrees cannot drive each other's simulator.
+# Simulator apps do not inherit this shell's environment; SIMCTL_CHILD_* is how
+# simctl passes it in. Unset means no listener at all.
+PUPPET_PORT=$(node "$ROOT/scripts/lib/slot.mjs" puppet)
+# The listener's screen reader (PuppetScreenReader.swift) walks the app's accessibility
+# tree, which iOS builds only while this simulator setting is on; with it off every
+# read is empty. The app reads it at launch, so it is set first, on every launch: a new
+# or erased simulator starts with it off.
+xcrun simctl spawn "$SIM" defaults write com.apple.Accessibility ApplicationAccessibilityEnabled -bool true
+SIMCTL_CHILD_FUTO_PUPPET_PORT="$PUPPET_PORT" xcrun simctl launch "$SIM" "$BUNDLE_ID"
+echo "==> Launched $BUNDLE_ID (futo-puppet listener on 127.0.0.1:$PUPPET_PORT)"

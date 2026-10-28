@@ -45,14 +45,16 @@ abstract class LicenseSurfaceFixture {
      * been dismissed.
      */
     protected class RecordingTextContextMenu : TextContextMenuProvider {
-        var components: List<TextContextMenuComponent> = emptyList()
+        // The provider coroutine may publish from another thread. Readers need a
+        // stable snapshot whose publication is visible to the test thread.
+        @Volatile var components: List<TextContextMenuComponent> = emptyList()
             private set
 
         fun item(key: Any): TextContextMenuItem? =
             components.filterIsInstance<TextContextMenuItem>().firstOrNull { it.key == key }
 
         override suspend fun showTextContextMenu(dataProvider: TextContextMenuDataProvider) {
-            components = dataProvider.data().components
+            components = dataProvider.data().components.toList()
             awaitCancellation()
         }
     }

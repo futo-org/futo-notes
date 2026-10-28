@@ -11,6 +11,13 @@ extension NoteEditorView {
             modified: Date(), richPreview: "", tags: [])
     }
 
+    /// The ⋯ menu's "Copy file path".
+    func copyPath() {
+        let path = store.notePath(noteId)
+        UIPasteboard.general.string = path
+        PuppetVerbs.shared.recordCopy(path)
+    }
+
     /// Nav-bar "Move to Folder…": wait for already-admitted identity work before
     /// presenting destinations. The final live body is captured and committed
     /// only after the user chooses a destination in [moveNote].
@@ -30,7 +37,8 @@ extension NoteEditorView {
     /// owns the complete capture, persist-or-park, and move transaction. Delete
     /// can then cancel/await that exact task and, if the move already committed,
     /// target its final id.
-    func moveNote(to folder: String) {
+    @discardableResult
+    func moveNote(to folder: String) -> Task<Bool, Never>? {
         session.end(
             .move,
             effects: EditorExitEffects(
@@ -80,7 +88,8 @@ extension NoteEditorView {
     /// Confirmed delete from the nav-bar menu: neutralize every pending-save
     /// path FIRST (a write after the delete would resurrect the file — the Rust
     /// write creates files unconditionally), then delete and pop the editor.
-    func deleteNote() {
+    @discardableResult
+    func deleteNote() -> Task<Bool, Never>? {
         session.end(
             .delete,
             effects: EditorExitEffects(

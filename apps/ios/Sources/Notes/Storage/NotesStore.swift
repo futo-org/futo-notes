@@ -17,7 +17,7 @@ final class NotesStore: ObservableObject {
     /// NavigationStack (list + any pushed editor). Used for sync-side events the
     /// user should notice but that don't warrant a dialog — e.g. a peer deleting
     /// the note you had open. Auto-clears after a few seconds. This is the iOS
-    /// equivalent of the desktop `showGlobalToast` / Android `Toast`.
+    /// equivalent of the desktop `showGlobalToast` / Android `showToast`.
     @Published var transientMessage: LocalizedMessage?
     private var transientMessageTask: Task<Void, Never>?
 
@@ -87,7 +87,7 @@ final class NotesStore: ObservableObject {
     var flushedThisEpisode: [String: PendingDraft] = [:]
     let editorDraftCoordinator = EditorDraftCoordinator()
     var editorDraftTail: Task<Void, Never>?
-    var folderMutationTail: Task<Void, Never>?
+    var folderMutationTail: Task<Bool, Never>?
     // Serialized so Rust and the shell always end on the same pick.
     private var sortOrderTail: Task<Void, Never>?
     private var localTreeChangeTail: Task<Void, Never>?
@@ -249,7 +249,7 @@ final class NotesStore: ObservableObject {
             editorDraftCoordinator.endReset()
         }
         await editorDraftTail?.value
-        await folderMutationTail?.value
+        _ = await folderMutationTail?.value
         await localTreeChangeTail?.value
         try await vault.reset(epoch: epoch)
         notes = []

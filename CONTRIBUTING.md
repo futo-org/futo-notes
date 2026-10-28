@@ -18,6 +18,10 @@ machine ready.
   `cargo install cargo-ndk` for Android. See AGENTS.md §2, the nested mobile
   `AGENTS.md` files, and the `ANDROID_*` vars in `.env.example`.
 
+For dependencies owned by the workspace root, use `pnpm add -w <package>` (or
+`pnpm add -Dw <package>` for a development dependency). Use the owning package's directory
+for a package-local dependency; do not disable pnpm's workspace-root guard.
+
 ## 2. First build
 
 For a fresh task, fetch main and create a sibling worktree, then run `just orient` there.
@@ -28,7 +32,7 @@ and worktrees sharing a slot; presence alone does not prove a working build or a
 
 ```bash
 just setup        # check tools and install pinned workspace dependencies
-just tauri-dev    # run the desktop app (Wayland-first, Vite port 5200 + worktree slot)
+just tauri-dev    # run the desktop app (forces Wayland on Linux; port: just ports)
 just verify-run check  # lint + tests + build sanity, with a retained evidence bundle
 ```
 
@@ -58,20 +62,23 @@ local `.env`.
 
 This repo ships shared Claude Code config under `.claude/`:
 
-- **Skills** (`.claude/skills/`) — `/bugfix`, `/ci-doctor`, `/release`,
+- **Skills** (`.claude/skills/`) — `/ci-doctor`, `/puppet`, `/release`,
   `/slow-review`, `/spec-sync`, `/test-agent`, `/verify`, `/verify-specs`,
   `/zulip`, and more (`ls .claude/skills`). Available automatically when you
   open the repo in Claude Code. Note `/release`, `/verify`, and `/zulip` need
   `GITLAB_TOKEN` / `ZULIP_API_KEY` (see step 3).
-- **Workflows** (`.claude/workflows/`) — multi-agent flows like `sync-adversarial`.
+- **Workflows** (`.claude/workflows/`) — multi-agent flows like `sync-adversarial`;
+  syntax checks: `just check-workflows --help`.
 - **Shared settings** (`.claude/settings.json`) — a small project permission
   allowlist plus the repo's hooks. Personal overrides go in
   `.claude/settings.local.json` (gitignored).
 - **Hooks** (`scripts/hooks/`, wired from `.claude/settings.json`) — print
   `just orient` at session start and give each subagent a private scratch
-  directory. No hook denies process-name kills, `git stash` in a linked worktree,
-  or OS-level input (the deny hook was removed in 34040eb9); follow those rules by
-  hand — see AGENTS.md §5, M24 and M25.
+  directory; `scripts/puppet-receipt-hook.mjs` (PreToolUse) refuses a piped or
+  filtered `just puppet` action, whose receipt must be read whole. No hook denies
+  process-name kills, `git stash` in a linked worktree, or OS-level input (the
+  deny hook was removed in 34040eb9); follow those rules by hand — see AGENTS.md
+  §5, M24 and M25.
 
 ### Third-party skills (optional)
 
@@ -82,7 +89,6 @@ and links them for this worktree. It refuses to overwrite existing installations
 A shallow clone must first fetch that commit with `git fetch origin 3b1c43c139181b91b7384b478b5edec454b80190`.
 The snapshot retains the original upstream attribution; future upgrades should be
 explicit, rather than silently replacing reference material during app builds.
-
 
 `skills-lock.json` records the generic engineering skills we borrow from
 `mattpocock/skills` (`/tdd`, `/research`, `/code-review`, `/wayfinder`, …). They
@@ -130,3 +136,5 @@ or `FUTO_NOTES_E2EE_SERVER_BIN` at a binary you already have.
   testing matrix.
 - `docs/spec/` — behavioral source of truth, by surface.
 - `just check` — the gate to pass before pushing.
+- `just test-tls-fixture --help` — generate local QA CA/server files with macOS LibreSSL
+  or Linux OpenSSL.

@@ -86,6 +86,14 @@ check-qa-input-safety:
 check-theme-single-pace:
   node scripts/check-theme-single-pace.mjs
 
+# Fail on a UI handler with no puppet verb, or a control no verb claims; see justfile-notes.md.
+check-puppet-verbs:
+  node scripts/check-puppet-verbs.mjs
+
+# Fail if an instruction surface teaches driving the app with anything but `just puppet`.
+check-puppet-first:
+  node scripts/check-puppet-first.mjs
+
 # Fail on a broken `just`/`pnpm run`/repo-path reference in an instruction surface.
 check-agent-docs:
   node scripts/check-agent-docs.mjs
@@ -101,3 +109,22 @@ arch-gate:
 release-notes-check tag="":
   @node scripts/release-notes.mjs {{ if tag == "" { "--all" } else { "--tag " + tag + " --check" } }}
 
+# Run a JavaScript probe as an ES module (top-level await; trailing args stay literal).
+node-eval code *args: check-node-version
+  #!/usr/bin/env bash
+  set -euo pipefail
+  probe_source="$1"
+  shift
+  exec node --input-type=module --eval "$probe_source" -- "$@"
+
+# Check Svelte components with the same warning policy as just check.
+check-svelte: check-node-version _require-node-modules
+  pnpm run check:svelte
+
+# Read-only catalog/call/quoted-source inventory for localization review (JSON).
+audit-localization-source *args:
+  node scripts/localization-source-audit.mjs "$@"
+
+# Validate workflow async bodies and metadata exports without running their agents.
+check-workflows *files: check-node-version _require-node-modules
+  @node scripts/workflow-syntax.mjs "$@"

@@ -196,32 +196,6 @@ impl LocalNoteStore {
         self.rename(id, &wanted)
     }
 
-    /// Creates a new folder and moves one note into it as one serialized
-    /// workflow. If the move fails, the newly-created empty folder is removed.
-    pub fn move_note_to_new_folder(
-        &self,
-        id: &str,
-        folder: &str,
-    ) -> Result<MutationResult, String> {
-        let _gate = self.lock_gate()?;
-        let _vault_mutation = vault_mutation_guard()?;
-        let folder = sanitize_folder_path(folder);
-        if folder.is_empty() {
-            return Err("new folder path is empty".into());
-        }
-        paths::folder_path(&self.root, &folder)?;
-        vault_fs::create_dir(&self.root, &folder)?;
-        let (_, title) = split_id(id);
-        let wanted = format!("{folder}/{title}");
-        match self.rename_raw(id, &wanted) {
-            Ok(mutation) => Ok(mutation),
-            Err(error) => {
-                let _ = vault_fs::remove_dir(&self.root, &folder, false);
-                Err(error)
-            }
-        }
-    }
-
     pub fn delete(&self, id: &str) -> Result<MutationResult, String> {
         self.delete_with(id, |_| {
             vault_fs::remove_local(&self.root, &note_filename(id)).map(|_| ())

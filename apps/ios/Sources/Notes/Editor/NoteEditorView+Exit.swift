@@ -1,6 +1,12 @@
 import SwiftUI
 
 extension NoteEditorView {
+    /// The listener's `screen` stops naming this note, unless an editor pushed over it has
+    /// already claimed it.
+    func releasePuppetScreen() {
+        if PuppetVerbs.shared.openNote == noteId { PuppetVerbs.shared.openNote = nil }
+    }
+
     /// The editor was popped by the system Back button or the edge swipe.
     ///
     /// A native interactive pop cannot be refused once the finger starts it, so

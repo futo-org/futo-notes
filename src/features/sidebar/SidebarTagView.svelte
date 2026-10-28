@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { NotePreview } from '$shared/types/note';
   import { getSortedTags, getNotesForTag } from '$features/tags/noteTags';
+  import { puppetRefusal, puppetVerb, registerPuppetVerbs } from '$app/puppet/puppetRegistry';
   import { localizedText } from '$shared/localization';
 
   interface Props {
@@ -29,6 +30,20 @@
     }
     openTags = next;
   }
+
+  // Selecting a note here is OpenNote (the shell's).
+  $effect(() =>
+    registerPuppetVerbs(() => [
+      puppetVerb('ToggleTagGroup', { tag: 'string' }, (args) => {
+        const tag = args.tag as string;
+        if (!sortedTags.some((entry) => entry.tag === tag)) {
+          return puppetRefusal(400, `no such tag: ${tag}`);
+        }
+        toggleTag(tag);
+        return undefined;
+      }),
+    ]),
+  );
 
   function getTagNotes(tag: string): NotePreview[] {
     const cached = tagNotesCache.get(tag);

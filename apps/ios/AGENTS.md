@@ -18,6 +18,16 @@ UniFFI Swift bindings. Both are generated — edit `project.yml` or the FFI crat
 | Unit tests (Swift Testing), or only named suites | `just test-ios-native [Suite…]` |
 | UI tests (XCTest, minutes), or only named classes | `just test-ios-native-ui [Class…]` |
 | Both, as main-branch CI runs them | `just test-ios-native-full` |
+| Native checks from Linux on an isolated Mac checkout | `just ios-remote <recipe> [Suite/Class…]` |
+
+Native Rust builds check free space on the actual Cargo target volume before compiling.
+`FUTO_IOS_MIN_FREE_GIB` is a positive minimum (default 2 GiB); cold builds may need more.
+Low-space errors give a dry-run inventory command rather than deleting shared caches.
+Remote setup, source identity and cleanup boundaries: `docs/remote-ios-testing.md`.
+
+For a software keyboard that remains parked off-screen after reboot, see
+[simulator recovery](../../.claude/skills/verify/references/ios.md#recover-a-parked-software-keyboard). Explicit `just qa-claim ios --erase`
+requires one existing claim and removes all of that simulator's state; it is never automatic.
 
 After **any** change to `futo-notes-ffi` or a crate it re-exports, run `just build-rust-ios` before
 building — otherwise you are testing old bindings, and the symptom looks like "my change did
@@ -63,12 +73,21 @@ does not match Xcode's SDK, since local StoreKit cannot run there; CI does not o
 they fail instead. `ServerUrlConformanceTests.swift` reads the full
 shared `validateServerUrl` fixture — it is a lock, not a sample.
 
-Device/simulator QA of the changed flow is required; keyboard, safe-area, and scroll changes need
-the full matrix (new note, existing note, toolbar, scroll-during-IME). Drive the app with
-`xcrun simctl` + AXe; the full playbook is the `/verify` skill's `references/ios.md`.
+The three local test recipes hold an OS lock for this worktree through the complete build,
+test and diagnostic-collection process. A second invocation exits 75 before rebuilding.
+`just ios-test-status` reports whether the process is still active and names diagnostic
+collection when Xcode announces it; wait for the real process exit before rerunning.
+A killed runner's inherited lock stays with its live command and is released by the OS;
+`just ios-test-clear-stale` clears only old metadata and refuses a live lock.
+Local runs use `-collect-test-diagnostics never` to avoid optional multi-minute simulator
+sysdiagnose collection; set `FUTO_IOS_TEST_DIAGNOSTICS=on-failure` when that evidence is needed.
+Test failures and regular result bundles remain available, and CI invocation is unchanged.
+The lock runner uses Python 3's standard Unix `fcntl.flock`, with no extra Python packages.
 
-**iOS 26 nav-bar toolbar items only show up in AXe's deep a11y tree.** When
-automation reports "nothing happened", suspect the tool before the app and follow the AXe playbook.
+Device/simulator QA of the changed flow is required; keyboard, safe-area, and scroll changes need
+the full matrix (new note, existing note, toolbar, scroll-during-IME). Drive and read the app
+with `FUTO_PUPPET_TARGET=ios just puppet` (the `puppet` skill); building, launching and the
+simulator are the `/verify` skill's `references/ios.md`.
 
 `xcrun simctl spawn "$SIM" log stream --level=debug --predicate 'process == "FutoNotesNative"'`
 streams os_log and never exits (run it in the background to a file, or read the past with

@@ -79,8 +79,8 @@ struct TitleTextField: UIViewRepresentable {
         init(_ parent: TitleTextField) { self.parent = parent }
 
         /// Newlines removed silently; forbidden filesystem chars removed and
-        /// reported (desktop parity — the illegal char never persists).
-        private static func stripped(_ text: String) -> (text: String, hadForbidden: Bool) {
+        /// reported (desktop parity — the illegal char never persists). `SetTitle` too.
+        static func stripped(_ text: String) -> (text: String, hadForbidden: Bool) {
             let withoutNewlines = text.replacingOccurrences(of: "\n", with: "")
             let cleaned = String(
                 String.UnicodeScalarView(

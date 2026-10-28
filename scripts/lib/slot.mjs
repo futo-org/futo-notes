@@ -2,7 +2,7 @@
 // claimed devices and running servers. scripts/drift-check.mjs scans for copies.
 import { createHash } from 'node:crypto';
 import path from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 
 const SLOTS = 50;
 
@@ -25,6 +25,19 @@ export const PORT_BASES = {
   // dev server can be up at once, which is the normal case: you tune the coin
   // against the real app beside it.
   coinTuner: 5300,
+  // Debug crash/feedback collectors must not receive another worktree's traffic.
+  crashlog: 5100,
+  // The native shells' debug puppet listener (apps/ios PuppetServer.swift):
+  // one loopback port per worktree, so parallel checkouts never drive each
+  // other's simulator. Desktop has no separate port; futo-puppet reaches it
+  // through the mcp bridge above.
+  puppet: 9430,
+  // Android's listener gets its OWN host port, because a simulator shares the
+  // Mac's loopback while an emulator is reached through `adb forward` — one
+  // number for both meant a worktree that had run iOS could not then run
+  // Android ("cannot bind listener: Address already in use"), which in a
+  // scenario harness is a dead run rather than a message anyone reads.
+  puppetAndroid: 9480,
 };
 
 // The cross-platform sync harness is the one consumer that needs a RANGE, not a
@@ -56,7 +69,10 @@ export const PROBE_BAND = {
 };
 
 export function slotOf(root) {
-  const hex = createHash('md5').update(root).digest('hex').slice(0, 8);
+  // Windows spells one root two ways (`git rev-parse` gives C:/src/x, Node's paths C:\src\x):
+  // hash one, or `just tauri-dev` and `just puppet` land on different slots.
+  const canonical = /^[A-Za-z]:[\\/]/.test(root) ? path.win32.normalize(root) : root;
+  const hex = createHash('md5').update(canonical).digest('hex').slice(0, 8);
   return parseInt(hex, 16) % SLOTS;
 }
 
@@ -155,6 +171,9 @@ export const ENV_NAMES = {
   cdp: 'CDP_PORT',
   mcp: 'FUTO_MCP_BASE_PORT',
   coinTuner: 'COIN_TUNER_PORT',
+  crashlog: 'CRASHLOG_PORT',
+  puppet: 'FUTO_PUPPET_PORT',
+  puppetAndroid: 'FUTO_PUPPET_ANDROID_PORT',
 };
 
 export function envLines(root) {
@@ -166,7 +185,7 @@ export function envLines(root) {
 }
 
 // CLI for shell callers, which must not hash inline: stock macOS has no md5sum.
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (import.meta.main) {
   const root = worktreeRoot();
   const ports = portsFor(root);
   const what = process.argv[2] || 'json';

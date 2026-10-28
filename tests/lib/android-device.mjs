@@ -11,6 +11,10 @@
 
 import { execFileSync, spawnSync } from 'node:child_process';
 import net from 'node:net';
+import { navigateBack } from './android/navigation.mjs';
+import { createAdbClient } from './android/adbClient.mjs';
+import { assertAndroidTarget } from '../../scripts/qa/android-target.mjs';
+import { isAndroidPackageInstalled } from '../../scripts/qa/android-package-probe.mjs';
 
 import {
   createTokenSource,
@@ -71,7 +75,8 @@ export function listAttachedDevices() {
 }
 
 export class AndroidDevice {
-  constructor(serial) {
+  constructor(serial, { execFile = execFileSync } = {}) {
+    this.execFile = execFile;
     this.serial = serial;
     this.forwardedPorts = [];
     this.nextHookToken = createTokenSource();
@@ -82,8 +87,9 @@ export class AndroidDevice {
   }
 
   adb(args, { allowFailure = false, input } = {}) {
+    assertAndroidTarget({ serial: this.serial, execFile: this.execFile });
     try {
-      return execFileSync('adb', ['-s', this.serial, ...args], {
+      return this.execFile('adb', ['-s', this.serial, ...args], {
         encoding: 'utf8',
         input,
         maxBuffer: 64 * 1024 * 1024,
@@ -105,8 +111,12 @@ export class AndroidDevice {
     return this.shell('echo ok', { allowFailure: true }).includes('ok');
   }
 
-  isPackageInstalled(pkg = DEBUG_PACKAGE) {
-    return this.shell(`pm path ${pkg}`, { allowFailure: true }).includes('package:');
+  isPackageInstalled(pkg = DEBUG_PACKAGE, { timeoutMs } = {}) {
+    return isAndroidPackageInstalled(pkg, {
+      timeoutMs,
+      serial: this.serial,
+      execFile: this.execFile,
+    });
   }
 
   // ── Conditions ────────────────────────────────────────────────
@@ -242,18 +252,19 @@ export class AndroidDevice {
     this.shell(`input tap ${x} ${y}`);
   }
 
-  /** Replace a focused text field's content: select-all (Ctrl+A), delete, type.
-   *  `input text` takes spaces as %s and cannot type a newline; the single-quote
-   *  wrapping means callers must not pass a value containing one. */
+  /** Use the shared native-field input owner for quoting and long-value chunking. */
   typeReplacingSelection(text) {
-    if (text.includes("'")) throw new Error(`cannot type ${JSON.stringify(text)} with adb input`);
-    this.shell('input keycombination 113 29'); // CTRL_LEFT + A
-    this.shell('input keyevent 67'); // DEL — clears the selection
-    this.shell(`input text '${text.replace(/ /g, '%s')}'`);
+    return createAdbClient({
+      pkg: DEBUG_PACKAGE,
+      serial: this.serial,
+      execFile: this.execFile,
+    }).replaceText(text);
   }
 
   pressBack() {
-    this.shell('input keyevent 4');
+    navigateBack(
+      createAdbClient({ pkg: DEBUG_PACKAGE, serial: this.serial, execFile: this.execFile }),
+    );
   }
 
   /** Does a text field currently own an IME input connection? This proves adb

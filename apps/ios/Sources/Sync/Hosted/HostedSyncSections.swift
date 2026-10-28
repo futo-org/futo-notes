@@ -1,7 +1,9 @@
 import SwiftUI
 
 /// The hosted sync surface on the Sync sheet: the wizard, the account card, the
-/// two refused-write banners, and the "Use my own server" disclosure.
+/// two refused-write banners, the "Use my own server" disclosure, and the
+/// scanner the account card opens. It owns the sheet's `Form`, because a screen
+/// pushed from code has to be declared outside the Form's rows.
 ///
 /// Which screen this shows comes from Rust's `currentStep` every time it loads.
 /// Nothing here remembers a position, which is what makes quitting halfway
@@ -23,7 +25,7 @@ struct HostedSyncSections: View {
     }
 
     var body: some View {
-        Group {
+        Form {
             if let error = model.errorMessage {
                 Section {
                     Text(localization.localizedText(error.path, arguments: error.arguments))
@@ -76,12 +78,61 @@ struct HostedSyncSections: View {
                     SelfHostedSyncSections()
                 }
             }
+
+            NotesFolderSection()
         }
+        // The scanner is open while the model says so, as Android's dialog is: the
+        // account card opens it, Back closes it, and signing out takes it down.
+        .navigationDestination(
+            isPresented: Binding(
+                get: { model.scanPhase != .closed },
+                set: { open in if !open { model.closeScanner() } })
+        ) {
+            ScanAnotherDeviceView(model: model)
+        }
+        .puppetVerbs { puppetVerbs }
         .task { await model.load() }
         // The refused cycle may have ended long before this screen opened, and
         // may end again while it is open; both must reach the banner.
         .onAppear { model.writeRefusal = sync.lastWriteRefusal }
         .onReceive(sync.$lastWriteRefusal) { model.writeRefusal = $0 }
+    }
+
+    /// The section's own controls; each step's are verbs in its view. The banners'
+    /// buttons are labelled by their caller, so the verbs claim the step buttons'.
+    private var puppetVerbs: [PuppetVerbs.Verb] {
+        var verbs: [PuppetVerbs.Verb] = []
+        func unlessBusy() throws {
+            if model.busy { throw PuppetVerbRefusal(409, "hosted sync is busy") }
+        }
+        if model.screen == .signIn {
+            verbs.append(
+                PuppetVerbs.Verb("SignInWithFuto", controls: ["sync.hosted.signIn.button"]) { _ in
+                    try unlessBusy()
+                    return await PuppetVerbs.begin { await model.signIn() }
+                })
+        }
+        if model.screen == .subscribe || model.banner == .syncPaused {
+            verbs.append(
+                PuppetVerbs.Verb("Subscribe", controls: ["sync.hosted.subscribe.button"]) { _ in
+                    try unlessBusy()
+                    return await PuppetVerbs.begin { await model.subscribe() }
+                })
+        }
+        if model.waiting != nil {
+            verbs.append(
+                PuppetVerbs.Verb("CancelWaitingForBrowser", controls: ["sync.hosted.cancel"]) {
+                    model.cancelWaiting()
+                })
+        }
+        if model.screen != .account {
+            verbs.append(
+                PuppetVerbs.Verb("ToggleOwnServer", controls: ["sync.hosted.useMyOwnServer"]) { _ in
+                    model.selfHostedOpen.toggle()
+                    return ["open": model.selfHostedOpen]
+                })
+        }
+        return verbs
     }
 
     @ViewBuilder
@@ -175,9 +226,7 @@ struct HostedSyncSections: View {
                 purpose: .create,
                 minimumLength: model.minimumVaultPasswordLength,
                 busy: model.busy,
-                onSubmit: { vaultPassword in
-                    Task { await model.createVault(vaultPassword: vaultPassword) }
-                }
+                onSubmit: { await model.createVault(vaultPassword: $0) }
             )
         case .changeVaultPassword:
             // The same screen, asking for no current secret: this device holds
@@ -186,10 +235,8 @@ struct HostedSyncSections: View {
                 purpose: .change,
                 minimumLength: model.minimumVaultPasswordLength,
                 busy: model.busy,
-                onSubmit: { vaultPassword in
-                    Task { await model.changeVaultPassword(vaultPassword) }
-                },
-                onCancel: { Task { await model.backToAccount() } }
+                onSubmit: { await model.changeVaultPassword($0) },
+                onCancel: { await model.backToAccount() }
             )
         case .recoveryKey:
             if let recoveryKey = model.recoveryKey {
@@ -199,7 +246,8 @@ struct HostedSyncSections: View {
                     saved: $model.recoveryKeySaved,
                     busy: model.busy,
                     onCopy: { model.copyRecoveryKey() },
-                    onContinue: { Task { await model.continueAfterRecoveryKey() } }
+                    onShare: { model.shareRecoveryKey() },
+                    onContinue: { await model.continueAfterRecoveryKey() }
                 )
             }
         case .unlock:
@@ -210,13 +258,9 @@ struct HostedSyncSections: View {
                 pairingPayload: model.pairingPayload,
                 pairingExpiresAt: model.pairingExpiresAt,
                 onChooseDoor: { model.chooseDoor($0) },
-                onVaultPassword: { vaultPassword in
-                    Task { await model.unlockWithPassword(vaultPassword) }
-                },
-                onRecoveryKey: { typed in
-                    Task { await model.unlockWithRecoveryKey(typed) }
-                },
-                onShowPairingCode: { Task { await model.showPairingCode() } },
+                onVaultPassword: { await model.unlockWithPassword($0) },
+                onRecoveryKey: { await model.unlockWithRecoveryKey($0) },
+                onShowPairingCode: { await model.showPairingCode() },
                 onCancelPairing: { model.cancelPairing() }
             )
         case .account:
@@ -225,11 +269,11 @@ struct HostedSyncSections: View {
                 billing: model.billing,
                 syncStatus: sync.localizedStatus(localization),
                 busy: model.busy,
-                onManage: { Task { await model.manageSubscription() } },
+                onManage: { await model.manageSubscription() },
                 onChangeVaultPassword: { model.beginChangeVaultPassword() },
-                onNewRecoveryKey: { Task { await model.newRecoveryKey() } },
-                onSignOut: { Task { await model.signOut() } },
-                scanDestination: { ScanAnotherDeviceView(model: model) }
+                onNewRecoveryKey: { await model.newRecoveryKey() },
+                onScan: { model.openScanner() },
+                onSignOut: { await model.signOut() }
             )
         }
     }

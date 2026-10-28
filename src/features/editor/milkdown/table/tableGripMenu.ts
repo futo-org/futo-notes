@@ -16,11 +16,23 @@ import {
 export type GripKind = 'row' | 'col';
 
 export interface MenuAction {
+  /** Which entry it is; its `futo-puppet` verb is `OPTION_VERBS[kind][id]`. */
+  id: 'insertBefore' | 'insertAfter' | 'delete';
   label: string;
   disabled: boolean;
   disabledReason: string | null;
   run: Command;
 }
+
+/** Each menu entry's verb while the menu is open, by the grip it opened from. */
+export const OPTION_VERBS: Record<GripKind, Record<MenuAction['id'], string>> = {
+  row: { insertBefore: 'InsertRowAbove', insertAfter: 'InsertRowBelow', delete: 'DeleteRow' },
+  col: {
+    insertBefore: 'InsertColumnLeft',
+    insertAfter: 'InsertColumnRight',
+    delete: 'DeleteColumn',
+  },
+};
 
 /** The three menu entries for whichever grip was clicked, in the fixed
  * order the spec calls for. */
@@ -30,6 +42,7 @@ export function menuActionsFor(kind: GripKind, pos: number, loc: CellLocation): 
     const deleteReason = rowDeleteDisabledReason(loc);
     return [
       {
+        id: 'insertBefore',
         label: localizedText('editor.tableGrips.insertBefore'),
         disabled: !insertBeforeAllowed,
         disabledReason: insertBeforeAllowed
@@ -38,12 +51,14 @@ export function menuActionsFor(kind: GripKind, pos: number, loc: CellLocation): 
         run: insertRowBefore(pos),
       },
       {
+        id: 'insertAfter',
         label: localizedText('editor.tableGrips.insertAfter'),
         disabled: false,
         disabledReason: null,
         run: insertRowAfter(pos),
       },
       {
+        id: 'delete',
         label: localizedText('editor.tableGrips.delete'),
         disabled: deleteReason !== null,
         disabledReason: deleteReason,
@@ -54,18 +69,21 @@ export function menuActionsFor(kind: GripKind, pos: number, loc: CellLocation): 
   const deleteReason = columnDeleteDisabledReason(loc);
   return [
     {
+      id: 'insertBefore',
       label: localizedText('editor.tableGrips.insertBefore'),
       disabled: false,
       disabledReason: null,
       run: insertColumnBefore(pos),
     },
     {
+      id: 'insertAfter',
       label: localizedText('editor.tableGrips.insertAfter'),
       disabled: false,
       disabledReason: null,
       run: insertColumnAfter(pos),
     },
     {
+      id: 'delete',
       label: localizedText('editor.tableGrips.delete'),
       disabled: deleteReason !== null,
       disabledReason: deleteReason,

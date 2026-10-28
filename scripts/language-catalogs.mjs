@@ -1,7 +1,7 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 
 import Ajv2020 from 'ajv/dist/2020.js';
 import { load as parseYaml } from 'js-yaml';
@@ -70,7 +70,7 @@ function messageTemplates(value) {
   return Object.values(value.variants).filter((variant) => typeof variant === 'string');
 }
 
-function flattenMessages(messages, fileName, errors) {
+export function flattenMessages(messages, fileName, errors) {
   const flattened = new Map();
 
   function visit(value, segments) {
@@ -320,4 +320,4 @@ function run() {
   }
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) run();
+if (import.meta.main) run();

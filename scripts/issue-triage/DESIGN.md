@@ -3,7 +3,7 @@
 **Goal:** every new issue on the GitHub mirror
 ([futo-org/futo-notes](https://github.com/futo-org/futo-notes/issues)) is
 posted to Zulip `#futo-notes-alerts`; bugs additionally get an autonomous
-reproduction attempt, and — when reproduced — a `/bugfix`-protocol fix MR on
+reproduction attempt, and — when reproduced — a fix MR on
 GitLab that links back to the issue, announced in the same Zulip topic. No bot
 ever writes to GitHub. Autonomy starts low and is widened deliberately.
 
@@ -13,7 +13,7 @@ ever writes to GitHub. Autonomy starts low and is widened deliberately.
 | ---------------------------------------- | ------------------------------------------------------------------- |
 | Any new issue                            | Post to Zulip `#futo-notes-alerts`                                  |
 | Feature request                          | Nothing further — a human reviews and replies                       |
-| Bug, reproduced                          | `/bugfix` protocol → GitLab MR linking the issue → post MR in Zulip |
+| Bug, reproduced                          | fix (AGENTS.md 7.9) → GitLab MR linking the issue → post MR in Zulip |
 | Bug, not reproduced                      | Say so in Zulip (with what was attempted)                           |
 | Anything else (questions, support, docs) | Nothing further                                                     |
 
@@ -88,7 +88,7 @@ Per bug:
      **reproduced**, **attempted-not-reproduced** (steps ran, behavior
      correct), or **not attemptable here** (needs hardware/vendor state we
      don't have — e.g. an OEM dark-mode variant on a physical device).
-3. **If reproduced:** follow `/bugfix` — failing regression test first, root
+3. **If reproduced:** fix it per AGENTS.md section 7.9 — failing regression test first, root
    cause named, minimal fix, sibling-occurrence grep (M17), the layer's
    verification chain from AGENTS.md's "Testing & quality bar". Branch `fix/gh-<number>-<slug>`, MR on GitLab titled
    `fix(<scope>): <summary> (github#<number>)` with the full issue URL in the

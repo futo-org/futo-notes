@@ -14,12 +14,35 @@ read all of them through `readJustfileSource` in `scripts/lib/justfile.mjs`.
 ## positional-arguments
 
 `just` runs each unshebanged line via a fresh `sh -c`, and a variadic `*args` is joined
-with spaces before `{{args}}` is interpolated — so the shell re-splits it. `just
-android-drive tap 'Connect & Sync'` ran `node ... tap Connect` in the background and then
+with spaces before `{{args}}` is interpolated — so the shell re-splits it. A label
+`'Connect & Sync'` forwarded that way ran `node ... Connect` in the background and then
 `Sync` (pc_9b7fd5dba746), and `just journal where --dir '/tmp/a b'` read `/tmp/a`. Recipes
 that forward user-supplied text — a label, a test-name pattern, a path — pass `"$@"` for
 that reason (enabled by `set positional-arguments := true` at the top of the file);
 flag-only recipes still interpolate with `{{args}}`.
+
+## Rust build troubleshooting
+
+For shared build-directory waits and constrained ICU lockfile downgrades, see
+[Rust build troubleshooting](rust-builds.md). Preserve the cache and the owning process; use a
+separate target for an independent Rust check.
+
+## CI image pins
+
+Resolve multi-platform pins with `docker buildx imagetools inspect <image>` (or `--raw`).
+Pin the top-level `Digest:` only after confirming OCI index/Docker manifest-list media type
+and the required platforms under `Manifests`. Preserve intentional platform-specific pins.
+`docker manifest inspect -v` may return child descriptors: `[0].Descriptor.digest` pins only
+one platform. GitLab CI lint cannot prove architecture coverage; resolve the intended image anew.
+
+## skill-validate
+
+`just skill-validate .claude/skills/bugfix` runs
+`$CODEX_HOME/skills/.system/skill-creator/scripts/quick_validate.py` (`CODEX_HOME` defaults to
+`~/.codex`); a missing validator reports the path issue. Requires `uv` and installed Python.
+PyYAML uses a private temporary environment/cache, removed afterwards; project Python config,
+interpreter downloads, system Python and installed skills are untouched. Validator output/exit
+are preserved. This optional, non-CI check proves structure; verify workflow behavior separately.
 
 ## rust-format / rust-format-check
 
@@ -46,12 +69,24 @@ on `ubuntu:22.04` where stock strip matches, so this is local-only noise.
 
 ## build-ios-native / test-ios-native* (simulator destination)
 
-`build-ios-native` uses the *generic* simulator destination, which links both arm64 and
+`build-ios-native` uses the _generic_ simulator destination, which links both arm64 and
 x86_64 — `build-rust-ios.sh` lipos a universal simulator slice so both resolve.
-The `test-ios-native*` recipes instead resolve a *concrete* `-destination "id=$SIM"`, which links only
+The `test-ios-native*` recipes instead resolve a _concrete_ `-destination "id=$SIM"`, which links only
 ONE arm64 simulator, so the arm64-only FFI sim slice links without `EXCLUDED_ARCHS`. It
 also ad-hoc signs so the app test host launches with its keychain entitlement (mirrors
 `run.sh`).
+
+## Debug builds take the editor bundle with the puppet inspector
+
+A Debug app's `editor.html` carries the puppet inspector, a Release app's does not: `editor.html`
+is one staged file, so a Debug recipe that built it without the inspector left every later Debug
+install without one. `build-ios-native`, `build-android-native` and `test-ios-native` (whose test
+host IS the Debug app) all build it with `VITE_INCLUDE_TEST_HOOKS=true`: the shipped, minified
+bundle plus the inspector, with function names kept for its trace (`vite.editor.config.ts`).
+`test-android-perf` builds without it, so the gate measures the bundle that ships.
+
+`test-ios-native` also turns the simulator's accessibility back on however the run ends: the UI
+tests switch it off when they finish, and the puppet listener's screen reader needs it on.
 
 ## sim-boot (SHOW=1)
 
@@ -66,6 +101,15 @@ window has its rendering suspended.
 Debug builds only; re-run after every app restart (the WebView pid changes). `adb forward`
 host ports are machine-global, so the port is per-worktree (15000 + slot; override with
 `$CDP_PORT`). `scripts/cdp-invoke.mjs` honors `$CDP_PORT`.
+
+## Local crash and feedback collectors
+
+`eval "$(just ports env)"` exports `CRASHLOG_PORT` (`5100 + slot`) for the local collector.
+Debug Vite embeds it, Android projects it into BuildConfig, and iOS runs `ios-dev-ports` on the
+actual build host to write its Debug resource. Rebuild native apps after moving a checkout
+between paths/hosts. The feedback form shows the target; its staging toggle selects the shared
+staging service, and Release always uses production. The 50 slots can collide: check `just orient`
+and verify listener ownership before fixture traffic; a port alone does not establish ownership.
 
 ## prepush (--retries=1)
 
@@ -106,7 +150,7 @@ sync scenarios need a DEV-mode server, the hosted ones a STAND-IN-mode server
 each family at its own, and stops both by PID. The hosted leg runs only when the resolved
 server can do stand-in mode (`standinMode` in `scripts/sync-server-pin.json`, or
 `FUTO_NOTES_E2EE_SERVER_STANDIN=1` with your own build); when it cannot, those scenarios
-stay covered by the in-test stub (`cargo test -p futo-notes-sync --test hosted_setup`).
+stay covered by the in-test stub (`just test-sync`).
 
 ## chunk-census
 
@@ -185,6 +229,52 @@ asserted live by `scripts/premerge-test-parity-mobile.test.mjs` ("builds both An
 distribution flavors..."), which requires `deploy-android flavor="direct":` to exist in the
 justfile.
 
+## check-puppet-verbs / check-puppet-first
+
+Both warn rather than block, by design: CI runs them in `test:puppet-gates` (`allow_failure`),
+not in `arch-gate` (docs/architecture-gates.md).
+
+`check-puppet-verbs` fails if a TS module under `src/` wires its own DOM listener
+(`addEventListener` or `el.onX =` for an event in `DOM_EVENTS`, `scripts/lib/puppet-controls.mjs`:
+click, dblclick, auxclick, the mouse, pointer, touch and key events, input, change, submit,
+contextmenu, focus, blur, drag and drop, paste, copy, cut, wheel; a window keydown shortcut table
+is one), or a SwiftUI view or Compose screen has a control, with no verb registered beside it and
+no allowlist entry: every user-triggerable action must be a `futo-puppet` verb
+(`docs/research/agent-native-app-design.md`). Svelte is checked per control, as every labelled
+SwiftUI and Compose control is: a control labelled with a catalog key must be claimed by a verb's
+`controls`, and a verb's controls must exist, read from source at build time. Exceptions with
+reasons: `scripts/puppet-verbs-allowlist.json` (files) and
+`scripts/puppet-controls-allowlist/<platform>.json` (controls and verbs). It does not see a
+ProseMirror plugin's `handleClick`/`handleDOMEvents`/`handleKeyDown` props.
+
+`check-puppet-first` fails if any instruction surface teaches an agent to DRIVE this app with
+anything but `just puppet`: the retired simulator/emulator input tools (axe, idb, adb input),
+OS-level input (xdotool, ydotool, wtype), the legacy per-platform UI readers, or the MCP bridge's
+input calls. Oracles (screenshots, the vault on disk, device lifecycle, state hooks) are
+untouched; the `puppet` skill lists what stays. A surface the verbs genuinely cannot reach marks
+its section with `<!-- check-puppet-first: <why> -->`, which covers it up to the next heading of
+any level; one-off prose that names a retired idiom in order to forbid it pins the exact line in
+`scripts/puppet-first-allowlist.json`. Measured cause: five pilot agents given a real bug report
+and the CLI documented in-repo; one used it, once.
+
+## puppet
+
+The agent's hands and eyes (`crates/futo-puppet`, design: `docs/research/agent-native-app-design.md`;
+the full command guide is the `puppet` skill). The target comes from the environment, never
+flags: `FUTO_PUPPET_TARGET=desktop` (default, found through `scripts/qa-target.mjs` on this
+worktree's mcp band), `ios` (`just ios-native` launches the listener on this worktree's puppet
+port; the first request checks the app runs on this worktree's simulator), or `android` (the CLI
+forwards this worktree's Android port into its claimed emulator, and refuses a port another
+worktree's emulator holds: `FUTO_PUPPET_ANDROID_PORT` picks a free one). Every action's record
+lands in `.puppet/trace.jsonl`.
+
+`cargo run` spent 0.4-0.7 s of every call deciding nothing had changed, so the recipe execs the
+built binary while it is provably current: the stamp is written BEFORE the build that made the
+binary (an edit landing mid-build is newer, so it rebuilds) and names this checkout (a `target/`
+cloned by `qa-clone-target` has another worktree's paths baked in). Anything newer than the
+stamp, or any doubt, goes through cargo. It is one line, not a shebang script: just writes a
+shebang recipe to a fresh temp file, and executing that costs ~35 ms more.
+
 ## Removed recipes
 
 Cut 2026-09 for zero invocations across both of Justin's machines in the prior 30 days
@@ -236,3 +326,23 @@ node scripts/remote-test.mjs build-android-native \
 
 `--rsync`/other flags go before the recipe name, same as before. See `docs/remote-testing.md`
 for the full flag list and the macOS-only/interactive/local-machine refusal tiers.
+
+## Rust sync timeouts
+
+`just test-sync` runs ordinary sync tests through pinned, checksum-verified nextest, then Cargo
+for doctests (unsupported by nextest). `just test-rust-full` and Linux/macOS CI workspace runs
+use the same bounded sync runner and retain Cargo for other crates. Four tests run concurrently;
+SLOW is reported every 30s, TIMEOUT after 120s, with 5s termination grace. Server-only cases stay
+ignored; `just test-sync-integration` runs those binaries serially and reports whether hosted
+stand-in coverage ran.
+
+First use installs `scripts/cargo-nextest-pin.json` through `ci/install-nextest.sh`;
+`just install-nextest` installs separately without changing the Rust toolchain. The POSIX
+installer supports Linux/macOS. Without a pinned archive, preinstall that exact version in
+Cargo's bin directory or `NEXTEST_INSTALL_DIR`. On Windows the binary is `cargo-nextest.exe`
+(normally `~/.cargo/bin/cargo-nextest.exe`). Missing/wrong versions fail before testing;
+there is no fallback to unbounded Cargo. See nextest's [installation](https://nexte.st/docs/installation/pre-built-binaries/)
+and [timeouts](https://nexte.st/docs/features/slow-tests/).
+
+`just test-sync-timeout-proof` runs a healthy fixture beside an intentional deadlock under
+repository policy; it succeeds only when nextest names the deadlock as TIMEOUT and exits nonzero.

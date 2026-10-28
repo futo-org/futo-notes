@@ -12,6 +12,7 @@
 
 import { mount, type ComponentProps } from 'svelte';
 import '../styles/app.css';
+import { installPuppetInspector } from '$app/puppet/installPuppetInspector';
 import MilkdownEditor from '$features/editor/milkdown/MilkdownEditor.svelte';
 import type { EditorLinkGesture } from '$features/editor/editorLinkGesture';
 import EmbedToolbar from './EmbedToolbar.svelte';
@@ -67,6 +68,7 @@ declare global {
 
 const post = postToHost;
 document.documentElement.dataset.theme = 'light';
+installPuppetInspector();
 
 const target = document.getElementById('editor');
 if (!target) {

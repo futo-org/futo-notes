@@ -76,6 +76,7 @@ Lesson: **install the build you are diagnosing before drawing conclusions**, and
 re-run the baseline after every install. Once the reverted build ALSO failed the
 case that had passed, the regression was obviously not in the working tree.
 
+<!-- check-puppet-first: what idb did in this investigation, recorded as evidence; not an instruction -->
 Also note `idb ui swipe` sends perfectly straight synthetic drags, which pass
 where a real thumb fails. A synthetic pass is not a real pass.
 

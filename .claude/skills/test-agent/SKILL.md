@@ -1,6 +1,6 @@
 ---
 name: test-agent
-description: "Adversarial testing agent. Takes natural language test targets (\"test sync conflict resolution, semantic search, markdown tables\"), generates adversarial scenarios, executes them, and reports structured verdicts comparing actual vs expected behavior. Use when the user says \"test X\", \"can you test\", \"X needs testing\", \"break this\", \"QA this\", or describes features/fixes that need adversarial validation. Unlike /verify (which runs existing test suites), /test-agent generates NEW ephemeral test scenarios designed to break things."
+description: 'Adversarial testing agent. Takes natural language test targets ("test sync conflict resolution, semantic search, markdown tables"), generates adversarial scenarios, executes them, and reports structured verdicts comparing actual vs expected behavior. Use when the user says "test X", "can you test", "X needs testing", "break this", "QA this", or describes features/fixes that need adversarial validation. Unlike /verify (which runs existing test suites), /test-agent generates NEW ephemeral test scenarios designed to break things.'
 ---
 
 # Test Agent
@@ -12,6 +12,7 @@ The user gives you test targets in natural language. You research the code, thin
 ## Mindset
 
 You are not running existing tests. You are **inventing new ones** — scenarios the developer didn't think of. Think:
+
 - What are the edge cases?
 - What happens under concurrent load?
 - What if the input is malformed, huge, empty, or Unicode-heavy?
@@ -24,6 +25,7 @@ You are not running existing tests. You are **inventing new ones** — scenarios
 ### Step 1: Understand the targets
 
 Parse what the user wants tested. For each target:
+
 - Read the relevant source code (grep for the feature, read the implementation)
 - Check recent git changes (`git log --oneline -10 -- <relevant files>`)
 - Read existing test coverage to find **gaps** (what ISN'T tested?)
@@ -44,6 +46,7 @@ CATEGORY: <server | sync | ui | search | markdown | fuzzing>
 ```
 
 **Scenario design principles:**
+
 - At least one scenario per target should test the **happy path under stress** (concurrent users, large data, rapid operations)
 - At least one should test **malformed or adversarial input**
 - At least one should test **state transitions** (what if X happens during Y?)
@@ -57,6 +60,7 @@ Present the full test plan to the user. Wait for approval before executing. The 
 Set up what's needed based on scenario categories. Reuse `/verify` infrastructure patterns.
 
 **For server/sync/search scenarios** — spin up an isolated test server:
+
 ```bash
 WORKTREE_ROOT="$(git rev-parse --show-toplevel)"
 SLOT=$(node "$WORKTREE_ROOT/scripts/lib/slot.mjs" slot)
@@ -67,6 +71,7 @@ echo "Test agent workspace: $TEST_AGENT_DIR"
 **For UI scenarios** — follow `/verify` skill's Instance Setup and Desktop/Android sections for MCP bridge setup.
 
 **For all scenarios** — create the ephemeral test workspace:
+
 ```bash
 mkdir -p "$TEST_AGENT_DIR"/{tests,results,screenshots}
 ```
@@ -88,7 +93,8 @@ tombstones, multi-device) lives in `crates/futo-notes-sync` and is tested there:
 
 ```bash
 # Run existing sync-engine tests
-cd "$WORKTREE_ROOT" && cargo test -p futo-notes-sync -- --nocapture 2>&1 | tee "$TEST_AGENT_DIR/results/sync-tests.txt"
+set -o pipefail
+cd "$WORKTREE_ROOT" && just test-sync 2>&1 | tee "$TEST_AGENT_DIR/results/sync-tests.txt"
 ```
 
 For cross-client scenarios (two real app instances + an isolated server), extend
@@ -96,6 +102,7 @@ For cross-client scenarios (two real app instances + an isolated server), extend
 array (`tests/cross-platform-sync/scenario-registry.mjs`) and `just test-cross-platform`.
 
 **For UI scenarios** — use Tauri MCP tools or agent-browser following `/verify`'s patterns:
+
 - Take before/after screenshots
 - Use `webview_dom_snapshot` to verify DOM state
 - Use `webview_execute_js` to check internal app state
@@ -143,6 +150,7 @@ VERDICT: 1 failure, 1 unexpected behavior
 ```
 
 If any scenario FAILed, include:
+
 - The exact assertion that failed
 - The relevant code path (file:line)
 - A suggested investigation starting point
@@ -150,6 +158,7 @@ If any scenario FAILed, include:
 ### Step 7: Cleanup
 
 Remove the ephemeral test workspace unless the user wants to keep it:
+
 ```bash
 rm -rf "$TEST_AGENT_DIR"
 ```
@@ -161,6 +170,7 @@ Kill any test servers or app instances that were spun up.
 Use these as starting points. Adapt and combine them based on the test targets.
 
 ### Sync conflict resolution
+
 - Two clients edit the same note simultaneously → expect conflict copy
 - Client A deletes while client B edits → expect no silent data loss
 - Three clients, 20 rapid-fire edits, all sync → expect convergence
@@ -168,6 +178,7 @@ Use these as starting points. Adapt and combine them based on the test targets.
 - Sync with empty content vs sync with whitespace-only content
 
 ### Search (lexical BM25)
+
 - Index 50 notes, query an exact term and a prefix → expect relevant results
 - Delete a note, re-index → expect it gone from results
 - Search immediately after sync (before indexing completes) → expect graceful degradation
@@ -175,6 +186,7 @@ Use these as starting points. Adapt and combine them based on the test targets.
 - Search with empty query, very long query, special characters
 
 ### Markdown rendering
+
 - Round-trip: type markdown → save → reload → compare character-for-character
 - Complex GFM: tables, task lists, footnotes, strikethrough combined
 - Nested structures: blockquote inside list inside blockquote
@@ -182,12 +194,14 @@ Use these as starting points. Adapt and combine them based on the test targets.
 - Paste rich HTML → expect clean markdown conversion
 
 ### Multi-client sync
+
 - N clients, each creates notes, all sync → expect all notes on all clients
 - Client goes offline, edits, comes back → expect clean merge
 - Two clients rename the same note → expect conflict or deterministic winner
 - Client with version=0 (fresh) syncs against server with 100 notes → expect full download
 
 ### Fuzzing / chaos
+
 - Random filenames (emoji, path traversal attempts, extremely long)
 - Random content (binary data, null bytes, 10MB text)
 - Rapid sync cycles (100 syncs in 10 seconds)
@@ -195,6 +209,7 @@ Use these as starting points. Adapt and combine them based on the test targets.
 - Malformed request bodies (missing fields, wrong types, extra fields)
 
 ### Authentication / security
+
 - Expired or invalid tokens → expect 401, not 500
 - SQL injection in filenames, note content, search queries
 - Path traversal in filenames (`../../../etc/passwd`)
@@ -203,7 +218,7 @@ Use these as starting points. Adapt and combine them based on the test targets.
 ## Important notes
 
 - **Ephemeral tests only.** Do not commit generated test files. They live in `/tmp/` and die with the session.
-- **If a scenario finds a real bug**, tell the user clearly and suggest creating a permanent regression test (using the `/bugfix` skill's test-first approach).
+- **If a scenario finds a real bug**, tell the user clearly and suggest creating a permanent regression test that fails before the fix (AGENTS.md section 7.9).
 - **Reuse existing test infrastructure.** Extend `tests/cross-platform-sync.mjs` and the crate test helpers rather than writing a new harness.
 - **Screenshots are evidence.** For any UI scenario, capture before and after states.
 - **Coverage over speed.** Prefer a scenario that could find a new bug over finishing quickly.

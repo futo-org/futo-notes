@@ -15,7 +15,12 @@ fn read_json(path: &std::path::Path) -> serde_json::Map<String, Value> {
 /// top-level key. A key that appears in several parts must be an array in each;
 /// the arrays concatenate in that order (`evaluate` is split this way).
 pub(super) fn fixture() -> Value {
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/conformance");
+    // Cargo/nextest run tests in their package directory. Use that current
+    // checkout, never the cached binary's original build path or a peer tree.
+    // A manually launched test executable must also use the package as cwd.
+    let root = std::env::current_dir()
+        .expect("conformance tests require their package working directory")
+        .join("../../tests/conformance");
     let main = root
         .join("license.json")
         .canonicalize()

@@ -1,0 +1,410 @@
+[
+  {
+    "sha": "0f24fd14",
+    "subject": "fix(agent): CreateNote on an empty new note says nothing was created",
+    "platform": "desktop",
+    "sourceFiles": 2,
+    "testFiles": 1,
+    "specKept": 0
+  },
+  {
+    "sha": "d6763ac8",
+    "subject": "fix(agent): Jev waits out a busy TypeSafe instead of failing the goal",
+    "platform": "desktop",
+    "sourceFiles": 1,
+    "testFiles": 0,
+    "specKept": 0
+  },
+  {
+    "sha": "78774a9c",
+    "subject": "fix(qa): disconnect the simulator's boot-attached hardware keyboard",
+    "platform": "ios",
+    "sourceFiles": 5,
+    "testFiles": 3,
+    "specKept": 0
+  },
+  {
+    "sha": "2d499b99",
+    "subject": "fix(scripts): guard check-agent-first's main call like every other script",
+    "platform": "desktop",
+    "sourceFiles": 1,
+    "testFiles": 0,
+    "specKept": 0
+  },
+  {
+    "sha": "3fccbfbd",
+    "subject": "fix(agent): say the app is not running instead of blaming the protocol",
+    "platform": "desktop",
+    "sourceFiles": 1,
+    "testFiles": 0,
+    "specKept": 0
+  },
+  {
+    "sha": "35ff2ec0",
+    "subject": "fix(just): place worktrees at the final branch segment",
+    "platform": "desktop",
+    "sourceFiles": 1,
+    "testFiles": 0,
+    "specKept": 0
+  },
+  {
+    "sha": "18002f45",
+    "subject": "fix(android): keep WebView remote debugging out of release builds",
+    "platform": "android",
+    "sourceFiles": 1,
+    "testFiles": 0,
+    "specKept": 0
+  },
+  {
+    "sha": "493074dc",
+    "subject": "fix(tests): derive the sync port-ownership probe port from the worktree slot",
+    "platform": "desktop",
+    "sourceFiles": 2,
+    "testFiles": 2,
+    "specKept": 0
+  },
+  {
+    "sha": "d735775d",
+    "subject": "fix(settings): language dropdown closes on click instead of reopening on release",
+    "platform": "desktop",
+    "sourceFiles": 3,
+    "testFiles": 2,
+    "specKept": 1
+  },
+  {
+    "sha": "2334b73d",
+    "subject": "fix(desktop): read the desktop color scheme off the main thread",
+    "platform": "desktop",
+    "sourceFiles": 1,
+    "testFiles": 0,
+    "specKept": 0
+  },
+  {
+    "sha": "ca8bcc38",
+    "subject": "fix(android): take the soft keyboard down when find closes",
+    "platform": "android",
+    "sourceFiles": 1,
+    "testFiles": 1,
+    "specKept": 1
+  },
+  {
+    "sha": "7f392d7e",
+    "subject": "fix(editor): decline a table band click even when no neighbouring line exists",
+    "platform": "desktop",
+    "sourceFiles": 1,
+    "testFiles": 0,
+    "specKept": 0
+  },
+  {
+    "sha": "2c54c56c",
+    "subject": "fix(lint): satisfy eslint 10.9's new recommended rules",
+    "platform": "desktop",
+    "sourceFiles": 4,
+    "testFiles": 6,
+    "specKept": 0
+  },
+  {
+    "sha": "68f34d2e",
+    "subject": "fix(desktop): never show the grabbing hand on a pressed sidebar row",
+    "platform": "desktop",
+    "sourceFiles": 1,
+    "testFiles": 0,
+    "specKept": 1
+  },
+  {
+    "sha": "c19ded77",
+    "subject": "fix(editor): clear every find decoration when the query is emptied",
+    "platform": "desktop",
+    "sourceFiles": 1,
+    "testFiles": 2,
+    "specKept": 0
+  },
+  {
+    "sha": "d6531544",
+    "subject": "fix(editor): re-reveal the current match after reveal-driven reflow",
+    "platform": "desktop",
+    "sourceFiles": 2,
+    "testFiles": 1,
+    "specKept": 1
+  },
+  {
+    "sha": "005ecf19",
+    "subject": "fix(editor): pin the desktop find bar through CM6 panel class sync",
+    "platform": "desktop",
+    "sourceFiles": 1,
+    "testFiles": 1,
+    "specKept": 0
+  },
+  {
+    "sha": "3e42be97",
+    "subject": "fix(localization): let the device alone decide regional formatting",
+    "platform": "android",
+    "sourceFiles": 1,
+    "testFiles": 4,
+    "specKept": 1
+  },
+  {
+    "sha": "2287f66c",
+    "subject": "fix(ios): group thousands in localized numbers",
+    "platform": "ios",
+    "sourceFiles": 1,
+    "testFiles": 0,
+    "specKept": 0
+  },
+  {
+    "sha": "addb88ee",
+    "subject": "fix(settings): transition only the language chevron's transform",
+    "platform": "desktop",
+    "sourceFiles": 1,
+    "testFiles": 0,
+    "specKept": 0
+  },
+  {
+    "sha": "e05a25d5",
+    "subject": "fix(tooling): read GitHub anonymously and alert when the issue poller fails",
+    "platform": "desktop",
+    "sourceFiles": 12,
+    "testFiles": 6,
+    "specKept": 0
+  },
+  {
+    "sha": "f4c012c7",
+    "subject": "fix(editor): rebuild the table widget DOM every time CM6 asks for it",
+    "platform": "desktop",
+    "sourceFiles": 1,
+    "testFiles": 1,
+    "specKept": 1
+  },
+  {
+    "sha": "9ac3817f",
+    "subject": "fix(ios): report the device hardware model in crash reports",
+    "platform": "ios",
+    "sourceFiles": 2,
+    "testFiles": 1,
+    "specKept": 0
+  },
+  {
+    "sha": "2d448092",
+    "subject": "fix(editor): drop replacements the line-break check can't evaluate",
+    "platform": "desktop",
+    "sourceFiles": 1,
+    "testFiles": 1,
+    "specKept": 0
+  },
+  {
+    "sha": "ca233cb1",
+    "subject": "fix(desktop): give the top band's height an owner",
+    "platform": "desktop",
+    "sourceFiles": 1,
+    "testFiles": 0,
+    "specKept": 0
+  },
+  {
+    "sha": "0d9ba74b",
+    "subject": "fix(tooling): stop the tab-switch probe hanging forever on an occluded window",
+    "platform": "desktop",
+    "sourceFiles": 3,
+    "testFiles": 0,
+    "specKept": 0
+  },
+  {
+    "sha": "773b6498",
+    "subject": "fix(editor): adopt external content verbatim, without renumbering it",
+    "platform": "desktop",
+    "sourceFiles": 1,
+    "testFiles": 1,
+    "specKept": 0
+  },
+  {
+    "sha": "208a20ce",
+    "subject": "fix(sidebar): keep labels mounted during scroll",
+    "platform": "desktop",
+    "sourceFiles": 1,
+    "testFiles": 1,
+    "specKept": 0
+  },
+  {
+    "sha": "0b71d26c",
+    "subject": "fix(ci): pin a Gradle-supported JDK on the remote",
+    "platform": "desktop",
+    "sourceFiles": 1,
+    "testFiles": 1,
+    "specKept": 0
+  },
+  {
+    "sha": "2913ee27",
+    "subject": "fix(qa): stop qa-target resolving a relative argv[0] against its own cwd",
+    "platform": "desktop",
+    "sourceFiles": 1,
+    "testFiles": 1,
+    "specKept": 0
+  },
+  {
+    "sha": "1fd7ed8b",
+    "subject": "fix(qa): let qa-target.mjs be imported, and pin the stale-vault-override refusal",
+    "platform": "desktop",
+    "sourceFiles": 2,
+    "testFiles": 1,
+    "specKept": 0
+  },
+  {
+    "sha": "cf35d3cd",
+    "subject": "fix(qa): report an unreadable process environment as its own refusal",
+    "platform": "desktop",
+    "sourceFiles": 1,
+    "testFiles": 1,
+    "specKept": 0
+  },
+  {
+    "sha": "88e82987",
+    "subject": "fix(editor): fold an ordered-list renumber into the edit that caused it",
+    "platform": "desktop",
+    "sourceFiles": 1,
+    "testFiles": 2,
+    "specKept": 0
+  },
+  {
+    "sha": "4272a06b",
+    "subject": "fix(ci): stop the gate red-proof harness dying on CI's untracked pnpm store",
+    "platform": "desktop",
+    "sourceFiles": 2,
+    "testFiles": 0,
+    "specKept": 0
+  },
+  {
+    "sha": "184d97cf",
+    "subject": "fix(core): fall back to a copy install when a filesystem rejects rename flags",
+    "platform": "desktop",
+    "sourceFiles": 1,
+    "testFiles": 0,
+    "specKept": 1
+  },
+  {
+    "sha": "e1a7da27",
+    "subject": "fix(store): make the vault containment check canonicalization-safe",
+    "platform": "desktop",
+    "sourceFiles": 1,
+    "testFiles": 0,
+    "specKept": 0
+  },
+  {
+    "sha": "e5baaeb9",
+    "subject": "fix(scripts): unique branch ids, object-tolerant actions, strict flag values",
+    "platform": "desktop",
+    "sourceFiles": 1,
+    "testFiles": 1,
+    "specKept": 0
+  },
+  {
+    "sha": "9d636ed4",
+    "subject": "fix(skills): stop a thrown verify agent losing the FAILs its sweep found",
+    "platform": "desktop",
+    "sourceFiles": 3,
+    "testFiles": 0,
+    "specKept": 0
+  },
+  {
+    "sha": "31d0cd53",
+    "subject": "fix(skills): stop a thrown QA leg vanishing from the verify-specs run",
+    "platform": "desktop",
+    "sourceFiles": 1,
+    "testFiles": 0,
+    "specKept": 0
+  },
+  {
+    "sha": "9db099fa",
+    "subject": "fix(build): make just deploy-rpm actually install, and fail red when it doesn't",
+    "platform": "desktop",
+    "sourceFiles": 1,
+    "testFiles": 0,
+    "specKept": 0
+  },
+  {
+    "sha": "1eb552a0",
+    "subject": "fix(sync): preserve uncertain tombstone claims",
+    "platform": "desktop",
+    "sourceFiles": 2,
+    "testFiles": 0,
+    "specKept": 0
+  },
+  {
+    "sha": "bc455401",
+    "subject": "fix(android): correct editor WebView guard",
+    "platform": "android",
+    "sourceFiles": 1,
+    "testFiles": 0,
+    "specKept": 0
+  },
+  {
+    "sha": "d5dacb25",
+    "subject": "fix(ci): propagate AppImage verification failure",
+    "platform": "desktop",
+    "sourceFiles": 1,
+    "testFiles": 1,
+    "specKept": 0
+  },
+  {
+    "sha": "717f5d30",
+    "subject": "fix(ci): scrub updater key before Linux setup",
+    "platform": "desktop",
+    "sourceFiles": 3,
+    "testFiles": 2,
+    "specKept": 0
+  },
+  {
+    "sha": "51df56e0",
+    "subject": "fix(ci): preserve iOS test failure evidence",
+    "platform": "desktop",
+    "sourceFiles": 2,
+    "testFiles": 0,
+    "specKept": 0
+  },
+  {
+    "sha": "f7afec3f",
+    "subject": "fix(android): keep JVM image tests native-free",
+    "platform": "android",
+    "sourceFiles": 1,
+    "testFiles": 1,
+    "specKept": 0
+  },
+  {
+    "sha": "8bc78da3",
+    "subject": "fix(store): precise + fail-safe park idempotency guard (F1, F2)",
+    "platform": "desktop",
+    "sourceFiles": 3,
+    "testFiles": 0,
+    "specKept": 0
+  },
+  {
+    "sha": "94a327cd",
+    "subject": "fix(sync): reconnect persists metadata before keyring password (P2)",
+    "platform": "desktop",
+    "sourceFiles": 1,
+    "testFiles": 1,
+    "specKept": 0
+  },
+  {
+    "sha": "d87173eb",
+    "subject": "fix(ci): close comment/import-form gaps in arch-hardening gates",
+    "platform": "desktop",
+    "sourceFiles": 2,
+    "testFiles": 0,
+    "specKept": 0
+  },
+  {
+    "sha": "d76c59cf",
+    "subject": "fix(ci): fail publish:android red when Play rejects the AAB",
+    "platform": "desktop",
+    "sourceFiles": 1,
+    "testFiles": 0,
+    "specKept": 0
+  },
+  {
+    "sha": "b2f9528c",
+    "subject": "fix(android): ship a self-contained AAB so de-Googled installs work",
+    "platform": "android",
+    "sourceFiles": 1,
+    "testFiles": 0,
+    "specKept": 0
+  }
+]

@@ -1,5 +1,8 @@
 # Remote testing (Linux over Tailscale)
 
+For the other direction — native iOS tests from Linux on a Mac — use
+[`just ios-remote`](remote-ios-testing.md).
+
 Everything in this repo that does **not** need macOS runs on a Linux box over Tailscale, so the Mac
 stays free for the work only it can do: Xcode builds, the iOS simulator, and the WKWebView desktop
 app.

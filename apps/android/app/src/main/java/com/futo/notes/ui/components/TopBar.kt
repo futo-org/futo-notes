@@ -8,6 +8,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import com.futo.notes.puppet.puppetSection
 import com.futo.notes.ui.theme.FutoTheme
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -23,6 +24,6 @@ fun TopBar(
         navigationIcon = navigationIcon,
         actions = actions,
         colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
-        modifier = Modifier.background(FutoTheme.colors.surface).then(modifier),
+        modifier = Modifier.background(FutoTheme.colors.surface).then(modifier).puppetSection("top bar"),
     )
 }

@@ -15,6 +15,22 @@ test-unit *args: editor-deps
 test-e2e:
   pnpm run test:e2e:smoke
 
+# Install browsers matching this worktree's Playwright lockfile (Chromium by default).
+browser-install *browsers='chromium':
+  PLAYWRIGHT_SKIP_BROWSER_GC=1 pnpm exec playwright install "$@"
+
+# Serve this worktree for browser diagnostics without consuming file watchers; no HMR.
+web-diagnostic *args:
+  FUTO_VITE_NO_WATCH=1 pnpm run dev "$@"
+
+# Run selected Playwright tests against this worktree's already-running diagnostic server.
+test-e2e-reuse *args:
+  PLAYWRIGHT_REUSE_DEV_SERVER=1 pnpm exec playwright test "$@"
+
+# Run browser tests in a matching official image via rootless Podman (Linux; no host library changes).
+test-browser-container browser='webkit' *args:
+  node scripts/browser-container.mjs "$@"
+
 # EXACTLY what CI's test:e2e:rest job runs (everything but the P0 crash/IME spec).
 test-e2e-rest:
   pnpm run test:e2e:rest
@@ -33,10 +49,26 @@ test-rust:
   cargo test -p futo-notes-license
   node --experimental-strip-types tests/conformance/title-rules-differential.mjs
 
-# The full Rust workspace + the differential.
+# Install the pinned, verified nextest binary without changing the Rust toolchain.
+install-nextest:
+  sh ci/install-nextest.sh
+
+# All ordinary sync tests with per-test timeouts, then Cargo doctests; server tests stay ignored.
+test-sync:
+  node scripts/rust-tests.mjs sync
+
+# Prove a deliberately deadlocked test fails with its name under the actual timeout policy.
+test-sync-timeout-proof:
+  node scripts/rust-test-timeout-proof.mjs
+
+# Prove model fixture embedding and dynamic license goldens survive checkout relocation.
+test-conformance-relocation:
+  node scripts/conformance-relocation-proof.mjs
+
+# The full Rust workspace + doctests + differential; sync uses bounded per-test processes.
 test-rust-full:
   mkdir -p dist
-  cargo test --workspace
+  node scripts/rust-tests.mjs workspace
   node --experimental-strip-types tests/conformance/title-rules-differential.mjs
 
 # Run the futo-notes CLI from source (a debug build: its own futo-notes-cli-dev settings).

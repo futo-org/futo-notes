@@ -146,6 +146,10 @@ export function createSelectionToolbarPlugin(
             // let a submit apply the link to this note. `reset` reports the
             // close back through `onlinkediting`, which clears the pin below.
             if (editingLink && editingOn !== documentToken()) ui.reset();
+            // The note was edited under an open URL field (the user clicked
+            // back into it): the pinned range indexes the old document and can
+            // run past the end of the new one, where `rangeHasMark` throws.
+            if (editingLink && prevState && prevState.doc !== live.state.doc) ui.reset();
             target = editingLink ? target : selectionToolbarTarget(live.state);
             if (target) {
               const { selection, storedMarks, schema } = live.state;

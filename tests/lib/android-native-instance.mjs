@@ -22,6 +22,7 @@
  */
 
 import { join } from 'node:path';
+import { verifyAndroidApk } from '../../scripts/qa/android-apk.mjs';
 import { AndroidDevice, DEBUG_PACKAGE, listAttachedDevices } from './android-device.mjs';
 import {
   EMULATOR_HOST_LOOPBACK,
@@ -95,6 +96,7 @@ export function findAndroidLegDevice() {
  */
 export async function startAndroidNativeInstance(name, repoRoot, serial) {
   const device = new AndroidDevice(serial);
+  verifyAndroidApk({ serial });
   const client = new AndroidNativeSyncClient({ name, repoRoot, device });
   device.launch();
   await client.completeFirstRunIfNeeded();

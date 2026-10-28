@@ -9,8 +9,7 @@ describe('confirmDialog', () => {
     const first = confirmDialog('Copy this file?', {
       title: 'Open Markdown File',
       kind: 'warning',
-      confirmLabel: 'Copy into notes',
-      cancelLabel: 'Leave unchanged',
+      confirmLabelKey: 'notes.externalOpen.confirmLabel',
     });
     const second = confirmDialog('Second?', { title: 'Second' });
 
@@ -18,8 +17,7 @@ describe('confirmDialog', () => {
       message: 'Copy this file?',
       title: 'Open Markdown File',
       kind: 'warning',
-      confirmLabel: 'Copy into notes',
-      cancelLabel: 'Leave unchanged',
+      confirmLabelKey: 'notes.externalOpen.confirmLabel',
     });
     resolveConfirmDialog(false);
     await expect(first).resolves.toBe(false);

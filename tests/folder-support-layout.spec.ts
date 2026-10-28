@@ -44,7 +44,7 @@ test.describe('Folder support', () => {
     });
 
     await page.locator('[data-folder-path="Nested"]').first().click();
-    await expect(page.locator('[data-note-id="Nested/child-note"]')).toBeVisible();
+    await expect(page.locator('.note-row[data-note-id="Nested/child-note"]')).toBeVisible();
 
     const rightEdgeOffsets = await page.evaluate(() => {
       const scroll = document.querySelector('.folder-tree-scroll');
@@ -54,7 +54,7 @@ test.describe('Folder support', () => {
         scroll.getBoundingClientRect().right -
         Number.parseFloat(getComputedStyle(scroll).paddingRight);
       return ['root-note', 'Nested/child-note'].map((id) => {
-        const row = document.querySelector(`[data-note-id="${id}"]`);
+        const row = document.querySelector(`.note-row[data-note-id="${id}"]`);
         if (!(row instanceof HTMLElement)) throw new Error(`Note row is missing: ${id}`);
         return contentRight - row.getBoundingClientRect().right;
       });

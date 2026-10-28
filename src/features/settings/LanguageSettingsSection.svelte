@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { puppetRefusal, puppetVerb, registerPuppetVerbs } from '$app/puppet/puppetRegistry';
   import { Check, ChevronDown, Globe } from '@lucide/svelte';
   import { tick } from 'svelte';
   import { dismissable } from '$shared/dialogs/dismissable';
@@ -66,6 +67,28 @@
     closeLanguageOptions(true);
     onchange(selectedTag);
   }
+
+  // The language button, and while its list is open, one option: no tag is the system
+  // language, the first option.
+  $effect(() =>
+    registerPuppetVerbs(() => [
+      puppetVerb('ToggleLanguageOptions', { tag: 'string?' }, toggleLanguageOptions, {
+        shortcuts: { tag: [['SetLanguage', { tag: '$' }]] },
+      }),
+      ...(languageOptionsOpen
+        ? [
+            puppetVerb('SetLanguage', { tag: 'string?' }, (args) => {
+              const tag = (args.tag as string | undefined) ?? null;
+              if (!languageOptions.some((option) => option.tag === tag)) {
+                return puppetRefusal(400, `no such language: ${tag}`);
+              }
+              selectLanguageOption(tag);
+              return undefined;
+            }),
+          ]
+        : []),
+    ]),
+  );
 
   function handleLanguageTriggerKeydown(event: KeyboardEvent): void {
     if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;

@@ -24,7 +24,7 @@
  * The hosted leg only runs when the server this harness resolves can do
  * stand-in mode — see `standinMode` in scripts/sync-server-pin.json. When it
  * cannot, the run says so in full and the hosted scenarios stay covered by the
- * in-test stub (`cargo test -p futo-notes-sync --test hosted_setup`). It is
+ * in-test stub (`just test-sync`). It is
  * never quietly skipped, and a stand-in server that is asked for and does not
  * answer as one fails the run rather than skipping it.
  */
@@ -36,6 +36,7 @@ import { fileURLToPath } from 'node:url';
 import { standinModeAvailable } from '../scripts/lib/sync-server.mjs';
 import { portsFor } from '../scripts/lib/slot.mjs';
 import { startServer } from './lib/sync-test-server.mjs';
+import { ensureNextest, syncNextestArgs } from '../scripts/rust-tests.mjs';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -66,6 +67,7 @@ for (const signal of ['SIGINT', 'SIGTERM']) {
 }
 
 async function main() {
+  const nextest = ensureNextest(REPO_ROOT);
   const ports = portsFor(REPO_ROOT);
   const standin = standinModeAvailable();
 
@@ -110,7 +112,7 @@ async function main() {
         '==> hosted scenarios: NOT RUN against a real server',
         `    ${standin.why}.`,
         '    They still run against the in-test stub:',
-        '      cargo test -p futo-notes-sync --test hosted_setup',
+        '      just test-sync',
         `    To run them here, either point FUTO_NOTES_E2EE_SERVER_REPO at a`,
         '    futo-notes-server checkout that has stand-in mode and set',
         '    FUTO_NOTES_E2EE_SERVER_STANDIN=1, or bump the pin to a release that',
@@ -120,24 +122,11 @@ async function main() {
     );
   }
 
-  const testArgs = [
-    'test',
-    '-p',
-    'futo-notes-sync',
-    '--test',
-    'server_integration',
-    '--test',
-    'sse_live',
-    '--',
-    '--ignored',
-    // One stand-in account, one shared dev vault: two scenarios in flight would
-    // fight over both.
-    '--test-threads=1',
-    ...extraTestArgs,
-  ];
-  console.log(`==> cargo ${testArgs.join(' ')}`);
+  // One stand-in account and shared dev vault: keep real-server cases serial.
+  const testArgs = syncNextestArgs({ integration: true, extraTestArgs });
+  console.log(`==> ${nextest} ${testArgs.join(' ')}`);
   const status = await new Promise((resolve) => {
-    const proc = spawn('cargo', testArgs, {
+    const proc = spawn(nextest, testArgs, {
       cwd: REPO_ROOT,
       stdio: 'inherit',
       env: {

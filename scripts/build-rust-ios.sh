@@ -27,6 +27,8 @@ fi
 # shared across worktrees); the hardcoded target/… paths below would then miss
 # the freshly built artifacts (pc_2439ab43fc9b, Android sibling).
 TARGET_DIR="${CARGO_TARGET_DIR:-$ROOT/target}"
+# Fail before expensive compilation when the target volume is already full.
+node scripts/ios-build-space.mjs "$TARGET_DIR"
 
 # Rust's aarch64-apple-ios target defaults to a 10.0 minimum, but C objects
 # built by cc-rs deps (zstd-sys via tantivy in futo-notes-search) reference
@@ -58,11 +60,14 @@ cargo build -p futo-notes-ffi --target x86_64-apple-ios --profile "$PROFILE"
 echo "==> Building host lib (for binding generation metadata)"
 cargo build -p futo-notes-ffi
 
+# UniFFI's optional formatter is the unrelated `swiftformat` executable, not
+# Xcode's `swift-format`. These generated files are excluded from Swift lint;
+# skip that optional pass instead of warning on every otherwise healthy build.
 echo "==> Generating Swift bindings"
 rm -rf "$GEN"; mkdir -p "$GEN"
 cargo run -p futo-notes-ffi --bin uniffi-bindgen -- generate \
   --library "$TARGET_DIR/debug/libfuto_notes_ffi.dylib" \
-  --language swift \
+  --language swift --no-format \
   --out-dir "$GEN"
 
 echo "==> Assembling module headers"

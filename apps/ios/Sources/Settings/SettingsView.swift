@@ -22,8 +22,8 @@ struct SettingsView: View {
     @AppStorage(ThemeMode.storageKey) private var themeMode = ThemeMode.auto.rawValue
     /// Crash-reporting prefs, read by CrashReporter's launch scan. Mirror the
     /// desktop prefs.crashReporting.{enabled,alwaysSend} pair.
-    @AppStorage("futo.crashReporting.enabled") private var crashEnabled = true
-    @AppStorage("futo.crashReporting.alwaysSend") private var crashAlwaysSend = false
+    @AppStorage(CrashReporter.enabledKey) private var crashEnabled = true
+    @AppStorage(CrashReporter.alwaysSendKey) private var crashAlwaysSend = false
 
     @State private var appIcons = AppIconController()
     @State private var showAppIcons = false
@@ -38,7 +38,9 @@ struct SettingsView: View {
     /// picker, so it survives the picker being re-created on foregrounding.
     @State private var askingIcon: AppIcon?
     @Environment(\.scenePhase) private var scenePhase
-    @State private var showSync = false
+    /// The Sync sheet this screen opens is navigation state (AppNavigation), so
+    /// the debug puppet listener sees it as the screen and can dismiss it.
+    @EnvironmentObject private var navigation: AppNavigation
     /// Full reset is guarded by a modal confirmation dialog: tapping the row
     /// opens it, and only confirming there runs the wipe. (The old in-place
     /// two-tap arm/confirm was removed — a stray double-tap wiped everything
@@ -47,7 +49,7 @@ struct SettingsView: View {
     @State private var resetting = false
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: navigation.settingsPath) {
             Form {
                 // The License row is the FIRST row of Settings on mobile:
                 // there is no ambient label anywhere else on this platform, so
@@ -65,7 +67,7 @@ struct SettingsView: View {
                 // (settings.md). Tapping opens SyncView.
                 Section(localization.localizedText("settings.sections.sync")) {
                     Button {
-                        showSync = true
+                        navigation.sheet = .settingsSync
                     } label: {
                         HStack(spacing: 12) {
                             Image(systemName: sync.connected ? "checkmark.icloud.fill" : "icloud")
@@ -165,9 +167,7 @@ struct SettingsView: View {
                         isOn: $crashAlwaysSend
                     )
                     .disabled(!crashEnabled)
-                    NavigationLink {
-                        FeedbackView()
-                    } label: {
+                    NavigationLink(value: SettingsRoute.feedback) {
                         Text(localization.localizedText("settings.issueReporting.sendFeedback"))
                     }
                 }
@@ -220,7 +220,9 @@ struct SettingsView: View {
                 // The OS cannot change icons (the picker would only say so),
                 // or something Settings owns is already up and SwiftUI would
                 // drop the presentation: the toast alone is the landing.
-                guard appIcons.available, !showSync, !showResetConfirm, !resetting else { return }
+                guard appIcons.available, navigation.sheet != .settingsSync, !showResetConfirm,
+                    !resetting
+                else { return }
                 showsLanding = true
                 // Already open (the user paid from its sheet): it only gains
                 // the header.
@@ -235,6 +237,11 @@ struct SettingsView: View {
             .modifier(ScrollOnChange(id: Self.licenseCardID, trigger: keyEntryRequest))
             .navigationTitle(localization.localizedText("settings.heading"))
             .navigationBarTitleDisplayMode(.inline)
+            .navigationDestination(for: SettingsRoute.self) { route in
+                switch route {
+                case .feedback: FeedbackView()
+                }
+            }
             .tint(Theme.primary)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -252,7 +259,54 @@ struct SettingsView: View {
                         keyEntryRequest += 1
                     })
             }
-            .sheet(isPresented: $showSync) {
+            // The app icon row and the danger zone. The theme picker and the reporting toggles are already
+            // verbs on the listener itself — they write the same defaults these controls
+            // bind to — so only what lives in this view's own state is registered here.
+            .puppetVerbs {
+                // The Sync sheet covers Settings without making it disappear.
+                guard navigation.sheet == .settings else { return [] }
+                var verbs: [PuppetVerbs.Verb] = [
+                    PuppetVerbs.Verb("OpenAppIcons") { showAppIcons = true },
+                    PuppetVerbs.Verb(
+                        "ResetAllNotes", optional: ["answer"],
+                        controls: ["settings.danger.fullReset"]
+                    ) { _ in
+                        guard !resetting else {
+                            throw PuppetVerbRefusal(409, "a reset is already running")
+                        }
+                        showResetConfirm = true
+                        return [:]
+                    },
+                ]
+                #if DEBUG
+                    verbs.append(
+                        PuppetVerbs.Verb("TestCrash", controls: ["settings.debug.testCrash.title"])
+                        { fatalError("Test crash from the agent (DEBUG)") })
+                #endif
+                return verbs
+            }
+            // The reset asks first, and while it does its ConfirmDialog or DismissDialog is all
+            // a person can reach (`answer` is the CLI pressing one).
+            .background {
+                if showResetConfirm {
+                    Color.clear.puppetVerbs(modal: true) {
+                        [
+                            PuppetVerbs.Verb(
+                                "ConfirmDialog", controls: ["settings.danger.deleteEverything"]
+                            ) {
+                                showResetConfirm = false
+                                await runFullReset()
+                            },
+                            PuppetVerbs.Verb(
+                                "DismissDialog", controls: ["common.actions.cancel"]
+                            ) {
+                                showResetConfirm = false
+                            },
+                        ]
+                    }
+                }
+            }
+            .sheet(isPresented: navigation.isPresenting(.settingsSync)) {
                 SyncView()
                     .environmentObject(sync)
                     .environmentObject(store)

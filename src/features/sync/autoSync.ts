@@ -150,6 +150,11 @@ export function resumeAutoSync(): void {
   void ensureLiveSync();
 }
 
+/** A sync run is in flight right now. */
+export function isSyncing(): boolean {
+  return syncing;
+}
+
 export async function waitForSyncIdle(): Promise<void> {
   while (syncing) {
     await new Promise((resolve) => setTimeout(resolve, 50));

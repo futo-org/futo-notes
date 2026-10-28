@@ -118,6 +118,13 @@ internal fun TextFieldBuffer.filterTitleInput() {
     selection = kept.selection
 }
 
+/** One edit as the title field takes it: filtered, then reported with whether it held a forbidden char. */
+internal fun TextFieldBuffer.applyTypedTitle(onTyped: (title: String, forbidden: Boolean) -> Unit) {
+    val forbidden = TitleSpec.forbiddenChars.containsMatchIn(toString().replace("\n", ""))
+    filterTitleInput()
+    onTyped(toString(), forbidden)
+}
+
 /**
  * The note's inline title field [list.md]. Return moves on into the body: the
  * keyboard's action key (shown as "next") and a hardware Enter both run
@@ -138,11 +145,7 @@ internal fun NoteTitleField(
     val c = FutoTheme.colors
     val currentOnTyped by rememberUpdatedState(onTyped)
     val filter = remember {
-        InputTransformation {
-            val forbidden = TitleSpec.forbiddenChars.containsMatchIn(toString().replace("\n", ""))
-            filterTitleInput()
-            currentOnTyped(toString(), forbidden)
-        }
+        InputTransformation { applyTypedTitle(currentOnTyped) }
     }
     BasicTextField(
         state = state,

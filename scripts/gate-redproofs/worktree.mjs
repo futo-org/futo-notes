@@ -16,12 +16,12 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 // a pnpm content-addressable store is ~25 MB of path text, 25x Node's 1 MB
 // default. On overflow spawnSync SIGTERMs git and returns status=null with an
 // empty stderr, which used to surface as a blank "git ... failed:".
-export function git(args, cwd = ROOT) {
-  return spawnSync('git', args, { cwd, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+export function git(args, cwd = ROOT, env = process.env) {
+  return spawnSync('git', args, { cwd, env, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
 }
 
-export function gitOrThrow(args, cwd = ROOT) {
-  const result = git(args, cwd);
+export function gitOrThrow(args, cwd = ROOT, env = process.env) {
+  const result = git(args, cwd, env);
   if (result.status !== 0) {
     // `||`, not `??`: an empty stderr must fall through to error.message, or a
     // spawn-level failure (ENOBUFS, ENOENT) reports its reason as nothing at all.
@@ -32,34 +32,45 @@ export function gitOrThrow(args, cwd = ROOT) {
   return result.stdout.trim();
 }
 
-// The commit the proof worktree is built from: the working tree's tracked
-// state when it is dirty (so a gate you just edited is the one under test),
-// HEAD when it is clean. Untracked files are never included — reported, not
-// hidden.
+// Build a commit from the current on-disk source with a disposable index.
+// `git stash create` both omits untracked source and can rewrite the real
+// index's cache-tree extension. An alternate index preserves staged/unstaged
+// distinctions in the caller while Git retains symlink and executable modes.
 export function resolveBase() {
-  const head = gitOrThrow(['rev-parse', '--short', 'HEAD']);
-  const status = gitOrThrow(['status', '--porcelain']).split('\n').filter(Boolean);
-  const trackedEdits = status.some((line) => !line.startsWith('??'));
-  const untracked = gitOrThrow(['ls-files', '--others', '--exclude-standard'])
-    .split('\n')
-    .filter(Boolean);
-
-  if (!trackedEdits) return { rev: head, label: `HEAD ${head}`, untracked };
-
-  const stash = git(['stash', 'create']);
-  const rev = stash.status === 0 ? stash.stdout.trim() : '';
-  if (!rev) {
-    return {
-      rev: head,
-      label: `HEAD ${head} — the working tree has tracked edits but 'git stash create' produced nothing, so those edits are NOT covered`,
-      untracked,
-    };
+  const head = gitOrThrow(['rev-parse', 'HEAD']);
+  const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'futo-redproof-index-'));
+  const env = { ...process.env, GIT_INDEX_FILE: path.join(scratch, 'index') };
+  try {
+    // The current index knows about newly force-added ignored source that
+    // HEAD cannot supply. Git resolves a linked worktree's private index path.
+    const index = path.resolve(ROOT, gitOrThrow(['rev-parse', '--git-path', 'index']));
+    if (fs.existsSync(index)) fs.copyFileSync(index, env.GIT_INDEX_FILE);
+    else gitOrThrow(['read-tree', head], ROOT, env);
+    gitOrThrow(['add', '-A', '--', '.'], ROOT, env);
+    const tree = gitOrThrow(['write-tree'], ROOT, env);
+    if (tree === gitOrThrow(['rev-parse', `${head}^{tree}`])) {
+      return { rev: head, label: `HEAD ${head.slice(0, 9)}` };
+    }
+    const rev = gitOrThrow(
+      [
+        '-c',
+        'user.name=Gate redproof',
+        '-c',
+        'user.email=gate-redproof@example.invalid',
+        'commit-tree',
+        tree,
+        '-p',
+        head,
+        '-m',
+        'Gate redproof working-tree snapshot',
+      ],
+      ROOT,
+      env,
+    );
+    return { rev, label: `working tree of HEAD ${head.slice(0, 9)} (including untracked source)` };
+  } finally {
+    fs.rmSync(scratch, { recursive: true, force: true });
   }
-  return {
-    rev,
-    label: `working tree of HEAD ${head} (via git stash create ${rev.slice(0, 9)})`,
-    untracked,
-  };
 }
 
 export function createWorktree(rev) {

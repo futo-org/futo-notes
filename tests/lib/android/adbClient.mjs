@@ -8,6 +8,9 @@
  */
 
 import { execFileSync } from 'node:child_process';
+import { verifyAndroidApk } from '../../../scripts/qa/android-apk.mjs';
+import { assertAndroidTarget } from '../../../scripts/qa/android-target.mjs';
+import { isAndroidPackageInstalled } from '../../../scripts/qa/android-package-probe.mjs';
 
 /** Marks the boundary between batched commands' output. */
 const BATCH_DELIMITER = '__futo_adb_batch__';
@@ -16,16 +19,19 @@ export function createAdbClient({
   pkg,
   serial = process.env.ANDROID_SERIAL ?? null,
   execFile = execFileSync,
+  apkPath,
 } = {}) {
   if (!pkg) throw new Error('createAdbClient requires the app package id');
 
   /** Every invocation goes through here so the device selection cannot drift
    *  between the text and binary paths. */
-  const argv = (args) => (serial ? ['-s', serial, ...args] : args);
+  const argv = (args) => ['-s', assertAndroidTarget({ serial, execFile }), ...args];
 
   function adb(args, { allowFailure = false, input } = {}) {
+    // Identity failures must not be swallowed by a best-effort read.
+    const selectedArgs = argv(args);
     try {
-      const output = execFile('adb', argv(args), {
+      const output = execFile('adb', selectedArgs, {
         encoding: 'utf8',
         input,
         maxBuffer: 64 * 1024 * 1024,
@@ -66,7 +72,8 @@ export function createAdbClient({
 
   const isReachable = () => shell('echo ok', { allowFailure: true }).includes('ok');
 
-  const isInstalled = () => shell(`pm path ${pkg}`, { allowFailure: true }).includes('package:');
+  const isInstalled = ({ timeoutMs } = {}) =>
+    isAndroidPackageInstalled(pkg, { timeoutMs, serial, execFile });
 
   // ── App lifecycle ───────────────────────────────────────────────
 
@@ -156,6 +163,12 @@ export function createAdbClient({
     return last;
   };
 
+  const replaceText = (text) => {
+    shell('input keycombination 113 29'); // CTRL_LEFT + A
+    shell('input keyevent 67'); // DEL: also clears the field when text is empty.
+    return typeText(text);
+  };
+
   /**
    * The accessibility tree as XML. This is the expensive call in the whole client
    * — a measured ~1.9s, because uiautomator waits for the window to go idle.
@@ -180,6 +193,7 @@ export function createAdbClient({
     adb,
     shell,
     shellBatch,
+    verifyInstallation: () => verifyAndroidApk({ serial, apkPath, execFile }),
     isReachable,
     isInstalled,
     launch,
@@ -196,6 +210,7 @@ export function createAdbClient({
     swipe,
     keyevent,
     typeText,
+    replaceText,
     dumpUiXml,
     screencapPng,
     broadcast,

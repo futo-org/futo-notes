@@ -11,6 +11,8 @@
   import FolderTreeEmptyRow from './FolderTreeEmptyRow.svelte';
   import FolderTreeFolderRow from './FolderTreeFolderRow.svelte';
   import FolderTreeNoteRow from './FolderTreeNoteRow.svelte';
+  import { registerPuppetVerbs } from '$app/puppet/puppetRegistry';
+  import { folderTreePuppetVerbs } from './folderTreePuppetVerbs';
 
   interface Props {
     items: NotePreview[];
@@ -30,10 +32,11 @@
     ) => Promise<LocalizedMessage | null> | LocalizedMessage | null;
     renameRequest?: { path: string; nonce: number } | null;
     noteRenameRequest?: { id: string; nonce: number } | null;
-    ondropnoteonfolder?: (noteId: string, folderPath: string) => void;
-    ondropfolderonfolder?: (folderPath: string, targetPath: string) => void;
-    ondropnoteonroot?: (noteId: string) => void;
-    ondropfolderonroot?: (folderPath: string) => void;
+    // A promise while the move is landing: the agent's MoveNote/MoveFolder answer after it.
+    ondropnoteonfolder?: (noteId: string, folderPath: string) => Promise<void> | void;
+    ondropfolderonfolder?: (folderPath: string, targetPath: string) => Promise<void> | void;
+    ondropnoteonroot?: (noteId: string) => Promise<void> | void;
+    ondropfolderonroot?: (folderPath: string) => Promise<void> | void;
   }
 
   let {
@@ -229,6 +232,50 @@
     toggleFolderOpen(node.path);
   }
 
+  // Every handler on a tree row, once for the whole tree: rows are many, verbs
+  // take the row's path or id.
+  $effect(() =>
+    registerPuppetVerbs(() =>
+      folderTreePuppetVerbs({
+        get tree() {
+          return tree;
+        },
+        get items() {
+          return items;
+        },
+        get flat() {
+          return flat;
+        },
+        get scroller() {
+          return scroller;
+        },
+        get rowPitch() {
+          return rowPitch;
+        },
+        FALLBACK_ROW_PITCH,
+        keyOf,
+        get onfoldercontextmenu() {
+          return onfoldercontextmenu;
+        },
+        get onnotecontextmenu() {
+          return onnotecontextmenu;
+        },
+        get ondropnoteonfolder() {
+          return ondropnoteonfolder;
+        },
+        get ondropfolderonfolder() {
+          return ondropfolderonfolder;
+        },
+        get ondropnoteonroot() {
+          return ondropnoteonroot;
+        },
+        get ondropfolderonroot() {
+          return ondropfolderonroot;
+        },
+      }),
+    ),
+  );
+
   function handleNoteContextMenu(e: MouseEvent, id: string): void {
     e.preventDefault();
     onnotecontextmenu?.(id, e.clientX, e.clientY);
@@ -257,6 +304,9 @@
 <div
   bind:this={scroller}
   class="folder-tree-scroll"
+  data-puppet-section="list"
+  data-puppet-rows={flat.length}
+  data-puppet-first-row={window_.start}
   class:root-drop-target={drag.dropTarget === ''}
   onscroll={handleScroll}
   ondragover={drag.handleRootDragOver}

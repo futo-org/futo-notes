@@ -12,9 +12,9 @@ struct UnlockStepView: View {
     let pairingPayload: String?
     let pairingExpiresAt: String?
     let onChooseDoor: (UnlockDoor) -> Void
-    let onVaultPassword: (String) -> Void
-    let onRecoveryKey: (String) -> Void
-    let onShowPairingCode: () -> Void
+    let onVaultPassword: (String) async -> Void
+    let onRecoveryKey: (String) async -> Void
+    let onShowPairingCode: () async -> Void
     let onCancelPairing: () -> Void
 
     @Environment(\.localization) private var localization
@@ -24,7 +24,10 @@ struct UnlockStepView: View {
     var body: some View {
         HostedStepHeader(
             title: "sync.hosted.unlock.title",
-            explanation: "sync.hosted.unlock.body")
+            explanation: "sync.hosted.unlock.body"
+        )
+        // The step's verbs, on its one row that is always there.
+        .puppetVerbs { puppetVerbs }
 
         ForEach(UnlockDoor.allCases) { option in
             Button {
@@ -99,11 +102,57 @@ struct UnlockStepView: View {
         if busy { return }
         switch door {
         case .vaultPassword where !vaultPassword.isEmpty:
-            onVaultPassword(vaultPassword)
+            Task { await onVaultPassword(vaultPassword) }
         case .recoveryKey where !typedRecoveryKey.isEmpty:
-            onRecoveryKey(typedRecoveryKey)
+            Task { await onRecoveryKey(typedRecoveryKey) }
         default:
             break
         }
+    }
+
+    /// What the agent calls each door: `scan` is THIS device showing a code for
+    /// another to scan, which a name with "scan" in it would read backwards.
+    private static let methods: [UnlockDoor: String] = [
+        .vaultPassword: "vaultPassword", .recoveryKey: "recoveryKey", .scan: "anotherDevice",
+    ]
+
+    /// The open door's field is the Unlock button's one argument, typed in as a
+    /// person would. The scan door's own controls are ShowPairingCodeView's.
+    private var puppetVerbs: [PuppetVerbs.Verb] {
+        var verbs = [
+            PuppetVerbs.Verb("SelectUnlockMethod", required: ["method"]) { arguments in
+                let method = arguments["method"] as? String
+                guard let chosen = Self.methods.first(where: { $0.value == method })?.key else {
+                    throw PuppetVerbRefusal(
+                        400, "method is vaultPassword, recoveryKey or anotherDevice")
+                }
+                onChooseDoor(chosen)
+                return [:]
+            }
+        ]
+        let field = door == .vaultPassword ? "vaultPassword" : "recoveryKey"
+        if door != .scan {
+            verbs.append(
+                PuppetVerbs.Verb(
+                    "UnlockVault", required: [field],
+                    controls: [
+                        "sync.hosted.unlock.vaultPasswordLabel",
+                        "sync.hosted.unlock.recoveryKeyLabel", "sync.hosted.unlock.button",
+                        "sync.working",
+                    ]
+                ) { arguments in
+                    if busy { throw PuppetVerbRefusal(409, "hosted sync is busy") }
+                    let typed = (arguments[field] as? String) ?? ""
+                    if door == .vaultPassword {
+                        vaultPassword = typed
+                        await onVaultPassword(typed)
+                    } else {
+                        typedRecoveryKey = typed
+                        await onRecoveryKey(typed)
+                    }
+                    return [:]
+                })
+        }
+        return verbs
     }
 }

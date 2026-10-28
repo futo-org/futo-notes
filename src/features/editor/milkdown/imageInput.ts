@@ -9,6 +9,7 @@ import {
   imageFilesIn,
   imagePathsIn,
   resolveImageInserter,
+  type ImageInserter,
 } from '../imageInsert';
 import { createImagePasteHandler, resolveImagePasteSink } from '../imagePasteSink';
 import type { ImageInsertTarget } from '../imageInsertTarget';
@@ -64,8 +65,8 @@ export function createImageInput(deps: {
   return {
     getPasteHandler: () => pasteHandler,
     getDropHandler: () => dropHandler,
-    /** Wires the three doors once the engine is up. */
-    install(): void {
+    /** Wires the three doors once the engine is up, and returns the inserter they share. */
+    install(): ImageInserter {
       pasteHandler = createImagePasteHandler({
         sink: resolveImagePasteSink(),
         insertImage: imageTarget,
@@ -119,6 +120,7 @@ export function createImageInput(deps: {
       /* Where images resolve per file rather than off a host base URL (Tauri
        * desktop), the node views need something to ask. */
       ownsImageUrlResolver = installVaultImageUrlResolver();
+      return imageInserter;
     },
     /** Takes down what `install` put up. */
     dispose(): void {

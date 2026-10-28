@@ -1,10 +1,11 @@
 import { defineConfig } from 'vitest/config';
+import { UNIT_TEST_MAX_WORKERS } from '../../scripts/lib/test-worker-budget.mjs';
 
 export default defineConfig({
   test: {
     globals: true,
     include: ['src/**/*.test.ts'],
-    // See vitest.config.ts (root) for why this is capped only under CI.
-    maxWorkers: process.env.CI ? 4 : undefined,
+    // Match the app suite in local runs and CI; see the shared budget owner.
+    maxWorkers: UNIT_TEST_MAX_WORKERS,
   },
 });

@@ -2,19 +2,23 @@
 
 # ── Parallel QA isolation (multiple worktrees, one machine; model: scripts/qa.mjs) ──
 
-# Claim (create + boot if needed) this worktree's pooled simulator/emulator.
+# Claim a QA device; --erase resets one existing owned iOS claim (all simulator data); --avd selects legacy Android.
 qa-claim target="all" *flags:
   @node scripts/qa.mjs claim "$@"
 
-# Show pool devices + per-slot sync servers, and which worktree owns each.
+# Show pooled/named QA devices + per-slot sync servers, and their owners.
 qa-status:
   @node scripts/qa.mjs status
 
-# Print every port this worktree owns.
-ports:
-  @node scripts/lib/slot.mjs
+# Print this worktree's ports, shell exports (`env`), or one named port.
+ports selector="json":
+  @node scripts/lib/slot.mjs "$@"
 
-# Release this worktree's devices + sync server; `ios`/`android` releases one device, server left up (--shutdown powers off).
+# Bound a package presence/readiness probe and diagnose a blocked Package Manager.
+qa-android-package *args:
+  @node scripts/qa/android-package-probe.mjs "$@"
+
+# Release this worktree's devices + server; `ios`/`android` releases that platform, server left up (--shutdown powers off).
 qa-release *flags:
   @node scripts/qa.mjs release "$@"
 
@@ -153,7 +157,46 @@ android-drive *args:
 qa-shot *args:
   @node scripts/qa-shot.mjs "$@"
 
+# Drive and read the running debug app (crates/futo-puppet); see justfile-notes.md.
+#   just puppet   with no arguments, every command and its arguments
+#   FUTO_PUPPET_TARGET=desktop (default) | ios | android
+[unix]
+puppet *args:
+  @bin=target/debug/futo-puppet stamp=target/debug/futo-puppet.stamp; \
+  if [ -n "${CARGO_TARGET_DIR:-}" ]; then exec cargo run -q -p futo-puppet -- "$@"; fi; \
+  if [ -x "$bin" ] && [ "$(cat "$stamp" 2>/dev/null)" = "$PWD" ] && [ -z "$(find crates/futo-puppet \
+    Cargo.toml Cargo.lock rust-toolchain.toml .cargo -newer "$stamp" -print -quit)" ]; then \
+    exec "$bin" "$@"; fi; \
+  mkdir -p target/debug && next=$(mktemp "$stamp.XXXXXX") && echo "$PWD" > "$next" \
+    && { cargo build -q -p futo-puppet || { status=$?; rm -f "$next"; exit "$status"; }; } \
+    && mv "$next" "$stamp" && exec "$bin" "$@"
+
+# Drive the debug app on Windows. Not through Git's sh, which runs recipes there: it re-parses
+# its arguments Cygwin-style (`\"` is no escape, `{a,b}` expands), so every JSON argument came
+# out empty. ponytail: `cargo run` costs ~0.2 s a call; port the stamp above if that matters.
+[windows]
+puppet *args:
+  #!node
+  const run = ['run', '-q', '-p', 'futo-puppet', '--', ...process.argv.slice(2)];
+  const { status } = require('node:child_process').spawnSync('cargo', run, { stdio: 'inherit' });
+  process.exit(status ?? 1);
+
 # Resolve a desktop QA target safely — the ONLY sanctioned port/PID → process lookup.
 #   just qa-target list | status | pid <pid> | port <port> | kill
 qa-target *args:
   @node scripts/qa-target.mjs "$@"
+
+# Generate a disposable CA/server TLS fixture (OpenSSL or macOS LibreSSL; never installs trust).
+test-tls-fixture out *hosts: check-node-version
+  @node scripts/test-tls-fixture.mjs "$@"
+# Verify the selected Android AVD still belongs to this worktree.
+qa-android-target:
+  @node scripts/qa.mjs android-target
+
+# Verify the installed dev APK matches this worktree (or the supplied APK).
+qa-android-apk *args:
+  @node scripts/qa.mjs android-apk "$@"
+
+# Restart only the claimed Android emulator with a PNG camera poster and enter its image room.
+emu-camera-poster png:
+  @node scripts/qa.mjs camera-poster "$@"

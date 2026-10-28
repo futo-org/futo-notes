@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { puppetRefusal, puppetVerb, registerPuppetVerbs } from '$app/puppet/puppetRegistry';
   import { vaultPasswordStrength } from '$features/sync/vaultPasswordStrength';
   import { localizedText } from '$shared/localization';
 
@@ -14,9 +15,9 @@
     /** Rust's own minimum, so this screen and the engine cannot disagree. */
     minimumLength: number;
     busy: boolean;
-    onsubmit: (vaultPassword: string) => void;
+    onsubmit: (vaultPassword: string) => Promise<void>;
     /** Only the change screen offers a way back; the wizard has none. */
-    oncancel?: () => void;
+    oncancel?: () => Promise<void>;
   }
 
   let { purpose, minimumLength, busy, onsubmit, oncancel }: Props = $props();
@@ -35,8 +36,41 @@
   );
 
   function submit(): void {
-    if (ready) onsubmit(password);
+    if (ready) void onsubmit(password);
   }
+
+  // Both fields are the button's arguments, typed in as a person would, so a short or
+  // mismatched password is left on screen the way the disabled button leaves it.
+  function typeAndSubmit(args: Record<string, unknown>) {
+    password = args.vaultPassword as string;
+    repeated = (args.repeat as string | undefined) ?? password;
+    if (busy) return puppetRefusal(409, 'hosted sync is busy');
+    if ([...password].length < minimumLength) {
+      return puppetRefusal(409, `a vault password needs ${minimumLength} characters`);
+    }
+    if (repeated !== password) return puppetRefusal(409, 'the repeat does not match');
+    return onsubmit(password);
+  }
+  const FIELDS = { vaultPassword: 'string', repeat: 'string?' } as const;
+
+  $effect(() =>
+    registerPuppetVerbs(() => [
+      purpose === 'create'
+        ? puppetVerb('CreateVault', FIELDS, typeAndSubmit, {
+            controls: ['sync.hosted.vaultPassword.repeatPlaceholder', 'sync.working'],
+          })
+        : puppetVerb('ChangeVaultPassword', FIELDS, typeAndSubmit, {
+            controls: ['sync.hosted.vaultPassword.repeatPlaceholder', 'sync.working'],
+          }),
+      ...(oncancel
+        ? [
+            puppetVerb('CancelVaultPasswordChange', {}, oncancel, {
+              controls: ['sync.hosted.cancel'],
+            }),
+          ]
+        : []),
+    ]),
+  );
 </script>
 
 <p class="hosted-title">{localizedText(`sync.hosted.vaultPassword.${purpose}.title`)}</p>
@@ -97,7 +131,7 @@
 </div>
 
 {#if oncancel}
-  <button class="settings-link-btn" onclick={oncancel}>
+  <button class="settings-link-btn" onclick={() => void oncancel?.()}>
     {localizedText('sync.hosted.cancel')}
   </button>
 {/if}

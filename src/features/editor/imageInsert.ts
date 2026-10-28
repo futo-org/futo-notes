@@ -205,8 +205,8 @@ export function filePathsFromDrop(transfer: DataTransfer | null | undefined): st
 }
 
 export interface ImageInserter {
-  /** Open the host's picker and insert whatever comes back. */
-  pick(): Promise<void>;
+  /** Open the host's picker and insert whatever comes back; `paths` answers it without the dialog (the agent's `InsertImage`). */
+  pick(paths?: readonly string[]): Promise<void>;
   /** Insert every image among `files`; non-images are ignored. */
   insertFiles(files: readonly File[]): Promise<void>;
   /** Insert every image among `paths`; non-images are ignored. */
@@ -286,7 +286,7 @@ export function createImageInserter(options: ImageInserterOptions): ImageInserte
   return {
     canPick: Boolean(fs?.pickImages),
 
-    async pick() {
+    async pick(paths) {
       const pickImages = fs?.pickImages;
       if (!fs || !pickImages) return;
       // Before the picker OPENS, not after it returns: the user can reach the
@@ -298,6 +298,7 @@ export function createImageInserter(options: ImageInserterOptions): ImageInserte
         picked = await pickImages({
           limit: 1,
           filterName: localizedText('editor.images.filePickerFilter'),
+          ...(paths ? { paths } : {}),
         });
       } catch (error) {
         reportError('Image insert failed:', error);

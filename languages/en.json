@@ -47,6 +47,7 @@
         "back": "Back",
         "cancel": "Cancel",
         "close": "Close",
+        "confirm": "Confirm",
         "continue": "Continue",
         "create": "Create",
         "delete": "Delete",
@@ -300,9 +301,6 @@
         "unflushed": "The editor hasn't delivered your latest changes. Try again to leave the note."
       },
       "move": {
-        "createAndMove": "Create & Move",
-        "createFolderPrompt": "Create a folder and move the note into it.",
-        "createFolderInPrompt": "Create a folder in {folderName} and move the note into it.",
         "saveFailed": "Couldn't save note. Move is paused while your changes remain pending."
       },
       "errors": {
@@ -333,7 +331,6 @@
       "heading": "Folders",
       "newFolder": "New folder",
       "newFolderTitleCase": "New Folder",
-      "newFolderEllipsis": "New Folder…",
       "newFolderIn": "New folder in “{folderName}”",
       "createHeading": "New folder",
       "renameHeading": "Rename folder",

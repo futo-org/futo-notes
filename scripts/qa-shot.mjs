@@ -52,16 +52,15 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 
 import {
   allCandidatePids,
   candidateFor,
   repoRoot,
+  targetContext,
   verifyTarget,
-  worktreeRoots,
 } from './qa-target.mjs';
-import os from 'node:os';
 
 // Window records come back as TSV from a tiny Swift program (below). Anything
 // on a layer other than 0 is chrome — menu bar extras, tooltips, the AutoFill
@@ -335,7 +334,7 @@ function main(argv) {
 
   const { command, argument, out } = parseArgs(argv);
   const selfRoot = repoRoot();
-  const context = { worktreeRoots: worktreeRoots(selfRoot), selfRoot, home: os.homedir() };
+  const context = targetContext(selfRoot);
   const defaultDir = path.join(selfRoot ?? process.cwd(), 'test-screenshots');
 
   if (command === 'list') {
@@ -417,6 +416,6 @@ function main(argv) {
   return capture(window, captureDestination(window, { out, defaultDir }));
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (import.meta.main) {
   process.exit(main(process.argv.slice(2)));
 }

@@ -3,12 +3,12 @@
 Four different kinds of test share this directory. Knowing which one you are touching decides how
 you run it and what a green result actually proves.
 
-| What | Where | Runner |
-|---|---|---|
-| Browser end-to-end | `*.spec.ts` | Playwright, against the Vite dev server |
-| Editor-embed | `editor-embed-*.spec.ts` | Playwright, its own config, `file://` |
-| Cross-language goldens | `conformance/`, `localization/cases.json` | Rust, Vitest, Swift, Kotlin |
-| Real-app harnesses | `*.mjs` + `lib/` | plain Node against a running app or device |
+| What                   | Where                                     | Runner                                     |
+| ---------------------- | ----------------------------------------- | ------------------------------------------ |
+| Browser end-to-end     | `*.spec.ts`                               | Playwright, against the Vite dev server    |
+| Editor-embed           | `editor-embed-*.spec.ts`                  | Playwright, its own config, `file://`      |
+| Cross-language goldens | `conformance/`, `localization/cases.json` | Rust, Vitest, Swift, Kotlin                |
+| Real-app harnesses     | `*.mjs` + `lib/`                          | plain Node against a running app or device |
 
 Unit tests live next to the code they test, not here. `lib/*.test.mjs` is the exception — those test
 the harness helpers themselves and run under Vitest.
@@ -28,12 +28,43 @@ pnpm exec playwright test tests/search.spec.ts      # one spec
 pnpm exec playwright test -g 'partial test title'   # one test
 ```
 
+Run `just browser-install` after dependency installation or a Playwright upgrade: it installs
+Chromium at the revision required by this worktree's lockfile, including the headless shell.
+The recipe disables browser-cache garbage collection so installation cannot prune a revision
+another worktree is using; it does not automatically clean the shared browser cache.
+`just browser-install webkit` installs WebKit when a test explicitly needs it; browser downloads
+do not supply missing Linux system libraries. Use the Linux host's supported package setup or a
+prepared test host for those dependencies; a Chromium pass does not prove WebKit behavior.
+
+On a Linux host with rootless Podman, run
+`just test-browser-container webkit tests/p0-regressions.spec.ts` instead. This uses the
+[official Playwright image](https://playwright.dev/docs/docker) at the exact installed package
+version, supplying matching browsers and system libraries without installing host packages.
+The first run may download a large image; cached images are retained. `chromium` and `firefox`
+are also accepted as the first argument. The optional container config selects that engine and
+starts its own no-watch Vite server inside the container; ordinary Chromium/CI selection is
+unchanged. Networking is isolated (loopback only), so tests needing an external server need a
+separate supported setup. Each invocation prints a fresh `verification-runs/browser-container-*`
+directory for reports, traces and screenshots. Only this invocation's container is removed;
+the checkout and image caches are retained. This proves Playwright WebKit, not native WebKitGTK.
+
+For a standalone browser diagnostic, start `just web-diagnostic` in this worktree. It uses the
+slot-derived web port and disables Vite's file watcher, avoiding another inotify consumer while
+shards are running. It serves current source on request but provides no HMR; restart after edits.
+Playwright-managed servers already disable watching. In a second terminal **in the same worktree**,
+run `just test-e2e-reuse tests/search.spec.ts` to explicitly reuse that server. Check its startup
+path/port before reusing it; the ordinary recipes keep rejecting occupied ports so a different
+worktree's server cannot silently supply the test app. Stop only the diagnostic process you
+started (Ctrl-C in its terminal). These browser diagnostics prove web behavior, not native pixels.
+
 `pnpm run test:e2e:full` is plain `playwright test` under the default config, which `testIgnore`s
 `editor-embed-*.spec.ts` — so "run everything" leaves the native editor's bridge contract and the
 Milkdown round-trip suites untested unless you also run `pnpm run test:e2e:editor-embed`.
 That run always starts with a production Vite build of the editor bundle (its globalSetup,
 `tests/editorEmbedBundle.ts`, rebuilds so a stale `editor.html` cannot pass), so it counts as a
-build when a task rules builds out.
+build when a task rules builds out. Every run builds into a private
+`build/editor-embed-*/` directory and removes only that directory on teardown.
+Native builds and simultaneous embed/gauntlet runs cannot erase its bundle.
 
 `just test-unit` is **Vitest**, not Playwright — use it for the co-located unit tests and the
 harness helpers under `lib/`, not for a `.spec.ts` here.

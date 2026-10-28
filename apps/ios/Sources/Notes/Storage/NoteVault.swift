@@ -72,8 +72,7 @@ actor NoteVault {
     func moveDraft(_ draft: PendingDraft, folder: String, epoch: UInt64) throws -> NoteMutation {
         try requireGeneration(epoch)
         return try core.moveDraft(
-            id: draft.id, folder: folder, base: draft.base, content: draft.content,
-            createFolder: false
+            id: draft.id, folder: folder, base: draft.base, content: draft.content
         )
     }
 

@@ -128,10 +128,10 @@ SHIP.
 > the next one does not re-report them:_ _(ios)_ after Remove, `futo.license.
 activation` lingers in UserDefaults for a few seconds after `futo.license.key`
 > has gone — that is `NSUserDefaults` write coalescing, not a storage bug; both
-> are clear on a re-read. _(android)_ `adb shell input text` silently truncates
-> at roughly 250 characters, so entering the 584-character v2 fixture by hand
-> needs chunking — an untruncated single call produces an activation failure
-> that looks exactly like a rejected key.
+> are clear on a re-read. _(android)_ adb's text input silently truncated at
+> roughly 250 characters, so entering the 584-character v2 fixture by hand needed
+> chunking — an untruncated single call produced an activation failure that
+> looked exactly like a rejected key. `ActivateLicense {licenseKey}` takes it whole.
 
 > **Gap:** No revocation check — refunded or revoked keys stay valid on
 > activated devices because the license module makes no background requests.

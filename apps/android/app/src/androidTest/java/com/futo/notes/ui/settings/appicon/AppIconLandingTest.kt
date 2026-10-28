@@ -3,14 +3,18 @@ package com.futo.notes.ui.settings.appicon
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.hasContentDescription
+import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.isRoot
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
-import androidx.compose.ui.test.onAllNodesWithTag
-import androidx.compose.ui.test.onAllNodesWithContentDescription
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.lifecycle.Lifecycle
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -23,6 +27,7 @@ import com.futo.notes.storage.StorageMode
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -62,9 +67,17 @@ class AppIconLandingTest {
         storedLicense?.let(storage::write) ?: storage.clear()
     }
 
+    // A resumed Compose root may be absent during the browser trampoline transition.
+    // Treat that as pending during polling; final assertions still require the UI.
+    private fun hasNode(matcher: SemanticsMatcher) = compose.onAllNodes(matcher)
+        .fetchSemanticsNodes(atLeastOneRootRequired = false).isNotEmpty()
+
+    private fun pickerHasLanded() = hasNode(hasTestTag("app-icon-landing"))
+    private fun pickerHasClosed() = hasNode(isRoot()) && !pickerHasLanded()
+
     private fun assertLandedOnThePicker() {
         compose.waitUntil(15_000) {
-            compose.onAllNodesWithTag("app-icon-landing").fetchSemanticsNodes().isNotEmpty()
+            pickerHasLanded()
         }
         compose.onNodeWithTag("app-icon-landing").assertIsDisplayed()
         compose.onNodeWithTag("app-icon-footnote").assertDoesNotExist()
@@ -80,13 +93,30 @@ class AppIconLandingTest {
             InstrumentationRegistry.getInstrumentation().uiAutomation
                 .performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK)
             compose.waitUntil(5_000) {
-                compose.onAllNodesWithTag("app-icon-landing").fetchSemanticsNodes().isEmpty()
+                pickerHasClosed()
             }
             compose.onNodeWithText("Standard").performScrollTo().performClick()
             compose.waitUntil(5_000) {
-                compose.onAllNodesWithTag("app-icon-futo").fetchSemanticsNodes().isNotEmpty()
+                hasNode(hasTestTag("app-icon-futo"))
             }
             compose.onNodeWithTag("app-icon-landing").assertDoesNotExist()
+        }
+    }
+
+    @Test fun pickerReadinessIsPendingWhileTheActivityIsStopped() {
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            compose.waitUntil(15_000) {
+                hasNode(hasContentDescription("Settings"))
+            }
+            // Hold the root-free lifecycle window deterministically, without a sleep.
+            scenario.moveToState(Lifecycle.State.CREATED)
+            assertFalse(pickerHasLanded())
+            assertFalse(pickerHasClosed())
+            scenario.moveToState(Lifecycle.State.RESUMED)
+            compose.waitUntil(15_000) {
+                hasNode(hasContentDescription("Settings"))
+            }
+            compose.onNodeWithContentDescription("Settings").assertIsDisplayed()
         }
     }
 
@@ -97,7 +127,7 @@ class AppIconLandingTest {
         val main = instrumentation.waitForMonitorWithTimeout(launches, 15_000)
         try {
             compose.waitUntil(15_000) {
-                compose.onAllNodesWithContentDescription("Settings").fetchSemanticsNodes().isNotEmpty()
+                hasNode(hasContentDescription("Settings"))
             }
             // The browser's path: the trampoline hands the link to the running activity.
             context.startActivity(

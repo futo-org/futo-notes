@@ -2,6 +2,7 @@
   import type { PairingState } from '../createHostedSyncSettings.svelte';
   import { formatCountdown, secondsUntil } from '$features/sync/pairingCountdown';
   import { qrCodeDrawing } from '$features/sync/qrCode';
+  import { puppetRefusal, puppetVerb, registerPuppetVerbs } from '$app/puppet/puppetRegistry';
   import { localizedText } from '$shared/localization';
 
   interface Props {
@@ -15,11 +16,28 @@
     /** RFC 3339, the relay's own deadline. */
     expiresAt: string | null;
     busy: boolean;
-    onshow: () => void;
-    oncancel: () => void;
+    onshow: () => Promise<void>;
+    oncancel: () => Promise<void>;
   }
 
   let { pairing, payload, expiresAt, busy, onshow, oncancel }: Props = $props();
+
+  $effect(() =>
+    registerPuppetVerbs(() =>
+      pairing === 'waiting'
+        ? [puppetVerb('CancelPairing', {}, oncancel, { controls: ['sync.hosted.cancel'] })]
+        : pairing === 'received'
+          ? []
+          : [
+              puppetVerb(
+                'ShowPairingCode',
+                {},
+                () => (busy ? puppetRefusal(409, 'hosted sync is busy') : onshow()),
+                { controls: ['sync.hosted.pairing.showCode', 'sync.hosted.pairing.showNewCode'] },
+              ),
+            ],
+    ),
+  );
 
   const drawing = $derived(payload ? qrCodeDrawing(payload) : null);
 
@@ -70,7 +88,7 @@
   >
     {localizedText('sync.hosted.pairing.expiresIn', { remaining: formatCountdown(remaining) })}
   </p>
-  <button class="settings-link-btn" onclick={oncancel}>
+  <button class="settings-link-btn" onclick={() => void oncancel()}>
     {localizedText('sync.hosted.cancel')}
   </button>
 {:else if pairing === 'received'}
@@ -84,14 +102,14 @@
     {localizedText(`sync.hosted.pairing.${pairing}.body`)}
   </p>
   <div class="settings-actions">
-    <button class="settings-btn settings-btn-inline" onclick={onshow} disabled={busy}>
+    <button class="settings-btn settings-btn-inline" onclick={() => void onshow()} disabled={busy}>
       {localizedText('sync.hosted.pairing.showNewCode')}
     </button>
   </div>
 {:else}
   <p class="hosted-body">{localizedText('sync.hosted.pairing.body')}</p>
   <div class="settings-actions">
-    <button class="settings-btn settings-btn-inline" onclick={onshow} disabled={busy}>
+    <button class="settings-btn settings-btn-inline" onclick={() => void onshow()} disabled={busy}>
       {localizedText('sync.hosted.pairing.showCode')}
     </button>
   </div>

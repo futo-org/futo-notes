@@ -168,11 +168,11 @@ struct NoteEditorView: View {
                     message: localization.localizedText(
                         "notes.delete.thisNoteRecoverableConfirmation"
                     ),
-                    destructiveLabel: localization.localizedText("notes.actions.deleteNote"),
+                    destructiveLabelKey: "notes.actions.deleteNote",
                     onCancel: {
                         presentWithoutAnimation { showDeleteConfirm = false }
                     },
-                    onDestructive: { deleteNote() }
+                    onDestructive: { _ = await deleteNote()?.value }
                 )
                 .presentationBackground(.clear)
             }
@@ -180,18 +180,33 @@ struct NoteEditorView: View {
                 // Keep the complete move in this editor's tracked mutation chain.
                 MoveToFolderSheet(
                     note: currentItem,
-                    currentFolder: splitId(id: noteId).folder,
                     onMoveRequested: { folder in
                         moveNote(to: folder)
                     }
                 )
                 .environmentObject(store)
             }
+            // What this screen's chrome does, as verbs: the title field and the find bar are
+            // SwiftUI state inside this view, so nothing outside it could reach them. Each one
+            // runs the function its tap runs — a `SetTitle` is the rename the user's keystrokes
+            // make, and it settles before it answers. The ⋯ menu is the system's: a driver opens
+            // it and picks an item with real touches, and what an item opens (the find bar, the
+            // move sheet, the delete confirmation) has verbs of its own.
+            // Which note this editor is showing, for the listener's `screen`: the pushed route
+            // keeps the id it was created with, so a rename in place would otherwise name a
+            // note that no longer exists.
+            .onAppear { PuppetVerbs.shared.openNote = noteId }
+            .onChange(of: noteId) { _, id in PuppetVerbs.shared.openNote = id }
+            .puppetVerbs { puppetVerbs }
             .task {
                 // Off-main initial load of the note body. Runs once; SwiftUI cancels
                 // the task on disappear, and `loaded` guards re-entry on reappear so
-                // a reloaded view never discards in-memory edits.
-                guard !loaded else { return }
+                // a reloaded view never discards in-memory edits. A new note starts
+                // loaded, and an editor shown again (Back from a wikilink) already is.
+                guard !loaded else {
+                    EditorHost.shared.noteDidLoad(originalId)
+                    return
+                }
                 let disk: String
                 do {
                     disk = try await store.read(noteId)
@@ -207,6 +222,7 @@ struct NoteEditorView: View {
                 content = disk
                 savedContent = disk
                 loaded = true
+                EditorHost.shared.noteDidLoad(originalId)
             }
             .onReceive(store.$notes) { _ in
                 // Keep the embed's note universe (wikilink resolution/autocomplete)
@@ -292,6 +308,8 @@ struct NoteEditorView: View {
                 if shouldReleaseDraft { store.releaseDraftOwnership(token: draftToken) }
                 draftToken = 0
             }
+            // The listener stops naming this note once it is off screen, on every path above.
+            .onDisappear { releasePuppetScreen() }
     }
 
     /// A brand-new quick-capture note that was never touched: opened with

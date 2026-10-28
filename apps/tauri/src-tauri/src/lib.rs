@@ -13,6 +13,7 @@ mod close_deadline;
 mod desktop_settings;
 #[cfg(all(target_os = "macos", debug_assertions))]
 mod dev_app_name;
+mod dev_open_url;
 mod external_file_open;
 mod filesystem_watcher;
 mod image_commands;
@@ -24,6 +25,10 @@ mod macos_terminate;
 mod panic_reporter;
 mod platform_integration;
 mod portal_vault;
+mod puppet_input;
+mod puppet_keys;
+mod puppet_notes_dir;
+mod puppet_screenshot;
 mod sync;
 mod system_trash;
 mod updater_commands;

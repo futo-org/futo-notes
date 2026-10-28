@@ -142,10 +142,9 @@ impl NoteStore {
         folder: String,
         base: String,
         content: String,
-        create_folder: bool,
     ) -> Result<NoteMutation, NoteError> {
         self.inner
-            .move_draft(&id, &folder, &base, &content, create_folder)
+            .move_draft(&id, &folder, &base, &content)
             .map(|mutation| self.project(mutation))
             .map_err(NoteError::Io)
     }
@@ -179,17 +178,6 @@ impl NoteStore {
     pub fn move_note(&self, id: String, folder: String) -> Result<NoteMutation, NoteError> {
         self.inner
             .move_note(&id, &folder)
-            .map(|mutation| self.project(mutation))
-            .map_err(NoteError::Io)
-    }
-
-    pub fn move_note_to_new_folder(
-        &self,
-        id: String,
-        folder: String,
-    ) -> Result<NoteMutation, NoteError> {
-        self.inner
-            .move_note_to_new_folder(&id, &folder)
             .map(|mutation| self.project(mutation))
             .map_err(NoteError::Io)
     }

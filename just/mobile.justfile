@@ -36,7 +36,8 @@ ios-native-device: _preflight-ios
 build-ios-native: _preflight-ios build-rust-ios
   #!/usr/bin/env bash
   set -euo pipefail
-  node_modules/.bin/vite build --config vite.editor.config.ts
+  # Debug app: the editor bundle carries the puppet inspector; see justfile-notes.md.
+  VITE_INCLUDE_TEST_HOOKS=true node_modules/.bin/vite build --config vite.editor.config.ts
   cd apps/ios
   xcodegen generate
   # Generic destination: links both arches; see justfile-notes.md.
@@ -84,7 +85,8 @@ android-env-check:
 build-android-native: _preflight-android android-env-check (build-rust-android "device")
   #!/usr/bin/env bash
   set -euo pipefail
-  node_modules/.bin/vite build --config vite.editor.config.ts
+  # Debug app: the editor bundle carries the puppet inspector (see build-ios-native).
+  VITE_INCLUDE_TEST_HOOKS=true node_modules/.bin/vite build --config vite.editor.config.ts
   cd apps/android
   ./gradlew :app:assembleDirectDebug :app:assemblePlayDebug
 
@@ -103,15 +105,23 @@ _preflight-android: editor-deps
 # does. An explicit FUTO_IOS_FFI_PROFILE overrides either.
 # iOS unit tests (Swift Testing, FutoNotesNativeTests) — CI's MR tier; name suites to run only those.
 test-ios-native *suites:
-  FUTO_IOS_FFI_PROFILE="${FUTO_IOS_FFI_PROFILE:-dev}" just _test-ios FutoNotesNativeTests "$@"
+  FUTO_IOS_FFI_PROFILE="${FUTO_IOS_FFI_PROFILE:-dev}" python3 scripts/ios-test-session.py -- just _test-ios FutoNotesNativeTests "$@"
 
 # iOS UI tests (XCTest, FutoNotesNativeUITests; minutes per run); name test classes to run only those.
 test-ios-native-ui *classes:
-  FUTO_IOS_FFI_PROFILE="${FUTO_IOS_FFI_PROFILE:-dev}" just _test-ios FutoNotesNativeUITests "$@"
+  FUTO_IOS_FFI_PROFILE="${FUTO_IOS_FFI_PROFILE:-dev}" python3 scripts/ios-test-session.py -- just _test-ios FutoNotesNativeUITests "$@"
 
 # iOS unit + UI tests together — what main pushes and tags run in CI.
 test-ios-native-full:
-  FUTO_IOS_FFI_PROFILE="${FUTO_IOS_FFI_PROFILE:-release-ffi}" just _test-ios all
+  FUTO_IOS_FFI_PROFILE="${FUTO_IOS_FFI_PROFILE:-release-ffi}" python3 scripts/ios-test-session.py -- just _test-ios all
+
+# Inspect this worktree's native iOS test process, including diagnostic collection.
+ios-test-status:
+  @python3 scripts/ios-test-session.py --status
+
+# Clear only stale session metadata; the OS refuses this while the test lock is held.
+ios-test-clear-stale:
+  @python3 scripts/ios-test-session.py --clear-stale
 
 # Runs on a CONCRETE simulator ($SIM, else the booted one). `bundle` is a test
 # target, or `all`; each further argument narrows to one suite/class in it.
@@ -131,13 +141,16 @@ _test-ios bundle *names: _preflight-ios build-rust-ios
       ONLY_TESTING+=("-only-testing:$BUNDLE/$name")
     done
   fi
-  node_modules/.bin/vite build --config vite.editor.config.ts
+  # The test host IS the Debug app, so its editor bundle carries the puppet inspector too.
+  VITE_INCLUDE_TEST_HOOKS=true node_modules/.bin/vite build --config vite.editor.config.ts
   SIM="${SIM:-$(xcrun simctl list devices booted | sed -n 's/.*(\([0-9A-Fa-f-]\{36\}\)).*Booted.*/\1/p' | head -1)}"
   if [ -z "$SIM" ]; then
     echo "No simulator — set SIM=<udid> or run: just qa-claim ios" >&2
     exit 1
   fi
   echo "==> Simulator: $SIM"
+  # UI tests switch accessibility off; the puppet listener needs it on. See justfile-notes.md.
+  trap 'xcrun simctl spawn "$SIM" defaults write com.apple.Accessibility ApplicationAccessibilityEnabled -bool true' EXIT
   cd apps/ios
   xcodegen generate
   # A pool simulator whose runtime does not match Xcode (iOS 26.5 under Xcode
@@ -145,37 +158,64 @@ _test-ios bundle *names: _preflight-ios build-rust-ios
   # rather than fail or hang. CI does not set this, so there it stays a failure.
   export TEST_RUNNER_FUTO_STOREKIT_TESTS_OPTIONAL=1
   # Concrete destination + ad-hoc sign: see justfile-notes.md.
+  # Avoid the optional multi-minute simctl sysdiagnose after a local test failure.
+  # Ordinary test output, failure status and result bundles remain available.
   xcodebuild test -project FutoNotesNative.xcodeproj \
+    -collect-test-diagnostics "${FUTO_IOS_TEST_DIAGNOSTICS:-never}" \
     -scheme FutoNotesNative \
     ${ONLY_TESTING[@]+"${ONLY_TESTING[@]}"} \
     -destination "id=$SIM" \
     -derivedDataPath .build \
-    CODE_SIGNING_ALLOWED=YES CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="-"
+    CODE_SIGNING_ALLOWED=YES CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="-" 2>&1 | awk '
+      { print; fflush() }
+      /Executed [1-9][0-9]* tests?/ || /Test run with [1-9][0-9]* tests?/ { ran = 1 }
+      END { if (!ran) { print "No iOS tests executed" > "/dev/stderr"; exit 1 } }
+    '
 
-# Android JVM unit tests, BOTH flavors; pass Gradle --tests filters to run only those, on direct.
-test-android-native *filters: _preflight-android android-env-check (build-rust-android "device")
+# Write this build host's Debug collector port into an iOS built resource directory.
+ios-dev-ports output configuration="Debug":
+  node scripts/ios-dev-ports.mjs "$@"
+
+# JVM unit tests under BOTH flavors; optional Gradle Class[.method] patterns.
+test-android-native *tests: _preflight-android android-env-check (build-rust-android "device")
   #!/usr/bin/env bash
   set -euo pipefail
   # Stages the CURRENT editor.html into the assets, like every other native
   # recipe: a stale gitignored copy would otherwise be what gets tested (L1-008).
   node_modules/.bin/vite build --config vite.editor.config.ts
+  TEST_ARGS=()
+  for task in :app:testDirectDebugUnitTest :app:testPlayDebugUnitTest; do
+    TEST_ARGS+=("$task")
+    for selector in "$@"; do
+      TEST_ARGS+=(--tests "$selector")
+    done
+  done
   cd apps/android
-  if [ $# -eq 0 ]; then
-    ./gradlew :app:testDirectDebugUnitTest :app:testPlayDebugUnitTest
-  else
-    # A filter is the fix loop. Per-flavor checks (DistributionFlavorTest) need the bare run.
-    TESTS=(); for filter in "$@"; do TESTS+=(--tests "$filter"); done
-    ./gradlew :app:testDirectDebugUnitTest "${TESTS[@]}"
-  fi
+  ./gradlew "${TEST_ARGS[@]}"
 
 # `direct` only: the flavors compile the same androidTest sources against the
 # same applicationId, so running both would install one over the other for no
 # extra signal.
-# Runs Compose instrumentation tests on $ANDROID_SERIAL.
-test-android-native-ui: _preflight-android android-env-check (build-rust-android "device")
+# Runs Compose instrumentation tests on $ANDROID_SERIAL; optional fully qualified Class[#method] selectors.
+test-android-native-ui *classes: qa-android-target _preflight-android android-env-check (build-rust-android "device")
+  #!/usr/bin/env bash
+  set -euo pipefail
+  TEST_ARGS=()
+  SELECTOR_RE='^([[:alpha:]_$][[:alnum:]_$]*\.)+[[:alpha:]_$][[:alnum:]_$]*(#[[:alpha:]_$][[:alnum:]_$]*)?$'
+  for selector in "$@"; do
+    if [[ ! "$selector" =~ $SELECTOR_RE ]]; then
+      echo "Expected a fully qualified Android test class, optionally #method: $selector" >&2
+      exit 2
+    fi
+  done
+  if [ "$#" -gt 0 ]; then
+    TEST_ARGS+=("-Pandroid.testInstrumentationRunnerArguments.class=$(IFS=,; printf '%s' "$*")")
+  fi
   # The Compose tests drive the bundled editor.html: rebuild it first (L1-008).
   node_modules/.bin/vite build --config vite.editor.config.ts
-  cd apps/android && ./gradlew :app:connectedDirectDebugAndroidTest
+  node scripts/qa.mjs android-target
+  cd apps/android
+  ./gradlew :app:connectedDirectDebugAndroidTest ${TEST_ARGS[@]+"${TEST_ARGS[@]}"}
 
 # Editor performance stories against the REAL native Android app on an
 # explicitly claimed device — written for the low-end reference phone, where
@@ -200,7 +240,8 @@ test-android-perf *args:
     echo 'Pool emulators: just qa-claim android' >&2
     exit 1
   }
-  just android-native
+  # The bundle that ships: no puppet inspector, whose trace wraps every listener.
+  VITE_INCLUDE_TEST_HOOKS=false just android-native
   node tests/android-editor-perf.mjs "$@"
 
 # The FAST loop for the numbers above: the freshly built editor.html in the
@@ -273,3 +314,7 @@ deploy-ios:
 # Regenerate selectable mobile icon catalogs, adaptive layers, and previews.
 app-icons:
   node scripts/generate-app-icons.mjs
+
+# Run current source on an isolated Mac checkout (including targeted native UI classes).
+ios-remote *args: check-node-version
+  @node scripts/ios-remote.mjs "$@"

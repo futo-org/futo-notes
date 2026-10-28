@@ -1,0 +1,148 @@
+[
+  {
+    "id": "01-undo-numbered-list",
+    "area": "editor · lists",
+    "platforms": [
+      "desktop",
+      "ios",
+      "android"
+    ],
+    "fix": "88e82987",
+    "prompt": "undo doesn't work in my numbered lists. i add a step and undo just does nothing",
+    "key": "The ordered-list renumber (src/features/editor/orderedListRenumber.ts) runs from an EditorView.updateListener and dispatches its OWN follow-up transaction. Undo reverts the edit, the listener immediately renumbers again, and the document returns to where it was, so undo is stuck. The fix makes the renumber part of the causing transaction (a transactionFilter), which undo dispatches past with filter:false.",
+    "sign": "After adding an item to a numbered list (Enter inside the list), repeated Undo answers 200 but the added line / renumbered numbers stay; it never reaches the original text or 'nothing to undo'."
+  },
+  {
+    "id": "02-toolbar-leaves-checkbox",
+    "area": "editor · toolbar",
+    "platforms": [
+      "desktop",
+      "ios",
+      "android"
+    ],
+    "fix": "88ed1168",
+    "prompt": "when i switch a checklist item to a bullet from the toolbar it leaves the [ ] behind",
+    "key": "The toolbar block toggles in src/features/editor/toolbar/blockFormatting.ts match line prefixes in the order bullet, ordered, task: `^- ` (bullet) also matches a task line `- [ ] `, so BulletList on a task line treats it as a bullet and strips only `- `, leaving `[ ] text` (and Ordered then prefixes `1. [ ] text`). The fix parses the line into one canonical block kind, task before bullet.",
+    "sign": "A `- [ ] item` line becomes `[ ] item` after BulletList (and `1. [ ] item` after OrderedList)."
+  },
+  {
+    "id": "03-find-highlight-lingers",
+    "area": "editor · find",
+    "platforms": [
+      "desktop",
+      "ios",
+      "android"
+    ],
+    "fix": "c19ded77",
+    "prompt": "after i clear the find box one word stays highlighted",
+    "key": "The find decorations DO clear for an empty query; what stays is the editor SELECTION. A query change selects its current match, and scanFindResults (src/features/editor/find/findState.ts) leaves that selection untouched when the new query matches nothing, so the selection background keeps painting over the last match. The fix collapses the selection when the query finds nothing.",
+    "sign": "After SetFindQuery with a word and then an empty query, state shows find total 0 but the editor selection is still the old match (non-empty, text = the word)."
+  },
+  {
+    "id": "04-click-beside-wrapped-row",
+    "area": "editor · clicking",
+    "platforms": [
+      "desktop",
+      "ios",
+      "android"
+    ],
+    "fix": "25371837",
+    "prompt": "clicking at the end of a long wrapped line puts my cursor at the end of the whole paragraph, not where i clicked",
+    "key": "src/features/editor/interactions/pointerHitTest.ts rowEndSelectionAt returns the end of the whole LINE (hit.line.to) for a click past the text, instead of the end of the visual row under the pointer, so on a wrapped line the caret jumps to the last row.",
+    "sign": "A click to the right of the FIRST row of a wrapped line leaves the selection at the line's end offset; the click receipt shows the engine resolved a position on that row but it settled at line.to."
+  },
+  {
+    "id": "08-folder-rename-slash",
+    "area": "folders",
+    "platforms": [
+      "desktop"
+    ],
+    "fix": "cb9fc128",
+    "prompt": "i renamed my work folder to a/b and it turned into two folders",
+    "key": "src/features/sidebar/sidebarFolderMutations.ts renameSidebarFolder splices the typed NAME into a destination PATH (`parent/newName`) and calls renameOrMoveFolder, which validates each path component separately, so `/` passes and the folder is moved into a new folder `a`. A name should be validated as one component (the forbidden-character rule) before any path is built.",
+    "sign": "RenameFolder {path:'work', name:'a/b'} answers 200 and the vault then has folders `a` and `a/b` with the notes under `a/b`."
+  },
+  {
+    "id": "10-search-typo",
+    "area": "search",
+    "platforms": [
+      "desktop",
+      "ios",
+      "android"
+    ],
+    "fix": "cfbccd40",
+    "prompt": "search finds nothing if i make one typo. i thought it handled typos",
+    "key": "crates/futo-notes-search/src/tantivy_indices.rs search_bm25 runs only the all-words and any-word passes; there is no final edit-distance-1 (fuzzy) pass, so a query with one wrong character matches nothing. docs/spec/search.md says a query that matches nothing retries at edit distance 1.",
+    "sign": "A search for a correctly spelled word finds the note; the same word with one character wrong (e.g. `grocrey `) returns no results."
+  },
+  {
+    "id": "11-language-dropdown-reopens",
+    "area": "settings",
+    "platforms": [
+      "desktop"
+    ],
+    "fix": "d735775d",
+    "prompt": "in settings, clicking the language button again doesn't close the dropdown, it just flickers and stays open",
+    "key": "The press on the trigger button moves focus off the open dropdown: macOS WebKit does not mouse-focus a button, so the mousedown focuses the tabindex=-1 Settings panel, the dropdown's focusout handler reads that as focus leaving and closes the list, then the click's toggleLanguageOptions opens it again. The fix makes the trigger cancel mousedown's default so a press never moves focus (and moves outside-press/focus-leave dismissal into the shared use:dismissable action). Key files: src/features/settings/LanguageSettingsSection.svelte, src/shared/dialogs/dismissable.ts.",
+    "sign": "With the list open, a real click on the language button leaves it open; the click receipt shows the listbox removed and added again."
+  },
+  {
+    "id": "12-bullet-toggle-numbered-list",
+    "area": "editor · lists",
+    "platforms": [
+      "desktop",
+      "ios",
+      "android"
+    ],
+    "fix": "ccdef4a4",
+    "prompt": "i can't turn a numbered list into a bullet list. i select a line in the middle of it, click the bullet list button and nothing happens, it stays numbered",
+    "key": "src/features/editor/milkdown/blockCommands.ts retargetList (ordered -> bullet) rewrites the listType attr only on the list items the selection touches (listItemsInRange) but flips the whole container node to bullet_list. The preset's syncListOrderPlugin (@milkdown/preset-commonmark) then sees the container's FIRST item still marked ordered and promotes the list straight back to ordered_list, silently undoing the toggle whenever the caret is not on the first item. The fix writes every item of every touched list.",
+    "sign": "Numbered list of 3 items, selection or caret inside item 2 (or 3), Bullet list pressed (floating selection toolbar, or `/bullet` in the slash menu): the list is still numbered 1. 2. 3. and the markdown is unchanged. With the caret in item 1 the list does flip, which hides the bug."
+  },
+  {
+    "id": "13-broken-wikilink-looks-resolved",
+    "area": "editor · wikilinks",
+    "platforms": [
+      "desktop",
+      "ios",
+      "android"
+    ],
+    "fix": "2dc3be40",
+    "prompt": "a link to a note that doesn't exist looks exactly like a link to a real note. i can't tell which links are dead",
+    "key": "The dashed-underline and muted-when-broken wikilink rules live in src/styles/markdown-links.css, which src/styles/app.css imports under `@layer components`. The editor's unlayered `.futo-milkdown .ProseMirror a` rule in MilkdownEditor.svelte beats any layered rule regardless of specificity, so a resolved chip and a broken one (class cm-md-wikilink-broken) compute identical styles. The fix moves the rules into MilkdownEditor.svelte, unlayered.",
+    "sign": "A note containing `[[Existing note]]` (a real note) and `[[No such note]]`: both chips render with the same solid primary-colour underline; the computed text-decoration-style is solid for both and the broken one is not muted, although it carries the cm-md-wikilink-broken class."
+  },
+  {
+    "id": "14-slash-pick-leaves-query",
+    "area": "editor · slash menu",
+    "platforms": [
+      "desktop"
+    ],
+    "fix": "5914f314",
+    "prompt": "i type /text and pick Text from the slash menu on a normal line. the menu closes but the /text i typed stays in my note",
+    "key": "src/features/editor/milkdown/commandRunner.ts combineDeleteAndCommand builds the delete of the typed `/query` and the picked command into one transaction, but returns before dispatching anything when the command declines on the post-delete state (Text on a paragraph, Bullet in a bullet, Heading 1 in a heading, Quote in a quote, Code block in a list item), so the delete is dropped with it. The fix dispatches the delete whether or not the command had anything to do.",
+    "sign": "Type `/text` in an empty paragraph and press Enter (or pick Text with the mouse): the menu closes and the paragraph still reads `/text`. Same for `/bullet` inside a bullet item, `/heading 1` on a heading, `/quote` inside a quote. Picking an item that changes the block (e.g. `/bullet` on a plain paragraph) does remove the query, which hides the bug."
+  },
+  {
+    "id": "15-selection-toolbar-over-sidebar",
+    "area": "editor · selection toolbar",
+    "platforms": [
+      "desktop"
+    ],
+    "fix": "b624a3b4",
+    "prompt": "when i select a word at the start of a line, the formatting bar pops up on top of the sidebar, covering the new note and new folder buttons",
+    "key": "src/features/editor/milkdown/selectionToolbar/index.ts: the toolbar is a floating-ui tooltip positioned in viewport coordinates (strategy 'fixed', root document.body) and its `shift` middleware is given no boundary, so it defaults to the viewport. A selection near the editor's left edge lets the centred bar spill left past the editor column over the sidebar. The fix passes `shift: { boundary: view.dom, padding: 8 }` so the bar can never leave the editable's own column.",
+    "sign": "Sidebar open, long note, drag-select the first few characters of a line at the left margin (the lower the line sits in the window, the closer to the sidebar's New note / New folder buttons): `.futo-selection-toolbar` is visible and its left edge is left of the editor's left edge (x smaller than `.ProseMirror`'s x), painted over the sidebar and, near the bottom, over the `.fab` buttons."
+  },
+  {
+    "id": "16-images-tab-top-level-only",
+    "area": "images",
+    "platforms": [
+      "desktop"
+    ],
+    "fix": "6093dc17",
+    "prompt": "the images tab only shows one image even though i have pictures in several different folders",
+    "key": "Two causes. (1) src/lib/platform/tauri/storage.ts listDirFiles (reached from src/features/images/imageFiles.ts listImageFiles, rendered by src/features/sidebar/SidebarImageView.svelte) reads a single directory (readDir of the vault root) instead of walking the vault, so any image inside a folder is never listed. (2) listImageFiles calls the synchronous getFS(), which throws when the images tab is the tab the app reopens on and mounts before bootstrap has resolved the platform; the tab then sits on 'No images'. The fix walks the whole vault (listVaultFiles: skips dot- and symlinked directories, path validation accepts vault-relative paths like `trip/photo.png`) and awaits getPlatformFS().",
+    "sign": "Vault with `photo.png` at the root and `trip/shot.png` inside a folder (copy the files in on disk): the images tab grid shows only `photo.png`; `trip/shot.png` never appears, even after switching tabs or reloading. Second symptom: with the images tab selected, reload the app; the tab may stay on 'No images' until you switch to another tab and back."
+  }
+]

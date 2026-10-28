@@ -1,0 +1,128 @@
+diff --git a/src/features/editor/find/findState.test.ts b/src/features/editor/find/findState.test.ts
+index 99bc845f..09894fda 100644
+--- a/src/features/editor/find/findState.test.ts
++++ b/src/features/editor/find/findState.test.ts
+@@ -210,51 +210,3 @@ describe('host overlay inset (docs/spec/editor.md — the current match is alway
+     panel.remove();
+   });
+ });
+-
+-describe('clearing the query (docs/spec/editor.md — no lingering current-match decoration)', () => {
+-  // Regression (Mason, MR !267): emptying the query cleared the match
+-  // decorations but left the last current match SELECTED, so the drawn
+-  // selection stayed on screen as a duller version of the highlight the user
+-  // had just removed. docs/spec/editor.md requires no lingering current-match
+-  // decoration once the query stops matching.
+-  it('collapses the current-match selection when the query stops matching', () => {
+-    const view = setup('cat dog CAT');
+-    openFind(view);
+-    setFindQuery(view, 'cat');
+-    scanFindResults(view, true);
+-    expect(view.state.selection.main).toEqual(EditorSelection.range(0, 3));
+-
+-    setFindQuery(view, '');
+-    scanFindResults(view, true);
+-
+-    expect(view.state.field(findState)).toMatchObject({ matches: [], currentIndex: -1 });
+-    expect(view.state.selection.main.empty).toBe(true);
+-    expect(view.state.selection.main.from).toBe(0);
+-  });
+-
+-  it('collapses the current-match selection when a non-empty query matches nothing', () => {
+-    const view = setup('cat dog CAT');
+-    openFind(view);
+-    setFindQuery(view, 'dog');
+-    scanFindResults(view, true);
+-    expect(view.state.selection.main).toEqual(EditorSelection.range(4, 7));
+-
+-    setFindQuery(view, 'dogx');
+-    scanFindResults(view, true);
+-
+-    expect(view.state.selection.main.empty).toBe(true);
+-    expect(view.state.selection.main.from).toBe(4);
+-  });
+-
+-  it('leaves the selection alone when only the document changed', () => {
+-    const view = setup('cat dog CAT');
+-    openFind(view);
+-    setFindQuery(view, 'cat');
+-    scanFindResults(view, true);
+-    view.dispatch({ selection: EditorSelection.range(4, 7) });
+-
+-    scanFindResults(view, false);
+-
+-    expect(view.state.selection.main).toEqual(EditorSelection.range(4, 7));
+-  });
+-});
+diff --git a/src/features/editor/find/findState.ts b/src/features/editor/find/findState.ts
+index 4c5a1f00..8735a735 100644
+--- a/src/features/editor/find/findState.ts
++++ b/src/features/editor/find/findState.ts
+@@ -101,30 +101,11 @@ export function scanFindResults(view: EditorView, selectMatch: boolean): void {
+       currentIndex,
+       anchor: current?.from ?? value.anchor,
+     }),
+-    selection: selectMatch ? nextFindSelection(view, current) : undefined,
++    selection: selectMatch && current ? { anchor: current.from, head: current.to } : undefined,
+     scrollIntoView: Boolean(selectMatch && current),
+   });
+ }
+ 
+-/**
+- * Where the caret goes after a query change. A match takes the selection so
+- * the current match reads as current. With NO match the previous one's
+- * selection has to collapse: the mark decorations vanish with the query, but
+- * the drawn selection does not, so the last match kept a duller version of the
+- * highlight the user had just deleted (Mason, MR !267) — and
+- * docs/spec/editor.md allows no lingering current-match decoration once the
+- * query stops matching. Collapsing to its start leaves the caret where
+- * searching resumes rather than jumping the user somewhere else.
+- */
+-function nextFindSelection(
+-  view: EditorView,
+-  current: FindMatch | undefined,
+-): { anchor: number; head?: number } | undefined {
+-  if (current) return { anchor: current.from, head: current.to };
+-  const selection = view.state.selection.main;
+-  return selection.empty ? undefined : { anchor: selection.from };
+-}
+-
+ export const openFind: Command = (view) => {
+   const value = view.state.field(findState);
+   const selection = view.state.selection.main;
+diff --git a/tests/find-in-note.spec.ts b/tests/find-in-note.spec.ts
+index 2d9410f0..899ba33d 100644
+--- a/tests/find-in-note.spec.ts
++++ b/tests/find-in-note.spec.ts
+@@ -130,31 +130,6 @@ test.describe('Find in note', () => {
+     await expect(page.locator('.cm-find-match-current')).toHaveText('hidden');
+   });
+ 
+-  // Regression (Mason, MR !267): the mark decorations went away with the query
+-  // but the drawn selection did not, so backspacing the query to empty left the
+-  // last match wearing a duller copy of the highlight the user had just
+-  // removed. Asserted in the DOM because the residue was the selection layer,
+-  // not a find decoration.
+-  test('leaves no highlight or selection behind when the query is emptied', async ({ page }) => {
+-    await openNewNote(page);
+-    await setBody(page, '# FindQA needle test\n\nneedle one is here.\nSecond needle appears.');
+-
+-    await page.keyboard.press('Control+f');
+-    const query = page.locator('.cm-find-query');
+-    await query.fill('needle');
+-    await expect(page.locator('.cm-find-count')).toHaveText(/of 3$/);
+-    await expect(page.locator('.cm-find-match')).toHaveCount(3);
+-    await expect(page.locator('.cm-selectionBackground')).toHaveCount(1);
+-
+-    await query.fill('');
+-
+-    await expect(page.locator('.cm-find-count')).toHaveText('0');
+-    await expect(page.locator('.cm-find-match')).toHaveCount(0);
+-    await expect(page.locator('.cm-find-match-current')).toHaveCount(0);
+-    await expect(page.locator('.cm-selectionBackground')).toHaveCount(0);
+-    await expect(page.locator('.cm-find-panel')).toHaveCount(1);
+-  });
+-
+   // Stepping moves a real selection, so the formatting bubble used to pop over
+   // the text on every step, follow the stepping, and outlive the bar (Escape
+   // leaves the selection on the match by spec).

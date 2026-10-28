@@ -139,22 +139,13 @@ export function createIosDevice({
 
   async function focusEditorBody() {
     await waitForLabel('BackButton');
-    const title = await waitFor(
-      'the native title field',
-      () =>
-        filterRows(uiSummary().rows, { onScreenOnly: true }).find(
-          (candidate) => candidate.type === 'TextField' && candidate.frame,
-        ) ?? null,
-      { describeFailure: () => `on screen:\n${describeUi()}` },
-    );
-    const row = await editorBodyRow({ belowY: title.frame.y + title.frame.height });
-    const { frame } = row;
-
-    // The embedded page makes the whole body tappable, including an empty note.
-    // Stay near its leading/top padding so a non-empty future seed places the
-    // caret in content rather than in trailing scroll space.
-    const x = frame.x + Math.min(36, frame.width / 2);
-    const y = frame.y + Math.min(36, frame.height / 2);
+    const titleField = () =>
+      filterRows(uiSummary().rows, { onScreenOnly: true }).find(
+        (candidate) => candidate.type === 'TextField' && candidate.frame,
+      ) ?? null;
+    const title = await waitFor('the native title field', titleField, {
+      describeFailure: () => `on screen:\n${describeUi()}`,
+    });
     // Prime the native keyboard, then observe its `done` control before
     // transferring focus into WKWebView. The body touch is dropped while the
     // title keyboard is still transitioning even though AXe reports success.
@@ -165,6 +156,18 @@ export function createIosDevice({
     // on-screen; a frame taken while the keyboard is still animating leaves
     // AXe's later body touch reporting success while the title keeps focus.
     client.warmDisplay();
+
+    // Keyboard presentation can scroll the native title and resize the webview.
+    // Read both again; pre-keyboard coordinates can hit the title or empty space.
+    const currentTitle = await waitFor(
+      'the native title field after keyboard presentation',
+      titleField,
+    );
+    const { frame } = await editorBodyRow({
+      belowY: currentTitle.frame.y + currentTitle.frame.height,
+    });
+    const x = frame.x + Math.min(36, frame.width / 2);
+    const y = frame.y + Math.min(36, frame.height / 2);
 
     // The native Markdown accessory exists only while the body owns focus, so
     // Bold remains the terminal condition rather than the touch exit code.
@@ -184,10 +187,29 @@ export function createIosDevice({
     );
   }
 
-  async function typeText(text, { keySettleMs = DEFAULT_KEY_SETTLE_MS } = {}) {
+  async function typeText(
+    text,
+    {
+      keySettleMs = DEFAULT_KEY_SETTLE_MS,
+      confirm,
+      confirmationTimeoutMs = DEFAULT_TIMEOUT_MS,
+    } = {},
+  ) {
     for (let index = 0; index < text.length; index += 1) {
-      client.typeText(text[index]);
+      try {
+        client.typeText(text[index]);
+      } catch (error) {
+        // AXe can deliver the touch and then fail to translate its response.
+        // Continue only with an explicit oracle that will prove the whole
+        // marker arrived; transport errors without that proof remain fatal.
+        if (!confirm || !String(error.message).includes('No translation object')) throw error;
+      }
       if (index + 1 < text.length) await sleep(keySettleMs);
+    }
+    if (confirm) {
+      await waitFor('the typed text to be observed', confirm, {
+        timeoutMs: confirmationTimeoutMs,
+      });
     }
   }
 

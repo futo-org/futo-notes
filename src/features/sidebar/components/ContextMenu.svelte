@@ -1,28 +1,76 @@
 <script lang="ts">
   import { dismissable } from '$shared/dialogs/dismissable';
   import { portal } from '$shared/dom/portal';
+  import { ANSWER_PARAM, throughConfirmation } from '$app/puppet/puppetConfirm';
+  import {
+    puppetRefusal,
+    puppetVerb,
+    registerPuppetVerbs,
+    type PuppetShortcutSteps,
+  } from '$app/puppet/puppetRegistry';
   import { resolveLocalizedMessage, type LocalizedMessage } from '$shared/localization';
 
   export interface MenuItem {
     label: LocalizedMessage;
-    onclick: () => void;
+    onclick: () => unknown;
     destructive?: boolean;
     disabled?: boolean;
+    /**
+     * The option as a `futo-puppet` verb while the menu is open: its name, the shortcut
+     * argument of the step it opens (`shortcuts` in puppetRegistry.ts), and whether it asks
+     * "are you sure?", which `answer` answers (puppetConfirm.ts).
+     */
+    verb: {
+      name: string;
+      shortcut?: { argument: string; steps: PuppetShortcutSteps };
+      confirms?: true;
+    };
   }
 
   interface Props {
     x: number;
     y: number;
     items: MenuItem[];
+    /** The row it acts on, which the agent's `elements` reads as its section: `menu · note "<id>"`. */
+    openFor?: string;
     onclose: () => void;
   }
 
-  let { x, y, items, onclose }: Props = $props();
+  let { x, y, items, openFor, onclose }: Props = $props();
 
-  function handleItemClick(item: MenuItem): void {
-    item.onclick();
+  /** Returns the option's own result, which a confirming one's verb answers after. */
+  function handleItemClick(item: MenuItem): unknown {
+    const done = item.onclick();
     onclose();
+    return done;
   }
+
+  // Each option is a verb while the menu is up, acting on the row it was opened for.
+  $effect(() =>
+    registerPuppetVerbs(() => [
+      ...items.map((item) =>
+        puppetVerb(
+          item.verb.name,
+          {
+            ...(item.verb.shortcut ? { [item.verb.shortcut.argument]: 'string?' } : {}),
+            ...(item.verb.confirms ? ANSWER_PARAM : {}),
+          },
+          () => {
+            if (item.disabled) return puppetRefusal(409, `${item.verb.name} is disabled`);
+            if (!item.verb.confirms) return void handleItemClick(item);
+            return throughConfirmation(async () => handleItemClick(item));
+          },
+          {
+            controls: [item.label.path],
+            ...(item.verb.shortcut
+              ? { shortcuts: { [item.verb.shortcut.argument]: item.verb.shortcut.steps } }
+              : {}),
+          },
+        ),
+      ),
+      puppetVerb('CloseContextMenu', {}, onclose),
+    ]),
+  );
 </script>
 
 <div
@@ -31,6 +79,7 @@
   class="context-menu"
   style="left: {x}px; top: {y}px"
   role="menu"
+  data-puppet-section={openFor}
 >
   {#each items as item (`${item.label.path}:${JSON.stringify(item.label.arguments ?? {})}`)}
     <button

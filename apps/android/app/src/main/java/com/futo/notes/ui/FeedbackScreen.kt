@@ -1,8 +1,8 @@
 package com.futo.notes.ui
 
 import android.content.Context
+import android.net.Uri
 import android.graphics.BitmapFactory
-import android.widget.Toast
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -50,6 +51,7 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import com.futo.notes.BuildConfig
@@ -58,12 +60,16 @@ import com.futo.notes.FeedbackImages
 import com.futo.notes.FeedbackSubmission
 import com.futo.notes.ImagePicker
 import com.futo.notes.Prefs
+import com.futo.notes.puppet.PuppetVerb
+import com.futo.notes.puppet.PuppetVerbRefusal
+import com.futo.notes.puppet.PuppetVerbScope
 import com.futo.notes.localization.LocalLocalization
 import com.futo.notes.ui.components.TopBar
 import com.futo.notes.ui.theme.FutoRadius
 import com.futo.notes.ui.theme.FutoTheme
 import com.futo.notes.ui.theme.FutoType
 import kotlinx.coroutines.launch
+import java.io.File
 @Composable
 fun FeedbackScreen(picker: ImagePicker, onBack: () -> Unit, onSent: () -> Unit) {
     val c = FutoTheme.colors
@@ -89,21 +95,95 @@ fun FeedbackScreen(picker: ImagePicker, onBack: () -> Unit, onSent: () -> Unit) 
         }
     }
 
+    suspend fun submit() {
+        sending = true
+        error = ""
+        val sent = FeedbackSubmission.send(message.trim(), images)
+        if (sent) {
+            prefs.edit().remove(Prefs.FEEDBACK_DRAFT).apply()
+            message = ""
+            images = emptyList()
+            showToast(context, localization.localizedText("feedback.sentThanks"))
+            onSent()
+        } else {
+            error = localization.localizedText("feedback.sendFailedRetry")
+        }
+        sending = false
+    }
+
     fun send() {
-        scope.launch {
-            sending = true
-            error = ""
-            val sent = FeedbackSubmission.send(message.trim(), images)
-            if (sent) {
-                prefs.edit().remove(Prefs.FEEDBACK_DRAFT).apply()
-                message = ""
-                images = emptyList()
-                Toast.makeText(context, localization.localizedText("feedback.sentThanks"), Toast.LENGTH_SHORT).show()
-                onSent()
-            } else {
-                error = localization.localizedText("feedback.sendFailedRetry")
+        scope.launch { submit() }
+    }
+
+    fun setMessage(text: String) {
+        message = text.take(FeedbackSubmission.MAX_MESSAGE_LENGTH)
+        prefs.edit().putString(Prefs.FEEDBACK_DRAFT, message).apply()
+    }
+
+    fun setStaging(on: Boolean) {
+        staging = on
+        prefs.edit().putBoolean(Prefs.CRASHLOG_STAGING, on).apply()
+    }
+
+    // The composer's controls. `AttachImage` takes a path because the picker is the
+    // OS's: a verb arrives past it with the file the user would have chosen. Send and
+    // the picker are disabled in the same states the buttons are.
+    PuppetVerbScope {
+        buildList {
+            add(
+                PuppetVerb(
+                    "SetFeedbackMessage",
+                    required = listOf("message"),
+                    controls = listOf("feedback.placeholder"),
+                ) { arguments ->
+                    setMessage(arguments.getString("message"))
+                    mapOf("message" to message)
+                },
+            )
+            if (images.size < FeedbackImages.MAX_ATTACHMENTS) {
+                add(
+                    PuppetVerb(
+                        "AttachImage",
+                        required = listOf("path"),
+                        controls = listOf("feedback.addScreenshot"),
+                    ) { arguments ->
+                        val file = File(arguments.getString("path"))
+                        if (!file.canRead()) throw PuppetVerbRefusal(400, "no readable file at ${file.path}")
+                        val image = FeedbackImages.normalize(context.contentResolver, Uri.fromFile(file))
+                            ?: throw PuppetVerbRefusal(409, "that image is too large to attach")
+                        images = images + image
+                        mapOf("attachments" to images.size)
+                    },
+                )
             }
-            sending = false
+            if (images.isNotEmpty()) {
+                add(
+                    PuppetVerb("RemoveFeedbackAttachment", required = listOf("index"), integers = listOf("index")) { arguments ->
+                        val index = arguments.getInt("index")
+                        if (index !in images.indices) {
+                            throw PuppetVerbRefusal(400, "no attachment $index; there are ${images.size}")
+                        }
+                        images = images.filterIndexed { position, _ -> position != index }
+                        mapOf("attachments" to images.size)
+                    },
+                )
+            }
+            if (message.isNotBlank() && !sending) {
+                add(
+                    PuppetVerb("SendFeedback", controls = listOf("common.actions.send")) {
+                        submit()
+                        if (error.isNotEmpty()) throw PuppetVerbRefusal(502, error)
+                    },
+                )
+            }
+            if (BuildConfig.DEBUG) {
+                add(PuppetVerb(
+                    "SetStagingCrashlog",
+                    required = listOf("enabled"),
+                    booleans = listOf("enabled"),
+                    controls = listOf("feedback.stagingServer"),
+                ) { arguments -> setStaging(arguments.getBoolean("enabled")); mapOf("staging" to staging) })
+            }
         }
     }
 
@@ -119,10 +199,8 @@ fun FeedbackScreen(picker: ImagePicker, onBack: () -> Unit, onSent: () -> Unit) 
                 value = message,
                 canAttach = images.size < FeedbackImages.MAX_ATTACHMENTS,
                 onAddScreenshot = ::addScreenshots,
-            ) {
-                message = it.take(FeedbackSubmission.MAX_MESSAGE_LENGTH)
-                prefs.edit().putString(Prefs.FEEDBACK_DRAFT, message).apply()
-            }
+                onValueChange = ::setMessage,
+            )
 
             if (images.isNotEmpty()) {
                 AttachmentStrip(images) { index ->
@@ -150,10 +228,7 @@ fun FeedbackScreen(picker: ImagePicker, onBack: () -> Unit, onSent: () -> Unit) 
             }
 
             if (BuildConfig.DEBUG) {
-                StagingRow(staging) {
-                    staging = it
-                    prefs.edit().putBoolean(Prefs.CRASHLOG_STAGING, it).apply()
-                }
+                StagingRow(staging, ::setStaging)
             }
         }
     }
@@ -262,7 +337,13 @@ private fun AttachmentStrip(images: List<ByteArray>, onRemove: (Int) -> Unit) {
 @Composable
 private fun StagingRow(staging: Boolean, onChange: (Boolean) -> Unit) {
     val c = FutoTheme.colors
-    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 8.dp)) {
+    // The whole row is the switch (SettingsSwitchRow).
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .toggleable(staging, role = Role.Switch, onValueChange = onChange)
+            .padding(top = 8.dp),
+    ) {
         Column(Modifier.weight(1f)) {
             Text(
                 LocalLocalization.current.localizedText("feedback.stagingServer"),
@@ -277,7 +358,7 @@ private fun StagingRow(staging: Boolean, onChange: (Boolean) -> Unit) {
         }
         Switch(
             checked = staging,
-            onCheckedChange = onChange,
+            onCheckedChange = null,
             colors = SwitchDefaults.colors(checkedTrackColor = c.accent),
         )
     }

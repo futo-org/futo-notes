@@ -11,11 +11,14 @@ func presentWithoutAnimation(_ mutate: () -> Void) {
 /// Alert-look-alike card for destructive confirmations, hosted in a transparent
 /// `fullScreenCover`. Unlike `.confirmationDialog`, it is always centered and
 /// never anchors an arrow to an unrelated row on a regular-width device.
+/// `destructiveLabelKey` is the destructive button's catalog key, so its row reads
+/// `→ ConfirmDialog`. `onDestructive` is the whole act: the `ConfirmDialog` verb answers once
+/// it has finished, so its receipt shows what confirming did.
 struct DestructiveConfirmDialog: View {
     let message: String
-    let destructiveLabel: String
+    let destructiveLabelKey: String
     let onCancel: () -> Void
-    let onDestructive: () -> Void
+    let onDestructive: () async -> Void
     @Environment(\.localization) private var localization
 
     var body: some View {
@@ -39,8 +42,10 @@ struct DestructiveConfirmDialog: View {
                     }
                     Divider()
                         .frame(height: 44)
-                    Button(role: .destructive, action: onDestructive) {
-                        Text(destructiveLabel)
+                    Button(role: .destructive) {
+                        Task { await onDestructive() }
+                    } label: {
+                        Text(localization.localizedText(destructiveLabelKey))
                             .foregroundStyle(Theme.danger)
                             .frame(maxWidth: .infinity, minHeight: 44)
                     }
@@ -48,6 +53,17 @@ struct DestructiveConfirmDialog: View {
             }
             .frame(width: 270)
             .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
+        }
+        // While it is up it is all a person can reach.
+        .puppetVerbs(modal: true) {
+            [
+                PuppetVerbs.Verb("ConfirmDialog", controls: [destructiveLabelKey]) {
+                    await onDestructive()
+                },
+                PuppetVerbs.Verb("DismissDialog", controls: ["common.actions.cancel"]) {
+                    onCancel()
+                },
+            ]
         }
     }
 }

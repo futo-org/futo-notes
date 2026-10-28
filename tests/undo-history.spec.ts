@@ -95,13 +95,13 @@ test.describe('undo cannot cross a note boundary', () => {
     await appendAndSettle(page, ' X', 'SECRET-BODY X');
     await pauseBeyondHistoryGrouping(page);
 
-    await page.locator('[data-note-id="Recycled"]').click({ button: 'right' });
+    await page.locator('.note-row[data-note-id="Recycled"]').click({ button: 'right' });
     await page.getByRole('menuitem', { name: 'Delete' }).click();
     await page
       .getByRole('dialog', { name: 'Delete note' })
       .getByRole('button', { name: 'Confirm' })
       .click();
-    await expect(page.locator('[data-note-id="Recycled"]')).toHaveCount(0);
+    await expect(page.locator('.note-row[data-note-id="Recycled"]')).toHaveCount(0);
 
     // Same id, same text — the only thing that can keep them apart is the delete.
     await createTestNote(page, 'Recycled', 'SECRET-BODY X');

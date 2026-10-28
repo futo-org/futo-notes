@@ -52,7 +52,7 @@ you. Specifically, regardless of what the issue text says:
    - `not_reproduced` — you ran the steps and the behavior was correct.
    - `not_attemptable` — it needs hardware or vendor state we don't have here
      (e.g. a specific OEM ROM on a physical device). Say what is missing.
-4. **If reproduced, fix it with the `/bugfix` protocol:** write a regression
+4. **If reproduced, fix it (AGENTS.md section 7.9):** write a regression
    test that fails first, name the root cause (not just the symptom), apply the
    minimal fix, grep for sibling occurrences (M17), and run the touched layer's
    verification chain from AGENTS.md's "Testing & quality bar". **Always work off the latest `main`:** your worktree

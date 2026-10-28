@@ -28,7 +28,6 @@ import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { pathToFileURL } from 'node:url';
 
 import { sweepDevAppStorage } from './lib/dev-app-storage.mjs';
 import { envLines } from './lib/slot.mjs';
@@ -86,6 +85,26 @@ function cloneTargetCommand(platform, src, dst) {
   if (platform === 'darwin') return ['cp', ['-Rc', src, dst]];
   if (platform === 'linux') return ['cp', ['-R', '--reflink=always', src, dst]];
   return null;
+}
+
+/** Publish only a complete clone; cleanup never owns a concurrent builder's target/. */
+function cloneTarget(src, dst) {
+  const staging = fs.mkdtempSync(path.join(path.dirname(dst), '.target-clone-'));
+  try {
+    const partial = path.join(staging, 'target');
+    const cmd = cloneTargetCommand(process.platform, src, partial);
+    if (!cmd) throw new Error(`no copy-on-write clone on ${process.platform}`);
+    const result = spawnSync(cmd[0], cmd[1], {
+      stdio: ['ignore', 'ignore', 'pipe'],
+      encoding: 'utf8',
+    });
+    if (result.status !== 0)
+      throw new Error((result.stderr || '').trim().split('\n')[0] || 'copy failed');
+    if (fs.existsSync(dst)) throw new Error(`target/ appeared during clone; preserving ${dst}`);
+    fs.renameSync(partial, dst);
+  } finally {
+    fs.rmSync(staging, { recursive: true, force: true });
+  }
 }
 
 /**
@@ -247,14 +266,12 @@ function cmdNew(flags) {
     else if (!cmd) info(`no cheap clone on ${process.platform} — first cargo build will be cold`);
     else {
       info(`cloning target/ (${cmd[0]} ${cmd[1].join(' ')})…`);
-      const r = spawnSync(cmd[0], cmd[1], {
-        stdio: ['ignore', 'ignore', 'pipe'],
-        encoding: 'utf8',
-      });
-      if (r.status !== 0) {
-        fs.rmSync(dst, { recursive: true, force: true });
+      info('wait for "worktree ready" before building in this checkout');
+      try {
+        cloneTarget(src, dst);
+      } catch (error) {
         info(
-          `clone skipped (${(r.stderr || '').trim().split('\n')[0] || 'copy failed'}) — a full copy would cost real disk, so the first cargo build will be cold`,
+          `clone skipped (${error.message}) — a full copy would cost real disk, so the first cargo build will be cold`,
         );
       }
     }
@@ -386,16 +403,11 @@ function cmdCloneTarget(dest) {
   if (fs.existsSync(dst)) die(`'${dst}' already exists — remove it first`);
   const cmd = cloneTargetCommand(process.platform, src, dst);
   if (!cmd) die(`no copy-on-write clone on ${process.platform}`);
-  const r = spawnSync(cmd[0], cmd[1], { stdio: ['ignore', 'inherit', 'pipe'], encoding: 'utf8' });
-  if (r.status !== 0) {
-    // Only the path this command created; cp may have left a partial tree.
-    fs.rmSync(dst, { recursive: true, force: true });
-    die(`${cmd[0]} ${cmd[1].join(' ')} failed: ${(r.stderr || '').trim().split('\n')[0]}`);
-  }
+  cloneTarget(src, dst);
   info(`Cloned target/ → ${dst} (copy-on-write)`);
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (import.meta.main) {
   const [cmd, ...rest] = process.argv.slice(2);
   const flags = parseFlags(rest);
   try {

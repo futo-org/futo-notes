@@ -1,0 +1,301 @@
+diff --git a/src/features/editor/milkdown/__fixtures__/syncListOrderPlugin.ts b/src/features/editor/milkdown/__fixtures__/syncListOrderPlugin.ts
+deleted file mode 100644
+index 07496fa..0000000
+--- a/src/features/editor/milkdown/__fixtures__/syncListOrderPlugin.ts
++++ /dev/null
+@@ -1,72 +0,0 @@
+-/*
+- * A test-only re-implementation of `@milkdown/preset-commonmark`'s
+- * `syncListOrderPlugin` (node_modules/@milkdown/preset-commonmark/src/plugin/
+- * sync-list-order-plugin.ts), against `testSchema` instead of the real
+- * preset's internal node registrations.
+- *
+- * Why this exists: `blockCommands.ts`'s own test helpers run every command
+- * against a PLUGIN-FREE `EditorState` (`scratchState`), which is deliberate —
+- * see that file's comment — but it also means a bug that only shows up once
+- * the real preset's `appendTransaction` runs is invisible to those tests. QA
+- * #002 (toggling a list back does nothing) was exactly that: `retargetList`
+- * only rewrote the `listType` attr of the items the selection touched, and
+- * this plugin's own self-healing logic reverted the untouched direction. A
+- * test that wants to prove the toggle survives the real editor has to install
+- * an equivalent of this plugin, which is what this fixture is for.
+- *
+- * Reproduces only the TWO branches that drive the self-healing behavior QA
+- * hit (both read off the OUTER, correctly-absolute-positioned traversal of
+- * `newState.doc.descendants`):
+- *   - a `bullet_list` whose first item's `listType` attr already reads
+- *     `"ordered"` gets promoted to `ordered_list` wholesale;
+- *   - any `list_item` directly under an `ordered_list` gets its `listType`
+- *     forced to `"ordered"` if it does not already say so.
+- * Deliberately DOES NOT port the upstream plugin's nested per-item numeric
+- * `label` relabeling pass: that pass calls `.descendants()` on the list
+- * sub-node directly, whose reported positions are relative to that node's own
+- * content start rather than the document root, and is cosmetic (the "1." /
+- * "2." numbering text) rather than the `listType` attribute this bug is
+- * about — carrying it over here would add a second, unrelated correctness
+- * question to a fixture that only needs to prove the `listType` self-heal.
+- */
+-import type { Node as ProseNode } from '@milkdown/kit/prose/model';
+-import { Plugin, type EditorState, type Transaction } from '@milkdown/kit/prose/state';
+-
+-export function syncListOrderPluginFixture(): Plugin {
+-  return new Plugin({
+-    appendTransaction(
+-      transactions: readonly Transaction[],
+-      _oldState: EditorState,
+-      newState: EditorState,
+-    ) {
+-      const {
+-        bullet_list: bulletListType,
+-        ordered_list: orderedListType,
+-        list_item: listItemType,
+-      } = newState.schema.nodes;
+-      if (!bulletListType || !orderedListType || !listItemType) return null;
+-      if (transactions.some((tr) => tr.getMeta('addToHistory') === false)) return null;
+-
+-      let tr = newState.tr;
+-      let needDispatch = false;
+-
+-      newState.doc.descendants((node: ProseNode, pos: number, parent: ProseNode | null) => {
+-        if (node.type === bulletListType) {
+-          const base = node.maybeChild(0);
+-          if (base?.type === listItemType && base.attrs.listType === 'ordered') {
+-            needDispatch = true;
+-            tr = tr.setNodeMarkup(pos, orderedListType, { spread: node.attrs.spread ?? false });
+-          }
+-        } else if (node.type === listItemType && parent?.type === orderedListType) {
+-          if (node.attrs.listType !== 'ordered') {
+-            tr = tr.setNodeMarkup(pos, undefined, { ...node.attrs, listType: 'ordered' });
+-            needDispatch = true;
+-          }
+-        }
+-        return true;
+-      });
+-
+-      return needDispatch ? tr.setMeta('addToHistory', false) : null;
+-    },
+-  });
+-}
+diff --git a/src/features/editor/milkdown/blockCommands.test.ts b/src/features/editor/milkdown/blockCommands.test.ts
+index 122a486..8e2e999 100644
+--- a/src/features/editor/milkdown/blockCommands.test.ts
++++ b/src/features/editor/milkdown/blockCommands.test.ts
+@@ -11,7 +11,6 @@ import {
+   type BlockCommandId,
+ } from './blockCommands';
+ import { testSchema } from './__fixtures__/schema';
+-import { syncListOrderPluginFixture } from './__fixtures__/syncListOrderPlugin';
+ 
+ const s = testSchema;
+ 
+@@ -87,92 +86,6 @@ describe('blockFormatAt', () => {
+   });
+ });
+ 
+-describe('blockCommand — retargetList survives syncListOrderPlugin (QA #002)', () => {
+-  /**
+-   * `stateAtText`, but with the preset's own self-healing plugin installed —
+-   * exactly the gap the reference diagnosis called out: every other test in
+-   * this file runs against a plugin-free `EditorState`, which never fires
+-   * `appendTransaction` and so can't see a plugin revert the toggle.
+-   */
+-  function stateWithPlugin(root: ProseNode, text: string): EditorState {
+-    let found = -1;
+-    root.descendants((node, pos) => {
+-      if (found === -1 && node.isTextblock && node.textContent === text) found = pos + 1;
+-      return found === -1;
+-    });
+-    if (found === -1) throw new Error(`no textblock reading '${text}'`);
+-    const state = EditorState.create({ doc: root, plugins: [syncListOrderPluginFixture()] });
+-    return state.apply(state.tr.setSelection(TextSelection.create(root, found)));
+-  }
+-
+-  /** Run one command and let the plugin's `appendTransaction` fold in, same as the real editor. */
+-  function applyWithPlugin(state: EditorState, command: BlockCommandId): EditorState {
+-    let after = state;
+-    blockCommand(command)(state, (tr) => {
+-      after = state.apply(tr);
+-    });
+-    return after;
+-  }
+-
+-  // Reported repro: 3 bullet lines, caret on the LAST line. Numbered List
+-  // converts all three (this direction "worked" only because the plugin's
+-  // self-heal papered over the old bug). Bullet List, pressed again with the
+-  // caret still on the last line, used to do nothing at all.
+-  it('toggles a 3-item list from ordered back to bullet, not just the touched item', () => {
+-    const bulletList = doc(bullets(item('a'), item('b'), item('c')));
+-    let state = stateWithPlugin(bulletList, 'c');
+-
+-    state = applyWithPlugin(state, 'ordered');
+-    expect(shapes(state.doc)).toEqual([
+-      {
+-        ordered_list: [
+-          { list_item: ['paragraph:a'] },
+-          { list_item: ['paragraph:b'] },
+-          { list_item: ['paragraph:c'] },
+-        ],
+-      },
+-    ]);
+-
+-    state = applyWithPlugin(state, 'bullet');
+-    expect(shapes(state.doc)).toEqual([
+-      {
+-        bullet_list: [
+-          { list_item: ['paragraph:a'] },
+-          { list_item: ['paragraph:b'] },
+-          { list_item: ['paragraph:c'] },
+-        ],
+-      },
+-    ]);
+-  });
+-
+-  it('toggles a 3-item list from bullet to task and back to bullet, every item', () => {
+-    const bulletList = doc(bullets(item('a'), item('b'), item('c')));
+-    let state = stateWithPlugin(bulletList, 'a');
+-
+-    state = applyWithPlugin(state, 'task');
+-    expect(shapes(state.doc)).toEqual([
+-      {
+-        bullet_list: [
+-          { 'list_item[ ]': ['paragraph:a'] },
+-          { 'list_item[ ]': ['paragraph:b'] },
+-          { 'list_item[ ]': ['paragraph:c'] },
+-        ],
+-      },
+-    ]);
+-
+-    state = applyWithPlugin(state, 'bullet');
+-    expect(shapes(state.doc)).toEqual([
+-      {
+-        bullet_list: [
+-          { list_item: ['paragraph:a'] },
+-          { list_item: ['paragraph:b'] },
+-          { list_item: ['paragraph:c'] },
+-        ],
+-      },
+-    ]);
+-  });
+-});
+-
+ describe('blockCommand — one transaction', () => {
+   it('applies a two-step conversion as a single transaction', () => {
+     const state = stateAtFirstText(doc(quote(p('x'))));
+diff --git a/src/features/editor/milkdown/blockCommands.ts b/src/features/editor/milkdown/blockCommands.ts
+index a055c41..9ea1e20 100644
+--- a/src/features/editor/milkdown/blockCommands.ts
++++ b/src/features/editor/milkdown/blockCommands.ts
+@@ -206,32 +206,30 @@ function liftUntilOut(stillInside: (state: EditorState) => boolean, liftOnce: Co
+   };
+ }
+ 
+-/** The position of every LIST (bullet_list/ordered_list) with a textblock in `[from, to]`. */
+-function listsTouchedByRange(doc: ProseNode, from: number, to: number): Set<number> {
+-  const listPositions = new Set<number>();
++/** The innermost `list_item` wrapping each textblock in `[from, to]`. */
++function listItemsInRange(
++  doc: ProseNode,
++  from: number,
++  to: number,
++): { itemPos: number; listPos: number }[] {
++  const seen = new Set<number>();
++  const found: { itemPos: number; listPos: number }[] = [];
+ 
+   doc.nodesBetween(from, to, (node, pos) => {
+     if (!node.isTextblock) return true;
+     const at = doc.resolve(pos);
+     const depth = ancestorDepth(at, 'list_item');
+-    if (depth > 1) listPositions.add(at.before(depth - 1));
++    if (depth > 1) {
++      const itemPos = at.before(depth);
++      if (!seen.has(itemPos)) {
++        seen.add(itemPos);
++        found.push({ itemPos, listPos: at.before(depth - 1) });
++      }
++    }
+     return false;
+   });
+ 
+-  return listPositions;
+-}
+-
+-/** The position of every `list_item` directly inside the list at `listPos`. */
+-function itemsOfList(doc: ProseNode, listPos: number): number[] {
+-  const list = doc.nodeAt(listPos);
+-  if (!list) return [];
+-  const positions: number[] = [];
+-  let offset = listPos + 1; // just inside the list, before its first child
+-  list.forEach((item) => {
+-    positions.push(offset);
+-    offset += item.nodeSize;
+-  });
+-  return positions;
++  return found;
+ }
+ 
+ /**
+@@ -240,27 +238,16 @@ function itemsOfList(doc: ProseNode, listPos: number): number[] {
+  * a nested item the user never asked to outdent.
+  *
+  * The list NODE's type is per-list (markdown has no mixed bullet/ordered list),
+- * so the whole enclosing list converts, and every ITEM in that list has to
+- * convert too — not only the ones the selection/caret touches.
+- *
+- * QA #002: converting only the touched items' `listType` attr left untouched
+- * siblings holding the OLD kind's attrs even though the shared container node
+- * now read as the new kind. That went unnoticed for bullet -> ordered, because
+- * the preset's `syncListOrderPlugin` (`@milkdown/preset-commonmark`)
+- * self-heals it: it forces every `list_item` under an `ordered_list` to
+- * `listType: "ordered"`, so the desync got silently patched up for free. But
+- * that plugin has no rule the other way — converting ordered -> bullet with
+- * the caret on one line only flips that item and the container, and the
+- * plugin then finds the CONTAINER's first child still marked
+- * `listType: "ordered"` and promotes it straight back to `ordered_list`,
+- * silently undoing the toggle the user just pressed. Writing every item's
+- * attrs, not only the touched ones, closes both directions.
++ * so the whole enclosing list converts; `checked` is per-item, so only the
++ * items the selection touches become (or stop being) tasks. `listType` has to
++ * move with the node type or the preset's `syncListOrderPlugin` converts it
++ * straight back.
+  */
+ function retargetList(target: BlockFormat): Command {
+   return (state, dispatch) => {
+     const { from, to } = state.selection;
+-    const listPositions = listsTouchedByRange(state.doc, from, to);
+-    if (listPositions.size === 0) return false;
++    const items = listItemsInRange(state.doc, from, to);
++    if (items.length === 0) return false;
+ 
+     const wantOrdered = target.kind === 'ordered';
+     const listType = nodeType(state.schema, wantOrdered ? 'ordered_list' : 'bullet_list');
+@@ -269,20 +256,18 @@ function retargetList(target: BlockFormat): Command {
+     const tr = state.tr;
+     // Every edit below is a `setNodeMarkup`, which never changes a node's size,
+     // so the positions collected against the starting doc stay valid.
+-    for (const listPos of listPositions) {
+-      for (const itemPos of itemsOfList(state.doc, listPos)) {
+-        const item = state.doc.nodeAt(itemPos);
+-        if (!item) continue;
+-        tr.setNodeMarkup(itemPos, undefined, {
+-          ...item.attrs,
+-          checked: target.kind === 'task' ? (item.attrs.checked ?? false) : null,
+-          listType: wantOrdered ? 'ordered' : 'bullet',
+-          ...(wantOrdered ? {} : { label: '•' }),
+-        });
+-      }
++    for (const { itemPos } of items) {
++      const item = state.doc.nodeAt(itemPos);
++      if (!item) continue;
++      tr.setNodeMarkup(itemPos, undefined, {
++        ...item.attrs,
++        checked: target.kind === 'task' ? (item.attrs.checked ?? false) : null,
++        listType: wantOrdered ? 'ordered' : 'bullet',
++        ...(wantOrdered ? {} : { label: '•' }),
++      });
+     }
+ 
+-    for (const listPos of listPositions) {
++    for (const listPos of new Set(items.map((i) => i.listPos))) {
+       const list = state.doc.nodeAt(listPos);
+       if (!list || list.type === listType) continue;
+       tr.setNodeMarkup(listPos, listType, {

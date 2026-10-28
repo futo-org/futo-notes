@@ -1,7 +1,7 @@
 # MR factory
 
-Every hour, a headless Claude session runs `/mr-qa` on the non-draft MRs that have not yet been
-judged at their current head commit. It merges every SHIP. You hear about an MR only when it
+Every hour from 20:00 to 06:00 local time, a headless Claude session runs `/mr-qa` on the
+non-draft MRs that have not yet been judged at their current head commit. It merges every SHIP. You hear about an MR only when it
 needs a human: it gets one comment, the `factory::needs-human` label, and a Zulip DM to its
 author from the "FUTO Notes Code Review" bot: `left a comment on [!N](link)`. If any part of
 the factory breaks, Justin gets a DM.

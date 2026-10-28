@@ -12,6 +12,7 @@
    */
   import { ChevronDown, ChevronUp, X } from '@lucide/svelte';
 
+  import { puppetRefusal, puppetVerb, registerPuppetVerbs } from '$app/puppet/puppetRegistry';
   import { localizedText } from '$shared/localization';
 
   interface Props {
@@ -64,6 +65,37 @@
     observer.observe(element);
     return () => observer.disconnect();
   });
+
+  /* The bar's field and buttons, as verbs while it is open: typing a query, stepping (Enter,
+   * Shift+Enter, the arrows) and closing (Escape, the ×). */
+  $effect(() =>
+    registerPuppetVerbs(() => [
+      // An empty or missing query clears the field, as on the phones.
+      puppetVerb(
+        'SetFindQuery',
+        { query: 'string?' },
+        (args) => onquery((args.query as string | undefined) ?? ''),
+        {
+          controls: ['editor.find.queryLabel'],
+        },
+      ),
+      puppetVerb(
+        'StepFind',
+        { direction: 'integer' },
+        (args) => {
+          const direction = args.direction;
+          if (direction !== 1 && direction !== -1) {
+            return puppetRefusal(400, 'direction must be 1 (next) or -1 (previous)');
+          }
+          if (!hasMatches) return puppetRefusal(409, 'no matches to step through');
+          onstep(direction);
+          return undefined;
+        },
+        { controls: ['editor.find.previousMatch', 'editor.find.nextMatch'] },
+      ),
+      puppetVerb('CloseFind', {}, onclose, { controls: ['editor.find.close'] }),
+    ]),
+  );
 
   function handleKeydown(event: KeyboardEvent): void {
     if (event.key === 'Enter') {

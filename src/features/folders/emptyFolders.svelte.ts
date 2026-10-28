@@ -11,6 +11,10 @@ export function setFolderSnapshot(allFolders: string[], notes: NotePreview[]): v
   emptyFolders = new Set(allFolders.filter((path) => !populatedFolders.has(path)));
 }
 
+export function listVaultFolders(notes: NotePreview[]): string[] {
+  return [...new Set([...emptyFolders, ...populatedFolderPaths(notes)])].sort();
+}
+
 function populatedFolderPaths(notes: NotePreview[]): Set<string> {
   const populatedFolders = new Set<string>();
   for (const note of notes) {

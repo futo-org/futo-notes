@@ -230,7 +230,7 @@ verdict }`. Use the shared session verdict format:
   **FAIL**.
 - A confirmed new divergence → follow `/spec-sync` (record a `> **Gap:**` note
   inline in the area file). A regression against previously-verified
-  behavior → recommend `/bugfix`, don't silently patch.
+  behavior → report it as a bug, don't silently patch.
 
 ## Step 6 — Teardown
 

@@ -9,10 +9,10 @@ import {
 import { installTestSync } from '$features/sync/testSync';
 import { installPerfCourse } from '$shared/perf/installPerfCourse';
 
-import { testHooksEnabled } from './testHooksEnabled';
+import { TEST_HOOKS_ENABLED } from './testHooksEnabled';
 
 export async function installDevelopmentHooks(): Promise<void> {
-  if (!testHooksEnabled()) return;
+  if (!TEST_HOOKS_ENABLED) return;
 
   installPerfCourse();
   const notes = getLocalNoteStoreSync();

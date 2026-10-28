@@ -1,6 +1,8 @@
 package com.futo.notes.ui
 
 import android.content.Context
+import android.os.Handler
+import android.os.Looper
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.runtime.LaunchedEffect
@@ -25,8 +27,6 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -44,6 +44,9 @@ import com.futo.notes.Prefs
 import com.futo.notes.storage.StorageMode
 import com.futo.notes.SyncManager
 import com.futo.notes.license.LicenseModel
+import com.futo.notes.puppet.PuppetVerb
+import com.futo.notes.puppet.PuppetVerbRefusal
+import com.futo.notes.puppet.PuppetVerbScope
 import com.futo.notes.localization.LocalLocalization
 import com.futo.notes.localization.Localization
 import com.futo.notes.ui.components.ConfirmDialog
@@ -87,6 +90,17 @@ fun SettingsScreen(
     val prefs = remember { context.getSharedPreferences(Prefs.FILE, Context.MODE_PRIVATE) }
     var crashEnabled by remember { mutableStateOf(prefs.getBoolean(Prefs.CRASH_ENABLED, true)) }
     var crashAlwaysSend by remember { mutableStateOf(prefs.getBoolean(Prefs.CRASH_ALWAYS_SEND, false)) }
+
+    fun setCrashEnabled(enabled: Boolean) {
+        crashEnabled = enabled
+        prefs.edit().putBoolean(Prefs.CRASH_ENABLED, enabled).apply()
+    }
+
+    fun setCrashAlwaysSend(always: Boolean) {
+        crashAlwaysSend = always
+        prefs.edit().putBoolean(Prefs.CRASH_ALWAYS_SEND, always).apply()
+    }
+
     val appIcons = remember { AppIconController(context) }
     // Bumped by the picker's "I already paid"; the License card opens its key
     // field on each change.
@@ -98,6 +112,85 @@ fun SettingsScreen(
     }
     var confirmReset by remember { mutableStateOf(false) }
     var resetting by remember { mutableStateOf(false) }
+
+    /** The confirmed Full reset, from the dialog or its verb. [resetting] is already set. */
+    suspend fun resetAll() {
+        try {
+            fullReset(store, sync, license, appIcons) { path ->
+                showToast(context, localization.localizedText(path), long = true)
+            }
+        } finally {
+            resetting = false
+        }
+    }
+
+    PuppetVerbScope {
+        buildList {
+            add(PuppetVerb("OpenSync", controls = listOf("settings.sync.label")) { onOpenSync() })
+            add(
+                PuppetVerb(
+                    "SetTheme",
+                    required = listOf("theme"),
+                    controls = listOf("settings.appearance.light", "settings.appearance.dark", "settings.appearance.auto"),
+                ) { arguments ->
+                    val theme = ThemeMode.entries.firstOrNull { it.name.equals(arguments.getString("theme"), ignoreCase = true) }
+                        ?: throw PuppetVerbRefusal(400, "theme must be light, dark or auto")
+                    onThemeMode(theme)
+                    mapOf("theme" to theme.name.lowercase())
+                },
+            )
+            // The language menu's options; no tag is the system language, as on desktop.
+            add(
+                PuppetVerb("SetLanguage", optional = listOf("tag")) { arguments ->
+                    val tag = arguments.optString("tag").trim().ifEmpty { null }
+                    if (tag != null && localization.availableLanguages.none { it.tag == tag }) {
+                        throw PuppetVerbRefusal(400, "no such language: $tag")
+                    }
+                    onSelectLanguage(tag)
+                    mapOf("tag" to tag)
+                },
+            )
+            add(
+                PuppetVerb("ToggleIssueReporting", controls = listOf("settings.issueReporting.shareCrashReports")) {
+                    setCrashEnabled(!crashEnabled)
+                    mapOf("enabled" to crashEnabled)
+                },
+            )
+            if (crashEnabled) {
+                add(
+                    PuppetVerb("ToggleAlwaysSendReports", controls = listOf("settings.issueReporting.sendAutomatically")) {
+                        setCrashAlwaysSend(!crashAlwaysSend)
+                        mapOf("alwaysSend" to crashAlwaysSend)
+                    },
+                )
+            }
+            add(PuppetVerb("OpenFeedback", controls = listOf("settings.issueReporting.sendFeedback")) { onOpenFeedback() })
+            add(PuppetVerb("OpenStorageLocation", controls = listOf("settings.storage.storageLocation")) { onChangeStorage() })
+            if (!resetting) {
+                add(
+                    PuppetVerb(
+                        "ResetAllNotes",
+                        optional = listOf("answer"),
+                        controls = listOf("settings.danger.fullReset"),
+                    ) {
+                        // Asks first: the confirmation's own ConfirmDialog or DismissDialog answers it.
+                        confirmReset = true
+                    },
+                )
+            }
+            if (BuildConfig.DEBUG) {
+                add(
+                    PuppetVerb("TestCrash", controls = listOf("settings.debug.testCrash.title")) {
+                        // Thrown on the main looper, as the row's tap throws it: inside the verb
+                        // the listener would catch it and the app would never crash.
+                        Handler(Looper.getMainLooper()).post {
+                            throw RuntimeException("Test crash from the agent (debug)")
+                        }
+                    },
+                )
+            }
+        }
+    }
 
     LaunchedEffect(keyEntryRequest) {
         // The License card is the first group: "I already paid" brings it back.
@@ -200,34 +293,20 @@ fun SettingsScreen(
             // without the toggle being on (and either a per-crash OK or the
             // always-send opt-in).
             SettingsGroup(localization.localizedText("settings.sections.issueReporting")) {
-                SettingsRow(
+                SettingsSwitchRow(
                     title = localization.localizedText("settings.issueReporting.shareCrashReports"),
                     subtitle = localization.localizedText("settings.issueReporting.reportsSavedLocallyFirst"),
-                ) {
-                    Switch(
-                        checked = crashEnabled,
-                        onCheckedChange = {
-                            crashEnabled = it
-                            prefs.edit().putBoolean(Prefs.CRASH_ENABLED, it).apply()
-                        },
-                        colors = SwitchDefaults.colors(checkedTrackColor = c.accent),
-                    )
-                }
+                    checked = crashEnabled,
+                    onCheckedChange = ::setCrashEnabled,
+                )
                 if (crashEnabled) {
                     Divider()
-                    SettingsRow(
+                    SettingsSwitchRow(
                         title = localization.localizedText("settings.issueReporting.sendAutomatically"),
                         subtitle = localization.localizedText("settings.issueReporting.skipCrashDialog"),
-                    ) {
-                        Switch(
-                            checked = crashAlwaysSend,
-                            onCheckedChange = {
-                                crashAlwaysSend = it
-                                prefs.edit().putBoolean(Prefs.CRASH_ALWAYS_SEND, it).apply()
-                            },
-                            colors = SwitchDefaults.colors(checkedTrackColor = c.accent),
-                        )
-                    }
+                        checked = crashAlwaysSend,
+                        onCheckedChange = ::setCrashAlwaysSend,
+                    )
                 }
                 Divider()
                 SettingsRow(
@@ -316,21 +395,11 @@ fun SettingsScreen(
         ConfirmDialog(
             title = localization.localizedText("settings.danger.fullReset"),
             body = localization.localizedText("settings.danger.confirmation"),
-            confirmLabel = localization.localizedText("settings.danger.deleteEverything"),
+            confirmLabelKey = "settings.danger.deleteEverything",
             onConfirm = {
                 confirmReset = false
                 resetting = true
-                scope.launch {
-                    try {
-                        fullReset(store, sync, license, appIcons) { path ->
-                            android.widget.Toast.makeText(
-                                context, localization.localizedText(path), android.widget.Toast.LENGTH_LONG,
-                            ).show()
-                        }
-                    } finally {
-                        resetting = false
-                    }
-                }
+                resetAll()
             },
             onDismiss = { confirmReset = false },
         )

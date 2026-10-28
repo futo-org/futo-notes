@@ -178,6 +178,29 @@ test.describe('selection toolbar', () => {
     await expect(page.locator(EDITOR)).toBeFocused();
   });
 
+  // Crashlog #1824–#1827 (v1.9.1, Windows): with the URL field still open the
+  // user went back into the note and shortened it; every later transaction
+  // threw `Cannot read properties of undefined (reading 'nodeSize')` from
+  // `rangeHasMark` over the field's old range.
+  test('editing the note while the URL field is open does not throw', async ({ page }) => {
+    const errors: string[] = [];
+    page.on('pageerror', (error) => errors.push(error.message));
+
+    await typeAndSelectTail(page, 'hello world', 5);
+    await page.locator(button('Link')).click();
+    await expect(page.locator(`${BAR} input[aria-label="Link URL"]`)).toBeVisible();
+
+    await page.locator(EDITOR).click();
+    await page.keyboard.press('ControlOrMeta+a');
+    await page.keyboard.press('Backspace');
+    await typeInEditor(page, 'hi');
+
+    await waitForMarkdown(page, 'hi');
+    expect(errors).toEqual([]);
+    // The field belonged to text that no longer exists, so it closes.
+    await expect(page.locator(`${BAR} input[aria-label="Link URL"]`)).toBeHidden();
+  });
+
   test('inside a fenced code block the toolbar stays hidden', async ({ page }) => {
     await setEditorMarkdown(page, 'prose\n\n```\nconst x = 1\n```\n');
     await page.locator(`${EDITOR} pre`).click();

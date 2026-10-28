@@ -27,6 +27,17 @@
           }
         ]
       }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "input=$(cat); case \"$input\" in *puppet*) printf '%s' \"$input\" | node \"$CLAUDE_PROJECT_DIR/scripts/puppet-receipt-hook.mjs\";; esac"
+          }
+        ]
+      }
     ]
   }
 }

@@ -12,6 +12,9 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT"
 
+# Serial ports are reusable: reject a peer-owned AVD before building.
+node scripts/qa.mjs android-target
+
 # Refuse in ~2s — before the 10-25 minute Rust build — when this machine
 # cannot run Gradle (no JDK 21 discoverable for Gradle's daemon-JVM pin, or a
 # missing SDK location). Shared with the justfile recipes that call gradlew:
@@ -52,7 +55,9 @@ echo "==> Building Rust core (UniFFI) -> jniLibs/<abi>/libfuto_notes_ffi.so + Ko
 ABIS="${ABIS:-device}" bash scripts/build-rust-android.sh
 
 echo "==> Building the SAME embedded editor bundle (single self-contained editor.html)"
-node_modules/.bin/vite build --config vite.editor.config.ts
+# With the puppet inspector (apps/ios/run.sh); `just test-android-perf` passes
+# false to measure the bundle that ships.
+VITE_INCLUDE_TEST_HOOKS="${VITE_INCLUDE_TEST_HOOKS:-true}" node_modules/.bin/vite build --config vite.editor.config.ts
 # Stage editor.html into the app's assets (same artifact iOS bundles).
 mkdir -p apps/android/app/src/main/assets
 cp apps/ios/Resources/editor.html apps/android/app/src/main/assets/editor.html
@@ -60,9 +65,12 @@ cp apps/ios/Resources/editor.html apps/android/app/src/main/assets/editor.html
 echo "==> Building + installing the app ($FLAVOR flavor)"
 cd apps/android
 if [ -x ./gradlew ]; then GRADLE=./gradlew; else GRADLE=gradle; fi
+node "$ROOT/scripts/qa.mjs" android-target
 "$GRADLE" ":app:install${VARIANT}"
+node "$ROOT/scripts/qa.mjs" android-apk "app/build/outputs/apk/$FLAVOR/debug/app-$FLAVOR-debug.apk"
 
 echo "==> Launching"
+node "$ROOT/scripts/qa.mjs" android-target
 # `am start -n` rather than monkey: monkey exits 251 without launching on
 # some emulators (observed on API 36 images). The --es extra carries
 # FUTO_HOSTED_SERVER across the process boundary (an Android app inherits no
@@ -74,4 +82,8 @@ if [ -n "${FUTO_HOSTED_SERVER:-}" ]; then
 else
   adb shell am start -n com.futo.notes.dev/com.futo.notes.MainActivity
 fi
+
+# `just puppet` opens the `adb forward` to the debug-only listener itself
+# (puppet/PuppetServer.kt), to this worktree's claimed emulator.
+echo "==> FUTO_PUPPET_TARGET=android just puppet state"
 echo "==> Done."

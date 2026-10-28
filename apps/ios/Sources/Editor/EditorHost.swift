@@ -57,6 +57,11 @@ final class EditorHost: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
 
     /// Incremented per attach; detach only clears if its token is still current.
     var generation = 0
+    /// The navigation route's note id of the attached editor once its body has
+    /// been read from disk and handed to it. Nil between notes. A rename in place
+    /// leaves it, as it leaves the route. The debug puppet listener waits on it
+    /// before writing into a just-opened note; nothing else reads it.
+    var loadedNoteId: String?
     let completionQueue = EditorCompletionQueue()
 
     /// Reactive inputs for the NATIVE markdown toolbar (bridge v3

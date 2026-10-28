@@ -21,6 +21,14 @@ const { privateKey, publicKey } = generateKeyPairSync('ec', { namedCurve: 'prime
 const decodeSegment = (segment) =>
   JSON.parse(Buffer.from(segment.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString());
 
+// Public-only fixture from a throwaway key; a valid raw signature may start with DER's tag.
+const prefixFixture = {
+  token:
+    'eyJhbGciOiJFUzI1NiIsImtpZCI6ImZpeHR1cmUiLCJ0eXAiOiJKV1QifQ.eyJpc3MiOiJlcGhlbWVyYWwtdGVzdCIsImlhdCI6MTcwMDAwMDAwMCwiZXhwIjoxNzAwMDAwOTAwLCJhdWQiOiJhcHBzdG9yZWNvbm5lY3QtdjEifQ.MBJJA6N9wZj3hIS7f_VGSumuLnHVf-9vzBt2OwaUkki-MoydG5XQ_LZe0NcO_B4qBbFYwrhgYK27OFDEpgR3Kg',
+  publicKey:
+    '-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEHR0c+ZCFYchlFNQ0/Jew9pOO8eG8\nBo9cufnkJntEfvG+Yqd34cndQdyNP+ifRlwNE9haqieUsqa0+vL+hcsRYg==\n-----END PUBLIC KEY-----\n',
+};
+
 describe('createToken', () => {
   it('builds the header and claims App Store Connect requires', () => {
     const token = createToken({
@@ -48,19 +56,22 @@ describe('createToken', () => {
     expect(exp - iat).toBeGreaterThan(0);
   });
 
-  it('signs with raw r||s, not DER — Apple answers a DER signature with 401', () => {
-    const token = createToken({ keyId: 'k', issuerId: 'i', privateKey });
+  it.each(['fresh', '0x30'])('signs with verifiable raw r||s (%s)', (variant) => {
+    const { token, publicKey: verificationKey } =
+      variant === '0x30'
+        ? prefixFixture
+        : { token: createToken({ keyId: 'k', issuerId: 'i', privateKey }), publicKey };
     const [header, payload, signature] = token.split('.');
-    const raw = Buffer.from(signature.replace(/-/g, '+').replace(/_/g, '/'), 'base64');
+    const raw = Buffer.from(signature, 'base64url');
 
-    // A P-256 JOSE signature is exactly 64 bytes; DER is variable-length and
-    // starts with 0x30. Both checks fail if the encoding regresses.
+    // A P-256 JOSE signature is exactly 64 bytes and must verify as raw r||s.
+    // Its first byte can also be 0x30; that byte alone does not identify DER.
     expect(raw).toHaveLength(64);
-    expect(raw[0]).not.toBe(0x30);
+    if (variant === '0x30') expect(raw[0]).toBe(0x30);
 
     const verified = createVerify('SHA256')
       .update(`${header}.${payload}`)
-      .verify({ key: publicKey, dsaEncoding: 'ieee-p1363' }, raw);
+      .verify({ key: verificationKey, dsaEncoding: 'ieee-p1363' }, raw);
     expect(verified).toBe(true);
   });
 

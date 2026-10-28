@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { puppetVerb, registerPuppetVerbs } from '$app/puppet/puppetRegistry';
   import {
     closeAppWindow,
     minimizeAppWindow,
@@ -25,6 +26,23 @@
     else if (control === 'maximize') toggleMaximizeAppWindow();
     else closeAppWindow();
   }
+
+  const VERB_NAMES: Record<WindowControl, string> = {
+    minimize: 'MinimizeWindow',
+    maximize: 'ToggleMaximizeWindow',
+    close: 'CloseWindow',
+  };
+
+  // Each side registers the buttons it shows, so a verb exists only where its button does.
+  $effect(() =>
+    registerPuppetVerbs(() =>
+      buttons.map((control) =>
+        puppetVerb(VERB_NAMES[control], {}, () => handleControlClick(control), {
+          controls: [LABEL_PATHS[control]],
+        }),
+      ),
+    ),
+  );
 </script>
 
 <div

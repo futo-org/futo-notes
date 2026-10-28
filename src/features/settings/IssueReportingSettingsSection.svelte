@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { puppetVerb, registerPuppetVerbs } from '$app/puppet/puppetRegistry';
   import { slide } from 'svelte/transition';
 
   import FeedbackForm from '$features/feedback/FeedbackForm.svelte';
@@ -15,6 +16,25 @@
   let { enabled, alwaysSend, ontoggleenabled, ontogglealwayssend }: Props = $props();
 
   let composing = $state(false);
+
+  $effect(() =>
+    registerPuppetVerbs(() => [
+      puppetVerb('ToggleIssueReporting', {}, ontoggleenabled, {
+        controls: ['settings.issueReporting.shareCrashReports'],
+      }),
+      puppetVerb('ToggleAlwaysSendReports', {}, ontogglealwayssend, {
+        controls: ['settings.issueReporting.sendAutomatically'],
+      }),
+      puppetVerb(
+        'ToggleFeedbackComposer',
+        {},
+        () => {
+          composing = !composing;
+        },
+        { controls: ['settings.issueReporting.sendFeedback'] },
+      ),
+    ]),
+  );
 </script>
 
 <section class="settings-section">

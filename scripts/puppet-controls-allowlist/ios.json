@@ -1,0 +1,104 @@
+{
+  "computed": {
+    "apps/ios/Sources/Editor/Toolbar/EditorToolbar.swift": {
+      "count": 1,
+      "why": "the keyboard accessory's items, labelled from ToolbarSpec (generated from packages/editor/src/toolbar.ts); each is an editor verb"
+    },
+    "apps/ios/Sources/Editor/Toolbar/ToolbarControls.swift": {
+      "count": 1,
+      "why": "the keyboard's dismiss capsule (ToolbarIconButton), labelled from ToolbarSpec.dismiss: DismissKeyboard, the editor's from its web view and Feedback's from FeedbackView"
+    },
+    "apps/ios/Sources/Notes/List/DestructiveConfirmDialog.swift": {
+      "count": 1,
+      "why": "the destructive button, labelled by the catalog key its caller passes (Delete note, Delete folder), which ConfirmDialog claims"
+    },
+    "apps/ios/Sources/Notes/List/NoteListView.swift": {
+      "count": 1,
+      "why": "the search results, labelled by their note's name (OpenNote, by note=)"
+    },
+    "apps/ios/Sources/Notes/List/FolderContentsView+List.swift": {
+      "count": 2,
+      "why": "folder and note rows, labelled by their names (OpenFolder and OpenNote, by folder= and note=)"
+    },
+    "apps/ios/Sources/Notes/List/MoveFolderSheet.swift": {
+      "count": 1,
+      "why": "the folder rows, labelled by their paths (PickFolder, by folder=)"
+    },
+    "apps/ios/Sources/Notes/List/MoveToFolderSheet.swift": {
+      "count": 1,
+      "why": "the folder rows, labelled by their paths (PickFolder, by folder=)"
+    },
+    "apps/ios/Sources/License/LicenseSettingsSection+Controls.swift": {
+      "count": 3,
+      "why": "the plate's filled, outlined and text buttons, each labelled from its action (copyPath): BuyLicense (filled), BuyLicenseInAppStore (outlined), StartLicenseEntry, RestorePurchases, OpenLostKeyHelp and RemoveLicense (text)"
+    },
+    "apps/ios/Sources/License/LicenseBuyPair.swift": {
+      "count": 1,
+      "why": "the pair's two buttons, labelled by the title each caller's Choice carries: BuyLicense and BuyLicenseInAppStore"
+    },
+    "apps/ios/Sources/Sync/Hosted/HostedSyncSections.swift": {
+      "count": 1,
+      "why": "the refused-write banner's button, labelled by the banner: Subscribe (Sync paused) or ManageSubscription (Vault full)"
+    },
+    "apps/ios/Sources/Sync/Hosted/ShowPairingCodeView.swift": {
+      "count": 1,
+      "why": "the show-a-code button, labelled for the state (a code, or a new one): ShowPairingCode"
+    },
+    "apps/ios/Sources/Sync/Hosted/UnlockStepView.swift": {
+      "count": 1,
+      "why": "the three unlock-method buttons, each labelled from its method (sync.hosted.unlock.doors.*): SelectUnlockMethod"
+    },
+    "apps/ios/Sources/Notes/List/NoteSortMenu.swift": {
+      "count": 1,
+      "why": "the system sort menu's key and direction rows, each labelled from NoteSortPreference; reached by real touch, no verb"
+    },
+    "apps/ios/Sources/Settings/AppIcon/AppIconPicker.swift": {
+      "count": 4,
+      "why": "the license ask's filled, outlined, secondary and link buttons, each labelled by its caller's catalog path (BuyLicense, BuyLicenseInAppStore, StartLicenseEntry, DismissDialog)"
+    },
+    "apps/ios/Sources/Settings/SettingsView.swift": {
+      "count": 1,
+      "why": "the app icon row, labelled with the chosen icon's name: OpenAppIcons"
+    }
+  },
+  "noControl": {
+    "ios:DismissDialog": "the license ask's Not now, a button labelled through its helper (counted under computed)",
+    "ios:OpenNote": "a note row, labelled by the note's title; futo-puppet pairs it by the row's note=",
+    "ios:OpenFolder": "a folder row, labelled by its name; futo-puppet pairs it by the row's folder=",
+    "ios:SetSearchQuery": "the list's .searchable field, which SwiftUI draws itself",
+    "ios:ClearSearchQuery": "the .searchable field's own clear button, which SwiftUI draws itself",
+    "ios:SetFeedbackMessage": "the message field is a UIKit text view (FeedbackMessageField) with its placeholder drawn over it",
+    "ios:RemoveFeedbackAttachment": "each screenshot's remove button, labelled with its number (feedback.removeScreenshot takes it)",
+    "ios:ShowLicenseKey": "a tap on the masked key, a gesture on its text with license.card.revealKey as its accessibility label, not a Button",
+    "ios:BuyLicense": "one of the license plate's action buttons, labelled from its action (counted under computed)",
+    "ios:StartLicenseEntry": "the app icon ask's I already paid, a button labelled by its caller's catalog path (counted under computed)",
+    "ios:OpenLostKeyHelp": "one of the license plate's action buttons, labelled from its action (counted under computed)",
+    "ios:RemoveLicense": "one of the license plate's action buttons, labelled from its action (counted under computed)",
+    "ios:BuyLicenseInAppStore": "the license plate's Buy in App Store and the app icon ask's, labelled from its action or its caller's catalog path (counted under computed)",
+    "ios:RestorePurchases": "one of the license plate's action buttons, labelled from its action (counted under computed)",
+    "ios:SpinCoin": "a tap on the supporter coin, a 3D view with no label",
+    "ios:CloseScanner": "the scanner screen's Back, the navigation bar's own button",
+    "ios:ScanPairingCode": "the camera reading a pairing code; the verb takes the string it would have read",
+    "ios:ShowPairingCode": "the show-a-code button, labelled for the state (counted under computed)",
+    "ios:SelectUnlockMethod": "the three unlock-method buttons are labelled from the method's name, so no one key names them",
+    "ios:DismissKeyboard": "the keyboard's dismiss capsule, labelled from ToolbarSpec (counted under computed in ToolbarControls.swift)",
+    "ios:ConfirmDialog": "DestructiveConfirmDialog's ConfirmDialog claims the key its caller passes (Delete note, Delete folder), which this check, reading only quoted keys, cannot see",
+    "ios:SelectAppIcon": "an icon button, labelled with the icon's name",
+    "ios:OpenAppIcons": "the app icon row, labelled with the chosen icon's name"
+  },
+  "unclaimed": {
+    "ios:notes.actions.share": "hands the note to the OS share sheet; the app does nothing more",
+    "ios:notes.actions.moreAccessibilityLabel": "opens the ⋯ menu, a system Menu: a tap on ⋯, then on an item",
+    "ios:editor.find.open": "an item of the editor's ⋯ menu, a system Menu reached by real touch; the find bar it opens has SetFindQuery, StepFind and CloseFind",
+    "ios:notes.actions.moveToFolderEllipsis": "an item of the ⋯ menu and of a note row's long-press menu, system menus reached by real touch; the sheet it opens has PickFolder and DismissDialog",
+    "ios:notes.actions.copyFilePath": "an item of the editor's ⋯ menu, a system Menu reached by real touch",
+    "ios:notes.actions.deleteNote": "an item of the editor's ⋯ menu, a system Menu reached by real touch; the confirmation it opens has ConfirmDialog and DismissDialog",
+    "ios:common.actions.delete": "a note row's swipe action and long-press menu item, system UI reached by real touch; the confirmation has ConfirmDialog and DismissDialog",
+    "ios:common.actions.move": "a note row's swipe action, system UI reached by real touch; the sheet it opens has PickFolder and DismissDialog",
+    "ios:folders.actions.deleteFolderEllipsis": "a folder row's swipe action and long-press menu item, system UI reached by real touch; the confirmation has ConfirmDialog and DismissDialog",
+    "ios:folders.actions.moveToFolderEllipsis": "a folder row's long-press menu item, a system menu reached by real touch; the sheet it opens has PickFolder and DismissDialog",
+    "ios:notes.sort.heading": "the Sort by button, a system Menu opened with a real tap",
+    "ios:settings.appIcon.license.a11yIncluded": "a coined icon tile's label, with the icon's name in it: SelectAppIcon",
+    "ios:feedback.removeScreenshot": "RemoveFeedbackAttachment, whose label takes the screenshot's number"
+  }
+}

@@ -1,0 +1,123 @@
+diff --git a/src/features/editor/interactions/editorPointerInteractions.ts b/src/features/editor/interactions/editorPointerInteractions.ts
+index 7f269938..42ba47e7 100644
+--- a/src/features/editor/interactions/editorPointerInteractions.ts
++++ b/src/features/editor/interactions/editorPointerInteractions.ts
+@@ -126,7 +126,7 @@ function resolveOffTextCaretAt(view: EditorView, point: PointerPoint): Selection
+   if (!hit) return null;
+   const visibleRight = getRenderedRowRight(hit.lineElement, point.clientY);
+   if (visibleRight === null || point.clientX <= visibleRight + 1) return null;
+-  return rowEndSelectionAt(point.clientY, hit, view);
++  return rowEndSelectionAt(hit);
+ }
+ 
+ function wordSelectionAtResolvedCaret(view: EditorView, caret: SelectionRange): SelectionRange {
+diff --git a/src/features/editor/interactions/pointerHitTest.ts b/src/features/editor/interactions/pointerHitTest.ts
+index 434d5619..e9675aca 100644
+--- a/src/features/editor/interactions/pointerHitTest.ts
++++ b/src/features/editor/interactions/pointerHitTest.ts
+@@ -197,7 +197,7 @@ export function resolveTapPositionAt(
+   const y = Math.min(Math.max(clientY, rect.top + 1), rect.bottom - 1);
+   const visibleRight = getRenderedRowRight(lineElement, y);
+   if (visibleRight !== null && clientX > visibleRight + 1) {
+-    return rowEndSelectionAt(y, hit, view);
++    return rowEndSelectionAt(hit);
+   }
+   const position = view.posAtCoords({ x, y }, false);
+   if (position !== null && position >= line.from && position <= line.to) {
+@@ -207,21 +207,9 @@ export function resolveTapPositionAt(
+   return EditorSelection.cursor(line.from);
+ }
+ 
+-/** The end of the visual row the pointer is on, not the wrapped line's end. */
+-export function rowEndSelectionAt(clientY: number, hit: LineHit, view: EditorView): SelectionRange {
+-  const rect = hit.lineElement.getBoundingClientRect();
+-  const y = Math.min(Math.max(clientY, rect.top + 1), rect.bottom - 1);
+-
+-  // The row carrying the line's end answers with it, not with what the row
+-  // renders: hidden trailing markers (a wikilink's `]]`) stop it short.
+-  const lineEnd = view.coordsAtPos(hit.line.to, -1);
+-  if (lineEnd && y >= lineEnd.top && y <= lineEnd.bottom) {
+-    return EditorSelection.cursor(hit.line.to);
+-  }
+-
+-  const visibleRight = getRenderedRowRight(hit.lineElement, y);
+-  const inRow = view.posAtCoords({ x: visibleRight ?? rect.right - 1, y }, false);
+-  return cursorOnTappedRow(view, inRow ?? hit.line.to, y);
++/** A click past the text lands at the end of the line. */
++export function rowEndSelectionAt(hit: LineHit): SelectionRange {
++  return EditorSelection.cursor(hit.line.to);
+ }
+ 
+ /** An internal semantic link hit resolved from decorated editor DOM. */
+diff --git a/tests/editor-ux.spec.ts b/tests/editor-ux.spec.ts
+index 6d7e8bd8..241fcd5c 100644
+--- a/tests/editor-ux.spec.ts
++++ b/tests/editor-ux.spec.ts
+@@ -321,23 +321,6 @@ async function caretState(page: Page) {
+ }
+ 
+ test.describe('Clicking past the end of a line', () => {
+-  test('a click past the text on a wrapped row keeps the caret on that row', async ({ page }) => {
+-    await setupEditor(page, `${WRAPPING_LINE}\nsecond markdown line`);
+-    const rows = await rowsOfFirstLine(page);
+-    // Precondition: the line wraps, and the clicked row is not its last.
+-    expect(rows.length).toBeGreaterThan(1);
+-    const row = rows[0];
+-    await setCursor(page, 0);
+-
+-    await page.mouse.click(row.right + 8, Math.round((row.top + row.bottom) / 2));
+-    await page.waitForTimeout(100);
+-
+-    const caret = await caretState(page);
+-    expect(caret.drawnTop).toBeGreaterThanOrEqual(row.top - 2);
+-    expect(caret.drawnTop).toBeLessThan(row.bottom);
+-    expect(caret.head).toBeLessThan(caret.firstLineTo);
+-  });
+-
+   test('a click past the text on an unwrapped line lands at its end', async ({ page }) => {
+     await setupEditor(page, 'short line\nsecond markdown line');
+     const rows = await rowsOfFirstLine(page);
+@@ -350,43 +333,6 @@ test.describe('Clicking past the end of a line', () => {
+     expect(await getSelection(page)).toEqual({ from: 10, to: 10 });
+   });
+ 
+-  // Same wrap point as above, but out in the gutter rather than over the text.
+-  test(
+-    'a click in the blank space beside a wrapped row keeps the caret on that row',
+-    { tag: '@webkit-pointer' },
+-    async ({ page }) => {
+-      await setupEditor(page, WRAPPING_LINE);
+-      const rows = await rowsOfFirstLine(page);
+-      expect(rows.length).toBeGreaterThan(1);
+-      const row = rows[0];
+-      await setCursor(page, 0);
+-
+-      const widest = Math.max(...rows.map((r) => r.right));
+-      const x = await page.evaluate(
+-        ({ widest }) => Math.round(widest + (window as any).__cmGetView().defaultLineHeight),
+-        { widest },
+-      );
+-      const y = Math.round((row.top + row.bottom) / 2);
+-      // Precondition: past the drawn text of every row, inside the surface.
+-      expect(
+-        await page.evaluate(
+-          ({ x }) => {
+-            const content = document.querySelector('.cm-content')!.getBoundingClientRect();
+-            return x < content.right;
+-          },
+-          { x },
+-        ),
+-      ).toBe(true);
+-
+-      await page.mouse.click(x, y);
+-      await page.waitForTimeout(100);
+-
+-      const caret = await caretState(page);
+-      expect(caret.drawnTop).toBeGreaterThanOrEqual(row.top - 2);
+-      expect(caret.drawnTop).toBeLessThan(row.bottom);
+-    },
+-  );
+-
+   // "Past the text" is decided against the pointer's OWN row. Judged across the
+   // whole line it would take the widest row, and this click would fall through
+   // to the engine into the wikilink's hidden `]]`, splitting it on the next key.

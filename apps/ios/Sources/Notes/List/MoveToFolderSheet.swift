@@ -1,23 +1,41 @@
 import SwiftUI
 
-/// Sheet for moving a note to a destination folder. Lists Root, every existing
-/// folder, and a "New Folder…" option that creates a folder (under the note's
-/// current folder) and moves the note into it.
+/// A move sheet's verbs while it is up: `PickFolder {path?}` is a tap on one of its rows (no
+/// path, or "", is the Root row) and `DismissDialog` its Cancel. Every row carries its folder
+/// (`ListRowID.folder`, "" for Root), so `elements` shows `folder=` and the CLI refuses a row
+/// scrolled out of the sheet. `pick` answers whether the move landed.
+@MainActor
+func moveSheetVerbs(
+    offering destinations: [String], of folders: [String],
+    pick: @escaping (String) async -> Bool, cancel: @escaping () -> Void
+) -> [PuppetVerbs.Verb] {
+    [
+        PuppetVerbs.Verb("PickFolder", optional: ["path"], controls: ["folders.root"]) {
+            arguments in
+            let path = (arguments["path"] as? String) ?? ""
+            if !path.isEmpty, !destinations.contains(path) {
+                throw folders.contains(path)
+                    ? PuppetVerbRefusal(409, "`\(path)` is not a destination this sheet offers")
+                    : PuppetVerbRefusal(400, "no such folder: \(path)")
+            }
+            guard await pick(path) else { throw PuppetVerbRefusal(409, "the move was refused") }
+            return ["path": path]
+        },
+        PuppetVerbs.Verb("DismissDialog", controls: ["common.actions.cancel"]) { cancel() },
+    ]
+}
+
+/// Sheet for moving a note to a destination folder: Root and every existing folder.
 struct MoveToFolderSheet: View {
     @EnvironmentObject private var store: NotesStore
     @Environment(\.dismiss) private var dismiss
     @Environment(\.localization) private var localization
 
     let note: NoteItem
-    /// Folder currently being browsed — used as the parent for a brand-new
-    /// folder created from this sheet.
-    let currentFolder: String
     /// The editor supplies this synchronous handoff so it owns and tracks the
-    /// complete asynchronous move. List-row moves use the default store task.
-    var onMoveRequested: ((String) -> Void)? = nil
-
-    @State private var showingNewFolder = false
-    @State private var newFolderName = ""
+    /// complete asynchronous move, whose task answers whether it landed.
+    /// List-row moves use the default store task.
+    var onMoveRequested: ((String) -> Task<Bool, Never>?)? = nil
 
     var body: some View {
         NavigationStack {
@@ -31,6 +49,7 @@ struct MoveToFolderSheet: View {
                             system: "house.fill",
                             isCurrent: note.folder.isEmpty)
                     }
+                    .accessibilityIdentifier(ListRowID.folder(""))
                 }
                 if !store.folders.isEmpty {
                     Section(localization.localizedText("folders.heading")) {
@@ -42,19 +61,8 @@ struct MoveToFolderSheet: View {
                                     text: path, system: "folder.fill",
                                     isCurrent: note.folder == path)
                             }
+                            .accessibilityIdentifier(ListRowID.folder(path))
                         }
-                    }
-                }
-                Section {
-                    Button {
-                        newFolderName = ""
-                        showingNewFolder = true
-                    } label: {
-                        Label(
-                            localization.localizedText("folders.newFolderEllipsis"),
-                            systemImage: "folder.badge.plus"
-                        )
-                        .foregroundStyle(Theme.primary)
                     }
                 }
             }
@@ -71,26 +79,12 @@ struct MoveToFolderSheet: View {
                         .tint(Theme.primary)
                 }
             }
-            .alert(
-                localization.localizedText("folders.newFolderTitleCase"),
-                isPresented: $showingNewFolder
-            ) {
-                TextField(
-                    localization.localizedText("folders.nameField"),
-                    text: $newFolderName
-                )
-                Button(localization.localizedText("common.actions.cancel"), role: .cancel) {}
-                Button(localization.localizedText("notes.move.createAndMove")) { createAndMove() }
-            } message: {
-                Text(
-                    currentFolder.isEmpty
-                        ? localization.localizedText("notes.move.createFolderPrompt")
-                        : localization.localizedText(
-                            "notes.move.createFolderInPrompt",
-                            arguments: ["folderName": currentFolder]
-                        )
-                )
-            }
+        }
+        .puppetVerbs(modal: true) {
+            moveSheetVerbs(
+                offering: store.folders, of: store.folders,
+                pick: { folder in await move(to: folder)?.value ?? false },
+                cancel: { dismiss() })
         }
     }
 
@@ -110,24 +104,21 @@ struct MoveToFolderSheet: View {
         }
     }
 
-    private func move(to folder: String) {
-        performMove(to: folder)
-        dismiss()
-    }
-
-    private func performMove(to folder: String) {
+    /// Starts the move and closes the sheet; the task answers whether the move landed.
+    @discardableResult
+    private func move(to folder: String) -> Task<Bool, Never>? {
+        let moving: Task<Bool, Never>?
         if let onMoveRequested {
-            onMoveRequested(folder)
+            moving = onMoveRequested(folder)
         } else {
-            Task { _ = await store.moveNote(note.id, toFolder: folder) }
+            moving = Task { () async -> Bool in
+                if case .committed = await store.moveNote(note.id, toFolder: folder) {
+                    return true
+                }
+                return false
+            }
         }
-    }
-
-    private func createAndMove() {
-        let name = newFolderName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !name.isEmpty else { return }
-        let dest = currentFolder.isEmpty ? name : currentFolder + "/" + name
-        performMove(to: dest)
         dismiss()
+        return moving
     }
 }

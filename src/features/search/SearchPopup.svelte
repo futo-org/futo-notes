@@ -1,11 +1,18 @@
 <script lang="ts">
   import { Search, X } from '@lucide/svelte';
+  import { onDestroy, tick } from 'svelte';
   import type { NotePreview } from '$shared/types/note';
   import { search } from '$features/notes/notes.svelte';
   import { dismissable } from '$shared/dialogs/dismissable';
   import { localizedText } from '$shared/localization';
   import { idLeaf, idParent } from '$lib/platform/pathSafety';
   import { isSearchPopupFindShortcut } from './searchPopupShortcuts';
+  import {
+    puppetModalScope,
+    puppetRefusal,
+    puppetVerb,
+    registerPuppetVerbs,
+  } from '$app/puppet/puppetRegistry';
 
   interface Props {
     onclose: () => void;
@@ -20,8 +27,78 @@
   let resultEls: HTMLElement[] = $state([]);
 
   let results: NotePreview[] = $state([]);
+  // The query `results` answers, and the puppet receipts waiting for the next answer.
+  let resultsQuery: string | null = null;
+  let resultWaiters: Array<() => void> = [];
+
+  function showResults(forQuery: string, rows: NotePreview[]): void {
+    results = rows;
+    resultsQuery = forQuery;
+    // Only the latest query's results are ever shown, so every waiter is answered by them.
+    const waiting = resultWaiters;
+    resultWaiters = [];
+    if (waiting.length > 0) void tick().then(() => waiting.forEach((resolve) => resolve()));
+  }
+
+  onDestroy(() => resultWaiters.forEach((resolve) => resolve()));
+
+  /** Types a query; the verb's receipt waits until its results are on screen. */
+  function setQueryAndWait(next: string): Promise<void> | undefined {
+    query = next;
+    if (resultsQuery === next) return undefined;
+    return new Promise((resolve) => resultWaiters.push(resolve));
+  }
 
   let keywordRequestId = 0;
+
+  // The overlay covers the window: a click behind it only closes it.
+  puppetModalScope();
+  $effect(() =>
+    registerPuppetVerbs(() => [
+      puppetVerb(
+        'SetSearchQuery',
+        { query: 'string' },
+        (args) => setQueryAndWait(args.query as string),
+        { controls: ['search.placeholder'] },
+      ),
+      puppetVerb(
+        'ClearSearchQuery',
+        {},
+        () => {
+          inputEl?.focus();
+          return setQueryAndWait('');
+        },
+        { controls: ['search.clearAccessibilityLabel'] },
+      ),
+      puppetVerb('StepSearchResult', { direction: 'integer' }, (args) => {
+        const direction = args.direction;
+        if (direction !== 1 && direction !== -1) {
+          return puppetRefusal(400, 'direction must be 1 or -1');
+        }
+        selectedIndex =
+          direction === 1
+            ? Math.min(selectedIndex + 1, results.length - 1)
+            : Math.max(selectedIndex - 1, -1);
+        return undefined;
+      }),
+      // No index: the highlighted result, as Enter would.
+      puppetVerb(
+        'OpenSearchResult',
+        { index: 'integer?' },
+        (args) => {
+          const index = (args.index as number | undefined) ?? selectedIndex;
+          const result = results[index];
+          if (!result) {
+            return puppetRefusal(409, `no result at ${index} (${results.length} results)`);
+          }
+          onselect(result.id);
+          return undefined;
+        },
+        { controlsMatching: '.search-result-item' },
+      ),
+      puppetVerb('CloseSearch', {}, onclose),
+    ]),
+  );
 
   // Debounced keyword search through the Rust-owned local-note store.
   $effect(() => {
@@ -33,10 +110,10 @@
         .then((r) => {
           // Empty query shows the 8 most-recent notes (search.md), not the
           // whole vault — search('') returns all notes most-recent-first.
-          if (requestId === keywordRequestId) results = r.slice(0, 8);
+          if (requestId === keywordRequestId) showResults(q, r.slice(0, 8));
         })
         .catch(() => {
-          if (requestId === keywordRequestId) results = [];
+          if (requestId === keywordRequestId) showResults(q, []);
         });
       return;
     }
@@ -44,10 +121,10 @@
     const timer = setTimeout(() => {
       search(q)
         .then((r) => {
-          if (requestId === keywordRequestId && q === query) results = r;
+          if (requestId === keywordRequestId && q === query) showResults(q, r);
         })
         .catch(() => {
-          if (requestId === keywordRequestId && q === query) results = [];
+          if (requestId === keywordRequestId && q === query) showResults(q, []);
         });
     }, 100);
 
@@ -100,7 +177,12 @@
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events -->
-<div class="search-overlay" use:dismissable={{ ondismiss: onclose }} onclick={onclose}>
+<div
+  class="search-overlay"
+  data-puppet-surface="dialog"
+  use:dismissable={{ ondismiss: onclose }}
+  onclick={onclose}
+>
   <!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events -->
   <div class="search-panel" onclick={(e) => e.stopPropagation()} onkeydown={handleKeydown}>
     <div class="search-input-row">
@@ -131,6 +213,7 @@
         <button
           class="search-result-item"
           class:selected={i === selectedIndex}
+          data-note-id={result.id}
           bind:this={resultEls[i]}
           onclick={(e) => onselect(result.id, e)}
           onauxclick={(e) => {

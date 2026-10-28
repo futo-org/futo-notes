@@ -2,21 +2,56 @@
 
 The shipping iOS app is the native SwiftUI shell in `apps/ios` (Rust core via
 `futo-notes-ffi`, editor embedded as a WKWebView). There is no Tauri iOS shell
-and no MCP bridge on iOS — you drive the app from outside via `xcrun simctl`
-and `axe` ([AXe](https://github.com/cameroncooke/AXe)), and you verify editor
-content through the filesystem (see "The flush-and-read trick" below).
+and no MCP bridge on iOS.
 
-`axe` replaced `idb` on 2026-07-27. This is not a cosmetic swap: `idb ui
-describe-all` returns a shallow ~11-element tree on iOS 26.5 and never shows
-the nav-bar controls, which cost us a 25-day false gap in `docs/spec/nav.md`
-(2026-07-02 → 2026-07-27) blaming SwiftUI for a tool's blind spot. `axe` reports them with labels and
-identifiers, and taps them. Do not reintroduce `idb`.
+> **Use the `puppet` skill (`.claude/skills/puppet/`) — it is the only sanctioned
+> way to drive this app.**
+> Notes, folders, navigation and every editor action are verbs
+> (`FUTO_PUPPET_TARGET=ios just puppet actions`) that run through the app's own
+> handlers and answer with a diff, and every native screen (lists, sheets,
+> dialogs) is `elements` plus real `tap`/`drag` there. The rest of this file is
+> for what `just puppet` does not cover: the toolchain, building and launching,
+> what nothing reaches (§3), and disk verification.
+
+`just puppet tap`/`drag`/`type`/`press` land a **real finger** and real keys through
+`axe` ([AXe](https://github.com/cameroncooke/AXe)) and trace what they did; the
+filesystem is the oracle for what landed on disk (see "Reading what landed" below).
 
 Debug builds install as `com.futo.notes.dev` ("FUTO Notes Dev") with notes at
 `Documents/fake-notes` inside the app container — they can never touch the
 production app or real notes.
 
+## Recover a parked software keyboard
+
+After `just qa-claim ios --reboot`, take a fresh tree and screenshot if keyboard rows remain
+off-screen. The hardware-keyboard preference does not prove visibility; iOS 27 letter keys can
+be Buttons. Check frames and rendered input rather than requiring one accessibility type.
+For a claimed, disposable QA simulator:
+
+```bash
+just qa-claim ios --erase
+just ios-native
+```
+
+**Erase removes every app, vault, preference and keychain item on that simulator.** Use only
+state this task created, or obtain approval before discarding preexisting expensive/real data
+(root `AGENTS.md` §11); ownership does not establish disposability.
+
+Erase requires exactly one existing claim owned by this worktree, accepts no personal-device
+override, and never acquires another device. It rechecks ownership and the original UDID before
+shutdown/erase, waits for observed Shutdown, and refuses identity changes or ambiguous claims.
+Normal claiming then boots the same device and disconnects its hardware keyboard. Failed retries
+never erase automatically. Reinstall the dev app, confirm Done/letter-key frames are on-screen,
+touch a visible key and observe the complete rendered/saved marker before resuming. Tap success
+alone proves nothing; recovery discards simulator state without diagnosing an app defect or
+proving the original corruption reproducible.
+
 ## Toolchain
+
+macOS does not include GNU `timeout`. For bounded process calls in portable
+Node tooling, use `execFileSync(command, args, { timeout: milliseconds })` or
+`spawnSync`'s `timeout`; do not rely on an uninstalled shell command to bound a
+simctl or AXe operation.
 
 Everything below assumes: Xcode (with a downloaded simulator runtime),
 `xcodegen` (brew), the Rust iOS targets (`aarch64-apple-ios-sim`), and `axe`.
@@ -32,6 +67,7 @@ mkdir -p /tmp/axe && cd /tmp/axe
 curl -sL -o axe.tar.gz https://github.com/cameroncooke/AXe/releases/download/v1.8.0/AXe-macOS-v1.8.0-universal.tar.gz
 tar xzf axe.tar.gz && ./axe --version    # 1.8.0
 export AXE_BIN=/tmp/axe/axe              # scripts/describe-ios-ui.mjs honors this
+export PATH="/tmp/axe:$PATH"             # `just puppet` runs the axe on PATH
 ```
 
 ## 1. Get a simulator
@@ -69,155 +105,14 @@ raw `xcodebuild`:
 If the build behaves strangely after config changes (`project.yml`,
 Info.plist), clear the cache: `rm -rf apps/ios/.build`.
 
-Relaunch after a state change (the note scan runs at launch):
+Relaunch after a state change (the note scan runs at launch) with
+`FUTO_PUPPET_TARGET=ios just puppet relaunch`: a bare `simctl launch` starts the app
+without its puppet listener, which needs `SIMCTL_CHILD_FUTO_PUPPET_PORT`.
 
-```bash
-SIM=$(just sim-udid)
-xcrun simctl terminate "$SIM" com.futo.notes.dev 2>/dev/null
-xcrun simctl launch "$SIM" com.futo.notes.dev
-```
+## 3. Native chrome only — what the verbs cannot reach
 
-## 3. Drive the UI with axe
-
-### Read the screen
-
-**Never read a raw `axe describe-ui` dump.** It is 254KB on the note list and
-453KB with a sheet open — mostly unnamed layout Groups. Use the summarizer,
-which keeps only nodes with identity and marks untappable ones:
-
-```bash
-SIM=$(just sim-udid)
-node scripts/describe-ios-ui.mjs --udid $SIM                        # whole screen, ~10KB
-node scripts/describe-ios-ui.mjs --udid $SIM --type Button --on-screen-only
-node scripts/describe-ios-ui.mjs --udid $SIM --label-contains "Qa-note"
-node scripts/describe-ios-ui.mjs --udid $SIM --actions-only          # hidden affordances
-node scripts/describe-ios-ui.mjs --udid $SIM --all                   # incl. unlabelled nodes
-node scripts/describe-ios-ui.mjs --udid $SIM --id bold --json
-```
-
-The header reports how many nodes were **dropped** for carrying no id, label,
-value, or action. Read it before concluding a control is missing: a control that
-regressed into an unlabelled `Group` is dropped, not absent, and `--all` shows
-it (that is the shape the nav controls had under `idb`).
-
-`--label-contains` matches the whole label, not the trimmed column — an iOS row
-label is `title, relative-date, body-preview`, so a body token like
-`--label-contains "Body-token-88991"` finds the row even though the rendered
-line stops at 34 characters.
-
-`--actions-only` is the `docs/spec/AGENTS.md` hidden-affordance check: it lists
-each row's `custom_actions` once, against the labeled row that owns them
-(`Delete`/`Move` per note, `Delete Folder…` per folder). Check it before
-declaring a feature missing.
-
-**Do not infer which screen is frontmost from position in the tree.** `axe`
-returns the whole window stack and the _covered_ screen comes first — with
-Settings open, the first rows are still the note list. Confirm the screen with
-a label predicate (`--label-contains "Share crash"`), never by reading the head
-or tail of a dump. Two false negatives during the AXe evaluation came from
-exactly this.
-
-### Act on it
-
-```bash
-axe tap --udid $SIM --id nav-settings --element-type Button --wait-timeout 5
-axe tap --udid $SIM --label "Qa-note-1, 2 weeks ago, Body-token-88991 alpha bravo-77"
-axe tap --udid $SIM -x 200 -y 300                     # coordinates when nothing else works
-axe touch --udid $SIM -x 201 -y 293 --down --up --delay 1.0   # long-press → context menu
-axe swipe --udid $SIM --start-x 201 --start-y 780 --end-x 201 --end-y 180 --duration 0.5
-axe type "marker4242" --udid $SIM                     # into the focused field
-axe button home --udid $SIM                           # lowercase; backgrounds the app
-axe screenshot --udid $SIM --output shot.png
-axe batch --udid $SIM --wait-timeout 8 \
-  --step "tap --id nav-settings --element-type Button" --step "sleep 2" \
-  --step "type 'hello'"                               # one HID session, one round trip
-```
-
-`axe type` sends HID keyboard events; its success does not prove every character
-arrived or that the software keyboard remains visible. On iOS 26.x HID input can
-hide the software keys even when the text arrives. When keyboard visibility,
-virtual-key hit-testing, or the editor accessory is part of the assertion, tap
-the currently visible keyboard keys with `axe tap` and re-read the tree after
-each state change. If HID input hides the keys, tap the focused field again and
-confirm the key frames returned before continuing. On a claimed iOS 26.5 sim, a
-body edit moved `q` to y=959; tapping the editor brought it back to y=590 while
-`AutomaticMinimizationEnabled` remained `1`. Do not type directly into a
-frontmost Simulator window: host typing can connect the simulator's hardware
-keyboard. That preference is not a reliable health check by itself; use actual
-on-screen key frames and read the saved note from disk to verify text.
-
-`--element-type` is effectively mandatory: every nav item appears twice, as a
-`Group` and as the concrete control, and a bare `--id` refuses to act
-(`Multiple (2) accessibility elements matched`). Prefer `--wait-timeout` over
-`sleep` — it waits for the element instead of guessing, which also handles the
-"tree is briefly an unlabeled Group right after a screen push" case.
-
-### Hold-then-drag: neither `swipe` nor `drag` can express it
-
-A long press that then moves — the iOS block-drag gesture, and anything
-Notion-shaped — cannot be driven by `axe swipe` or `axe drag`. Both apply
-`--pre-delay` BEFORE touch-down, so the finger is already moving when it lands
-and the app sees an ordinary scroll. Verified on AXe 1.8.0 with both verbs, at
-`--pre-delay` up to 1.2s: the editor's 340ms lift never fired.
-
-What works is one `touch` per position, because CoreSimulator's digitizer has no
-distinct move event — a second `--down` at a new point IS a move:
-
-```bash
-axe touch -x 200 -y 300 --down --udid $SIM   # finger lands, nothing else
-sleep 0.7                                     # past the app's 340ms lift
-axe touch -x 200 -y 360 --down --udid $SIM   # a move, not a second touch
-axe touch -x 200 -y 420 --down --udid $SIM
-axe touch -x 200 -y 420 --up   --udid $SIM   # release commits
-```
-
-Each step is a separate process, and the touch survives between them, which is
-the other half of the value: you can `axe screenshot` (or read the vault, or
-`describe-ios-ui`) BETWEEN steps and see the lift, the ghost and the drop
-indicator as separate frames. `axe batch` keeps one HID session if you want the
-whole gesture in a single round trip.
-
-### Rules that stop silent failures
-
-Each of these was observed on iOS 26.5 / AXe 1.8.0. All but the last fail
-_successfully_ — they print `✓` and change nothing.
-
-- **Never use `gesture`.** `axe gesture scroll-down` exits 0, prints nothing,
-  and does not scroll (verified: a row's frame y stayed at 736.7 with both
-  default and explicit `--screen-width/--screen-height`). Use an explicit
-  `swipe`; the same content then moved to 651.7.
-- **Bounds-check before trusting a tap.** `axe tap` resolves an element's
-  activation point and reports success even when it lies off-screen. An
-  unscrolled horizontal scroll view reports its off-viewport children at their
-  content coordinates, so on a 402pt screen the editor toolbar's `checklist`,
-  `camera`, and `photo` come back at x-centers 420/477/523 and a tap on them
-  does nothing. `describe-ios-ui.mjs` marks these `OFF-SCREEN`; use
-  `--on-screen-only` to list only what will actually respond.
-- **Keep swipes above y≈850.** A horizontal swipe at y=852 hits the
-  home-indicator gesture and leaves the app. y=845 and y=838 are safe.
-- **`--label` is exact-match, and row labels drift.** A note row's label
-  embeds its relative timestamp, so the same row went from
-  `'…, 2 weeks ago, …'` to `'…, 7 minutes ago, …'` mid-session. Prefer `--id`;
-  when you must use `--label`, read the exact string from
-  `describe-ios-ui.mjs --json` (its `label` is untruncated — the rendered
-  summary trims to a 34-char column for width, `--json` never does).
-- **`batch` is stateful.** A failed step leaves the app parked mid-flow and the
-  next run's step 1 then fails against the wrong screen. Start every batch from
-  a known state (terminate + launch).
-- **Text starting with `-` is parsed as a flag.** `type "-marker-"` fails with
-  `CommandError error 1`; use a marker without a leading dash.
-
-### What axe cannot reach
-
-Out-of-process system UI — the "Save Password?" sheet, the Photos picker,
-permission dialogs. This was true of `idb`; it has **not** been re-tested under
-`axe` (the one attempt was invalidated when a bottom-edge swipe backgrounded
-the app). Until someone checks, dismiss them by hand or restart the app to
-bypass, and record affected stories as **Blocked (not drivable)**, not as
-failures.
-
-Coordinates in the tree are a11y points; × 3.0 = screenshot pixels on current
-iPhone simulators.
+[ios/native-chrome.md](ios/native-chrome.md): the menus iOS presents itself, hold-then-drag,
+and what nothing reaches.
 
 ## 4. Screenshots, appearance, logs
 
@@ -225,6 +120,13 @@ iPhone simulators.
 just sim-screenshot ios-dark-list    # → ./test-screenshots/ios/s<SLOT>/<SIM>/ios-dark-list.png
 just sim-appearance dark             # system dark mode (app + editor follow live)
 just sim-appearance light
+```
+
+If a PNG exceeds an image reader's input limit, re-encode the owned capture as
+JPEG; resizing the PNG alone can still leave it too large:
+
+```bash
+sips -s format jpeg -s formatOptions 80 "$CAPTURE_PNG" --out "$CAPTURE_JPEG"
 ```
 
 Editor-story warmup and failure screenshots use the same worktree-slot and
@@ -235,7 +137,8 @@ launch — `log stream` alone misses it:
 
 ```bash
 xcrun simctl terminate "$SIM" com.futo.notes.dev 2>/dev/null
-xcrun simctl launch --console-pty "$SIM" com.futo.notes.dev   # stdout incl. print() (blocks; use run_in_background)
+SIMCTL_CHILD_FUTO_PUPPET_PORT=$(node scripts/lib/slot.mjs puppet) \
+  xcrun simctl launch --console-pty "$SIM" com.futo.notes.dev   # stdout incl. print() (blocks; use run_in_background)
 xcrun simctl spawn "$SIM" log show --last 2m --debug --predicate 'process == "FutoNotesNative"'   # os_log/WebKit, bounded: exits
 ```
 
@@ -244,92 +147,10 @@ non-interactive shell until it is interrupted. Use the bounded `log show --last`
 above to read what already happened; when you need `log stream`, start it with
 `run_in_background` and redirect it to a file.
 
-## 5. App data: seeding and verification
+## 5. App data and sync
 
-The debug app's vault is plain files in the app container — use it in both
-directions (fixtures in, verification out):
-
-```bash
-NOTES="$(xcrun simctl get_app_container "$SIM" com.futo.notes.dev data)/Documents/fake-notes"
-ls "$NOTES"
-cat "$NOTES/grocery list.md"
-
-# Seed fixtures, then relaunch so the scan picks them up:
-mkdir -p "$NOTES/QA Folder"
-printf '# Seeded\n\n- [ ] task\n' > "$NOTES/QA Folder/Seeded Note.md"
-xcrun simctl terminate "$SIM" com.futo.notes.dev; xcrun simctl launch "$SIM" com.futo.notes.dev
-```
-
-**Empty-vault Welcome seed**: launching into a completely empty vault
-auto-seeds `Welcome.md` — wipe-and-relaunch can never show the bare
-"No notes yet" state. To reach true-empty, delete the last note **in-app**
-(row long-press → Delete → confirm) and don't relaunch afterward.
-
-### The flush-and-read trick (editor content verification)
-
-The editor WKWebView is not reachable via CDP or JS from outside (no
-`window.__testSync`, no MCP bridge on iOS). To verify what the editor holds:
-background the app — backgrounding flushes pending edits to disk — then read
-the file:
-
-```bash
-axe button home --udid $SIM
-sleep 1
-cat "$NOTES/<note>.md"
-```
-
-Type into the editor with `axe type` after tapping the title/body to focus;
-verify the result on disk, not by screenshot-squinting.
-
-Two things the a11y tree _does_ give you without a disk read: the note title is
-the editor's `TextField` `AXValue`, and the editor's accessory toolbar only
-exists while the keyboard is up — so its presence is itself the evidence that a
-field is focused.
-
-**IME mangles typed text in note fields**: autocapitalize/predictive-text
-rewrite things like `para-1-ios` → `Para-1-iOS` (the Sync settings fields
-suppress this; note fields don't). `axe type` also APPENDS to prefilled
-fields — clear them first (tap the field's right edge, then `axe key --keycode
-42` backspaces). For exact text, `xcrun simctl pbcopy $SIM` + long-press →
-Paste usually works but has silently no-op'd in some fields. The robust
-patterns are: use markers autocorrect can't rewrite (digits/hyphens) and verify
-byte-for-byte on disk, or tap the on-screen keyboard's own keys — they are in
-the a11y tree with their letters as labels, so the IME never gets a say.
-
-### The editor toolbar is drivable
-
-With the keyboard up, every accessory-toolbar item is in the tree under a
-stable SF-Symbol identifier — `bold`, `italic`, `strikethrough`, `link`,
-`textformat.size`, `text.quote`, `list.bullet`, `list.number`, `checklist`,
-`camera`, `photo`, `keyboard.chevron.compact.down`. This is the surface
-generated from `packages/editor/src/toolbar.ts` by `just toolbar-spec`, so it
-can be QA'd directly:
-
-```bash
-axe tap --udid $SIM --id bold --element-type Button && axe type "boldtext" --udid $SIM
-axe button home --udid $SIM && cat "$NOTES/<note>.md"   # → **boldtext**
-```
-
-On a 402pt-wide iPhone only the first eight sit inside the toolbar's viewport;
-`checklist`, `camera`, and `photo` report at x-centers past the right edge and
-cannot be tapped where they are. **This is a tooling limit, not an app defect.**
-The bar is a real `ScrollView(.horizontal)` with a measured trailing inset that
-peeks the edge icon (`EditorToolbar.swift` `computeSnap`, spec'd under "Scroll
-affordance" in `docs/spec/editor.md`) — but `axe` cannot scroll it: `gesture` is
-a no-op and an explicit `swipe` across the accessory row left every item's frame
-unchanged. So the trailing items are **unexercised by automation**, and their
-absence from `--on-screen-only` is not evidence they are broken. Verify them by
-hand on a device, or on a wider simulator where they start on-screen.
-
-## 6. Sync features
-
-The simulator shares the Mac's network — `http://127.0.0.1:<port>` reaches a
-host server directly (unlike Android's `10.0.2.2`; a **physical** iPhone needs
-the Mac's LAN IP instead). Native shells have no `__testSync` hook — connect
-through Settings → Sync in the app UI. Server setup: see "Features that need a
-sync server" in SKILL.md; when this machine cannot reach the package registry
-and `~/.cache/futo-notes` is cold, record sync happy-path stories as
-**Blocked**, not failed.
+For fixture seeding, saved-content verification and sync setup, read
+[iOS app data and sync verification](ios-data-and-sync.md).
 
 ## Known gotchas
 
@@ -348,7 +169,7 @@ and `~/.cache/futo-notes` is cold, record sync happy-path stories as
   `just qa-claim ios` and the stories detach it after each boot
   (`scripts/lib/simulator-keyboard.mjs`). A device you rebooted yourself needs
   a re-claim. If a script injects HID text and keyboard visibility matters,
-  re-read the keyboard key frames before continuing; `axe type` can hide the
+  re-read the keyboard key frames before continuing; HID typing can hide the
   software keyboard on some simulator states even when it reports success.
 - **Taps report success but nothing happens, on every simulator** → check
   whether Xcode 27's DeviceHub is running. While it runs it takes the

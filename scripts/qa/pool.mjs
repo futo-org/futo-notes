@@ -6,6 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { slotOf } from '../lib/slot.mjs';
 
+export const LEGACY_ANDROID_AVDS = ['futo-api28', 'futo-api29', 'futo-api30'];
 export const POOL = 7; // devices per platform; bump if you routinely run more worktrees
 export const IS_MAC = process.platform === 'darwin';
 const HOME = os.homedir();
@@ -61,6 +62,15 @@ export function readOwner(platform, name) {
 }
 
 export const ownerIsStale = (owner) => !fs.existsSync(owner.worktree);
+
+// The device's id (adb serial or simulator udid) in its owner file, which `just puppet` reads
+// without starting node. An emulator's serial can change when it restarts; `device` rewrites it.
+export function recordId(platform, name, id) {
+  const owner = readOwner(platform, name);
+  if (owner && owner.id !== id) {
+    fs.writeFileSync(ownerPath(platform, name), JSON.stringify({ ...owner, id }, null, 2));
+  }
+}
 
 // Atomically claim a device name for this worktree. Exclusive create (wx)
 // makes two SIMULTANEOUS claimers of the same name resolve safely: exactly
@@ -119,4 +129,15 @@ export function claimPoolName(platform, root) {
   die(
     `all ${POOL} ${platform} pool devices are owned by live worktrees — release one (just qa-release) or run just qa-gc`,
   );
+}
+
+// Explicit legacy fixtures participate in ownership but retain their pinned
+// images and app state. The caller must verify the AVD exists before claiming.
+export function claimNamedAndroid(root, name) {
+  if (!LEGACY_ANDROID_AVDS.includes(name)) {
+    throw new Error(`unsupported QA AVD ${name}; use ${LEGACY_ANDROID_AVDS.join(', ')}`);
+  }
+  const claim = tryClaimOwner('android', name, root);
+  if (!claim) throw new Error(`${name} is claimed by another worktree`);
+  return { name, fresh: claim === 'new' };
 }

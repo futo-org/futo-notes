@@ -23,9 +23,10 @@ pub async fn pairing_hands_the_vault_key_to_a_new_device(base: &str) {
     assert!(!code.expires_at.is_empty(), "the code says when it dies");
 
     // …and starts polling before anyone scans it.
+    let request = laptop.request_wait();
     let waiting = tokio::spawn({
         let laptop = Arc::clone(&laptop);
-        async move { laptop.await_pairing().await }
+        async move { laptop.await_pairing(request).await }
     });
 
     // The unlocked device scans, and is told what to put on the confirm sheet.
@@ -71,7 +72,10 @@ pub async fn pairing_hands_the_vault_key_to_a_new_device(base: &str) {
     );
     // Spent. The relay deleted the pairing when it served the key.
     assert_eq!(
-        laptop.await_pairing().await.unwrap_err(),
+        laptop
+            .await_pairing(laptop.request_wait())
+            .await
+            .unwrap_err(),
         HostedError::PairingNotStarted
     );
 }
@@ -106,7 +110,10 @@ pub async fn a_scanned_code_sends_nothing_until_the_person_confirms(base: &str) 
     // And only now, on confirm, does anything go out.
     unlocked.confirm_pairing(&scanned).await.expect("confirm");
     assert_eq!(
-        laptop.await_pairing().await.expect("await pairing"),
+        laptop
+            .await_pairing(laptop.request_wait())
+            .await
+            .expect("await pairing"),
         PairingOutcome::Paired
     );
 }
@@ -187,7 +194,10 @@ pub async fn collecting_the_key_spends_the_pairing(base: &str) {
     let scanned = unlocked.complete_pairing(&code.payload).expect("read");
     unlocked.confirm_pairing(&scanned).await.expect("confirm");
     assert_eq!(
-        laptop.await_pairing().await.expect("await pairing"),
+        laptop
+            .await_pairing(laptop.request_wait())
+            .await
+            .expect("await pairing"),
         PairingOutcome::Paired
     );
 
@@ -214,9 +224,10 @@ pub async fn leaving_the_pairing_screen_cancels_the_wait(base: &str) {
         .await
         .expect("begin pairing");
 
+    let request = laptop.request_wait();
     let waiting = tokio::spawn({
         let laptop = Arc::clone(&laptop);
-        async move { laptop.await_pairing().await }
+        async move { laptop.await_pairing(request).await }
     });
     tokio::time::sleep(Duration::from_millis(80)).await;
     laptop.cancel_wait();
@@ -265,7 +276,10 @@ pub async fn an_expired_pairing_code_is_its_own_error(base: &str) {
         .expect("begin pairing");
 
     assert_eq!(
-        laptop.await_pairing().await.unwrap_err(),
+        laptop
+            .await_pairing(laptop.request_wait())
+            .await
+            .unwrap_err(),
         HostedError::PairingExpired,
     );
     assert_eq!(secrets.held_vault_key(), None);

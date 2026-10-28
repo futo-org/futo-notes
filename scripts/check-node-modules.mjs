@@ -36,6 +36,44 @@ if (!existsSync(path.join(root, 'node_modules'))) {
   process.exit(1);
 }
 
+// A lockfile copied with source may describe a different install than the
+// node_modules left in a checkout. Compare pnpm's recorded snapshot, not mtimes
+// (worktree/cache copies can preserve or skew timestamps).
+const lockfile = path.join(root, 'pnpm-lock.yaml');
+const installedLockfile = path.join(root, 'node_modules/.pnpm/lock.yaml');
+const lockText = (file) => readFileSync(file, 'utf8').replace(/\r\n/g, '\n');
+if (
+  existsSync(lockfile) &&
+  (!existsSync(installedLockfile) || lockText(lockfile) !== lockText(installedLockfile))
+) {
+  console.error('node_modules installed dependency snapshot differs from pnpm-lock.yaml');
+  console.error('  Run: pnpm install --frozen-lockfile');
+  process.exit(1);
+}
+
+// These are files our tools load directly, including a hoisted transitive link.
+// A matching lock snapshot alone cannot detect a partial/broken installation.
+const manifest = path.join(root, 'package.json');
+if (existsSync(manifest)) {
+  const pkg = JSON.parse(readFileSync(manifest, 'utf8'));
+  const declared = { ...pkg.dependencies, ...pkg.devDependencies };
+  const requiredFiles = [
+    ['ajv', 'ajv/dist/2020.js'],
+    ['@playwright/test', 'playwright-core/browsers.json'],
+  ];
+  const missing = requiredFiles
+    .filter(
+      ([dependency, file]) =>
+        declared[dependency] && !existsSync(path.join(root, 'node_modules', file)),
+    )
+    .map(([, file]) => file);
+  if (missing.length) {
+    console.error(`node_modules is incomplete: ${missing.join(', ')}`);
+    console.error('  Run: pnpm install --force --frozen-lockfile');
+    process.exit(1);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // patchedDependencies: is each patch present in what the app resolves?
 // ---------------------------------------------------------------------------

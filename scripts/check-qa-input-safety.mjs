@@ -63,7 +63,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 
 import { justfilePaths } from './lib/justfile.mjs';
 
@@ -121,21 +121,21 @@ export const RULES = [
     id: 'system-events-ui-scripting',
     why: "AppleScript UI scripting sends input to the FOCUSED window, not to the process you named. During parallel QA that focused window was the installed production app on the user's real vault.",
     instead:
-      "drive the debug build's webview bridge (.claude/skills/verify/references/desktop.md), which can only reach the instance you connected to.",
+      '`just puppet click|type|press`, which the debug app delivers to its own window in-process (.claude/skills/puppet/SKILL.md).',
     match: (line) => /System Events/.test(line),
   },
   {
     id: 'applescript-keystroke',
     why: 'a synthetic keystroke is delivered by the window server to whatever is focused — it cannot be addressed to a PID, so it can always land in the wrong app.',
     instead:
-      "webview_keyboard / webview_execute_js against the bridge port of a target verified by `node scripts/qa-target.mjs`, or document.execCommand('insertText') for the editor.",
+      '`just puppet type|press`, which the debug app delivers to its own window in-process (.claude/skills/puppet/SKILL.md).',
     match: (line) => /\bkeystroke\s+["'“]/.test(line) || /\bkey code\s+\d/.test(line),
   },
   {
     id: 'cliclick',
     why: 'cliclick clicks at screen coordinates in whatever app is frontmost — it has no notion of which instance you meant.',
     instead:
-      'webview_interact by ref/selector/text through the bridge, or a native screenshot plus bridge-mediated interaction.',
+      '`just puppet click`, which the debug app delivers to its own window in-process, at CSS pixels or on a verb (.claude/skills/puppet/SKILL.md).',
     match: (line) => /\bcliclick\b/.test(line),
   },
   {
@@ -334,7 +334,7 @@ function main() {
         `entry(ies) across ${files.length} instruction file(s).\n` +
         "These techniques sent real Cmd+Z keystrokes into the user's production vault once (M24), " +
         "and killed three peer worktrees' dev stacks in one hour (M25). Do not allowlist a new " +
-        'occurrence to get green — use scripts/qa-target.mjs, the webview bridge, and a PID or port ' +
+        'occurrence to get green — use scripts/qa-target.mjs, `just puppet`, and a PID or port ' +
         'you own.',
     );
     process.exit(1);
@@ -347,4 +347,4 @@ function main() {
   );
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) main();
+if (import.meta.main) main();

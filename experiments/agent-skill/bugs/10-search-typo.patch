@@ -1,0 +1,162 @@
+diff --git a/crates/futo-notes-search/benches/search.rs b/crates/futo-notes-search/benches/search.rs
+index a3816a93..945b25b0 100644
+--- a/crates/futo-notes-search/benches/search.rs
++++ b/crates/futo-notes-search/benches/search.rs
+@@ -99,7 +99,6 @@ fn search(c: &mut Criterion) {
+             "meeting architecture ",
+             50.min(count.div_ceil(4)),
+         ),
+-        ("typo", "drivreless ", 1),
+         ("missing", "zzqxvvww ", 0),
+     ] {
+         assert_eq!(engine.query(query, 50).unwrap().len(), expected, "{name}");
+diff --git a/crates/futo-notes-search/src/lib.rs b/crates/futo-notes-search/src/lib.rs
+index e0e6ddd7..39955c57 100644
+--- a/crates/futo-notes-search/src/lib.rs
++++ b/crates/futo-notes-search/src/lib.rs
+@@ -338,44 +338,4 @@ mod tests {
+             ids(&hits)
+         );
+     }
+-
+-    /// One mistyped character still finds the note.
+-    ///
+-    /// Regression: 24 of 24 single-character misspellings of otherwise-unique
+-    /// words returned an empty result list against the real corpus.
+-    #[test]
+-    fn a_single_character_typo_still_finds_the_note() {
+-        let (_g, _v, _i, engine) = engine_over(&[
+-            ("Cars", "an essay about driverless vehicles"),
+-            ("Bank", "call the bank"),
+-        ]);
+-
+-        // deletion, substitution, insertion, transposition
+-        for typo in ["driverles", "drivarless", "driverlesss", "drivreless"] {
+-            let hits = engine.query(typo, 10).expect("query ok");
+-            assert!(
+-                ids(&hits).contains(&"Cars"),
+-                "typo {typo:?} should still find the note, got {:?}",
+-                ids(&hits)
+-            );
+-        }
+-    }
+-
+-    /// Fuzzy is a last resort, not a default: an exactly-spelled query must not
+-    /// have its results diluted by edit-distance-1 neighbors.
+-    #[test]
+-    fn fuzzy_does_not_fire_when_the_exact_spelling_matches() {
+-        let (_g, _v, _i, engine) = engine_over(&[
+-            ("Exact", "cart"),
+-            ("Neighbor one", "cars"),
+-            ("Neighbor two", "cast"),
+-        ]);
+-
+-        let hits = engine.query("cart", 10).expect("query ok");
+-        assert_eq!(
+-            ids(&hits),
+-            vec!["Exact"],
+-            "an exact match must not pull in fuzzy neighbors"
+-        );
+-    }
+ }
+diff --git a/crates/futo-notes-search/src/tantivy_indices.rs b/crates/futo-notes-search/src/tantivy_indices.rs
+index a72dd3b7..65c7bc5b 100644
+--- a/crates/futo-notes-search/src/tantivy_indices.rs
++++ b/crates/futo-notes-search/src/tantivy_indices.rs
+@@ -190,7 +190,7 @@ impl TantivyIndices {
+         // typed — which is why callers must not trim the query's tail.
+         let (head, prefix_word) = split_trailing_prefix(query);
+ 
+-        // Three passes, most precise first. Each falls through only when the
++        // Two passes, most precise first. Each falls through only when the
+         // previous one found nothing, so the cheap common case stays one pass
+         // and no pass can ever shadow a better one's results.
+         //
+@@ -200,14 +200,9 @@ impl TantivyIndices {
+         //    top 10 in 18 of 20 measured cases.
+         // 2. ANY word, for queries no single note satisfies (long natural
+         //    questions, a stray stop word).
+-        // 3. Edit-distance 1, for a typo. Without it one wrong character
+-        //    returns an empty list, which reads as "you have no such note".
+-        let mut top = self.run_pass(&searcher, query, head, prefix_word, k, Pass::AllWords)?;
++        let mut top = self.run_pass(&searcher, head, prefix_word, k, Pass::AllWords)?;
+         if top.is_empty() {
+-            top = self.run_pass(&searcher, query, head, prefix_word, k, Pass::AnyWord)?;
+-        }
+-        if top.is_empty() {
+-            top = self.run_pass(&searcher, query, head, prefix_word, k, Pass::Fuzzy)?;
++            top = self.run_pass(&searcher, head, prefix_word, k, Pass::AnyWord)?;
+         }
+ 
+         let mut hits = Vec::with_capacity(top.len());
+@@ -230,7 +225,6 @@ impl TantivyIndices {
+     fn run_pass(
+         &self,
+         searcher: &tantivy::Searcher,
+-        raw_query: &str,
+         head: &str,
+         prefix_word: Option<&str>,
+         k: usize,
+@@ -252,7 +246,7 @@ impl TantivyIndices {
+                         parser.set_conjunction_by_default();
+                         Occur::Must
+                     }
+-                    _ => Occur::Should,
++                    Pass::AnyWord => Occur::Should,
+                 };
+                 let mut clauses: Vec<(Occur, Box<dyn Query>)> = Vec::new();
+                 if let Some(head_query) = parse_lenient(&parser, head) {
+@@ -267,13 +261,6 @@ impl TantivyIndices {
+                     _ => Some(Box::new(BooleanQuery::new(clauses))),
+                 }
+             }
+-            Pass::Fuzzy => {
+-                for field in &fields {
+-                    // (prefix = false, distance = 1, transposition costs 1)
+-                    parser.set_field_fuzzy(*field, false, 1, true);
+-                }
+-                parse_lenient(&parser, raw_query)
+-            }
+         };
+         let Some(parsed) = parsed else {
+             return Ok(vec![]);
+@@ -373,8 +360,6 @@ enum Pass {
+     AllWords,
+     /// Any query word may match.
+     AnyWord,
+-    /// Any query word may match within edit distance 1.
+-    Fuzzy,
+ }
+ 
+ fn cleanup_old_splade_index(index_root: &Path) -> Result<(), String> {
+@@ -775,30 +760,6 @@ mod tests {
+         );
+     }
+ 
+-    #[test]
+-    fn a_longer_query_reaches_a_shorter_word_only_through_the_fuzzy_last_resort() {
+-        // Companion to no_stemming_yet_a_mid_typing_query_reaches_longer_forms:
+-        // prefixing runs one way, so "meetings" cannot prefix-match
+-        // "meeting". When nothing else matches at all, the
+-        // edit-distance-1 pass still finds it — which is the fuzzy fallback
+-        // doing its job, not stemming. Asserted in a vault where "meetings"
+-        // appears nowhere, so no earlier pass can satisfy the query.
+-        let (_dir, mut idx) = open_indices_in_tempdir();
+-        idx.upsert_note_bm25("singular", "Meeting notes", "one meeting", "", "", now_ms());
+-        idx.commit_bm25().unwrap();
+-        for query in ["meetings", "meetings "] {
+-            assert_eq!(
+-                idx.search_bm25(query, 10)
+-                    .unwrap()
+-                    .iter()
+-                    .map(|(id, _)| id.as_str())
+-                    .collect::<Vec<_>>(),
+-                vec!["singular"],
+-                "{query:?} reaches the shorter word via edit distance 1"
+-            );
+-        }
+-    }
+-
+     #[test]
+     fn delete_note_removes_from_subsequent_list() {
+         let (_dir, mut idx) = open_indices_in_tempdir();

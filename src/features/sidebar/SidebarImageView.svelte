@@ -6,6 +6,7 @@
     type ImageFileEntry,
   } from '$features/images/imageFiles';
   import { vaultAvailability } from '$features/storage/vaultAvailability.svelte';
+  import { puppetRefusal, puppetVerb, registerPuppetVerbs } from '$app/puppet/puppetRegistry';
   import { localizedFileSize, localizedRelativeTime, localizedText } from '$shared/localization';
 
   let images: ImageFileEntry[] = $state([]);
@@ -37,6 +38,65 @@
       console.warn('Failed to delete image:', e);
     }
   }
+
+  // Each verb exists while the markup below draws its control: the list's rows, or the
+  // selected image's Back and ⋯, and Delete only in the open menu.
+  $effect(() =>
+    registerPuppetVerbs(() => {
+      if (loading || images.length === 0) return [];
+      if (!selectedImage) {
+        return [
+          puppetVerb('SelectImage', { filename: 'string' }, (args) => {
+            const filename = args.filename as string;
+            if (!images.some((image) => image.filename === filename)) {
+              return puppetRefusal(400, `no such image: ${filename}`);
+            }
+            selectedImage = filename;
+            return undefined;
+          }),
+        ];
+      }
+      return [
+        puppetVerb(
+          'DeselectImage',
+          {},
+          () => {
+            selectedImage = null;
+            menuOpen = false;
+          },
+          { controls: ['sidebar.images.backAccessibilityLabel'] },
+        ),
+        puppetVerb(
+          'ToggleImageMenu',
+          {},
+          () => {
+            menuOpen = !menuOpen;
+          },
+          {
+            controls: [
+              'sidebar.images.optionsAccessibilityLabel',
+              'sidebar.images.closeMenuAccessibilityLabel',
+            ],
+          },
+        ),
+        ...(menuOpen
+          ? [
+              puppetVerb(
+                'DeleteSelectedImage',
+                {},
+                () => {
+                  if (vaultAvailability.unavailable) {
+                    return puppetRefusal(409, 'the vault is unavailable, so Delete is disabled');
+                  }
+                  return handleDelete();
+                },
+                { controls: ['sidebar.images.delete'] },
+              ),
+            ]
+          : []),
+      ];
+    }),
+  );
 
   function getSelectedEntry(): ImageFileEntry | undefined {
     return images.find((img) => img.filename === selectedImage);

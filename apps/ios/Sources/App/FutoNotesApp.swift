@@ -3,6 +3,7 @@ import SwiftUI
 @main
 struct FutoNotesApp: App {
     @StateObject private var store = NotesStore()
+    @StateObject private var navigation = AppNavigation()
     @StateObject private var sync = SyncManager()
     @StateObject private var license = LicenseModel()
     @StateObject private var licenseStorefront = LicenseStorefront()
@@ -29,6 +30,7 @@ struct FutoNotesApp: App {
         WindowGroup {
             NoteListView()
                 .environmentObject(store)
+                .environmentObject(navigation)
                 .environmentObject(sync)
                 .environmentObject(license)
                 .environmentObject(licenseStorefront)
@@ -46,6 +48,20 @@ struct FutoNotesApp: App {
                 .environment(\.localization, localization)
                 .tint(Theme.primary)
                 .appearanceOverride(ThemeMode.resolve(themeMode))
+                #if DEBUG
+                    .modifier(
+                        PuppetServerStart(navigation: navigation, store: store, sync: sync)
+                    )
+                    // Every `Link` and `openURL` below, sheets included, for `state`'s `opened`.
+                    .environment(
+                        \.openURL,
+                        OpenURLAction { url in
+                            MainActor.assumeIsolated {
+                                PuppetVerbs.shared.recordOpen(url.absoluteString)
+                            }
+                            return .systemAction
+                        })
+                #endif
                 // Crash Report sheet for reports found by the launch scan (only
                 // when reporting is enabled and Always-send is off).
                 .sheet(

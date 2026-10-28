@@ -2,8 +2,9 @@
   /**
    * The app's modal dialog. Compose every blocking dialog from this rather than
    * hand-rolling a backdrop: it is what makes Escape-to-dismiss, backdrop
-   * dismissal, `role="dialog"`, focus containment, and focus restoration
-   * automatic instead of something each new dialog has to remember.
+   * dismissal, `role="dialog"`, focus containment, focus restoration, and the
+   * puppet verbs behind it going out of reach automatic instead of something
+   * each new dialog has to remember.
    *
    * Escape handling itself lives in `dismissable.ts`, which also serves
    * overlays with bespoke chrome (crash report, context menu, search).
@@ -13,6 +14,12 @@
   import { portal } from '$shared/dom/portal';
 
   import { dismissable } from './dismissable';
+  import {
+    puppetModalScope,
+    puppetVerb,
+    registerPuppetVerbs,
+    type PuppetVerb,
+  } from '$app/puppet/puppetRegistry';
   import './modal.css';
 
   interface Props {
@@ -26,6 +33,8 @@
     /** Whether clicking the backdrop dismisses. Off for dialogs that must be answered. */
     dismissOnBackdrop?: boolean;
     ondismiss: () => void;
+    /** The dialog's controls as puppet verbs: registered here, they are what `actions` offers while it is up. */
+    verbs?: () => PuppetVerb[];
     children: Snippet;
   }
 
@@ -35,12 +44,23 @@
     cardClass = '',
     dismissOnBackdrop = true,
     ondismiss,
+    verbs,
     children,
   }: Props = $props();
 
   const titleId = `modal-title-${Math.random().toString(36).slice(2, 10)}`;
 
   let card: HTMLDivElement | undefined = $state();
+
+  // Escape / backdrop / the dialog's Cancel button, as a verb, for as long as the dialog is up;
+  // nothing behind it is reachable.
+  puppetModalScope();
+  $effect(() =>
+    registerPuppetVerbs(() => [
+      puppetVerb('DismissDialog', {}, ondismiss, { controls: ['common.actions.cancel'] }),
+      ...(verbs?.() ?? []),
+    ]),
+  );
 
   const FOCUSABLE =
     'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';

@@ -30,6 +30,16 @@ SDK/pinned NDK/cargo-ndk/JDK 17 or 21. Set `ANDROID_HOME`, `ANDROID_NDK_HOME` an
 `JAVA_HOME` as directed by the Android manual. Setup does not provision SDKs, claim
 devices, launch apps or prove device readiness. Existing `pnpm prepare` hooks still run.
 
+For one Vitest file in a fresh worktree, use the public recipe:
+
+```bash
+just test-unit scripts/package-safety-policy.test.mjs
+```
+
+`test-unit` installs dependencies when `node_modules` is absent, then runs the requested file.
+Raw `pnpm exec vitest` requires an existing install. The full `just check` keeps its read-only
+prerequisite guard; run `just install` before it when dependencies are missing.
+
 For a check that cannot install Node or dependencies, use:
 
 ```bash
@@ -47,6 +57,25 @@ keep debug bridges on loopback and run drivers on that host. Use `just qa-claim 
 and pass its `SIM` to `just verify-run test-ios-stories` for native keyboard QA.
 Claims and the native app's required rebuild remain mandatory. Setup itself does
 not prove that an iOS journey passed.
+
+## Unit tests alongside native builds
+
+The app and editor Vitest suites use the same four-worker ceiling locally and in CI, owned by
+`scripts/lib/test-worker-budget.mjs`. An uncapped local pool could start a worker for every available CPU
+while native builds and peer worktrees competed for that host. The ceiling bounds this suite's
+concurrency; it cannot eliminate starvation caused by unrelated processes. Existing test deadlines
+and the FolderTree virtualization suite's measured budget remain unchanged.
+
+For a busy host, run the suites after the native build or explicitly lower their concurrency:
+
+```bash
+pnpm exec vitest run --maxWorkers=2
+```
+
+A disposable eight-file occupancy probe measured eight simultaneous workers before the cap and
+four afterward; every probe passed under the same five-second test deadline. Test failures still
+fail the command. Do not infer a product regression from an overloaded host without reproducing
+the owning test with a bounded pool.
 
 ## Evidence that survives reruns
 

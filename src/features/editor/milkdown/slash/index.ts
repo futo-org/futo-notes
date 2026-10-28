@@ -27,6 +27,8 @@ import { TextSelection, type PluginSpec } from '@milkdown/kit/prose/state';
 import type { EditorState } from '@milkdown/kit/prose/state';
 import type { EditorView as ProseView } from '@milkdown/kit/prose/view';
 
+import { puppetRefusal, puppetVerb, registerPuppetVerbs } from '$app/puppet/puppetRegistry';
+
 import { blockFormatAtPos } from '../blockCommands';
 import { editorView } from '../caretContext';
 import { isLineBreak } from '../paragraphLines';
@@ -221,6 +223,32 @@ export function createSlashMenuPlugin(
             commit(view, open.items[index]);
           });
 
+          /* The open menu's rows as one verb: a click on a row (Enter, Tab and the arrows are
+           * keys, which Press reaches through `handleKeyDown` above). */
+          const unregisterVerbs = registerPuppetVerbs(() => {
+            const run = open;
+            if (!run || run.items.length === 0) return [];
+            const ids = run.items.map((item) => item.id);
+            return [
+              puppetVerb(
+                'PickSlashItem',
+                { item: ids.length > 1 ? (ids.join('|') as `${string}|${string}`) : 'string' },
+                (args) => {
+                  const view = editorView(getEditor());
+                  const item = run.items.find((candidate) => candidate.id === args.item);
+                  if (!view || !item || open !== run) {
+                    return puppetRefusal(
+                      409,
+                      `the menu does not offer ${String(args.item)}: ${ids.join(', ')}`,
+                    );
+                  }
+                  commit(view, item);
+                  return undefined;
+                },
+              ),
+            ];
+          });
+
           const provider = new SlashProvider({
             content: menu.dom,
             // Positioned against `body` in viewport coordinates, so the menu
@@ -259,6 +287,7 @@ export function createSlashMenuPlugin(
             // drops the plugin); an entry left behind would keep Enter from it.
             destroy: () => {
               menusOpen.delete(ownerView);
+              unregisterVerbs();
               provider.destroy();
               menu.destroy();
             },

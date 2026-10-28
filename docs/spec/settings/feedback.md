@@ -37,6 +37,8 @@ replaced the "Report an issue" link to the GitHub issue tracker.
   crashes — to staging. The target is shown next to the switch, so a dev build
   can never silently post somewhere invisible.
   → `crashlogEndpoint.ts`, `CrashlogEndpoint.swift`, `CrashlogEndpoint.kt`
+- Debug local collectors use the build worktree's slot-derived port;
+  different slots use different collectors. → `scripts/lib/slot.mjs`
 
 > **Gap:** the desktop form is reached from Settings only; there is no
 > keyboard shortcut or command-palette entry for it.

@@ -5,6 +5,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.futo.notes.localization.LocalizedMessage
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -358,6 +359,9 @@ class HostedSetupModel(
         try {
             val client = setup ?: makeSetup().also { setup = it }
             work(client)
+        } catch (e: CancellationException) {
+            // The screen went away mid-step: nothing failed, so nothing is reported.
+            throw e
         } catch (e: ActivityNotFoundException) {
             // No Custom Tabs provider AND no browser at all. Named here rather
             // than in `hostedErrorMessage`, which is a per-shell mirror of one
@@ -367,8 +371,9 @@ class HostedSetupModel(
         } catch (e: Exception) {
             log("step failed: $e")
             errorMessage = hostedErrorMessage(e)
+        } finally {
+            busy = false
+            waiting = null
         }
-        busy = false
-        waiting = null
     }
 }

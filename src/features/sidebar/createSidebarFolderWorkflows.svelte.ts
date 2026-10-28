@@ -1,3 +1,4 @@
+import { SHORTCUT_STEPS, type PuppetShortcutSteps } from '$app/puppet/puppetRegistry';
 import { createFolder, validateNewFolderName } from '$features/folders/folderOperations';
 import { vaultAvailability } from '$features/storage/vaultAvailability.svelte';
 import { showGlobalToast } from '$shared/notifications/toastBus.svelte';
@@ -17,7 +18,13 @@ export interface SidebarFolderMenuItem {
   label: LocalizedMessage;
   destructive?: boolean;
   disabled?: boolean;
-  onclick: () => void;
+  onclick: () => unknown;
+  /** The option's `futo-puppet` verb (ContextMenu.svelte `MenuItem.verb`). */
+  verb: {
+    name: string;
+    shortcut?: { argument: string; steps: PuppetShortcutSteps };
+    confirms?: true;
+  };
 }
 
 interface SidebarFolderWorkflowOptions {
@@ -43,14 +50,37 @@ function folderMenuItems(on: {
   newFolder: () => void;
   rename: () => void;
   move: () => void;
-  remove: () => void;
+  remove: () => unknown;
 }): SidebarFolderMenuItem[] {
   return [
-    { label: { path: 'notes.newNote' }, onclick: on.newNote },
-    { label: { path: 'folders.newFolderTitleCase' }, onclick: on.newFolder },
-    { label: { path: 'common.actions.rename' }, onclick: on.rename },
-    { label: { path: 'folders.actions.moveToFolder' }, onclick: on.move },
-    { label: { path: 'common.actions.delete' }, destructive: true, onclick: on.remove },
+    { label: { path: 'notes.newNote' }, onclick: on.newNote, verb: { name: 'NewNoteInFolder' } },
+    {
+      label: { path: 'folders.newFolderTitleCase' },
+      onclick: on.newFolder,
+      verb: {
+        name: 'NewSubfolder',
+        shortcut: { argument: 'name', steps: SHORTCUT_STEPS.newFolderName },
+      },
+    },
+    {
+      label: { path: 'common.actions.rename' },
+      onclick: on.rename,
+      verb: { name: 'RenameFolder', shortcut: { argument: 'name', steps: SHORTCUT_STEPS.newName } },
+    },
+    {
+      label: { path: 'folders.actions.moveToFolder' },
+      onclick: on.move,
+      verb: {
+        name: 'MoveFolderToFolder',
+        shortcut: { argument: 'targetPath', steps: SHORTCUT_STEPS.targetPath },
+      },
+    },
+    {
+      label: { path: 'common.actions.delete' },
+      destructive: true,
+      onclick: on.remove,
+      verb: { name: 'DeleteFolder', confirms: true },
+    },
   ];
 }
 
@@ -59,12 +89,28 @@ function folderMenuItems(on: {
 function noteMenuItems(on: {
   rename: () => void;
   move: () => void;
-  remove: () => void;
+  remove: () => unknown;
 }): SidebarFolderMenuItem[] {
   return [
-    { label: { path: 'common.actions.rename' }, onclick: on.rename },
-    { label: { path: 'notes.actions.moveToFolder' }, onclick: on.move },
-    { label: { path: 'common.actions.delete' }, destructive: true, onclick: on.remove },
+    {
+      label: { path: 'common.actions.rename' },
+      onclick: on.rename,
+      verb: { name: 'RenameNote', shortcut: { argument: 'title', steps: SHORTCUT_STEPS.newName } },
+    },
+    {
+      label: { path: 'notes.actions.moveToFolder' },
+      onclick: on.move,
+      verb: {
+        name: 'MoveNoteToFolder',
+        shortcut: { argument: 'targetPath', steps: SHORTCUT_STEPS.targetPath },
+      },
+    },
+    {
+      label: { path: 'common.actions.delete' },
+      destructive: true,
+      onclick: on.remove,
+      verb: { name: 'DeleteNote', confirms: true },
+    },
   ];
 }
 
@@ -75,13 +121,15 @@ export function createSidebarFolderWorkflows(options: SidebarFolderWorkflowOptio
   let noteRenameRequest = $state<{ id: string; nonce: number } | null>(null);
   let folderPicker = $state<{
     title: LocalizedMessage;
-    onpick: (target: string) => void;
+    onpick: (target: string) => Promise<void>;
     excludePaths: string[];
   } | null>(null);
   let contextMenu = $state<{
     x: number;
     y: number;
     items: SidebarFolderMenuItem[];
+    /** The row it is open for, as the agent's `elements` names it: `note "<id>"`, `folder "<path>"`. */
+    openFor: string;
   } | null>(null);
 
   function openCreateFolder(parent: string): void {
@@ -115,6 +163,14 @@ export function createSidebarFolderWorkflows(options: SidebarFolderWorkflowOptio
     return null;
   }
 
+  function requestFolderRename(path: string): void {
+    renameRequest = { path, nonce: Date.now() };
+  }
+
+  function requestNoteRename(id: string): void {
+    noteRenameRequest = { id, nonce: Date.now() };
+  }
+
   function showFolderContextMenu(path: string, x: number, y: number): void {
     contextMenu = {
       x,
@@ -123,13 +179,12 @@ export function createSidebarFolderWorkflows(options: SidebarFolderWorkflowOptio
         folderMenuItems({
           newNote: () => options.onNewNoteInFolder(path),
           newFolder: () => openCreateFolder(path),
-          rename: () => {
-            renameRequest = { path, nonce: Date.now() };
-          },
+          rename: () => requestFolderRename(path),
           move: () => openMoveFolderPicker(path),
-          remove: () => void confirmDeleteSidebarFolder(path, options),
+          remove: () => confirmDeleteSidebarFolder(path, options),
         }),
       ),
+      openFor: `folder "${path}"`,
     };
   }
 
@@ -139,13 +194,12 @@ export function createSidebarFolderWorkflows(options: SidebarFolderWorkflowOptio
       y,
       items: lockedWhileVaultUnusable(
         noteMenuItems({
-          rename: () => {
-            noteRenameRequest = { id, nonce: Date.now() };
-          },
+          rename: () => requestNoteRename(id),
           move: () => openMoveNotePicker(id),
-          remove: () => void confirmDeleteSidebarNote(id, options),
+          remove: () => confirmDeleteSidebarNote(id, options),
         }),
       ),
+      openFor: `note "${id}"`,
     };
   }
 
@@ -157,7 +211,7 @@ export function createSidebarFolderWorkflows(options: SidebarFolderWorkflowOptio
     folderPicker = {
       title: { path: 'folders.movePickerHeading' },
       excludePaths: [],
-      onpick: (target) => void moveNoteFromPicker(noteId, target),
+      onpick: (target) => moveNoteFromPicker(noteId, target),
     };
   }
 
@@ -169,7 +223,7 @@ export function createSidebarFolderWorkflows(options: SidebarFolderWorkflowOptio
         arguments: { folderName: components[components.length - 1] ?? folderPath },
       },
       excludePaths: [folderPath],
-      onpick: (target) => void moveFolderFromPicker(folderPath, target),
+      onpick: (target) => moveFolderFromPicker(folderPath, target),
     };
   }
 
@@ -213,6 +267,8 @@ export function createSidebarFolderWorkflows(options: SidebarFolderWorkflowOptio
     showFolderContextMenu,
     showNoteContextMenu,
     closeContextMenu,
+    requestFolderRename,
+    requestNoteRename,
     renameFolder: (path: string, newName: string) => renameSidebarFolder(path, newName, options),
     renameNote: (id: string, newTitle: string) => renameSidebarNote(id, newTitle, options),
     closeFolderPicker,

@@ -308,3 +308,11 @@ final class EditorContainerView: UIView {
         if window != nil { onEnterWindow?() }
     }
 }
+
+/// Encode an arbitrary Swift string as a safe JS string literal.
+func jsLiteral(_ value: String) -> String {
+    let data = (try? JSONSerialization.data(withJSONObject: [value])) ?? Data("[\"\"]".utf8)
+    let json = String(data: data, encoding: .utf8) ?? "[\"\"]"
+    // Strip the surrounding [ ] to get just the quoted string literal.
+    return String(json.dropFirst().dropLast())
+}

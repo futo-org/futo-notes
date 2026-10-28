@@ -14,15 +14,14 @@ import {
   lstatSync,
 } from 'node:fs';
 import { join, relative, resolve, sep } from 'node:path';
-import { homedir } from 'node:os';
 import { createHash, randomUUID } from 'node:crypto';
-import { candidateFor, verifyTarget, worktreeRoots } from '../../scripts/qa-target.mjs';
+import { candidateFor, targetContext, verifyTarget } from '../../scripts/qa-target.mjs';
 import { portsFor } from '../../scripts/lib/slot.mjs';
 import { discoverPort, connectWs } from './mcp-client.mjs';
 import { TauriTestClient, waitForTestHooks } from './tauri-test-client.mjs';
 
 // Reject escapes and symlinks before creating directories or starting the app.
-function assertRunPath(value, base) {
+export function assertRunPath(value, base) {
   const rel = relative(resolve(base), resolve(value));
   if (!rel || rel === '..' || rel.startsWith('..' + sep))
     throw new Error('Desktop storage must stay inside its run directory');
@@ -37,14 +36,15 @@ function assertRunPath(value, base) {
 /**
  * @param {string} name
  * @param {string} repoRoot
- * @param {{ reuse?: import('./tauri-test-client.mjs').TauriTestClient, env?: Record<string,string>, storage?: { instanceDir: string, dataDir: string, notesDir: string } }} [options]
+ * @param {{ args?: string[], reuse?: import('./tauri-test-client.mjs').TauriTestClient, env?: Record<string,string>, storage?: { instanceDir: string, dataDir: string, notesDir: string } }} [options]
  *   `reuse` relaunches an existing client's data dir and notes dir into the
  *   same client object — see `restartDesktopTauriInstance`. `storage` resumes
  *   a previously provisioned run directory (e.g. across separate invocations
  *   of a resumable verification run) without an in-memory client to reuse.
+ *   `args` supplies literal CLI arguments, including a cold-start deep link.
  */
 export async function startDesktopTauriInstance(name, repoRoot, options = {}) {
-  const { reuse = null, env: extraEnv = {}, storage } = options;
+  const { reuse = null, env: extraEnv = {}, storage, args = [] } = options;
   const parent = process.env.FUTO_VERIFICATION_DIR || join(repoRoot, '.tauri-data');
   assertRunPath(parent, repoRoot);
   mkdirSync(parent, { recursive: true });
@@ -101,7 +101,7 @@ export async function startDesktopTauriInstance(name, repoRoot, options = {}) {
   }
 
   const logFd = openSync(logFile, 'w');
-  const proc = spawn(binaryPath, [], {
+  const proc = spawn(binaryPath, args, {
     env: {
       ...process.env,
       FUTO_NOTES_DATA_DIR: dataDir,
@@ -124,11 +124,7 @@ export async function startDesktopTauriInstance(name, repoRoot, options = {}) {
 
   let ws;
   try {
-    const target = verifyTarget(candidateFor(proc.pid), {
-      selfRoot: repoRoot,
-      worktreeRoots: worktreeRoots(repoRoot),
-      home: homedir(),
-    });
+    const target = verifyTarget(candidateFor(proc.pid), targetContext(repoRoot));
     if (target.verdict !== 'verified') throw new Error(JSON.stringify(target.refusals));
     writeFileSync(
       join(instanceDir, `target-${proc.pid}.json`),

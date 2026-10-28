@@ -4,7 +4,6 @@ import android.app.Activity
 import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
-import android.widget.Toast
 import androidx.lifecycle.lifecycleScope
 import com.futo.notes.storage.activateStagedStorageMigration
 import com.futo.notes.storage.adoptExistingVault
@@ -21,6 +20,7 @@ import com.futo.notes.storage.storageSwitchFailureMessage
 import com.futo.notes.storage.storageSwitchFailureStage
 import com.futo.notes.storage.storageSwitchPlan
 import com.futo.notes.storage.StorageSwitchPlan
+import com.futo.notes.ui.showToast
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -53,11 +53,11 @@ internal fun MainActivity.applyStorageStartup(recovery: StorageStartupRecovery) 
 internal fun MainActivity.performStorageChange(mode: StorageMode) {
     if (mode == currentMode()) return
     if (mode == StorageMode.DEVICE && !NotesStorage.deviceModeSupported()) {
-        Toast.makeText(
+        showToast(
             this,
             localization.localizedText("storage.android.permission.unsupported"),
-            Toast.LENGTH_LONG,
-        ).show()
+            long = true,
+        )
         return
     }
     if (mode == StorageMode.DEVICE) requestDeviceAccess { planStorageChange(StorageMode.DEVICE) }
@@ -79,11 +79,11 @@ internal fun MainActivity.planStorageChange(newMode: StorageMode) {
                 pendingStorageAdoption.value = PendingStorageAdoption(newMode, plan)
             is StorageSwitchPlan.Refuse -> {
                 android.util.Log.e("FutoStorage", "Storage switch refused: ${plan.reason}")
-                Toast.makeText(
+                showToast(
                     this@planStorageChange,
                     localization.localizedText(storageRefusalMessage(plan.reason).path),
-                    Toast.LENGTH_LONG,
-                ).show()
+                    long = true,
+                )
             }
         }
     }
@@ -105,11 +105,7 @@ internal fun MainActivity.adoptExistingStorage(adoption: PendingStorageAdoption)
     storageSwitching.value = true
     if (!current.tryBeginStorageMigration()) {
         storageSwitching.value = false
-        Toast.makeText(
-            this,
-            localization.localizedText("storage.android.saveInProgress"),
-            Toast.LENGTH_LONG,
-        ).show()
+        showToast(this, localization.localizedText("storage.android.saveInProgress"), long = true)
         return
     }
     lifecycleScope.launch {
@@ -136,13 +132,13 @@ internal fun MainActivity.adoptExistingStorage(adoption: PendingStorageAdoption)
                 android.util.Log.e("FutoStorage", "Storage adoption failed: ${outcome.failure}")
                 current.resumeAfterStorageMigrationFailure()
                 storageSwitching.value = false
-                Toast.makeText(
+                showToast(
                     this@adoptExistingStorage,
                     localization.localizedText(
                         storageAdoptionFailureMessage(outcome.failure).path,
                     ),
-                    Toast.LENGTH_LONG,
-                ).show()
+                    long = true,
+                )
             }
         }
     }
@@ -156,11 +152,7 @@ internal fun MainActivity.performSwitch(newMode: StorageMode) {
     storageSwitching.value = true
     if (!current.tryBeginStorageMigration()) {
         storageSwitching.value = false
-        Toast.makeText(
-            this,
-            localization.localizedText("storage.android.saveInProgress"),
-            Toast.LENGTH_LONG,
-        ).show()
+        showToast(this, localization.localizedText("storage.android.saveInProgress"), long = true)
         return
     }
     // Latch BOTH vault owners synchronously. onStop may fire as soon as the
@@ -230,13 +222,13 @@ internal fun MainActivity.performSwitch(newMode: StorageMode) {
         current.resumeAfterStorageMigrationFailure()
         storageSwitching.value = false
         sync.resumeAfterStorageMigrationFailure()
-        Toast.makeText(
+        showToast(
             this@performSwitch,
             storageSwitchFailureMessage(failureStage).let {
                 localization.localizedText(it.path, it.arguments)
             },
-            Toast.LENGTH_LONG,
-        ).show()
+            long = true,
+        )
         if (activation is StorageActivationOutcome.KeepSource) {
             android.util.Log.e(
                 "FutoStorage",
@@ -253,11 +245,11 @@ internal fun MainActivity.performSwitch(newMode: StorageMode) {
  */
 internal fun MainActivity.requestDeviceAccess(onGranted: () -> Unit) {
     if (!NotesStorage.deviceModeSupported()) {
-        Toast.makeText(
+        showToast(
             this,
             localization.localizedText("storage.android.permission.unsupported"),
-            Toast.LENGTH_LONG,
-        ).show()
+            long = true,
+        )
         return
     }
     if (NotesStorage.hasDeviceAccess()) { onGranted(); return }

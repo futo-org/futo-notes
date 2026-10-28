@@ -23,9 +23,9 @@ struct VaultPasswordStepView: View {
     let purpose: VaultPasswordPurpose
     let minimumLength: Int
     let busy: Bool
-    let onSubmit: (String) -> Void
+    let onSubmit: (String) async -> Void
     /// Only the change screen offers a way back; the wizard has none.
-    var onCancel: (() -> Void)?
+    var onCancel: (() async -> Void)?
 
     @Environment(\.localization) private var localization
     @State private var password = ""
@@ -52,7 +52,10 @@ struct VaultPasswordStepView: View {
     var body: some View {
         HostedStepHeader(
             title: "sync.hosted.vaultPassword.\(purpose.rawValue).title",
-            explanation: "sync.hosted.vaultPassword.\(purpose.rawValue).body")
+            explanation: "sync.hosted.vaultPassword.\(purpose.rawValue).body"
+        )
+        // The step's verbs, on its one row that is always there.
+        .puppetVerbs { puppetVerbs }
 
         SecureField(
             localization.localizedText(
@@ -107,8 +110,10 @@ struct VaultPasswordStepView: View {
         .accessibilityIdentifier("hosted-vault-password-submit")
 
         if let onCancel {
-            Button(localization.localizedText("sync.hosted.cancel"), action: onCancel)
-                .accessibilityIdentifier("hosted-vault-password-cancel")
+            Button(localization.localizedText("sync.hosted.cancel")) {
+                Task { await onCancel() }
+            }
+            .accessibilityIdentifier("hosted-vault-password-cancel")
         }
     }
 
@@ -130,6 +135,48 @@ struct VaultPasswordStepView: View {
     }
 
     private func submit() {
-        if ready { onSubmit(password) }
+        if ready { Task { await onSubmit(password) } }
+    }
+
+    /// Both fields are the button's arguments, typed in as a person would, so a short
+    /// or mismatched password is left on screen the way the disabled button leaves it.
+    private var puppetVerbs: [PuppetVerbs.Verb] {
+        let typeAndSubmit: ([String: Any]) async throws -> [String: Any] = { arguments in
+            password = (arguments["vaultPassword"] as? String) ?? ""
+            repeated = (arguments["repeat"] as? String) ?? password
+            if busy { throw PuppetVerbRefusal(409, "hosted sync is busy") }
+            guard password.unicodeScalars.count >= minimumLength else {
+                throw PuppetVerbRefusal(409, "a vault password needs \(minimumLength) characters")
+            }
+            guard repeated == password else {
+                throw PuppetVerbRefusal(409, "the repeat does not match")
+            }
+            await onSubmit(password)
+            return [:]
+        }
+        var verbs = [
+            purpose == .create
+                ? PuppetVerbs.Verb(
+                    "CreateVault", required: ["vaultPassword"], optional: ["repeat"],
+                    controls: [
+                        "sync.hosted.vaultPassword.label", "sync.hosted.vaultPassword.repeatLabel",
+                        "sync.working",
+                    ],
+                    run: typeAndSubmit)
+                : PuppetVerbs.Verb(
+                    "ChangeVaultPassword", required: ["vaultPassword"], optional: ["repeat"],
+                    controls: [
+                        "sync.hosted.vaultPassword.label", "sync.hosted.vaultPassword.repeatLabel",
+                        "sync.working",
+                    ],
+                    run: typeAndSubmit)
+        ]
+        if let onCancel {
+            verbs.append(
+                PuppetVerbs.Verb("CancelVaultPasswordChange", controls: ["sync.hosted.cancel"]) {
+                    await onCancel()
+                })
+        }
+        return verbs
     }
 }

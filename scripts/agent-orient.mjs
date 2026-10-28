@@ -12,9 +12,9 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { pathToFileURL } from 'node:url';
 
 import { ENV_NAMES, portsFor, slotOf } from './lib/slot.mjs';
+import { parsePapercutLog } from './lib/papercut-log.mjs';
 
 const HOME = os.homedir();
 const QA_STATE = process.env.FUTO_QA_STATE_DIR || path.join(HOME, '.futo-notes-qa');
@@ -66,21 +66,7 @@ function matchPapercuts(openCuts, areas) {
 /** Parse the append-only log into the open set (cuts without a resolve). */
 function loadPapercuts(file, fsImpl = fs) {
   if (!fsImpl.existsSync(file)) return { open: [], total: 0 };
-  const entries = fsImpl
-    .readFileSync(file, 'utf8')
-    .split('\n')
-    .filter(Boolean)
-    .map((line) => {
-      try {
-        return JSON.parse(line);
-      } catch {
-        return null;
-      }
-    })
-    .filter(Boolean);
-  const resolved = new Set(entries.filter((e) => e.kind === 'resolve').map((e) => e.id));
-  const cuts = entries.filter((e) => e.kind === 'cut');
-  return { open: cuts.filter((c) => !resolved.has(c.id)), total: cuts.length };
+  return parsePapercutLog(fsImpl.readFileSync(file, 'utf8'));
 }
 
 function gitRaw(args, cwd) {
@@ -309,7 +295,7 @@ function formatOrientation(d) {
   return L.join('\n');
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (import.meta.main) {
   const USAGE = 'Usage: just orient [--json] [--base <ref>]';
   const args = process.argv.slice(2);
   let base = 'origin/main';

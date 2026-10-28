@@ -64,12 +64,12 @@ directly — that's the mechanism `run.sh` is now driving for you.
 
 Two mechanics, from driving this:
 
-- `adb shell input text` mangles **spaces** (`%s`) often enough that a vault password
-  with spaces in it fails the repeat-field comparison while both fields look identical
-  on screen. Use a password with no spaces. This is the tool, not the app.
-- `just android-drive tap <label>` misses some Compose controls on this screen — the
-  recovery-key checkbox in particular. Read the coordinates out of
-  `just android-drive tree` and `adb shell input tap` them.
+- Passwords and keys are the verbs' arguments (`CreateVault {vaultPassword}`,
+  `UnlockVault {vaultPassword}`, `ConnectSync {password}`). adb's text input mangled
+  **spaces** (`%s`), which read as a repeat-field mismatch while both fields looked
+  identical on screen. That was the tool, not the app.
+- The recovery-key checkbox is `SetRecoveryKeySaved {saved: true}`; the old label tap
+  missed it, as it missed some other Compose controls here.
 
 Release the device afterwards: `just qa-release`, and `just qa-server-stop --drop`.
 
@@ -258,8 +258,10 @@ neither server, so the heal had cleared the password.
 ### Mechanic worth keeping
 
 **The soft keyboard silently eats taps on controls the accessibility tree still reports.**
-`Connect & Sync` sits below the IME once a field is focused, and `android-drive tap` happily
+`Connect & Sync` sits below the IME once a field is focused, and the label tap of the time
 reported `tapped "Connect & Sync" at 201,1252` three times while hitting the keyboard —
-status stayed `Not connected` with nothing in logcat, which reads as a broken connect. Check
-`adb shell dumpsys input_method | grep mInputShown` and send `keyevent 4` until it is
+status stayed `Not connected` with nothing in logcat, which reads as a broken connect.
+`ConnectSync` is the button's act and cannot hit the keyboard; a `just puppet tap` receipt
+names what the touch landed on. Before a real touch low on the screen, check
+`adb shell dumpsys input_method | grep mInputShown` and `press '{"key":"Back"}'` until it is
 `false` before tapping anything low on the screen. AGENTS.md M21: suspect the tool first.

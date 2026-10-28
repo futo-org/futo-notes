@@ -7,11 +7,12 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.provider.Settings
-import android.widget.Toast
 import com.futo.notes.SecureStore
 import com.futo.notes.SyncManager
+import com.futo.notes.puppet.recordPuppetCopy
 import com.futo.notes.localization.Localization
 import com.futo.notes.localization.LocalizedMessage
+import com.futo.notes.ui.showToast
 import uniffi.futo_notes_ffi.HostedSetupClient
 import com.futo.notes.connectHosted
 import com.futo.notes.signOutHosted
@@ -55,6 +56,7 @@ class LiveHostedSetupShell(
     override fun copyToClipboard(text: String) {
         val clipboard = activity.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         clipboard.setPrimaryClip(ClipData.newPlainText(shareLabel(), text))
+        recordPuppetCopy(text)
     }
 
     override fun share(text: String) {
@@ -68,11 +70,7 @@ class LiveHostedSetupShell(
     }
 
     override fun announce(message: LocalizedMessage) {
-        Toast.makeText(
-            activity,
-            localization().localizedText(message.path, message.arguments),
-            Toast.LENGTH_SHORT,
-        ).show()
+        showToast(activity, localization().localizedText(message.path, message.arguments))
     }
 
     /** What the clipboard entry and the share chooser are called. */

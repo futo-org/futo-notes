@@ -16,9 +16,14 @@
   $effect(() => {
     const asked = notes;
     let live = true;
-    void readRecentNoteIds(FOR_YOU_LIMIT).then((ids) => {
-      if (live && asked === notes) recentIds = ids;
-    });
+    // A failed read (the vault folder is gone) leaves the last answer, so a fresh
+    // mount shows nothing: the vault banner explains it, and the empty-vault
+    // heading would be a false claim.
+    void readRecentNoteIds(FOR_YOU_LIMIT)
+      .then((ids) => {
+        if (live && asked === notes) recentIds = ids;
+      })
+      .catch((error) => console.warn('Failed to read recent notes:', error));
     return () => {
       live = false;
     };
@@ -37,7 +42,11 @@
       <div class="for-you-header">{localizedText('notes.forYou.heading')}</div>
       <div class="for-you-cards">
         {#each forYouNotes as note (note.id)}
-          <button class="for-you-card" onclick={() => handleCardClick(note.id)}>
+          <button
+            class="for-you-card"
+            data-note-id={note.id}
+            onclick={() => handleCardClick(note.id)}
+          >
             <div class="for-you-card-title">{note.title}</div>
             {#if note.preview}
               <div class="for-you-card-preview">{note.preview.slice(0, 60)}</div>

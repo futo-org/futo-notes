@@ -41,7 +41,8 @@ echo "==> Building Rust note + sync core (UniFFI) -> FutoNotesFfi.xcframework"
 FUTO_IOS_FFI_PROFILE="${FUTO_IOS_FFI_PROFILE:-dev}" bash "$ROOT/scripts/build-rust-ios.sh"
 
 echo "==> Building embedded editor bundle (single self-contained editor.html)"
-node_modules/.bin/vite build --config vite.editor.config.ts
+# With the puppet inspector (apps/ios/run.sh).
+VITE_INCLUDE_TEST_HOOKS=true node_modules/.bin/vite build --config vite.editor.config.ts
 
 echo "==> Generating Xcode project (xcodegen)"
 ( cd "$APP_DIR" && xcodegen generate )

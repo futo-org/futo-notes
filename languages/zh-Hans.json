@@ -47,6 +47,7 @@
         "back": "返回",
         "cancel": "取消",
         "close": "关闭",
+        "confirm": "确认",
         "continue": "继续",
         "create": "创建",
         "delete": "删除",
@@ -300,9 +301,6 @@
         "unflushed": "编辑器尚未提交你的最新更改。请再试一次以离开此笔记。"
       },
       "move": {
-        "createAndMove": "创建并移动",
-        "createFolderPrompt": "新建一个文件夹并将笔记移入其中。",
-        "createFolderInPrompt": "在 {folderName} 中新建一个文件夹，并将笔记移入其中。",
         "saveFailed": "无法保存笔记。更改仍在等待保存，因此已暂停移动。"
       },
       "errors": {
@@ -333,7 +331,6 @@
       "heading": "文件夹",
       "newFolder": "新建文件夹",
       "newFolderTitleCase": "新建文件夹",
-      "newFolderEllipsis": "新建文件夹…",
       "newFolderIn": "在“{folderName}”中新建文件夹",
       "createHeading": "新建文件夹",
       "renameHeading": "重命名文件夹",

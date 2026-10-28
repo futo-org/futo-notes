@@ -5,9 +5,11 @@
 // re-issued. 15 of the 40 slowest tool calls in a month of transcripts were
 // exactly that loop (docs/plan/agent-dx.md §2.6).
 //
+//   just ci-wait <pipeline-id>    # exact pipeline in this project
 //   just ci-wait <sha>            # newest pipeline for that sha
 //   just ci-wait mr:291           # the MR's head pipeline (also `!291`)
 //   just ci-wait <branch>         # newest pipeline for that ref
+//   Numeric names: use sha:<sha> or ref:<branch> to distinguish them from IDs.
 //   options: --timeout <min> (45) --interval <sec> (20) --json --no-trace
 //   exit: 0 success · 1 failed/canceled/skipped/blocked-on-manual · 2 timeout
 //         3 usage/auth/no pipeline
@@ -16,7 +18,6 @@
 // Uses the REST API with $GITLAB_TOKEN, falling back to the configured glab
 // credential for gitlab.futo.org when the environment does not supply one.
 import { spawnSync } from 'node:child_process';
-import { pathToFileURL } from 'node:url';
 
 export const API = 'https://gitlab.futo.org/api/v4';
 export const PROJECT = 'futo-notes%2Ffuto-notes';
@@ -26,6 +27,11 @@ export function parseTarget(arg) {
   if (!arg) return null;
   const mr = arg.match(/^(?:!|mr:)(\d+)$/);
   if (mr) return { kind: 'mr', iid: Number(mr[1]) };
+  const pipeline = arg.match(/^(?:pipeline:)?([1-9]\d*)$/);
+  if (pipeline && Number.isSafeInteger(Number(pipeline[1])))
+    return { kind: 'pipeline', id: Number(pipeline[1]) };
+  if (arg.startsWith('ref:')) return { kind: 'ref', ref: arg.slice(4) };
+  if (/^sha:[0-9a-f]{7,40}$/i.test(arg)) return { kind: 'sha', sha: arg.slice(4) };
   if (/^[0-9a-f]{7,40}$/i.test(arg)) return { kind: 'sha', sha: arg };
   return { kind: 'ref', ref: arg };
 }
@@ -71,6 +77,7 @@ export function makeApi(token, fetchImpl = globalThis.fetch) {
 }
 
 export async function findPipeline(target, api) {
+  if (target.kind === 'pipeline') return api.json(`/pipelines/${target.id}`);
   if (target.kind === 'mr') {
     const mr = await api.json(`/merge_requests/${target.iid}`);
     if (mr.head_pipeline) return mr.head_pipeline;
@@ -224,13 +231,13 @@ async function main() {
   }
   if (cmd !== 'wait') {
     process.stderr.write(
-      'usage: ci-wait.mjs wait <sha|mr:N|branch> [--timeout min] [--interval sec] [--json] [--no-trace] | ci-wait.mjs mr-status\n',
+      'usage: ci-wait.mjs wait <pipeline-id|sha|mr:N|branch> [--timeout min] [--interval sec] [--json] [--no-trace] | ci-wait.mjs mr-status\n',
     );
     process.exit(3);
   }
   const target = parseTarget(flags._[0]);
   if (!target) {
-    process.stderr.write('usage: just ci-wait <sha|mr:N|branch>\n');
+    process.stderr.write('usage: just ci-wait <pipeline-id|sha|mr:N|branch>\n');
     process.exit(3);
   }
   const result = await waitForPipeline(target, {
@@ -246,7 +253,7 @@ async function main() {
   process.exit(result.timedOut ? 2 : exitCodeFor(result.status));
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (import.meta.main) {
   main().catch((error) => {
     process.stderr.write(`${error.message}\n`);
     process.exit(3);

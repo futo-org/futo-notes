@@ -42,12 +42,28 @@ import { $prose } from '@milkdown/kit/utils';
 import { Plugin, PluginKey, type Command, type Transaction } from '@milkdown/kit/prose/state';
 import { CellSelection } from '@milkdown/kit/prose/tables';
 import type { EditorView as ProseView } from '@milkdown/kit/prose/view';
+import {
+  isPuppetOutcome,
+  puppetRefusal,
+  puppetVerb,
+  registerPuppetVerbs,
+  SHORTCUT_STEPS,
+} from '$app/puppet/puppetRegistry';
+import { visibleBand } from '$app/puppet/puppetNoteLines';
+import { lineOrRefusal } from '$app/puppet/puppetText';
 import { localizedText } from '$shared/localization';
 import { locateCell, type CellLocation } from './tableCommands';
 import { clampRectToViewport, columnGripRect, rowGripRect, type Rect } from './tableGripsGeometry';
 import { tableCellLineBreakRemark } from './tableLineBreak';
 import { headerOnlyTablePaste, tablePasteRepair } from './tablePaste';
-import { type GripKind, menuActionsFor, anchorPos, cellStartPos } from './tableGripMenu';
+import {
+  type GripKind,
+  type MenuAction,
+  OPTION_VERBS,
+  menuActionsFor,
+  anchorPos,
+  cellStartPos,
+} from './tableGripMenu';
 import {
   GRIP_CLASS,
   GRIP_COL_CLASS,
@@ -84,15 +100,66 @@ class TableGripsView {
    * the menu's buttons cannot swap out the grip underneath it. */
   private current: { loc: CellLocation; colRect: Rect; rowRect: Rect } | null = null;
   private menuOpenFor: GripKind | null = null;
+  /** The open menu's items and the cell they act on, for its option verbs. */
+  private openActions: { loc: CellLocation; actions: MenuAction[] } | null = null;
+  private readonly unregisterVerbs: () => void;
 
   constructor(view: ProseView) {
     this.view = view;
     this.doc = view.dom.ownerDocument;
     view.dom.addEventListener('mousemove', this.onMouseMove);
     view.dom.addEventListener('mouseleave', this.onMouseLeave);
+    // The grips and their menu as verbs. A grip shows for the cell under the pointer, so
+    // opening one names that cell's line; the menu's items exist while it is open. Escape and
+    // a click elsewhere close it (Press Escape). An arrow, never a method: `registerPuppetVerbs`
+    // is a no-op in a shipped build, which then drops the arrow and the puppet code it uses.
+    this.unregisterVerbs = registerPuppetVerbs(() => {
+      if (this.menuOpenFor && this.openActions) {
+        const names = OPTION_VERBS[this.menuOpenFor];
+        return this.openActions.actions.map((action) =>
+          puppetVerb(names[action.id], {}, () => {
+            if (action.disabled) {
+              return puppetRefusal(409, action.disabledReason ?? `${names[action.id]} is disabled`);
+            }
+            this.pick(action);
+            return undefined;
+          }),
+        );
+      }
+      // A table's grips are a person's only while it is on screen.
+      const band = visibleBand(this.view);
+      if (!band) return [];
+      const tableShows = Array.from(this.view.dom.querySelectorAll('table')).some((table) => {
+        const box = table.getBoundingClientRect();
+        return box.bottom > band.top && box.top < band.bottom;
+      });
+      if (!tableShows) return [];
+      const open = (kind: GripKind) => (args: Record<string, unknown>) => {
+        const entry = lineOrRefusal(this.view, args.line as number);
+        if (isPuppetOutcome(entry)) return entry;
+        const loc = locateCell(this.view.state, entry.at);
+        if (!loc)
+          return puppetRefusal(409, `line ${entry.line} is not a table cell (${entry.kind})`);
+        this.positionGrips(loc);
+        if (!this.current)
+          return puppetRefusal(409, 'the table is not on screen to show its grips');
+        this.openMenu(kind, loc);
+        return undefined;
+      };
+      const shortcuts = { item: SHORTCUT_STEPS.item };
+      return [
+        puppetVerb('OpenTableRowMenu', { line: 'integer', item: 'string?' }, open('row'), {
+          shortcuts,
+        }),
+        puppetVerb('OpenTableColumnMenu', { line: 'integer', item: 'string?' }, open('col'), {
+          shortcuts,
+        }),
+      ];
+    });
   }
 
   destroy(): void {
+    this.unregisterVerbs();
     this.view.dom.removeEventListener('mousemove', this.onMouseMove);
     this.view.dom.removeEventListener('mouseleave', this.onMouseLeave);
     this.closeMenu();
@@ -272,6 +339,7 @@ class TableGripsView {
     // (tests/editor-embed-webview-floor.spec.ts). `textContent = ''` clears the
     // same way and predates the floor by a decade.
     menu.textContent = '';
+    this.openActions = { loc, actions };
     for (const action of actions) {
       const item = this.doc.createElement('button');
       item.type = 'button';
@@ -286,8 +354,7 @@ class TableGripsView {
         // command against the LIVE state — the selection dispatch and the
         // structural edit are two transactions, which is fine here: nothing
         // between them is user-visible, and undo coalescing is Milkdown's.
-        this.selectThenRun(kind, loc, action.run);
-        this.closeMenu();
+        this.pick(action);
       });
       menu.appendChild(item);
     }
@@ -300,6 +367,14 @@ class TableGripsView {
 
     this.doc.addEventListener('mousedown', this.onDocumentMouseDown, true);
     this.doc.addEventListener('keydown', this.onDocumentKeyDown, true);
+  }
+
+  /** A menu item chosen: select the row or column it acts on, run it, close the menu. */
+  private pick(action: MenuAction): void {
+    const kind = this.menuOpenFor;
+    const loc = this.openActions?.loc;
+    if (kind && loc) this.selectThenRun(kind, loc, action.run);
+    this.closeMenu();
   }
 
   private selectThenRun(kind: GripKind, loc: CellLocation, run: Command): void {
@@ -316,6 +391,7 @@ class TableGripsView {
   private closeMenu(): void {
     if (!this.menuOpenFor) return;
     this.menuOpenFor = null;
+    this.openActions = null;
     if (this.menu) this.menu.hidden = true;
     this.doc.removeEventListener('mousedown', this.onDocumentMouseDown, true);
     this.doc.removeEventListener('keydown', this.onDocumentKeyDown, true);

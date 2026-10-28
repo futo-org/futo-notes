@@ -1,5 +1,4 @@
 import { spawnSync } from 'node:child_process';
-import { pathToFileURL } from 'node:url';
 
 const BOUNDARIES = [
   {
@@ -84,4 +83,4 @@ function main() {
   console.log('Rust dependency boundaries are intact.');
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) main();
+if (import.meta.main) main();

@@ -1,42 +1,43 @@
 import SwiftUI
 
 extension FolderContentsView {
-    func createNote() {
-        Task {
-            // Quick capture: name it "Untitled" and drop straight into the body.
-            // No title prompt — the editor opens body-focused (.newNote →
-            // autoFocus), the note is renamed later via the ⋯ menu, and an
-            // untouched note is discarded on back-out (NoteEditorView.onDisappear).
-            if let id = await store.createNote(title: "Untitled", folder: folder) {
-                navPath.append(.newNote(id))
-            }
+    /// The new note's id, or nil when the store refused it.
+    @discardableResult
+    func createNote() async -> String? {
+        // Quick capture: name it "Untitled" and drop straight into the body.
+        // No title prompt — the editor opens body-focused (.newNote →
+        // autoFocus), the note is renamed later via the ⋯ menu, and an
+        // untouched note is discarded on back-out (NoteEditorView.onDisappear).
+        guard let id = await store.createNote(title: "Untitled", folder: folder) else {
+            return nil
         }
+        navPath.append(.newNote(id))
+        return id
     }
 
-    func createFolder() {
+    /// Whether the folder landed.
+    func createFolder() async -> Bool {
         // Hard guard behind the disabled Create button: never call through to
         // the idempotent Rust create_dir_all on an empty name or a
         // case-insensitive sibling collision — that would silently MERGE into
         // the existing folder. [list.md]
-        guard canCreateNewFolder else { return }
+        guard canCreateNewFolder else { return false }
         let clean = newFolderClean
-        store.createFolder(folder.isEmpty ? clean : folder + "/" + clean)
+        return await store.createFolder(folder.isEmpty ? clean : folder + "/" + clean)
     }
 
-    func renameFolder() {
-        guard let target = folderRenameTarget else { return }
+    /// Whether the rename landed.
+    func renameFolder() async -> Bool {
+        guard let target = folderRenameTarget else { return false }
         // Same hard guard as createFolder: the disabled Rename button must not
         // be the only thing standing between a rejected name and the engine.
-        guard canRenameFolder else { return }
+        guard canRenameFolder else { return false }
         let destination = renamedFolderPath
-        Task {
-            if await store.renameFolder(from: target, to: destination) != nil {
-                store.showTransient(LocalizedMessage("folders.renamed"))
-            } else {
-                store.showTransient(LocalizedMessage("folders.errors.renameFailed"))
-            }
-            setFolderRenameTarget(nil)
-        }
+        let renamed = await store.renameFolder(from: target, to: destination) != nil
+        store.showTransient(
+            LocalizedMessage(renamed ? "folders.renamed" : "folders.errors.renameFailed"))
+        setFolderRenameTarget(nil)
+        return renamed
     }
 
     /// Show/hide the New Folder dialog with presentation animations disabled,
