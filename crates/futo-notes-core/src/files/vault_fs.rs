@@ -197,6 +197,17 @@ pub fn write_atomic(root: &Path, relative: &str, bytes: &[u8]) -> Result<(), Str
     platform::write_atomic(root, relative, bytes)
 }
 
+/// Opens a recovery stream without following vault symlinks. Returning a file
+/// distinguishes OS append acceptance from the caller's later durable flush.
+pub fn open_append(root: &Path, relative: &str) -> Result<std::fs::File, String> {
+    platform::open_append(root, relative)
+}
+
+/// Flushes an existing regular file before recovery state can be retired.
+pub fn sync_file(root: &Path, relative: &str) -> Result<(), String> {
+    platform::sync_file(root, relative)
+}
+
 pub fn remove(root: &Path, relative: &str) -> Result<bool, String> {
     platform::remove(root, relative)
 }

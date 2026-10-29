@@ -3,6 +3,7 @@
 mod bootstrap;
 mod commit;
 mod editor_draft;
+mod editor_session;
 mod flush;
 mod folders;
 mod list_cache;
@@ -26,6 +27,7 @@ use serde::{Deserialize, Serialize};
 
 use search::StoreSearch;
 
+pub use editor_session::{EditorStoreError, StoreEditorSession};
 pub use futo_notes_model::{WELCOME_NOTE, WELCOME_NOTE_ID};
 pub use futo_notes_search::{SearchHit, SearchStatus};
 pub use vault_migration::{
