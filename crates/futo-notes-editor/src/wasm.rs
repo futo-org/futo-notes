@@ -1,0 +1,124 @@
+//! JSON wire facade; all persistence happens asynchronously in the native host.
+use wasm_bindgen::prelude::*;
+
+use crate::{
+    DisplayOffset, DisplayRange, DisplayUtf16Offset, DisplayUtf16Range, PortableSession, Revision,
+    SessionToken,
+};
+
+#[wasm_bindgen]
+pub struct WasmSession(PortableSession);
+
+fn error(error: impl std::fmt::Debug) -> JsValue {
+    JsValue::from_str(&format!("{error:?}"))
+}
+fn json(value: &impl serde::Serialize) -> Result<String, JsValue> {
+    serde_json::to_string(value).map_err(error)
+}
+
+fn validate_wire(token: u64, revision: u64, durable: u64) -> Result<(), JsValue> {
+    if token > 9_007_199_254_740_991 || revision > 9_007_199_254_740_991 {
+        return Err(error(
+            "JSON wire integers must be exactly representable in JavaScript",
+        ));
+    }
+    if durable > revision {
+        return Err(error("invalid durable revision"));
+    }
+    Ok(())
+}
+
+#[wasm_bindgen]
+impl WasmSession {
+    #[wasm_bindgen(constructor)]
+    pub fn new(
+        token: u64,
+        source: &str,
+        revision: u64,
+        durable: u64,
+    ) -> Result<WasmSession, JsValue> {
+        validate_wire(token, revision, durable)?;
+        Ok(Self(PortableSession::open(
+            SessionToken(token),
+            source,
+            Revision(revision),
+            Revision(durable),
+        )))
+    }
+    pub fn restore(snapshot: &str) -> Result<WasmSession, JsValue> {
+        let snapshot: crate::HostSnapshot = serde_json::from_str(snapshot).map_err(error)?;
+        // Reuse constructor validation for the JSON integer boundary.
+        validate_wire(snapshot.token.0, snapshot.revision.0, snapshot.durable.0)?;
+        Ok(Self(
+            PortableSession::from_snapshot(snapshot).map_err(error)?,
+        ))
+    }
+
+    pub fn draft_text(&self) -> String {
+        self.0.draft_text()
+    }
+    pub fn status(&self) -> Result<String, JsValue> {
+        json(&self.0.status())
+    }
+    pub fn replace(
+        &mut self,
+        revision: u64,
+        start: usize,
+        end: usize,
+        inserted: &str,
+    ) -> Result<String, JsValue> {
+        json(
+            &self
+                .0
+                .replace(
+                    Revision(revision),
+                    DisplayRange {
+                        start: DisplayOffset(start),
+                        end: DisplayOffset(end),
+                    },
+                    inserted,
+                )
+                .map_err(error)?,
+        )
+    }
+    pub fn replace_utf16(
+        &mut self,
+        revision: u64,
+        start: usize,
+        end: usize,
+        inserted: &[u16],
+    ) -> Result<String, JsValue> {
+        json(
+            &self
+                .0
+                .replace_utf16(
+                    Revision(revision),
+                    DisplayUtf16Range {
+                        start: DisplayUtf16Offset(start),
+                        end: DisplayUtf16Offset(end),
+                    },
+                    inserted,
+                )
+                .map_err(error)?,
+        )
+    }
+    pub fn undo(&mut self, revision: u64) -> Result<String, JsValue> {
+        json(&self.0.undo(Revision(revision)).map_err(error)?)
+    }
+    pub fn redo(&mut self, revision: u64) -> Result<String, JsValue> {
+        json(&self.0.redo(Revision(revision)).map_err(error)?)
+    }
+    pub fn flush(&mut self) -> Result<String, JsValue> {
+        json(&self.0.flush().map_err(error)?)
+    }
+    pub fn resume(&mut self) -> Result<String, JsValue> {
+        json(&self.0.resume().map_err(error)?)
+    }
+    pub fn retry_pending(&mut self) -> Result<String, JsValue> {
+        json(&self.0.retry_pending().map_err(error)?)
+    }
+    pub fn acknowledge(&mut self, acknowledgement: &str) -> Result<String, JsValue> {
+        let ack = serde_json::from_str(acknowledgement).map_err(error)?;
+        json(&self.0.acknowledge(ack).map_err(error)?)
+    }
+}

@@ -22,7 +22,7 @@ pub(super) struct RecoveryLog {
     pub(super) last_flush_lateness: Option<Duration>,
     clock: Arc<dyn RecoveryClock>,
     #[cfg(test)]
-    pub(super) append_hook: Option<Box<dyn Fn(bool)>>,
+    pub(super) append_hook: Option<Box<dyn Fn(bool) + Send>>,
     #[cfg(test)]
     pub(super) fail_retirement: bool,
 }

@@ -6,6 +6,7 @@ import { dependencyBoundaryViolations } from './check-rust-dependency-boundaries
 // (cargo metadata encodes normal as `kind: null`); pass 'dev' or 'build' to
 // model test-/build-only edges.
 function metadata(edges) {
+  edges = [['futo-notes-editor', 'serde'], ...edges];
   const names = new Set(edges.flatMap(([from, to]) => [from, to]));
   return {
     packages: [...names].map((name) => ({ id: `${name}@1`, name })),
@@ -62,6 +63,23 @@ describe('Rust dependency boundaries', () => {
     ]);
 
     expect(dependencyBoundaryViolations(graph)).toEqual([]);
+  });
+
+  it('rejects native storage dependencies in the WASM editor graph', () => {
+    const graph = metadata([
+      ['futo-notes-editor', 'helper'],
+      ['helper', 'futo-notes-core'],
+      ['futo-notes-core', 'serde'],
+      ['futo-notes-model', 'serde'],
+      ['futo-notes-sync', 'serde'],
+      ['futo-notes-license', 'serde'],
+      ['futo-notes-ffi', 'serde'],
+    ]);
+    expect(dependencyBoundaryViolations(graph)).toContainEqual({
+      root: 'futo-notes-editor',
+      dependency: 'futo-notes-core',
+      reason: 'the WASM editor must stay independent of native storage and heavyweight services',
+    });
   });
 
   it('detects inference dependencies behind the FFI facade', () => {

@@ -11,8 +11,10 @@ use crate::{paths, FlushDisposition, FlushDraftResult, LocalNoteStore, NOTE_NOT_
 mod clock;
 mod lease;
 pub use clock::RecoveryClock;
+mod portable;
 mod recovery;
 mod recovery_format;
+pub use portable::StoreEditorHost;
 mod storage;
 use lease::EditorLease;
 use recovery::RecoveryLog;
@@ -179,7 +181,7 @@ impl LocalNoteStore {
 
 impl StoreEditorSession<'_> {
     #[cfg(test)]
-    pub(crate) fn set_append_hook(&mut self, hook: Box<dyn Fn(bool)>) {
+    pub(crate) fn set_append_hook(&mut self, hook: Box<dyn Fn(bool) + Send>) {
         self.recovery.append_hook = Some(hook);
     }
     #[cfg(test)]
@@ -245,6 +247,12 @@ impl StoreEditorSession<'_> {
         if self.recovery.failed {
             self.recovery
                 .resume(&self.store.root)
+                .map_err(EditorStoreError::RecoveryResume)?;
+        } else {
+            // A host may be healthy while its append acknowledgement was lost.
+            // Resolve resume + flush under one gate before unpausing its page.
+            self.recovery
+                .flush(&self.store.root)
                 .map_err(EditorStoreError::RecoveryResume)?;
         }
         Ok(self.recovery_status())
