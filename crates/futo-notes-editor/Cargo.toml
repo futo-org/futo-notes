@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 ropey = "1.6"
+pulldown-cmark = { version = "0.13", default-features = false }
 unicode-segmentation = "1.13"
 serde = { version = "1", features = ["derive"] }
 

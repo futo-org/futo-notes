@@ -2,8 +2,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use futo_notes_editor::{
-    CaretDirection, DisplayRange, DisplayUtf16Range, EditorError, EditorSession, Revision,
-    SelectionChange, ViewChange,
+    Affinity, CaretDirection, DisplayRange, DisplayUtf16Range, EditorError, EditorSession,
+    InlineFormat, ProjectionSlice, Revision, SelectionChange, ViewChange,
 };
 
 use crate::{paths, FlushDisposition, FlushDraftResult, LocalNoteStore, NOTE_NOT_FOUND};
@@ -197,6 +197,46 @@ impl StoreEditorSession<'_> {
 
     pub fn selection(&self) -> DisplayRange {
         self.engine.selection()
+    }
+
+    pub fn project(
+        &self,
+        expected: Revision,
+        range: DisplayRange,
+    ) -> Result<ProjectionSlice, EditorStoreError> {
+        self.engine
+            .project(expected, range)
+            .map_err(EditorStoreError::Editor)
+    }
+
+    pub fn select_with_affinity(
+        &mut self,
+        expected: Revision,
+        range: DisplayRange,
+        affinity: Affinity,
+    ) -> Result<SelectionChange, EditorStoreError> {
+        self.engine
+            .select_with_affinity(expected, range, affinity)
+            .map_err(EditorStoreError::Editor)
+    }
+
+    pub fn toggle_format(
+        &mut self,
+        expected: Revision,
+        format: InlineFormat,
+    ) -> Result<Option<ViewChange>, EditorStoreError> {
+        if self.pending_checkpoint.is_some() {
+            return Err(EditorStoreError::CheckpointPending);
+        }
+        if self.recovery.failed {
+            return Err(EditorStoreError::RecoveryPaused);
+        }
+        let _gate = self.store.lock_gate().map_err(EditorStoreError::Recovery)?;
+        self.engine
+            .toggle_format(expected, format, &mut |edit| {
+                self.recovery.append(&self.store.root, edit)
+            })
+            .map_err(EditorStoreError::Editor)
     }
 
     pub fn select_utf16(
