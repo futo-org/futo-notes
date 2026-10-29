@@ -230,7 +230,8 @@ fn failed_markdown_checkpoint_keeps_a_healthy_log_and_does_not_pause_typing() {
         editor.checkpoint(),
         Err(EditorStoreError::Checkpoint(_))
     ));
-    assert_eq!(editor.recovery_status().durable, Revision(0));
+    // The destination intent was flushed before the markdown install failed.
+    assert_eq!(editor.recovery_status().durable, Revision(1));
     assert!(!editor.recovery_status().paused);
     editor.replace(Revision(1), range(6, 6), "?").unwrap();
     editor.flush_recovery().unwrap();
@@ -316,7 +317,7 @@ fn retirement_failure_is_retryable_without_repeating_the_committed_save() {
     assert_eq!(result.mutation.unwrap().upserted[0].note.id, "plain");
     assert_eq!(store.read("plain").unwrap(), "plain!");
     assert!(editor.recovery_status().paused);
-    assert_eq!(editor.recovery_status().durable, Revision(0));
+    assert_eq!(editor.recovery_status().durable, Revision(1));
     assert_eq!(observer.0.lock().unwrap().len(), 1);
     disk.lock().unwrap().fault = None;
     editor.checkpoint().unwrap();
