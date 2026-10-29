@@ -31,8 +31,11 @@ impl Row {
         let events: Vec<_> = Parser::new_ext(source, Options::ENABLE_STRIKETHROUGH)
             .into_offset_iter()
             .collect();
-        let blocks = super::blocks::describe(source, &events);
+        let (blocks, prefixes) = super::blocks::describe(source, &events);
         let mut hidden = vec![false; source.len()];
+        for prefix in prefixes {
+            hidden[prefix].fill(true);
+        }
         let mut spans = Vec::new();
         let mut replacements = Vec::<(Range<usize>, String)>::new();
         for (event, range) in events {

@@ -25,6 +25,11 @@ pub(super) fn protect_content(raw: &str, heading: bool, paragraph: bool) -> (Str
         }
     }
     if heading {
+        // ATX separation consumes every leading space/tab. Encode the first
+        // visible one so the remaining body keeps its original display spelling.
+        if let Some(first @ (' ' | '\t')) = output.chars().next() {
+            output.replace_range(..first.len_utf8(), &format!("&#{};", first as u32));
+        }
         let trimmed = output.trim_end_matches([' ', '\t']);
         let hashes = trimmed.bytes().rev().take_while(|ch| *ch == b'#').count();
         let at = trimmed.len() - hashes;
@@ -33,4 +38,30 @@ pub(super) fn protect_content(raw: &str, heading: bool, paragraph: bool) -> (Str
         }
     }
     (output, parsed)
+}
+
+/// Container prefixes on later physical setext lines remain syntax. Protect
+/// their bodies independently so paragraph punctuation checks cannot escape a
+/// retained quote marker.
+pub(super) fn protect_block_content(
+    raw: &str,
+    line: &crate::inline::blocks::BlockLine,
+    heading: bool,
+    paragraph: bool,
+) -> (String, usize) {
+    let mut output = String::new();
+    let mut parsed = 0;
+    let mut at = 0;
+    for continuation in &line.continuations {
+        let start = continuation.start - line.content.start;
+        let end = continuation.end - line.content.start;
+        let (part, work) = protect_content(&raw[at..start], heading, paragraph);
+        parsed += work;
+        output.push_str(&part);
+        output.push_str(&raw[start..end]);
+        at = end;
+    }
+    let (part, work) = protect_content(&raw[at..], heading, paragraph);
+    output.push_str(&part);
+    (output, parsed + work)
 }

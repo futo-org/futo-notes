@@ -73,6 +73,20 @@ fn shortcut_and_carried_heading_input_recover_and_checkpoint_exactly() {
 fn block_commands_structural_enter_checkpoint_and_recovery_keep_literal_bytes() {
     for (opening, command, expected, shown) in [
         (
+            "   foo",
+            BlockCommand::Heading(2),
+            "## &#32;  foo",
+            "   foo",
+        ),
+        ("   # foo", BlockCommand::Heading(0), "foo", "foo"),
+        ("> ## Title ##", BlockCommand::Quote, "> Title", "Title"),
+        (
+            "> foo\n> bar\n> ===",
+            BlockCommand::Heading(0),
+            "> foo\n> bar",
+            "foo\nbar",
+        ),
+        (
             "before\r\nA\r\nend  \r\n",
             BlockCommand::Heading(6),
             "###### before\r\nA\r\nend  \r\n",

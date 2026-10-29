@@ -47,3 +47,52 @@ fn native_block_commands_project_structure_and_recover_exact_source() {
         "###### 😀a\nb\r\ntail  \r\n"
     );
 }
+
+#[test]
+fn native_block_regressions_preserve_visible_text_and_recover_exact_source() {
+    for (opening, command, expected, shown) in [
+        (
+            "   foo",
+            EditorBlockCommand::Heading { level: 2 },
+            "## &#32;  foo",
+            "   foo",
+        ),
+        (
+            "> ## Title ##",
+            EditorBlockCommand::Quote,
+            "> Title",
+            "Title",
+        ),
+        (
+            "> foo\n> bar\n> ===",
+            EditorBlockCommand::Heading { level: 0 },
+            "> foo\n> bar",
+            "foo\nbar",
+        ),
+    ] {
+        let tree = TempTree::new();
+        std::fs::create_dir_all(tree.path("vault")).unwrap();
+        let store = NoteStore::new(path_string(&tree.path("vault")));
+        store
+            .create_note("blocks".into(), "".into(), opening.into())
+            .unwrap();
+        let session = store.open_editor("blocks".into()).unwrap();
+        assert_eq!(session.display_text().unwrap(), shown);
+        session
+            .block_command_utf16(0, EditorUtf16Range { start: 0, end: 0 }, command)
+            .unwrap()
+            .unwrap();
+        assert_eq!(session.source_text().unwrap(), expected);
+        assert_eq!(session.display_text().unwrap(), shown);
+        session.undo(1).unwrap().unwrap();
+        assert_eq!(session.source_text().unwrap(), opening);
+        session.redo(2).unwrap().unwrap();
+        session.flush_recovery().unwrap();
+        session.detach().unwrap();
+        let recovered = store.open_editor("blocks".into()).unwrap();
+        assert_eq!(recovered.source_text().unwrap(), expected);
+        assert_eq!(recovered.display_text().unwrap(), shown);
+        recovered.checkpoint().unwrap();
+        assert_eq!(store.read("blocks".into()).unwrap(), expected);
+    }
+}

@@ -85,7 +85,17 @@ impl EditorSession {
             } else {
                 prefix.as_str()
             };
-            let quote_prefix = prefix.find('#').map_or(prefix, |at| &prefix[..at]);
+            let quote_prefix = if line.heading > 0 {
+                // Indentation before an ATX marker is hidden syntax, while the
+                // enclosing quote spelling belongs to the retained container.
+                let end = prefix.rfind('>').map_or(0, |at| {
+                    at + 1
+                        + usize::from(matches!(prefix.as_bytes().get(at + 1), Some(b' ' | b'\t')))
+                });
+                &prefix[..end]
+            } else {
+                prefix
+            };
             let replacement = match command {
                 BlockCommand::Heading(level) => format!(
                     "{quote_prefix}{}",
@@ -96,6 +106,7 @@ impl EditorSession {
                     }
                 ),
                 BlockCommand::Quote if line.quote_depth == 0 => format!("> {quote_prefix}"),
+                BlockCommand::Quote if line.heading > 0 => quote_prefix.to_owned(),
                 BlockCommand::Indent if line.quote_depth > 0 => format!("> {prefix}"),
                 BlockCommand::Outdent if line.quote_depth > 0 => {
                     let at = prefix.find('>').unwrap_or(0);
@@ -129,7 +140,8 @@ impl EditorSession {
             let body = self.source.byte_slice(line.content.clone()).to_string();
             let heading = matches!(command, BlockCommand::Heading(level) if level > 0);
             let paragraph = command == BlockCommand::Heading(0) || command == BlockCommand::Quote;
-            let (body, work) = super::content::protect_content(&body, heading, paragraph);
+            let (body, work) =
+                super::content::protect_block_content(&body, line, heading, paragraph);
             parsed += work;
             output.replace_range(line.content.start - start..line.content.end - start, &body);
             output.replace_range(
@@ -141,7 +153,8 @@ impl EditorSession {
             return Ok(None);
         }
         let mut selection = range;
-        if matches!(command, BlockCommand::Quote | BlockCommand::Indent)
+        if (command == BlockCommand::Indent
+            || command == BlockCommand::Quote && first.quote_depth == 0)
             && end < self.source.len_bytes()
         {
             let next_display = self.projection.display_at(end);

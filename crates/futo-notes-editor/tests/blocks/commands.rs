@@ -296,3 +296,193 @@ fn structural_commands_split_inline_runs_only_at_the_new_block_seams() {
         assert_eq!(v.text, "a\nb");
     }
 }
+
+#[test]
+fn heading_conversion_preserves_visible_indentation_and_a_usable_native_caret() {
+    let mut s = EditorSession::open("   foo");
+    let mut v = ReferenceView::new("   foo");
+    s.select(s.revision(), range(6, 6)).unwrap();
+    let change = s
+        .block_command_utf16(
+            s.revision(),
+            DisplayUtf16Range {
+                start: DisplayUtf16Offset(6),
+                end: DisplayUtf16Offset(6),
+            },
+            BlockCommand::Heading(2),
+            &mut |_| Ok(()),
+        )
+        .unwrap()
+        .unwrap();
+    v.apply(change);
+    assert_eq!(s.source_text(), "## &#32;  foo");
+    assert_eq!(v.text, "   foo");
+    assert_eq!(s.selection(), range(6, 6));
+    v.apply(
+        s.replace(s.revision(), s.selection(), "x", &mut |_| Ok(()))
+            .unwrap(),
+    );
+    assert_eq!(v.text, "   foox");
+    v.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+    v.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(s.source_text(), "   foo");
+    assert_eq!(s.selection(), range(6, 6));
+}
+
+#[test]
+fn text_conversion_retires_heading_indentation_without_exposing_spaces() {
+    for (raw, expected, shown) in [
+        ("   # foo", "foo", "foo"),
+        (
+            "  >   ## 猫🦊 ##\r\n\r\nend",
+            "  > 猫🦊\r\n\r\nend",
+            "猫🦊\r\n\r\nend",
+        ),
+    ] {
+        let mut s = EditorSession::open(raw);
+        assert_eq!(s.display_text(), shown);
+        let mut v = ReferenceView::new(shown);
+        v.apply(
+            s.block_command(
+                s.revision(),
+                range(0, 0),
+                BlockCommand::Heading(0),
+                &mut |_| Ok(()),
+            )
+            .unwrap()
+            .unwrap(),
+        );
+        assert_eq!(s.source_text(), expected);
+        assert_eq!(v.text, shown);
+        v.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+        assert_eq!(s.source_text(), raw);
+    }
+}
+
+#[test]
+fn explicit_quote_retires_an_existing_quoted_heading_without_changing_depth() {
+    for (raw, expected, shown, depth) in [
+        ("> ## Title ##", "> Title", "Title", 1),
+        (
+            "> > ### 猫🦊 ###\r\n\r\nend",
+            "> > 猫🦊\r\n\r\nend",
+            "猫🦊\r\n\r\nend",
+            2,
+        ),
+        ("> > > ###### x ######", "> > > x", "x", 3),
+    ] {
+        let mut s = EditorSession::open(raw);
+        let mut v = ReferenceView::new(shown);
+        let mut accepted = 0;
+        v.apply(
+            s.block_command(s.revision(), range(0, 0), BlockCommand::Quote, &mut |_| {
+                accepted += 1;
+                Ok(())
+            })
+            .unwrap()
+            .unwrap(),
+        );
+        assert_eq!(accepted, 1);
+        assert_eq!(s.source_text(), expected);
+        assert_eq!(v.text, shown);
+        let blocks = s.project(s.revision(), range(0, 0)).unwrap().blocks;
+        assert_eq!(blocks[0].heading, 0);
+        assert_eq!(blocks[0].quote_depth, depth);
+        v.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+        assert_eq!(s.source_text(), raw);
+        assert_eq!(v.text, shown);
+        v.apply(s.redo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+        assert_eq!(s.source_text(), expected);
+        assert!(s
+            .block_command(
+                s.revision(),
+                range(0, 0),
+                BlockCommand::Quote,
+                &mut |_| panic!("no-op must not append")
+            )
+            .unwrap()
+            .is_none());
+    }
+}
+
+#[test]
+fn all_heading_levels_preserve_body_spaces_unicode_selection_and_exact_history() {
+    for (level, expected) in [
+        (1, "# &#32; 猫🦊\r\n\r\nend  "),
+        (2, "## &#32; 猫🦊\r\n\r\nend  "),
+        (3, "### &#32; 猫🦊\r\n\r\nend  "),
+        (4, "#### &#32; 猫🦊\r\n\r\nend  "),
+        (5, "##### &#32; 猫🦊\r\n\r\nend  "),
+        (6, "###### &#32; 猫🦊\r\n\r\nend  "),
+    ] {
+        let raw = "  猫🦊\r\n\r\nend  ";
+        let mut s = EditorSession::open(raw);
+        let mut v = ReferenceView::new(raw);
+        s.select(s.revision(), range(2, 9)).unwrap();
+        v.apply(
+            s.block_command_utf16(
+                s.revision(),
+                DisplayUtf16Range {
+                    start: DisplayUtf16Offset(2),
+                    end: DisplayUtf16Offset(5),
+                },
+                BlockCommand::Heading(level),
+                &mut |_| Ok(()),
+            )
+            .unwrap()
+            .unwrap(),
+        );
+        assert_eq!(s.source_text(), expected);
+        assert_eq!(v.text, raw);
+        assert_eq!(s.selection(), range(2, 9));
+        v.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+        assert_eq!(s.source_text(), raw);
+        assert_eq!(s.selection(), range(2, 9));
+        v.apply(s.redo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+        assert_eq!(s.source_text(), expected);
+        assert_eq!(v.text, raw);
+    }
+}
+
+#[test]
+fn text_command_on_each_setext_quote_line_keeps_body_prefixes_and_exact_history() {
+    for (raw, expected, shown, selections) in [
+        (
+            "> foo\n> bar\n> ===",
+            "> foo\n> bar",
+            "foo\nbar",
+            [range(0, 3), range(4, 7), range(0, 7)],
+        ),
+        (
+            "> > 猫🦊\r\n> > café\r\n> > ===\r\n",
+            "> > 猫🦊\r\n> > café\r\n",
+            "猫🦊\r\ncafé\r\n",
+            [range(0, 7), range(9, 14), range(0, 14)],
+        ),
+    ] {
+        for selected in selections {
+            let mut s = EditorSession::open(raw);
+            let mut v = ReferenceView::new(shown);
+            s.select(s.revision(), selected).unwrap();
+            v.apply(
+                s.block_command(
+                    s.revision(),
+                    selected,
+                    BlockCommand::Heading(0),
+                    &mut |_| Ok(()),
+                )
+                .unwrap()
+                .unwrap(),
+            );
+            assert_eq!(s.source_text(), expected);
+            assert_eq!(v.text, shown);
+            assert_eq!(s.selection(), selected);
+            v.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+            assert_eq!(s.source_text(), raw);
+            assert_eq!(s.selection(), selected);
+            v.apply(s.redo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+            assert_eq!(s.source_text(), expected);
+            assert_eq!(v.text, shown);
+        }
+    }
+}

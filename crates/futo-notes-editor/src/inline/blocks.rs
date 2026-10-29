@@ -11,9 +11,13 @@ pub(crate) struct BlockLine {
     pub quote_start: bool,
     pub divider: bool,
     pub code: bool,
+    pub continuations: Vec<Range<usize>>,
 }
 
-pub(super) fn describe(source: &str, events: &[(Event<'_>, Range<usize>)]) -> Vec<BlockLine> {
+pub(super) fn describe(
+    source: &str,
+    events: &[(Event<'_>, Range<usize>)],
+) -> (Vec<BlockLine>, Vec<Range<usize>>) {
     let mut at = 0;
     let mut lines: Vec<_> = source
         .split_inclusive('\n')
@@ -28,6 +32,7 @@ pub(super) fn describe(source: &str, events: &[(Event<'_>, Range<usize>)]) -> Ve
                 quote_start: false,
                 divider: false,
                 code: false,
+                continuations: Vec::new(),
             }
         })
         .collect();
@@ -40,6 +45,7 @@ pub(super) fn describe(source: &str, events: &[(Event<'_>, Range<usize>)]) -> Ve
             quote_start: false,
             divider: false,
             code: false,
+            continuations: Vec::new(),
         });
     }
     let mut setext = Vec::new();
@@ -83,12 +89,7 @@ pub(super) fn describe(source: &str, events: &[(Event<'_>, Range<usize>)]) -> Ve
             _ => {}
         }
     }
-    for (first, last) in setext.into_iter().rev() {
-        let underline = lines[last].source.start;
-        lines[first].content.end = source[..underline].trim_end_matches(['\r', '\n']).len();
-        lines[first].source.end = lines[last].source.end;
-        lines.drain(first + 1..=last);
-    }
+    let mut prefixes = Vec::new();
     for line in &mut lines {
         let end = line.content.end;
         let mut start = line.source.start;
@@ -135,7 +136,18 @@ pub(super) fn describe(source: &str, events: &[(Event<'_>, Range<usize>)]) -> Ve
                 }
             }
         }
+        prefixes.push(line.source.start..start);
         line.content.start = start;
     }
-    lines
+    for (first, last) in setext.into_iter().rev() {
+        lines[first].continuations = lines[first + 1..last]
+            .iter()
+            .map(|line| line.source.start..line.content.start)
+            .collect();
+        let underline = lines[last].source.start;
+        lines[first].content.end = source[..underline].trim_end_matches(['\r', '\n']).len();
+        lines[first].source.end = lines[last].source.end;
+        lines.drain(first + 1..=last);
+    }
+    (lines, prefixes)
 }

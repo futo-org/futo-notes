@@ -172,6 +172,10 @@ impl Projection {
                     block.source.end += source;
                     block.content.start += source;
                     block.content.end += source;
+                    for prefix in &mut block.continuations {
+                        prefix.start += source;
+                        prefix.end += source;
+                    }
                     // The synthetic end line of a nonfinal row belongs to its successor.
                     if !block.source.is_empty()
                         || source + row.source_len

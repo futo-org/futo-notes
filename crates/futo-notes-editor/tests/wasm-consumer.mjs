@@ -70,6 +70,59 @@ async function blockRegression(opening, shown, converted, finalSource, finalDisp
   }
 }
 
+async function reviewedBlockRegression(opening, command, expected, shown, caret) {
+  const vault = mkdtempSync(join(tmpdir(), 'futo-editor-wasm-reviewed-blocks-'));
+  const worker = spawn(process.argv[3], [vault, opening], { stdio: ['pipe', 'pipe', 'inherit'] });
+  const exited = once(worker, 'exit');
+  const deadline = setTimeout(() => worker.kill(), 30_000);
+  deadline.unref();
+  const lines = createInterface({ input: worker.stdout })[Symbol.asyncIterator]();
+  let session;
+  try {
+    const next = async () => {
+      const line = await lines.next();
+      assert.equal(line.done, false);
+      return JSON.parse(line.value);
+    };
+    session = WasmSession.restore(JSON.stringify(await next()));
+    assert.equal(JSON.parse(session.project(0n, 0, Buffer.byteLength(shown))).text, shown);
+    let display = shown;
+    const accept = async (request) => {
+      worker.stdin.write(request + '\n');
+      const change = JSON.parse(session.acknowledge(JSON.stringify(await next())));
+      const bytes = Buffer.from(display);
+      display = Buffer.concat([
+        bytes.subarray(0, change.range.start),
+        Buffer.from(change.inserted),
+        bytes.subarray(change.range.end),
+      ]).toString();
+      assert.ok(change.selection.end <= Buffer.byteLength(display));
+      return change;
+    };
+    const change = await accept(
+      session.block_command_utf16(0n, caret, caret, JSON.stringify(command)),
+    );
+    assert.deepEqual(change.selection, { start: caret, end: caret });
+    assert.equal(session.draft_text(), expected);
+    assert.equal(display, shown);
+    await accept(session.undo(1n));
+    assert.equal(session.draft_text(), opening);
+    await accept(session.redo(2n));
+    assert.equal(session.draft_text(), expected);
+    assert.equal(display, shown);
+    worker.stdin.write(session.flush() + '\n');
+    session.acknowledge(JSON.stringify(await next()));
+    assert.equal(JSON.parse(session.status()).durable, 3);
+  } finally {
+    clearTimeout(deadline);
+    session?.free();
+    worker.stdin.end();
+    const [code] = await exited;
+    rmSync(vault, { recursive: true });
+    assert.equal(code, 0);
+  }
+}
+
 (async () => {
   const vault = mkdtempSync(join(tmpdir(), 'futo-editor-wasm-'));
   const worker = spawn(process.argv[3], [vault], { stdio: ['pipe', 'pipe', 'inherit'] });
@@ -314,6 +367,13 @@ async function blockRegression(opening, shown, converted, finalSource, finalDisp
     true,
   );
   await blockRegression('# __ab__', 'ab', '# __ab__\n', '# __ab__\n__c__', 'ab\nc', false);
+  for (const item of [
+    ['   foo', { Heading: 2 }, '## &#32;  foo', '   foo', 6],
+    ['   # foo', { Heading: 0 }, 'foo', 'foo', 0],
+    ['> > ## 猫🦊 ##', 'Quote', '> > 猫🦊', '猫🦊', 0],
+    ['> foo\r\n> bar\r\n> ===', { Heading: 0 }, '> foo\r\n> bar', 'foo\r\nbar', 5],
+  ])
+    await reviewedBlockRegression(...item);
   console.log(
     'Compiled WASM / Rust store consumer: ordered edit/undo/redo/append/flush and block regressions passed.',
   );

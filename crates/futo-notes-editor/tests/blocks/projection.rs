@@ -59,3 +59,47 @@ fn editing_a_multiline_quote_run_preserves_untouched_markers_and_prefix_bytes() 
     assert_eq!(s.source_text(), "> __a\r\n> bX__\r\n");
     assert_eq!(v.text, "a\r\nbX\r\n");
 }
+
+#[test]
+fn multiline_setext_quotes_hide_each_physical_prefix_without_rewriting_source() {
+    for (raw, shown) in [
+        ("> foo\n> bar\n> ===", "foo\nbar"),
+        ("> > 猫🦊\r\n> > café\r\n> > ---", "猫🦊\r\ncafé"),
+        ("  > foo\n  > bar\n  > ===\n", "foo\nbar\n"),
+    ] {
+        let s = EditorSession::open(raw);
+        assert_eq!(s.source_text(), raw);
+        assert_eq!(s.display_text(), shown);
+        let native = s
+            .display_to_utf16(s.revision(), range(0, shown.len()))
+            .unwrap();
+        assert_eq!(native.end.0, shown.encode_utf16().count());
+        let p = s.project(s.revision(), range(0, shown.len())).unwrap();
+        assert_eq!(p.blocks.len(), 1);
+        assert!(p.blocks[0].heading > 0);
+    }
+}
+
+#[test]
+fn native_input_on_a_later_setext_quote_line_retains_each_exact_prefix() {
+    let raw = "> > 猫🦊\r\n> > café\r\n> > ===";
+    let mut s = EditorSession::open(raw);
+    let mut v = ReferenceView::new("猫🦊\r\ncafé");
+    v.apply(
+        s.replace_utf16(
+            s.revision(),
+            DisplayUtf16Range {
+                start: DisplayUtf16Offset(9),
+                end: DisplayUtf16Offset(9),
+            },
+            &[33],
+            &mut |_| Ok(()),
+        )
+        .unwrap(),
+    );
+    assert_eq!(s.source_text(), "> > 猫🦊\r\n> > café!\r\n> > ===");
+    assert_eq!(v.text, "猫🦊\r\ncafé!");
+    v.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(s.source_text(), raw);
+    assert_eq!(v.text, "猫🦊\r\ncafé");
+}
