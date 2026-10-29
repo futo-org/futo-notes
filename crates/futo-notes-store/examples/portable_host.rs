@@ -7,12 +7,17 @@ use futo_notes_store::LocalNoteStore;
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let root = std::env::args_os().nth(1).ok_or("scratch vault required")?;
     let store = LocalNoteStore::new(root.into());
-    let lifecycle = std::env::args().nth(2).as_deref() == Some("lifecycle");
-    store.create(
-        "",
-        "plain",
-        if lifecycle { "[[plain]]" } else { "__a__\r\n" },
-    )?;
+    // The lifecycle fixture, captured literal sources and reopen mode all
+    // use the same public store open/recovery workflow.
+    let fixture = std::env::args().nth(2);
+    if fixture.as_deref() != Some("--reopen") {
+        let source = match fixture.as_deref() {
+            Some("lifecycle") => "[[plain]]",
+            Some(source) => source,
+            None => "__a__\r\n",
+        };
+        store.create("", "plain", source)?;
+    }
     let session = store.open_editor("plain")?;
     let mut output = io::stdout().lock();
     let mut host = session.into_portable_host(SessionToken(17));

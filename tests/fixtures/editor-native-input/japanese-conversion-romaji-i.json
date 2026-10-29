@@ -1,0 +1,203 @@
+[
+  {
+    "after": {
+      "availableLanguages": [
+        "ja-JP",
+        "ko-KR",
+        "en-US",
+        "emoji"
+      ],
+      "language": "ja-JP",
+      "marked": [
+        2,
+        3
+      ],
+      "selected": [
+        3,
+        3
+      ],
+      "textUTF16": [
+        97,
+        98,
+        110,
+        32,
+        38,
+        32,
+        99,
+        100,
+        13,
+        10
+      ]
+    },
+    "arguments": {
+      "range": [
+        3,
+        3
+      ],
+      "textUTF16": [
+        105
+      ]
+    },
+    "before": {
+      "availableLanguages": [
+        "ja-JP",
+        "ko-KR",
+        "en-US",
+        "emoji"
+      ],
+      "language": "ja-JP",
+      "marked": [
+        2,
+        3
+      ],
+      "selected": [
+        3,
+        3
+      ],
+      "textUTF16": [
+        97,
+        98,
+        110,
+        32,
+        38,
+        32,
+        99,
+        100,
+        13,
+        10
+      ]
+    },
+    "id": 7,
+    "method": "shouldChangeText",
+    "parent": null,
+    "returned": true
+  },
+  {
+    "after": {
+      "availableLanguages": [
+        "ja-JP",
+        "ko-KR",
+        "en-US",
+        "emoji"
+      ],
+      "language": "ja-JP",
+      "marked": [
+        2,
+        3
+      ],
+      "selected": [
+        3,
+        3
+      ],
+      "textUTF16": [
+        97,
+        98,
+        12395,
+        32,
+        38,
+        32,
+        99,
+        100,
+        13,
+        10
+      ]
+    },
+    "arguments": {},
+    "before": {
+      "availableLanguages": [
+        "ja-JP",
+        "ko-KR",
+        "en-US",
+        "emoji"
+      ],
+      "language": "ja-JP",
+      "marked": [
+        2,
+        3
+      ],
+      "selected": [
+        3,
+        3
+      ],
+      "textUTF16": [
+        97,
+        98,
+        12395,
+        32,
+        38,
+        32,
+        99,
+        100,
+        13,
+        10
+      ]
+    },
+    "id": 8,
+    "method": "didChangeSelection",
+    "parent": null
+  },
+  {
+    "after": {
+      "availableLanguages": [
+        "ja-JP",
+        "ko-KR",
+        "en-US",
+        "emoji"
+      ],
+      "language": "ja-JP",
+      "marked": [
+        2,
+        3
+      ],
+      "selected": [
+        3,
+        3
+      ],
+      "textUTF16": [
+        97,
+        98,
+        12395,
+        32,
+        38,
+        32,
+        99,
+        100,
+        13,
+        10
+      ]
+    },
+    "arguments": {},
+    "before": {
+      "availableLanguages": [
+        "ja-JP",
+        "ko-KR",
+        "en-US",
+        "emoji"
+      ],
+      "language": "ja-JP",
+      "marked": [
+        2,
+        3
+      ],
+      "selected": [
+        3,
+        3
+      ],
+      "textUTF16": [
+        97,
+        98,
+        12395,
+        32,
+        38,
+        32,
+        99,
+        100,
+        13,
+        10
+      ]
+    },
+    "id": 9,
+    "method": "didChange",
+    "parent": null
+  }
+]
