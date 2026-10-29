@@ -31,6 +31,28 @@ struct NativeEditorSessionTests {
             _ = try recovered.checkpoint()
             #expect(try store.read(id: "blocks") == "###### 😀a\nb\r\ntail  \r\n")
             try recovered.detach()
+            _ = try store.createNote(title: "quote", folder: "", content: "> a")
+            let quote = try store.openEditor(id: "quote")
+            _ = try quote.blockCommandUtf16(
+                expected: 0, range: EditorUtf16Range(start: 1, end: 1), command: .indent)
+            #expect(try quote.sourceText() == "> > a")
+            _ = try quote.blockCommandUtf16(
+                expected: 1, range: EditorUtf16Range(start: 1, end: 1), command: .outdent)
+            #expect(try quote.sourceText() == "> a")
+            #expect(
+                try quote.blockCommandUtf16(
+                    expected: 2, range: EditorUtf16Range(start: 1, end: 1), command: .quote) == nil)
+            let divider = try quote.blockCommandUtf16(
+                expected: 2, range: EditorUtf16Range(start: 1, end: 1), command: .divider)
+            #expect(divider?.projection.blocks.contains(where: { $0.divider }) == true)
+            #expect(try quote.sourceText() == "> a\n> ***\n> ")
+            #expect(try quote.displayText() == "a\n\u{fffc}\n")
+            _ = try quote.flushRecovery()
+            try quote.detach()
+            let quotedRecovery = try store.openEditor(id: "quote")
+            #expect(try quotedRecovery.sourceText() == "> a\n> ***\n> ")
+            _ = try quotedRecovery.checkpoint()
+            try quotedRecovery.detach()
         }.value
     }
 

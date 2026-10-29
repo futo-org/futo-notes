@@ -15,7 +15,8 @@ pub enum ParagraphKey {
 impl EditorSession {
     /// Paragraph Enter/Shift+Enter insert one LF. Directional deletion removes
     /// the selection or one visible extended grapheme (CRLF is one line break).
-    /// Structural block/table keys belong to their subsequent command layer.
+    /// Headings, quotes and divider edges route through the shared block owner;
+    /// list, fence and table keys belong to their subsequent command layer.
     /// Boundary deletion is a no-op with no acceptance, revision or history.
     pub fn paragraph_key(
         &mut self,

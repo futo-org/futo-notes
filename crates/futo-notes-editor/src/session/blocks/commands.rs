@@ -35,61 +35,13 @@ impl EditorSession {
             return Err(EditorError::InvalidRange);
         }
         let lines = self.projection.block_lines(range);
-        let Some(first) = lines.first() else {
+        if lines.is_empty() {
             return Ok(None);
-        };
-        if command == BlockCommand::Divider {
-            if lines.iter().any(|line| line.code) {
-                return Ok(None);
-            }
-            let start = first.source.start;
-            let last = lines.last().unwrap();
-            let end = last.content.end;
-            let body = self.source.byte_slice(first.content.start..end).to_string();
-            let opened_bytes = body.len();
-            let mut staged = Self::open_with_clock(&body, self.clock.clone());
-            let display_start = self.projection.display_at(first.content.start);
-            let local = DisplayRange {
-                start: DisplayOffset(range.start.0 - display_start),
-                end: DisplayOffset(range.end.0 - display_start),
-            };
-            let staged_change = staged.replace_action(
-                staged.revision(),
-                local,
-                "\n\n",
-                crate::InputAction::Isolated,
-                &mut |_| Ok(()),
-            )?;
-            let body = staged.source_text();
-            let split = body
-                .find("\n\n")
-                .ok_or(EditorError::UnrepresentableFormat)?;
-            let left = &body[..split];
-            let right = &body[split + 2..];
-            let quote = "> ".repeat(first.quote_depth);
-            let prefix = self
-                .source
-                .byte_slice(first.source.start..first.content.start)
-                .to_string();
-            let lead = if left.is_empty() {
-                String::new()
-            } else {
-                format!("{prefix}{left}\n")
-            };
-            let marker = if left.is_empty() { "---" } else { "***" };
-            let mut output = format!("{lead}{quote}{marker}\n");
-            let caret = start + output.len();
-            if !right.is_empty() {
-                output.push_str(&format!("{quote}\n{quote}{right}"));
-            }
-            let mut change =
-                self.commit_block_edit(expected, start..end, &output, None, Some(caret), accept)?;
-            change.work.materialized_source_bytes +=
-                opened_bytes + staged_change.work.materialized_source_bytes;
-            change.work.parsed_source_bytes +=
-                2 * opened_bytes + staged_change.work.parsed_source_bytes;
-            return Ok(Some(change));
         }
+        if command == BlockCommand::Divider {
+            return self.insert_divider(expected, range, lines, accept);
+        }
+        let first = &lines[0];
         let end = lines.last().unwrap().source.end;
         let start = first.source.start;
         let raw = self.source.byte_slice(start..end).to_string();

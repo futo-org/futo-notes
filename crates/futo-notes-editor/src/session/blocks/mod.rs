@@ -13,6 +13,7 @@ pub enum BlockCommand {
 }
 
 mod commands;
+mod divider;
 mod keys;
 mod typing;
 

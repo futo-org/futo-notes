@@ -220,10 +220,26 @@ const { WasmSession } = await import(pathToFileURL(process.argv[2]).href);
     assert.equal(text, '😀z日本 b\r\n');
     assert.equal(page.draft_text(), '###### ~~__😀z日本 b__~~\r\n');
     assert.equal(JSON.parse(page.commit_composition_utf16(24n)), null);
+    for (const [revision, command, expected] of [
+      [24n, '"Quote"', '> ~~__😀z日本 b__~~\r\n'],
+      [25n, '"Indent"', '> > ~~__😀z日本 b__~~\r\n'],
+      [26n, '"Outdent"', '> ~~__😀z日本 b__~~\r\n'],
+    ]) {
+      const request = JSON.parse(page.block_command_utf16(revision, 0, 0, command));
+      apply(JSON.parse(page.acknowledge(JSON.stringify(await exchange(request)))));
+      assert.equal(page.draft_text(), expected);
+      assert.equal(text, '😀z日本 b\r\n');
+    }
+    const divider = JSON.parse(page.block_command_utf16(27n, 7, 7, '"Divider"'));
+    const dividerChange = JSON.parse(page.acknowledge(JSON.stringify(await exchange(divider))));
+    apply(dividerChange);
+    assert.equal(page.draft_text(), '> ~~__😀z日本 b__~~\n> ***\n> \r\n');
+    assert.equal(text, '😀z日本 b\n\ufffc\n\r\n');
+    assert.ok(dividerChange.projection.blocks.some((block) => block.divider));
     const flush = JSON.parse(page.flush());
     assert.equal(JSON.parse(page.status()).durable, 0);
     page.acknowledge(JSON.stringify(await exchange(flush)));
-    assert.equal(JSON.parse(page.status()).durable, 24);
+    assert.equal(JSON.parse(page.status()).durable, 28);
   } finally {
     clearTimeout(deadline);
     page?.free();

@@ -34,6 +34,25 @@ class NativeEditorSessionTest {
                     assertEquals("###### 😀a\nb\r\ntail  \r\n", store.read("blocks"))
                     recovered.detach()
                 }
+                store.createNote("quote", "", "> a")
+                store.openEditor("quote").use { quote ->
+                    quote.blockCommandUtf16(0uL, EditorUtf16Range(1uL, 1uL), EditorBlockCommand.Indent)
+                    assertEquals("> > a", quote.sourceText())
+                    quote.blockCommandUtf16(1uL, EditorUtf16Range(1uL, 1uL), EditorBlockCommand.Outdent)
+                    assertEquals("> a", quote.sourceText())
+                    assertNull(quote.blockCommandUtf16(2uL, EditorUtf16Range(1uL, 1uL), EditorBlockCommand.Quote))
+                    val divider = quote.blockCommandUtf16(2uL, EditorUtf16Range(1uL, 1uL), EditorBlockCommand.Divider)
+                    assertTrue(divider!!.projection.blocks.any { it.divider })
+                    assertEquals("> a\n> ***\n> ", quote.sourceText())
+                    assertEquals("a\n\ufffc\n", quote.displayText())
+                    quote.flushRecovery()
+                    quote.detach()
+                }
+                store.openEditor("quote").use { recovered ->
+                    assertEquals("> a\n> ***\n> ", recovered.sourceText())
+                    recovered.checkpoint()
+                    recovered.detach()
+                }
             }
         } finally { root.deleteRecursively() }
     }
