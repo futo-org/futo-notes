@@ -13,3 +13,5 @@
   (sdcardfs), falls back to an exclusive create plus copy, which still refuses to
   replace but is not atomic, so a crash mid-create can leave a truncated new
   note. → `futo_notes_core::files::atomic_write::move_no_replace`
+
+- Vault entry inspection preserves descriptor-relative symlink rejection on 32-bit Android, including Android 9/10 where sandbox policy forbids probing `statx`. *(Android)* → `crates/futo-notes-core/src/files/vault_fs/unix.rs`, `NativeEditorSessionTest`
