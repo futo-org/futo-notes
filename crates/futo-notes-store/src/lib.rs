@@ -28,8 +28,8 @@ use serde::{Deserialize, Serialize};
 use search::StoreSearch;
 
 pub use editor_session::{
-    EditorStoreError, RecoveryClock, RecoveryOptions, RecoveryStatus, RecoveryStorage,
-    StoreEditorSession,
+    EditorStoreError, RecoveryClock, RecoveryIssue, RecoveryIssueKind, RecoveryOptions,
+    RecoveryStatus, RecoveryStorage, StoreEditorSession,
 };
 pub use futo_notes_model::{WELCOME_NOTE, WELCOME_NOTE_ID};
 pub use futo_notes_search::{SearchHit, SearchStatus};
