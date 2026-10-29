@@ -105,6 +105,68 @@ impl EditorSession {
         self.select(expected, range)
     }
 
+    pub fn compose_utf16(
+        &mut self,
+        expected: Revision,
+        range: DisplayUtf16Range,
+        text: &[u16],
+    ) -> Result<crate::Composition, EditorError> {
+        let range = self.display_from_utf16(expected, range)?;
+        let text = String::from_utf16(text).map_err(|_| EditorError::InvalidText)?;
+        self.compose(expected, range, &text)
+    }
+
+    pub fn commit_composition_utf16(
+        &mut self,
+        expected: Revision,
+        text: Option<&[u16]>,
+        accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
+    ) -> Result<Option<ViewChange>, EditorError> {
+        self.check_revision(expected)?;
+        let text = text
+            .map(String::from_utf16)
+            .transpose()
+            .map_err(|_| EditorError::InvalidText)?;
+        self.commit_composition(expected, text.as_deref(), accept)
+    }
+
+    pub fn decode_os_utf16(
+        &self,
+        expected: Revision,
+        range: DisplayUtf16Range,
+        text: &[u16],
+        placeholders: &[DisplayUtf16Range],
+    ) -> Result<(DisplayRange, String, Vec<DisplayRange>), EditorError> {
+        let (range, text) = self.decode_utf16_input(expected, range, text)?;
+        let inserted = ropey::Rope::from_str(&text);
+        let placeholders = placeholders
+            .iter()
+            .map(|range| {
+                if range.start.0 > range.end.0 {
+                    return Err(EditorError::InvalidRange);
+                }
+                Ok(DisplayRange {
+                    start: DisplayOffset(Self::utf16_to_byte(&inserted, range.start.0)?),
+                    end: DisplayOffset(Self::utf16_to_byte(&inserted, range.end.0)?),
+                })
+            })
+            .collect::<Result<Vec<_>, EditorError>>()?;
+        Ok((range, text, placeholders))
+    }
+
+    pub fn replace_os_utf16(
+        &mut self,
+        expected: Revision,
+        range: DisplayUtf16Range,
+        text: &[u16],
+        placeholders: &[DisplayUtf16Range],
+        accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
+    ) -> Result<Option<ViewChange>, EditorError> {
+        let (range, text, placeholders) =
+            self.decode_os_utf16(expected, range, text, placeholders)?;
+        self.replace_os(expected, range, &text, &placeholders, accept)
+    }
+
     /// Validates native coordinates and text together at the current revision.
     /// Hosts can delegate the decoded input to their existing save workflow;
     /// applying it must still use `expected` to reject intervening edits.
@@ -114,7 +176,19 @@ impl EditorSession {
         range: DisplayUtf16Range,
         inserted: &[u16],
     ) -> Result<(DisplayRange, String), EditorError> {
-        let range = self.display_from_utf16(expected, range)?;
+        self.check_revision(expected)?;
+        let range = if self.composition().is_some() {
+            if range.start.0 > range.end.0 {
+                return Err(EditorError::InvalidRange);
+            }
+            let display = self.provisional_display();
+            DisplayRange {
+                start: DisplayOffset(Self::utf16_to_byte(&display, range.start.0)?),
+                end: DisplayOffset(Self::utf16_to_byte(&display, range.end.0)?),
+            }
+        } else {
+            self.display_from_utf16(expected, range)?
+        };
         let inserted = String::from_utf16(inserted).map_err(|_| EditorError::InvalidText)?;
         Ok((range, inserted))
     }

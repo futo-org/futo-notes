@@ -25,25 +25,30 @@ impl EditorSession {
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<Option<ViewChange>, EditorError> {
         self.check_revision(expected)?;
-        self.validate_range(range)?;
+        let overlay = self
+            .composition
+            .as_ref()
+            .map(|_| self.provisional_display());
+        if let Some(display) = &overlay {
+            super::composition::validate_overlay_range(display, range)?;
+        } else {
+            self.validate_range(range)?;
+        }
+        let stop = |position, direction| match &overlay {
+            Some(display) => Self::grapheme_stop_in(display, position, direction, false),
+            None => self.grapheme_stop(position, direction, false),
+        };
         let inserted = match key {
             ParagraphKey::Enter | ParagraphKey::ShiftEnter => "\n",
             ParagraphKey::Backspace | ParagraphKey::Delete => {
                 if range.start == range.end {
                     match key {
                         ParagraphKey::Backspace => {
-                            range.start = DisplayOffset(self.grapheme_stop(
-                                range.start.0,
-                                CaretDirection::Backward,
-                                false,
-                            )?);
+                            range.start =
+                                DisplayOffset(stop(range.start.0, CaretDirection::Backward)?);
                         }
                         ParagraphKey::Delete => {
-                            range.end = DisplayOffset(self.grapheme_stop(
-                                range.end.0,
-                                CaretDirection::Forward,
-                                false,
-                            )?);
+                            range.end = DisplayOffset(stop(range.end.0, CaretDirection::Forward)?);
                         }
                         _ => unreachable!(),
                     }
@@ -54,8 +59,12 @@ impl EditorSession {
                 ""
             }
         };
-        self.replace_action(expected, range, inserted, InputAction::Isolated, accept)
-            .map(Some)
+        if overlay.is_some() {
+            self.finish_provisional_input(expected, range, inserted, InputAction::Isolated, accept)
+        } else {
+            self.replace_action(expected, range, inserted, InputAction::Isolated, accept)
+                .map(Some)
+        }
     }
 
     pub fn paragraph_key_utf16(

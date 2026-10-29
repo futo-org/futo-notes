@@ -10,6 +10,8 @@ use crate::{paths, FlushDisposition, FlushDraftResult, LocalNoteStore, NOTE_NOT_
 
 mod checkpoint;
 mod clock;
+mod composition;
+mod composition_facade;
 pub(crate) mod deletion;
 mod facade;
 mod identity;
