@@ -1,4 +1,4 @@
-# Portable binding contract
+# Portable and native transports
 
 - The portable WASM session emits one small ordered source-edit handoff at a time; page-local completion changes the copyable draft but releases no view delta until a matching native store append acknowledgement. Further input is backpressured while that active edit is unacknowledged, so process interruption cannot discard an already displayed timer backlog. → crates/futo-notes-editor/src/portable.rs
 - Session-incarnation tokens and monotonic request sequences bind append, flush and resume replies; duplicate, stale and superseded acknowledgements never apply a view delta twice, regress watermarks or claim durability from timer execution. Matching impossible watermarks reject without discarding the pending edit. → crates/futo-notes-editor/src/portable.rs

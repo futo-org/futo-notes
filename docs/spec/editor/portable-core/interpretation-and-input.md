@@ -1,4 +1,4 @@
-# Portable editing contract
+# Exact source, interpretation and input
 
 - A session opens exact UTF-8 source, including CRLF, trailing whitespace and final-newline spelling; opening and dropping an unchanged store session writes neither the note nor a recovery file. → crates/futo-notes-editor, crates/futo-notes-store/src/editor_session
 - Insertion, deletion and replacement use distinct source/display UTF-8 byte coordinates; revision-checked conversions expose distinct source/display UTF-16 code-unit ranges for native hosts. Hidden markers and decoded entities have explicit source/display correspondence. → crates/futo-notes-editor/src/coordinates.rs
@@ -27,13 +27,3 @@
 - Inline-code editing repairs backtick length and padding locally, preserves visible spaces, and splits code around newly inserted literal line breaks; existing code-span line endings project as CommonMark spaces while their exact source bytes remain intact. → crates/futo-notes-editor/src/inline/row.rs, crates/futo-notes-editor/src/inline/edit.rs
 - Each source change carries a revision-tagged semantic replacement for its reparsed paragraph window, even if formatting changes leave display text identical; explicit projection queries return semantics and correspondence for a requested display range. → crates/futo-notes-editor/src/types.rs
 - Inline source edits, formatting and history use the same store acceptance/replay/checkpoint workflow as plain input; recovery records contain source ranges rather than rendered offsets. → crates/futo-notes-store/src/editor_session/input.rs, crates/futo-notes-store/src/tests/editor_session.rs
-
-Outside-writer/lifecycle coordination,
-block/link interpretation, note-id-dependent composition arbitration and renderer integration follow in their dependent tickets.
-Paragraph projections use a length-indexed tree and display Rope, so an ordinary
-edit after a distant jump reparses only its paragraph window without rewriting
-the note's tail offsets. Work counters include actual parser input for candidate
-verification, paragraph partitioning and projection. Work in a single large
-paragraph or fence is still proportional to that region; progressive interpretation,
-complete allocation/work bounds and native device latency measurements remain
-in their dependent tickets.

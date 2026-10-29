@@ -8,6 +8,7 @@ use futo_notes_editor::{
 
 use crate::{paths, FlushDisposition, FlushDraftResult, LocalNoteStore, NOTE_NOT_FOUND};
 
+mod checkpoint;
 mod clock;
 mod composition;
 mod input;
@@ -165,6 +166,8 @@ impl<'store> StoreEditorSession<'store> {
         options: RecoveryOptions,
     ) -> Result<Self, EditorStoreError> {
         let _gate = store.lock_gate().map_err(EditorStoreError::Open)?;
+        let _vault_mutation =
+            futo_notes_core::files::vault_mutation_guard().map_err(EditorStoreError::Open)?;
         paths::note_path(&store.root, id).map_err(EditorStoreError::Open)?;
         let lease = EditorLease::acquire(&store.root, id)?;
         let base = store
@@ -444,83 +447,5 @@ impl StoreEditorSession<'_> {
                 EditorError::Persistence(error) => EditorStoreError::RecoveryAppend(error),
                 other => EditorStoreError::Editor(other),
             })
-    }
-
-    pub fn checkpoint(&mut self) -> Result<FlushDraftResult, EditorStoreError> {
-        if let Some(issue) = &self.recovery.issue {
-            if issue.kind != RecoveryIssueKind::BaseMismatch {
-                return Err(EditorStoreError::RecoveryNeedsReview(issue.clone()));
-            }
-        }
-        if self.recovery.failed && self.pending_checkpoint.is_none() {
-            return Err(EditorStoreError::RecoveryPaused);
-        }
-        let _gate = self
-            .store
-            .lock_gate()
-            .map_err(EditorStoreError::Checkpoint)?;
-        let _vault_mutation =
-            futo_notes_core::files::vault_mutation_guard().map_err(EditorStoreError::Checkpoint)?;
-        let source = self.engine.source_text();
-        // Opening/closing an unchanged note must not write its old bytes over
-        // a peer change or mint a conflict copy for a draft that never existed.
-        let result = if let Some(result) = &self.pending_checkpoint {
-            result.clone()
-        } else if source == self.recovery.base() {
-            FlushDraftResult {
-                disposition: FlushDisposition::Converged,
-                mutation: None,
-            }
-        } else {
-            let base = self.recovery.base().to_owned();
-            self.store
-                .flush_draft_locked_with_target(&self.id, &base, &source, &mut |id| {
-                    self.recovery.protect_checkpoint(&self.store.root, id)
-                })
-                .map_err(EditorStoreError::Checkpoint)?
-        };
-        let final_id = match &result.disposition {
-            FlushDisposition::ParkedConflict { parked_id } => parked_id.clone(),
-            _ => self.id.clone(),
-        };
-        self.pending_checkpoint = Some(result.clone());
-        if source != self.recovery.base() {
-            let relative = crate::note_filename(&final_id);
-            futo_notes_core::files::vault_fs::sync_file(&self.store.root, &relative)
-                .and_then(|()| {
-                    futo_notes_core::files::vault_fs::sync_parent(&self.store.root, &relative)
-                })
-                .map_err(|error| EditorStoreError::CheckpointCommitted {
-                    result: Box::new(result.clone()),
-                    error,
-                })?;
-        }
-        let next_lease = if final_id != self.id {
-            Some(
-                EditorLease::acquire(&self.store.root, &final_id).map_err(|error| {
-                    EditorStoreError::CheckpointCommitted {
-                        result: Box::new(result.clone()),
-                        error: error.to_string(),
-                    }
-                })?,
-            )
-        } else {
-            None
-        };
-        if let Err(error) =
-            self.recovery
-                .retire(&self.store.root, &final_id, &source, self.engine.revision())
-        {
-            return Err(EditorStoreError::CheckpointCommitted {
-                result: Box::new(result),
-                error,
-            });
-        }
-        if let Some(lease) = next_lease {
-            self.lease = lease;
-            self.id = final_id;
-        }
-        self.pending_checkpoint = None;
-        Ok(result)
     }
 }

@@ -52,6 +52,9 @@ impl RecoveryLog {
             id: id.to_owned(),
             base: disk.to_owned(),
             base_revision: Revision(0),
+            replacement_epoch: futo_notes_core::files::recovery_coordination::replacement_epoch(
+                root, id,
+            )?,
         };
         let history_clock = Arc::new(super::clock::GroupingClock(clock.clone()));
         let mut engine = EditorSession::open_with_clock(disk, history_clock.clone());
@@ -85,7 +88,13 @@ impl RecoveryLog {
                     accepted_bytes += validated;
                     checkpoint_target = target;
                     issue = problem;
-                    if issue.is_none() && disk != header.base && disk != engine.source_text() {
+                    if issue.is_none()
+                        && (disk != header.base
+                            || futo_notes_core::files::recovery_coordination::replacement_epoch(
+                                root, id,
+                            )? != header.replacement_epoch)
+                        && disk != engine.source_text()
+                    {
                         issue = Some(RecoveryIssue {
                             kind: RecoveryIssueKind::BaseMismatch,
                             record: 0,
@@ -138,12 +147,25 @@ impl RecoveryLog {
         &self.header.base
     }
 
+    pub(super) fn replaced(&self, root: &Path) -> Result<bool, String> {
+        Ok(
+            futo_notes_core::files::recovery_coordination::replacement_epoch(
+                root,
+                &self.header.id,
+            )? != self.header.replacement_epoch,
+        )
+    }
+
     pub(super) fn append(&mut self, root: &Path, edit: &SourceEdit) -> Result<(), String> {
         if self.failed {
             return Err(
                 "editor recovery append failed; reopen or retry recovery before editing".to_owned(),
             );
         }
+        // Controlled writers must not observe no stream, then install across
+        // the first accepted append. All native and portable acceptance paths
+        // pass here; the guard ends before the view change is returned.
+        let _vault_mutation = futo_notes_core::files::vault_mutation_guard()?;
         #[cfg(test)]
         if let Some(hook) = &self.append_hook {
             hook(false);
@@ -210,6 +232,7 @@ impl RecoveryLog {
     }
 
     pub(super) fn resume(&mut self, root: &Path) -> Result<(), String> {
+        let _vault_mutation = futo_notes_core::files::vault_mutation_guard()?;
         // The caller admits only failed live appends/flushes or a validated
         // prefix with an incomplete final frame. Interior damage never reaches
         // this truncation path.
@@ -279,6 +302,8 @@ impl RecoveryLog {
         self.header.id = id.to_owned();
         self.header.base = source.to_owned();
         self.header.base_revision = revision;
+        self.header.replacement_epoch =
+            futo_notes_core::files::recovery_coordination::replacement_epoch(root, id)?;
         self.failed = false;
         self.issue = None;
         self.durable = revision;

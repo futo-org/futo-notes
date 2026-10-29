@@ -114,3 +114,7 @@
   classic-create response retains the legacy duplicate risk. The visible
   checkpoint failure remains the signal that durable local state is behind. →
   futo-notes-sync `checkpoint.rs` + `sync/push/` + `sync/pull/` + `session/`
+
+- Pull adoption and guarded sync replacements preserve pending portable-editor recovery through the shared local replacement marker, including remote content equal to an older checkpoint; existing push-first ordering and encrypted payloads remain unchanged. → crates/futo-notes-sync/src/sync/vault.rs, crates/futo-notes-sync/src/sync/vault/guarded_write.rs, crates/futo-notes-sync/src/sync/editor_recovery_tests.rs
+
+- Sync conflict parking, collision renames and tombstone claim restoration protect a destination’s pending portable-editor recovery even when its checkpoint file is absent; a failed replacement marker prevents installation and retains the claim for retry, and files created after destination selection are never overwritten. Recovering that destination preserves its older draft separately from the newly installed content, with complete mutations and idempotent reopen. → crates/futo-notes-sync/src/sync/tombstones.rs, crates/futo-notes-sync/src/sync/vault.rs; guarded by `tombstone_park_preserves_absent_destinations_pending_recovery`, `collision_rename_preserves_absent_destinations_pending_recovery`, `failed_tombstone_park_restore_preserves_pending_draft` and `interrupted_tombstone_claim_restore_preserves_pending_draft` in crates/futo-notes-sync/src/sync/editor_recovery_tests.rs

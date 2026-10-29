@@ -88,7 +88,10 @@ export class TauriBridgeClient {
   }
 
   async _executeRead(expression, label) {
-    return this._executeWithBridgeTimeoutRetries(() => executeJs(this.ws, expression), label);
+    // Bare async reads are serialized as Promise objects by the bridge. Its
+    // async-script path awaits this wrapper for both async and synchronous reads.
+    const script = `(async () => await (${expression}))()`;
+    return this._executeWithBridgeTimeoutRetries(() => executeJs(this.ws, script), label);
   }
 
   async _executeMutation(expression, label, { timeoutMs = 180_000 } = {}) {

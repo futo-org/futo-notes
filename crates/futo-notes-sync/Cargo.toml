@@ -21,6 +21,9 @@ base64 = "0.23"
 uuid = { version = "1", features = ["v7"] }
 
 [dev-dependencies]
+tempfile = "3"
+futo-notes-store = { path = "../futo-notes-store" }
+futo-notes-editor = { path = "../futo-notes-editor" }
 tokio = { version = "1", features = ["test-util", "io-util", "net"] }
 wiremock = "0.6"
 # The hosted scenarios stand in for a platform auth sheet with a browser-shaped
