@@ -93,6 +93,7 @@ test:rust:workspace:
         - scripts/build-rust-ios.sh
         - scripts/check-rust-dependency-boundaries.mjs
         - tests/conformance/**/*
+        - tests/fixtures/editor-native-input/**/*
         # CI config changes can alter this job's toolchain/system-dep setup
         # (e.g. the GTK deps it needs to compile the tauri crate) — re-run the
         # workspace tests so an environment break is caught on that change.
