@@ -46,7 +46,7 @@ fn read_trace(name: &str) -> Value {
 #[test]
 fn captured_uikit_results_replay_without_fictional_or_duplicate_callbacks() {
     let cases = read("native-input-cases");
-    assert_eq!(cases.as_array().unwrap().len(), 5);
+    assert_eq!(cases.as_array().unwrap().len(), 6);
     for case in cases.as_array().unwrap() {
         let name = case["name"].as_str().unwrap();
         let trace = read_trace(name);
@@ -165,16 +165,23 @@ fn captured_uikit_results_replay_without_fictional_or_duplicate_callbacks() {
                                 .unwrap_or("insertText")
                         );
                     } else {
-                        // English autocorrection occurs between outer inserts, via
-                        // shouldChangeText + didChange without a replace override.
+                        // UIKit may notify selection between the actual request and
+                        // didChange. Pin the recorded request rather than inventing one.
+                        let request_id = step["requestEvent"].as_u64().unwrap_or(id - 1);
                         let request = trace["events"]
                             .as_array()
                             .unwrap()
                             .iter()
-                            .find(|e| e["id"].as_u64() == Some(id - 1))
+                            .find(|e| e["id"].as_u64() == Some(request_id))
                             .unwrap();
                         assert_eq!(request["method"], "shouldChangeText");
                         assert_eq!(request["returned"], true);
+                        assert_eq!(request["arguments"]["range"], step["serviceRange"]);
+                        assert_eq!(
+                            text(&request["arguments"]["textUTF16"]),
+                            step["serviceText"]
+                        );
+                        assert_eq!(text(&request["before"]["textUTF16"]), view.text);
                     }
                     // Korean removes the old syllable BEFORE insertText. The accepted
                     // text-service result is the didChange snapshot, not append(arguments).

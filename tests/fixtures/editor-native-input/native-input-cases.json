@@ -476,5 +476,56 @@
       "english-suggestion-automatic-space": "8dfec9aeb9055702120c8b9cf9bb042a3c03ad095c1881d305105130ae40fc65",
       "english-suggestion-smart-space-cleanup": "0e9ed8d6c9b9b630a9122d6c6c24c981962d774f4ea47c9460e037db39dc350c"
     }
+  },
+  {
+    "name": "whole-field-paste",
+    "source": "__teh__ &amp; **cta**\r\n",
+    "display": "teh & cta\r\n",
+    "range": [
+      0,
+      11
+    ],
+    "captureSha256": "d18f874e9ba0e3e6396686df559687ae741dacde0df83e3ec05a4fe2906c7d53",
+    "steps": [
+      {
+        "event": 3,
+        "operation": "select",
+        "source": "__teh__ &amp; **cta**\r\n"
+      },
+      {
+        "event": 6,
+        "operation": "replace",
+        "requestEvent": 4,
+        "source": "__the__ &amp; **cat**\r\n",
+        "serviceRange": [
+          0,
+          11
+        ],
+        "serviceText": "the & cat\r\n"
+      }
+    ],
+    "history": [
+      {
+        "source": "__teh__ &amp; **cta**\r\n",
+        "display": "teh & cta\r\n",
+        "selection": [
+          0,
+          11
+        ]
+      },
+      {
+        "source": "__the__ &amp; **cat**\r\n",
+        "display": "the & cat\r\n",
+        "selection": [
+          11,
+          11
+        ]
+      }
+    ],
+    "fixtureSha256": {
+      "whole-field-paste": "0ce87a605a14a46845b6d37cf641527e21dc8b0df18b8cf0eb08a84556ded5de",
+      "whole-field-paste-focus": "3aa6524a4f40c7e00ddc4ca163180d3b9e1b6dd3f75292e6770a8fc1aa7dbd25",
+      "whole-field-paste-replacement": "25c0e0073011c7363aebbb4a85905b52b23ba32e690425416c6689d1347cf9f9"
+    }
   }
 ]
