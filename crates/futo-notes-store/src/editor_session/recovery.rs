@@ -52,6 +52,7 @@ impl RecoveryLog {
             vault: vault.clone(),
             id: id.to_owned(),
             base: disk.to_owned(),
+            source: None,
             base_revision: Revision(0),
             replacement_epoch: futo_notes_core::files::recovery_coordination::replacement_epoch(
                 root, id,
@@ -63,7 +64,7 @@ impl RecoveryLog {
             let mut lines = bytes.split_inclusive(|byte| *byte == b'\n');
             let first = lines.next().unwrap_or_default();
             match format::decode_header(first) {
-                Ok(found) if found.version != format::VERSION => {
+                Ok(found) if found.version != 2 && found.version != format::VERSION => {
                     issue = Some(RecoveryIssue {
                         kind: RecoveryIssueKind::UnsupportedVersion {
                             version: found.version,
@@ -81,7 +82,7 @@ impl RecoveryLog {
                     header = found;
                     accepted_bytes = first.len() as u64;
                     engine = EditorSession::restore_with_clock(
-                        &header.base,
+                        header.source.as_deref().unwrap_or(&header.base),
                         header.base_revision,
                         history_clock,
                     );
@@ -142,6 +143,42 @@ impl RecoveryLog {
             },
             engine,
         ))
+    }
+
+    pub(super) fn rebase_snapshot(
+        &mut self,
+        root: &Path,
+        base: &str,
+        source: &str,
+        revision: Revision,
+    ) -> Result<(), String> {
+        let mut header = self.header.clone();
+        header.version = format::VERSION;
+        header.base = base.to_owned();
+        header.source = (base != source).then(|| source.to_owned());
+        header.base_revision = revision;
+        header.replacement_epoch =
+            futo_notes_core::files::recovery_coordination::replacement_epoch(root, &header.id)?;
+        let bytes = format::encode(&header)?;
+        let result = if self.exists {
+            self.storage.replace(root, &self.path, &bytes)
+        } else {
+            self.storage.create(root, &self.path, &bytes)
+        }
+        .and_then(|()| self.storage.flush(root, &self.path));
+        if let Err(error) = result {
+            self.failed = true;
+            return Err(error);
+        }
+        self.header = header;
+        self.exists = true;
+        self.accepted_bytes = bytes.len() as u64;
+        self.accepted = revision;
+        self.durable = revision;
+        self.failed = false;
+        self.issue = None;
+        self.flush_deadline = None;
+        Ok(())
     }
 
     pub(super) fn transfer_own_epoch(&mut self, before: u64, after: u64) -> Result<(), String> {
@@ -316,6 +353,8 @@ impl RecoveryLog {
         self.path = format!(".futo-editor-recovery/{}.jsonl", hash_sha256(id));
         self.header.id = id.to_owned();
         self.header.base = source.to_owned();
+        self.header.source = None;
+        self.header.version = format::VERSION;
         self.header.base_revision = revision;
         self.header.replacement_epoch =
             futo_notes_core::files::recovery_coordination::replacement_epoch(root, id)?;

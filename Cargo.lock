@@ -2023,6 +2023,7 @@ dependencies = [
 name = "futo-notes-editor"
 version = "0.1.0"
 dependencies = [
+ "futo-notes-wikilinks",
  "pulldown-cmark",
  "ropey",
  "serde",

@@ -1,5 +1,6 @@
 //! Attachment coordination underneath all supported note and folder mappings.
 use super::{Attachment, EditorLease, RecoveryLog, RecoveryOptions};
+use futo_notes_editor::OwnActionRelink;
 use std::path::Path;
 use std::sync::{Arc, Mutex, PoisonError};
 
@@ -11,6 +12,8 @@ pub(super) struct PendingIdentity {
     original: String,
     destination: String,
     lease: Option<EditorLease>,
+    action: OwnActionRelink,
+    installed: bool,
 }
 impl Attachment {
     pub(super) fn finish_identity(&mut self, root: &Path) -> Result<(), String> {
@@ -35,8 +38,30 @@ impl Attachment {
                     .map_err(|error| error.to_string())?,
             );
         }
-        self.recovery
-            .complete_identity(root, &self.pending_identity.as_ref().unwrap().original)?;
+        let pending = self.pending_identity.as_mut().unwrap();
+        if !pending.installed {
+            self.recovery.install_identity(root, &pending.original)?;
+            pending.installed = true;
+        }
+        if self.engine.revision() != self.recovery.accepted {
+            let accepted = self.recovery.accepted;
+            let change = self
+                .engine
+                .apply_own_relink(self.engine.revision(), &pending.action, &mut |edit| {
+                    if edit.revision == accepted {
+                        Ok(())
+                    } else {
+                        Err("coordinated source revision mismatch".into())
+                    }
+                })
+                .map_err(|error| error.to_string())?
+                .ok_or("coordinated relink produced no source change")?;
+            if self.engine.source_text() != self.recovery.snapshot_source() {
+                return Err("coordinated source differs from protected snapshot".into());
+            }
+            self.coordinated.push(change);
+        }
+        self.recovery.cleanup_identity(root, &pending.original)?;
         let pending = self.pending_identity.take().unwrap();
         if let Some(lease) = pending.lease {
             self.lease = lease;
@@ -53,6 +78,7 @@ impl IdentityTransition {
         from: &str,
         to: &str,
         rewritten: Option<&String>,
+        action: &OwnActionRelink,
     ) -> Result<Option<Self>, String> {
         let state = if let Some(state) = EditorLease::attached(root, from)? {
             state
@@ -77,6 +103,7 @@ impl IdentityTransition {
                 lease,
                 pending_checkpoint: None,
                 terminal: false,
+                coordinated: Vec::new(),
                 pending_identity: None,
             }));
             state
@@ -113,7 +140,10 @@ impl IdentityTransition {
         let disk = futo_notes_core::files::vault_fs::read(root, &crate::note_filename(from))?;
         let mut expected = vec![String::from_utf8(disk).map_err(|error| error.to_string())?];
         expected.extend(rewritten.cloned());
-        attachment.recovery.prepare_identity(root, to, expected)?;
+        let can_adopt = attachment.engine.composition().is_none();
+        attachment
+            .recovery
+            .prepare_identity(root, to, expected, action, can_adopt)?;
         drop(attachment);
         Ok(Some(Self {
             state,
@@ -121,6 +151,8 @@ impl IdentityTransition {
                 original: from.to_owned(),
                 destination: to.to_owned(),
                 lease,
+                action: action.clone(),
+                installed: false,
             },
         }))
     }

@@ -6,7 +6,7 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 use super::{RecoveryIssue, RecoveryIssueKind};
 
-pub(super) const VERSION: u32 = 2;
+pub(super) const VERSION: u32 = 3;
 
 #[derive(Clone, Serialize, Deserialize)]
 pub(super) struct Header {
@@ -14,6 +14,10 @@ pub(super) struct Header {
     pub vault: String,
     pub id: String,
     pub base: String,
+    /// Accepted source at a coordinated baseline/identity boundary. In v2 the
+    /// replay starting source is always the baseline itself.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
     pub base_revision: Revision,
     #[serde(default)]
     pub replacement_epoch: u64,

@@ -1,6 +1,7 @@
-//! A discoverable prepared intent and exclusive durable commit decision keep
-//! the original stream until its retargeted replacement is durably installed.
+//! Discoverable prepared intent and durable decision retain the original stream
+//! until a coherent final identity, baseline and accepted source are installed.
 use super::*;
+use futo_notes_editor::OwnActionRelink;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize)]
@@ -11,6 +12,8 @@ struct Intent {
     destination: String,
     expected_disk: Vec<String>,
     replaced: bool,
+    action: OwnActionRelink,
+    can_adopt: bool,
 }
 #[derive(Serialize, Deserialize)]
 struct Decision {
@@ -27,13 +30,14 @@ fn stream(id: &str) -> String {
 fn decode<T: serde::de::DeserializeOwned>(bytes: &[u8]) -> Result<T, String> {
     format::decode(bytes, 0).map_err(|error| format!("invalid editor identity intent: {error:?}"))
 }
-
 impl RecoveryLog {
     pub(in crate::editor_session) fn prepare_identity(
         &mut self,
         root: &Path,
         destination: &str,
         expected_disk: Vec<String>,
+        action: &OwnActionRelink,
+        can_adopt: bool,
     ) -> Result<(), String> {
         Self::recover_identities(root, &self.header.id, &mut *self.storage)?;
         let records = if self.exists {
@@ -60,13 +64,14 @@ impl RecoveryLog {
             destination: destination.to_owned(),
             expected_disk,
             replaced: self.replaced(root)?,
+            action: action.clone(),
+            can_adopt,
         };
         let path = stem(&self.header.id);
         self.storage
             .create(root, &path, &format::encode(&intent)?)?;
         self.storage.flush(root, &path)
     }
-
     pub(in crate::editor_session) fn identity_destination_ready(
         &mut self,
         root: &Path,
@@ -91,26 +96,37 @@ impl RecoveryLog {
                 .is_none())
         }
     }
-
-    pub(in crate::editor_session) fn complete_identity(
+    pub(in crate::editor_session) fn install_identity(
         &mut self,
         root: &Path,
         original: &str,
     ) -> Result<(), String> {
-        if self.header.id != original {
-            return cleanup(root, &stem(original), &mut *self.storage);
-        }
-        let decision = complete(root, &stem(original), &mut *self.storage)?;
+        let decision = install(root, &stem(original), &mut *self.storage)?;
         self.path = stream(&decision.header.id);
         self.header = decision.header;
-        self.exists = decision.intent.exists;
-        self.accepted_bytes = decision.stream.len() as u64;
+        self.exists = decision.intent.exists || self.header.source.is_some();
+        self.accepted_bytes = if self.exists {
+            decision.stream.len() as u64
+        } else {
+            0
+        };
+        self.accepted = self.header.base_revision;
         self.durable = self.accepted;
         self.flush_deadline = None;
         self.failed = false;
+        self.issue = None;
+        Ok(())
+    }
+    pub(in crate::editor_session) fn cleanup_identity(
+        &mut self,
+        root: &Path,
+        original: &str,
+    ) -> Result<(), String> {
         cleanup(root, &stem(original), &mut *self.storage)
     }
-
+    pub(in crate::editor_session) fn snapshot_source(&self) -> &str {
+        self.header.source.as_deref().unwrap_or(&self.header.base)
+    }
     pub(in crate::editor_session) fn recover_identities(
         root: &Path,
         id: &str,
@@ -133,25 +149,30 @@ impl RecoveryLog {
         for path in paths {
             if let Some(bytes) = storage.read(root, &format!("{path}.committed"))? {
                 let decision: Decision = decode(&bytes)?;
-                if decision.header.id == id || decision.intent.header.id == id {
-                    validate(root, &decision.intent)?;
-                    if decision.header.id == id
-                        && storage
-                            .read(root, &stream(id))?
-                            .is_some_and(|found| found != decision.stream)
-                    {
-                        continue;
-                    }
-                    complete(root, &path, storage)?;
-                    cleanup(root, &path, storage)?;
+                if decision.header.id != id && decision.intent.header.id != id {
+                    continue;
                 }
+                validate(root, &decision.intent)?;
+                if decision.header.id == id
+                    && decision.intent.header.id != id
+                    && storage
+                        .read(root, &stream(id))?
+                        .is_some_and(|found| found != decision.stream)
+                {
+                    continue;
+                }
+                install(root, &path, storage)?;
+                cleanup(root, &path, storage)?;
             } else if let Some(bytes) = storage.read(root, &path)? {
                 let intent: Intent = decode(&bytes)?;
                 if intent.header.id != id && intent.destination != id {
                     continue;
                 }
                 validate(root, &intent)?;
-                if intent.destination == id && storage.read(root, &stream(id))?.is_some() {
+                if intent.destination == id
+                    && intent.header.id != id
+                    && storage.read(root, &stream(id))?.is_some()
+                {
                     continue;
                 }
                 let old = crate::note_filename(&intent.header.id);
@@ -161,30 +182,31 @@ impl RecoveryLog {
                     || crate::vault::note_paths(root)
                         .iter()
                         .any(|(found, _)| found == &intent.header.id);
-                if let Some(old_disk) = futo_notes_core::files::vault_fs::read_optional(root, &old)?
-                    .filter(|_| exact_source)
-                {
-                    // A prepared operation never moved, or rolled back. Its
-                    // original live stream may have accepted further edits.
-                    if intent
-                        .expected_disk
-                        .first()
-                        .is_some_and(|expected| expected.as_bytes() == old_disk)
+                let current = futo_notes_core::files::vault_fs::read(root, &destination).ok();
+                if intent.header.id != intent.destination && exact_source {
+                    if let Some(old_disk) =
+                        futo_notes_core::files::vault_fs::read_optional(root, &old)?
                     {
-                        storage.remove(root, &path)?;
-                        continue;
+                        if intent
+                            .expected_disk
+                            .first()
+                            .is_some_and(|expected| expected.as_bytes() == old_disk)
+                        {
+                            storage.remove(root, &path)?;
+                            continue;
+                        }
+                        return Err("prepared identity source changed; intent retained".into());
                     }
-                    return Err("prepared identity source changed; intent retained".into());
                 }
-                let current = futo_notes_core::files::vault_fs::read(root, &destination)?;
-                if !intent
-                    .expected_disk
-                    .iter()
-                    .any(|expected| expected.as_bytes() == current)
-                {
+                if !current.as_ref().is_some_and(|current| {
+                    intent
+                        .expected_disk
+                        .iter()
+                        .any(|expected| expected.as_bytes() == current)
+                }) {
                     return Err("identity outcome is ambiguous; original draft retained".into());
                 }
-                complete(root, &path, storage)?;
+                install(root, &path, storage)?;
                 cleanup(root, &path, storage)?;
             }
         }
@@ -204,60 +226,108 @@ fn validate(root: &Path, intent: &Intent) -> Result<(), String> {
     }
     Ok(())
 }
-fn complete(
-    root: &Path,
-    path: &str,
-    storage: &mut dyn RecoveryStorage,
-) -> Result<Decision, String> {
+fn decide(root: &Path, intent: Intent) -> Result<Decision, String> {
+    validate(root, &intent)?;
+    let mut engine = EditorSession::restore(
+        intent
+            .header
+            .source
+            .as_deref()
+            .unwrap_or(&intent.header.base),
+        intent.header.base_revision,
+    );
+    let (_, _, issue) = replay_records(
+        root,
+        &mut engine,
+        intent.records.split_inclusive(|byte| *byte == b'\n'),
+    );
+    if issue.is_some() {
+        return Err("identity intent contains an invalid accepted prefix".into());
+    }
+    let disk = crate::note_filename(&intent.destination);
+    let actual = String::from_utf8(futo_notes_core::files::vault_fs::read(root, &disk)?)
+        .map_err(|error| error.to_string())?;
+    if !intent.expected_disk.contains(&actual) {
+        return Err("identity destination changed before decision; draft retained".into());
+    }
+    let before = intent
+        .expected_disk
+        .first()
+        .ok_or("identity intent has no source observation")?;
+    let mut header = intent.header.clone();
+    header.version = format::VERSION;
+    header.id = intent.destination.clone();
+    if actual != *before {
+        if engine.source_text() == *before && intent.can_adopt {
+            engine
+                .apply_own_relink(engine.revision(), &intent.action, &mut |_| Ok(()))
+                .map_err(|error| error.to_string())?;
+            if engine.source_text() != actual {
+                return Err(
+                    "committed backlink bytes differ from coordinated source change".into(),
+                );
+            }
+            header.base = actual;
+        } else if header.base == *before {
+            // New accepted typing (or provisional input) refused adoption.
+            // Its exact source/history stay intact against the own-action base.
+            header.base = actual;
+        }
+    }
+    let epoch = futo_notes_core::files::recovery_coordination::replacement_epoch(root, &header.id)?;
+    header.replacement_epoch = if intent.replaced {
+        if epoch == 0 {
+            return Err("replacement observation cannot be transferred".into());
+        }
+        0
+    } else {
+        epoch
+    };
+    let source = engine.source_text();
+    header.source = (source != header.base).then_some(source);
+    header.base_revision = engine.revision();
+    let bytes = format::encode(&header)?;
+    Ok(Decision {
+        intent,
+        header,
+        stream: bytes,
+    })
+}
+fn install(root: &Path, path: &str, storage: &mut dyn RecoveryStorage) -> Result<Decision, String> {
     let decision_path = format!("{path}.committed");
-    let decision: Decision = if let Some(bytes) = storage.read(root, &decision_path)? {
-        decode(&bytes)?
+    let decision = if let Some(bytes) = storage.read(root, &decision_path)? {
+        decode::<Decision>(&bytes)?
     } else {
         let bytes = storage
             .read(root, path)?
             .ok_or("identity intent disappeared")?;
-        let intent: Intent = decode(&bytes)?;
-        validate(root, &intent)?;
-        let mut header = intent.header.clone();
-        header.id = intent.destination.clone();
-        let epoch =
-            futo_notes_core::files::recovery_coordination::replacement_epoch(root, &header.id)?;
-        // Preserve a source's prior intentional replacement across its own move.
-        // Every controlled destination install after a real recovery directory
-        // exists advances this counter; zero retains that earlier observation.
-        header.replacement_epoch = if intent.replaced {
-            if epoch == 0 {
-                return Err("replacement observation cannot be transferred".into());
-            }
-            0
-        } else {
-            epoch
-        };
-        let mut stream = format::encode(&header)?;
-        stream.extend_from_slice(&intent.records);
-        let decision = Decision {
-            intent,
-            header,
-            stream,
-        };
+        let decision = decide(root, decode(&bytes)?)?;
         storage.create(root, &decision_path, &format::encode(&decision)?)?;
         storage.flush(root, &decision_path)?;
         decision
     };
     validate(root, &decision.intent)?;
     let destination = stream(&decision.header.id);
-    if decision.intent.exists {
-        match storage.read(root, &destination)? {
-            None => storage.create(root, &destination, &decision.stream)?,
-            Some(bytes) if bytes == decision.stream => {}
-            Some(_) => {
+    let needs_stream = decision.intent.exists || decision.header.source.is_some();
+    if needs_stream {
+        let found = storage.read(root, &destination)?;
+        if found.as_ref() != Some(&decision.stream) {
+            if decision.intent.header.id == decision.header.id {
+                // This attachment owns the original stream. Replacement is
+                // atomic and the durable decision retains its complete source.
+                storage.replace(root, &destination, &decision.stream)?;
+            } else if found.is_none() {
+                storage.create(root, &destination, &decision.stream)?;
+            } else {
                 return Err(
                     "identity destination has another recovery stream; both retained".into(),
-                )
+                );
             }
         }
         storage.flush(root, &destination)?;
-        storage.remove(root, &stream(&decision.intent.header.id))?;
+        if decision.intent.header.id != decision.header.id {
+            storage.remove(root, &stream(&decision.intent.header.id))?;
+        }
     }
     Ok(decision)
 }

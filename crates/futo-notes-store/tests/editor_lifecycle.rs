@@ -68,3 +68,6 @@ fn committed_delete_fences_old_attachment_even_after_intentional_recreation() {
     assert_eq!(reopened.checkpoint().unwrap().mutation, None);
     assert_eq!(store.read("note").unwrap(), "new incarnation");
 }
+
+#[path = "editor_lifecycle/relinks.rs"]
+mod relinks;

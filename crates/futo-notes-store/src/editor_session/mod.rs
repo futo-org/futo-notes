@@ -125,6 +125,7 @@ pub(super) struct Attachment {
     lease: EditorLease,
     pending_checkpoint: Option<FlushDraftResult>,
     terminal: bool,
+    coordinated: Vec<ViewChange>,
     pending_identity: Option<identity::PendingIdentity>,
 }
 
@@ -238,6 +239,7 @@ impl<'store> StoreEditorSession<'store> {
             lease,
             pending_checkpoint,
             terminal: false,
+            coordinated: Vec::new(),
             pending_identity: None,
         }));
         state
