@@ -150,6 +150,12 @@ impl StoreEditorSession<'_> {
         Ok(self.recovery_status())
     }
 
+    /// Time remaining until the oldest unflushed edit's target, usable even
+    /// with the default clock whose origin is private to this session.
+    pub fn recovery_flush_delay(&self) -> Option<Duration> {
+        self.recovery.flush_delay()
+    }
+
     /// Run on the host's background worker when `flush_deadline` is reached.
     /// A delayed worker flushes late; it never fabricates an on-time acknowledgement.
     pub fn flush_recovery_if_due(&mut self) -> Result<bool, EditorStoreError> {

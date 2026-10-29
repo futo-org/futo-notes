@@ -187,9 +187,13 @@ impl RecoveryLog {
         Ok(())
     }
 
-    pub(super) fn flush_due(&self) -> bool {
+    pub(super) fn flush_delay(&self) -> Option<Duration> {
         self.flush_deadline
-            .is_some_and(|deadline| self.clock.now() >= deadline)
+            .map(|deadline| deadline.saturating_sub(self.clock.now()))
+    }
+
+    pub(super) fn flush_due(&self) -> bool {
+        self.flush_delay().is_some_and(|delay| delay.is_zero())
     }
 
     pub(super) fn flush(&mut self, root: &Path) -> Result<(), String> {

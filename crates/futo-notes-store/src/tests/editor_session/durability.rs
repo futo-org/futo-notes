@@ -61,12 +61,22 @@ fn recovery_flush_deadline_tracks_the_oldest_unflushed_edit_without_debouncing()
         editor.recovery_status().flush_deadline,
         Some(Duration::from_millis(110))
     );
+    assert_eq!(
+        editor.recovery_flush_delay(),
+        Some(Duration::from_millis(100))
+    );
     clock.at(109);
+    assert_eq!(
+        editor.recovery_flush_delay(),
+        Some(Duration::from_millis(1))
+    );
     editor.replace(Revision(1), range(6, 6), "?").unwrap();
     assert!(!editor.flush_recovery_if_due().unwrap());
     assert_eq!(editor.recovery_status().durable, Revision(0));
     clock.at(110);
+    assert_eq!(editor.recovery_flush_delay(), Some(Duration::ZERO));
     assert!(editor.flush_recovery_if_due().unwrap());
+    assert_eq!(editor.recovery_flush_delay(), None);
     assert_eq!(editor.recovery_status().durable, Revision(2));
     assert_eq!(editor.recovery_status().flush_deadline, None);
     clock.at(200);
