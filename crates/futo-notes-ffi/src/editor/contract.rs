@@ -210,7 +210,7 @@ pub enum EditorSessionError {
     CheckpointPending,
     #[error("editor checkpoint committed but needs retry: {error}")]
     CheckpointCommitted {
-        result: FlushDraftResult,
+        result: Box<FlushDraftResult>,
         error: String,
     },
 }
@@ -257,7 +257,7 @@ impl From<store::EditorStoreError> for EditorSessionError {
             E::Checkpoint(error) => Self::Checkpoint { error },
             E::CheckpointPending => Self::CheckpointPending,
             E::CheckpointCommitted { result, error } => Self::CheckpointCommitted {
-                result: (*result).into(),
+                result: Box::new((*result).into()),
                 error,
             },
         }
