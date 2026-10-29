@@ -1,0 +1,244 @@
+[
+  {
+    "after": {
+      "availableLanguages": [
+        "ja-JP",
+        "ko-KR",
+        "en-US",
+        "emoji"
+      ],
+      "language": "ko-KR",
+      "marked": null,
+      "selected": [
+        2,
+        2
+      ],
+      "textUTF16": [
+        97,
+        98,
+        32,
+        38,
+        32,
+        99,
+        100,
+        13,
+        10
+      ]
+    },
+    "arguments": {
+      "range": [
+        2,
+        2
+      ],
+      "textUTF16": [
+        12593
+      ]
+    },
+    "before": {
+      "availableLanguages": [
+        "ja-JP",
+        "ko-KR",
+        "en-US",
+        "emoji"
+      ],
+      "language": "ko-KR",
+      "marked": null,
+      "selected": [
+        2,
+        2
+      ],
+      "textUTF16": [
+        97,
+        98,
+        32,
+        38,
+        32,
+        99,
+        100,
+        13,
+        10
+      ]
+    },
+    "id": 4,
+    "method": "shouldChangeText",
+    "parent": null,
+    "returned": true
+  },
+  {
+    "after": {
+      "availableLanguages": [
+        "ja-JP",
+        "ko-KR",
+        "en-US",
+        "emoji"
+      ],
+      "language": "ko-KR",
+      "marked": null,
+      "selected": [
+        3,
+        3
+      ],
+      "textUTF16": [
+        97,
+        98,
+        12593,
+        32,
+        38,
+        32,
+        99,
+        100,
+        13,
+        10
+      ]
+    },
+    "arguments": {
+      "textUTF16": [
+        12593
+      ]
+    },
+    "before": {
+      "availableLanguages": [
+        "ja-JP",
+        "ko-KR",
+        "en-US",
+        "emoji"
+      ],
+      "language": "ko-KR",
+      "marked": null,
+      "selected": [
+        2,
+        2
+      ],
+      "textUTF16": [
+        97,
+        98,
+        32,
+        38,
+        32,
+        99,
+        100,
+        13,
+        10
+      ]
+    },
+    "id": 5,
+    "method": "insertText",
+    "parent": null
+  },
+  {
+    "after": {
+      "availableLanguages": [
+        "ja-JP",
+        "ko-KR",
+        "en-US",
+        "emoji"
+      ],
+      "language": "ko-KR",
+      "marked": null,
+      "selected": [
+        3,
+        3
+      ],
+      "textUTF16": [
+        97,
+        98,
+        12593,
+        32,
+        38,
+        32,
+        99,
+        100,
+        13,
+        10
+      ]
+    },
+    "arguments": {},
+    "before": {
+      "availableLanguages": [
+        "ja-JP",
+        "ko-KR",
+        "en-US",
+        "emoji"
+      ],
+      "language": "ko-KR",
+      "marked": null,
+      "selected": [
+        3,
+        3
+      ],
+      "textUTF16": [
+        97,
+        98,
+        12593,
+        32,
+        38,
+        32,
+        99,
+        100,
+        13,
+        10
+      ]
+    },
+    "id": 6,
+    "method": "didChangeSelection",
+    "parent": 5
+  },
+  {
+    "after": {
+      "availableLanguages": [
+        "ja-JP",
+        "ko-KR",
+        "en-US",
+        "emoji"
+      ],
+      "language": "ko-KR",
+      "marked": null,
+      "selected": [
+        3,
+        3
+      ],
+      "textUTF16": [
+        97,
+        98,
+        12593,
+        32,
+        38,
+        32,
+        99,
+        100,
+        13,
+        10
+      ]
+    },
+    "arguments": {},
+    "before": {
+      "availableLanguages": [
+        "ja-JP",
+        "ko-KR",
+        "en-US",
+        "emoji"
+      ],
+      "language": "ko-KR",
+      "marked": null,
+      "selected": [
+        3,
+        3
+      ],
+      "textUTF16": [
+        97,
+        98,
+        12593,
+        32,
+        38,
+        32,
+        99,
+        100,
+        13,
+        10
+      ]
+    },
+    "id": 7,
+    "method": "didChange",
+    "parent": 5
+  }
+]

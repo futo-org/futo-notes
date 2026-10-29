@@ -84,7 +84,11 @@
     "ios:DismissKeyboard": "the keyboard's dismiss capsule, labelled from ToolbarSpec (counted under computed in ToolbarControls.swift)",
     "ios:ConfirmDialog": "DestructiveConfirmDialog's ConfirmDialog claims the key its caller passes (Delete note, Delete folder), which this check, reading only quoted keys, cannot see",
     "ios:SelectAppIcon": "an icon button, labelled with the icon's name",
-    "ios:OpenAppIcons": "the app icon row, labelled with the chosen icon's name"
+    "ios:OpenAppIcons": "the app icon row, labelled with the chosen icon's name",
+    "ios:OpenNativeInputRecorder": "DEBUG-only opt-in plain UIKit fixture, opened through Puppet for actual OS input capture; initialized through NativeEditorSession in a task-owned temporary vault, with no shipping catalog control",
+    "ios:ReadNativeInputRecorder": "DEBUG-only read of the plain UIKit fixture callbacks and native text/selection/marked state; no visible control",
+    "ios:SelectNativeInputRecorder": "DEBUG-only UTF-16 selection in the plain UIKit fixture, equivalent to selecting its native text; no catalog-labelled control",
+    "ios:CloseNativeInputRecorder": "DEBUG-only teardown of the opt-in plain UIKit fixture; no shipping catalog control"
   },
   "unclaimed": {
     "ios:notes.actions.share": "hands the note to the OS share sheet; the app does nothing more",
