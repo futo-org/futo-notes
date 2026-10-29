@@ -8,16 +8,19 @@ struct NativeEditorSessionTests {
     @Test("shared block commands return structure and preserve exact recovery bytes")
     func blockCommands() async throws {
         try await Task.detached {
-            let root = FileManager.default.temporaryDirectory.appendingPathComponent("editor-blocks-\(UUID().uuidString)", isDirectory: true)
+            let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+                "editor-blocks-\(UUID().uuidString)", isDirectory: true)
             try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
             defer { try? FileManager.default.removeItem(at: root) }
             let store = NoteStore(notesRoot: root.path)
             _ = try store.createNote(title: "blocks", folder: "", content: "😀ab\r\ntail  \r\n")
             let session = try store.openEditor(id: "blocks")
-            let heading = try session.blockCommandUtf16(expected: 0, range: EditorUtf16Range(start: 2, end: 2), command: .heading(level: 6))
+            let heading = try session.blockCommandUtf16(
+                expected: 0, range: EditorUtf16Range(start: 2, end: 2), command: .heading(level: 6))
             #expect(heading?.projection.blocks.first?.heading == 6)
             #expect(try session.sourceText() == "###### 😀ab\r\ntail  \r\n")
-            _ = try session.paragraphKeyUtf16(expected: 1, range: EditorUtf16Range(start: 3, end: 3), key: .enter)
+            _ = try session.paragraphKeyUtf16(
+                expected: 1, range: EditorUtf16Range(start: 3, end: 3), key: .enter)
             #expect(try session.sourceText() == "###### 😀a\nb\r\ntail  \r\n")
             _ = try session.undo(expected: 2)
             _ = try session.redo(expected: 3)
