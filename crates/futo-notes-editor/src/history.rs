@@ -77,6 +77,12 @@ impl TypingRun {
             at,
         }
     }
+    pub fn relocate(mut self, display_start: usize, accepted_at: Duration) -> Self {
+        self.selection.start.0 += display_start;
+        self.selection.end.0 += display_start;
+        self.at = accepted_at;
+        self
+    }
     pub fn continues(&self, kind: TypingKind, range: DisplayRange, now: Duration) -> bool {
         let adjacent = match kind {
             TypingKind::Insert | TypingKind::ForwardDelete => range.start == self.selection.end,
