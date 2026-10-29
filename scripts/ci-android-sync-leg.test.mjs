@@ -32,7 +32,19 @@ if (st.phase === 'starting' && st.sinceRestart > 5) {
   st.phase = 'up';
   st.booted.push(st.pid);
 }
-const save = () => fs.writeFileSync(file, JSON.stringify(st));
+const save = () => {
+  const target = file + '.' + process.pid + '.next';
+  const descriptor = fs.openSync(target, 'w');
+  // A probe can be killed between truncating its state and writing the bytes.
+  // Pause that actual process boundary once, rather than relying on CI load.
+  if (st.interruptStateWrite && st.pmStalled && !fs.existsSync(file + '.interrupted')) {
+    fs.writeFileSync(file + '.interrupted', '');
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1200);
+  }
+  fs.writeFileSync(descriptor, JSON.stringify(st));
+  fs.closeSync(descriptor);
+  fs.renameSync(target, file);
+};
 const out = (s, code = 0) => { save(); if (s) process.stdout.write(s + '\n'); process.exit(code); };
 const gone = "cmd: Can't find service: package";
 const cmd = args.join(' ');
@@ -80,7 +92,12 @@ out('fake adb: unhandled ' + cmd, 2);
 }
 `;
 
-function runSyncLeg({ restartOnInstall, stallAt, failAbandon = false }) {
+function runSyncLeg({
+  restartOnInstall,
+  stallAt,
+  failAbandon = false,
+  interruptStateWrite = false,
+}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'android-sync-leg-'));
   scratch.push(dir);
   const bin = path.join(dir, 'bin');
@@ -119,6 +136,7 @@ function runSyncLeg({ restartOnInstall, stallAt, failAbandon = false }) {
       pmCompleted: false,
       transportProbesAfterStall: 0,
       failAbandon,
+      interruptStateWrite,
     }),
   );
   const harnessArgs = path.join(dir, 'harness-args');
@@ -179,11 +197,24 @@ esac
   return {
     ...result,
     adb: JSON.parse(fs.readFileSync(state, 'utf8')),
+    stateWriteInterrupted: fs.existsSync(state + '.interrupted'),
     harness: fs.existsSync(harnessArgs) ? fs.readFileSync(harnessArgs, 'utf8') : null,
   };
 }
 
 describe('native-Android sync leg against a framework that restarts after boot', () => {
+  it('recovers when a readiness deadline interrupts the fake adb state write', () => {
+    const run = runSyncLeg({
+      restartOnInstall: [],
+      stallAt: 'framework',
+      interruptStateWrite: true,
+    });
+    expect(run.stateWriteInterrupted).toBe(true);
+    expect(run.status, run.stdout + run.stderr).toBe(0);
+    expect(run.adb.pmStalled).toBe(true);
+    expect(run.adb.pmCompleted).toBe(false);
+    expect(run.harness).toContain('--android-only');
+  }, 20_000);
   it('fails instead of accepting a readiness session that was not abandoned', () => {
     const run = runSyncLeg({ restartOnInstall: [], failAbandon: true });
     expect(run.status).not.toBe(0);
