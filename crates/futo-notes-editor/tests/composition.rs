@@ -255,3 +255,119 @@ fn compound_command_during_composition_uses_provisional_ranges_in_one_acceptance
     assert_eq!(session.source_text(), "__A日__ end");
     assert!(session.composition().is_none());
 }
+
+#[test]
+fn paragraph_keys_use_the_provisional_display_and_commit_one_protected_action() {
+    for (key, source, display, caret) in [
+        (ParagraphKey::Enter, "**bか**\n x", "bか\n x", 5),
+        (ParagraphKey::Backspace, "**b** x", "b x", 1),
+        (ParagraphKey::Delete, "**bか**x", "bかx", 4),
+    ] {
+        let mut session = EditorSession::open("**b** x");
+        let mut view = ReferenceView::new("b x");
+        session.select(Revision(0), range(1, 1)).unwrap();
+        session.compose(Revision(0), range(1, 1), "か").unwrap();
+        let mut records = Vec::new();
+        let result = session
+            .paragraph_key(Revision(0), range(4, 4), key, &mut |edit| {
+                records.push(edit.clone());
+                Ok(())
+            })
+            .unwrap();
+        if let Some(change) = result {
+            view.apply(change);
+        }
+        assert_eq!(view.text, display, "{key:?}");
+        assert_eq!(session.source_text(), source, "{key:?}");
+        assert_eq!(session.selection(), range(caret, caret));
+        assert_eq!(
+            records.len(),
+            if key == ParagraphKey::Backspace { 0 } else { 1 }
+        );
+        assert!(session.composition().is_none());
+    }
+}
+
+#[test]
+fn failed_paragraph_commit_keeps_the_entire_marked_draft_for_retry() {
+    let mut session = EditorSession::open("__a__ tail\r\n");
+    session.select(Revision(0), range(1, 1)).unwrap();
+    session.compose(Revision(0), range(1, 1), "👩‍💻").unwrap();
+    let range16 = DisplayUtf16Range {
+        start: DisplayUtf16Offset(6),
+        end: DisplayUtf16Offset(6),
+    };
+    let mut count = 0;
+    assert_eq!(
+        session.paragraph_key_utf16(Revision(0), range16, ParagraphKey::Enter, &mut |_| {
+            count += 1;
+            Err("disk full".into())
+        }),
+        Err(EditorError::Persistence("disk full".into()))
+    );
+    assert_eq!(count, 1);
+    assert_eq!(session.source_text(), "__a__ tail\r\n");
+    assert_eq!(session.revision(), Revision(0));
+    assert_eq!(session.composition().unwrap().text, "👩‍💻");
+    assert!(session
+        .paragraph_key_utf16(
+            Revision(0),
+            range16,
+            ParagraphKey::Backspace,
+            &mut |_| panic!("only pending grapheme removed")
+        )
+        .unwrap()
+        .is_none());
+    assert!(session.composition().is_none());
+    assert_eq!(session.selection(), range(1, 1));
+}
+
+#[test]
+fn marked_replacement_crosses_format_boundary_and_keeps_exact_undo() {
+    let mut session = EditorSession::open("**ab**cd\r\n");
+    let mut view = ReferenceView::new("abcd\r\n");
+    session.compose(Revision(0), range(1, 3), "日本").unwrap();
+    view.apply(
+        session
+            .commit_composition(Revision(0), None, &mut |_| Ok(()))
+            .unwrap()
+            .unwrap(),
+    );
+    assert_eq!(session.source_text(), "**a日本**d\r\n");
+    assert_eq!(view.text, "a日本d\r\n");
+    view.apply(
+        session
+            .undo(session.revision(), &mut |_| Ok(()))
+            .unwrap()
+            .unwrap(),
+    );
+    assert_eq!(session.source_text(), "**ab**cd\r\n");
+    assert_eq!(view.text, "abcd\r\n");
+}
+
+#[test]
+fn pending_commit_is_isolated_from_following_typing_but_following_letters_group() {
+    let mut session = EditorSession::open("**b** x");
+    let mut view = ReferenceView::new("b x");
+    session.select(Revision(0), range(1, 1)).unwrap();
+    session.compose(Revision(0), range(1, 1), "か").unwrap();
+    view.apply(
+        session
+            .replace(Revision(0), range(4, 4), "z", &mut |_| Ok(()))
+            .unwrap(),
+    );
+    view.apply(
+        session
+            .replace(Revision(1), range(5, 5), "q", &mut |_| Ok(()))
+            .unwrap(),
+    );
+    assert_eq!(view.text, "bかzq x");
+    view.apply(session.undo(Revision(2), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(view.text, "bか x");
+    assert_eq!(session.source_text(), "**bか** x");
+    view.apply(session.undo(Revision(3), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(session.source_text(), "**b** x");
+    view.apply(session.redo(Revision(4), &mut |_| Ok(())).unwrap().unwrap());
+    view.apply(session.redo(Revision(5), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(session.source_text(), "**bかzq** x");
+}

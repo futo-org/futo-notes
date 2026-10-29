@@ -17,7 +17,13 @@ impl EditorSession {
         self.check_revision(expected)?;
         let text = clean_placeholders(text, placeholders)?;
         if self.composition.is_some() {
-            return self.finish_provisional_input(expected, range, &text, accept);
+            return self.finish_provisional_input(
+                expected,
+                range,
+                &text,
+                crate::InputAction::Isolated,
+                accept,
+            );
         }
         self.validate_range(range)?;
         let old = self

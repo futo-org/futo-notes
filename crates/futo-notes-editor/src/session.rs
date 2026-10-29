@@ -305,7 +305,7 @@ impl EditorSession {
     ) -> Result<ViewChange, EditorError> {
         self.check_revision(expected)?;
         if self.composition.is_some() {
-            return self.input_during_composition(expected, range, inserted, accept);
+            return self.input_during_composition(expected, range, inserted, action, accept);
         }
         self.validate_range(range)?;
         let affinity = if range == self.selection {

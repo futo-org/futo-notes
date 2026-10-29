@@ -83,9 +83,10 @@ impl EditorSession {
         expected: Revision,
         range: DisplayRange,
         inserted: &str,
+        action: crate::InputAction,
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<ViewChange, EditorError> {
-        match self.finish_provisional_input(expected, range, inserted, accept)? {
+        match self.finish_provisional_input(expected, range, inserted, action, accept)? {
             Some(change) => Ok(change),
             None => self.replace_action(
                 expected,
@@ -105,6 +106,7 @@ impl EditorSession {
         expected: Revision,
         range: DisplayRange,
         inserted: &str,
+        action: crate::InputAction,
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<Option<ViewChange>, EditorError> {
         let display = self.provisional_display();
@@ -113,24 +115,107 @@ impl EditorSession {
         let start = marked.range.start.0.min(range.start.0);
         let end = (marked.range.start.0 + marked.text.len()).max(range.end.0);
         let committed_end = end - marked.text.len() + marked.range.end.0 - marked.range.start.0;
-        let mut text = display.byte_slice(start..end).to_string();
-        text.replace_range(range.start.0 - start..range.end.0 - start, inserted);
-        let marked = self.composition.take();
         let full = DisplayRange {
             start: DisplayOffset(start),
             end: DisplayOffset(committed_end),
         };
-        let result = self.replace_os(expected, full, &text, &[], accept);
-        match result {
-            Ok(mut change) => {
-                self.finish_os_selection(range.start.0 + inserted.len(), change.as_mut());
-                Ok(change)
-            }
-            Err(error) => {
-                self.composition = marked;
-                Err(error)
+        let (window, display_start) = self.projection.edit_window(full);
+        let raw = self.source.byte_slice(window.clone()).to_string();
+        let mut staged = Self::open_with_clock(&raw, self.clock.clone());
+        let local = |range: DisplayRange| DisplayRange {
+            start: DisplayOffset(range.start.0 - display_start),
+            end: DisplayOffset(range.end.0 - display_start),
+        };
+        let affinity = if marked.range == self.selection {
+            self.affinity
+        } else if marked.range.start.0 == 0 {
+            Affinity::Forward
+        } else {
+            Affinity::Backward
+        };
+        staged.select_with_affinity(staged.revision(), local(marked.range), affinity)?;
+        if marked.range == self.selection {
+            staged.pending_formats = self.pending_formats.clone();
+        }
+        let mut transaction = crate::history::Transaction::new(&staged.source);
+        let mut recorded = false;
+        let mut capture = |edit: &SourceEdit| {
+            recorded = true;
+            transaction.apply(edit.range, &edit.inserted);
+            Ok(())
+        };
+        let first = staged.replace_os(
+            staged.revision(),
+            local(marked.range),
+            &marked.text,
+            &[],
+            &mut capture,
+        )?;
+        let second = if action == crate::InputAction::Typing {
+            Some(staged.replace_action(
+                staged.revision(),
+                local(range),
+                inserted,
+                action,
+                &mut capture,
+            )?)
+        } else {
+            staged.replace_os(staged.revision(), local(range), inserted, &[], &mut capture)?
+        };
+        let selection = DisplayRange {
+            start: DisplayOffset(display_start + staged.selection.start.0),
+            end: DisplayOffset(display_start + staged.selection.end.0),
+        };
+        let mut change = None;
+        if recorded {
+            let (mut footprint, inserted) = transaction.finish();
+            footprint.start.0 += window.start;
+            footprint.end.0 += window.start;
+            let edit = self.prepare_source(expected, footprint, &inserted)?;
+            if edit.removed != edit.inserted {
+                accept(&edit).map_err(EditorError::Persistence)?;
+                for group in &mut staged.undo {
+                    for entry in &mut group.entries {
+                        entry.range.start.0 += window.start;
+                        entry.range.end.0 += window.start;
+                        entry.before_selection.start.0 += display_start;
+                        entry.before_selection.end.0 += display_start;
+                        entry.after_selection.start.0 += display_start;
+                        entry.after_selection.end.0 += display_start;
+                    }
+                }
+                let opening = &mut staged.undo.first_mut().unwrap().entries[0];
+                opening.before_selection = self.selection;
+                opening.before_affinity = self.affinity;
+                opening.before_formats = self.pending_formats.clone();
+                let mut delta = self.apply(&edit);
+                delta.work.materialized_source_bytes += raw.len() + edit.inserted.len();
+                delta.work.parsed_source_bytes += 2 * raw.len();
+                for step in [first, second].into_iter().flatten() {
+                    delta.work.materialized_source_bytes += step.work.materialized_source_bytes;
+                    delta.work.parsed_source_bytes += step.work.parsed_source_bytes;
+                }
+                self.undo.append(&mut staged.undo);
+                self.redo.clear();
+                change = Some(delta);
             }
         }
+        self.composition = None;
+        self.selection = selection;
+        self.affinity = staged.affinity;
+        self.pending_formats = staged.pending_formats;
+        self.typing = if change.is_some() {
+            staged
+                .typing
+                .map(|run| run.relocate(display_start, self.clock.now()))
+        } else {
+            None
+        };
+        if let Some(delta) = &mut change {
+            delta.selection = selection;
+            delta.affinity = self.affinity;
+        }
+        Ok(change)
     }
 
     pub(super) fn compound_during_composition(
@@ -170,6 +255,7 @@ impl EditorSession {
                 end: DisplayOffset(last.range.end.0),
             },
             &text,
+            crate::InputAction::Isolated,
             accept,
         )?;
         self.finish_os_selection(caret, Some(&mut change));
@@ -183,7 +269,10 @@ impl EditorSession {
     }
 }
 
-fn validate_overlay_range(display: &Rope, range: DisplayRange) -> Result<(), EditorError> {
+pub(super) fn validate_overlay_range(
+    display: &Rope,
+    range: DisplayRange,
+) -> Result<(), EditorError> {
     if range.start.0 > range.end.0 {
         return Err(EditorError::InvalidRange);
     }
