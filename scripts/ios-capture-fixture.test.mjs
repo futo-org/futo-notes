@@ -1,9 +1,24 @@
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { describe, it, expect } from 'vitest';
 import { sourceProvenance } from './ios-capture-fixture.mjs';
+
+describe('shared recorder integration into the shipping iOS module', () => {
+  it.skipIf(process.platform !== 'darwin')('parses the recorder and app scope together', () => {
+    const sources = join(import.meta.dirname, '../apps/ios/Sources');
+    const files = readdirSync(sources, { recursive: true })
+      .filter((file) => /NativeInputRecorder(?:Scope)?\.swift$/.test(file))
+      .map((file) => join(sources, file));
+    expect(files).toHaveLength(2);
+    // The driver rejects duplicate basenames before typechecking. The isolated
+    // fixture compiles only InputCapture, so its build cannot catch this failure
+    // when the shipping app also includes the App scope integration.
+    const result = spawnSync('xcrun', ['swiftc', '-parse', ...files], { encoding: 'utf8' });
+    expect(result.status, `${result.stdout}${result.stderr}`).toBe(0);
+  });
+});
 
 describe('isolated iOS fixture source provenance', () => {
   it('binds dirty recorder bytes and untracked fixture sources without reading keys', () => {

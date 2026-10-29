@@ -17,7 +17,7 @@ const inputs = [
   'crates',
   'apps/ios/FixtureCapture',
   'apps/ios/Sources/InputCapture',
-  'apps/ios/Sources/App/NativeInputRecorder.swift',
+  'apps/ios/Sources/App/NativeInputRecorderScope.swift',
   'scripts/ios-capture-fixture.mjs',
   'scripts/build-rust-ios.sh',
   'just/mobile.justfile',
