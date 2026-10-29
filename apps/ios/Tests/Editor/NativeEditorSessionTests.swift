@@ -5,6 +5,47 @@ import Testing
 
 @Suite("Native editor session contract")
 struct NativeEditorSessionTests {
+    @Test("paragraph keys preserve platform ranges, exact line endings and recovery")
+    func paragraphKeys() async throws {
+        try await Task.detached {
+            let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+                "editor-lines-\(UUID().uuidString)", isDirectory: true)
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: root) }
+            let store = NoteStore(notesRoot: root.path)
+            _ = try store.createNote(title: "lines", folder: "", content: "__a😀b__\r\ntail  \r\n")
+            let session = try store.openEditor(id: "lines")
+            _ = try session.selectUtf16(expected: 0, range: EditorUtf16Range(start: 8, end: 8))
+            var view = Array("a😀b\r\ntail  \r\n".utf8)
+            func apply(_ change: EditorViewChange?) {
+                guard let change else {
+                    Issue.record("missing paragraph change")
+                    return
+                }
+                view.replaceSubrange(
+                    Int(change.range.start)..<Int(change.range.end), with: change.inserted.utf8)
+            }
+            apply(
+                try session.paragraphKeyUtf16(
+                    expected: 0, range: EditorUtf16Range(start: 3, end: 3), key: .shiftEnter))
+            #expect(String(decoding: view, as: UTF8.self) == "a😀\nb\r\ntail  \r\n")
+            #expect(try session.sourceText() == "__a😀\nb__\r\ntail  \r\n")
+            apply(
+                try session.paragraphKeyUtf16(
+                    expected: 1, range: EditorUtf16Range(start: 4, end: 4), key: .backspace))
+            #expect(String(decoding: view, as: UTF8.self) == "a😀b\r\ntail  \r\n")
+            apply(try session.undo(expected: 2))
+            #expect(try session.sourceText() == "__a😀\nb__\r\ntail  \r\n")
+            _ = try session.flushRecovery()
+            try session.detach()
+            let recovered = try store.openEditor(id: "lines")
+            #expect(try recovered.sourceText() == "__a😀\nb__\r\ntail  \r\n")
+            _ = try recovered.checkpoint()
+            #expect(try store.read(id: "lines") == "__a😀\nb__\r\ntail  \r\n")
+            try recovered.detach()
+        }.value
+    }
+
     @Test("exact Unicode input, structured errors, deltas, history and recovery")
     func nativeSessionRoundTrip() async throws {
         try await Task.detached {

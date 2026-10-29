@@ -11,6 +11,40 @@ import uniffi.futo_notes_ffi.*
 /** A small real Kotlin consumer; no replacement view or markdown policy. */
 class NativeEditorSessionTest {
     @Test
+    fun paragraphKeysPreservePlatformRangesExactLineEndingsAndRecovery() {
+        val root = File(InstrumentationRegistry.getInstrumentation().targetContext.cacheDir, "editor-lines-${UUID.randomUUID()}")
+        check(root.mkdirs())
+        try {
+            NoteStore(root.absolutePath).use { store ->
+                store.createNote("lines", "", "__a😀b__\r\ntail  \r\n")
+                store.openEditor("lines").use { session ->
+                    session.selectUtf16(0uL, EditorUtf16Range(8uL, 8uL))
+                    var view = "a😀b\r\ntail  \r\n".toByteArray(Charsets.UTF_8)
+                    fun apply(change: EditorViewChange?) {
+                        checkNotNull(change)
+                        view = view.copyOfRange(0, change.range.start.toInt()) + change.inserted.toByteArray(Charsets.UTF_8) + view.copyOfRange(change.range.end.toInt(), view.size)
+                    }
+                    apply(session.paragraphKeyUtf16(0uL, EditorUtf16Range(3uL, 3uL), EditorParagraphKey.SHIFT_ENTER))
+                    assertEquals("a😀\nb\r\ntail  \r\n", view.toString(Charsets.UTF_8))
+                    assertEquals("__a😀\nb__\r\ntail  \r\n", session.sourceText())
+                    apply(session.paragraphKeyUtf16(1uL, EditorUtf16Range(4uL, 4uL), EditorParagraphKey.BACKSPACE))
+                    assertEquals("a😀b\r\ntail  \r\n", view.toString(Charsets.UTF_8))
+                    apply(session.undo(2uL))
+                    assertEquals("__a😀\nb__\r\ntail  \r\n", session.sourceText())
+                    session.flushRecovery()
+                    session.detach()
+                }
+                store.openEditor("lines").use { recovered ->
+                    assertEquals("__a😀\nb__\r\ntail  \r\n", recovered.sourceText())
+                    recovered.checkpoint()
+                    assertEquals("__a😀\nb__\r\ntail  \r\n", store.read("lines"))
+                    recovered.detach()
+                }
+            }
+        } finally { root.deleteRecursively() }
+    }
+
+    @Test
     fun staleOversizedForeignRangeKeepsCanonicalFailurePrecedence() {
         val root = File(InstrumentationRegistry.getInstrumentation().targetContext.cacheDir, "editor-wide-${UUID.randomUUID()}")
         check(root.mkdirs())

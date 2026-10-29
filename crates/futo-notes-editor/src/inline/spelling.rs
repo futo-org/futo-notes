@@ -27,6 +27,7 @@ pub(super) fn spell(
     insertion: Range<usize>,
     literal: bool,
 ) -> Result<Spelling, EditorError> {
+    split_paragraph_spans(&mut pieces);
     trim_emphasis_edges(&mut pieces, &markers);
     repair_code_delimiters(&pieces, &mut markers);
     let expected: String = pieces.iter().map(|piece| piece.display.as_str()).collect();
@@ -206,6 +207,34 @@ fn repair_boundaries(pieces: &mut [Piece], missing: &[usize]) {
             let scalar = piece.display.chars().next().unwrap() as u32;
             piece.raw = format!("&#{scalar};");
         }
+    }
+}
+
+// CommonMark inline spans cannot cross a blank line. Close them before the
+// separator and reopen after it; preserve the separator's exact raw bytes.
+fn split_paragraph_spans(pieces: &mut [Piece]) {
+    let mut start = 0;
+    while start < pieces.len() {
+        if !pieces[start].display.chars().all(char::is_whitespace) {
+            start += 1;
+            continue;
+        }
+        let mut end = start;
+        let mut newlines = 0;
+        while end < pieces.len() && pieces[end].display.chars().all(char::is_whitespace) {
+            newlines += pieces[end]
+                .display
+                .bytes()
+                .filter(|&ch| ch == b'\n')
+                .count();
+            end += 1;
+        }
+        if newlines >= 2 {
+            for piece in &mut pieces[start..end] {
+                piece.spans.clear();
+            }
+        }
+        start = end;
     }
 }
 

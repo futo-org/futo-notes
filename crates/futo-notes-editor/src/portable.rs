@@ -234,6 +234,25 @@ impl PortableSession {
         Ok(request)
     }
 
+    pub fn paragraph_key_utf16(
+        &mut self,
+        expected: Revision,
+        range: DisplayUtf16Range,
+        key: crate::ParagraphKey,
+    ) -> Result<Option<HostRequest>, PortableError> {
+        self.ready()?;
+        let mut record = None;
+        let change = self
+            .engine
+            .paragraph_key_utf16(expected, range, key, &mut |edit| {
+                record = Some(edit.clone());
+                Ok(())
+            })?;
+        change
+            .map(|change| self.stage(record.unwrap(), change))
+            .transpose()
+    }
+
     pub fn replace(
         &mut self,
         expected: Revision,

@@ -2,6 +2,29 @@
 use super::*;
 
 impl StoreEditorSession<'_> {
+    pub fn paragraph_key_utf16(
+        &mut self,
+        expected: Revision,
+        range: DisplayUtf16Range,
+        key: futo_notes_editor::ParagraphKey,
+    ) -> Result<Option<ViewChange>, EditorStoreError> {
+        if self.pending_checkpoint.is_some() {
+            return Err(EditorStoreError::CheckpointPending);
+        }
+        if self.recovery.failed {
+            return Err(EditorStoreError::RecoveryPaused);
+        }
+        let _gate = self.store.lock_gate().map_err(EditorStoreError::Recovery)?;
+        self.engine
+            .paragraph_key_utf16(expected, range, key, &mut |edit| {
+                self.recovery.append(&self.store.root, edit)
+            })
+            .map_err(|error| match error {
+                EditorError::Persistence(error) => EditorStoreError::RecoveryAppend(error),
+                other => EditorStoreError::Editor(other),
+            })
+    }
+
     pub fn replace_utf16(
         &mut self,
         expected: Revision,
