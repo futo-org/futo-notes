@@ -9,6 +9,12 @@ record through its host, then changes source/history and returns a display delta
 The host's append acceptance precedes any view update. Store save/recovery policy
 belongs in `futo-notes-store::StoreEditorSession`.
 
+`coordinates.rs` validates native UTF-16 text and coordinate conversions; never
+clamp a foreign range or widen one across a surrogate pair. `movement.rs` uses
+Unicode extended grapheme segmentation over Rope chunks. Selection-only updates
+keep source revisions/history/recovery unchanged. Source and display offsets are
+distinct even while their plain-text mapping is direct.
+
 Source queries explicitly materialize whole text; ordinary input copies only
 the edit footprint. Use Ropey's indexing instead of scanning a prefix after a
 caret jump. History retains inverse edits rather than whole-note strings.

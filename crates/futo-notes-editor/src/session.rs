@@ -1,11 +1,13 @@
 use ropey::Rope;
 
 use crate::{
-    DisplayOffset, DisplayRange, EditWork, EditorError, Revision, SourceEdit, SourceOffset,
-    SourceRange, ViewChange,
+    DisplayOffset, DisplayRange, EditWork, EditorError, Revision, SelectionChange, SourceEdit,
+    SourceOffset, SourceRange, ViewChange,
 };
 
 struct HistoryEntry {
+    before_selection: DisplayRange,
+    after_selection: DisplayRange,
     range: DisplayRange,
     removed: String,
     inserted: String,
@@ -14,8 +16,9 @@ struct HistoryEntry {
 /// An exact-source plain-text session. Markdown interpretation is added in later
 /// slices; hosts must not use this surface as a replacement shipping renderer.
 pub struct EditorSession {
-    source: Rope,
+    pub(crate) source: Rope,
     revision: Revision,
+    selection: DisplayRange,
     undo: Vec<HistoryEntry>,
     redo: Vec<HistoryEntry>,
 }
@@ -30,6 +33,7 @@ impl EditorSession {
         Self {
             source: Rope::from_str(source),
             revision,
+            selection: DisplayRange::default(),
             undo: Vec::new(),
             redo: Vec::new(),
         }
@@ -48,7 +52,40 @@ impl EditorSession {
         self.source.to_string()
     }
 
-    fn char_index(&self, offset: DisplayOffset) -> Result<usize, EditorError> {
+    pub fn selection(&self) -> DisplayRange {
+        self.selection
+    }
+
+    pub fn select(
+        &mut self,
+        expected: Revision,
+        range: DisplayRange,
+    ) -> Result<SelectionChange, EditorError> {
+        self.check_revision(expected)?;
+        if range.start.0 > range.end.0 {
+            return Err(EditorError::InvalidRange);
+        }
+        self.char_index(range.start)?;
+        self.char_index(range.end)?;
+        self.selection = range;
+        Ok(SelectionChange {
+            revision: self.revision,
+            selection: range,
+        })
+    }
+
+    pub(crate) fn check_revision(&self, expected: Revision) -> Result<(), EditorError> {
+        if expected == self.revision {
+            Ok(())
+        } else {
+            Err(EditorError::StaleRevision {
+                expected,
+                actual: self.revision,
+            })
+        }
+    }
+
+    pub(crate) fn char_index(&self, offset: DisplayOffset) -> Result<usize, EditorError> {
         let index = self
             .source
             .try_byte_to_char(offset.0)
@@ -65,12 +102,7 @@ impl EditorSession {
         range: DisplayRange,
         inserted: &str,
     ) -> Result<SourceEdit, EditorError> {
-        if expected != self.revision {
-            return Err(EditorError::StaleRevision {
-                expected,
-                actual: self.revision,
-            });
-        }
+        self.check_revision(expected)?;
         if range.start.0 > range.end.0 {
             return Err(EditorError::InvalidRange);
         }
@@ -100,6 +132,10 @@ impl EditorSession {
         self.source.insert(start, &edit.inserted);
         self.revision = edit.revision;
         let caret = DisplayOffset(edit.range.start.0 + edit.inserted.len());
+        self.selection = DisplayRange {
+            start: caret,
+            end: caret,
+        };
         ViewChange {
             previous_revision: edit.previous_revision,
             revision: edit.revision,
@@ -121,6 +157,17 @@ impl EditorSession {
 
     /// `accept` must protect the record against process death before returning
     /// success. A WASM-local success alone cannot provide that acknowledgement.
+    /// The exclusive session borrow prevents synchronous acceptance callbacks from
+    /// re-entering input; a later native echo must retain its original revision.
+    ///
+    /// ```compile_fail,E0499
+    /// use futo_notes_editor::{DisplayRange, EditorSession, Revision};
+    /// let mut session = EditorSession::open("text");
+    /// session.replace(Revision(0), DisplayRange::default(), "!", &mut |_| {
+    ///     session.select(Revision(0), DisplayRange::default()).unwrap();
+    ///     Ok(())
+    /// });
+    /// ```
     pub fn replace(
         &mut self,
         expected: Revision,
@@ -130,8 +177,11 @@ impl EditorSession {
     ) -> Result<ViewChange, EditorError> {
         let edit = self.prepare(expected, range, inserted)?;
         accept(&edit).map_err(EditorError::Persistence)?;
+        let before_selection = self.selection;
         let change = self.apply(&edit);
         self.undo.push(HistoryEntry {
+            before_selection,
+            after_selection: self.selection,
             range,
             removed: edit.removed,
             inserted: edit.inserted,
@@ -174,12 +224,7 @@ impl EditorSession {
         redo: bool,
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<Option<ViewChange>, EditorError> {
-        if expected != self.revision {
-            return Err(EditorError::StaleRevision {
-                expected,
-                actual: self.revision,
-            });
-        }
+        self.check_revision(expected)?;
         let Some(entry) = (if redo { &self.redo } else { &self.undo }).last() else {
             return Ok(None);
         };
@@ -202,10 +247,15 @@ impl EditorSession {
         } else {
             self.undo.pop().unwrap()
         };
+        self.selection = if redo {
+            entry.after_selection
+        } else {
+            entry.before_selection
+        };
+        change.selection = self.selection;
         if redo {
             self.undo.push(entry);
         } else {
-            change.selection = entry.range;
             self.redo.push(entry);
         }
         Ok(Some(change))
