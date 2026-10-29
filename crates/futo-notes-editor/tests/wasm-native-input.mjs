@@ -46,7 +46,7 @@ function host(vault, source) {
   };
 }
 const cases = read('native-input-cases');
-assert.equal(cases.length, 5);
+assert.equal(cases.length, 6);
 for (const fixture of cases) {
   for (const [file, expectedHash] of Object.entries(fixture.fixtureSha256)) {
     const raw = readFileSync(new URL(`${file}.json`, fixtures));
@@ -129,6 +129,14 @@ for (const fixture of cases) {
           );
         } else {
           assert.equal(step.operation, 'replace');
+          if (event.parent === null) {
+            const request = trace.events.find((e) => e.id === (step.requestEvent ?? event.id - 1));
+            assert.equal(request.method, 'shouldChangeText');
+            assert.equal(request.returned, true);
+            assert.deepEqual(request.arguments.range, step.serviceRange);
+            assert.equal(text(request.arguments.textUTF16), step.serviceText);
+            assert.equal(text(request.before.textUTF16), view);
+          }
           request = JSON.parse(
             page.replace_os_utf16(revision, ...step.serviceRange, units(step.serviceText), '[]'),
           );

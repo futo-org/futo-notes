@@ -70,3 +70,24 @@ taps currently require restoring this claimed simulator's known build baseline
 before another read. Counterprobes and pc_a707ed20d7db are in the external evidence.
 `Dictate` was present and enabled in that keyplane, but was never tapped: a deliberate
 fixture-audio/consent setup is still needed, so no dictation OS proof is claimed.
+
+The sixth capture is whole-field OS Paste in the same ordinary UIKit control.
+Actual Copy from a separate fixture placed `the & cat\r\n` on this task simulator's
+clipboard. After opening source `__teh__ &amp; **cta**\r\n` and selecting its complete
+display `[0,11]`, an actual touch selected the offered Paste item at
+`{{172.5,112},{70.33333333333331,44}}`. UIKit's event4 `shouldChangeText` proposes
+that entire range and replacement; event5 changes selection before event6
+`didChange`, so `requestEvent` pins the actual request rather than assuming
+adjacent callbacks. No public `replace` override occurred. Literal replay retains
+the unchanged entity, both original bold delimiter spellings, CRLF and final
+newline, with exact one-action history and final caret `[11,11]`. This establishes
+OS Paste only; it does not establish dictation or Writing Tools.
+
+Whole-field capture used the preserved 2026-10-29 15:39 DEBUG simulator app from
+the previous native297-test run, executable SHA256
+`867392656ed8b07a3eae919844e6b11a782951b4ea947a21959a6a7a7829d6b8`.
+Recorder source remains `fb307d2c3a0174ba27f69437ad7cfadf4454d91c6b36cac63cfdef9c9078d304`.
+It was lifecycle-installed on newly claimed iOS0 and launched with Puppet at
+source integration `c424d2cb4`; this is precise capture provenance, not a new
+native-test result. Original raw capture, complete Puppet trace, menu accessibility
+and conservation report are external `whole-field-paste-*` artifacts.
