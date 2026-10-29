@@ -104,12 +104,29 @@ impl std::error::Error for EditorStoreError {}
 /// A store-owned recovery and save workflow. Its blocking operations belong on
 /// the host's background worker, including append acceptance before display.
 pub struct StoreEditorSession<'store> {
-    store: &'store LocalNoteStore,
+    store: StoreHandle<'store>,
     id: String,
     recovery: RecoveryLog,
     engine: EditorSession,
     lease: EditorLease,
     pending_checkpoint: Option<FlushDraftResult>,
+}
+
+// Owning foreign sessions retain the same store and its coordination state;
+// ordinary Rust callers can continue borrowing it without allocation.
+enum StoreHandle<'store> {
+    Borrowed(&'store LocalNoteStore),
+    Owned(Arc<LocalNoteStore>),
+}
+
+impl std::ops::Deref for StoreHandle<'_> {
+    type Target = LocalNoteStore;
+    fn deref(&self) -> &Self::Target {
+        match self {
+            Self::Borrowed(store) => store,
+            Self::Owned(store) => store,
+        }
+    }
 }
 
 impl LocalNoteStore {
@@ -122,15 +139,38 @@ impl LocalNoteStore {
         id: &str,
         options: RecoveryOptions,
     ) -> Result<StoreEditorSession<'_>, EditorStoreError> {
-        let _gate = self.lock_gate().map_err(EditorStoreError::Open)?;
-        paths::note_path(&self.root, id).map_err(EditorStoreError::Open)?;
-        let lease = EditorLease::acquire(&self.root, id)?;
-        let base = self
+        StoreEditorSession::open(StoreHandle::Borrowed(self), id, options)
+    }
+
+    /// Retains this store for a foreign worker/session lifetime without borrowing
+    /// a movable facade or creating another independent store instance.
+    pub fn open_owned_editor(
+        self: &Arc<Self>,
+        id: &str,
+    ) -> Result<StoreEditorSession<'static>, EditorStoreError> {
+        StoreEditorSession::open(
+            StoreHandle::Owned(Arc::clone(self)),
+            id,
+            RecoveryOptions::default(),
+        )
+    }
+}
+
+impl<'store> StoreEditorSession<'store> {
+    fn open(
+        store: StoreHandle<'store>,
+        id: &str,
+        options: RecoveryOptions,
+    ) -> Result<Self, EditorStoreError> {
+        let _gate = store.lock_gate().map_err(EditorStoreError::Open)?;
+        paths::note_path(&store.root, id).map_err(EditorStoreError::Open)?;
+        let lease = EditorLease::acquire(&store.root, id)?;
+        let base = store
             .read_existing(id)
             .map_err(EditorStoreError::Open)?
             .ok_or_else(|| EditorStoreError::Open(NOTE_NOT_FOUND.to_owned()))?;
         let (mut recovery, engine) =
-            RecoveryLog::open(&self.root, id, &base, options.clock, options.storage)
+            RecoveryLog::open(&store.root, id, &base, options.clock, options.storage)
                 .map_err(EditorStoreError::Recovery)?;
         // A durable destination precedes installation. If its exact draft is
         // present after a crash, finish that checkpoint instead of re-running
@@ -138,15 +178,16 @@ impl LocalNoteStore {
         let pending_checkpoint = if !recovery.failed {
             if let Some(target) = &recovery.checkpoint_target {
                 let source = engine.source_text();
-                if self
+                if store
                     .read_existing(target)
                     .map_err(EditorStoreError::Open)?
                     .as_deref()
                     == Some(source.as_str())
                 {
-                    let metadata = crate::vault::metadata(&self.root, target).ok_or_else(|| {
-                        EditorStoreError::Open("checkpoint target metadata unavailable".into())
-                    })?;
+                    let metadata =
+                        crate::vault::metadata(&store.root, target).ok_or_else(|| {
+                            EditorStoreError::Open("checkpoint target metadata unavailable".into())
+                        })?;
                     let result = FlushDraftResult {
                         disposition: if target == id {
                             FlushDisposition::Converged
@@ -155,7 +196,7 @@ impl LocalNoteStore {
                                 parked_id: target.clone(),
                             }
                         },
-                        mutation: Some(self.upsert_mutation(metadata)),
+                        mutation: Some(store.upsert_mutation(metadata)),
                     };
                     recovery.issue = None;
                     Some(result)
@@ -168,8 +209,9 @@ impl LocalNoteStore {
         } else {
             None
         };
+        drop(_gate);
         Ok(StoreEditorSession {
-            store: self,
+            store,
             id: id.to_owned(),
             engine,
             recovery,

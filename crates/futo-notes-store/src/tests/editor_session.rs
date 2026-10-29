@@ -208,3 +208,20 @@ fn two_store_instances_cannot_open_the_same_editor_recovery_stream() {
     drop(first);
     assert!(second_store.open_editor("plain").is_ok());
 }
+
+#[test]
+fn owned_editor_outlives_its_opening_store_handle_and_keeps_recovery() {
+    let root = TestRoot::new();
+    let opening_store = Arc::new(store(&root));
+    opening_store.create("", "plain", "hello").unwrap();
+    let mut editor = opening_store.open_owned_editor("plain").unwrap();
+    drop(opening_store);
+    editor.replace(Revision(0), range(5, 5), "!").unwrap();
+    assert_eq!(editor.source_text(), "hello!");
+    drop(editor);
+    let store = store(&root);
+    let mut recovered = store.open_editor("plain").unwrap();
+    assert_eq!(recovered.source_text(), "hello!");
+    recovered.checkpoint().unwrap();
+    assert_eq!(store.read("plain").unwrap(), "hello!");
+}
