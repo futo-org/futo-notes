@@ -9,6 +9,7 @@ use futo_notes_editor::{
 use crate::{paths, FlushDisposition, FlushDraftResult, LocalNoteStore, NOTE_NOT_FOUND};
 
 mod clock;
+mod composition;
 mod input;
 mod lease;
 pub use clock::RecoveryClock;

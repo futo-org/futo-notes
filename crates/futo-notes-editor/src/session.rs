@@ -1,5 +1,8 @@
+mod composition;
+mod os_replacement;
 mod transaction;
 use crate::history::{HistoryClock, HistoryEntry, HistoryGroup, MonotonicClock, TypingRun};
+pub use composition::Composition;
 use ropey::Rope;
 use std::sync::Arc;
 
@@ -21,6 +24,7 @@ pub struct EditorSession {
     redo: Vec<HistoryGroup>,
     clock: Arc<dyn HistoryClock>,
     typing: Option<TypingRun>,
+    composition: Option<Composition>,
 }
 
 impl EditorSession {
@@ -53,6 +57,7 @@ impl EditorSession {
             redo: Vec::new(),
             clock,
             typing: None,
+            composition: None,
         }
     }
 
@@ -111,6 +116,13 @@ impl EditorSession {
     ) -> Result<SelectionChange, EditorError> {
         self.check_revision(expected)?;
         self.validate_range(range)?;
+        if self.composition.is_some() {
+            return Ok(SelectionChange {
+                revision: self.revision,
+                selection: self.selection,
+                affinity: self.affinity,
+            });
+        }
         if self.selection != range || self.affinity != affinity {
             self.typing = None;
             self.pending_formats = None;
@@ -290,6 +302,9 @@ impl EditorSession {
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<ViewChange, EditorError> {
         self.check_revision(expected)?;
+        if self.composition.is_some() {
+            return self.input_during_composition(expected, range, inserted, accept);
+        }
         self.validate_range(range)?;
         let affinity = if range == self.selection {
             self.affinity
@@ -372,6 +387,7 @@ impl EditorSession {
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<Option<ViewChange>, EditorError> {
         self.check_revision(expected)?;
+        let committed = self.commit_composition(expected, None, accept)?;
         if self.selection.start == self.selection.end {
             let mut formats = self.active_formats();
             if formats.contains(&format) {
@@ -382,7 +398,7 @@ impl EditorSession {
             }
             self.pending_formats = Some(formats);
             self.typing = None;
-            return Ok(None);
+            return Ok(committed);
         }
         let before_selection = self.selection;
         let before_affinity = self.affinity;
@@ -469,6 +485,9 @@ impl EditorSession {
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<Option<ViewChange>, EditorError> {
         self.check_revision(expected)?;
+        if self.composition.is_some() {
+            return Ok(None);
+        }
         let Some(entry) = (if redo { &self.redo } else { &self.undo }).last() else {
             return Ok(None);
         };

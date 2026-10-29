@@ -14,6 +14,9 @@ impl EditorSession {
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<ViewChange, EditorError> {
         self.check_revision(expected)?;
+        if self.composition.is_some() {
+            return self.compound_during_composition(expected, replacements, accept);
+        }
         if replacements.is_empty() {
             return Err(EditorError::InvalidRange);
         }

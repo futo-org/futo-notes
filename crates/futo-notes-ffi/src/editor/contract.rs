@@ -404,3 +404,19 @@ pub struct EditorDisplayByteOffset {
 pub struct EditorSourceByteOffset {
     pub offset: u64,
 }
+
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct EditorComposition {
+    pub revision: u64,
+    pub range: EditorByteRange,
+    pub text: String,
+}
+impl From<editor::Composition> for EditorComposition {
+    fn from(value: editor::Composition) -> Self {
+        Self {
+            revision: value.revision.0,
+            range: value.range.into(),
+            text: value.text,
+        }
+    }
+}

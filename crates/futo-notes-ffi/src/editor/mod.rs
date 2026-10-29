@@ -5,6 +5,7 @@ use futo_notes_store::{LocalNoteStore, StoreEditorSession};
 
 use crate::FlushDraftResult;
 
+mod composition;
 mod contract;
 pub use contract::*;
 
