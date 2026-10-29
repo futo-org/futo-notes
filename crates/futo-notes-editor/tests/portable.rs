@@ -38,6 +38,14 @@ fn invalid_matching_ack_cannot_claim_protection_or_discard_the_pending_edit() {
         .unwrap();
     let invalid = request.accepted(Revision(0), Revision(0));
     assert!(page.acknowledge(invalid).is_err());
+    assert!(page
+        .acknowledge(request.accepted(Revision(1), Revision(2)))
+        .is_err());
+    let mut stale_session = request.accepted(Revision(1), Revision(0));
+    stale_session.token = SessionToken(7);
+    assert!(page.acknowledge(stale_session).unwrap().is_none());
+    assert_eq!(page.status().accepted, Revision(0));
+    assert_eq!(page.status().durable, Revision(0));
     assert!(page.status().waiting);
     assert_eq!(
         page.acknowledge(request.accepted(Revision(1), Revision(0)))

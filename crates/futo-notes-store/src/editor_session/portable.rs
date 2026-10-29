@@ -2,7 +2,7 @@ use futo_notes_editor::{
     EditorError, HostAck, HostOperation, HostRequest, HostSnapshot, SessionToken,
 };
 
-use super::{EditorStoreError, StoreEditorSession};
+use super::{EditorStoreError, RecoveryIssue, StoreEditorSession};
 
 /// Worker-owned native endpoint. Move this session to the worker and exchange
 /// requests/replies; never call `handle` on the UI thread. It does blocking I/O.
@@ -36,6 +36,12 @@ impl StoreEditorHost<'_> {
             durable: status.durable,
             paused: status.paused,
         }
+    }
+
+    /// Native recovery UI consumes the store's typed issue directly, while the
+    /// page receives its retained draft and pause through the opening snapshot.
+    pub fn recovery_issue(&self) -> Option<&RecoveryIssue> {
+        self.session.recovery_issue()
     }
 
     /// Remaining delay from the oldest accepted, unflushed edit; subsequent

@@ -290,3 +290,40 @@ fn healthy_worker_resume_flushes_an_edit_whose_append_reply_was_lost() {
     assert_eq!(page.status().durable, Revision(1));
     assert!(page.acknowledge(lost_reply).unwrap().is_none());
 }
+
+#[test]
+fn worker_retains_typed_recovery_review_and_page_pause_across_attach_and_resume() {
+    let root = TestRoot::new();
+    let store = store(&root);
+    store.create("", "plain", "plain").unwrap();
+    let disk = Arc::new(Mutex::new(storage::Disk::default()));
+    {
+        let mut editor = store
+            .open_editor_with_recovery("plain", storage::options(&disk))
+            .unwrap();
+        editor.replace(Revision(0), range(5, 5), "!").unwrap();
+    }
+    disk.lock().unwrap().accepted.values_mut().next().unwrap()[0] = b'!';
+    let before = disk.lock().unwrap().accepted.clone();
+    let mut host = store
+        .open_editor_with_recovery("plain", storage::options(&disk))
+        .unwrap()
+        .into_portable_host(SessionToken(120));
+    assert_eq!(
+        host.recovery_issue(),
+        Some(&RecoveryIssue {
+            kind: RecoveryIssueKind::CorruptRecord,
+            record: 0
+        })
+    );
+    let mut page = PortableSession::from_snapshot(host.snapshot()).unwrap();
+    assert_eq!(page.draft_text(), "plain");
+    assert!(page.status().paused);
+    let request = page.resume().unwrap();
+    let ack = host.handle(request);
+    assert!(ack.error.is_some());
+    page.acknowledge(ack).unwrap();
+    assert!(page.status().paused);
+    assert_eq!(page.status().durable, Revision(0));
+    assert_eq!(disk.lock().unwrap().accepted, before);
+}

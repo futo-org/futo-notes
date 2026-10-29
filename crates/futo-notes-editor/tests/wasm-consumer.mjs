@@ -53,6 +53,8 @@ const { WasmSession } = await import(pathToFileURL(process.argv[2]).href);
     const ack = await exchange(request);
     assert.equal(ack.accepted, 1);
     assert.equal(ack.durable, 0);
+    assert.equal(JSON.parse(page.acknowledge(JSON.stringify({ ...ack, token: 99 }))), null);
+    assert.equal(JSON.parse(page.status()).accepted, 0);
     assert.deepEqual(await exchange(request), ack);
     apply(JSON.parse(page.acknowledge(JSON.stringify(ack))));
     assert.equal(text, 'a🎉\r\n');
