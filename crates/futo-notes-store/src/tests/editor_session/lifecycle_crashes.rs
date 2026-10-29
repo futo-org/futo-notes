@@ -78,6 +78,9 @@ impl RecoveryStorage for CrashStorage {
     }
 }
 fn child(root: &Path, phase: &str) {
+    child_workflow(root, phase, "note");
+}
+fn child_workflow(root: &Path, phase: &str, workflow: &str) {
     let status = std::process::Command::new(std::env::current_exe().unwrap())
         .args([
             "--exact",
@@ -86,9 +89,10 @@ fn child(root: &Path, phase: &str) {
         ])
         .env("FUTO_EDITOR_IDENTITY_VAULT", root)
         .env("FUTO_EDITOR_IDENTITY_PHASE", phase)
+        .env("FUTO_EDITOR_IDENTITY_WORKFLOW", workflow)
         .status()
         .unwrap();
-    assert_eq!(status.code(), Some(74), "{phase}");
+    assert_eq!(status.code(), Some(74), "{workflow}: {phase}");
 }
 #[test]
 fn identity_recovery_discovers_the_moved_draft_after_each_durable_boundary() {
@@ -207,12 +211,50 @@ fn process_death_during_same_id_relink_preserves_the_exact_committed_source() {
         }
     }
 }
+
+#[test]
+fn case_and_folder_workflows_recover_the_moved_draft_after_process_death() {
+    for (workflow, source_folder, destination) in [
+        ("case note", "", "OLD"),
+        ("case folder", "folder", "FOLDER/old"),
+        ("rename folder", "folder", "moved/old"),
+        ("delete folder", "folder", "old-2"),
+    ] {
+        for phase in ["moved", "decision", "intent-retired"] {
+            let root = TestRoot::new();
+            let store = store(&root);
+            store.create(source_folder, "old", "__日__\r\n").unwrap();
+            if workflow == "delete folder" {
+                store.create("", "old", "occupied").unwrap();
+            }
+            child_workflow(&root.0, phase, workflow);
+            let mut editor = store.open_editor(destination).unwrap();
+            assert_eq!(editor.source_text(), "__日😀__\r\n", "{workflow}: {phase}");
+            assert_eq!(editor.revision(), Revision(1));
+            assert_eq!(editor.recovery_issue(), None);
+            editor.checkpoint().unwrap();
+            drop(editor);
+            for _ in 0..2 {
+                let editor = store.open_editor(destination).unwrap();
+                assert_eq!(editor.source_text(), "__日😀__\r\n");
+                assert_eq!(store.read(destination).unwrap(), "__日😀__\r\n");
+                if workflow == "delete folder" {
+                    assert_eq!(store.read("old").unwrap(), "occupied");
+                    assert_eq!(store.snapshot().notes.len(), 2);
+                } else {
+                    assert_eq!(store.snapshot().notes.len(), 1);
+                }
+            }
+        }
+    }
+}
 #[test]
 fn identity_death_child() {
     let Some(root) = std::env::var_os("FUTO_EDITOR_IDENTITY_VAULT") else {
         return;
     };
     let phase = std::env::var("FUTO_EDITOR_IDENTITY_PHASE").unwrap();
+    let workflow = std::env::var("FUTO_EDITOR_IDENTITY_WORKFLOW").unwrap_or_else(|_| "note".into());
     let store = LocalNoteStore::new(root.into());
     if phase.starts_with("relink-") {
         let defaults = RecoveryOptions::default();
@@ -234,9 +276,14 @@ fn identity_death_child() {
         panic!("relink interruption did not fire: {phase}");
     }
     let defaults = RecoveryOptions::default();
+    let source = if workflow == "note" || workflow == "case note" {
+        "old"
+    } else {
+        "folder/old"
+    };
     let mut editor = store
         .open_editor_with_recovery(
-            "old",
+            source,
             RecoveryOptions {
                 clock: defaults.clock,
                 storage: Box::new(CrashStorage {
@@ -270,7 +317,14 @@ fn identity_death_child() {
     } else if phase.starts_with("delete-") {
         store.delete("old").unwrap();
     } else {
-        store.rename("old", "new").unwrap();
+        match workflow.as_str() {
+            "case note" => store.rename("old", "OLD"),
+            "case folder" => store.rename_folder("folder", "FOLDER"),
+            "rename folder" => store.rename_folder("folder", "moved"),
+            "delete folder" => store.delete_folder("folder"),
+            _ => store.rename("old", "new"),
+        }
+        .unwrap();
     }
     panic!("identity interruption did not fire: {phase}");
 }
