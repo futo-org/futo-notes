@@ -511,3 +511,6 @@ fn replacement_at_a_new_hidden_boundary_reports_the_affinity_used_for_input() {
     assert_eq!(session.selection(), range(0, 0));
     assert_fresh(&session, &view);
 }
+
+#[path = "inline/entities.rs"]
+mod entities;
