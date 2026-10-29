@@ -22,6 +22,24 @@
 
         func endCapture() { isCapturing = false }
 
+        // Observing an optional callback must not advertise a capability the ordinary
+        // UIKit control lacks, which could change the OS's chosen dictation path.
+        override func responds(to selector: Selector!) -> Bool {
+            if let selector,
+                [
+                    #selector(UITextInput.dictationRecordingDidEnd),
+                    #selector(UITextInput.dictationRecognitionFailed),
+                    #selector(UITextInput.insertDictationResult(_:)),
+                    #selector(getter: UITextInput.insertDictationResultPlaceholder),
+                    #selector(UITextInput.frame(forDictationResultPlaceholder:)),
+                    #selector(UITextInput.removeDictationResultPlaceholder(_:willInsertResult:)),
+                ].contains(selector)
+            {
+                return UITextView.instancesRespond(to: selector)
+            }
+            return super.responds(to: selector)
+        }
+
         func snapshot() -> [String: Any] {
             [
                 "textUTF16": Array((text ?? "").utf16),
@@ -133,11 +151,22 @@
             return token
         }
         override func dictationRecordingDidEnd() {
-            record("dictationRecordingDidEnd") { super.dictationRecordingDidEnd() }
+            record("dictationRecordingDidEnd") {
+                if UITextView.instancesRespond(to: #selector(UITextInput.dictationRecordingDidEnd))
+                {
+                    super.dictationRecordingDidEnd()
+                }
+            }
         }
 
         override func dictationRecognitionFailed() {
-            record("dictationRecognitionFailed") { super.dictationRecognitionFailed() }
+            record("dictationRecognitionFailed") {
+                if UITextView.instancesRespond(
+                    to: #selector(UITextInput.dictationRecognitionFailed))
+                {
+                    super.dictationRecognitionFailed()
+                }
+            }
         }
 
         override func insertDictationResult(_ dictationResult: [UIDictationPhrase]) {
@@ -153,7 +182,12 @@
                         ]
                     }
                 ]
-            ) { super.insertDictationResult(dictationResult) }
+            ) {
+                if UITextView.instancesRespond(to: #selector(UITextInput.insertDictationResult(_:)))
+                {
+                    super.insertDictationResult(dictationResult)
+                }
+            }
         }
 
         override func frame(forDictationResultPlaceholder placeholder: Any) -> CGRect {

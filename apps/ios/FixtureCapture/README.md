@@ -18,6 +18,9 @@ content is fixed note data, projected by the generated public `NoteStore` /
 `NativeEditorSession` facade into the ordinary observing UITextView shared with
 the DEBUG recorder overlay. Input is observed and forwarded unchanged to UIKit;
 control contents are never written back to the source note.
+The standalone host uses UIKit's scene lifecycle. The observing control reports
+the same optional dictation capabilities as the base `UITextView`; it forwards
+implemented callbacks once and only records synthetic calls to absent callbacks.
 
 A future sanctioned Puppet capture must provide `FUTO_EDITOR_CAPTURE_LAUNCH` as
 JSON containing `runID` and `nonce` UUID strings, a nonempty `destination` identifier,

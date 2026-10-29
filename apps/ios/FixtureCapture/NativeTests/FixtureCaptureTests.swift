@@ -10,15 +10,26 @@ struct FixtureCaptureTests {
     @Test("plain observed control forwards insertion and records exact UTF16 nesting")
     func forwarding() throws {
         let view = NativeInputRecorder()
+        for selector in [
+            #selector(UITextInput.dictationRecordingDidEnd),
+            #selector(UITextInput.dictationRecognitionFailed),
+            #selector(UITextInput.insertDictationResult(_:)),
+            #selector(getter: UITextInput.insertDictationResultPlaceholder),
+            #selector(UITextInput.frame(forDictationResultPlaceholder:)),
+            #selector(UITextInput.removeDictationResultPlaceholder(_:willInsertResult:)),
+        ] {
+            #expect(view.responds(to: selector) == UITextView.instancesRespond(to: selector))
+        }
         view.text = "a😀\r\n"
         view.selectedRange = NSRange(location: 3, length: 0)
         view.beginCapture()
         view.insertText("日本")
         #expect(view.text == "a😀日本\r\n")
         let event = try #require(view.events.first { $0["method"] as? String == "insertText" })
-        #expect((event["arguments"] as? [String: Any])?["textUTF16"] as? [Int] == [0x65E5, 0x672C])
         #expect(
-            (event["after"] as? [String: Any])?["textUTF16"] as? [Int] == [
+            (event["arguments"] as? [String: Any])?["textUTF16"] as? [UInt16] == [0x65E5, 0x672C])
+        #expect(
+            (event["after"] as? [String: Any])?["textUTF16"] as? [UInt16] == [
                 97, 0xD83D, 0xDE00, 0x65E5, 0x672C, 13, 10,
             ])
         let ids = Set(view.events.compactMap { $0["id"] as? Int })
@@ -27,8 +38,16 @@ struct FixtureCaptureTests {
         }
         view.dictationRecordingDidEnd()
         view.dictationRecognitionFailed()
+        view.insertDictationResult([])
         #expect(view.events.contains { $0["method"] as? String == "dictationRecordingDidEnd" })
         #expect(view.events.contains { $0["method"] as? String == "dictationRecognitionFailed" })
+        let result = try #require(
+            view.events.first { $0["method"] as? String == "insertDictationResult" })
+        let phrases = try #require(
+            (result["arguments"] as? [String: Any])?["phrases"] as? [[String: Any]])
+        #expect(phrases.isEmpty)
+        #expect(view.text == "a😀日本\r\n")
+        #expect(view.selectedRange == NSRange(location: 5, length: 0))
     }
 
     @Test("public store projection uses only the fixture UUID vault")

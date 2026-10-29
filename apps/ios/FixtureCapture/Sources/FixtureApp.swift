@@ -2,17 +2,28 @@ import UIKit
 
 @main
 final class FixtureApp: UIResponder, UIApplicationDelegate {
+    func application(
+        _ application: UIApplication, configurationForConnecting session: UISceneSession,
+        options: UIScene.ConnectionOptions
+    ) -> UISceneConfiguration {
+        let configuration = UISceneConfiguration(name: nil, sessionRole: session.role)
+        configuration.delegateClass = FixtureScene.self
+        return configuration
+    }
+}
+
+final class FixtureScene: UIResponder, UIWindowSceneDelegate {
     var window: UIWindow?
 
-    func application(
-        _ application: UIApplication,
-        didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
-    ) -> Bool {
-        let window = UIWindow(frame: UIScreen.main.bounds)
+    func scene(
+        _ scene: UIScene, willConnectTo session: UISceneSession,
+        options: UIScene.ConnectionOptions
+    ) {
+        guard let scene = scene as? UIWindowScene else { return }
+        let window = UIWindow(windowScene: scene)
         window.rootViewController = FixtureController()
         window.makeKeyAndVisible()
         self.window = window
-        return true
     }
 }
 
