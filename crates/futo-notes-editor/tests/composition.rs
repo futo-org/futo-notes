@@ -371,3 +371,27 @@ fn pending_commit_is_isolated_from_following_typing_but_following_letters_group(
     view.apply(session.redo(Revision(5), &mut |_| Ok(())).unwrap().unwrap());
     assert_eq!(session.source_text(), "**bかzq** x");
 }
+
+#[test]
+fn replay_cannot_shift_a_pending_composition_before_host_acceptance() {
+    let mut session = EditorSession::open("ab");
+    session.compose(Revision(0), range(1, 1), "日").unwrap();
+    let record = SourceEdit {
+        previous_revision: Revision(0),
+        revision: Revision(1),
+        range: SourceRange {
+            start: SourceOffset(0),
+            end: SourceOffset(0),
+        },
+        removed: "".into(),
+        inserted: "prefix ".into(),
+    };
+    assert_eq!(
+        session.replay_with_accept(&record, &mut |_| panic!(
+            "replay must not accept over marked state"
+        )),
+        Err(EditorError::CompositionActive)
+    );
+    assert_eq!(session.source_text(), "ab");
+    assert_eq!(session.composition().unwrap().range, range(1, 1));
+}

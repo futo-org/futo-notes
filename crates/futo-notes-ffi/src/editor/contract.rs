@@ -231,6 +231,8 @@ pub enum EditorSessionError {
     InvalidRange,
     #[error("invalid UTF-16 input")]
     InvalidText,
+    #[error("editor composition is active")]
+    CompositionActive,
     #[error("format cannot be represented without changing meaning")]
     UnrepresentableFormat,
     #[error("editor revision exhausted")]
@@ -282,6 +284,7 @@ impl From<editor::EditorError> for EditorSessionError {
             },
             E::InvalidRange => Self::InvalidRange,
             E::InvalidText => Self::InvalidText,
+            E::CompositionActive => Self::CompositionActive,
             E::RevisionExhausted => Self::RevisionExhausted,
             E::UnrepresentableFormat => Self::UnrepresentableFormat,
             E::Persistence(error) => Self::Persistence { error },

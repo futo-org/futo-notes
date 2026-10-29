@@ -457,6 +457,10 @@ impl EditorSession {
         edit: &SourceEdit,
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<ViewChange, EditorError> {
+        self.check_revision(edit.previous_revision)?;
+        if self.composition.is_some() {
+            return Err(EditorError::CompositionActive);
+        }
         if self.prepare_source(edit.previous_revision, edit.range, &edit.inserted)? != *edit {
             return Err(EditorError::RecoveryMismatch);
         }
