@@ -205,10 +205,10 @@ pub(super) fn write_content_if_changed(
     }
     // Adopting a newer remote version is intentional even when its bytes
     // equal an older editor checkpoint. Coordinate before installation.
-    futo_notes_core::files::recovery_coordination::protect_replacement(root, name)?;
     if changed {
         vault_fs::write_atomic(root, name, &bytes)?;
     } else {
+        futo_notes_core::files::recovery_coordination::protect_replacement(root, name)?;
         vault_fs::sync_parent(root, name)?;
     }
     let _ = vault_fs::set_mtime_ms(root, name, modified_ms);
@@ -236,7 +236,6 @@ pub(super) fn rename_local(root: &Path, source: &str, destination: &str) -> Resu
             "collision destination already exists: {destination}"
         ));
     }
-    futo_notes_core::files::recovery_coordination::protect_replacement(root, destination)?;
     vault_fs::move_no_replace_strict(root, source, destination)
 }
 

@@ -2,6 +2,18 @@ use std::path::{Path, PathBuf};
 
 use super::{context, relative_components, OpenParentError};
 
+pub(super) fn entry_is_directory(root: &Path, relative: &str) -> Result<Option<bool>, String> {
+    super::validate_path(root, relative)?;
+    match std::fs::symlink_metadata(root.join(relative)) {
+        Ok(metadata) if super::is_link(&metadata) => {
+            Err(format!("vault symlink rejected: {relative}"))
+        }
+        Ok(metadata) => Ok(Some(metadata.is_dir())),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(context("inspect source type", relative, error)),
+    }
+}
+
 pub(super) fn open_append(root: &Path, relative: &str) -> Result<std::fs::File, String> {
     let path = checked_path(root, relative, true).map_err(OpenParentError::message)?;
     let file = std::fs::OpenOptions::new()
@@ -172,6 +184,9 @@ pub(super) fn create_new(root: &Path, relative: &str, bytes: &[u8]) -> Result<bo
         bytes,
         &|error| super::note_create_failure(error, super::in_root(relative)),
     )
+}
+pub(super) fn create_new_strict(root: &Path, relative: &str, bytes: &[u8]) -> Result<bool, String> {
+    create_new(root, relative, bytes)
 }
 pub(super) fn move_no_replace(
     root: &Path,

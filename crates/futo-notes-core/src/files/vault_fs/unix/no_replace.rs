@@ -21,14 +21,36 @@ pub(in crate::files::vault_fs) fn create_new(
     relative: &str,
     bytes: &[u8],
 ) -> Result<bool, String> {
+    create_with_policy(root, relative, bytes, false)
+}
+
+pub(in crate::files::vault_fs) fn create_new_strict(
+    root: &Path,
+    relative: &str,
+    bytes: &[u8],
+) -> Result<bool, String> {
+    create_with_policy(root, relative, bytes, true)
+}
+
+fn create_with_policy(
+    root: &Path,
+    relative: &str,
+    bytes: &[u8],
+    strict: bool,
+) -> Result<bool, String> {
     let parent =
-        open_parent_with_policy(root, relative, true, false).map_err(OpenParentError::message)?;
+        open_parent_with_policy(root, relative, true, strict).map_err(OpenParentError::message)?;
     reject_symlink(&parent, "create", relative)?;
     let result = write_temp_and_install(&parent, relative, bytes, |temp| {
         install_no_replace(&parent.directory, temp, &parent.directory, &parent.leaf)
     });
     if matches!(result, Ok(true)) {
-        report_local_sync(sync_directory(&parent.directory, "sync create", relative));
+        let sync = sync_directory(&parent.directory, "sync create", relative);
+        if strict {
+            sync?;
+        } else {
+            report_local_sync(sync);
+        }
     }
     result
 }

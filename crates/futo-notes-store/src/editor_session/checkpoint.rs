@@ -17,6 +17,12 @@ impl StoreEditorSession<'_> {
             .map_err(EditorStoreError::Checkpoint)?;
         let _vault_mutation =
             futo_notes_core::files::vault_mutation_guard().map_err(EditorStoreError::Checkpoint)?;
+        let checkpoint_id = self.id.clone();
+        let checkpoint_install = futo_notes_core::files::vault_fs::EditorCheckpointInstall::new(
+            &self.store.root,
+            &checkpoint_id,
+        )
+        .map_err(EditorStoreError::Checkpoint)?;
         let source = self.engine.source_text();
         // A committed checkpoint whose retirement failed may be replaced by a
         // controlled writer before retry. Revalidate its destination under the
@@ -71,15 +77,22 @@ impl StoreEditorSession<'_> {
                     != Some(source.as_str())
             {
                 self.store
-                    .park_conflict_draft_with_target(&self.id, &source, &mut |id| {
-                        self.recovery.protect_checkpoint(&self.store.root, id)
-                    })
+                    .park_conflict_draft_with_target(
+                        &self.id,
+                        &source,
+                        Some(&checkpoint_install),
+                        &mut |id| self.recovery.protect_checkpoint(&self.store.root, id),
+                    )
                     .map_err(EditorStoreError::Checkpoint)?
             } else {
                 self.store
-                    .flush_draft_locked_with_target(&self.id, &base, &source, &mut |id| {
-                        self.recovery.protect_checkpoint(&self.store.root, id)
-                    })
+                    .flush_draft_locked_with_target(
+                        &self.id,
+                        &base,
+                        &source,
+                        Some(&checkpoint_install),
+                        &mut |id| self.recovery.protect_checkpoint(&self.store.root, id),
+                    )
                     .map_err(EditorStoreError::Checkpoint)?
             }
         };

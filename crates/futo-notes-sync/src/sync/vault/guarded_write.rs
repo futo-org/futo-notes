@@ -34,8 +34,11 @@ pub(in crate::sync) fn replace_content_if_hash_matches(
     if source != target {
         pre_write(source);
     }
-    futo_notes_core::files::recovery_coordination::protect_replacement(root, target)?;
-    vault_fs::write_atomic(root, target, &bytes)?;
+    if source == target {
+        vault_fs::write_atomic(root, target, &bytes)?;
+    } else if !vault_fs::create_new_strict(root, target, &bytes)? {
+        return Ok(GuardedWriteOutcome::TargetOccupied);
+    }
     if source != target && !vault_fs::remove(root, source)? {
         return Err(format!("replace source disappeared: {source}"));
     }
@@ -60,8 +63,13 @@ pub(in crate::sync) fn write_content_if_source_and_target_absent(
         return Ok(GuardedWriteOutcome::TargetOccupied);
     }
     pre_write(target);
-    futo_notes_core::files::recovery_coordination::protect_replacement(root, target)?;
-    vault_fs::write_atomic(root, target, &bytes)?;
+    if !vault_fs::create_new_strict(root, target, &bytes)? {
+        return Ok(if source == target {
+            GuardedWriteOutcome::SourceChanged
+        } else {
+            GuardedWriteOutcome::TargetOccupied
+        });
+    }
     let _ = vault_fs::set_mtime_ms(root, target, modified_ms);
     Ok(GuardedWriteOutcome::Applied)
 }
@@ -82,9 +90,7 @@ pub(in crate::sync) fn copy_content_if_hash_matches(
         return Ok(false);
     }
     pre_write(target);
-    futo_notes_core::files::recovery_coordination::protect_replacement(root, target)?;
-    vault_fs::write_atomic(root, target, &bytes)?;
-    Ok(true)
+    vault_fs::create_new_strict(root, target, &bytes)
 }
 
 #[cfg(test)]

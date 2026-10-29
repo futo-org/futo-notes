@@ -6,6 +6,7 @@ use futo_notes_editor::{DisplayOffset, DisplayRange, Revision};
 use futo_notes_store::{FlushDisposition, LocalNoteStore};
 use std::collections::HashMap;
 
+mod absent_installs;
 mod destinations;
 
 #[tokio::test]

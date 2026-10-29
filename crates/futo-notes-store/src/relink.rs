@@ -70,9 +70,6 @@ impl LocalNoteStore {
                     .ok()
                     .as_ref()
                     .map(file_mtime_ms);
-                futo_notes_core::files::recovery_coordination::protect_replacement(
-                    &self.root, &relative,
-                )?;
                 vault_fs::write_atomic_local(&self.root, &relative, content.as_bytes())?;
                 if let Some(previous) = preserved {
                     let _ = vault_fs::set_mtime_ms(&self.root, &relative, previous);

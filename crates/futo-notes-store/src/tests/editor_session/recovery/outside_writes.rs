@@ -371,20 +371,17 @@ fn process_death_around_replacement_install_preserves_draft_and_is_idempotent() 
 
 #[test]
 fn replacement_death_child() {
-    struct ExitBeforeInstall;
-    impl BeforeWrite for ExitBeforeInstall {
-        fn before_write(&self, _: &[FileChange]) {
-            std::process::exit(75);
-        }
-    }
     let Some(root) = std::env::var_os("FUTO_EDITOR_REPLACEMENT_VAULT") else {
         return;
     };
-    let store = if std::env::var("FUTO_EDITOR_REPLACEMENT_PHASE").unwrap() == "before-install" {
-        LocalNoteStore::with_before_write(root.into(), Arc::new(ExitBeforeInstall))
-    } else {
-        LocalNoteStore::new(root.into())
-    };
+    let store = LocalNoteStore::new(root.into());
+    if std::env::var("FUTO_EDITOR_REPLACEMENT_PHASE").unwrap() == "before-install" {
+        futo_notes_core::files::vault_fs::set_before_install_hook(Some(Box::new(|relative| {
+            if relative == "plain.md" {
+                std::process::exit(75);
+            }
+        })));
+    }
     {
         let mut editor = store.open_editor("plain").unwrap();
         editor.replace(Revision(0), range(5, 5), "!").unwrap();
