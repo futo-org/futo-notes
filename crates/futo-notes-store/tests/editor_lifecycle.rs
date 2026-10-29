@@ -176,3 +176,41 @@ fn delete_fences_both_pending_source_and_foreign_destination_attachments() {
         assert_eq!(store.snapshot().notes.len(), 1);
     }
 }
+
+#[test]
+fn switching_detached_drafts_keeps_empty_content_distinct_from_an_absent_note() {
+    let root = tempfile::tempdir().unwrap();
+    let store = LocalNoteStore::new(root.path().to_owned());
+    assert!(store.open_editor("never attached").is_err());
+    assert_eq!(store.read_existing("never attached").unwrap(), None);
+    assert!(store.snapshot().notes.is_empty());
+    store.create("", "emptied", "body").unwrap();
+    store.create("", "other", "other").unwrap();
+    {
+        let mut editor = store.open_editor("emptied").unwrap();
+        editor.replace(Revision(0), range(0, 4), "").unwrap();
+        editor.flush_recovery().unwrap();
+        assert_eq!(editor.source_text(), "");
+        assert_eq!(store.read("emptied").unwrap(), "body");
+    }
+    {
+        let mut editor = store.open_editor("other").unwrap();
+        editor.replace(Revision(0), range(5, 5), "!").unwrap();
+    }
+    {
+        let mut editor = store.open_editor("emptied").unwrap();
+        assert_eq!(editor.source_text(), "");
+        assert_eq!(editor.revision(), Revision(1));
+        assert_eq!(
+            editor.checkpoint().unwrap().disposition,
+            FlushDisposition::Wrote
+        );
+    }
+    let mut other = store.open_editor("other").unwrap();
+    assert_eq!(other.source_text(), "other!");
+    other.checkpoint().unwrap();
+    assert_eq!(store.read_existing("emptied").unwrap(), Some(String::new()));
+    assert_eq!(store.read("other").unwrap(), "other!");
+    assert_eq!(store.read_existing("never attached").unwrap(), None);
+    assert_eq!(store.snapshot().notes.len(), 2);
+}

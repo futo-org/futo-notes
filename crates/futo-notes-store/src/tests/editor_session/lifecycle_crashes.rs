@@ -27,6 +27,14 @@ impl CrashStorage {
             "pending-delete-artifact-retired" => {
                 operation == "remove" && path.ends_with(".retarget")
             }
+            "relink-prepared" => operation == "flush" && path.ends_with(".retarget"),
+            "relink-decision" => operation == "flush" && path.ends_with(".retarget.committed"),
+            "relink-before-snapshot" => operation == "before-replace" && path.ends_with(".jsonl"),
+            "relink-snapshot" => operation == "flush" && path.ends_with(".jsonl"),
+            "relink-intent-retired" => operation == "remove" && path.ends_with(".retarget"),
+            "relink-decision-retired" => {
+                operation == "remove" && path.ends_with(".retarget.committed")
+            }
             _ => false,
         };
         if crash {
@@ -49,6 +57,7 @@ impl RecoveryStorage for CrashStorage {
         self.inner.create(root, path, bytes)
     }
     fn replace(&mut self, root: &std::path::Path, path: &str, bytes: &[u8]) -> Result<(), String> {
+        self.interrupt("before-replace", path);
         self.inner.replace(root, path, bytes)
     }
     fn append(&mut self, root: &Path, path: &str, bytes: &[u8]) -> Result<(), String> {
@@ -160,6 +169,44 @@ fn process_death_during_delete_of_pending_destination_never_replays_deleted_inca
         assert_eq!(store.snapshot().notes.len(), 1);
     }
 }
+
+#[test]
+fn process_death_during_same_id_relink_preserves_the_exact_committed_source() {
+    for phase in [
+        "relink-prepared",
+        "relink-decision",
+        "relink-before-snapshot",
+        "relink-snapshot",
+        "relink-intent-retired",
+        "relink-decision-retired",
+    ] {
+        let root = TestRoot::new();
+        let store = store(&root);
+        store.create("", "old", "target").unwrap();
+        store.create("", "plain", "[[old]]").unwrap();
+        child(&root.0, phase);
+        let (source, revision, target) = if phase == "relink-prepared" {
+            ("[[old]]", Revision(2), "old")
+        } else {
+            ("[[new]]", Revision(3), "new")
+        };
+        let mut editor = store.open_editor("plain").unwrap();
+        assert_eq!(editor.source_text(), source, "{phase}");
+        assert_eq!(editor.revision(), revision, "{phase}");
+        assert_eq!(editor.recovery_issue(), None, "{phase}");
+        assert!(editor.undo(revision).unwrap().is_none());
+        editor.checkpoint().unwrap();
+        drop(editor);
+        for _ in 0..2 {
+            let mut editor = store.open_editor("plain").unwrap();
+            assert_eq!(editor.source_text(), source, "{phase}");
+            editor.checkpoint().unwrap();
+            assert_eq!(store.read("plain").unwrap(), source);
+            assert_eq!(store.read(target).unwrap(), "target");
+            assert_eq!(store.snapshot().notes.len(), 2);
+        }
+    }
+}
 #[test]
 fn identity_death_child() {
     let Some(root) = std::env::var_os("FUTO_EDITOR_IDENTITY_VAULT") else {
@@ -167,6 +214,25 @@ fn identity_death_child() {
     };
     let phase = std::env::var("FUTO_EDITOR_IDENTITY_PHASE").unwrap();
     let store = LocalNoteStore::new(root.into());
+    if phase.starts_with("relink-") {
+        let defaults = RecoveryOptions::default();
+        let mut editor = store
+            .open_editor_with_recovery(
+                "plain",
+                RecoveryOptions {
+                    clock: defaults.clock,
+                    storage: Box::new(CrashStorage {
+                        inner: defaults.storage,
+                        phase: phase.clone(),
+                    }),
+                },
+            )
+            .unwrap();
+        editor.replace(Revision(0), range(7, 7), "!").unwrap();
+        editor.undo(Revision(1)).unwrap().unwrap();
+        store.rename("old", "new").unwrap();
+        panic!("relink interruption did not fire: {phase}");
+    }
     let defaults = RecoveryOptions::default();
     let mut editor = store
         .open_editor_with_recovery(

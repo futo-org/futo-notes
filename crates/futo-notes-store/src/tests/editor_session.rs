@@ -5,6 +5,7 @@ mod composition;
 mod durability;
 mod lifecycle;
 mod lifecycle_crashes;
+mod lifecycle_faults;
 mod paragraphs;
 mod portable;
 mod recovery;
