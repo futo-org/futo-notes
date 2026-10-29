@@ -86,4 +86,108 @@ struct NativeEditorSessionTests {
 
         }.value
     }
+    @Test("isolated commits and compound replacements preserve exact history")
+    func exactGroupedHistory() async throws {
+        try await Task.detached {
+            let root = FileManager.default.temporaryDirectory
+                .appendingPathComponent("editor-history-\(UUID().uuidString)", isDirectory: true)
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: root) }
+            let store = NoteStore(notesRoot: root.path)
+            let opening = "__cat__ &amp; _dog_\r\n"
+            _ = try store.createNote(title: "history", folder: "", content: opening)
+            let session = try store.openEditor(id: "history")
+            var view = Array("cat & dog\r\n".utf8)
+            var revision: UInt64 = 0
+            func apply(_ change: EditorViewChange) {
+                #expect(change.previousRevision == revision)
+                #expect(change.revision == revision + 1)
+                view.replaceSubrange(
+                    Int(change.range.start)..<Int(change.range.end), with: change.inserted.utf8)
+                revision = change.revision
+            }
+            _ = try session.selectWithAffinity(
+                expected: 0, range: EditorByteRange(start: 0, end: 3), affinity: .forward)
+            apply(try #require(try session.toggleFormat(expected: 0, format: .italic)))
+            #expect(try session.sourceText() == "*__cat__* &amp; _dog_\r\n")
+            apply(
+                try session.replaceManyUtf16(
+                    expected: 1,
+                    replacements: [
+                        EditorUtf16Replacement(
+                            range: EditorUtf16Range(start: 0, end: 3),
+                            inserted: Array("kitten".utf16)),
+                        EditorUtf16Replacement(
+                            range: EditorUtf16Range(start: 6, end: 9), inserted: Array("ox".utf16)),
+                    ]))
+            #expect(try session.sourceText() == "*__kitten__* &amp; _ox_\r\n")
+            apply(
+                try session.replaceUtf16Action(
+                    expected: 2, range: EditorUtf16Range(start: 11, end: 11),
+                    inserted: Array("日本".utf16), action: .compositionCommit))
+            #expect(try session.sourceText() == "*__kitten__* &amp; _ox日本_\r\n")
+            apply(
+                try session.replaceUtf16Action(
+                    expected: 3, range: EditorUtf16Range(start: 13, end: 13),
+                    inserted: [33], action: .isolated))
+            let final = "*__kitten__* &amp; _ox日本!_\r\n"
+            #expect(try session.sourceText() == final)
+            #expect(String(decoding: view, as: UTF8.self) == "kitten & ox日本!\r\n")
+            for expected in [
+                "*__kitten__* &amp; _ox日本_\r\n", "*__kitten__* &amp; _ox_\r\n",
+                "*__cat__* &amp; _dog_\r\n", opening,
+            ] {
+                let change = try #require(try session.undo(expected: revision))
+                apply(change)
+                #expect(try session.sourceText() == expected)
+            }
+            #expect(String(decoding: view, as: UTF8.self) == "cat & dog\r\n")
+            #expect(try session.undo(expected: 8) == nil)
+            for expected in [
+                "*__cat__* &amp; _dog_\r\n", "*__kitten__* &amp; _ox_\r\n",
+                "*__kitten__* &amp; _ox日本_\r\n", final,
+            ] {
+                apply(try #require(try session.redo(expected: revision)))
+                #expect(try session.sourceText() == expected)
+            }
+            #expect(try session.activeFormats() == [.italic])
+            do {
+                _ = try session.replaceManyUtf16(
+                    expected: 12,
+                    replacements: [
+                        EditorUtf16Replacement(
+                            range: EditorUtf16Range(start: 0, end: 6), inserted: [97]),
+                        EditorUtf16Replacement(
+                            range: EditorUtf16Range(start: 9, end: 11), inserted: [0xD800]),
+                    ])
+                Issue.record("A malformed later run was accepted")
+            } catch EditorSessionError.InvalidText {}
+            #expect(try session.sourceText() == final)
+            #expect(try session.revision() == 12)
+            #expect(try session.flushRecovery().durable == 12)
+            try session.detach()
+            let recovered = try store.openEditor(id: "history")
+            #expect(try recovered.sourceText() == final)
+            #expect(try recovered.undo(expected: 12) == nil)
+            #expect(try recovered.checkpoint().mutation?.finalId == "history")
+            #expect(try store.read(id: "history") == final)
+            try recovered.detach()
+            _ = try store.createNote(title: "echo", folder: "", content: "__a__")
+            let echo = try store.openEditor(id: "echo")
+            _ = try echo.selectWithAffinity(
+                expected: 0, range: EditorByteRange(start: 1, end: 1), affinity: .backward)
+            _ = try echo.replaceUtf16(
+                expected: 0, range: EditorUtf16Range(start: 1, end: 1), inserted: [32])
+            _ = try echo.selectWithAffinity(
+                expected: 1, range: EditorByteRange(start: 2, end: 2), affinity: .backward)
+            _ = try echo.replaceUtf16Action(
+                expected: 1, range: EditorUtf16Range(start: 2, end: 2), inserted: [98],
+                action: .typing)
+            #expect(try echo.sourceText() == "__a b__")
+            #expect(try echo.activeFormats() == [.bold])
+            try echo.detach()
+
+        }.value
+    }
+
 }

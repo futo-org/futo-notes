@@ -119,6 +119,44 @@ impl EditorSession {
         Ok((range, inserted))
     }
 
+    pub fn decode_utf16_replacements(
+        &self,
+        expected: Revision,
+        replacements: &[crate::DisplayUtf16Replacement],
+    ) -> Result<Vec<crate::DisplayReplacement>, EditorError> {
+        self.check_revision(expected)?;
+        replacements
+            .iter()
+            .map(|replacement| {
+                let (range, inserted) =
+                    self.decode_utf16_input(expected, replacement.range, &replacement.inserted)?;
+                Ok(crate::DisplayReplacement { range, inserted })
+            })
+            .collect()
+    }
+
+    pub fn replace_many_utf16(
+        &mut self,
+        expected: Revision,
+        replacements: &[crate::DisplayUtf16Replacement],
+        accept: &mut dyn FnMut(&crate::SourceEdit) -> Result<(), String>,
+    ) -> Result<ViewChange, EditorError> {
+        let replacements = self.decode_utf16_replacements(expected, replacements)?;
+        self.replace_many(expected, &replacements, accept)
+    }
+
+    pub fn replace_utf16_action(
+        &mut self,
+        expected: Revision,
+        range: DisplayUtf16Range,
+        inserted: &[u16],
+        action: crate::InputAction,
+        accept: &mut dyn FnMut(&crate::SourceEdit) -> Result<(), String>,
+    ) -> Result<ViewChange, EditorError> {
+        let (range, inserted) = self.decode_utf16_input(expected, range, inserted)?;
+        self.replace_action(expected, range, &inserted, action, accept)
+    }
+
     /// Rejects malformed native text and split surrogate positions; never clamps,
     /// widens a range, normalizes line endings, or replaces invalid code units.
     pub fn replace_utf16(

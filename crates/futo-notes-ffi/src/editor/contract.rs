@@ -79,6 +79,38 @@ impl TryFrom<EditorUtf16Range> for editor::DisplayUtf16Range {
     }
 }
 
+/// The engine owns grouping; native hosts identify isolated user actions and
+/// submit only the committed text of a provisional composition.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum EditorInputAction {
+    Typing,
+    Isolated,
+    CompositionCommit,
+}
+impl From<EditorInputAction> for editor::InputAction {
+    fn from(value: EditorInputAction) -> Self {
+        match value {
+            EditorInputAction::Typing => Self::Typing,
+            EditorInputAction::Isolated => Self::Isolated,
+            EditorInputAction::CompositionCommit => Self::CompositionCommit,
+        }
+    }
+}
+#[derive(Debug, uniffi::Record)]
+pub struct EditorUtf16Replacement {
+    pub range: EditorUtf16Range,
+    pub inserted: Vec<u16>,
+}
+impl TryFrom<EditorUtf16Replacement> for editor::DisplayUtf16Replacement {
+    type Error = EditorSessionError;
+    fn try_from(value: EditorUtf16Replacement) -> Result<Self, Self::Error> {
+        Ok(Self {
+            range: value.range.try_into()?,
+            inserted: value.inserted,
+        })
+    }
+}
+
 #[derive(Debug, PartialEq, Eq, uniffi::Record)]
 pub struct EditorViewChange {
     pub previous_revision: u64,
@@ -299,6 +331,16 @@ impl From<editor::InlineFormat> for EditorInlineFormat {
             editor::InlineFormat::Italic => Self::Italic,
             editor::InlineFormat::Strike => Self::Strike,
             editor::InlineFormat::Code => Self::Code,
+        }
+    }
+}
+impl From<EditorInlineFormat> for editor::InlineFormat {
+    fn from(value: EditorInlineFormat) -> Self {
+        match value {
+            EditorInlineFormat::Bold => Self::Bold,
+            EditorInlineFormat::Italic => Self::Italic,
+            EditorInlineFormat::Strike => Self::Strike,
+            EditorInlineFormat::Code => Self::Code,
         }
     }
 }
