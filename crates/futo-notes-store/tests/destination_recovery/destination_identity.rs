@@ -109,8 +109,11 @@ fn first_append_waits_for_directory_install_that_started_without_recovery_metada
             }),
         );
         std::thread::scope(|scope| {
+            // Drop the sender before scoped joins if an observation panics.
+            let release_before_join = release;
             let install = scope.spawn(move || writer.rename_folder("from", "to"));
             entered.recv_timeout(Duration::from_secs(5)).unwrap();
+            super::scoped_pause::abort_if_requested();
             let (attempt_tx, attempt) = mpsc::channel();
             let (accepted_tx, accepted) = mpsc::channel();
             let editor = &mut editor;
@@ -132,7 +135,7 @@ fn first_append_waits_for_directory_install_that_started_without_recovery_metada
                 accepted.recv_timeout(Duration::from_millis(75)),
                 Err(mpsc::RecvTimeoutError::Timeout)
             );
-            release.send(()).unwrap();
+            release_before_join.send(()).unwrap();
             install.join().unwrap().unwrap();
             append.join().unwrap().unwrap();
             assert!(blocked, "first append must wait for directory installation");
