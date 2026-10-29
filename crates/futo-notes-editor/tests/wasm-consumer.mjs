@@ -154,10 +154,28 @@ const { WasmSession } = await import(pathToFileURL(process.argv[2]).href);
     apply(JSON.parse(page.acknowledge(JSON.stringify(await exchange(JSON.parse(page.redo(13n)))))));
     assert.equal(page.draft_text(), '~~__😀z日__~~\r\n');
     assert.equal(text, '😀z日\r\n');
+    // A resulting selection echo keeps the carried marks across a trailing
+    // space, without platform-side grouping or formatting heuristics.
+    page.select_with_affinity(14n, 8, 8, '"Backward"');
+    apply(
+      JSON.parse(
+        page.acknowledge(JSON.stringify(await exchange(JSON.parse(page.replace(14n, 8, 8, ' '))))),
+      ),
+    );
+    assert.equal(page.draft_text(), '~~__😀z日__~~ \r\n');
+    page.select_with_affinity(15n, 9, 9, '"Backward"');
+    apply(
+      JSON.parse(
+        page.acknowledge(JSON.stringify(await exchange(JSON.parse(page.replace(15n, 9, 9, 'b'))))),
+      ),
+    );
+    assert.equal(page.draft_text(), '~~__😀z日 b__~~\r\n');
+    assert.equal(text, '😀z日 b\r\n');
+    assert.deepEqual(new Set(JSON.parse(page.active_formats())), new Set(['Bold', 'Strike']));
     const flush = JSON.parse(page.flush());
     assert.equal(JSON.parse(page.status()).durable, 0);
     page.acknowledge(JSON.stringify(await exchange(flush)));
-    assert.equal(JSON.parse(page.status()).durable, 14);
+    assert.equal(JSON.parse(page.status()).durable, 16);
   } finally {
     clearTimeout(deadline);
     page?.free();
