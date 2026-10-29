@@ -9,15 +9,26 @@ fn utf16(a: usize, z: usize) -> DisplayUtf16Range {
 
 #[test]
 fn paragraph_edits_checkpoint_reopen_and_recover_exact_untouched_line_endings() {
-    for opening in [
-        "__ab__\r\nuntouched  \r\n",
-        "__ab__\r\nuntouched  ",
-        "__ab__\nuntouched\r\n\r\n",
+    for (opening, expected, shown) in [
+        (
+            "__ab__\r\nuntouched  \r\n",
+            "__a\nb__\r\nuntouched  \r\n",
+            "a\nb\r\nuntouched  \r\n",
+        ),
+        (
+            "__ab__\r\nuntouched  ",
+            "__a\nb__\r\nuntouched  ",
+            "a\nb\r\nuntouched  ",
+        ),
+        (
+            "__ab__\nuntouched\r\n\r\n",
+            "__a\nb__\nuntouched\r\n\r\n",
+            "a\nb\nuntouched\r\n\r\n",
+        ),
     ] {
         let root = TestRoot::new();
         let store = store(&root);
         store.create("", "lines", opening).unwrap();
-        let expected = opening.replacen("__ab__", "__a\nb__", 1);
         {
             let mut editor = store.open_editor("lines").unwrap();
             editor
@@ -30,7 +41,7 @@ fn paragraph_edits_checkpoint_reopen_and_recover_exact_untouched_line_endings() 
         }
         let mut recovered = store.open_editor("lines").unwrap();
         assert_eq!(recovered.source_text(), expected);
-        assert_eq!(recovered.display_text(), expected.replace("__", ""));
+        assert_eq!(recovered.display_text(), shown);
         assert!(recovered.undo(recovered.revision()).unwrap().is_none());
         recovered
             .paragraph_key_utf16(recovered.revision(), utf16(2, 2), ParagraphKey::Backspace)
@@ -49,6 +60,6 @@ fn paragraph_edits_checkpoint_reopen_and_recover_exact_untouched_line_endings() 
         drop(recovered);
         let reopened = store.open_editor("lines").unwrap();
         assert_eq!(reopened.source_text(), expected);
-        assert_eq!(reopened.display_text(), expected.replace("__", ""));
+        assert_eq!(reopened.display_text(), shown);
     }
 }
