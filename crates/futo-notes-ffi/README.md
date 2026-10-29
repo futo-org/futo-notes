@@ -14,6 +14,16 @@ Returned `EditorByteRange` coordinates address UTF-8 display bytes;
 revision-checked `display_to_utf16` query. Native code applies returned changes
 and semantic descriptions without parsing markdown.
 
+`replace_utf16_action` forwards the engine's `Typing`, `Isolated` or
+`CompositionCommit` history intent. Native marked text stays provisional until
+one final commit; composition staging belongs to the following engine slice.
+`replace_many_utf16` accepts all runs of one user action in opening-display
+coordinates and validates every run before one recovery append. Undo/Redo
+restore the entire action's exact bytes, selection, affinity and carried formats.
+`select_with_affinity`, `toggle_format` and `active_formats` expose that same
+shared formatting contract without native policy. Reopening retains the protected
+draft and starts with no persistent Undo/Redo history.
+
 `recovery_status` distinguishes accepted and durable revisions. A successful
 `flush_recovery` protects accepted edits against modeled power loss; `checkpoint`
 performs the store's complete persist-or-park workflow and returns its mutation.

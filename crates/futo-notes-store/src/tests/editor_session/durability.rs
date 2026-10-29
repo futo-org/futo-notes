@@ -325,3 +325,36 @@ fn retirement_failure_is_retryable_without_repeating_the_committed_save() {
     assert_eq!(editor.recovery_status().durable, Revision(1));
     assert!(!editor.recovery_status().paused);
 }
+
+#[test]
+fn failed_grouped_undo_short_write_preserves_the_entire_draft_and_retries_one_record() {
+    let root = TestRoot::new();
+    let store = store(&root);
+    store.create("", "history", "__a__").unwrap();
+    let disk = Arc::new(Mutex::new(Disk::default()));
+    let clock = Arc::new(ManualRecoveryClock::default());
+    let mut options = storage::options(&disk);
+    options.clock = clock;
+    let mut editor = store.open_editor_with_recovery("history", options).unwrap();
+    editor.replace(Revision(0), range(1, 1), "b").unwrap();
+    editor.replace(Revision(1), range(2, 2), "c").unwrap();
+    disk.lock().unwrap().fault = Some(Fault::ShortWrite);
+    assert!(editor.undo(Revision(2)).is_err());
+    assert_eq!(editor.source_text(), "__abc__");
+    assert_eq!(editor.revision(), Revision(2));
+    assert_eq!(editor.recovery_status().accepted, Revision(2));
+    assert!(editor.recovery_status().paused);
+    disk.lock().unwrap().fault = None;
+    editor.resume_recovery().unwrap();
+    editor.undo(Revision(2)).unwrap().unwrap();
+    assert_eq!(editor.source_text(), "__a__");
+    assert_eq!(editor.recovery_status().accepted, Revision(3));
+    assert!(editor.undo(Revision(3)).unwrap().is_none());
+    drop(editor);
+    let mut recovered = store
+        .open_editor_with_recovery("history", storage::options(&disk))
+        .unwrap();
+    assert_eq!(recovered.source_text(), "__a__");
+    assert_eq!(recovered.revision(), Revision(3));
+    assert!(recovered.undo(Revision(3)).unwrap().is_none());
+}

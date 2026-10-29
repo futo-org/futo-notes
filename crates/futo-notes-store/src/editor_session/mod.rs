@@ -10,6 +10,7 @@ use crate::{paths, FlushDisposition, FlushDraftResult, LocalNoteStore, NOTE_NOT_
 
 mod checkpoint;
 mod clock;
+mod input;
 mod lease;
 pub use clock::RecoveryClock;
 mod portable;
@@ -316,6 +317,10 @@ impl StoreEditorSession<'_> {
         self.engine.revision()
     }
 
+    pub fn active_formats(&self) -> Vec<InlineFormat> {
+        self.engine.active_formats()
+    }
+
     pub fn selection(&self) -> DisplayRange {
         self.engine.selection()
     }
@@ -405,42 +410,6 @@ impl StoreEditorSession<'_> {
         self.engine
             .move_caret(expected, direction)
             .map_err(EditorStoreError::Editor)
-    }
-
-    pub fn replace_utf16(
-        &mut self,
-        expected: Revision,
-        range: DisplayUtf16Range,
-        inserted: &[u16],
-    ) -> Result<ViewChange, EditorStoreError> {
-        let (range, inserted) = self
-            .engine
-            .decode_utf16_input(expected, range, inserted)
-            .map_err(EditorStoreError::Editor)?;
-        self.replace(expected, range, &inserted)
-    }
-
-    pub fn replace(
-        &mut self,
-        expected: Revision,
-        range: DisplayRange,
-        inserted: &str,
-    ) -> Result<ViewChange, EditorStoreError> {
-        if self.pending_checkpoint.is_some() {
-            return Err(EditorStoreError::CheckpointPending);
-        }
-        if self.recovery.failed {
-            return Err(EditorStoreError::RecoveryPaused);
-        }
-        let _gate = self.store.lock_gate().map_err(EditorStoreError::Recovery)?;
-        self.engine
-            .replace(expected, range, inserted, &mut |edit| {
-                self.recovery.append(&self.store.root, edit)
-            })
-            .map_err(|error| match error {
-                EditorError::Persistence(error) => EditorStoreError::RecoveryAppend(error),
-                other => EditorStoreError::Editor(other),
-            })
     }
 
     pub fn undo(&mut self, expected: Revision) -> Result<Option<ViewChange>, EditorStoreError> {

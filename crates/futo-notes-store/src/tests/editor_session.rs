@@ -274,3 +274,62 @@ fn hidden_inline_edits_history_recovery_and_checkpoint_preserve_exact_markdown()
     assert_eq!(reopened.source_text(), "__日😀__*中*~~*ab*~~ tail\t\r\n");
     assert_eq!(reopened.display_text(), "日😀中ab tail\t\r\n");
 }
+
+#[test]
+fn grouped_typing_uses_store_clock_and_recovery_replays_without_persistent_history() {
+    use futo_notes_editor::DisplayReplacement;
+    #[derive(Default)]
+    struct Clock(std::sync::atomic::AtomicU64);
+    impl RecoveryClock for Clock {
+        fn now(&self) -> Duration {
+            Duration::from_millis(self.0.load(std::sync::atomic::Ordering::Relaxed))
+        }
+    }
+    let root = TestRoot::new();
+    let store = store(&root);
+    store.create("", "history", "__日__\r\n").unwrap();
+    let clock = Arc::new(Clock::default());
+    let mut editor = store
+        .open_editor_with_recovery(
+            "history",
+            RecoveryOptions {
+                clock: clock.clone(),
+                ..RecoveryOptions::default()
+            },
+        )
+        .unwrap();
+    editor.replace(Revision(0), range(3, 3), "a").unwrap();
+    clock.0.store(499, std::sync::atomic::Ordering::Relaxed);
+    editor.replace(Revision(1), range(4, 4), "b").unwrap();
+    clock.0.store(999, std::sync::atomic::Ordering::Relaxed);
+    editor.replace(Revision(2), range(5, 5), "c").unwrap();
+    editor.undo(Revision(3)).unwrap().unwrap();
+    assert_eq!(editor.source_text(), "__日ab__\r\n");
+    editor.undo(Revision(4)).unwrap().unwrap();
+    assert_eq!(editor.source_text(), "__日__\r\n");
+    editor.redo(Revision(5)).unwrap().unwrap();
+    assert_eq!(editor.source_text(), "__日ab__\r\n");
+    editor
+        .replace_many(
+            Revision(6),
+            &[
+                DisplayReplacement {
+                    range: range(0, 3),
+                    inserted: "中".into(),
+                },
+                DisplayReplacement {
+                    range: range(4, 5),
+                    inserted: "x".into(),
+                },
+            ],
+        )
+        .unwrap();
+    assert_eq!(editor.source_text(), "__中ax__\r\n");
+    drop(editor);
+    let mut recovered = store.open_editor("history").unwrap();
+    assert_eq!(recovered.source_text(), "__中ax__\r\n");
+    assert_eq!(recovered.revision(), Revision(7));
+    assert!(recovered.undo(Revision(7)).unwrap().is_none());
+    recovered.checkpoint().unwrap();
+    assert_eq!(store.read("history").unwrap(), "__中ax__\r\n");
+}

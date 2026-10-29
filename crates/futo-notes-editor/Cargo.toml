@@ -8,6 +8,7 @@ crate-type = ["rlib", "cdylib"]
 
 [dependencies]
 ropey = "1.6"
+web-time = "1"
 pulldown-cmark = { version = "0.13", default-features = false }
 unicode-segmentation = "1.13"
 serde = { version = "1", features = ["derive"] }

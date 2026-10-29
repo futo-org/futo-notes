@@ -151,6 +151,46 @@ impl WasmSession {
                 .map_err(error)?,
         )
     }
+    pub fn replace_utf16_action(
+        &mut self,
+        revision: u64,
+        start: usize,
+        end: usize,
+        inserted: &[u16],
+        action: &str,
+    ) -> Result<String, JsValue> {
+        let action = serde_json::from_str(action).map_err(error)?;
+        json(
+            &self
+                .0
+                .replace_utf16_action(
+                    Revision(revision),
+                    DisplayUtf16Range {
+                        start: DisplayUtf16Offset(start),
+                        end: DisplayUtf16Offset(end),
+                    },
+                    inserted,
+                    action,
+                )
+                .map_err(error)?,
+        )
+    }
+
+    pub fn replace_many_utf16(
+        &mut self,
+        revision: u64,
+        replacements: &str,
+    ) -> Result<String, JsValue> {
+        let replacements: Vec<crate::DisplayUtf16Replacement> =
+            serde_json::from_str(replacements).map_err(error)?;
+        json(
+            &self
+                .0
+                .replace_many_utf16(Revision(revision), &replacements)
+                .map_err(error)?,
+        )
+    }
+
     pub fn undo(&mut self, revision: u64) -> Result<String, JsValue> {
         json(&self.0.undo(Revision(revision)).map_err(error)?)
     }

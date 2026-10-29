@@ -1,21 +1,12 @@
+mod transaction;
+use crate::history::{HistoryClock, HistoryEntry, HistoryGroup, MonotonicClock, TypingRun};
 use ropey::Rope;
+use std::sync::Arc;
 
 use crate::{
     Affinity, DisplayOffset, DisplayRange, EditWork, EditorError, InlineFormat, ProjectionSlice,
     Revision, SelectionChange, SourceEdit, SourceOffset, SourceRange, ViewChange,
 };
-
-struct HistoryEntry {
-    before_selection: DisplayRange,
-    before_affinity: Affinity,
-    before_formats: Option<Vec<InlineFormat>>,
-    after_selection: DisplayRange,
-    after_affinity: Affinity,
-    after_formats: Option<Vec<InlineFormat>>,
-    range: SourceRange,
-    removed: String,
-    inserted: String,
-}
 
 /// Exact-source editor session. Hosts must not use this development surface as
 /// a replacement shipping renderer until renderer integration is complete.
@@ -26,8 +17,10 @@ pub struct EditorSession {
     selection: DisplayRange,
     affinity: Affinity,
     pending_formats: Option<Vec<InlineFormat>>,
-    undo: Vec<HistoryEntry>,
-    redo: Vec<HistoryEntry>,
+    undo: Vec<HistoryGroup>,
+    redo: Vec<HistoryGroup>,
+    clock: Arc<dyn HistoryClock>,
+    typing: Option<TypingRun>,
 }
 
 impl EditorSession {
@@ -37,6 +30,18 @@ impl EditorSession {
 
     /// Starts a recovered session without persistent undo history.
     pub fn restore(source: &str, revision: Revision) -> Self {
+        Self::restore_with_clock(source, revision, Arc::new(MonotonicClock::default()))
+    }
+
+    pub fn open_with_clock(source: &str, clock: Arc<dyn HistoryClock>) -> Self {
+        Self::restore_with_clock(source, Revision(0), clock)
+    }
+
+    pub fn restore_with_clock(
+        source: &str,
+        revision: Revision,
+        clock: Arc<dyn HistoryClock>,
+    ) -> Self {
         Self {
             source: Rope::from_str(source),
             projection: crate::inline::Projection::new(source),
@@ -46,6 +51,8 @@ impl EditorSession {
             pending_formats: None,
             undo: Vec::new(),
             redo: Vec::new(),
+            clock,
+            typing: None,
         }
     }
 
@@ -104,9 +111,12 @@ impl EditorSession {
     ) -> Result<SelectionChange, EditorError> {
         self.check_revision(expected)?;
         self.validate_range(range)?;
+        if self.selection != range || self.affinity != affinity {
+            self.typing = None;
+            self.pending_formats = None;
+        }
         self.selection = range;
         self.affinity = affinity;
-        self.pending_formats = None;
         Ok(SelectionChange {
             revision: self.revision,
             selection: range,
@@ -260,6 +270,25 @@ impl EditorSession {
         inserted: &str,
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<ViewChange, EditorError> {
+        self.replace_action(
+            expected,
+            range,
+            inserted,
+            crate::InputAction::Typing,
+            accept,
+        )
+    }
+
+    /// Paste, correction, compound actions and final composition commits are
+    /// isolated; provisional marked text must never enter this source method.
+    pub fn replace_action(
+        &mut self,
+        expected: Revision,
+        range: DisplayRange,
+        inserted: &str,
+        action: crate::InputAction,
+        accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
+    ) -> Result<ViewChange, EditorError> {
         self.check_revision(expected)?;
         self.validate_range(range)?;
         let affinity = if range == self.selection {
@@ -300,7 +329,7 @@ impl EditorSession {
         change.selection = self.selection;
         change.work.materialized_source_bytes += plan.materialized;
         change.work.parsed_source_bytes += plan.parsed;
-        self.undo.push(HistoryEntry {
+        let entry = HistoryEntry {
             before_selection,
             before_affinity,
             before_formats,
@@ -310,7 +339,26 @@ impl EditorSession {
             range: edit.range,
             removed: edit.removed,
             inserted: edit.inserted,
+        };
+        let now = self.clock.now();
+        let kind = if action == crate::InputAction::Typing {
+            crate::history::typing_kind(range, inserted, before_selection)
+        } else {
+            None
+        };
+        let join = kind.is_some_and(|kind| {
+            self.typing
+                .as_ref()
+                .is_some_and(|run| run.continues(kind, range, now))
         });
+        self.typing = kind.map(|kind| TypingRun::new(kind, self.selection, now));
+        if join {
+            self.undo.last_mut().unwrap().entries.push(entry);
+        } else {
+            self.undo.push(HistoryGroup {
+                entries: vec![entry],
+            });
+        }
         self.redo.clear();
         Ok(change)
     }
@@ -333,6 +381,7 @@ impl EditorSession {
                 formats.sort();
             }
             self.pending_formats = Some(formats);
+            self.typing = None;
             return Ok(None);
         }
         let before_selection = self.selection;
@@ -361,17 +410,20 @@ impl EditorSession {
         change.selection = self.selection;
         change.work.materialized_source_bytes += plan.materialized;
         change.work.parsed_source_bytes += plan.parsed;
-        self.undo.push(HistoryEntry {
-            before_selection,
-            before_affinity,
-            before_formats,
-            after_selection: self.selection,
-            after_affinity: self.affinity,
-            after_formats: None,
-            range: edit.range,
-            removed: edit.removed,
-            inserted: edit.inserted,
+        self.undo.push(HistoryGroup {
+            entries: vec![HistoryEntry {
+                before_selection,
+                before_affinity,
+                before_formats,
+                after_selection: self.selection,
+                after_affinity: self.affinity,
+                after_formats: None,
+                range: edit.range,
+                removed: edit.removed,
+                inserted: edit.inserted,
+            }],
         });
+        self.typing = None;
         self.redo.clear();
         Ok(Some(change))
     }
@@ -420,42 +472,54 @@ impl EditorSession {
         let Some(entry) = (if redo { &self.redo } else { &self.undo }).last() else {
             return Ok(None);
         };
-        let (range, inserted) = if redo {
-            (entry.range, entry.inserted.as_str())
+        let mut transaction = crate::history::Transaction::new(&self.source);
+        let entries: Box<dyn Iterator<Item = &HistoryEntry>> = if redo {
+            Box::new(entry.entries.iter())
         } else {
-            (
-                SourceRange {
-                    start: entry.range.start,
-                    end: SourceOffset(entry.range.start.0 + entry.inserted.len()),
-                },
-                entry.removed.as_str(),
-            )
+            Box::new(entry.entries.iter().rev())
         };
-        let edit = self.prepare_source(expected, range, inserted)?;
+        for step in entries {
+            let (range, inserted) = if redo {
+                (step.range, step.inserted.as_str())
+            } else {
+                (
+                    SourceRange {
+                        start: step.range.start,
+                        end: SourceOffset(step.range.start.0 + step.inserted.len()),
+                    },
+                    step.removed.as_str(),
+                )
+            };
+            transaction.apply(range, inserted);
+        }
+        let (range, inserted) = transaction.finish();
+        let edit = self.prepare_source(expected, range, &inserted)?;
         accept(&edit).map_err(EditorError::Persistence)?;
         let mut change = self.apply(&edit);
+        change.work.materialized_source_bytes += edit.inserted.len();
         let entry = if redo {
             self.redo.pop().unwrap()
         } else {
             self.undo.pop().unwrap()
         };
         self.selection = if redo {
-            entry.after_selection
+            entry.entries.last().unwrap().after_selection
         } else {
-            entry.before_selection
+            entry.entries.first().unwrap().before_selection
         };
         self.affinity = if redo {
-            entry.after_affinity
+            entry.entries.last().unwrap().after_affinity
         } else {
-            entry.before_affinity
+            entry.entries.first().unwrap().before_affinity
         };
         change.selection = self.selection;
         change.affinity = self.affinity;
         self.pending_formats = if redo {
-            entry.after_formats.clone()
+            entry.entries.last().unwrap().after_formats.clone()
         } else {
-            entry.before_formats.clone()
+            entry.entries.first().unwrap().before_formats.clone()
         };
+        self.typing = None;
         if redo {
             self.undo.push(entry);
         } else {
