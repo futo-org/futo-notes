@@ -1,0 +1,46 @@
+name: Editor294Fixture
+options:
+  deploymentTarget:
+    iOS: "18.0"
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    SWIFT_STRICT_CONCURRENCY: minimal
+    CODE_SIGNING_ALLOWED: "NO"
+    CODE_SIGNING_REQUIRED: "NO"
+    CODE_SIGN_IDENTITY: ""
+    GENERATE_INFOPLIST_FILE: "YES"
+    SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) DEBUG"
+targets:
+  Editor294Fixture:
+    type: application
+    platform: iOS
+    sources:
+      - path: Sources
+      - path: ../Sources/InputCapture/NativeInputRecorder.swift
+      - path: ../Sources/Generated/futo_notes_ffi.swift
+      - path: Generated/build-provenance.json
+        buildPhase: resources
+    dependencies:
+      - framework: ../FutoNotesFfi.xcframework
+        embed: false
+      - sdk: Security.framework
+      - sdk: SystemConfiguration.framework
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: org.futo.fixture.editor294
+        PRODUCT_NAME: Editor294Fixture
+        INFOPLIST_KEY_UILaunchScreen_Generation: "YES"
+        TARGETED_DEVICE_FAMILY: "1,2"
+    scheme:
+      testTargets: [Editor294FixtureTests]
+  Editor294FixtureTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: NativeTests
+    dependencies:
+      - target: Editor294Fixture
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: org.futo.fixture.editor294.tests

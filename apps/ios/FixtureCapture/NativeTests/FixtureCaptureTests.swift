@@ -1,0 +1,73 @@
+import Foundation
+import Testing
+import UIKit
+
+@testable import Editor294Fixture
+
+@Suite("Isolated UIKit fixture (synthetic unit calls, never OS evidence)")
+@MainActor
+struct FixtureCaptureTests {
+    @Test("plain observed control forwards insertion and records exact UTF16 nesting")
+    func forwarding() throws {
+        let view = NativeInputRecorder()
+        view.text = "a😀\r\n"
+        view.selectedRange = NSRange(location: 3, length: 0)
+        view.beginCapture()
+        view.insertText("日本")
+        #expect(view.text == "a😀日本\r\n")
+        let event = try #require(view.events.first { $0["method"] as? String == "insertText" })
+        #expect((event["arguments"] as? [String: Any])?["textUTF16"] as? [Int] == [0x65E5, 0x672C])
+        #expect(
+            (event["after"] as? [String: Any])?["textUTF16"] as? [Int] == [
+                97, 0xD83D, 0xDE00, 0x65E5, 0x672C, 13, 10,
+            ])
+        let ids = Set(view.events.compactMap { $0["id"] as? Int })
+        for callback in view.events {
+            if let parent = callback["parent"] as? Int { #expect(ids.contains(parent)) }
+        }
+        view.dictationRecordingDidEnd()
+        view.dictationRecognitionFailed()
+        #expect(view.events.contains { $0["method"] as? String == "dictationRecordingDidEnd" })
+        #expect(view.events.contains { $0["method"] as? String == "dictationRecognitionFailed" })
+    }
+
+    @Test("public store projection uses only the fixture UUID vault")
+    func projection() async throws {
+        let launch = CaptureLaunch(
+            runID: UUID(), nonce: UUID(), destination: "synthetic-unit-test", seconds: 1)
+        let workspace = try CaptureWorkspace(launch: launch)
+        defer { try? FileManager.default.removeItem(at: workspace.root) }
+        let projection = try await FixtureProjection.open(workspace: workspace)
+        #expect(projection.source == "__ab__ &amp; cd\r\n")
+        #expect(projection.display == "ab & cd\r\n")
+        #expect(
+            try String(
+                contentsOf: workspace.vault.appendingPathComponent("fixture.md"), encoding: .utf8)
+                == projection.source)
+    }
+}
+
+extension FixtureCaptureTests {
+    @Test("only UIKit-returned opaque placeholder identity is observed unchanged")
+    func opaqueIdentity() throws {
+        let view = NativeInputRecorder()
+        view.text = "ab"
+        view.selectedRange = NSRange(location: 1, length: 0)
+        view.beginCapture()
+        let token = view.insertDictationResultPlaceholder
+        _ = view.frame(forDictationResultPlaceholder: token)
+        view.removeDictationResultPlaceholder(token, willInsertResult: false)
+        let inserted = try #require(
+            view.events.first { $0["method"] as? String == "insertDictationResultPlaceholder" })
+        let identity = try #require(inserted["returnedToken"] as? Int)
+        for method in ["frameForDictationResultPlaceholder", "removeDictationResultPlaceholder"] {
+            let event = try #require(view.events.first { $0["method"] as? String == method })
+            #expect((event["arguments"] as? [String: Any])?["token"] as? Int == identity)
+        }
+        let count = view.events.count
+        view.endCapture()
+        view.insertText("x")
+        #expect(view.events.count == count)
+        #expect(view.text.contains("x"))
+    }
+}
