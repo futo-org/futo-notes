@@ -2069,6 +2069,7 @@ version = "0.1.0"
 dependencies = [
  "fancy-regex",
  "futo-notes-core",
+ "futo-notes-wikilinks",
  "memchr",
  "serde",
  "serde_json",
@@ -2180,6 +2181,10 @@ dependencies = [
  "windows-core",
  "zbus 5.19.0",
 ]
+
+[[package]]
+name = "futo-notes-wikilinks"
+version = "0.1.0"
 
 [[package]]
 name = "futo-puppet"
