@@ -1,11 +1,51 @@
+use std::sync::Arc;
+use std::time::Duration;
+
 use futo_notes_editor::{DisplayRange, EditorError, EditorSession, Revision, ViewChange};
 
 use crate::{paths, FlushDisposition, FlushDraftResult, LocalNoteStore, NOTE_NOT_FOUND};
 
+mod clock;
 mod lease;
+pub use clock::RecoveryClock;
 mod recovery;
+mod storage;
 use lease::EditorLease;
 use recovery::RecoveryLog;
+pub use storage::RecoveryStorage;
+
+/// Storage and time dependencies below the public editor/store workflow.
+/// Default construction uses the vault's guarded filesystem and monotonic time.
+pub struct RecoveryOptions {
+    pub clock: Arc<dyn RecoveryClock>,
+    pub storage: Box<dyn RecoveryStorage>,
+}
+
+impl Default for RecoveryOptions {
+    fn default() -> Self {
+        Self {
+            clock: Arc::new(clock::MonotonicClock::default()),
+            storage: Box::new(storage::VaultRecoveryStorage::default()),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RecoveryStatus {
+    /// Last OS-accepted edit in this session (including Undo/Redo).
+    pub accepted: Revision,
+    /// Last edit protected by a successful recovery flush or checkpoint.
+    /// These are session watermarks, not a markdown-saved flag. Reopening a log
+    /// conservatively requires another flush to acknowledge recovered records.
+    pub durable: Revision,
+    /// Deadline in the injected monotonic clock's coordinates. A host must run
+    /// `flush_recovery_if_due` on its worker; no timer runs inside this session.
+    pub flush_deadline: Option<Duration>,
+    pub paused: bool,
+    /// Completion after the target deadline, including storage latency. Failed
+    /// flushes do not update this measurement or acknowledge durability.
+    pub last_flush_lateness: Option<Duration>,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EditorStoreError {
@@ -13,6 +53,10 @@ pub enum EditorStoreError {
     SessionAlreadyOpen,
     Editor(EditorError),
     Recovery(String),
+    RecoveryAppend(String),
+    RecoveryFlush(String),
+    RecoveryResume(String),
+    RecoveryPaused,
     Checkpoint(String),
     CheckpointPending,
     /// Markdown committed, but recovery retirement failed. Apply `result`'s
@@ -44,6 +88,14 @@ pub struct StoreEditorSession<'store> {
 
 impl LocalNoteStore {
     pub fn open_editor(&self, id: &str) -> Result<StoreEditorSession<'_>, EditorStoreError> {
+        self.open_editor_with_recovery(id, RecoveryOptions::default())
+    }
+
+    pub fn open_editor_with_recovery(
+        &self,
+        id: &str,
+        options: RecoveryOptions,
+    ) -> Result<StoreEditorSession<'_>, EditorStoreError> {
         let _gate = self.lock_gate().map_err(EditorStoreError::Open)?;
         paths::note_path(&self.root, id).map_err(EditorStoreError::Open)?;
         let lease = EditorLease::acquire(&self.root, id)?;
@@ -52,7 +104,8 @@ impl LocalNoteStore {
             .map_err(EditorStoreError::Open)?
             .ok_or_else(|| EditorStoreError::Open(NOTE_NOT_FOUND.to_owned()))?;
         let (recovery, engine) =
-            RecoveryLog::open(&self.root, id, &base).map_err(EditorStoreError::Recovery)?;
+            RecoveryLog::open(&self.root, id, &base, options.clock, options.storage)
+                .map_err(EditorStoreError::Recovery)?;
         Ok(StoreEditorSession {
             store: self,
             id: id.to_owned(),
@@ -73,6 +126,53 @@ impl StoreEditorSession<'_> {
     pub(crate) fn set_retirement_failure(&mut self, fail: bool) {
         self.recovery.fail_retirement = fail;
     }
+    pub fn recovery_status(&self) -> RecoveryStatus {
+        RecoveryStatus {
+            accepted: self.recovery.accepted,
+            durable: self.recovery.durable,
+            flush_deadline: self.recovery.flush_deadline,
+            paused: self.recovery.failed || self.pending_checkpoint.is_some(),
+            last_flush_lateness: self.recovery.last_flush_lateness,
+        }
+    }
+
+    pub fn flush_recovery(&mut self) -> Result<RecoveryStatus, EditorStoreError> {
+        let _gate = self.store.lock_gate().map_err(EditorStoreError::Recovery)?;
+        if self.recovery.failed {
+            return Err(EditorStoreError::RecoveryPaused);
+        }
+        self.recovery
+            .flush(&self.store.root)
+            .map_err(EditorStoreError::RecoveryFlush)?;
+        Ok(self.recovery_status())
+    }
+
+    /// Run on the host's background worker when `flush_deadline` is reached.
+    /// A delayed worker flushes late; it never fabricates an on-time acknowledgement.
+    pub fn flush_recovery_if_due(&mut self) -> Result<bool, EditorStoreError> {
+        if !self.recovery.flush_due() {
+            return Ok(false);
+        }
+        self.flush_recovery()?;
+        Ok(true)
+    }
+
+    pub fn resume_recovery(&mut self) -> Result<RecoveryStatus, EditorStoreError> {
+        if self.pending_checkpoint.is_some() {
+            return Err(EditorStoreError::CheckpointPending);
+        }
+        let _gate = self
+            .store
+            .lock_gate()
+            .map_err(EditorStoreError::RecoveryResume)?;
+        if self.recovery.failed {
+            self.recovery
+                .resume(&self.store.root)
+                .map_err(EditorStoreError::RecoveryResume)?;
+        }
+        Ok(self.recovery_status())
+    }
+
     pub fn source_text(&self) -> String {
         self.engine.source_text()
     }
@@ -95,36 +195,54 @@ impl StoreEditorSession<'_> {
         if self.pending_checkpoint.is_some() {
             return Err(EditorStoreError::CheckpointPending);
         }
+        if self.recovery.failed {
+            return Err(EditorStoreError::RecoveryPaused);
+        }
         let _gate = self.store.lock_gate().map_err(EditorStoreError::Recovery)?;
         self.engine
             .replace(expected, range, inserted, &mut |edit| {
                 self.recovery.append(&self.store.root, edit)
             })
-            .map_err(EditorStoreError::Editor)
+            .map_err(|error| match error {
+                EditorError::Persistence(error) => EditorStoreError::RecoveryAppend(error),
+                other => EditorStoreError::Editor(other),
+            })
     }
 
     pub fn undo(&mut self, expected: Revision) -> Result<Option<ViewChange>, EditorStoreError> {
         if self.pending_checkpoint.is_some() {
             return Err(EditorStoreError::CheckpointPending);
         }
+        if self.recovery.failed {
+            return Err(EditorStoreError::RecoveryPaused);
+        }
         let _gate = self.store.lock_gate().map_err(EditorStoreError::Recovery)?;
         self.engine
             .undo(expected, &mut |edit| {
                 self.recovery.append(&self.store.root, edit)
             })
-            .map_err(EditorStoreError::Editor)
+            .map_err(|error| match error {
+                EditorError::Persistence(error) => EditorStoreError::RecoveryAppend(error),
+                other => EditorStoreError::Editor(other),
+            })
     }
 
     pub fn redo(&mut self, expected: Revision) -> Result<Option<ViewChange>, EditorStoreError> {
         if self.pending_checkpoint.is_some() {
             return Err(EditorStoreError::CheckpointPending);
         }
+        if self.recovery.failed {
+            return Err(EditorStoreError::RecoveryPaused);
+        }
         let _gate = self.store.lock_gate().map_err(EditorStoreError::Recovery)?;
         self.engine
             .redo(expected, &mut |edit| {
                 self.recovery.append(&self.store.root, edit)
             })
-            .map_err(EditorStoreError::Editor)
+            .map_err(|error| match error {
+                EditorError::Persistence(error) => EditorStoreError::RecoveryAppend(error),
+                other => EditorStoreError::Editor(other),
+            })
     }
 
     pub fn checkpoint(&mut self) -> Result<FlushDraftResult, EditorStoreError> {
