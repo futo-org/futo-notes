@@ -333,3 +333,208 @@ fn explicit_quote_choice_replaces_heading_and_indent_changes_one_level() {
     .unwrap();
     assert_eq!(s.source_text(), "> Title\r\n\r\nend");
 }
+
+#[test]
+fn selecting_heading_or_quote_text_then_enter_is_one_exact_action() {
+    for (raw, selection, expected, shown) in [
+        (
+            "## __abcd__\r\nend",
+            range(1, 3),
+            "## __a__\n__d__\r\nend",
+            "a\nd\r\nend",
+        ),
+        ("> abcd", range(0, 2), "\n> cd", "\ncd"),
+    ] {
+        let mut s = EditorSession::open(raw);
+        s.select(s.revision(), selection).unwrap();
+        let mut accepted = 0;
+        s.paragraph_key(s.revision(), selection, ParagraphKey::Enter, &mut |_| {
+            accepted += 1;
+            Ok(())
+        })
+        .unwrap()
+        .unwrap();
+        assert_eq!(accepted, 1);
+        assert_eq!(s.source_text(), expected);
+        assert_eq!(s.display_text(), shown);
+        s.undo(s.revision(), &mut |_| Ok(())).unwrap();
+        assert_eq!(s.source_text(), raw);
+        assert_eq!(s.selection(), selection);
+    }
+}
+#[test]
+fn commands_commit_marked_text_before_formatting_with_distinct_exact_history() {
+    let mut s = EditorSession::open("A\r\nend");
+    let mut v = ReferenceView::new("A\r\nend");
+    s.compose(s.revision(), range(1, 1), "日本").unwrap();
+    let mut calls = 0;
+    v.apply(
+        s.block_command(
+            s.revision(),
+            range(7, 7),
+            BlockCommand::Heading(2),
+            &mut |_| {
+                calls += 1;
+                Ok(())
+            },
+        )
+        .unwrap()
+        .unwrap(),
+    );
+    assert_eq!(calls, 1);
+    assert!(s.composition().is_none());
+    assert_eq!(s.source_text(), "## A日本\r\nend");
+    assert_eq!(v.text, "A日本\r\nend");
+    assert_eq!(s.selection(), range(7, 7));
+    v.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(s.source_text(), "A日本\r\nend");
+    v.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(s.source_text(), "A\r\nend");
+}
+
+#[test]
+fn empty_heading_enter_puts_the_caret_in_a_following_paragraph() {
+    let mut s = EditorSession::open("## ");
+    let change = s
+        .paragraph_key(s.revision(), range(0, 0), ParagraphKey::Enter, &mut |_| {
+            Ok(())
+        })
+        .unwrap()
+        .unwrap();
+    assert_eq!(s.source_text(), "## \n");
+    assert_eq!(change.selection, range(1, 1));
+    assert_eq!(
+        s.project(s.revision(), range(1, 1)).unwrap().blocks[0].heading,
+        0
+    );
+}
+#[test]
+fn quote_shortcut_isolates_its_line_from_following_plain_text() {
+    let mut s = EditorSession::open("before\r\n\r\nafter");
+    s.select(s.revision(), range(8, 8)).unwrap();
+    s.replace(s.revision(), s.selection(), ">", &mut |_| Ok(()))
+        .unwrap();
+    s.replace(s.revision(), s.selection(), " ", &mut |_| Ok(()))
+        .unwrap();
+    assert_eq!(s.source_text(), "before\r\n> \r\n\nafter");
+    s.replace(s.revision(), s.selection(), "Q", &mut |_| Ok(()))
+        .unwrap();
+    assert_eq!(s.source_text(), "before\r\n> Q\r\n\nafter");
+    assert_eq!(
+        s.project(s.revision(), range(12, 17))
+            .unwrap()
+            .blocks
+            .last()
+            .unwrap()
+            .quote_depth,
+        0
+    );
+}
+#[test]
+fn divider_caret_edges_create_text_paragraphs_and_deleting_the_atom_undoes_exactly() {
+    for (at, expected, shown, caret) in [
+        (0, "X\n* * *\r\nend", "X\n\u{fffc}\r\nend", 1),
+        (3, "* * *\nX\r\nend", "\u{fffc}\nX\r\nend", 5),
+    ] {
+        let mut s = EditorSession::open("* * *\r\nend");
+        let mut v = ReferenceView::new("\u{fffc}\r\nend");
+        v.apply(
+            s.replace(s.revision(), range(at, at), "X", &mut |_| Ok(()))
+                .unwrap(),
+        );
+        assert_eq!(s.source_text(), expected);
+        assert_eq!(v.text, shown);
+        assert_eq!(s.selection(), range(caret, caret));
+        v.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+        assert_eq!(s.source_text(), "* * *\r\nend");
+        v.apply(
+            s.replace(s.revision(), range(0, 3), "X", &mut |_| Ok(()))
+                .unwrap(),
+        );
+        assert_eq!(s.source_text(), "X\r\nend");
+        v.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+        assert_eq!(s.source_text(), "* * *\r\nend");
+    }
+}
+#[test]
+fn commands_on_lazy_quote_lines_retain_the_requested_container_depth() {
+    for (command, expected, depth, heading) in [
+        (BlockCommand::Heading(3), "> a\n> ### b\n> c", 1, 3),
+        (BlockCommand::Indent, "> a\n> > b\n>\n> c", 2, 0),
+        (BlockCommand::Outdent, "> a\n\nb\n> c", 0, 0),
+    ] {
+        let mut s = EditorSession::open("> a\nb\n> c");
+        s.block_command(s.revision(), range(2, 3), command, &mut |_| Ok(()))
+            .unwrap();
+        assert_eq!(s.source_text(), expected, "{command:?}");
+        let point = if command == BlockCommand::Outdent {
+            3
+        } else {
+            2
+        };
+        let p = s.project(s.revision(), range(point, point + 1)).unwrap();
+        assert_eq!(p.blocks[0].quote_depth, depth);
+        assert_eq!(p.blocks[0].heading, heading);
+    }
+}
+#[test]
+fn typing_before_a_dash_divider_keeps_it_a_divider_instead_of_a_setext_heading() {
+    let mut s = EditorSession::open("---\r\nend");
+    s.replace(s.revision(), range(0, 0), "X", &mut |_| Ok(()))
+        .unwrap();
+    assert_eq!(s.source_text(), "X\n***\r\nend");
+    assert_eq!(s.display_text(), "X\n\u{fffc}\r\nend");
+    s.undo(s.revision(), &mut |_| Ok(())).unwrap();
+    assert_eq!(s.source_text(), "---\r\nend");
+}
+#[test]
+fn quote_backspace_joins_within_its_container_and_first_block_backspace_exits() {
+    for (raw, display, at, expected, shown) in [
+        ("> __a__\n>\n> __b__", "a\n\nb", 3, "> __ab__", "ab"),
+        ("> a\n> b", "a\nb", 2, "> ab", "ab"),
+        ("> > ab", "ab", 0, "> ab", "ab"),
+        ("## ab", "ab", 0, "ab", "ab"),
+    ] {
+        let mut s = EditorSession::open(raw);
+        let mut v = ReferenceView::new(display);
+        v.apply(
+            s.paragraph_key(
+                s.revision(),
+                range(at, at),
+                ParagraphKey::Backspace,
+                &mut |_| Ok(()),
+            )
+            .unwrap()
+            .unwrap(),
+        );
+        assert_eq!(s.source_text(), expected, "{raw:?}");
+        assert_eq!(v.text, shown);
+        v.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+        assert_eq!(s.source_text(), raw);
+    }
+}
+#[test]
+fn quote_forward_join_and_delete_at_heading_start_keep_structure_and_exact_history() {
+    for (raw, display, at, expected, shown) in [
+        ("> __a__\n>\n> __b__", "a\n\nb", 1, "> __ab__", "ab"),
+        ("###### ab", "ab", 0, "###### b", "b"),
+        ("> ab", "ab", 0, "> b", "b"),
+    ] {
+        let mut s = EditorSession::open(raw);
+        let mut v = ReferenceView::new(display);
+        v.apply(
+            s.paragraph_key(
+                s.revision(),
+                range(at, at),
+                ParagraphKey::Delete,
+                &mut |_| Ok(()),
+            )
+            .unwrap()
+            .unwrap(),
+        );
+        assert_eq!(s.source_text(), expected, "{raw:?}");
+        assert_eq!(v.text, shown);
+        v.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+        assert_eq!(s.source_text(), raw);
+    }
+}

@@ -27,7 +27,7 @@ initial integer values within JavaScript's exact integer range.
    against process death; successful flush acknowledges power-loss durability.
    Neither watermark means the Markdown file has been checkpointed.
 
-`project(revision, display_range)` supplies display text, semantic runs and exact
+`project(revision, display_range)` supplies display text, semantic runs, block descriptions (heading level, quote depth and divider identity) and exact
 source/display correspondence for the requested window. `select_with_affinity`
 chooses the visible neighbor at a hidden boundary. Formatting toggles preserve
 display text and selection, but their source edits still require worker acceptance.
@@ -62,3 +62,11 @@ matching task-local wasm-bindgen CLI if needed; `WASM_BINDGEN=/path/to/wasm-bind
 selects an already installed matching binary. Generated output lives under
 Cargo's ignored target directory. The existing blocking Rust workspace CI job
 runs this consumer and remains a dependency of the release gate.
+
+`block_command_utf16` accepts `Heading(0..=6)`, explicit `Quote`, quote
+`Indent`/`Outdent`, and `Divider`. The WASM JSON command argument is an enum
+value such as `'{"Heading": 2}'` or `'"Divider"'`. `paragraph_key_utf16`
+uses the same engine for structural heading/quote Enter and exit rules.
+Commands, shortcut conversions and history use the existing protected append
+workflow; native callers receive equivalent descriptions through regenerated
+UniFFI bindings. Renderer integration and shipping defaults are unchanged.

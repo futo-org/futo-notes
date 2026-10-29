@@ -25,28 +25,30 @@ impl EditorSession {
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<Option<ViewChange>, EditorError> {
         self.check_revision(expected)?;
+        if self.composition.is_some() {
+            return self.command_during_composition(
+                expected,
+                range,
+                accept,
+                |staged, local, accept| staged.paragraph_key(staged.revision(), local, key, accept),
+            );
+        }
         self.validate_range(range)?;
         if let Some(change) = self.structural_key(expected, range, key, accept)? {
             return Ok(Some(change));
         }
+        let stop = |position, direction| self.grapheme_stop(position, direction, false);
         let inserted = match key {
             ParagraphKey::Enter | ParagraphKey::ShiftEnter => "\n",
             ParagraphKey::Backspace | ParagraphKey::Delete => {
                 if range.start == range.end {
                     match key {
                         ParagraphKey::Backspace => {
-                            range.start = DisplayOffset(self.grapheme_stop(
-                                range.start.0,
-                                CaretDirection::Backward,
-                                false,
-                            )?);
+                            range.start =
+                                DisplayOffset(stop(range.start.0, CaretDirection::Backward)?);
                         }
                         ParagraphKey::Delete => {
-                            range.end = DisplayOffset(self.grapheme_stop(
-                                range.end.0,
-                                CaretDirection::Forward,
-                                false,
-                            )?);
+                            range.end = DisplayOffset(stop(range.end.0, CaretDirection::Forward)?);
                         }
                         _ => unreachable!(),
                     }

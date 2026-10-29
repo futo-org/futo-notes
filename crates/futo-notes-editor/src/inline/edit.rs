@@ -309,7 +309,10 @@ fn cut(expanded: Vec<Piece>, selected: Range<usize>, keep: bool) -> Cut {
         if offset <= a && a < end {
             right = piece.spans.clone();
         }
-        if piece.display.is_empty() && piece.trailing && offset >= z && !keep {
+        if piece.display.is_empty() && !piece.trailing && offset == z && a < z && !keep {
+            // Joining lines retires the following line's block prefix. Its
+            // inline spans still join through their visible pieces below.
+        } else if piece.display.is_empty() && piece.trailing && offset >= z && !keep {
             after.push(piece);
         } else if keep || end <= a {
             before.push(piece);

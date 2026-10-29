@@ -1,7 +1,7 @@
 # Remaining work and performance limits
 
-Rename/delete lifecycle coordination, block/link interpretation,
-composition and renderer integration follow in their dependent tickets.
+Rename/delete lifecycle coordination, list/fence/table/link interpretation,
+note-id-dependent composition arbitration and renderer integration follow in their dependent tickets.
 
 Paragraph projections use a length-indexed tree and display Rope, so an ordinary
 edit after a distant jump reparses only its paragraph window without rewriting

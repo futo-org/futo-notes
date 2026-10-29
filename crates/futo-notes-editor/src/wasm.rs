@@ -237,6 +237,75 @@ impl WasmSession {
         )
     }
 
+    pub fn composition(&self) -> Result<String, JsValue> {
+        json(&self.0.composition())
+    }
+
+    pub fn compose_utf16(
+        &mut self,
+        revision: u64,
+        start: usize,
+        end: usize,
+        text: &[u16],
+    ) -> Result<String, JsValue> {
+        json(
+            &self
+                .0
+                .compose_utf16(
+                    Revision(revision),
+                    DisplayUtf16Range {
+                        start: DisplayUtf16Offset(start),
+                        end: DisplayUtf16Offset(end),
+                    },
+                    text,
+                )
+                .map_err(error)?,
+        )
+    }
+
+    pub fn cancel_composition(&mut self, revision: u64) -> Result<(), JsValue> {
+        self.0.cancel_composition(Revision(revision)).map_err(error)
+    }
+
+    pub fn commit_composition_utf16(
+        &mut self,
+        revision: u64,
+        text: Option<Vec<u16>>,
+    ) -> Result<String, JsValue> {
+        json(
+            &self
+                .0
+                .commit_composition_utf16(Revision(revision), text.as_deref())
+                .map_err(error)?,
+        )
+    }
+
+    pub fn replace_os_utf16(
+        &mut self,
+        revision: u64,
+        start: usize,
+        end: usize,
+        text: &[u16],
+        placeholders: &str,
+    ) -> Result<String, JsValue> {
+        let placeholders: Vec<DisplayUtf16Range> =
+            serde_json::from_str(placeholders).map_err(error)?;
+        json(
+            &self
+                .0
+                .replace_os_utf16(
+                    Revision(revision),
+                    DisplayUtf16Range {
+                        start: DisplayUtf16Offset(start),
+                        end: DisplayUtf16Offset(end),
+                    },
+                    text,
+                    &placeholders,
+                )
+                .map_err(error)?,
+        )
+    }
+
     pub fn undo(&mut self, revision: u64) -> Result<String, JsValue> {
         json(&self.0.undo(Revision(revision)).map_err(error)?)
     }

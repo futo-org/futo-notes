@@ -28,13 +28,14 @@ pub(crate) struct Row {
 
 impl Row {
     pub fn parse(source: &str) -> Self {
-        let blocks = super::blocks::describe(source);
+        let events: Vec<_> = Parser::new_ext(source, Options::ENABLE_STRIKETHROUGH)
+            .into_offset_iter()
+            .collect();
+        let blocks = super::blocks::describe(source, &events);
         let mut hidden = vec![false; source.len()];
         let mut spans = Vec::new();
         let mut replacements = Vec::<(Range<usize>, String)>::new();
-        for (event, range) in
-            Parser::new_ext(source, Options::ENABLE_STRIKETHROUGH).into_offset_iter()
-        {
+        for (event, range) in events {
             let format = match event {
                 Event::Start(Tag::Strong) => Some((InlineFormat::Bold, 2)),
                 Event::Start(Tag::Emphasis) => Some((InlineFormat::Italic, 1)),

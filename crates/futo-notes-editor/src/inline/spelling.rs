@@ -36,7 +36,7 @@ pub(super) fn spell(
     let mut parsed = 0;
     if literal {
         let mut candidate = Row::parse(&rendered.text);
-        parsed += 2 * rendered.text.len();
+        parsed += rendered.text.len();
         if candidate.display != expected {
             // A speculative line-start marker must reopen as the literal text
             // the writer still sees. The block shortcut replaces this spelling
@@ -57,7 +57,7 @@ pub(super) fn spell(
             }
             rendered = render(&pieces, &markers, insertion.start, insertion.end);
             candidate = Row::parse(&rendered.text);
-            parsed += 2 * rendered.text.len();
+            parsed += rendered.text.len();
         }
         let missing: Vec<_> = rendered
             .spans
@@ -78,7 +78,7 @@ pub(super) fn spell(
             repair_boundaries(&mut pieces, &missing);
             rendered = render(&pieces, &markers, insertion.start, insertion.end);
             let candidate = Row::parse(&rendered.text);
-            parsed += 2 * rendered.text.len();
+            parsed += rendered.text.len();
             let missing: Vec<_> = rendered
                 .spans
                 .iter()
@@ -110,7 +110,7 @@ pub(super) fn spell(
             }
             rendered = render(&pieces, &markers, insertion.start, insertion.end);
             let candidate = Row::parse(&rendered.text);
-            parsed += 2 * rendered.text.len();
+            parsed += rendered.text.len();
             if candidate.display != expected
                 || rendered.spans.iter().any(|(_, expected)| {
                     !candidate.spans.iter().any(|span| {

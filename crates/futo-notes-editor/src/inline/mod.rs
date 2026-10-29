@@ -158,9 +158,10 @@ impl Projection {
                 let hit = if range.start == range.end {
                     a <= range.start.0
                         && (range.start.0 < z
-                            || source + block.source.end
-                                == self.rows.at(self.rows.len() - 1).1
-                                    + self.rows.at(self.rows.len() - 1).0.source_len)
+                            || (block.source.start == row.blocks.last().unwrap().source.start
+                                && source + block.source.end
+                                    == self.rows.at(self.rows.len() - 1).1
+                                        + self.rows.at(self.rows.len() - 1).0.source_len))
                 } else {
                     a < range.end.0 && range.start.0 < z
                 };
@@ -237,7 +238,7 @@ impl Projection {
         Update {
             range,
             inserted,
-            parsed_source_bytes: 3 * text.len(),
+            parsed_source_bytes: 2 * text.len(),
             materialized_source_bytes: text.len(),
             semantic_range,
         }

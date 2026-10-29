@@ -2,6 +2,7 @@ use super::*;
 use futo_notes_editor::{DisplayOffset, DisplayRange, Revision};
 
 mod blocks;
+mod composition;
 mod durability;
 mod paragraphs;
 mod portable;

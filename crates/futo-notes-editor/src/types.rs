@@ -99,6 +99,7 @@ pub enum EditorError {
     },
     InvalidRange,
     InvalidText,
+    CompositionActive,
     RevisionExhausted,
     UnrepresentableFormat,
     Persistence(String),

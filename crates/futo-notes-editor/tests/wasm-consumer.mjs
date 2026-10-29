@@ -201,10 +201,29 @@ const { WasmSession } = await import(pathToFileURL(process.argv[2]).href);
     assert.equal(text, '😀z\n日 b\r\n');
     apply(JSON.parse(page.acknowledge(JSON.stringify(await exchange(JSON.parse(page.undo(22n)))))));
     assert.equal(page.draft_text(), '###### ~~__😀z日 b__~~\r\n');
+    const marked = JSON.parse(
+      page.compose_utf16(23n, 3, 4, new Uint16Array([0x306b, 0x307b, 0x3093])),
+    );
+    assert.equal(marked.text, 'にほん');
+    assert.equal(page.draft_text(), '###### ~~__😀z日 b__~~\r\n');
+    assert.equal(JSON.parse(page.undo(23n)), null);
+    assert.throws(() => page.compose_utf16(23n, 3, 4, new Uint16Array([0xd800])));
+    assert.throws(
+      () => page.replace_utf16_action(23n, 3, 6, new Uint16Array([0x65e5]), '"CompositionCommit"'),
+      /CompositionActive/,
+    );
+    const markedCommit = JSON.parse(
+      page.commit_composition_utf16(23n, new Uint16Array([0x65e5, 0x672c])),
+    );
+    assert.equal(text, '😀z日 b\r\n');
+    apply(JSON.parse(page.acknowledge(JSON.stringify(await exchange(markedCommit)))));
+    assert.equal(text, '😀z日本 b\r\n');
+    assert.equal(page.draft_text(), '###### ~~__😀z日本 b__~~\r\n');
+    assert.equal(JSON.parse(page.commit_composition_utf16(24n)), null);
     const flush = JSON.parse(page.flush());
     assert.equal(JSON.parse(page.status()).durable, 0);
     page.acknowledge(JSON.stringify(await exchange(flush)));
-    assert.equal(JSON.parse(page.status()).durable, 23);
+    assert.equal(JSON.parse(page.status()).durable, 24);
   } finally {
     clearTimeout(deadline);
     page?.free();

@@ -1,5 +1,5 @@
 //! Block meaning comes from CommonMark events; marker spelling stays in source.
-use pulldown_cmark::{Event, Parser, Tag};
+use pulldown_cmark::{Event, Tag};
 use std::ops::Range;
 
 #[derive(Clone, Debug)]
@@ -13,7 +13,7 @@ pub(crate) struct BlockLine {
     pub code: bool,
 }
 
-pub(super) fn describe(source: &str) -> Vec<BlockLine> {
+pub(super) fn describe(source: &str, events: &[(Event<'_>, Range<usize>)]) -> Vec<BlockLine> {
     let mut at = 0;
     let mut lines: Vec<_> = source
         .split_inclusive('\n')
@@ -43,7 +43,7 @@ pub(super) fn describe(source: &str) -> Vec<BlockLine> {
         });
     }
     let mut setext = Vec::new();
-    for (event, range) in Parser::new(source).into_offset_iter() {
+    for (event, range) in events.iter().cloned() {
         match event {
             Event::Start(Tag::BlockQuote(_)) => {
                 let first = lines.partition_point(|line| line.source.end <= range.start);

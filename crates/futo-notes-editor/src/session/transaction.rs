@@ -14,6 +14,9 @@ impl EditorSession {
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<ViewChange, EditorError> {
         self.check_revision(expected)?;
+        if self.composition.is_some() {
+            return self.compound_during_composition(expected, replacements, accept);
+        }
         if replacements.is_empty() {
             return Err(EditorError::InvalidRange);
         }
@@ -37,7 +40,7 @@ impl EditorSession {
         let mut old_end = display_start;
         let mut new_end = 0;
         let mut materialized = raw.len();
-        let mut parsed = 3 * raw.len();
+        let mut parsed = 2 * raw.len();
         for replacement in replacements {
             let local_range = DisplayRange {
                 start: DisplayOffset(new_end + replacement.range.start.0 - old_end),

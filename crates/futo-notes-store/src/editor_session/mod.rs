@@ -10,6 +10,7 @@ use crate::{paths, FlushDisposition, FlushDraftResult, LocalNoteStore, NOTE_NOT_
 
 mod checkpoint;
 mod clock;
+mod composition;
 mod input;
 mod lease;
 pub use clock::RecoveryClock;

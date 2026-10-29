@@ -9,7 +9,7 @@ mod portable;
 mod session;
 mod types;
 
-pub use session::{BlockCommand, EditorSession, ParagraphKey};
+pub use session::{BlockCommand, Composition, EditorSession, ParagraphKey};
 pub use types::{
     Affinity, BlockDescription, CaretDirection, Correspondence, DisplayOffset, DisplayRange,
     DisplayUtf16Offset, DisplayUtf16Range, EditWork, EditorError, InlineFormat, ProjectionSlice,

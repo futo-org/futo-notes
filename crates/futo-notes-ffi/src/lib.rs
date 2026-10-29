@@ -1,6 +1,6 @@
 mod editor;
 pub use editor::{
-    EditorAffinity, EditorBlockCommand, EditorBlockDescription, EditorByteRange,
+    EditorAffinity, EditorBlockCommand, EditorBlockDescription, EditorByteRange, EditorComposition,
     EditorCorrespondence, EditorDisplayByteOffset, EditorInlineFormat, EditorInputAction,
     EditorParagraphKey, EditorProjection, EditorRecoveryIssue, EditorRecoveryIssueKind,
     EditorRecoveryStatus, EditorSemanticRun, EditorSessionError, EditorSourceByteOffset,
