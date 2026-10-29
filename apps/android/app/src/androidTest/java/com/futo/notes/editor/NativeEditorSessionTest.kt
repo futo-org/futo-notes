@@ -54,21 +54,21 @@ class NativeEditorSessionTest {
                 assertEquals("a😀\u0000z\r\n", session.sourceText())
                 session.redo(2uL)
                 assertEquals(3uL, session.flushRecovery().durable)
-                session.close()
+                session.detach()
                 session.destroy()
                 store.openEditor("plain").use { recovered ->
                     assertEquals("a🇯🇵\u0000\u0000z\r\n", recovered.sourceText())
                     assertEquals(3uL, recovered.revision())
                     assertEquals("plain", recovered.checkpoint().mutation?.finalId)
                     assertEquals("a🇯🇵\u0000\u0000z\r\n", store.read("plain"))
-                    recovered.close()
+                    recovered.detach()
                 }
                 store.createNote("inline", "", "__日😀__ tail\r\n")
                 store.openEditor("inline").use { inline ->
                     val projected = inline.project(0uL, EditorByteRange(0uL, 14uL))
                     assertEquals("日😀 tail\r\n", projected.text)
                     assertEquals(listOf(EditorInlineFormat.BOLD), projected.runs.first().formats)
-                    inline.close()
+                    inline.detach()
                 }
             }
         } finally {

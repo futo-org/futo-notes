@@ -134,7 +134,7 @@ fn native_input_errors_selection_and_history_match_the_direct_session() {
     assert_eq!(native.source_text().unwrap(), "a😀\0z\r\n");
     native.redo(2).unwrap().unwrap();
     assert_eq!(native.source_text().unwrap(), "a日本\0\0z\r\n");
-    native.close().unwrap();
+    native.detach().unwrap();
     assert!(matches!(
         native.source_text(),
         Err(EditorSessionError::Unavailable)

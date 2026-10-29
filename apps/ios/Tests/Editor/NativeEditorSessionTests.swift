@@ -44,20 +44,20 @@ struct NativeEditorSessionTests {
             #expect(try session.sourceText() == "a😀\0z\r\n")
             _ = try session.redo(expected: 2)
             #expect(try session.flushRecovery().durable == 3)
-            try session.close()
+            try session.detach()
             let recovered = try store.openEditor(id: "plain")
             #expect(try recovered.sourceText() == "a🇯🇵\0\0z\r\n")
             #expect(try recovered.revision() == 3)
             let result = try recovered.checkpoint()
             #expect(result.mutation?.finalId == "plain")
             #expect(try store.read(id: "plain") == "a🇯🇵\0\0z\r\n")
-            try recovered.close()
+            try recovered.detach()
             _ = try store.createNote(title: "inline", folder: "", content: "__日😀__ tail\r\n")
             let inline = try store.openEditor(id: "inline")
             let projection = try inline.project(expected: 0, range: EditorByteRange(start: 0, end: 14))
             #expect(projection.text == "日😀 tail\r\n")
             #expect(projection.runs.first?.formats == [.bold])
-            try inline.close()
+            try inline.detach()
         }.value
     }
 }

@@ -96,7 +96,7 @@ impl NativeEditorSession {
     }
 
     /// Releases the attachment without silently saving or discarding recovery.
-    pub fn close(&self) -> Result<(), EditorSessionError> {
+    pub fn detach(&self) -> Result<(), EditorSessionError> {
         self.inner
             .lock()
             .map_err(|_| EditorSessionError::Unavailable)?
