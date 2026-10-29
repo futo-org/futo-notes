@@ -17,7 +17,7 @@ pub(crate) struct Plan {
     pub materialized: usize,
     pub parsed: usize,
 }
-fn common_prefix(a: &str, b: &str) -> usize {
+pub(super) fn common_prefix(a: &str, b: &str) -> usize {
     a.chars()
         .zip(b.chars())
         .take_while(|(a, b)| a == b)
@@ -26,80 +26,6 @@ fn common_prefix(a: &str, b: &str) -> usize {
 }
 
 impl Projection {
-    fn line_boundaries(&self, range: DisplayRange) -> Vec<usize> {
-        let first = self.display.byte_to_line(range.start.0);
-        let mut last = self.display.byte_to_line(range.end.0);
-        if range.start != range.end
-            && last > first
-            && self.display.line_to_byte(last) == range.end.0
-        {
-            last -= 1;
-        }
-        (first..=(last + 1).min(self.display.len_lines() - 1))
-            .map(|line| self.display.line_to_byte(line))
-            .collect()
-    }
-
-    pub(crate) fn has_block_seams(&self, range: DisplayRange) -> bool {
-        let first = self.rows.locate(range.start.0, true);
-        let last = self.rows.locate(range.end.0, true);
-        self.line_boundaries(range).into_iter().any(|boundary| {
-            let (low, high) = self.source_bounds(boundary);
-            (first..=last).any(|index| {
-                let (row, source, _) = self.rows.at(index);
-                row.spans
-                    .iter()
-                    .any(|span| source + span.open.end < low && high < source + span.close.start)
-            })
-        })
-    }
-
-    pub(crate) fn split_block_lines(
-        &self,
-        source: &Rope,
-        range: DisplayRange,
-    ) -> Result<Option<Plan>, EditorError> {
-        if !self.has_block_seams(range) {
-            return Ok(None);
-        }
-        let Context {
-            raw,
-            source_start,
-            source_end,
-            mut pieces,
-            markers,
-            ..
-        } = self.edit_context(source, range);
-        let display_start = self.display_at(source_start);
-        let boundaries: Vec<_> = self
-            .line_boundaries(range)
-            .into_iter()
-            .map(|boundary| boundary - display_start)
-            .collect();
-        super::spelling::split_block_spans(&mut pieces, &boundaries);
-        let end = pieces.len();
-        let rendered = spell(pieces, markers, end..end, true)?;
-        if rendered.text == raw {
-            return Ok(None);
-        }
-        let prefix = common_prefix(&raw, &rendered.text);
-        let suffix: usize = raw[prefix..]
-            .chars()
-            .rev()
-            .zip(rendered.text[prefix..].chars().rev())
-            .take_while(|(a, b)| a == b)
-            .map(|(ch, _)| ch.len_utf8())
-            .sum();
-        Ok(Some(Plan {
-            range: source_start + prefix..source_end - suffix,
-            inserted: rendered.text[prefix..rendered.text.len() - suffix].to_owned(),
-            caret: source_start,
-            formats: Vec::new(),
-            materialized: raw.len() + rendered.text.len(),
-            parsed: rendered.parsed,
-        }))
-    }
-
     pub fn edit(
         &self,
         source: &Rope,
@@ -222,7 +148,7 @@ impl Projection {
             parsed,
         })
     }
-    fn edit_context(&self, source: &Rope, range: DisplayRange) -> Context {
+    pub(super) fn edit_context(&self, source: &Rope, range: DisplayRange) -> Context {
         let first = self.rows.locate(range.start.0, true);
         let last = self.rows.locate(range.end.0, true);
         let (_, source_start, display_start) = self.rows.at(first);
@@ -309,14 +235,14 @@ pub(crate) fn delimiter(format: InlineFormat) -> &'static str {
     }
 }
 
-struct Context {
-    raw: String,
-    source_start: usize,
-    source_end: usize,
-    a: usize,
-    z: usize,
-    markers: Vec<Marker>,
-    pieces: Vec<Piece>,
+pub(super) struct Context {
+    pub(super) raw: String,
+    pub(super) source_start: usize,
+    pub(super) source_end: usize,
+    pub(super) a: usize,
+    pub(super) z: usize,
+    pub(super) markers: Vec<Marker>,
+    pub(super) pieces: Vec<Piece>,
 }
 struct Cut {
     before: Vec<Piece>,

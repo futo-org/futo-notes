@@ -1,3 +1,4 @@
+mod block_edit;
 pub(crate) mod blocks;
 mod edit;
 mod row;
