@@ -1,0 +1,38 @@
+{
+  "current": {
+    "availableLanguages": ["en-US", "emoji"],
+    "language": "en-US",
+    "marked": null,
+    "selected": [11, 11],
+    "textUTF16": [116, 104, 101, 32, 38, 32, 99, 97, 116, 13, 10]
+  },
+  "diff": {
+    "elements": {
+      "added": [],
+      "changed": [],
+      "removed": []
+    }
+  },
+  "formatVersion": 1,
+  "ok": true,
+  "opening": {
+    "availableLanguages": ["en-US", "emoji"],
+    "language": null,
+    "marked": null,
+    "selected": [11, 11],
+    "textUTF16": [116, 101, 104, 32, 38, 32, 99, 116, 97, 13, 10]
+  },
+  "os": "Version 27.2 (Build 24B114)",
+  "selectionRect": [5, 96.33333333333334, 0, 26.33333333333333],
+  "sourceUTF16": [
+    95, 95, 116, 101, 104, 95, 95, 32, 38, 97, 109, 112, 59, 32, 42, 42, 99, 116, 97, 42, 42, 13, 10
+  ],
+  "traits": {
+    "autocapitalization": 2,
+    "autocorrection": 2,
+    "keyboard": 0,
+    "spellChecking": 1
+  },
+  "verb": "ReadNativeInputRecorder",
+  "eventFiles": ["whole-field-paste-focus", "whole-field-paste-replacement"]
+}

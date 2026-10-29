@@ -56,7 +56,7 @@ export const timings = {
   scenarioMs: 0,
 };
 
-/** Next port pair inside this worktree's band; never the next worktree's. */
+/** Next candidate pair inside this worktree's band; never the next worktree's. */
 export function allocateServerPort() {
   const port = serverPortCounter;
   serverPortCounter += PORTS_PER_SCENARIO;
@@ -67,6 +67,12 @@ export function allocateServerPort() {
         `scenarios. Walking past it would land on another worktree's ports — widen ` +
         `XPLAT_SYNC_BAND.stride in scripts/lib/slot.mjs instead.`,
     );
+  }
+  // Scenarios request server shutdown before advancing. Revisit candidates after a
+  // complete band rather than limiting a sweep to fifty cases; startServer
+  // still refuses either occupied port and verifies the new child's identity.
+  if (serverPortCounter + PORTS_PER_SCENARIO - 1 > PORT_BAND.end) {
+    serverPortCounter = PORT_BAND.base;
   }
   return port;
 }
