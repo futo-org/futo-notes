@@ -6,6 +6,8 @@ use futo_notes_editor::{DisplayOffset, DisplayRange, Revision};
 use futo_notes_store::{FlushDisposition, LocalNoteStore};
 use std::collections::HashMap;
 
+mod destinations;
+
 #[tokio::test]
 async fn crash_then_sync_preserves_restored_checkpoint_and_pending_draft() {
     for outside in ["plain", "outside\r\nbytes  "] {

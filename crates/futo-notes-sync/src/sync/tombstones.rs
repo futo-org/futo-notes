@@ -65,7 +65,14 @@ fn recover_stale_claim(root: &Path, name: &str, pre_write: &PreWrite) {
         return;
     }
     pre_write(&original);
-    if matches!(vault_fs::rename(root, name, &original), Ok(true)) {
+    if futo_notes_core::files::recovery_coordination::protect_replacement(root, &original).is_err()
+    {
+        return;
+    }
+    if matches!(
+        vault_fs::move_no_replace_strict(root, name, &original),
+        Ok(true)
+    ) {
         let _ = remove_if_present(root, &sidecar);
     }
 }
@@ -145,7 +152,12 @@ fn restore_claim(root: &Path, claim: &str, sidecar: &str, destination: &str) {
         return;
     };
     if vault_fs::exists(root, destination).is_ok_and(|exists| !exists)
-        && matches!(vault_fs::rename(root, claim, destination), Ok(true))
+        && futo_notes_core::files::recovery_coordination::protect_replacement(root, destination)
+            .is_ok()
+        && matches!(
+            vault_fs::move_no_replace_strict(root, claim, destination),
+            Ok(true)
+        )
     {
         let _ = remove_if_present(root, sidecar);
     }
@@ -201,7 +213,8 @@ fn park_divergent_claim(
             copy = conflict_filename(name, &conflict_date(), &names);
         }
         pre_write(&copy);
-        let rename_result = vault_fs::rename(root, claim, &copy);
+        futo_notes_core::files::recovery_coordination::protect_replacement(root, &copy)?;
+        let rename_result = vault_fs::move_no_replace_strict(root, claim, &copy);
         (copy, rename_result)
     };
     match rename_result {

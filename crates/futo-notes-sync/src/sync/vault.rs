@@ -236,6 +236,7 @@ pub(super) fn rename_local(root: &Path, source: &str, destination: &str) -> Resu
             "collision destination already exists: {destination}"
         ));
     }
+    futo_notes_core::files::recovery_coordination::protect_replacement(root, destination)?;
     vault_fs::move_no_replace_strict(root, source, destination)
 }
 
