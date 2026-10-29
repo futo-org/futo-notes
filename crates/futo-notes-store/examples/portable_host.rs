@@ -7,7 +7,7 @@ use futo_notes_store::LocalNoteStore;
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let root = std::env::args_os().nth(1).ok_or("scratch vault required")?;
     let store = LocalNoteStore::new(root.into());
-    store.create("", "plain", "a\r\n")?;
+    store.create("", "plain", "__a__\r\n")?;
     let session = store.open_editor("plain")?;
     let mut output = io::stdout().lock();
     let mut host = session.into_portable_host(SessionToken(17));

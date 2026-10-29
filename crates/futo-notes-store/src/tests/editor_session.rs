@@ -208,3 +208,52 @@ fn two_store_instances_cannot_open_the_same_editor_recovery_stream() {
     drop(first);
     assert!(second_store.open_editor("plain").is_ok());
 }
+
+#[test]
+fn hidden_inline_edits_history_recovery_and_checkpoint_preserve_exact_markdown() {
+    use futo_notes_editor::{Affinity, InlineFormat};
+    let root = TestRoot::new();
+    let store = store(&root);
+    let original = "__日😀__*ab* tail\t\r\n";
+    store.create("", "inline", original).unwrap();
+    {
+        let mut editor = store.open_editor("inline").unwrap();
+        assert_eq!(editor.display_text(), "日😀ab tail\t\r\n");
+        editor
+            .select_with_affinity(Revision(0), range(7, 7), Affinity::Forward)
+            .unwrap();
+        editor.replace(Revision(0), range(7, 7), "中").unwrap();
+        assert_eq!(editor.source_text(), "__日😀__*中ab* tail\t\r\n");
+        assert_eq!(editor.selection(), range(10, 10));
+        editor
+            .select_with_affinity(Revision(1), range(10, 12), Affinity::Forward)
+            .unwrap();
+        editor
+            .toggle_format(Revision(1), InlineFormat::Strike)
+            .unwrap()
+            .unwrap();
+        assert_eq!(editor.source_text(), "__日😀__*中*~~*ab*~~ tail\t\r\n");
+        editor.undo(Revision(2)).unwrap().unwrap();
+        assert_eq!(editor.source_text(), "__日😀__*中ab* tail\t\r\n");
+        editor.redo(Revision(3)).unwrap().unwrap();
+        assert_eq!(editor.display_text(), "日😀中ab tail\t\r\n");
+        assert_eq!(store.read("inline").unwrap(), original);
+    }
+    let mut editor = store.open_editor("inline").unwrap();
+    assert_eq!(editor.source_text(), "__日😀__*中*~~*ab*~~ tail\t\r\n");
+    assert_eq!(editor.display_text(), "日😀中ab tail\t\r\n");
+    assert_eq!(editor.revision(), Revision(4));
+    assert_eq!(
+        editor.project(Revision(4), range(10, 12)).unwrap().runs[0].formats,
+        vec![InlineFormat::Italic, InlineFormat::Strike]
+    );
+    editor.checkpoint().unwrap();
+    assert_eq!(
+        store.read("inline").unwrap(),
+        "__日😀__*中*~~*ab*~~ tail\t\r\n"
+    );
+    drop(editor);
+    let reopened = store.open_editor("inline").unwrap();
+    assert_eq!(reopened.source_text(), "__日😀__*中*~~*ab*~~ tail\t\r\n");
+    assert_eq!(reopened.display_text(), "日😀中ab tail\t\r\n");
+}
