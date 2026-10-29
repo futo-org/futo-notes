@@ -1,7 +1,8 @@
+import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 
 import {
   RULES,
@@ -10,7 +11,10 @@ import {
   scanText,
 } from './check-qa-input-safety.mjs';
 
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const scratch = [];
+afterEach(() => {
+  for (const dir of scratch.splice(0)) fs.rmSync(dir, { recursive: true, force: true });
+});
 
 // The techniques this gate bans are the ones that, on 2026-08-10, sent real
 // Cmd+Z keystrokes from a QA agent into the user's production vault. These tests
@@ -133,10 +137,33 @@ describe('scanText — what the kill rule must leave alone', () => {
 
 describe('collectInstructionFiles', () => {
   it('scans the root justfile and every recipe file it imports', () => {
-    const relative = collectInstructionFiles(ROOT).map((file) => path.relative(ROOT, file));
-    expect(relative).toContain('justfile');
-    // The deploy recipes with the two pinned pattern kills live here.
-    expect(relative).toContain('just/desktop.justfile');
+    // Exercise discovery against an owned tree: the real checkout can contain
+    // arbitrarily large native build outputs. The umbrella also runs the real
+    // gate against the checkout, so this unit case need not traverse it again.
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'qa-instruction-discovery-'));
+    scratch.push(root);
+    const surfaces = [
+      'README.md',
+      'CONTRIBUTING.md',
+      'AGENTS.md',
+      'src/nested/AGENTS.md',
+      'docs/guide.md',
+      '.claude/skills/example/SKILL.md',
+      '.claude/agents/example.md',
+      '.claude/workflows/example.mjs',
+      'just/desktop.justfile',
+      'just/mobile.justfile',
+    ];
+    for (const file of surfaces) {
+      fs.mkdirSync(path.dirname(path.join(root, file)), { recursive: true });
+      fs.writeFileSync(path.join(root, file), 'fixture');
+    }
+    fs.writeFileSync(
+      path.join(root, 'justfile'),
+      "import 'just/desktop.justfile'\nimport 'just/mobile.justfile'\n",
+    );
+    const relative = collectInstructionFiles(root).map((file) => path.relative(root, file));
+    expect(relative.sort()).toEqual(['justfile', ...surfaces].sort());
   });
 });
 
