@@ -109,6 +109,32 @@ impl EditorSession {
         action: crate::InputAction,
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<Option<ViewChange>, EditorError> {
+        self.command_during_composition(expected, range, accept, |staged, local_range, accept| {
+            if action == crate::InputAction::Typing {
+                staged
+                    .replace_action(staged.revision(), local_range, inserted, action, accept)
+                    .map(Some)
+            } else {
+                staged.replace_os(staged.revision(), local_range, inserted, &[], accept)
+            }
+        })
+    }
+
+    /// Shared source-command arbitration. Commands run on an affected-window
+    /// engine after the pending text commits, then one source record protects
+    /// both actions while their exact history groups remain independent.
+    pub(super) fn command_during_composition(
+        &mut self,
+        expected: Revision,
+        range: DisplayRange,
+        accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
+        operation: impl FnOnce(
+            &mut Self,
+            DisplayRange,
+            &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
+        ) -> Result<Option<ViewChange>, EditorError>,
+    ) -> Result<Option<ViewChange>, EditorError> {
+        self.check_revision(expected)?;
         let display = self.provisional_display();
         validate_overlay_range(&display, range)?;
         let marked = self.composition.as_ref().unwrap();
@@ -151,17 +177,7 @@ impl EditorSession {
             &[],
             &mut capture,
         )?;
-        let second = if action == crate::InputAction::Typing {
-            Some(staged.replace_action(
-                staged.revision(),
-                local(range),
-                inserted,
-                action,
-                &mut capture,
-            )?)
-        } else {
-            staged.replace_os(staged.revision(), local(range), inserted, &[], &mut capture)?
-        };
+        let second = operation(&mut staged, local(range), &mut capture)?;
         let selection = DisplayRange {
             start: DisplayOffset(display_start + staged.selection.start.0),
             end: DisplayOffset(display_start + staged.selection.end.0),

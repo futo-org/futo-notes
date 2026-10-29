@@ -395,3 +395,27 @@ fn replay_cannot_shift_a_pending_composition_before_host_acceptance() {
     assert_eq!(session.source_text(), "ab");
     assert_eq!(session.composition().unwrap().range, range(1, 1));
 }
+
+#[test]
+fn legacy_host_owned_commit_cannot_mix_with_engine_owned_composition() {
+    let mut session = EditorSession::open("__word__");
+    session.compose(Revision(0), range(0, 4), "か").unwrap();
+    assert_eq!(
+        session.replace_action(
+            Revision(0),
+            range(0, 3),
+            "語",
+            InputAction::CompositionCommit,
+            &mut |_| panic!("mixed composition ownership must reject before acceptance")
+        ),
+        Err(EditorError::CompositionActive)
+    );
+    assert_eq!(session.source_text(), "__word__");
+    assert_eq!(session.composition().unwrap().text, "か");
+    session
+        .commit_composition(Revision(0), Some("語"), &mut |_| Ok(()))
+        .unwrap()
+        .unwrap();
+    session.undo(Revision(1), &mut |_| Ok(())).unwrap().unwrap();
+    assert_eq!(session.source_text(), "__word__");
+}

@@ -31,6 +31,12 @@ struct NativeEditorCompositionTests {
                     expected: 0, range: EditorUtf16Range(start: 0, end: 3), text: [0xD800])
                 Issue.record("Malformed marked input was accepted")
             } catch EditorSessionError.InvalidText {}
+            do {
+                _ = try session.replaceUtf16Action(
+                    expected: 0, range: EditorUtf16Range(start: 0, end: 1),
+                    inserted: Array("the".utf16), action: .compositionCommit)
+                Issue.record("Mixed composition ownership was accepted")
+            } catch EditorSessionError.CompositionActive {}
             apply(
                 try #require(
                     try session.commitCompositionUtf16(expected: 0, text: Array("the".utf16))))

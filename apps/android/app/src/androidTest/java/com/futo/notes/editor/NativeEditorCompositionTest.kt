@@ -30,6 +30,10 @@ class NativeEditorCompositionTest {
                         session.composeUtf16(0uL, EditorUtf16Range(0uL, 3uL), listOf(0xd800u.toUShort()))
                         fail("Malformed marked input was accepted")
                     } catch (_: EditorSessionException.InvalidText) {}
+                    try {
+                        session.replaceUtf16Action(0uL, EditorUtf16Range(0uL, 1uL), units("the"), EditorInputAction.COMPOSITION_COMMIT)
+                        fail("Mixed composition ownership was accepted")
+                    } catch (_: EditorSessionException.CompositionActive) {}
                     apply(checkNotNull(session.commitCompositionUtf16(0uL, units("the"))))
                     apply(checkNotNull(session.replaceOsUtf16(1uL, EditorUtf16Range(0uL, 12uL), units("the & wrong\uFFFC\r\n"), listOf(EditorUtf16Range(11uL, 12uL)))))
                     assertEquals("the & wrong\r\n", view.toString(Charsets.UTF_8))

@@ -305,6 +305,9 @@ impl EditorSession {
     ) -> Result<ViewChange, EditorError> {
         self.check_revision(expected)?;
         if self.composition.is_some() {
+            if action == crate::InputAction::CompositionCommit {
+                return Err(EditorError::CompositionActive);
+            }
             return self.input_during_composition(expected, range, inserted, action, accept);
         }
         self.validate_range(range)?;

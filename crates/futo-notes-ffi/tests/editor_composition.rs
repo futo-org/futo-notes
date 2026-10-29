@@ -1,5 +1,5 @@
 mod support;
-use futo_notes_ffi::{EditorSessionError, EditorUtf16Range, NoteStore};
+use futo_notes_ffi::{EditorInputAction, EditorSessionError, EditorUtf16Range, NoteStore};
 use support::{path_string, TempTree};
 
 #[test]
@@ -23,6 +23,15 @@ fn native_composition_and_os_correction_forward_exact_source_and_errors() {
     assert!(matches!(
         session.compose_utf16(0, EditorUtf16Range { start: 0, end: 3 }, vec![0xd800]),
         Err(EditorSessionError::InvalidText)
+    ));
+    assert!(matches!(
+        session.replace_utf16_action(
+            0,
+            EditorUtf16Range { start: 0, end: 1 },
+            "the".encode_utf16().collect(),
+            EditorInputAction::CompositionCommit
+        ),
+        Err(EditorSessionError::CompositionActive)
     ));
     session
         .commit_composition_utf16(0, Some("the".encode_utf16().collect()))

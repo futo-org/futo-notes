@@ -195,6 +195,10 @@ const { WasmSession } = await import(pathToFileURL(process.argv[2]).href);
     assert.equal(page.draft_text(), '~~__😀z日 b__~~\r\n');
     assert.equal(JSON.parse(page.undo(20n)), null);
     assert.throws(() => page.compose_utf16(20n, 3, 4, new Uint16Array([0xd800])));
+    assert.throws(
+      () => page.replace_utf16_action(20n, 3, 6, new Uint16Array([0x65e5]), '"CompositionCommit"'),
+      /CompositionActive/,
+    );
     const markedCommit = JSON.parse(
       page.commit_composition_utf16(20n, new Uint16Array([0x65e5, 0x672c])),
     );
