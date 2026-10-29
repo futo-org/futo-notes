@@ -22,6 +22,7 @@ bindgen = ["uniffi/cli", "uniffi/cargo-metadata"]
 # `tokio` exports async methods; the `bindgen` feature above adds the generator.
 uniffi = { version = "0.32", default-features = false, features = ["tokio"] }
 tokio = { version = "1", features = ["sync", "macros", "rt-multi-thread", "time"] }
+futo-notes-editor = { path = "../futo-notes-editor" }
 futo-notes-core = { path = "../futo-notes-core" }
 futo-notes-license = { path = "../futo-notes-license" }
 futo-notes-model = { path = "../futo-notes-model" }

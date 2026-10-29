@@ -2036,6 +2036,7 @@ name = "futo-notes-ffi"
 version = "0.1.0"
 dependencies = [
  "futo-notes-core",
+ "futo-notes-editor",
  "futo-notes-license",
  "futo-notes-model",
  "futo-notes-store",

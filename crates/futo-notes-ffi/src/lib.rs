@@ -1,3 +1,10 @@
+mod editor;
+pub use editor::{
+    EditorAffinity, EditorByteRange, EditorCorrespondence, EditorDisplayByteOffset,
+    EditorInlineFormat, EditorProjection, EditorRecoveryIssue, EditorRecoveryIssueKind,
+    EditorRecoveryStatus, EditorSemanticRun, EditorSessionError, EditorSourceByteOffset,
+    EditorSourceByteRange, EditorUtf16Range, EditorViewChange, NativeEditorSession,
+};
 mod license;
 mod localization;
 mod notes;

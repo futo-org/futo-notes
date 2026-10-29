@@ -8,7 +8,7 @@ use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use rustix::fs::{
-    fsync, mkdirat, open, openat, renameat, statat, unlinkat, AtFlags, FileType, Mode, OFlags,
+    fsync, mkdirat, open, openat, renameat, unlinkat, AtFlags, FileType, Mode, OFlags,
 };
 
 use super::{context, relative_components, OpenParentError};
@@ -25,6 +25,36 @@ pub(super) use no_replace::{create_new, move_no_replace, move_no_replace_strict,
 pub(super) use writes::{
     create_dir_all, remove, remove_local, rename, rename_local, write_atomic, write_atomic_local,
 };
+
+// rustix's 32-bit Android statat probes statx, which pre-API-30 seccomp
+// kills instead of returning ENOSYS. O_PATH pins the no-follow entry and
+// std's Android fstat64 reads its type without that forbidden probe. Linux
+// unit tests run this same branch through the shared vault-fs contract suite.
+fn entry_type<P: rustix::path::Arg>(directory: &OwnedFd, path: P) -> rustix::io::Result<FileType> {
+    #[cfg(any(
+        all(target_os = "android", target_pointer_width = "32"),
+        all(test, target_os = "linux")
+    ))]
+    {
+        use std::os::unix::fs::MetadataExt;
+        let descriptor = openat(
+            directory,
+            path,
+            OFlags::PATH | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+            Mode::empty(),
+        )?;
+        let metadata = File::from(descriptor).metadata().map_err(|error| {
+            rustix::io::Errno::from_io_error(&error).unwrap_or(rustix::io::Errno::IO)
+        })?;
+        Ok(FileType::from_raw_mode(metadata.mode()))
+    }
+    #[cfg(not(any(
+        all(target_os = "android", target_pointer_width = "32"),
+        all(test, target_os = "linux")
+    )))]
+    rustix::fs::statat(directory, path, AtFlags::SYMLINK_NOFOLLOW)
+        .map(|metadata| FileType::from_raw_mode(metadata.st_mode))
+}
 
 struct Parent {
     directory: OwnedFd,
@@ -244,8 +274,8 @@ fn open_parent_with_policy(
 }
 
 fn is_symlink(parent: &Parent) -> Result<bool, String> {
-    match statat(&parent.directory, &parent.leaf, AtFlags::SYMLINK_NOFOLLOW) {
-        Ok(metadata) => Ok(FileType::from_raw_mode(metadata.st_mode) == FileType::Symlink),
+    match entry_type(&parent.directory, &parent.leaf) {
+        Ok(kind) => Ok(kind == FileType::Symlink),
         Err(rustix::io::Errno::NOENT) => Ok(false),
         Err(error) => Err(error.to_string()),
     }
@@ -318,7 +348,7 @@ fn write_temp_and_install<T>(
             .and_then(|()| install(&temp));
         let taken = result.is_err()
             && matches!(
-                statat(&parent.directory, &temp, AtFlags::SYMLINK_NOFOLLOW),
+                entry_type(&parent.directory, &temp),
                 Err(rustix::io::Errno::NOENT)
             );
         let _ = unlinkat(&parent.directory, &temp, AtFlags::empty());
