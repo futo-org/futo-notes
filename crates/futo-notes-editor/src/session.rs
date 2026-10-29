@@ -333,6 +333,11 @@ impl EditorSession {
         if let Some(change) = self.input_at_divider(expected, range, inserted, accept)? {
             return Ok(change);
         }
+        if let Some(change) =
+            self.input_before_lazy_quote_neighbor(expected, range, inserted, action, accept)?
+        {
+            return Ok(change);
+        }
         let affinity = self.input_affinity(range);
         let pending = if range == self.selection {
             self.pending_formats.as_deref()

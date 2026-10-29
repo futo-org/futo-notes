@@ -58,7 +58,20 @@ impl EditorSession {
         range: DisplayRange,
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<Option<ViewChange>, EditorError> {
-        let Some(plan) = self.projection.split_block_lines(&self.source, range)? else {
+        let boundaries = self.projection.line_boundaries(range);
+        self.split_inline_block_seams_at(range, &boundaries, accept)
+    }
+
+    pub(super) fn split_inline_block_seams_at(
+        &mut self,
+        range: DisplayRange,
+        boundaries: &[usize],
+        accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
+    ) -> Result<Option<ViewChange>, EditorError> {
+        let Some(plan) = self
+            .projection
+            .split_block_lines(&self.source, range, boundaries)?
+        else {
             return Ok(None);
         };
         let edit = self.prepare_source(

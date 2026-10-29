@@ -21,3 +21,5 @@ mod keys;
 mod ownership;
 #[path = "blocks/projection.rs"]
 mod projection;
+#[path = "blocks/seams.rs"]
+mod seams;

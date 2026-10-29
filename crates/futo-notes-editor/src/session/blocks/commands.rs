@@ -34,13 +34,21 @@ impl EditorSession {
         if matches!(command, BlockCommand::Heading(level) if level > 6) {
             return Err(EditorError::InvalidRange);
         }
-        if self.projection.has_block_seams(range)
+        let lines = self.projection.block_lines(range);
+        if !lines.iter().any(|line| changes_block(line, command)) {
+            return Ok(None);
+        }
+        let boundaries = self.block_command_boundaries(range, &lines, command);
+        if self.projection.has_block_seams_at(range, &boundaries)
             || self
                 .projection
                 .has_multiline_block_code(&self.source, range)
         {
             return self.stage_block_action(expected, range, accept, |staged, local, accept| {
-                let seams = staged.split_inline_block_seams(local, accept)?;
+                let base = range.start.0 - local.start.0;
+                let boundaries: Vec<_> =
+                    boundaries.iter().map(|boundary| boundary - base).collect();
+                let seams = staged.split_inline_block_seams_at(local, &boundaries, accept)?;
                 let Some(mut change) =
                     staged.block_command(staged.revision(), local, command, accept)?
                 else {
@@ -52,10 +60,6 @@ impl EditorSession {
                 }
                 Ok(Some(change))
             });
-        }
-        let lines = self.projection.block_lines(range);
-        if lines.is_empty() {
-            return Ok(None);
         }
         if command == BlockCommand::Divider {
             return self.insert_divider(expected, range, lines, accept);
@@ -197,21 +201,10 @@ impl EditorSession {
             || command == BlockCommand::Quote && first.quote_depth == 0)
             && end < self.source.len_bytes()
         {
-            let next_display = self.projection.display_at(end);
-            let next_range = DisplayRange {
-                start: DisplayOffset(next_display),
-                end: DisplayOffset(next_display),
-            };
-            if let Some(next) = self.projection.block_lines(next_range).first() {
-                let target_depth = first.quote_depth + 1;
-                if !next.content.is_empty()
-                    && next.quote_depth < target_depth
-                    && next.heading == 0
-                    && !next.divider
-                    && !next.code
-                {
-                    output.push_str(&format!("{}\n", "> ".repeat(first.quote_depth).trim_end()));
-                }
+            if let Some(separator) =
+                self.quote_neighbor_separator(end, first.quote_depth + 1, !first.content.is_empty())
+            {
+                output.push_str(&separator);
             }
         }
         if command == BlockCommand::Outdent && first.quote_depth > 0 && first.source.start > 0 {
@@ -248,6 +241,79 @@ impl EditorSession {
         change.work.parsed_source_bytes += parsed;
         change.work.materialized_source_bytes += materialized;
         Ok(Some(change))
+    }
+
+    fn block_command_boundaries(
+        &self,
+        range: DisplayRange,
+        selected: &[crate::inline::blocks::BlockLine],
+        command: BlockCommand,
+    ) -> Vec<usize> {
+        let shape = |line: &crate::inline::blocks::BlockLine| {
+            let mut heading = line.heading;
+            let mut depth = line.quote_depth;
+            if selected
+                .iter()
+                .any(|selected| selected.source.start == line.source.start)
+                && changes_block(line, command)
+            {
+                match command {
+                    BlockCommand::Heading(level) => heading = level,
+                    BlockCommand::Quote => {
+                        heading = 0;
+                        if depth == 0 {
+                            depth = 1;
+                        }
+                    }
+                    BlockCommand::Indent => depth += 1,
+                    BlockCommand::Outdent => depth -= 1,
+                    BlockCommand::Divider => {}
+                }
+            }
+            (heading, depth)
+        };
+        self.projection
+            .line_boundaries(range)
+            .into_iter()
+            .filter(|&boundary| {
+                if boundary == 0 {
+                    return true;
+                }
+                let at = |offset| {
+                    self.projection
+                        .block_lines(DisplayRange {
+                            start: DisplayOffset(offset),
+                            end: DisplayOffset(offset),
+                        })
+                        .into_iter()
+                        .next()
+                };
+                let (Some(left), Some(right)) = (at(boundary - 1), at(boundary)) else {
+                    return false;
+                };
+                let (left_heading, left_depth) = shape(&left);
+                let (right_heading, right_depth) = shape(&right);
+                command == BlockCommand::Divider
+                    || left_heading > 0
+                    || right_heading > 0
+                    || left_depth != right_depth
+            })
+            .collect()
+    }
+}
+
+fn changes_block(line: &crate::inline::blocks::BlockLine, command: BlockCommand) -> bool {
+    if line.code {
+        return false;
+    }
+    if line.divider {
+        return command == BlockCommand::Divider;
+    }
+    match command {
+        BlockCommand::Heading(level) => line.heading != level,
+        BlockCommand::Quote => line.quote_depth == 0 || line.heading > 0,
+        BlockCommand::Indent | BlockCommand::Outdent => line.quote_depth > 0,
+        BlockCommand::Divider => true,
     }
 }
 

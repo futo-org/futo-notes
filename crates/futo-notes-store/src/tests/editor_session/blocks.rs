@@ -294,7 +294,7 @@ fn complete_block_body_edits_and_returned_caret_input_recover_exactly() {
             "> __ab\n> cd__\n> ===",
             "enter",
             range(1, 1),
-            "> __a__\n> ===\n> __!b__\n> __cd__",
+            "> __a__\n> ===\n> __!b\n> cd__",
             "a\n!b\ncd",
             true,
         ),

@@ -249,8 +249,8 @@ fn quote_enter_returned_caret_types_into_its_own_bold_span() {
 fn setext_enter_returned_caret_types_into_its_own_bold_span() {
     check_followup(
         ("> __ab\n> cd__\n> ===", "ab\ncd", 1, ParagraphKey::Enter),
-        ("> __a__\n> ===\n> __b__\n> __cd__", "a\nb\ncd", 2),
-        ("> __a__\n> ===\n> __!b__\n> __cd__", "a\n!b\ncd"),
+        ("> __a__\n> ===\n> __b\n> cd__", "a\nb\ncd", 2),
+        ("> __a__\n> ===\n> __!b\n> cd__", "a\n!b\ncd"),
     );
 }
 

@@ -267,7 +267,7 @@ fn native_complete_body_and_returned_caret_input_recover_exactly() {
             "enter",
             1,
             1,
-            "> __a__\n> ===\n> __!b__\n> __cd__",
+            "> __a__\n> ===\n> __!b\n> cd__",
             "a\n!b\ncd",
             true,
         ),

@@ -1,6 +1,65 @@
 use super::*;
 
 impl EditorSession {
+    pub(in crate::session) fn input_before_lazy_quote_neighbor(
+        &mut self,
+        expected: Revision,
+        range: DisplayRange,
+        inserted: &str,
+        action: crate::InputAction,
+        accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
+    ) -> Result<Option<ViewChange>, EditorError> {
+        if inserted
+            .split(['\r', '\n'])
+            .next()
+            .unwrap_or("")
+            .trim_matches([' ', '\t'])
+            .is_empty()
+        {
+            return Ok(None);
+        }
+        let Some(line) = self.projection.block_lines(range).into_iter().next() else {
+            return Ok(None);
+        };
+        if !self
+            .source
+            .byte_slice(line.content.clone())
+            .chars()
+            .all(|ch| matches!(ch, ' ' | '\t'))
+            || range.end.0 > self.projection.display_at(line.content.end)
+            || line.heading > 0
+            || line.quote_depth == 0
+            || line.divider
+            || line.code
+        {
+            return Ok(None);
+        }
+        let Some(separator) =
+            self.quote_neighbor_separator(line.source.end, line.quote_depth, true)
+        else {
+            return Ok(None);
+        };
+        self.stage_block_action(expected, range, accept, |staged, local, accept| {
+            let line = staged.projection.block_lines(local).remove(0);
+            let formats = staged.pending_formats.clone();
+            let affinity = staged.affinity;
+            let mut boundary = staged.commit_block_edit(
+                staged.revision(),
+                line.source.end..line.source.end,
+                &separator,
+                Some(local),
+                None,
+                accept,
+            )?;
+            staged.carry_block_state(&mut boundary, formats, affinity);
+            let mut input =
+                staged.replace_action(staged.revision(), local, inserted, action, accept)?;
+            input.work.materialized_source_bytes += boundary.work.materialized_source_bytes;
+            input.work.parsed_source_bytes += boundary.work.parsed_source_bytes;
+            Ok(Some(input))
+        })
+    }
+
     pub(in crate::session) fn input_at_divider(
         &mut self,
         expected: Revision,

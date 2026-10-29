@@ -231,7 +231,7 @@ struct NativeEditorBlockRegressionTests {
                 ),
                 (
                     "> __ab\n> cd__\n> ===", "ab\ncd", "enter", 1, 1,
-                    "> __a__\n> ===\n> __!b__\n> __cd__", "a\n!b\ncd", true
+                    "> __a__\n> ===\n> __!b\n> cd__", "a\n!b\ncd", true
                 ),
                 (
                     "> `ab`\n> `cd`\n> ---", "ab\ncd", "delete", 3, 3, "> `ab`\n> `!d`\n> ---",

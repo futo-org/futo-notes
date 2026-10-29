@@ -204,7 +204,7 @@ class NativeEditorBlockRegressionTest {
             Case("## x", "x", "space", 0uL, 1uL, "## &#32;", " ", false),
             Case("x\n=", "x", "newline", 0uL, 1uL, "# \n", "\n", false),
             Case("> __ab\n> cd__", "ab\ncd", "enter", 1uL, 1uL, "> __a__\n>\n> __!b__\n> __cd__", "a\n\n!b\ncd", true),
-            Case("> __ab\n> cd__\n> ===", "ab\ncd", "enter", 1uL, 1uL, "> __a__\n> ===\n> __!b__\n> __cd__", "a\n!b\ncd", true),
+            Case("> __ab\n> cd__\n> ===", "ab\ncd", "enter", 1uL, 1uL, "> __a__\n> ===\n> __!b\n> cd__", "a\n!b\ncd", true),
             Case("> `ab`\n> `cd`\n> ---", "ab\ncd", "delete", 3uL, 3uL, "> `ab`\n> `!d`\n> ---", "ab\n!d", true),
             Case("> ab\ncd\n> ===", "ab\ncd", "divider", 1uL, 4uL, "> a\n> ===\n> ***\n> \n> d\n> ===", "a\n\ufffc\n\nd", false),
             Case("> ## # ab ##\n> ## cd ###", "# ab\ncd", "delete", 0uL, 7uL, "> ##  ! ###", "!", true),

@@ -234,7 +234,7 @@ export async function runBlockRegressions() {
     [
       '> __ab\n> cd__\n> ===',
       'Enter',
-      '> __a__\n> ===\n> __!b__\n> __cd__',
+      '> __a__\n> ===\n> __!b\n> cd__',
       'ab\ncd',
       1,
       1,

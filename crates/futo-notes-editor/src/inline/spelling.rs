@@ -38,7 +38,7 @@ pub(super) fn spell(
         let mut candidate = Row::parse(&rendered.text);
         parsed += rendered.text.len();
         if candidate.display != expected {
-            repair_block_boundaries(&mut pieces, &rendered, &candidate, &insertion);
+            repair_literal_boundaries(&mut pieces, &rendered, &candidate, &insertion);
             // A speculative line-start marker must reopen as the literal text
             // the writer still sees. The block shortcut replaces this spelling
             // only when its final triggering character arrives.
@@ -210,12 +210,25 @@ fn render(
     }
 }
 
-fn repair_block_boundaries(
+fn repair_literal_boundaries(
     pieces: &mut [Piece],
     rendered: &Rendered,
     candidate: &Row,
     insertion: &Range<usize>,
 ) {
+    for (piece, source) in pieces.iter_mut().zip(&rendered.pieces) {
+        if piece.raw == "\\"
+            && piece.display == "\\"
+            && candidate.segments.iter().any(|segment| {
+                !segment.identity
+                    && segment.source.start == source.start
+                    && source.end < segment.source.end
+                    && candidate.display_at(source.start) == candidate.display_at(source.end)
+            })
+        {
+            piece.raw = "&#92;".into();
+        }
+    }
     let mut closers = Vec::new();
     for (piece, source) in pieces.iter_mut().zip(&rendered.pieces) {
         if piece.trailing && piece.display.is_empty() && piece.raw == "#" {
@@ -275,6 +288,14 @@ fn repair_boundaries(pieces: &mut [Piece], missing: &[usize]) {
             }
             if index + 1 < pieces.len() && !pieces[index + 1].spans.contains(&id) {
                 encode.push(index + 1);
+            }
+            // A literal backslash immediately before a new closing marker
+            // must not escape that marker, including at the body's end.
+            if (index + 1 == pieces.len() || !pieces[index + 1].spans.contains(&id))
+                && pieces[index].raw == "\\"
+                && pieces[index].display == "\\"
+            {
+                encode.push(index);
             }
         }
     }
@@ -352,23 +373,29 @@ fn trim_emphasis_edges(pieces: &mut [Piece], markers: &[Marker]) {
         if marker.format == InlineFormat::Code {
             continue;
         }
-        let selected: Vec<_> = pieces
-            .iter()
-            .enumerate()
-            .filter(|(_, p)| p.spans.contains(&id))
-            .map(|(i, _)| i)
-            .collect();
-        for &i in &selected {
-            if !pieces[i].display.chars().all(char::is_whitespace) {
-                break;
+        let mut start = 0;
+        while start < pieces.len() {
+            if !pieces[start].spans.contains(&id) {
+                start += 1;
+                continue;
             }
-            pieces[i].spans.retain(|v| *v != id);
-        }
-        for &i in selected.iter().rev() {
-            if !pieces[i].display.chars().all(char::is_whitespace) {
-                break;
+            let mut end = start + 1;
+            while end < pieces.len() && pieces[end].spans.contains(&id) {
+                end += 1;
             }
-            pieces[i].spans.retain(|v| *v != id);
+            for piece in &mut pieces[start..end] {
+                if !piece.display.chars().all(char::is_whitespace) {
+                    break;
+                }
+                piece.spans.retain(|v| *v != id);
+            }
+            for piece in pieces[start..end].iter_mut().rev() {
+                if !piece.display.chars().all(char::is_whitespace) {
+                    break;
+                }
+                piece.spans.retain(|v| *v != id);
+            }
+            start = end;
         }
     }
 }

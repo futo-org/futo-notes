@@ -15,6 +15,44 @@ pub(super) struct BodySplit {
 }
 
 impl EditorSession {
+    /// Nonempty quote paragraphs can lazily adopt a following lower container.
+    /// ATX/rule/code boundaries interrupt that continuation; setext bodies do
+    /// not. Retain the next container's exact prefix when separating it.
+    pub(super) fn quote_neighbor_separator(
+        &self,
+        end: usize,
+        depth: usize,
+        nonempty: bool,
+    ) -> Option<String> {
+        if end >= self.source.len_bytes() {
+            return None;
+        }
+        let point = DisplayOffset(self.projection.display_at(end));
+        let next = self
+            .projection
+            .block_lines(DisplayRange {
+                start: point,
+                end: point,
+            })
+            .into_iter()
+            .next()?;
+        if next.content.is_empty()
+            || next.quote_depth >= depth
+            || next.code
+            || next.divider
+            || next.heading > 0
+                && (!nonempty
+                    || next.heading_syntax != crate::inline::blocks::HeadingSyntax::Setext)
+        {
+            return None;
+        }
+        let prefix = self
+            .source
+            .byte_slice(next.source.start..next.content.start)
+            .to_string();
+        Some(format!("{}\n", prefix.trim_end_matches([' ', '\t'])))
+    }
+
     /// The block owner supplies physical layout; the inline owner spells the
     /// actual displayed body. Coordinates are reused only after equality with
     /// that display is established.

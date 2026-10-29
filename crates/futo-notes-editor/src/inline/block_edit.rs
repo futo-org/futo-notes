@@ -81,17 +81,29 @@ impl Projection {
         (first, last)
     }
 
-    fn line_boundaries(&self, range: DisplayRange) -> Vec<usize> {
+    pub(crate) fn line_boundaries(&self, range: DisplayRange) -> Vec<usize> {
         let (first, last) = self.touched_display_lines(range);
         (first..=(last + 1).min(self.display.len_lines() - 1))
             .map(|line| self.display.line_to_byte(line))
+            .filter(|&boundary| {
+                let (row, _, display) = self.rows.at(self.rows.locate(boundary, true));
+                !row.blocks.iter().any(|block| {
+                    block.heading_syntax == super::blocks::HeadingSyntax::Setext
+                        && display + row.display_at(block.content.start) < boundary
+                        && boundary < display + row.display_at(block.content.end)
+                })
+            })
             .collect()
     }
 
     pub(crate) fn has_block_seams(&self, range: DisplayRange) -> bool {
+        self.has_block_seams_at(range, &self.line_boundaries(range))
+    }
+
+    pub(crate) fn has_block_seams_at(&self, range: DisplayRange, boundaries: &[usize]) -> bool {
         let first = self.rows.locate(range.start.0, true);
         let last = self.rows.locate(range.end.0, true);
-        self.line_boundaries(range).into_iter().any(|boundary| {
+        boundaries.iter().copied().any(|boundary| {
             let (low, high) = self.source_bounds(boundary);
             (first..=last).any(|index| {
                 let (row, source, _) = self.rows.at(index);
@@ -106,8 +118,11 @@ impl Projection {
         &self,
         source: &Rope,
         range: DisplayRange,
+        boundaries: &[usize],
     ) -> Result<Option<Plan>, EditorError> {
-        if !self.has_block_seams(range) && !self.has_multiline_block_code(source, range) {
+        if !self.has_block_seams_at(range, boundaries)
+            && !self.has_multiline_block_code(source, range)
+        {
             return Ok(None);
         }
         let Context {
@@ -119,9 +134,8 @@ impl Projection {
             ..
         } = self.edit_context(source, range);
         let display_start = self.display_at(source_start);
-        let boundaries: Vec<_> = self
-            .line_boundaries(range)
-            .into_iter()
+        let boundaries: Vec<_> = boundaries
+            .iter()
             .map(|boundary| boundary - display_start)
             .collect();
         super::spelling::split_block_spans(&mut pieces, &boundaries);
