@@ -2029,6 +2029,7 @@ dependencies = [
  "serde_json",
  "unicode-segmentation",
  "wasm-bindgen",
+ "web-time",
 ]
 
 [[package]]

@@ -115,10 +115,49 @@ const { WasmSession } = await import(pathToFileURL(process.argv[2]).href);
     apply(JSON.parse(page.acknowledge(JSON.stringify(await exchange(JSON.parse(page.redo(7n)))))));
     assert.equal(text, '∾x\r\n');
     assert.equal(page.draft_text(), '~~__&#8766;x__~~\r\n');
+    // Composition commits and multi-run keyboard corrections are explicit,
+    // isolated actions; each crosses the real store once before display.
+    const commit = JSON.parse(
+      page.replace_utf16_action(8n, 2, 2, new Uint16Array([0x65e5]), '"CompositionCommit"'),
+    );
+    assert.equal(text, '∾x\r\n');
+    apply(JSON.parse(page.acknowledge(JSON.stringify(await exchange(commit)))));
+    assert.equal(page.draft_text(), '~~__&#8766;x日__~~\r\n');
+    assert.equal(text, '∾x日\r\n');
+    const runs = JSON.stringify([
+      { range: { start: 0, end: 1 }, inserted: [0xd83d, 0xde00] },
+      { range: { start: 1, end: 2 }, inserted: [0x7a] },
+    ]);
+    const compound = JSON.parse(page.replace_many_utf16(9n, runs));
+    assert.equal(compound.operation.Append.previous_revision, 9);
+    assert.equal(compound.operation.Append.revision, 10);
+    assert.throws(() => page.undo(10n));
+    assert.equal(text, '∾x日\r\n');
+    apply(JSON.parse(page.acknowledge(JSON.stringify(await exchange(compound)))));
+    assert.equal(page.draft_text(), '~~__😀z日__~~\r\n');
+    assert.equal(text, '😀z日\r\n');
+    assert.throws(() =>
+      page.replace_many_utf16(
+        10n,
+        JSON.stringify([
+          { range: { start: 0, end: 2 }, inserted: [0x61] },
+          { range: { start: 2, end: 3 }, inserted: [0xd800] },
+        ]),
+      ),
+    );
+    assert.equal(JSON.parse(page.status()).waiting, false);
+    apply(JSON.parse(page.acknowledge(JSON.stringify(await exchange(JSON.parse(page.undo(10n)))))));
+    assert.equal(page.draft_text(), '~~__&#8766;x日__~~\r\n');
+    apply(JSON.parse(page.acknowledge(JSON.stringify(await exchange(JSON.parse(page.undo(11n)))))));
+    assert.equal(page.draft_text(), '~~__&#8766;x__~~\r\n');
+    apply(JSON.parse(page.acknowledge(JSON.stringify(await exchange(JSON.parse(page.redo(12n)))))));
+    apply(JSON.parse(page.acknowledge(JSON.stringify(await exchange(JSON.parse(page.redo(13n)))))));
+    assert.equal(page.draft_text(), '~~__😀z日__~~\r\n');
+    assert.equal(text, '😀z日\r\n');
     const flush = JSON.parse(page.flush());
     assert.equal(JSON.parse(page.status()).durable, 0);
     page.acknowledge(JSON.stringify(await exchange(flush)));
-    assert.equal(JSON.parse(page.status()).durable, 8);
+    assert.equal(JSON.parse(page.status()).durable, 14);
   } finally {
     clearTimeout(deadline);
     page?.free();

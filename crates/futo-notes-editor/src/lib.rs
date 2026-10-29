@@ -1,6 +1,8 @@
 //! Portable exact-source editing; persistence and views are supplied by its host.
 
 mod coordinates;
+mod history;
+pub use history::{DisplayReplacement, DisplayUtf16Replacement, HistoryClock, InputAction};
 mod inline;
 mod movement;
 mod portable;

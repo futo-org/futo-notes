@@ -53,7 +53,8 @@ impl RecoveryLog {
             base: disk.to_owned(),
             base_revision: Revision(0),
         };
-        let mut engine = EditorSession::open(disk);
+        let history_clock = Arc::new(super::clock::GroupingClock(clock.clone()));
+        let mut engine = EditorSession::open_with_clock(disk, history_clock.clone());
         if let Some(bytes) = bytes {
             let mut lines = bytes.split_inclusive(|byte| *byte == b'\n');
             let first = lines.next().unwrap_or_default();
@@ -75,7 +76,11 @@ impl RecoveryLog {
                 Ok(found) if first.ends_with(b"\n") => {
                     header = found;
                     accepted_bytes = first.len() as u64;
-                    engine = EditorSession::restore(&header.base, header.base_revision);
+                    engine = EditorSession::restore_with_clock(
+                        &header.base,
+                        header.base_revision,
+                        history_clock,
+                    );
                     let (validated, target, problem) = replay_records(root, &mut engine, lines);
                     accepted_bytes += validated;
                     checkpoint_target = target;

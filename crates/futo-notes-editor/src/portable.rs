@@ -101,9 +101,25 @@ impl PortableSession {
     /// The host supplies exact recovered text/revision and conservative durable
     /// watermark. A token must never be reused for a different attached session.
     pub fn open(token: SessionToken, source: &str, revision: Revision, durable: Revision) -> Self {
+        Self::open_with_clock(
+            token,
+            source,
+            revision,
+            durable,
+            std::sync::Arc::new(crate::history::MonotonicClock::default()),
+        )
+    }
+
+    pub fn open_with_clock(
+        token: SessionToken,
+        source: &str,
+        revision: Revision,
+        durable: Revision,
+        clock: std::sync::Arc<dyn crate::HistoryClock>,
+    ) -> Self {
         assert!(durable.0 <= revision.0);
         Self {
-            engine: EditorSession::restore(source, revision),
+            engine: EditorSession::restore_with_clock(source, revision, clock),
             token,
             sequence: 0,
             waiting: None,
@@ -224,11 +240,37 @@ impl PortableSession {
         range: DisplayRange,
         inserted: &str,
     ) -> Result<HostRequest, PortableError> {
+        self.replace_action(expected, range, inserted, crate::InputAction::Typing)
+    }
+
+    pub fn replace_action(
+        &mut self,
+        expected: Revision,
+        range: DisplayRange,
+        inserted: &str,
+        action: crate::InputAction,
+    ) -> Result<HostRequest, PortableError> {
+        self.ready()?;
+        let mut record = None;
+        let change =
+            self.engine
+                .replace_action(expected, range, inserted, action, &mut |edit| {
+                    record = Some(edit.clone());
+                    Ok(())
+                })?;
+        self.stage(record.unwrap(), change)
+    }
+
+    pub fn replace_many(
+        &mut self,
+        expected: Revision,
+        replacements: &[crate::DisplayReplacement],
+    ) -> Result<HostRequest, PortableError> {
         self.ready()?;
         let mut record = None;
         let change = self
             .engine
-            .replace(expected, range, inserted, &mut |edit| {
+            .replace_many(expected, replacements, &mut |edit| {
                 record = Some(edit.clone());
                 Ok(())
             })?;
@@ -244,6 +286,30 @@ impl PortableSession {
         self.ready()?;
         let (range, inserted) = self.engine.decode_utf16_input(expected, range, inserted)?;
         self.replace(expected, range, &inserted)
+    }
+
+    pub fn replace_utf16_action(
+        &mut self,
+        expected: Revision,
+        range: DisplayUtf16Range,
+        inserted: &[u16],
+        action: crate::InputAction,
+    ) -> Result<HostRequest, PortableError> {
+        self.ready()?;
+        let (range, inserted) = self.engine.decode_utf16_input(expected, range, inserted)?;
+        self.replace_action(expected, range, &inserted, action)
+    }
+
+    pub fn replace_many_utf16(
+        &mut self,
+        expected: Revision,
+        replacements: &[crate::DisplayUtf16Replacement],
+    ) -> Result<HostRequest, PortableError> {
+        self.ready()?;
+        let replacements = self
+            .engine
+            .decode_utf16_replacements(expected, replacements)?;
+        self.replace_many(expected, &replacements)
     }
 
     pub fn undo(&mut self, expected: Revision) -> Result<Option<HostRequest>, PortableError> {

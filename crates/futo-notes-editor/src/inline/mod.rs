@@ -36,6 +36,16 @@ impl Projection {
         Self { display, rows }
     }
 
+    /// Whole paragraph context for an explicit compound action. Ordinary typing
+    /// never constructs this temporary session or materializes this envelope.
+    pub fn edit_window(&self, range: DisplayRange) -> (std::ops::Range<usize>, usize) {
+        let first = self.rows.locate(range.start.0, true).saturating_sub(1);
+        let last = (self.rows.locate(range.end.0, true) + 1).min(self.rows.len() - 1);
+        let (_, source_start, display_start) = self.rows.at(first);
+        let (row, source_end, _) = self.rows.at(last);
+        (source_start..source_end + row.source_len, display_start)
+    }
+
     pub fn source_bounds(&self, offset: usize) -> (usize, usize) {
         let (row, source, display) = self.rows.at(self.rows.locate(offset, true));
         let (low, high) = row.source_bounds(offset - display);
