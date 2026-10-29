@@ -135,3 +135,44 @@ fn move_draft_collision_then_new_input_stays_on_the_atomic_workflows_final_ident
     assert_eq!(store.read_existing("old").unwrap(), None);
     assert_eq!(store.snapshot().notes.len(), 2);
 }
+
+#[test]
+fn delete_fences_both_pending_source_and_foreign_destination_attachments() {
+    let root = tempfile::tempdir().unwrap();
+    let store = LocalNoteStore::new(root.path().to_owned());
+    store.create("", "new", "foreign").unwrap();
+    {
+        let mut foreign = store.open_editor("new").unwrap();
+        foreign.replace(Revision(0), range(7, 7), " draft").unwrap();
+    }
+    std::fs::remove_file(root.path().join("new.md")).unwrap();
+    store.create("", "old", "base").unwrap();
+    let mut old = store.open_editor("old").unwrap();
+    old.replace(Revision(0), range(4, 4), " draft").unwrap();
+    let moved = store.rename("old", "new").unwrap();
+    assert_eq!(moved.final_id.as_deref(), Some("new"));
+    assert!(old.recovery_status().paused);
+    let mut foreign = store.open_editor("new").unwrap();
+    assert_eq!(foreign.source_text(), "foreign draft");
+    store.delete("new").unwrap();
+    store.create("", "new", "fresh").unwrap();
+    assert!(matches!(
+        old.resume_recovery(),
+        Err(futo_notes_store::EditorStoreError::SessionDeleted)
+    ));
+    assert!(matches!(
+        foreign.checkpoint(),
+        Err(futo_notes_store::EditorStoreError::SessionDeleted)
+    ));
+    let mut fresh = store.open_editor("new").unwrap();
+    assert_eq!(fresh.source_text(), "fresh");
+    fresh.checkpoint().unwrap();
+    drop(fresh);
+    drop(foreign);
+    drop(old);
+    for _ in 0..2 {
+        assert!(store.open_editor("old").is_err());
+        assert_eq!(store.open_editor("new").unwrap().source_text(), "fresh");
+        assert_eq!(store.snapshot().notes.len(), 1);
+    }
+}
