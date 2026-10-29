@@ -216,6 +216,10 @@ impl LocalNoteStore {
             }
             let parked_id = join_id(&folder, sibling_title);
             if self.read(&parked_id).as_deref() == Ok(content) {
+                futo_notes_core::files::recovery_coordination::protect_replacement(
+                    &self.root,
+                    &note_filename(&parked_id),
+                )?;
                 protect(&parked_id)?;
                 return Ok(FlushDraftResult {
                     disposition: FlushDisposition::ParkedConflict { parked_id },
@@ -251,6 +255,10 @@ impl LocalNoteStore {
             if let Some(hook) = self.install_window_hook.lock().unwrap().as_ref() {
                 hook(&parked_id);
             }
+            futo_notes_core::files::recovery_coordination::protect_replacement(
+                &self.root,
+                &note_filename(&parked_id),
+            )?;
             protect(&parked_id)?;
             if vault_fs::create_new(&self.root, &note_filename(&parked_id), content.as_bytes())? {
                 let metadata = vault::metadata(&self.root, &parked_id)

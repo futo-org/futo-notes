@@ -401,6 +401,18 @@ impl StoreEditorSession<'_> {
                 != Some(source.as_str())
             {
                 self.pending_checkpoint = None;
+            } else if pending.mutation.is_some() {
+                // Retrying the same commit must still return today's complete
+                // projection: unrelated writes may have changed its list rank.
+                let metadata =
+                    crate::vault::metadata(&self.store.root, target).ok_or_else(|| {
+                        EditorStoreError::Checkpoint(
+                            "checkpoint target metadata unavailable".into(),
+                        )
+                    })?;
+                let mut refreshed = pending.clone();
+                refreshed.mutation = Some(self.store.upsert_mutation(metadata));
+                self.pending_checkpoint = Some(refreshed);
             }
         }
         // Opening/closing an unchanged note must not write its old bytes over
@@ -455,6 +467,23 @@ impl StoreEditorSession<'_> {
                 })?;
         }
         let next_lease = if final_id != self.id {
+            // The committed destination may carry another session's pending
+            // stream even if its checkpoint file was absent. Keep our original
+            // stream until that draft is recovered; retargeting now would make
+            // a later append/resume operate on foreign recovery bytes.
+            if futo_notes_core::files::recovery_coordination::has_pending_recovery(
+                &self.store.root,
+                &final_id,
+            )
+            .map_err(|error| EditorStoreError::CheckpointCommitted {
+                result: Box::new(result.clone()),
+                error,
+            })? {
+                return Err(EditorStoreError::CheckpointCommitted {
+                    result: Box::new(result),
+                    error: "checkpoint destination has pending editor recovery".into(),
+                });
+            }
             Some(
                 EditorLease::acquire(&self.store.root, &final_id).map_err(|error| {
                     EditorStoreError::CheckpointCommitted {

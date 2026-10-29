@@ -68,6 +68,25 @@ async fn crash_then_sync_preserves_restored_checkpoint_and_pending_draft() {
             .await
             .unwrap();
         assert!(summary.failures.is_empty(), "{summary:?}");
+        assert!(summary.updated_ids.iter().any(|id| id == "plain"));
+        assert!(summary.deleted_ids.is_empty());
+        assert!(summary.renamed.is_empty());
+        let adopted = store
+            .refresh_external_changes(&summary.updated_ids, &summary.deleted_ids, &[])
+            .unwrap();
+        assert_eq!(adopted.upserted.len(), 1);
+        assert_eq!(adopted.upserted[0].note.id, "plain");
+        assert_eq!(
+            store.snapshot().notes[adopted.upserted[0].position as usize].id,
+            "plain"
+        );
+        assert!(adopted.removed.is_empty());
+        assert!(adopted.renamed.is_empty());
+        assert!(adopted.relinked.is_empty());
+        assert!(adopted.folders.is_empty());
+        assert!(adopted.warnings.is_empty());
+        assert_eq!(adopted.final_id, None);
+        assert_eq!(adopted.final_folder, None);
         assert_eq!(store.read("plain").unwrap(), outside);
         let mut editor = store.open_editor("plain").unwrap();
         assert_eq!(editor.source_text(), "plain!");
@@ -75,10 +94,20 @@ async fn crash_then_sync_preserves_restored_checkpoint_and_pending_draft() {
         let FlushDisposition::ParkedConflict { parked_id } = saved.disposition else {
             panic!("sync adoption must preserve the pending draft separately");
         };
+        let mutation = saved.mutation.unwrap();
+        assert_eq!(mutation.final_id.as_deref(), Some(parked_id.as_str()));
+        assert_eq!(mutation.upserted.len(), 1);
+        assert_eq!(mutation.upserted[0].note.id, parked_id);
         assert_eq!(
-            saved.mutation.unwrap().final_id.as_deref(),
-            Some(parked_id.as_str())
+            store.snapshot().notes[mutation.upserted[0].position as usize].id,
+            parked_id
         );
+        assert!(mutation.removed.is_empty());
+        assert!(mutation.renamed.is_empty());
+        assert!(mutation.relinked.is_empty());
+        assert!(mutation.folders.is_empty());
+        assert!(mutation.warnings.is_empty());
+        assert_eq!(mutation.final_folder, None);
         assert_eq!(store.read("plain").unwrap(), outside);
         assert_eq!(store.read(&parked_id).unwrap(), "plain!");
         assert_eq!(store.read("dirty").unwrap(), "push first");

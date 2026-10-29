@@ -88,6 +88,10 @@ impl LocalNoteStore {
             if let Some(hook) = self.install_window_hook.lock().unwrap().as_ref() {
                 hook(&id);
             }
+            futo_notes_core::files::recovery_coordination::protect_replacement(
+                &self.root,
+                &note_filename(&id),
+            )?;
             if !vault_fs::create_new(&self.root, &note_filename(&id), content.as_bytes())? {
                 // A writer outside this store's serialization took the id; the
                 // write did not happen. Re-allocate against the now-larger tree

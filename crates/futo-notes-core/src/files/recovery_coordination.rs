@@ -22,6 +22,13 @@ pub fn replacement_epoch(root: &Path, id: &str) -> Result<u64, String> {
     }
 }
 
+/// Whether this id already owns a recovery stream. Callers hold the vault
+/// guard when using this observation to decide a destination or installation.
+pub fn has_pending_recovery(root: &Path, id: &str) -> Result<bool, String> {
+    ensure_safe_note_id(id)?;
+    vault_fs::exists(root, &format!("{}.jsonl", stem(id)))
+}
+
 /// Record intent durably before replacing a note with a pending recovery log,
 /// including a replacement whose bytes equal an older checkpoint. A failed
 /// write may conservatively park a draft; it can never undo the replacement.
@@ -31,7 +38,7 @@ pub fn protect_replacement(root: &Path, relative: &str) -> Result<(), String> {
         return Ok(());
     };
     let stem = stem(&id);
-    if !vault_fs::exists(root, &format!("{stem}.jsonl"))? {
+    if !has_pending_recovery(root, &id)? {
         return Ok(());
     }
     let next = replacement_epoch(root, &id)?
