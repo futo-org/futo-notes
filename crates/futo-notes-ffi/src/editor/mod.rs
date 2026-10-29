@@ -35,6 +35,17 @@ impl NativeEditorSession {
             .map_err(|_| EditorSessionError::Unavailable)?;
         operation(session.as_mut().ok_or(EditorSessionError::Unavailable)?)
     }
+
+    fn with_revision<T>(
+        &self,
+        expected: u64,
+        operation: impl FnOnce(&mut StoreEditorSession<'static>) -> Result<T, EditorSessionError>,
+    ) -> Result<T, EditorSessionError> {
+        self.with_session(|session| {
+            session.check_revision(Revision(expected))?;
+            operation(session)
+        })
+    }
 }
 
 #[uniffi::export]
@@ -53,7 +64,7 @@ impl NativeEditorSession {
         offset: EditorDisplayByteOffset,
         affinity: EditorAffinity,
     ) -> Result<EditorSourceByteOffset, EditorSessionError> {
-        self.with_session(|session| {
+        self.with_revision(expected, |session| {
             Ok(EditorSourceByteOffset {
                 offset: session
                     .source_at(
@@ -74,7 +85,7 @@ impl NativeEditorSession {
         expected: u64,
         range: EditorByteRange,
     ) -> Result<EditorProjection, EditorSessionError> {
-        self.with_session(|session| {
+        self.with_revision(expected, |session| {
             Ok(session
                 .project(Revision(expected), range.try_into()?)?
                 .into())
@@ -90,7 +101,7 @@ impl NativeEditorSession {
         expected: u64,
         range: EditorUtf16Range,
     ) -> Result<EditorSelectionChange, EditorSessionError> {
-        self.with_session(|session| {
+        self.with_revision(expected, |session| {
             Ok(session
                 .select_utf16(Revision(expected), range.try_into()?)?
                 .into())
@@ -102,7 +113,7 @@ impl NativeEditorSession {
         expected: u64,
         range: EditorByteRange,
     ) -> Result<EditorUtf16Range, EditorSessionError> {
-        self.with_session(|session| {
+        self.with_revision(expected, |session| {
             Ok(session
                 .display_to_utf16(Revision(expected), range.try_into()?)?
                 .into())
@@ -134,7 +145,7 @@ impl NativeEditorSession {
         range: EditorUtf16Range,
         inserted: Vec<u16>,
     ) -> Result<EditorViewChange, EditorSessionError> {
-        self.with_session(|session| {
+        self.with_revision(expected, |session| {
             Ok(session
                 .replace_utf16(Revision(expected), range.try_into()?, &inserted)?
                 .into())

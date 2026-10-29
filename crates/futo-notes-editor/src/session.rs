@@ -148,7 +148,8 @@ impl EditorSession {
         Ok(self.projection.query(self.revision, range))
     }
 
-    pub(crate) fn check_revision(&self, expected: Revision) -> Result<(), EditorError> {
+    /// Validate ordering before a host converts fixed-width foreign coordinates.
+    pub fn check_revision(&self, expected: Revision) -> Result<(), EditorError> {
         if expected == self.revision {
             Ok(())
         } else {

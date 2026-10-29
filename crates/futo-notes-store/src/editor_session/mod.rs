@@ -317,6 +317,12 @@ impl StoreEditorSession<'_> {
         self.engine.selection()
     }
 
+    pub fn check_revision(&self, expected: Revision) -> Result<(), EditorStoreError> {
+        self.engine
+            .check_revision(expected)
+            .map_err(EditorStoreError::Editor)
+    }
+
     pub fn source_at(
         &self,
         expected: Revision,
