@@ -1,13 +1,16 @@
 # Shared Rust editor core: implementation tickets
 
 Approved and published 2026-10-29 under [the engine/store spec](https://gitlab.futo.org/futo-notes/futo-notes/-/work_items/283).
-All 34 tickets carry `ready-for-agent`; execution must still respect their blockers. The initial
+All 34 tickets are native Task children of #283 and carry `ready-for-agent`; execution must
+still respect their blockers. Conversion retained their issue numbers, content and labels. The initial
 frontier is [Edit, save and recover a plain note](https://gitlab.futo.org/futo-notes/futo-notes/-/work_items/284).
 
 The GitLab license rejects native blocking links. Each issue therefore records its blockers
 explicitly in its description, following the configured tracker fallback. The 53 dependency
 edges, all issue bodies/labels and the absence of cycles were verified after publication.
-The parent specification, labels and state were left unchanged.
+The parent specification, labels and state were left unchanged. Its hierarchy was verified
+to contain exactly the 34 Task children below. Child hierarchy is available independently
+of the licensed blocking-link feature.
 
 This phase produces the shared Rust editor engine, coordinated store recovery, thin
 Swift/Kotlin/WebAssembly consumers and the portable host contract. After core acceptance,

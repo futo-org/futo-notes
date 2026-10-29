@@ -88,11 +88,12 @@ examples, acknowledgement/error semantics, threading/lifetime requirements and c
 guidance so the renderer work can proceed independently.
 
 The maintainer approved 34 behavior slices, each with its own regression and integration
-responsibilities. They are published as GitLab issues #284-#317; the
+responsibilities. They are published as native Task children #284-#317 under #283; the
 [ticket index](text-first-editor-rebuild-tickets.md) records the blocking graph and handoff.
 All bodies, labels and 53 blocking edges were verified. The parent specification, labels and
-state remain unchanged. Native blocking is unavailable under this GitLab license, so the
-issues use the configured explicit-body dependency convention.
+state remain unchanged. The native hierarchy contains all 34 Tasks. Native blocking is
+unavailable under this GitLab license, so dependencies retain the configured explicit-body
+convention; that license limit does not prevent parent/child hierarchy.
 
 ## Working baseline and evidence
 
