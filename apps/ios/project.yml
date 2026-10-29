@@ -164,6 +164,9 @@ targets:
         buildPhase: resources
       - path: ../../tests/conformance/license.json
         buildPhase: resources
+      - path: ../../tests/fixtures/editor-native-input
+        excludes: [README.md]
+        buildPhase: resources
       - path: ../../tests/localization/cases.json
         buildPhase: resources
       - path: StoreKit/FutoNotes.storekit

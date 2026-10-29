@@ -4,6 +4,7 @@ use futo_notes_editor::{DisplayOffset, DisplayRange, Revision};
 mod blocks;
 mod composition;
 mod durability;
+mod native_input_traces;
 mod paragraphs;
 mod portable;
 mod recovery;
