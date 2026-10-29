@@ -195,6 +195,17 @@ class NativeEditorSessionTest {
                         assertEquals(final, store.read("history"))
                         recovered.detach()
                     }
+                    store.createNote("echo", "", "__a__")
+                    store.openEditor("echo").use { echo ->
+                        echo.selectWithAffinity(0uL, EditorByteRange(1uL, 1uL), EditorAffinity.BACKWARD)
+                        echo.replaceUtf16(0uL, EditorUtf16Range(1uL, 1uL), listOf(32u.toUShort()))
+                        echo.selectWithAffinity(1uL, EditorByteRange(2uL, 2uL), EditorAffinity.BACKWARD)
+                        echo.replaceUtf16Action(1uL, EditorUtf16Range(2uL, 2uL), listOf(98u.toUShort()), EditorInputAction.TYPING)
+                        assertEquals("__a b__", echo.sourceText())
+                        assertEquals(listOf(EditorInlineFormat.BOLD), echo.activeFormats())
+                        echo.detach()
+                    }
+
                 }
             }
         } finally {

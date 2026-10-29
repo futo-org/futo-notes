@@ -113,10 +113,10 @@ impl EditorSession {
         self.validate_range(range)?;
         if self.selection != range || self.affinity != affinity {
             self.typing = None;
+            self.pending_formats = None;
         }
         self.selection = range;
         self.affinity = affinity;
-        self.pending_formats = None;
         Ok(SelectionChange {
             revision: self.revision,
             selection: range,

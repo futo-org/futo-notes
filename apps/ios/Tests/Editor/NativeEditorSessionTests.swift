@@ -172,6 +172,21 @@ struct NativeEditorSessionTests {
             #expect(try recovered.checkpoint().mutation?.finalId == "history")
             #expect(try store.read(id: "history") == final)
             try recovered.detach()
+            _ = try store.createNote(title: "echo", folder: "", content: "__a__")
+            let echo = try store.openEditor(id: "echo")
+            _ = try echo.selectWithAffinity(
+                expected: 0, range: EditorByteRange(start: 1, end: 1), affinity: .backward)
+            _ = try echo.replaceUtf16(
+                expected: 0, range: EditorUtf16Range(start: 1, end: 1), inserted: [32])
+            _ = try echo.selectWithAffinity(
+                expected: 1, range: EditorByteRange(start: 2, end: 2), affinity: .backward)
+            _ = try echo.replaceUtf16Action(
+                expected: 1, range: EditorUtf16Range(start: 2, end: 2), inserted: [98],
+                action: .typing)
+            #expect(try echo.sourceText() == "__a b__")
+            #expect(try echo.activeFormats() == [.bold])
+            try echo.detach()
+
         }.value
     }
 

@@ -329,3 +329,101 @@ fn typing_group_includes_marker_repairs_and_redo_branch_is_replaced_only_after_a
         .is_none());
     assert_eq!(view.text, "ax");
 }
+
+#[test]
+fn native_selection_echo_keeps_carried_format_and_the_typing_group() {
+    use futo_notes_editor::Affinity;
+    let mut session = EditorSession::open_with_clock("__a__", Arc::new(Clock::default()));
+    session
+        .select_with_affinity(Revision(0), range(1, 1), Affinity::Backward)
+        .unwrap();
+    session
+        .replace(Revision(0), range(1, 1), " ", &mut |_| Ok(()))
+        .unwrap();
+    // A native text control echoes the exact accepted caret, not a user jump.
+    session
+        .select_with_affinity(Revision(1), range(2, 2), Affinity::Backward)
+        .unwrap();
+    session
+        .replace(Revision(1), range(2, 2), "b", &mut |_| Ok(()))
+        .unwrap();
+    assert_eq!(session.source_text(), "__a b__");
+    session.undo(Revision(2), &mut |_| Ok(())).unwrap().unwrap();
+    assert_eq!(session.source_text(), "__a__");
+    assert!(session
+        .undo(Revision(3), &mut |_| Ok(()))
+        .unwrap()
+        .is_none());
+}
+
+#[test]
+fn actual_selection_or_affinity_jump_breaks_the_run_even_after_returning_to_the_old_caret() {
+    use futo_notes_editor::Affinity;
+    for jump in [range(0, 0), range(2, 2)] {
+        let mut session = EditorSession::open_with_clock("a", Arc::new(Clock::default()));
+        session
+            .select_with_affinity(Revision(0), range(1, 1), Affinity::Backward)
+            .unwrap();
+        session
+            .replace(Revision(0), range(1, 1), "b", &mut |_| Ok(()))
+            .unwrap();
+        session
+            .select_with_affinity(Revision(1), jump, Affinity::Forward)
+            .unwrap();
+        session
+            .select_with_affinity(Revision(1), range(2, 2), Affinity::Backward)
+            .unwrap();
+        session
+            .replace(Revision(1), range(2, 2), "c", &mut |_| Ok(()))
+            .unwrap();
+        session.undo(Revision(2), &mut |_| Ok(())).unwrap().unwrap();
+        assert_eq!(session.source_text(), "ab");
+        session.undo(Revision(3), &mut |_| Ok(())).unwrap().unwrap();
+        assert_eq!(session.source_text(), "a");
+    }
+}
+
+#[test]
+fn rejected_isolated_input_and_compound_command_leave_the_previous_typing_group_untouched() {
+    use futo_notes_editor::{DisplayReplacement, InputAction};
+    let mut session = EditorSession::open_with_clock("a", Arc::new(Clock::default()));
+    session
+        .replace(Revision(0), range(1, 1), "b", &mut |_| Ok(()))
+        .unwrap();
+    assert!(session
+        .replace_action(
+            Revision(1),
+            range(2, 2),
+            "x",
+            InputAction::Isolated,
+            &mut |_| Err("full".into())
+        )
+        .is_err());
+    assert!(session
+        .replace_many(
+            Revision(1),
+            &[
+                DisplayReplacement {
+                    range: range(0, 1),
+                    inserted: "x".into()
+                },
+                DisplayReplacement {
+                    range: range(1, 2),
+                    inserted: "y".into()
+                },
+            ],
+            &mut |_| Err("full".into())
+        )
+        .is_err());
+    assert_eq!(session.source_text(), "ab");
+    assert_eq!(session.selection(), range(2, 2));
+    session
+        .replace(Revision(1), range(2, 2), "c", &mut |_| Ok(()))
+        .unwrap();
+    session.undo(Revision(2), &mut |_| Ok(())).unwrap().unwrap();
+    assert_eq!(session.source_text(), "a");
+    assert!(session
+        .undo(Revision(3), &mut |_| Ok(()))
+        .unwrap()
+        .is_none());
+}
