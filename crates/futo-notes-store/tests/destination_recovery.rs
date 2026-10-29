@@ -158,3 +158,6 @@ mod destination_failures;
 
 #[path = "destination_recovery/destination_identity.rs"]
 mod destination_identity;
+
+#[path = "destination_recovery/scoped_pause.rs"]
+mod scoped_pause;

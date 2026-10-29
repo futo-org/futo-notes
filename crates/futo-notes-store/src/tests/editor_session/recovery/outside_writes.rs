@@ -269,6 +269,8 @@ fn first_recovery_append_cannot_enter_an_outside_write_decision_window() {
     let (attempt_tx, attempt_rx) = mpsc::channel();
     let (accepted_tx, accepted_rx) = mpsc::channel();
     let blocked = std::thread::scope(|scope| {
+        // Drop the sender before scoped joins if an observation panics.
+        let resume_before_join = resume_tx;
         let append = scope.spawn(|| {
             attempt_tx.send(()).unwrap();
             let result = editor.replace(Revision(0), range(5, 5), "!");
@@ -277,7 +279,7 @@ fn first_recovery_append_cannot_enter_an_outside_write_decision_window() {
         });
         attempt_rx.recv().unwrap();
         let blocked = accepted_rx.recv_timeout(Duration::from_millis(75)).is_err();
-        resume_tx.send(()).unwrap();
+        resume_before_join.send(()).unwrap();
         writer.join().unwrap().unwrap();
         append.join().unwrap().unwrap();
         blocked
