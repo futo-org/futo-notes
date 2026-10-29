@@ -28,6 +28,13 @@
             ]
         }
 
+        /// Layout is read only on request, never from an input callback.
+        func selectionRectOnScreen() -> [Double] {
+            guard let range = selectedTextRange else { return [] }
+            let rect = convert(firstRect(for: range), to: window)
+            return [rect.minX, rect.minY, rect.width, rect.height].map(Double.init)
+        }
+
         private func offsets(_ range: UITextRange?) -> Any {
             guard let range else { return NSNull() }
             return [
@@ -187,6 +194,7 @@
                                         [
                                             "formatVersion": 1, "sourceUTF16": Array(source.utf16),
                                             "opening": opening, "current": control.snapshot(),
+                                            "selectionRect": control.selectionRectOnScreen(),
                                             "events": control.events,
                                             "os": ProcessInfo.processInfo
                                                 .operatingSystemVersionString,

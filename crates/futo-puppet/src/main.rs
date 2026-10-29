@@ -99,6 +99,7 @@ use std::time::{Duration, Instant};
 const USAGE: &str = "usage:
   futo-puppet look                               the whole screen in one read: state, elements, the screen's verbs, the vault's size
   futo-puppet actions
+  futo-puppet system-elements                    (ios) read the owned simulator's system accessibility, including keyboard candidates; JSON frames are screen points
   futo-puppet do <Verb> ['<json args>']
   futo-puppet do '[[\"Verb\",{…}],[\"Verb\"],…]'
   futo-puppet notes                              every note id and folder path in the vault
@@ -125,9 +126,10 @@ Add {\"json\":true} to any args for the raw typed form.
 Target: FUTO_PUPPET_TARGET=desktop|ios|android (default desktop), FUTO_PUPPET_PORT=<port> (phones only; default: worktree slot).
 How to drive the app with this (read first): .claude/skills/puppet/SKILL.md";
 
-const QUERIES: [&str; 12] = [
+const QUERIES: [&str; 13] = [
     "actions",
     "elements",
+    "system-elements",
     "state",
     "notes",
     "search",
