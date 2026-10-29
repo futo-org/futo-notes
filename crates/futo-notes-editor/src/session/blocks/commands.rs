@@ -34,7 +34,11 @@ impl EditorSession {
         if matches!(command, BlockCommand::Heading(level) if level > 6) {
             return Err(EditorError::InvalidRange);
         }
-        if self.projection.has_block_seams(range) {
+        if self.projection.has_block_seams(range)
+            || self
+                .projection
+                .has_multiline_block_code(&self.source, range)
+        {
             return self.stage_block_action(expected, range, accept, |staged, local, accept| {
                 let seams = staged.split_inline_block_seams(local, accept)?;
                 let Some(mut change) =
@@ -181,8 +185,12 @@ impl EditorSession {
                 selection.end.0 += 1;
             }
         }
+        let formats = (range == self.selection)
+            .then(|| self.pending_formats.clone())
+            .flatten();
         let mut change =
             self.commit_block_edit(expected, start..end, &output, Some(selection), None, accept)?;
+        self.carry_block_formats(formats);
         change.work.parsed_source_bytes += parsed;
         Ok(Some(change))
     }

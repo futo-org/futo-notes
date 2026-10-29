@@ -110,8 +110,11 @@ impl EditorSession {
             self.commit_block_edit(expected, start..end, &output, None, Some(caret), accept)?;
         change.work.materialized_source_bytes +=
             opened_bytes + staged_change.work.materialized_source_bytes;
-        change.work.parsed_source_bytes +=
-            2 * opened_bytes + staged_change.work.parsed_source_bytes;
-        return Ok(Some(change));
+        change.work.parsed_source_bytes += protected_bytes
+            + left_work
+            + right_work
+            + 2 * opened_bytes
+            + staged_change.work.parsed_source_bytes;
+        Ok(Some(change))
     }
 }

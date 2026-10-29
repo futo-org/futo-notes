@@ -47,14 +47,7 @@ impl EditorSession {
             None,
             accept,
         )?;
-        self.pending_formats = staged.pending_formats;
-        self.undo
-            .last_mut()
-            .unwrap()
-            .entries
-            .last_mut()
-            .unwrap()
-            .after_formats = self.pending_formats.clone();
+        self.carry_block_formats(staged.pending_formats);
         change.work.materialized_source_bytes += raw.len() + step.work.materialized_source_bytes;
         change.work.parsed_source_bytes += 2 * raw.len() + step.work.parsed_source_bytes;
         Ok(Some(change))

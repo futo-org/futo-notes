@@ -4,11 +4,30 @@ use super::{
     spelling::spell,
     Projection,
 };
-use crate::{DisplayRange, EditorError};
+use crate::{DisplayRange, EditorError, InlineFormat};
 use ropey::Rope;
 
 impl Projection {
-    fn line_boundaries(&self, range: DisplayRange) -> Vec<usize> {
+    pub(crate) fn has_multiline_block_code(&self, source: &Rope, range: DisplayRange) -> bool {
+        let (first_line, last_line) = self.touched_display_lines(range);
+        let first = self.rows.locate(range.start.0, true);
+        let last = self.rows.locate(range.end.0, true);
+        (first..=last).any(|index| {
+            let (row, base, display) = self.rows.at(index);
+            row.spans.iter().any(|span| {
+                let line = self
+                    .display
+                    .byte_to_line(display + row.display_at(span.open.end));
+                span.format == InlineFormat::Code
+                    && first_line <= line
+                    && line <= last_line
+                    && source.byte_to_line(base + span.open.end)
+                        < source.byte_to_line(base + span.close.start)
+            })
+        })
+    }
+
+    fn touched_display_lines(&self, range: DisplayRange) -> (usize, usize) {
         let first = self.display.byte_to_line(range.start.0);
         let mut last = self.display.byte_to_line(range.end.0);
         if range.start != range.end
@@ -17,6 +36,11 @@ impl Projection {
         {
             last -= 1;
         }
+        (first, last)
+    }
+
+    fn line_boundaries(&self, range: DisplayRange) -> Vec<usize> {
+        let (first, last) = self.touched_display_lines(range);
         (first..=(last + 1).min(self.display.len_lines() - 1))
             .map(|line| self.display.line_to_byte(line))
             .collect()
@@ -41,7 +65,7 @@ impl Projection {
         source: &Rope,
         range: DisplayRange,
     ) -> Result<Option<Plan>, EditorError> {
-        if !self.has_block_seams(range) {
+        if !self.has_block_seams(range) && !self.has_multiline_block_code(source, range) {
             return Ok(None);
         }
         let Context {
@@ -59,6 +83,24 @@ impl Projection {
             .map(|boundary| boundary - display_start)
             .collect();
         super::spelling::split_block_spans(&mut pieces, &boundaries);
+        let (first_line, last_line) = self.touched_display_lines(range);
+        let mut at = display_start;
+        for piece in &mut pieces {
+            let line = self.display.byte_to_line(at);
+            if first_line <= line
+                && line <= last_line
+                && piece
+                    .spans
+                    .iter()
+                    .any(|id| markers[*id].format == InlineFormat::Code)
+                && (piece.raw.contains(['\r', '\n']) || piece.display.is_empty() && !piece.trailing)
+            {
+                // Inline code normalizes a physical source break to one visible
+                // space. Keep that visible line whole before adding a block seam.
+                piece.raw.clone_from(&piece.display);
+            }
+            at += piece.display.len();
+        }
         let end = pieces.len();
         let rendered = spell(pieces, markers, end..end, true)?;
         if rendered.text == raw {
@@ -81,5 +123,4 @@ impl Projection {
             parsed: rendered.parsed,
         }))
     }
-
 }

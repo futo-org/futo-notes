@@ -1,6 +1,96 @@
 use super::*;
 
 #[test]
+fn enter_before_heading_text_preserves_an_explicit_inline_format_toggle() {
+    let mut s = EditorSession::open("# __ab__");
+    let mut v = ReferenceView::new("ab");
+    s.toggle_format(s.revision(), InlineFormat::Bold, &mut |_| Ok(()))
+        .unwrap();
+    assert!(s.active_formats().is_empty());
+    v.apply(
+        s.paragraph_key(s.revision(), range(0, 0), ParagraphKey::Enter, &mut |_| {
+            Ok(())
+        })
+        .unwrap()
+        .unwrap(),
+    );
+    assert_eq!(s.source_text(), "\n# __ab__");
+    assert_eq!(v.text, "\nab");
+    assert!(s.active_formats().is_empty());
+    v.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(s.source_text(), "# __ab__");
+    assert!(s.active_formats().is_empty());
+    v.apply(s.redo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(s.source_text(), "\n# __ab__");
+    assert!(s.active_formats().is_empty());
+}
+
+#[test]
+fn enter_at_a_later_physical_quote_line_adds_only_the_paragraph_separator() {
+    let mut s = EditorSession::open("> a\r\n> __日__\r\n\r\nneighbor");
+    let mut v = ReferenceView::new("a\r\n日\r\n\r\nneighbor");
+    s.select(s.revision(), range(3, 3)).unwrap();
+    v.apply(
+        s.paragraph_key(
+            s.revision(),
+            s.selection(),
+            ParagraphKey::Enter,
+            &mut |_| Ok(()),
+        )
+        .unwrap()
+        .unwrap(),
+    );
+    assert_eq!(s.source_text(), "> a\r\n>\n> __日__\r\n\r\nneighbor");
+    assert_eq!(v.text, "a\r\n\n日\r\n\r\nneighbor");
+    assert_eq!(s.selection(), range(4, 4));
+    v.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(s.source_text(), "> a\r\n> __日__\r\n\r\nneighbor");
+    assert_eq!(v.text, "a\r\n日\r\n\r\nneighbor");
+    assert_eq!(s.selection(), range(3, 3));
+}
+
+#[test]
+fn heading_and_quote_enter_carry_bold_into_an_empty_continuation() {
+    for (raw, expected, shown, entered) in [
+        ("# __ab__", "# __ab__\n__c__", "ab\nc", "# __ab__\n"),
+        (
+            "> __ab__",
+            "> __ab__\n>\n> __c__",
+            "ab\n\nc",
+            "> __ab__\n>\n> ",
+        ),
+    ] {
+        let mut s = EditorSession::open(raw);
+        let mut v = ReferenceView::new("ab");
+        s.select(s.revision(), range(2, 2)).unwrap();
+        v.apply(
+            s.paragraph_key(
+                s.revision(),
+                s.selection(),
+                ParagraphKey::Enter,
+                &mut |_| Ok(()),
+            )
+            .unwrap()
+            .unwrap(),
+        );
+        assert_eq!(s.source_text(), entered);
+        assert_eq!(s.active_formats(), vec![InlineFormat::Bold]);
+        v.apply(
+            s.replace(s.revision(), s.selection(), "c", &mut |_| Ok(()))
+                .unwrap(),
+        );
+        assert_eq!(s.source_text(), expected);
+        assert_eq!(v.text, shown);
+        v.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+        assert_eq!(s.source_text(), entered);
+        assert_eq!(s.active_formats(), vec![InlineFormat::Bold]);
+        v.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+        assert_eq!(s.source_text(), raw);
+        assert_eq!(v.text, "ab");
+    }
+}
+
+#[test]
 fn structural_enter_splits_headings_and_continues_or_exits_nested_quotes() {
     for (raw, shown, at, expected, display, caret) in [
         ("## ab", "ab", 0, "\n## ab", "\nab", 1),
@@ -217,4 +307,21 @@ fn structural_splitting_treats_heading_body_as_inline_content() {
     assert_eq!(v.text, "# \nab\r\nend");
     v.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
     assert_eq!(s.source_text(), "# # ab\r\nend");
+}
+
+#[test]
+fn structural_split_keeps_fence_like_inline_text_visible() {
+    let mut s = EditorSession::open("# a ``` b\r\nneighbor");
+    let mut v = ReferenceView::new("a ``` b\r\nneighbor");
+    v.apply(
+        s.paragraph_key(s.revision(), range(2, 2), ParagraphKey::Enter, &mut |_| {
+            Ok(())
+        })
+        .unwrap()
+        .unwrap(),
+    );
+    assert_eq!(s.source_text(), "# a \n\\``` b\r\nneighbor");
+    assert_eq!(v.text, "a \n``` b\r\nneighbor");
+    v.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(s.source_text(), "# a ``` b\r\nneighbor");
 }

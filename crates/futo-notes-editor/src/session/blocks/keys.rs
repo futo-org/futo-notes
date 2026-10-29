@@ -30,7 +30,10 @@ impl EditorSession {
         }
         if matches!(key, ParagraphKey::Enter | ParagraphKey::ShiftEnter)
             && (line.heading > 0 || line.quote_depth > 0)
-            && self.projection.has_block_seams(range)
+            && (self.projection.has_block_seams(range)
+                || self
+                    .projection
+                    .has_multiline_block_code(&self.source, range))
         {
             return self.stage_block_action(expected, range, accept, |staged, local, accept| {
                 let seams = staged.split_inline_block_seams(local, accept)?;
@@ -194,6 +197,42 @@ impl EditorSession {
                 )
                 .map(Some);
         }
+        if at_start && line.quote_depth > 0 {
+            let index = self.source.byte_to_line(line.source.start);
+            if index > 0 {
+                let previous = DisplayOffset(
+                    self.projection
+                        .display_at(self.source.line_to_byte(index - 1)),
+                );
+                if self
+                    .projection
+                    .block_lines(DisplayRange {
+                        start: previous,
+                        end: previous,
+                    })
+                    .first()
+                    .is_some_and(|previous| {
+                        !previous.content.is_empty()
+                            && previous.quote_depth == line.quote_depth
+                            && previous.heading == 0
+                            && !previous.divider
+                            && !previous.code
+                    })
+                {
+                    let separator = format!("{}\n", "> ".repeat(line.quote_depth).trim_end());
+                    return self
+                        .commit_block_edit(
+                            expected,
+                            line.source.start..line.source.start,
+                            &separator,
+                            None,
+                            Some(line.content.start + separator.len()),
+                            accept,
+                        )
+                        .map(Some);
+                }
+            }
+        }
         if line.divider {
             let at = line.content.end;
             return self
@@ -208,6 +247,10 @@ impl EditorSession {
             start: DisplayOffset(offset),
             end: DisplayOffset(offset),
         };
+        staged.select_with_affinity(staged.revision(), local, self.affinity)?;
+        if range == self.selection {
+            staged.pending_formats = self.pending_formats.clone();
+        }
         // A heading ends its inline block at Enter. A temporary blank line asks
         // the inline owner to close/reopen its spans before splitting that block.
         let separator = "\n\n";
@@ -263,6 +306,7 @@ impl EditorSession {
             Some(caret),
             accept,
         )?;
+        self.carry_block_formats(staged.pending_formats);
         change.work.materialized_source_bytes +=
             raw.len() + staged_change.work.materialized_source_bytes;
         change.work.parsed_source_bytes += protected_bytes
@@ -318,6 +362,7 @@ impl EditorSession {
             None,
             accept,
         )?;
+        self.carry_block_formats(staged.pending_formats);
         change.work.materialized_source_bytes += raw.len()
             + deleted.work.materialized_source_bytes
             + entered.work.materialized_source_bytes;

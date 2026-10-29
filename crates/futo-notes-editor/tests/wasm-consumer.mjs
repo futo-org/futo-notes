@@ -13,6 +13,64 @@ import console from 'node:console';
 import { setTimeout, clearTimeout } from 'node:timers';
 const { WasmSession } = await import(pathToFileURL(process.argv[2]).href);
 
+async function blockRegression(opening, shown, converted, finalSource, finalDisplay, shortcut) {
+  const vault = mkdtempSync(join(tmpdir(), 'futo-editor-wasm-blocks-'));
+  const worker = spawn(process.argv[3], [vault, opening], { stdio: ['pipe', 'pipe', 'inherit'] });
+  const exited = once(worker, 'exit');
+  const deadline = setTimeout(() => worker.kill(), 30_000);
+  deadline.unref();
+  const lines = createInterface({ input: worker.stdout })[Symbol.asyncIterator]();
+  let session;
+  try {
+    const next = async () => {
+      const line = await lines.next();
+      assert.equal(line.done, false);
+      return JSON.parse(line.value);
+    };
+    session = WasmSession.restore(JSON.stringify(await next()));
+    let display = shown;
+    const accept = async (request) => {
+      worker.stdin.write(request + '\n');
+      const change = JSON.parse(session.acknowledge(JSON.stringify(await next())));
+      const bytes = Buffer.from(display);
+      display = Buffer.concat([
+        bytes.subarray(0, change.range.start),
+        Buffer.from(change.inserted),
+        bytes.subarray(change.range.end),
+      ]).toString();
+    };
+    const at = shortcut ? 1 : 2;
+    session.select_with_affinity(0n, at, at, '"Backward"');
+    await accept(
+      shortcut
+        ? session.replace_utf16(0n, 1, 1, new Uint16Array([32]))
+        : session.paragraph_key_utf16(0n, 2, 2, '"Enter"'),
+    );
+    assert.equal(session.draft_text(), converted);
+    await accept(session.undo(1n));
+    assert.equal(session.draft_text(), opening);
+    assert.equal(display, shown);
+    await accept(session.redo(2n));
+    assert.equal(session.draft_text(), converted);
+    if (!shortcut) {
+      assert.deepEqual(JSON.parse(session.active_formats()), ['Bold']);
+      await accept(session.replace_utf16(3n, 3, 3, new Uint16Array([99])));
+    }
+    assert.equal(session.draft_text(), finalSource);
+    assert.equal(display, finalDisplay);
+    worker.stdin.write(session.flush() + '\n');
+    session.acknowledge(JSON.stringify(await next()));
+    assert.equal(JSON.parse(session.status()).durable, shortcut ? 3 : 4);
+  } finally {
+    clearTimeout(deadline);
+    session?.free();
+    worker.stdin.end();
+    const [code] = await exited;
+    rmSync(vault, { recursive: true });
+    assert.equal(code, 0);
+  }
+}
+
 (async () => {
   const vault = mkdtempSync(join(tmpdir(), 'futo-editor-wasm-'));
   const worker = spawn(process.argv[3], [vault], { stdio: ['pipe', 'pipe', 'inherit'] });
@@ -248,7 +306,18 @@ const { WasmSession } = await import(pathToFileURL(process.argv[2]).href);
     rmSync(vault, { recursive: true });
     assert.equal(code, 0);
   }
-  console.log('Compiled WASM / Rust store consumer: ordered edit/undo/redo/append/flush passed.');
+  await blockRegression(
+    '\\#A #\r\ntail  ',
+    '#A #\r\ntail  ',
+    '# A \\#\r\ntail  ',
+    '# A \\#\r\ntail  ',
+    'A #\r\ntail  ',
+    true,
+  );
+  await blockRegression('# __ab__', 'ab', '# __ab__\n', '# __ab__\n__c__', 'ab\nc', false);
+  console.log(
+    'Compiled WASM / Rust store consumer: ordered edit/undo/redo/append/flush and block regressions passed.',
+  );
 })().catch((error) => {
   console.error(error);
   process.exitCode = 1;

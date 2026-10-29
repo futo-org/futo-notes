@@ -53,6 +53,42 @@ class NativeEditorSessionTest {
                     recovered.checkpoint()
                     recovered.detach()
                 }
+                store.createNote("shortcut", "", "\\#A #\r\ntail  ")
+                store.openEditor("shortcut").use { shortcut ->
+                    shortcut.selectUtf16(0uL, EditorUtf16Range(1uL, 1uL))
+                    val converted = shortcut.replaceUtf16(0uL, EditorUtf16Range(1uL, 1uL), listOf(32u.toUShort()))
+                    assertEquals(EditorByteRange(0uL, 0uL), converted.selection)
+                    assertEquals("# A \\#\r\ntail  ", shortcut.sourceText())
+                    assertEquals("A #\r\ntail  ", shortcut.displayText())
+                    shortcut.undo(1uL)
+                    assertEquals("\\#A #\r\ntail  ", shortcut.sourceText())
+                    shortcut.redo(2uL)
+                    shortcut.flushRecovery()
+                    shortcut.detach()
+                }
+                store.openEditor("shortcut").use { recovered ->
+                    assertEquals("# A \\#\r\ntail  ", recovered.sourceText())
+                    recovered.checkpoint()
+                    assertEquals("# A \\#\r\ntail  ", store.read("shortcut"))
+                    recovered.detach()
+                }
+                store.createNote("carry", "", "# __ab__")
+                store.openEditor("carry").use { carry ->
+                    carry.selectUtf16(0uL, EditorUtf16Range(2uL, 2uL))
+                    carry.paragraphKeyUtf16(0uL, EditorUtf16Range(2uL, 2uL), EditorParagraphKey.ENTER)
+                    assertEquals(listOf(EditorInlineFormat.BOLD), carry.activeFormats())
+                    carry.replaceUtf16(1uL, EditorUtf16Range(3uL, 3uL), listOf(99u.toUShort()))
+                    assertEquals("# __ab__\n__c__", carry.sourceText())
+                    assertEquals("ab\nc", carry.displayText())
+                    carry.flushRecovery()
+                    carry.detach()
+                }
+                store.openEditor("carry").use { recovered ->
+                    assertEquals("# __ab__\n__c__", recovered.sourceText())
+                    recovered.checkpoint()
+                    assertEquals("# __ab__\n__c__", store.read("carry"))
+                    recovered.detach()
+                }
             }
         } finally { root.deleteRecursively() }
     }

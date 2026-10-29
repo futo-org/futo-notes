@@ -43,6 +43,7 @@ impl Projection {
             z,
             mut markers,
             pieces,
+            block_boundaries,
         } = self.edit_context(source, range);
         let expanded = split_entities(pieces, a, z);
         let Cut {
@@ -96,6 +97,19 @@ impl Projection {
         }));
         let insertion_end = changed.len();
         changed.extend(after);
+        let boundaries: Vec<_> = block_boundaries
+            .into_iter()
+            .filter_map(|boundary| {
+                if boundary <= a {
+                    Some(boundary)
+                } else if boundary >= z {
+                    Some(boundary - (z - a) + inserted.len())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        super::spelling::split_block_spans(&mut changed, &boundaries);
         // A native line break stays a line break. Split inline code around it
         // rather than allowing CommonMark code-space normalization to eat it.
         for piece in &mut changed {
@@ -160,10 +174,19 @@ impl Projection {
         let mut a = range.start.0 - display_start;
         let mut z = range.end.0 - display_start;
         let mut display_len = 0;
+        let mut block_boundaries = Vec::new();
         for index in first..=last {
             let (row, row_source, _) = self.rows.at(index);
             let base = row_source - source_start;
             let span_base = markers.len();
+            for pair in row.blocks.windows(2) {
+                if pair[0].heading > 0
+                    || pair[1].heading > 0
+                    || pair[0].quote_depth != pair[1].quote_depth
+                {
+                    block_boundaries.push(display_len + row.display_at(pair[1].source.start));
+                }
+            }
             markers.extend(row.spans.iter().map(|span| Marker {
                 format: span.format,
                 open: raw[base + span.open.start..base + span.open.end].into(),
@@ -222,6 +245,7 @@ impl Projection {
             z,
             markers,
             pieces,
+            block_boundaries,
         }
     }
 }
@@ -243,6 +267,7 @@ pub(super) struct Context {
     pub(super) z: usize,
     pub(super) markers: Vec<Marker>,
     pub(super) pieces: Vec<Piece>,
+    pub(super) block_boundaries: Vec<usize>,
 }
 struct Cut {
     before: Vec<Piece>,

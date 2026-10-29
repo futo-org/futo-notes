@@ -101,49 +101,34 @@ impl EditorSession {
         if heading.is_none() && !quote && !divider {
             return Ok(None);
         }
-        let at = self.source_at(expected, range.start, Affinity::Backward)?.0;
-        let replacement = if divider {
-            let index = self.source.byte_to_line(line.source.start);
-            let previous_nonempty =
-                index > 0 && !self.source.line(index - 1).to_string().trim().is_empty();
-            format!("{}\n", if previous_nonempty { "***" } else { "---" })
+        let command = if let Some(hashes) = heading {
+            BlockCommand::Heading(hashes.len() as u8)
+        } else if quote {
+            BlockCommand::Quote
         } else {
-            prefix
+            BlockCommand::Divider
         };
-        let caret = line.content.start + replacement.len();
-        let mut end = at;
-        let mut replacement = replacement;
-        if quote && line.source.end < self.source.len_bytes() {
-            let next_display = self.projection.display_at(line.source.end);
-            let next_range = DisplayRange {
-                start: DisplayOffset(next_display),
-                end: DisplayOffset(next_display),
+        self.stage_block_action(expected, range, accept, |staged, local, accept| {
+            let line = staged.projection.block_lines(local).remove(0);
+            let prefix = DisplayRange {
+                start: DisplayOffset(staged.projection.display_at(line.content.start)),
+                end: local.start,
             };
-            if self
-                .projection
-                .block_lines(next_range)
-                .first()
-                .is_some_and(|next| {
-                    !next.content.is_empty()
-                        && next.quote_depth <= line.quote_depth
-                        && next.heading == 0
-                        && !next.divider
-                        && !next.code
-                })
-            {
-                replacement.push_str(&self.source.byte_slice(at..line.source.end).to_string());
-                replacement.push_str(&format!("{}\n", "> ".repeat(line.quote_depth).trim_end()));
-                end = line.source.end;
-            }
-        }
-        self.commit_block_edit(
-            expected,
-            line.content.start..end,
-            &replacement,
-            None,
-            Some(caret),
-            accept,
-        )
-        .map(Some)
+            let removed = staged.replace_action(
+                staged.revision(),
+                prefix,
+                "",
+                crate::InputAction::Isolated,
+                accept,
+            )?;
+            let formats = staged.pending_formats.clone();
+            let mut change = staged
+                .block_command(staged.revision(), staged.selection(), command, accept)?
+                .ok_or(EditorError::UnrepresentableFormat)?;
+            staged.pending_formats = formats;
+            change.work.materialized_source_bytes += removed.work.materialized_source_bytes;
+            change.work.parsed_source_bytes += removed.work.parsed_source_bytes;
+            Ok(Some(change))
+        })
     }
 }

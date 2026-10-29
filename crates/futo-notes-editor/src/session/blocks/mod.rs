@@ -20,6 +20,17 @@ mod transaction;
 mod typing;
 
 impl EditorSession {
+    fn carry_block_formats(&mut self, formats: Option<Vec<InlineFormat>>) {
+        self.pending_formats = formats;
+        self.undo
+            .last_mut()
+            .unwrap()
+            .entries
+            .last_mut()
+            .unwrap()
+            .after_formats = self.pending_formats.clone();
+    }
+
     fn commit_block_edit(
         &mut self,
         expected: Revision,
@@ -49,7 +60,6 @@ impl EditorSession {
             let at = DisplayOffset(self.projection.display_at(source));
             self.selection = DisplayRange { start: at, end: at };
         }
-        self.pending_formats = None;
         change.selection = self.selection;
         change.work.materialized_source_bytes += inserted.len();
         self.undo.push(HistoryGroup {
@@ -59,7 +69,7 @@ impl EditorSession {
                 before_formats,
                 after_selection: self.selection,
                 after_affinity: self.affinity,
-                after_formats: None,
+                after_formats: self.pending_formats.clone(),
                 range: edit.range,
                 removed: edit.removed,
                 inserted: edit.inserted,

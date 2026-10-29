@@ -1,6 +1,103 @@
 use super::*;
 
 #[test]
+fn selection_ending_before_multiline_code_preserves_its_neighbor_bytes() {
+    let mut s = EditorSession::open("a\r\n`b\r\nc`");
+    let mut v = ReferenceView::new("a\r\nb c");
+    v.apply(
+        s.block_command(
+            s.revision(),
+            range(0, 3),
+            BlockCommand::Heading(1),
+            &mut |_| Ok(()),
+        )
+        .unwrap()
+        .unwrap(),
+    );
+    assert_eq!(s.source_text(), "# a\r\n`b\r\nc`");
+    assert_eq!(v.text, "a\r\nb c");
+    v.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(s.source_text(), "a\r\n`b\r\nc`");
+}
+
+#[test]
+fn heading_command_keeps_a_multiline_inline_code_visible_line_intact() {
+    for (raw, shown, expected) in [
+        (
+            "`a\r\nb`\r\n\r\nneighbor",
+            "a b\r\n\r\nneighbor",
+            "## `a b`\r\n\r\nneighbor",
+        ),
+        (
+            "> `a\r\n> b`\r\n\r\nneighbor",
+            "a b\r\n\r\nneighbor",
+            "> ## `a b`\r\n\r\nneighbor",
+        ),
+        (
+            "``a\r\n`\r\nb``\r\n\r\nneighbor",
+            "a ` b\r\n\r\nneighbor",
+            "## ``a ` b``\r\n\r\nneighbor",
+        ),
+        (
+            "x ````a ``` b````\r\n\r\nneighbor",
+            "x a ``` b\r\n\r\nneighbor",
+            "## x ````a ``` b````\r\n\r\nneighbor",
+        ),
+    ] {
+        let mut s = EditorSession::open(raw);
+        let mut v = ReferenceView::new(shown);
+        s.select(s.revision(), range(1, 1)).unwrap();
+        v.apply(
+            s.block_command(
+                s.revision(),
+                s.selection(),
+                BlockCommand::Heading(2),
+                &mut |_| Ok(()),
+            )
+            .unwrap()
+            .unwrap(),
+        );
+        assert_eq!(s.source_text(), expected, "{raw:?}");
+        assert_eq!(v.text, shown);
+        assert_eq!(s.selection(), range(1, 1));
+        v.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+        assert_eq!(s.source_text(), raw);
+        assert_eq!(v.text, shown);
+    }
+}
+
+#[test]
+fn block_formatting_preserves_carried_inline_formats() {
+    let mut s = EditorSession::open("");
+    let mut v = ReferenceView::new("");
+    s.toggle_format(s.revision(), InlineFormat::Bold, &mut |_| Ok(()))
+        .unwrap();
+    v.apply(
+        s.block_command(
+            s.revision(),
+            s.selection(),
+            BlockCommand::Heading(2),
+            &mut |_| Ok(()),
+        )
+        .unwrap()
+        .unwrap(),
+    );
+    assert_eq!(s.active_formats(), vec![InlineFormat::Bold]);
+    v.apply(
+        s.replace(s.revision(), s.selection(), "a", &mut |_| Ok(()))
+            .unwrap(),
+    );
+    assert_eq!(s.source_text(), "## **a**");
+    assert_eq!(v.text, "a");
+    v.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(s.source_text(), "## ");
+    assert_eq!(s.active_formats(), vec![InlineFormat::Bold]);
+    v.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(s.source_text(), "");
+    assert_eq!(s.active_formats(), vec![InlineFormat::Bold]);
+}
+
+#[test]
 fn heading_command_targets_only_touched_visible_lines_and_exact_history() {
     for level in 1..=6 {
         let mut s = EditorSession::open("before\r\nA\r\nB\r\nafter\r\n");

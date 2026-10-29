@@ -7,6 +7,69 @@ fn range(a: usize, b: usize) -> DisplayUtf16Range {
     }
 }
 #[test]
+fn shortcut_and_carried_heading_input_recover_and_checkpoint_exactly() {
+    for (opening, entered, final_source, display, caret) in [
+        (
+            "\\#A #\r\ntail  ",
+            "# A \\#\r\ntail  ",
+            "# A \\#\r\ntail  ",
+            "A #\r\ntail  ",
+            1,
+        ),
+        (
+            "# __ab__\r\ntail  ",
+            "# __ab__\n\r\ntail  ",
+            "# __ab__\n__c__\r\ntail  ",
+            "ab\nc\r\ntail  ",
+            2,
+        ),
+    ] {
+        let root = TestRoot::new();
+        let store = store(&root);
+        store.create("", "blocks", opening).unwrap();
+        {
+            let mut editor = store.open_editor("blocks").unwrap();
+            editor
+                .select_utf16(Revision(0), range(caret, caret))
+                .unwrap();
+            if caret == 1 {
+                editor
+                    .replace_utf16(Revision(0), range(1, 1), &[32])
+                    .unwrap();
+            } else {
+                editor
+                    .paragraph_key_utf16(Revision(0), range(2, 2), ParagraphKey::Enter)
+                    .unwrap()
+                    .unwrap();
+            }
+            assert_eq!(editor.source_text(), entered);
+            editor.undo(editor.revision()).unwrap().unwrap();
+            assert_eq!(editor.source_text(), opening);
+            editor.redo(editor.revision()).unwrap().unwrap();
+            assert_eq!(editor.source_text(), entered);
+            if caret == 2 {
+                editor
+                    .replace(editor.revision(), editor.selection(), "c")
+                    .unwrap();
+            }
+            assert_eq!(editor.source_text(), final_source);
+            assert_eq!(editor.display_text(), display);
+            assert_eq!(store.read("blocks").unwrap(), opening);
+            editor.flush_recovery().unwrap();
+        }
+        let mut recovered = store.open_editor("blocks").unwrap();
+        assert_eq!(recovered.source_text(), final_source);
+        assert_eq!(recovered.display_text(), display);
+        recovered.checkpoint().unwrap();
+        assert_eq!(store.read("blocks").unwrap(), final_source);
+        drop(recovered);
+        assert_eq!(
+            store.open_editor("blocks").unwrap().source_text(),
+            final_source
+        );
+    }
+}
+#[test]
 fn block_commands_structural_enter_checkpoint_and_recovery_keep_literal_bytes() {
     for (opening, command, expected, shown) in [
         (
