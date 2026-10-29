@@ -192,6 +192,16 @@ impl EditorSession {
 
     /// Replay accepts only a record that matches both revision and exact bytes.
     pub fn replay(&mut self, edit: &SourceEdit) -> Result<ViewChange, EditorError> {
+        self.replay_with_accept(edit, &mut |_| Ok(()))
+    }
+
+    /// Host-side ordered replay: validate exact source before accepting it into
+    /// recovery; rejected or failed records leave the engine unchanged.
+    pub fn replay_with_accept(
+        &mut self,
+        edit: &SourceEdit,
+        accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
+    ) -> Result<ViewChange, EditorError> {
         let range = DisplayRange {
             start: DisplayOffset(edit.range.start.0),
             end: DisplayOffset(edit.range.end.0),
@@ -199,6 +209,7 @@ impl EditorSession {
         if self.prepare(edit.previous_revision, range, &edit.inserted)? != *edit {
             return Err(EditorError::RecoveryMismatch);
         }
+        accept(edit).map_err(EditorError::Persistence)?;
         Ok(self.apply(edit))
     }
 

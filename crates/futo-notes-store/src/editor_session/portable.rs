@@ -1,0 +1,104 @@
+use futo_notes_editor::{
+    EditorError, HostAck, HostOperation, HostRequest, HostSnapshot, SessionToken,
+};
+
+use super::{EditorStoreError, StoreEditorSession};
+
+/// Worker-owned native endpoint. Move this session to the worker and exchange
+/// requests/replies; never call `handle` on the UI thread. It does blocking I/O.
+/// It exclusively owns the attached session, so markdown checkpoints cannot
+/// silently invalidate its page's revision/identity contract.
+pub struct StoreEditorHost<'store> {
+    session: StoreEditorSession<'store>,
+    token: SessionToken,
+    last: Option<(HostRequest, HostAck)>,
+}
+
+impl<'store> StoreEditorSession<'store> {
+    pub fn into_portable_host(self, token: SessionToken) -> StoreEditorHost<'store> {
+        StoreEditorHost {
+            session: self,
+            token,
+            last: None,
+        }
+    }
+}
+
+impl StoreEditorHost<'_> {
+    /// Opening state must be produced on the worker and attached with a fresh
+    /// token. In particular a recovery pause must survive page initialization.
+    pub fn snapshot(&self) -> HostSnapshot {
+        let status = self.session.recovery_status();
+        HostSnapshot {
+            token: self.token,
+            source: self.session.source_text(),
+            revision: self.session.revision(),
+            durable: status.durable,
+            paused: status.paused,
+        }
+    }
+
+    /// Remaining delay from the oldest accepted, unflushed edit; subsequent
+    /// appends do not extend it. Arrange a Flush request on this worker when due.
+    pub fn recovery_flush_delay(&self) -> Option<std::time::Duration> {
+        self.session.recovery_flush_delay()
+    }
+
+    pub fn handle(&mut self, request: HostRequest) -> HostAck {
+        if request.token != self.token {
+            return self.reply(&request, Some("stale editor session".into()));
+        }
+        if let Some((previous, ack)) = &self.last {
+            if *previous == request {
+                return ack.clone();
+            }
+            if request.sequence <= previous.sequence {
+                return self.reply(&request, Some("stale or conflicting editor request".into()));
+            }
+        }
+        let result = match &request.operation {
+            HostOperation::Append(edit) => {
+                if self.session.recovery_status().paused {
+                    Err(EditorStoreError::RecoveryPaused)
+                } else {
+                    self.append(edit)
+                }
+            }
+            HostOperation::Flush => self.session.flush_recovery().map(|_| ()),
+            HostOperation::Resume => self.session.resume_recovery().map(|_| ()),
+        };
+        let ack = self.reply(&request, result.err().map(|error| error.to_string()));
+        self.last = Some((request, ack.clone()));
+        ack
+    }
+
+    fn append(&mut self, edit: &futo_notes_editor::SourceEdit) -> Result<(), EditorStoreError> {
+        let _gate = self
+            .session
+            .store
+            .lock_gate()
+            .map_err(EditorStoreError::Recovery)?;
+        self.session
+            .engine
+            .replay_with_accept(edit, &mut |edit| {
+                self.session.recovery.append(&self.session.store.root, edit)
+            })
+            .map(|_| ())
+            .map_err(|error| match error {
+                EditorError::Persistence(error) => EditorStoreError::RecoveryAppend(error),
+                error => EditorStoreError::Editor(error),
+            })
+    }
+
+    fn reply(&self, request: &HostRequest, error: Option<String>) -> HostAck {
+        let status = self.session.recovery_status();
+        HostAck {
+            token: request.token,
+            sequence: request.sequence,
+            accepted: status.accepted,
+            durable: status.durable,
+            paused: status.paused,
+            error,
+        }
+    }
+}
