@@ -40,21 +40,40 @@ impl EditorSession {
         action: crate::InputAction,
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<ViewChange, EditorError> {
+        self.replace_action_mapped(expected, range, inserted, action, accept)
+            .map(|(change, _)| change)
+    }
+
+    pub(super) fn replace_action_mapped(
+        &mut self,
+        expected: Revision,
+        range: DisplayRange,
+        inserted: &str,
+        action: crate::InputAction,
+        accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
+    ) -> Result<(ViewChange, InputMapping), EditorError> {
         self.check_revision(expected)?;
         if self.composition.is_some() {
             if action == crate::InputAction::CompositionCommit {
                 return Err(EditorError::CompositionActive);
             }
-            return self.input_during_composition(expected, range, inserted, action, accept);
+            return self
+                .input_during_composition(expected, range, inserted, action, accept)
+                .map(|change| {
+                    let mapping = InputMapping::new(change.range, change.inserted.len());
+                    (change, mapping)
+                });
         }
         self.validate_range(range)?;
         if action == crate::InputAction::Typing {
             if let Some(change) = self.line_start_conversion(expected, range, inserted, accept)? {
-                return Ok(change);
+                let mapping = InputMapping::new(change.range, change.inserted.len());
+                return Ok((change, mapping));
             }
         }
         if let Some(change) = self.input_at_divider(expected, range, inserted, accept)? {
-            return Ok(change);
+            let mapping = InputMapping::new(change.range, change.inserted.len());
+            return Ok((change, mapping));
         }
         if let Some(change) =
             self.input_before_lazy_quote_neighbor(expected, range, inserted, action, accept)?
@@ -124,6 +143,6 @@ impl EditorSession {
             });
         }
         self.redo.clear();
-        Ok(change)
+        Ok((change, InputMapping::new(range, inserted.len())))
     }
 }

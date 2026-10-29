@@ -8,7 +8,7 @@ impl EditorSession {
         inserted: &str,
         action: crate::InputAction,
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
-    ) -> Result<Option<ViewChange>, EditorError> {
+    ) -> Result<Option<(ViewChange, InputMapping)>, EditorError> {
         if inserted
             .split(['\r', '\n'])
             .next()
@@ -39,25 +39,32 @@ impl EditorSession {
         else {
             return Ok(None);
         };
-        self.stage_block_action(expected, range, accept, |staged, local, accept| {
-            let line = staged.projection.block_lines(local).remove(0);
-            let formats = staged.pending_formats.clone();
-            let affinity = staged.affinity;
-            let mut boundary = staged.commit_block_edit(
-                staged.revision(),
-                line.source.end..line.source.end,
-                &separator,
-                Some(local),
-                None,
-                accept,
-            )?;
-            staged.carry_block_state(&mut boundary, formats, affinity);
-            let mut input =
-                staged.replace_action(staged.revision(), local, inserted, action, accept)?;
-            input.work.materialized_source_bytes += boundary.work.materialized_source_bytes;
-            input.work.parsed_source_bytes += boundary.work.parsed_source_bytes;
-            Ok(Some(input))
-        })
+        let mut mapping = None;
+        let change =
+            self.stage_block_action(expected, range, accept, |staged, local, accept| {
+                let line = staged.projection.block_lines(local).remove(0);
+                let formats = staged.pending_formats.clone();
+                let affinity = staged.affinity;
+                let mut boundary = staged.commit_block_edit(
+                    staged.revision(),
+                    line.source.end..line.source.end,
+                    &separator,
+                    Some(local),
+                    None,
+                    accept,
+                )?;
+                staged.carry_block_state(&mut boundary, formats, affinity);
+                let mut input =
+                    staged.replace_action(staged.revision(), local, inserted, action, accept)?;
+                mapping = Some(
+                    InputMapping::new(local, inserted.len())
+                        .with_boundary(&boundary, range.start.0 - local.start.0),
+                );
+                input.work.materialized_source_bytes += boundary.work.materialized_source_bytes;
+                input.work.parsed_source_bytes += boundary.work.parsed_source_bytes;
+                Ok(Some(input))
+            })?;
+        Ok(change.map(|change| (change, mapping.unwrap())))
     }
 
     pub(in crate::session) fn input_at_divider(

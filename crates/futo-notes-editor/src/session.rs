@@ -12,6 +12,7 @@ pub use composition::Composition;
 pub use paragraphs::ParagraphKey;
 use ropey::Rope;
 use std::sync::Arc;
+use transaction::InputMapping;
 
 use crate::{
     Affinity, DisplayOffset, DisplayRange, EditWork, EditorError, InlineFormat, ProjectionSlice,

@@ -23,3 +23,6 @@ mod ownership;
 mod projection;
 #[path = "blocks/seams.rs"]
 mod seams;
+
+#[path = "blocks/mapping.rs"]
+mod mapping;

@@ -245,6 +245,7 @@ android {
         getByName("androidTest") {
             assets.directories += repositoryRootDirectory.resolve("tests/localization").path
             assets.directories += repositoryRootDirectory.resolve("tests/conformance").path
+            assets.directories += repositoryRootDirectory.resolve("crates/futo-notes-editor/tests/fixtures").path
         }
     }
     // libfuto_notes_ffi.so per-ABI is staged by scripts/build-rust-android.sh.

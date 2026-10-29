@@ -109,14 +109,58 @@ impl EditorSession {
         action: crate::InputAction,
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<Option<ViewChange>, EditorError> {
+        if action != crate::InputAction::Typing {
+            let display = self.provisional_display();
+            validate_overlay_range(&display, range)?;
+            let old = display.byte_slice(range.start.0..range.end.0).to_string();
+            let runs = os_replacement::differing_runs(&old, inserted, range.start.0);
+            let targets: Vec<_> = runs
+                .iter()
+                .flat_map(|run| [run.range.start.0, run.range.end.0])
+                .chain(std::iter::once(range.end.0))
+                .collect();
+            return self.command_during_composition_with_targets(
+                expected,
+                range,
+                &targets,
+                accept,
+                |staged, targets, accept| {
+                    let replacements: Vec<_> = runs
+                        .iter()
+                        .enumerate()
+                        .map(|(index, run)| crate::DisplayReplacement {
+                            range: DisplayRange {
+                                start: DisplayOffset(targets[2 * index]),
+                                end: DisplayOffset(targets[2 * index + 1]),
+                            },
+                            inserted: run.inserted.clone(),
+                        })
+                        .collect();
+                    let mut caret = *targets.last().unwrap();
+                    for run in &replacements {
+                        caret = caret - (run.range.end.0 - run.range.start.0) + run.inserted.len();
+                    }
+                    let mut change = if replacements.is_empty() {
+                        None
+                    } else {
+                        let (change, targets) = staged.replace_many_with_targets(
+                            staged.revision(),
+                            &replacements,
+                            &[caret],
+                            accept,
+                        )?;
+                        caret = targets[0];
+                        Some(change)
+                    };
+                    staged.finish_os_selection(caret, change.as_mut());
+                    Ok(change)
+                },
+            );
+        }
         self.command_during_composition(expected, range, accept, |staged, local_range, accept| {
-            if action == crate::InputAction::Typing {
-                staged
-                    .replace_action(staged.revision(), local_range, inserted, action, accept)
-                    .map(Some)
-            } else {
-                staged.replace_os(staged.revision(), local_range, inserted, &[], accept)
-            }
+            staged
+                .replace_action(staged.revision(), local_range, inserted, action, accept)
+                .map(Some)
         })
     }
 
@@ -131,6 +175,36 @@ impl EditorSession {
         operation: impl FnOnce(
             &mut Self,
             DisplayRange,
+            &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
+        ) -> Result<Option<ViewChange>, EditorError>,
+    ) -> Result<Option<ViewChange>, EditorError> {
+        self.command_during_composition_with_targets(
+            expected,
+            range,
+            &[range.start.0, range.end.0],
+            accept,
+            |staged, targets, accept| {
+                operation(
+                    staged,
+                    DisplayRange {
+                        start: DisplayOffset(targets[0]),
+                        end: DisplayOffset(targets[1]),
+                    },
+                    accept,
+                )
+            },
+        )
+    }
+
+    fn command_during_composition_with_targets(
+        &mut self,
+        expected: Revision,
+        range: DisplayRange,
+        targets: &[usize],
+        accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
+        operation: impl FnOnce(
+            &mut Self,
+            &[usize],
             &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
         ) -> Result<Option<ViewChange>, EditorError>,
     ) -> Result<Option<ViewChange>, EditorError> {
@@ -170,14 +244,17 @@ impl EditorSession {
             transaction.apply(edit.range, &edit.inserted);
             Ok(())
         };
-        let first = staged.replace_os(
+        let (first, targets) = staged.replace_os_with_targets(
             staged.revision(),
             local(marked.range),
             &marked.text,
-            &[],
+            &targets
+                .iter()
+                .map(|offset| offset - display_start)
+                .collect::<Vec<_>>(),
             &mut capture,
         )?;
-        let second = operation(&mut staged, local(range), &mut capture)?;
+        let second = operation(&mut staged, &targets, &mut capture)?;
         let selection = DisplayRange {
             start: DisplayOffset(display_start + staged.selection.start.0),
             end: DisplayOffset(display_start + staged.selection.end.0),
@@ -263,8 +340,7 @@ impl EditorSession {
             );
         }
         let last = replacements.last().unwrap();
-        let caret = first + text.len();
-        let mut change = self.input_during_composition(
+        let change = self.input_during_composition(
             expected,
             DisplayRange {
                 start: DisplayOffset(first),
@@ -274,7 +350,6 @@ impl EditorSession {
             crate::InputAction::Isolated,
             accept,
         )?;
-        self.finish_os_selection(caret, Some(&mut change));
         Ok(change)
     }
 

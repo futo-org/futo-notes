@@ -25,6 +25,21 @@ impl EditorSession {
                 accept,
             );
         }
+        self.replace_os_with_targets(expected, range, &text, &[], accept)
+            .map(|(change, _)| change)
+    }
+
+    /// Map targets in the intended raw replacement display to the protected
+    /// display. Composition uses this when committing a provisional overlay
+    /// before applying an input/command that still addresses that raw overlay.
+    pub(super) fn replace_os_with_targets(
+        &mut self,
+        expected: Revision,
+        range: DisplayRange,
+        text: &str,
+        targets: &[usize],
+        accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
+    ) -> Result<(Option<ViewChange>, Vec<usize>), EditorError> {
         self.validate_range(range)?;
         let old = self
             .projection
@@ -32,13 +47,18 @@ impl EditorSession {
             .byte_slice(range.start.0..range.end.0)
             .to_string();
         let replacements = differing_runs(&old, &text, range.start.0);
-        let mut change = if replacements.is_empty() {
-            None
+        let (mut change, targets, caret) = if replacements.is_empty() {
+            (None, targets.to_vec(), range.end.0)
         } else {
-            Some(self.replace_many(expected, &replacements, accept)?)
+            let mut targets = targets.to_vec();
+            targets.push(range.start.0 + text.len());
+            let (change, mut targets) =
+                self.replace_many_with_targets(expected, &replacements, &targets, accept)?;
+            let caret = targets.pop().unwrap();
+            (Some(change), targets, caret)
         };
-        self.finish_os_selection(range.start.0 + text.len(), change.as_mut());
-        Ok(change)
+        self.finish_os_selection(caret, change.as_mut());
+        Ok((change, targets))
     }
     pub(super) fn finish_os_selection(&mut self, caret: usize, change: Option<&mut ViewChange>) {
         let selection = DisplayRange {
@@ -82,7 +102,7 @@ pub(super) fn clean_placeholders(
     Ok(result)
 }
 
-fn differing_runs(old: &str, new: &str, start: usize) -> Vec<crate::DisplayReplacement> {
+pub(super) fn differing_runs(old: &str, new: &str, start: usize) -> Vec<crate::DisplayReplacement> {
     let diff = TextDiff::from_chars(old, new);
     let mut position = start;
     let mut runs: Vec<crate::DisplayReplacement> = Vec::new();

@@ -36,6 +36,9 @@ icu_locale = { version = "2.4", features = ["compiled_data"] }
 icu_plurals = { version = "2.4", features = ["compiled_data"] }
 thiserror = "2"
 
+[dev-dependencies]
+serde_json = "1"
+
 [lints]
 workspace = true
 

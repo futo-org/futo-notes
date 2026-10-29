@@ -285,7 +285,7 @@ fn whole_paragraph_quote_prefix_changes_leave_unchanged_inline_bodies_verbatim()
     }
 }
 
-fn indented_empty_quote() -> (EditorSession, ReferenceView) {
+pub(super) fn indented_empty_quote() -> (EditorSession, ReferenceView) {
     let mut s = EditorSession::open("> \n> ab\n> ===");
     let mut view = ReferenceView::new("\nab");
     view.apply(
@@ -366,28 +366,6 @@ fn replacing_or_typing_among_blank_quote_body_spaces_uses_the_same_boundary() {
         view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
         assert_eq!(s.source_text(), raw);
     }
-}
-
-#[test]
-fn a_multi_run_os_replacement_maps_later_targets_past_the_quote_separator() {
-    let (mut s, mut view) = indented_empty_quote();
-    let before = s.source_text();
-    let mut accepts = 0;
-    view.apply(
-        s.replace_os(s.revision(), range(0, 3), "!\nAC", &[], &mut |_| {
-            accepts += 1;
-            Ok(())
-        })
-        .unwrap()
-        .unwrap(),
-    );
-    assert_eq!(accepts, 1);
-    assert_eq!(s.source_text(), "> > !\n>\n> AC\n> ===");
-    assert_eq!(view.text, "!\n\nAC");
-    assert_eq!(s.selection(), range(5, 5));
-    view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
-    assert_eq!(s.source_text(), before);
-    assert_eq!(view.text, "\nab");
 }
 
 #[test]
