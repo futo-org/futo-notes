@@ -16,6 +16,10 @@ pub struct StoreEditorHost<'store> {
 
 impl<'store> StoreEditorSession<'store> {
     pub fn into_portable_host(self, token: SessionToken) -> StoreEditorHost<'store> {
+        self.state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .portable = true;
         StoreEditorHost {
             session: self,
             token,
@@ -25,6 +29,13 @@ impl<'store> StoreEditorSession<'store> {
 }
 
 impl StoreEditorHost<'_> {
+    pub fn checkpoint(&mut self) -> Result<crate::FlushDraftResult, EditorStoreError> {
+        self.session.checkpoint()
+    }
+
+    pub fn id(&self) -> String {
+        self.session.id()
+    }
     /// Opening state must be produced on the worker and attached with a fresh
     /// token. In particular a recovery pause must survive page initialization.
     pub fn snapshot(&self) -> HostSnapshot {
@@ -103,6 +114,7 @@ impl StoreEditorHost<'_> {
         if state.terminal {
             return Err(EditorStoreError::SessionDeleted);
         }
+        state.relink_offer = None;
         let super::Attachment {
             engine, recovery, ..
         } = &mut *state;
@@ -126,6 +138,13 @@ impl StoreEditorHost<'_> {
             durable: status.durable,
             paused: status.paused,
             error,
+            relink: self
+                .session
+                .state
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .relink_offer
+                .clone(),
         }
     }
 }

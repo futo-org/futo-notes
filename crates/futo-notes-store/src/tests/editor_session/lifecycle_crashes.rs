@@ -21,6 +21,12 @@ impl CrashStorage {
             "decision-retired" => operation == "remove" && path.ends_with(".retarget.committed"),
             "delete-decision" => operation == "flush" && path.ends_with(".delete.committed"),
             "delete-stream-retired" => operation == "remove" && path.ends_with(".jsonl"),
+            "pending-delete-decision" => {
+                operation == "flush" && path.ends_with(".delete.committed")
+            }
+            "pending-delete-artifact-retired" => {
+                operation == "remove" && path.ends_with(".retarget")
+            }
             _ => false,
         };
         if crash {
@@ -36,6 +42,9 @@ impl RecoveryStorage for CrashStorage {
         self.inner.read(root, path)
     }
     fn create(&mut self, root: &Path, path: &str, bytes: &[u8]) -> Result<(), String> {
+        if self.phase.starts_with("pending-delete-") && path.ends_with(".retarget.committed") {
+            return Err("interrupted rename recovery".into());
+        }
         self.interrupt("before-create", path);
         self.inner.create(root, path, bytes)
     }
@@ -124,6 +133,34 @@ fn deletion_recovery_distinguishes_prepared_rollback_from_committed_finality() {
     }
 }
 #[test]
+fn process_death_during_delete_of_pending_destination_never_replays_deleted_incarnation() {
+    for phase in [
+        "pending-delete-prepared",
+        "pending-delete-decision",
+        "pending-delete-artifact-retired",
+    ] {
+        let root = TestRoot::new();
+        let store = store(&root);
+        store.create("", "old", "__日__\r\n").unwrap();
+        child(&root.0, phase);
+        if phase == "pending-delete-prepared" {
+            let mut current = store.open_editor("new").unwrap();
+            assert_eq!(current.source_text(), "__日😀__\r\n");
+            current.checkpoint().unwrap();
+        } else {
+            store.create("", "new", "new incarnation").unwrap();
+            for _ in 0..2 {
+                assert!(store.open_editor("old").is_err());
+                let mut current = store.open_editor("new").unwrap();
+                assert_eq!(current.source_text(), "new incarnation", "{phase}");
+                current.checkpoint().unwrap();
+            }
+        }
+        assert_eq!(store.read_existing("old").unwrap(), None);
+        assert_eq!(store.snapshot().notes.len(), 1);
+    }
+}
+#[test]
 fn identity_death_child() {
     let Some(root) = std::env::var_os("FUTO_EDITOR_IDENTITY_VAULT") else {
         return;
@@ -144,7 +181,20 @@ fn identity_death_child() {
         )
         .unwrap();
     editor.replace(Revision(0), range(3, 3), "😀").unwrap();
-    if phase == "delete-prepared" {
+    if phase.starts_with("pending-delete-") {
+        store.rename("old", "new").unwrap();
+        assert!(editor.recovery_status().paused);
+        if phase == "pending-delete-prepared" {
+            store
+                .delete_with("new", |path| {
+                    std::fs::remove_file(path).unwrap();
+                    std::process::exit(74);
+                })
+                .unwrap();
+        } else {
+            store.delete("new").unwrap();
+        }
+    } else if phase == "delete-prepared" {
         store
             .delete_with("old", |path| {
                 std::fs::remove_file(path).unwrap();

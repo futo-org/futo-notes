@@ -80,6 +80,11 @@ impl Attachment {
             }
         }
         if self.recovery.failed {
+            super::deletion::recover_live(&store.root, &self.id, &mut self.recovery)
+                .map_err(EditorStoreError::RecoveryResume)?;
+            self.recovery
+                .cancel_prepared_identity(&store.root)
+                .map_err(EditorStoreError::RecoveryResume)?;
             self.recovery
                 .resume(&store.root)
                 .map_err(EditorStoreError::RecoveryResume)?;

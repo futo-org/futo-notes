@@ -1,6 +1,16 @@
 use super::*;
 
 impl StoreEditorSession<'_> {
+    /// Ordered own-action changes produced by atomic store workflows. Hosts
+    /// apply each once before issuing input against the new revision.
+    pub fn take_coordinated_changes(&mut self) -> Result<Vec<ViewChange>, EditorStoreError> {
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        if state.terminal {
+            return Err(EditorStoreError::SessionDeleted);
+        }
+        Ok(std::mem::take(&mut state.coordinated))
+    }
+
     #[cfg(test)]
     pub(crate) fn set_append_hook(&mut self, hook: Box<dyn Fn(bool) + Send>) {
         let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);

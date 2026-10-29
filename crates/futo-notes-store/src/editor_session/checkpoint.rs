@@ -8,6 +8,14 @@ impl Attachment {
         &mut self,
         store: &LocalNoteStore,
     ) -> Result<FlushDraftResult, EditorStoreError> {
+        self.checkpoint_draft(store, None)
+    }
+
+    pub(super) fn checkpoint_draft(
+        &mut self,
+        store: &LocalNoteStore,
+        draft: Option<(&str, &str)>,
+    ) -> Result<FlushDraftResult, EditorStoreError> {
         self.finish_identity(&store.root)
             .map_err(EditorStoreError::Checkpoint)?;
         if let Some(issue) = &self.recovery.issue {
@@ -55,26 +63,29 @@ impl Attachment {
         // a peer change or mint a conflict copy for a draft that never existed.
         let result = if let Some(result) = &self.pending_checkpoint {
             result.clone()
-        } else if source == self.recovery.base() {
+        } else if source == self.recovery.base() && draft.is_none() {
             FlushDraftResult {
                 disposition: FlushDisposition::Converged,
                 mutation: None,
             }
         } else {
-            let base = self.recovery.base().to_owned();
-            if self
+            let base = draft
+                .map(|(base, _)| base)
+                .unwrap_or(self.recovery.base())
+                .to_owned();
+            let disk = store
+                .read_existing(&self.id)
+                .map_err(EditorStoreError::Checkpoint)?;
+            if (self
                 .recovery
                 .replaced(&store.root)
                 .map_err(EditorStoreError::Checkpoint)?
-                && store
-                    .read_existing(&self.id)
-                    .map_err(EditorStoreError::Checkpoint)?
-                    .as_deref()
-                    != Some(source.as_str())
+                || (draft.is_some() && disk.as_ref().is_some_and(|disk| disk != &base)))
+                && disk.as_deref() != Some(source.as_str())
             {
                 store
                     .park_conflict_draft_with_target(
-                        &self.id,
+                        draft.map(|(_, wanted)| wanted).unwrap_or(&self.id),
                         &source,
                         Some(&checkpoint_install),
                         &mut |id| self.recovery.protect_checkpoint(&store.root, id),
@@ -97,7 +108,7 @@ impl Attachment {
             _ => self.id.clone(),
         };
         self.pending_checkpoint = Some(result.clone());
-        if source != self.recovery.base() {
+        if source != self.recovery.base() || result.mutation.is_some() || final_id != self.id {
             let relative = crate::note_filename(&final_id);
             futo_notes_core::files::vault_fs::sync_file(&store.root, &relative)
                 .and_then(|()| {

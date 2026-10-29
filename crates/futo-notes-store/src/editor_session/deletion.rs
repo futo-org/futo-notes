@@ -1,5 +1,7 @@
 //! Durable deletion decision, separate from fallible recovery-stream retirement.
-use super::{recovery_format, storage::VaultRecoveryStorage, EditorLease, RecoveryStorage};
+use super::{
+    recovery_format, storage::VaultRecoveryStorage, EditorLease, RecoveryLog, RecoveryStorage,
+};
 use futo_notes_core::{files::vault_fs, hash::hash_sha256};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
@@ -12,6 +14,8 @@ struct DeleteIntent {
     stream: Option<Vec<u8>>,
     committed: bool,
     epoch: u64,
+    #[serde(default)]
+    artifacts: Vec<(String, Vec<u8>)>,
 }
 fn intent_path(id: &str) -> String {
     format!(".futo-editor-recovery/{}.delete", hash_sha256(id))
@@ -25,7 +29,7 @@ fn with_storage<T>(
     id: &str,
     action: impl FnOnce(&mut dyn RecoveryStorage) -> Result<T, String>,
 ) -> Result<T, String> {
-    if let Some(state) = EditorLease::attached(root, id)? {
+    if let Some(state) = EditorLease::deleting_owner(root, id)? {
         let mut state = state.lock().unwrap_or_else(PoisonError::into_inner);
         action(state.recovery.storage_mut())
     } else {
@@ -42,6 +46,7 @@ pub(crate) fn prepare(root: &Path, id: &str) -> Result<(), String> {
             stream: storage.read(root, &stream_path(id))?,
             committed: false,
             epoch: futo_notes_core::files::recovery_coordination::replacement_epoch(root, id)?,
+            artifacts: RecoveryLog::identity_artifacts(root, id, storage)?,
         };
         storage.create(root, &intent_path(id), &recovery_format::encode(&intent)?)?;
         storage.flush(root, &intent_path(id))
@@ -80,15 +85,16 @@ pub(crate) fn decision_exists(root: &Path, id: &str) -> Result<bool, String> {
 }
 
 pub(crate) fn finish(root: &Path, id: &str) -> Result<(), String> {
-    let attachment = EditorLease::attached(root, id)?;
-    if let Some(state) = &attachment {
-        state
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .terminal = true;
+    let attachments = EditorLease::deleting_owners(root, id)?;
+    for state in &attachments {
+        let mut state = state.lock().unwrap_or_else(PoisonError::into_inner);
+        state.terminal = true;
+        if let Some(pending) = &mut state.pending_identity {
+            pending.release();
+        }
     }
     let result = recover(root, id);
-    if let Some(state) = &attachment {
+    for state in &attachments {
         state
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
@@ -102,17 +108,21 @@ pub(crate) fn finish(root: &Path, id: &str) -> Result<(), String> {
 /// A prepared interrupted operation rolls back; only a durable decision fences
 /// recovery. Committed cleanup never removes a newly created Markdown file.
 pub(crate) fn recover(root: &Path, id: &str) -> Result<(), String> {
-    let transfer = with_storage(root, id, |storage| recover_inner(root, id, storage))?;
-    if let Some((before, after)) = transfer {
-        if let Some(state) = EditorLease::attached(root, id)? {
-            state
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .recovery
-                .transfer_own_epoch(before, after)?;
+    let (result, transfer) = with_storage(root, id, |storage| {
+        let mut transfer = None;
+        let result = recover_inner(root, id, storage, &mut transfer);
+        Ok((result, transfer))
+    })?;
+    if let Some(state) = EditorLease::deleting_owner(root, id)? {
+        let mut state = state.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some((before, after)) = transfer {
+            state.recovery.transfer_own_epoch(before, after)?;
+        }
+        if result.is_err() {
+            state.recovery.failed = true;
         }
     }
-    Ok(())
+    result
 }
 
 pub(super) fn recover_with_storage(
@@ -120,7 +130,49 @@ pub(super) fn recover_with_storage(
     id: &str,
     storage: &mut dyn RecoveryStorage,
 ) -> Result<(), String> {
-    recover_inner(root, id, storage).map(|_| ())
+    // A pending move may still be indexed by its old name. Finish durable
+    // deletions before discovering any transition, whichever name is opened.
+    for path in storage.list(root)? {
+        if !path.ends_with(".delete.committed") && !path.ends_with(".delete") {
+            continue;
+        }
+        if let Some(bytes) = storage.read(root, &path)? {
+            let intent: DeleteIntent = recovery_format::decode(&bytes, 0)
+                .map_err(|error| format!("invalid delete decision: {error:?}"))?;
+            let expected = if intent.committed {
+                format!("{}.committed", intent_path(&intent.id))
+            } else {
+                intent_path(&intent.id)
+            };
+            if path != expected {
+                return Err("delete decision identity mismatch".into());
+            }
+            if intent.committed
+                || futo_notes_core::files::collision_key(&intent.id)
+                    == futo_notes_core::files::collision_key(id)
+                || intent
+                    .artifacts
+                    .iter()
+                    .any(|(path, _)| *path == stream_path(id))
+            {
+                recover_inner(root, &intent.id, storage, &mut None)?;
+            }
+        }
+    }
+    recover_inner(root, id, storage, &mut None)
+}
+
+pub(super) fn recover_live(
+    root: &Path,
+    id: &str,
+    recovery: &mut RecoveryLog,
+) -> Result<(), String> {
+    let mut transfer = None;
+    let result = recover_inner(root, id, recovery.storage_mut(), &mut transfer);
+    if let Some((before, after)) = transfer {
+        recovery.transfer_own_epoch(before, after)?;
+    }
+    result
 }
 
 #[derive(Serialize, Deserialize)]
@@ -132,13 +184,14 @@ fn recover_inner(
     root: &Path,
     id: &str,
     storage: &mut dyn RecoveryStorage,
-) -> Result<Option<(u64, u64)>, String> {
+    transfer: &mut Option<(u64, u64)>,
+) -> Result<(), String> {
     let path = intent_path(id);
     let decision = format!("{path}.committed");
     let committed = storage.read(root, &decision)?;
     let prepared = storage.read(root, &path)?;
     let Some(bytes) = committed.as_ref().or(prepared.as_ref()) else {
-        return Ok(None);
+        return Ok(());
     };
     let intent: DeleteIntent = recovery_format::decode(bytes, 0)
         .map_err(|error| format!("invalid delete intent: {error:?}"))?;
@@ -146,8 +199,12 @@ fn recover_inner(
         return Err("delete intent identity mismatch".into());
     }
     let stream = stream_path(id);
-    let mut transfer = None;
     if intent.committed {
+        for (path, expected) in &intent.artifacts {
+            if storage.read(root, path)?.as_ref() == Some(expected) {
+                storage.remove(root, path)?;
+            }
+        }
         if storage.read(root, &stream)? == intent.stream {
             storage.remove(root, &stream)?;
         }
@@ -217,10 +274,11 @@ fn recover_inner(
                         let mut replacement = recovery_format::encode(&header)?;
                         replacement.extend_from_slice(&bytes[first..]);
                         storage.replace(root, &stream, &replacement)?;
+                        *transfer = Some((observation.before, observation.after));
                         storage.flush(root, &stream)?;
                     }
                 }
-                transfer = Some((observation.before, observation.after));
+                *transfer = Some((observation.before, observation.after));
             }
         }
     }
@@ -228,5 +286,5 @@ fn recover_inner(
     storage.remove(root, &path)?;
     storage.remove(root, &decision)?;
     storage.remove(root, &format!("{path}.rollback"))?;
-    Ok(transfer)
+    Ok(())
 }

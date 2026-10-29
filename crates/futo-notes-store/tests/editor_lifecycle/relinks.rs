@@ -78,3 +78,41 @@ fn adopted_relink_keeps_history_whose_user_edit_replaced_the_entire_source() {
     editor.redo(editor.revision()).unwrap().unwrap();
     assert_eq!(editor.source_text(), "[[long name]] plus");
 }
+
+#[test]
+fn identity_only_rename_keeps_historical_only_links_and_redo_verbatim() {
+    let root = tempfile::tempdir().unwrap();
+    let store = LocalNoteStore::new(root.path().to_owned());
+    store.create("", "old", "[[old]]").unwrap();
+    let mut editor = store.open_editor("old").unwrap();
+    editor
+        .replace_action(Revision(0), range(0, 7), "plain", InputAction::Isolated)
+        .unwrap();
+    editor.checkpoint().unwrap();
+    let mutation = store.rename("old", "long name").unwrap();
+    assert!(mutation.relinked.is_empty());
+    assert!(editor.take_coordinated_changes().unwrap().is_empty());
+    assert_eq!(editor.revision(), Revision(1));
+    editor.undo(Revision(1)).unwrap().unwrap();
+    assert_eq!(editor.source_text(), "[[old]]");
+    editor.redo(Revision(2)).unwrap().unwrap();
+    assert_eq!(editor.source_text(), "plain");
+}
+
+#[test]
+fn escaped_relink_follows_existing_text_rule_and_preserves_escaped_history() {
+    let root = tempfile::tempdir().unwrap();
+    let store = LocalNoteStore::new(root.path().to_owned());
+    store.create("", "old", "\\[[old]]").unwrap();
+    let mut editor = store.open_editor("old").unwrap();
+    editor
+        .replace_action(Revision(0), range(7, 7), "!", InputAction::Isolated)
+        .unwrap();
+    editor.checkpoint().unwrap();
+    store.rename("old", "long name").unwrap();
+    assert_eq!(editor.source_text(), "\\[[long name]]!");
+    editor.undo(Revision(2)).unwrap().unwrap();
+    assert_eq!(editor.source_text(), "\\[[long name]]");
+    editor.redo(Revision(3)).unwrap().unwrap();
+    assert_eq!(editor.source_text(), "\\[[long name]]!");
+}

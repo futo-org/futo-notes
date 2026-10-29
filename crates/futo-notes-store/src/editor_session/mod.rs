@@ -127,6 +127,8 @@ pub(super) struct Attachment {
     terminal: bool,
     coordinated: Vec<ViewChange>,
     pending_identity: Option<identity::PendingIdentity>,
+    portable: bool,
+    relink_offer: Option<futo_notes_editor::RelinkOffer>,
 }
 
 // Owning foreign sessions retain the same store and its coordination state;
@@ -241,6 +243,8 @@ impl<'store> StoreEditorSession<'store> {
             terminal: false,
             coordinated: Vec::new(),
             pending_identity: None,
+            portable: false,
+            relink_offer: None,
         }));
         state
             .lock()

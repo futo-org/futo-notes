@@ -19,7 +19,7 @@ pub use types::{
 
 pub use portable::{
     HostAck, HostOperation, HostRequest, HostSnapshot, PortableError, PortableSession,
-    PortableStatus, SessionToken,
+    PortableStatus, RelinkOffer, SessionToken,
 };
 
 #[cfg(target_arch = "wasm32")]

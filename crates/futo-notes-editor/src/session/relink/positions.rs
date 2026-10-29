@@ -78,7 +78,15 @@ fn source_position(offset: usize, affinity: Affinity, runs: &[Run]) -> usize {
         if offset == run.start && run.start < run.end {
             return after;
         }
-        if offset < run.end || offset == run.start && affinity == Affinity::Backward {
+        if offset < run.end {
+            return after
+                + if affinity == Affinity::Forward {
+                    run.inserted
+                } else {
+                    0
+                };
+        }
+        if offset == run.start && affinity == Affinity::Backward {
             return after;
         }
         after += run.inserted;

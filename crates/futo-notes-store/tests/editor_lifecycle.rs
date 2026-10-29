@@ -71,3 +71,67 @@ fn committed_delete_fences_old_attachment_even_after_intentional_recreation() {
 
 #[path = "editor_lifecycle/relinks.rs"]
 mod relinks;
+
+#[test]
+fn draft_identity_workflow_keeps_matching_attachment_without_false_replacement_conflict() {
+    for peer in [false, true] {
+        let root = tempfile::tempdir().unwrap();
+        let store = LocalNoteStore::new(root.path().to_owned());
+        store.create("", "old", "base").unwrap();
+        store.create("", "links", "[[old]]").unwrap();
+        let mut editor = store.open_editor("old").unwrap();
+        editor.replace(Revision(0), range(4, 4), " draft").unwrap();
+        if peer {
+            store.write("old", "peer", None).unwrap();
+        }
+        let mutation = store
+            .save_draft_as("old", "wanted", "base", "base draft")
+            .unwrap();
+        let final_id = mutation.final_id.unwrap();
+        assert_eq!(editor.id(), final_id);
+        assert_eq!(editor.source_text(), "base draft");
+        assert_eq!(
+            editor.checkpoint().unwrap().disposition,
+            FlushDisposition::Converged
+        );
+        if peer {
+            assert!(final_id.starts_with("wanted (conflict "));
+            assert_eq!(store.read("old").unwrap(), "peer");
+            assert_eq!(store.read("links").unwrap(), "[[old]]");
+        } else {
+            assert_eq!(final_id, "wanted");
+            assert_eq!(store.read_existing("old").unwrap(), None);
+            assert_eq!(store.read("links").unwrap(), "[[wanted]]");
+        }
+        editor.undo(Revision(1)).unwrap().unwrap();
+        assert_eq!(editor.source_text(), "base");
+        editor.redo(Revision(2)).unwrap().unwrap();
+        editor.checkpoint().unwrap();
+        assert_eq!(store.read(&final_id).unwrap(), "base draft");
+        assert_eq!(store.snapshot().notes.len(), if peer { 3 } else { 2 });
+    }
+}
+
+#[test]
+fn move_draft_collision_then_new_input_stays_on_the_atomic_workflows_final_identity() {
+    let root = tempfile::tempdir().unwrap();
+    let store = LocalNoteStore::new(root.path().to_owned());
+    store.create("", "old", "base").unwrap();
+    store.create("folder", "old", "occupied").unwrap();
+    let mut editor = store.open_editor("old").unwrap();
+    editor.replace(Revision(0), range(4, 4), " draft").unwrap();
+    let mutation = store
+        .move_draft("old", "folder", "base", "base draft")
+        .unwrap();
+    assert_eq!(mutation.final_id.as_deref(), Some("folder/old-2"));
+    assert_eq!(editor.id(), "folder/old-2");
+    editor.replace(Revision(1), range(10, 10), "!").unwrap();
+    assert_eq!(
+        editor.checkpoint().unwrap().disposition,
+        FlushDisposition::Wrote
+    );
+    assert_eq!(store.read("folder/old-2").unwrap(), "base draft!");
+    assert_eq!(store.read("folder/old").unwrap(), "occupied");
+    assert_eq!(store.read_existing("old").unwrap(), None);
+    assert_eq!(store.snapshot().notes.len(), 2);
+}

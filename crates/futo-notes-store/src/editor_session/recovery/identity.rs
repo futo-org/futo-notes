@@ -31,6 +31,107 @@ fn decode<T: serde::de::DeserializeOwned>(bytes: &[u8]) -> Result<T, String> {
     format::decode(bytes, 0).map_err(|error| format!("invalid editor identity intent: {error:?}"))
 }
 impl RecoveryLog {
+    pub(in crate::editor_session) fn cancel_prepared_identity(
+        &mut self,
+        root: &Path,
+    ) -> Result<(), String> {
+        let path = stem(&self.header.id);
+        if self
+            .storage
+            .read(root, &format!("{path}.committed"))?
+            .is_some()
+        {
+            return Err("committed identity cannot be canceled".into());
+        }
+        if let Some(bytes) = self.storage.read(root, &path)? {
+            let intent: Intent = decode(&bytes)?;
+            validate(root, &intent)?;
+            let current = futo_notes_core::files::vault_fs::read_optional(
+                root,
+                &crate::note_filename(&intent.header.id),
+            )?;
+            if current.as_deref() != intent.expected_disk.first().map(|value| value.as_bytes())
+                || (intent.header.id != intent.destination
+                    && futo_notes_core::files::collision_key(&intent.header.id)
+                        == futo_notes_core::files::collision_key(&intent.destination)
+                    && !crate::vault::note_paths(root)
+                        .iter()
+                        .any(|(id, _)| id == &intent.header.id))
+            {
+                return Err("identity source changed; prepared intent retained".into());
+            }
+        }
+        self.storage.remove(root, &path)
+    }
+    /// Snapshot only artifacts owned by transitions touching this identity.
+    /// A foreign destination stream is never part of the retiring incarnation.
+    pub(in crate::editor_session) fn identity_artifacts(
+        root: &Path,
+        id: &str,
+        storage: &mut dyn RecoveryStorage,
+    ) -> Result<Vec<(String, Vec<u8>)>, String> {
+        let mut artifacts = Vec::new();
+        for path in storage.list(root)? {
+            if path.ends_with(".jsonl") {
+                if let Some(bytes) = storage.read(root, &path)? {
+                    let first = bytes
+                        .split_inclusive(|byte| *byte == b'\n')
+                        .next()
+                        .unwrap_or_default();
+                    if let Ok(header) = format::decode_header(first) {
+                        if futo_notes_core::files::collision_key(&header.id)
+                            == futo_notes_core::files::collision_key(id)
+                            && path == stream(&header.id)
+                            && header.vault
+                                == root
+                                    .canonicalize()
+                                    .map_err(|error| error.to_string())?
+                                    .to_string_lossy()
+                        {
+                            artifacts.push((path, bytes));
+                        }
+                    }
+                }
+                continue;
+            }
+            if !path.ends_with(".retarget") && !path.ends_with(".retarget.committed") {
+                continue;
+            }
+            let Some(bytes) = storage.read(root, &path)? else {
+                continue;
+            };
+            let (intent, installed) = if path.ends_with(".committed") {
+                let decision: Decision = decode(&bytes)?;
+                let installed = (stream(&decision.header.id), decision.stream);
+                (decision.intent, Some(installed))
+            } else {
+                (decode::<Intent>(&bytes)?, None)
+            };
+            if futo_notes_core::files::collision_key(&intent.header.id)
+                != futo_notes_core::files::collision_key(id)
+                && futo_notes_core::files::collision_key(&intent.destination)
+                    != futo_notes_core::files::collision_key(id)
+            {
+                continue;
+            }
+            validate(root, &intent)?;
+            let source = stream(&intent.header.id);
+            if let Some(source_bytes) = storage.read(root, &source)? {
+                // Before installation the source stream belongs to the
+                // transition, even when destination installation failed.
+                artifacts.push((source, source_bytes));
+            }
+            if let Some((target, expected)) = installed {
+                if storage.read(root, &target)?.as_ref() == Some(&expected) {
+                    artifacts.push((target, expected));
+                }
+            }
+            artifacts.push((path, bytes));
+        }
+        artifacts.sort();
+        artifacts.dedup();
+        Ok(artifacts)
+    }
     pub(in crate::editor_session) fn prepare_identity(
         &mut self,
         root: &Path,

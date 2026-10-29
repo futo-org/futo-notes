@@ -51,6 +51,20 @@ impl NativeEditorSession {
 
 #[uniffi::export]
 impl NativeEditorSession {
+    pub fn note_id(&self) -> Result<String, EditorSessionError> {
+        self.with_session(|session| Ok(session.id()))
+    }
+
+    pub fn take_coordinated_changes(&self) -> Result<Vec<EditorViewChange>, EditorSessionError> {
+        self.with_session(|session| {
+            Ok(session
+                .take_coordinated_changes()?
+                .into_iter()
+                .map(Into::into)
+                .collect())
+        })
+    }
+
     pub fn source_text(&self) -> Result<String, EditorSessionError> {
         self.with_session(|session| Ok(session.source_text()))
     }

@@ -262,3 +262,39 @@ fn recovery_stays_hidden_and_does_not_cross_between_isolated_vault_roots() {
     assert_eq!(prod.read("plain").unwrap(), "production");
     assert_eq!(prod.inventory().len(), 1);
 }
+
+#[test]
+fn framed_v2_recovery_replays_exact_source_then_retargets_to_a_v3_snapshot() {
+    let root = TestRoot::new();
+    let store = store(&root);
+    let disk = Arc::new(Mutex::new(Disk::default()));
+    store.create("", "old", "__日__\r\n").unwrap();
+    {
+        let mut editor = store
+            .open_editor_with_recovery("old", storage::options(&disk))
+            .unwrap();
+        editor.replace(Revision(0), range(3, 3), "😀").unwrap();
+    }
+    for bytes in disk.lock().unwrap().accepted.values_mut() {
+        fixtures::alter_frame(bytes, 0, |header| {
+            header["version"] = 2.into();
+            header.as_object_mut().unwrap().remove("source");
+        });
+    }
+    let editor = store
+        .open_editor_with_recovery("old", storage::options(&disk))
+        .unwrap();
+    assert_eq!(editor.source_text(), "__日😀__\r\n");
+    assert_eq!(editor.revision(), Revision(1));
+    assert_eq!(editor.recovery_issue(), None);
+    store.rename("old", "new").unwrap();
+    assert_eq!(editor.id(), "new");
+    drop(editor);
+    let mut editor = store
+        .open_editor_with_recovery("new", storage::options(&disk))
+        .unwrap();
+    assert_eq!(editor.source_text(), "__日😀__\r\n");
+    editor.checkpoint().unwrap();
+    assert_eq!(store.read("new").unwrap(), "__日😀__\r\n");
+    assert_eq!(store.read_existing("old").unwrap(), None);
+}

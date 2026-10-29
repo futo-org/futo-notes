@@ -145,42 +145,6 @@ impl RecoveryLog {
         ))
     }
 
-    pub(super) fn rebase_snapshot(
-        &mut self,
-        root: &Path,
-        base: &str,
-        source: &str,
-        revision: Revision,
-    ) -> Result<(), String> {
-        let mut header = self.header.clone();
-        header.version = format::VERSION;
-        header.base = base.to_owned();
-        header.source = (base != source).then(|| source.to_owned());
-        header.base_revision = revision;
-        header.replacement_epoch =
-            futo_notes_core::files::recovery_coordination::replacement_epoch(root, &header.id)?;
-        let bytes = format::encode(&header)?;
-        let result = if self.exists {
-            self.storage.replace(root, &self.path, &bytes)
-        } else {
-            self.storage.create(root, &self.path, &bytes)
-        }
-        .and_then(|()| self.storage.flush(root, &self.path));
-        if let Err(error) = result {
-            self.failed = true;
-            return Err(error);
-        }
-        self.header = header;
-        self.exists = true;
-        self.accepted_bytes = bytes.len() as u64;
-        self.accepted = revision;
-        self.durable = revision;
-        self.failed = false;
-        self.issue = None;
-        self.flush_deadline = None;
-        Ok(())
-    }
-
     pub(super) fn transfer_own_epoch(&mut self, before: u64, after: u64) -> Result<(), String> {
         if self.header.replacement_epoch == before {
             let previous = self.header_bytes()?.len();
@@ -247,19 +211,25 @@ impl RecoveryLog {
     }
 
     fn append_record(&mut self, root: &Path, edit: &SourceEdit) -> Result<(), String> {
-        if !self.exists {
-            let header = self.header_bytes()?;
-            self.storage.create(root, &self.path, &header)?;
-            self.accepted_bytes = header.len() as u64;
-            self.exists = true;
-        }
+        self.ensure_stream(root)?;
         let record = format::encode(&Record::Edit(edit.clone()))?;
         self.storage.append(root, &self.path, &record)?;
         self.accepted_bytes += record.len() as u64;
         Ok(())
     }
 
+    fn ensure_stream(&mut self, root: &Path) -> Result<(), String> {
+        if !self.exists {
+            let header = self.header_bytes()?;
+            self.storage.create(root, &self.path, &header)?;
+            self.accepted_bytes = header.len() as u64;
+            self.exists = true;
+        }
+        Ok(())
+    }
+
     pub(super) fn protect_checkpoint(&mut self, root: &Path, id: &str) -> Result<(), String> {
+        self.ensure_stream(root)?;
         let record = format::encode(&Record::Checkpoint {
             id: id.to_owned(),
             revision: self.accepted,
