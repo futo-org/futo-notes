@@ -90,6 +90,7 @@ test:ios-native:
         - tests/localization/**/*
         - scripts/generate-native-language-resources.mjs
         - tests/conformance/**/*
+        - tests/fixtures/editor-native-input/**/*
         - packages/editor/src/bridge.ts
         # .cirrus.yml builds editor.html (vite.editor.config.ts) and the Swift
         # bridge tests run against it, so every input of that bundle counts —
