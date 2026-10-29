@@ -8,6 +8,48 @@ use crate::{DisplayRange, EditorError, InlineFormat};
 use ropey::Rope;
 
 impl Projection {
+    /// Spell only the visible body, retaining existing inline identities while
+    /// removing the structural pieces owned by the surrounding block.
+    pub(crate) fn body_source(
+        &self,
+        source: &Rope,
+        range: DisplayRange,
+        fold_breaks: bool,
+    ) -> Result<(String, usize, usize), EditorError> {
+        let Context {
+            raw,
+            source_start,
+            pieces,
+            markers,
+            ..
+        } = self.edit_context(source, range);
+        let base = self.display_at(source_start);
+        let mut at = base;
+        let mut body = Vec::new();
+        let mut cr = false;
+        for mut piece in pieces {
+            let end = at + piece.display.len();
+            if !piece.display.is_empty() && range.start.0 <= at && end <= range.end.0 {
+                if fold_breaks && piece.display == "\n" && cr {
+                    cr = false;
+                    at = end;
+                    continue;
+                }
+                cr = fold_breaks && piece.display == "\r";
+                if fold_breaks && piece.display.contains(['\r', '\n']) {
+                    piece.raw = " ".into();
+                    piece.display = " ".into();
+                }
+                body.push(piece);
+            }
+            at = end;
+        }
+        let end = body.len();
+        let result = spell(body, markers, end..end, true)?;
+        let materialized = raw.len() + result.text.len();
+        Ok((result.text, materialized, result.parsed))
+    }
+
     pub(crate) fn has_multiline_block_code(&self, source: &Rope, range: DisplayRange) -> bool {
         let (first_line, last_line) = self.touched_display_lines(range);
         let first = self.rows.locate(range.start.0, true);

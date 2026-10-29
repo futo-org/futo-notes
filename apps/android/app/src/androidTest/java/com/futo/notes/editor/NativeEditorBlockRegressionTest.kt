@@ -106,4 +106,70 @@ class NativeEditorBlockRegressionTest {
         }
     }
 
+    @Test
+    fun completeBlockBodiesAndReturnedCaretsSurviveExactRecovery() {
+        data class Case(val opening: String, val shown: String, val action: String, val start: ULong,
+                        val end: ULong, val expected: String, val display: String, val followup: Boolean)
+        val cases = listOf(
+            Case("> a\n> b\n> =", "a\nb", "divider", 0uL, 0uL, "> ---\n> \n> a\n> b\n> =", "\ufffc\n\na\nb", false),
+            Case("> a\n> b\n> =", "a\nb", "divider", 0uL, 3uL, "> ---\n> ", "\ufffc\n", false),
+            Case("> 猫🦊\n> e\u0301z\n> ===", "猫🦊\ne\u0301z", "divider", 7uL, 7uL, "> 猫🦊\n> e\u0301z\n> ===\n> ***\n> ", "猫🦊\ne\u0301z\n\ufffc\n", false),
+            Case("a\nb\n===", "a\nb", "heading", 0uL, 3uL, "### a b", "a b", false),
+            Case("> ab ##\n> cd ###\n> ===", "ab ##\ncd ###", "heading", 0uL, 12uL, "> ### ab ## cd \\###", "ab ## cd ###", false),
+            Case("## x y", "x y", "delete", 0uL, 0uL, "## &#32;y", " y", false),
+            Case("## # ab", "# ab", "delete", 0uL, 0uL, "## &#32;ab", " ab", false),
+            Case("#x\n=", "#x", "backspace", 2uL, 2uL, "\\#\n=", "#", false),
+            Case("## x", "x", "space", 0uL, 1uL, "## &#32;", " ", false),
+            Case("x\n=", "x", "newline", 0uL, 1uL, "# \n", "\n", false),
+            Case("> __ab\n> cd__", "ab\ncd", "enter", 1uL, 1uL, "> __a__\n>\n> __!b__\n> __cd__", "a\n\n!b\ncd", true),
+            Case("> __ab\n> cd__\n> ===", "ab\ncd", "enter", 1uL, 1uL, "> __a__\n> ===\n> __!b__\n> __cd__", "a\n!b\ncd", true),
+            Case("> `ab`\n> `cd`\n> ---", "ab\ncd", "delete", 3uL, 3uL, "> `ab`\n> `!d`\n> ---", "ab\n!d", true),
+            Case("> ab\ncd\n> ===", "ab\ncd", "divider", 1uL, 4uL, "> a\n> ===\n> ***\n> \n> d\n> ===", "a\n\ufffc\n\nd", false),
+            Case("> ## # ab ##\n> ## cd ###", "# ab\ncd", "delete", 0uL, 7uL, "> ##  ! ###", "!", true),
+            Case("> ab\n> ===", "ab", "space", 0uL, 2uL, "> # &#32;", " ", false)
+        )
+        for (case in cases) {
+            val root = File(InstrumentationRegistry.getInstrumentation().targetContext.cacheDir, "editor-owned-body-${UUID.randomUUID()}")
+            check(root.mkdirs())
+            try {
+                NoteStore(root.absolutePath).use { store ->
+                    store.createNote("body", "", case.opening)
+                    store.openEditor("body").use { session ->
+                        val selected = EditorUtf16Range(case.start, case.end)
+                        session.selectUtf16(0uL, selected)
+                        val change = when (case.action) {
+                            "heading", "divider" -> checkNotNull(session.blockCommandUtf16(0uL, selected, if (case.action == "heading") EditorBlockCommand.Heading(3u) else EditorBlockCommand.Divider))
+                            "space", "newline" -> session.replaceUtf16Action(0uL, selected, if (case.action == "space") listOf(32u.toUShort()) else listOf(10u.toUShort()), EditorInputAction.ISOLATED)
+                            else -> checkNotNull(session.paragraphKeyUtf16(0uL, selected, when (case.action) { "enter" -> EditorParagraphKey.ENTER; "delete" -> EditorParagraphKey.DELETE; else -> EditorParagraphKey.BACKSPACE }))
+                        }
+                        var view = case.shown.toByteArray(Charsets.UTF_8)
+                        fun apply(delta: EditorViewChange) { view = view.copyOfRange(0, delta.range.start.toInt()) + delta.inserted.toByteArray(Charsets.UTF_8) + view.copyOfRange(delta.range.end.toInt(), view.size) }
+                        apply(change)
+                        if (case.followup) {
+                            val caret = session.displayToUtf16(1uL, change.selection)
+                            apply(session.replaceUtf16Action(1uL, caret, listOf(33u.toUShort()), EditorInputAction.ISOLATED))
+                        }
+                        assertEquals(case.display, view.toString(Charsets.UTF_8))
+                        assertEquals(case.expected, session.sourceText())
+                        session.undo(session.revision())
+                        if (case.followup) session.undo(session.revision())
+                        assertEquals(case.opening, session.sourceText())
+                        session.redo(session.revision())
+                        if (case.followup) session.redo(session.revision())
+                        assertEquals(case.expected, session.sourceText())
+                        session.flushRecovery()
+                        session.detach()
+                    }
+                    store.openEditor("body").use { recovered ->
+                        assertEquals(case.expected, recovered.sourceText())
+                        assertEquals(case.display, recovered.displayText())
+                        recovered.checkpoint()
+                        assertEquals(case.expected, store.read("body"))
+                        recovered.detach()
+                    }
+                }
+            } finally { root.deleteRecursively() }
+        }
+    }
+
 }

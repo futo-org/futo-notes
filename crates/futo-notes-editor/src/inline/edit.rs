@@ -44,7 +44,14 @@ impl Projection {
             mut markers,
             pieces,
             block_boundaries,
-        } = self.edit_context_for_change(source, range, inserted.is_empty() && toggle.is_none());
+        } = self.edit_context_for_change(
+            source,
+            range,
+            inserted
+                .split('\n')
+                .any(|line| line.trim_matches([' ', '\t', '\r']).is_empty())
+                && toggle.is_none(),
+        );
         let expanded = split_entities(pieces, a, z);
         let Cut {
             mut before,
@@ -415,8 +422,13 @@ fn carry_formats(
             let previous = before
                 .iter()
                 .rev()
+                .take_while(|piece| {
+                    !piece.display.contains(['\r', '\n'])
+                        && !(piece.display.is_empty() && !piece.raw.is_empty())
+                })
                 .find(|piece| !piece.display.chars().all(char::is_whitespace));
-            let neighbor = previous.or_else(|| after.first());
+            let neighbor =
+                previous.or_else(|| after.iter().find(|piece| !piece.display.is_empty()));
             let reusable = neighbor.and_then(|piece| {
                 piece
                     .spans
@@ -426,7 +438,10 @@ fn carry_formats(
             });
             let id = if let Some(id) = reusable {
                 for piece in before.iter_mut().rev() {
-                    if !piece.display.chars().all(char::is_whitespace) {
+                    if piece.display.contains(['\r', '\n'])
+                        || piece.display.is_empty() && !piece.raw.is_empty()
+                        || !piece.display.chars().all(char::is_whitespace)
+                    {
                         break;
                     }
                     piece.spans.push(id);
@@ -434,11 +449,20 @@ fn carry_formats(
                 id
             } else {
                 let delimiter = delimiter(format);
+                let spelling = before.iter().rev().chain(after.iter()).find_map(|piece| {
+                    piece
+                        .spans
+                        .iter()
+                        .find(|id| markers[**id].format == format)
+                        .map(|id| (markers[*id].open.clone(), markers[*id].close.clone()))
+                });
                 let id = markers.len();
+                let (open, close) =
+                    spelling.unwrap_or_else(|| (delimiter.into(), delimiter.into()));
                 markers.push(Marker {
                     format,
-                    open: delimiter.into(),
-                    close: delimiter.into(),
+                    open,
+                    close,
                 });
                 id
             };

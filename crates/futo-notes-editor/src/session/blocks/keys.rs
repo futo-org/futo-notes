@@ -258,64 +258,7 @@ impl EditorSession {
                 .commit_block_key(expected, range, at..at, "\n", at + 1, accept)
                 .map(Some);
         }
-        // Stage precisely the visible body: physical container prefixes and
-        // dependent heading markers must never enter the inline body parser.
-        let mut raw = String::new();
-        let mut body_prefixes = Vec::new();
-        for (index, physical) in line.bodies.iter().enumerate() {
-            body_prefixes.push(
-                self.source
-                    .byte_slice(physical.source.start..physical.content.start)
-                    .to_string(),
-            );
-            raw.push_str(&self.source.byte_slice(physical.content.clone()).to_string());
-            if index + 1 < line.bodies.len() {
-                raw.push_str(
-                    &self
-                        .source
-                        .byte_slice(physical.content.end..physical.source.end)
-                        .to_string(),
-                );
-            }
-        }
-        let (raw, protected_bytes) = super::content::protect_content(&raw, false, true);
-        let mut staged = Self::open_with_clock(&raw, self.clock.clone());
-        let body_display = self
-            .projection
-            .display
-            .byte_slice(start_display..self.projection.display_at(line.content.end))
-            .to_string();
-        if staged.display_text() != body_display {
-            return Err(EditorError::UnrepresentableFormat);
-        }
-        // The equality above establishes correspondence after punctuation
-        // protection; source bytes in this stage may have different lengths.
-        let offset = range.start.0 - start_display;
-        let local = DisplayRange {
-            start: DisplayOffset(offset),
-            end: DisplayOffset(offset),
-        };
-        staged.select_with_affinity(staged.revision(), local, self.input_affinity(range))?;
-        if range == self.selection {
-            staged.pending_formats = self.pending_formats.clone();
-        }
-        // A heading ends its inline block at Enter. A temporary blank line asks
-        // the inline owner to close/reopen its spans before splitting that block.
-        let separator = "\n\n";
-        let staged_change = staged.replace_action(
-            staged.revision(),
-            local,
-            separator,
-            crate::InputAction::Isolated,
-            &mut |_| Ok(()),
-        )?;
-        let body = staged.source_text();
-        // Locate the inserted separator through the actual staged projection,
-        // rather than finding an earlier newline pair in the original body.
-        let split = staged.projection.source_bounds(offset + 1).0 - 1;
-        if body.get(split..split + 2) != Some(separator) {
-            return Err(EditorError::UnrepresentableFormat);
-        }
+        let body = self.split_block_body(std::slice::from_ref(&line), range)?;
         let suffix_end = line.source.start
             + self
                 .source
@@ -338,8 +281,7 @@ impl EditorSession {
             String::new()
         };
         let setext = line.underline.is_some();
-        let left = &body[..split];
-        let consumed_lines = left.bytes().filter(|ch| *ch == b'\n').count();
+        let left = body.left.as_str();
         // A setext underline must immediately follow nonempty body text. Move
         // the existing terminal body break after that marker, keeping its bytes
         // and visible position relative to the newly inserted LF.
@@ -354,9 +296,12 @@ impl EditorSession {
             line.heading > 0 && !setext,
             setext,
         );
-        let (right, right_work) = super::content::protect_content(&body[split + 2..], false, true);
-        let left = restore_body_prefixes(&left, body_prefixes.iter().skip(1));
-        let right = restore_body_prefixes(&right, body_prefixes.iter().skip(consumed_lines + 1));
+        let (right, right_work) = super::content::protect_content(&body.right, false, true);
+        let left = super::content::restore_body_prefixes(&left, body.prefixes.iter().skip(1));
+        let right = super::content::restore_body_prefixes(
+            &right,
+            body.prefixes.iter().skip(body.right_line + 1),
+        );
         let output =
             format!("{prefix}{left}{suffix}{retained_break}\n{separator}{continuation}{right}");
         let caret = line.source.start
@@ -375,16 +320,9 @@ impl EditorSession {
             Some(caret),
             accept,
         )?;
-        self.carry_block_state(&mut change, staged.pending_formats, staged.affinity);
-        change.work.materialized_source_bytes += raw.len()
-            + 2 * body_display.len()
-            + body_prefixes.iter().map(String::len).sum::<usize>()
-            + staged_change.work.materialized_source_bytes;
-        change.work.parsed_source_bytes += protected_bytes
-            + left_work
-            + right_work
-            + 2 * raw.len()
-            + staged_change.work.parsed_source_bytes;
+        self.carry_block_state(&mut change, body.formats, body.affinity);
+        change.work.materialized_source_bytes += body.materialized;
+        change.work.parsed_source_bytes += body.parsed + left_work + right_work;
         Ok(Some(change))
     }
 
@@ -441,19 +379,4 @@ impl EditorSession {
             2 * raw.len() + deleted.work.parsed_source_bytes + entered.work.parsed_source_bytes;
         Ok(change)
     }
-}
-
-/// Existing physical breaks retain their own exact container spelling. The
-/// newly split first line gets its prefix from the structural key planner.
-fn restore_body_prefixes<'a>(body: &str, mut prefixes: impl Iterator<Item = &'a String>) -> String {
-    let mut output = String::new();
-    for (index, part) in body.split_inclusive('\n').enumerate() {
-        if index > 0 {
-            if let Some(prefix) = prefixes.next() {
-                output.push_str(prefix);
-            }
-        }
-        output.push_str(part);
-    }
-    output
 }

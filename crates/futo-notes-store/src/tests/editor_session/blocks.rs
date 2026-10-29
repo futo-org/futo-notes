@@ -231,3 +231,170 @@ fn setext_physical_ownership_survives_append_replay_and_checkpoint() {
         assert_eq!(store.open_editor("setext").unwrap().source_text(), expected);
     }
 }
+
+#[test]
+fn complete_block_body_edits_and_returned_caret_input_recover_exactly() {
+    for (opening, action, selected, expected, display, followup) in [
+        (
+            "> ## # ab ##\n> ## cd ###",
+            "delete",
+            range(0, 7),
+            "> ##  ! ###",
+            "!",
+            true,
+        ),
+        ("> ab\n> ===", "space", range(0, 2), "> # &#32;", " ", false),
+        (
+            "> a\n> b\n> =",
+            "divider",
+            range(0, 0),
+            "> ---\n> \n> a\n> b\n> =",
+            "\u{fffc}\n\na\nb",
+            false,
+        ),
+        (
+            "> a\n> b\n> =",
+            "divider",
+            range(0, 3),
+            "> ---\n> ",
+            "\u{fffc}\n",
+            false,
+        ),
+        (
+            "> 猫🦊\n> e\u{301}z\n> ===",
+            "divider",
+            range(7, 7),
+            "> 猫🦊\n> e\u{301}z\n> ===\n> ***\n> ",
+            "猫🦊\ne\u{301}z\n\u{fffc}\n",
+            false,
+        ),
+        ("a\nb\n===", "heading", range(0, 3), "### a b", "a b", false),
+        (
+            "> ab ##\n> cd ###\n> ===",
+            "heading",
+            range(0, 12),
+            "> ### ab ## cd \\###",
+            "ab ## cd ###",
+            false,
+        ),
+        ("## x y", "delete", range(0, 0), "## &#32;y", " y", false),
+        ("## # ab", "delete", range(0, 0), "## &#32;ab", " ab", false),
+        ("#x\n=", "backspace", range(2, 2), "\\#\n=", "#", false),
+        ("## x", "space", range(0, 1), "## &#32;", " ", false),
+        ("x\n=", "newline", range(0, 1), "# \n", "\n", false),
+        (
+            "> __ab\n> cd__",
+            "enter",
+            range(1, 1),
+            "> __a__\n>\n> __!b__\n> __cd__",
+            "a\n\n!b\ncd",
+            true,
+        ),
+        (
+            "> __ab\n> cd__\n> ===",
+            "enter",
+            range(1, 1),
+            "> __a__\n> ===\n> __!b__\n> __cd__",
+            "a\n!b\ncd",
+            true,
+        ),
+        (
+            "> `ab`\n> `cd`\n> ---",
+            "delete",
+            range(3, 3),
+            "> `ab`\n> `!d`\n> ---",
+            "ab\n!d",
+            true,
+        ),
+        (
+            "> ab\ncd\n> ===",
+            "divider",
+            range(1, 4),
+            "> a\n> ===\n> ***\n> \n> d\n> ===",
+            "a\n\u{fffc}\n\nd",
+            false,
+        ),
+    ] {
+        let root = TestRoot::new();
+        let store = store(&root);
+        store.create("", "body", opening).unwrap();
+        {
+            let mut editor = store.open_editor("body").unwrap();
+            editor.select_utf16(Revision(0), selected).unwrap();
+            match action {
+                "heading" | "divider" => {
+                    editor
+                        .block_command_utf16(
+                            Revision(0),
+                            selected,
+                            if action == "heading" {
+                                BlockCommand::Heading(3)
+                            } else {
+                                BlockCommand::Divider
+                            },
+                        )
+                        .unwrap()
+                        .unwrap();
+                }
+                "space" | "newline" => {
+                    editor
+                        .replace_utf16_action(
+                            Revision(0),
+                            selected,
+                            if action == "space" { &[32] } else { &[10] },
+                            futo_notes_editor::InputAction::Isolated,
+                        )
+                        .unwrap();
+                }
+                _ => {
+                    editor
+                        .paragraph_key_utf16(
+                            Revision(0),
+                            selected,
+                            match action {
+                                "enter" => ParagraphKey::Enter,
+                                "delete" => ParagraphKey::Delete,
+                                "backspace" => ParagraphKey::Backspace,
+                                _ => unreachable!(),
+                            },
+                        )
+                        .unwrap()
+                        .unwrap();
+                }
+            }
+            if followup {
+                editor
+                    .replace_action(
+                        editor.revision(),
+                        editor.selection(),
+                        "!",
+                        futo_notes_editor::InputAction::Isolated,
+                    )
+                    .unwrap();
+            }
+            assert_eq!(editor.source_text(), expected, "{opening:?}/{action}");
+            assert_eq!(editor.display_text(), display);
+            editor.undo(editor.revision()).unwrap().unwrap();
+            if followup {
+                editor.undo(editor.revision()).unwrap().unwrap();
+            }
+            assert_eq!(editor.source_text(), opening);
+            editor.redo(editor.revision()).unwrap().unwrap();
+            if followup {
+                editor.redo(editor.revision()).unwrap().unwrap();
+            }
+            assert_eq!(editor.source_text(), expected);
+            assert_eq!(store.read("body").unwrap(), opening);
+            let flushed = editor.flush_recovery().unwrap();
+            assert_eq!(flushed.durable, editor.revision());
+        }
+        let mut recovered = store.open_editor("body").unwrap();
+        assert_eq!(recovered.source_text(), expected);
+        assert_eq!(recovered.display_text(), display);
+        assert!(recovered.undo(recovered.revision()).unwrap().is_none());
+        recovered.checkpoint().unwrap();
+        assert_eq!(store.read("body").unwrap(), expected);
+        drop(recovered);
+        assert_eq!(store.open_editor("body").unwrap().source_text(), expected);
+    }
+}

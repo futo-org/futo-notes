@@ -38,6 +38,7 @@ pub(super) fn spell(
         let mut candidate = Row::parse(&rendered.text);
         parsed += rendered.text.len();
         if candidate.display != expected {
+            repair_block_boundaries(&mut pieces, &rendered, &candidate, &insertion);
             // A speculative line-start marker must reopen as the literal text
             // the writer still sees. The block shortcut replaces this spelling
             // only when its final triggering character arrives.
@@ -135,6 +136,7 @@ struct Rendered {
     text: String,
     caret: usize,
     spans: Vec<(usize, Span)>,
+    pieces: Vec<Range<usize>>,
 }
 fn render(
     pieces: &[Piece],
@@ -147,6 +149,7 @@ fn render(
     let mut openings: Vec<Range<usize>> = Vec::new();
     let mut spans = Vec::new();
     let mut caret = None;
+    let mut piece_ranges = Vec::with_capacity(pieces.len());
     for (index, piece) in pieces.iter().enumerate() {
         let common = stack
             .iter()
@@ -176,7 +179,9 @@ fn render(
             openings.push(start..output.len());
             stack.push(id);
         }
+        let start = output.len();
         output.push_str(&piece.raw);
+        piece_ranges.push(start..output.len());
         if index + 1 == insertion_end {
             caret = Some(output.len());
         }
@@ -201,6 +206,60 @@ fn render(
         caret: caret.unwrap_or(output.len()),
         text: output,
         spans,
+        pieces: piece_ranges,
+    }
+}
+
+fn repair_block_boundaries(
+    pieces: &mut [Piece],
+    rendered: &Rendered,
+    candidate: &Row,
+    insertion: &Range<usize>,
+) {
+    let mut closers = Vec::new();
+    for (piece, source) in pieces.iter_mut().zip(&rendered.pieces) {
+        if piece.trailing && piece.display.is_empty() && piece.raw == "#" {
+            if let Some(block) = candidate.blocks.iter().find(|block| {
+                block.heading > 0
+                    && block.heading_syntax == super::blocks::HeadingSyntax::Atx
+                    && block.content.start <= source.start
+                    && source.end <= block.content.end
+            }) {
+                if !closers.contains(&block.source.start) {
+                    piece.raw.insert(0, ' ');
+                    closers.push(block.source.start);
+                }
+            }
+        }
+    }
+    // A deletion can expose a body space as ATX separation, or a
+    // literal hash as an opener/closer. Repair only visible pieces
+    // that the candidate now consumes as hidden block syntax.
+    let mut repaired = Vec::new();
+    for (index, (piece, source)) in pieces.iter_mut().zip(&rendered.pieces).enumerate() {
+        let boundary = candidate.blocks.iter().find_map(|block| {
+            if block.source.start <= source.start && source.end <= block.content.start {
+                Some((block.source.start, false))
+            } else if block.content.end <= source.start && source.end <= block.source.end {
+                Some((block.source.start, true))
+            } else {
+                None
+            }
+        });
+        if piece.raw == piece.display
+            && piece.display.chars().count() == 1
+            && !piece.display.contains(['\r', '\n'])
+            && boundary.is_some_and(|boundary| !repaired.contains(&boundary))
+            && candidate.display_at(source.start) == candidate.display_at(source.end)
+        {
+            let scalar = piece.display.chars().next().unwrap();
+            piece.raw = if scalar.is_ascii_punctuation() && !insertion.contains(&index) {
+                format!("\\{scalar}")
+            } else {
+                format!("&#{};", scalar as u32)
+            };
+            repaired.push(boundary.unwrap());
+        }
     }
 }
 

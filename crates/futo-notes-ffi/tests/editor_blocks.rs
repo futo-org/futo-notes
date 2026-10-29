@@ -183,3 +183,212 @@ fn native_setext_physical_ownership_and_heading_enter_recover_exactly() {
         assert_eq!(store.read("setext".into()).unwrap(), expected);
     }
 }
+
+#[test]
+fn native_complete_body_and_returned_caret_input_recover_exactly() {
+    for (opening, shown, action, start, end, expected, display, followup) in [
+        (
+            "> a\n> b\n> =",
+            "a\nb",
+            "divider",
+            0,
+            0,
+            "> ---\n> \n> a\n> b\n> =",
+            "\u{fffc}\n\na\nb",
+            false,
+        ),
+        (
+            "> a\n> b\n> =",
+            "a\nb",
+            "divider",
+            0,
+            3,
+            "> ---\n> ",
+            "\u{fffc}\n",
+            false,
+        ),
+        (
+            "> 猫🦊\n> e\u{301}z\n> ===",
+            "猫🦊\ne\u{301}z",
+            "divider",
+            7,
+            7,
+            "> 猫🦊\n> e\u{301}z\n> ===\n> ***\n> ",
+            "猫🦊\ne\u{301}z\n\u{fffc}\n",
+            false,
+        ),
+        (
+            "a\nb\n===",
+            "a\nb",
+            "heading",
+            0,
+            3,
+            "### a b",
+            "a b",
+            false,
+        ),
+        (
+            "> ab ##\n> cd ###\n> ===",
+            "ab ##\ncd ###",
+            "heading",
+            0,
+            12,
+            "> ### ab ## cd \\###",
+            "ab ## cd ###",
+            false,
+        ),
+        ("## x y", "x y", "delete", 0, 0, "## &#32;y", " y", false),
+        (
+            "## # ab",
+            "# ab",
+            "delete",
+            0,
+            0,
+            "## &#32;ab",
+            " ab",
+            false,
+        ),
+        ("#x\n=", "#x", "backspace", 2, 2, "\\#\n=", "#", false),
+        ("## x", "x", "space", 0, 1, "## &#32;", " ", false),
+        ("x\n=", "x", "newline", 0, 1, "# \n", "\n", false),
+        (
+            "> __ab\n> cd__",
+            "ab\ncd",
+            "enter",
+            1,
+            1,
+            "> __a__\n>\n> __!b__\n> __cd__",
+            "a\n\n!b\ncd",
+            true,
+        ),
+        (
+            "> __ab\n> cd__\n> ===",
+            "ab\ncd",
+            "enter",
+            1,
+            1,
+            "> __a__\n> ===\n> __!b__\n> __cd__",
+            "a\n!b\ncd",
+            true,
+        ),
+        (
+            "> `ab`\n> `cd`\n> ---",
+            "ab\ncd",
+            "delete",
+            3,
+            3,
+            "> `ab`\n> `!d`\n> ---",
+            "ab\n!d",
+            true,
+        ),
+        (
+            "> ab\ncd\n> ===",
+            "ab\ncd",
+            "divider",
+            1,
+            4,
+            "> a\n> ===\n> ***\n> \n> d\n> ===",
+            "a\n\u{fffc}\n\nd",
+            false,
+        ),
+        (
+            "> ## # ab ##\n> ## cd ###",
+            "# ab\ncd",
+            "delete",
+            0,
+            7,
+            "> ##  ! ###",
+            "!",
+            true,
+        ),
+        ("> ab\n> ===", "ab", "space", 0, 2, "> # &#32;", " ", false),
+    ] {
+        let tree = TempTree::new();
+        std::fs::create_dir_all(tree.path("vault")).unwrap();
+        let store = NoteStore::new(path_string(&tree.path("vault")));
+        store
+            .create_note("body".into(), "".into(), opening.into())
+            .unwrap();
+        let session = store.open_editor("body".into()).unwrap();
+        let selected = EditorUtf16Range { start, end };
+        session.select_utf16(0, selected).unwrap();
+        let change = match action {
+            "heading" | "divider" => session
+                .block_command_utf16(
+                    0,
+                    selected,
+                    if action == "heading" {
+                        EditorBlockCommand::Heading { level: 3 }
+                    } else {
+                        EditorBlockCommand::Divider
+                    },
+                )
+                .unwrap()
+                .unwrap(),
+            "space" | "newline" => session
+                .replace_utf16_action(
+                    0,
+                    selected,
+                    if action == "space" {
+                        vec![32]
+                    } else {
+                        vec![10]
+                    },
+                    futo_notes_ffi::EditorInputAction::Isolated,
+                )
+                .unwrap(),
+            _ => session
+                .paragraph_key_utf16(
+                    0,
+                    selected,
+                    match action {
+                        "enter" => EditorParagraphKey::Enter,
+                        "delete" => EditorParagraphKey::Delete,
+                        "backspace" => EditorParagraphKey::Backspace,
+                        _ => unreachable!(),
+                    },
+                )
+                .unwrap()
+                .unwrap(),
+        };
+        let mut view = shown.to_owned();
+        view.replace_range(
+            change.range.start as usize..change.range.end as usize,
+            &change.inserted,
+        );
+        if followup {
+            let caret = session.display_to_utf16(1, change.selection).unwrap();
+            let next = session
+                .replace_utf16_action(
+                    1,
+                    caret,
+                    vec![33],
+                    futo_notes_ffi::EditorInputAction::Isolated,
+                )
+                .unwrap();
+            view.replace_range(
+                next.range.start as usize..next.range.end as usize,
+                &next.inserted,
+            );
+        }
+        assert_eq!(view, display);
+        assert_eq!(session.source_text().unwrap(), expected);
+        session.undo(session.revision().unwrap()).unwrap().unwrap();
+        if followup {
+            session.undo(session.revision().unwrap()).unwrap().unwrap();
+        }
+        assert_eq!(session.source_text().unwrap(), opening);
+        session.redo(session.revision().unwrap()).unwrap().unwrap();
+        if followup {
+            session.redo(session.revision().unwrap()).unwrap().unwrap();
+        }
+        assert_eq!(session.source_text().unwrap(), expected);
+        session.flush_recovery().unwrap();
+        session.detach().unwrap();
+        let recovered = store.open_editor("body".into()).unwrap();
+        assert_eq!(recovered.source_text().unwrap(), expected);
+        assert_eq!(recovered.display_text().unwrap(), display);
+        recovered.checkpoint().unwrap();
+        assert_eq!(store.read("body".into()).unwrap(), expected);
+    }
+}

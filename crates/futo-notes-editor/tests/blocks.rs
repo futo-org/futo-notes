@@ -17,5 +17,7 @@ mod conversions;
 mod divider;
 #[path = "blocks/keys.rs"]
 mod keys;
+#[path = "blocks/ownership.rs"]
+mod ownership;
 #[path = "blocks/projection.rs"]
 mod projection;

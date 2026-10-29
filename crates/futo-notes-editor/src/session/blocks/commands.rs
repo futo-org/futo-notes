@@ -67,6 +67,8 @@ impl EditorSession {
         let mut output = raw.clone();
         let mut changed = false;
         let mut parsed = 0;
+        let mut materialized = 0;
+        let mut folded = Vec::new();
         for line in lines.iter().rev() {
             if line.code
                 || line.divider
@@ -148,8 +150,29 @@ impl EditorSession {
             let body = self.source.byte_slice(line.content.clone()).to_string();
             let heading = matches!(command, BlockCommand::Heading(level) if level > 0);
             let paragraph = command == BlockCommand::Heading(0) || command == BlockCommand::Quote;
-            let (body, work) =
-                super::content::protect_block_content(&body, line, heading, paragraph);
+            let (body, work) = if heading && line.bodies.len() > 1 {
+                let body_start = self.projection.display_at(line.content.start);
+                let body_end = self.projection.display_at(line.content.end);
+                let shown = self
+                    .projection
+                    .display
+                    .byte_slice(body_start..body_end)
+                    .to_string();
+                let (body, body_bytes, work) = self.projection.body_source(
+                    &self.source,
+                    DisplayRange {
+                        start: DisplayOffset(body_start),
+                        end: DisplayOffset(body_end),
+                    },
+                    true,
+                )?;
+                materialized += body_bytes + shown.len();
+                folded.push((body_start, shown));
+                let (body, protected) = super::content::protect_content(&body, true, false);
+                (body, work + protected)
+            } else {
+                super::content::protect_block_content(&body, line, heading, paragraph)
+            };
             parsed += work;
             output.replace_range(line.content.start - start..line.content.end - start, &body);
             output.replace_range(
@@ -161,6 +184,15 @@ impl EditorSession {
             return Ok(None);
         }
         let mut selection = range;
+        for endpoint in [&mut selection.start.0, &mut selection.end.0] {
+            let original = *endpoint;
+            for (start, shown) in &folded {
+                if original > *start {
+                    let within = (original - start).min(shown.len());
+                    *endpoint -= within - folded_offset(shown, within);
+                }
+            }
+        }
         if (command == BlockCommand::Indent
             || command == BlockCommand::Quote && first.quote_depth == 0)
             && end < self.source.len_bytes()
@@ -214,8 +246,25 @@ impl EditorSession {
             self.commit_block_edit(expected, start..end, &output, Some(selection), None, accept)?;
         self.carry_block_state(&mut change, formats, affinity);
         change.work.parsed_source_bytes += parsed;
+        change.work.materialized_source_bytes += materialized;
         Ok(Some(change))
     }
+}
+
+fn folded_offset(text: &str, offset: usize) -> usize {
+    let mut size = 0;
+    let mut cr = false;
+    for ch in text[..offset].chars() {
+        if ch != '\n' || !cr {
+            size += if matches!(ch, '\r' | '\n') {
+                1
+            } else {
+                ch.len_utf8()
+            };
+        }
+        cr = ch == '\r';
+    }
+    size
 }
 
 /// All physical lines of a semantic block use the same quote-depth operation.
