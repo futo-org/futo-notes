@@ -114,3 +114,5 @@
   classic-create response retains the legacy duplicate risk. The visible
   checkpoint failure remains the signal that durable local state is behind. →
   futo-notes-sync `checkpoint.rs` + `sync/push/` + `sync/pull/` + `session/`
+
+- Pull adoption and guarded sync replacements preserve pending portable-editor recovery through the shared local replacement marker, including remote content equal to an older checkpoint; existing push-first ordering and encrypted payloads remain unchanged. → crates/futo-notes-sync/src/sync/vault.rs, crates/futo-notes-sync/src/sync/vault/guarded_write.rs, crates/futo-notes-sync/src/sync/editor_recovery_tests.rs

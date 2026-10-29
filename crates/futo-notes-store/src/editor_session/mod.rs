@@ -121,6 +121,8 @@ impl LocalNoteStore {
         options: RecoveryOptions,
     ) -> Result<StoreEditorSession<'_>, EditorStoreError> {
         let _gate = self.lock_gate().map_err(EditorStoreError::Open)?;
+        let _vault_mutation =
+            futo_notes_core::files::vault_mutation_guard().map_err(EditorStoreError::Open)?;
         paths::note_path(&self.root, id).map_err(EditorStoreError::Open)?;
         let lease = EditorLease::acquire(&self.root, id)?;
         let base = self
@@ -375,6 +377,24 @@ impl StoreEditorSession<'_> {
         let _vault_mutation =
             futo_notes_core::files::vault_mutation_guard().map_err(EditorStoreError::Checkpoint)?;
         let source = self.engine.source_text();
+        // A committed checkpoint whose retirement failed may be replaced by a
+        // controlled writer before retry. Revalidate its destination under the
+        // same guard; a cached result alone cannot authorize log retirement.
+        if let Some(pending) = &self.pending_checkpoint {
+            let target = match &pending.disposition {
+                FlushDisposition::ParkedConflict { parked_id } => parked_id,
+                _ => &self.id,
+            };
+            if self
+                .store
+                .read_existing(target)
+                .map_err(EditorStoreError::Checkpoint)?
+                .as_deref()
+                != Some(source.as_str())
+            {
+                self.pending_checkpoint = None;
+            }
+        }
         // Opening/closing an unchanged note must not write its old bytes over
         // a peer change or mint a conflict copy for a draft that never existed.
         let result = if let Some(result) = &self.pending_checkpoint {
@@ -386,11 +406,29 @@ impl StoreEditorSession<'_> {
             }
         } else {
             let base = self.recovery.base().to_owned();
-            self.store
-                .flush_draft_locked_with_target(&self.id, &base, &source, &mut |id| {
-                    self.recovery.protect_checkpoint(&self.store.root, id)
-                })
+            if self
+                .recovery
+                .replaced(&self.store.root)
                 .map_err(EditorStoreError::Checkpoint)?
+                && self
+                    .store
+                    .read_existing(&self.id)
+                    .map_err(EditorStoreError::Checkpoint)?
+                    .as_deref()
+                    != Some(source.as_str())
+            {
+                self.store
+                    .park_conflict_draft_with_target(&self.id, &source, &mut |id| {
+                        self.recovery.protect_checkpoint(&self.store.root, id)
+                    })
+                    .map_err(EditorStoreError::Checkpoint)?
+            } else {
+                self.store
+                    .flush_draft_locked_with_target(&self.id, &base, &source, &mut |id| {
+                        self.recovery.protect_checkpoint(&self.store.root, id)
+                    })
+                    .map_err(EditorStoreError::Checkpoint)?
+            }
         };
         let final_id = match &result.disposition {
             FlushDisposition::ParkedConflict { parked_id } => parked_id.clone(),

@@ -216,6 +216,21 @@ impl LocalNoteStore {
         content: &str,
         modified_ms: Option<i64>,
     ) -> Result<NoteMetadata, String> {
+        futo_notes_core::files::recovery_coordination::protect_replacement(
+            &self.root,
+            &note_filename(id),
+        )?;
+        self.write_checkpoint_raw(id, content, modified_ms)
+    }
+
+    /// Checkpoint has already coordinated its log and chosen its destination.
+    /// Other writers use `write_raw`, which protects pending editor recovery.
+    pub(crate) fn write_checkpoint_raw(
+        &self,
+        id: &str,
+        content: &str,
+        modified_ms: Option<i64>,
+    ) -> Result<NoteMetadata, String> {
         if let Some(existing) = self.colliding_note(id) {
             return Err(format!(
                 "note id collides with existing cross-platform path: {existing}"

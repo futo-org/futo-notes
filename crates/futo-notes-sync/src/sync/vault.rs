@@ -203,6 +203,9 @@ pub(super) fn write_content_if_changed(
     if changed && local_base.is_some_and(|base| current.as_deref() != Some(base)) {
         return Ok(PulledWrite::LocalChanged);
     }
+    // Adopting a newer remote version is intentional even when its bytes
+    // equal an older editor checkpoint. Coordinate before installation.
+    futo_notes_core::files::recovery_coordination::protect_replacement(root, name)?;
     if changed {
         vault_fs::write_atomic(root, name, &bytes)?;
     } else {

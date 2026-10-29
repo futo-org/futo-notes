@@ -62,6 +62,10 @@ impl LocalNoteStore {
     ) -> Result<FlushDraftResult, String> {
         let _gate = self.lock_gate()?;
         let _vault_mutation = vault_mutation_guard()?;
+        futo_notes_core::files::recovery_coordination::protect_replacement(
+            &self.root,
+            &note_filename(id),
+        )?;
         self.flush_draft_locked(id, base, content)
     }
 
@@ -106,7 +110,7 @@ impl LocalNoteStore {
             }
             Ok(current) if current == base => {
                 protect(id)?;
-                let metadata = self.write_raw(id, content, None)?;
+                let metadata = self.write_checkpoint_raw(id, content, None)?;
                 Ok(FlushDraftResult {
                     disposition: FlushDisposition::Wrote,
                     mutation: Some(self.upsert_mutation(metadata)),
@@ -186,7 +190,7 @@ impl LocalNoteStore {
         self.park_conflict_draft_with_target(id, content, &mut |_| Ok(()))
     }
 
-    fn park_conflict_draft_with_target(
+    pub(crate) fn park_conflict_draft_with_target(
         &self,
         id: &str,
         content: &str,

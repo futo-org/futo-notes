@@ -28,3 +28,6 @@ Milkdown editor until a separate renderer integration and cutover.
 Outside-writer/lifecycle coordination, markdown interpretation and platform facades follow in their dependent tickets.
 The current work counters report engine-materialized source and inserted bytes;
 they do not claim parser work bounds or native device latency measurements.
+
+- Controlled store writes and sync adoption durably record local replacement intent before installing outside bytes when an editor recovery log exists, including bytes equal to the draft's old checkpoint; recovery parks the validated draft instead of undoing that replacement. This metadata stays hidden and out of the sync payload. → crates/futo-notes-core/src/files/recovery_coordination.rs, crates/futo-notes-store/src/tests/editor_session/recovery/outside_writes.rs
+- A checkpoint retry revalidates its previously committed destination under the vault guard before retiring recovery; if another writer replaced that destination, the draft returns through persist-or-park. → crates/futo-notes-store/src/editor_session/mod.rs

@@ -2,6 +2,7 @@ pub(crate) mod atomic_write;
 mod filenames;
 mod parked_backup;
 mod paths;
+pub mod recovery_coordination;
 mod timestamps;
 mod vault_lock;
 

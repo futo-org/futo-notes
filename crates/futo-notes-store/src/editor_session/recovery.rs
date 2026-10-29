@@ -52,6 +52,9 @@ impl RecoveryLog {
             id: id.to_owned(),
             base: disk.to_owned(),
             base_revision: Revision(0),
+            replacement_epoch: futo_notes_core::files::recovery_coordination::replacement_epoch(
+                root, id,
+            )?,
         };
         let mut engine = EditorSession::open(disk);
         if let Some(bytes) = bytes {
@@ -80,7 +83,13 @@ impl RecoveryLog {
                     accepted_bytes += validated;
                     checkpoint_target = target;
                     issue = problem;
-                    if issue.is_none() && disk != header.base && disk != engine.source_text() {
+                    if issue.is_none()
+                        && (disk != header.base
+                            || futo_notes_core::files::recovery_coordination::replacement_epoch(
+                                root, id,
+                            )? != header.replacement_epoch)
+                        && disk != engine.source_text()
+                    {
                         issue = Some(RecoveryIssue {
                             kind: RecoveryIssueKind::BaseMismatch,
                             record: 0,
@@ -131,6 +140,15 @@ impl RecoveryLog {
 
     pub(super) fn base(&self) -> &str {
         &self.header.base
+    }
+
+    pub(super) fn replaced(&self, root: &Path) -> Result<bool, String> {
+        Ok(
+            futo_notes_core::files::recovery_coordination::replacement_epoch(
+                root,
+                &self.header.id,
+            )? != self.header.replacement_epoch,
+        )
     }
 
     pub(super) fn append(&mut self, root: &Path, edit: &SourceEdit) -> Result<(), String> {
@@ -274,6 +292,8 @@ impl RecoveryLog {
         self.header.id = id.to_owned();
         self.header.base = source.to_owned();
         self.header.base_revision = revision;
+        self.header.replacement_epoch =
+            futo_notes_core::files::recovery_coordination::replacement_epoch(root, id)?;
         self.failed = false;
         self.issue = None;
         self.durable = revision;
