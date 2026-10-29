@@ -11,6 +11,29 @@ import uniffi.futo_notes_ffi.*
 /** A small real Kotlin consumer; no replacement view or markdown policy. */
 class NativeEditorSessionTest {
     @Test
+    fun readCreateAndSymlinkSafetyUseSupportedFilesystemCalls() {
+        val root = File(InstrumentationRegistry.getInstrumentation().targetContext.cacheDir, "editor-fs-${UUID.randomUUID()}")
+        check(root.mkdirs())
+        try {
+            File(root, "probe.md").writeText("probe")
+            NoteStore(root.absolutePath).use { store ->
+                assertEquals("probe", store.read("probe"))
+                assertTrue(store.exists("probe"))
+                store.createNote("created", "", "created")
+                assertEquals("created", store.read("created"))
+                android.system.Os.symlink(File(root, "probe.md").absolutePath, File(root, "alias.md").absolutePath)
+                try {
+                    store.read("alias")
+                    fail("A symlink note was followed")
+                } catch (_: NoteException.Io) {}
+                assertEquals("probe", File(root, "probe.md").readText())
+            }
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
     fun exactInputErrorsDeltasHistoryAndRecovery() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val require32 = InstrumentationRegistry.getArguments().getString("editorRequire32Bit") == "true"
@@ -42,6 +65,9 @@ class NativeEditorSessionTest {
                 assertEquals(EditorByteRange(1uL, 5uL), change.range)
                 assertEquals("🇯🇵\u0000", change.inserted)
                 assertEquals(EditorByteRange(10uL, 10uL), change.selection)
+                val before = "a😀\u0000z\r\n".toByteArray(Charsets.UTF_8)
+                val view = before.copyOfRange(0, change.range.start.toInt()) + change.inserted.toByteArray(Charsets.UTF_8) + before.copyOfRange(change.range.end.toInt(), before.size)
+                assertEquals("a🇯🇵\u0000\u0000z\r\n", String(view, Charsets.UTF_8))
                 assertEquals("a🇯🇵\u0000\u0000z\r\n", session.displayText())
                 try {
                     session.replaceUtf16(0uL, EditorUtf16Range(0uL, 0uL), listOf(65u.toUShort()))

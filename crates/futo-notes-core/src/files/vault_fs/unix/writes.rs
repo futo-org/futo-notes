@@ -3,11 +3,11 @@
 use std::os::fd::OwnedFd;
 use std::path::Path;
 
-use rustix::fs::{renameat, statat, unlinkat, AtFlags};
+use rustix::fs::{renameat, unlinkat, AtFlags};
 
 use super::{
-    install_temp, open_parent, open_parent_with_policy, reject_symlink, report_local_sync,
-    sync_directory, write_temp_and_install,
+    entry_type, install_temp, open_parent, open_parent_with_policy, reject_symlink,
+    report_local_sync, sync_directory, write_temp_and_install,
 };
 use crate::files::vault_fs::{context, OpenParentError};
 
@@ -156,17 +156,14 @@ fn rename_with_policy(
     ) {
         Ok(()) => {}
         Err(rustix::io::Errno::NOENT) => {
-            let destination_exists = match statat(
-                &destination_parent.directory,
-                &destination_parent.leaf,
-                AtFlags::SYMLINK_NOFOLLOW,
-            ) {
-                Ok(_) => true,
-                Err(rustix::io::Errno::NOENT) => false,
-                Err(error) => {
-                    return Err(context("inspect rename destination", destination, error));
-                }
-            };
+            let destination_exists =
+                match entry_type(&destination_parent.directory, &destination_parent.leaf) {
+                    Ok(_) => true,
+                    Err(rustix::io::Errno::NOENT) => false,
+                    Err(error) => {
+                        return Err(context("inspect rename destination", destination, error));
+                    }
+                };
             let result = sync_rename_directories(
                 source_parent.directory,
                 destination_parent.directory,
