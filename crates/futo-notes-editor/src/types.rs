@@ -54,10 +54,13 @@ pub struct SourceEdit {
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EditWork {
-    /// Source bytes materialized by the engine for this edit, excluding Ropey's
-    /// internal tree work. This is not an end-to-end latency measurement.
+    /// Bytes in materialized source windows, the final candidate and removed
+    /// footprints. Excludes per-segment copies and Ropey's internal tree work;
+    /// this is not a complete allocation or end-to-end latency measurement.
     pub materialized_source_bytes: usize,
     pub inserted_bytes: usize,
+    /// Bytes supplied to the markdown parser, including verification parses.
+    pub parsed_source_bytes: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -68,6 +71,10 @@ pub struct ViewChange {
     pub inserted: String,
     pub selection: DisplayRange,
     pub work: EditWork,
+    pub affinity: Affinity,
+    /// Semantic replacement for the reparsed paragraph window, including
+    /// source/display correspondence even when display text did not change.
+    pub projection: ProjectionSlice,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -77,10 +84,11 @@ pub enum CaretDirection {
 }
 
 /// A selection-only update: source and its revision are unchanged.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SelectionChange {
     pub revision: Revision,
     pub selection: DisplayRange,
+    pub affinity: Affinity,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -92,6 +100,7 @@ pub enum EditorError {
     InvalidRange,
     InvalidText,
     RevisionExhausted,
+    UnrepresentableFormat,
     Persistence(String),
     RecoveryMismatch,
 }
@@ -103,3 +112,41 @@ impl std::fmt::Display for EditorError {
 }
 
 impl std::error::Error for EditorError {}
+
+/// Inline meaning supplied by the engine; views never parse marker spelling.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub enum InlineFormat {
+    Bold,
+    Italic,
+    Strike,
+    Code,
+}
+
+/// Which visible neighbor supplies formatting at a hidden marker boundary.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Affinity {
+    Backward,
+    #[default]
+    Forward,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SemanticRun {
+    pub range: DisplayRange,
+    pub formats: Vec<InlineFormat>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Correspondence {
+    pub source: SourceRange,
+    pub display: DisplayRange,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProjectionSlice {
+    pub revision: Revision,
+    pub range: DisplayRange,
+    pub text: String,
+    pub runs: Vec<SemanticRun>,
+    pub correspondence: Vec<Correspondence>,
+}

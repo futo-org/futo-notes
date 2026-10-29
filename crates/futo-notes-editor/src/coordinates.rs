@@ -5,15 +5,14 @@ use crate::{
 };
 
 impl EditorSession {
-    fn utf16_to_byte(&self, offset: usize) -> Result<usize, EditorError> {
-        let index = self
-            .source
+    fn utf16_to_byte(rope: &ropey::Rope, offset: usize) -> Result<usize, EditorError> {
+        let index = rope
             .try_utf16_cu_to_char(offset)
             .map_err(|_| EditorError::InvalidRange)?;
-        if self.source.char_to_utf16_cu(index) != offset {
+        if rope.char_to_utf16_cu(index) != offset {
             return Err(EditorError::InvalidRange);
         }
-        Ok(self.source.char_to_byte(index))
+        Ok(rope.char_to_byte(index))
     }
 
     pub fn display_from_utf16(
@@ -26,8 +25,11 @@ impl EditorSession {
             return Err(EditorError::InvalidRange);
         }
         Ok(DisplayRange {
-            start: DisplayOffset(self.utf16_to_byte(range.start.0)?),
-            end: DisplayOffset(self.utf16_to_byte(range.end.0)?),
+            start: DisplayOffset(Self::utf16_to_byte(
+                &self.projection.display,
+                range.start.0,
+            )?),
+            end: DisplayOffset(Self::utf16_to_byte(&self.projection.display, range.end.0)?),
         })
     }
 
@@ -41,28 +43,31 @@ impl EditorSession {
             return Err(EditorError::InvalidRange);
         }
         Ok(DisplayUtf16Range {
-            start: DisplayUtf16Offset(self.source.char_to_utf16_cu(self.char_index(range.start)?)),
-            end: DisplayUtf16Offset(self.source.char_to_utf16_cu(self.char_index(range.end)?)),
+            start: DisplayUtf16Offset(
+                self.projection
+                    .display
+                    .char_to_utf16_cu(self.char_index(range.start)?),
+            ),
+            end: DisplayUtf16Offset(
+                self.projection
+                    .display
+                    .char_to_utf16_cu(self.char_index(range.end)?),
+            ),
         })
     }
 
-    // Source and display share text only in this plain-text slice. Keeping these
-    // types distinct prevents native callers from assuming that correspondence.
     pub fn source_from_utf16(
         &self,
         expected: Revision,
         range: SourceUtf16Range,
     ) -> Result<SourceRange, EditorError> {
-        let display = self.display_from_utf16(
-            expected,
-            DisplayUtf16Range {
-                start: DisplayUtf16Offset(range.start.0),
-                end: DisplayUtf16Offset(range.end.0),
-            },
-        )?;
+        self.check_revision(expected)?;
+        if range.start.0 > range.end.0 {
+            return Err(EditorError::InvalidRange);
+        }
         Ok(SourceRange {
-            start: SourceOffset(display.start.0),
-            end: SourceOffset(display.end.0),
+            start: SourceOffset(Self::utf16_to_byte(&self.source, range.start.0)?),
+            end: SourceOffset(Self::utf16_to_byte(&self.source, range.end.0)?),
         })
     }
 
@@ -71,16 +76,23 @@ impl EditorSession {
         expected: Revision,
         range: SourceRange,
     ) -> Result<SourceUtf16Range, EditorError> {
-        let display = self.display_to_utf16(
-            expected,
-            DisplayRange {
-                start: DisplayOffset(range.start.0),
-                end: DisplayOffset(range.end.0),
-            },
-        )?;
+        self.check_revision(expected)?;
+        if range.start.0 > range.end.0 {
+            return Err(EditorError::InvalidRange);
+        }
+        let convert = |offset: SourceOffset| {
+            let index = self
+                .source
+                .try_byte_to_char(offset.0)
+                .map_err(|_| EditorError::InvalidRange)?;
+            if self.source.char_to_byte(index) != offset.0 {
+                return Err(EditorError::InvalidRange);
+            }
+            Ok(SourceUtf16Offset(self.source.char_to_utf16_cu(index)))
+        };
         Ok(SourceUtf16Range {
-            start: SourceUtf16Offset(display.start.0),
-            end: SourceUtf16Offset(display.end.0),
+            start: convert(range.start)?,
+            end: convert(range.end)?,
         })
     }
 
