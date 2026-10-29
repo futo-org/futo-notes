@@ -1,6 +1,26 @@
 import { spawnSync } from 'node:child_process';
+import process from 'node:process';
+import console from 'node:console';
 
 const BOUNDARIES = [
+  {
+    roots: ['futo-notes-editor'],
+    forbidden: [
+      'futo-notes-core',
+      'futo-notes-store',
+      'futo-notes-search',
+      'futo-notes-sync',
+      'futo-notes-ffi',
+      'tauri',
+      'tantivy',
+      'ort',
+      'ort-sys',
+      'reqwest',
+      'tokio',
+      'ring',
+    ],
+    reason: 'the WASM editor must stay independent of native storage and heavyweight services',
+  },
   {
     roots: ['futo-notes-core', 'futo-notes-model', 'futo-notes-sync', 'futo-notes-license'],
     forbidden: ['tantivy', 'ort', 'ort-sys'],

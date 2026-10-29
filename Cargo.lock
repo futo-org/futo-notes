@@ -2026,7 +2026,9 @@ dependencies = [
  "pulldown-cmark",
  "ropey",
  "serde",
+ "serde_json",
  "unicode-segmentation",
+ "wasm-bindgen",
 ]
 
 [[package]]

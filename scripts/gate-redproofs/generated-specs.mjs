@@ -103,4 +103,26 @@ export const GENERATED_SPECS_PROOFS = [
     expect: ['futo-notes-core reaches tantivy'],
     fix: 'scripts/check-rust-dependency-boundaries.mjs stopped walking the resolve graph — the dep-guard that keeps tantivy/ort out of the portable crates (and out of the native FFI facade) is not enforcing anything.',
   },
+  {
+    gate: 'rust-dependency-boundaries',
+    id: 'wasm-editor-reaches-native-core',
+    seeded: 'added the native filesystem core to the portable WASM editor',
+    claim: 'the portable editor cannot acquire native storage dependencies',
+    inject: (wt) => {
+      seed.replace(
+        wt,
+        'crates/futo-notes-editor/Cargo.toml',
+        '[dependencies]\n',
+        '[dependencies]\nfuto-notes-core = { path = "../futo-notes-core" }\n',
+      );
+      const refresh = spawnSync('cargo', ['metadata', '--offline', '--format-version=1'], {
+        cwd: wt,
+        encoding: 'utf8',
+        maxBuffer: 64 * 1024 * 1024,
+      });
+      if (refresh.status !== 0) throw new Error(`could not refresh lock: ${refresh.stderr}`);
+    },
+    expect: ['futo-notes-editor reaches futo-notes-core'],
+    fix: 'keep native filesystem ownership in the store host; the WASM session exchanges ordered records only.',
+  },
 ];

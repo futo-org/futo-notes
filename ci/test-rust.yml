@@ -23,6 +23,8 @@ test:rust:workspace:
     # One metadata traversal replaces the former standalone dep-guard job.
     # The workspace tests already contain model conformance coverage.
     - node scripts/check-rust-dependency-boundaries.mjs
+    # Existing blocking Rust job/release gate also runs the actual WASM consumer.
+    - node "$CI_PROJECT_DIR/scripts/test-editor-wasm.mjs"
     # Windows is the only non-Unix target we ship, and its build is tag-only
     # and slow, so a cfg-gating mistake in the `cfg(not(unix))` vault layer or
     # in platform-gated test scaffolding is otherwise found at release time at
@@ -64,6 +66,7 @@ test:rust:workspace:
         - Cargo.lock
         - rust-toolchain.toml
         - .config/nextest.toml
+        - scripts/test-editor-wasm.mjs
         - scripts/rust-tests.mjs
         - scripts/cargo-nextest-pin.json
         - ci/install-nextest.sh
@@ -220,7 +223,7 @@ test:rust:ffi-android:
     policy: pull-push
     when: always
   variables:
-    GIT_DEPTH: "20"
+    GIT_DEPTH: '20'
     # See build:android-native for why ANDROID_NDK_HOME must be set explicitly.
     ANDROID_NDK_HOME: /opt/android-sdk/ndk/28.2.13676358
   script:

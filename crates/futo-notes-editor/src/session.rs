@@ -376,9 +376,19 @@ impl EditorSession {
 
     /// Replay accepts only a record that matches both revision and exact bytes.
     pub fn replay(&mut self, edit: &SourceEdit) -> Result<ViewChange, EditorError> {
+        self.replay_with_accept(edit, &mut |_| Ok(()))
+    }
+
+    /// Validate exact source before host acceptance; failed records leave state intact.
+    pub fn replay_with_accept(
+        &mut self,
+        edit: &SourceEdit,
+        accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
+    ) -> Result<ViewChange, EditorError> {
         if self.prepare_source(edit.previous_revision, edit.range, &edit.inserted)? != *edit {
             return Err(EditorError::RecoveryMismatch);
         }
+        accept(edit).map_err(EditorError::Persistence)?;
         Ok(self.apply(edit))
     }
 

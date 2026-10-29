@@ -3,6 +3,7 @@
 mod coordinates;
 mod inline;
 mod movement;
+mod portable;
 mod session;
 mod types;
 
@@ -13,3 +14,11 @@ pub use types::{
     SelectionChange, SemanticRun, SourceEdit, SourceOffset, SourceRange, SourceUtf16Offset,
     SourceUtf16Range, ViewChange,
 };
+
+pub use portable::{
+    HostAck, HostOperation, HostRequest, HostSnapshot, PortableError, PortableSession,
+    PortableStatus, SessionToken,
+};
+
+#[cfg(target_arch = "wasm32")]
+mod wasm;
