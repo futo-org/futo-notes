@@ -317,6 +317,17 @@ impl StoreEditorSession<'_> {
         self.engine.selection()
     }
 
+    pub fn source_at(
+        &self,
+        expected: Revision,
+        offset: futo_notes_editor::DisplayOffset,
+        affinity: Affinity,
+    ) -> Result<futo_notes_editor::SourceOffset, EditorStoreError> {
+        self.engine
+            .source_at(expected, offset, affinity)
+            .map_err(EditorStoreError::Editor)
+    }
+
     pub fn display_to_utf16(
         &self,
         expected: Revision,

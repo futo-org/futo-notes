@@ -33,6 +33,9 @@ struct NativeEditorSessionTests {
             #expect(change.range == EditorByteRange(start: 1, end: 5))
             #expect(change.inserted == "🇯🇵\0")
             #expect(change.selection == EditorByteRange(start: 10, end: 10))
+            var view = Array("a😀\0z\r\n".utf8)
+            view.replaceSubrange(Int(change.range.start)..<Int(change.range.end), with: change.inserted.utf8)
+            #expect(String(decoding: view, as: UTF8.self) == "a🇯🇵\0\0z\r\n")
             #expect(try session.sourceText() == "a🇯🇵\0\0z\r\n")
             do {
                 _ = try session.replaceUtf16(expected: 0, range: EditorUtf16Range(start: 0, end: 0), inserted: [65])
@@ -58,6 +61,13 @@ struct NativeEditorSessionTests {
             #expect(projection.text == "日😀 tail\r\n")
             #expect(projection.runs.first?.formats == [.bold])
             try inline.detach()
+            _ = try store.createNote(title: "entity", folder: "", content: "&acE;")
+            let entity = try store.openEditor(id: "entity")
+            #expect(try entity.displayText() == "∾\u{0333}")
+            #expect(try entity.sourceAt(expected: 0, offset: EditorDisplayByteOffset(offset: 3), affinity: .backward).offset == 0)
+            #expect(try entity.sourceAt(expected: 0, offset: EditorDisplayByteOffset(offset: 3), affinity: .forward).offset == 5)
+            try entity.detach()
+
         }.value
     }
 }

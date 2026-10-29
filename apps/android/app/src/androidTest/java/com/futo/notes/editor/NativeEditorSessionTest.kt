@@ -11,6 +11,31 @@ import uniffi.futo_notes_ffi.*
 /** A small real Kotlin consumer; no replacement view or markdown policy. */
 class NativeEditorSessionTest {
     @Test
+    fun staleOversizedForeignRangeKeepsCanonicalFailurePrecedence() {
+        val root = File(InstrumentationRegistry.getInstrumentation().targetContext.cacheDir, "editor-wide-${UUID.randomUUID()}")
+        check(root.mkdirs())
+        try {
+            NoteStore(root.absolutePath).use { store ->
+                store.createNote("plain", "", "a")
+                store.openEditor("plain").use { session ->
+                    session.replaceUtf16(0uL, EditorUtf16Range(1uL, 1uL), listOf(33u.toUShort()))
+                    try {
+                        session.replaceUtf16(0uL, EditorUtf16Range(0x100000000uL, 0x100000000uL), listOf(65u.toUShort()))
+                        fail("Stale input was accepted")
+                    } catch (error: EditorSessionException.StaleRevision) {
+                        assertEquals(0uL, error.expected)
+                        assertEquals(1uL, error.actual)
+                    }
+                    assertEquals("a!", session.sourceText())
+                    session.detach()
+                }
+            }
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
     fun readCreateAndSymlinkSafetyUseSupportedFilesystemCalls() {
         val root = File(InstrumentationRegistry.getInstrumentation().targetContext.cacheDir, "editor-fs-${UUID.randomUUID()}")
         check(root.mkdirs())
@@ -96,6 +121,14 @@ class NativeEditorSessionTest {
                     assertEquals(listOf(EditorInlineFormat.BOLD), projected.runs.first().formats)
                     inline.detach()
                 }
+                store.createNote("entity", "", "&acE;")
+                store.openEditor("entity").use { entity ->
+                    assertEquals("∾\u0333", entity.displayText())
+                    assertEquals(0uL, entity.sourceAt(0uL, EditorDisplayByteOffset(3uL), EditorAffinity.BACKWARD).offset)
+                    assertEquals(5uL, entity.sourceAt(0uL, EditorDisplayByteOffset(3uL), EditorAffinity.FORWARD).offset)
+                    entity.detach()
+                }
+
             }
         } finally {
             root.deleteRecursively()

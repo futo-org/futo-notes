@@ -208,3 +208,38 @@ fn native_storage_failure_keeps_draft_copyable_and_reports_its_stage() {
         Err(EditorSessionError::RecoveryResume { .. })
     ));
 }
+
+#[test]
+fn native_entity_point_mapping_retains_source_boundary_affinity() {
+    use futo_notes_ffi::{EditorAffinity, EditorDisplayByteOffset};
+    let tree = TempTree::new();
+    std::fs::create_dir_all(tree.path("vault")).unwrap();
+    let store = NoteStore::new(path_string(&tree.path("vault")));
+    store
+        .create_note("entity".into(), "".into(), "&acE;".into())
+        .unwrap();
+    let session = store.open_editor("entity".into()).unwrap();
+    assert_eq!(session.display_text().unwrap(), "∾\u{0333}");
+    assert_eq!(
+        session
+            .source_at(
+                0,
+                EditorDisplayByteOffset { offset: 3 },
+                EditorAffinity::Backward
+            )
+            .unwrap()
+            .offset,
+        0
+    );
+    assert_eq!(
+        session
+            .source_at(
+                0,
+                EditorDisplayByteOffset { offset: 3 },
+                EditorAffinity::Forward
+            )
+            .unwrap()
+            .offset,
+        5
+    );
+}

@@ -353,3 +353,12 @@ impl From<editor::ProjectionSlice> for EditorProjection {
         }
     }
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Record)]
+pub struct EditorDisplayByteOffset {
+    pub offset: u64,
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Record)]
+pub struct EditorSourceByteOffset {
+    pub offset: u64,
+}

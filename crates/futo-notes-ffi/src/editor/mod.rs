@@ -47,6 +47,28 @@ impl NativeEditorSession {
         self.with_session(|session| Ok(session.revision().0))
     }
 
+    pub fn source_at(
+        &self,
+        expected: u64,
+        offset: EditorDisplayByteOffset,
+        affinity: EditorAffinity,
+    ) -> Result<EditorSourceByteOffset, EditorSessionError> {
+        self.with_session(|session| {
+            Ok(EditorSourceByteOffset {
+                offset: session
+                    .source_at(
+                        Revision(expected),
+                        futo_notes_editor::DisplayOffset(
+                            usize::try_from(offset.offset)
+                                .map_err(|_| EditorSessionError::InvalidRange)?,
+                        ),
+                        affinity.into(),
+                    )?
+                    .0 as u64,
+            })
+        })
+    }
+
     pub fn project(
         &self,
         expected: u64,
