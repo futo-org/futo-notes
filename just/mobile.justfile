@@ -318,3 +318,15 @@ app-icons:
 # Run current source on an isolated Mac checkout (including targeted native UI classes).
 ios-remote *args: check-node-version
   @node scripts/ios-remote.mjs "$@"
+
+# Build only the isolated #294 capture fixture + native test bundle (no device/signing/install/input).
+build-ios-capture-fixture:
+  bash scripts/dev-env.sh node scripts/ios-capture-fixture.mjs
+
+# Run fixture artifact contracts on the host; native UIKit contracts are compiled by the build recipe.
+test-ios-capture-artifact:
+  swift test --package-path apps/ios/FixtureCapture
+
+# Run synthetic fixture-only native unit contracts on an explicitly claimed pool SIM (no dictation).
+test-ios-capture-fixture:
+  python3 scripts/ios-test-session.py -- bash scripts/dev-env.sh node scripts/ios-capture-fixture.mjs --test-simulator
