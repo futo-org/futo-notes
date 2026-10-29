@@ -1,8 +1,10 @@
-use std::fs::File;
-use std::io::Write;
 use std::path::Path;
+use std::sync::Arc;
+use std::time::Duration;
 
-use futo_notes_core::{files::vault_fs, hash::hash_sha256};
+use super::{RecoveryClock, RecoveryStorage};
+
+use futo_notes_core::hash::hash_sha256;
 use futo_notes_editor::{EditorSession, Revision, SourceEdit};
 use serde::{Deserialize, Serialize};
 
@@ -18,8 +20,15 @@ struct Header {
 pub(super) struct RecoveryLog {
     path: String,
     header: Header,
-    file: Option<File>,
-    failed: bool,
+    storage: Box<dyn RecoveryStorage>,
+    exists: bool,
+    accepted_bytes: u64,
+    pub(super) failed: bool,
+    pub(super) accepted: Revision,
+    pub(super) durable: Revision,
+    pub(super) flush_deadline: Option<Duration>,
+    pub(super) last_flush_lateness: Option<Duration>,
+    clock: Arc<dyn RecoveryClock>,
     #[cfg(test)]
     pub(super) append_hook: Option<Box<dyn Fn(bool)>>,
     #[cfg(test)]
@@ -27,14 +36,23 @@ pub(super) struct RecoveryLog {
 }
 
 impl RecoveryLog {
-    pub(super) fn open(root: &Path, id: &str, disk: &str) -> Result<(Self, EditorSession), String> {
+    pub(super) fn open(
+        root: &Path,
+        id: &str,
+        disk: &str,
+        clock: Arc<dyn RecoveryClock>,
+        mut storage: Box<dyn RecoveryStorage>,
+    ) -> Result<(Self, EditorSession), String> {
         let path = format!(".futo-editor-recovery/{}.jsonl", hash_sha256(id));
         let vault = root
             .canonicalize()
             .map_err(|error| error.to_string())?
             .to_string_lossy()
             .into_owned();
-        let (header, engine) = match vault_fs::read_optional(root, &path)? {
+        let bytes = storage.read(root, &path)?;
+        let accepted_bytes = bytes.as_ref().map_or(0, |bytes| bytes.len() as u64);
+        let exists = bytes.is_some();
+        let (header, engine) = match bytes {
             None => (
                 Header {
                     version: 1,
@@ -66,12 +84,25 @@ impl RecoveryLog {
                 (header, engine)
             }
         };
+        let revision = engine.revision();
+        let durable = header.base_revision;
         Ok((
             Self {
                 path,
                 header,
-                file: None,
+                storage,
+                exists,
+                accepted_bytes,
                 failed: false,
+                accepted: revision,
+                durable,
+                flush_deadline: if revision != durable {
+                    Some(clock.now() + Duration::from_millis(100))
+                } else {
+                    None
+                },
+                last_flush_lateness: None,
+                clock,
                 #[cfg(test)]
                 append_hook: None,
                 #[cfg(test)]
@@ -105,23 +136,79 @@ impl RecoveryLog {
                 hook(true);
             }
         }
+        if result.is_ok() {
+            self.accepted = edit.revision;
+            self.flush_deadline
+                .get_or_insert_with(|| self.clock.now() + Duration::from_millis(100));
+        }
         result
     }
 
+    fn header_bytes(&self) -> Result<Vec<u8>, String> {
+        let mut bytes = serde_json::to_vec(&self.header).map_err(|error| error.to_string())?;
+        bytes.push(b'\n');
+        Ok(bytes)
+    }
+
     fn append_record(&mut self, root: &Path, edit: &SourceEdit) -> Result<(), String> {
-        if self.file.is_none() {
-            let mut header = serde_json::to_vec(&self.header).map_err(|error| error.to_string())?;
-            header.push(b'\n');
-            vault_fs::create_new(root, &self.path, &header)?;
-            self.file = Some(vault_fs::open_append(root, &self.path)?);
+        if !self.exists {
+            let header = self.header_bytes()?;
+            self.storage.create(root, &self.path, &header)?;
+            self.accepted_bytes = header.len() as u64;
+            self.exists = true;
         }
         let mut record = serde_json::to_vec(edit).map_err(|error| error.to_string())?;
         record.push(b'\n');
-        self.file
-            .as_mut()
-            .unwrap()
-            .write_all(&record)
-            .map_err(|error| error.to_string())
+        self.storage.append(root, &self.path, &record)?;
+        self.accepted_bytes += record.len() as u64;
+        Ok(())
+    }
+
+    pub(super) fn resume(&mut self, root: &Path) -> Result<(), String> {
+        // Only the tail of a failed append in this live session is discarded.
+        // Never salvage or rewrite an arbitrary log discovered on open here.
+        if self.accepted_bytes == 0 {
+            self.storage.remove(root, &self.path)?;
+            let header = self.header_bytes()?;
+            self.storage.create(root, &self.path, &header)?;
+            self.accepted_bytes = header.len() as u64;
+            self.exists = true;
+        } else {
+            self.storage
+                .truncate(root, &self.path, self.accepted_bytes)?;
+        }
+        self.storage.flush(root, &self.path)?;
+        self.durable = self.accepted;
+        self.last_flush_lateness = self
+            .flush_deadline
+            .map(|deadline| self.clock.now().saturating_sub(deadline));
+        self.flush_deadline = None;
+        self.failed = false;
+        Ok(())
+    }
+
+    pub(super) fn flush_delay(&self) -> Option<Duration> {
+        self.flush_deadline
+            .map(|deadline| deadline.saturating_sub(self.clock.now()))
+    }
+
+    pub(super) fn flush_due(&self) -> bool {
+        self.flush_delay().is_some_and(|delay| delay.is_zero())
+    }
+
+    pub(super) fn flush(&mut self, root: &Path) -> Result<(), String> {
+        if self.accepted != self.durable {
+            if let Err(error) = self.storage.flush(root, &self.path) {
+                self.failed = true;
+                return Err(error);
+            }
+            self.durable = self.accepted;
+            self.last_flush_lateness = self
+                .flush_deadline
+                .map(|deadline| self.clock.now().saturating_sub(deadline));
+            self.flush_deadline = None;
+        }
+        Ok(())
     }
 
     pub(super) fn retire(
@@ -137,13 +224,16 @@ impl RecoveryLog {
         }
         // Close the append handle before unlink, including on Windows. A failed
         // retirement leaves the old base usable for repeat recovery.
-        self.file = None;
-        vault_fs::remove(root, &self.path)?;
+        self.storage.remove(root, &self.path)?;
+        self.exists = false;
+        self.accepted_bytes = 0;
         self.path = format!(".futo-editor-recovery/{}.jsonl", hash_sha256(id));
         self.header.id = id.to_owned();
         self.header.base = source.to_owned();
         self.header.base_revision = revision;
         self.failed = false;
+        self.durable = revision;
+        self.flush_deadline = None;
         Ok(())
     }
 }
