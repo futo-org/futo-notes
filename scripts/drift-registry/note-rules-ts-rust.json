@@ -36,7 +36,7 @@
       "pattern": "pub fn make_preview"
     },
     {
-      "location": "crates/futo-notes-model/src/wikilinks.rs",
+      "location": "crates/futo-notes-wikilinks/src/lib.rs",
       "pattern": "pub fn resolve_wikilink"
     }
   ],

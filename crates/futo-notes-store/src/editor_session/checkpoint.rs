@@ -1,8 +1,23 @@
-use super::{EditorLease, EditorStoreError, RecoveryIssueKind, StoreEditorSession};
+use super::{Attachment, EditorLease, EditorStoreError, RecoveryIssueKind};
+use crate::LocalNoteStore;
 use crate::{FlushDisposition, FlushDraftResult};
 
-impl StoreEditorSession<'_> {
-    pub fn checkpoint(&mut self) -> Result<FlushDraftResult, EditorStoreError> {
+#[allow(unused_variables)]
+impl Attachment {
+    pub fn checkpoint(
+        &mut self,
+        store: &LocalNoteStore,
+    ) -> Result<FlushDraftResult, EditorStoreError> {
+        self.checkpoint_draft(store, None)
+    }
+
+    pub(super) fn checkpoint_draft(
+        &mut self,
+        store: &LocalNoteStore,
+        draft: Option<(&str, &str)>,
+    ) -> Result<FlushDraftResult, EditorStoreError> {
+        self.finish_identity(&store.root)
+            .map_err(EditorStoreError::Checkpoint)?;
         if let Some(issue) = &self.recovery.issue {
             if issue.kind != RecoveryIssueKind::BaseMismatch {
                 return Err(EditorStoreError::RecoveryNeedsReview(issue.clone()));
@@ -11,15 +26,9 @@ impl StoreEditorSession<'_> {
         if self.recovery.failed && self.pending_checkpoint.is_none() {
             return Err(EditorStoreError::RecoveryPaused);
         }
-        let _gate = self
-            .store
-            .lock_gate()
-            .map_err(EditorStoreError::Checkpoint)?;
-        let _vault_mutation =
-            futo_notes_core::files::vault_mutation_guard().map_err(EditorStoreError::Checkpoint)?;
         let checkpoint_id = self.id.clone();
         let checkpoint_install = futo_notes_core::files::vault_fs::EditorCheckpointInstall::new(
-            &self.store.root,
+            &store.root,
             &checkpoint_id,
         )
         .map_err(EditorStoreError::Checkpoint)?;
@@ -32,8 +41,7 @@ impl StoreEditorSession<'_> {
                 FlushDisposition::ParkedConflict { parked_id } => parked_id,
                 _ => &self.id,
             };
-            if self
-                .store
+            if store
                 .read_existing(target)
                 .map_err(EditorStoreError::Checkpoint)?
                 .as_deref()
@@ -43,14 +51,11 @@ impl StoreEditorSession<'_> {
             } else if pending.mutation.is_some() {
                 // Retrying the same commit must still return today's complete
                 // projection: unrelated writes may have changed its list rank.
-                let metadata =
-                    crate::vault::metadata(&self.store.root, target).ok_or_else(|| {
-                        EditorStoreError::Checkpoint(
-                            "checkpoint target metadata unavailable".into(),
-                        )
-                    })?;
+                let metadata = crate::vault::metadata(&store.root, target).ok_or_else(|| {
+                    EditorStoreError::Checkpoint("checkpoint target metadata unavailable".into())
+                })?;
                 let mut refreshed = pending.clone();
-                refreshed.mutation = Some(self.store.upsert_mutation(metadata));
+                refreshed.mutation = Some(store.upsert_mutation(metadata));
                 self.pending_checkpoint = Some(refreshed);
             }
         }
@@ -58,40 +63,42 @@ impl StoreEditorSession<'_> {
         // a peer change or mint a conflict copy for a draft that never existed.
         let result = if let Some(result) = &self.pending_checkpoint {
             result.clone()
-        } else if source == self.recovery.base() {
+        } else if source == self.recovery.base() && draft.is_none() {
             FlushDraftResult {
                 disposition: FlushDisposition::Converged,
                 mutation: None,
             }
         } else {
-            let base = self.recovery.base().to_owned();
-            if self
+            let base = draft
+                .map(|(base, _)| base)
+                .unwrap_or(self.recovery.base())
+                .to_owned();
+            let disk = store
+                .read_existing(&self.id)
+                .map_err(EditorStoreError::Checkpoint)?;
+            if (self
                 .recovery
-                .replaced(&self.store.root)
+                .replaced(&store.root)
                 .map_err(EditorStoreError::Checkpoint)?
-                && self
-                    .store
-                    .read_existing(&self.id)
-                    .map_err(EditorStoreError::Checkpoint)?
-                    .as_deref()
-                    != Some(source.as_str())
+                || (draft.is_some() && disk.as_ref().is_some_and(|disk| disk != &base)))
+                && disk.as_deref() != Some(source.as_str())
             {
-                self.store
+                store
                     .park_conflict_draft_with_target(
-                        &self.id,
+                        draft.map(|(_, wanted)| wanted).unwrap_or(&self.id),
                         &source,
                         Some(&checkpoint_install),
-                        &mut |id| self.recovery.protect_checkpoint(&self.store.root, id),
+                        &mut |id| self.recovery.protect_checkpoint(&store.root, id),
                     )
                     .map_err(EditorStoreError::Checkpoint)?
             } else {
-                self.store
+                store
                     .flush_draft_locked_with_target(
                         &self.id,
                         &base,
                         &source,
                         Some(&checkpoint_install),
-                        &mut |id| self.recovery.protect_checkpoint(&self.store.root, id),
+                        &mut |id| self.recovery.protect_checkpoint(&store.root, id),
                     )
                     .map_err(EditorStoreError::Checkpoint)?
             }
@@ -101,11 +108,11 @@ impl StoreEditorSession<'_> {
             _ => self.id.clone(),
         };
         self.pending_checkpoint = Some(result.clone());
-        if source != self.recovery.base() {
+        if source != self.recovery.base() || result.mutation.is_some() || final_id != self.id {
             let relative = crate::note_filename(&final_id);
-            futo_notes_core::files::vault_fs::sync_file(&self.store.root, &relative)
+            futo_notes_core::files::vault_fs::sync_file(&store.root, &relative)
                 .and_then(|()| {
-                    futo_notes_core::files::vault_fs::sync_parent(&self.store.root, &relative)
+                    futo_notes_core::files::vault_fs::sync_parent(&store.root, &relative)
                 })
                 .map_err(|error| EditorStoreError::CheckpointCommitted {
                     result: Box::new(result.clone()),
@@ -118,7 +125,7 @@ impl StoreEditorSession<'_> {
             // stream until that draft is recovered; retargeting now would make
             // a later append/resume operate on foreign recovery bytes.
             if futo_notes_core::files::recovery_coordination::has_pending_recovery(
-                &self.store.root,
+                &store.root,
                 &final_id,
             )
             .map_err(|error| EditorStoreError::CheckpointCommitted {
@@ -131,7 +138,7 @@ impl StoreEditorSession<'_> {
                 });
             }
             Some(
-                EditorLease::acquire(&self.store.root, &final_id).map_err(|error| {
+                EditorLease::acquire(&store.root, &final_id).map_err(|error| {
                     EditorStoreError::CheckpointCommitted {
                         result: Box::new(result.clone()),
                         error: error.to_string(),
@@ -143,7 +150,7 @@ impl StoreEditorSession<'_> {
         };
         if let Err(error) =
             self.recovery
-                .retire(&self.store.root, &final_id, &source, self.engine.revision())
+                .retire(&store.root, &final_id, &source, self.engine.revision())
         {
             return Err(EditorStoreError::CheckpointCommitted {
                 result: Box::new(result),

@@ -261,6 +261,8 @@ pub enum EditorSessionError {
     Checkpoint { error: String },
     #[error("editor checkpoint pending")]
     CheckpointPending,
+    #[error("editor attachment was deleted")]
+    SessionDeleted,
     #[error("editor checkpoint committed but needs retry: {error}")]
     CheckpointCommitted {
         result: Box<FlushDraftResult>,
@@ -310,6 +312,7 @@ impl From<store::EditorStoreError> for EditorSessionError {
             },
             E::Checkpoint(error) => Self::Checkpoint { error },
             E::CheckpointPending => Self::CheckpointPending,
+            E::SessionDeleted => Self::SessionDeleted,
             E::CheckpointCommitted { result, error } => Self::CheckpointCommitted {
                 result: Box::new((*result).into()),
                 error,

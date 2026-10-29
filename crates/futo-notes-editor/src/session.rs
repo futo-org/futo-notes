@@ -1,6 +1,8 @@
 mod composition;
 mod os_replacement;
 mod paragraphs;
+mod relink;
+pub use relink::OwnActionRelink;
 mod transaction;
 use crate::history::{HistoryClock, HistoryEntry, HistoryGroup, MonotonicClock, TypingRun};
 pub use composition::Composition;

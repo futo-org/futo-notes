@@ -89,7 +89,7 @@ fn interrupted_park_recovery_reuses_its_recorded_target_even_after_the_date_chan
     editor.checkpoint().unwrap();
     assert_eq!(editor.id(), "plain (conflict 2000-01-01)");
     assert_eq!(store.read("plain").unwrap(), "peer");
-    assert_eq!(store.read(editor.id()).unwrap(), "plain!");
+    assert_eq!(store.read(&editor.id()).unwrap(), "plain!");
     assert_eq!(store.snapshot().notes.len(), 2);
 }
 
@@ -156,6 +156,9 @@ impl RecoveryStorage for CrashStorage {
     }
     fn create(&mut self, root: &std::path::Path, path: &str, bytes: &[u8]) -> Result<(), String> {
         self.inner.create(root, path, bytes)
+    }
+    fn replace(&mut self, root: &std::path::Path, path: &str, bytes: &[u8]) -> Result<(), String> {
+        self.inner.replace(root, path, bytes)
     }
     fn append(&mut self, root: &std::path::Path, path: &str, bytes: &[u8]) -> Result<(), String> {
         self.inner.append(root, path, bytes)

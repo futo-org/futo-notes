@@ -9,7 +9,7 @@ mod portable;
 mod session;
 mod types;
 
-pub use session::{Composition, EditorSession, ParagraphKey};
+pub use session::{Composition, EditorSession, OwnActionRelink, ParagraphKey};
 pub use types::{
     Affinity, CaretDirection, Correspondence, DisplayOffset, DisplayRange, DisplayUtf16Offset,
     DisplayUtf16Range, EditWork, EditorError, InlineFormat, ProjectionSlice, Revision,
@@ -19,7 +19,7 @@ pub use types::{
 
 pub use portable::{
     HostAck, HostOperation, HostRequest, HostSnapshot, PortableError, PortableSession,
-    PortableStatus, SessionToken,
+    PortableStatus, RelinkOffer, SessionToken,
 };
 
 #[cfg(target_arch = "wasm32")]

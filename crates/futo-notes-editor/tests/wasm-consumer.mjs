@@ -220,6 +220,73 @@ const { WasmSession } = await import(pathToFileURL(process.argv[2]).href);
     assert.equal(code, 0);
   }
   console.log('Compiled WASM / Rust store consumer: ordered edit/undo/redo/append/flush passed.');
+  const identityVault = mkdtempSync(join(tmpdir(), 'futo-editor-wasm-identity-'));
+  const identityWorker = spawn(process.argv[3], [identityVault, 'lifecycle'], {
+    stdio: ['pipe', 'pipe', 'inherit'],
+  });
+  const identityExited = once(identityWorker, 'exit');
+  const identityDeadline = setTimeout(() => identityWorker.kill(), 30_000);
+  const identityLines = createInterface({ input: identityWorker.stdout })[Symbol.asyncIterator]();
+  let identityPage;
+  try {
+    const next = async () => {
+      const line = await identityLines.next();
+      assert.equal(line.done, false);
+      return JSON.parse(line.value);
+    };
+    const exchange = async (request) => {
+      identityWorker.stdin.write(JSON.stringify(request) + '\n');
+      return next();
+    };
+    identityPage = WasmSession.restore(JSON.stringify(await next()));
+    let view = '[[plain]]';
+    const apply = (change) => {
+      const bytes = Buffer.from(view);
+      view = Buffer.concat([
+        bytes.subarray(0, change.range.start),
+        Buffer.from(change.inserted),
+        bytes.subarray(change.range.end),
+      ]).toString();
+    };
+    const input = JSON.parse(identityPage.replace(0n, 9, 9, '!'));
+    apply(JSON.parse(identityPage.acknowledge(JSON.stringify(await exchange(input)))));
+    assert.deepEqual(await exchange({ checkpoint: true }), { id: 'plain' });
+    assert.deepEqual(await exchange({ rename: 'long name' }), { id: 'long name' });
+    const offer = await exchange(JSON.parse(identityPage.flush()));
+    assert.ok(offer.relink);
+    identityPage.acknowledge(JSON.stringify(offer));
+    const adoption = JSON.parse(identityPage.apply_relink_offer());
+    assert.equal(view, '[[plain]]!');
+    assert.equal(identityPage.draft_text(), '[[long name]]!');
+    const accepted = await exchange(adoption);
+    assert.deepEqual(await exchange(adoption), accepted);
+    apply(JSON.parse(identityPage.acknowledge(JSON.stringify(accepted))));
+    assert.equal(view, '[[long name]]!');
+    assert.equal(JSON.parse(identityPage.acknowledge(JSON.stringify(accepted))), null);
+    apply(
+      JSON.parse(
+        identityPage.acknowledge(JSON.stringify(await exchange(JSON.parse(identityPage.undo(2n))))),
+      ),
+    );
+    assert.equal(view, '[[long name]]');
+    apply(
+      JSON.parse(
+        identityPage.acknowledge(JSON.stringify(await exchange(JSON.parse(identityPage.redo(3n))))),
+      ),
+    );
+    assert.equal(view, '[[long name]]!');
+    assert.deepEqual(await exchange({ checkpoint: true }), { id: 'long name' });
+  } finally {
+    clearTimeout(identityDeadline);
+    identityPage?.free();
+    identityWorker.stdin.end();
+    const [code] = await identityExited;
+    rmSync(identityVault, { recursive: true });
+    assert.equal(code, 0);
+  }
+  console.log(
+    'Compiled WASM / Rust store lifecycle: relink offer, ordered delta, duplicate ack and history passed.',
+  );
 })().catch((error) => {
   console.error(error);
   process.exitCode = 1;

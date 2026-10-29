@@ -292,6 +292,9 @@ impl WasmSession {
     pub fn flush(&mut self) -> Result<String, JsValue> {
         json(&self.0.flush().map_err(error)?)
     }
+    pub fn apply_relink_offer(&mut self) -> Result<String, JsValue> {
+        json(&self.0.apply_relink_offer().map_err(error)?)
+    }
     pub fn resume(&mut self) -> Result<String, JsValue> {
         json(&self.0.resume().map_err(error)?)
     }

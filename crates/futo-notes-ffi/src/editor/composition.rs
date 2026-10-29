@@ -4,7 +4,7 @@ use super::*;
 #[uniffi::export]
 impl NativeEditorSession {
     pub fn composition(&self) -> Result<Option<EditorComposition>, EditorSessionError> {
-        self.with_session(|session| Ok(session.composition().cloned().map(Into::into)))
+        self.with_session(|session| Ok(session.composition().map(Into::into)))
     }
 
     pub fn compose_utf16(
