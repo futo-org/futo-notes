@@ -3,6 +3,7 @@ use futo_notes_editor::{DisplayOffset, DisplayRange, Revision};
 
 mod composition;
 mod durability;
+mod paragraphs;
 mod portable;
 mod recovery;
 mod storage;

@@ -172,25 +172,41 @@ const { WasmSession } = await import(pathToFileURL(process.argv[2]).href);
     assert.equal(page.draft_text(), '~~__😀z日 b__~~\r\n');
     assert.equal(text, '😀z日 b\r\n');
     assert.deepEqual(new Set(JSON.parse(page.active_formats())), new Set(['Bold', 'Strike']));
+    // Paragraph keys use the supplied UTF-16 range despite a distant stored
+    // caret, and cross the same store acknowledgement boundary as text input.
+    page.select_with_affinity(16n, 0, 0, '"Forward"');
+    const enter = JSON.parse(page.paragraph_key_utf16(16n, 2, 2, '"Enter"'));
+    assert.equal(text, '😀z日 b\r\n');
+    apply(JSON.parse(page.acknowledge(JSON.stringify(await exchange(enter)))));
+    assert.equal(text, '😀\nz日 b\r\n');
+    assert.equal(page.draft_text(), '~~__😀\nz日 b__~~\r\n');
+    const backspace = JSON.parse(page.paragraph_key_utf16(17n, 3, 3, '"Backspace"'));
+    apply(JSON.parse(page.acknowledge(JSON.stringify(await exchange(backspace)))));
+    assert.equal(text, '😀z日 b\r\n');
+    apply(JSON.parse(page.acknowledge(JSON.stringify(await exchange(JSON.parse(page.undo(18n)))))));
+    assert.equal(text, '😀\nz日 b\r\n');
+    apply(JSON.parse(page.acknowledge(JSON.stringify(await exchange(JSON.parse(page.undo(19n)))))));
+    assert.equal(text, '😀z日 b\r\n');
+    assert.equal(JSON.parse(page.paragraph_key_utf16(20n, 0, 0, '"Backspace"')), null);
     const marked = JSON.parse(
-      page.compose_utf16(16n, 3, 4, new Uint16Array([0x306b, 0x307b, 0x3093])),
+      page.compose_utf16(20n, 3, 4, new Uint16Array([0x306b, 0x307b, 0x3093])),
     );
     assert.equal(marked.text, 'にほん');
     assert.equal(page.draft_text(), '~~__😀z日 b__~~\r\n');
-    assert.equal(JSON.parse(page.undo(16n)), null);
-    assert.throws(() => page.compose_utf16(16n, 3, 4, new Uint16Array([0xd800])));
+    assert.equal(JSON.parse(page.undo(20n)), null);
+    assert.throws(() => page.compose_utf16(20n, 3, 4, new Uint16Array([0xd800])));
     const markedCommit = JSON.parse(
-      page.commit_composition_utf16(16n, new Uint16Array([0x65e5, 0x672c])),
+      page.commit_composition_utf16(20n, new Uint16Array([0x65e5, 0x672c])),
     );
     assert.equal(text, '😀z日 b\r\n');
     apply(JSON.parse(page.acknowledge(JSON.stringify(await exchange(markedCommit)))));
     assert.equal(text, '😀z日本 b\r\n');
     assert.equal(page.draft_text(), '~~__😀z日本 b__~~\r\n');
-    assert.equal(JSON.parse(page.commit_composition_utf16(17n)), null);
+    assert.equal(JSON.parse(page.commit_composition_utf16(21n)), null);
     const flush = JSON.parse(page.flush());
     assert.equal(JSON.parse(page.status()).durable, 0);
     page.acknowledge(JSON.stringify(await exchange(flush)));
-    assert.equal(JSON.parse(page.status()).durable, 17);
+    assert.equal(JSON.parse(page.status()).durable, 21);
   } finally {
     clearTimeout(deadline);
     page?.free();

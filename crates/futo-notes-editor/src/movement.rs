@@ -33,7 +33,7 @@ impl EditorSession {
         )
     }
 
-    fn grapheme_stop(
+    pub(crate) fn grapheme_stop(
         &self,
         position: usize,
         direction: CaretDirection,

@@ -1,8 +1,10 @@
 mod composition;
 mod os_replacement;
+mod paragraphs;
 mod transaction;
 use crate::history::{HistoryClock, HistoryEntry, HistoryGroup, MonotonicClock, TypingRun};
 pub use composition::Composition;
+pub use paragraphs::ParagraphKey;
 use ropey::Rope;
 use std::sync::Arc;
 

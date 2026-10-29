@@ -140,6 +140,19 @@ impl NativeEditorSession {
 
     /// Code units preserve malformed foreign input for canonical rejection;
     /// String transport would already have repaired lone surrogates.
+    pub fn paragraph_key_utf16(
+        &self,
+        expected: u64,
+        range: EditorUtf16Range,
+        key: EditorParagraphKey,
+    ) -> Result<Option<EditorViewChange>, EditorSessionError> {
+        self.with_revision(expected, |session| {
+            Ok(session
+                .paragraph_key_utf16(Revision(expected), range.try_into()?, key.into())?
+                .map(Into::into))
+        })
+    }
+
     pub fn replace_utf16(
         &self,
         expected: u64,
