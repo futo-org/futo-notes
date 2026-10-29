@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import process from 'node:process';
 import { spawnSync } from 'node:child_process';
 import { afterEach, describe, expect, it } from 'vitest';
 
@@ -48,6 +49,9 @@ const save = () => {
 const out = (s, code = 0) => { save(); if (s) process.stdout.write(s + '\n'); process.exit(code); };
 const gone = "cmd: Can't find service: package";
 const cmd = args.join(' ');
+if (cmd.startsWith('shell pm ') && st.healthyPmDelay) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, st.healthyPmDelay);
+}
 if (cmd === 'get-state') {
   if (st.pmStalled) st.transportProbesAfterStall += 1;
   out('device');
@@ -97,6 +101,7 @@ function runSyncLeg({
   stallAt,
   failAbandon = false,
   interruptStateWrite = false,
+  healthyPmDelay = 0,
 }) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'android-sync-leg-'));
   scratch.push(dir);
@@ -137,6 +142,7 @@ function runSyncLeg({
       transportProbesAfterStall: 0,
       failAbandon,
       interruptStateWrite,
+      healthyPmDelay,
     }),
   );
   const harnessArgs = path.join(dir, 'harness-args');
@@ -149,14 +155,21 @@ function runSyncLeg({
       mode: 0o755,
     },
   );
-  // Keep production probe deadlines; inject the short bound through its CLI
-  // only for this fixture. Other Node children (including fake adb) run normally.
+  // Inject the short deadline only into the one deliberately stalled call.
+  // Applying it to every healthy Node child also timed out process startup on
+  // loaded CI runners (39067). All other calls retain production deadlines.
   fs.writeFileSync(
     path.join(bin, 'node'),
     `#!/bin/sh
 case "$1" in */android-package-probe.mjs)
   probe="$1"; shift
-  exec "${process.execPath}" "$probe" --timeout-ms 250 "$@" ;;
+  if grep -q '"pmStalled":false' "$FAKE_ADB_STATE"; then
+    case "$FAKE_STALL_AT:$*" in
+      framework:*"-- list packages"|post-install:*"--installed com.futo.notes.dev")
+        exec "${process.execPath}" "$probe" --timeout-ms 250 "$@" ;;
+    esac
+  fi
+  exec "${process.execPath}" "$probe" "$@" ;;
 *) exec "${process.execPath}" "$@" ;;
 esac
 `,
@@ -181,6 +194,7 @@ esac
       ANDROID_HOME: sdk,
       FAKE_ADB_STATE: state,
       FAKE_EMULATOR_PID: emulatorPid,
+      FAKE_STALL_AT: stallAt ?? '',
       ANDROID_CI_AVD: 'ci',
     },
   });
@@ -203,6 +217,12 @@ esac
 }
 
 describe('native-Android sync leg against a framework that restarts after boot', () => {
+  it('keeps healthy package operations independent of the injected stalled-probe deadline', () => {
+    const run = runSyncLeg({ restartOnInstall: [], healthyPmDelay: 300 });
+    expect(run.status, run.stdout + run.stderr).toBe(0);
+    expect(run.adb.installAttempts).toBe(1);
+    expect(run.harness).toContain('--android-only');
+  });
   it('recovers when a readiness deadline interrupts the fake adb state write', () => {
     const run = runSyncLeg({
       restartOnInstall: [],

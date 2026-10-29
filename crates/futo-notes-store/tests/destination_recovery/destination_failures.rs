@@ -212,8 +212,11 @@ fn bootstrap_serializes_txt_install_against_other_store_writers() {
         }),
     );
     std::thread::scope(|scope| {
+        // Drop the sender before scoped joins if an observation panics.
+        let release_before_join = release;
         let boot = scope.spawn(|| bootstrap.bootstrap().unwrap());
         entered.recv_timeout(Duration::from_secs(5)).unwrap();
+        super::scoped_pause::abort_if_requested();
         let (started_tx, started) = mpsc::channel();
         let (done_tx, done) = mpsc::channel();
         let setup = &setup;
@@ -227,7 +230,7 @@ fn bootstrap_serializes_txt_install_against_other_store_writers() {
             done.recv_timeout(Duration::from_millis(100)),
             Err(mpsc::RecvTimeoutError::Timeout)
         ));
-        release.send(()).unwrap();
+        release_before_join.send(()).unwrap();
         assert!(boot.join().unwrap().warnings.is_empty());
         done.recv_timeout(Duration::from_secs(5)).unwrap().unwrap();
         writer.join().unwrap();
