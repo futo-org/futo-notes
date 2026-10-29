@@ -209,6 +209,7 @@ impl LocalNoteStore {
         let _gate = self.lock_gate()?;
         let _vault_mutation = vault_mutation_guard()?;
         let path = paths::note_path(&self.root, id)?;
+        let existed = path.exists();
         crate::editor_session::deletion::prepare(&self.root, id)?;
         let change = FileChange::Removed(note_filename(id));
         if path.exists() {
@@ -243,7 +244,11 @@ impl LocalNoteStore {
         Ok(self.finish_mutation(
             Vec::new(),
             MutationResult {
-                removed: vec![id.to_owned()],
+                removed: if existed {
+                    vec![id.to_owned()]
+                } else {
+                    Vec::new()
+                },
                 warnings: decision_warning
                     .into_iter()
                     .chain(cleanup_warning)

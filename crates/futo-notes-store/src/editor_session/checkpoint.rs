@@ -8,6 +8,8 @@ impl Attachment {
         &mut self,
         store: &LocalNoteStore,
     ) -> Result<FlushDraftResult, EditorStoreError> {
+        self.finish_identity(&store.root)
+            .map_err(EditorStoreError::Checkpoint)?;
         if let Some(issue) = &self.recovery.issue {
             if issue.kind != RecoveryIssueKind::BaseMismatch {
                 return Err(EditorStoreError::RecoveryNeedsReview(issue.clone()));

@@ -10,7 +10,7 @@ impl Attachment {
         range: DisplayUtf16Range,
         key: futo_notes_editor::ParagraphKey,
     ) -> Result<Option<ViewChange>, EditorStoreError> {
-        if self.pending_checkpoint.is_some() {
+        if self.pending_checkpoint.is_some() || self.pending_identity.is_some() {
             return Err(EditorStoreError::CheckpointPending);
         }
         if self.recovery.failed {
@@ -92,7 +92,7 @@ impl Attachment {
         inserted: &str,
         action: futo_notes_editor::InputAction,
     ) -> Result<ViewChange, EditorStoreError> {
-        if self.pending_checkpoint.is_some() {
+        if self.pending_checkpoint.is_some() || self.pending_identity.is_some() {
             return Err(EditorStoreError::CheckpointPending);
         }
         if self.recovery.failed {
@@ -114,7 +114,7 @@ impl Attachment {
         expected: Revision,
         replacements: &[futo_notes_editor::DisplayReplacement],
     ) -> Result<ViewChange, EditorStoreError> {
-        if self.pending_checkpoint.is_some() {
+        if self.pending_checkpoint.is_some() || self.pending_identity.is_some() {
             return Err(EditorStoreError::CheckpointPending);
         }
         if self.recovery.failed {

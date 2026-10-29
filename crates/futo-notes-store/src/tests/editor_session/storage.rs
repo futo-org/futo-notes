@@ -29,6 +29,9 @@ impl Disk {
 pub struct FaultStorage(pub Arc<Mutex<Disk>>);
 
 impl RecoveryStorage for FaultStorage {
+    fn list(&mut self, _: &Path) -> Result<Vec<String>, String> {
+        Ok(self.0.lock().unwrap().accepted.keys().cloned().collect())
+    }
     fn read(&mut self, _: &Path, path: &str) -> Result<Option<Vec<u8>>, String> {
         let disk = self.0.lock().unwrap();
         if disk.fault == Some(Fault::Open) {
@@ -43,6 +46,14 @@ impl RecoveryStorage for FaultStorage {
         }
         if disk.accepted.contains_key(path) {
             return Err("already exists".into());
+        }
+        disk.accepted.insert(path.to_owned(), bytes.to_vec());
+        Ok(())
+    }
+    fn replace(&mut self, _: &Path, path: &str, bytes: &[u8]) -> Result<(), String> {
+        let mut disk = self.0.lock().unwrap();
+        if disk.fault == Some(Fault::Create) {
+            return Err("injected replace failure".into());
         }
         disk.accepted.insert(path.to_owned(), bytes.to_vec());
         Ok(())

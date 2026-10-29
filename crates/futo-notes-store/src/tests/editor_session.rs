@@ -2,6 +2,8 @@ use super::*;
 use futo_notes_editor::{DisplayOffset, DisplayRange, Revision};
 
 mod durability;
+mod lifecycle;
+mod lifecycle_crashes;
 mod paragraphs;
 mod portable;
 mod recovery;

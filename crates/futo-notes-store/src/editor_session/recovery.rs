@@ -1,3 +1,4 @@
+mod identity;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
@@ -143,33 +144,15 @@ impl RecoveryLog {
         ))
     }
 
-    pub(super) fn retarget_identity(&mut self, root: &Path, id: &str) -> Result<(), String> {
-        let destination = format!(".futo-editor-recovery/{}.jsonl", hash_sha256(id));
-        let mut header = self.header.clone();
-        header.id = id.to_owned();
-        header.replacement_epoch =
-            futo_notes_core::files::recovery_coordination::replacement_epoch(root, id)?;
-        if self.exists {
-            let old = self
-                .storage
-                .read(root, &self.path)?
-                .ok_or("editor recovery stream disappeared")?;
-            let first = old
-                .iter()
-                .position(|byte| *byte == b'\n')
-                .ok_or("editor recovery header incomplete")?
-                + 1;
-            let mut bytes = format::encode(&header)?;
-            bytes.extend_from_slice(&old[first..self.accepted_bytes as usize]);
-            self.storage.create(root, &destination, &bytes)?;
-            self.storage.flush(root, &destination)?;
-            self.storage.remove(root, &self.path)?;
-            self.accepted_bytes = bytes.len() as u64;
-            self.durable = self.accepted;
-            self.flush_deadline = None;
+    pub(super) fn transfer_own_epoch(&mut self, before: u64, after: u64) -> Result<(), String> {
+        if self.header.replacement_epoch == before {
+            let previous = self.header_bytes()?.len();
+            self.header.replacement_epoch = after;
+            let next = self.header_bytes()?.len();
+            if self.exists {
+                self.accepted_bytes = self.accepted_bytes - previous as u64 + next as u64;
+            }
         }
-        self.path = destination;
-        self.header = header;
         Ok(())
     }
 

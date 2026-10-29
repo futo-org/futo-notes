@@ -123,6 +123,7 @@ pub(super) struct Attachment {
     lease: EditorLease,
     pending_checkpoint: Option<FlushDraftResult>,
     terminal: bool,
+    pending_identity: Option<identity::PendingIdentity>,
 }
 
 // Owning foreign sessions retain the same store and its coordination state;
@@ -173,14 +174,17 @@ impl<'store> StoreEditorSession<'store> {
     fn open(
         store: StoreHandle<'store>,
         id: &str,
-        options: RecoveryOptions,
+        mut options: RecoveryOptions,
     ) -> Result<Self, EditorStoreError> {
         let _gate = store.lock_gate().map_err(EditorStoreError::Open)?;
         let _vault_mutation =
             futo_notes_core::files::vault_mutation_guard().map_err(EditorStoreError::Open)?;
         paths::note_path(&store.root, id).map_err(EditorStoreError::Open)?;
-        deletion::recover(&store.root, id).map_err(EditorStoreError::Recovery)?;
         let lease = EditorLease::acquire(&store.root, id)?;
+        deletion::recover_with_storage(&store.root, id, &mut *options.storage)
+            .map_err(EditorStoreError::Recovery)?;
+        RecoveryLog::recover_identities(&store.root, id, &mut *options.storage)
+            .map_err(EditorStoreError::Recovery)?;
         let base = store
             .read_existing(id)
             .map_err(EditorStoreError::Open)?
@@ -232,6 +236,7 @@ impl<'store> StoreEditorSession<'store> {
             lease,
             pending_checkpoint,
             terminal: false,
+            pending_identity: None,
         }));
         state
             .lock()

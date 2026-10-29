@@ -157,6 +157,9 @@ impl RecoveryStorage for CrashStorage {
     fn create(&mut self, root: &std::path::Path, path: &str, bytes: &[u8]) -> Result<(), String> {
         self.inner.create(root, path, bytes)
     }
+    fn replace(&mut self, root: &std::path::Path, path: &str, bytes: &[u8]) -> Result<(), String> {
+        self.inner.replace(root, path, bytes)
+    }
     fn append(&mut self, root: &std::path::Path, path: &str, bytes: &[u8]) -> Result<(), String> {
         self.inner.append(root, path, bytes)
     }

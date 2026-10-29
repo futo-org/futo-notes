@@ -138,13 +138,6 @@ pub(crate) fn prepare_relinks(
     if mappings.is_empty() {
         return Ok(Relinks::default());
     }
-    let attachments = mappings
-        .iter()
-        .map(|(from, to)| crate::editor_session::IdentityTransition::prepare(root, from, to))
-        .collect::<Result<Vec<_>, _>>()?
-        .into_iter()
-        .flatten()
-        .collect();
     let raw = vault::bodies(root);
     // Every note counts toward link resolution, decodable or not.
     let mut ids = raw.keys().cloned().collect::<Vec<_>>();
@@ -218,7 +211,20 @@ pub(crate) fn prepare_relinks(
         }
     }
     relinks.skipped.sort();
-    relinks.attachments = attachments;
+    relinks.attachments = mappings
+        .iter()
+        .map(|(from, to)| {
+            crate::editor_session::IdentityTransition::prepare(
+                root,
+                from,
+                to,
+                relinks.rewritten.get(to),
+            )
+        })
+        .collect::<Result<Vec<_>, _>>()?
+        .into_iter()
+        .flatten()
+        .collect();
     Ok(relinks)
 }
 

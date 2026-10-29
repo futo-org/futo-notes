@@ -23,7 +23,10 @@ impl Attachment {
             accepted: self.recovery.accepted,
             durable: self.recovery.durable,
             flush_deadline: self.recovery.flush_deadline,
-            paused: self.terminal || self.recovery.failed || self.pending_checkpoint.is_some(),
+            paused: self.terminal
+                || self.recovery.failed
+                || self.pending_checkpoint.is_some()
+                || self.pending_identity.is_some(),
             last_flush_lateness: self.recovery.last_flush_lateness,
         }
     }
@@ -64,7 +67,9 @@ impl Attachment {
         &mut self,
         store: &LocalNoteStore,
     ) -> Result<RecoveryStatus, EditorStoreError> {
-        if self.pending_checkpoint.is_some() {
+        self.finish_identity(&store.root)
+            .map_err(EditorStoreError::RecoveryResume)?;
+        if self.pending_checkpoint.is_some() || self.pending_identity.is_some() {
             return Err(EditorStoreError::CheckpointPending);
         }
         if let Some(issue) = &self.recovery.issue {
@@ -171,7 +176,7 @@ impl Attachment {
         expected: Revision,
         format: InlineFormat,
     ) -> Result<Option<ViewChange>, EditorStoreError> {
-        if self.pending_checkpoint.is_some() {
+        if self.pending_checkpoint.is_some() || self.pending_identity.is_some() {
             return Err(EditorStoreError::CheckpointPending);
         }
         if self.recovery.failed {
@@ -211,7 +216,7 @@ impl Attachment {
         store: &LocalNoteStore,
         expected: Revision,
     ) -> Result<Option<ViewChange>, EditorStoreError> {
-        if self.pending_checkpoint.is_some() {
+        if self.pending_checkpoint.is_some() || self.pending_identity.is_some() {
             return Err(EditorStoreError::CheckpointPending);
         }
         if self.recovery.failed {
@@ -232,7 +237,7 @@ impl Attachment {
         store: &LocalNoteStore,
         expected: Revision,
     ) -> Result<Option<ViewChange>, EditorStoreError> {
-        if self.pending_checkpoint.is_some() {
+        if self.pending_checkpoint.is_some() || self.pending_identity.is_some() {
             return Err(EditorStoreError::CheckpointPending);
         }
         if self.recovery.failed {

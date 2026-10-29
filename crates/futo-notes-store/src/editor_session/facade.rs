@@ -58,7 +58,9 @@ impl StoreEditorSession<'_> {
         if state.terminal {
             return Err(EditorStoreError::SessionDeleted);
         }
-        state.resume_recovery(&self.store)
+        let result = state.resume_recovery(&self.store);
+        state.lease.bind(&self.state);
+        result
     }
 
     pub fn source_text(&self) -> String {
