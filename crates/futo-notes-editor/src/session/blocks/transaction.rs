@@ -20,7 +20,7 @@ impl EditorSession {
             start: DisplayOffset(range.start.0 - display_start),
             end: DisplayOffset(range.end.0 - display_start),
         };
-        staged.select_with_affinity(staged.revision(), local, self.affinity)?;
+        staged.select_with_affinity(staged.revision(), local, self.input_affinity(range))?;
         if range == self.selection {
             staged.pending_formats = self.pending_formats.clone();
         }
@@ -47,7 +47,7 @@ impl EditorSession {
             None,
             accept,
         )?;
-        self.carry_block_formats(staged.pending_formats);
+        self.carry_block_state(&mut change, staged.pending_formats, staged.affinity);
         change.work.materialized_source_bytes += raw.len() + step.work.materialized_source_bytes;
         change.work.parsed_source_bytes += 2 * raw.len() + step.work.parsed_source_bytes;
         Ok(Some(change))

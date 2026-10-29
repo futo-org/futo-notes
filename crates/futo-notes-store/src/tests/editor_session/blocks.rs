@@ -29,10 +29,10 @@ fn shortcut_and_carried_heading_input_recover_and_checkpoint_exactly() {
         store.create("", "blocks", opening).unwrap();
         {
             let mut editor = store.open_editor("blocks").unwrap();
-            editor
-                .select_utf16(Revision(0), range(caret, caret))
-                .unwrap();
             if caret == 1 {
+                editor
+                    .select_utf16(Revision(0), range(caret, caret))
+                    .unwrap();
                 editor
                     .replace_utf16(Revision(0), range(1, 1), &[32])
                     .unwrap();

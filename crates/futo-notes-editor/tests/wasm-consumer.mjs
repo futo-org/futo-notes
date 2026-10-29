@@ -39,8 +39,7 @@ async function blockRegression(opening, shown, converted, finalSource, finalDisp
         bytes.subarray(change.range.end),
       ]).toString();
     };
-    const at = shortcut ? 1 : 2;
-    session.select_with_affinity(0n, at, at, '"Backward"');
+    if (shortcut) session.select_with_affinity(0n, 1, 1, '"Backward"');
     await accept(
       shortcut
         ? session.replace_utf16(0n, 1, 1, new Uint16Array([32]))

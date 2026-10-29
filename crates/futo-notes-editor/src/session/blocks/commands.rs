@@ -188,9 +188,10 @@ impl EditorSession {
         let formats = (range == self.selection)
             .then(|| self.pending_formats.clone())
             .flatten();
+        let affinity = self.input_affinity(range);
         let mut change =
             self.commit_block_edit(expected, start..end, &output, Some(selection), None, accept)?;
-        self.carry_block_formats(formats);
+        self.carry_block_state(&mut change, formats, affinity);
         change.work.parsed_source_bytes += parsed;
         Ok(Some(change))
     }

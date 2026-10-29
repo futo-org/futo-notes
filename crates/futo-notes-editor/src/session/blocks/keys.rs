@@ -1,6 +1,25 @@
 use super::*;
 
 impl EditorSession {
+    fn commit_block_key(
+        &mut self,
+        expected: Revision,
+        input: DisplayRange,
+        footprint: std::ops::Range<usize>,
+        inserted: &str,
+        caret: usize,
+        accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
+    ) -> Result<ViewChange, EditorError> {
+        let formats = (input == self.selection)
+            .then(|| self.pending_formats.clone())
+            .flatten();
+        let affinity = self.input_affinity(input);
+        let mut change =
+            self.commit_block_edit(expected, footprint, inserted, None, Some(caret), accept)?;
+        self.carry_block_state(&mut change, formats, affinity);
+        Ok(change)
+    }
+
     pub(in crate::session) fn structural_key(
         &mut self,
         expected: Revision,
@@ -169,12 +188,12 @@ impl EditorSession {
                     let output = format!("{}\n{quote}", quote.trim_end());
                     let caret = previous_start + output.len();
                     return self
-                        .commit_block_edit(
+                        .commit_block_key(
                             expected,
+                            range,
                             previous_start..line.content.end,
                             &output,
-                            None,
-                            Some(caret),
+                            caret,
                             accept,
                         )
                         .map(Some);
@@ -187,12 +206,12 @@ impl EditorSession {
             && (line.heading > 0 || line.quote_start || line.divider)
         {
             return self
-                .commit_block_edit(
+                .commit_block_key(
                     expected,
+                    range,
                     line.source.start..line.source.start,
                     "\n",
-                    None,
-                    Some(line.source.start + 1),
+                    line.source.start + 1,
                     accept,
                 )
                 .map(Some);
@@ -221,12 +240,12 @@ impl EditorSession {
                 {
                     let separator = format!("{}\n", "> ".repeat(line.quote_depth).trim_end());
                     return self
-                        .commit_block_edit(
+                        .commit_block_key(
                             expected,
+                            range,
                             line.source.start..line.source.start,
                             &separator,
-                            None,
-                            Some(line.content.start + separator.len()),
+                            line.content.start + separator.len(),
                             accept,
                         )
                         .map(Some);
@@ -236,7 +255,7 @@ impl EditorSession {
         if line.divider {
             let at = line.content.end;
             return self
-                .commit_block_edit(expected, at..at, "\n", None, Some(at + 1), accept)
+                .commit_block_key(expected, range, at..at, "\n", at + 1, accept)
                 .map(Some);
         }
         let raw = self.source.byte_slice(line.content.clone()).to_string();
@@ -247,7 +266,7 @@ impl EditorSession {
             start: DisplayOffset(offset),
             end: DisplayOffset(offset),
         };
-        staged.select_with_affinity(staged.revision(), local, self.affinity)?;
+        staged.select_with_affinity(staged.revision(), local, self.input_affinity(range))?;
         if range == self.selection {
             staged.pending_formats = self.pending_formats.clone();
         }
@@ -306,7 +325,7 @@ impl EditorSession {
             Some(caret),
             accept,
         )?;
-        self.carry_block_formats(staged.pending_formats);
+        self.carry_block_state(&mut change, staged.pending_formats, staged.affinity);
         change.work.materialized_source_bytes +=
             raw.len() + staged_change.work.materialized_source_bytes;
         change.work.parsed_source_bytes += protected_bytes
@@ -331,7 +350,7 @@ impl EditorSession {
             start: DisplayOffset(range.start.0 - display_start),
             end: DisplayOffset(range.end.0 - display_start),
         };
-        staged.select_with_affinity(staged.revision(), local, self.affinity)?;
+        staged.select_with_affinity(staged.revision(), local, self.input_affinity(range))?;
         let mut transaction = crate::history::Transaction::new(&staged.source);
         let mut capture = |edit: &SourceEdit| {
             transaction.apply(edit.range, &edit.inserted);
@@ -362,7 +381,7 @@ impl EditorSession {
             None,
             accept,
         )?;
-        self.carry_block_formats(staged.pending_formats);
+        self.carry_block_state(&mut change, staged.pending_formats, staged.affinity);
         change.work.materialized_source_bytes += raw.len()
             + deleted.work.materialized_source_bytes
             + entered.work.materialized_source_bytes;

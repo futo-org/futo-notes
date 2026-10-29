@@ -74,7 +74,6 @@ class NativeEditorSessionTest {
                 }
                 store.createNote("carry", "", "# __ab__")
                 store.openEditor("carry").use { carry ->
-                    carry.selectUtf16(0uL, EditorUtf16Range(2uL, 2uL))
                     carry.paragraphKeyUtf16(0uL, EditorUtf16Range(2uL, 2uL), EditorParagraphKey.ENTER)
                     assertEquals(listOf(EditorInlineFormat.BOLD), carry.activeFormats())
                     carry.replaceUtf16(1uL, EditorUtf16Range(3uL, 3uL), listOf(99u.toUShort()))

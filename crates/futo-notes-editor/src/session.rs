@@ -149,6 +149,16 @@ impl EditorSession {
         Ok(())
     }
 
+    fn input_affinity(&self, range: DisplayRange) -> Affinity {
+        if range == self.selection {
+            self.affinity
+        } else if range.start.0 == 0 {
+            Affinity::Forward
+        } else {
+            Affinity::Backward
+        }
+    }
+
     pub fn source_at(
         &self,
         expected: Revision,
@@ -321,13 +331,7 @@ impl EditorSession {
         if let Some(change) = self.input_at_divider(expected, range, inserted, accept)? {
             return Ok(change);
         }
-        let affinity = if range == self.selection {
-            self.affinity
-        } else if range.start.0 == 0 {
-            Affinity::Forward
-        } else {
-            Affinity::Backward
-        };
+        let affinity = self.input_affinity(range);
         let pending = if range == self.selection {
             self.pending_formats.as_deref()
         } else {

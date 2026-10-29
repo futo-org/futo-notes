@@ -1,6 +1,81 @@
 use super::*;
 
 #[test]
+fn enter_at_a_supplied_heading_start_returns_its_own_affinity_and_history() {
+    let mut s = EditorSession::open("# __ab__\nplain");
+    let mut v = ReferenceView::new("ab\nplain");
+    s.select(s.revision(), range(8, 8)).unwrap();
+    let change = s
+        .paragraph_key(s.revision(), range(0, 0), ParagraphKey::Enter, &mut |_| {
+            Ok(())
+        })
+        .unwrap()
+        .unwrap();
+    assert_eq!(change.affinity, Affinity::Forward);
+    v.apply(change);
+    assert_eq!(s.source_text(), "\n# __ab__\nplain");
+    assert_eq!(s.active_formats(), vec![InlineFormat::Bold]);
+    v.apply(
+        s.replace(s.revision(), s.selection(), "c", &mut |_| Ok(()))
+            .unwrap(),
+    );
+    assert_eq!(s.source_text(), "\n# __cab__\nplain");
+    assert_eq!(v.text, "\ncab\nplain");
+    v.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+    let undo = s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap();
+    assert_eq!(undo.affinity, Affinity::Backward);
+    v.apply(undo);
+    assert_eq!(s.selection(), range(8, 8));
+    assert_eq!(s.source_text(), "# __ab__\nplain");
+}
+
+#[test]
+fn enter_carries_inline_formats_from_the_supplied_range_without_a_selection_echo() {
+    for raw in ["# __ab__", "> __ab__"] {
+        let mut s = EditorSession::open(raw);
+        s.paragraph_key(s.revision(), range(2, 2), ParagraphKey::Enter, &mut |_| {
+            Ok(())
+        })
+        .unwrap()
+        .unwrap();
+        assert_eq!(s.active_formats(), vec![InlineFormat::Bold]);
+        s.replace(s.revision(), s.selection(), "c", &mut |_| Ok(()))
+            .unwrap();
+        assert_eq!(
+            s.source_text(),
+            if raw.starts_with('#') {
+                "# __ab__\n__c__"
+            } else {
+                "> __ab__\n>\n> __c__"
+            }
+        );
+    }
+}
+
+#[test]
+fn enter_at_a_supplied_heading_range_does_not_carry_formats_from_another_caret() {
+    let mut s = EditorSession::open("# ab\nplain");
+    let mut v = ReferenceView::new("ab\nplain");
+    s.select(s.revision(), range(8, 8)).unwrap();
+    s.toggle_format(s.revision(), InlineFormat::Bold, &mut |_| Ok(()))
+        .unwrap();
+    v.apply(
+        s.paragraph_key(s.revision(), range(0, 0), ParagraphKey::Enter, &mut |_| {
+            Ok(())
+        })
+        .unwrap()
+        .unwrap(),
+    );
+    assert_eq!(s.source_text(), "\n# ab\nplain");
+    assert_eq!(v.text, "\nab\nplain");
+    assert_eq!(s.selection(), range(1, 1));
+    assert!(s.active_formats().is_empty());
+    v.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(s.selection(), range(8, 8));
+    assert_eq!(s.active_formats(), vec![InlineFormat::Bold]);
+}
+
+#[test]
 fn enter_before_heading_text_preserves_an_explicit_inline_format_toggle() {
     let mut s = EditorSession::open("# __ab__");
     let mut v = ReferenceView::new("ab");

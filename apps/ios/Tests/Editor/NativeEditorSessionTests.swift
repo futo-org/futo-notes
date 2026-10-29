@@ -73,7 +73,6 @@ struct NativeEditorSessionTests {
             try shortcutRecovery.detach()
             _ = try store.createNote(title: "carry", folder: "", content: "# __ab__")
             let carry = try store.openEditor(id: "carry")
-            _ = try carry.selectUtf16(expected: 0, range: EditorUtf16Range(start: 2, end: 2))
             _ = try carry.paragraphKeyUtf16(
                 expected: 0, range: EditorUtf16Range(start: 2, end: 2), key: .enter)
             #expect(try carry.activeFormats() == [.bold])
