@@ -25,5 +25,6 @@ about.
 - [Code / fence isolation](editor/code-fence-isolation.md)
 - [Performance](editor/performance.md)
 - [Saving & rename](editor/saving-and-rename.md)
+- [Portable text-first core _(under development)_](editor/portable-core.md)
 - [Editor exits — every way an open note ends _(iOS/Android)_](editor/editor-exits.md)
 - [Android — IME](editor/android-ime.md)

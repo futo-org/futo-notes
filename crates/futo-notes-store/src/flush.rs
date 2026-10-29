@@ -53,8 +53,7 @@ impl LocalNoteStore {
     /// window spans app-facing calls (the P1a TOCTOU that lived between the raw
     /// `write_if_unchanged`/`create_if_absent`/park FFI calls). Its existing-note
     /// check/write span also holds the process-wide vault mutation guard shared
-    /// with sync. The missing-note arm reacquires that guard around its complete
-    /// collision-check/install span, and every install remains no-replace.
+    /// with sync, and every install remains no-replace.
     pub fn flush_draft(
         &self,
         id: &str,
@@ -62,8 +61,19 @@ impl LocalNoteStore {
         content: &str,
     ) -> Result<FlushDraftResult, String> {
         let _gate = self.lock_gate()?;
+        let _vault_mutation = vault_mutation_guard()?;
+        self.flush_draft_locked(id, base, content)
+    }
+
+    /// Caller holds both the store gate and the vault mutation guard, including
+    /// any recovery retirement that must follow this committed outcome.
+    pub(crate) fn flush_draft_locked(
+        &self,
+        id: &str,
+        base: &str,
+        content: &str,
+    ) -> Result<FlushDraftResult, String> {
         paths::note_path(&self.root, id)?;
-        let vault_mutation = vault_mutation_guard()?;
         let current = self.read_note_file(id);
         #[cfg(test)]
         if current.is_ok() {
@@ -92,7 +102,6 @@ impl LocalNoteStore {
             // disk is left intact and the edit survives as a new note.
             Ok(_) => self.park_conflict_draft(id, content),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                drop(vault_mutation);
                 self.recreate_missing_draft(id, content)
             }
             Err(error) => Err(io_error(error)),
@@ -106,7 +115,6 @@ impl LocalNoteStore {
     /// outside the store's serialization is never clobbered — if the id
     /// reappeared, park the draft unless it converged.
     fn recreate_missing_draft(&self, id: &str, content: &str) -> Result<FlushDraftResult, String> {
-        let _vault_mutation = vault_mutation_guard()?;
         // Never recreate at an id that cross-platform-collides (case-insensitive
         // / NFC) with a DIFFERENT surviving note. `create_new_atomic` only fails
         // on an EXACT-path collision, so on a case-sensitive filesystem

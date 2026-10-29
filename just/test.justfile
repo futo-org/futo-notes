@@ -43,8 +43,9 @@ test-cross-platform *args: editor-deps
 test-sync-integration *args:
   node tests/sync-integration.mjs "$@"
 
-# Rust conformance goldens + the TS↔Rust title-rules differential.
+# Editor/store recovery, Rust conformance goldens + the TS↔Rust rules differential.
 test-rust:
+  cargo test -p futo-notes-editor -p futo-notes-store -p futo-notes-core
   cargo test -p futo-notes-model --test conformance
   cargo test -p futo-notes-license
   node --experimental-strip-types tests/conformance/title-rules-differential.mjs

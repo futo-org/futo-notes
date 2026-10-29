@@ -58,6 +58,43 @@ macro_rules! vault_fs_contract {
         mod $suite {
             use crate::files::vault_fs::$implementation as vault_fs;
 
+            #[test]
+            fn recovery_append_preserves_existing_bytes_and_creates_safe_parents() {
+                use std::io::Write;
+                let root = tempfile::tempdir().unwrap();
+                let mut file = vault_fs::open_append(root.path(), ".editor/record").unwrap();
+                file.write_all(b"first\n").unwrap();
+                drop(file);
+                let mut file = vault_fs::open_append(root.path(), ".editor/record").unwrap();
+                file.write_all(b"second\n").unwrap();
+                assert_eq!(
+                    vault_fs::read(root.path(), ".editor/record").unwrap(),
+                    b"first\nsecond\n"
+                );
+                assert!(vault_fs::open_append(root.path(), "../outside").is_err());
+                vault_fs::sync_file(root.path(), ".editor/record").unwrap();
+                assert!(vault_fs::sync_file(root.path(), "missing/record").is_err());
+            }
+
+            #[cfg(unix)]
+            #[test]
+            fn recovery_append_and_sync_reject_symlinked_targets_and_parents() {
+                use std::os::unix::fs::symlink;
+                let root = tempfile::tempdir().unwrap();
+                let outside = tempfile::tempdir().unwrap();
+                std::fs::write(outside.path().join("record"), b"untouched").unwrap();
+                symlink(outside.path(), root.path().join("linked")).unwrap();
+                symlink(outside.path().join("record"), root.path().join("record")).unwrap();
+                for relative in ["linked/record", "record"] {
+                    assert!(vault_fs::open_append(root.path(), relative).is_err());
+                    assert!(vault_fs::sync_file(root.path(), relative).is_err());
+                }
+                assert_eq!(
+                    std::fs::read(outside.path().join("record")).unwrap(),
+                    b"untouched"
+                );
+            }
+
             /// Controlled Folder Access over an existing vault, or a read-only
             /// mount: the folder still reads, so a refused create directly in it
             /// is the only sign it is unusable — a file, a folder, or a folder
