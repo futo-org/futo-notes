@@ -44,8 +44,13 @@ Milkdown editor until a separate renderer integration and cutover.
 - The portable/WASM facade exposes range projection, explicit selection affinity and formatting toggles; pending source changes block projection and selection until acceptance so semantic descriptions cannot overtake the displayed revision. A paused recovered session can still query its accepted projection for display and copying. Rich view changes serialize semantic runs, correspondence and affinity through the same acknowledgement boundary. → crates/futo-notes-editor/src/portable.rs, crates/futo-notes-editor/tests/portable.rs
 - The compiled wasm32 consumer exchanges hidden-marker edits, formatting toggles, Undo/Redo and flushes with a separate real Rust store worker; WASM ships without native filesystem/store or heavyweight service dependencies. Shipping renderers and bridge schemas remain unchanged. → scripts/test-editor-wasm.mjs, crates/futo-notes-editor/tests/wasm-consumer.mjs
 
+- Native Swift and Kotlin sessions retain the opening store for their lifetime and serialize calls through one session attachment; detaching releases the attachment while retaining accepted recovery for reopening, without an implicit markdown checkpoint. _(native shells)_ → crates/futo-notes-ffi/src/editor
+- Native input carries exact UTF-16 code units and fixed-width unsigned ranges, including malformed strings that ordinary string transport would repair; checked native-width conversion rejects oversized ranges on 32-bit runtimes. Returned deltas and semantic/source correspondence retain explicit byte coordinates, with revision-checked UTF-16 conversion queries. _(native shells)_ → crates/futo-notes-ffi/tests/editor_contract.rs
+- Native failures preserve editor validation kinds, recovery stages, review issues and committed checkpoint mutations as structured values; native projections add no markdown interpretation or save policy. _(native shells)_ → crates/futo-notes-ffi/src/editor/contract.rs
+
 Rename/delete lifecycle coordination, block/link interpretation, grouped history,
 composition and production renderers follow in their dependent tickets.
+
 Paragraph projections use a length-indexed tree and display Rope, so an ordinary
 edit after a distant jump reparses only its paragraph window without rewriting
 the note's tail offsets. Work counters include actual parser input for candidate

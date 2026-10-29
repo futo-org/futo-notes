@@ -5,12 +5,13 @@ use std::os::fd::OwnedFd;
 use std::path::Path;
 
 use rustix::fs::{
-    futimens, mkdirat, openat, statat, unlinkat, AtFlags, FileType, Mode, OFlags, Timespec,
-    Timestamps, UTIME_OMIT,
+    futimens, mkdirat, openat, unlinkat, AtFlags, FileType, Mode, OFlags, Timespec, Timestamps,
+    UTIME_OMIT,
 };
 
 use super::{
-    open_directory, open_parent, open_root, reject_symlink, report_local_sync, sync_directory,
+    entry_type, open_directory, open_parent, open_root, reject_symlink, report_local_sync,
+    sync_directory,
 };
 use crate::files::vault_fs::{
     context, in_root, note_create_failure, refused_create, OpenParentError,
@@ -23,7 +24,7 @@ pub(in crate::files::vault_fs) fn exists(root: &Path, relative: &str) -> Result<
         Err(error) => return Err(error.message()),
     };
     reject_symlink(&parent, "inspect", relative)?;
-    match statat(&parent.directory, &parent.leaf, AtFlags::SYMLINK_NOFOLLOW) {
+    match entry_type(&parent.directory, &parent.leaf) {
         Ok(_) => Ok(true),
         Err(rustix::io::Errno::NOENT) => {
             sync_directory(
@@ -122,9 +123,8 @@ fn empty_directory(directory: &OwnedFd) -> Result<(), String> {
             continue;
         }
         // Re-open directories no-follow; a raced link is never traversed.
-        let metadata =
-            statat(directory, name, AtFlags::SYMLINK_NOFOLLOW).map_err(|e| e.to_string())?;
-        if FileType::from_raw_mode(metadata.st_mode) == FileType::Directory {
+        let metadata = entry_type(directory, name).map_err(|e| e.to_string())?;
+        if metadata == FileType::Directory {
             use std::os::unix::ffi::OsStrExt;
             let child = open_directory(directory, OsStr::from_bytes(name.to_bytes()))
                 .map_err(|e| e.to_string())?;
