@@ -1,7 +1,7 @@
 use unicode_segmentation::{GraphemeCursor, GraphemeIncomplete};
 
 use crate::{
-    CaretDirection, DisplayOffset, DisplayRange, EditorError, EditorSession, Revision,
+    Affinity, CaretDirection, DisplayOffset, DisplayRange, EditorError, EditorSession, Revision,
     SelectionChange,
 };
 
@@ -20,11 +20,15 @@ impl EditorSession {
             CaretDirection::Forward => selection.end.0,
         };
         let position = self.grapheme_stop(position, direction, selection.start != selection.end)?;
-        self.select(
+        self.select_with_affinity(
             expected,
             DisplayRange {
                 start: DisplayOffset(position),
                 end: DisplayOffset(position),
+            },
+            match direction {
+                CaretDirection::Forward => Affinity::Backward,
+                CaretDirection::Backward => Affinity::Forward,
             },
         )
     }
@@ -35,7 +39,7 @@ impl EditorSession {
         direction: CaretDirection,
         mut allow_current: bool,
     ) -> Result<usize, EditorError> {
-        let length = self.source.len_bytes();
+        let length = self.projection.display.len_bytes();
         if (direction == CaretDirection::Backward && position == 0)
             || (direction == CaretDirection::Forward && position == length)
         {
@@ -47,7 +51,8 @@ impl EditorSession {
         } else {
             position
         };
-        let (mut chunk, mut chunk_start, _, _) = self.source.chunk_at_byte(chunk_position);
+        let (mut chunk, mut chunk_start, _, _) =
+            self.projection.display.chunk_at_byte(chunk_position);
         loop {
             let result = if allow_current {
                 match cursor.is_boundary(chunk, chunk_start) {
@@ -67,15 +72,18 @@ impl EditorSession {
             match result {
                 Ok(boundary) => return Ok(boundary.unwrap_or(position)),
                 Err(GraphemeIncomplete::PreContext(end)) => {
-                    let (context, start, _, _) = self.source.chunk_at_byte(end - 1);
+                    let (context, start, _, _) = self.projection.display.chunk_at_byte(end - 1);
                     cursor.provide_context(&context[..end - start], start);
                 }
                 Err(GraphemeIncomplete::NextChunk) => {
-                    (chunk, chunk_start, _, _) =
-                        self.source.chunk_at_byte(chunk_start + chunk.len());
+                    (chunk, chunk_start, _, _) = self
+                        .projection
+                        .display
+                        .chunk_at_byte(chunk_start + chunk.len());
                 }
                 Err(GraphemeIncomplete::PrevChunk) => {
-                    (chunk, chunk_start, _, _) = self.source.chunk_at_byte(chunk_start - 1);
+                    (chunk, chunk_start, _, _) =
+                        self.projection.display.chunk_at_byte(chunk_start - 1);
                 }
                 Err(GraphemeIncomplete::InvalidOffset) => return Err(EditorError::InvalidRange),
             }

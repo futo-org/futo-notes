@@ -12,12 +12,24 @@ belongs in `futo-notes-store::StoreEditorSession`.
 `coordinates.rs` validates native UTF-16 text and coordinate conversions; never
 clamp a foreign range or widen one across a surrogate pair. `movement.rs` uses
 Unicode extended grapheme segmentation over Rope chunks. Selection-only updates
-keep source revisions/history/recovery unchanged. Source and display offsets are
-distinct even while their plain-text mapping is direct.
+keep source revisions/history/recovery unchanged. Source and display use separate
+Ropes and coordinate conversions; hidden markers and decoded entities make their
+positions differ.
 
-Source queries explicitly materialize whole text; ordinary input copies only
-the edit footprint. Use Ropey's indexing instead of scanning a prefix after a
-caret jump. History retains inverse edits rather than whole-note strings.
+`inline/` owns pulldown-cmark interpretation, paragraph-relative correspondence,
+local marker surgery and the length-indexed paragraph tree. Preserve original
+span identities and raw visible spellings; verify candidate display and marker
+pairing before acceptance. Boundary repairs may encode the immediate neighboring
+scalar as an entity so CommonMark can retain its formatting. Code contents stay
+opaque to inline interpretation.
+
+Source/display text queries explicitly materialize whole text. Input reparses the
+affected paragraphs and their neighbors; paragraph-tree sums avoid rewriting tail
+offsets after a distant caret jump. Large single paragraphs/fences still cost
+proportional work and need the later progressive/bounded-work tickets. Count all
+parser input, including paragraph partitioning and candidate verification.
+History retains inverse source edits plus selection, affinity and carried formats
+rather than whole-note strings.
 
 Test the public session with the independent display-only reference view in
 `tests/common/`. Literal source/display expectations remain the oracle.

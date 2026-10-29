@@ -154,3 +154,94 @@ fn recovered_host_pause_is_preserved_when_a_page_attaches() {
         .unwrap();
     assert!(!page.status().paused);
 }
+
+#[test]
+fn inline_projection_affinity_and_toggles_cross_the_portable_acceptance_boundary() {
+    use futo_notes_editor::{Affinity, InlineFormat};
+    let mut page = PortableSession::open(SessionToken(13), "__😀__*日*", Revision(0), Revision(0));
+    let all = DisplayRange {
+        start: DisplayOffset(0),
+        end: DisplayOffset(7),
+    };
+    assert_eq!(page.project(Revision(0), all).unwrap().text, "😀日");
+    page.select_with_affinity(Revision(0), all, Affinity::Forward)
+        .unwrap();
+    let request = page
+        .toggle_format(Revision(0), InlineFormat::Strike)
+        .unwrap()
+        .unwrap();
+    assert_eq!(page.draft_text(), "~~__😀__*日*~~");
+    assert!(
+        page.project(Revision(1), all).is_err(),
+        "pending projection cannot overtake displayed revision"
+    );
+    let change = page
+        .acknowledge(request.accepted(Revision(1), Revision(0)))
+        .unwrap()
+        .unwrap();
+    let wire = serde_json::to_string(&change).unwrap();
+    let decoded: futo_notes_editor::ViewChange = serde_json::from_str(&wire).unwrap();
+    assert_eq!(decoded, change);
+    assert_eq!(change.affinity, Affinity::Forward);
+    assert_eq!(change.projection.text, "😀日");
+    assert_eq!(
+        page.project(Revision(1), all).unwrap().runs[0].formats,
+        vec![InlineFormat::Bold, InlineFormat::Strike]
+    );
+}
+
+#[test]
+fn portable_collapsed_formatting_carries_without_a_source_record() {
+    use futo_notes_editor::{Affinity, InlineFormat};
+    let mut page = PortableSession::open(SessionToken(14), "**a**_b_", Revision(0), Revision(0));
+    let boundary = DisplayRange {
+        start: DisplayOffset(1),
+        end: DisplayOffset(1),
+    };
+    page.select_with_affinity(Revision(0), boundary, Affinity::Forward)
+        .unwrap();
+    assert_eq!(page.active_formats().unwrap(), vec![InlineFormat::Italic]);
+    assert!(page
+        .toggle_format(Revision(0), InlineFormat::Strike)
+        .unwrap()
+        .is_none());
+    assert!(!page.status().waiting);
+    assert_eq!(
+        page.active_formats().unwrap(),
+        vec![InlineFormat::Italic, InlineFormat::Strike]
+    );
+    let request = page.replace(Revision(0), boundary, "日").unwrap();
+    assert_eq!(page.draft_text(), "**a**_~~日~~b_");
+    let change = page
+        .acknowledge(request.accepted(Revision(1), Revision(0)))
+        .unwrap()
+        .unwrap();
+    assert_eq!(change.selection.start, DisplayOffset(4));
+}
+
+#[test]
+fn paused_recovered_source_remains_available_as_a_rich_display_projection() {
+    let page = PortableSession::from_snapshot(futo_notes_editor::HostSnapshot {
+        token: SessionToken(15),
+        source: "__copy me__".into(),
+        revision: Revision(3),
+        durable: Revision(1),
+        paused: true,
+    })
+    .unwrap();
+    let projection = page
+        .project(
+            Revision(3),
+            DisplayRange {
+                start: DisplayOffset(0),
+                end: DisplayOffset(7),
+            },
+        )
+        .unwrap();
+    assert_eq!(projection.text, "copy me");
+    assert_eq!(
+        projection.runs[0].formats,
+        vec![futo_notes_editor::InlineFormat::Bold]
+    );
+    assert!(page.status().paused);
+}
