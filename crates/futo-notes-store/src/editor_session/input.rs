@@ -3,6 +3,20 @@ use super::*;
 
 #[allow(unused_variables)]
 impl Attachment {
+    /// Called only while the workflow gate and attachment lock are held.
+    pub(super) fn input_ready(&self) -> Result<(), EditorStoreError> {
+        if self.terminal {
+            return Err(EditorStoreError::SessionDeleted);
+        }
+        if self.pending_checkpoint.is_some() || self.pending_identity.is_some() {
+            return Err(EditorStoreError::CheckpointPending);
+        }
+        if self.recovery.failed {
+            return Err(EditorStoreError::RecoveryPaused);
+        }
+        Ok(())
+    }
+
     pub fn paragraph_key_utf16(
         &mut self,
         store: &LocalNoteStore,
@@ -10,12 +24,7 @@ impl Attachment {
         range: DisplayUtf16Range,
         key: futo_notes_editor::ParagraphKey,
     ) -> Result<Option<ViewChange>, EditorStoreError> {
-        if self.pending_checkpoint.is_some() || self.pending_identity.is_some() {
-            return Err(EditorStoreError::CheckpointPending);
-        }
-        if self.recovery.failed {
-            return Err(EditorStoreError::RecoveryPaused);
-        }
+        self.input_ready()?;
         self.engine
             .paragraph_key_utf16(expected, range, key, &mut |edit| {
                 self.recovery.append(&store.root, edit)
@@ -92,12 +101,7 @@ impl Attachment {
         inserted: &str,
         action: futo_notes_editor::InputAction,
     ) -> Result<ViewChange, EditorStoreError> {
-        if self.pending_checkpoint.is_some() || self.pending_identity.is_some() {
-            return Err(EditorStoreError::CheckpointPending);
-        }
-        if self.recovery.failed {
-            return Err(EditorStoreError::RecoveryPaused);
-        }
+        self.input_ready()?;
         self.engine
             .replace_action(expected, range, inserted, action, &mut |edit| {
                 self.recovery.append(&store.root, edit)
@@ -114,12 +118,7 @@ impl Attachment {
         expected: Revision,
         replacements: &[futo_notes_editor::DisplayReplacement],
     ) -> Result<ViewChange, EditorStoreError> {
-        if self.pending_checkpoint.is_some() || self.pending_identity.is_some() {
-            return Err(EditorStoreError::CheckpointPending);
-        }
-        if self.recovery.failed {
-            return Err(EditorStoreError::RecoveryPaused);
-        }
+        self.input_ready()?;
         self.engine
             .replace_many(expected, replacements, &mut |edit| {
                 self.recovery.append(&store.root, edit)

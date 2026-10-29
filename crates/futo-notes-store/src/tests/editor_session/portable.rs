@@ -10,7 +10,8 @@ fn portable_composition_refuses_relink_offer_and_commits_under_retargeted_identi
     let mut host = store
         .open_editor("old")
         .unwrap()
-        .into_portable_host(SessionToken(132));
+        .into_portable_host(SessionToken(132))
+        .unwrap();
     let mut page = PortableSession::from_snapshot(host.snapshot()).unwrap();
     page.compose_utf16(
         Revision(0),
@@ -52,7 +53,8 @@ fn portable_own_relink_is_appended_before_display_and_preserves_page_history() {
     let mut host = store
         .open_editor("old")
         .unwrap()
-        .into_portable_host(SessionToken(131));
+        .into_portable_host(SessionToken(131))
+        .unwrap();
     let mut page = PortableSession::from_snapshot(host.snapshot()).unwrap();
     let mut view = "[[old]]".to_owned();
     let input = page.replace(Revision(0), range(7, 7), "!").unwrap();
@@ -96,7 +98,8 @@ fn portable_relink_never_advances_the_worker_past_unacknowledged_page_source() {
     let mut host = store
         .open_editor("old")
         .unwrap()
-        .into_portable_host(SessionToken(130));
+        .into_portable_host(SessionToken(130))
+        .unwrap();
     let mut page = PortableSession::from_snapshot(host.snapshot()).unwrap();
     let pending = page.replace(Revision(0), range(7, 7), "!").unwrap();
     store.rename("old", "long name").unwrap();
@@ -121,7 +124,8 @@ fn worker_append_ack_is_distinct_from_page_completion_and_durable_flush() {
     let mut host = store
         .open_editor("plain")
         .unwrap()
-        .into_portable_host(SessionToken(41));
+        .into_portable_host(SessionToken(41))
+        .unwrap();
     let mut page = PortableSession::open(SessionToken(41), "plain", Revision(0), Revision(0));
     let request = page.replace(Revision(0), range(5, 5), "!").unwrap();
     assert_eq!(page.status().accepted, Revision(0));
@@ -155,7 +159,8 @@ fn page_and_worker_exchange_small_edits_without_running_storage_on_the_page_thre
             let mut host = worker_store
                 .open_editor("plain")
                 .unwrap()
-                .into_portable_host(SessionToken(50));
+                .into_portable_host(SessionToken(50))
+                .unwrap();
             for request in receive {
                 reply.send(host.handle(request)).unwrap();
             }
@@ -198,7 +203,8 @@ fn interruptions_lose_only_an_unhanded_active_edit_and_never_a_displayed_backlog
         let mut host = store
             .open_editor("plain")
             .unwrap()
-            .into_portable_host(SessionToken(60));
+            .into_portable_host(SessionToken(60))
+            .unwrap();
         let mut page = PortableSession::open(SessionToken(60), "plain", Revision(0), Revision(0));
         let first = page.replace(Revision(0), range(5, 5), "!").unwrap();
         page.acknowledge(host.handle(first)).unwrap().unwrap();
@@ -231,7 +237,8 @@ fn failed_worker_append_retains_active_draft_repairs_and_retries_exactly_once() 
         let mut host = store
             .open_editor_with_recovery("plain", storage::options(&disk))
             .unwrap()
-            .into_portable_host(SessionToken(70));
+            .into_portable_host(SessionToken(70))
+            .unwrap();
         let mut page = PortableSession::open(SessionToken(70), "plain", Revision(0), Revision(0));
         let first = page.replace(Revision(0), range(5, 5), "!").unwrap();
         page.acknowledge(host.handle(first)).unwrap().unwrap();
@@ -272,7 +279,8 @@ fn failed_worker_flush_never_claims_durable_and_resume_flushes_before_unpausing(
     let mut host = store
         .open_editor_with_recovery("plain", storage::options(&disk))
         .unwrap()
-        .into_portable_host(SessionToken(80));
+        .into_portable_host(SessionToken(80))
+        .unwrap();
     let mut page = PortableSession::open(SessionToken(80), "plain", Revision(0), Revision(0));
     let request = page.replace(Revision(0), range(5, 5), "!").unwrap();
     page.acknowledge(host.handle(request)).unwrap().unwrap();
@@ -313,7 +321,8 @@ fn foreign_or_conflicting_source_records_never_append_or_apply_twice() {
     let mut host = store
         .open_editor("plain")
         .unwrap()
-        .into_portable_host(SessionToken(90));
+        .into_portable_host(SessionToken(90))
+        .unwrap();
     let mut page = PortableSession::open(SessionToken(90), "plain", Revision(0), Revision(0));
     let request = page.replace(Revision(0), range(0, 5), "other").unwrap();
     let mut invalid = request.clone();
@@ -354,7 +363,8 @@ fn continuous_page_handoffs_do_not_postpone_the_workers_oldest_flush_deadline() 
     let mut host = store
         .open_editor_with_recovery("plain", options)
         .unwrap()
-        .into_portable_host(SessionToken(100));
+        .into_portable_host(SessionToken(100))
+        .unwrap();
     let mut page = PortableSession::from_snapshot(host.snapshot()).unwrap();
     let first = page.replace(Revision(0), range(5, 5), "!").unwrap();
     page.acknowledge(host.handle(first)).unwrap().unwrap();
@@ -386,7 +396,8 @@ fn healthy_worker_resume_flushes_an_edit_whose_append_reply_was_lost() {
     let mut host = store
         .open_editor("plain")
         .unwrap()
-        .into_portable_host(SessionToken(110));
+        .into_portable_host(SessionToken(110))
+        .unwrap();
     let mut page = PortableSession::from_snapshot(host.snapshot()).unwrap();
     let request = page.replace(Revision(0), range(5, 5), "!").unwrap();
     let lost_reply = host.handle(request);
@@ -420,7 +431,8 @@ fn worker_retains_typed_recovery_review_and_page_pause_across_attach_and_resume(
     let mut host = store
         .open_editor_with_recovery("plain", storage::options(&disk))
         .unwrap()
-        .into_portable_host(SessionToken(120));
+        .into_portable_host(SessionToken(120))
+        .unwrap();
     assert_eq!(
         host.recovery_issue().as_ref(),
         Some(&RecoveryIssue {

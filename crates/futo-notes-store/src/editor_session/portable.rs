@@ -2,7 +2,7 @@ use futo_notes_editor::{
     EditorError, HostAck, HostOperation, HostRequest, HostSnapshot, SessionToken,
 };
 
-use super::{EditorStoreError, RecoveryIssue, StoreEditorSession};
+use super::{Attachment, EditorStoreError, RecoveryIssue, StoreEditorSession};
 
 /// Worker-owned native endpoint. Move this session to the worker and exchange
 /// requests/replies; never call `handle` on the UI thread. It does blocking I/O.
@@ -15,16 +15,35 @@ pub struct StoreEditorHost<'store> {
 }
 
 impl<'store> StoreEditorSession<'store> {
-    pub fn into_portable_host(self, token: SessionToken) -> StoreEditorHost<'store> {
-        self.state
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .portable = true;
-        StoreEditorHost {
+    pub fn into_portable_host(
+        self,
+        token: SessionToken,
+    ) -> Result<StoreEditorHost<'store>, EditorStoreError> {
+        {
+            // A prepared native relink may still adopt source. Complete that
+            // workflow before changing the attachment's source-delivery owner.
+            let _gate = self.store.lock_gate().map_err(EditorStoreError::Recovery)?;
+            let _vault = futo_notes_core::files::vault_mutation_guard()
+                .map_err(EditorStoreError::Recovery)?;
+            let mut state = self
+                .state
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            if state.terminal {
+                return Err(EditorStoreError::SessionDeleted);
+            }
+            // A failed native transition may still own a captured source
+            // adoption. Its retry must finish before a page snapshots source.
+            if state.pending_identity.is_some() {
+                return Err(EditorStoreError::CheckpointPending);
+            }
+            state.portable = true;
+        }
+        Ok(StoreEditorHost {
             session: self,
             token,
             last: None,
-        }
+        })
     }
 }
 
@@ -39,11 +58,16 @@ impl StoreEditorHost<'_> {
     /// Opening state must be produced on the worker and attached with a fresh
     /// token. In particular a recovery pause must survive page initialization.
     pub fn snapshot(&self) -> HostSnapshot {
-        let status = self.session.recovery_status();
+        let state = self
+            .session
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let status = state.recovery_status(&self.session.store);
         HostSnapshot {
             token: self.token,
-            source: self.session.source_text(),
-            revision: self.session.revision(),
+            source: state.engine.source_text(),
+            revision: state.engine.revision(),
             durable: status.durable,
             paused: status.paused,
         }
@@ -62,66 +86,85 @@ impl StoreEditorHost<'_> {
     }
 
     pub fn handle(&mut self, request: HostRequest) -> HostAck {
-        if self
-            .session
-            .state
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .terminal
-        {
-            return self.reply(&request, Some("editor attachment was deleted".into()));
-        }
-        if request.token != self.token {
-            return self.reply(&request, Some("stale editor session".into()));
-        }
-        if let Some((previous, ack)) = &self.last {
-            if *previous == request {
-                return ack.clone();
+        // Readiness and request receipts share the identity/checkpoint workflow's
+        // decision boundary. A healthy pre-gate snapshot cannot authorize input.
+        let _gate = match self.session.store.lock_gate() {
+            Ok(gate) => gate,
+            Err(error) => {
+                return self.reply(
+                    &request,
+                    Some(EditorStoreError::Recovery(error).to_string()),
+                )
             }
-            if request.sequence <= previous.sequence {
-                return self.reply(&request, Some("stale or conflicting editor request".into()));
-            }
-        }
-        let result = match &request.operation {
-            HostOperation::Append(edit) => {
-                if self.session.recovery_status().paused {
-                    Err(EditorStoreError::RecoveryPaused)
-                } else {
-                    self.append(edit)
-                }
-            }
-            HostOperation::Flush => self.session.flush_recovery().map(|_| ()),
-            HostOperation::Resume => self.session.resume_recovery().map(|_| ()),
         };
-        let ack = self.reply(&request, result.err().map(|error| error.to_string()));
-        self.last = Some((request, ack.clone()));
-        ack
-    }
-
-    fn append(&mut self, edit: &futo_notes_editor::SourceEdit) -> Result<(), EditorStoreError> {
-        let _gate = self
-            .session
-            .store
-            .lock_gate()
-            .map_err(EditorStoreError::Recovery)?;
-        let _vault =
-            futo_notes_core::files::vault_mutation_guard().map_err(EditorStoreError::Recovery)?;
+        let _vault = match futo_notes_core::files::vault_mutation_guard() {
+            Ok(vault) => vault,
+            Err(error) => {
+                return self.reply(
+                    &request,
+                    Some(EditorStoreError::Recovery(error).to_string()),
+                )
+            }
+        };
         let mut state = self
             .session
             .state
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         if state.terminal {
-            return Err(EditorStoreError::SessionDeleted);
+            return self.reply_with_state(
+                &state,
+                &request,
+                Some("editor attachment was deleted".into()),
+            );
         }
+        if request.token != self.token {
+            return self.reply_with_state(&state, &request, Some("stale editor session".into()));
+        }
+        if let Some((previous, ack)) = &self.last {
+            if *previous == request {
+                // Preserve the operation's result without replaying it, but
+                // report current recovery health and watermarks after workflows.
+                return self.reply_with_state(&state, &request, ack.error.clone());
+            }
+            if request.sequence <= previous.sequence {
+                return self.reply_with_state(
+                    &state,
+                    &request,
+                    Some("stale or conflicting editor request".into()),
+                );
+            }
+        }
+        let result = match &request.operation {
+            HostOperation::Append(edit) => Self::append(&mut state, &self.session.store, edit),
+            HostOperation::Flush => state.flush_recovery(&self.session.store).map(|_| ()),
+            HostOperation::Resume => {
+                let result = state.resume_recovery(&self.session.store).map(|_| ());
+                state.lease.bind(&self.session.state);
+                result
+            }
+        };
+        let ack = self.reply_with_state(
+            &state,
+            &request,
+            result.err().map(|error| error.to_string()),
+        );
+        self.last = Some((request, ack.clone()));
+        ack
+    }
+
+    fn append(
+        state: &mut Attachment,
+        store: &crate::LocalNoteStore,
+        edit: &futo_notes_editor::SourceEdit,
+    ) -> Result<(), EditorStoreError> {
+        state.input_ready()?;
         state.relink_offer = None;
-        let super::Attachment {
+        let Attachment {
             engine, recovery, ..
-        } = &mut *state;
+        } = state;
         engine
-            .replay_with_accept(edit, &mut |edit| {
-                recovery.append(&self.session.store.root, edit)
-            })
+            .replay_with_accept(edit, &mut |edit| recovery.append(&store.root, edit))
             .map(|_| ())
             .map_err(|error| match error {
                 EditorError::Persistence(error) => EditorStoreError::RecoveryAppend(error),
@@ -130,7 +173,21 @@ impl StoreEditorHost<'_> {
     }
 
     fn reply(&self, request: &HostRequest, error: Option<String>) -> HostAck {
-        let status = self.session.recovery_status();
+        let state = self
+            .session
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        self.reply_with_state(&state, request, error)
+    }
+
+    fn reply_with_state(
+        &self,
+        state: &Attachment,
+        request: &HostRequest,
+        error: Option<String>,
+    ) -> HostAck {
+        let status = state.recovery_status(&self.session.store);
         HostAck {
             token: request.token,
             sequence: request.sequence,
@@ -138,13 +195,7 @@ impl StoreEditorHost<'_> {
             durable: status.durable,
             paused: status.paused,
             error,
-            relink: self
-                .session
-                .state
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .relink_offer
-                .clone(),
+            relink: state.relink_offer.clone(),
         }
     }
 }

@@ -5,6 +5,7 @@ use std::path::Path;
 pub enum Fault {
     Open,
     Create,
+    IdentityDecision,
     Append,
     ShortWrite,
     Flush,
@@ -41,7 +42,10 @@ impl RecoveryStorage for FaultStorage {
     }
     fn create(&mut self, _: &Path, path: &str, bytes: &[u8]) -> Result<(), String> {
         let mut disk = self.0.lock().unwrap();
-        if disk.fault == Some(Fault::Create) {
+        if disk.fault == Some(Fault::Create)
+            || (disk.fault == Some(Fault::IdentityDecision)
+                && path.ends_with(".retarget.committed"))
+        {
             return Err("injected create failure".into());
         }
         if disk.accepted.contains_key(path) {

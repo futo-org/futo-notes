@@ -103,16 +103,6 @@ impl Attachment {
             })
             .map_err(input_error)
     }
-
-    fn input_ready(&self) -> Result<(), EditorStoreError> {
-        if self.pending_checkpoint.is_some() || self.pending_identity.is_some() {
-            return Err(EditorStoreError::CheckpointPending);
-        }
-        if self.recovery.failed {
-            return Err(EditorStoreError::RecoveryPaused);
-        }
-        Ok(())
-    }
 }
 
 fn input_error(error: EditorError) -> EditorStoreError {

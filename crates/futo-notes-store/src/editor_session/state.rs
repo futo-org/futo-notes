@@ -181,12 +181,7 @@ impl Attachment {
         expected: Revision,
         format: InlineFormat,
     ) -> Result<Option<ViewChange>, EditorStoreError> {
-        if self.pending_checkpoint.is_some() || self.pending_identity.is_some() {
-            return Err(EditorStoreError::CheckpointPending);
-        }
-        if self.recovery.failed {
-            return Err(EditorStoreError::RecoveryPaused);
-        }
+        self.input_ready()?;
         self.engine
             .toggle_format(expected, format, &mut |edit| {
                 self.recovery.append(&store.root, edit)
@@ -221,12 +216,7 @@ impl Attachment {
         store: &LocalNoteStore,
         expected: Revision,
     ) -> Result<Option<ViewChange>, EditorStoreError> {
-        if self.pending_checkpoint.is_some() || self.pending_identity.is_some() {
-            return Err(EditorStoreError::CheckpointPending);
-        }
-        if self.recovery.failed {
-            return Err(EditorStoreError::RecoveryPaused);
-        }
+        self.input_ready()?;
         self.engine
             .undo(expected, &mut |edit| {
                 self.recovery.append(&store.root, edit)
@@ -242,12 +232,7 @@ impl Attachment {
         store: &LocalNoteStore,
         expected: Revision,
     ) -> Result<Option<ViewChange>, EditorStoreError> {
-        if self.pending_checkpoint.is_some() || self.pending_identity.is_some() {
-            return Err(EditorStoreError::CheckpointPending);
-        }
-        if self.recovery.failed {
-            return Err(EditorStoreError::RecoveryPaused);
-        }
+        self.input_ready()?;
         self.engine
             .redo(expected, &mut |edit| {
                 self.recovery.append(&store.root, edit)

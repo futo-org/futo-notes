@@ -20,7 +20,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     let session = store.open_editor("plain")?;
     let mut output = io::stdout().lock();
-    let mut host = session.into_portable_host(SessionToken(17));
+    let mut host = session.into_portable_host(SessionToken(17))?;
     serde_json::to_writer(&mut output, &host.snapshot())?;
     output.write_all(b"\n")?;
     output.flush()?;
