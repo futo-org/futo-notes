@@ -2,16 +2,32 @@
 use pulldown_cmark::{Event, Tag};
 use std::ops::Range;
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum HeadingSyntax {
+    None,
+    Atx,
+    Setext,
+}
+
+/// A physical line retains its exact prefix, body and line-ending boundaries.
+#[derive(Clone, Debug)]
+pub(crate) struct PhysicalLine {
+    pub source: Range<usize>,
+    pub content: Range<usize>,
+}
+
 #[derive(Clone, Debug)]
 pub(crate) struct BlockLine {
     pub source: Range<usize>,
     pub content: Range<usize>,
     pub heading: u8,
+    pub heading_syntax: HeadingSyntax,
     pub quote_depth: usize,
     pub quote_start: bool,
     pub divider: bool,
     pub code: bool,
-    pub continuations: Vec<Range<usize>>,
+    pub bodies: Vec<PhysicalLine>,
+    pub underline: Option<PhysicalLine>,
 }
 
 pub(super) fn describe(
@@ -28,11 +44,13 @@ pub(super) fn describe(
                 source: start..at,
                 content: start..start + line.trim_end_matches(['\r', '\n']).len(),
                 heading: 0,
+                heading_syntax: HeadingSyntax::None,
                 quote_depth: 0,
                 quote_start: false,
                 divider: false,
                 code: false,
-                continuations: Vec::new(),
+                bodies: Vec::new(),
+                underline: None,
             }
         })
         .collect();
@@ -41,11 +59,13 @@ pub(super) fn describe(
             source: at..at,
             content: at..at,
             heading: 0,
+            heading_syntax: HeadingSyntax::None,
             quote_depth: 0,
             quote_start: false,
             divider: false,
             code: false,
-            continuations: Vec::new(),
+            bodies: Vec::new(),
+            underline: None,
         });
     }
     let mut setext = Vec::new();
@@ -64,7 +84,19 @@ pub(super) fn describe(
                     .partition_point(|line| line.source.start <= range.start)
                     .saturating_sub(1);
                 lines[first].heading = level as u8;
-                if !source[range.clone()].trim_start().starts_with('#') {
+                let raw = source[range.clone()].trim_start_matches([' ', '\t']);
+                let hashes = raw.bytes().take_while(|ch| *ch == b'#').count();
+                let atx = (1..=6).contains(&hashes)
+                    && matches!(
+                        raw.as_bytes().get(hashes),
+                        None | Some(b' ' | b'\t' | b'\r' | b'\n')
+                    );
+                lines[first].heading_syntax = if atx {
+                    HeadingSyntax::Atx
+                } else {
+                    HeadingSyntax::Setext
+                };
+                if !atx {
                     let last = lines
                         .partition_point(|line| line.source.start < range.end)
                         .saturating_sub(1);
@@ -107,7 +139,7 @@ pub(super) fn describe(
                 start += 1;
             }
         }
-        if line.heading > 0 {
+        if line.heading_syntax == HeadingSyntax::Atx {
             let spaces = source[start..end]
                 .bytes()
                 .take_while(|b| *b == b' ')
@@ -138,12 +170,17 @@ pub(super) fn describe(
         }
         prefixes.push(line.source.start..start);
         line.content.start = start;
+        line.bodies.push(PhysicalLine {
+            source: line.source.clone(),
+            content: line.content.clone(),
+        });
     }
     for (first, last) in setext.into_iter().rev() {
-        lines[first].continuations = lines[first + 1..last]
+        lines[first].bodies = lines[first..last]
             .iter()
-            .map(|line| line.source.start..line.content.start)
+            .flat_map(|line| line.bodies.iter().cloned())
             .collect();
+        lines[first].underline = Some(lines[last].bodies[0].clone());
         let underline = lines[last].source.start;
         lines[first].content.end = source[..underline].trim_end_matches(['\r', '\n']).len();
         lines[first].source.end = lines[last].source.end;

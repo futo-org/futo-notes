@@ -400,3 +400,172 @@ fn structural_split_keeps_fence_like_inline_text_visible() {
     v.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
     assert_eq!(s.source_text(), "# a ``` b\r\nneighbor");
 }
+
+#[test]
+fn setext_enter_maps_the_staged_body_caret_without_exposing_physical_prefixes() {
+    for (raw, shown, at, expected, display, caret) in [
+        ("> x\n> y\n> =", "x\ny", 2, "> x\n> =\n\n> y", "x\n\ny", 3),
+        ("> x\n> y\n> =", "x\ny", 3, "> x\n> y\n> =\n> ", "x\ny\n", 4),
+        (
+            "> > 猫🦊\r\n> > e\u{301}\r\n> > ===",
+            "猫🦊\r\ne\u{301}",
+            9,
+            "> > 猫🦊\r\n> > ===\r\n\n> > e\u{301}",
+            "猫🦊\r\n\ne\u{301}",
+            10,
+        ),
+        (
+            "> > xy\r\n> > z\r\n> > ---",
+            "xy\r\nz",
+            1,
+            "> > x\r\n> > ---\n> > y\r\n> > z",
+            "x\ny\r\nz",
+            2,
+        ),
+    ] {
+        let mut s = EditorSession::open(raw);
+        let mut v = ReferenceView::new(shown);
+        s.select(s.revision(), range(at, at)).unwrap();
+        let mut accepts = 0;
+        v.apply(
+            s.paragraph_key(
+                s.revision(),
+                range(at, at),
+                ParagraphKey::Enter,
+                &mut |_| {
+                    accepts += 1;
+                    Ok(())
+                },
+            )
+            .unwrap()
+            .unwrap(),
+        );
+        assert_eq!(accepts, 1);
+        assert_eq!(s.source_text(), expected);
+        assert_eq!(v.text, display);
+        assert_eq!(s.selection(), range(caret, caret));
+        let native = s.display_to_utf16(s.revision(), s.selection()).unwrap();
+        assert_eq!(native.start.0, display[..caret].encode_utf16().count());
+        v.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+        assert_eq!(s.source_text(), raw);
+        assert_eq!(s.selection(), range(at, at));
+        v.apply(s.redo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+        assert_eq!(s.source_text(), expected);
+        assert_eq!(s.selection(), range(caret, caret));
+        v.apply(
+            s.replace(s.revision(), s.selection(), "!", &mut |_| Ok(()))
+                .unwrap(),
+        );
+        let mut typed = display.to_owned();
+        typed.insert(caret, '!');
+        assert_eq!(v.text, typed);
+    }
+}
+
+#[test]
+fn deleting_all_setext_body_retires_its_dependent_marker_as_an_empty_heading() {
+    for (raw, shown, expected) in [
+        ("x\n=", "x", "# "),
+        (
+            "> > 猫🦊\r\n> > e\u{301}\r\n> > ---",
+            "猫🦊\r\ne\u{301}",
+            "> > ## ",
+        ),
+        (
+            "x\r\n===\r\n\r\nneighbor  ",
+            "x\r\n\r\nneighbor  ",
+            "# \r\n\r\nneighbor  ",
+        ),
+    ] {
+        let mut s = EditorSession::open(raw);
+        let selected = if raw.starts_with("x\r\n") {
+            range(0, 1)
+        } else {
+            range(0, shown.len())
+        };
+        let mut v = ReferenceView::new(shown);
+        s.select(s.revision(), selected).unwrap();
+        let mut accepts = 0;
+        v.apply(
+            s.replace_action(
+                s.revision(),
+                selected,
+                "",
+                InputAction::Isolated,
+                &mut |_| {
+                    accepts += 1;
+                    Ok(())
+                },
+            )
+            .unwrap(),
+        );
+        assert_eq!(accepts, 1);
+        assert_eq!(s.source_text(), expected);
+        assert_eq!(v.text, &shown[selected.end.0..]);
+        assert_eq!(s.selection(), range(0, 0));
+        v.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+        assert_eq!(s.source_text(), raw);
+        assert_eq!(s.selection(), selected);
+        v.apply(s.redo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+        assert_eq!(s.source_text(), expected);
+    }
+}
+
+#[test]
+fn whole_heading_selection_enter_starts_a_paragraph_even_inside_quotes() {
+    for (raw, shown, expected) in [
+        ("# x", "x", "# \n"),
+        ("> # x", "x", "> # \n> "),
+        ("> > ## x", "x", "> > ## \n> > "),
+        ("x\n=", "x", "# \n"),
+        ("> x\n> =", "x", "> # \n> "),
+        ("> > x\r\n> > y\r\n> > ---", "x\r\ny", "> > ## \n> > "),
+    ] {
+        let mut s = EditorSession::open(raw);
+        let mut v = ReferenceView::new(shown);
+        let selected = range(0, shown.len());
+        s.select(s.revision(), selected).unwrap();
+        let revision = s.revision();
+        assert!(s
+            .paragraph_key(revision, selected, ParagraphKey::Enter, &mut |_| Err(
+                "blocked".into()
+            ))
+            .is_err());
+        assert_eq!(s.source_text(), raw);
+        assert_eq!(s.selection(), selected);
+        assert_eq!(s.revision(), revision);
+        let mut accepts = 0;
+        v.apply(
+            s.paragraph_key(revision, selected, ParagraphKey::Enter, &mut |_| {
+                accepts += 1;
+                Ok(())
+            })
+            .unwrap()
+            .unwrap(),
+        );
+        assert_eq!(accepts, 1);
+        assert_eq!(s.source_text(), expected);
+        assert_eq!(v.text, "\n");
+        assert_eq!(s.selection(), range(1, 1));
+        assert_eq!(
+            s.project(s.revision(), s.selection())
+                .unwrap()
+                .blocks
+                .last()
+                .unwrap()
+                .heading,
+            0
+        );
+        v.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+        assert_eq!(s.source_text(), raw);
+        assert_eq!(s.selection(), selected);
+        v.apply(s.redo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+        assert_eq!(s.source_text(), expected);
+        assert_eq!(s.selection(), range(1, 1));
+        v.apply(
+            s.replace(s.revision(), s.selection(), "!", &mut |_| Ok(()))
+                .unwrap(),
+        );
+        assert_eq!(v.text, "\n!");
+    }
+}

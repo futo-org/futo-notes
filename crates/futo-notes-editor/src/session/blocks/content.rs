@@ -52,9 +52,9 @@ pub(super) fn protect_block_content(
     let mut output = String::new();
     let mut parsed = 0;
     let mut at = 0;
-    for continuation in &line.continuations {
-        let start = continuation.start - line.content.start;
-        let end = continuation.end - line.content.start;
+    for continuation in line.bodies.iter().skip(1) {
+        let start = continuation.source.start - line.content.start;
+        let end = continuation.content.start - line.content.start;
         let (part, work) = protect_content(&raw[at..start], heading, paragraph);
         parsed += work;
         output.push_str(&part);

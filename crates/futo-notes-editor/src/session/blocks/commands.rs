@@ -74,6 +74,23 @@ impl EditorSession {
             {
                 continue;
             }
+            if matches!(command, BlockCommand::Indent | BlockCommand::Outdent) {
+                if line.quote_depth > 0 {
+                    for physical in line.bodies.iter().chain(line.underline.iter()).rev() {
+                        let prefix = self
+                            .source
+                            .byte_slice(physical.source.start..physical.content.start)
+                            .to_string();
+                        let replacement = shift_quote_prefix(&prefix, line.quote_depth, command);
+                        output.replace_range(
+                            physical.source.start - start..physical.content.start - start,
+                            &replacement,
+                        );
+                    }
+                    changed = true;
+                }
+                continue;
+            }
             let prefix = self
                 .source
                 .byte_slice(line.source.start..line.content.start)
@@ -107,15 +124,6 @@ impl EditorSession {
                 ),
                 BlockCommand::Quote if line.quote_depth == 0 => format!("> {quote_prefix}"),
                 BlockCommand::Quote if line.heading > 0 => quote_prefix.to_owned(),
-                BlockCommand::Indent if line.quote_depth > 0 => format!("> {prefix}"),
-                BlockCommand::Outdent if line.quote_depth > 0 => {
-                    let at = prefix.find('>').unwrap_or(0);
-                    let mut cut = at + 1;
-                    if matches!(prefix.as_bytes().get(cut), Some(b' ' | b'\t')) {
-                        cut += 1;
-                    }
-                    prefix[cut..].to_owned()
-                }
                 _ => continue,
             };
             changed = true;
@@ -207,5 +215,23 @@ impl EditorSession {
         self.carry_block_state(&mut change, formats, affinity);
         change.work.parsed_source_bytes += parsed;
         Ok(Some(change))
+    }
+}
+
+/// All physical lines of a semantic block use the same quote-depth operation.
+fn shift_quote_prefix(prefix: &str, depth: usize, command: BlockCommand) -> String {
+    let canonical;
+    let prefix = if prefix.bytes().filter(|ch| *ch == b'>').count() < depth {
+        canonical = format!("{}{}", "> ".repeat(depth), prefix);
+        canonical.as_str()
+    } else {
+        prefix
+    };
+    if command == BlockCommand::Indent {
+        format!("> {prefix}")
+    } else {
+        let at = prefix.find('>').unwrap();
+        let cut = at + 1 + usize::from(matches!(prefix.as_bytes().get(at + 1), Some(b' ' | b'\t')));
+        prefix[cut..].to_owned()
     }
 }

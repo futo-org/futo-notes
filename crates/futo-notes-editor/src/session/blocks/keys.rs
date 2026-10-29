@@ -173,7 +173,7 @@ impl EditorSession {
         if line.heading == 0 && line.quote_depth == 0 && !line.divider {
             return Ok(None);
         }
-        if line.content.is_empty() && line.quote_depth > 0 {
+        if line.content.is_empty() && line.quote_depth > 0 && line.heading == 0 {
             let index = self.source.byte_to_line(line.source.start);
             if index > 0 {
                 let previous_start = self.source.line_to_byte(index - 1);
@@ -258,9 +258,38 @@ impl EditorSession {
                 .commit_block_key(expected, range, at..at, "\n", at + 1, accept)
                 .map(Some);
         }
-        let raw = self.source.byte_slice(line.content.clone()).to_string();
+        // Stage precisely the visible body: physical container prefixes and
+        // dependent heading markers must never enter the inline body parser.
+        let mut raw = String::new();
+        let mut body_prefixes = Vec::new();
+        for (index, physical) in line.bodies.iter().enumerate() {
+            body_prefixes.push(
+                self.source
+                    .byte_slice(physical.source.start..physical.content.start)
+                    .to_string(),
+            );
+            raw.push_str(&self.source.byte_slice(physical.content.clone()).to_string());
+            if index + 1 < line.bodies.len() {
+                raw.push_str(
+                    &self
+                        .source
+                        .byte_slice(physical.content.end..physical.source.end)
+                        .to_string(),
+                );
+            }
+        }
         let (raw, protected_bytes) = super::content::protect_content(&raw, false, true);
         let mut staged = Self::open_with_clock(&raw, self.clock.clone());
+        let body_display = self
+            .projection
+            .display
+            .byte_slice(start_display..self.projection.display_at(line.content.end))
+            .to_string();
+        if staged.display_text() != body_display {
+            return Err(EditorError::UnrepresentableFormat);
+        }
+        // The equality above establishes correspondence after punctuation
+        // protection; source bytes in this stage may have different lengths.
         let offset = range.start.0 - start_display;
         let local = DisplayRange {
             start: DisplayOffset(offset),
@@ -280,11 +309,13 @@ impl EditorSession {
             crate::InputAction::Isolated,
             &mut |_| Ok(()),
         )?;
-        let mut body = staged.source_text();
-        let split = body
-            .find(separator)
-            .ok_or(EditorError::UnrepresentableFormat)?;
-        body.remove(split + 1);
+        let body = staged.source_text();
+        // Locate the inserted separator through the actual staged projection,
+        // rather than finding an earlier newline pair in the original body.
+        let split = staged.projection.source_bounds(offset + 1).0 - 1;
+        if body.get(split..split + 2) != Some(separator) {
+            return Err(EditorError::UnrepresentableFormat);
+        }
         let suffix_end = line.source.start
             + self
                 .source
@@ -306,14 +337,33 @@ impl EditorSession {
         } else {
             String::new()
         };
-        let (left, left_work) =
-            super::content::protect_content(&body[..split], line.heading > 0, false);
-        let (right, right_work) = super::content::protect_content(&body[split + 1..], false, true);
-        let output = format!("{prefix}{left}{suffix}\n{separator}{continuation}{right}");
+        let setext = line.underline.is_some();
+        let left = &body[..split];
+        let consumed_lines = left.bytes().filter(|ch| *ch == b'\n').count();
+        // A setext underline must immediately follow nonempty body text. Move
+        // the existing terminal body break after that marker, keeping its bytes
+        // and visible position relative to the newly inserted LF.
+        let heading_end = if setext {
+            left.trim_end_matches(['\r', '\n']).len()
+        } else {
+            left.len()
+        };
+        let retained_break = &left[heading_end..];
+        let (left, left_work) = super::content::protect_content(
+            &left[..heading_end],
+            line.heading > 0 && !setext,
+            setext,
+        );
+        let (right, right_work) = super::content::protect_content(&body[split + 2..], false, true);
+        let left = restore_body_prefixes(&left, body_prefixes.iter().skip(1));
+        let right = restore_body_prefixes(&right, body_prefixes.iter().skip(consumed_lines + 1));
+        let output =
+            format!("{prefix}{left}{suffix}{retained_break}\n{separator}{continuation}{right}");
         let caret = line.source.start
             + prefix.len()
             + left.len()
             + suffix.len()
+            + retained_break.len()
             + 1
             + separator.len()
             + continuation.len();
@@ -326,8 +376,10 @@ impl EditorSession {
             accept,
         )?;
         self.carry_block_state(&mut change, staged.pending_formats, staged.affinity);
-        change.work.materialized_source_bytes +=
-            raw.len() + staged_change.work.materialized_source_bytes;
+        change.work.materialized_source_bytes += raw.len()
+            + 2 * body_display.len()
+            + body_prefixes.iter().map(String::len).sum::<usize>()
+            + staged_change.work.materialized_source_bytes;
         change.work.parsed_source_bytes += protected_bytes
             + left_work
             + right_work
@@ -389,4 +441,19 @@ impl EditorSession {
             2 * raw.len() + deleted.work.parsed_source_bytes + entered.work.parsed_source_bytes;
         Ok(change)
     }
+}
+
+/// Existing physical breaks retain their own exact container spelling. The
+/// newly split first line gets its prefix from the structural key planner.
+fn restore_body_prefixes<'a>(body: &str, mut prefixes: impl Iterator<Item = &'a String>) -> String {
+    let mut output = String::new();
+    for (index, part) in body.split_inclusive('\n').enumerate() {
+        if index > 0 {
+            if let Some(prefix) = prefixes.next() {
+                output.push_str(prefix);
+            }
+        }
+        output.push_str(part);
+    }
+    output
 }

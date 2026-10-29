@@ -70,7 +70,15 @@ async function blockRegression(opening, shown, converted, finalSource, finalDisp
   }
 }
 
-async function reviewedBlockRegression(opening, command, expected, shown, caret) {
+async function reviewedBlockRegression(
+  opening,
+  command,
+  expected,
+  shown,
+  caret,
+  end = caret,
+  finalDisplay = shown,
+) {
   const vault = mkdtempSync(join(tmpdir(), 'futo-editor-wasm-reviewed-blocks-'));
   const worker = spawn(process.argv[3], [vault, opening], { stdio: ['pipe', 'pipe', 'inherit'] });
   const exited = once(worker, 'exit');
@@ -100,16 +108,21 @@ async function reviewedBlockRegression(opening, command, expected, shown, caret)
       return change;
     };
     const change = await accept(
-      session.block_command_utf16(0n, caret, caret, JSON.stringify(command)),
+      command === 'Enter'
+        ? session.paragraph_key_utf16(0n, caret, end, '"Enter"')
+        : command === 'Delete'
+          ? session.replace_utf16_action(0n, caret, end, new Uint16Array(), '"Isolated"')
+          : session.block_command_utf16(0n, caret, end, JSON.stringify(command)),
     );
-    assert.deepEqual(change.selection, { start: caret, end: caret });
+    if (caret === end && command !== 'Enter')
+      assert.deepEqual(change.selection, { start: caret, end: caret });
     assert.equal(session.draft_text(), expected);
-    assert.equal(display, shown);
+    assert.equal(display, finalDisplay);
     await accept(session.undo(1n));
     assert.equal(session.draft_text(), opening);
     await accept(session.redo(2n));
     assert.equal(session.draft_text(), expected);
-    assert.equal(display, shown);
+    assert.equal(display, finalDisplay);
     worker.stdin.write(session.flush() + '\n');
     session.acknowledge(JSON.stringify(await next()));
     assert.equal(JSON.parse(session.status()).durable, 3);
@@ -368,6 +381,21 @@ async function reviewedBlockRegression(opening, command, expected, shown, caret)
   );
   await blockRegression('# __ab__', 'ab', '# __ab__\n', '# __ab__\n__c__', 'ab\nc', false);
   for (const item of [
+    ['#x\n=', { Heading: 0 }, '#x', '#x', 0, 2],
+    ['> x\n> y\n> =', 'Indent', '> > x\n> > y\n> > =', 'x\ny', 0, 3],
+    ['> > x\r\n> > y\r\n> > ---', 'Outdent', '> x\r\n> y\r\n> ---', 'x\r\ny', 0, 4],
+    [
+      '> > 猫🦊\r\n> > e\u0301\r\n> > ===',
+      'Enter',
+      '> > 猫🦊\r\n> > ===\r\n\n> > e\u0301',
+      '猫🦊\r\ne\u0301',
+      5,
+      5,
+      '猫🦊\r\n\ne\u0301',
+    ],
+    ['> # x', 'Enter', '> # \n> ', 'x', 0, 1, '\n'],
+    ['> x\n> =', 'Enter', '> # \n> ', 'x', 0, 1, '\n'],
+    ['> x\n> =', 'Delete', '> # ', 'x', 0, 1, ''],
     ['   foo', { Heading: 2 }, '## &#32;  foo', '   foo', 6],
     ['   # foo', { Heading: 0 }, 'foo', 'foo', 0],
     ['> > ## 猫🦊 ##', 'Quote', '> > 猫🦊', '猫🦊', 0],

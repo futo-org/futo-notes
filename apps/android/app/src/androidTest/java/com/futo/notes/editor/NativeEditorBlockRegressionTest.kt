@@ -48,4 +48,62 @@ class NativeEditorBlockRegressionTest {
             }
         } finally { root.deleteRecursively() }
     }
+    @Test
+    fun setextPhysicalOwnershipAndHeadingEnterPreserveNativeRangesAndRecovery() {
+        data class Case(val opening: String, val shown: String, val action: String, val start: ULong,
+                        val end: ULong, val expected: String, val display: String, val caret: ULong)
+        val cases = listOf(
+            Case("#x\n=", "#x", "text", 0uL, 2uL, "#x", "#x", 2uL),
+            Case("> x\n> y\n> =", "x\ny", "indent", 0uL, 3uL, "> > x\n> > y\n> > =", "x\ny", 3uL),
+            Case("> > x\r\n> > y\r\n> > ---", "x\r\ny", "outdent", 0uL, 4uL,
+                 "> x\r\n> y\r\n> ---", "x\r\ny", 4uL),
+            Case("> > 猫🦊\r\n> > e\u0301\r\n> > ===", "猫🦊\r\ne\u0301", "enter", 5uL, 5uL,
+                 "> > 猫🦊\r\n> > ===\r\n\n> > e\u0301", "猫🦊\r\n\ne\u0301", 6uL),
+            Case("> # x", "x", "enter", 0uL, 1uL, "> # \n> ", "\n", 1uL),
+            Case("> x\n> =", "x", "enter", 0uL, 1uL, "> # \n> ", "\n", 1uL),
+            Case("> x\n> =", "x", "delete", 0uL, 1uL, "> # ", "", 0uL),
+        )
+        for (case in cases) {
+            val root = File(InstrumentationRegistry.getInstrumentation().targetContext.cacheDir, "editor-setext-${UUID.randomUUID()}")
+            check(root.mkdirs())
+            try {
+                NoteStore(root.absolutePath).use { store ->
+                    store.createNote("setext", "", case.opening)
+                    store.openEditor("setext").use { session ->
+                        assertEquals(case.shown, session.displayText())
+                        val selected = EditorUtf16Range(case.start, case.end)
+                        session.selectUtf16(0uL, selected)
+                        val change = checkNotNull(when (case.action) {
+                            "enter" -> session.paragraphKeyUtf16(0uL, selected, EditorParagraphKey.ENTER)
+                            "delete" -> session.replaceUtf16(0uL, selected, emptyList())
+                            else -> session.blockCommandUtf16(0uL, selected, when (case.action) {
+                                "text" -> EditorBlockCommand.Heading(0u)
+                                "indent" -> EditorBlockCommand.Indent
+                                else -> EditorBlockCommand.Outdent
+                            })
+                        })
+                        val before = case.shown.toByteArray(Charsets.UTF_8)
+                        val view = before.copyOfRange(0, change.range.start.toInt()) + change.inserted.toByteArray(Charsets.UTF_8) + before.copyOfRange(change.range.end.toInt(), before.size)
+                        assertEquals(case.display, view.toString(Charsets.UTF_8))
+                        assertEquals(case.expected, session.sourceText())
+                        assertEquals(case.caret, session.displayToUtf16(1uL, change.selection).end)
+                        session.undo(1uL)
+                        assertEquals(case.opening, session.sourceText())
+                        session.redo(2uL)
+                        assertEquals(case.expected, session.sourceText())
+                        session.flushRecovery()
+                        session.detach()
+                    }
+                    store.openEditor("setext").use { recovered ->
+                        assertEquals(case.expected, recovered.sourceText())
+                        assertEquals(case.display, recovered.displayText())
+                        recovered.checkpoint()
+                        assertEquals(case.expected, store.read("setext"))
+                        recovered.detach()
+                    }
+                }
+            } finally { root.deleteRecursively() }
+        }
+    }
+
 }

@@ -44,7 +44,7 @@ impl Projection {
             mut markers,
             pieces,
             block_boundaries,
-        } = self.edit_context(source, range);
+        } = self.edit_context_for_change(source, range, inserted.is_empty() && toggle.is_none());
         let expanded = split_entities(pieces, a, z);
         let Cut {
             mut before,
@@ -163,6 +163,15 @@ impl Projection {
         })
     }
     pub(super) fn edit_context(&self, source: &Rope, range: DisplayRange) -> Context {
+        self.edit_context_for_change(source, range, false)
+    }
+
+    fn edit_context_for_change(
+        &self,
+        source: &Rope,
+        range: DisplayRange,
+        deleting: bool,
+    ) -> Context {
         let first = self.rows.locate(range.start.0, true);
         let last = self.rows.locate(range.end.0, true);
         let (_, source_start, display_start) = self.rows.at(first);
@@ -192,7 +201,44 @@ impl Projection {
                 open: raw[base + span.open.start..base + span.open.end].into(),
                 close: raw[base + span.close.start..base + span.close.end].into(),
             }));
+            let empty_headings: Vec<_> = row
+                .blocks
+                .iter()
+                .filter(|block| {
+                    deleting
+                        && block.underline.is_some()
+                        && range.start.0 <= self.display_at(row_source + block.content.start)
+                        && self.display_at(row_source + block.content.end) <= range.end.0
+                })
+                .collect();
             for segment in &row.segments {
+                for block in &empty_headings {
+                    if segment.source.start == block.source.start {
+                        // Setext syntax depends on nonempty body text. Preserve
+                        // the heading/container intent using the existing empty
+                        // ATX form, retiring only the owned underline below.
+                        pieces.push(Piece {
+                            raw: format!(
+                                "{}{} ",
+                                &raw[base + block.source.start..base + block.content.start],
+                                "#".repeat(block.heading as usize)
+                            ),
+                            display: String::new(),
+                            spans: Vec::new(),
+                            trailing: false,
+                        });
+                    }
+                }
+                if empty_headings.iter().any(|block| {
+                    segment.display.is_empty()
+                        && (segment.source.end <= block.content.start
+                            && block.source.start <= segment.source.start
+                            || block.content.end <= segment.source.start
+                                && segment.source.end
+                                    <= block.underline.as_ref().unwrap().content.end)
+                }) {
+                    continue;
+                }
                 let active = row
                     .spans
                     .iter()

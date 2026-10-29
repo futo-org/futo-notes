@@ -150,3 +150,84 @@ fn block_commands_structural_enter_checkpoint_and_recovery_keep_literal_bytes() 
         "> __a__\n>\n> __b__\r\n\r\ntail  \r\n"
     );
 }
+
+#[test]
+fn setext_physical_ownership_survives_append_replay_and_checkpoint() {
+    for (opening, shown, action, selected, expected, display) in [
+        ("#x\n=", "#x", "text", range(0, 2), "#x", "#x"),
+        (
+            "> x\n> y\n> =",
+            "x\ny",
+            "indent",
+            range(0, 3),
+            "> > x\n> > y\n> > =",
+            "x\ny",
+        ),
+        (
+            "> > x\r\n> > y\r\n> > ---",
+            "x\r\ny",
+            "outdent",
+            range(0, 4),
+            "> x\r\n> y\r\n> ---",
+            "x\r\ny",
+        ),
+        (
+            "> > 猫🦊\r\n> > e\u{301}\r\n> > ===",
+            "猫🦊\r\ne\u{301}",
+            "enter",
+            range(5, 5),
+            "> > 猫🦊\r\n> > ===\r\n\n> > e\u{301}",
+            "猫🦊\r\n\ne\u{301}",
+        ),
+        ("> x\n> =", "x", "enter", range(0, 1), "> # \n> ", "\n"),
+        ("> x\n> =", "x", "delete", range(0, 1), "> # ", ""),
+    ] {
+        let root = TestRoot::new();
+        let store = store(&root);
+        store.create("", "setext", opening).unwrap();
+        {
+            let mut editor = store.open_editor("setext").unwrap();
+            assert_eq!(editor.display_text(), shown);
+            editor.select_utf16(Revision(0), selected).unwrap();
+            match action {
+                "enter" => {
+                    editor
+                        .paragraph_key_utf16(Revision(0), selected, ParagraphKey::Enter)
+                        .unwrap()
+                        .unwrap();
+                }
+                "delete" => {
+                    editor.replace_utf16(Revision(0), selected, &[]).unwrap();
+                }
+                _ => {
+                    let command = match action {
+                        "text" => BlockCommand::Heading(0),
+                        "indent" => BlockCommand::Indent,
+                        "outdent" => BlockCommand::Outdent,
+                        _ => unreachable!(),
+                    };
+                    editor
+                        .block_command_utf16(Revision(0), selected, command)
+                        .unwrap()
+                        .unwrap();
+                }
+            }
+            assert_eq!(editor.source_text(), expected);
+            assert_eq!(editor.display_text(), display);
+            editor.undo(editor.revision()).unwrap().unwrap();
+            assert_eq!(editor.source_text(), opening);
+            editor.redo(editor.revision()).unwrap().unwrap();
+            assert_eq!(editor.source_text(), expected);
+            assert_eq!(store.read("setext").unwrap(), opening);
+            editor.flush_recovery().unwrap();
+        }
+        let mut recovered = store.open_editor("setext").unwrap();
+        assert_eq!(recovered.source_text(), expected);
+        assert_eq!(recovered.display_text(), display);
+        assert!(recovered.undo(recovered.revision()).unwrap().is_none());
+        recovered.checkpoint().unwrap();
+        assert_eq!(store.read("setext").unwrap(), expected);
+        drop(recovered);
+        assert_eq!(store.open_editor("setext").unwrap().source_text(), expected);
+    }
+}

@@ -103,3 +103,49 @@ fn native_input_on_a_later_setext_quote_line_retains_each_exact_prefix() {
     assert_eq!(s.source_text(), raw);
     assert_eq!(v.text, "猫🦊\r\ncafé");
 }
+
+#[test]
+fn setext_literal_hashes_remain_body_when_opening_and_choosing_text() {
+    for (raw, shown, text) in [
+        ("#x\n=", "#x", "#x"),
+        ("##x\n---", "##x", "##x"),
+        ("####### x\n===", "####### x", "####### x"),
+        ("> #x\r\n> ===", "#x", "> #x"),
+    ] {
+        let mut s = EditorSession::open(raw);
+        assert_eq!(s.source_text(), raw);
+        assert_eq!(s.display_text(), shown);
+        let mut v = ReferenceView::new(shown);
+        let selected = range(0, shown.len());
+        s.select(s.revision(), selected).unwrap();
+        let mut accepts = 0;
+        v.apply(
+            s.block_command(
+                s.revision(),
+                selected,
+                BlockCommand::Heading(0),
+                &mut |_| {
+                    accepts += 1;
+                    Ok(())
+                },
+            )
+            .unwrap()
+            .unwrap(),
+        );
+        assert_eq!(accepts, 1);
+        assert_eq!(s.source_text(), text);
+        assert_eq!(v.text, shown);
+        assert!(s
+            .project(s.revision(), selected)
+            .unwrap()
+            .blocks
+            .iter()
+            .all(|b| b.heading == 0));
+        v.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+        assert_eq!(s.source_text(), raw);
+        assert_eq!(s.selection(), selected);
+        v.apply(s.redo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+        assert_eq!(s.source_text(), text);
+        assert_eq!(v.text, shown);
+    }
+}

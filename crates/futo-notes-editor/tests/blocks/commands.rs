@@ -486,3 +486,60 @@ fn text_command_on_each_setext_quote_line_keeps_body_prefixes_and_exact_history(
         }
     }
 }
+
+#[test]
+fn whole_setext_quote_depth_changes_every_owned_prefix_and_exact_history() {
+    for (raw, shown, command, expected, depth) in [
+        ("> x\n> =", "x", BlockCommand::Indent, "> > x\n> > =", 2),
+        ("> x\n> =", "x", BlockCommand::Outdent, "x\n=", 0),
+        (
+            "  > x\r\n  > y\r\n  > ---\r\n",
+            "x\r\ny\r\n",
+            BlockCommand::Indent,
+            ">   > x\r\n>   > y\r\n>   > ---\r\n",
+            2,
+        ),
+        (
+            "> > 猫🦊\r\n> > e\u{301}\r\n> > ===",
+            "猫🦊\r\ne\u{301}",
+            BlockCommand::Outdent,
+            "> 猫🦊\r\n> e\u{301}\r\n> ===",
+            1,
+        ),
+    ] {
+        let mut s = EditorSession::open(raw);
+        let mut v = ReferenceView::new(shown);
+        let selected = range(0, shown.len());
+        s.select(s.revision(), selected).unwrap();
+        let revision = s.revision();
+        assert!(s
+            .block_command(revision, selected, command, &mut |_| Err("blocked".into()))
+            .is_err());
+        assert_eq!(s.source_text(), raw);
+        assert_eq!(s.selection(), selected);
+        assert_eq!(s.revision(), revision);
+        let mut accepts = 0;
+        v.apply(
+            s.block_command(revision, selected, command, &mut |_| {
+                accepts += 1;
+                Ok(())
+            })
+            .unwrap()
+            .unwrap(),
+        );
+        assert_eq!(accepts, 1);
+        assert_eq!(s.source_text(), expected);
+        assert_eq!(v.text, shown);
+        assert_eq!(s.selection(), selected);
+        let blocks = s.project(s.revision(), selected).unwrap().blocks;
+        assert!(blocks
+            .iter()
+            .all(|b| b.quote_depth == depth && b.heading > 0));
+        v.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+        assert_eq!(s.source_text(), raw);
+        assert_eq!(s.selection(), selected);
+        v.apply(s.redo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+        assert_eq!(s.source_text(), expected);
+        assert_eq!(v.text, shown);
+    }
+}
