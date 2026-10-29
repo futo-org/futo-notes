@@ -143,10 +143,19 @@ pub struct Correspondence {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BlockDescription {
+    pub range: DisplayRange,
+    pub heading: u8,
+    pub quote_depth: usize,
+    pub divider: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProjectionSlice {
     pub revision: Revision,
     pub range: DisplayRange,
     pub text: String,
     pub runs: Vec<SemanticRun>,
     pub correspondence: Vec<Correspondence>,
+    pub blocks: Vec<BlockDescription>,
 }

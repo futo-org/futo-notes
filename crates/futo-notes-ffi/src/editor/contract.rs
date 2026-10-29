@@ -98,6 +98,26 @@ impl From<EditorParagraphKey> for editor::ParagraphKey {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum EditorBlockCommand {
+    Heading { level: u8 },
+    Quote,
+    Indent,
+    Outdent,
+    Divider,
+}
+impl From<EditorBlockCommand> for editor::BlockCommand {
+    fn from(value: EditorBlockCommand) -> Self {
+        match value {
+            EditorBlockCommand::Heading { level } => Self::Heading(level),
+            EditorBlockCommand::Quote => Self::Quote,
+            EditorBlockCommand::Indent => Self::Indent,
+            EditorBlockCommand::Outdent => Self::Outdent,
+            EditorBlockCommand::Divider => Self::Divider,
+        }
+    }
+}
+
 /// The engine owns grouping; native hosts identify isolated user actions and
 /// submit only the committed text of a provisional composition.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
@@ -385,6 +405,14 @@ pub struct EditorProjection {
     pub text: String,
     pub runs: Vec<EditorSemanticRun>,
     pub correspondence: Vec<EditorCorrespondence>,
+    pub blocks: Vec<EditorBlockDescription>,
+}
+#[derive(Debug, PartialEq, Eq, uniffi::Record)]
+pub struct EditorBlockDescription {
+    pub range: EditorByteRange,
+    pub heading: u8,
+    pub quote_depth: u64,
+    pub divider: bool,
 }
 impl From<editor::ProjectionSlice> for EditorProjection {
     fn from(value: editor::ProjectionSlice) -> Self {
@@ -392,6 +420,16 @@ impl From<editor::ProjectionSlice> for EditorProjection {
             revision: value.revision.0,
             range: value.range.into(),
             text: value.text,
+            blocks: value
+                .blocks
+                .into_iter()
+                .map(|block| EditorBlockDescription {
+                    range: block.range.into(),
+                    heading: block.heading,
+                    quote_depth: block.quote_depth as u64,
+                    divider: block.divider,
+                })
+                .collect(),
             runs: value
                 .runs
                 .into_iter()

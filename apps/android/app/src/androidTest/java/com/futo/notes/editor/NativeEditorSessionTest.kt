@@ -11,6 +11,34 @@ import uniffi.futo_notes_ffi.*
 /** A small real Kotlin consumer; no replacement view or markdown policy. */
 class NativeEditorSessionTest {
     @Test
+    fun sharedBlockCommandsProjectStructureAndRecoverExactBytes() {
+        val root = File(InstrumentationRegistry.getInstrumentation().targetContext.cacheDir, "editor-blocks-${UUID.randomUUID()}")
+        check(root.mkdirs())
+        try {
+            NoteStore(root.absolutePath).use { store ->
+                store.createNote("blocks", "", "😀ab\r\ntail  \r\n")
+                store.openEditor("blocks").use { session ->
+                    val heading = session.blockCommandUtf16(0uL, EditorUtf16Range(2uL, 2uL), EditorBlockCommand.Heading(6u))
+                    assertEquals(6.toUByte(), heading!!.projection.blocks.first().heading)
+                    assertEquals("###### 😀ab\r\ntail  \r\n", session.sourceText())
+                    session.paragraphKeyUtf16(1uL, EditorUtf16Range(3uL, 3uL), EditorParagraphKey.ENTER)
+                    assertEquals("###### 😀a\nb\r\ntail  \r\n", session.sourceText())
+                    session.undo(2uL)
+                    session.redo(3uL)
+                    session.flushRecovery()
+                    session.detach()
+                }
+                store.openEditor("blocks").use { recovered ->
+                    assertEquals("###### 😀a\nb\r\ntail  \r\n", recovered.sourceText())
+                    recovered.checkpoint()
+                    assertEquals("###### 😀a\nb\r\ntail  \r\n", store.read("blocks"))
+                    recovered.detach()
+                }
+            }
+        } finally { root.deleteRecursively() }
+    }
+
+    @Test
     fun paragraphKeysPreservePlatformRangesExactLineEndingsAndRecovery() {
         val root = File(InstrumentationRegistry.getInstrumentation().targetContext.cacheDir, "editor-lines-${UUID.randomUUID()}")
         check(root.mkdirs())

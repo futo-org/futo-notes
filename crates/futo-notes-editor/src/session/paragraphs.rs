@@ -26,6 +26,9 @@ impl EditorSession {
     ) -> Result<Option<ViewChange>, EditorError> {
         self.check_revision(expected)?;
         self.validate_range(range)?;
+        if let Some(change) = self.structural_key(expected, range, key, accept)? {
+            return Ok(Some(change));
+        }
         let inserted = match key {
             ParagraphKey::Enter | ParagraphKey::ShiftEnter => "\n",
             ParagraphKey::Backspace | ParagraphKey::Delete => {

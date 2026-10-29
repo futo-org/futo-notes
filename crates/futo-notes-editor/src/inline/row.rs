@@ -23,10 +23,12 @@ pub(crate) struct Row {
     pub display: String,
     pub segments: Vec<Segment>,
     pub spans: Vec<Span>,
+    pub blocks: Vec<super::blocks::BlockLine>,
 }
 
 impl Row {
     pub fn parse(source: &str) -> Self {
+        let blocks = super::blocks::describe(source);
         let mut hidden = vec![false; source.len()];
         let mut spans = Vec::new();
         let mut replacements = Vec::<(Range<usize>, String)>::new();
@@ -80,6 +82,17 @@ impl Row {
                 });
             }
         }
+        for block in &blocks {
+            hidden[block.source.start..block.content.start].fill(true);
+            let end = source[block.source.clone()]
+                .trim_end_matches(['\r', '\n'])
+                .len()
+                + block.source.start;
+            hidden[block.content.end..end].fill(true);
+            if block.divider {
+                replacements.push((block.content.clone(), "\u{fffc}".into()));
+            }
+        }
         replacements.sort_by_key(|(r, _)| r.start);
         let mut replacements = replacements.into_iter().peekable();
         let mut display = String::new();
@@ -102,9 +115,7 @@ impl Row {
                 }
             }
             if hidden[at] {
-                while at < source.len() && hidden[at] {
-                    at += 1;
-                }
+                at += source[at..].chars().next().unwrap().len_utf8();
             } else {
                 at += source[at..].chars().next().unwrap().len_utf8();
                 display.push_str(&source[start..at]);
@@ -120,6 +131,7 @@ impl Row {
             display,
             segments,
             spans,
+            blocks,
         }
     }
 

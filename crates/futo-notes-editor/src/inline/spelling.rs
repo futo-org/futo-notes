@@ -8,6 +8,7 @@ pub(super) struct Piece {
     pub raw: String,
     pub display: String,
     pub spans: Vec<usize>,
+    pub trailing: bool,
 }
 pub(super) struct Marker {
     pub format: InlineFormat,
@@ -34,8 +35,30 @@ pub(super) fn spell(
     let mut rendered = render(&pieces, &markers, insertion.start, insertion.end);
     let mut parsed = 0;
     if literal {
-        let candidate = Row::parse(&rendered.text);
-        parsed += rendered.text.len();
+        let mut candidate = Row::parse(&rendered.text);
+        parsed += 2 * rendered.text.len();
+        if candidate.display != expected {
+            // A speculative line-start marker must reopen as the literal text
+            // the writer still sees. The block shortcut replaces this spelling
+            // only when its final triggering character arrives.
+            for piece in &mut pieces[insertion.clone()] {
+                if piece.raw == piece.display
+                    && piece
+                        .display
+                        .chars()
+                        .all(|ch| matches!(ch, '#' | '>' | '*' | '_' | '-'))
+                {
+                    piece.raw = piece
+                        .display
+                        .chars()
+                        .map(|ch| format!("&#{};", ch as u32))
+                        .collect();
+                }
+            }
+            rendered = render(&pieces, &markers, insertion.start, insertion.end);
+            candidate = Row::parse(&rendered.text);
+            parsed += 2 * rendered.text.len();
+        }
         let missing: Vec<_> = rendered
             .spans
             .iter()
@@ -55,7 +78,7 @@ pub(super) fn spell(
             repair_boundaries(&mut pieces, &missing);
             rendered = render(&pieces, &markers, insertion.start, insertion.end);
             let candidate = Row::parse(&rendered.text);
-            parsed += rendered.text.len();
+            parsed += 2 * rendered.text.len();
             let missing: Vec<_> = rendered
                 .spans
                 .iter()
@@ -87,7 +110,7 @@ pub(super) fn spell(
             }
             rendered = render(&pieces, &markers, insertion.start, insertion.end);
             let candidate = Row::parse(&rendered.text);
-            parsed += rendered.text.len();
+            parsed += 2 * rendered.text.len();
             if candidate.display != expected
                 || rendered.spans.iter().any(|(_, expected)| {
                     !candidate.spans.iter().any(|span| {

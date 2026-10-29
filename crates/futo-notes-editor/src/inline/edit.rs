@@ -92,6 +92,7 @@ impl Projection {
             raw: ch.to_string(),
             display: ch.to_string(),
             spans: active.clone(),
+            trailing: false,
         }));
         let insertion_end = changed.len();
         changed.extend(after);
@@ -107,7 +108,20 @@ impl Projection {
         if let Some(format) = toggle {
             toggle_pieces(&mut changed, &mut markers, a..z, format);
         }
-        let literal = toggle.is_some()
+        let speculative_block = inserted
+            .chars()
+            .all(|ch| matches!(ch, '#' | '>' | '*' | '_'))
+            && self
+                .display
+                .byte_slice(
+                    self.display
+                        .line_to_byte(self.display.byte_to_line(range.start.0))
+                        ..range.start.0,
+                )
+                .chars()
+                .all(|ch| matches!(ch, '#' | '>' | '*' | '_'));
+        let literal = speculative_block
+            || toggle.is_some()
             || inserted.is_empty()
             || !inserted.contains(['*', '_', '~', '`', '\\', '&', '<', '>'])
             || active
@@ -157,6 +171,26 @@ impl Projection {
             }));
             for segment in &row.segments {
                 if segment.display.is_empty() {
+                    // Inline markers are reconstructed from spans; block markers
+                    // are exact source pieces outside that inline stack.
+                    if row.spans.iter().any(|span| {
+                        span.open.start <= segment.source.start
+                            && segment.source.end <= span.open.end
+                            || span.close.start <= segment.source.start
+                                && segment.source.end <= span.close.end
+                    }) {
+                        continue;
+                    }
+                    let trailing = row.blocks.iter().any(|block| {
+                        block.content.end <= segment.source.start
+                            && segment.source.end <= block.source.end
+                    });
+                    pieces.push(Piece {
+                        raw: raw[base + segment.source.start..base + segment.source.end].to_owned(),
+                        display: String::new(),
+                        spans: Vec::new(),
+                        trailing,
+                    });
                     continue;
                 }
                 let active = row
@@ -173,6 +207,7 @@ impl Projection {
                     raw: raw[base + segment.source.start..base + segment.source.end].to_owned(),
                     display: row.display[segment.display.clone()].to_owned(),
                     spans: active,
+                    trailing: false,
                 });
             }
             display_len += row.display.len();
@@ -220,6 +255,10 @@ fn split_entities(pieces: Vec<Piece>, a: usize, z: usize) -> Vec<Piece> {
     let mut expanded = Vec::new();
     let mut position = 0;
     for piece in pieces {
+        if piece.display.is_empty() {
+            expanded.push(piece);
+            continue;
+        }
         let end = position + piece.display.len();
         let mut cuts = vec![0, piece.display.len()];
         for boundary in [a, z] {
@@ -246,6 +285,7 @@ fn split_entities(pieces: Vec<Piece>, a: usize, z: usize) -> Vec<Piece> {
                     raw,
                     display,
                     spans: piece.spans.clone(),
+                    trailing: piece.trailing,
                 });
             }
         }
@@ -269,7 +309,9 @@ fn cut(expanded: Vec<Piece>, selected: Range<usize>, keep: bool) -> Cut {
         if offset <= a && a < end {
             right = piece.spans.clone();
         }
-        if keep || end <= a {
+        if piece.display.is_empty() && piece.trailing && offset >= z && !keep {
+            after.push(piece);
+        } else if keep || end <= a {
             before.push(piece);
         } else if offset >= z {
             after.push(piece);

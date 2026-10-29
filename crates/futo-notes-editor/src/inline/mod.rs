@@ -1,3 +1,4 @@
+pub(crate) mod blocks;
 mod edit;
 mod row;
 mod spelling;
@@ -119,7 +120,21 @@ impl Projection {
                 });
             }
         }
+        let blocks = self
+            .block_lines(range)
+            .into_iter()
+            .map(|block| crate::BlockDescription {
+                range: DisplayRange {
+                    start: DisplayOffset(self.display_at(block.content.start)),
+                    end: DisplayOffset(self.display_at(block.content.end)),
+                },
+                heading: block.heading,
+                quote_depth: block.quote_depth,
+                divider: block.divider,
+            })
+            .collect();
         ProjectionSlice {
+            blocks,
             revision,
             range,
             text: self
@@ -129,6 +144,44 @@ impl Projection {
             runs,
             correspondence,
         }
+    }
+
+    pub(crate) fn block_lines(&self, range: DisplayRange) -> Vec<blocks::BlockLine> {
+        let first = self.rows.locate(range.start.0, true);
+        let last = self.rows.locate(range.end.0, true);
+        let mut result = Vec::new();
+        for index in first..=last {
+            let (row, source, display) = self.rows.at(index);
+            for block in &row.blocks {
+                let a = display + row.display_at(block.source.start);
+                let z = display + row.display_at(block.source.end);
+                let hit = if range.start == range.end {
+                    a <= range.start.0
+                        && (range.start.0 < z
+                            || source + block.source.end
+                                == self.rows.at(self.rows.len() - 1).1
+                                    + self.rows.at(self.rows.len() - 1).0.source_len)
+                } else {
+                    a < range.end.0 && range.start.0 < z
+                };
+                if hit {
+                    let mut block = block.clone();
+                    block.source.start += source;
+                    block.source.end += source;
+                    block.content.start += source;
+                    block.content.end += source;
+                    // The synthetic end line of a nonfinal row belongs to its successor.
+                    if !block.source.is_empty()
+                        || source + row.source_len
+                            == self.rows.at(self.rows.len() - 1).1
+                                + self.rows.at(self.rows.len() - 1).0.source_len
+                    {
+                        result.push(block);
+                    }
+                }
+            }
+        }
+        result
     }
 
     /// Reparse the edit's paragraphs and immediate neighbors, which can join
@@ -184,7 +237,7 @@ impl Projection {
         Update {
             range,
             inserted,
-            parsed_source_bytes: 2 * text.len(),
+            parsed_source_bytes: 3 * text.len(),
             materialized_source_bytes: text.len(),
             semantic_range,
         }

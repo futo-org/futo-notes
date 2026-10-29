@@ -5,6 +5,32 @@ import Testing
 
 @Suite("Native editor session contract")
 struct NativeEditorSessionTests {
+    @Test("shared block commands return structure and preserve exact recovery bytes")
+    func blockCommands() async throws {
+        try await Task.detached {
+            let root = FileManager.default.temporaryDirectory.appendingPathComponent("editor-blocks-\(UUID().uuidString)", isDirectory: true)
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: root) }
+            let store = NoteStore(notesRoot: root.path)
+            _ = try store.createNote(title: "blocks", folder: "", content: "😀ab\r\ntail  \r\n")
+            let session = try store.openEditor(id: "blocks")
+            let heading = try session.blockCommandUtf16(expected: 0, range: EditorUtf16Range(start: 2, end: 2), command: .heading(level: 6))
+            #expect(heading?.projection.blocks.first?.heading == 6)
+            #expect(try session.sourceText() == "###### 😀ab\r\ntail  \r\n")
+            _ = try session.paragraphKeyUtf16(expected: 1, range: EditorUtf16Range(start: 3, end: 3), key: .enter)
+            #expect(try session.sourceText() == "###### 😀a\nb\r\ntail  \r\n")
+            _ = try session.undo(expected: 2)
+            _ = try session.redo(expected: 3)
+            _ = try session.flushRecovery()
+            try session.detach()
+            let recovered = try store.openEditor(id: "blocks")
+            #expect(try recovered.sourceText() == "###### 😀a\nb\r\ntail  \r\n")
+            _ = try recovered.checkpoint()
+            #expect(try store.read(id: "blocks") == "###### 😀a\nb\r\ntail  \r\n")
+            try recovered.detach()
+        }.value
+    }
+
     @Test("paragraph keys preserve platform ranges, exact line endings and recovery")
     func paragraphKeys() async throws {
         try await Task.detached {

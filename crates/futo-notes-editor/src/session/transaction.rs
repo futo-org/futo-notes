@@ -37,7 +37,7 @@ impl EditorSession {
         let mut old_end = display_start;
         let mut new_end = 0;
         let mut materialized = raw.len();
-        let mut parsed = 2 * raw.len();
+        let mut parsed = 3 * raw.len();
         for replacement in replacements {
             let local_range = DisplayRange {
                 start: DisplayOffset(new_end + replacement.range.start.0 - old_end),

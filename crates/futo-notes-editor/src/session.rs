@@ -1,4 +1,6 @@
+mod blocks;
 mod paragraphs;
+pub use blocks::BlockCommand;
 mod transaction;
 use crate::history::{HistoryClock, HistoryEntry, HistoryGroup, MonotonicClock, TypingRun};
 pub use paragraphs::ParagraphKey;
@@ -293,6 +295,11 @@ impl EditorSession {
     ) -> Result<ViewChange, EditorError> {
         self.check_revision(expected)?;
         self.validate_range(range)?;
+        if action == crate::InputAction::Typing {
+            if let Some(change) = self.line_start_conversion(expected, range, inserted, accept)? {
+                return Ok(change);
+            }
+        }
         let affinity = if range == self.selection {
             self.affinity
         } else if range.start.0 == 0 {
