@@ -1,0 +1,104 @@
+{
+  "current": {
+    "availableLanguages": [
+      "ja-JP",
+      "ko-KR",
+      "en-US",
+      "emoji"
+    ],
+    "language": "ja-JP",
+    "marked": null,
+    "selected": [
+      4,
+      4
+    ],
+    "textUTF16": [
+      97,
+      98,
+      20108,
+      26412,
+      32,
+      38,
+      32,
+      99,
+      100,
+      13,
+      10
+    ]
+  },
+  "diff": {
+    "elements": {
+      "added": [],
+      "changed": [],
+      "removed": []
+    }
+  },
+  "formatVersion": 1,
+  "ok": true,
+  "opening": {
+    "availableLanguages": [
+      "ja-JP",
+      "ko-KR",
+      "en-US",
+      "emoji"
+    ],
+    "language": null,
+    "marked": null,
+    "selected": [
+      11,
+      11
+    ],
+    "textUTF16": [
+      97,
+      98,
+      26085,
+      26412,
+      32,
+      38,
+      32,
+      99,
+      100,
+      13,
+      10
+    ]
+  },
+  "os": "Version 27.2 (Build 24B114)",
+  "selectionRect": [
+    70.66666666666667,
+    70,
+    0,
+    26.33333333333333
+  ],
+  "sourceUTF16": [
+    95,
+    95,
+    97,
+    98,
+    26085,
+    26412,
+    95,
+    95,
+    32,
+    38,
+    97,
+    109,
+    112,
+    59,
+    32,
+    99,
+    100,
+    13,
+    10
+  ],
+  "traits": {
+    "autocapitalization": 2,
+    "autocorrection": 2,
+    "keyboard": 0,
+    "spellChecking": 1
+  },
+  "verb": "ReadNativeInputRecorder",
+  "eventFiles": [
+    "japanese-reconversion-focus-and-selection",
+    "japanese-reconversion-reconversion-and-unmark"
+  ]
+}

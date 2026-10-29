@@ -1,0 +1,480 @@
+[
+  {
+    "name": "japanese-conversion",
+    "source": "__ab__ &amp; cd\r\n",
+    "display": "ab & cd\r\n",
+    "range": [
+      2,
+      2
+    ],
+    "steps": [
+      {
+        "event": 3,
+        "operation": "select",
+        "source": "__ab__ &amp; cd\r\n"
+      },
+      {
+        "event": 6,
+        "operation": "marked",
+        "source": "__ab__ &amp; cd\r\n"
+      },
+      {
+        "event": 9,
+        "operation": "marked",
+        "source": "__ab__ &amp; cd\r\n"
+      },
+      {
+        "event": 12,
+        "operation": "marked",
+        "source": "__ab__ &amp; cd\r\n"
+      },
+      {
+        "event": 15,
+        "operation": "marked",
+        "source": "__ab__ &amp; cd\r\n"
+      },
+      {
+        "event": 18,
+        "operation": "marked",
+        "source": "__ab__ &amp; cd\r\n"
+      },
+      {
+        "event": 21,
+        "operation": "marked",
+        "source": "__ab__ &amp; cd\r\n"
+      },
+      {
+        "event": 25,
+        "operation": "commit",
+        "source": "__ab日本__ &amp; cd\r\n"
+      }
+    ],
+    "captureSha256": "b1d4783b8454b26666eff5742ba189de6c29fb8580d8b2eb357fe46480dfe8cd",
+    "history": [
+      {
+        "source": "__ab__ &amp; cd\r\n",
+        "display": "ab & cd\r\n",
+        "selection": [
+          2,
+          2
+        ]
+      },
+      {
+        "source": "__ab日本__ &amp; cd\r\n",
+        "display": "ab日本 & cd\r\n",
+        "selection": [
+          4,
+          4
+        ]
+      }
+    ],
+    "fixtureSha256": {
+      "japanese-conversion": "c791ee0ee2e1c8064dd7f7d9b5cadcdcf4be4050bc582cae2dbac785dd357545",
+      "japanese-conversion-focus": "1d89ea01ff4a56cc683351853ef5893d40ea9ecac99c13acb49c41cd2c03ca41",
+      "japanese-conversion-romaji-n": "e805145195748754035e53088199e7bdaa9f735ebfe5fcdba440aeabd6147d36",
+      "japanese-conversion-romaji-i": "4f1c690360a7a4124dd51b37dfd4f6939719729cd957569e3f1df98258f584c1",
+      "japanese-conversion-romaji-h": "48812996b58e28bd367f0e82bbb64b3c00607cd23609e17305961d1ac58e6d98",
+      "japanese-conversion-romaji-o": "c0daa3f1c65f2be8aa13dd3d09b213effad601f2683612038f91111981713956",
+      "japanese-conversion-romaji-final-n": "67d689ecc36a335ea3f3b8e04be920a9c535c5ae326826e924978416675e8b8a",
+      "japanese-conversion-conversion-and-unmark": "591145121dc6998107177183240af18fe36cbcb928ffcfc721d2c2708f35e779"
+    }
+  },
+  {
+    "name": "japanese-reconversion",
+    "source": "__ab日本__ &amp; cd\r\n",
+    "display": "ab日本 & cd\r\n",
+    "range": [
+      2,
+      4
+    ],
+    "steps": [
+      {
+        "event": 3,
+        "operation": "select",
+        "source": "__ab日本__ &amp; cd\r\n"
+      },
+      {
+        "event": 7,
+        "operation": "marked",
+        "source": "__ab日本__ &amp; cd\r\n"
+      },
+      {
+        "event": 11,
+        "operation": "commit",
+        "source": "__ab二本__ &amp; cd\r\n"
+      }
+    ],
+    "captureSha256": "79e99f809f6936e190d0ee9702ded9a72febd3f70488c7d17fcc6fa9353624cc",
+    "history": [
+      {
+        "source": "__ab日本__ &amp; cd\r\n",
+        "display": "ab日本 & cd\r\n",
+        "selection": [
+          2,
+          4
+        ]
+      },
+      {
+        "source": "__ab二本__ &amp; cd\r\n",
+        "display": "ab二本 & cd\r\n",
+        "selection": [
+          4,
+          4
+        ]
+      }
+    ],
+    "fixtureSha256": {
+      "japanese-reconversion": "6ce35a62bd6acfa3c25eca81a8de4a9ed5a1637a1ff6c42eb18fadbf3d76d44b",
+      "japanese-reconversion-focus-and-selection": "19255a0a49c5f7dbdef8c1b53a4e8c537d93c862ecf6b12bcf7d0a3e7202602a",
+      "japanese-reconversion-reconversion-and-unmark": "f1a028825aa0e0a2e574f52f1cae52a221b64d8cae943492f016f10d072407bd"
+    }
+  },
+  {
+    "name": "korean-replacement",
+    "source": "__ab__ &amp; cd\r\n",
+    "display": "ab & cd\r\n",
+    "range": [
+      2,
+      2
+    ],
+    "steps": [
+      {
+        "event": 3,
+        "operation": "select",
+        "source": "__ab__ &amp; cd\r\n"
+      },
+      {
+        "event": 7,
+        "operation": "replace",
+        "source": "__abㄱ__ &amp; cd\r\n",
+        "serviceRange": [
+          2,
+          2
+        ],
+        "serviceText": "ㄱ"
+      },
+      {
+        "event": 11,
+        "operation": "replace",
+        "source": "__ab가__ &amp; cd\r\n",
+        "serviceRange": [
+          2,
+          3
+        ],
+        "serviceText": "가"
+      },
+      {
+        "event": 15,
+        "operation": "replace",
+        "source": "__ab간__ &amp; cd\r\n",
+        "serviceRange": [
+          2,
+          3
+        ],
+        "serviceText": "간"
+      },
+      {
+        "event": 19,
+        "operation": "replace",
+        "source": "__ab가나__ &amp; cd\r\n",
+        "serviceRange": [
+          2,
+          3
+        ],
+        "serviceText": "가나"
+      },
+      {
+        "event": 23,
+        "operation": "replace",
+        "source": "__ab가나__  &amp; cd\r\n",
+        "serviceRange": [
+          4,
+          4
+        ],
+        "serviceText": " "
+      }
+    ],
+    "captureSha256": "6fa24a05453acd7a4fb4da124b0f82dd451cfaca5d50da89663f10b4d733717c",
+    "history": [
+      {
+        "source": "__ab__ &amp; cd\r\n",
+        "display": "ab & cd\r\n",
+        "selection": [
+          2,
+          2
+        ]
+      },
+      {
+        "source": "__abㄱ__ &amp; cd\r\n",
+        "display": "abㄱ & cd\r\n",
+        "selection": [
+          3,
+          3
+        ]
+      },
+      {
+        "source": "__ab가__ &amp; cd\r\n",
+        "display": "ab가 & cd\r\n",
+        "selection": [
+          3,
+          3
+        ]
+      },
+      {
+        "source": "__ab간__ &amp; cd\r\n",
+        "display": "ab간 & cd\r\n",
+        "selection": [
+          3,
+          3
+        ]
+      },
+      {
+        "source": "__ab가나__ &amp; cd\r\n",
+        "display": "ab가나 & cd\r\n",
+        "selection": [
+          4,
+          4
+        ]
+      },
+      {
+        "source": "__ab가나__  &amp; cd\r\n",
+        "display": "ab가나  & cd\r\n",
+        "selection": [
+          5,
+          5
+        ]
+      }
+    ],
+    "fixtureSha256": {
+      "korean-replacement": "2e6a11a55944ed4ed46c082680123201547401523a3d639d870e1256821f96ba",
+      "korean-replacement-focus": "2e3b9d60fd12cfb48a483e981d850cad109a5bb9f055cbe64bbe4a4925d28e7b",
+      "korean-replacement-initial-jamo": "f1551672a2beed1c5cc8550bd3b882521d17e1d40fc975ea35b912e4a609be07",
+      "korean-replacement-first-syllable": "718d1f096258b014d6025ffc73e810c56b35a7aa76f62047b429e2aca23deb58",
+      "korean-replacement-replace-last": "5ff9d4b11ab260c2c9d1b09e990d5975671513827a3da55b8beab7219571f816",
+      "korean-replacement-split-syllable": "1578a79dbb5b64e0ac8ecd900a4f2d52e1a235dce3fe23ac0486ba772aabf8e6",
+      "korean-replacement-following-space": "cd1b324ff08c69c31567b5fe937913351ccb9ed46d4ec3d32b05fe3fc9aec999"
+    }
+  },
+  {
+    "name": "english-correction",
+    "source": "__ab__ &amp; cd\r\n",
+    "display": "ab & cd\r\n",
+    "range": [
+      2,
+      2
+    ],
+    "captureSha256": "1c9341c623b6305467990594550a23338a0677547784ff5a4cf7fe18384c5541",
+    "steps": [
+      {
+        "event": 3,
+        "operation": "select",
+        "source": "__ab__ &amp; cd\r\n"
+      },
+      {
+        "event": 7,
+        "operation": "typing",
+        "source": "__ab__  &amp; cd\r\n"
+      },
+      {
+        "event": 11,
+        "operation": "typing",
+        "source": "__ab t__ &amp; cd\r\n"
+      },
+      {
+        "event": 15,
+        "operation": "typing",
+        "source": "__ab te__ &amp; cd\r\n"
+      },
+      {
+        "event": 19,
+        "operation": "typing",
+        "source": "__ab teh__ &amp; cd\r\n"
+      },
+      {
+        "event": 21,
+        "operation": "replace",
+        "source": "__ab the__ &amp; cd\r\n",
+        "serviceRange": [
+          3,
+          6
+        ],
+        "serviceText": "the"
+      },
+      {
+        "event": 25,
+        "operation": "typing",
+        "source": "__ab the__  &amp; cd\r\n"
+      }
+    ],
+    "history": [
+      {
+        "source": "__ab__ &amp; cd\r\n",
+        "display": "ab & cd\r\n",
+        "selection": [
+          2,
+          2
+        ]
+      },
+      {
+        "source": "__ab teh__ &amp; cd\r\n",
+        "display": "ab teh & cd\r\n",
+        "selection": [
+          6,
+          6
+        ]
+      },
+      {
+        "source": "__ab the__ &amp; cd\r\n",
+        "display": "ab the & cd\r\n",
+        "selection": [
+          6,
+          6
+        ]
+      },
+      {
+        "source": "__ab the__  &amp; cd\r\n",
+        "display": "ab the  & cd\r\n",
+        "selection": [
+          7,
+          7
+        ]
+      }
+    ],
+    "fixtureSha256": {
+      "english-correction": "ce71effaa7fd265c687b83105e8bf055002040b2d76bf815e3631b021d0b7fbd",
+      "english-correction-focus": "ae2b6e31a7491ec4bd5532d4922308b80f0e298adfd6e71b0b95acc179cdf15d",
+      "english-correction-typed-prefix": "aa1e02fdfe358de8708901c468e3f2a1aee9786761b7d84a29a7561e3787972a",
+      "english-correction-typed-word-end": "88f81e8932c9be3f96699150d1bfde251a93aa908955891f3e92446b06c1251d",
+      "english-correction-correction": "b66fb8a1d4acf84c8b3e89f9dc80f3a5d419aff4e5236addb1e9bd459130363c",
+      "english-correction-following-space": "f7e8e5cb3421c9494cc3b760acb890e0fa142c87e54d97b20859405e48ac7cf2"
+    }
+  },
+  {
+    "name": "english-suggestion",
+    "source": "__ab__ &amp; cd\r\n",
+    "display": "ab & cd\r\n",
+    "range": [
+      2,
+      2
+    ],
+    "captureSha256": "b3bf08be9651bfc65d161cc216dc86daf33f5da63cbcb444ab675707b9d33f90",
+    "steps": [
+      {
+        "event": 3,
+        "operation": "select",
+        "source": "__ab__ &amp; cd\r\n"
+      },
+      {
+        "event": 7,
+        "operation": "typing",
+        "source": "__ab__  &amp; cd\r\n"
+      },
+      {
+        "event": 11,
+        "operation": "typing",
+        "source": "__ab h__ &amp; cd\r\n"
+      },
+      {
+        "event": 15,
+        "operation": "typing",
+        "source": "__ab he__ &amp; cd\r\n"
+      },
+      {
+        "event": 19,
+        "operation": "typing",
+        "source": "__ab hel__ &amp; cd\r\n"
+      },
+      {
+        "event": 23,
+        "operation": "typing",
+        "source": "__ab helo__ &amp; cd\r\n"
+      },
+      {
+        "event": 25,
+        "operation": "replace",
+        "source": "__ab help__ &amp; cd\r\n",
+        "serviceRange": [
+          3,
+          7
+        ],
+        "serviceText": "help"
+      },
+      {
+        "event": 29,
+        "operation": "typing",
+        "source": "__ab help__  &amp; cd\r\n"
+      },
+      {
+        "event": 31,
+        "operation": "select",
+        "source": "__ab help__  &amp; cd\r\n"
+      },
+      {
+        "event": 35,
+        "operation": "replace",
+        "source": "__ab help__&amp; cd\r\n",
+        "serviceRange": [
+          7,
+          9
+        ],
+        "serviceText": "",
+        "parentMethod": "deleteBackward"
+      }
+    ],
+    "history": [
+      {
+        "source": "__ab__ &amp; cd\r\n",
+        "display": "ab & cd\r\n",
+        "selection": [
+          2,
+          2
+        ]
+      },
+      {
+        "source": "__ab helo__ &amp; cd\r\n",
+        "display": "ab helo & cd\r\n",
+        "selection": [
+          7,
+          7
+        ]
+      },
+      {
+        "source": "__ab help__ &amp; cd\r\n",
+        "display": "ab help & cd\r\n",
+        "selection": [
+          7,
+          7
+        ]
+      },
+      {
+        "source": "__ab help__  &amp; cd\r\n",
+        "display": "ab help  & cd\r\n",
+        "selection": [
+          8,
+          8
+        ],
+        "undoSelection": [
+          8,
+          9
+        ]
+      },
+      {
+        "source": "__ab help__&amp; cd\r\n",
+        "display": "ab help& cd\r\n",
+        "selection": [
+          7,
+          7
+        ]
+      }
+    ],
+    "fixtureSha256": {
+      "english-suggestion": "3f5cded718b385bc7020f3d47bdfca6ce972b27cbcb2e03d54e512502ac511ac",
+      "english-suggestion-focus": "ae2b6e31a7491ec4bd5532d4922308b80f0e298adfd6e71b0b95acc179cdf15d",
+      "english-suggestion-typed-prefix": "c63e5a922efd438029a2bcc89a0906d9f03f6d00f99ab2c83b464ae56f416199",
+      "english-suggestion-typed-word-end": "56f32342793407f170415983e64f0edbade0574427b982cba556b77a8a50a1cb",
+      "english-suggestion-candidate-replacement": "564abe1bd3e2abd899b889db0e0ad0d46b70ed003f8cfca5fb191b9789d287f3",
+      "english-suggestion-automatic-space": "8dfec9aeb9055702120c8b9cf9bb042a3c03ad095c1881d305105130ae40fc65",
+      "english-suggestion-smart-space-cleanup": "0e9ed8d6c9b9b630a9122d6c6c24c981962d774f4ea47c9460e037db39dc350c"
+    }
+  }
+]
