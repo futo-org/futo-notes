@@ -49,6 +49,7 @@ struct FutoNotesApp: App {
                 .tint(Theme.primary)
                 .appearanceOverride(ThemeMode.resolve(themeMode))
                 #if DEBUG
+                    .modifier(NativeInputRecorderScope())
                     .modifier(
                         PuppetServerStart(navigation: navigation, store: store, sync: sync)
                     )
