@@ -54,12 +54,12 @@ fn enter_uses_the_platform_range_and_undo_removes_one_newline() {
 fn enter_start_middle_end_repeated_empty_and_shift_have_literal_newlines() {
     use futo_notes_editor::ParagraphKey;
     for key in [ParagraphKey::Enter, ParagraphKey::ShiftEnter] {
-        for (opening, at, expected) in [
-            ("ab", 0, "\nab"),
-            ("ab", 1, "a\nb"),
-            ("ab", 2, "ab\n"),
-            ("", 0, "\n"),
-            ("a\nb", 2, "a\n\nb"),
+        for (opening, at, expected, twice) in [
+            ("ab", 0, "\nab", "\n\nab"),
+            ("ab", 1, "a\nb", "a\n\nb"),
+            ("ab", 2, "ab\n", "ab\n\n"),
+            ("", 0, "\n", "\n\n"),
+            ("a\nb", 2, "a\n\nb", "a\n\n\nb"),
         ] {
             let mut s = EditorSession::open(opening);
             let mut v = ReferenceView::new(opening);
@@ -76,8 +76,6 @@ fn enter_start_middle_end_repeated_empty_and_shift_have_literal_newlines() {
                     .unwrap()
                     .unwrap(),
             );
-            let mut twice = expected.to_string();
-            twice.insert(at + 1, '\n');
             assert_eq!(s.source_text(), twice);
             assert_eq!(v.text, twice);
             v.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
@@ -288,4 +286,20 @@ fn joining_formatted_paragraph_lines_preserves_both_spans_and_exact_action_undo(
         assert_eq!(s.source_text(), opening);
         assert_eq!(v.text, display);
     }
+}
+
+#[test]
+fn a_nonbreaking_space_line_is_content_and_keeps_its_existing_inline_run() {
+    use futo_notes_editor::ParagraphKey;
+    let mut s = EditorSession::open("__a\n\u{00a0}b__");
+    let mut v = ReferenceView::new("a\n\u{00a0}b");
+    v.apply(
+        s.paragraph_key(s.revision(), range(4, 4), ParagraphKey::Enter, &mut |_| {
+            Ok(())
+        })
+        .unwrap()
+        .unwrap(),
+    );
+    assert_eq!(s.source_text(), "__a\n\u{00a0}\nb__");
+    assert_eq!(v.text, "a\n\u{00a0}\nb");
 }

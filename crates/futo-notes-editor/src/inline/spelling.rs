@@ -215,13 +215,22 @@ fn repair_boundaries(pieces: &mut [Piece], missing: &[usize]) {
 fn split_paragraph_spans(pieces: &mut [Piece]) {
     let mut start = 0;
     while start < pieces.len() {
-        if !pieces[start].display.chars().all(char::is_whitespace) {
+        if !pieces[start]
+            .display
+            .chars()
+            .all(|ch| matches!(ch, ' ' | '\t' | '\r' | '\n'))
+        {
             start += 1;
             continue;
         }
         let mut end = start;
         let mut newlines = 0;
-        while end < pieces.len() && pieces[end].display.chars().all(char::is_whitespace) {
+        while end < pieces.len()
+            && pieces[end]
+                .display
+                .chars()
+                .all(|ch| matches!(ch, ' ' | '\t' | '\r' | '\n'))
+        {
             newlines += pieces[end]
                 .display
                 .bytes()
