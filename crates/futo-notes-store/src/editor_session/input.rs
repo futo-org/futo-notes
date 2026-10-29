@@ -1,9 +1,11 @@
 //! Protected editor input: one store gate and recovery append per user action.
 use super::*;
 
-impl StoreEditorSession<'_> {
+#[allow(unused_variables)]
+impl Attachment {
     pub fn paragraph_key_utf16(
         &mut self,
+        store: &LocalNoteStore,
         expected: Revision,
         range: DisplayUtf16Range,
         key: futo_notes_editor::ParagraphKey,
@@ -14,10 +16,9 @@ impl StoreEditorSession<'_> {
         if self.recovery.failed {
             return Err(EditorStoreError::RecoveryPaused);
         }
-        let _gate = self.store.lock_gate().map_err(EditorStoreError::Recovery)?;
         self.engine
             .paragraph_key_utf16(expected, range, key, &mut |edit| {
-                self.recovery.append(&self.store.root, edit)
+                self.recovery.append(&store.root, edit)
             })
             .map_err(|error| match error {
                 EditorError::Persistence(error) => EditorStoreError::RecoveryAppend(error),
@@ -27,6 +28,7 @@ impl StoreEditorSession<'_> {
 
     pub fn replace_utf16(
         &mut self,
+        store: &LocalNoteStore,
         expected: Revision,
         range: DisplayUtf16Range,
         inserted: &[u16],
@@ -35,11 +37,12 @@ impl StoreEditorSession<'_> {
             .engine
             .decode_utf16_input(expected, range, inserted)
             .map_err(EditorStoreError::Editor)?;
-        self.replace(expected, range, &inserted)
+        self.replace(store, expected, range, &inserted)
     }
 
     pub fn replace_utf16_action(
         &mut self,
+        store: &LocalNoteStore,
         expected: Revision,
         range: DisplayUtf16Range,
         inserted: &[u16],
@@ -49,11 +52,12 @@ impl StoreEditorSession<'_> {
             .engine
             .decode_utf16_input(expected, range, inserted)
             .map_err(EditorStoreError::Editor)?;
-        self.replace_action(expected, range, &inserted, action)
+        self.replace_action(store, expected, range, &inserted, action)
     }
 
     pub fn replace_many_utf16(
         &mut self,
+        store: &LocalNoteStore,
         expected: Revision,
         replacements: &[futo_notes_editor::DisplayUtf16Replacement],
     ) -> Result<ViewChange, EditorStoreError> {
@@ -61,16 +65,18 @@ impl StoreEditorSession<'_> {
             .engine
             .decode_utf16_replacements(expected, replacements)
             .map_err(EditorStoreError::Editor)?;
-        self.replace_many(expected, &replacements)
+        self.replace_many(store, expected, &replacements)
     }
 
     pub fn replace(
         &mut self,
+        store: &LocalNoteStore,
         expected: Revision,
         range: DisplayRange,
         inserted: &str,
     ) -> Result<ViewChange, EditorStoreError> {
         self.replace_action(
+            store,
             expected,
             range,
             inserted,
@@ -80,6 +86,7 @@ impl StoreEditorSession<'_> {
 
     pub fn replace_action(
         &mut self,
+        store: &LocalNoteStore,
         expected: Revision,
         range: DisplayRange,
         inserted: &str,
@@ -91,10 +98,9 @@ impl StoreEditorSession<'_> {
         if self.recovery.failed {
             return Err(EditorStoreError::RecoveryPaused);
         }
-        let _gate = self.store.lock_gate().map_err(EditorStoreError::Recovery)?;
         self.engine
             .replace_action(expected, range, inserted, action, &mut |edit| {
-                self.recovery.append(&self.store.root, edit)
+                self.recovery.append(&store.root, edit)
             })
             .map_err(|error| match error {
                 EditorError::Persistence(error) => EditorStoreError::RecoveryAppend(error),
@@ -104,6 +110,7 @@ impl StoreEditorSession<'_> {
 
     pub fn replace_many(
         &mut self,
+        store: &LocalNoteStore,
         expected: Revision,
         replacements: &[futo_notes_editor::DisplayReplacement],
     ) -> Result<ViewChange, EditorStoreError> {
@@ -113,10 +120,9 @@ impl StoreEditorSession<'_> {
         if self.recovery.failed {
             return Err(EditorStoreError::RecoveryPaused);
         }
-        let _gate = self.store.lock_gate().map_err(EditorStoreError::Recovery)?;
         self.engine
             .replace_many(expected, replacements, &mut |edit| {
-                self.recovery.append(&self.store.root, edit)
+                self.recovery.append(&store.root, edit)
             })
             .map_err(|error| match error {
                 EditorError::Persistence(error) => EditorStoreError::RecoveryAppend(error),

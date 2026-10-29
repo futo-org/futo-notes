@@ -8,7 +8,7 @@ use super::{RecoveryIssue, RecoveryIssueKind};
 
 pub(super) const VERSION: u32 = 2;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub(super) struct Header {
     pub version: u32,
     pub vault: String,

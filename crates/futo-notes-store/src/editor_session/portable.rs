@@ -40,7 +40,7 @@ impl StoreEditorHost<'_> {
 
     /// Native recovery UI consumes the store's typed issue directly, while the
     /// page receives its retained draft and pause through the opening snapshot.
-    pub fn recovery_issue(&self) -> Option<&RecoveryIssue> {
+    pub fn recovery_issue(&self) -> Option<RecoveryIssue> {
         self.session.recovery_issue()
     }
 
@@ -51,6 +51,15 @@ impl StoreEditorHost<'_> {
     }
 
     pub fn handle(&mut self, request: HostRequest) -> HostAck {
+        if self
+            .session
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .terminal
+        {
+            return self.reply(&request, Some("editor attachment was deleted".into()));
+        }
         if request.token != self.token {
             return self.reply(&request, Some("stale editor session".into()));
         }
@@ -84,10 +93,22 @@ impl StoreEditorHost<'_> {
             .store
             .lock_gate()
             .map_err(EditorStoreError::Recovery)?;
-        self.session
-            .engine
+        let _vault =
+            futo_notes_core::files::vault_mutation_guard().map_err(EditorStoreError::Recovery)?;
+        let mut state = self
+            .session
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if state.terminal {
+            return Err(EditorStoreError::SessionDeleted);
+        }
+        let super::Attachment {
+            engine, recovery, ..
+        } = &mut *state;
+        engine
             .replay_with_accept(edit, &mut |edit| {
-                self.session.recovery.append(&self.session.store.root, edit)
+                recovery.append(&self.session.store.root, edit)
             })
             .map(|_| ())
             .map_err(|error| match error {

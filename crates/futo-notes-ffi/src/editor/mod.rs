@@ -236,7 +236,7 @@ impl NativeEditorSession {
     }
 
     pub fn recovery_issue(&self) -> Result<Option<EditorRecoveryIssue>, EditorSessionError> {
-        self.with_session(|session| Ok(session.recovery_issue().cloned().map(Into::into)))
+        self.with_session(|session| Ok(session.recovery_issue().map(Into::into)))
     }
 
     pub fn resume_recovery(&self) -> Result<EditorRecoveryStatus, EditorSessionError> {

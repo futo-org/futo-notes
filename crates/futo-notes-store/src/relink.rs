@@ -31,7 +31,7 @@ impl LocalNoteStore {
         }
         let final_id = paths::unique_note_id(&self.root, wanted_id, Some(old_id))?;
         let mappings = vec![(old_id.to_owned(), final_id.clone())];
-        let relinks = prepare_relinks(&self.root, &mappings);
+        let relinks = prepare_relinks(&self.root, &mappings)?;
         let mut changes = rename_changes(&mappings);
         changes.extend(
             relinks
@@ -84,6 +84,11 @@ impl LocalNoteStore {
                 Err(error) => warnings.push(format!("backlink rewrite for {id}: {error}")),
             }
         }
+        for transition in relinks.attachments {
+            if let Err(error) = transition.finish(&self.root) {
+                warnings.push(format!("editor identity recovery pending: {error}"));
+            }
+        }
         relinked.sort();
         for (from, to) in &mappings {
             self.search.notify(&FileChange::Renamed {
@@ -123,12 +128,23 @@ pub(crate) struct Relinks {
     /// every byte it could not decode, and writing the new link into a file of
     /// unknown encoding cannot promise the rest survives either.
     skipped: Vec<String>,
+    attachments: Vec<crate::editor_session::IdentityTransition>,
 }
 
-pub(crate) fn prepare_relinks(root: &Path, mappings: &[(String, String)]) -> Relinks {
+pub(crate) fn prepare_relinks(
+    root: &Path,
+    mappings: &[(String, String)],
+) -> Result<Relinks, String> {
     if mappings.is_empty() {
-        return Relinks::default();
+        return Ok(Relinks::default());
     }
+    let attachments = mappings
+        .iter()
+        .map(|(from, to)| crate::editor_session::IdentityTransition::prepare(root, from, to))
+        .collect::<Result<Vec<_>, _>>()?
+        .into_iter()
+        .flatten()
+        .collect();
     let raw = vault::bodies(root);
     // Every note counts toward link resolution, decodable or not.
     let mut ids = raw.keys().cloned().collect::<Vec<_>>();
@@ -202,7 +218,8 @@ pub(crate) fn prepare_relinks(root: &Path, mappings: &[(String, String)]) -> Rel
         }
     }
     relinks.skipped.sort();
-    relinks
+    relinks.attachments = attachments;
+    Ok(relinks)
 }
 
 pub(crate) fn rename_changes(mappings: &[(String, String)]) -> Vec<FileChange> {

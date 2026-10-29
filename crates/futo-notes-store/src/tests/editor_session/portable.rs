@@ -310,7 +310,7 @@ fn worker_retains_typed_recovery_review_and_page_pause_across_attach_and_resume(
         .unwrap()
         .into_portable_host(SessionToken(120));
     assert_eq!(
-        host.recovery_issue(),
+        host.recovery_issue().as_ref(),
         Some(&RecoveryIssue {
             kind: RecoveryIssueKind::CorruptRecord,
             record: 0

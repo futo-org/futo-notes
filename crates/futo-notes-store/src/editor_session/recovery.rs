@@ -143,6 +143,40 @@ impl RecoveryLog {
         ))
     }
 
+    pub(super) fn retarget_identity(&mut self, root: &Path, id: &str) -> Result<(), String> {
+        let destination = format!(".futo-editor-recovery/{}.jsonl", hash_sha256(id));
+        let mut header = self.header.clone();
+        header.id = id.to_owned();
+        header.replacement_epoch =
+            futo_notes_core::files::recovery_coordination::replacement_epoch(root, id)?;
+        if self.exists {
+            let old = self
+                .storage
+                .read(root, &self.path)?
+                .ok_or("editor recovery stream disappeared")?;
+            let first = old
+                .iter()
+                .position(|byte| *byte == b'\n')
+                .ok_or("editor recovery header incomplete")?
+                + 1;
+            let mut bytes = format::encode(&header)?;
+            bytes.extend_from_slice(&old[first..self.accepted_bytes as usize]);
+            self.storage.create(root, &destination, &bytes)?;
+            self.storage.flush(root, &destination)?;
+            self.storage.remove(root, &self.path)?;
+            self.accepted_bytes = bytes.len() as u64;
+            self.durable = self.accepted;
+            self.flush_deadline = None;
+        }
+        self.path = destination;
+        self.header = header;
+        Ok(())
+    }
+
+    pub(super) fn storage_mut(&mut self) -> &mut dyn RecoveryStorage {
+        &mut *self.storage
+    }
+
     pub(super) fn base(&self) -> &str {
         &self.header.base
     }
@@ -165,7 +199,6 @@ impl RecoveryLog {
         // Controlled writers must not observe no stream, then install across
         // the first accepted append. All native and portable acceptance paths
         // pass here; the guard ends before the view change is returned.
-        let _vault_mutation = futo_notes_core::files::vault_mutation_guard()?;
         #[cfg(test)]
         if let Some(hook) = &self.append_hook {
             hook(false);
@@ -232,7 +265,6 @@ impl RecoveryLog {
     }
 
     pub(super) fn resume(&mut self, root: &Path) -> Result<(), String> {
-        let _vault_mutation = futo_notes_core::files::vault_mutation_guard()?;
         // The caller admits only failed live appends/flushes or a validated
         // prefix with an incomplete final frame. Interior damage never reaches
         // this truncation path.

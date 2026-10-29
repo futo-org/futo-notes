@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use futo_notes_editor::{
@@ -10,7 +10,12 @@ use crate::{paths, FlushDisposition, FlushDraftResult, LocalNoteStore, NOTE_NOT_
 
 mod checkpoint;
 mod clock;
+pub(crate) mod deletion;
+mod facade;
+mod identity;
 mod input;
+mod state;
+pub(crate) use identity::IdentityTransition;
 mod lease;
 pub use clock::RecoveryClock;
 mod portable;
@@ -87,6 +92,7 @@ pub enum EditorStoreError {
     RecoveryNeedsReview(RecoveryIssue),
     Checkpoint(String),
     CheckpointPending,
+    SessionDeleted,
     /// Markdown committed, but recovery retirement failed. Apply `result`'s
     /// complete mutation even though the checkpoint needs a retry.
     CheckpointCommitted {
@@ -107,11 +113,16 @@ impl std::error::Error for EditorStoreError {}
 /// the host's background worker, including append acceptance before display.
 pub struct StoreEditorSession<'store> {
     store: StoreHandle<'store>,
+    state: Arc<Mutex<Attachment>>,
+}
+
+pub(super) struct Attachment {
     id: String,
     recovery: RecoveryLog,
     engine: EditorSession,
     lease: EditorLease,
     pending_checkpoint: Option<FlushDraftResult>,
+    terminal: bool,
 }
 
 // Owning foreign sessions retain the same store and its coordination state;
@@ -168,6 +179,7 @@ impl<'store> StoreEditorSession<'store> {
         let _vault_mutation =
             futo_notes_core::files::vault_mutation_guard().map_err(EditorStoreError::Open)?;
         paths::note_path(&store.root, id).map_err(EditorStoreError::Open)?;
+        deletion::recover(&store.root, id).map_err(EditorStoreError::Recovery)?;
         let lease = EditorLease::acquire(&store.root, id)?;
         let base = store
             .read_existing(id)
@@ -213,238 +225,20 @@ impl<'store> StoreEditorSession<'store> {
         } else {
             None
         };
-        drop(_gate);
-        Ok(StoreEditorSession {
-            store,
+        let state = Arc::new(Mutex::new(Attachment {
             id: id.to_owned(),
             engine,
             recovery,
             lease,
             pending_checkpoint,
-        })
-    }
-}
-
-impl StoreEditorSession<'_> {
-    #[cfg(test)]
-    pub(crate) fn set_append_hook(&mut self, hook: Box<dyn Fn(bool) + Send>) {
-        self.recovery.append_hook = Some(hook);
-    }
-    #[cfg(test)]
-    pub(crate) fn set_retirement_failure(&mut self, fail: bool) {
-        self.recovery.fail_retirement = fail;
-    }
-    pub fn recovery_issue(&self) -> Option<&RecoveryIssue> {
-        self.recovery.issue.as_ref()
-    }
-
-    pub fn recovery_status(&self) -> RecoveryStatus {
-        RecoveryStatus {
-            accepted: self.recovery.accepted,
-            durable: self.recovery.durable,
-            flush_deadline: self.recovery.flush_deadline,
-            paused: self.recovery.failed || self.pending_checkpoint.is_some(),
-            last_flush_lateness: self.recovery.last_flush_lateness,
-        }
-    }
-
-    pub fn flush_recovery(&mut self) -> Result<RecoveryStatus, EditorStoreError> {
-        let _gate = self.store.lock_gate().map_err(EditorStoreError::Recovery)?;
-        if self.recovery.failed {
-            return Err(EditorStoreError::RecoveryPaused);
-        }
-        self.recovery
-            .flush(&self.store.root)
-            .map_err(EditorStoreError::RecoveryFlush)?;
-        Ok(self.recovery_status())
-    }
-
-    /// Time remaining until the oldest unflushed edit's target, usable even
-    /// with the default clock whose origin is private to this session.
-    pub fn recovery_flush_delay(&self) -> Option<Duration> {
-        self.recovery.flush_delay()
-    }
-
-    /// Run on the host's background worker when `flush_deadline` is reached.
-    /// A delayed worker flushes late; it never fabricates an on-time acknowledgement.
-    pub fn flush_recovery_if_due(&mut self) -> Result<bool, EditorStoreError> {
-        if !self.recovery.flush_due() {
-            return Ok(false);
-        }
-        self.flush_recovery()?;
-        Ok(true)
-    }
-
-    pub fn resume_recovery(&mut self) -> Result<RecoveryStatus, EditorStoreError> {
-        if self.pending_checkpoint.is_some() {
-            return Err(EditorStoreError::CheckpointPending);
-        }
-        let _gate = self
-            .store
-            .lock_gate()
-            .map_err(EditorStoreError::RecoveryResume)?;
-        if let Some(issue) = &self.recovery.issue {
-            if issue.kind != RecoveryIssueKind::TornTail
-                && issue.kind != RecoveryIssueKind::BaseMismatch
-            {
-                return Err(EditorStoreError::RecoveryNeedsReview(issue.clone()));
-            }
-        }
-        if self.recovery.failed {
-            self.recovery
-                .resume(&self.store.root)
-                .map_err(EditorStoreError::RecoveryResume)?;
-        } else {
-            // A host may be healthy while its append acknowledgement was lost.
-            // Resolve resume + flush under one gate before unpausing its page.
-            self.recovery
-                .flush(&self.store.root)
-                .map_err(EditorStoreError::RecoveryResume)?;
-        }
-        Ok(self.recovery_status())
-    }
-
-    pub fn source_text(&self) -> String {
-        self.engine.source_text()
-    }
-    pub fn display_text(&self) -> String {
-        self.engine.display_text()
-    }
-    pub fn id(&self) -> &str {
-        &self.id
-    }
-    pub fn revision(&self) -> Revision {
-        self.engine.revision()
-    }
-
-    pub fn active_formats(&self) -> Vec<InlineFormat> {
-        self.engine.active_formats()
-    }
-
-    pub fn selection(&self) -> DisplayRange {
-        self.engine.selection()
-    }
-
-    pub fn check_revision(&self, expected: Revision) -> Result<(), EditorStoreError> {
-        self.engine
-            .check_revision(expected)
-            .map_err(EditorStoreError::Editor)
-    }
-
-    pub fn source_at(
-        &self,
-        expected: Revision,
-        offset: futo_notes_editor::DisplayOffset,
-        affinity: Affinity,
-    ) -> Result<futo_notes_editor::SourceOffset, EditorStoreError> {
-        self.engine
-            .source_at(expected, offset, affinity)
-            .map_err(EditorStoreError::Editor)
-    }
-
-    pub fn display_to_utf16(
-        &self,
-        expected: Revision,
-        range: DisplayRange,
-    ) -> Result<DisplayUtf16Range, EditorStoreError> {
-        self.engine
-            .display_to_utf16(expected, range)
-            .map_err(EditorStoreError::Editor)
-    }
-
-    pub fn project(
-        &self,
-        expected: Revision,
-        range: DisplayRange,
-    ) -> Result<ProjectionSlice, EditorStoreError> {
-        self.engine
-            .project(expected, range)
-            .map_err(EditorStoreError::Editor)
-    }
-
-    pub fn select_with_affinity(
-        &mut self,
-        expected: Revision,
-        range: DisplayRange,
-        affinity: Affinity,
-    ) -> Result<SelectionChange, EditorStoreError> {
-        self.engine
-            .select_with_affinity(expected, range, affinity)
-            .map_err(EditorStoreError::Editor)
-    }
-
-    pub fn toggle_format(
-        &mut self,
-        expected: Revision,
-        format: InlineFormat,
-    ) -> Result<Option<ViewChange>, EditorStoreError> {
-        if self.pending_checkpoint.is_some() {
-            return Err(EditorStoreError::CheckpointPending);
-        }
-        if self.recovery.failed {
-            return Err(EditorStoreError::RecoveryPaused);
-        }
-        let _gate = self.store.lock_gate().map_err(EditorStoreError::Recovery)?;
-        self.engine
-            .toggle_format(expected, format, &mut |edit| {
-                self.recovery.append(&self.store.root, edit)
-            })
-            .map_err(EditorStoreError::Editor)
-    }
-
-    pub fn select_utf16(
-        &mut self,
-        expected: Revision,
-        range: DisplayUtf16Range,
-    ) -> Result<SelectionChange, EditorStoreError> {
-        self.engine
-            .select_utf16(expected, range)
-            .map_err(EditorStoreError::Editor)
-    }
-
-    pub fn move_caret(
-        &mut self,
-        expected: Revision,
-        direction: CaretDirection,
-    ) -> Result<SelectionChange, EditorStoreError> {
-        self.engine
-            .move_caret(expected, direction)
-            .map_err(EditorStoreError::Editor)
-    }
-
-    pub fn undo(&mut self, expected: Revision) -> Result<Option<ViewChange>, EditorStoreError> {
-        if self.pending_checkpoint.is_some() {
-            return Err(EditorStoreError::CheckpointPending);
-        }
-        if self.recovery.failed {
-            return Err(EditorStoreError::RecoveryPaused);
-        }
-        let _gate = self.store.lock_gate().map_err(EditorStoreError::Recovery)?;
-        self.engine
-            .undo(expected, &mut |edit| {
-                self.recovery.append(&self.store.root, edit)
-            })
-            .map_err(|error| match error {
-                EditorError::Persistence(error) => EditorStoreError::RecoveryAppend(error),
-                other => EditorStoreError::Editor(other),
-            })
-    }
-
-    pub fn redo(&mut self, expected: Revision) -> Result<Option<ViewChange>, EditorStoreError> {
-        if self.pending_checkpoint.is_some() {
-            return Err(EditorStoreError::CheckpointPending);
-        }
-        if self.recovery.failed {
-            return Err(EditorStoreError::RecoveryPaused);
-        }
-        let _gate = self.store.lock_gate().map_err(EditorStoreError::Recovery)?;
-        self.engine
-            .redo(expected, &mut |edit| {
-                self.recovery.append(&self.store.root, edit)
-            })
-            .map_err(|error| match error {
-                EditorError::Persistence(error) => EditorStoreError::RecoveryAppend(error),
-                other => EditorStoreError::Editor(other),
-            })
+            terminal: false,
+        }));
+        state
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .lease
+            .bind(&state);
+        drop(_gate);
+        Ok(StoreEditorSession { store, state })
     }
 }

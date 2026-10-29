@@ -102,7 +102,7 @@ impl LocalNoteStore {
                     .map(|tail| (id.clone(), format!("{to}/{tail}")))
             })
             .collect::<Vec<_>>();
-        let relinks = prepare_relinks(&self.root, &mappings);
+        let relinks = prepare_relinks(&self.root, &mappings)?;
         let mut changes = rename_changes(&mappings);
         changes.extend(
             relinks
@@ -187,7 +187,7 @@ impl LocalNoteStore {
             mappings.push((old, destination));
         }
 
-        let relinks = prepare_relinks(&self.root, &mappings);
+        let relinks = prepare_relinks(&self.root, &mappings)?;
         let mut changes = rename_changes(&mappings);
         changes.extend(
             relinks
