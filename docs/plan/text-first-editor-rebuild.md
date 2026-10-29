@@ -78,6 +78,22 @@ The detailed spec and tickets will turn this sequence into independently verifia
 slices with acceptance criteria and blocking relationships. Full renderer parity and cutover
 follow; detailed renderer sequencing and large Bootcamp campaigns are later planning work.
 
+## Ownership and renderer handoff
+
+The maintainer focuses first on the shared Rust editor engine and store integration. Once
+that core is accepted, a coworker takes desktop while the maintainer builds Android/iPhone.
+The core phase includes thin Swift/Kotlin/WebAssembly consumers and the shared host recovery
+contract, not full platform renderers. Its completion must leave a usable contract with
+examples, acknowledgement/error semantics, threading/lifetime requirements and compatibility
+guidance so the renderer work can proceed independently.
+
+The maintainer approved 34 behavior slices, each with its own regression and integration
+responsibilities. They are published as GitLab issues #284-#317; the
+[ticket index](text-first-editor-rebuild-tickets.md) records the blocking graph and handoff.
+All bodies, labels and 53 blocking edges were verified. The parent specification, labels and
+state remain unchanged. Native blocking is unavailable under this GitLab license, so the
+issues use the configured explicit-body dependency convention.
+
 ## Working baseline and evidence
 
 Production branch/worktree: text-first-editor-rebuild, created from origin/main at
@@ -96,10 +112,12 @@ roadmap. Their fixed design promises carry forward, but Bootcamp's proposed grad
 thresholds have not been accepted wholesale. Its old verdict-week/Milkdown-repair detour is
 obsolete after choosing this direction.
 
-## Next planning output
+## Implementation entry point
 
-Create a dependency-ordered child-ticket breakdown from issue #283 for review before
-publishing the tickets. Resolve implementation choices from existing owners, specs and evidence rather
-than asking the maintainer to choose data structures or parser internals. Preserve current
-supported text-file behavior; hostile-file tests must not silently expand the project into
-editing arbitrary binary or non-UTF-8 files.
+Begin with [Edit, save and recover a plain note](https://gitlab.futo.org/futo-notes/futo-notes/-/work_items/284),
+the only initially unblocked ticket. The approved integration branch is
+`text-first-editor-rebuild`; subsequent tickets become takeable as their blockers finish.
+Resolve implementation choices from existing owners, specs and evidence rather than asking
+the maintainer to choose data structures or parser internals. Preserve current supported
+text-file behavior; hostile-file tests must not silently expand the project into editing
+arbitrary binary or non-UTF-8 files.
