@@ -79,6 +79,25 @@ impl TryFrom<EditorUtf16Range> for editor::DisplayUtf16Range {
     }
 }
 
+/// The engine determines the affected display range and paragraph semantics.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum EditorParagraphKey {
+    Enter,
+    ShiftEnter,
+    Backspace,
+    Delete,
+}
+impl From<EditorParagraphKey> for editor::ParagraphKey {
+    fn from(value: EditorParagraphKey) -> Self {
+        match value {
+            EditorParagraphKey::Enter => Self::Enter,
+            EditorParagraphKey::ShiftEnter => Self::ShiftEnter,
+            EditorParagraphKey::Backspace => Self::Backspace,
+            EditorParagraphKey::Delete => Self::Delete,
+        }
+    }
+}
+
 /// The engine owns grouping; native hosts identify isolated user actions and
 /// submit only the committed text of a provisional composition.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]

@@ -47,7 +47,7 @@ impl Projection {
         let expanded = split_entities(pieces, a, z);
         let Cut {
             mut before,
-            after,
+            mut after,
             left,
             right,
         } = cut(expanded, a..z, toggle.is_some());
@@ -57,12 +57,35 @@ impl Projection {
             right
         };
         if let Some(formats) = pending {
-            carry_formats(&mut before, &mut markers, &mut active, formats);
+            carry_formats(&mut before, &after, &mut markers, &mut active, formats);
         }
         let formats = active
             .iter()
             .map(|id| markers[*id].format)
             .collect::<Vec<_>>();
+        // Removing a line separator can bring equal-format delimiter runs
+        // together. Join their identities at that seam instead of emitting
+        // adjacent identical delimiters that CommonMark cannot distinguish.
+        if inserted.is_empty() {
+            if let (Some(left), Some(right)) = (before.last(), after.first()) {
+                let joins: Vec<_> = left
+                    .spans
+                    .iter()
+                    .zip(&right.spans)
+                    .take_while(|(a, b)| markers[**a].format == markers[**b].format)
+                    .map(|(&a, &b)| (a, b))
+                    .collect();
+                for piece in &mut after {
+                    for &(left, right) in &joins {
+                        for id in &mut piece.spans {
+                            if *id == right {
+                                *id = left;
+                            }
+                        }
+                    }
+                }
+            }
+        }
         let mut changed = before;
         let insertion_index = changed.len();
         changed.extend(inserted.chars().map(|ch| Piece {
@@ -265,6 +288,7 @@ fn cut(expanded: Vec<Piece>, selected: Range<usize>, keep: bool) -> Cut {
 
 fn carry_formats(
     before: &mut [Piece],
+    after: &[Piece],
     markers: &mut Vec<Marker>,
     active: &mut Vec<usize>,
     formats: &[InlineFormat],
@@ -276,7 +300,8 @@ fn carry_formats(
                 .iter()
                 .rev()
                 .find(|piece| !piece.display.chars().all(char::is_whitespace));
-            let reusable = previous.and_then(|piece| {
+            let neighbor = previous.or_else(|| after.first());
+            let reusable = neighbor.and_then(|piece| {
                 piece
                     .spans
                     .iter()

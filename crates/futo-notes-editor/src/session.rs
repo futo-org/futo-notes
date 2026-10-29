@@ -1,5 +1,7 @@
+mod paragraphs;
 mod transaction;
 use crate::history::{HistoryClock, HistoryEntry, HistoryGroup, MonotonicClock, TypingRun};
+pub use paragraphs::ParagraphKey;
 use ropey::Rope;
 use std::sync::Arc;
 

@@ -130,6 +130,29 @@ impl WasmSession {
                 .map_err(error)?,
         )
     }
+    pub fn paragraph_key_utf16(
+        &mut self,
+        revision: u64,
+        start: usize,
+        end: usize,
+        key: &str,
+    ) -> Result<String, JsValue> {
+        let key = serde_json::from_str(key).map_err(error)?;
+        json(
+            &self
+                .0
+                .paragraph_key_utf16(
+                    Revision(revision),
+                    DisplayUtf16Range {
+                        start: DisplayUtf16Offset(start),
+                        end: DisplayUtf16Offset(end),
+                    },
+                    key,
+                )
+                .map_err(error)?,
+        )
+    }
+
     pub fn replace_utf16(
         &mut self,
         revision: u64,
