@@ -12,7 +12,7 @@ use super::{
 
 #[derive(uniffi::Object)]
 pub struct NoteStore {
-    inner: store::LocalNoteStore,
+    inner: Arc<store::LocalNoteStore>,
 }
 
 impl NoteStore {
@@ -36,8 +36,15 @@ impl NoteStore {
     #[uniffi::constructor]
     pub fn new(notes_root: String) -> Arc<Self> {
         Arc::new(Self {
-            inner: store::LocalNoteStore::new(PathBuf::from(notes_root)),
+            inner: Arc::new(store::LocalNoteStore::new(PathBuf::from(notes_root))),
         })
+    }
+
+    pub fn open_editor(
+        &self,
+        id: String,
+    ) -> Result<Arc<crate::NativeEditorSession>, crate::EditorSessionError> {
+        crate::NativeEditorSession::open(&self.inner, &id)
     }
 
     /// Search startup is best effort so index availability never gates the note snapshot.

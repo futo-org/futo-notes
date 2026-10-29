@@ -317,6 +317,16 @@ impl StoreEditorSession<'_> {
         self.engine.selection()
     }
 
+    pub fn display_to_utf16(
+        &self,
+        expected: Revision,
+        range: DisplayRange,
+    ) -> Result<DisplayUtf16Range, EditorStoreError> {
+        self.engine
+            .display_to_utf16(expected, range)
+            .map_err(EditorStoreError::Editor)
+    }
+
     pub fn select_utf16(
         &mut self,
         expected: Revision,

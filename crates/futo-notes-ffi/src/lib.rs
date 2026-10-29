@@ -1,3 +1,8 @@
+mod editor;
+pub use editor::{
+    EditorByteRange, EditorRecoveryIssue, EditorRecoveryIssueKind, EditorRecoveryStatus,
+    EditorSessionError, EditorUtf16Range, EditorViewChange, NativeEditorSession,
+};
 mod license;
 mod localization;
 mod notes;
