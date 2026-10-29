@@ -142,3 +142,69 @@ fn native_input_errors_selection_and_history_match_the_direct_session() {
     let recovered = store.open_editor("plain".into()).unwrap();
     assert_eq!(recovered.source_text().unwrap(), "a日本\0\0z\r\n");
 }
+
+#[test]
+fn native_projection_preserves_rich_semantics_and_source_correspondence() {
+    use futo_notes_ffi::{EditorByteRange, EditorInlineFormat};
+    let tree = TempTree::new();
+    std::fs::create_dir_all(tree.path("vault")).unwrap();
+    let store = NoteStore::new(path_string(&tree.path("vault")));
+    store
+        .create_note("inline".into(), "".into(), "__日😀__ tail\r\n".into())
+        .unwrap();
+    let session = store.open_editor("inline".into()).unwrap();
+    let projected = session
+        .project(0, EditorByteRange { start: 0, end: 14 })
+        .unwrap();
+    assert_eq!(projected.text, "日😀 tail\r\n");
+    assert_eq!(projected.runs[0].formats, vec![EditorInlineFormat::Bold]);
+    assert_eq!(
+        projected.runs[0].range,
+        EditorByteRange { start: 0, end: 7 }
+    );
+    let change = session
+        .replace_utf16(
+            0,
+            EditorUtf16Range { start: 1, end: 3 },
+            "中".encode_utf16().collect(),
+        )
+        .unwrap();
+    assert_eq!(session.source_text().unwrap(), "__日中__ tail\r\n");
+    assert_eq!(change.projection.text, "日中 tail\r\n");
+    assert_eq!(change.projection.revision, 1);
+    assert_eq!(
+        change.projection.runs[0].formats,
+        vec![EditorInlineFormat::Bold]
+    );
+    assert!(!change.projection.correspondence.is_empty());
+}
+
+#[test]
+fn native_storage_failure_keeps_draft_copyable_and_reports_its_stage() {
+    use futo_notes_ffi::EditorSessionError;
+    let tree = TempTree::new();
+    let root = tree.path("vault");
+    std::fs::create_dir_all(&root).unwrap();
+    let store = NoteStore::new(path_string(&root));
+    store
+        .create_note("plain".into(), "".into(), "before".into())
+        .unwrap();
+    let session = store.open_editor("plain".into()).unwrap();
+    std::fs::write(root.join(".futo-editor-recovery"), "blocked").unwrap();
+    assert!(matches!(
+        session.replace_utf16(0, EditorUtf16Range { start: 6, end: 6 }, vec![33]),
+        Err(EditorSessionError::RecoveryAppend { .. })
+    ));
+    assert_eq!(session.source_text().unwrap(), "before");
+    assert_eq!(session.revision().unwrap(), 0);
+    assert!(session.recovery_status().unwrap().paused);
+    assert!(session.recovery_issue().unwrap().is_none());
+    assert!(matches!(
+        session.replace_utf16(0, EditorUtf16Range { start: 6, end: 6 }, vec![33]),
+        Err(EditorSessionError::RecoveryPaused)
+    ));
+    assert!(matches!(
+        session.resume_recovery(),
+        Err(EditorSessionError::RecoveryResume { .. })
+    ));
+}

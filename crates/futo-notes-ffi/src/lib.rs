@@ -1,7 +1,9 @@
 mod editor;
 pub use editor::{
-    EditorByteRange, EditorRecoveryIssue, EditorRecoveryIssueKind, EditorRecoveryStatus,
-    EditorSessionError, EditorUtf16Range, EditorViewChange, NativeEditorSession,
+    EditorAffinity, EditorByteRange, EditorCorrespondence, EditorInlineFormat, EditorProjection,
+    EditorRecoveryIssue, EditorRecoveryIssueKind, EditorRecoveryStatus, EditorSemanticRun,
+    EditorSessionError, EditorSourceByteRange, EditorUtf16Range, EditorViewChange,
+    NativeEditorSession,
 };
 mod license;
 mod localization;

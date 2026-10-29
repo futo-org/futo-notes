@@ -47,6 +47,18 @@ impl NativeEditorSession {
         self.with_session(|session| Ok(session.revision().0))
     }
 
+    pub fn project(
+        &self,
+        expected: u64,
+        range: EditorByteRange,
+    ) -> Result<EditorProjection, EditorSessionError> {
+        self.with_session(|session| {
+            Ok(session
+                .project(Revision(expected), range.try_into()?)?
+                .into())
+        })
+    }
+
     pub fn display_text(&self) -> Result<String, EditorSessionError> {
         self.with_session(|session| Ok(session.display_text()))
     }
@@ -105,6 +117,14 @@ impl NativeEditorSession {
                 .replace_utf16(Revision(expected), range.try_into()?, &inserted)?
                 .into())
         })
+    }
+
+    pub fn recovery_issue(&self) -> Result<Option<EditorRecoveryIssue>, EditorSessionError> {
+        self.with_session(|session| Ok(session.recovery_issue().cloned().map(Into::into)))
+    }
+
+    pub fn resume_recovery(&self) -> Result<EditorRecoveryStatus, EditorSessionError> {
+        self.with_session(|session| Ok(session.resume_recovery()?.into()))
     }
 
     pub fn recovery_status(&self) -> Result<EditorRecoveryStatus, EditorSessionError> {

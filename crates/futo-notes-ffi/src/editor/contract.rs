@@ -45,6 +45,7 @@ impl From<editor::DisplayUtf16Range> for EditorUtf16Range {
 pub struct EditorSelectionChange {
     pub revision: u64,
     pub selection: EditorByteRange,
+    pub affinity: EditorAffinity,
 }
 
 impl From<editor::SelectionChange> for EditorSelectionChange {
@@ -52,6 +53,7 @@ impl From<editor::SelectionChange> for EditorSelectionChange {
         Self {
             revision: value.revision.0,
             selection: value.selection.into(),
+            affinity: value.affinity.into(),
         }
     }
 }
@@ -88,6 +90,9 @@ pub struct EditorViewChange {
     pub selection: EditorByteRange,
     pub materialized_source_bytes: u64,
     pub inserted_bytes: u64,
+    pub parsed_source_bytes: u64,
+    pub affinity: EditorAffinity,
+    pub projection: EditorProjection,
 }
 
 impl From<editor::ViewChange> for EditorViewChange {
@@ -100,6 +105,9 @@ impl From<editor::ViewChange> for EditorViewChange {
             selection: value.selection.into(),
             materialized_source_bytes: value.work.materialized_source_bytes as u64,
             inserted_bytes: value.work.inserted_bytes as u64,
+            parsed_source_bytes: value.work.parsed_source_bytes as u64,
+            affinity: value.affinity.into(),
+            projection: value.projection.into(),
         }
     }
 }
@@ -172,6 +180,8 @@ pub enum EditorSessionError {
     InvalidRange,
     #[error("invalid UTF-16 input")]
     InvalidText,
+    #[error("format cannot be represented without changing meaning")]
+    UnrepresentableFormat,
     #[error("editor revision exhausted")]
     RevisionExhausted,
     #[error("editor persistence failed: {error}")]
@@ -222,6 +232,7 @@ impl From<editor::EditorError> for EditorSessionError {
             E::InvalidRange => Self::InvalidRange,
             E::InvalidText => Self::InvalidText,
             E::RevisionExhausted => Self::RevisionExhausted,
+            E::UnrepresentableFormat => Self::UnrepresentableFormat,
             E::Persistence(error) => Self::Persistence { error },
             E::RecoveryMismatch => Self::RecoveryMismatch,
         }
@@ -249,6 +260,96 @@ impl From<store::EditorStoreError> for EditorSessionError {
                 result: (*result).into(),
                 error,
             },
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum EditorAffinity {
+    Backward,
+    Forward,
+}
+impl From<editor::Affinity> for EditorAffinity {
+    fn from(value: editor::Affinity) -> Self {
+        match value {
+            editor::Affinity::Backward => Self::Backward,
+            editor::Affinity::Forward => Self::Forward,
+        }
+    }
+}
+impl From<EditorAffinity> for editor::Affinity {
+    fn from(value: EditorAffinity) -> Self {
+        match value {
+            EditorAffinity::Backward => Self::Backward,
+            EditorAffinity::Forward => Self::Forward,
+        }
+    }
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum EditorInlineFormat {
+    Bold,
+    Italic,
+    Strike,
+    Code,
+}
+impl From<editor::InlineFormat> for EditorInlineFormat {
+    fn from(value: editor::InlineFormat) -> Self {
+        match value {
+            editor::InlineFormat::Bold => Self::Bold,
+            editor::InlineFormat::Italic => Self::Italic,
+            editor::InlineFormat::Strike => Self::Strike,
+            editor::InlineFormat::Code => Self::Code,
+        }
+    }
+}
+#[derive(Debug, PartialEq, Eq, uniffi::Record)]
+pub struct EditorSemanticRun {
+    pub range: EditorByteRange,
+    pub formats: Vec<EditorInlineFormat>,
+}
+#[derive(Debug, PartialEq, Eq, uniffi::Record)]
+pub struct EditorSourceByteRange {
+    pub start: u64,
+    pub end: u64,
+}
+#[derive(Debug, PartialEq, Eq, uniffi::Record)]
+pub struct EditorCorrespondence {
+    pub source: EditorSourceByteRange,
+    pub display: EditorByteRange,
+}
+#[derive(Debug, PartialEq, Eq, uniffi::Record)]
+pub struct EditorProjection {
+    pub revision: u64,
+    pub range: EditorByteRange,
+    pub text: String,
+    pub runs: Vec<EditorSemanticRun>,
+    pub correspondence: Vec<EditorCorrespondence>,
+}
+impl From<editor::ProjectionSlice> for EditorProjection {
+    fn from(value: editor::ProjectionSlice) -> Self {
+        Self {
+            revision: value.revision.0,
+            range: value.range.into(),
+            text: value.text,
+            runs: value
+                .runs
+                .into_iter()
+                .map(|run| EditorSemanticRun {
+                    range: run.range.into(),
+                    formats: run.formats.into_iter().map(Into::into).collect(),
+                })
+                .collect(),
+            correspondence: value
+                .correspondence
+                .into_iter()
+                .map(|item| EditorCorrespondence {
+                    source: EditorSourceByteRange {
+                        start: item.source.start.0 as u64,
+                        end: item.source.end.0 as u64,
+                    },
+                    display: item.display.into(),
+                })
+                .collect(),
         }
     }
 }
