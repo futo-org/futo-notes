@@ -27,7 +27,7 @@ struct NativeEditorStructuralSeamTests {
                     forResource: "structural-seams", withExtension: "json"))
             let cases = try JSONDecoder().decode(
                 [StructuralSeamCase].self, from: Data(contentsOf: url))
-            #expect(cases.count == 11)
+            #expect(cases.count == 12)
             for item in cases {
                 let root = FileManager.default.temporaryDirectory.appendingPathComponent(
                     "editor-seams-\(UUID().uuidString)")
@@ -73,9 +73,12 @@ struct NativeEditorStructuralSeamTests {
                     _ = try s.composeUtf16(
                         expected: 0, range: selected, text: Array(item.text.utf16))
                     try apply(s.commitCompositionUtf16(expected: 0, text: nil))
-                case "composition_os":
+                case "composition_os", "distant_composition_os":
                     _ = try s.composeUtf16(
-                        expected: 0, range: EditorUtf16Range(start: 0, end: 0), text: [33])
+                        expected: 0,
+                        range: EditorUtf16Range(
+                            start: item.mode == "distant_composition_os" ? 17 : 0,
+                            end: item.mode == "distant_composition_os" ? 17 : 0), text: [33])
                     try apply(
                         s.replaceOsUtf16(
                             expected: 0, range: selected, text: Array(item.text.utf16),

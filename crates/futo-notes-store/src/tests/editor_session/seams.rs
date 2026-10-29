@@ -15,7 +15,7 @@ fn range(a: usize, z: usize) -> DisplayUtf16Range {
 #[test]
 fn structural_seams_and_raw_composition_recover_exact_source_and_carets() {
     let cases: serde_json::Value = serde_json::from_str(CASES).unwrap();
-    assert_eq!(cases.as_array().unwrap().len(), 11);
+    assert_eq!(cases.as_array().unwrap().len(), 12);
     for case in cases.as_array().unwrap() {
         let text = |key: &str| case[key].as_str().unwrap();
         let root = TestRoot::new();
@@ -70,8 +70,24 @@ fn structural_seams_and_raw_composition_recover_exact_source_and_carets() {
                         .unwrap()
                         .unwrap(),
                 );
-            } else if mode == "composition_os" {
-                s.compose_utf16(s.revision(), range(0, 0), &[33]).unwrap();
+            } else if matches!(mode, "composition_os" | "distant_composition_os") {
+                s.compose_utf16(
+                    s.revision(),
+                    range(
+                        if mode == "distant_composition_os" {
+                            17
+                        } else {
+                            0
+                        },
+                        if mode == "distant_composition_os" {
+                            17
+                        } else {
+                            0
+                        },
+                    ),
+                    &[33],
+                )
+                .unwrap();
                 apply(
                     s.replace_os_utf16(s.revision(), selected, &inserted, &[])
                         .unwrap()

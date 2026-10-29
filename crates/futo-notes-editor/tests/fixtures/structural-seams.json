@@ -130,5 +130,17 @@
     "expectedDisplay": "!?\n\nAC",
     "caret": 6,
     "history": 1
+  },
+  {
+    "name": "earlier-and-later-raw-marked-os-targets",
+    "source": "one\n\ntwo\n\nthree\n\n> > \n> ab\n> ===",
+    "display": "one\n\ntwo\n\nthree\n\n\nab",
+    "mode": "distant_composition_os",
+    "range": [0, 21],
+    "text": "One\n\ntwo\n\nthree\n\n!\nAC",
+    "expectedSource": "One\n\ntwo\n\nthree\n\n> > !\n>\n> AC\n> ===",
+    "expectedDisplay": "One\n\ntwo\n\nthree\n\n!\n\nAC",
+    "caret": 22,
+    "history": 2
   }
 ]

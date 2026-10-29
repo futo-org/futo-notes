@@ -14,7 +14,7 @@ class NativeEditorStructuralSeamTest {
     fun structuralSeamsAndRawMarkedInputKeepExactNativeCaretsAndRecovery() {
         val context = InstrumentationRegistry.getInstrumentation().context
         val cases = JSONArray(context.assets.open("structural-seams.json").bufferedReader().use { it.readText() })
-        assertEquals(11, cases.length())
+        assertEquals(12, cases.length())
         for (index in 0 until cases.length()) {
             val item = cases.getJSONObject(index)
             val root = File(InstrumentationRegistry.getInstrumentation().targetContext.cacheDir, "editor-seams-${UUID.randomUUID()}")
@@ -54,8 +54,8 @@ class NativeEditorStructuralSeamTest {
                                 s.composeUtf16(0uL, selected, inserted)
                                 apply(s.commitCompositionUtf16(0uL, null))
                             }
-                            "composition_os" -> {
-                                s.composeUtf16(0uL, EditorUtf16Range(0uL, 0uL), units("!"))
+                            "composition_os", "distant_composition_os" -> {
+                                s.composeUtf16(0uL, EditorUtf16Range(if (mode == "distant_composition_os") 17uL else 0uL, if (mode == "distant_composition_os") 17uL else 0uL), units("!"))
                                 apply(s.replaceOsUtf16(0uL, selected, inserted, emptyList()))
                                 assertEquals(1uL, s.revision())
                             }

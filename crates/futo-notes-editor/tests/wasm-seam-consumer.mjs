@@ -13,7 +13,7 @@ import console from 'node:console';
 import { setTimeout, clearTimeout } from 'node:timers';
 const { WasmSession } = await import(pathToFileURL(process.argv[2]).href);
 const cases = JSON.parse(readFileSync(new URL('fixtures/structural-seams.json', import.meta.url)));
-assert.equal(cases.length, 11);
+assert.equal(cases.length, 12);
 const units = (text) => Uint16Array.from({ length: text.length }, (_, at) => text.charCodeAt(at));
 function host(vault, source) {
   const worker = spawn(process.argv[3], [vault, source], { stdio: ['pipe', 'pipe', 'inherit'] });
@@ -86,8 +86,13 @@ for (const item of cases) {
       assert.equal(JSON.parse(page.composition()), null);
       page.compose_utf16(revision, 0, 0, units(item.text));
       await apply(page.commit_composition_utf16(revision, null));
-    } else if (item.mode === 'composition_os') {
-      page.compose_utf16(revision, 0, 0, units('!'));
+    } else if (['composition_os', 'distant_composition_os'].includes(item.mode)) {
+      page.compose_utf16(
+        revision,
+        item.mode === 'distant_composition_os' ? 17 : 0,
+        item.mode === 'distant_composition_os' ? 17 : 0,
+        units('!'),
+      );
       await apply(page.replace_os_utf16(revision, ...item.range, units(item.text), '[]'));
       assert.equal(revision, 1n, 'composition + OS input have one protected append');
     } else if (['os', 'indent_os'].includes(item.mode)) {
@@ -134,6 +139,12 @@ for (const item of cases) {
       item.expectedDisplay,
     );
     await worker.exchange('{"checkpoint":true}');
+    await worker.close();
+    worker = null;
+    page.free();
+    page = null;
+    worker = host(vault, '--reopen');
+    assert.equal((await worker.next()).source, item.expectedSource);
   } finally {
     page?.free();
     if (worker) await worker.close();

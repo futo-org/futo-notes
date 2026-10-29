@@ -31,11 +31,11 @@ impl InputMapping {
         self
     }
 
-    pub fn map(&self, mut offset: usize) -> Result<usize, EditorError> {
+    pub fn map(&self, mut offset: usize, origin: usize) -> Result<usize, EditorError> {
         for (range, inserted) in self.boundary.iter().chain(std::iter::once(&self.input)) {
-            if offset >= range.end.0 {
+            if offset >= origin + range.end.0 {
                 offset = offset - (range.end.0 - range.start.0) + inserted;
-            } else if offset > range.start.0 {
+            } else if offset > origin + range.start.0 {
                 return Err(EditorError::UnrepresentableFormat);
             }
         }
@@ -52,12 +52,12 @@ enum ResultTarget {
 }
 
 impl ResultTarget {
-    fn new(replacements: &[DisplayReplacement], offset: usize, origin: usize) -> Self {
+    fn new(replacements: &[DisplayReplacement], offset: usize) -> Self {
         let (mut old_end, mut new_end) = (0, 0);
         for (run, replacement) in replacements.iter().enumerate() {
             let start = new_end + replacement.range.start.0 - old_end;
             if offset < start {
-                return Self::Opening(offset + old_end - new_end - origin);
+                return Self::Opening(offset + old_end - new_end);
             }
             if offset <= start + replacement.inserted.len() {
                 return Self::Inserted {
@@ -68,7 +68,7 @@ impl ResultTarget {
             old_end = replacement.range.end.0;
             new_end = start + replacement.inserted.len();
         }
-        Self::Opening(offset + old_end - new_end - origin)
+        Self::Opening(offset + old_end - new_end)
     }
 }
 
@@ -124,7 +124,7 @@ impl EditorSession {
             .collect();
         let mut targets: Vec<_> = targets
             .iter()
-            .map(|&offset| ResultTarget::new(replacements, offset, display_start))
+            .map(|&offset| ResultTarget::new(replacements, offset))
             .collect();
         let mut materialized = raw.len();
         let mut parsed = 2 * raw.len();
@@ -155,14 +155,17 @@ impl EditorSession {
                 },
             )?;
             for offset in &mut anchors[2 * index + 2..] {
-                *offset = mapping.map(*offset)?;
+                *offset = mapping.map(*offset, 0)?;
             }
             for target in &mut targets {
                 match target {
-                    ResultTarget::Opening(offset) => *offset = mapping.map(*offset)?,
+                    ResultTarget::Opening(offset) => {
+                        *offset = mapping.map(*offset, display_start)?
+                    }
                     ResultTarget::Inserted { run, within } if *run == index => {
                         *target = ResultTarget::Opening(
-                            staged.selection.end.0 - replacement.inserted.len() + *within,
+                            display_start + staged.selection.end.0 - replacement.inserted.len()
+                                + *within,
                         );
                     }
                     _ => {}
@@ -174,7 +177,7 @@ impl EditorSession {
         let targets = targets
             .into_iter()
             .map(|target| match target {
-                ResultTarget::Opening(offset) => display_start + offset,
+                ResultTarget::Opening(offset) => offset,
                 ResultTarget::Inserted { .. } => unreachable!("every inserted run was staged"),
             })
             .collect();

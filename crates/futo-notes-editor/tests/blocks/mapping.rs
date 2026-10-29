@@ -2,6 +2,68 @@ use super::seams::indented_empty_quote;
 use super::*;
 
 #[test]
+fn unchanged_whole_field_os_selection_is_separate_from_the_marked_commit_history() {
+    let mut s = EditorSession::open("ab");
+    s.compose(s.revision(), range(0, 0), "!").unwrap();
+    s.replace_os(s.revision(), range(0, 3), "!ab", &[], &mut |_| Ok(()))
+        .unwrap()
+        .unwrap();
+    assert_eq!(s.source_text(), "!ab");
+    assert_eq!(s.selection(), range(3, 3));
+    s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap();
+    assert_eq!(s.source_text(), "ab");
+    s.redo(s.revision(), &mut |_| Ok(())).unwrap().unwrap();
+    assert_eq!(s.source_text(), "!ab");
+    assert_eq!(s.selection(), range(1, 1));
+}
+
+#[test]
+fn whole_field_input_before_a_distant_marked_edit_window_keeps_its_prefix_target() {
+    let raw = "first\n\nbefore\n\n> > \n> ab\n> ===";
+    let mut s = EditorSession::open(raw);
+    let mut view = ReferenceView::new("first\n\nbefore\n\n\nab");
+    s.compose(s.revision(), range(15, 15), "!").unwrap();
+    view.apply(
+        s.replace_os(
+            s.revision(),
+            range(0, 19),
+            "first\n\nbefore\n\n!\nAC",
+            &[],
+            &mut |_| Ok(()),
+        )
+        .unwrap()
+        .unwrap(),
+    );
+    assert_eq!(s.source_text(), "first\n\nbefore\n\n> > !\n>\n> AC\n> ===");
+    assert_eq!(view.text, "first\n\nbefore\n\n!\n\nAC");
+    assert_eq!(s.selection(), range(20, 20));
+}
+
+#[test]
+fn an_earlier_command_keeps_its_target_outside_the_distant_marked_edit_window() {
+    let raw = "one\n\ntwo\n\nthree\n\n> > \n> ab\n> ===";
+    let mut s = EditorSession::open(raw);
+    let mut view = ReferenceView::new("one\n\ntwo\n\nthree\n\n\nab");
+    s.compose(s.revision(), range(17, 17), "!").unwrap();
+    view.apply(
+        s.block_command(
+            s.revision(),
+            range(0, 0),
+            BlockCommand::Heading(3),
+            &mut |_| Ok(()),
+        )
+        .unwrap()
+        .unwrap(),
+    );
+    assert_eq!(
+        s.source_text(),
+        "### one\n\ntwo\n\nthree\n\n> > !\n>\n> ab\n> ==="
+    );
+    assert_eq!(view.text, "one\n\ntwo\n\nthree\n\n!\n\nab");
+    assert_eq!(s.selection(), range(0, 0));
+}
+
+#[test]
 fn os_mapping_preserves_unicode_entities_crlf_and_unchanged_text_beyond_its_edit_window() {
     for (raw, shown, text, expected, display, caret) in [
         (
