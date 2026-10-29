@@ -15,6 +15,8 @@ pub(super) struct Header {
     pub id: String,
     pub base: String,
     pub base_revision: Revision,
+    #[serde(default)]
+    pub replacement_epoch: u64,
 }
 
 #[derive(Serialize, Deserialize)]

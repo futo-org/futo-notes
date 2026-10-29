@@ -216,6 +216,18 @@ impl LocalNoteStore {
         content: &str,
         modified_ms: Option<i64>,
     ) -> Result<NoteMetadata, String> {
+        self.write_checkpoint_raw(id, content, modified_ms, None)
+    }
+
+    /// The checkpoint capability exempts only the attached recovery id.
+    /// Ordinary callers pass no capability and use default destination protection.
+    pub(crate) fn write_checkpoint_raw(
+        &self,
+        id: &str,
+        content: &str,
+        modified_ms: Option<i64>,
+        checkpoint: Option<&vault_fs::EditorCheckpointInstall<'_>>,
+    ) -> Result<NoteMetadata, String> {
         if let Some(existing) = self.colliding_note(id) {
             return Err(format!(
                 "note id collides with existing cross-platform path: {existing}"
@@ -225,7 +237,14 @@ impl LocalNoteStore {
         let change = FileChange::Changed(note_filename(id));
         self.before_write
             .before_write(std::slice::from_ref(&change));
-        vault_fs::write_atomic_local(&self.root, &note_filename(id), content.as_bytes())?;
+        match checkpoint {
+            Some(checkpoint) => {
+                checkpoint.write_atomic_local(&note_filename(id), content.as_bytes())?
+            }
+            None => {
+                vault_fs::write_atomic_local(&self.root, &note_filename(id), content.as_bytes())?
+            }
+        }
         self.stamp_note(id, modified_ms)?;
         let metadata = vault::metadata(&self.root, id)
             .ok_or_else(|| "note metadata unavailable after write".to_owned())?;

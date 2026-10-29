@@ -4,10 +4,10 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use rayon::prelude::*;
 
-use super::atomic_write::move_no_replace;
 use super::filenames::collision_key;
 use super::paths::MAX_FOLDER_DEPTH;
 use super::timestamps::now_ms;
+use super::vault_fs;
 
 const BACKUP_PREFIX: &str = ".sf-bak-";
 const BACKUP_SIDECAR_SUFFIX: &str = ".path";
@@ -78,32 +78,49 @@ pub struct RecoveredBackup {
 /// Returns divergent backups intact so callers can rename them visibly before removing the sidecar.
 #[must_use]
 pub fn recover_parked_backups(root: &Path) -> Vec<RecoveredBackup> {
-    recover_parked_in(root, 0)
+    let Ok(_guard) = super::vault_mutation_guard() else {
+        return Vec::new();
+    };
+    recover_parked_backups_locked(root).0
+}
+
+/// Caller holds the vault guard once across this parallel scan and all follow-up
+/// installs. Workers never reacquire it; failed restores retain backup + sidecar.
+#[must_use]
+pub fn recover_parked_backups_locked(root: &Path) -> (Vec<RecoveredBackup>, Vec<String>) {
+    recover_parked_in(root, root, 0)
 }
 
 /// Sibling directories are scanned in parallel: this runs before every vault
 /// open. `scan_parked_entries` has closed each directory before recursing.
-fn recover_parked_in(dir: &Path, depth: usize) -> Vec<RecoveredBackup> {
+fn recover_parked_in(root: &Path, dir: &Path, depth: usize) -> (Vec<RecoveredBackup>, Vec<String>) {
     let Some(entries) = scan_parked_entries(dir) else {
-        return Vec::new();
+        return (Vec::new(), Vec::new());
     };
 
-    let mut recovered: Vec<RecoveredBackup> = entries
-        .backups
-        .iter()
-        .filter_map(|name| recover_parked_backup(dir, name))
-        .collect();
+    let mut recovered = Vec::new();
+    let mut warnings = Vec::new();
+    for name in &entries.backups {
+        match recover_parked_backup(root, dir, name) {
+            Ok(Some(backup)) => recovered.push(backup),
+            Ok(None) => {}
+            Err(error) => warnings.push(format!("recovered backup {name}: {error}")),
+        }
+    }
     remove_orphan_sidecars(dir, entries.sidecars);
 
     if depth < MAX_FOLDER_DEPTH {
-        let nested: Vec<Vec<RecoveredBackup>> = entries
+        let nested: Vec<_> = entries
             .subdirs
             .par_iter()
-            .map(|subdir| recover_parked_in(subdir, depth + 1))
+            .map(|subdir| recover_parked_in(root, subdir, depth + 1))
             .collect();
-        recovered.extend(nested.into_iter().flatten());
+        for (backups, errors) in nested {
+            recovered.extend(backups);
+            warnings.extend(errors);
+        }
     }
-    recovered
+    (recovered, warnings)
 }
 
 struct ParkedEntries {
@@ -142,37 +159,45 @@ fn scan_parked_entries(dir: &Path) -> Option<ParkedEntries> {
     })
 }
 
-fn recover_parked_backup(dir: &Path, name: &str) -> Option<RecoveredBackup> {
+fn recover_parked_backup(
+    root: &Path,
+    dir: &Path,
+    name: &str,
+) -> Result<Option<RecoveredBackup>, String> {
     let backup = dir.join(name);
     let sidecar = dir.join(format!("{name}{BACKUP_SIDECAR_SUFFIX}"));
-    let leaf = fs::read_to_string(&sidecar).ok()?;
+    let Ok(leaf) = fs::read_to_string(&sidecar) else {
+        return Ok(None);
+    };
     let leaf = leaf.trim();
     if leaf.is_empty() || leaf.contains('/') || leaf.contains('\\') {
-        return None;
+        return Ok(None);
     }
     let destination = dir.join(leaf);
     // A no-replace move installs the backup at its canonical name without a
     // check-then-write race and consumes the backup on success.
-    match move_no_replace(&backup, &destination) {
+    let source = vault_fs::relative_name(root, &backup).ok_or("invalid backup path")?;
+    let target = vault_fs::relative_name(root, &destination).ok_or("invalid backup destination")?;
+    match vault_fs::move_no_replace(root, &source, &target) {
         Ok(true) => {
             let _ = fs::remove_file(&sidecar);
-            None
+            Ok(None)
         }
         Ok(false) => match (fs::read(&backup), fs::read(&destination)) {
             (Ok(backup_bytes), Ok(live_bytes)) if backup_bytes == live_bytes => {
                 remove_parked_files(&backup, &sidecar);
-                None
+                Ok(None)
             }
             _ => {
                 // A later canonical restore could resurrect stale content after live deletion.
-                Some(RecoveredBackup {
+                Ok(Some(RecoveredBackup {
                     leaf: leaf.to_owned(),
                     backup,
                     sidecar,
-                })
+                }))
             }
         },
-        Err(_) => None,
+        Err(error) => Err(error),
     }
 }
 
