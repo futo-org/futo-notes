@@ -28,6 +28,24 @@ impl EditorSession {
         if line.code {
             return Ok(None);
         }
+        if matches!(key, ParagraphKey::Enter | ParagraphKey::ShiftEnter)
+            && (line.heading > 0 || line.quote_depth > 0)
+            && self.projection.has_block_seams(range)
+        {
+            return self.stage_block_action(expected, range, accept, |staged, local, accept| {
+                let seams = staged.split_inline_block_seams(local, accept)?;
+                let Some(mut change) =
+                    staged.paragraph_key(staged.revision(), local, key, accept)?
+                else {
+                    return Ok(None);
+                };
+                if let Some(seams) = seams {
+                    change.work.materialized_source_bytes += seams.work.materialized_source_bytes;
+                    change.work.parsed_source_bytes += seams.work.parsed_source_bytes;
+                }
+                Ok(Some(change))
+            });
+        }
         let start_display = self.projection.display_at(line.content.start);
         let at_start = range.start.0 == start_display;
         let prefix = self
@@ -183,6 +201,7 @@ impl EditorSession {
                 .map(Some);
         }
         let raw = self.source.byte_slice(line.content.clone()).to_string();
+        let (raw, protected_bytes) = super::content::protect_content(&raw, false, true);
         let mut staged = Self::open_with_clock(&raw, self.clock.clone());
         let offset = range.start.0 - start_display;
         let local = DisplayRange {
@@ -225,15 +244,13 @@ impl EditorSession {
         } else {
             String::new()
         };
-        let output = format!(
-            "{prefix}{}{}\n{separator}{continuation}{}",
-            &body[..split],
-            suffix,
-            &body[split + 1..]
-        );
+        let (left, left_work) =
+            super::content::protect_content(&body[..split], line.heading > 0, false);
+        let (right, right_work) = super::content::protect_content(&body[split + 1..], false, true);
+        let output = format!("{prefix}{left}{suffix}\n{separator}{continuation}{right}");
         let caret = line.source.start
             + prefix.len()
-            + split
+            + left.len()
             + suffix.len()
             + 1
             + separator.len()
@@ -248,7 +265,11 @@ impl EditorSession {
         )?;
         change.work.materialized_source_bytes +=
             raw.len() + staged_change.work.materialized_source_bytes;
-        change.work.parsed_source_bytes += 2 * raw.len() + staged_change.work.parsed_source_bytes;
+        change.work.parsed_source_bytes += protected_bytes
+            + left_work
+            + right_work
+            + 2 * raw.len()
+            + staged_change.work.parsed_source_bytes;
         Ok(Some(change))
     }
 

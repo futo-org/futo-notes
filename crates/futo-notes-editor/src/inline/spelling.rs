@@ -233,6 +233,22 @@ fn repair_boundaries(pieces: &mut [Piece], missing: &[usize]) {
     }
 }
 
+// Block commands create a real parser boundary even with one source newline.
+// Close before that exact separator and reopen after the following block prefix.
+pub(super) fn split_block_spans(pieces: &mut [Piece], boundaries: &[usize]) {
+    let mut at = 0;
+    for piece in pieces {
+        let end = at + piece.display.len();
+        if (piece.display.ends_with('\n') && boundaries.contains(&end))
+            || (piece.display == "\r" && boundaries.contains(&(end + 1)))
+            || (piece.display.is_empty() && !piece.trailing && boundaries.contains(&at))
+        {
+            piece.spans.clear();
+        }
+        at = end;
+    }
+}
+
 // CommonMark inline spans cannot cross a blank line. Close them before the
 // separator and reopen after it; preserve the separator's exact raw bytes.
 fn split_paragraph_spans(pieces: &mut [Piece]) {

@@ -201,3 +201,20 @@ fn quote_forward_join_and_delete_at_heading_start_keep_structure_and_exact_histo
         assert_eq!(s.source_text(), raw);
     }
 }
+
+#[test]
+fn structural_splitting_treats_heading_body_as_inline_content() {
+    let mut s = EditorSession::open("# # ab\r\nend");
+    let mut v = ReferenceView::new("# ab\r\nend");
+    v.apply(
+        s.paragraph_key(s.revision(), range(2, 2), ParagraphKey::Enter, &mut |_| {
+            Ok(())
+        })
+        .unwrap()
+        .unwrap(),
+    );
+    assert_eq!(s.source_text(), "# \\# \nab\r\nend");
+    assert_eq!(v.text, "# \nab\r\nend");
+    v.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(s.source_text(), "# # ab\r\nend");
+}

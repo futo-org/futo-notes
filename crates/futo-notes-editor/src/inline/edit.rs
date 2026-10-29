@@ -26,6 +26,80 @@ fn common_prefix(a: &str, b: &str) -> usize {
 }
 
 impl Projection {
+    fn line_boundaries(&self, range: DisplayRange) -> Vec<usize> {
+        let first = self.display.byte_to_line(range.start.0);
+        let mut last = self.display.byte_to_line(range.end.0);
+        if range.start != range.end
+            && last > first
+            && self.display.line_to_byte(last) == range.end.0
+        {
+            last -= 1;
+        }
+        (first..=(last + 1).min(self.display.len_lines() - 1))
+            .map(|line| self.display.line_to_byte(line))
+            .collect()
+    }
+
+    pub(crate) fn has_block_seams(&self, range: DisplayRange) -> bool {
+        let first = self.rows.locate(range.start.0, true);
+        let last = self.rows.locate(range.end.0, true);
+        self.line_boundaries(range).into_iter().any(|boundary| {
+            let (low, high) = self.source_bounds(boundary);
+            (first..=last).any(|index| {
+                let (row, source, _) = self.rows.at(index);
+                row.spans
+                    .iter()
+                    .any(|span| source + span.open.end < low && high < source + span.close.start)
+            })
+        })
+    }
+
+    pub(crate) fn split_block_lines(
+        &self,
+        source: &Rope,
+        range: DisplayRange,
+    ) -> Result<Option<Plan>, EditorError> {
+        if !self.has_block_seams(range) {
+            return Ok(None);
+        }
+        let Context {
+            raw,
+            source_start,
+            source_end,
+            mut pieces,
+            markers,
+            ..
+        } = self.edit_context(source, range);
+        let display_start = self.display_at(source_start);
+        let boundaries: Vec<_> = self
+            .line_boundaries(range)
+            .into_iter()
+            .map(|boundary| boundary - display_start)
+            .collect();
+        super::spelling::split_block_spans(&mut pieces, &boundaries);
+        let end = pieces.len();
+        let rendered = spell(pieces, markers, end..end, true)?;
+        if rendered.text == raw {
+            return Ok(None);
+        }
+        let prefix = common_prefix(&raw, &rendered.text);
+        let suffix: usize = raw[prefix..]
+            .chars()
+            .rev()
+            .zip(rendered.text[prefix..].chars().rev())
+            .take_while(|(a, b)| a == b)
+            .map(|(ch, _)| ch.len_utf8())
+            .sum();
+        Ok(Some(Plan {
+            range: source_start + prefix..source_end - suffix,
+            inserted: rendered.text[prefix..rendered.text.len() - suffix].to_owned(),
+            caret: source_start,
+            formats: Vec::new(),
+            materialized: raw.len() + rendered.text.len(),
+            parsed: rendered.parsed,
+        }))
+    }
+
     pub fn edit(
         &self,
         source: &Rope,
@@ -170,6 +244,16 @@ impl Projection {
                 close: raw[base + span.close.start..base + span.close.end].into(),
             }));
             for segment in &row.segments {
+                let active = row
+                    .spans
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, span)| {
+                        span.open.end <= segment.source.start
+                            && segment.source.end <= span.close.start
+                    })
+                    .map(|(i, _)| span_base + i)
+                    .collect();
                 if segment.display.is_empty() {
                     // Inline markers are reconstructed from spans; block markers
                     // are exact source pieces outside that inline stack.
@@ -188,21 +272,11 @@ impl Projection {
                     pieces.push(Piece {
                         raw: raw[base + segment.source.start..base + segment.source.end].to_owned(),
                         display: String::new(),
-                        spans: Vec::new(),
+                        spans: active,
                         trailing,
                     });
                     continue;
                 }
-                let active = row
-                    .spans
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, span)| {
-                        span.open.end <= segment.source.start
-                            && segment.source.end <= span.close.start
-                    })
-                    .map(|(i, _)| span_base + i)
-                    .collect();
                 pieces.push(Piece {
                     raw: raw[base + segment.source.start..base + segment.source.end].to_owned(),
                     display: row.display[segment.display.clone()].to_owned(),

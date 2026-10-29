@@ -109,3 +109,93 @@ fn commands_on_lazy_quote_lines_retain_the_requested_container_depth() {
         assert_eq!(p.blocks[0].heading, heading);
     }
 }
+
+#[test]
+fn block_formatting_keeps_visible_block_punctuation_literal() {
+    for (raw, command, expected, display) in [
+        ("A #", BlockCommand::Heading(1), "# A \\#", "A #"),
+        ("# # x", BlockCommand::Heading(0), "\\# x", "# x"),
+        ("# > x", BlockCommand::Heading(0), "\\> x", "> x"),
+        ("# - x", BlockCommand::Heading(0), "\\- x", "- x"),
+        ("# ```", BlockCommand::Heading(0), "\\```", "```"),
+        ("# # x", BlockCommand::Quote, "> \\# x", "# x"),
+    ] {
+        let mut s = EditorSession::open(raw);
+        let mut v = ReferenceView::new(display);
+        v.apply(
+            s.block_command(s.revision(), range(0, 0), command, &mut |_| Ok(()))
+                .unwrap()
+                .unwrap(),
+        );
+        assert_eq!(s.source_text(), expected, "{raw:?} {command:?}");
+        assert_eq!(v.text, display);
+        v.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+        assert_eq!(s.source_text(), raw);
+    }
+}
+
+#[test]
+fn structural_commands_split_inline_runs_only_at_the_new_block_seams() {
+    for (raw, selected, command, expected, shown) in [
+        (
+            "__a\nb__",
+            range(2, 3),
+            BlockCommand::Heading(2),
+            "__a__\n## __b__",
+            "a\nb",
+        ),
+        (
+            "__a\nb__",
+            range(0, 3),
+            BlockCommand::Heading(2),
+            "## __a__\n## __b__",
+            "a\nb",
+        ),
+        (
+            "> __a\n> b__",
+            range(2, 3),
+            BlockCommand::Heading(2),
+            "> __a__\n> ## __b__",
+            "a\nb",
+        ),
+        (
+            "__a\nb__",
+            range(2, 3),
+            BlockCommand::Quote,
+            "__a__\n> __b__",
+            "a\nb",
+        ),
+        (
+            "> __a\n> b__",
+            range(2, 3),
+            BlockCommand::Indent,
+            "> __a__\n> > __b__",
+            "a\nb",
+        ),
+        (
+            "> __a\n> b__",
+            range(2, 3),
+            BlockCommand::Outdent,
+            "> __a__\n\n__b__",
+            "a\n\nb",
+        ),
+    ] {
+        let mut s = EditorSession::open(raw);
+        let mut v = ReferenceView::new("a\nb");
+        let mut calls = 0;
+        v.apply(
+            s.block_command(s.revision(), selected, command, &mut |_| {
+                calls += 1;
+                Ok(())
+            })
+            .unwrap()
+            .unwrap(),
+        );
+        assert_eq!(calls, 1);
+        assert_eq!(s.source_text(), expected, "{raw:?} {command:?}");
+        assert_eq!(v.text, shown);
+        v.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+        assert_eq!(s.source_text(), raw);
+        assert_eq!(v.text, "a\nb");
+    }
+}

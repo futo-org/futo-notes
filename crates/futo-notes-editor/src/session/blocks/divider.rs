@@ -30,8 +30,12 @@ impl EditorSession {
         // ending. Block prefixes/closers belong to the two surviving sides,
         // not to the temporary inline document being split.
         let mut body = String::new();
+        let mut protected_bytes = 0;
         for (index, line) in lines.iter().enumerate() {
-            body.push_str(&self.source.byte_slice(line.content.clone()).to_string());
+            let raw = self.source.byte_slice(line.content.clone()).to_string();
+            let (raw, parsed) = super::content::protect_content(&raw, false, true);
+            protected_bytes += parsed;
+            body.push_str(&raw);
             if index + 1 < lines.len() {
                 let raw = self.source.byte_slice(line.source.clone()).to_string();
                 body.push_str(if raw.ends_with("\r\n") {
@@ -61,8 +65,13 @@ impl EditorSession {
         let split = body
             .find("\n\n")
             .ok_or(EditorError::UnrepresentableFormat)?;
-        let left = &body[..split];
-        let right = &body[split + 2..];
+        let (left, left_work) =
+            super::content::protect_content(&body[..split], first.heading > 0, first.heading == 0);
+        let (right, right_work) = super::content::protect_content(
+            &body[split + 2..],
+            last.heading > 0,
+            last.heading == 0,
+        );
         let quote = "> ".repeat(first.quote_depth);
         let first_prefix = self
             .source

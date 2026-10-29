@@ -13,8 +13,10 @@ pub enum BlockCommand {
 }
 
 mod commands;
+mod content;
 mod divider;
 mod keys;
+mod transaction;
 mod typing;
 
 impl EditorSession {

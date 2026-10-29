@@ -34,6 +34,21 @@ impl EditorSession {
         if matches!(command, BlockCommand::Heading(level) if level > 6) {
             return Err(EditorError::InvalidRange);
         }
+        if self.projection.has_block_seams(range) {
+            return self.stage_block_action(expected, range, accept, |staged, local, accept| {
+                let seams = staged.split_inline_block_seams(local, accept)?;
+                let Some(mut change) =
+                    staged.block_command(staged.revision(), local, command, accept)?
+                else {
+                    return Ok(None);
+                };
+                if let Some(seams) = seams {
+                    change.work.materialized_source_bytes += seams.work.materialized_source_bytes;
+                    change.work.parsed_source_bytes += seams.work.parsed_source_bytes;
+                }
+                Ok(Some(change))
+            });
+        }
         let lines = self.projection.block_lines(range);
         if lines.is_empty() {
             return Ok(None);
@@ -47,6 +62,7 @@ impl EditorSession {
         let raw = self.source.byte_slice(start..end).to_string();
         let mut output = raw.clone();
         let mut changed = false;
+        let mut parsed = 0;
         for line in lines.iter().rev() {
             if line.code
                 || line.divider
@@ -106,6 +122,12 @@ impl EditorSession {
                         .len();
                 output.replace_range(line.content.end - start..content_end - start, "");
             }
+            let body = self.source.byte_slice(line.content.clone()).to_string();
+            let heading = matches!(command, BlockCommand::Heading(level) if level > 0);
+            let paragraph = command == BlockCommand::Heading(0) || command == BlockCommand::Quote;
+            let (body, work) = super::content::protect_content(&body, heading, paragraph);
+            parsed += work;
+            output.replace_range(line.content.start - start..line.content.end - start, &body);
             output.replace_range(
                 line.source.start - start..line.content.start - start,
                 &replacement,
@@ -159,7 +181,9 @@ impl EditorSession {
                 selection.end.0 += 1;
             }
         }
-        self.commit_block_edit(expected, start..end, &output, Some(selection), None, accept)
-            .map(Some)
+        let mut change =
+            self.commit_block_edit(expected, start..end, &output, Some(selection), None, accept)?;
+        change.work.parsed_source_bytes += parsed;
+        Ok(Some(change))
     }
 }

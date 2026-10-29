@@ -47,3 +47,15 @@ fn setext_headings_keep_their_spelling_when_typing_and_change_locally_by_command
     v.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
     assert_eq!(s.source_text(), "TitleX\r\n=====\r\nnext\r\n");
 }
+
+#[test]
+fn editing_a_multiline_quote_run_preserves_untouched_markers_and_prefix_bytes() {
+    let mut s = EditorSession::open("> __a\r\n> b__\r\n");
+    let mut v = ReferenceView::new("a\r\nb\r\n");
+    v.apply(
+        s.replace(s.revision(), range(4, 4), "X", &mut |_| Ok(()))
+            .unwrap(),
+    );
+    assert_eq!(s.source_text(), "> __a\r\n> bX__\r\n");
+    assert_eq!(v.text, "a\r\nbX\r\n");
+}
