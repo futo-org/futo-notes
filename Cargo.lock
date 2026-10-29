@@ -2025,6 +2025,7 @@ version = "0.1.0"
 dependencies = [
  "ropey",
  "serde",
+ "unicode-segmentation",
 ]
 
 [[package]]

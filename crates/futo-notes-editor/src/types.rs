@@ -7,6 +7,7 @@ pub struct Revision(pub u64);
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DisplayOffset(pub usize);
 
+/// UTF-8 byte coordinates in exact source, distinct from display positions.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SourceOffset(pub usize);
 
@@ -20,6 +21,25 @@ pub struct DisplayRange {
 pub struct SourceRange {
     pub start: SourceOffset,
     pub end: SourceOffset,
+}
+
+/// Native UTF-16 code-unit coordinates, never UTF-8 byte indices.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DisplayUtf16Offset(pub usize);
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SourceUtf16Offset(pub usize);
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DisplayUtf16Range {
+    pub start: DisplayUtf16Offset,
+    pub end: DisplayUtf16Offset,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SourceUtf16Range {
+    pub start: SourceUtf16Offset,
+    pub end: SourceUtf16Offset,
 }
 
 /// A validated source replacement. The host accepts this before the view changes.
@@ -50,6 +70,19 @@ pub struct ViewChange {
     pub work: EditWork,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CaretDirection {
+    Backward,
+    Forward,
+}
+
+/// A selection-only update: source and its revision are unchanged.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SelectionChange {
+    pub revision: Revision,
+    pub selection: DisplayRange,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EditorError {
     StaleRevision {
@@ -57,6 +90,7 @@ pub enum EditorError {
         actual: Revision,
     },
     InvalidRange,
+    InvalidText,
     RevisionExhausted,
     Persistence(String),
     RecoveryMismatch,

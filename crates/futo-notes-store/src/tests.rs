@@ -78,6 +78,7 @@ mod append;
 mod bootstrap;
 mod create_and_recovery;
 mod editor_session;
+mod editor_unicode;
 mod external_changes;
 mod flush_draft;
 mod flush_draft_parking;
