@@ -3,7 +3,6 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 
 /** AGP and cargo-ndk must use the same NDK to resolve and strip libraries. */
 export function ndkVersionFromGradle(gradleText) {
@@ -49,7 +48,7 @@ export function resolveAndroidNdk({ root = process.cwd(), env = process.env, ...
   return { directory: ndk, version: expected };
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (import.meta.main) {
   try {
     console.log(resolveAndroidNdk().directory);
   } catch (error) {

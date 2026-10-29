@@ -13,6 +13,9 @@ pub(crate) struct Span {
 pub(crate) struct Segment {
     pub source: Range<usize>,
     pub display: Range<usize>,
+    // Only literal source runs permit arithmetic mapping within the segment.
+    // A decoded entity can have the same UTF-8 length as its source spelling.
+    pub identity: bool,
 }
 
 pub(crate) struct Row {
@@ -93,6 +96,7 @@ impl Row {
                     segments.push(Segment {
                         source: start..at,
                         display: display_start..display.len(),
+                        identity: false,
                     });
                     continue;
                 }
@@ -108,6 +112,7 @@ impl Row {
             segments.push(Segment {
                 source: start..at,
                 display: display_start..display.len(),
+                identity: !hidden[start],
             });
         }
         Self {
@@ -130,7 +135,7 @@ impl Row {
                 } else if at == segment.display.end {
                     (segment.source.end, segment.source.end)
                 } else {
-                    if segment.source.len() == segment.display.len() {
+                    if segment.identity {
                         let position = segment.source.start + at - segment.display.start;
                         (position, position)
                     } else {
@@ -151,7 +156,7 @@ impl Row {
     pub fn display_at(&self, source: usize) -> usize {
         for segment in &self.segments {
             if segment.source.start <= source && source <= segment.source.end {
-                if segment.source.len() == segment.display.len() {
+                if segment.identity {
                     return segment.display.start + source - segment.source.start;
                 }
                 return if source == segment.source.end {

@@ -78,10 +78,47 @@ const { WasmSession } = await import(pathToFileURL(process.argv[2]).href);
     assert.equal(rich.affinity, 'Forward');
     assert.deepEqual(rich.projection.runs[0].formats, ['Bold', 'Strike']);
     assert.deepEqual(JSON.parse(page.project(4n, 0, 7)), rich.projection);
+    const entity = JSON.parse(page.replace(4n, 0, 5, '&acE;'));
+    apply(JSON.parse(page.acknowledge(JSON.stringify(await exchange(entity)))));
+    assert.equal(text, '∾\u0333\r\n');
+    assert.equal(page.draft_text(), '~~__&acE;__~~\r\n');
+    const entityProjection = JSON.parse(page.project(5n, 0, 7));
+    assert.ok(
+      entityProjection.correspondence.some(
+        (part) =>
+          part.source.start === 4 &&
+          part.source.end === 9 &&
+          part.display.start === 0 &&
+          part.display.end === 5,
+      ),
+    );
+    for (const affinity of ['Backward', 'Forward']) {
+      assert.deepEqual(JSON.parse(page.select_with_affinity(5n, 3, 3, JSON.stringify(affinity))), {
+        revision: 5,
+        selection: { start: 3, end: 3 },
+        affinity,
+      });
+    }
+    const partialEntity = JSON.parse(page.replace_utf16(5n, 1, 2, new Uint16Array([120])));
+    const entityChange = JSON.parse(
+      page.acknowledge(JSON.stringify(await exchange(partialEntity))),
+    );
+    apply(entityChange);
+    assert.equal(text, '∾x\r\n');
+    assert.equal(page.draft_text(), '~~__&#8766;x__~~\r\n');
+    assert.deepEqual(entityChange.selection, { start: 4, end: 4 });
+    assert.deepEqual(entityChange.projection.runs[0].formats, ['Bold', 'Strike']);
+    apply(JSON.parse(page.acknowledge(JSON.stringify(await exchange(JSON.parse(page.undo(6n)))))));
+    assert.equal(text, '∾\u0333\r\n');
+    assert.equal(page.draft_text(), '~~__&acE;__~~\r\n');
+    assert.deepEqual(JSON.parse(page.project(7n, 0, 7)), { ...entityProjection, revision: 7 });
+    apply(JSON.parse(page.acknowledge(JSON.stringify(await exchange(JSON.parse(page.redo(7n)))))));
+    assert.equal(text, '∾x\r\n');
+    assert.equal(page.draft_text(), '~~__&#8766;x__~~\r\n');
     const flush = JSON.parse(page.flush());
     assert.equal(JSON.parse(page.status()).durable, 0);
     page.acknowledge(JSON.stringify(await exchange(flush)));
-    assert.equal(JSON.parse(page.status()).durable, 4);
+    assert.equal(JSON.parse(page.status()).durable, 8);
   } finally {
     clearTimeout(deadline);
     page?.free();
