@@ -52,7 +52,7 @@ pub struct SourceEdit {
     pub inserted: String,
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EditWork {
     /// Source bytes materialized by the engine for this edit, excluding Ropey's
     /// internal tree work. This is not an end-to-end latency measurement.
@@ -60,7 +60,7 @@ pub struct EditWork {
     pub inserted_bytes: usize,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ViewChange {
     pub previous_revision: Revision,
     pub revision: Revision,

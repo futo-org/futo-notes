@@ -50,6 +50,10 @@ test-rust:
   cargo test -p futo-notes-license
   node --experimental-strip-types tests/conformance/title-rules-differential.mjs
 
+# Compile and execute the portable WASM editor against a real background Rust store.
+test-editor-wasm:
+  node scripts/test-editor-wasm.mjs
+
 # Install the pinned, verified nextest binary without changing the Rust toolchain.
 install-nextest:
   sh ci/install-nextest.sh
