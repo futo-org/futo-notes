@@ -1,5 +1,9 @@
 # Round-trip normalization is acceptable — the editor may re-spell markdown it saves
 
+> For the text-first replacement, superseded by
+> [ADR-0011](0011-text-first-editor-replacement.md). This ADR continues to describe the
+> shipping Milkdown editor until its platform is replaced.
+
 The editor contract historically required byte fidelity ("diff discipline"): saving changed only
 the bytes the user actually touched, and untouched content stayed byte-exact — marker style
 (`__` vs `**`, `1)` vs `1.`), whitespace, escapes, CRLF. That requirement was the fixed Tier-3
