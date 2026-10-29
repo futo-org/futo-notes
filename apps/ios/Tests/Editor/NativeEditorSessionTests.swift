@@ -108,7 +108,7 @@ struct NativeEditorSessionTests {
             }
             _ = try session.selectWithAffinity(
                 expected: 0, range: EditorByteRange(start: 0, end: 3), affinity: .forward)
-            apply(try #require(session.toggleFormat(expected: 0, format: .italic)))
+            apply(try #require(try session.toggleFormat(expected: 0, format: .italic)))
             #expect(try session.sourceText() == "*__cat__* &amp; _dog_\r\n")
             apply(
                 try session.replaceManyUtf16(
@@ -137,7 +137,7 @@ struct NativeEditorSessionTests {
                 "*__kitten__* &amp; _ox日本_\r\n", "*__kitten__* &amp; _ox_\r\n",
                 "*__cat__* &amp; _dog_\r\n", opening,
             ] {
-                let change = try #require(session.undo(expected: revision))
+                let change = try #require(try session.undo(expected: revision))
                 apply(change)
                 #expect(try session.sourceText() == expected)
             }
@@ -147,7 +147,7 @@ struct NativeEditorSessionTests {
                 "*__cat__* &amp; _dog_\r\n", "*__kitten__* &amp; _ox_\r\n",
                 "*__kitten__* &amp; _ox日本_\r\n", final,
             ] {
-                apply(try #require(session.redo(expected: revision)))
+                apply(try #require(try session.redo(expected: revision)))
                 #expect(try session.sourceText() == expected)
             }
             #expect(try session.activeFormats() == [.italic])
