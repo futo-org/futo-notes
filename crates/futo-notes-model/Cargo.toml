@@ -8,6 +8,7 @@ name = "futo_notes_model"
 
 # Pure note-domain decisions shared by the durable store and every shell.
 [dependencies]
+futo-notes-wikilinks = { path = "../futo-notes-wikilinks" }
 futo-notes-core = { path = "../futo-notes-core" }
 # `regex` lacks lookaround; the tag grammar (`tags.ts` TAG_REGEX) uses a
 # lookbehind for whitespace-or-start and a lookahead for the terminator, so we

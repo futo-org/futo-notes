@@ -3,6 +3,62 @@ use futo_notes_ffi::{EditorUtf16Range, NoteStore};
 use support::{path_string, TempTree};
 
 #[test]
+fn native_relink_deltas_keep_history_and_delete_fences_the_same_attachment() {
+    let tree = TempTree::new();
+    std::fs::create_dir_all(tree.path("vault")).unwrap();
+    let store = NoteStore::new(path_string(&tree.path("vault")));
+    store
+        .create_note("old".into(), "".into(), "[[old]]".into())
+        .unwrap();
+    let session = store.open_editor("old".into()).unwrap();
+    let mut view = "[[old]]".to_owned();
+    let mut apply = |change: futo_notes_ffi::EditorViewChange| {
+        view.replace_range(
+            change.range.start as usize..change.range.end as usize,
+            &change.inserted,
+        );
+    };
+    apply(
+        session
+            .replace_utf16(0, EditorUtf16Range { start: 7, end: 7 }, vec![33])
+            .unwrap(),
+    );
+    session.checkpoint().unwrap();
+    store.rename("old".into(), "long name".into()).unwrap();
+    assert_eq!(session.note_id().unwrap(), "long name");
+    let changes = session.take_coordinated_changes().unwrap();
+    assert_eq!(changes.len(), 1);
+    apply(changes.into_iter().next().unwrap());
+    assert!(session.take_coordinated_changes().unwrap().is_empty());
+    drop(apply);
+    assert_eq!(view, "[[long name]]!");
+    assert_eq!(session.source_text().unwrap(), "[[long name]]!");
+    session.undo(2).unwrap().unwrap();
+    assert_eq!(session.source_text().unwrap(), "[[long name]]");
+    store.delete("long name".into()).unwrap();
+    store
+        .create_note("long name".into(), "".into(), "fresh".into())
+        .unwrap();
+    assert!(matches!(
+        session.checkpoint(),
+        Err(futo_notes_ffi::EditorSessionError::SessionDeleted)
+    ));
+    assert!(matches!(
+        session.take_coordinated_changes(),
+        Err(futo_notes_ffi::EditorSessionError::SessionDeleted)
+    ));
+    session.detach().unwrap();
+    assert_eq!(
+        store
+            .open_editor("long name".into())
+            .unwrap()
+            .source_text()
+            .unwrap(),
+        "fresh"
+    );
+}
+
+#[test]
 fn native_session_preserves_unicode_nul_and_recovers_after_handle_release() {
     let tree = TempTree::new();
     std::fs::create_dir_all(tree.path("vault")).unwrap();

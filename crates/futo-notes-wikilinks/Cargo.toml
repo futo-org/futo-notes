@@ -1,0 +1,11 @@
+[package]
+name = "futo-notes-wikilinks"
+version = "0.1.0"
+edition = "2021"
+
+# The canonical wikilink rules are shared by the durable note model and the
+# filesystem-free native/WASM editor. Keep this dependency tree portable.
+[dependencies]
+
+[lints]
+workspace = true

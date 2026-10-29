@@ -5,6 +5,51 @@ import Testing
 
 @Suite("Native editor session contract")
 struct NativeEditorSessionTests {
+    @Test("identity changes deliver ordered relinks and delete fences old capabilities")
+    func identityChanges() async throws {
+        try await Task.detached {
+            let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+                "editor-identity-\(UUID().uuidString)", isDirectory: true)
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: root) }
+            let store = NoteStore(notesRoot: root.path)
+            _ = try store.createNote(title: "old", folder: "", content: "[[old]]")
+            let session = try store.openEditor(id: "old")
+            var view = Array("[[old]]".utf8)
+            var revision: UInt64 = 0
+            func apply(_ change: EditorViewChange) {
+                #expect(change.previousRevision == revision)
+                #expect(change.revision == revision + 1)
+                view.replaceSubrange(
+                    Int(change.range.start)..<Int(change.range.end), with: change.inserted.utf8)
+                revision = change.revision
+            }
+            apply(
+                try session.replaceUtf16(
+                    expected: 0, range: EditorUtf16Range(start: 7, end: 7), inserted: [33]))
+            _ = try session.checkpoint()
+            _ = try store.rename(oldId: "old", newId: "long name")
+            #expect(try session.noteId() == "long name")
+            let changes = try session.takeCoordinatedChanges()
+            #expect(changes.count == 1)
+            for change in changes { apply(change) }
+            #expect(try session.takeCoordinatedChanges().isEmpty)
+            #expect(String(decoding: view, as: UTF8.self) == "[[long name]]!")
+            apply(try #require(try session.undo(expected: revision)))
+            #expect(String(decoding: view, as: UTF8.self) == "[[long name]]")
+            _ = try store.delete(id: "long name")
+            _ = try store.createNote(title: "long name", folder: "", content: "fresh")
+            do {
+                _ = try session.checkpoint()
+                Issue.record("deleted session checkpoint accepted")
+            } catch EditorSessionError.SessionDeleted {}
+            try session.detach()
+            let fresh = try store.openEditor(id: "long name")
+            #expect(try fresh.sourceText() == "fresh")
+            try fresh.detach()
+        }.value
+    }
+
     @Test("paragraph keys preserve platform ranges, exact line endings and recovery")
     func paragraphKeys() async throws {
         try await Task.detached {

@@ -1,3 +1,4 @@
+mod identity;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
@@ -51,6 +52,7 @@ impl RecoveryLog {
             vault: vault.clone(),
             id: id.to_owned(),
             base: disk.to_owned(),
+            source: None,
             base_revision: Revision(0),
             replacement_epoch: futo_notes_core::files::recovery_coordination::replacement_epoch(
                 root, id,
@@ -62,7 +64,7 @@ impl RecoveryLog {
             let mut lines = bytes.split_inclusive(|byte| *byte == b'\n');
             let first = lines.next().unwrap_or_default();
             match format::decode_header(first) {
-                Ok(found) if found.version != format::VERSION => {
+                Ok(found) if found.version != 2 && found.version != format::VERSION => {
                     issue = Some(RecoveryIssue {
                         kind: RecoveryIssueKind::UnsupportedVersion {
                             version: found.version,
@@ -80,7 +82,7 @@ impl RecoveryLog {
                     header = found;
                     accepted_bytes = first.len() as u64;
                     engine = EditorSession::restore_with_clock(
-                        &header.base,
+                        header.source.as_deref().unwrap_or(&header.base),
                         header.base_revision,
                         history_clock,
                     );
@@ -143,6 +145,22 @@ impl RecoveryLog {
         ))
     }
 
+    pub(super) fn transfer_own_epoch(&mut self, before: u64, after: u64) -> Result<(), String> {
+        if self.header.replacement_epoch == before {
+            let previous = self.header_bytes()?.len();
+            self.header.replacement_epoch = after;
+            let next = self.header_bytes()?.len();
+            if self.exists {
+                self.accepted_bytes = self.accepted_bytes - previous as u64 + next as u64;
+            }
+        }
+        Ok(())
+    }
+
+    pub(super) fn storage_mut(&mut self) -> &mut dyn RecoveryStorage {
+        &mut *self.storage
+    }
+
     pub(super) fn base(&self) -> &str {
         &self.header.base
     }
@@ -165,7 +183,6 @@ impl RecoveryLog {
         // Controlled writers must not observe no stream, then install across
         // the first accepted append. All native and portable acceptance paths
         // pass here; the guard ends before the view change is returned.
-        let _vault_mutation = futo_notes_core::files::vault_mutation_guard()?;
         #[cfg(test)]
         if let Some(hook) = &self.append_hook {
             hook(false);
@@ -194,19 +211,25 @@ impl RecoveryLog {
     }
 
     fn append_record(&mut self, root: &Path, edit: &SourceEdit) -> Result<(), String> {
-        if !self.exists {
-            let header = self.header_bytes()?;
-            self.storage.create(root, &self.path, &header)?;
-            self.accepted_bytes = header.len() as u64;
-            self.exists = true;
-        }
+        self.ensure_stream(root)?;
         let record = format::encode(&Record::Edit(edit.clone()))?;
         self.storage.append(root, &self.path, &record)?;
         self.accepted_bytes += record.len() as u64;
         Ok(())
     }
 
+    fn ensure_stream(&mut self, root: &Path) -> Result<(), String> {
+        if !self.exists {
+            let header = self.header_bytes()?;
+            self.storage.create(root, &self.path, &header)?;
+            self.accepted_bytes = header.len() as u64;
+            self.exists = true;
+        }
+        Ok(())
+    }
+
     pub(super) fn protect_checkpoint(&mut self, root: &Path, id: &str) -> Result<(), String> {
+        self.ensure_stream(root)?;
         let record = format::encode(&Record::Checkpoint {
             id: id.to_owned(),
             revision: self.accepted,
@@ -232,7 +255,6 @@ impl RecoveryLog {
     }
 
     pub(super) fn resume(&mut self, root: &Path) -> Result<(), String> {
-        let _vault_mutation = futo_notes_core::files::vault_mutation_guard()?;
         // The caller admits only failed live appends/flushes or a validated
         // prefix with an incomplete final frame. Interior damage never reaches
         // this truncation path.
@@ -301,6 +323,8 @@ impl RecoveryLog {
         self.path = format!(".futo-editor-recovery/{}.jsonl", hash_sha256(id));
         self.header.id = id.to_owned();
         self.header.base = source.to_owned();
+        self.header.source = None;
+        self.header.version = format::VERSION;
         self.header.base_revision = revision;
         self.header.replacement_epoch =
             futo_notes_core::files::recovery_coordination::replacement_epoch(root, id)?;

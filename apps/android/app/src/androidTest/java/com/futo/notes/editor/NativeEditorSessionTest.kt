@@ -11,6 +11,47 @@ import uniffi.futo_notes_ffi.*
 /** A small real Kotlin consumer; no replacement view or markdown policy. */
 class NativeEditorSessionTest {
     @Test
+    fun identityChangesDeliverOrderedRelinksAndDeleteFencesOldCapabilities() {
+        val root = File(InstrumentationRegistry.getInstrumentation().targetContext.cacheDir, "editor-identity-${UUID.randomUUID()}")
+        check(root.mkdirs())
+        try {
+            NoteStore(root.absolutePath).use { store ->
+                store.createNote("old", "", "[[old]]")
+                store.openEditor("old").use { session ->
+                    var view = "[[old]]".toByteArray(Charsets.UTF_8)
+                    var revision = 0uL
+                    fun apply(change: EditorViewChange) {
+                        assertEquals(revision, change.previousRevision)
+                        assertEquals(revision + 1uL, change.revision)
+                        view = view.copyOfRange(0, change.range.start.toInt()) + change.inserted.toByteArray(Charsets.UTF_8) + view.copyOfRange(change.range.end.toInt(), view.size)
+                        revision = change.revision
+                    }
+                    apply(session.replaceUtf16(0uL, EditorUtf16Range(7uL, 7uL), listOf(33u.toUShort())))
+                    session.checkpoint()
+                    store.rename("old", "long name")
+                    assertEquals("long name", session.noteId())
+                    val changes = session.takeCoordinatedChanges()
+                    assertEquals(1, changes.size)
+                    changes.forEach { apply(it) }
+                    assertTrue(session.takeCoordinatedChanges().isEmpty())
+                    assertEquals("[[long name]]!", String(view, Charsets.UTF_8))
+                    apply(checkNotNull(session.undo(revision)))
+                    assertEquals("[[long name]]", String(view, Charsets.UTF_8))
+                    store.delete("long name")
+                    store.createNote("long name", "", "fresh")
+                    try { session.checkpoint(); fail("deleted session checkpoint accepted") }
+                    catch (_: EditorSessionException.SessionDeleted) {}
+                    session.detach()
+                    store.openEditor("long name").use { fresh ->
+                        assertEquals("fresh", fresh.sourceText())
+                        fresh.detach()
+                    }
+                }
+            }
+        } finally { root.deleteRecursively() }
+    }
+
+    @Test
     fun paragraphKeysPreservePlatformRangesExactLineEndingsAndRecovery() {
         val root = File(InstrumentationRegistry.getInstrumentation().targetContext.cacheDir, "editor-lines-${UUID.randomUUID()}")
         check(root.mkdirs())
