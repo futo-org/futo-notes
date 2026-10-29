@@ -5,6 +5,91 @@ import Testing
 
 @Suite("Native block regression contract")
 struct NativeEditorBlockRegressionTests {
+    @Test("shared block commands return structure and preserve exact recovery bytes")
+    func blockCommands() async throws {
+        try await Task.detached {
+            let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+                "editor-blocks-\(UUID().uuidString)", isDirectory: true)
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: root) }
+            let store = NoteStore(notesRoot: root.path)
+            _ = try store.createNote(title: "blocks", folder: "", content: "😀ab\r\ntail  \r\n")
+            let session = try store.openEditor(id: "blocks")
+            let heading = try session.blockCommandUtf16(
+                expected: 0, range: EditorUtf16Range(start: 2, end: 2), command: .heading(level: 6))
+            #expect(heading?.projection.blocks.first?.heading == 6)
+            #expect(try session.sourceText() == "###### 😀ab\r\ntail  \r\n")
+            _ = try session.paragraphKeyUtf16(
+                expected: 1, range: EditorUtf16Range(start: 3, end: 3), key: .enter)
+            #expect(try session.sourceText() == "###### 😀a\nb\r\ntail  \r\n")
+            _ = try session.undo(expected: 2)
+            _ = try session.redo(expected: 3)
+            _ = try session.flushRecovery()
+            try session.detach()
+            let recovered = try store.openEditor(id: "blocks")
+            #expect(try recovered.sourceText() == "###### 😀a\nb\r\ntail  \r\n")
+            _ = try recovered.checkpoint()
+            #expect(try store.read(id: "blocks") == "###### 😀a\nb\r\ntail  \r\n")
+            try recovered.detach()
+            _ = try store.createNote(title: "quote", folder: "", content: "> a")
+            let quote = try store.openEditor(id: "quote")
+            _ = try quote.blockCommandUtf16(
+                expected: 0, range: EditorUtf16Range(start: 1, end: 1), command: .indent)
+            #expect(try quote.sourceText() == "> > a")
+            _ = try quote.blockCommandUtf16(
+                expected: 1, range: EditorUtf16Range(start: 1, end: 1), command: .outdent)
+            #expect(try quote.sourceText() == "> a")
+            #expect(
+                try quote.blockCommandUtf16(
+                    expected: 2, range: EditorUtf16Range(start: 1, end: 1), command: .quote) == nil)
+            let divider = try quote.blockCommandUtf16(
+                expected: 2, range: EditorUtf16Range(start: 1, end: 1), command: .divider)
+            #expect(divider?.projection.blocks.contains(where: { $0.divider }) == true)
+            #expect(try quote.sourceText() == "> a\n> ***\n> ")
+            #expect(try quote.displayText() == "a\n\u{fffc}\n")
+            _ = try quote.flushRecovery()
+            try quote.detach()
+            let quotedRecovery = try store.openEditor(id: "quote")
+            #expect(try quotedRecovery.sourceText() == "> a\n> ***\n> ")
+            _ = try quotedRecovery.checkpoint()
+            try quotedRecovery.detach()
+            _ = try store.createNote(title: "shortcut", folder: "", content: "\\#A #\r\ntail  ")
+            let shortcut = try store.openEditor(id: "shortcut")
+            _ = try shortcut.selectUtf16(expected: 0, range: EditorUtf16Range(start: 1, end: 1))
+            let converted = try shortcut.replaceUtf16(
+                expected: 0, range: EditorUtf16Range(start: 1, end: 1), inserted: [32])
+            #expect(converted.selection == EditorByteRange(start: 0, end: 0))
+            #expect(try shortcut.sourceText() == "# A \\#\r\ntail  ")
+            #expect(try shortcut.displayText() == "A #\r\ntail  ")
+            _ = try shortcut.undo(expected: 1)
+            #expect(try shortcut.sourceText() == "\\#A #\r\ntail  ")
+            _ = try shortcut.redo(expected: 2)
+            _ = try shortcut.flushRecovery()
+            try shortcut.detach()
+            let shortcutRecovery = try store.openEditor(id: "shortcut")
+            #expect(try shortcutRecovery.sourceText() == "# A \\#\r\ntail  ")
+            _ = try shortcutRecovery.checkpoint()
+            #expect(try store.read(id: "shortcut") == "# A \\#\r\ntail  ")
+            try shortcutRecovery.detach()
+            _ = try store.createNote(title: "carry", folder: "", content: "# __ab__")
+            let carry = try store.openEditor(id: "carry")
+            _ = try carry.paragraphKeyUtf16(
+                expected: 0, range: EditorUtf16Range(start: 2, end: 2), key: .enter)
+            #expect(try carry.activeFormats() == [.bold])
+            _ = try carry.replaceUtf16(
+                expected: 1, range: EditorUtf16Range(start: 3, end: 3), inserted: [99])
+            #expect(try carry.sourceText() == "# __ab__\n__c__")
+            #expect(try carry.displayText() == "ab\nc")
+            _ = try carry.flushRecovery()
+            try carry.detach()
+            let carryRecovery = try store.openEditor(id: "carry")
+            #expect(try carryRecovery.sourceText() == "# __ab__\n__c__")
+            _ = try carryRecovery.checkpoint()
+            #expect(try store.read(id: "carry") == "# __ab__\n__c__")
+            try carryRecovery.detach()
+        }.value
+    }
+
     @Test("block conversions preserve spaces, quote depth and physical setext prefixes")
     func blockRegressions() async throws {
         try await Task.detached {

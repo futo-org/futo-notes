@@ -32,6 +32,17 @@ pub struct HostAck {
     pub durable: Revision,
     pub paused: bool,
     pub error: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub relink: Option<RelinkOffer>,
+}
+
+/// A successful own-action relink may be adopted only while the page still
+/// holds its exact acknowledged source revision. Adoption uses normal append
+/// acceptance before releasing its view change.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RelinkOffer {
+    pub revision: Revision,
+    pub action: crate::OwnActionRelink,
 }
 
 impl HostRequest {
@@ -43,6 +54,7 @@ impl HostRequest {
             durable,
             paused: false,
             error: None,
+            relink: None,
         }
     }
 }
@@ -96,6 +108,7 @@ pub struct PortableSession {
     accepted: Revision,
     durable: Revision,
     paused: bool,
+    relink: Option<RelinkOffer>,
 }
 
 impl PortableSession {
@@ -129,6 +142,7 @@ impl PortableSession {
             accepted: revision,
             durable,
             paused: false,
+            relink: None,
         }
     }
 
@@ -384,12 +398,33 @@ impl PortableSession {
     ) -> Result<HostRequest, PortableError> {
         let request = self.request(HostOperation::Append(edit.clone()))?;
         self.pending = Some((edit, change));
+        self.relink = None;
         Ok(request)
     }
 
     pub fn flush(&mut self) -> Result<HostRequest, PortableError> {
         self.ready()?;
         self.request(HostOperation::Flush)
+    }
+
+    pub fn apply_relink_offer(&mut self) -> Result<Option<HostRequest>, PortableError> {
+        self.ready()?;
+        let Some(offer) = self.relink.take() else {
+            return Ok(None);
+        };
+        if offer.revision != self.engine.revision() || self.engine.composition().is_some() {
+            return Ok(None);
+        }
+        let mut record = None;
+        let change = self
+            .engine
+            .apply_own_relink(offer.revision, &offer.action, &mut |edit| {
+                record = Some(edit.clone());
+                Ok(())
+            })?;
+        change
+            .map(|change| self.stage(record.unwrap(), change))
+            .transpose()
     }
 
     /// Also used after a transport timeout. The host repairs/flushes before
@@ -448,6 +483,9 @@ impl PortableSession {
         self.accepted = ack.accepted;
         self.durable = ack.durable;
         self.paused = ack.paused || ack.error.is_some();
+        self.relink = ack
+            .relink
+            .filter(|offer| offer.revision == self.engine.revision());
         if !self.paused
             && self
                 .pending

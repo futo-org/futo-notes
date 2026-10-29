@@ -18,7 +18,7 @@
 pub mod filename;
 pub mod note;
 pub mod tags;
-pub mod wikilinks;
+pub use futo_notes_wikilinks as wikilinks;
 
 // Re-export the title primitives reused from core so consumers have one import
 // surface for "the rules" regardless of which crate implements each rule.

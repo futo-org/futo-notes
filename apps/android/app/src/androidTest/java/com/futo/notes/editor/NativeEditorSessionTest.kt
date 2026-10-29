@@ -11,82 +11,41 @@ import uniffi.futo_notes_ffi.*
 /** A small real Kotlin consumer; no replacement view or markdown policy. */
 class NativeEditorSessionTest {
     @Test
-    fun sharedBlockCommandsProjectStructureAndRecoverExactBytes() {
-        val root = File(InstrumentationRegistry.getInstrumentation().targetContext.cacheDir, "editor-blocks-${UUID.randomUUID()}")
+    fun identityChangesDeliverOrderedRelinksAndDeleteFencesOldCapabilities() {
+        val root = File(InstrumentationRegistry.getInstrumentation().targetContext.cacheDir, "editor-identity-${UUID.randomUUID()}")
         check(root.mkdirs())
         try {
             NoteStore(root.absolutePath).use { store ->
-                store.createNote("blocks", "", "😀ab\r\ntail  \r\n")
-                store.openEditor("blocks").use { session ->
-                    val heading = session.blockCommandUtf16(0uL, EditorUtf16Range(2uL, 2uL), EditorBlockCommand.Heading(6u))
-                    assertEquals(6.toUByte(), heading!!.projection.blocks.first().heading)
-                    assertEquals("###### 😀ab\r\ntail  \r\n", session.sourceText())
-                    session.paragraphKeyUtf16(1uL, EditorUtf16Range(3uL, 3uL), EditorParagraphKey.ENTER)
-                    assertEquals("###### 😀a\nb\r\ntail  \r\n", session.sourceText())
-                    session.undo(2uL)
-                    session.redo(3uL)
-                    session.flushRecovery()
+                store.createNote("old", "", "[[old]]")
+                store.openEditor("old").use { session ->
+                    var view = "[[old]]".toByteArray(Charsets.UTF_8)
+                    var revision = 0uL
+                    fun apply(change: EditorViewChange) {
+                        assertEquals(revision, change.previousRevision)
+                        assertEquals(revision + 1uL, change.revision)
+                        view = view.copyOfRange(0, change.range.start.toInt()) + change.inserted.toByteArray(Charsets.UTF_8) + view.copyOfRange(change.range.end.toInt(), view.size)
+                        revision = change.revision
+                    }
+                    apply(session.replaceUtf16(0uL, EditorUtf16Range(7uL, 7uL), listOf(33u.toUShort())))
+                    session.checkpoint()
+                    store.rename("old", "long name")
+                    assertEquals("long name", session.noteId())
+                    val changes = session.takeCoordinatedChanges()
+                    assertEquals(1, changes.size)
+                    changes.forEach { apply(it) }
+                    assertTrue(session.takeCoordinatedChanges().isEmpty())
+                    assertEquals("[[long name]]!", String(view, Charsets.UTF_8))
+                    apply(checkNotNull(session.undo(revision)))
+                    assertEquals("[[long name]]", String(view, Charsets.UTF_8))
+                    store.delete("long name")
+                    store.createNote("long name", "", "fresh")
+                    try { session.checkpoint(); fail("deleted session checkpoint accepted") }
+                    catch (_: EditorSessionException.SessionDeleted) {}
                     session.detach()
-                }
-                store.openEditor("blocks").use { recovered ->
-                    assertEquals("###### 😀a\nb\r\ntail  \r\n", recovered.sourceText())
-                    recovered.checkpoint()
-                    assertEquals("###### 😀a\nb\r\ntail  \r\n", store.read("blocks"))
-                    recovered.detach()
-                }
-                store.createNote("quote", "", "> a")
-                store.openEditor("quote").use { quote ->
-                    quote.blockCommandUtf16(0uL, EditorUtf16Range(1uL, 1uL), EditorBlockCommand.Indent)
-                    assertEquals("> > a", quote.sourceText())
-                    quote.blockCommandUtf16(1uL, EditorUtf16Range(1uL, 1uL), EditorBlockCommand.Outdent)
-                    assertEquals("> a", quote.sourceText())
-                    assertNull(quote.blockCommandUtf16(2uL, EditorUtf16Range(1uL, 1uL), EditorBlockCommand.Quote))
-                    val divider = quote.blockCommandUtf16(2uL, EditorUtf16Range(1uL, 1uL), EditorBlockCommand.Divider)
-                    assertTrue(divider!!.projection.blocks.any { it.divider })
-                    assertEquals("> a\n> ***\n> ", quote.sourceText())
-                    assertEquals("a\n\ufffc\n", quote.displayText())
-                    quote.flushRecovery()
-                    quote.detach()
-                }
-                store.openEditor("quote").use { recovered ->
-                    assertEquals("> a\n> ***\n> ", recovered.sourceText())
-                    recovered.checkpoint()
-                    recovered.detach()
-                }
-                store.createNote("shortcut", "", "\\#A #\r\ntail  ")
-                store.openEditor("shortcut").use { shortcut ->
-                    shortcut.selectUtf16(0uL, EditorUtf16Range(1uL, 1uL))
-                    val converted = shortcut.replaceUtf16(0uL, EditorUtf16Range(1uL, 1uL), listOf(32u.toUShort()))
-                    assertEquals(EditorByteRange(0uL, 0uL), converted.selection)
-                    assertEquals("# A \\#\r\ntail  ", shortcut.sourceText())
-                    assertEquals("A #\r\ntail  ", shortcut.displayText())
-                    shortcut.undo(1uL)
-                    assertEquals("\\#A #\r\ntail  ", shortcut.sourceText())
-                    shortcut.redo(2uL)
-                    shortcut.flushRecovery()
-                    shortcut.detach()
-                }
-                store.openEditor("shortcut").use { recovered ->
-                    assertEquals("# A \\#\r\ntail  ", recovered.sourceText())
-                    recovered.checkpoint()
-                    assertEquals("# A \\#\r\ntail  ", store.read("shortcut"))
-                    recovered.detach()
-                }
-                store.createNote("carry", "", "# __ab__")
-                store.openEditor("carry").use { carry ->
-                    carry.paragraphKeyUtf16(0uL, EditorUtf16Range(2uL, 2uL), EditorParagraphKey.ENTER)
-                    assertEquals(listOf(EditorInlineFormat.BOLD), carry.activeFormats())
-                    carry.replaceUtf16(1uL, EditorUtf16Range(3uL, 3uL), listOf(99u.toUShort()))
-                    assertEquals("# __ab__\n__c__", carry.sourceText())
-                    assertEquals("ab\nc", carry.displayText())
-                    carry.flushRecovery()
-                    carry.detach()
-                }
-                store.openEditor("carry").use { recovered ->
-                    assertEquals("# __ab__\n__c__", recovered.sourceText())
-                    recovered.checkpoint()
-                    assertEquals("# __ab__\n__c__", store.read("carry"))
-                    recovered.detach()
+                    store.openEditor("long name").use { fresh ->
+                        assertEquals("fresh", fresh.sourceText())
+                        fresh.detach()
+                    }
                 }
             }
         } finally { root.deleteRecursively() }

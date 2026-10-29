@@ -51,6 +51,20 @@ impl NativeEditorSession {
 
 #[uniffi::export]
 impl NativeEditorSession {
+    pub fn note_id(&self) -> Result<String, EditorSessionError> {
+        self.with_session(|session| Ok(session.id()))
+    }
+
+    pub fn take_coordinated_changes(&self) -> Result<Vec<EditorViewChange>, EditorSessionError> {
+        self.with_session(|session| {
+            Ok(session
+                .take_coordinated_changes()?
+                .into_iter()
+                .map(Into::into)
+                .collect())
+        })
+    }
+
     pub fn source_text(&self) -> Result<String, EditorSessionError> {
         self.with_session(|session| Ok(session.source_text()))
     }
@@ -250,7 +264,7 @@ impl NativeEditorSession {
     }
 
     pub fn recovery_issue(&self) -> Result<Option<EditorRecoveryIssue>, EditorSessionError> {
-        self.with_session(|session| Ok(session.recovery_issue().cloned().map(Into::into)))
+        self.with_session(|session| Ok(session.recovery_issue().map(Into::into)))
     }
 
     pub fn resume_recovery(&self) -> Result<EditorRecoveryStatus, EditorSessionError> {

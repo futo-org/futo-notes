@@ -4,9 +4,14 @@ use futo_notes_editor::{DisplayOffset, DisplayRange, Revision};
 mod blocks;
 mod composition;
 mod durability;
+mod lifecycle;
+mod lifecycle_crashes;
+mod lifecycle_faults;
 mod native_input_traces;
 mod paragraphs;
 mod portable;
+mod portable_attachment;
+mod portable_readiness;
 mod recovery;
 mod storage;
 

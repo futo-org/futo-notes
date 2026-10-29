@@ -6,10 +6,14 @@ engine; `PortableSession` adds the asynchronous page/worker handshake, and the
 The WASM dependency graph contains no store, filesystem, shell or network engine.
 
 A native host opens `LocalNoteStore::open_editor` on its background worker. It
-consumes the store session with `into_portable_host(token)` and supplies the
+consumes the store session with `into_portable_host(token)?` and supplies the
 worker's `snapshot()` to the page through `PortableSession::from_snapshot` or
 `WasmSession.restore`. This carries the recovered source, revision, durable
-watermark, pause and a fresh `SessionToken`. Native recovery UI reads the store's
+watermark, pause and a fresh `SessionToken`. Conversion waits for any in-flight
+identity/checkpoint workflow before changing the attachment role and reports lock
+or deleted-attachment failures. A pending native identity adoption rejects
+conversion until normal identity recovery finishes; ordinary paused recovery
+still opens a copyable portable page. Native recovery UI reads the store's
 structured diagnostic through `StoreEditorHost::recovery_issue`. Tokens identify an incarnation, not a note title;
 never reuse one across a note switch or page reload. The JSON WASM facade requires
 initial integer values within JavaScript's exact integer range.
