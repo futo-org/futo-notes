@@ -13,6 +13,7 @@ mod lease;
 pub use clock::RecoveryClock;
 mod portable;
 mod recovery;
+mod recovery_format;
 pub use portable::StoreEditorHost;
 mod storage;
 use lease::EditorLease;
@@ -53,6 +54,25 @@ pub struct RecoveryStatus {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RecoveryIssueKind {
+    TornTail,
+    CorruptRecord,
+    InvalidEdit,
+    SequenceMismatch,
+    IdentityMismatch,
+    UnsupportedVersion { version: u32 },
+    BaseMismatch,
+}
+
+/// A retained stream needs attention. `record` is zero for the header and
+/// one-based for edits. The session exposes only its validated draft prefix.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RecoveryIssue {
+    pub kind: RecoveryIssueKind,
+    pub record: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EditorStoreError {
     Open(String),
     SessionAlreadyOpen,
@@ -62,6 +82,7 @@ pub enum EditorStoreError {
     RecoveryFlush(String),
     RecoveryResume(String),
     RecoveryPaused,
+    RecoveryNeedsReview(RecoveryIssue),
     Checkpoint(String),
     CheckpointPending,
     /// Markdown committed, but recovery retirement failed. Apply `result`'s
@@ -108,16 +129,52 @@ impl LocalNoteStore {
             .read_existing(id)
             .map_err(EditorStoreError::Open)?
             .ok_or_else(|| EditorStoreError::Open(NOTE_NOT_FOUND.to_owned()))?;
-        let (recovery, engine) =
+        let (mut recovery, engine) =
             RecoveryLog::open(&self.root, id, &base, options.clock, options.storage)
                 .map_err(EditorStoreError::Recovery)?;
+        // A durable destination precedes installation. If its exact draft is
+        // present after a crash, finish that checkpoint instead of re-running
+        // date-sensitive parking and minting another conflict copy.
+        let pending_checkpoint = if !recovery.failed {
+            if let Some(target) = &recovery.checkpoint_target {
+                let source = engine.source_text();
+                if self
+                    .read_existing(target)
+                    .map_err(EditorStoreError::Open)?
+                    .as_deref()
+                    == Some(source.as_str())
+                {
+                    let metadata = crate::vault::metadata(&self.root, target).ok_or_else(|| {
+                        EditorStoreError::Open("checkpoint target metadata unavailable".into())
+                    })?;
+                    let result = FlushDraftResult {
+                        disposition: if target == id {
+                            FlushDisposition::Converged
+                        } else {
+                            FlushDisposition::ParkedConflict {
+                                parked_id: target.clone(),
+                            }
+                        },
+                        mutation: Some(self.upsert_mutation(metadata)),
+                    };
+                    recovery.issue = None;
+                    Some(result)
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        };
         Ok(StoreEditorSession {
             store: self,
             id: id.to_owned(),
             engine,
             recovery,
             lease,
-            pending_checkpoint: None,
+            pending_checkpoint,
         })
     }
 }
@@ -131,6 +188,10 @@ impl StoreEditorSession<'_> {
     pub(crate) fn set_retirement_failure(&mut self, fail: bool) {
         self.recovery.fail_retirement = fail;
     }
+    pub fn recovery_issue(&self) -> Option<&RecoveryIssue> {
+        self.recovery.issue.as_ref()
+    }
+
     pub fn recovery_status(&self) -> RecoveryStatus {
         RecoveryStatus {
             accepted: self.recovery.accepted,
@@ -176,6 +237,13 @@ impl StoreEditorSession<'_> {
             .store
             .lock_gate()
             .map_err(EditorStoreError::RecoveryResume)?;
+        if let Some(issue) = &self.recovery.issue {
+            if issue.kind != RecoveryIssueKind::TornTail
+                && issue.kind != RecoveryIssueKind::BaseMismatch
+            {
+                return Err(EditorStoreError::RecoveryNeedsReview(issue.clone()));
+            }
+        }
         if self.recovery.failed {
             self.recovery
                 .resume(&self.store.root)
@@ -300,6 +368,14 @@ impl StoreEditorSession<'_> {
     }
 
     pub fn checkpoint(&mut self) -> Result<FlushDraftResult, EditorStoreError> {
+        if let Some(issue) = &self.recovery.issue {
+            if issue.kind != RecoveryIssueKind::BaseMismatch {
+                return Err(EditorStoreError::RecoveryNeedsReview(issue.clone()));
+            }
+        }
+        if self.recovery.failed && self.pending_checkpoint.is_none() {
+            return Err(EditorStoreError::RecoveryPaused);
+        }
         let _gate = self
             .store
             .lock_gate()
@@ -317,8 +393,11 @@ impl StoreEditorSession<'_> {
                 mutation: None,
             }
         } else {
+            let base = self.recovery.base().to_owned();
             self.store
-                .flush_draft_locked(&self.id, self.recovery.base(), &source)
+                .flush_draft_locked_with_target(&self.id, &base, &source, &mut |id| {
+                    self.recovery.protect_checkpoint(&self.store.root, id)
+                })
                 .map_err(EditorStoreError::Checkpoint)?
         };
         let final_id = match &result.disposition {

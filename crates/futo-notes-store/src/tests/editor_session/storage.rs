@@ -10,12 +10,13 @@ pub enum Fault {
     Flush,
     Truncate,
     Retire,
+    RetireSync,
 }
 
 #[derive(Default)]
 pub struct Disk {
-    accepted: HashMap<String, Vec<u8>>,
-    durable: HashMap<String, Vec<u8>>,
+    pub accepted: HashMap<String, Vec<u8>>,
+    pub durable: HashMap<String, Vec<u8>>,
     pub fault: Option<Fault>,
 }
 
@@ -90,6 +91,9 @@ impl RecoveryStorage for FaultStorage {
             return Err("injected retirement failure".into());
         }
         disk.accepted.remove(path);
+        if disk.fault == Some(Fault::RetireSync) {
+            return Err("injected retirement directory flush failure".into());
+        }
         disk.durable.remove(path);
         Ok(())
     }
