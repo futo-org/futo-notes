@@ -1,0 +1,88 @@
+[
+  {
+    "after": {
+      "availableLanguages": ["en-US", "emoji"],
+      "language": "en-US",
+      "marked": null,
+      "selected": [0, 11],
+      "textUTF16": [116, 101, 104, 32, 38, 32, 99, 116, 97, 13, 10]
+    },
+    "arguments": {
+      "range": [0, 11],
+      "textUTF16": [116, 104, 101, 32, 38, 32, 99, 97, 116, 13, 10]
+    },
+    "before": {
+      "availableLanguages": ["en-US", "emoji"],
+      "language": "en-US",
+      "marked": null,
+      "selected": [0, 11],
+      "textUTF16": [116, 101, 104, 32, 38, 32, 99, 116, 97, 13, 10]
+    },
+    "id": 4,
+    "method": "shouldChangeText",
+    "parent": null,
+    "returned": true
+  },
+  {
+    "after": {
+      "availableLanguages": ["en-US", "emoji"],
+      "language": "en-US",
+      "marked": null,
+      "selected": [11, 11],
+      "textUTF16": [116, 104, 101, 32, 38, 32, 99, 97, 116, 13, 10]
+    },
+    "arguments": {},
+    "before": {
+      "availableLanguages": ["en-US", "emoji"],
+      "language": "en-US",
+      "marked": null,
+      "selected": [11, 11],
+      "textUTF16": [116, 104, 101, 32, 38, 32, 99, 97, 116, 13, 10]
+    },
+    "id": 5,
+    "method": "didChangeSelection",
+    "parent": null
+  },
+  {
+    "after": {
+      "availableLanguages": ["en-US", "emoji"],
+      "language": "en-US",
+      "marked": null,
+      "selected": [11, 11],
+      "textUTF16": [116, 104, 101, 32, 38, 32, 99, 97, 116, 13, 10]
+    },
+    "arguments": {},
+    "before": {
+      "availableLanguages": ["en-US", "emoji"],
+      "language": "en-US",
+      "marked": null,
+      "selected": [11, 11],
+      "textUTF16": [116, 104, 101, 32, 38, 32, 99, 97, 116, 13, 10]
+    },
+    "id": 6,
+    "method": "didChange",
+    "parent": null
+  },
+  {
+    "after": {
+      "availableLanguages": ["en-US", "emoji"],
+      "language": "en-US",
+      "marked": null,
+      "selected": [11, 11],
+      "textUTF16": [116, 104, 101, 32, 38, 32, 99, 97, 116, 13, 10]
+    },
+    "arguments": {
+      "range": [11, 11]
+    },
+    "before": {
+      "availableLanguages": ["en-US", "emoji"],
+      "language": "en-US",
+      "marked": null,
+      "selected": [11, 11],
+      "textUTF16": [116, 104, 101, 32, 38, 32, 99, 97, 116, 13, 10]
+    },
+    "id": 7,
+    "method": "selectedTextRange",
+    "parent": null
+  }
+]

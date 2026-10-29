@@ -23,6 +23,7 @@ private struct InputTraceCase: Decodable {
         let serviceRange: [UInt64]?
         let serviceText: String?
         let parentMethod: String?
+        let requestEvent: Int?
     }
 }
 
@@ -44,7 +45,10 @@ private struct InputTrace: Decodable {
         let after: Snapshot
         let before: Snapshot
         let arguments: Arguments
-        struct Arguments: Decodable { let textUTF16: [UInt16]? }
+        struct Arguments: Decodable {
+            let textUTF16: [UInt16]?
+            let range: [UInt64]?
+        }
     }
 }
 
@@ -61,7 +65,7 @@ struct NativeEditorInputTraceTests {
     func capturedOSResults() async throws {
         try await Task.detached {
             let fixtures = try inputFixture("native-input-cases", [InputTraceCase].self)
-            #expect(fixtures.count == 5)
+            #expect(fixtures.count == 6)
             for fixture in fixtures {
                 var trace = try inputFixture(fixture.name, InputTrace.self)
                 for file in trace.eventFiles {
@@ -129,8 +133,14 @@ struct NativeEditorInputTraceTests {
                             let parent = try #require(trace.events.first { $0.id == parentID })
                             #expect(parent.method == (step.parentMethod ?? "insertText"))
                         } else {
-                            let request = try #require(trace.events.first { $0.id == event.id - 1 })
+                            let request = try #require(
+                                trace.events.first { $0.id == (step.requestEvent ?? event.id - 1) })
                             #expect(request.method == "shouldChangeText")
+                            #expect(request.arguments.range == step.serviceRange)
+                            #expect(
+                                request.arguments.textUTF16
+                                    == step.serviceText.map { Array($0.utf16) })
+                            #expect(request.before.text == String(decoding: view, as: UTF8.self))
                         }
                         let footprint = try #require(step.serviceRange)
                         let replacement = try #require(step.serviceText)

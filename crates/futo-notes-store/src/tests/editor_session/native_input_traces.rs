@@ -40,7 +40,7 @@ fn read_trace(name: &str) -> Value {
 #[test]
 fn captured_native_results_keep_only_commits_in_recovery_and_checkpoint() {
     let cases = read("native-input-cases");
-    assert_eq!(cases.as_array().unwrap().len(), 5);
+    assert_eq!(cases.as_array().unwrap().len(), 6);
     for case in cases.as_array().unwrap() {
         let root = TestRoot::new();
         let store = store(&root);
