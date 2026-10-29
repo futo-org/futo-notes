@@ -37,7 +37,8 @@ Milkdown editor until a separate renderer integration and cutover.
 - Session-incarnation tokens and monotonic request sequences bind append, flush and resume replies; duplicate, stale and superseded acknowledgements never apply a view delta twice, regress watermarks or claim durability from timer execution. Matching impossible watermarks reject without discarding the pending edit. → crates/futo-notes-editor/src/portable.rs
 - Opening a portable page preserves the store's recovered pause and copyable source; native hosts expose the store's typed recovery issue, and resume never bypasses review-required corruption. → crates/futo-notes-store/src/editor_session/portable.rs
 - The portable store endpoint performs blocking I/O only on its host worker; it validates exact source records before append acceptance and replay, and a successful flush advances durable independently from accepted. Failed storage retains the active page draft and pauses input; resume repairs and flushes the accepted prefix before a retained edit is acknowledged or retried. → crates/futo-notes-store/src/editor_session/portable.rs
-- The compiled wasm32 consumer exchanges edits, Undo/Redo and flushes with a separate real Rust store worker; WASM ships without native filesystem/store or heavyweight service dependencies. Shipping renderers and bridge schemas remain unchanged. → scripts/test-editor-wasm.mjs, crates/futo-notes-editor/tests/wasm-consumer.mjs
+- The portable/WASM facade exposes range projection, explicit selection affinity and formatting toggles; pending source changes block projection and selection until acceptance so semantic descriptions cannot overtake the displayed revision. Rich view changes serialize semantic runs, correspondence and affinity through the same acknowledgement boundary. → crates/futo-notes-editor/src/portable.rs, crates/futo-notes-editor/tests/portable.rs
+- The compiled wasm32 consumer exchanges hidden-marker edits, formatting toggles, Undo/Redo and flushes with a separate real Rust store worker; WASM ships without native filesystem/store or heavyweight service dependencies. Shipping renderers and bridge schemas remain unchanged. → scripts/test-editor-wasm.mjs, crates/futo-notes-editor/tests/wasm-consumer.mjs
 
 Outside-writer/lifecycle coordination,
 block/link interpretation, grouped history, composition and platform facades follow in their dependent tickets.
@@ -48,4 +49,3 @@ verification, paragraph partitioning and projection. Work in a single large
 paragraph or fence is still proportional to that region; progressive interpretation,
 complete allocation/work bounds and native device latency measurements remain
 in their dependent tickets.
-

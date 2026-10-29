@@ -54,6 +54,55 @@ impl WasmSession {
         ))
     }
 
+    pub fn project(&self, revision: u64, start: usize, end: usize) -> Result<String, JsValue> {
+        json(
+            &self
+                .0
+                .project(
+                    Revision(revision),
+                    DisplayRange {
+                        start: DisplayOffset(start),
+                        end: DisplayOffset(end),
+                    },
+                )
+                .map_err(error)?,
+        )
+    }
+    pub fn select_with_affinity(
+        &mut self,
+        revision: u64,
+        start: usize,
+        end: usize,
+        affinity: &str,
+    ) -> Result<String, JsValue> {
+        let affinity = serde_json::from_str(affinity).map_err(error)?;
+        json(
+            &self
+                .0
+                .select_with_affinity(
+                    Revision(revision),
+                    DisplayRange {
+                        start: DisplayOffset(start),
+                        end: DisplayOffset(end),
+                    },
+                    affinity,
+                )
+                .map_err(error)?,
+        )
+    }
+    pub fn active_formats(&self) -> Result<String, JsValue> {
+        json(&self.0.active_formats().map_err(error)?)
+    }
+    pub fn toggle_format(&mut self, revision: u64, format: &str) -> Result<String, JsValue> {
+        let format = serde_json::from_str(format).map_err(error)?;
+        json(
+            &self
+                .0
+                .toggle_format(Revision(revision), format)
+                .map_err(error)?,
+        )
+    }
+
     pub fn draft_text(&self) -> String {
         self.0.draft_text()
     }

@@ -84,7 +84,7 @@ pub enum CaretDirection {
 }
 
 /// A selection-only update: source and its revision are unchanged.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SelectionChange {
     pub revision: Revision,
     pub selection: DisplayRange,

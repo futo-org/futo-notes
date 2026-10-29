@@ -129,6 +129,49 @@ impl PortableSession {
         Ok(session)
     }
 
+    /// Queries cannot expose a locally staged projection before host acceptance.
+    pub fn project(
+        &self,
+        expected: Revision,
+        range: DisplayRange,
+    ) -> Result<crate::ProjectionSlice, PortableError> {
+        self.ready()?;
+        Ok(self.engine.project(expected, range)?)
+    }
+
+    pub fn select_with_affinity(
+        &mut self,
+        expected: Revision,
+        range: DisplayRange,
+        affinity: crate::Affinity,
+    ) -> Result<crate::SelectionChange, PortableError> {
+        self.ready()?;
+        Ok(self
+            .engine
+            .select_with_affinity(expected, range, affinity)?)
+    }
+
+    pub fn active_formats(&self) -> Result<Vec<crate::InlineFormat>, PortableError> {
+        self.ready()?;
+        Ok(self.engine.active_formats())
+    }
+
+    pub fn toggle_format(
+        &mut self,
+        expected: Revision,
+        format: crate::InlineFormat,
+    ) -> Result<Option<HostRequest>, PortableError> {
+        self.ready()?;
+        let mut record = None;
+        let change = self.engine.toggle_format(expected, format, &mut |edit| {
+            record = Some(edit.clone());
+            Ok(())
+        })?;
+        change
+            .map(|change| self.stage(record.unwrap(), change))
+            .transpose()
+    }
+
     pub fn draft_text(&self) -> String {
         self.engine.source_text()
     }

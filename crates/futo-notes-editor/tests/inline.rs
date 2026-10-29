@@ -9,6 +9,20 @@ fn range(start: usize, end: usize) -> DisplayRange {
     }
 }
 
+/// Compare complete public semantics/correspondence after each reference-view action.
+fn assert_fresh(session: &EditorSession, view: &ReferenceView) {
+    assert_eq!(session.display_text(), view.text);
+    let fresh = EditorSession::open(&session.source_text());
+    assert_eq!(fresh.display_text(), view.text);
+    let all = range(0, view.text.len());
+    let mut incremental = session.project(session.revision(), all).unwrap();
+    incremental.revision = Revision(0);
+    assert_eq!(incremental, fresh.project(Revision(0), all).unwrap());
+}
+
+#[path = "inline/code.rs"]
+mod code;
+
 #[test]
 fn nested_inline_marks_render_without_rewriting_the_original_spelling() {
     let original = "__bold *日😀*__ ~~gone~~ ``a ` *b*`` unmatched**\r\n";
@@ -20,6 +34,7 @@ fn nested_inline_marks_render_without_rewriting_the_original_spelling() {
         .replace(Revision(0), range(5, 8), "中", &mut |_| Ok(()))
         .unwrap();
     view.apply(change);
+    assert_fresh(&session, &view);
     assert_eq!(
         session.source_text(),
         "__bold *中😀*__ ~~gone~~ ``a ` *b*`` unmatched**\r\n"
@@ -31,8 +46,10 @@ fn nested_inline_marks_render_without_rewriting_the_original_spelling() {
         view.text
     );
     view.apply(session.undo(Revision(1), &mut |_| Ok(())).unwrap().unwrap());
+    assert_fresh(&session, &view);
     assert_eq!(session.source_text(), original);
     view.apply(session.redo(Revision(2), &mut |_| Ok(())).unwrap().unwrap());
+    assert_fresh(&session, &view);
     assert_eq!(view.text, "bold 中😀 gone a ` *b* unmatched**\r\n");
 }
 
@@ -94,10 +111,12 @@ fn hidden_boundaries_have_explicit_affinity_and_native_coordinates_remain_displa
             .replace(Revision(0), range(4, 4), "中", &mut |_| Ok(()))
             .unwrap(),
     );
+    assert_fresh(&session, &view);
     assert_eq!(session.source_text(), "**😀**_中日_");
     assert_eq!(view.text, "😀中日");
     assert_eq!(session.selection(), range(7, 7));
     view.apply(session.undo(Revision(1), &mut |_| Ok(())).unwrap().unwrap());
+    assert_fresh(&session, &view);
     assert_eq!(session.affinity(), Affinity::Forward);
     assert_eq!(session.selection(), range(4, 4));
     assert_eq!(session.source_text(), "**😀**_日_");
@@ -114,6 +133,7 @@ fn replacement_spanning_adjacent_marks_retains_surviving_styles_and_exact_histor
             .replace(Revision(0), range(1, 3), "中", &mut |_| Ok(()))
             .unwrap(),
     );
+    assert_fresh(&session, &view);
     assert_eq!(view.text, "a中d tail\t\r\n");
     assert_eq!(session.source_text(), "__a中__*d* tail\t\r\n");
     assert_eq!(session.selection(), range(4, 4));
@@ -122,9 +142,11 @@ fn replacement_spanning_adjacent_marks_retains_surviving_styles_and_exact_histor
         view.text
     );
     view.apply(session.undo(Revision(1), &mut |_| Ok(())).unwrap().unwrap());
+    assert_fresh(&session, &view);
     assert_eq!(session.source_text(), original);
     assert_eq!(session.selection(), range(1, 3));
     view.apply(session.redo(Revision(2), &mut |_| Ok(())).unwrap().unwrap());
+    assert_fresh(&session, &view);
     assert_eq!(session.source_text(), "__a中__*d* tail\t\r\n");
 }
 
@@ -139,6 +161,7 @@ fn deleting_all_marked_text_carries_style_and_typing_space_does_not_reveal_marke
             .replace(Revision(0), range(0, 7), "", &mut |_| Ok(()))
             .unwrap(),
     );
+    assert_fresh(&session, &view);
     assert_eq!(session.source_text(), " end");
     assert_eq!(view.text, " end");
     assert_eq!(session.active_formats(), vec![InlineFormat::Bold]);
@@ -147,6 +170,7 @@ fn deleting_all_marked_text_carries_style_and_typing_space_does_not_reveal_marke
             .replace(Revision(1), range(0, 0), "word ", &mut |_| Ok(()))
             .unwrap(),
     );
+    assert_fresh(&session, &view);
     assert_eq!(session.source_text(), "**word**  end");
     assert_eq!(view.text, "word  end");
     assert_eq!(session.selection(), range(5, 5));
@@ -155,6 +179,7 @@ fn deleting_all_marked_text_carries_style_and_typing_space_does_not_reveal_marke
             .replace(Revision(2), range(5, 5), "next", &mut |_| Ok(()))
             .unwrap(),
     );
+    assert_fresh(&session, &view);
     assert_eq!(session.source_text(), "**word next** end");
     assert_eq!(view.text, "word next end");
     assert_eq!(session.selection(), range(9, 9));
@@ -176,6 +201,7 @@ fn formatting_commands_keep_display_selection_and_preserve_unaffected_spellings(
             .unwrap()
             .unwrap(),
     );
+    assert_fresh(&session, &view);
     assert_eq!(session.source_text(), "__alpha__ *beta*\t\r\n");
     assert_eq!(view.text, "alpha beta\t\r\n");
     assert_eq!(session.selection(), range(6, 10));
@@ -185,8 +211,10 @@ fn formatting_commands_keep_display_selection_and_preserve_unaffected_spellings(
             .unwrap()
             .unwrap(),
     );
+    assert_fresh(&session, &view);
     assert_eq!(session.source_text(), "__alpha__ ~~*beta*~~\t\r\n");
     view.apply(session.undo(Revision(2), &mut |_| Ok(())).unwrap().unwrap());
+    assert_fresh(&session, &view);
     assert_eq!(session.source_text(), "__alpha__ *beta*\t\r\n");
     view.apply(
         session
@@ -194,6 +222,7 @@ fn formatting_commands_keep_display_selection_and_preserve_unaffected_spellings(
             .unwrap()
             .unwrap(),
     );
+    assert_fresh(&session, &view);
     assert_eq!(session.source_text(), "__alpha__ beta\t\r\n");
     session.select(Revision(4), range(0, 5)).unwrap();
     view.apply(
@@ -202,6 +231,7 @@ fn formatting_commands_keep_display_selection_and_preserve_unaffected_spellings(
             .unwrap()
             .unwrap(),
     );
+    assert_fresh(&session, &view);
     assert_eq!(session.source_text(), "alpha beta\t\r\n");
     session.select(Revision(5), range(6, 6)).unwrap();
     assert!(session
@@ -215,6 +245,7 @@ fn formatting_commands_keep_display_selection_and_preserve_unaffected_spellings(
             .replace(Revision(5), range(6, 6), "*x*", &mut |_| Ok(()))
             .unwrap(),
     );
+    assert_fresh(&session, &view);
     assert_eq!(session.source_text(), "alpha `*x*`beta\t\r\n");
     assert_eq!(view.text, "alpha *x*beta\t\r\n");
 }
@@ -248,6 +279,7 @@ fn reviewed_hidden_boundary_cases_keep_literal_view_and_exact_undo() {
                     .replace(Revision(0), range(at, at), "x", &mut |_| Ok(()))
                     .unwrap(),
             );
+            assert_fresh(&session, &view);
             let mut expected = display.to_owned();
             expected.insert(at, 'x');
             assert_eq!(view.text, expected, "insert {source:?} at {at}");
@@ -257,6 +289,7 @@ fn reviewed_hidden_boundary_cases_keep_literal_view_and_exact_undo() {
                 expected
             );
             view.apply(session.undo(Revision(1), &mut |_| Ok(())).unwrap().unwrap());
+            assert_fresh(&session, &view);
             assert_eq!(session.source_text(), source);
             assert_eq!(view.text, display);
         }
@@ -268,6 +301,7 @@ fn reviewed_hidden_boundary_cases_keep_literal_view_and_exact_undo() {
                     .replace(Revision(0), range(pair[0], pair[1]), "", &mut |_| Ok(()))
                     .unwrap_or_else(|error| panic!("delete {source:?} {pair:?}: {error}")),
             );
+            assert_fresh(&session, &view);
             let mut expected = display.to_owned();
             expected.replace_range(pair[0]..pair[1], "");
             assert_eq!(view.text, expected, "delete {source:?} at {pair:?}");
@@ -277,6 +311,7 @@ fn reviewed_hidden_boundary_cases_keep_literal_view_and_exact_undo() {
                 expected
             );
             view.apply(session.undo(Revision(1), &mut |_| Ok(())).unwrap().unwrap());
+            assert_fresh(&session, &view);
             assert_eq!(session.source_text(), source);
         }
     }
@@ -293,6 +328,7 @@ fn deleting_a_separator_repairs_only_the_flanking_scalar_without_dropping_marks(
             .replace(Revision(0), range(7, 8), "", &mut |_| Ok(()))
             .unwrap(),
     );
+    assert_fresh(&session, &view);
     assert_eq!(session.source_text(), "***日😀***&#97;nd __b__");
     assert_eq!(view.text, "日😀and b");
     assert_eq!(
@@ -305,56 +341,14 @@ fn deleting_a_separator_repairs_only_the_flanking_scalar_without_dropping_marks(
             .replace(Revision(1), range(7, 8), "A", &mut |_| Ok(()))
             .unwrap(),
     );
+    assert_fresh(&session, &view);
     assert_eq!(session.source_text(), "***日😀***&#65;nd __b__");
     assert_eq!(view.text, "日😀And b");
     view.apply(session.undo(Revision(2), &mut |_| Ok(())).unwrap().unwrap());
+    assert_fresh(&session, &view);
     view.apply(session.undo(Revision(3), &mut |_| Ok(())).unwrap().unwrap());
+    assert_fresh(&session, &view);
     assert_eq!(session.source_text(), original);
-}
-
-#[test]
-fn code_input_and_toggles_keep_marker_contents_isolated() {
-    use futo_notes_editor::InlineFormat::Code;
-    let original = "__left__ `a *b* [[x]] #tag` __right__";
-    let mut session = EditorSession::open(original);
-    let mut view = ReferenceView::new("left a *b* [[x]] #tag right");
-    session.select(Revision(0), range(6, 6)).unwrap();
-    view.apply(
-        session
-            .replace(Revision(0), range(6, 6), "`", &mut |_| Ok(()))
-            .unwrap(),
-    );
-    assert_eq!(
-        session.source_text(),
-        "__left__ ``a` *b* [[x]] #tag`` __right__"
-    );
-    assert_eq!(view.text, "left a` *b* [[x]] #tag right");
-    view.apply(session.undo(Revision(1), &mut |_| Ok(())).unwrap().unwrap());
-    assert_eq!(session.source_text(), original);
-    session.select(Revision(2), range(0, 4)).unwrap();
-    view.apply(
-        session
-            .toggle_format(Revision(2), Code, &mut |_| Ok(()))
-            .unwrap()
-            .unwrap(),
-    );
-    assert_eq!(
-        session.source_text(),
-        "__`left`__ `a *b* [[x]] #tag` __right__"
-    );
-    assert_eq!(view.text, "left a *b* [[x]] #tag right");
-    session.select(Revision(3), range(5, 20)).unwrap();
-    view.apply(
-        session
-            .toggle_format(Revision(3), Code, &mut |_| Ok(()))
-            .unwrap()
-            .unwrap(),
-    );
-    assert_eq!(view.text, "left a *b* [[x]] #tag right");
-    assert_eq!(
-        EditorSession::open(&session.source_text()).display_text(),
-        view.text
-    );
 }
 
 #[test]
@@ -406,6 +400,7 @@ fn inline_interpretation_does_not_enter_fenced_code_across_blank_lines() {
             .replace(Revision(0), range(7, 8), "B", &mut |_| Ok(()))
             .unwrap(),
     );
+    assert_fresh(&session, &view);
     assert_eq!(
         session.source_text(),
         "before **Bold**\n\n```md\n**literal**\n\n_unchanged_ [[x]] #tag\n```\n\nafter ~~gone~~"
@@ -414,27 +409,6 @@ fn inline_interpretation_does_not_enter_fenced_code_across_blank_lines() {
         EditorSession::open(&session.source_text()).display_text(),
         view.text
     );
-}
-
-#[test]
-fn editing_code_padding_keeps_exact_visible_spaces_and_delimiter_boundaries() {
-    for (source, display, selected, inserted, expected_source, expected_display) in [
-        ("` a b `", "a b", range(0, 1), "", "`  b `", " b"),
-        ("`` a ` b ``", "a ` b", range(0, 5), " ", "`` ``", " "),
-        ("`x`", "x", range(0, 0), "`", "`` `x ``", "`x"),
-    ] {
-        let mut session = EditorSession::open(source);
-        let mut view = ReferenceView::new(display);
-        view.apply(
-            session
-                .replace(Revision(0), selected, inserted, &mut |_| Ok(()))
-                .unwrap(),
-        );
-        assert_eq!(view.text, expected_display);
-        assert_eq!(session.source_text(), expected_source);
-        view.apply(session.undo(Revision(1), &mut |_| Ok(())).unwrap().unwrap());
-        assert_eq!(session.source_text(), source);
-    }
 }
 
 #[test]
@@ -447,36 +421,13 @@ fn a_foreign_range_inside_a_decoded_entity_preserves_the_other_unicode_scalar() 
             .replace(Revision(0), range(3, 5), "", &mut |_| Ok(()))
             .unwrap(),
     );
+    assert_fresh(&session, &view);
     assert_eq!(view.text, "≂ tail");
     assert_eq!(session.source_text(), "__&#8770;__ tail");
     assert_eq!(session.selection(), range(3, 3));
     view.apply(session.undo(Revision(1), &mut |_| Ok(())).unwrap().unwrap());
+    assert_fresh(&session, &view);
     assert_eq!(session.source_text(), "__&NotEqualTilde;__ tail");
-}
-
-#[test]
-fn code_commands_and_input_preserve_visible_line_breaks() {
-    use futo_notes_editor::InlineFormat::Code;
-    let mut session = EditorSession::open("a\r\nb");
-    let mut view = ReferenceView::new("a\r\nb");
-    session.select(Revision(0), range(0, 4)).unwrap();
-    view.apply(
-        session
-            .toggle_format(Revision(0), Code, &mut |_| Ok(()))
-            .unwrap()
-            .unwrap(),
-    );
-    assert_eq!(session.source_text(), "`a`\r\n`b`");
-    assert_eq!(view.text, "a\r\nb");
-    let mut session = EditorSession::open("`ab`");
-    let mut view = ReferenceView::new("ab");
-    view.apply(
-        session
-            .replace(Revision(0), range(1, 1), "\n", &mut |_| Ok(()))
-            .unwrap(),
-    );
-    assert_eq!(session.source_text(), "`a`\n`b`");
-    assert_eq!(view.text, "a\nb");
 }
 
 #[test]
