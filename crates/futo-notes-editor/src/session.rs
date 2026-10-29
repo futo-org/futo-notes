@@ -288,6 +288,7 @@ impl EditorSession {
         let before_selection = self.selection;
         let before_affinity = self.affinity;
         let before_formats = self.pending_formats.clone();
+        self.affinity = affinity;
         let mut change = self.apply(&edit);
         let caret = DisplayOffset(self.projection.display_at(plan.caret));
         self.selection = DisplayRange {

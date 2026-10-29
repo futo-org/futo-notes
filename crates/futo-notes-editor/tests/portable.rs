@@ -218,3 +218,30 @@ fn portable_collapsed_formatting_carries_without_a_source_record() {
         .unwrap();
     assert_eq!(change.selection.start, DisplayOffset(4));
 }
+
+#[test]
+fn paused_recovered_source_remains_available_as_a_rich_display_projection() {
+    let page = PortableSession::from_snapshot(futo_notes_editor::HostSnapshot {
+        token: SessionToken(15),
+        source: "__copy me__".into(),
+        revision: Revision(3),
+        durable: Revision(1),
+        paused: true,
+    })
+    .unwrap();
+    let projection = page
+        .project(
+            Revision(3),
+            DisplayRange {
+                start: DisplayOffset(0),
+                end: DisplayOffset(7),
+            },
+        )
+        .unwrap();
+    assert_eq!(projection.text, "copy me");
+    assert_eq!(
+        projection.runs[0].formats,
+        vec![futo_notes_editor::InlineFormat::Bold]
+    );
+    assert!(page.status().paused);
+}

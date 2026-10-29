@@ -490,3 +490,24 @@ fn rejected_inline_operations_preserve_source_projection_selection_affinity_and_
         Err(EditorError::StaleRevision { .. })
     ));
 }
+
+#[test]
+fn replacement_at_a_new_hidden_boundary_reports_the_affinity_used_for_input() {
+    use futo_notes_editor::{Affinity, InlineFormat};
+    let mut session = EditorSession::open("**a**_b_");
+    let mut view = ReferenceView::new("ab");
+    let change = session
+        .replace(Revision(0), range(1, 1), "x", &mut |_| Ok(()))
+        .unwrap();
+    assert_eq!(change.affinity, Affinity::Backward);
+    view.apply(change);
+    assert_eq!(session.affinity(), Affinity::Backward);
+    assert_eq!(session.active_formats(), vec![InlineFormat::Bold]);
+    assert_eq!(session.source_text(), "**ax**_b_");
+    assert_eq!(session.selection(), range(2, 2));
+    assert_fresh(&session, &view);
+    view.apply(session.undo(Revision(1), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(session.affinity(), Affinity::Forward);
+    assert_eq!(session.selection(), range(0, 0));
+    assert_fresh(&session, &view);
+}
