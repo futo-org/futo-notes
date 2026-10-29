@@ -152,6 +152,76 @@ impl NativeEditorSession {
         })
     }
 
+    pub fn replace_utf16_action(
+        &self,
+        expected: u64,
+        range: EditorUtf16Range,
+        inserted: Vec<u16>,
+        action: EditorInputAction,
+    ) -> Result<EditorViewChange, EditorSessionError> {
+        self.with_revision(expected, |session| {
+            Ok(session
+                .replace_utf16_action(
+                    Revision(expected),
+                    range.try_into()?,
+                    &inserted,
+                    action.into(),
+                )?
+                .into())
+        })
+    }
+
+    pub fn replace_many_utf16(
+        &self,
+        expected: u64,
+        replacements: Vec<EditorUtf16Replacement>,
+    ) -> Result<EditorViewChange, EditorSessionError> {
+        self.with_revision(expected, |session| {
+            let replacements = replacements
+                .into_iter()
+                .map(TryInto::try_into)
+                .collect::<Result<Vec<_>, EditorSessionError>>()?;
+            Ok(session
+                .replace_many_utf16(Revision(expected), &replacements)?
+                .into())
+        })
+    }
+
+    pub fn select_with_affinity(
+        &self,
+        expected: u64,
+        range: EditorByteRange,
+        affinity: EditorAffinity,
+    ) -> Result<EditorSelectionChange, EditorSessionError> {
+        self.with_revision(expected, |session| {
+            Ok(session
+                .select_with_affinity(Revision(expected), range.try_into()?, affinity.into())?
+                .into())
+        })
+    }
+
+    pub fn toggle_format(
+        &self,
+        expected: u64,
+        format: EditorInlineFormat,
+    ) -> Result<Option<EditorViewChange>, EditorSessionError> {
+        self.with_revision(expected, |session| {
+            Ok(session
+                .toggle_format(Revision(expected), format.into())?
+                .map(Into::into))
+        })
+    }
+
+    pub fn active_formats(&self) -> Result<Vec<EditorInlineFormat>, EditorSessionError> {
+        self.with_session(|session| {
+            Ok(session
+                .active_formats()
+                .into_iter()
+                .map(Into::into)
+                .collect())
+        })
+    }
+
     pub fn recovery_issue(&self) -> Result<Option<EditorRecoveryIssue>, EditorSessionError> {
         self.with_session(|session| Ok(session.recovery_issue().cloned().map(Into::into)))
     }

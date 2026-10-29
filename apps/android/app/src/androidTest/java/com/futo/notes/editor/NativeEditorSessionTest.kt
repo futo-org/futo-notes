@@ -134,4 +134,72 @@ class NativeEditorSessionTest {
             root.deleteRecursively()
         }
     }
+    @Test
+    fun isolatedCommitsAndCompoundReplacementsPreserveExactHistory() {
+        val root = File(InstrumentationRegistry.getInstrumentation().targetContext.cacheDir, "editor-history-${UUID.randomUUID()}")
+        check(root.mkdirs())
+        try {
+            NoteStore(root.absolutePath).use { store ->
+                val opening = "__cat__ &amp; _dog_\r\n"
+                store.createNote("history", "", opening)
+                store.openEditor("history").use { session ->
+                    var view = "cat & dog\r\n".toByteArray(Charsets.UTF_8)
+                    var revision = 0uL
+                    fun apply(change: EditorViewChange) {
+                        assertEquals(revision, change.previousRevision)
+                        assertEquals(revision + 1uL, change.revision)
+                        view = view.copyOfRange(0, change.range.start.toInt()) + change.inserted.toByteArray(Charsets.UTF_8) + view.copyOfRange(change.range.end.toInt(), view.size)
+                        revision = change.revision
+                    }
+                    fun units(text: String) = text.map { it.code.toUShort() }
+                    session.selectWithAffinity(0uL, EditorByteRange(0uL, 3uL), EditorAffinity.FORWARD)
+                    apply(checkNotNull(session.toggleFormat(0uL, EditorInlineFormat.ITALIC)))
+                    assertEquals("*__cat__* &amp; _dog_\r\n", session.sourceText())
+                    apply(session.replaceManyUtf16(1uL, listOf(
+                        EditorUtf16Replacement(EditorUtf16Range(0uL, 3uL), units("kitten")),
+                        EditorUtf16Replacement(EditorUtf16Range(6uL, 9uL), units("ox")),
+                    )))
+                    assertEquals("*__kitten__* &amp; _ox_\r\n", session.sourceText())
+                    apply(session.replaceUtf16Action(2uL, EditorUtf16Range(11uL, 11uL), units("日本"), EditorInputAction.COMPOSITION_COMMIT))
+                    assertEquals("*__kitten__* &amp; _ox日本_\r\n", session.sourceText())
+                    apply(session.replaceUtf16Action(3uL, EditorUtf16Range(13uL, 13uL), listOf(33u.toUShort()), EditorInputAction.ISOLATED))
+                    val final = "*__kitten__* &amp; _ox日本!_\r\n"
+                    assertEquals(final, session.sourceText())
+                    assertEquals("kitten & ox日本!\r\n", String(view, Charsets.UTF_8))
+                    for (expected in listOf("*__kitten__* &amp; _ox日本_\r\n", "*__kitten__* &amp; _ox_\r\n", "*__cat__* &amp; _dog_\r\n", opening)) {
+                        apply(checkNotNull(session.undo(revision)))
+                        assertEquals(expected, session.sourceText())
+                    }
+                    assertEquals("cat & dog\r\n", String(view, Charsets.UTF_8))
+                    assertNull(session.undo(8uL))
+                    for (expected in listOf("*__cat__* &amp; _dog_\r\n", "*__kitten__* &amp; _ox_\r\n", "*__kitten__* &amp; _ox日本_\r\n", final)) {
+                        apply(checkNotNull(session.redo(revision)))
+                        assertEquals(expected, session.sourceText())
+                    }
+                    assertEquals(listOf(EditorInlineFormat.ITALIC), session.activeFormats())
+                    try {
+                        session.replaceManyUtf16(12uL, listOf(
+                            EditorUtf16Replacement(EditorUtf16Range(0uL, 6uL), listOf(97u.toUShort())),
+                            EditorUtf16Replacement(EditorUtf16Range(9uL, 11uL), listOf(0xD800u.toUShort())),
+                        ))
+                        fail("A malformed later run was accepted")
+                    } catch (_: EditorSessionException.InvalidText) {}
+                    assertEquals(final, session.sourceText())
+                    assertEquals(12uL, session.revision())
+                    assertEquals(12uL, session.flushRecovery().durable)
+                    session.detach()
+                    store.openEditor("history").use { recovered ->
+                        assertEquals(final, recovered.sourceText())
+                        assertNull(recovered.undo(12uL))
+                        assertEquals("history", recovered.checkpoint().mutation?.finalId)
+                        assertEquals(final, store.read("history"))
+                        recovered.detach()
+                    }
+                }
+            }
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
 }
