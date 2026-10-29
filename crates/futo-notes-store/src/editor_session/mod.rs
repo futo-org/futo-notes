@@ -1,7 +1,10 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use futo_notes_editor::{DisplayRange, EditorError, EditorSession, Revision, ViewChange};
+use futo_notes_editor::{
+    CaretDirection, DisplayRange, DisplayUtf16Range, EditorError, EditorSession, Revision,
+    SelectionChange, ViewChange,
+};
 
 use crate::{paths, FlushDisposition, FlushDraftResult, LocalNoteStore, NOTE_NOT_FOUND};
 
@@ -184,6 +187,43 @@ impl StoreEditorSession<'_> {
     }
     pub fn revision(&self) -> Revision {
         self.engine.revision()
+    }
+
+    pub fn selection(&self) -> DisplayRange {
+        self.engine.selection()
+    }
+
+    pub fn select_utf16(
+        &mut self,
+        expected: Revision,
+        range: DisplayUtf16Range,
+    ) -> Result<SelectionChange, EditorStoreError> {
+        self.engine
+            .select_utf16(expected, range)
+            .map_err(EditorStoreError::Editor)
+    }
+
+    pub fn move_caret(
+        &mut self,
+        expected: Revision,
+        direction: CaretDirection,
+    ) -> Result<SelectionChange, EditorStoreError> {
+        self.engine
+            .move_caret(expected, direction)
+            .map_err(EditorStoreError::Editor)
+    }
+
+    pub fn replace_utf16(
+        &mut self,
+        expected: Revision,
+        range: DisplayUtf16Range,
+        inserted: &[u16],
+    ) -> Result<ViewChange, EditorStoreError> {
+        let (range, inserted) = self
+            .engine
+            .decode_utf16_input(expected, range, inserted)
+            .map_err(EditorStoreError::Editor)?;
+        self.replace(expected, range, &inserted)
     }
 
     pub fn replace(
