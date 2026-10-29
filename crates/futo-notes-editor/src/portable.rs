@@ -135,7 +135,9 @@ impl PortableSession {
         expected: Revision,
         range: DisplayRange,
     ) -> Result<crate::ProjectionSlice, PortableError> {
-        self.ready()?;
+        if self.pending.is_some() {
+            return Err(PortableError::Busy);
+        }
         Ok(self.engine.project(expected, range)?)
     }
 

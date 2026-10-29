@@ -33,7 +33,8 @@ chooses the visible neighbor at a hidden boundary. Formatting toggles preserve
 display text and selection, but their source edits still require worker acceptance.
 Collapsed toggles carry formatting locally without emitting a recovery record.
 Queries and selection reject while an edit is pending, so a staged projection cannot
-overtake the acknowledged view. Apply `ViewChange.projection` even when the display
+overtake the acknowledged view. A paused recovered session can still query its
+accepted projection for display and copying. Apply `ViewChange.projection` even when the display
 replacement is empty or unchanged. The WASM JSON methods accept affinity and format
 as serialized enum strings, for example `'"Forward"'` and `'"Strike"'`.
 
