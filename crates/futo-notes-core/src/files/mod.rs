@@ -2,6 +2,7 @@ pub(crate) mod atomic_write;
 mod filenames;
 mod parked_backup;
 mod paths;
+pub mod recovery_coordination;
 mod timestamps;
 mod vault_lock;
 
@@ -12,7 +13,7 @@ pub use filenames::{
     collides_but_differs, collision_key, is_valid_title, is_windows_reserved_name, sanitize_title,
     validate_title, FilenameIssue, FilenameIssueKind, FALLBACK_TITLE, MAX_TITLE_LENGTH,
 };
-pub use parked_backup::{recover_parked_backups, RecoveredBackup};
+pub use parked_backup::{recover_parked_backups, recover_parked_backups_locked, RecoveredBackup};
 pub use paths::{
     classify_incoming_sync_path, ensure_safe_note_id, note_id_from_filename,
     note_id_from_relative_path, safe_appdata_path, safe_note_path, IncomingSyncPath,

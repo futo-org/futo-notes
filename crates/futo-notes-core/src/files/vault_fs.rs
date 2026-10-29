@@ -1,4 +1,10 @@
 //! Vault-relative I/O shared by sync and the local note engine.
+//!
+//! Destination installers protect pending editor recovery by default. Callers
+//! hold `vault_mutation_guard` across their decision and installation; these
+//! functions never acquire it recursively (bootstrap workers share its span).
+//! Low-level metadata I/O and an attached editor's own checkpoint are explicit
+//! exceptions. Directory moves stamp their destination prefix before OS I/O.
 use std::path::{Component, Path};
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -194,6 +200,8 @@ pub fn read(root: &Path, relative: &str) -> Result<Vec<u8>, String> {
 }
 
 pub fn write_atomic(root: &Path, relative: &str, bytes: &[u8]) -> Result<(), String> {
+    super::recovery_coordination::protect_replacement(root, relative)?;
+    before_install(relative);
     platform::write_atomic(root, relative, bytes)
 }
 
@@ -213,6 +221,8 @@ pub fn remove(root: &Path, relative: &str) -> Result<bool, String> {
 }
 
 pub fn rename(root: &Path, source: &str, destination: &str) -> Result<bool, String> {
+    protect_move(root, source, destination)?;
+    before_install(destination);
     platform::rename(root, source, destination)
 }
 
@@ -256,9 +266,19 @@ pub fn read_optional(root: &Path, relative: &str) -> Result<Option<Vec<u8>>, Str
     platform::read_optional(root, relative)
 }
 pub fn create_new(root: &Path, relative: &str, bytes: &[u8]) -> Result<bool, String> {
+    super::recovery_coordination::protect_replacement(root, relative)?;
+    before_install(relative);
     platform::create_new(root, relative, bytes)
 }
+/// Exclusive install with strict directory durability, used by sync's required-absent paths.
+pub fn create_new_strict(root: &Path, relative: &str, bytes: &[u8]) -> Result<bool, String> {
+    super::recovery_coordination::protect_replacement(root, relative)?;
+    before_install(relative);
+    platform::create_new_strict(root, relative, bytes)
+}
 pub fn move_no_replace(root: &Path, source: &str, destination: &str) -> Result<bool, String> {
+    protect_move(root, source, destination)?;
+    before_install(destination);
     platform::move_no_replace(root, source, destination)
 }
 pub fn move_no_replace_strict(
@@ -266,6 +286,8 @@ pub fn move_no_replace_strict(
     source: &str,
     destination: &str,
 ) -> Result<bool, String> {
+    protect_move(root, source, destination)?;
+    before_install(destination);
     platform::move_no_replace_strict(root, source, destination)
 }
 pub fn create_dir_all(root: &Path, relative: &str) -> Result<(), String> {
@@ -273,12 +295,16 @@ pub fn create_dir_all(root: &Path, relative: &str) -> Result<(), String> {
 }
 
 pub fn rename_case(root: &Path, source: &str, destination: &str) -> Result<(), String> {
+    protect_move(root, source, destination)?;
+    before_install(destination);
     platform::rename_case(root, source, destination)
 }
 
 /// Local-store policy: report committed writes if directory fsync is unsupported.
 /// Sync uses `write_atomic` and retains strict journal durability.
 pub fn write_atomic_local(root: &Path, relative: &str, bytes: &[u8]) -> Result<(), String> {
+    super::recovery_coordination::protect_replacement(root, relative)?;
+    before_install(relative);
     platform::write_atomic_local(root, relative, bytes)
 }
 pub fn create_dir(root: &Path, relative: &str) -> Result<(), String> {
@@ -295,5 +321,91 @@ pub fn remove_local(root: &Path, relative: &str) -> Result<bool, String> {
     platform::remove_local(root, relative)
 }
 pub fn rename_local(root: &Path, source: &str, destination: &str) -> Result<bool, String> {
+    protect_move(root, source, destination)?;
+    before_install(destination);
     platform::rename_local(root, source, destination)
+}
+
+/// All destination installers require the caller's vault guard across its
+/// decision and install. Metadata operations bypass visible-note policy only.
+pub(crate) fn write_metadata_atomic_local(
+    root: &Path,
+    relative: &str,
+    bytes: &[u8],
+) -> Result<(), String> {
+    platform::write_atomic_local(root, relative, bytes)
+}
+
+pub(crate) fn recovery_directory_exists(root: &Path) -> Result<bool, String> {
+    match platform::entry_is_directory(root, ".futo-editor-recovery")? {
+        Some(true) => Ok(true),
+        None => Ok(false),
+        Some(false) => Err("editor recovery path is not a directory".to_owned()),
+    }
+}
+
+fn protect_move(root: &Path, source: &str, destination: &str) -> Result<(), String> {
+    validate_path(root, source)?;
+    validate_path(root, destination)?;
+    match platform::entry_is_directory(root, source)? {
+        Some(true) => super::recovery_coordination::protect_directory(root, destination),
+        Some(false) => super::recovery_coordination::protect_replacement(root, destination),
+        None => Ok(()),
+    }
+}
+
+/// Only an attached editor's locked checkpoint may exempt its own recovery id.
+/// Foreign parking destinations always use the default replacement policy.
+/// This capability neither locks nor suppresses policy outside its own calls.
+pub struct EditorCheckpointInstall<'a> {
+    root: &'a Path,
+    recovery_id: &'a str,
+}
+
+impl<'a> EditorCheckpointInstall<'a> {
+    pub fn new(root: &'a Path, recovery_id: &'a str) -> Result<Self, String> {
+        super::ensure_safe_note_id(recovery_id)?;
+        Ok(Self { root, recovery_id })
+    }
+
+    pub fn adopt_existing(&self, relative: &str) -> Result<(), String> {
+        if super::note_id_from_relative_path(relative).as_deref() != Some(self.recovery_id) {
+            super::recovery_coordination::protect_replacement(self.root, relative)?;
+        }
+        Ok(())
+    }
+
+    pub fn write_atomic_local(&self, relative: &str, bytes: &[u8]) -> Result<(), String> {
+        self.adopt_existing(relative)?;
+        before_install(relative);
+        platform::write_atomic_local(self.root, relative, bytes)
+    }
+
+    pub fn create_new(&self, relative: &str, bytes: &[u8]) -> Result<bool, String> {
+        self.adopt_existing(relative)?;
+        before_install(relative);
+        platform::create_new(self.root, relative, bytes)
+    }
+}
+
+#[cfg(any(test, feature = "test-support"))]
+thread_local! {
+    static BEFORE_INSTALL: std::cell::RefCell<Option<Box<dyn Fn(&str)>>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Filesystem fault seam after durable destination coordination and before OS
+/// installation. Metadata writes do not invoke it. It never suppresses policy.
+#[cfg(any(test, feature = "test-support"))]
+pub fn set_before_install_hook(hook: Option<Box<dyn Fn(&str)>>) {
+    BEFORE_INSTALL.with(|slot| *slot.borrow_mut() = hook);
+}
+
+#[cfg_attr(not(any(test, feature = "test-support")), allow(unused_variables))]
+fn before_install(relative: &str) {
+    #[cfg(any(test, feature = "test-support"))]
+    BEFORE_INSTALL.with(|slot| {
+        if let Some(hook) = slot.borrow().as_ref() {
+            hook(relative);
+        }
+    });
 }

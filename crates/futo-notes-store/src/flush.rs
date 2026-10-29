@@ -73,7 +73,7 @@ impl LocalNoteStore {
         base: &str,
         content: &str,
     ) -> Result<FlushDraftResult, String> {
-        self.flush_draft_locked_with_target(id, base, content, &mut |_| Ok(()))
+        self.flush_draft_locked_with_target(id, base, content, None, &mut |_| Ok(()))
     }
 
     /// Protect the chosen destination before an install. This callback stays
@@ -83,6 +83,7 @@ impl LocalNoteStore {
         id: &str,
         base: &str,
         content: &str,
+        checkpoint: Option<&vault_fs::EditorCheckpointInstall<'_>>,
         protect: &mut dyn FnMut(&str) -> Result<(), String>,
     ) -> Result<FlushDraftResult, String> {
         paths::note_path(&self.root, id)?;
@@ -98,6 +99,7 @@ impl LocalNoteStore {
             // disk already holds never rewrites identical bytes (an mtime bump
             // would re-rank the note on every device).
             Ok(current) if current == content => {
+                adopt_existing(&self.root, id, checkpoint)?;
                 protect(id)?;
                 Ok(FlushDraftResult {
                     disposition: FlushDisposition::Converged,
@@ -106,7 +108,7 @@ impl LocalNoteStore {
             }
             Ok(current) if current == base => {
                 protect(id)?;
-                let metadata = self.write_raw(id, content, None)?;
+                let metadata = self.write_checkpoint_raw(id, content, None, checkpoint)?;
                 Ok(FlushDraftResult {
                     disposition: FlushDisposition::Wrote,
                     mutation: Some(self.upsert_mutation(metadata)),
@@ -116,9 +118,9 @@ impl LocalNoteStore {
             // edit, or an in-flight autosave advanced disk past `base`). Never
             // drop the draft: park it as a conflict copy — the diverged note on
             // disk is left intact and the edit survives as a new note.
-            Ok(_) => self.park_conflict_draft_with_target(id, content, protect),
+            Ok(_) => self.park_conflict_draft_with_target(id, content, checkpoint, protect),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                self.recreate_missing_draft(id, content, protect)
+                self.recreate_missing_draft(id, content, checkpoint, protect)
             }
             Err(error) => Err(io_error(error)),
         }
@@ -134,6 +136,7 @@ impl LocalNoteStore {
         &self,
         id: &str,
         content: &str,
+        checkpoint: Option<&vault_fs::EditorCheckpointInstall<'_>>,
         protect: &mut dyn FnMut(&str) -> Result<(), String>,
     ) -> Result<FlushDraftResult, String> {
         // Never recreate at an id that cross-platform-collides (case-insensitive
@@ -143,7 +146,7 @@ impl LocalNoteStore {
         // shadow `write_raw` refuses for ordinary writes. Park the edit instead —
         // the draft still survives, at a non-shadowing conflict-copy id.
         if self.colliding_note(id).is_some() {
-            return self.park_conflict_draft_with_target(id, content, protect);
+            return self.park_conflict_draft_with_target(id, content, checkpoint, protect);
         }
         let change = FileChange::Changed(note_filename(id));
         self.before_write
@@ -153,7 +156,7 @@ impl LocalNoteStore {
             hook(id);
         }
         protect(id)?;
-        if vault_fs::create_new(&self.root, &note_filename(&id), content.as_bytes())? {
+        if create_draft(&self.root, id, content, checkpoint)? {
             let metadata = vault::metadata(&self.root, id)
                 .ok_or_else(|| "note metadata unavailable after recreate".to_owned())?;
             self.search.notify(&change);
@@ -167,7 +170,7 @@ impl LocalNoteStore {
                 disposition: FlushDisposition::Converged,
                 mutation: None,
             }),
-            _ => self.park_conflict_draft_with_target(id, content, protect),
+            _ => self.park_conflict_draft_with_target(id, content, checkpoint, protect),
         }
     }
 
@@ -183,13 +186,14 @@ impl LocalNoteStore {
         id: &str,
         content: &str,
     ) -> Result<FlushDraftResult, String> {
-        self.park_conflict_draft_with_target(id, content, &mut |_| Ok(()))
+        self.park_conflict_draft_with_target(id, content, None, &mut |_| Ok(()))
     }
 
-    fn park_conflict_draft_with_target(
+    pub(crate) fn park_conflict_draft_with_target(
         &self,
         id: &str,
         content: &str,
+        checkpoint: Option<&vault_fs::EditorCheckpointInstall<'_>>,
         protect: &mut dyn FnMut(&str) -> Result<(), String>,
     ) -> Result<FlushDraftResult, String> {
         let (folder, title) = split_id(id);
@@ -212,6 +216,7 @@ impl LocalNoteStore {
             }
             let parked_id = join_id(&folder, sibling_title);
             if self.read(&parked_id).as_deref() == Ok(content) {
+                adopt_existing(&self.root, &parked_id, checkpoint)?;
                 protect(&parked_id)?;
                 return Ok(FlushDraftResult {
                     disposition: FlushDisposition::ParkedConflict { parked_id },
@@ -248,7 +253,7 @@ impl LocalNoteStore {
                 hook(&parked_id);
             }
             protect(&parked_id)?;
-            if vault_fs::create_new(&self.root, &note_filename(&parked_id), content.as_bytes())? {
+            if create_draft(&self.root, &parked_id, content, checkpoint)? {
                 let metadata = vault::metadata(&self.root, &parked_id)
                     .ok_or_else(|| "note metadata unavailable after park".to_owned())?;
                 self.search
@@ -286,4 +291,30 @@ fn is_dated_conflict_variant(stem: &str, candidate: &str) -> bool {
         .is_some_and(|counter| {
             !counter.is_empty() && counter.bytes().all(|byte| byte.is_ascii_digit())
         })
+}
+
+fn adopt_existing(
+    root: &std::path::Path,
+    id: &str,
+    checkpoint: Option<&vault_fs::EditorCheckpointInstall<'_>>,
+) -> Result<(), String> {
+    match checkpoint {
+        Some(checkpoint) => checkpoint.adopt_existing(&note_filename(id)),
+        None => futo_notes_core::files::recovery_coordination::protect_replacement(
+            root,
+            &note_filename(id),
+        ),
+    }
+}
+
+fn create_draft(
+    root: &std::path::Path,
+    id: &str,
+    content: &str,
+    checkpoint: Option<&vault_fs::EditorCheckpointInstall<'_>>,
+) -> Result<bool, String> {
+    match checkpoint {
+        Some(checkpoint) => checkpoint.create_new(&note_filename(id), content.as_bytes()),
+        None => vault_fs::create_new(root, &note_filename(id), content.as_bytes()),
+    }
 }

@@ -142,3 +142,5 @@
   target that also received a real update in the same cycle" and "closes the
   open note when a followed rename target was tombstoned in the same cycle" in
   src/features/sync/syncManager.test.ts
+
+- Conflict adoption into a distinct absent target, conflict-copy creation and delete-conflict restoration use exclusive durable installation; an external newcomer after the absence check survives, and the existing source fallback or retry outcome retains the competing version. Public sync regressions assert push precedes the decision-window install. → crates/futo-notes-sync/src/sync/vault/guarded_write.rs, crates/futo-notes-sync/src/sync/editor_recovery_tests/absent_installs.rs

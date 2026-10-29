@@ -59,6 +59,58 @@ macro_rules! vault_fs_contract {
             use crate::files::vault_fs::$implementation as vault_fs;
 
             #[test]
+            fn source_type_distinguishes_directories_files_and_missing_parents() {
+                let root = tempfile::tempdir().unwrap();
+                std::fs::create_dir(root.path().join("folder.md")).unwrap();
+                std::fs::write(root.path().join("note.md"), "file").unwrap();
+                assert_eq!(
+                    vault_fs::entry_is_directory(root.path(), "folder.md").unwrap(),
+                    Some(true)
+                );
+                assert_eq!(
+                    vault_fs::entry_is_directory(root.path(), "note.md").unwrap(),
+                    Some(false)
+                );
+                assert_eq!(
+                    vault_fs::entry_is_directory(root.path(), "absent/entry").unwrap(),
+                    None
+                );
+                assert!(vault_fs::entry_is_directory(root.path(), "../entry").is_err());
+                assert!(vault_fs::entry_is_directory(root.path(), "note.md/entry").is_err());
+            }
+
+            #[cfg(unix)]
+            #[test]
+            fn source_type_rejects_symlink_leaf_and_parent() {
+                let root = tempfile::tempdir().unwrap();
+                let outside = tempfile::tempdir().unwrap();
+                std::fs::write(outside.path().join("note.md"), "outside").unwrap();
+                std::os::unix::fs::symlink(outside.path(), root.path().join("linked")).unwrap();
+                std::os::unix::fs::symlink(
+                    outside.path().join("note.md"),
+                    root.path().join("note.md"),
+                )
+                .unwrap();
+                assert!(vault_fs::entry_is_directory(root.path(), "linked/note.md").is_err());
+                assert!(vault_fs::entry_is_directory(root.path(), "note.md").is_err());
+            }
+
+            #[test]
+            fn strict_exclusive_create_never_replaces_an_occupied_destination() {
+                let root = tempfile::tempdir().unwrap();
+                assert!(
+                    vault_fs::create_new_strict(root.path(), "nested/note.md", b"first").unwrap()
+                );
+                assert!(
+                    !vault_fs::create_new_strict(root.path(), "nested/note.md", b"second").unwrap()
+                );
+                assert_eq!(
+                    vault_fs::read(root.path(), "nested/note.md").unwrap(),
+                    b"first"
+                );
+            }
+
+            #[test]
             fn recovery_append_preserves_existing_bytes_and_creates_safe_parents() {
                 use std::io::Write;
                 let root = tempfile::tempdir().unwrap();
