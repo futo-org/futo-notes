@@ -3,14 +3,6 @@ use super::*;
 use pulldown_cmark::{BrokenLink, Options};
 
 impl Row {
-    pub fn parse(source: &str) -> Self {
-        Self::parse_with_references(
-            source,
-            &Arc::new(crate::inline::references::References::default()),
-            &[],
-        )
-    }
-
     pub(crate) fn parse_with_references(
         source: &str,
         references: &Arc<crate::inline::references::References>,
