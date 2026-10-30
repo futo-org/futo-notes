@@ -387,3 +387,34 @@ fn middle_empty_exit_keeps_the_two_lists_independent_after_fresh_open() {
     view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
     assert_eq!(s.source_text(), raw);
 }
+
+#[test]
+fn nested_backspace_retires_the_item_into_the_immediate_preceding_container() {
+    for (raw, shown, caret, expected) in [
+        ("- a\n  - b", "a\nb", 2, "- a\n  b"),
+        ("- a\n  - b\n  - c", "a\nb\nc", 2, "- a\n  b\n  - c"),
+        ("- a\n  - x\n  - b", "a\nx\nb", 4, "- a\n  - x\n    b"),
+    ] {
+        let mut s = EditorSession::open(raw);
+        let mut view = ReferenceView::new(shown);
+        s.select(s.revision(), range(caret, caret)).unwrap();
+        view.apply(
+            s.paragraph_key(
+                s.revision(),
+                range(caret, caret),
+                ParagraphKey::Backspace,
+                &mut |_| Ok(()),
+            )
+            .unwrap()
+            .unwrap(),
+        );
+        assert_eq!(s.source_text(), expected);
+        assert_eq!(view.text, shown);
+        assert_eq!(s.selection(), range(caret, caret));
+        view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+        assert_eq!(s.source_text(), raw);
+        assert_eq!(s.selection(), range(caret, caret));
+        view.apply(s.redo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+        assert_eq!(s.source_text(), expected);
+    }
+}
