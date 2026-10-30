@@ -47,6 +47,12 @@ impl EditorSession {
             .max()
             .unwrap_or(item.item.end);
         let raw = self.source.byte_slice(start..end).to_string();
+        let shared_line = !add
+            && item
+                .parent_marker
+                .as_ref()
+                .is_some_and(|parent| parent.start >= start);
+        let mut extra_materialized = 0;
         let lifted = if add {
             None
         } else {
@@ -58,6 +64,7 @@ impl EditorSession {
                         .ok_or(EditorError::UnrepresentableFormat)?,
                 )
                 .to_string();
+            extra_materialized += parent.len();
             Some(super::list_styles::lifted_marker(
                 &parent,
                 item.parent_number,
@@ -80,6 +87,11 @@ impl EditorSession {
             let base = crate::inline::columns(&line[..prefix], 0);
             output.push_str(&line[..prefix]);
             if let Some(marker) = lifted.as_ref().filter(|_| index == 0) {
+                if shared_line {
+                    output.push_str(&line[prefix..item.marker.start - start]);
+                    output.push('\n');
+                    output.push_str(&line[..prefix]);
+                }
                 output.push_str(&" ".repeat(item.parent_marker_column.unwrap() - base));
                 output.push_str(marker);
                 output.push_str(&padding);
@@ -109,6 +121,11 @@ impl EditorSession {
                 output.push_str(&line[bytes..]);
             }
         }
+        let mut selection = range;
+        if shared_line {
+            selection.start.0 += 1;
+            selection.end.0 += 1;
+        }
         let formats = (range == self.selection)
             .then(|| self.pending_formats.clone())
             .flatten();
@@ -117,12 +134,12 @@ impl EditorSession {
             expected,
             start..end,
             &output,
-            BlockSelection::Display(range),
+            BlockSelection::Display(selection),
             None,
             accept,
         )?;
         self.carry_block_state(&mut change, formats, affinity);
-        change.work.materialized_source_bytes += raw.len();
+        change.work.materialized_source_bytes += raw.len() + padding.len() + extra_materialized;
         Ok(Some(change))
     }
 }
