@@ -111,3 +111,26 @@ fn a_long_lazy_list_keeps_distant_marker_bytes_and_continuation_semantics() {
     view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
     assert_eq!(s.source_text(), raw);
 }
+
+#[test]
+fn tab_expanded_content_columns_hide_the_complete_owned_continuation_prefix() {
+    let raw = "-\tparent\n    tail\n-\tchild";
+    let mut s = EditorSession::open(raw);
+    let mut view = ReferenceView::new("parent\ntail\nchild");
+    assert_eq!(s.display_text(), view.text);
+    s.select(s.revision(), range(8, 8)).unwrap();
+    view.apply(
+        s.replace_action(
+            s.revision(),
+            range(8, 8),
+            "!",
+            InputAction::Isolated,
+            &mut |_| Ok(()),
+        )
+        .unwrap(),
+    );
+    assert_eq!(s.source_text(), "-\tparent\n    t!ail\n-\tchild");
+    assert_eq!(view.text, "parent\nt!ail\nchild");
+    view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(s.source_text(), raw);
+}
