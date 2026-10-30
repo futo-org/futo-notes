@@ -42,3 +42,6 @@ fn assert_fresh_projection(session: &EditorSession, shown: &str) {
     actual.revision = expected.revision;
     assert_eq!(actual, expected);
 }
+
+#[path = "fences/physical_indent.rs"]
+mod physical_indent;

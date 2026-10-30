@@ -5,6 +5,20 @@ use futo_notes_editor::ParagraphKey;
 fn fenced_edits_pause_on_append_failure_then_recover_and_checkpoint_literal_bytes() {
     for (opening, selected, inserted, expected, display) in [
         (
+            "  ```Rust\r\n  a\r\n  \r\n  b\r\n  ```",
+            range(3, 3),
+            "X",
+            "  ```Rust\r\n  a\r\n  X\r\n  b\r\n  ```",
+            "a\r\nX\r\nb",
+        ),
+        (
+            ">    ```Rust\r\n>    a\r\n>    \r\n",
+            range(3, 3),
+            "X",
+            ">    ```Rust\r\n>    a\r\n>    X\r\n",
+            "a\r\nX",
+        ),
+        (
             "```Rust\r\na\r\n\r\n",
             range(3, 3),
             "X",

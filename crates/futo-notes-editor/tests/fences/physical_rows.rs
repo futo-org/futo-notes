@@ -4,6 +4,12 @@ use super::*;
 fn authored_blank_crlf_is_opaque_body_text_not_hidden_container_syntax() {
     for (source, shown) in [
         ("```Rust\r\na\r\n\r\nb\r\n```", "a\r\n\r\nb"),
+        ("  ```Rust\r\n  a\r\n  \r\n  b\r\n  ```", "a\r\n\r\nb"),
+        (
+            ">   ```Rust\r\n>   a\r\n>   \r\n>   b\r\n>   ```",
+            "a\r\n\r\nb",
+        ),
+        ("  ```Rust\r\n  a\r\n   \r\n  b\r\n  ```", "a\r\n \r\nb"),
         ("> ```Rust\r\n> a\r\n> \r\n> b\r\n> ```", "a\r\n\r\nb"),
         ("```Rust\r\na\r\n\r\n", "a\r\n"),
         ("  ```Rust\r\n  a\r\n\r\n  b\r\n  ```", "a\r\n\r\nb"),

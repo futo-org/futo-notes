@@ -15,7 +15,7 @@ const { WasmSession } = await import(pathToFileURL(process.argv[2]).href);
 const cases = ['structural-seams', 'fence-physical-rows'].flatMap((name) =>
   JSON.parse(readFileSync(new URL(`fixtures/${name}.json`, import.meta.url))),
 );
-assert.equal(cases.length, 62);
+assert.equal(cases.length, 64);
 const units = (text) => Uint16Array.from({ length: text.length }, (_, at) => text.charCodeAt(at));
 function host(vault, source) {
   const worker = spawn(process.argv[3], [vault, source], { stdio: ['pipe', 'pipe', 'inherit'] });

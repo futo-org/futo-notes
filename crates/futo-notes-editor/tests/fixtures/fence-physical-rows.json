@@ -118,5 +118,29 @@
     "expectedDisplay": "aX\nb",
     "caret": 3,
     "history": 1
+  },
+  {
+    "name": "code-physical-blank-crlf-stripped-indent",
+    "source": "  ```Rust\r\n  a\r\n  \r\n  b\r\n  ```",
+    "display": "a\r\n\r\nb",
+    "mode": "typing",
+    "range": [3, 3],
+    "text": "X",
+    "expectedSource": "  ```Rust\r\n  a\r\n  X\r\n  b\r\n  ```",
+    "expectedDisplay": "a\r\nX\r\nb",
+    "caret": 4,
+    "history": 1
+  },
+  {
+    "name": "code-physical-open-eof-stripped-quote-indent",
+    "source": ">    ```Rust\r\n>    a\r\n>    \r\n",
+    "display": "a\r\n",
+    "mode": "typing",
+    "range": [3, 3],
+    "text": "X",
+    "expectedSource": ">    ```Rust\r\n>    a\r\n>    X\r\n",
+    "expectedDisplay": "a\r\nX",
+    "caret": 4,
+    "history": 1
   }
 ]

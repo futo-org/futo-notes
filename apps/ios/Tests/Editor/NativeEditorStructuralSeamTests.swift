@@ -46,7 +46,7 @@ struct NativeEditorStructuralSeamTests {
                 return try JSONDecoder().decode(
                     [StructuralSeamCase].self, from: Data(contentsOf: url))
             }
-            #expect(cases.count == 62)
+            #expect(cases.count == 64)
             for item in cases {
                 let root = FileManager.default.temporaryDirectory.appendingPathComponent(
                     "editor-seams-\(UUID().uuidString)")

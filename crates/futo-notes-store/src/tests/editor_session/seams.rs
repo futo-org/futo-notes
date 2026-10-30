@@ -21,7 +21,7 @@ fn structural_seams_and_raw_composition_recover_exact_source_and_carets() {
         .into_iter()
         .flat_map(|source| serde_json::from_str::<Vec<serde_json::Value>>(source).unwrap())
         .collect();
-    assert_eq!(cases.len(), 62);
+    assert_eq!(cases.len(), 64);
     for case in &cases {
         let text = |key: &str| case[key].as_str().unwrap();
         let root = TestRoot::new();

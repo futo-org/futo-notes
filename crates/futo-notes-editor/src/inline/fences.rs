@@ -180,11 +180,13 @@ pub(super) fn describe(
                     // Only a closer with following source supplies an inter-block
                     // break; its delimiter and the body frame ending stay hidden.
                     line.content = match start {
-                        // A Text event can begin at LF in an otherwise empty
-                        // CRLF row. Its offset attributes code membership, not
-                        // ownership of the physical ending. Keep that ending
-                        // out of the prefix and retain the valid empty body.
-                        Some(start) if start > line.content.end => line.content.clone(),
+                        // A semantically empty row's Text event can begin at
+                        // LF inside CRLF. Empty content ends before the entire
+                        // physical ending; the parser-attributed prefix still
+                        // includes any stripped fence indentation.
+                        Some(start) if start > line.content.end => {
+                            line.content.end..line.content.end
+                        }
                         Some(start) => start..line.content.end,
                         None if fence.as_ref().is_some_and(|fence| {
                             line.source.end < source.len()

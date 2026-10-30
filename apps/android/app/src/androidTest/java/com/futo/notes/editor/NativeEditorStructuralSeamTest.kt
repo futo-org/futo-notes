@@ -28,14 +28,14 @@ class NativeEditorStructuralSeamTest {
         val readmeTitle = assets.open("README.md").bufferedReader().use { it.readLine() }
         assertEquals("# Cross-language note-rule conformance", readmeTitle)
         val cases = structuralCases(assets)
-        assertEquals(62, cases.size)
+        assertEquals(64, cases.size)
     }
 
     @Test
     fun structuralSeamsAndRawMarkedInputKeepExactNativeCaretsAndRecovery() {
         val context = InstrumentationRegistry.getInstrumentation().context
         val cases = structuralCases(context.assets)
-        assertEquals(62, cases.size)
+        assertEquals(64, cases.size)
         for (index in 0 until cases.size) {
             val item = cases[index]
             val root = File(InstrumentationRegistry.getInstrumentation().targetContext.cacheDir, "editor-seams-${UUID.randomUUID()}")
