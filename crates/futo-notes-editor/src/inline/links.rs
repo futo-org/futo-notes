@@ -5,13 +5,36 @@ impl super::Projection {
         &self,
         range: crate::DisplayRange,
     ) -> Vec<crate::LinkDescription> {
-        self.all_links(range)
+        let mut active: Vec<crate::LinkDescription> = Vec::new();
+        for link in self
+            .row_links(range)
             .into_iter()
             .filter(|link| !self.link_is_pending(link.range))
+        {
+            if let Some(previous) = active.last_mut() {
+                if previous.range.end == link.range.start
+                    && previous.destination == link.destination
+                {
+                    previous.range.end = link.range.end;
+                    continue;
+                }
+            }
+            active.push(link);
+        }
+        active
+            .into_iter()
+            .filter(|link| link.range.start.0 <= range.end.0 && range.start.0 <= link.range.end.0)
             .collect()
     }
 
     pub(crate) fn all_links(&self, range: crate::DisplayRange) -> Vec<crate::LinkDescription> {
+        self.row_links(range)
+            .into_iter()
+            .filter(|link| link.range.start.0 <= range.end.0 && range.start.0 <= link.range.end.0)
+            .collect()
+    }
+
+    fn row_links(&self, range: crate::DisplayRange) -> Vec<crate::LinkDescription> {
         let first = self.rows.locate(range.start.0, true);
         let last = self.rows.locate(range.end.0, true);
         let mut links = Vec::new();
@@ -21,7 +44,7 @@ impl super::Projection {
                 if let super::row::SpanKind::Link(destination) = &span.kind {
                     let start = display + row.display_at(span.open.end);
                     let end = display + row.display_at(span.close.start);
-                    if start <= range.end.0 && range.start.0 <= end {
+                    {
                         links.push(crate::LinkDescription {
                             range: crate::DisplayRange {
                                 start: crate::DisplayOffset(start),
