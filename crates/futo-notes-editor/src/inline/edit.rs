@@ -157,7 +157,8 @@ impl Projection {
         );
         let speculative_fence = (prefix.starts_with("```") || prefix.starts_with("~~~"))
             && !prefix.contains(char::is_whitespace);
-        let literal = speculative_fence
+        let literal = inserted.contains(['<', '>'])
+            || speculative_fence
             || speculative_block
             || toggle.is_some()
             || inserted.is_empty()
@@ -165,8 +166,10 @@ impl Projection {
             || active
                 .iter()
                 .any(|id| markers[*id].kind == SpanKind::Format(InlineFormat::Code));
+        let link_work =
+            super::links::finish_angle_word(&mut changed, &mut markers, insertion_index, inserted);
         let rendered = spell(changed, markers, insertion_index..insertion_end, literal)?;
-        let parsed = rendered.parsed;
+        let parsed = rendered.parsed + link_work;
         let output = rendered.text;
         let caret = rendered.caret;
         let prefix = common_prefix(&raw, &output);

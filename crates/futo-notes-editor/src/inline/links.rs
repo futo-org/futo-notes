@@ -363,3 +363,51 @@ impl super::Projection {
         }
     }
 }
+
+/// A hand-typed angle pair is visible punctuation. When Space ends its URL,
+/// preserve that punctuation around the parser-owned autolink spelling.
+pub(super) fn finish_angle_word(
+    pieces: &mut [super::spelling::Piece],
+    markers: &mut Vec<super::spelling::Marker>,
+    insertion: usize,
+    inserted: &str,
+) -> usize {
+    if !inserted.chars().next().is_some_and(char::is_whitespace) || insertion == 0 {
+        return 0;
+    }
+    let mut start = insertion;
+    while start > 0 && !pieces[start - 1].display.contains(char::is_whitespace) {
+        start -= 1;
+    }
+    let word: String = pieces[start..insertion]
+        .iter()
+        .map(|piece| piece.display.as_str())
+        .collect();
+    if !word.starts_with('<') || !word.ends_with('>') || pieces[start].raw != "\\<" {
+        return 0;
+    }
+    let inner = &word[1..word.len() - 1];
+    let (links, work) = bare_links(inner);
+    let Some(link) = links
+        .first()
+        .filter(|link| links.len() == 1 && link.open.start == 0 && link.close.end == inner.len())
+    else {
+        return work;
+    };
+    let id = markers.len();
+    markers.push(super::spelling::Marker {
+        kind: link.kind.clone(),
+        open: "<".into(),
+        close: ">".into(),
+    });
+    pieces[start].raw = "<".into();
+    let mut at = 0;
+    for piece in &mut pieces[start..insertion] {
+        let end = at + piece.display.len();
+        if 1 <= at && end <= word.len() - 1 {
+            piece.spans.push(id);
+        }
+        at = end;
+    }
+    work
+}
