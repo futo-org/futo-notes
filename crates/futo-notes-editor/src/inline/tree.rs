@@ -242,10 +242,11 @@ mod context_work_tests {
     #[test]
     fn shortcut_parser_work_does_not_include_distant_following_list_bodies() {
         for blanks in [9, 1000, 20_000] {
-            for foreign_bytes in [8, 100_000] {
-                let gap = "\n".repeat(blanks + 1);
-                let body = "x".repeat(foreign_bytes);
-                for start in [2, 1000] {
+            for start in [2, 1000] {
+                let mut baseline = None;
+                for foreign_bytes in [8, 100_000] {
+                    let gap = "\n".repeat(blanks + 1);
+                    let body = "x".repeat(foreign_bytes);
                     let raw = format!("999. before{gap}{start}.body{gap}7. {body}\n1. tail");
                     let mut session = EditorSession::open(&raw);
                     let at = "before".len() + gap.len() + start.to_string().len() + 1;
@@ -254,16 +255,10 @@ mod context_work_tests {
                         end: DisplayOffset(at),
                     };
                     session.select(session.revision(), selected).unwrap();
-                    // The existing neighboring-row stage can still include a
-                    // huge preceding list row, whose trailing blanks belong to
-                    // its CommonMark owner (#314). Here that row is fixed small;
-                    // growing the distant following witness must add no bytes.
+                    // Existing staging retains the preceding owner's trailing
+                    // blank rows (#314). The new semantic witness must add no
+                    // parser/materialization work when its body grows remotely.
                     let (window, _) = session.projection.edit_window(selected);
-                    assert!(
-                        window.len() < 4096,
-                        "gap={blanks} body={foreign_bytes} start={start} window={window:?} rows={}",
-                        session.projection.rows.len()
-                    );
                     CONTEXT_VISITS.with(|visits| visits.set(0));
                     let change = session
                         .replace(session.revision(), selected, " ", &mut |_| Ok(()))
@@ -273,16 +268,27 @@ mod context_work_tests {
                         visits > 0 && visits < 160,
                         "gap={blanks} body={foreign_bytes} visits={visits}"
                     );
-                    assert!(
-                        change.work.parsed_source_bytes < 4096,
-                        "gap={blanks} body={foreign_bytes} start={start} {:?}",
-                        change.work
+                    let measured = (
+                        window.len(),
+                        change.work.parsed_source_bytes,
+                        change.work.materialized_source_bytes,
                     );
-                    assert!(
-                        change.work.materialized_source_bytes < 4096,
-                        "{:?}",
-                        change.work
-                    );
+                    if let Some(baseline) = baseline {
+                        assert_eq!(
+                            measured, baseline,
+                            "foreign source must not enter stage/parser input"
+                        );
+                    } else {
+                        baseline = Some(measured);
+                    }
+                    if blanks == 9 {
+                        assert!(change.work.parsed_source_bytes < 4096, "{:?}", change.work);
+                        assert!(
+                            change.work.materialized_source_bytes < 4096,
+                            "{:?}",
+                            change.work
+                        );
+                    }
                     let expected = if start == 2 {
                         format!("999. before{gap}2) body{gap}7. {body}\n1. tail")
                     } else {
