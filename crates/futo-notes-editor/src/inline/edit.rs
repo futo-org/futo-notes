@@ -1,6 +1,7 @@
 //! Local marker surgery. Visible pieces retain their original source spelling
 //! and span identity; only spans that lose content or cross the edited range
 //! move. The parser remains the authority for interpreting candidate source.
+mod carry;
 mod selection;
 use super::row::SpanKind;
 use super::{
@@ -8,6 +9,7 @@ use super::{
     Projection,
 };
 use crate::{Affinity, DisplayRange, EditorError, InlineFormat};
+pub(super) use carry::carry_formats;
 use ropey::Rope;
 pub(super) use selection::{cut, split_entities, Cut};
 use std::ops::Range;
@@ -426,73 +428,4 @@ pub(super) struct Context {
     pub(super) pieces: Vec<Piece>,
     pub(super) block_boundaries: Vec<usize>,
     pub(super) link_metadata_items: usize,
-}
-pub(super) fn carry_formats(
-    before: &mut [Piece],
-    after: &[Piece],
-    markers: &mut Vec<Marker>,
-    active: &mut Vec<usize>,
-    formats: &[InlineFormat],
-) {
-    active.retain(|id| {
-        markers[*id]
-            .kind
-            .format()
-            .is_none_or(|format| formats.contains(&format))
-    });
-    for &format in formats {
-        if !active
-            .iter()
-            .any(|id| markers[*id].kind == SpanKind::Format(format))
-        {
-            let previous = before
-                .iter()
-                .rev()
-                .take_while(|piece| {
-                    !piece.display.contains(['\r', '\n'])
-                        && !(piece.display.is_empty() && !piece.raw.is_empty())
-                })
-                .find(|piece| !piece.display.chars().all(char::is_whitespace));
-            let neighbor =
-                previous.or_else(|| after.iter().find(|piece| !piece.display.is_empty()));
-            let reusable = neighbor.and_then(|piece| {
-                piece
-                    .spans
-                    .iter()
-                    .copied()
-                    .find(|id| markers[*id].kind == SpanKind::Format(format))
-            });
-            let id = if let Some(id) = reusable {
-                for piece in before.iter_mut().rev() {
-                    if piece.display.contains(['\r', '\n'])
-                        || piece.display.is_empty() && !piece.raw.is_empty()
-                        || !piece.display.chars().all(char::is_whitespace)
-                    {
-                        break;
-                    }
-                    piece.spans.push(id);
-                }
-                id
-            } else {
-                let delimiter = delimiter(format);
-                let spelling = before.iter().rev().chain(after.iter()).find_map(|piece| {
-                    piece
-                        .spans
-                        .iter()
-                        .find(|id| markers[**id].kind == SpanKind::Format(format))
-                        .map(|id| (markers[*id].open.clone(), markers[*id].close.clone()))
-                });
-                let id = markers.len();
-                let (open, close) =
-                    spelling.unwrap_or_else(|| (delimiter.into(), delimiter.into()));
-                markers.push(Marker {
-                    kind: SpanKind::Format(format),
-                    open,
-                    close,
-                });
-                id
-            };
-            active.push(id);
-        }
-    }
 }
