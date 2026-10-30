@@ -339,3 +339,28 @@ fn link_insertion_at_a_caret_uses_its_destination_as_label_and_preserves_exact_u
     assert_eq!(view.text, "see ");
     assert_eq!(session.selection(), range(4, 4));
 }
+
+#[test]
+fn link_label_boundaries_come_from_parser_children_including_opaque_code_brackets() {
+    let original = "[a `]` b](https://x.test)\r\n";
+    let mut session = EditorSession::open(original);
+    let mut view = ReferenceView::new("a ] b\r\n");
+    assert_eq!(session.display_text(), view.text);
+    view.apply(
+        session
+            .replace(Revision(0), range(4, 5), "B", &mut |_| Ok(()))
+            .unwrap(),
+    );
+    assert_eq!(view.text, "a ] B\r\n");
+    assert_eq!(session.source_text(), "[a `]` B](https://x.test)\r\n");
+    assert_eq!(
+        session
+            .inspect_link(Revision(1), range(4, 5))
+            .unwrap()
+            .unwrap()
+            .destination,
+        "https://x.test"
+    );
+    view.apply(session.undo(Revision(1), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(session.source_text(), original);
+}
