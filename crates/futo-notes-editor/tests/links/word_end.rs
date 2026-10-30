@@ -192,7 +192,18 @@ fn delimiters_inside_typed_urls_remain_url_characters_and_only_trailing_ones_are
 
 #[test]
 fn an_outside_emphasis_closer_at_url_end_waits_for_word_end_including_exact_history() {
-    let mut session = EditorSession::open("");
+    use std::sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc,
+    };
+    struct Clock(AtomicU64);
+    impl futo_notes_editor::HistoryClock for Clock {
+        fn now(&self) -> std::time::Duration {
+            std::time::Duration::from_millis(self.0.load(Ordering::Relaxed))
+        }
+    }
+    let clock = Arc::new(Clock(AtomicU64::new(0)));
+    let mut session = EditorSession::open_with_clock("", clock.clone());
     let mut view = ReferenceView::new("");
     let mut typed = String::new();
     for ch in "x *b https://x.test/a*".chars() {
@@ -218,6 +229,7 @@ fn an_outside_emphasis_closer_at_url_end_waits_for_word_end_including_exact_hist
             .links
             .is_empty());
     }
+    clock.0.store(500, Ordering::Relaxed);
     view.apply(
         session
             .replace(session.revision(), range(22, 22), " ", &mut |_| Ok(()))
