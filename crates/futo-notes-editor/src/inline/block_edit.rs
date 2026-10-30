@@ -16,12 +16,13 @@ impl Projection {
         source: &Rope,
         range: DisplayRange,
         fold_breaks: bool,
-    ) -> Result<(String, usize, usize), EditorError> {
+    ) -> Result<(String, usize, usize, super::references::ReferenceWork), EditorError> {
         let Context {
             raw,
             source_start,
             pieces,
             markers,
+            link_metadata_items,
             ..
         } = self.edit_context(source, range);
         let base = self.display_at(source_start);
@@ -48,7 +49,16 @@ impl Projection {
         let end = body.len();
         let result = spell(body, markers, end..end, true, &self.references)?;
         let materialized = raw.len() + result.text.len();
-        Ok((result.text, materialized, result.parsed))
+        Ok((
+            result.text,
+            materialized,
+            result.parsed,
+            super::references::ReferenceWork {
+                parsed: 0,
+                items: link_metadata_items + result.link_metadata_items,
+                copied: result.link_copied_bytes,
+            },
+        ))
     }
 
     pub(crate) fn has_multiline_block_code(&self, source: &Rope, range: DisplayRange) -> bool {
@@ -132,6 +142,7 @@ impl Projection {
             source_end,
             mut pieces,
             markers,
+            link_metadata_items,
             ..
         } = self.edit_context(source, range);
         let display_start = self.display_at(source_start);
@@ -178,6 +189,8 @@ impl Projection {
             formats: Vec::new(),
             materialized: raw.len() + rendered.text.len(),
             parsed: rendered.parsed,
+            link_metadata_items: link_metadata_items + rendered.link_metadata_items,
+            link_copied_bytes: rendered.link_copied_bytes,
         }))
     }
 }

@@ -64,6 +64,9 @@ pub struct EditWork {
     /// Conservative charged visits/copies of pending-link metadata slots in
     /// the affected rows. Excludes parser/AST work, counted above in bytes.
     pub link_metadata_items: usize,
+    /// Bytes copied into retained link/reference meaning and returned targets;
+    /// parser temporary allocations are represented by parser input above.
+    pub link_copied_bytes: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

@@ -9,13 +9,26 @@ impl EditorSession {
         expected: Revision,
         range: DisplayRange,
     ) -> Result<Option<crate::LinkDescription>, EditorError> {
+        self.inspect_link_with_work(expected, range)
+            .map(|(link, _)| link)
+    }
+
+    fn inspect_link_with_work(
+        &self,
+        expected: Revision,
+        range: DisplayRange,
+    ) -> Result<
+        (
+            Option<crate::LinkDescription>,
+            crate::inline::references::ReferenceWork,
+        ),
+        EditorError,
+    > {
         self.check_revision(expected)?;
         self.validate_range(range)?;
-        Ok(self
-            .projection
-            .link_descriptions(range)
-            .into_iter()
-            .find(|link| {
+        let (links, work) = self.projection.link_descriptions_with_work(range);
+        Ok((
+            links.into_iter().find(|link| {
                 if range.start == range.end {
                     (link.range.start.0 < range.start.0 && range.start.0 < link.range.end.0)
                         || (range.start == link.range.start && self.affinity == Affinity::Forward)
@@ -23,7 +36,9 @@ impl EditorSession {
                 } else {
                     link.range.start.0 <= range.start.0 && range.end.0 <= link.range.end.0
                 }
-            }))
+            }),
+            work,
+        ))
     }
 }
 
@@ -53,7 +68,7 @@ impl EditorSession {
             );
         }
         self.validate_range(range)?;
-        let link = self.inspect_link(expected, range)?;
+        let (link, inspection_work) = self.inspect_link_with_work(expected, range)?;
         if link
             .as_ref()
             .is_some_and(|link| link.destination == destination)
@@ -107,6 +122,9 @@ impl EditorSession {
         change.selection = self.selection;
         change.work.materialized_source_bytes += plan.materialized;
         change.work.parsed_source_bytes += plan.parsed;
+        change.work.link_metadata_items += plan.link_metadata_items;
+        change.work.link_copied_bytes += plan.link_copied_bytes + inspection_work.copied;
+        change.work.link_metadata_items += inspection_work.items;
         let after_links = self
             .projection
             .pending_links(before_links.after_window(&edit));

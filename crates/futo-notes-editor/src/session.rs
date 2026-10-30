@@ -270,6 +270,9 @@ impl EditorSession {
             start: caret,
             end: caret,
         };
+        let (projection, link_work) = self
+            .projection
+            .query_with_work(self.revision, update.semantic_range);
         ViewChange {
             previous_revision: edit.previous_revision,
             revision: edit.revision,
@@ -277,12 +280,13 @@ impl EditorSession {
             inserted: update.inserted,
             selection: self.selection,
             affinity: self.affinity,
-            projection: self.projection.query(self.revision, update.semantic_range),
+            projection,
             work: EditWork {
                 materialized_source_bytes: edit.removed.len() + update.materialized_source_bytes,
                 inserted_bytes: edit.inserted.len(),
                 parsed_source_bytes: update.parsed_source_bytes,
-                link_metadata_items: update.link_metadata_items,
+                link_metadata_items: update.link_metadata_items + link_work.items,
+                link_copied_bytes: update.link_copied_bytes + link_work.copied,
             },
         }
     }
@@ -344,6 +348,8 @@ impl EditorSession {
         change.selection = self.selection;
         change.work.materialized_source_bytes += plan.materialized;
         change.work.parsed_source_bytes += plan.parsed;
+        change.work.link_metadata_items += plan.link_metadata_items;
+        change.work.link_copied_bytes += plan.link_copied_bytes;
         let after_links = self
             .projection
             .pending_links(before_links.after_window(&edit));
@@ -472,9 +478,12 @@ impl EditorSession {
             &entry.entries.first().unwrap().before_links
         };
         change.work.link_metadata_items += self.projection.restore_pending(pending);
-        change.projection = self
+        let (projection, link_work) = self
             .projection
-            .query(self.revision, change.projection.range);
+            .query_with_work(self.revision, change.projection.range);
+        change.projection = projection;
+        change.work.link_metadata_items += link_work.items;
+        change.work.link_copied_bytes += link_work.copied;
         self.typing = None;
         if redo {
             self.undo.push(entry);

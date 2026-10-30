@@ -90,13 +90,21 @@ impl Row {
         winners: &[super::references::Winner],
     ) -> Self {
         let (definitions, mut reference_work) = super::references::declarations(source, winners);
+        let callback_items = std::cell::Cell::new(0);
+        let callback_copied = std::cell::Cell::new(0);
         let events: Vec<_> = Parser::new_with_broken_link_callback(
             source,
             Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS,
-            Some(|link: BrokenLink<'_>| references.broken(link)),
+            Some(|link: BrokenLink<'_>| {
+                callback_items.set(callback_items.get() + 1);
+                callback_copied.set(callback_copied.get() + link.reference.len());
+                references.broken(link)
+            }),
         )
         .into_offset_iter()
         .collect();
+        reference_work.items += callback_items.get();
+        reference_work.copied += callback_copied.get();
         let mut reference_uses = Vec::new();
         let (blocks, prefixes) = super::blocks::describe(source, &events);
         let mut hidden = vec![false; source.len()];
@@ -129,6 +137,7 @@ impl Row {
                 }) => {
                     reference_work.items += 1;
                     let target = if super::references::is_reference(link_type) {
+                        reference_work.copied += id.len();
                         references.target(id).cloned()
                     } else {
                         None
@@ -154,6 +163,7 @@ impl Row {
                     if super::references::is_reference(link_type) =>
                 {
                     reference_work.items += 1;
+                    reference_work.copied += id.len();
                     if let Some(target) = references.target(id) {
                         reference_uses.push(super::references::ReferenceUse {
                             range: range.clone(),
@@ -252,12 +262,23 @@ impl Row {
                 true
             }
         });
-        spans.extend(bare);
-        for definition in definitions
+        reference_work.items += bare.len();
+        reference_work.copied += bare
             .iter()
-            .filter(|definition| definition.winner && references.used(definition.key.as_ref()))
-        {
-            hidden[super::references::hidden_definition(source, definition)].fill(true);
+            .filter_map(|span| match &span.kind {
+                SpanKind::Link(target) => {
+                    Some(target.destination.len() + target.title.as_ref().map_or(0, String::len))
+                }
+                _ => None,
+            })
+            .sum::<usize>();
+        spans.extend(bare);
+        for definition in definitions.iter().filter(|definition| definition.winner) {
+            reference_work.items += 1;
+            reference_work.copied += definition.key.as_ref().len();
+            if references.used(definition.key.as_ref()) {
+                hidden[super::references::hidden_definition(source, definition)].fill(true);
+            }
         }
         for block in &blocks {
             if block.empty_comment {

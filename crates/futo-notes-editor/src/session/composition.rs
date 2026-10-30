@@ -284,9 +284,15 @@ impl EditorSession {
                 let mut delta = self.apply(&edit);
                 delta.work.materialized_source_bytes += raw.len() + edit.inserted.len();
                 delta.work.parsed_source_bytes += staged.projection.initial_parse_work;
+                delta.work.link_metadata_items += staged.projection.initial_link_metadata_items;
+                delta.work.link_copied_bytes += staged.projection.initial_link_copied_bytes;
                 for step in [first, second].into_iter().flatten() {
                     delta.work.materialized_source_bytes += step.work.materialized_source_bytes;
                     delta.work.parsed_source_bytes += step.work.parsed_source_bytes;
+
+                    delta.work.link_metadata_items += step.work.link_metadata_items;
+
+                    delta.work.link_copied_bytes += step.work.link_copied_bytes;
                 }
                 self.undo.append(&mut staged.undo);
                 self.redo.clear();

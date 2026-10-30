@@ -94,6 +94,10 @@ impl EditorSession {
                         change.work.materialized_source_bytes +=
                             seams.work.materialized_source_bytes;
                         change.work.parsed_source_bytes += seams.work.parsed_source_bytes;
+
+                        change.work.link_metadata_items += seams.work.link_metadata_items;
+
+                        change.work.link_copied_bytes += seams.work.link_copied_bytes;
                     }
                     Ok(Some(change))
                 },

@@ -21,6 +21,8 @@ pub(super) struct Spelling {
     pub text: String,
     pub caret: usize,
     pub parsed: usize,
+    pub link_metadata_items: usize,
+    pub link_copied_bytes: usize,
 }
 
 pub(super) fn spell(
@@ -36,9 +38,13 @@ pub(super) fn spell(
     let expected: String = pieces.iter().map(|piece| piece.display.as_str()).collect();
     let mut rendered = render(&pieces, &markers, insertion.start, insertion.end);
     let mut parsed = 0;
+    let mut link_metadata_items = rendered.link_metadata_items;
+    let mut link_copied_bytes = 0;
     if literal {
         let mut candidate = Row::parse_with_references(&rendered.text, references, &[]);
         parsed += candidate.parsed_source_bytes;
+        link_metadata_items += candidate.reference_work.items;
+        link_copied_bytes += candidate.reference_work.copied;
         if candidate.display != expected {
             repair_literal_boundaries(&mut pieces, &rendered, &candidate, &insertion);
             // A speculative line-start marker must reopen as the literal text
@@ -59,8 +65,11 @@ pub(super) fn spell(
                 }
             }
             rendered = render(&pieces, &markers, insertion.start, insertion.end);
+            link_metadata_items += rendered.link_metadata_items;
             candidate = Row::parse_with_references(&rendered.text, references, &[]);
             parsed += candidate.parsed_source_bytes;
+            link_metadata_items += candidate.reference_work.items;
+            link_copied_bytes += candidate.reference_work.copied;
         }
         let mut missing: Vec<_> = rendered
             .spans
@@ -94,8 +103,11 @@ pub(super) fn spell(
         }
         if repaired_link {
             rendered = render(&pieces, &markers, insertion.start, insertion.end);
+            link_metadata_items += rendered.link_metadata_items;
             candidate = Row::parse_with_references(&rendered.text, references, &[]);
             parsed += candidate.parsed_source_bytes;
+            link_metadata_items += candidate.reference_work.items;
+            link_copied_bytes += candidate.reference_work.copied;
             missing = rendered
                 .spans
                 .iter()
@@ -115,8 +127,11 @@ pub(super) fn spell(
             // neighbor of a marker that the library could no longer pair.
             repair_boundaries(&mut pieces, &missing);
             rendered = render(&pieces, &markers, insertion.start, insertion.end);
+            link_metadata_items += rendered.link_metadata_items;
             let candidate = Row::parse_with_references(&rendered.text, references, &[]);
             parsed += candidate.parsed_source_bytes;
+            link_metadata_items += candidate.reference_work.items;
+            link_copied_bytes += candidate.reference_work.copied;
             let missing: Vec<_> = rendered
                 .spans
                 .iter()
@@ -150,8 +165,11 @@ pub(super) fn spell(
                 }
             }
             rendered = render(&pieces, &markers, insertion.start, insertion.end);
+            link_metadata_items += rendered.link_metadata_items;
             let candidate = Row::parse_with_references(&rendered.text, references, &[]);
             parsed += candidate.parsed_source_bytes;
+            link_metadata_items += candidate.reference_work.items;
+            link_copied_bytes += candidate.reference_work.copied;
             if candidate.display != expected
                 || rendered.spans.iter().any(|(_, expected)| {
                     !candidate.spans.iter().any(|span| {
@@ -169,6 +187,8 @@ pub(super) fn spell(
         text: rendered.text,
         caret: rendered.caret,
         parsed,
+        link_metadata_items,
+        link_copied_bytes,
     })
 }
 
@@ -177,6 +197,7 @@ struct Rendered {
     caret: usize,
     spans: Vec<(usize, Span)>,
     pieces: Vec<Range<usize>>,
+    link_metadata_items: usize,
 }
 fn render(
     pieces: &[Piece],
@@ -242,7 +263,12 @@ fn render(
             },
         ));
     }
+    let link_metadata_items = spans
+        .iter()
+        .filter(|(_, span)| matches!(span.kind, SpanKind::Link(_)))
+        .count();
     Rendered {
+        link_metadata_items,
         caret: caret.unwrap_or(output.len()),
         text: output,
         spans,

@@ -29,6 +29,8 @@ pub(crate) struct Projection {
     pub rows: Rows,
     pub initial_parse_work: usize,
     pub references: std::sync::Arc<references::References>,
+    pub initial_link_metadata_items: usize,
+    pub initial_link_copied_bytes: usize,
 }
 
 pub(crate) struct Update {
@@ -38,30 +40,35 @@ pub(crate) struct Update {
     pub materialized_source_bytes: usize,
     pub semantic_range: DisplayRange,
     pub link_metadata_items: usize,
+    pub link_copied_bytes: usize,
 }
 
 impl Projection {
     pub fn new(source: &str) -> Self {
         let (references, winners, reference_work) = references::References::scan(source);
         let mut origin = 0;
+        let mut witness_work = 0;
         let parsed: Vec<_> = paragraphs(source)
             .into_iter()
             .map(|text| {
-                let local: Vec<_> = winners
-                    .iter()
-                    .filter(|winner| {
-                        origin <= winner.range.start && winner.range.end <= origin + text.len()
-                    })
-                    .map(|winner| references::Winner {
-                        range: winner.range.start - origin..winner.range.end - origin,
-                        key: winner.key.clone(),
-                    })
-                    .collect();
+                let (local, work) = references::window_winners(&winners, origin, text.len());
+                witness_work += work;
                 let row = Row::parse_with_references(text, &references, &local);
                 origin += text.len();
                 row
             })
             .collect();
+        let initial_link_metadata_items = reference_work.items
+            + witness_work
+            + parsed
+                .iter()
+                .map(|row| row.reference_work.items)
+                .sum::<usize>();
+        let initial_link_copied_bytes = reference_work.copied
+            + parsed
+                .iter()
+                .map(|row| row.reference_work.copied)
+                .sum::<usize>();
         let initial_parse_work = reference_work.parsed
             + source.len()
             + parsed
@@ -78,6 +85,8 @@ impl Projection {
             display,
             rows,
             initial_parse_work,
+            initial_link_metadata_items,
+            initial_link_copied_bytes,
             references,
         }
     }
@@ -109,6 +118,14 @@ impl Projection {
     }
 
     pub fn query(&self, revision: Revision, range: DisplayRange) -> ProjectionSlice {
+        self.query_with_work(revision, range).0
+    }
+
+    pub(crate) fn query_with_work(
+        &self,
+        revision: Revision,
+        range: DisplayRange,
+    ) -> (ProjectionSlice, references::ReferenceWork) {
         let first = self.rows.locate(range.start.0, true);
         let last = self.rows.locate(range.end.0, true);
         let mut runs: Vec<SemanticRun> = Vec::new();
@@ -186,19 +203,22 @@ impl Projection {
                 language: block.code_language,
             })
             .collect();
-        let links = self.link_descriptions(range);
-        ProjectionSlice {
-            links,
-            blocks,
-            revision,
-            range,
-            text: self
-                .display
-                .byte_slice(range.start.0..range.end.0)
-                .to_string(),
-            runs,
-            correspondence,
-        }
+        let (links, work) = self.link_descriptions_with_work(range);
+        (
+            ProjectionSlice {
+                links,
+                blocks,
+                revision,
+                range,
+                text: self
+                    .display
+                    .byte_slice(range.start.0..range.end.0)
+                    .to_string(),
+                runs,
+                correspondence,
+            },
+            work,
+        )
     }
 
     pub(crate) fn block_at_source(&self, at: usize) -> Option<blocks::BlockLine> {
@@ -279,6 +299,7 @@ impl Projection {
         let display_end = display_end + row.display.len();
         let text = source.byte_slice(source_start..source_end).to_string();
         let mut winners = Vec::new();
+        let mut reference_work = references::ReferenceWork::default();
         for index in first..=last {
             let (row, base, _) = self.rows.at(index);
             for definition in row
@@ -305,21 +326,23 @@ impl Projection {
         let parsed: Vec<_> = paragraphs(&text)
             .into_iter()
             .map(|raw| {
-                let local: Vec<_> = winners
-                    .iter()
-                    .filter(|winner| {
-                        origin <= winner.range.start && winner.range.end <= origin + raw.len()
-                    })
-                    .map(|winner| references::Winner {
-                        range: winner.range.start - origin..winner.range.end - origin,
-                        key: winner.key.clone(),
-                    })
-                    .collect();
+                let (local, work) = references::window_winners(&winners, origin, raw.len());
+                reference_work.items += work;
                 let row = Row::parse_with_references(raw, &self.references, &local);
                 origin += raw.len();
                 row
             })
             .collect();
+        let link_copied_bytes = reference_work.copied
+            + parsed
+                .iter()
+                .map(|row| row.reference_work.copied)
+                .sum::<usize>();
+        let reference_items = reference_work.items
+            + parsed
+                .iter()
+                .map(|row| row.reference_work.items)
+                .sum::<usize>();
         let parsed_source_bytes = text.len()
             + parsed
                 .iter()
@@ -361,9 +384,11 @@ impl Projection {
             start: DisplayOffset(display_start),
             end: DisplayOffset(display_start + parsed_display_len),
         };
-        let link_metadata_items =
-            metadata_work + self.preserve_pending_display(pending, range, inserted.len());
+        let link_metadata_items = reference_items
+            + metadata_work
+            + self.preserve_pending_display(pending, range, inserted.len());
         Update {
+            link_copied_bytes,
             link_metadata_items,
             range,
             inserted,

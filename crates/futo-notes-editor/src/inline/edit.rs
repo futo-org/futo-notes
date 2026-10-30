@@ -19,6 +19,8 @@ pub(crate) struct Plan {
     pub formats: Vec<InlineFormat>,
     pub materialized: usize,
     pub parsed: usize,
+    pub link_metadata_items: usize,
+    pub link_copied_bytes: usize,
 }
 pub(super) fn common_prefix(a: &str, b: &str) -> usize {
     a.chars()
@@ -47,6 +49,7 @@ impl Projection {
             mut markers,
             pieces,
             block_boundaries,
+            link_metadata_items,
         } = self.edit_context_for_change(source, range, toggle.is_none().then_some(inserted));
         let expanded = split_entities(pieces, a, z);
         let Cut {
@@ -177,7 +180,7 @@ impl Projection {
             literal,
             &self.references,
         )?;
-        let parsed = rendered.parsed + link_work;
+        let parsed = rendered.parsed + link_work.parsed;
         let output = rendered.text;
         let caret = rendered.caret;
         let prefix = common_prefix(&raw, &output);
@@ -195,6 +198,10 @@ impl Projection {
             formats,
             materialized: raw.len() + output.len(),
             parsed,
+            link_metadata_items: link_metadata_items
+                + rendered.link_metadata_items
+                + link_work.items,
+            link_copied_bytes: rendered.link_copied_bytes + link_work.copied,
         })
     }
     pub(super) fn edit_context(&self, source: &Rope, range: DisplayRange) -> Context {
@@ -214,6 +221,7 @@ impl Projection {
         let source_end = source_end + end_row.source_len;
         let raw = source.byte_slice(source_start..source_end).to_string();
         let mut markers = Vec::new();
+        let mut link_metadata_items = 0;
         let mut pieces = Vec::<Piece>::new();
         let mut a = range.start.0 - display_start;
         let mut z = range.end.0 - display_start;
@@ -236,10 +244,15 @@ impl Projection {
                     block_boundaries.push(display_len + row.display_at(pair[1].source.start));
                 }
             }
-            markers.extend(row.spans.iter().map(|span| Marker {
-                kind: span.kind.clone(),
-                open: raw[base + span.open.start..base + span.open.end].into(),
-                close: raw[base + span.close.start..base + span.close.end].into(),
+            markers.extend(row.spans.iter().map(|span| {
+                if matches!(span.kind, SpanKind::Link(_)) {
+                    link_metadata_items += 1;
+                }
+                Marker {
+                    kind: span.kind.clone(),
+                    open: raw[base + span.open.start..base + span.open.end].into(),
+                    close: raw[base + span.close.start..base + span.close.end].into(),
+                }
             }));
             let retired_headings: Vec<_> = row
                 .blocks
@@ -344,6 +357,7 @@ impl Projection {
             markers,
             pieces,
             block_boundaries,
+            link_metadata_items,
         }
     }
 }
@@ -366,6 +380,7 @@ pub(super) struct Context {
     pub(super) markers: Vec<Marker>,
     pub(super) pieces: Vec<Piece>,
     pub(super) block_boundaries: Vec<usize>,
+    pub(super) link_metadata_items: usize,
 }
 pub(super) fn carry_formats(
     before: &mut [Piece],

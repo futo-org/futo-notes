@@ -117,12 +117,17 @@ impl EditorSession {
         change.work.link_metadata_items += self
             .projection
             .finish_link_input(range, inserted, action, caret.0);
-        change.projection = self
+        let (projection, link_work) = self
             .projection
-            .query(self.revision, change.projection.range);
+            .query_with_work(self.revision, change.projection.range);
+        change.projection = projection;
+        change.work.link_metadata_items += link_work.items;
+        change.work.link_copied_bytes += link_work.copied;
         change.selection = self.selection;
         change.work.materialized_source_bytes += plan.materialized;
         change.work.parsed_source_bytes += plan.parsed;
+        change.work.link_metadata_items += plan.link_metadata_items;
+        change.work.link_copied_bytes += plan.link_copied_bytes;
         let after_links = self
             .projection
             .pending_links(before_links.after_window(&edit));

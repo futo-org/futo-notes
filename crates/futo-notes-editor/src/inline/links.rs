@@ -2,64 +2,98 @@
 //! the Markdown parser. Consumers receive destination semantics, never syntax.
 use super::row::LinkMeaning;
 impl super::Projection {
-    pub(crate) fn link_descriptions(
+    pub(crate) fn link_descriptions_with_work(
         &self,
         range: crate::DisplayRange,
-    ) -> Vec<crate::LinkDescription> {
-        let mut active: Vec<crate::LinkDescription> = Vec::new();
-        for link in self
-            .row_links(range)
-            .into_iter()
-            .filter(|link| !self.link_is_pending(link.range))
-        {
-            if let Some(previous) = active.last_mut() {
-                if previous.range.end == link.range.start
-                    && previous.destination == link.destination
-                    && previous.title == link.title
+    ) -> (
+        Vec<crate::LinkDescription>,
+        super::references::ReferenceWork,
+    ) {
+        let (runs, mut items) = self.row_link_runs(range);
+        let mut active: Vec<(crate::DisplayRange, std::sync::Arc<LinkMeaning>)> = Vec::new();
+        for (range, target) in runs {
+            let (row, _, _) = self.rows.at(self.rows.locate(range.start.0, true));
+            items += row.literal_links.len();
+            if self.link_is_pending(range) {
+                continue;
+            }
+            if let Some((previous, meaning)) = active.last_mut() {
+                items += 1;
+                if previous.end == range.start
+                    && (std::sync::Arc::ptr_eq(meaning, &target)
+                        || meaning.destination == target.destination
+                            && meaning.title == target.title)
                 {
-                    previous.range.end = link.range.end;
+                    previous.end = range.end;
                     continue;
                 }
             }
-            active.push(link);
+            active.push((range, target));
         }
-        active
+        let mut work = super::references::ReferenceWork {
+            parsed: 0,
+            items,
+            copied: 0,
+        };
+        let descriptions = active
             .into_iter()
-            .filter(|link| link.range.start.0 <= range.end.0 && range.start.0 <= link.range.end.0)
-            .collect()
+            .filter(|(link, _)| link.start.0 <= range.end.0 && range.start.0 <= link.end.0)
+            .map(|(range, target)| {
+                work.items += 1;
+                work.copied +=
+                    target.destination.len() + target.title.as_ref().map_or(0, String::len);
+                crate::LinkDescription {
+                    range,
+                    destination: target.destination.clone(),
+                    title: target.title.clone(),
+                }
+            })
+            .collect();
+        (descriptions, work)
     }
 
-    pub(crate) fn all_links(&self, range: crate::DisplayRange) -> Vec<crate::LinkDescription> {
-        self.row_links(range)
-            .into_iter()
-            .filter(|link| link.range.start.0 <= range.end.0 && range.start.0 <= link.range.end.0)
-            .collect()
+    pub(super) fn all_link_ranges(
+        &self,
+        range: crate::DisplayRange,
+    ) -> (Vec<crate::DisplayRange>, usize) {
+        let (runs, work) = self.row_link_runs(range);
+        (
+            runs.into_iter()
+                .map(|(range, _)| range)
+                .filter(|link| link.start.0 <= range.end.0 && range.start.0 <= link.end.0)
+                .collect(),
+            work,
+        )
     }
 
-    fn row_links(&self, range: crate::DisplayRange) -> Vec<crate::LinkDescription> {
+    fn row_link_runs(
+        &self,
+        range: crate::DisplayRange,
+    ) -> (
+        Vec<(crate::DisplayRange, std::sync::Arc<LinkMeaning>)>,
+        usize,
+    ) {
         let first = self.rows.locate(range.start.0, true);
         let last = self.rows.locate(range.end.0, true);
         let mut links = Vec::new();
+        let mut work = 0;
         for index in first..=last {
             let (row, _, display) = self.rows.at(index);
             for span in &row.spans {
-                if let super::row::SpanKind::Link(destination) = &span.kind {
-                    let start = display + row.display_at(span.open.end);
-                    let end = display + row.display_at(span.close.start);
-                    {
-                        links.push(crate::LinkDescription {
-                            range: crate::DisplayRange {
-                                start: crate::DisplayOffset(start),
-                                end: crate::DisplayOffset(end),
-                            },
-                            destination: destination.destination.clone(),
-                            title: destination.title.clone(),
-                        });
-                    }
+                work += 1;
+                if let super::row::SpanKind::Link(target) = &span.kind {
+                    work += 1;
+                    links.push((
+                        crate::DisplayRange {
+                            start: crate::DisplayOffset(display + row.display_at(span.open.end)),
+                            end: crate::DisplayOffset(display + row.display_at(span.close.start)),
+                        },
+                        target.clone(),
+                    ));
                 }
             }
         }
-        links
+        (links, work)
     }
 }
 
@@ -83,6 +117,7 @@ impl super::Projection {
             z,
             mut markers,
             pieces,
+            link_metadata_items,
             ..
         } = self.edit_context(source, range);
         let mut pieces = split_entities(pieces, a, z);
@@ -101,6 +136,7 @@ impl super::Projection {
             }
             at = end;
         }
+        let mut target_copied = destination.len();
         existing.sort_unstable();
         existing.dedup();
         if existing.len() == 1 && !destination.is_empty() {
@@ -109,6 +145,7 @@ impl super::Projection {
                 SpanKind::Link(value) => value.title.clone(),
                 _ => None,
             };
+            target_copied += title.as_ref().map_or(0, String::len);
             marker.kind = SpanKind::Link(std::sync::Arc::new(LinkMeaning {
                 destination: destination.into(),
                 title,
@@ -158,6 +195,8 @@ impl super::Projection {
             formats: Vec::new(),
             materialized: raw.len() + rendered.text.len(),
             parsed: rendered.parsed,
+            link_metadata_items: link_metadata_items + rendered.link_metadata_items + 1,
+            link_copied_bytes: rendered.link_copied_bytes + target_copied,
         })
     }
 }
@@ -288,9 +327,9 @@ pub(super) fn finish_angle_word(
     markers: &mut Vec<super::spelling::Marker>,
     insertion: usize,
     inserted: &str,
-) -> usize {
+) -> super::references::ReferenceWork {
     if !inserted.chars().next().is_some_and(char::is_whitespace) || insertion == 0 {
-        return 0;
+        return super::references::ReferenceWork::default();
     }
     let mut start = insertion;
     while start > 0 && !pieces[start - 1].display.contains(char::is_whitespace) {
@@ -301,16 +340,30 @@ pub(super) fn finish_angle_word(
         .map(|piece| piece.display.as_str())
         .collect();
     if !word.starts_with('<') || !word.ends_with('>') || pieces[start].raw != "\\<" {
-        return 0;
+        return super::references::ReferenceWork::default();
     }
     let inner = &word[1..word.len() - 1];
-    let (links, work) = bare_links(inner);
+    let (links, parsed) = bare_links(inner);
+    let mut work = super::references::ReferenceWork {
+        parsed,
+        items: links.len(),
+        copied: links
+            .iter()
+            .filter_map(|span| match &span.kind {
+                super::row::SpanKind::Link(target) => {
+                    Some(target.destination.len() + target.title.as_ref().map_or(0, String::len))
+                }
+                _ => None,
+            })
+            .sum(),
+    };
     let Some(link) = links
         .first()
         .filter(|link| links.len() == 1 && link.open.start == 0 && link.close.end == inner.len())
     else {
         return work;
     };
+    work.items += 1;
     let id = markers.len();
     markers.push(super::spelling::Marker {
         kind: link.kind.clone(),
@@ -358,6 +411,7 @@ impl super::Projection {
             z,
             mut markers,
             pieces,
+            link_metadata_items,
             ..
         } = self.edit_context(source, range);
         let Cut {
@@ -382,7 +436,7 @@ impl super::Projection {
         let bare = links.len() == 1
             && links[0].open.start == 0
             && links[0].close.end == destination.len()
-            && links[0].kind == SpanKind::Link(LinkMeaning::bare(destination.into()));
+            && matches!(&links[0].kind, SpanKind::Link(target) if target.destination == destination && target.title.is_none() && target.reference.is_none());
         let id = markers.len();
         markers.push(Marker {
             kind: SpanKind::Link(LinkMeaning::bare(destination.into())),
@@ -424,6 +478,21 @@ impl super::Projection {
             formats,
             materialized: raw.len() + rendered.text.len(),
             parsed: work + rendered.parsed,
+            link_metadata_items: link_metadata_items
+                + rendered.link_metadata_items
+                + links.len()
+                + 1,
+            link_copied_bytes: rendered.link_copied_bytes
+                + destination.len()
+                + links
+                    .iter()
+                    .filter_map(|span| match &span.kind {
+                        SpanKind::Link(target) => Some(
+                            target.destination.len() + target.title.as_ref().map_or(0, String::len),
+                        ),
+                        _ => None,
+                    })
+                    .sum::<usize>(),
         })
     }
 }

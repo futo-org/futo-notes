@@ -76,6 +76,10 @@ impl EditorSession {
                         change.work.materialized_source_bytes +=
                             seams.work.materialized_source_bytes;
                         change.work.parsed_source_bytes += seams.work.parsed_source_bytes;
+
+                        change.work.link_metadata_items += seams.work.link_metadata_items;
+
+                        change.work.link_copied_bytes += seams.work.link_copied_bytes;
                     }
                     Ok(Some(change))
                 },
@@ -336,6 +340,8 @@ impl EditorSession {
         self.carry_block_state(&mut change, body.formats, body.affinity);
         change.work.materialized_source_bytes += body.materialized;
         change.work.parsed_source_bytes += body.parsed + left_work + right_work;
+        change.work.link_metadata_items += body.link_metadata_items;
+        change.work.link_copied_bytes += body.link_copied_bytes;
         Ok(Some(change))
     }
 
@@ -391,6 +397,12 @@ impl EditorSession {
         change.work.parsed_source_bytes += staged.projection.initial_parse_work
             + deleted.work.parsed_source_bytes
             + entered.work.parsed_source_bytes;
+        change.work.link_metadata_items += staged.projection.initial_link_metadata_items
+            + deleted.work.link_metadata_items
+            + entered.work.link_metadata_items;
+        change.work.link_copied_bytes += staged.projection.initial_link_copied_bytes
+            + deleted.work.link_copied_bytes
+            + entered.work.link_copied_bytes;
         Ok(change)
     }
 }

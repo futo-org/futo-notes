@@ -12,6 +12,8 @@ pub(super) struct BodySplit {
     pub affinity: Affinity,
     pub materialized: usize,
     pub parsed: usize,
+    pub link_metadata_items: usize,
+    pub link_copied_bytes: usize,
 }
 
 impl EditorSession {
@@ -69,7 +71,7 @@ impl EditorSession {
             start: DisplayOffset(start),
             end: DisplayOffset(end),
         };
-        let (raw, materialized, parsed) =
+        let (raw, materialized, parsed, link_work) =
             self.projection
                 .body_source(&self.source, body_range, false)?;
         let shown = self.projection.display.byte_slice(start..end).to_string();
@@ -123,6 +125,12 @@ impl EditorSession {
                 + shown.len()
                 + change.work.materialized_source_bytes,
             parsed: parsed + staged.projection.initial_parse_work + change.work.parsed_source_bytes,
+            link_metadata_items: link_work.items
+                + staged.projection.initial_link_metadata_items
+                + change.work.link_metadata_items,
+            link_copied_bytes: link_work.copied
+                + staged.projection.initial_link_copied_bytes
+                + change.work.link_copied_bytes,
         })
     }
 }

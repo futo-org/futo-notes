@@ -81,6 +81,10 @@ impl EditorSession {
                         change.work.materialized_source_bytes +=
                             seams.work.materialized_source_bytes;
                         change.work.parsed_source_bytes += seams.work.parsed_source_bytes;
+
+                        change.work.link_metadata_items += seams.work.link_metadata_items;
+
+                        change.work.link_copied_bytes += seams.work.link_copied_bytes;
                     }
                     Ok(Some(change))
                 },
@@ -96,6 +100,8 @@ impl EditorSession {
         let mut output = raw.clone();
         let mut changed = false;
         let mut parsed = 0;
+        let mut link_metadata_items = 0;
+        let mut link_copied_bytes = 0;
         let mut materialized = 0;
         let mut folded = Vec::new();
         for line in lines.iter().rev() {
@@ -187,7 +193,7 @@ impl EditorSession {
                     .display
                     .byte_slice(body_start..body_end)
                     .to_string();
-                let (body, body_bytes, work) = self.projection.body_source(
+                let (body, body_bytes, work, link_work) = self.projection.body_source(
                     &self.source,
                     DisplayRange {
                         start: DisplayOffset(body_start),
@@ -196,6 +202,8 @@ impl EditorSession {
                     true,
                 )?;
                 materialized += body_bytes + shown.len();
+                link_metadata_items += link_work.items;
+                link_copied_bytes += link_work.copied;
                 folded.push((body_start, shown));
                 let (body, protected) = super::content::protect_content(&body, true, false);
                 (body, work + protected)
@@ -270,6 +278,8 @@ impl EditorSession {
         )?;
         self.carry_block_state(&mut change, formats, affinity);
         change.work.parsed_source_bytes += parsed;
+        change.work.link_metadata_items += link_metadata_items;
+        change.work.link_copied_bytes += link_copied_bytes;
         change.work.materialized_source_bytes += materialized;
         Ok(Some(change))
     }

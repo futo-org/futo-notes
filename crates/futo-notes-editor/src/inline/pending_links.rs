@@ -182,10 +182,10 @@ impl Projection {
             && !inserted.is_empty()
             && !inserted.chars().last().unwrap().is_whitespace()
         {
-            let links = self.all_links(word);
-            work += links.len();
+            let (links, query_work) = self.all_link_ranges(word);
+            work += links.len() + query_work;
             for link in links {
-                let index = self.rows.locate(link.range.start.0, true);
+                let index = self.rows.locate(link.start.0, true);
                 let (row, _, display) = self.rows.at(index);
                 work += row.spans.len() + row.literal_links.len();
                 let bare = row
@@ -195,13 +195,13 @@ impl Projection {
                         matches!(span.kind, SpanKind::Link(_))
                             && span.open.is_empty()
                             && span.close.is_empty()
-                            && display + row.display_at(span.open.end) == link.range.start.0
-                            && display + row.display_at(span.close.start) == link.range.end.0
+                            && display + row.display_at(span.open.end) == link.start.0
+                            && display + row.display_at(span.close.start) == link.end.0
                     })
                     .map(|span| span.open.end..span.close.start);
                 if let Some(bare) = bare {
-                    if link.range.end.0 <= caret
-                        && link.range.start.0 < input.start.0 + inserted.len()
+                    if link.end.0 <= caret
+                        && link.start.0 < input.start.0 + inserted.len()
                         && !row.literal_links.contains(&bare)
                     {
                         self.rows.metadata_mut(index).literal_links.push(bare);

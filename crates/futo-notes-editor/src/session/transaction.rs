@@ -128,6 +128,8 @@ impl EditorSession {
             .collect();
         let mut materialized = raw.len();
         let mut parsed = staged.projection.initial_parse_work;
+        let mut link_metadata_items = staged.projection.initial_link_metadata_items;
+        let mut link_copied_bytes = staged.projection.initial_link_copied_bytes;
         for (index, replacement) in replacements.iter().enumerate() {
             let local_range = DisplayRange {
                 start: DisplayOffset(anchors[2 * index]),
@@ -173,6 +175,8 @@ impl EditorSession {
             }
             materialized += change.work.materialized_source_bytes;
             parsed += change.work.parsed_source_bytes;
+            link_metadata_items += change.work.link_metadata_items;
+            link_copied_bytes += change.work.link_copied_bytes;
         }
         let targets = targets
             .into_iter()
@@ -202,6 +206,8 @@ impl EditorSession {
         change.affinity = self.affinity;
         change.work.materialized_source_bytes += materialized + edit.inserted.len();
         change.work.parsed_source_bytes += parsed;
+        change.work.link_metadata_items += link_metadata_items;
+        change.work.link_copied_bytes += link_copied_bytes;
         let after_links = self
             .projection
             .pending_links(before_links.after_window(&edit));

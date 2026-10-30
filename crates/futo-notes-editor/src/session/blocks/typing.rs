@@ -70,6 +70,10 @@ impl EditorSession {
                 );
                 input.work.materialized_source_bytes += boundary.work.materialized_source_bytes;
                 input.work.parsed_source_bytes += boundary.work.parsed_source_bytes;
+
+                input.work.link_metadata_items += boundary.work.link_metadata_items;
+
+                input.work.link_copied_bytes += boundary.work.link_copied_bytes;
                 Ok(Some(input))
             },
         )?;
@@ -164,6 +168,10 @@ impl EditorSession {
         self.carry_block_state(&mut change, staged.pending_formats, staged.affinity);
         change.work.materialized_source_bytes += input.work.materialized_source_bytes;
         change.work.parsed_source_bytes += input.work.parsed_source_bytes;
+
+        change.work.link_metadata_items += input.work.link_metadata_items;
+
+        change.work.link_copied_bytes += input.work.link_copied_bytes;
         Ok(Some(change))
     }
 
@@ -250,6 +258,10 @@ impl EditorSession {
             staged.pending_formats = formats;
             change.work.materialized_source_bytes += removed.work.materialized_source_bytes;
             change.work.parsed_source_bytes += removed.work.parsed_source_bytes;
+
+            change.work.link_metadata_items += removed.work.link_metadata_items;
+
+            change.work.link_copied_bytes += removed.work.link_copied_bytes;
             Ok(Some(change))
         })
     }

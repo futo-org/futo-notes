@@ -98,6 +98,7 @@ impl References {
             {
                 if is_reference(&link_type) {
                     work.items += 1;
+                    work.copied += id.len();
                     if let Some(target) = targets.get(&UniCase::new(id.to_string())) {
                         let key = target.reference.as_ref().unwrap().clone();
                         *uses.entry(key).or_insert(0) += 1;
@@ -105,7 +106,10 @@ impl References {
                 }
             }
         }
-        winners.sort_by_key(|winner| winner.range.start);
+        winners.sort_by(|a, b| {
+            work.items += 1;
+            a.range.start.cmp(&b.range.start)
+        });
         (Arc::new(Self { targets, uses }), winners, work)
     }
 
@@ -196,4 +200,23 @@ pub(super) fn hidden_definition(source: &str, definition: &Definition) -> Range<
         end = line_end;
     }
     start..end
+}
+
+pub(super) fn window_winners(
+    winners: &[Winner],
+    origin: usize,
+    length: usize,
+) -> (Vec<Winner>, usize) {
+    let first = winners.partition_point(|winner| winner.range.start < origin);
+    let last = winners.partition_point(|winner| winner.range.start < origin + length);
+    let items = 2 * (usize::BITS - winners.len().leading_zeros()) as usize + 2 * (last - first);
+    let result = winners[first..last]
+        .iter()
+        .filter(|winner| winner.range.end <= origin + length)
+        .map(|winner| Winner {
+            range: winner.range.start - origin..winner.range.end - origin,
+            key: winner.key.clone(),
+        })
+        .collect();
+    (result, items)
 }

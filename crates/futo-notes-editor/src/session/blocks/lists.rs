@@ -98,6 +98,10 @@ impl EditorSession {
                     };
                     change.work.materialized_source_bytes += removed.work.materialized_source_bytes;
                     change.work.parsed_source_bytes += removed.work.parsed_source_bytes;
+
+                    change.work.link_metadata_items += removed.work.link_metadata_items;
+
+                    change.work.link_copied_bytes += removed.work.link_copied_bytes;
                     Ok(Some(change))
                 },
             );

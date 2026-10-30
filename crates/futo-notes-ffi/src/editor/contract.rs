@@ -177,6 +177,7 @@ pub struct EditorViewChange {
     pub inserted_bytes: u64,
     pub parsed_source_bytes: u64,
     pub link_metadata_items: u64,
+    pub link_copied_bytes: u64,
     pub affinity: EditorAffinity,
     pub projection: EditorProjection,
 }
@@ -193,6 +194,7 @@ impl From<editor::ViewChange> for EditorViewChange {
             inserted_bytes: value.work.inserted_bytes as u64,
             parsed_source_bytes: value.work.parsed_source_bytes as u64,
             link_metadata_items: value.work.link_metadata_items as u64,
+            link_copied_bytes: value.work.link_copied_bytes as u64,
             affinity: value.affinity.into(),
             projection: value.projection.into(),
         }

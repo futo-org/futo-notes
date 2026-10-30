@@ -52,6 +52,10 @@ impl EditorSession {
         change.work.materialized_source_bytes += raw.len() + step.work.materialized_source_bytes;
         change.work.parsed_source_bytes +=
             staged.projection.initial_parse_work + step.work.parsed_source_bytes;
+        change.work.link_metadata_items +=
+            staged.projection.initial_link_metadata_items + step.work.link_metadata_items;
+        change.work.link_copied_bytes +=
+            staged.projection.initial_link_copied_bytes + step.work.link_copied_bytes;
         Ok(Some(change))
     }
 
@@ -87,6 +91,8 @@ impl EditorSession {
         let mut change = self.replay_with_accept(&edit, accept)?;
         change.work.materialized_source_bytes += plan.materialized;
         change.work.parsed_source_bytes += plan.parsed;
+        change.work.link_metadata_items += plan.link_metadata_items;
+        change.work.link_copied_bytes += plan.link_copied_bytes;
         Ok(Some(change))
     }
 }

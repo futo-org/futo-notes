@@ -35,6 +35,10 @@ impl EditorSession {
                         converted.work.materialized_source_bytes +=
                             plain.work.materialized_source_bytes;
                         converted.work.parsed_source_bytes += plain.work.parsed_source_bytes;
+
+                        converted.work.link_metadata_items += plain.work.link_metadata_items;
+
+                        converted.work.link_copied_bytes += plain.work.link_copied_bytes;
                     }
                     Ok(converted)
                 },
