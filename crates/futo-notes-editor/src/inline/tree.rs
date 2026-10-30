@@ -148,11 +148,13 @@ impl Rows {
 
 /// Only fixed-size canonical metadata crosses the semantic read boundary;
 /// foreign physical-body vectors and source text stay with their parsed row.
+#[derive(Clone)]
 pub(crate) struct ContextWitness {
     pub source: std::ops::Range<usize>,
     pub quote_depth: usize,
     pub code: bool,
     pub empty_comment: bool,
+    pub transparent_quote: Option<usize>,
     pub list: Option<super::lists::ListLine>,
 }
 
@@ -228,6 +230,7 @@ impl Rows {
                             quote_depth: block.quote_depth,
                             code: block.code,
                             empty_comment: block.empty_comment,
+                            transparent_quote: run.transparent_quote,
                             list,
                         });
                     }

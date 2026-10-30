@@ -15,6 +15,7 @@ use crate::{
 };
 use ropey::Rope;
 use row::{paragraphs, Row};
+pub(crate) use tree::ContextWitness;
 use tree::Rows;
 
 pub(crate) struct Projection {

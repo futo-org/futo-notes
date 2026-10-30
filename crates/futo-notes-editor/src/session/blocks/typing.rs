@@ -100,7 +100,14 @@ impl EditorSession {
         if !before && !after {
             return Ok(None);
         }
-        let mut staged = Self::open_with_clock("", self.clock.clone());
+        let mut staged = self.stage_source(
+            "",
+            if before {
+                line.source.start..line.source.start
+            } else {
+                line.content.end..line.content.end
+            },
+        );
         staged.affinity = self.input_affinity(range);
         if range == self.selection {
             staged.pending_formats = self.pending_formats.clone();

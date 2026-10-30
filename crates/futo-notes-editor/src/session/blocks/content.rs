@@ -73,7 +73,7 @@ impl EditorSession {
             self.projection
                 .body_source(&self.source, body_range, false)?;
         let shown = self.projection.display.byte_slice(start..end).to_string();
-        let mut staged = Self::open_with_clock(&raw, self.clock.clone());
+        let mut staged = self.stage_source(&raw, first.content.start..last.content.end);
         if staged.display_text() != shown {
             return Err(EditorError::UnrepresentableFormat);
         }

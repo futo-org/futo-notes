@@ -38,10 +38,21 @@ fn nested_staging_retains_foreign_interpreted_start() {
                 let selected = range(0, 2 + eol.len());
                 session.select(session.revision(), selected).unwrap();
                 if marked {
-                    session.compose(session.revision(), range(0, 1), "x").unwrap();
+                    session
+                        .compose(session.revision(), range(0, 1), "x")
+                        .unwrap();
                 }
-                view.apply(session.block_command(session.revision(), selected,
-                    BlockCommand::OrderedList, &mut |_| Ok(())).unwrap().unwrap());
+                view.apply(
+                    session
+                        .block_command(
+                            session.revision(),
+                            selected,
+                            BlockCommand::OrderedList,
+                            &mut |_| Ok(()),
+                        )
+                        .unwrap()
+                        .unwrap(),
+                );
                 let source = session.source_text();
                 assert!(source.ends_with(&format!("{eol}{}7. after", eol.repeat(blanks))));
                 assert_eq!(ordinals(&session), [1, 2, 7], "{raw:?}, marked={marked}");

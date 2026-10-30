@@ -117,10 +117,8 @@ impl EditorSession {
                 after_line -= 1;
             }
             let neighbor = |at: usize, forward: bool| {
-                let line = self
-                    .projection
-                    .rows
-                    .context_neighbor(at, forward, head.quote_depth)?;
+                let neighbor = self.semantic_neighbor(at, forward, head.quote_depth)?;
+                let line = neighbor.witness;
                 if line.empty_comment || line.code || line.quote_depth != head.quote_depth {
                     return None;
                 }
@@ -128,19 +126,18 @@ impl EditorSession {
                     if list.depth != depth {
                         return None;
                     }
-                    if let Some(&marker) = resolved_owners.get(&list.owner.start) {
+                    if let Some(&marker) = resolved_owners
+                        .get(&list.owner.start)
+                        .filter(|_| neighbor.local)
+                    {
                         return Some((marker, None));
                     }
-                    if planned_owners.contains(&list.owner.start) {
+                    if neighbor.local && planned_owners.contains(&list.owner.start) {
                         return None;
                     }
                     if list.ordinal.is_some() == ordered {
                         return Some((
-                            self.source
-                                .byte_slice(list.marker.end - 1..list.marker.end)
-                                .bytes()
-                                .next()
-                                .unwrap(),
+                            neighbor.marker.unwrap(),
                             list.ordinal.map(|number| number + 1),
                         ));
                     }
@@ -148,6 +145,7 @@ impl EditorSession {
                 }
                 resolved_lines
                     .get(&line.source.start)
+                    .filter(|_| neighbor.local)
                     .copied()
                     .map(|marker| (marker, None))
             };
