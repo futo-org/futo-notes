@@ -381,9 +381,20 @@ impl EditorSession {
                         crate::inline::visit_container();
                         matches!(ch, ' ' | '\t' | '\r' | '\n')
                     });
-            value =
-                super::indent_source::shift_prefixes(&value, prefix.quote_depth, &shifts, blank)?;
-            materialized += value.len();
+            if blank {
+                // An empty body retains its own trailing padding, but an
+                // enclosing list still moves the quote markers before it.
+                shifts.retain(|quote, _| *quote < prefix.quote_depth);
+            }
+            if !shifts.is_empty() {
+                value = super::indent_source::shift_prefixes(
+                    &value,
+                    prefix.quote_depth,
+                    &shifts,
+                    false,
+                )?;
+                materialized += value.len();
+            }
             if let Some(index) = existing {
                 replacements[index].1 = value;
             } else {
