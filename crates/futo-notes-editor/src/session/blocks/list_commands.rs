@@ -206,7 +206,7 @@ impl EditorSession {
                 .and_then(|styles| styles.comments.iter().map(|(at, _)| *at).max())
                 .unwrap_or(0),
         );
-        let mut output = self.source.byte_slice(start..end).to_string();
+        let output = self.source.byte_slice(start..end).to_string();
         let mut replacements: Vec<_> = styles
             .as_ref()
             .map(|styles| {
@@ -218,7 +218,7 @@ impl EditorSession {
             })
             .unwrap_or_default();
         let mut parsed = 0;
-        let mut materialized = 0;
+        let mut materialized = output.len();
         let mut head_prefixes = HashMap::new();
         let mut owned_shifts = Vec::new();
         let mut selection = range;
@@ -266,6 +266,7 @@ impl EditorSession {
                 .source
                 .byte_slice(line.source.start..line.content.start)
                 .to_string();
+            materialized += prefix.len();
             let retained = if !remove && line.list.is_some() {
                 let list = line.list.as_ref().unwrap();
                 list.marker.start - line.source.start
@@ -434,9 +435,7 @@ impl EditorSession {
             *endpoint += separators.iter().filter(|&&at| at <= *endpoint).count();
         }
         replacements.sort_by_key(|(range, _)| (range.start, range.end));
-        for (range, prefix) in replacements.into_iter().rev() {
-            output.replace_range(range, &prefix);
-        }
+        let output = super::transaction::spell_edits(&output, &replacements)?;
         let formats = (range == self.selection)
             .then(|| self.pending_formats.clone())
             .flatten();
