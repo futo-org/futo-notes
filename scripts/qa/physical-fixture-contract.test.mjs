@@ -86,6 +86,9 @@ it.each([...textFields, 'formatVersion', 'seconds'])(
         const template = { ...t.plan };
         delete template.ownerPID;
         template[field] = change(template[field]);
+        report.mockImplementation(() =>
+          releaseLease({ ...template, ownerPID: process.pid }, t.runtime.leaseRuntime),
+        );
         const before = snapshot(t.directory);
         await expect(
           holdLease(template, { ...t.runtime.leaseRuntime, processIdentity: identity, report }),
