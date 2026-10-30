@@ -17,6 +17,8 @@ use ropey::Rope;
 use row::{paragraphs, Row};
 pub(crate) use tree::ContextWitness;
 use tree::Rows;
+#[cfg(test)]
+pub(crate) use tree::CONTEXT_VISITS;
 
 pub(crate) struct Projection {
     pub display: Rope,

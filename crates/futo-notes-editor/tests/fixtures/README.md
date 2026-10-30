@@ -75,3 +75,13 @@ Eight appended source-identity literals preserve differing internal blank-row pr
 through raw identical input, explicit unchanged runs, an unchanged run before a
 later changed run, and explicit empty-run acceptance. Existing explicit consumers
 forward optional `replacements` verbatim; no caller rediscovery of run identity occurs.
+
+Twelve `list-staging.json` literals add multiline bold/underscore list commands,
+unchanged/changed marked-text commands and typing, nested marked-text plus inline
+seams, and LF/CRLF boundaries. The original 24 actions and 38 shortcuts remain
+byte-identical. All six consumers include this file separately. Optional
+`compositionText` supplies raw marked text independently of a later Typing `text`;
+`composeRange` requests marking for any action. Changed marking and the command
+share one protected acceptance but retain their separate literal Undo groups.
+Store and real-WASM acceptance retain the same rejection/retry/history/recovery
+checks. Native fixture source is not proof that its current native binaries ran.

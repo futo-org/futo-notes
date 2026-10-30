@@ -102,6 +102,35 @@ impl EditorSession {
 mod tests {
     use super::*;
 
+    #[test]
+    fn capturing_nested_origins_skips_foreign_bodies_and_blank_subtrees() {
+        for blanks in [9, 1000, 20_000] {
+            for body_bytes in [8, 100_000] {
+                let gap = "\n".repeat(blanks + 1);
+                let raw = format!(
+                    "999. {}\n1. lazy{gap}body\n{gap}7) {}",
+                    "x".repeat(body_bytes),
+                    "y".repeat(body_bytes)
+                );
+                let session = EditorSession::open(&raw);
+                let at = raw.find("body").unwrap();
+                crate::inline::CONTEXT_VISITS.with(|visits| visits.set(0));
+                let staged = session.stage_source("body\n", at..at + 5);
+                let nested = staged.stage_source("body\n", 0..5);
+                let before = nested.semantic_neighbor(0, false, 0).unwrap();
+                let after = nested.semantic_neighbor(5, true, 0).unwrap();
+                assert_eq!(before.witness.list.unwrap().ordinal, Some(1000));
+                assert_eq!(after.witness.list.unwrap().ordinal, Some(7));
+                let visits = crate::inline::CONTEXT_VISITS.with(|visits| visits.get());
+                assert!(
+                    visits > 0 && visits < 640,
+                    "blanks={blanks}, body={body_bytes}, visits={visits}"
+                );
+                assert_eq!(nested.source.len_bytes(), 5);
+            }
+        }
+    }
+
     fn meaning(
         neighbor: Option<Neighbor>,
     ) -> Option<(

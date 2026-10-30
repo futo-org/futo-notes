@@ -100,112 +100,119 @@ fn list_shortcuts_retain_literal_whitespace_and_task_looking_body_content() {
 
 #[test]
 fn shortcut_acceptance_keeps_foreign_ownership_selection_and_carried_format() {
-    for (raw, display, at, converted, shown, caret, followup, followup_display) in [
-        (
-            "2.body\n\n7. after",
-            "2.body\n\nafter",
-            2,
-            "2) body\n\n7. after",
-            "body\n\nafter",
-            0,
-            "2) **!**&#98;ody\n\n7. after",
-            "!body\n\nafter",
-        ),
-        (
-            "9. before\n\n2\\.\n\n7) after",
-            "before\n\n2.\n\nafter",
-            10,
-            "9. before\n\n<!-- -->\n2. \n\n7) after",
-            "before\n\n\n\nafter",
-            8,
-            "9. before\n\n<!-- -->\n2. **!**\n\n7) after",
-            "before\n\n!\n\nafter",
-        ),
-        (
-            "2.body\n\n\n7. after",
-            "2.body\n\n\nafter",
-            2,
-            "2) body\n\n\n7. after",
-            "body\n\n\nafter",
-            0,
-            "2) **!**&#98;ody\n\n\n7. after",
-            "!body\n\n\nafter",
-        ),
-        (
-            "9. before\n\n\n2\\.\n\n\n7) after",
-            "before\n\n\n2.\n\n\nafter",
-            11,
-            "9. before\n\n\n<!-- -->\n2. \n\n\n7) after",
-            "before\n\n\n\n\n\nafter",
-            9,
-            "9. before\n\n\n<!-- -->\n2. **!**\n\n\n7) after",
-            "before\n\n\n!\n\n\nafter",
-        ),
-        (
-            "999. before\n\n\n1000.body\n\n\n7. after",
-            "before\n\n\n1000.body\n\n\nafter",
-            14,
-            "999. before\n\n\n1000. body\n<!-- -->\n\n\n7. after",
-            "before\n\n\nbody\n\n\nafter",
-            9,
-            "999. before\n\n\n1000. **!**&#98;ody\n<!-- -->\n\n\n7. after",
-            "before\n\n\n!body\n\n\nafter",
-        ),
-    ] {
-        let mut s = EditorSession::open(raw);
-        let mut view = ReferenceView::new(display);
-        s.select_with_affinity(s.revision(), range(at, at), Affinity::Backward)
+    for composed in [false, true] {
+        for (raw, display, at, converted, shown, caret, followup, followup_display) in [
+            (
+                "2.body\n\n7. after",
+                "2.body\n\nafter",
+                2,
+                "2) body\n\n7. after",
+                "body\n\nafter",
+                0,
+                "2) **!**&#98;ody\n\n7. after",
+                "!body\n\nafter",
+            ),
+            (
+                "9. before\n\n2\\.\n\n7) after",
+                "before\n\n2.\n\nafter",
+                10,
+                "9. before\n\n<!-- -->\n2. \n\n7) after",
+                "before\n\n\n\nafter",
+                8,
+                "9. before\n\n<!-- -->\n2. **!**\n\n7) after",
+                "before\n\n!\n\nafter",
+            ),
+            (
+                "2.body\n\n\n7. after",
+                "2.body\n\n\nafter",
+                2,
+                "2) body\n\n\n7. after",
+                "body\n\n\nafter",
+                0,
+                "2) **!**&#98;ody\n\n\n7. after",
+                "!body\n\n\nafter",
+            ),
+            (
+                "9. before\n\n\n2\\.\n\n\n7) after",
+                "before\n\n\n2.\n\n\nafter",
+                11,
+                "9. before\n\n\n<!-- -->\n2. \n\n\n7) after",
+                "before\n\n\n\n\n\nafter",
+                9,
+                "9. before\n\n\n<!-- -->\n2. **!**\n\n\n7) after",
+                "before\n\n\n!\n\n\nafter",
+            ),
+            (
+                "999. before\n\n\n1000.body\n\n\n7. after",
+                "before\n\n\n1000.body\n\n\nafter",
+                14,
+                "999. before\n\n\n1000. body\n<!-- -->\n\n\n7. after",
+                "before\n\n\nbody\n\n\nafter",
+                9,
+                "999. before\n\n\n1000. **!**&#98;ody\n<!-- -->\n\n\n7. after",
+                "before\n\n\n!body\n\n\nafter",
+            ),
+        ] {
+            let mut s = EditorSession::open(raw);
+            let mut view = ReferenceView::new(display);
+            s.select_with_affinity(s.revision(), range(at, at), Affinity::Backward)
+                .unwrap();
+            s.toggle_format(s.revision(), InlineFormat::Bold, &mut |_| {
+                panic!("caret format")
+            })
             .unwrap();
-        s.toggle_format(s.revision(), InlineFormat::Bold, &mut |_| {
-            panic!("caret format")
-        })
-        .unwrap();
-        let mut proposals = Vec::new();
-        assert!(matches!(
-            s.replace(s.revision(), range(at, at), " ", &mut |edit| {
-                proposals.push(edit.clone());
-                Err("append".into())
-            }),
-            Err(EditorError::Persistence(_))
-        ));
-        assert_eq!(s.source_text(), raw);
-        assert_eq!(s.display_text(), view.text);
-        assert_eq!(s.revision(), Revision(0));
-        assert_eq!(s.selection(), range(at, at));
-        assert_eq!(s.affinity(), Affinity::Backward);
-        assert_eq!(s.active_formats(), vec![InlineFormat::Bold]);
-        assert_eq!(proposals.len(), 1);
-        let proposed = &proposals[0];
-        let mut source = raw.to_owned();
-        source.replace_range(
-            proposed.range.start.0..proposed.range.end.0,
-            &proposed.inserted,
-        );
-        assert_eq!(source, converted);
-        view.apply(
-            s.replace(s.revision(), range(at, at), " ", &mut |_| Ok(()))
-                .unwrap(),
-        );
-        assert_eq!(s.source_text(), source);
-        assert_eq!(view.text, shown);
-        assert_eq!(s.selection(), range(caret, caret));
-        assert_eq!(s.affinity(), Affinity::Backward);
-        assert_eq!(s.active_formats(), vec![InlineFormat::Bold]);
-        view.apply(
-            s.replace(s.revision(), s.selection(), "!", &mut |_| Ok(()))
-                .unwrap(),
-        );
-        assert_eq!(s.source_text(), followup);
-        assert_eq!(view.text, followup_display);
-        view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
-        assert_eq!(s.source_text(), source);
-        view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
-        assert_eq!(s.source_text(), raw);
-        assert_eq!(s.selection(), range(at, at));
-        assert_eq!(s.active_formats(), vec![InlineFormat::Bold]);
-        view.apply(s.redo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
-        assert_eq!(s.source_text(), source);
-        view.apply(s.redo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
-        assert_eq!(s.source_text(), followup);
+            if composed {
+                s.compose(s.revision(), range(at, at), "").unwrap();
+            }
+            let marked = s.composition().cloned();
+            let mut proposals = Vec::new();
+            assert!(matches!(
+                s.replace(s.revision(), range(at, at), " ", &mut |edit| {
+                    proposals.push(edit.clone());
+                    Err("append".into())
+                }),
+                Err(EditorError::Persistence(_))
+            ));
+            assert_eq!(s.source_text(), raw);
+            assert_eq!(s.display_text(), view.text);
+            assert_eq!(s.revision(), Revision(0));
+            assert_eq!(s.composition(), marked.as_ref());
+            assert_eq!(s.selection(), range(at, at));
+            assert_eq!(s.affinity(), Affinity::Backward);
+            assert_eq!(s.active_formats(), vec![InlineFormat::Bold]);
+            assert_eq!(proposals.len(), 1);
+            let proposed = &proposals[0];
+            let mut source = raw.to_owned();
+            source.replace_range(
+                proposed.range.start.0..proposed.range.end.0,
+                &proposed.inserted,
+            );
+            assert_eq!(source, converted);
+            view.apply(
+                s.replace(s.revision(), range(at, at), " ", &mut |_| Ok(()))
+                    .unwrap(),
+            );
+            assert_eq!(s.source_text(), source);
+            assert_eq!(view.text, shown);
+            assert_eq!(s.selection(), range(caret, caret));
+            assert_eq!(s.affinity(), Affinity::Backward);
+            assert_eq!(s.active_formats(), vec![InlineFormat::Bold]);
+            view.apply(
+                s.replace(s.revision(), s.selection(), "!", &mut |_| Ok(()))
+                    .unwrap(),
+            );
+            assert_eq!(s.source_text(), followup);
+            assert_eq!(view.text, followup_display);
+            view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+            assert_eq!(s.source_text(), source);
+            view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+            assert_eq!(s.source_text(), raw);
+            assert_eq!(s.selection(), range(at, at));
+            assert_eq!(s.active_formats(), vec![InlineFormat::Bold]);
+            view.apply(s.redo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+            assert_eq!(s.source_text(), source);
+            view.apply(s.redo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+            assert_eq!(s.source_text(), followup);
+        }
     }
 }
