@@ -7,6 +7,12 @@ pub(crate) struct RetainedBody {
     pub after: Range<usize>,
 }
 
+struct Repair {
+    opener: usize,
+    range: Range<usize>,
+    inserted: String,
+}
+
 impl super::super::Projection {
     pub(crate) fn protect_exposed_definitions(
         &self,
@@ -25,7 +31,7 @@ impl super::super::Projection {
         let (local, parsed) = declarations(output, &[]);
         work = parsed;
         work.items += output.len() * 2; // declaration eligibility byte guards
-        let mut openers = Vec::new();
+        let mut repairs = Vec::new();
         for definition in local {
             for body in bodies {
                 work.items += 1;
@@ -50,28 +56,60 @@ impl super::super::Projection {
                     work.items += 1;
                     literal |= segment.identity && segment.source.contains(&at);
                 }
+                let mut semantic = None;
                 for span in &row.spans {
                     work.items += 1;
-                    if matches!(span.kind, super::super::row::SpanKind::Link(_))
-                        && span.open.contains(&at)
-                    {
-                        literal = false;
+                    if let super::super::row::SpanKind::Link(target) = &span.kind {
+                        if span.open.contains(&at) {
+                            literal = false;
+                            if span.open.start == at
+                                && body.before.start <= base + span.close.start
+                                && base + span.close.end <= body.before.end
+                            {
+                                let open = source
+                                    .byte_slice(base + span.open.start..base + span.open.end)
+                                    .to_string();
+                                let close = source
+                                    .byte_slice(base + span.close.start..base + span.close.end)
+                                    .to_string();
+                                copied += open.len() + close.len();
+                                if let Some(inserted) = super::super::spelling::full_reference_close(
+                                    target, &open, &close,
+                                ) {
+                                    work.copied += inserted.len();
+                                    let start = body.after.start + base + span.close.start
+                                        - body.before.start;
+                                    semantic = Some(Repair {
+                                        opener: definition.range.start,
+                                        range: start..start + close.len(),
+                                        inserted,
+                                    });
+                                }
+                            }
+                        }
                     }
                 }
                 for existing in &row.definitions {
                     work.items += 1;
                     if existing.range.contains(&at) {
-                        literal = false;
+                        return Err(EditorError::UnrepresentableFormat);
                     }
                 }
-                if !literal || output.as_bytes().get(definition.range.start) != Some(&b'[') {
+                if let Some(repair) = semantic {
+                    repairs.push(repair);
+                } else if !literal || output.as_bytes().get(definition.range.start) != Some(&b'[') {
                     return Err(EditorError::UnrepresentableFormat);
+                } else {
+                    repairs.push(Repair {
+                        opener: definition.range.start,
+                        range: definition.range.start..definition.range.start,
+                        inserted: "\\".into(),
+                    });
                 }
-                openers.push(definition.range.start);
                 break;
             }
         }
-        if openers.is_empty() {
+        if repairs.is_empty() {
             return Ok((work, copied));
         }
         // Escalation follows a structurally changed declaration witness. Build
@@ -97,20 +135,26 @@ impl super::super::Projection {
         work.parsed += actual_work.parsed;
         work.items += actual_work.items + raw.len() * 2;
         work.copied += actual_work.copied;
-        openers.retain(|opener| {
+        repairs.retain(|repair| {
             actual.iter().any(|definition| {
                 work.items += 1;
-                definition.range.start == base + range.start + opener
+                definition.range.start == base + range.start + repair.opener
             })
         });
-        if openers.is_empty() {
+        if repairs.is_empty() {
             return Ok((work, copied));
         }
         // Canonical declaration traversal is source ordered. Earlier insertions
         // cannot move the remaining offsets when repairs run in reverse.
-        for opener in openers.into_iter().rev() {
-            copied += output.len() - opener;
-            output.insert(opener, '\\');
+        for pair in repairs.windows(2) {
+            work.items += 1;
+            if pair[0].range.end > pair[1].range.start {
+                return Err(EditorError::UnrepresentableFormat);
+            }
+        }
+        for repair in repairs.into_iter().rev() {
+            copied += output.len() - repair.range.end + repair.inserted.len();
+            output.replace_range(repair.range, &repair.inserted);
         }
         let repaired = candidate(output);
         copied += repaired.len() + output.len();

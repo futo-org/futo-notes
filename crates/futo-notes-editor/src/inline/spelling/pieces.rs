@@ -34,3 +34,18 @@ pub(in crate::inline) struct Spelling {
     pub link_metadata_items: usize,
     pub link_copied_bytes: usize,
 }
+
+/// One canonical full-tail spelling for an already owned reference link.
+/// Parser-normalized keys retain the source escapes used by the existing
+/// inline spelling repair; callers never normalize or escape a second time.
+pub(in crate::inline) fn full_reference_close(
+    target: &crate::inline::row::LinkMeaning,
+    open: &str,
+    close: &str,
+) -> Option<String> {
+    target
+        .reference
+        .as_ref()
+        .filter(|_| open == "[" && (close == "]" || close == "][]"))
+        .map(|reference| format!("][{reference}]"))
+}

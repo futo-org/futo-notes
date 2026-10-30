@@ -2,7 +2,7 @@
 //! against the CommonMark parser before any source is accepted.
 mod pieces;
 mod render;
-pub(super) use pieces::{Marker, Piece, PieceOrigin, Spelling};
+pub(super) use pieces::{full_reference_close, Marker, Piece, PieceOrigin, Spelling};
 mod url_timing;
 use super::row::SpanKind;
 use super::row::{Row, Span};
@@ -87,16 +87,15 @@ pub(super) fn spell_with_anchors(
         for &id in &missing {
             let marker = &mut markers[id];
             if let SpanKind::Link(destination) = &marker.kind {
-                if let Some(reference) = destination.reference.as_ref().filter(|_| {
-                    marker.open == "[" && (marker.close == "]" || marker.close == "][]")
-                }) {
+                if let Some(close) = full_reference_close(destination, &marker.open, &marker.close)
+                {
                     // Parser-normalized reference keys preserve their original
                     // source escapes. A full tail retains identity when the
                     // shortcut/collapsed label changes, without editing its
                     // separate definition or making it newly unused.
-                    marker.close = format!("][{reference}]");
+                    link_copied_bytes += close.len() - 3;
+                    marker.close = close;
                     link_metadata_items += 1;
-                    link_copied_bytes += reference.len();
                     repaired_link = true;
                 } else if marker.open.is_empty() && marker.close.is_empty()
                     || marker.open == "<" && marker.close == ">"
