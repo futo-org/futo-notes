@@ -445,3 +445,47 @@ fn retargeting_an_outer_list_preserves_the_owned_nested_list_depth() {
     view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
     assert_eq!(s.source_text(), source);
 }
+
+#[test]
+fn nested_bullet_toggle_lifts_text_descendants_and_following_nested_siblings() {
+    // Actual shipping toolbar/preset oracle, retaining the foreign outer marker.
+    let raw = "- parent\n  - child😀\n    - grandchild\n  - sibling\n- following";
+    let expected = "- parent\n\nchild😀\n\n+ grandchild\n+ sibling\n\n- following";
+    let shown = "parent\nchild😀\ngrandchild\nsibling\nfollowing";
+    let after = "parent\n\nchild😀\n\ngrandchild\nsibling\n\nfollowing";
+    let selected = range(7, 16);
+    let final_selected = range(8, 17);
+    let mut s = EditorSession::open(raw);
+    let mut view = ReferenceView::new(shown);
+    assert_eq!(s.display_text(), shown);
+    s.select_with_affinity(s.revision(), selected, Affinity::Backward)
+        .unwrap();
+    let mut accepted = 0;
+    view.apply(
+        s.block_command(
+            s.revision(),
+            selected,
+            BlockCommand::BulletList,
+            &mut |_| {
+                accepted += 1;
+                Ok(())
+            },
+        )
+        .unwrap()
+        .unwrap(),
+    );
+    assert_eq!(accepted, 1);
+    assert_eq!(s.source_text(), expected);
+    assert_eq!(view.text, after);
+    assert_eq!(s.selection(), final_selected);
+    assert_eq!(s.affinity(), Affinity::Backward);
+    view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(s.source_text(), raw);
+    assert_eq!(view.text, shown);
+    assert_eq!(s.selection(), selected);
+    assert_eq!(s.affinity(), Affinity::Backward);
+    view.apply(s.redo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(s.source_text(), expected);
+    assert_eq!(view.text, after);
+    assert_eq!(s.selection(), final_selected);
+}
