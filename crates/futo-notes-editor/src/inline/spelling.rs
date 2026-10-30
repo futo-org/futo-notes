@@ -91,7 +91,18 @@ pub(super) fn spell(
         for &id in &missing {
             let marker = &mut markers[id];
             if let SpanKind::Link(destination) = &marker.kind {
-                if marker.open.is_empty() && marker.close.is_empty()
+                if let Some(reference) = destination.reference.as_ref().filter(|_| {
+                    marker.open == "[" && (marker.close == "]" || marker.close == "][]")
+                }) {
+                    // Parser-normalized reference keys preserve their original
+                    // source escapes. A full tail retains identity when the
+                    // shortcut/collapsed label changes, without editing its
+                    // separate definition or making it newly unused.
+                    marker.close = format!("][{reference}]");
+                    link_metadata_items += 1;
+                    link_copied_bytes += reference.len();
+                    repaired_link = true;
+                } else if marker.open.is_empty() && marker.close.is_empty()
                     || marker.open == "<" && marker.close == ">"
                 {
                     marker.open = "[".into();
