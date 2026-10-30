@@ -1,8 +1,13 @@
 # Remaining work and performance limits
 
+Table alignment changes, row reordering, column reordering and multi-cell/grid paste are
+also deferred by the maintainer. Preserve existing alignment and exact untouched bytes.
+Basic row/column insertion and deletion, cell editing/navigation and ordinary single-cell
+paste remain required; shared find and 20,000-line performance/durability remain required.
+
 Rich HTML paste (#303) and rendered block movement (#311) are deferred by the maintainer's
 2026-10-30 scope decision and do not block this milestone; their issues remain open for later
-work. Plain-text/Markdown paste, including the supported table-cell/grid forms, remains
+work. Plain-text/Markdown paste, including ordinary single-cell table paste, remains
 required. Tables, shared find, wikilink completion and the 20,000-line/native durability
 acceptance targets have not been deferred. → docs/plan/text-first-editor-rebuild-tickets.md
 
