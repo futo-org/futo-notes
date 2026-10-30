@@ -1,6 +1,7 @@
 //! Local marker surgery. Visible pieces retain their original source spelling
 //! and span identity; only spans that lose content or cross the edited range
 //! move. The parser remains the authority for interpreting candidate source.
+use super::row::SpanKind;
 use super::{
     spelling::{spell, Marker, Piece},
     Projection,
@@ -62,7 +63,7 @@ impl Projection {
         }
         let formats = active
             .iter()
-            .map(|id| markers[*id].format)
+            .filter_map(|id| markers[*id].kind.format())
             .collect::<Vec<_>>();
         // Removing a line separator can bring equal-format delimiter runs
         // together. Join their identities at that seam instead of emitting
@@ -73,7 +74,10 @@ impl Projection {
                     .spans
                     .iter()
                     .zip(&right.spans)
-                    .take_while(|(a, b)| markers[**a].format == markers[**b].format)
+                    .take_while(|(a, b)| {
+                        markers[**a].kind == markers[**b].kind
+                            && matches!(markers[**a].kind, SpanKind::Format(_))
+                    })
                     .map(|(&a, &b)| (a, b))
                     .collect();
                 for piece in &mut after {
@@ -116,7 +120,7 @@ impl Projection {
             if piece.display.contains(['\r', '\n']) {
                 piece
                     .spans
-                    .retain(|id| markers[*id].format != InlineFormat::Code);
+                    .retain(|id| markers[*id].kind != SpanKind::Format(InlineFormat::Code));
             }
         }
         if let Some(format) = toggle {
@@ -160,7 +164,7 @@ impl Projection {
             || !inserted.contains(['*', '_', '~', '`', '\\', '&', '<', '>'])
             || active
                 .iter()
-                .any(|id| markers[*id].format == InlineFormat::Code);
+                .any(|id| markers[*id].kind == SpanKind::Format(InlineFormat::Code));
         let rendered = spell(changed, markers, insertion_index..insertion_end, literal)?;
         let parsed = rendered.parsed;
         let output = rendered.text;
@@ -222,7 +226,7 @@ impl Projection {
                 }
             }
             markers.extend(row.spans.iter().map(|span| Marker {
-                format: span.format,
+                kind: span.kind.clone(),
                 open: raw[base + span.open.start..base + span.open.end].into(),
                 close: raw[base + span.close.start..base + span.close.end].into(),
             }));
@@ -444,9 +448,17 @@ fn carry_formats(
     active: &mut Vec<usize>,
     formats: &[InlineFormat],
 ) {
-    active.retain(|id| formats.contains(&markers[*id].format));
+    active.retain(|id| {
+        markers[*id]
+            .kind
+            .format()
+            .is_none_or(|format| formats.contains(&format))
+    });
     for &format in formats {
-        if !active.iter().any(|id| markers[*id].format == format) {
+        if !active
+            .iter()
+            .any(|id| markers[*id].kind == SpanKind::Format(format))
+        {
             let previous = before
                 .iter()
                 .rev()
@@ -462,7 +474,7 @@ fn carry_formats(
                     .spans
                     .iter()
                     .copied()
-                    .find(|id| markers[*id].format == format)
+                    .find(|id| markers[*id].kind == SpanKind::Format(format))
             });
             let id = if let Some(id) = reusable {
                 for piece in before.iter_mut().rev() {
@@ -481,14 +493,14 @@ fn carry_formats(
                     piece
                         .spans
                         .iter()
-                        .find(|id| markers[**id].format == format)
+                        .find(|id| markers[**id].kind == SpanKind::Format(format))
                         .map(|id| (markers[*id].open.clone(), markers[*id].close.clone()))
                 });
                 let id = markers.len();
                 let (open, close) =
                     spelling.unwrap_or_else(|| (delimiter.into(), delimiter.into()));
                 markers.push(Marker {
-                    format,
+                    kind: SpanKind::Format(format),
                     open,
                     close,
                 });

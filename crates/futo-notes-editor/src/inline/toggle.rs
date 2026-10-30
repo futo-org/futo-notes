@@ -1,4 +1,5 @@
 //! Selected formatting skips opaque code while retaining inline identities.
+use super::row::SpanKind;
 use super::{
     edit::delimiter,
     spelling::{Marker, Piece},
@@ -28,11 +29,16 @@ pub(super) fn pieces(
             start = end;
             hit
         })
-        .all(|piece| piece.spans.iter().any(|id| markers[*id].format == format));
+        .all(|piece| {
+            piece
+                .spans
+                .iter()
+                .any(|id| markers[*id].kind == SpanKind::Format(format))
+        });
     let id = markers.len();
     let delimiter = delimiter(format);
     markers.push(Marker {
-        format,
+        kind: SpanKind::Format(format),
         open: delimiter.into(),
         close: delimiter.into(),
     });
@@ -45,8 +51,10 @@ pub(super) fn pieces(
                 .iter()
                 .any(|range| range.start <= start && end <= range.end)
         {
-            piece.spans.retain(|id| markers[*id].format != format);
-            if format == InlineFormat::Code {
+            piece
+                .spans
+                .retain(|id| markers[*id].kind != SpanKind::Format(format));
+            if format == SpanKind::Format(InlineFormat::Code) {
                 if all_active {
                     piece.raw = piece
                         .display

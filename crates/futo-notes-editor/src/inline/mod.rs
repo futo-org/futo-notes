@@ -2,6 +2,7 @@ mod block_edit;
 pub(crate) mod blocks;
 mod edit;
 pub(crate) mod fences;
+mod links;
 mod row;
 mod spelling;
 mod toggle;

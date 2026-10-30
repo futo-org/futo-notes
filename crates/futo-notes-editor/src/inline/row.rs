@@ -2,9 +2,24 @@ use crate::InlineFormat;
 use pulldown_cmark::{Event, Options, Parser, Tag};
 use std::ops::Range;
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum SpanKind {
+    Format(InlineFormat),
+    Link(String),
+}
+
+impl SpanKind {
+    pub fn format(&self) -> Option<InlineFormat> {
+        match self {
+            Self::Format(format) => Some(*format),
+            Self::Link(_) => None,
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub(crate) struct Span {
-    pub format: InlineFormat,
+    pub kind: SpanKind,
     pub open: Range<usize>,
     pub close: Range<usize>,
 }
@@ -39,6 +54,7 @@ impl Row {
         let mut spans = Vec::new();
         let mut replacements = Vec::<(Range<usize>, String)>::new();
         let mut in_code = false;
+        let mut link = None;
         for (event, range) in events {
             match &event {
                 Event::Start(Tag::CodeBlock(_)) => {
@@ -50,6 +66,25 @@ impl Row {
                     continue;
                 }
                 _ if in_code => continue,
+                _ => {}
+            }
+            match &event {
+                Event::Start(Tag::Link { dest_url, .. }) => {
+                    link = Some((range.clone(), dest_url.to_string()));
+                }
+                Event::End(pulldown_cmark::TagEnd::Link) => {
+                    if let Some((whole, destination)) = link.take() {
+                        let label = super::links::label_range(source, whole.clone());
+                        let span = Span {
+                            kind: SpanKind::Link(destination),
+                            open: whole.start..label.start,
+                            close: label.end..whole.end,
+                        };
+                        hidden[span.open.clone()].fill(true);
+                        hidden[span.close.clone()].fill(true);
+                        spans.push(span);
+                    }
+                }
                 _ => {}
             }
             let format = match event {
@@ -93,7 +128,7 @@ impl Row {
                 hidden[open.clone()].fill(true);
                 hidden[close.clone()].fill(true);
                 spans.push(Span {
-                    format,
+                    kind: SpanKind::Format(format),
                     open,
                     close,
                 });
@@ -148,6 +183,7 @@ impl Row {
                 identity: !hidden[start],
             });
         }
+        spans.sort_by_key(|span| (span.open.start, std::cmp::Reverse(span.close.end)));
         Self {
             source_len: source.len(),
             display,
@@ -207,7 +243,7 @@ impl Row {
         self.spans
             .iter()
             .filter(|span| span.open.end <= source && source <= span.close.start)
-            .map(|span| span.format)
+            .filter_map(|span| span.kind.format())
             .collect()
     }
 }
@@ -270,7 +306,7 @@ fn code_span(source: &str, range: Range<usize>) -> (Span, Vec<(Range<usize>, Str
         };
     }
     let span = Span {
-        format: InlineFormat::Code,
+        kind: SpanKind::Format(InlineFormat::Code),
         open: range.start..start,
         close: end..range.end,
     };

@@ -1,5 +1,6 @@
 //! Preserve marker spelling, repair delimiter boundaries and verify candidates
 //! against the CommonMark parser before any source is accepted.
+use super::row::SpanKind;
 use super::row::{Row, Span};
 use crate::{EditorError, InlineFormat};
 use std::ops::Range;
@@ -11,7 +12,7 @@ pub(super) struct Piece {
     pub trailing: bool,
 }
 pub(super) struct Marker {
-    pub format: InlineFormat,
+    pub kind: SpanKind,
     pub open: String,
     pub close: String,
 }
@@ -65,7 +66,7 @@ pub(super) fn spell(
             .iter()
             .filter(|(_, expected)| {
                 !candidate.spans.iter().any(|span| {
-                    span.format == expected.format
+                    span.kind == expected.kind
                         && span.open == expected.open
                         && span.close == expected.close
                 })
@@ -85,7 +86,7 @@ pub(super) fn spell(
                 .iter()
                 .filter(|(_, expected)| {
                     !candidate.spans.iter().any(|span| {
-                        span.format == expected.format
+                        span.kind == expected.kind
                             && span.open == expected.open
                             && span.close == expected.close
                     })
@@ -94,13 +95,16 @@ pub(super) fn spell(
                 .collect();
             for id in missing {
                 let marker = &mut markers[id];
-                if matches!(marker.format, InlineFormat::Bold | InlineFormat::Italic) {
+                if matches!(
+                    marker.kind,
+                    SpanKind::Format(InlineFormat::Bold | InlineFormat::Italic)
+                ) {
                     let ch = if marker.open.starts_with('*') {
                         '_'
                     } else {
                         '*'
                     };
-                    let width = if marker.format == InlineFormat::Bold {
+                    let width = if marker.kind == SpanKind::Format(InlineFormat::Bold) {
                         2
                     } else {
                         1
@@ -115,7 +119,7 @@ pub(super) fn spell(
             if candidate.display != expected
                 || rendered.spans.iter().any(|(_, expected)| {
                     !candidate.spans.iter().any(|span| {
-                        span.format == expected.format
+                        span.kind == expected.kind
                             && span.open == expected.open
                             && span.close == expected.close
                     })
@@ -164,7 +168,7 @@ fn render(
             spans.push((
                 id,
                 Span {
-                    format: markers[id].format,
+                    kind: markers[id].kind.clone(),
                     open,
                     close: start..output.len(),
                 },
@@ -196,7 +200,7 @@ fn render(
         spans.push((
             id,
             Span {
-                format: markers[id].format,
+                kind: markers[id].kind.clone(),
                 open,
                 close: start..output.len(),
             },
@@ -370,7 +374,10 @@ fn trim_emphasis_edges(pieces: &mut [Piece], markers: &[Marker]) {
     // Emphasis cannot begin/end in whitespace. Keep such bytes outside the
     // markers and carry the active formatting separately for the next key.
     for (id, marker) in markers.iter().enumerate() {
-        if marker.format == InlineFormat::Code {
+        if !matches!(
+            marker.kind,
+            SpanKind::Format(InlineFormat::Bold | InlineFormat::Italic | InlineFormat::Strike)
+        ) {
             continue;
         }
         let mut start = 0;
@@ -404,7 +411,7 @@ fn repair_code_delimiters(pieces: &[Piece], markers: &mut [Marker]) {
     // Code is isolated from markdown. Keep sufficient backticks, and
     // distinguish delimiter padding from spaces in the visible content.
     for (id, marker) in markers.iter_mut().enumerate() {
-        if marker.format != InlineFormat::Code {
+        if marker.kind != SpanKind::Format(InlineFormat::Code) {
             continue;
         }
         let content: String = pieces

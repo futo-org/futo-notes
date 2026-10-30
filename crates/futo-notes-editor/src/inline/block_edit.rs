@@ -1,4 +1,5 @@
 //! Plan local marker repairs before changing visible block lines.
+use super::row::SpanKind;
 use super::{
     edit::{common_prefix, Context, Plan},
     spelling::spell,
@@ -60,7 +61,7 @@ impl Projection {
                 let line = self
                     .display
                     .byte_to_line(display + row.display_at(span.open.end));
-                span.format == InlineFormat::Code
+                span.kind == SpanKind::Format(InlineFormat::Code)
                     && first_line <= line
                     && line <= last_line
                     && source.byte_to_line(base + span.open.end)
@@ -148,7 +149,7 @@ impl Projection {
                 && piece
                     .spans
                     .iter()
-                    .any(|id| markers[*id].format == InlineFormat::Code)
+                    .any(|id| markers[*id].kind == SpanKind::Format(InlineFormat::Code))
                 && (piece.raw.contains(['\r', '\n']) || piece.display.is_empty() && !piece.trailing)
             {
                 // Inline code normalizes a physical source break to one visible
