@@ -32,7 +32,7 @@ impl EditorSession {
             (width, true)
         } else {
             let Some(column) = item.parent_marker_column else {
-                return Ok(None);
+                return self.list_command(expected, range, BlockCommand::Heading(0), accept);
             };
             (item.marker_column - column, false)
         };
