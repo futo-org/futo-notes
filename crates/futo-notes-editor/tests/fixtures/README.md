@@ -85,3 +85,16 @@ byte-identical. All six consumers include this file separately. Optional
 share one protected acceptance but retain their separate literal Undo groups.
 Store and real-WASM acceptance retain the same rejection/retry/history/recovery
 checks. Native fixture source is not proof that its current native binaries ran.
+
+Thirty-five `nested-containers.json` literals cover explicit nesting/lifting, same-line
+empty parents, physical columns/tabs, nested Backspace/Enter, ancestor-preserving
+retargets and full Text/Heading transitions. Three `container-commands.json` literals
+add full list lifting across one/two quotes and selection beginning in an ancestor
+while keeping its descendant listed. Together with the unchanged original seventy-four
+list cases, all six source consumers load 112 cases. Original seventy-two structural
+seams remain separate and unchanged. `itemDepths` overrides each first item's default
+list depth of one; `itemQuoteDepths` overrides that item's global `quoteDepth` default.
+These are hand-worked source/display/native UTF-16/history literals, not native OS input
+or latency evidence. Store consumers retain rejection, paused retry, rejected Undo,
+one protected record, flush, modeled power loss, recovery and checkpoint/reopen checks.
+Source fixture registration does not establish that current native binaries ran.

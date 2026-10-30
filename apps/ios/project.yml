@@ -172,6 +172,9 @@ targets:
       - path: ../../crates/futo-notes-editor/tests/fixtures/list-actions.json
         buildPhase: resources
       - path: ../../crates/futo-notes-editor/tests/fixtures/nested-containers.json
+        buildPhase: resources
+      - path: ../../crates/futo-notes-editor/tests/fixtures/container-commands.json
+        buildPhase: resources
       - path: ../../crates/futo-notes-editor/tests/fixtures/list-staging.json
         buildPhase: resources
       - path: ../../crates/futo-notes-editor/tests/fixtures/list-shortcuts.json

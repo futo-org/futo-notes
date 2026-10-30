@@ -22,11 +22,15 @@ fn shared_literal_list_actions_cover_native_coordinates_and_exact_history() {
     let nested: Vec<Value> =
         serde_json::from_str(include_str!("../fixtures/nested-containers.json")).unwrap();
     assert_eq!(nested.len(), 35);
+    let commands: Vec<Value> =
+        serde_json::from_str(include_str!("../fixtures/container-commands.json")).unwrap();
+    assert_eq!(commands.len(), 3);
     let cases: Vec<_> = original
         .into_iter()
         .chain(shortcuts)
         .chain(staging)
         .chain(nested)
+        .chain(commands)
         .collect();
     for case in &cases {
         let text = |key: &str| case[key].as_str().unwrap();
@@ -138,11 +142,14 @@ fn shared_literal_list_actions_cover_native_coordinates_and_exact_history() {
                             list.depth,
                             case["itemDepths"][item_index].as_u64().unwrap_or(1) as usize
                         );
-                        item_index += 1;
                         assert_eq!(
                             block.quote_depth,
-                            case["quoteDepth"].as_u64().unwrap_or(0) as usize
+                            case["itemQuoteDepths"][item_index]
+                                .as_u64()
+                                .unwrap_or_else(|| case["quoteDepth"].as_u64().unwrap_or(0))
+                                as usize
                         );
+                        item_index += 1;
                         serde_json::json!([list.number, list.checked])
                     })
                 })

@@ -1,0 +1,128 @@
+[
+  {
+    "name": "text-lift-one-quote-crossing",
+    "source": "- parent\n  > - child\n  >   - grandchild\n  > - sibling\n- following",
+    "display": "parent\nchild\ngrandchild\nsibling\nfollowing",
+    "action": "Text",
+    "range": [
+      7,
+      12
+    ],
+    "expected": "parent\n> child\n> + grandchild\n> - sibling\n- following",
+    "shown": "parent\nchild\ngrandchild\nsibling\nfollowing",
+    "resultRange": [
+      7,
+      12
+    ],
+    "finalItems": [
+      [
+        null,
+        null
+      ],
+      [
+        null,
+        null
+      ],
+      [
+        null,
+        null
+      ]
+    ],
+    "itemDepths": [
+      1,
+      1,
+      1
+    ],
+    "itemQuoteDepths": [
+      1,
+      1,
+      0
+    ]
+  },
+  {
+    "name": "text-lift-two-quote-crossings",
+    "source": "- outer\n  > - middle\n  >   > - child\n  >   >   - grandchild\n  >   > - inner sibling\n  > - middle sibling\n- following",
+    "display": "outer\nmiddle\nchild\ngrandchild\ninner sibling\nmiddle sibling\nfollowing",
+    "action": "Text",
+    "range": [
+      13,
+      18
+    ],
+    "expected": "outer\n> middle\n> > child\n> > + grandchild\n> > - inner sibling\n> - middle sibling\n- following",
+    "shown": "outer\nmiddle\nchild\ngrandchild\ninner sibling\nmiddle sibling\nfollowing",
+    "resultRange": [
+      13,
+      18
+    ],
+    "finalItems": [
+      [
+        null,
+        null
+      ],
+      [
+        null,
+        null
+      ],
+      [
+        null,
+        null
+      ],
+      [
+        null,
+        null
+      ]
+    ],
+    "itemDepths": [
+      1,
+      1,
+      1,
+      1
+    ],
+    "itemQuoteDepths": [
+      2,
+      2,
+      1,
+      0
+    ]
+  },
+  {
+    "name": "text-selected-ancestor-keeps-listed-descendant",
+    "source": "- parent\n  - child😀\n    - grandchild\n  - sibling\n- following",
+    "display": "parent\nchild😀\ngrandchild\nsibling\nfollowing",
+    "action": "Text",
+    "range": [
+      0,
+      14
+    ],
+    "expected": "parent\n+ child😀\n  - grandchild\n+ sibling\n- following",
+    "shown": "parent\nchild😀\ngrandchild\nsibling\nfollowing",
+    "resultRange": [
+      0,
+      14
+    ],
+    "finalItems": [
+      [
+        null,
+        null
+      ],
+      [
+        null,
+        null
+      ],
+      [
+        null,
+        null
+      ],
+      [
+        null,
+        null
+      ]
+    ],
+    "itemDepths": [
+      1,
+      2,
+      1,
+      1
+    ]
+  }
+]

@@ -24,7 +24,11 @@ const nested = JSON.parse(
   readFileSync(new URL('fixtures/nested-containers.json', import.meta.url)),
 );
 assert.equal(nested.length, 35);
-const cases = [...original, ...shortcuts, ...staging, ...nested];
+const commands = JSON.parse(
+  readFileSync(new URL('fixtures/container-commands.json', import.meta.url)),
+);
+assert.equal(commands.length, 3);
+const cases = [...original, ...shortcuts, ...staging, ...nested, ...commands];
 const units = (text) => Uint16Array.from({ length: text.length }, (_, at) => text.charCodeAt(at));
 function host(vault, source) {
   const worker = spawn(process.argv[3], [vault, source], { stdio: ['pipe', 'pipe', 'inherit'] });
@@ -60,7 +64,7 @@ function assertItems(page, revision, display, item) {
     .filter((block) => block.list?.first)
     .map((block, index) => {
       assert.equal(block.list.depth, item.itemDepths?.[index] ?? 1);
-      assert.equal(block.quote_depth, item.quoteDepth ?? 0);
+      assert.equal(block.quote_depth, item.itemQuoteDepths?.[index] ?? item.quoteDepth ?? 0);
       return [block.list.number, block.list.checked];
     });
   assert.deepEqual(items, item.finalItems, item.name);

@@ -41,11 +41,17 @@ fn shared_list_actions_forward_native_coordinates_history_and_exact_recovery() {
     ))
     .unwrap();
     assert_eq!(nested.len(), 35);
+    let commands: Vec<Value> = serde_json::from_str(include_str!(
+        "../../futo-notes-editor/tests/fixtures/container-commands.json"
+    ))
+    .unwrap();
+    assert_eq!(commands.len(), 3);
     let cases: Vec<_> = original
         .into_iter()
         .chain(shortcuts)
         .chain(staging)
         .chain(nested)
+        .chain(commands)
         .collect();
     for case in &cases {
         let text = |key: &str| case[key].as_str().unwrap();
@@ -160,8 +166,13 @@ fn shared_list_actions_forward_native_coordinates_history_and_exact_recovery() {
                         list.depth,
                         case["itemDepths"][item_index].as_u64().unwrap_or(1) as u64
                     );
+                    assert_eq!(
+                        block.quote_depth,
+                        case["itemQuoteDepths"][item_index]
+                            .as_u64()
+                            .unwrap_or_else(|| case["quoteDepth"].as_u64().unwrap_or(0))
+                    );
                     item_index += 1;
-                    assert_eq!(block.quote_depth, case["quoteDepth"].as_u64().unwrap_or(0));
                     serde_json::json!([list.number, list.checked])
                 })
             })

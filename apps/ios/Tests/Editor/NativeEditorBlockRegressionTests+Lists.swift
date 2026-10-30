@@ -31,6 +31,7 @@ private struct ListActionCase: Decodable {
     let finalItems: [ListItemExpectation]
     let quoteDepth: UInt64?
     let itemDepths: [UInt64]?
+    let itemQuoteDepths: [UInt64]?
 }
 private final class ListActionBundle {}
 
@@ -52,7 +53,9 @@ extension NativeEditorBlockRegressionTests {
             #expect(staging.count == 12)
             let nested = try load("nested-containers")
             #expect(nested.count == 35)
-            let cases = original + shortcuts + staging + nested
+            let commands = try load("container-commands")
+            #expect(commands.count == 3)
+            let cases = original + shortcuts + staging + nested + commands
             for item in cases {
                 let root = FileManager.default.temporaryDirectory.appendingPathComponent(
                     "editor-lists-\(UUID().uuidString)")
@@ -93,7 +96,9 @@ extension NativeEditorBlockRegressionTests {
                         #expect(list.depth == (item.itemDepths?[index] ?? 1))
                         #expect(list.number == expected.number)
                         #expect(list.checked == expected.checked)
-                        #expect(block.quoteDepth == (item.quoteDepth ?? 0))
+                        #expect(
+                            block.quoteDepth
+                                == (item.itemQuoteDepths?[index] ?? item.quoteDepth ?? 0))
                     }
                 }
                 #expect(try s.displayText() == item.display)
