@@ -17,6 +17,7 @@ pub(crate) struct ListLine {
     pub previous_content_column: Option<usize>,
     pub parent_marker_column: Option<usize>,
     pub parent_content_column: Option<usize>,
+    pub quote_depth: usize,
 }
 
 impl ListLine {
@@ -106,11 +107,14 @@ pub(super) fn describe(source: &str, events: &[(Event<'_>, Range<usize>)]) -> Li
     let mut prefixes = Vec::new();
     let mut items: Vec<ListLine> = Vec::new();
     let mut tasks = Vec::new();
+    let mut quote_depth = 0;
     let mut lists: Vec<(Range<usize>, Option<u64>)> = Vec::new();
     let mut active_items: Vec<usize> = Vec::new();
     let mut previous_items = Vec::new();
     for (event, range) in events {
         match event {
+            Event::Start(Tag::BlockQuote(_)) => quote_depth += 1,
+            Event::End(TagEnd::BlockQuote(_)) => quote_depth -= 1,
             Event::Start(Tag::List(number)) => {
                 lists.push((range.clone(), *number));
                 previous_items.push(None::<usize>);
@@ -170,6 +174,7 @@ pub(super) fn describe(source: &str, events: &[(Event<'_>, Range<usize>)]) -> Li
                     previous_content_column,
                     parent_marker_column,
                     parent_content_column,
+                    quote_depth,
                 });
             }
             Event::TaskListMarker(checked) => {

@@ -117,7 +117,11 @@ impl EditorSession {
                             .source
                             .byte_slice(physical.source.start..physical.content.start)
                             .to_string();
-                        let replacement = shift_quote_prefix(&prefix, line.quote_depth, command);
+                        let replacement = if line.list.is_some() {
+                            shift_inner_quote_prefix(&prefix, command)
+                        } else {
+                            shift_quote_prefix(&prefix, line.quote_depth, command)
+                        };
                         output.replace_range(
                             physical.source.start - start..physical.content.start - start,
                             &replacement,
@@ -394,4 +398,16 @@ fn shift_quote_prefix(prefix: &str, depth: usize, command: BlockCommand) -> Stri
         let cut = at + 1 + usize::from(matches!(prefix.as_bytes().get(at + 1), Some(b' ' | b'\t')));
         prefix[cut..].to_owned()
     }
+}
+
+fn shift_inner_quote_prefix(prefix: &str, command: BlockCommand) -> String {
+    let at = prefix.rfind('>').unwrap();
+    let mut result = prefix.to_owned();
+    if command == BlockCommand::Indent {
+        result.insert_str(at, "> ");
+    } else {
+        let end = at + 1 + usize::from(matches!(prefix.as_bytes().get(at + 1), Some(b' ' | b'\t')));
+        result.replace_range(at..end, "");
+    }
+    result
 }

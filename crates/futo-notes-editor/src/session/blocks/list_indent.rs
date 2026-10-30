@@ -16,6 +16,9 @@ impl EditorSession {
         let Some(item) = &first.list else {
             return Ok(None);
         };
+        if first.quote_depth > item.quote_depth {
+            return Ok(None);
+        }
         let (width, add) = if command == BlockCommand::Indent {
             let Some(column) = item.previous_content_column else {
                 return Ok(None);
@@ -46,6 +49,9 @@ impl EditorSession {
         let raw = self.source.byte_slice(start..end).to_string();
         let mut output = String::with_capacity(raw.len() + width);
         for line in raw.split_inclusive('\n') {
+            let prefix = quote_prefix_end(line, item.quote_depth);
+            output.push_str(&line[..prefix]);
+            let line = &line[prefix..];
             if add {
                 output.push_str(&" ".repeat(width));
                 output.push_str(line);
@@ -79,4 +85,21 @@ impl EditorSession {
         change.work.materialized_source_bytes += raw.len();
         Ok(Some(change))
     }
+}
+
+/// Only enclosing quote prefixes precede a list's indentation. Quote markers
+/// inside the item are shifted with its body, never mistaken for its parent.
+pub(super) fn quote_prefix_end(line: &str, depth: usize) -> usize {
+    let mut at = 0;
+    for _ in 0..depth {
+        let spaces = line[at..].bytes().take_while(|&b| b == b' ').count().min(3);
+        if line.as_bytes().get(at + spaces) != Some(&b'>') {
+            break;
+        }
+        at += spaces + 1;
+        if matches!(line.as_bytes().get(at), Some(b' ' | b'\t')) {
+            at += 1;
+        }
+    }
+    at
 }
