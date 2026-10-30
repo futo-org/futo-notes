@@ -119,3 +119,26 @@ it('Text keeps an already resolved shortcut in definition-shaped heading text', 
   expect(rows(candidate)).toEqual(expected);
   expect(links(candidate)).toEqual(marks);
 });
+
+it('Text preserves reference label marks and decoded entity spelling intent', () => {
+  const view = editor.ctx.get(editorViewCtx);
+  const parse = editor.ctx.get(parserCtx);
+  for (const label of ['**i&#100;**', 'a&acE;']) {
+    const suffix = `: /target 'T'\n\n[one][${label}]\n\n[${label}]: /first 'First'`;
+    const parsed = parse(`# [${label}]${suffix}`);
+    view.dispatch(view.state.tr.replaceWith(0, view.state.doc.content.size, parsed.content));
+    const before = view.state.doc.toJSON() as NodeJson;
+    const expected = rows(before).map((row) => ({ ...row, type: 'paragraph' }));
+    const ownedLinks = links(before);
+    expect(ownedLinks).toHaveLength(2);
+    view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, 1, 2)));
+    createToolbarExec(() => editor).paragraph();
+    const after = view.state.doc.toJSON() as NodeJson;
+    expect(rows(after)).toEqual(expected);
+    expect(links(after)).toEqual(ownedLinks);
+    const candidate = parse(`[${label}][${label}]${suffix}`).toJSON() as NodeJson;
+    expect(rows(candidate)).toEqual(expected);
+    expect(links(candidate)).toEqual(ownedLinks);
+    expect(candidate.content?.[0]?.content).toEqual(after.content?.[0]?.content);
+  }
+});
