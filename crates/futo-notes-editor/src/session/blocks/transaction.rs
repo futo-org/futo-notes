@@ -50,7 +50,8 @@ impl EditorSession {
         )?;
         self.carry_block_state(&mut change, staged.pending_formats, staged.affinity);
         change.work.materialized_source_bytes += raw.len() + step.work.materialized_source_bytes;
-        change.work.parsed_source_bytes += 2 * raw.len() + step.work.parsed_source_bytes;
+        change.work.parsed_source_bytes +=
+            staged.projection.initial_parse_work + step.work.parsed_source_bytes;
         Ok(Some(change))
     }
 

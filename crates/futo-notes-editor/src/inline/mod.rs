@@ -19,6 +19,7 @@ use tree::Rows;
 pub(crate) struct Projection {
     pub display: Rope,
     pub rows: Rows,
+    pub initial_parse_work: usize,
 }
 
 pub(crate) struct Update {
@@ -32,13 +33,22 @@ pub(crate) struct Update {
 impl Projection {
     pub fn new(source: &str) -> Self {
         let parsed: Vec<_> = paragraphs(source).into_iter().map(Row::parse).collect();
+        let initial_parse_work = source.len()
+            + parsed
+                .iter()
+                .map(|row| row.parsed_source_bytes)
+                .sum::<usize>();
         let mut display = Rope::new();
         for row in &parsed {
             display.append(Rope::from_str(&row.display));
         }
         let mut rows = Rows::default();
         rows.replace(0, 0, parsed);
-        Self { display, rows }
+        Self {
+            display,
+            rows,
+            initial_parse_work,
+        }
     }
 
     /// Whole paragraph context for an explicit compound action. Ordinary typing
@@ -228,6 +238,11 @@ impl Projection {
         let display_end = display_end + row.display.len();
         let text = source.byte_slice(source_start..source_end).to_string();
         let parsed: Vec<_> = paragraphs(&text).into_iter().map(Row::parse).collect();
+        let parsed_source_bytes = text.len()
+            + parsed
+                .iter()
+                .map(|row| row.parsed_source_bytes)
+                .sum::<usize>();
         let mut inserted = String::new();
         for row in &parsed {
             inserted.push_str(&row.display);
@@ -267,7 +282,7 @@ impl Projection {
         Update {
             range,
             inserted,
-            parsed_source_bytes: 2 * text.len(),
+            parsed_source_bytes,
             materialized_source_bytes: text.len(),
             semantic_range,
         }

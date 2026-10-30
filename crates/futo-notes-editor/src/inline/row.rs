@@ -35,6 +35,7 @@ pub(crate) struct Segment {
 
 pub(crate) struct Row {
     pub source_len: usize,
+    pub parsed_source_bytes: usize,
     pub display: String,
     pub segments: Vec<Segment>,
     pub spans: Vec<Span>,
@@ -183,9 +184,12 @@ impl Row {
                 identity: !hidden[start],
             });
         }
+        let (bare, additional_parse) = super::links::bare_links(source);
+        spans.extend(bare);
         spans.sort_by_key(|span| (span.open.start, std::cmp::Reverse(span.close.end)));
         Self {
             source_len: source.len(),
+            parsed_source_bytes: source.len() + additional_parse,
             display,
             segments,
             spans,

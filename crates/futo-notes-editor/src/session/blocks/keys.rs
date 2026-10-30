@@ -388,8 +388,9 @@ impl EditorSession {
         change.work.materialized_source_bytes += raw.len()
             + deleted.work.materialized_source_bytes
             + entered.work.materialized_source_bytes;
-        change.work.parsed_source_bytes +=
-            2 * raw.len() + deleted.work.parsed_source_bytes + entered.work.parsed_source_bytes;
+        change.work.parsed_source_bytes += staged.projection.initial_parse_work
+            + deleted.work.parsed_source_bytes
+            + entered.work.parsed_source_bytes;
         Ok(change)
     }
 }

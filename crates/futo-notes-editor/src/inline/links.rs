@@ -140,3 +140,43 @@ fn destination_source(destination: &str) -> String {
     }
     source
 }
+
+/// GFM's parser decides link extent and destination. The cheap trigger only
+/// avoids a second parser for paragraphs that cannot contain a URL or email.
+pub(super) fn bare_links(source: &str) -> (Vec<super::row::Span>, usize) {
+    if !source.contains(':') && !source.contains("www.") && !source.contains('@') {
+        return (Vec::new(), 0);
+    }
+    let options = markdown::ParseOptions {
+        constructs: markdown::Constructs {
+            gfm_autolink_literal: true,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let tree =
+        markdown::to_mdast(source, &options).expect("CommonMark with GFM literals is infallible");
+    let mut spans = Vec::new();
+    let mut pending = vec![&tree];
+    while let Some(node) = pending.pop() {
+        if let markdown::mdast::Node::Link(link) = node {
+            if let Some(position) = &link.position {
+                let start = position.start.offset;
+                let end = position.end.offset;
+                if !source[start..end].starts_with(['[', '<']) {
+                    spans.push(super::row::Span {
+                        kind: super::row::SpanKind::Link(link.url.clone()),
+                        open: start..start,
+                        close: end..end,
+                    });
+                }
+            }
+            // Existing link labels cannot contain independent nested links.
+            continue;
+        }
+        if let Some(children) = node.children() {
+            pending.extend(children.iter().rev());
+        }
+    }
+    (spans, source.len())
+}

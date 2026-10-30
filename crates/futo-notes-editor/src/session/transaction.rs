@@ -127,7 +127,7 @@ impl EditorSession {
             .map(|&offset| ResultTarget::new(replacements, offset))
             .collect();
         let mut materialized = raw.len();
-        let mut parsed = 2 * raw.len();
+        let mut parsed = staged.projection.initial_parse_work;
         for (index, replacement) in replacements.iter().enumerate() {
             let local_range = DisplayRange {
                 start: DisplayOffset(anchors[2 * index]),

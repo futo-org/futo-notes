@@ -122,7 +122,7 @@ impl EditorSession {
                 + raw.len()
                 + shown.len()
                 + change.work.materialized_source_bytes,
-            parsed: parsed + 2 * raw.len() + change.work.parsed_source_bytes,
+            parsed: parsed + staged.projection.initial_parse_work + change.work.parsed_source_bytes,
         })
     }
 }

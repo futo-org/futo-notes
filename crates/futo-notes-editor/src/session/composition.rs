@@ -283,7 +283,7 @@ impl EditorSession {
                 opening.before_formats = self.pending_formats.clone();
                 let mut delta = self.apply(&edit);
                 delta.work.materialized_source_bytes += raw.len() + edit.inserted.len();
-                delta.work.parsed_source_bytes += 2 * raw.len();
+                delta.work.parsed_source_bytes += staged.projection.initial_parse_work;
                 for step in [first, second].into_iter().flatten() {
                     delta.work.materialized_source_bytes += step.work.materialized_source_bytes;
                     delta.work.parsed_source_bytes += step.work.parsed_source_bytes;
