@@ -1,6 +1,9 @@
 //! Standard Markdown spelling for a typed closer at an unfinished GFM URL.
-//! Only parser-owned delimiters receive provenance; loaded escapes never do.
-use super::{render::render, Marker, Piece, Row, SpanKind};
+//! Only parser-owned delimiter runs receive provenance; loaded escapes never do.
+use super::{
+    render::{render, Rendered},
+    Marker, Piece, Row, SpanKind,
+};
 use crate::{
     inline::references::{ReferenceWork, References},
     InlineFormat,
@@ -12,6 +15,52 @@ pub(in crate::inline) struct Timing {
     pub literal: Option<bool>,
     pub work: ReferenceWork,
     pub materialized: usize,
+}
+impl Timing {
+    fn render(
+        &mut self,
+        pieces: &[Piece],
+        markers: &[Marker],
+        insertion: &Range<usize>,
+    ) -> Rendered {
+        let rendered = render(pieces, markers, insertion.start, insertion.end);
+        self.materialized += rendered.text.len();
+        self.work.items +=
+            rendered.link_metadata_items + rendered.pieces.len() + rendered.spans.len();
+        rendered
+    }
+    fn parse(&mut self, rendered: &Rendered, references: &Arc<References>) -> Row {
+        let parsed = Row::parse_with_references(&rendered.text, references, &rendered.winners);
+        self.work.parsed += parsed.parsed_source_bytes;
+        self.work.items += parsed.reference_work.items;
+        self.work.copied += parsed.reference_work.copied;
+        parsed
+    }
+}
+
+fn bare_ends(row: &Row, work: &mut usize) -> Vec<usize> {
+    row.spans
+        .iter()
+        .filter_map(|span| {
+            *work += 1;
+            if matches!(span.kind, SpanKind::Link(_))
+                && span.open.is_empty()
+                && span.close.is_empty()
+            {
+                *work += 1;
+                Some(span.close.start)
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+fn ends_at(ends: &[usize], at: usize, work: &mut usize) -> bool {
+    ends.binary_search_by(|end| {
+        *work += 1;
+        end.cmp(&at)
+    })
+    .is_ok()
 }
 
 pub(in crate::inline) fn prepare_url_input(
@@ -27,77 +76,106 @@ pub(in crate::inline) fn prepare_url_input(
     }
     let ending = inserted.chars().next().is_some_and(char::is_whitespace);
     let punctuation = inserted.chars().any(|ch| matches!(ch, '*' | '_' | '~'));
-    if !punctuation && !(ending && pieces.iter().any(|piece| piece.timing)) {
-        return timing;
+    if !punctuation {
+        if !ending
+            || !pieces.iter().any(|piece| {
+                timing.work.items += 1;
+                piece.timing
+            })
+        {
+            return timing;
+        }
     }
-    let raw = render(pieces, markers, insertion.start, insertion.end);
-    timing.materialized += raw.text.len();
-    timing.work.items += raw.link_metadata_items + pieces.len();
+    let raw = timing.render(pieces, markers, &insertion);
     if !raw.text.contains(':') && !raw.text.contains("www.") {
         return timing;
     }
     if ending {
-        // Test only witnessed escapes. An arbitrary authored escape that happens
-        // to precede a URL is never eligible for automatic removal.
-        for index in 0..insertion.start {
+        let mut index = 0;
+        while index < insertion.start {
             timing.work.items += 1;
             if !pieces[index].timing {
+                index += 1;
                 continue;
             }
-            let saved = pieces[index].raw.clone();
-            timing.work.copied += saved.len();
-            timing.work.copied += pieces[index].display.len();
-            pieces[index].raw = pieces[index].display.clone();
-            let candidate = render(pieces, markers, insertion.start, insertion.end);
-            timing.materialized += candidate.text.len();
-            timing.work.items += candidate.link_metadata_items;
-            let parsed =
-                Row::parse_with_references(&candidate.text, references, &candidate.winners);
-            timing.work.parsed += parsed.parsed_source_bytes;
-            timing.work.items += parsed.reference_work.items + parsed.spans.len();
-            timing.work.copied += parsed.reference_work.copied;
-            let opener = &candidate.pieces[index];
-            let paired = parsed.spans.iter().any(|span| {
-                emphasis(&span.kind)
-                    && span.open.start == opener.start
-                    && span.open.end >= opener.end
-                    && span.close.end <= candidate.pieces[insertion.start].start
-                    && parsed.spans.iter().any(|link| {
-                        matches!(link.kind, SpanKind::Link(_))
-                            && link.open.is_empty()
-                            && link.close.is_empty()
-                            && link.close.start == span.close.start
-                    })
-            });
-            if paired {
-                pieces[index].timing = false;
-                timing.literal = Some(false);
-            } else {
-                pieces[index].raw = saved;
+            // A parser-owned multi-character opener must be reconsidered as
+            // one run. Individually unescaping its atoms can create a different
+            // valid single-character pair before the full pair is available.
+            let mut end = index + 1;
+            while end < insertion.start {
+                timing.work.items += 1;
+                if !pieces[end].timing || pieces[end].display != pieces[index].display {
+                    break;
+                }
+                end += 1;
             }
+            let saved: Vec<_> = pieces[index..end]
+                .iter_mut()
+                .map(|piece| {
+                    timing.work.items += 1;
+                    timing.work.copied += piece.raw.len() + piece.display.len();
+                    std::mem::replace(&mut piece.raw, piece.display.clone())
+                })
+                .collect();
+            let candidate = timing.render(pieces, markers, &insertion);
+            let parsed = timing.parse(&candidate, references);
+            let ends = bare_ends(&parsed, &mut timing.work.items);
+            let opener = candidate.pieces[index].start..candidate.pieces[end - 1].end;
+            let paired = parsed.spans.iter().any(|span| {
+                timing.work.items += 1;
+                emphasis(&span.kind)
+                    && span.open == opener
+                    && span.close.end <= candidate.pieces[insertion.start].start
+                    && ends_at(&ends, span.close.start, &mut timing.work.items)
+            });
+            for (piece, saved) in pieces[index..end].iter_mut().zip(saved) {
+                timing.work.items += 1;
+                if paired {
+                    piece.timing = false;
+                } else {
+                    piece.raw = saved;
+                }
+            }
+            if paired {
+                timing.literal = Some(false);
+            }
+            index = end;
         }
     } else {
-        let parsed = Row::parse_with_references(&raw.text, references, &raw.winners);
-        timing.work.parsed += parsed.parsed_source_bytes;
-        timing.work.items += parsed.reference_work.items + parsed.spans.len();
-        timing.work.copied += parsed.reference_work.copied;
-        for span in parsed.spans.iter().filter(|span| emphasis(&span.kind)) {
-            if !raw.pieces[insertion.clone()]
-                .iter()
-                .any(|range| range.start < span.close.end && span.close.start < range.end)
-                || !parsed.spans.iter().any(|link| {
-                    matches!(link.kind, SpanKind::Link(_))
-                        && link.open.is_empty()
-                        && link.close.is_empty()
-                        && link.close.start == span.close.start
-                })
+        let parsed = timing.parse(&raw, references);
+        let ends = bare_ends(&parsed, &mut timing.work.items);
+        let input = raw.pieces[insertion.start].start..raw.pieces[insertion.end - 1].end;
+        for span in &parsed.spans {
+            timing.work.items += 1;
+            if !emphasis(&span.kind)
+                || input.end <= span.close.start
+                || span.close.end <= input.start
+                || !ends_at(&ends, span.close.start, &mut timing.work.items)
             {
                 continue;
             }
-            for (piece, range) in pieces.iter_mut().zip(&raw.pieces) {
+            // CommonMark can initially pair only part of a run (the second
+            // star of ** with a single closing star). Preserve that complete
+            // contiguous source opener run until the word actually ends.
+            let marker = raw.text.as_bytes()[span.open.start];
+            let mut open = span.open.clone();
+            while open.start > 0 && raw.text.as_bytes()[open.start - 1] == marker {
+                open.start -= 1;
+            }
+            while open.end < span.close.start && raw.text.as_bytes()[open.end] == marker {
+                open.end += 1;
+            }
+            let first = raw.pieces.partition_point(|range| {
                 timing.work.items += 1;
-                if span.open.start <= range.start
-                    && range.end <= span.open.end
+                range.end <= open.start
+            });
+            for (piece, range) in pieces[first..].iter_mut().zip(&raw.pieces[first..]) {
+                timing.work.items += 1;
+                if range.start >= open.end {
+                    break;
+                }
+                if open.start <= range.start
+                    && range.end <= open.end
                     && piece.raw == piece.display
                     && !piece.display.is_empty()
                 {
@@ -110,7 +188,6 @@ pub(in crate::inline) fn prepare_url_input(
     }
     timing
 }
-
 fn emphasis(kind: &SpanKind) -> bool {
     matches!(
         kind,
