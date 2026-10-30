@@ -256,3 +256,129 @@ impl super::Projection {
         (winners, work)
     }
 }
+
+impl super::Projection {
+    /// Compare ordered local occurrence meaning across the whole reparsed
+    /// envelope, independently of its new paragraph boundaries. Surviving
+    /// declarations retain physical source identity through the exact edit.
+    pub(super) fn reference_meaning_changed(
+        &self,
+        first: usize,
+        last: usize,
+        source_start: usize,
+        parsed: &[super::row::Row],
+        edit: &crate::SourceEdit,
+    ) -> (bool, usize) {
+        let mut old_definitions = Vec::new();
+        let mut old_uses = Vec::new();
+        let mut work = 0;
+        for index in first..=last {
+            let (row, origin, _) = self.rows.at(index);
+            work += row.definitions.len() + row.reference_uses.len();
+            for definition in &row.definitions {
+                let mut range = origin + definition.range.start..origin + definition.range.end;
+                if edit.range.end.0 <= range.start {
+                    range.start = range.start - edit.removed.len() + edit.inserted.len();
+                    range.end = range.end - edit.removed.len() + edit.inserted.len();
+                } else if edit.range.start.0 < range.end && range.start < edit.range.end.0 {
+                    return (true, work);
+                }
+                old_definitions.push((range, definition));
+            }
+            old_uses.extend(row.reference_uses.iter());
+        }
+        let mut definitions = old_definitions.into_iter();
+        let mut uses = old_uses.into_iter();
+        let mut origin = source_start;
+        for row in parsed {
+            work += row.definitions.len() + row.reference_uses.len();
+            for definition in &row.definitions {
+                work += 1;
+                let Some((range, previous)) = definitions.next() else {
+                    return (true, work);
+                };
+                if range != (origin + definition.range.start..origin + definition.range.end)
+                    || previous.key != definition.key
+                    || previous.destination != definition.destination
+                    || previous.title != definition.title
+                {
+                    return (true, work);
+                }
+            }
+            for usage in &row.reference_uses {
+                work += 1;
+                let Some(previous) = uses.next() else {
+                    return (true, work);
+                };
+                if previous.key != usage.key || previous.image != usage.image {
+                    return (true, work);
+                }
+            }
+            origin += row.source_len;
+        }
+        (definitions.next().is_some() || uses.next().is_some(), work)
+    }
+
+    /// True declaration/use mutations can affect remote targets or visibility.
+    /// This deliberately charged whole-document fallback belongs to #301's
+    /// correctness boundary; progressive global work remains #313's scope.
+    pub(super) fn rebuild_references(
+        &mut self,
+        source: &ropey::Rope,
+        edit: &crate::SourceEdit,
+        local_materialized: usize,
+        local_parsed: usize,
+        local_items: usize,
+        local_copied: usize,
+    ) -> super::Update {
+        let old = self.display.to_string();
+        let old_source_len = source.len_bytes() - edit.inserted.len() + edit.removed.len();
+        let mut pending = self.pending_links(0..old_source_len);
+        let pending_work = pending.work + pending.ranges.len();
+        pending.ranges.retain_mut(|range| {
+            if range.end <= edit.range.start.0 {
+            } else if edit.range.end.0 <= range.start {
+                range.start = range.start - edit.removed.len() + edit.inserted.len();
+                range.end = range.end - edit.removed.len() + edit.inserted.len();
+            } else {
+                return false;
+            }
+            true
+        });
+        let raw = source.to_string();
+        let mut fresh = Self::new(&raw);
+        pending.window = 0..raw.len();
+        let pending_work = pending_work + fresh.restore_pending(&pending);
+        let inserted = fresh.display.to_string();
+        let prefix: usize = old
+            .chars()
+            .zip(inserted.chars())
+            .take_while(|(a, b)| a == b)
+            .map(|(ch, _)| ch.len_utf8())
+            .sum();
+        let suffix: usize = old[prefix..]
+            .chars()
+            .rev()
+            .zip(inserted[prefix..].chars().rev())
+            .take_while(|(a, b)| a == b)
+            .map(|(ch, _)| ch.len_utf8())
+            .sum();
+        let update = super::Update {
+            range: crate::DisplayRange {
+                start: crate::DisplayOffset(prefix),
+                end: crate::DisplayOffset(old.len() - suffix),
+            },
+            inserted: inserted[prefix..inserted.len() - suffix].into(),
+            parsed_source_bytes: local_parsed + fresh.initial_parse_work,
+            materialized_source_bytes: local_materialized + raw.len() + old.len() + inserted.len(),
+            semantic_range: crate::DisplayRange {
+                start: crate::DisplayOffset(0),
+                end: crate::DisplayOffset(inserted.len()),
+            },
+            link_metadata_items: local_items + fresh.initial_link_metadata_items + pending_work,
+            link_copied_bytes: local_copied + fresh.initial_link_copied_bytes,
+        };
+        *self = fresh;
+        update
+    }
+}

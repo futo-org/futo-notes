@@ -29,6 +29,8 @@ pub(crate) struct Projection {
     pub rows: Rows,
     pub initial_parse_work: usize,
     pub references: std::sync::Arc<references::References>,
+    pub(crate) references_complete: bool,
+    pub(crate) needs_global_references: bool,
     pub initial_link_metadata_items: usize,
     pub initial_link_copied_bytes: usize,
 }
@@ -46,7 +48,9 @@ pub(crate) struct Update {
 impl Projection {
     pub fn new(source: &str) -> Self {
         let (references, winners, reference_work) = references::References::scan(source);
-        Self::with_references(source, references, &winners, reference_work)
+        let mut projection = Self::with_references(source, references, &winners, reference_work);
+        projection.references_complete = true;
+        projection
     }
 
     pub(crate) fn with_references(
@@ -97,6 +101,8 @@ impl Projection {
             initial_link_metadata_items,
             initial_link_copied_bytes,
             references,
+            references_complete: false,
+            needs_global_references: false,
         }
     }
 
@@ -342,6 +348,37 @@ impl Projection {
                 row
             })
             .collect();
+        let (meaning_changed, comparison_work) =
+            self.reference_meaning_changed(first, last, source_start, &parsed, edit);
+        reference_work.items += comparison_work;
+        if meaning_changed {
+            if self.references_complete {
+                let local_parsed = text.len()
+                    + parsed
+                        .iter()
+                        .map(|row| row.parsed_source_bytes)
+                        .sum::<usize>();
+                let local_items = reference_work.items
+                    + parsed
+                        .iter()
+                        .map(|row| row.reference_work.items)
+                        .sum::<usize>();
+                let local_copied = reference_work.copied
+                    + parsed
+                        .iter()
+                        .map(|row| row.reference_work.copied)
+                        .sum::<usize>();
+                return self.rebuild_references(
+                    source,
+                    edit,
+                    text.len(),
+                    local_parsed,
+                    local_items + metadata_work,
+                    local_copied,
+                );
+            }
+            self.needs_global_references = true;
+        }
         let link_copied_bytes = reference_work.copied
             + parsed
                 .iter()

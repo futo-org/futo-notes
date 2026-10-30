@@ -116,6 +116,10 @@ impl EditorSession {
             &winners,
             work,
         );
+        projection.references_complete = exact
+            && self.projection.references_complete
+            && window.start == 0
+            && window.end == self.source.len_bytes();
         if exact {
             let mut pending = self.projection.pending_links(window.clone());
             pending
