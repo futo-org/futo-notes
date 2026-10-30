@@ -114,7 +114,8 @@ extension NativeEditorBlockRegressionTests {
                 case "Enter", "Backspace", "Delete":
                     change = try s.paragraphKeyUtf16(
                         expected: 0, range: native(item.range),
-                        key: item.action == "Enter" ? .enter : item.action == "Delete" ? .delete : .backspace)
+                        key: item.action == "Enter"
+                            ? .enter : item.action == "Delete" ? .delete : .backspace)
                 default:
                     let command: EditorBlockCommand
                     switch item.action {
