@@ -294,3 +294,62 @@ fn joining_ordered_items_renumbers_only_that_list_and_undoes_the_join_together()
         assert_eq!(s.selection(), range(at, at));
     }
 }
+
+#[test]
+fn maximum_supported_ordered_markers_continue_with_valid_lazy_physical_numbers() {
+    let raw = "999999999. a\n1. b";
+    let mut s = EditorSession::open(raw);
+    let mut view = ReferenceView::new("a\nb");
+    view.apply(
+        s.replace(s.revision(), range(1, 1), "!", &mut |_| Ok(()))
+            .unwrap(),
+    );
+    assert_eq!(s.source_text(), "999999999. a!\n1. b");
+    view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(s.source_text(), raw);
+    view.apply(
+        s.paragraph_key(s.revision(), range(1, 1), ParagraphKey::Enter, &mut |_| {
+            Ok(())
+        })
+        .unwrap()
+        .unwrap(),
+    );
+    assert_eq!(s.source_text(), "999999999. a\n1. \n1. b");
+    assert_eq!(view.text, "a\n\nb");
+    let numbers: Vec<_> = s
+        .project(s.revision(), range(0, view.text.len()))
+        .unwrap()
+        .blocks
+        .into_iter()
+        .filter_map(|block| block.list.filter(|list| list.first).map(|list| list.number))
+        .collect();
+    assert_eq!(
+        numbers,
+        vec![Some(999999999), Some(1000000000), Some(1000000001)]
+    );
+    view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(s.source_text(), raw);
+    let mut converted = EditorSession::open("999999999.body");
+    converted
+        .replace(converted.revision(), range(10, 10), " ", &mut |_| Ok(()))
+        .unwrap();
+    assert_eq!(converted.source_text(), "999999999. body");
+    assert_eq!(converted.display_text(), "body");
+    converted
+        .undo(converted.revision(), &mut |_| Ok(()))
+        .unwrap()
+        .unwrap();
+    assert_eq!(converted.source_text(), "999999999.body");
+    let mut literal = EditorSession::open("1000000000.body");
+    literal
+        .replace(literal.revision(), range(11, 11), " ", &mut |_| Ok(()))
+        .unwrap();
+    assert_eq!(literal.source_text(), "1000000000. body");
+    assert_eq!(literal.display_text(), "1000000000. body");
+    assert!(literal
+        .project(literal.revision(), range(0, 16))
+        .unwrap()
+        .blocks[0]
+        .list
+        .is_none());
+}
