@@ -45,3 +45,6 @@ fn assert_fresh_projection(session: &EditorSession, shown: &str) {
 
 #[path = "fences/physical_indent.rs"]
 mod physical_indent;
+
+#[path = "fences/source_identity.rs"]
+mod source_identity;
