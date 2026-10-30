@@ -34,7 +34,7 @@ targets:
         INFOPLIST_KEY_UILaunchScreen_Generation: "YES"
         TARGETED_DEVICE_FAMILY: "1,2"
     scheme:
-      testTargets: [Editor294FixtureTests]
+      testTargets: [Editor294FixtureTests, Editor294FixtureUITests]
   Editor294FixtureTests:
     type: bundle.unit-test
     platform: iOS
@@ -45,3 +45,14 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: org.futo.fixture.editor294.tests
+  Editor294FixtureUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: UITests
+    dependencies:
+      - target: Editor294Fixture
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: org.futo.fixture.editor294.uitests
+        TEST_TARGET_NAME: Editor294Fixture

@@ -85,6 +85,7 @@ final class FixtureController: UIViewController {
                 opening = control.snapshot()
                 control.isEditable = true
                 status = "capturing"
+                updateCaptureIdentifier()
                 deadline = ProcessInfo.processInfo.systemUptime + Double(workspace.launch.seconds)
                 lifecycle.append(stamp("ready"))
                 try persist()
@@ -118,6 +119,7 @@ final class FixtureController: UIViewController {
             control.endCapture()
             control.isEditable = false
             status = "capture-window-ended"
+            updateCaptureIdentifier()
             lifecycle.append(stamp(status))
         }
         do { try persist() } catch { fail(error) }
@@ -139,10 +141,18 @@ final class FixtureController: UIViewController {
             ], status: status)
     }
 
+    private func updateCaptureIdentifier() {
+        guard let workspace else { return }
+        control.accessibilityIdentifier =
+            "editor294:\(workspace.launch.runID.uuidString):\(workspace.launch.nonce.uuidString):\(status)"
+    }
+
     private func fail(_ error: Error) {
         timer?.invalidate()
         control.endCapture()
         control.isEditable = false
+        status = "failed"
+        updateCaptureIdentifier()
         // Technical diagnostic only: never render errors as authored fixture UI.
         print("Editor294Fixture failed: \(error)")
     }

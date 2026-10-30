@@ -323,6 +323,10 @@ ios-remote *args: check-node-version
 build-ios-capture-fixture:
   bash scripts/dev-env.sh node scripts/ios-capture-fixture.mjs
 
+# Read the existing fixture's compiled identity/signatures (no device, signing or provisioning changes).
+ios-capture-fixture-build-identity:
+  bash scripts/dev-env.sh node scripts/qa/physical-fixture-ios.mjs --identity
+
 # Run fixture artifact contracts on the host; native UIKit contracts are compiled by the build recipe.
 test-ios-capture-artifact:
   swift test --package-path apps/ios/FixtureCapture

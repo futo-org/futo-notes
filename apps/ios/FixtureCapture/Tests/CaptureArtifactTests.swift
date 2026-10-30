@@ -46,6 +46,9 @@ extension CaptureArtifactTests {
         #expect(artifact["nonce"] as? String == plan.nonce.uuidString)
         #expect(artifact["destinationBinding"] as? String == "declared-only")
         #expect(artifact["acceptance"] as? String == "unreviewed-raw-capture")
+        // Foundation host tests have no app data container. They must never
+        // assert the physical app's relative artifact destination from a guess.
+        #expect(artifact["artifactRelativePath"] is NSNull)
         #expect(
             (artifact["current"] as? [String: Any])?["textUTF16"] as? [Int] == [
                 97, 0xD83D, 0xDE00, 0xD800, 13, 10,

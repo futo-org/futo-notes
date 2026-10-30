@@ -56,6 +56,9 @@ struct FixtureCaptureTests {
             runID: UUID(), nonce: UUID(), destination: "synthetic-unit-test", seconds: 1)
         let workspace = try CaptureWorkspace(launch: launch)
         defer { try? FileManager.default.removeItem(at: workspace.root) }
+        #expect(
+            workspace.artifactRelativePath
+                == "tmp/editor294-\(launch.runID.uuidString)/capture.json")
         let projection = try await FixtureProjection.open(workspace: workspace)
         #expect(projection.source == "__ab__ &amp; cd\r\n")
         #expect(projection.display == "ab & cd\r\n")
