@@ -11,6 +11,7 @@ use std::ops::Range;
 pub(crate) struct PendingLinks {
     pub window: Range<usize>,
     pub ranges: Vec<Range<usize>>,
+    pub delimiters: Vec<Range<usize>>,
     pub work: usize,
 }
 impl PendingLinks {
@@ -39,10 +40,16 @@ impl Projection {
             false,
         );
         let mut ranges = Vec::new();
+        let mut delimiters = Vec::new();
         let mut work = 0;
         for index in first..=last {
             let (row, source, _) = self.rows.at(index);
-            work += 2 * row.literal_links.len();
+            work += 2 * (row.literal_links.len() + row.literal_delimiters.len());
+            delimiters.extend(
+                row.literal_delimiters
+                    .iter()
+                    .map(|r| source + r.start..source + r.end),
+            );
             ranges.extend(
                 row.literal_links
                     .iter()
@@ -51,6 +58,7 @@ impl Projection {
         }
         PendingLinks {
             window,
+            delimiters,
             ranges,
             work,
         }
@@ -70,6 +78,21 @@ impl Projection {
             let row = self.rows.metadata_mut(index);
             work += row.literal_links.len();
             row.literal_links.clear();
+            work += row.literal_delimiters.len();
+            row.literal_delimiters.clear();
+        }
+        for range in &snapshot.delimiters {
+            let index = self.rows.locate(range.start, false);
+            let (row, source, _) = self.rows.at(index);
+            work += row.segments.len() + 1;
+            let local = range.start - source..range.end - source;
+            if row
+                .segments
+                .iter()
+                .any(|s| s.source == local && !s.identity)
+            {
+                self.rows.metadata_mut(index).literal_delimiters.push(local);
+            }
         }
         for range in &snapshot.ranges {
             let index = self.rows.locate(range.start, false);
@@ -242,5 +265,48 @@ impl Projection {
             }
         }
         work
+    }
+}
+
+impl Projection {
+    pub(crate) fn install_delimiters(&mut self, ranges: Vec<Range<usize>>) -> usize {
+        let mut work = 0;
+        for range in ranges {
+            let index = self.rows.locate(range.start, false);
+            let (_, source, _) = self.rows.at(index);
+            let row = self.rows.metadata_mut(index);
+            let local = range.start - source..range.end - source;
+            work += 1 + row.literal_delimiters.len();
+            if !row.literal_delimiters.contains(&local) {
+                row.literal_delimiters.push(local);
+            }
+        }
+        work
+    }
+
+    pub(super) fn retained_delimiters(
+        &self,
+        first: usize,
+        last: usize,
+        edit: &SourceEdit,
+    ) -> (Vec<Range<usize>>, usize) {
+        let mut ranges = Vec::new();
+        let mut work = 0;
+        for index in first..=last {
+            let (row, base, _) = self.rows.at(index);
+            for local in &row.literal_delimiters {
+                work += 2;
+                let mut range = base + local.start..base + local.end;
+                if range.end <= edit.range.start.0 {
+                } else if edit.range.end.0 <= range.start {
+                    range.start = range.start - edit.removed.len() + edit.inserted.len();
+                    range.end = range.end - edit.removed.len() + edit.inserted.len();
+                } else {
+                    continue;
+                }
+                ranges.push(range);
+            }
+        }
+        (ranges, work)
     }
 }

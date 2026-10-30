@@ -367,6 +367,16 @@ impl super::Projection {
             }
             true
         });
+        pending.delimiters.retain_mut(|range| {
+            if range.end <= edit.range.start.0 {
+            } else if edit.range.end.0 <= range.start {
+                range.start = range.start - edit.removed.len() + edit.inserted.len();
+                range.end = range.end - edit.removed.len() + edit.inserted.len();
+            } else {
+                return false;
+            }
+            true
+        });
         let raw = source.to_string();
         let mut origin_materialized = 0;
         let mut fresh = if self.references_complete {

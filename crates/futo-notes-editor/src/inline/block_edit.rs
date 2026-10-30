@@ -183,6 +183,7 @@ impl Projection {
             .map(|(ch, _)| ch.len_utf8())
             .sum();
         Ok(Some(Plan {
+            delimiters: Vec::new(),
             range: source_start + prefix..source_end - suffix,
             inserted: rendered.text[prefix..rendered.text.len() - suffix].to_owned(),
             caret: source_start,

@@ -111,6 +111,7 @@ pub(super) fn pending(
     crate::inline::PendingLinks {
         window: map(&snapshot.window),
         ranges: snapshot.ranges.iter().map(map).collect(),
+        delimiters: snapshot.delimiters.iter().map(map).collect(),
         work: snapshot.work,
     }
 }

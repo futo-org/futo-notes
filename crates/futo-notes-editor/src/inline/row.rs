@@ -64,6 +64,7 @@ pub(super) struct ContextRun {
 pub(crate) struct Row {
     pub source_len: usize,
     pub parsed_source_bytes: usize,
+    pub literal_delimiters: Vec<Range<usize>>,
     pub literal_links: Vec<Range<usize>>,
     pub definitions: Vec<super::references::Definition>,
     pub reference_uses: Vec<super::references::ReferenceUse>,

@@ -1,14 +1,17 @@
 //! Preserve marker spelling, repair delimiter boundaries and verify candidates
 //! against the CommonMark parser before any source is accepted.
 mod render;
+mod url_timing;
 use super::row::SpanKind;
 use super::row::{Row, Span};
 use crate::{EditorError, InlineFormat};
 use render::{render, Rendered};
 use std::ops::Range;
+pub(super) use url_timing::prepare_url_input;
 
 pub(super) struct Piece {
     pub raw: String,
+    pub timing: bool,
     pub display: String,
     pub spans: Vec<usize>,
     pub trailing: bool,
@@ -22,6 +25,7 @@ pub(super) struct Marker {
 
 pub(super) struct Spelling {
     pub text: String,
+    pub delimiters: Vec<Range<usize>>,
     pub caret: usize,
     pub anchors: Vec<usize>,
     pub parsed: usize,
@@ -232,6 +236,12 @@ pub(super) fn spell_with_anchors(
         mapped.push(found.ok_or(EditorError::UnrepresentableFormat)?);
     }
     Ok(Spelling {
+        delimiters: pieces
+            .iter()
+            .zip(&rendered.pieces)
+            .filter(|(piece, _)| piece.timing)
+            .map(|(_, range)| range.clone())
+            .collect(),
         anchors: mapped,
         text: rendered.text,
         caret: rendered.caret,

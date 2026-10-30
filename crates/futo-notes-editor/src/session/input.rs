@@ -108,6 +108,7 @@ impl EditorSession {
         self.affinity = affinity;
         let before_links = self.projection.pending_for_source_edit(edit.range);
         let mut change = self.apply(&edit);
+        change.work.link_metadata_items += self.projection.install_delimiters(plan.delimiters);
         let caret = DisplayOffset(self.projection.display_at(plan.caret));
         self.selection = DisplayRange {
             start: caret,

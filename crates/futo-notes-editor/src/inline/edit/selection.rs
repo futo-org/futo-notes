@@ -45,6 +45,7 @@ pub(in crate::inline) fn split_entities(pieces: Vec<Piece>, a: usize, z: usize) 
                     spans: piece.spans.clone(),
                     trailing: piece.trailing,
                     definition: piece.definition.clone(),
+                    timing: false,
                 });
             }
         }

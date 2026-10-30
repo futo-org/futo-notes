@@ -16,6 +16,7 @@ use std::ops::Range;
 
 pub(crate) struct Plan {
     pub range: Range<usize>,
+    pub delimiters: Vec<Range<usize>>,
     pub inserted: String,
     pub caret: usize,
     pub formats: Vec<InlineFormat>,
@@ -106,6 +107,7 @@ impl Projection {
             spans: active.clone(),
             trailing: false,
             definition: None,
+            timing: false,
         }));
         let insertion_end = changed.len();
         changed.extend(after);
@@ -165,7 +167,7 @@ impl Projection {
         );
         let speculative_fence = (prefix.starts_with("```") || prefix.starts_with("~~~"))
             && !prefix.contains(char::is_whitespace);
-        let literal = inserted.contains(['<', '>'])
+        let mut literal = inserted.contains(['<', '>'])
             || speculative_fence
             || speculative_block
             || toggle.is_some()
@@ -176,6 +178,20 @@ impl Projection {
                 .any(|id| markers[*id].kind == SpanKind::Format(InlineFormat::Code));
         let link_work =
             super::links::finish_angle_word(&mut changed, &mut markers, insertion_index, inserted);
+        let timing = if toggle.is_none() {
+            super::spelling::prepare_url_input(
+                &mut changed,
+                &markers,
+                insertion_index..insertion_end,
+                inserted,
+                &self.references,
+            )
+        } else {
+            Default::default()
+        };
+        if let Some(value) = timing.literal {
+            literal = value;
+        }
         let rendered = spell(
             changed,
             markers,
@@ -195,16 +211,22 @@ impl Projection {
             .map(|(c, _)| c.len_utf8())
             .sum();
         Ok(Plan {
+            delimiters: rendered
+                .delimiters
+                .into_iter()
+                .map(|r| source_start + r.start..source_start + r.end)
+                .collect(),
             range: source_start + prefix..source_end - suffix,
             inserted: output[prefix..output.len() - suffix].to_owned(),
             caret: source_start + caret,
             formats,
-            materialized: raw.len() + output.len(),
-            parsed,
+            materialized: raw.len() + output.len() + timing.materialized,
+            parsed: parsed + timing.work.parsed,
             link_metadata_items: link_metadata_items
+                + timing.work.items
                 + rendered.link_metadata_items
                 + link_work.items,
-            link_copied_bytes: rendered.link_copied_bytes + link_work.copied,
+            link_copied_bytes: rendered.link_copied_bytes + link_work.copied + timing.work.copied,
         })
     }
     pub(super) fn edit_context(&self, source: &Rope, range: DisplayRange) -> Context {
@@ -315,6 +337,7 @@ impl Projection {
                             spans: Vec::new(),
                             trailing: true,
                             definition: Some(key.clone()),
+                            timing: false,
                         });
                     }
                     continue;
@@ -334,6 +357,7 @@ impl Projection {
                             spans: Vec::new(),
                             trailing: false,
                             definition: None,
+                            timing: false,
                         });
                     }
                 }
@@ -380,6 +404,7 @@ impl Projection {
                         spans: active,
                         trailing,
                         definition: None,
+                        timing: false,
                     });
                     continue;
                 }
@@ -389,6 +414,7 @@ impl Projection {
                     spans: active,
                     trailing: false,
                     definition: None,
+                    timing: row.literal_delimiters.contains(&segment.source),
                 });
             }
             display_len += row.display.len();

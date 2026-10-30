@@ -313,6 +313,7 @@ impl Projection {
             .saturating_sub(1);
         let last = (self.rows.locate(edit.range.end.0, false) + 1).min(self.rows.len() - 1);
         let (pending, metadata_work) = self.pending_display(first, last);
+        let (delimiters, delimiter_work) = self.retained_delimiters(first, last, edit);
         let (_, source_start, display_start) = self.rows.at(first);
         let (row, old_end, display_end) = self.rows.at(last);
         let source_end = old_end + row.source_len - edit.removed.len() + edit.inserted.len();
@@ -438,6 +439,8 @@ impl Projection {
         };
         let link_metadata_items = reference_items
             + metadata_work
+            + delimiter_work
+            + self.install_delimiters(delimiters)
             + self.preserve_pending_display(pending, range, inserted.len());
         Update {
             link_copied_bytes,

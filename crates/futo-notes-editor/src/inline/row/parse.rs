@@ -305,6 +305,7 @@ impl Row {
             reference_uses,
             reference_work,
             literal_links: Vec::new(),
+            literal_delimiters: Vec::new(),
             display,
             segments,
             spans,

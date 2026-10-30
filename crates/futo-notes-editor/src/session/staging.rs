@@ -131,6 +131,14 @@ impl EditorSession {
                 range.start -= window.start;
                 range.end -= window.start;
             }
+            pending
+                .delimiters
+                .retain(|range| window.start <= range.start && range.end <= window.end);
+            projection.initial_link_metadata_items += pending.delimiters.len();
+            for range in &mut pending.delimiters {
+                range.start -= window.start;
+                range.end -= window.start;
+            }
             pending.window = 0..raw.len();
             projection.initial_link_metadata_items += projection.restore_pending(&pending);
         }

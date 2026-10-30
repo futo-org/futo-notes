@@ -202,6 +202,7 @@ impl super::Projection {
             .sum();
         Ok((
             Plan {
+                delimiters: Vec::new(),
                 range: source_start + prefix..source_end - suffix,
                 inserted: rendered.text[prefix..rendered.text.len() - suffix].into(),
                 caret: 0,
@@ -492,6 +493,7 @@ impl super::Projection {
             spans: active,
             trailing: false,
             definition: None,
+            timing: false,
         });
         before.extend(after);
         let rendered = spell(
@@ -510,6 +512,7 @@ impl super::Projection {
             .map(|(ch, _)| ch.len_utf8())
             .sum();
         Ok(Plan {
+            delimiters: Vec::new(),
             range: source_start + prefix..source_end - suffix,
             inserted: rendered.text[prefix..rendered.text.len() - suffix].into(),
             caret: source_start + rendered.caret,
