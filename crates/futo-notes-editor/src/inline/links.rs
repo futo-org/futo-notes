@@ -401,6 +401,13 @@ pub(super) fn finish_angle_word(
         close: ">".into(),
     });
     pieces[start].raw = "<".into();
+    if let Some(last) = pieces[start..insertion]
+        .iter_mut()
+        .rev()
+        .find(|piece| !piece.display.is_empty())
+    {
+        last.raw = ">".into();
+    }
     let mut at = 0;
     for piece in &mut pieces[start..insertion] {
         let end = at + piece.display.len();
