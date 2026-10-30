@@ -327,12 +327,16 @@ fn indent_nests_only_the_selected_item_and_preserves_exact_foreign_spelling() {
     let mut s = EditorSession::open(raw);
     let mut view = ReferenceView::new(shown);
     let selected = range(8, 13);
-    s.select_with_affinity(s.revision(), selected, Affinity::Backward).unwrap();
+    s.select_with_affinity(s.revision(), selected, Affinity::Backward)
+        .unwrap();
     let mut accepted = 0;
-    let change = s.block_command(s.revision(), selected, BlockCommand::Indent, &mut |_| {
-        accepted += 1;
-        Ok(())
-    }).unwrap().expect("the second list item can nest under its preceding sibling");
+    let change = s
+        .block_command(s.revision(), selected, BlockCommand::Indent, &mut |_| {
+            accepted += 1;
+            Ok(())
+        })
+        .unwrap()
+        .expect("the second list item can nest under its preceding sibling");
     view.apply(change);
     assert_eq!(accepted, 1);
     assert_eq!(s.source_text(), expected);
@@ -348,4 +352,30 @@ fn indent_nests_only_the_selected_item_and_preserves_exact_foreign_spelling() {
     assert_eq!(s.source_text(), expected);
     assert_eq!(view.text, shown);
     assert_eq!(s.selection(), selected);
+}
+
+#[test]
+fn outdent_lifts_one_container_level_and_preserves_descendants() {
+    let raw = "- parent\n  - __child__\n    - grandchild";
+    let expected = "- parent\n- __child__\n  - grandchild";
+    let shown = "parent\nchild\ngrandchild";
+    let mut s = EditorSession::open(raw);
+    let mut view = ReferenceView::new(shown);
+    let selected = range(7, 12);
+    s.select(s.revision(), selected).unwrap();
+    view.apply(
+        s.block_command(s.revision(), selected, BlockCommand::Outdent, &mut |_| {
+            Ok(())
+        })
+        .unwrap()
+        .expect("a nested list item can lift one level"),
+    );
+    assert_eq!(s.source_text(), expected);
+    assert_eq!(view.text, shown);
+    assert_eq!(s.selection(), selected);
+    view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(s.source_text(), raw);
+    assert_eq!(s.selection(), selected);
+    view.apply(s.redo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(s.source_text(), expected);
 }
