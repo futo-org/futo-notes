@@ -46,7 +46,7 @@ impl Projection {
             at = end;
         }
         let end = body.len();
-        let result = spell(body, markers, end..end, true)?;
+        let result = spell(body, markers, end..end, true, &self.references)?;
         let materialized = raw.len() + result.text.len();
         Ok((result.text, materialized, result.parsed))
     }
@@ -159,7 +159,7 @@ impl Projection {
             at += piece.display.len();
         }
         let end = pieces.len();
-        let rendered = spell(pieces, markers, end..end, true)?;
+        let rendered = spell(pieces, markers, end..end, true, &self.references)?;
         if rendered.text == raw {
             return Ok(None);
         }

@@ -1,5 +1,6 @@
 //! Link source boundaries are owned here; destination interpretation comes from
 //! the Markdown parser. Consumers receive destination semantics, never syntax.
+use super::row::LinkMeaning;
 impl super::Projection {
     pub(crate) fn link_descriptions(
         &self,
@@ -14,6 +15,7 @@ impl super::Projection {
             if let Some(previous) = active.last_mut() {
                 if previous.range.end == link.range.start
                     && previous.destination == link.destination
+                    && previous.title == link.title
                 {
                     previous.range.end = link.range.end;
                     continue;
@@ -50,7 +52,8 @@ impl super::Projection {
                                 start: crate::DisplayOffset(start),
                                 end: crate::DisplayOffset(end),
                             },
-                            destination: destination.clone(),
+                            destination: destination.destination.clone(),
+                            title: destination.title.clone(),
                         });
                     }
                 }
@@ -102,7 +105,15 @@ impl super::Projection {
         existing.dedup();
         if existing.len() == 1 && !destination.is_empty() {
             let marker = &mut markers[existing[0]];
-            marker.kind = SpanKind::Link(destination.into());
+            let title = match &marker.kind {
+                SpanKind::Link(value) => value.title.clone(),
+                _ => None,
+            };
+            marker.kind = SpanKind::Link(std::sync::Arc::new(LinkMeaning {
+                destination: destination.into(),
+                title,
+                reference: None,
+            }));
             if marker.open == "[" && marker.close.starts_with("](") {
                 marker.close = replace_destination(&marker.close, destination);
             } else {
@@ -112,7 +123,7 @@ impl super::Projection {
         } else {
             let id = markers.len();
             markers.push(Marker {
-                kind: SpanKind::Link(destination.into()),
+                kind: SpanKind::Link(LinkMeaning::bare(destination.into())),
                 open: "[".into(),
                 close: format!("](<{}>)", destination_source(destination)),
             });
@@ -131,7 +142,7 @@ impl super::Projection {
             }
         }
         let end = pieces.len();
-        let rendered = spell(pieces, markers, end..end, true)?;
+        let rendered = spell(pieces, markers, end..end, true, &self.references)?;
         let prefix = common_prefix(&raw, &rendered.text);
         let suffix: usize = raw[prefix..]
             .chars()
@@ -203,7 +214,11 @@ pub(super) fn bare_links(source: &str) -> (Vec<super::row::Span>, usize) {
                 cursor = end;
                 if !source[start..end].starts_with(['[', '<']) {
                     spans.push(super::row::Span {
-                        kind: super::row::SpanKind::Link(link.url.clone()),
+                        kind: super::row::SpanKind::Link(std::sync::Arc::new(LinkMeaning {
+                            destination: link.url.clone(),
+                            title: link.title.clone(),
+                            reference: None,
+                        })),
                         open: start..start,
                         close: end..end,
                     });
@@ -367,10 +382,10 @@ impl super::Projection {
         let bare = links.len() == 1
             && links[0].open.start == 0
             && links[0].close.end == destination.len()
-            && links[0].kind == SpanKind::Link(destination.into());
+            && links[0].kind == SpanKind::Link(LinkMeaning::bare(destination.into()));
         let id = markers.len();
         markers.push(Marker {
-            kind: SpanKind::Link(destination.into()),
+            kind: SpanKind::Link(LinkMeaning::bare(destination.into())),
             open: if bare { "".into() } else { "[".into() },
             close: if bare {
                 "".into()
@@ -387,7 +402,13 @@ impl super::Projection {
             trailing: false,
         });
         before.extend(after);
-        let rendered = spell(before, markers, insertion..insertion + 1, true)?;
+        let rendered = spell(
+            before,
+            markers,
+            insertion..insertion + 1,
+            true,
+            &self.references,
+        )?;
         let prefix = common_prefix(&raw, &rendered.text);
         let suffix: usize = raw[prefix..]
             .chars()

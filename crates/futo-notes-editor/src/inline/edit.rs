@@ -168,7 +168,13 @@ impl Projection {
                 .any(|id| markers[*id].kind == SpanKind::Format(InlineFormat::Code));
         let link_work =
             super::links::finish_angle_word(&mut changed, &mut markers, insertion_index, inserted);
-        let rendered = spell(changed, markers, insertion_index..insertion_end, literal)?;
+        let rendered = spell(
+            changed,
+            markers,
+            insertion_index..insertion_end,
+            literal,
+            &self.references,
+        )?;
         let parsed = rendered.parsed + link_work;
         let output = rendered.text;
         let caret = rendered.caret;

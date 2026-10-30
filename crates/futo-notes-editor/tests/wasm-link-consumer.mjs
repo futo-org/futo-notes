@@ -63,6 +63,7 @@ try {
   assert.deepEqual(JSON.parse(session.inspect_link(1n, 5, 6)), {
     range: { start: 4, end: 12 },
     destination: 'https://old.test',
+    title: 'Title',
   });
   const request = session.set_link(1n, 5, 6, 'https://x.test');
   assert.throws(() => session.project(2n, 0, 14));

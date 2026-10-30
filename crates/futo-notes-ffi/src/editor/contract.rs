@@ -406,12 +406,14 @@ pub struct EditorSemanticRun {
 pub struct EditorLinkDescription {
     pub range: EditorByteRange,
     pub destination: String,
+    pub title: Option<String>,
 }
 impl From<editor::LinkDescription> for EditorLinkDescription {
     fn from(value: editor::LinkDescription) -> Self {
         Self {
             range: value.range.into(),
             destination: value.destination,
+            title: value.title,
         }
     }
 }

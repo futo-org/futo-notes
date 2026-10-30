@@ -4,6 +4,7 @@ mod edit;
 pub(crate) mod fences;
 mod links;
 mod pending_links;
+pub(crate) mod references;
 pub(crate) use pending_links::PendingLinks;
 mod row;
 mod spelling;
@@ -22,6 +23,7 @@ pub(crate) struct Projection {
     pub display: Rope,
     pub rows: Rows,
     pub initial_parse_work: usize,
+    pub references: std::sync::Arc<references::References>,
 }
 
 pub(crate) struct Update {
@@ -35,8 +37,28 @@ pub(crate) struct Update {
 
 impl Projection {
     pub fn new(source: &str) -> Self {
-        let parsed: Vec<_> = paragraphs(source).into_iter().map(Row::parse).collect();
-        let initial_parse_work = source.len()
+        let (references, winners, reference_work) = references::References::scan(source);
+        let mut origin = 0;
+        let parsed: Vec<_> = paragraphs(source)
+            .into_iter()
+            .map(|text| {
+                let local: Vec<_> = winners
+                    .iter()
+                    .filter(|winner| {
+                        origin <= winner.range.start && winner.range.end <= origin + text.len()
+                    })
+                    .map(|winner| references::Winner {
+                        range: winner.range.start - origin..winner.range.end - origin,
+                        key: winner.key.clone(),
+                    })
+                    .collect();
+                let row = Row::parse_with_references(text, &references, &local);
+                origin += text.len();
+                row
+            })
+            .collect();
+        let initial_parse_work = reference_work.parsed
+            + source.len()
             + parsed
                 .iter()
                 .map(|row| row.parsed_source_bytes)
@@ -51,6 +73,7 @@ impl Projection {
             display,
             rows,
             initial_parse_work,
+            references,
         }
     }
 
@@ -241,7 +264,48 @@ impl Projection {
         let source_end = old_end + row.source_len - edit.removed.len() + edit.inserted.len();
         let display_end = display_end + row.display.len();
         let text = source.byte_slice(source_start..source_end).to_string();
-        let parsed: Vec<_> = paragraphs(&text).into_iter().map(Row::parse).collect();
+        let mut winners = Vec::new();
+        for index in first..=last {
+            let (row, base, _) = self.rows.at(index);
+            for definition in row
+                .definitions
+                .iter()
+                .filter(|definition| definition.winner)
+            {
+                let mut range = base + definition.range.start..base + definition.range.end;
+                if edit.range.end.0 <= range.start {
+                    range.start = range.start - edit.removed.len() + edit.inserted.len();
+                    range.end = range.end - edit.removed.len() + edit.inserted.len();
+                } else if edit.range.start.0 < range.end && range.start < edit.range.end.0 {
+                    continue;
+                }
+                if let Some(target) = self.references.target(definition.key.as_ref()) {
+                    winners.push(references::Winner {
+                        range: range.start - source_start..range.end - source_start,
+                        key: target.reference.as_ref().unwrap().clone(),
+                    });
+                }
+            }
+        }
+        let mut origin = 0;
+        let parsed: Vec<_> = paragraphs(&text)
+            .into_iter()
+            .map(|raw| {
+                let local: Vec<_> = winners
+                    .iter()
+                    .filter(|winner| {
+                        origin <= winner.range.start && winner.range.end <= origin + raw.len()
+                    })
+                    .map(|winner| references::Winner {
+                        range: winner.range.start - origin..winner.range.end - origin,
+                        key: winner.key.clone(),
+                    })
+                    .collect();
+                let row = Row::parse_with_references(raw, &self.references, &local);
+                origin += raw.len();
+                row
+            })
+            .collect();
         let parsed_source_bytes = text.len()
             + parsed
                 .iter()

@@ -28,6 +28,7 @@ pub(super) fn spell(
     mut markers: Vec<Marker>,
     insertion: Range<usize>,
     literal: bool,
+    references: &std::sync::Arc<super::references::References>,
 ) -> Result<Spelling, EditorError> {
     split_paragraph_spans(&mut pieces);
     trim_emphasis_edges(&mut pieces, &markers);
@@ -36,7 +37,7 @@ pub(super) fn spell(
     let mut rendered = render(&pieces, &markers, insertion.start, insertion.end);
     let mut parsed = 0;
     if literal {
-        let mut candidate = Row::parse(&rendered.text);
+        let mut candidate = Row::parse_with_references(&rendered.text, references, &[]);
         parsed += candidate.parsed_source_bytes;
         if candidate.display != expected {
             repair_literal_boundaries(&mut pieces, &rendered, &candidate, &insertion);
@@ -58,7 +59,7 @@ pub(super) fn spell(
                 }
             }
             rendered = render(&pieces, &markers, insertion.start, insertion.end);
-            candidate = Row::parse(&rendered.text);
+            candidate = Row::parse_with_references(&rendered.text, references, &[]);
             parsed += candidate.parsed_source_bytes;
         }
         let mut missing: Vec<_> = rendered
@@ -83,15 +84,17 @@ pub(super) fn spell(
                     || marker.open == "<" && marker.close == ">"
                 {
                     marker.open = "[".into();
-                    marker.close =
-                        format!("](<{}>)", super::links::destination_source(destination));
+                    marker.close = format!(
+                        "](<{}>)",
+                        super::links::destination_source(&destination.destination)
+                    );
                     repaired_link = true;
                 }
             }
         }
         if repaired_link {
             rendered = render(&pieces, &markers, insertion.start, insertion.end);
-            candidate = Row::parse(&rendered.text);
+            candidate = Row::parse_with_references(&rendered.text, references, &[]);
             parsed += candidate.parsed_source_bytes;
             missing = rendered
                 .spans
@@ -112,7 +115,7 @@ pub(super) fn spell(
             // neighbor of a marker that the library could no longer pair.
             repair_boundaries(&mut pieces, &missing);
             rendered = render(&pieces, &markers, insertion.start, insertion.end);
-            let candidate = Row::parse(&rendered.text);
+            let candidate = Row::parse_with_references(&rendered.text, references, &[]);
             parsed += candidate.parsed_source_bytes;
             let missing: Vec<_> = rendered
                 .spans
@@ -147,7 +150,7 @@ pub(super) fn spell(
                 }
             }
             rendered = render(&pieces, &markers, insertion.start, insertion.end);
-            let candidate = Row::parse(&rendered.text);
+            let candidate = Row::parse_with_references(&rendered.text, references, &[]);
             parsed += candidate.parsed_source_bytes;
             if candidate.display != expected
                 || rendered.spans.iter().any(|(_, expected)| {

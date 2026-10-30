@@ -146,6 +146,7 @@ pub struct SemanticRun {
 pub struct LinkDescription {
     pub range: DisplayRange,
     pub destination: String,
+    pub title: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

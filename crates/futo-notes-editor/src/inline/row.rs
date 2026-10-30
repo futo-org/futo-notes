@@ -1,11 +1,29 @@
 use crate::InlineFormat;
-use pulldown_cmark::{Event, Options, Parser, Tag};
+use pulldown_cmark::{BrokenLink, Event, Options, Parser, Tag};
 use std::ops::Range;
+use std::sync::Arc;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum SpanKind {
     Format(InlineFormat),
-    Link(String),
+    Link(Arc<LinkMeaning>),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct LinkMeaning {
+    pub destination: String,
+    pub title: Option<String>,
+    pub reference: Option<Arc<str>>,
+}
+
+impl LinkMeaning {
+    pub fn bare(destination: String) -> Arc<Self> {
+        Arc::new(Self {
+            destination,
+            title: None,
+            reference: None,
+        })
+    }
 }
 
 impl SpanKind {
@@ -37,6 +55,9 @@ pub(crate) struct Row {
     pub source_len: usize,
     pub parsed_source_bytes: usize,
     pub literal_links: Vec<Range<usize>>,
+    pub definitions: Vec<super::references::Definition>,
+    pub reference_uses: Vec<super::references::ReferenceUse>,
+    pub reference_work: super::references::ReferenceWork,
     pub display: String,
     pub segments: Vec<Segment>,
     pub spans: Vec<Span>,
@@ -45,9 +66,27 @@ pub(crate) struct Row {
 
 impl Row {
     pub fn parse(source: &str) -> Self {
-        let events: Vec<_> = Parser::new_ext(source, Options::ENABLE_STRIKETHROUGH)
-            .into_offset_iter()
-            .collect();
+        Self::parse_with_references(
+            source,
+            &Arc::new(super::references::References::default()),
+            &[],
+        )
+    }
+
+    pub(crate) fn parse_with_references(
+        source: &str,
+        references: &Arc<super::references::References>,
+        winners: &[super::references::Winner],
+    ) -> Self {
+        let (definitions, mut reference_work) = super::references::declarations(source, winners);
+        let events: Vec<_> = Parser::new_with_broken_link_callback(
+            source,
+            Options::ENABLE_STRIKETHROUGH,
+            Some(|link: BrokenLink<'_>| references.broken(link)),
+        )
+        .into_offset_iter()
+        .collect();
+        let mut reference_uses = Vec::new();
         let (blocks, prefixes) = super::blocks::describe(source, &events);
         let mut hidden = vec![false; source.len()];
         for prefix in prefixes {
@@ -71,8 +110,49 @@ impl Row {
                 _ => {}
             }
             match &event {
-                Event::Start(Tag::Link { dest_url, .. }) => {
-                    link = Some((range.clone(), dest_url.to_string(), range.start + 1));
+                Event::Start(Tag::Link {
+                    dest_url,
+                    title,
+                    link_type,
+                    id,
+                }) => {
+                    reference_work.items += 1;
+                    let target = if super::references::is_reference(link_type) {
+                        references.target(id).cloned()
+                    } else {
+                        None
+                    };
+                    let target = target.unwrap_or_else(|| {
+                        reference_work.copied += dest_url.len() + title.len();
+                        Arc::new(LinkMeaning {
+                            destination: dest_url.to_string(),
+                            title: (!title.is_empty()).then(|| title.to_string()),
+                            reference: None,
+                        })
+                    });
+                    if let Some(key) = &target.reference {
+                        reference_uses.push(super::references::ReferenceUse {
+                            range: range.clone(),
+                            key: key.clone(),
+                            image: false,
+                        });
+                    }
+                    link = Some((range.clone(), target, range.start + 1));
+                }
+                Event::Start(Tag::Image { link_type, id, .. })
+                    if super::references::is_reference(link_type) =>
+                {
+                    reference_work.items += 1;
+                    if let Some(target) = references.target(id) {
+                        reference_uses.push(super::references::ReferenceUse {
+                            range: range.clone(),
+                            key: target.reference.as_ref().unwrap().clone(),
+                            image: true,
+                        });
+                    }
+                    if let Some((_, _, label_end)) = &mut link {
+                        *label_end = (*label_end).max(range.end);
+                    }
                 }
                 Event::End(pulldown_cmark::TagEnd::Link) => {
                     if let Some((whole, destination, label_end)) = link.take() {
@@ -162,6 +242,12 @@ impl Row {
             }
         });
         spans.extend(bare);
+        for definition in definitions
+            .iter()
+            .filter(|definition| definition.winner && references.used(definition.key.as_ref()))
+        {
+            hidden[super::references::hidden_definition(source, definition)].fill(true);
+        }
         for block in &blocks {
             if let Some(fence) = &block.fence {
                 hidden[fence.separator.clone()].fill(true);
@@ -214,7 +300,10 @@ impl Row {
         spans.sort_by_key(|span| (span.open.start, std::cmp::Reverse(span.close.end)));
         Self {
             source_len: source.len(),
-            parsed_source_bytes: source.len() + additional_parse,
+            parsed_source_bytes: source.len() + additional_parse + reference_work.parsed,
+            definitions,
+            reference_uses,
+            reference_work,
             literal_links: Vec::new(),
             display,
             segments,
