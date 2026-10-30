@@ -482,3 +482,26 @@ fn outdent_lifts_a_top_level_item_to_paragraph_text() {
     view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
     assert_eq!(s.source_text(), "* a\n* b");
 }
+
+#[test]
+fn quoted_tab_outdent_uses_physical_tab_stops_after_the_quote_prefix() {
+    let source = "> - a\n> \t- b";
+    let mut s = EditorSession::open(source);
+    let mut view = ReferenceView::new("a\nb");
+    s.select(s.revision(), range(2, 3)).unwrap();
+    view.apply(
+        s.block_command(
+            s.revision(),
+            range(2, 3),
+            BlockCommand::Outdent,
+            &mut |_| Ok(()),
+        )
+        .unwrap()
+        .unwrap(),
+    );
+    assert_eq!(s.source_text(), "> - a\n> - b");
+    assert_eq!(view.text, "a\nb");
+    assert_eq!(s.selection(), range(2, 3));
+    view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(s.source_text(), source);
+}
