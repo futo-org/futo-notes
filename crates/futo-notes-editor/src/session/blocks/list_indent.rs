@@ -1,7 +1,7 @@
 //! Container indentation uses canonical item ownership and content columns.
 use super::*;
 
-struct LiftPlan {
+struct ContainerPlan {
     head: usize,
     marker_at: usize,
     prefix_end: usize,
@@ -61,7 +61,7 @@ impl EditorSession {
         let raw = self.source.byte_slice(start..end).to_string();
         let mut plans = Vec::new();
         let mut materialized = raw.len();
-        if !add {
+        {
             let mut roots: Vec<_> = lines
                 .iter()
                 .filter_map(|line| line.list.as_ref())
@@ -74,26 +74,40 @@ impl EditorSession {
                 let head = self
                     .source
                     .line_to_byte(self.source.byte_to_line(root.marker.start));
-                let parent_range = root
-                    .parent_marker
-                    .clone()
-                    .ok_or(EditorError::UnrepresentableFormat)?;
-                let parent = self.source.byte_slice(parent_range.clone()).to_string();
-                let marker = super::list_styles::lifted_marker(
-                    &parent,
-                    root.parent_number.map(|number| number + index as u64),
-                );
+                let (marker, column, shared_line) = if add {
+                    let marker = self.source.byte_slice(root.marker.clone()).to_string();
+                    materialized += marker.len();
+                    (
+                        super::list_styles::nested_marker(&marker, root.ordinal, index),
+                        item.previous_content_column
+                            .ok_or(EditorError::UnrepresentableFormat)?,
+                        false,
+                    )
+                } else {
+                    let parent_range = root
+                        .parent_marker
+                        .clone()
+                        .ok_or(EditorError::UnrepresentableFormat)?;
+                    let parent = self.source.byte_slice(parent_range.clone()).to_string();
+                    materialized += parent.len();
+                    (
+                        super::list_styles::lifted_marker(
+                            &parent,
+                            root.parent_number.map(|number| number + index as u64),
+                        ),
+                        root.parent_marker_column
+                            .ok_or(EditorError::UnrepresentableFormat)?,
+                        parent_range.start >= head,
+                    )
+                };
                 let padding = self
                     .source
                     .byte_slice(root.marker.end..head + root.indent)
                     .to_string();
-                let column = root
-                    .parent_marker_column
-                    .ok_or(EditorError::UnrepresentableFormat)?;
                 let body_delta = crate::inline::columns(&padding, column + marker.len()) as isize
                     - root.content_column as isize;
-                materialized += parent.len() + padding.len();
-                plans.push(LiftPlan {
+                materialized += padding.len();
+                plans.push(ContainerPlan {
                     head,
                     marker_at: root.marker.start - head,
                     prefix_end: root.indent,
@@ -101,7 +115,7 @@ impl EditorSession {
                     marker,
                     padding,
                     body_delta,
-                    shared_line: parent_range.start >= head,
+                    shared_line,
                     display_anchor: self.projection.display_at(root.marker.start),
                 });
             }

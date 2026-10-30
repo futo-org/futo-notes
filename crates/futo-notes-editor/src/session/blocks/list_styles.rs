@@ -211,12 +211,20 @@ impl EditorSession {
 /// A lifted item joins its actual parent list. Only the touched marker changes;
 /// its descendants follow the resulting content column, not a fixed indent.
 pub(super) fn lifted_marker(parent: &str, number: Option<u64>) -> String {
+    marker_at_number(parent, number.map(|number| number + 1))
+}
+
+pub(super) fn nested_marker(current: &str, number: Option<u64>, index: usize) -> String {
+    marker_at_number(current, number.map(|_| index as u64 + 1))
+}
+
+fn marker_at_number(marker: &str, number: Option<u64>) -> String {
     match number {
         Some(number) => format!(
             "{}{}",
-            super::lists::physical_number(number + 1),
-            parent.chars().last().unwrap()
+            super::lists::physical_number(number),
+            marker.chars().last().unwrap()
         ),
-        None => parent.to_owned(),
+        None => marker.to_owned(),
     }
 }
