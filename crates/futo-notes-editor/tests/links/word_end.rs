@@ -152,3 +152,40 @@ fn hand_typed_angle_link_saves_literal_brackets_around_the_inner_autolink() {
         view.text
     );
 }
+#[test]
+fn delimiters_inside_typed_urls_remain_url_characters_and_only_trailing_ones_are_trimmed() {
+    for (typed, href) in [
+        ("https://x.test/*a* ok", "https://x.test/*a"),
+        ("www.x.test/_a_ ok", "http://www.x.test/_a"),
+    ] {
+        let mut session = EditorSession::open("");
+        let mut view = ReferenceView::new("");
+        let mut expected = String::new();
+        for ch in typed.chars() {
+            let at = view.text.len();
+            expected.push(ch);
+            view.apply(
+                session
+                    .replace(
+                        session.revision(),
+                        range(at, at),
+                        &ch.to_string(),
+                        &mut |_| Ok(()),
+                    )
+                    .unwrap(),
+            );
+            assert_eq!(view.text, expected, "typed URL prefix {expected:?}");
+        }
+        assert_eq!(session.source_text(), typed);
+        let projection = session
+            .project(session.revision(), range(0, typed.len()))
+            .unwrap();
+        assert!(projection.runs.iter().all(|run| run.formats.is_empty()));
+        assert_eq!(projection.links.len(), 1);
+        assert_eq!(projection.links[0].destination, href);
+        assert_eq!(
+            EditorSession::open(&session.source_text()).display_text(),
+            typed
+        );
+    }
+}
