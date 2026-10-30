@@ -267,8 +267,11 @@ impl EditorSession {
             let edit = self.prepare_source(expected, footprint, &inserted)?;
             if edit.removed != edit.inserted {
                 accept(&edit).map_err(EditorError::Persistence)?;
+                let mut pending_work = 0;
                 for group in &mut staged.undo {
                     for entry in &mut group.entries {
+                        pending_work += entry.before_links.relocate_source(window.start);
+                        pending_work += entry.after_links.relocate_source(window.start);
                         entry.range.start.0 += window.start;
                         entry.range.end.0 += window.start;
                         entry.before_selection.start.0 += display_start;
@@ -281,7 +284,19 @@ impl EditorSession {
                 opening.before_selection = self.selection;
                 opening.before_affinity = self.affinity;
                 opening.before_formats = self.pending_formats.clone();
+                let mut pending = staged
+                    .projection
+                    .pending_links(0..staged.source.len_bytes());
+                pending_work += pending.work + pending.relocate_source(window.start);
                 let mut delta = self.apply(&edit);
+                delta.work.link_metadata_items +=
+                    pending_work + self.projection.restore_pending(&pending);
+                let (projection, work) = self
+                    .projection
+                    .query_with_work(self.revision, delta.projection.range);
+                delta.projection = projection;
+                delta.work.link_metadata_items += work.items;
+                delta.work.link_copied_bytes += work.copied;
                 delta.work.materialized_source_bytes += raw.len() + edit.inserted.len();
                 delta.work.parsed_source_bytes += staged.projection.initial_parse_work;
                 delta.work.link_metadata_items += staged.projection.initial_link_metadata_items;
