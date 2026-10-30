@@ -2,7 +2,7 @@
 
 # ── Parallel QA isolation (multiple worktrees, one machine; model: scripts/qa.mjs) ──
 
-# Claim a QA device; --erase resets one existing owned iOS claim (all simulator data); --avd selects legacy Android.
+# Claim a QA device; --sim selects an exact existing iOS pool name/ID; --erase resets owned iOS; --avd selects legacy Android.
 qa-claim target="all" *flags:
   @node scripts/qa.mjs claim "$@"
 
