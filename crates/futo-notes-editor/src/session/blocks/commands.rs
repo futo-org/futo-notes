@@ -52,8 +52,8 @@ impl EditorSession {
         {
             return self.list_command(expected, range, command, accept);
         }
-        if command == BlockCommand::Indent {
-            if let Some(change) = self.indent_list(expected, range, accept)? {
+        if matches!(command, BlockCommand::Indent | BlockCommand::Outdent) {
+            if let Some(change) = self.indent_list(expected, range, command, accept)? {
                 return Ok(Some(change));
             }
         }
