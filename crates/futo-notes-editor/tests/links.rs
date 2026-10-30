@@ -214,3 +214,47 @@ fn typing_a_bare_url_waits_for_word_end_and_keeps_bare_source_through_history() 
         1
     );
 }
+
+#[test]
+fn hand_typed_link_syntax_keeps_literal_outer_text_around_only_the_bare_url() {
+    let mut session = EditorSession::open("");
+    let mut view = ReferenceView::new("");
+    for ch in "[t](https://x.test)".chars() {
+        let at = view.text.len();
+        view.apply(
+            session
+                .replace(
+                    session.revision(),
+                    range(at, at),
+                    &ch.to_string(),
+                    &mut |_| Ok(()),
+                )
+                .unwrap(),
+        );
+        assert!(session
+            .project(session.revision(), range(0, view.text.len()))
+            .unwrap()
+            .links
+            .is_empty());
+    }
+    assert_eq!(view.text, "[t](https://x.test)");
+    let at = view.text.len();
+    view.apply(
+        session
+            .replace(session.revision(), range(at, at), " ok", &mut |_| Ok(()))
+            .unwrap(),
+    );
+    assert_eq!(view.text, "[t](https://x.test) ok");
+    assert_eq!(session.source_text(), "\\[t](https://x.test) ok");
+    let links = session
+        .project(session.revision(), range(0, view.text.len()))
+        .unwrap()
+        .links;
+    assert_eq!(links.len(), 1);
+    assert_eq!(links[0].range, range(4, 18));
+    assert_eq!(links[0].destination, "https://x.test");
+    assert_eq!(
+        EditorSession::open(&session.source_text()).display_text(),
+        view.text
+    );
+}
