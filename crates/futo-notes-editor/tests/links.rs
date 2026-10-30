@@ -58,3 +58,68 @@ fn inspection_reports_one_whole_link_across_nested_marks_and_keeps_same_href_run
     assert_eq!(projection.links, vec![first, second]);
     assert_eq!(session.source_text(), source);
 }
+
+#[test]
+fn selected_link_commands_preserve_selection_nested_styles_and_byte_exact_undo() {
+    let original = "read the __docs__ now";
+    let mut session = EditorSession::open(original);
+    let mut view = ReferenceView::new("read the docs now");
+    session.select(Revision(0), range(9, 13)).unwrap();
+    view.apply(
+        session
+            .set_link(Revision(0), range(9, 13), "https://x.test", &mut |_| Ok(()))
+            .unwrap()
+            .unwrap(),
+    );
+    assert_eq!(
+        session.source_text(),
+        "read the [__docs__](<https://x.test>) now"
+    );
+    assert_eq!(view.text, "read the docs now");
+    assert_eq!(session.selection(), range(9, 13));
+    session.select(Revision(1), range(10, 11)).unwrap();
+    view.apply(
+        session
+            .set_link(
+                Revision(1),
+                range(10, 11),
+                "https://x.test/moved",
+                &mut |_| Ok(()),
+            )
+            .unwrap()
+            .unwrap(),
+    );
+    assert_eq!(
+        session.source_text(),
+        "read the [__docs__](<https://x.test/moved>) now"
+    );
+    assert_eq!(session.selection(), range(10, 11));
+    view.apply(
+        session
+            .set_link(Revision(2), range(10, 11), "", &mut |_| Ok(()))
+            .unwrap()
+            .unwrap(),
+    );
+    assert_eq!(session.source_text(), original);
+    assert_eq!(session.selection(), range(10, 11));
+    for revision in 3..6 {
+        view.apply(
+            session
+                .undo(Revision(revision), &mut |_| Ok(()))
+                .unwrap()
+                .unwrap(),
+        );
+    }
+    assert_eq!(session.source_text(), original);
+    assert_eq!(view.text, "read the docs now");
+    for revision in 6..9 {
+        view.apply(
+            session
+                .redo(Revision(revision), &mut |_| Ok(()))
+                .unwrap()
+                .unwrap(),
+        );
+    }
+    assert_eq!(session.source_text(), original);
+    assert_eq!(view.text, "read the docs now");
+}
