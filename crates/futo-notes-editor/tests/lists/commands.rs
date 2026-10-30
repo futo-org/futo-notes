@@ -290,3 +290,31 @@ fn list_retarget_does_not_renumber_either_neighbor_when_ordered_delimiters_confl
     view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
     assert_eq!(s.source_text(), raw);
 }
+
+#[test]
+fn list_commands_retire_heading_syntax_while_preserving_inline_body_and_neighbors() {
+    for (raw, shown) in [
+        ("## __a__ ##\r\n\r\n+ keep", "a\r\n\r\nkeep"),
+        ("__a__\r\n===\r\n\r\n+ keep", "a\r\n\r\nkeep"),
+    ] {
+        let mut s = EditorSession::open(raw);
+        let mut view = ReferenceView::new(shown);
+        view.apply(
+            s.block_command(
+                s.revision(),
+                range(0, 0),
+                BlockCommand::TaskList,
+                &mut |_| Ok(()),
+            )
+            .unwrap()
+            .unwrap(),
+        );
+        assert_eq!(s.source_text(), "- [ ] __a__\r\n\r\n+ keep");
+        assert_eq!(view.text, shown);
+        assert_eq!(EditorSession::open(&s.source_text()).display_text(), shown);
+        view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+        assert_eq!(s.source_text(), raw);
+        view.apply(s.redo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+        assert_eq!(s.source_text(), "- [ ] __a__\r\n\r\n+ keep");
+    }
+}
