@@ -42,8 +42,9 @@ enum BlockSelection {
 }
 
 impl EditorSession {
-    /// Formatting includes a textblock reached at its first text position.
-    /// Input replacement retains its ordinary half-open range semantics.
+    /// List formatting includes an item reached at its first text position.
+    /// Other boundaries retain their existing half-open scope, including a
+    /// protected multiline-inline-code neighbor.
     fn selected_block_lines(&self, range: DisplayRange) -> Vec<crate::inline::blocks::BlockLine> {
         let mut lines = self.projection.block_lines(range);
         if range.start != range.end {
@@ -53,7 +54,8 @@ impl EditorSession {
             };
             if let Some(last) = self.projection.block_lines(point).into_iter().find(|line| {
                 crate::inline::visit_container();
-                self.projection.display_at(line.content.start) == range.end.0
+                line.list.as_ref().is_some_and(|list| list.first)
+                    && self.projection.display_at(line.content.start) == range.end.0
             }) {
                 if lines
                     .last()
