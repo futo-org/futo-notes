@@ -61,7 +61,7 @@ pub(super) fn spell(
             candidate = Row::parse(&rendered.text);
             parsed += candidate.parsed_source_bytes;
         }
-        let missing: Vec<_> = rendered
+        let mut missing: Vec<_> = rendered
             .spans
             .iter()
             .filter(|(_, expected)| {
@@ -73,6 +73,39 @@ pub(super) fn spell(
             })
             .map(|(id, _)| *id)
             .collect();
+        // A bare/autolink spelling is valid only while it reopens with the
+        // retained destination. Editing its label can require explicit syntax.
+        let mut repaired_link = false;
+        for &id in &missing {
+            let marker = &mut markers[id];
+            if let SpanKind::Link(destination) = &marker.kind {
+                if marker.open.is_empty() && marker.close.is_empty()
+                    || marker.open == "<" && marker.close == ">"
+                {
+                    marker.open = "[".into();
+                    marker.close =
+                        format!("](<{}>)", super::links::destination_source(destination));
+                    repaired_link = true;
+                }
+            }
+        }
+        if repaired_link {
+            rendered = render(&pieces, &markers, insertion.start, insertion.end);
+            candidate = Row::parse(&rendered.text);
+            parsed += candidate.parsed_source_bytes;
+            missing = rendered
+                .spans
+                .iter()
+                .filter(|(_, expected)| {
+                    !candidate.spans.iter().any(|span| {
+                        span.kind == expected.kind
+                            && span.open == expected.open
+                            && span.close == expected.close
+                    })
+                })
+                .map(|(id, _)| *id)
+                .collect();
+        }
         if candidate.display != expected || !missing.is_empty() {
             // An entity changes CommonMark's delimiter flanking while
             // decoding to the same visible scalar. Repair only the exact

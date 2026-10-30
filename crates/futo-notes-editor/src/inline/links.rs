@@ -128,7 +128,7 @@ impl super::Projection {
     }
 }
 
-fn destination_source(destination: &str) -> String {
+pub(super) fn destination_source(destination: &str) -> String {
     let mut source = String::new();
     for ch in destination.chars() {
         match ch {

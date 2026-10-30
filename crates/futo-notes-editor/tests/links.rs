@@ -389,6 +389,10 @@ fn unfinished_urls_elsewhere_do_not_add_metadata_work_to_a_local_keystroke() {
             .unwrap()
             .links
             .is_empty());
+        assert!(
+            change.work.link_metadata_items > 0,
+            "metadata accounting must observe the edited unfinished URL"
+        );
         work.push(change.work.link_metadata_items);
     }
     assert_eq!(
