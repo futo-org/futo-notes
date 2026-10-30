@@ -20,7 +20,11 @@ assert.equal(original.length, 24);
 assert.equal(shortcuts.length, 38);
 const staging = JSON.parse(readFileSync(new URL('fixtures/list-staging.json', import.meta.url)));
 assert.equal(staging.length, 12);
-const cases = [...original, ...shortcuts, ...staging];
+const nested = JSON.parse(
+  readFileSync(new URL('fixtures/nested-containers.json', import.meta.url)),
+);
+assert.equal(nested.length, 12);
+const cases = [...original, ...shortcuts, ...staging, ...nested];
 const units = (text) => Uint16Array.from({ length: text.length }, (_, at) => text.charCodeAt(at));
 function host(vault, source) {
   const worker = spawn(process.argv[3], [vault, source], { stdio: ['pipe', 'pipe', 'inherit'] });
@@ -54,8 +58,8 @@ function assertItems(page, revision, display, item) {
     if (!blocks.some((old) => JSON.stringify(old) === JSON.stringify(block))) blocks.push(block);
   const items = blocks
     .filter((block) => block.list?.first)
-    .map((block) => {
-      assert.equal(block.list.depth, 1);
+    .map((block, index) => {
+      assert.equal(block.list.depth, item.itemDepths?.[index] ?? 1);
       assert.equal(block.quote_depth, item.quoteDepth ?? 0);
       return [block.list.number, block.list.checked];
     });

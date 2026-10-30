@@ -30,6 +30,7 @@ private struct ListActionCase: Decodable {
     let undoRanges: [[UInt64]]?
     let finalItems: [ListItemExpectation]
     let quoteDepth: UInt64?
+    let itemDepths: [UInt64]?
 }
 private final class ListActionBundle {}
 
@@ -49,7 +50,9 @@ extension NativeEditorBlockRegressionTests {
             #expect(shortcuts.count == 38)
             let staging = try load("list-staging")
             #expect(staging.count == 12)
-            let cases = original + shortcuts + staging
+            let nested = try load("nested-containers")
+            #expect(nested.count == 12)
+            let cases = original + shortcuts + staging + nested
             for item in cases {
                 let root = FileManager.default.temporaryDirectory.appendingPathComponent(
                     "editor-lists-\(UUID().uuidString)")
@@ -84,9 +87,10 @@ extension NativeEditorBlockRegressionTests {
                     }
                     let items = blocks.filter { $0.list?.first == true }
                     #expect(items.count == item.finalItems.count)
-                    for (block, expected) in zip(items, item.finalItems) {
+                    for (index, pair) in zip(items, item.finalItems).enumerated() {
+                        let (block, expected) = pair
                         let list = try #require(block.list)
-                        #expect(list.depth == 1)
+                        #expect(list.depth == (item.itemDepths?[index] ?? 1))
                         #expect(list.number == expected.number)
                         #expect(list.checked == expected.checked)
                         #expect(block.quoteDepth == (item.quoteDepth ?? 0))
@@ -114,6 +118,8 @@ extension NativeEditorBlockRegressionTests {
                 default:
                     let command: EditorBlockCommand
                     switch item.action {
+                    case "Indent": command = .indent
+                    case "Outdent": command = .outdent
                     case "BulletList": command = .bulletList
                     case "OrderedList": command = .orderedList
                     case "TaskList": command = .taskList

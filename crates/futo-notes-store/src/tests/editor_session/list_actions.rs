@@ -45,6 +45,8 @@ fn action(
                 s.revision(),
                 selected,
                 match command {
+                    "Indent" => BlockCommand::Indent,
+                    "Outdent" => BlockCommand::Outdent,
                     "BulletList" => BlockCommand::BulletList,
                     "OrderedList" => BlockCommand::OrderedList,
                     "TaskList" => BlockCommand::TaskList,
@@ -87,11 +89,16 @@ fn assert_items(s: &crate::StoreEditorSession<'_>, case: &Value) {
             blocks.push(block);
         }
     }
+    let mut item_index = 0;
     let items: Vec<_> = blocks
         .into_iter()
         .filter_map(|block| {
             block.list.filter(|list| list.first).map(|list| {
-                assert_eq!(list.depth, 1);
+                assert_eq!(
+                    list.depth,
+                    case["itemDepths"][item_index].as_u64().unwrap_or(1) as usize
+                );
+                item_index += 1;
                 assert_eq!(
                     block.quote_depth,
                     case["quoteDepth"].as_u64().unwrap_or(0) as usize
@@ -125,10 +132,16 @@ fn shared_list_actions_survive_failed_append_undo_flush_power_loss_and_checkpoin
     ))
     .unwrap();
     assert_eq!(staging.len(), 12);
+    let nested: Vec<Value> = serde_json::from_str(include_str!(
+        "../../../../futo-notes-editor/tests/fixtures/nested-containers.json"
+    ))
+    .unwrap();
+    assert_eq!(nested.len(), 12);
     let cases: Vec<_> = original
         .into_iter()
         .chain(shortcuts)
         .chain(staging)
+        .chain(nested)
         .collect();
     for case in &cases {
         let text = |key: &str| case[key].as_str().unwrap();

@@ -36,10 +36,16 @@ fn shared_list_actions_forward_native_coordinates_history_and_exact_recovery() {
     ))
     .unwrap();
     assert_eq!(staging.len(), 12);
+    let nested: Vec<Value> = serde_json::from_str(include_str!(
+        "../../futo-notes-editor/tests/fixtures/nested-containers.json"
+    ))
+    .unwrap();
+    assert_eq!(nested.len(), 12);
     let cases: Vec<_> = original
         .into_iter()
         .chain(shortcuts)
         .chain(staging)
+        .chain(nested)
         .collect();
     for case in &cases {
         let text = |key: &str| case[key].as_str().unwrap();
@@ -91,6 +97,8 @@ fn shared_list_actions_forward_native_coordinates_history_and_exact_recovery() {
                     0,
                     selected,
                     match command {
+                        "Indent" => EditorBlockCommand::Indent,
+                        "Outdent" => EditorBlockCommand::Outdent,
                         "BulletList" => EditorBlockCommand::BulletList,
                         "OrderedList" => EditorBlockCommand::OrderedList,
                         "TaskList" => EditorBlockCommand::TaskList,
@@ -139,11 +147,16 @@ fn shared_list_actions_forward_native_coordinates_history_and_exact_recovery() {
                 blocks.push(block);
             }
         }
+        let mut item_index = 0;
         let items: Vec<_> = blocks
             .into_iter()
             .filter_map(|block| {
                 block.list.filter(|list| list.first).map(|list| {
-                    assert_eq!(list.depth, 1);
+                    assert_eq!(
+                        list.depth,
+                        case["itemDepths"][item_index].as_u64().unwrap_or(1) as u64
+                    );
+                    item_index += 1;
                     assert_eq!(block.quote_depth, case["quoteDepth"].as_u64().unwrap_or(0));
                     serde_json::json!([list.number, list.checked])
                 })

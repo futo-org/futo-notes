@@ -18,6 +18,9 @@ internal fun sharedListActions() {
     val staging = JSONArray(context.assets.open("list-staging.json").bufferedReader().use { it.readText() })
     assertEquals(12, staging.length())
     for (at in 0 until staging.length()) cases.put(staging.getJSONObject(at))
+    val nested = JSONArray(context.assets.open("nested-containers.json").bufferedReader().use { it.readText() })
+    assertEquals(12, nested.length())
+    for (at in 0 until nested.length()) cases.put(nested.getJSONObject(at))
     fun native(values: JSONArray) = EditorUtf16Range(values.getLong(0).toULong(), values.getLong(1).toULong())
     for (at in 0 until cases.length()) {
         val item = cases.getJSONObject(at)
@@ -35,7 +38,7 @@ internal fun sharedListActions() {
                     lists.forEachIndexed { index, block ->
                         val list = block.list!!
                         val shape = expected.getJSONArray(index)
-                        assertEquals(1uL, list.depth)
+                        assertEquals((item.optJSONArray("itemDepths")?.getLong(index) ?: 1L).toULong(), list.depth)
                         assertEquals(if (shape.isNull(0)) null else shape.getLong(0).toULong(), list.number)
                         assertEquals(if (shape.isNull(1)) null else shape.getBoolean(1), list.checked)
                         assertEquals(item.optLong("quoteDepth", 0).toULong(), block.quoteDepth)
@@ -62,6 +65,8 @@ internal fun sharedListActions() {
                         "Typing" -> s.replaceUtf16Action(0uL, selected, inserted, EditorInputAction.TYPING)
                         "Enter", "Backspace" -> s.paragraphKeyUtf16(0uL, selected, if (action == "Enter") EditorParagraphKey.ENTER else EditorParagraphKey.BACKSPACE)
                         else -> s.blockCommandUtf16(0uL, selected, when (action) {
+                            "Indent" -> EditorBlockCommand.Indent
+                            "Outdent" -> EditorBlockCommand.Outdent
                             "BulletList" -> EditorBlockCommand.BulletList
                             "OrderedList" -> EditorBlockCommand.OrderedList
                             "TaskList" -> EditorBlockCommand.TaskList
