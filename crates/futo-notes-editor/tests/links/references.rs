@@ -143,3 +143,43 @@ fn os_correction_and_nested_composition_keep_a_distant_reference_context() {
     view.apply(session.redo(Revision(7), &mut |_| Ok(())).unwrap().unwrap());
     assert_eq!(session.source_text(), reconverted);
 }
+
+#[test]
+fn changing_one_reference_destination_retains_title_and_other_reference_meaning() {
+    let original = "[__one__][id] and [two][id]\n\n[id]: <https://old.test> 'A title'\n\nend";
+    let changed = "[__one__](<https://new.test> \"A title\") and [two][id]\n\n[id]: <https://old.test> 'A title'\n\nend";
+    let mut session = EditorSession::open(original);
+    let mut view = ReferenceView::new("one and two\n\nend");
+    session.select(Revision(0), range(1, 2)).unwrap();
+    view.apply(
+        session
+            .set_link(
+                Revision(0),
+                range(1, 2),
+                "https://new.test",
+                &mut |_| Ok(()),
+            )
+            .unwrap()
+            .unwrap(),
+    );
+    assert_eq!(session.source_text(), changed);
+    assert_eq!(view.text, "one and two\n\nend");
+    assert_eq!(session.selection(), range(1, 2));
+    let first = session
+        .inspect_link(Revision(1), range(0, 3))
+        .unwrap()
+        .unwrap();
+    assert_eq!(first.destination, "https://new.test");
+    assert_eq!(first.title.as_deref(), Some("A title"));
+    let second = session
+        .inspect_link(Revision(1), range(8, 11))
+        .unwrap()
+        .unwrap();
+    assert_eq!(second.destination, "https://old.test");
+    assert_eq!(second.title.as_deref(), Some("A title"));
+    assert_eq!(EditorSession::open(changed).display_text(), view.text);
+    view.apply(session.undo(Revision(1), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(session.source_text(), original);
+    view.apply(session.redo(Revision(2), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(session.source_text(), changed);
+}
