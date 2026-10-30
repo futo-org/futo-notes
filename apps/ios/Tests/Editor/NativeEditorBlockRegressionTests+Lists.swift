@@ -39,7 +39,8 @@ extension NativeEditorBlockRegressionTests {
         try await Task.detached {
             func load(_ name: String) throws -> [ListActionCase] {
                 let url = try #require(
-                    Bundle(for: ListActionBundle.self).url(forResource: name, withExtension: "json"))
+                    Bundle(for: ListActionBundle.self).url(forResource: name, withExtension: "json")
+                )
                 return try JSONDecoder().decode([ListActionCase].self, from: Data(contentsOf: url))
             }
             let original = try load("list-actions")
