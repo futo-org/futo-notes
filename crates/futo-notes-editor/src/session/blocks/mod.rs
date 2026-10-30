@@ -10,6 +10,10 @@ pub enum BlockCommand {
     Indent,
     Outdent,
     Divider,
+    ToggleTask,
+    BulletList,
+    OrderedList,
+    TaskList,
     CodeBlock,
 }
 
@@ -20,6 +24,11 @@ mod divider;
 mod fence_tab;
 mod fences;
 mod keys;
+mod list_commands;
+mod list_join;
+mod list_styles;
+mod list_typing;
+mod lists;
 mod transaction;
 mod typing;
 

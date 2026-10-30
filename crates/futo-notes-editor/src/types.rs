@@ -156,11 +156,20 @@ pub struct Correspondence {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ListDescription {
+    pub depth: usize,
+    pub number: Option<u64>,
+    pub checked: Option<bool>,
+    pub first: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BlockDescription {
     pub range: DisplayRange,
     pub heading: u8,
     pub quote_depth: usize,
     pub divider: bool,
+    pub list: Option<ListDescription>,
     pub code: bool,
     /// First info-string word, preserving its case; rendering never rewrites source.
     pub language: Option<String>,

@@ -100,7 +100,14 @@ impl EditorSession {
         if !before && !after {
             return Ok(None);
         }
-        let mut staged = Self::open_with_clock("", self.clock.clone());
+        let mut staged = self.stage_source(
+            "",
+            if before {
+                line.source.start..line.source.start
+            } else {
+                line.content.end..line.content.end
+            },
+        );
         staged.affinity = self.input_affinity(range);
         if range == self.selection {
             staged.pending_formats = self.pending_formats.clone();
@@ -186,6 +193,27 @@ impl EditorSession {
             .byte_slice(start_display..range.start.0)
             .to_string();
         prefix.push_str(inserted);
+        let prefix_range = DisplayRange {
+            start: DisplayOffset(start_display),
+            end: range.start,
+        };
+        if self
+            .projection
+            .query(self.revision(), prefix_range)
+            .runs
+            .iter()
+            .any(|run| run.formats.contains(&InlineFormat::Code))
+            || range == self.selection
+                && self
+                    .pending_formats
+                    .as_ref()
+                    .is_some_and(|formats| formats.contains(&InlineFormat::Code))
+        {
+            return Ok(None);
+        }
+        if let Some(change) = self.list_conversion(expected, range, &prefix, accept)? {
+            return Ok(Some(change));
+        }
         let heading = prefix
             .strip_suffix(' ')
             .filter(|s| !s.is_empty() && s.len() <= 6 && s.bytes().all(|ch| ch == b'#'));

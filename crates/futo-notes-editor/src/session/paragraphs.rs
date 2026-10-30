@@ -45,6 +45,9 @@ impl EditorSession {
                 return Ok(Some(change));
             }
         }
+        if let Some(change) = self.list_key(expected, range, key, accept)? {
+            return Ok(Some(change));
+        }
         if let Some(change) = self.structural_key(expected, range, key, accept)? {
             return Ok(Some(change));
         }

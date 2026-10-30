@@ -8,6 +8,9 @@ import org.junit.Test
 import uniffi.futo_notes_ffi.*
 
 class NativeEditorBlockRegressionTest {
+    @Test
+    fun sharedListsPreserveHistoryCaretsAndRecovery() = sharedListActions()
+
     private data class Case(val opening: String, val command: EditorBlockCommand, val expected: String, val shown: String, val caret: ULong)
 
     @Test

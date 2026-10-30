@@ -61,7 +61,10 @@ impl References {
                 ReferenceWork::default(),
             );
         }
-        let parser = Parser::new_ext(source, Options::ENABLE_STRIKETHROUGH);
+        let parser = Parser::new_ext(
+            source,
+            Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS,
+        );
         let mut work = ReferenceWork {
             parsed: source.len(),
             ..Default::default()

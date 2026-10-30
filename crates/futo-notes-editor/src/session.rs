@@ -7,6 +7,7 @@ pub use blocks::BlockCommand;
 pub use relink::OwnActionRelink;
 mod input;
 mod links;
+mod staging;
 mod transaction;
 use crate::history::{
     HistoryClock, HistoryEntry, HistoryGroup, HistoryInput, MonotonicClock, TypingRun,
@@ -36,6 +37,7 @@ pub struct EditorSession {
     clock: Arc<dyn HistoryClock>,
     typing: Option<TypingRun>,
     composition: Option<Composition>,
+    context: staging::StageContext,
 }
 
 impl EditorSession {
@@ -69,6 +71,7 @@ impl EditorSession {
             clock,
             typing: None,
             composition: None,
+            context: staging::StageContext::default(),
         }
     }
 
