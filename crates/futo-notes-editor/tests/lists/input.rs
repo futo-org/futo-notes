@@ -75,3 +75,25 @@ fn unsupported_typed_markers_and_raw_composition_remain_literal_and_code_is_opaq
     view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
     assert_eq!(s.source_text(), "");
 }
+
+#[test]
+fn list_shortcuts_retain_literal_whitespace_and_task_looking_body_content() {
+    for (raw, at, expected, shown) in [
+        ("\\*  foo", 1, "- &#32; foo", "  foo"),
+        ("\\*[x] foo", 1, "- \\[x] foo", "[x] foo"),
+        ("* \\[x]  foo", 3, "* [x] &#32; foo", "  foo"),
+    ] {
+        let mut s = EditorSession::open(raw);
+        let mut view = ReferenceView::new(&s.display_text());
+        s.select(s.revision(), range(at, at)).unwrap();
+        view.apply(
+            s.replace(s.revision(), range(at, at), " ", &mut |_| Ok(()))
+                .unwrap(),
+        );
+        assert_eq!(s.source_text(), expected, "{raw:?}");
+        assert_eq!(view.text, shown);
+        assert_eq!(s.selection(), range(0, 0));
+        view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+        assert_eq!(s.source_text(), raw);
+    }
+}
