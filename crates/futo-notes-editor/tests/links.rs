@@ -428,3 +428,32 @@ fn editing_a_loaded_bare_url_label_retains_its_destination_with_explicit_spellin
     view.apply(session.redo(Revision(2), &mut |_| Ok(())).unwrap().unwrap());
     assert_eq!(view.text, "https://x.test/new");
 }
+
+#[test]
+fn adjacent_equal_destinations_form_one_command_run_without_rewriting_untouched_source() {
+    let original = "[ab](https://x.test)[cd](https://x.test)";
+    let mut session = EditorSession::open(original);
+    let mut view = ReferenceView::new("abcd");
+    let link = session
+        .inspect_link(Revision(0), range(0, 1))
+        .unwrap()
+        .unwrap();
+    assert_eq!(link.range, range(0, 4));
+    assert_eq!(session.source_text(), original);
+    view.apply(
+        session
+            .set_link(
+                Revision(0),
+                range(0, 1),
+                "https://new.test",
+                &mut |_| Ok(()),
+            )
+            .unwrap()
+            .unwrap(),
+    );
+    assert_eq!(session.source_text(), "[abcd](<https://new.test>)");
+    assert_eq!(view.text, "abcd");
+    assert_eq!(session.selection(), range(0, 1));
+    view.apply(session.undo(Revision(1), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(session.source_text(), original);
+}
