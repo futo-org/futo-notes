@@ -316,3 +316,65 @@ fn loaded_or_reopened_escaped_openers_keep_literal_intent_at_url_word_end() {
         );
     }
 }
+
+#[test]
+fn outside_strong_url_closers_wait_for_word_end_as_one_marker_pair() {
+    let mut session = EditorSession::open("");
+    let mut view = ReferenceView::new("");
+    let mut typed = String::new();
+    for ch in "x **b https://x.test/a**".chars() {
+        typed.push(ch);
+        let at = view.text.len();
+        view.apply(
+            session
+                .replace(
+                    session.revision(),
+                    range(at, at),
+                    &ch.to_string(),
+                    &mut |_| Ok(()),
+                )
+                .unwrap(),
+        );
+        assert_eq!(view.text, typed);
+        assert!(session
+            .project(session.revision(), range(0, view.text.len()))
+            .unwrap()
+            .links
+            .is_empty());
+    }
+    assert_eq!(session.source_text(), "x \\*\\*b https://x.test/a**");
+    let at = view.text.len();
+    view.apply(
+        session
+            .replace(session.revision(), range(at, at), " ", &mut |_| Ok(()))
+            .unwrap(),
+    );
+    assert_eq!(view.text, "x b https://x.test/a ");
+    assert_eq!(session.source_text(), "x **b https://x.test/a** ");
+    let projection = session
+        .project(session.revision(), range(0, view.text.len()))
+        .unwrap();
+    assert_eq!(projection.links.len(), 1);
+    assert_eq!(projection.links[0].destination, "https://x.test/a");
+    assert!(projection
+        .runs
+        .iter()
+        .filter(|run| run.range.start.0 >= 2 && run.range.end.0 <= 20)
+        .all(|run| run.formats.contains(&futo_notes_editor::InlineFormat::Bold)));
+    view.apply(
+        session
+            .undo(session.revision(), &mut |_| Ok(()))
+            .unwrap()
+            .unwrap(),
+    );
+    assert_eq!(view.text, "x **b https://x.test/a**");
+    assert_eq!(session.source_text(), "x \\*\\*b https://x.test/a**");
+    view.apply(
+        session
+            .redo(session.revision(), &mut |_| Ok(()))
+            .unwrap()
+            .unwrap(),
+    );
+    assert_eq!(view.text, "x b https://x.test/a ");
+    assert_eq!(session.source_text(), "x **b https://x.test/a** ");
+}
