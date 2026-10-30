@@ -16,13 +16,18 @@ pub(crate) struct ListLine {
     pub content_column: usize,
     pub previous_content_column: Option<usize>,
     pub parent_marker_column: Option<usize>,
+    pub parent_marker: Option<Range<usize>>,
+    pub parent_number: Option<u64>,
     pub parent_content_column: Option<usize>,
     pub quote_depth: usize,
 }
 
 impl ListLine {
     pub fn shift(&mut self, by: usize) {
-        for range in [&mut self.marker, &mut self.owner, &mut self.item] {
+        for range in [&mut self.marker, &mut self.owner, &mut self.item]
+            .into_iter()
+            .chain(self.parent_marker.iter_mut())
+        {
             range.start += by;
             range.end += by;
         }
@@ -161,6 +166,8 @@ pub(super) fn describe(source: &str, events: &[(Event<'_>, Range<usize>)]) -> Li
                     .last()
                     .filter(|&&at| items[at].quote_depth == quote_depth);
                 let parent_marker_column = parent.map(|&at| items[at].marker_column);
+                let parent_marker = parent.map(|&at| items[at].marker.clone());
+                let parent_number = parent.and_then(|&at| items[at].ordinal);
                 let parent_content_column = parent.map(|&at| items[at].content_column);
                 active_items.push(items.len());
                 items.push(ListLine {
@@ -176,6 +183,8 @@ pub(super) fn describe(source: &str, events: &[(Event<'_>, Range<usize>)]) -> Li
                     content_column,
                     previous_content_column,
                     parent_marker_column,
+                    parent_marker,
+                    parent_number,
                     parent_content_column,
                     quote_depth,
                 });

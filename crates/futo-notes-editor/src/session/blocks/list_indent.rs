@@ -47,20 +47,55 @@ impl EditorSession {
             .max()
             .unwrap_or(item.item.end);
         let raw = self.source.byte_slice(start..end).to_string();
+        let lifted = if add {
+            None
+        } else {
+            let parent = self
+                .source
+                .byte_slice(
+                    item.parent_marker
+                        .clone()
+                        .ok_or(EditorError::UnrepresentableFormat)?,
+                )
+                .to_string();
+            Some(super::list_styles::lifted_marker(
+                &parent,
+                item.parent_number,
+            ))
+        };
+        let padding = self
+            .source
+            .byte_slice(item.marker.end..start + item.indent)
+            .to_string();
+        let body_delta = lifted
+            .as_ref()
+            .map(|marker| {
+                let target = item.parent_marker_column.unwrap() + marker.len();
+                crate::inline::columns(&padding, target) as isize - item.content_column as isize
+            })
+            .unwrap_or(width as isize);
         let mut output = String::with_capacity(raw.len() + width);
-        for line in raw.split_inclusive('\n') {
+        for (index, line) in raw.split_inclusive('\n').enumerate() {
             let prefix = quote_prefix_end(line, item.quote_depth);
             let base = crate::inline::columns(&line[..prefix], 0);
             output.push_str(&line[..prefix]);
+            if let Some(marker) = lifted.as_ref().filter(|_| index == 0) {
+                output.push_str(&" ".repeat(item.parent_marker_column.unwrap() - base));
+                output.push_str(marker);
+                output.push_str(&padding);
+                output.push_str(&line[item.indent..]);
+                continue;
+            }
             let line = &line[prefix..];
             if line.trim_matches([' ', '\t', '\r', '\n']).is_empty() {
                 output.push_str(line);
                 continue;
             }
-            if add {
-                output.push_str(&" ".repeat(width));
+            if body_delta >= 0 {
+                output.push_str(&" ".repeat(body_delta as usize));
                 output.push_str(line);
             } else {
+                let width = body_delta.unsigned_abs();
                 let mut column = base;
                 let mut bytes = 0;
                 for byte in line.bytes() {

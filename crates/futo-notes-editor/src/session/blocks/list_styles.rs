@@ -207,3 +207,16 @@ impl EditorSession {
         result
     }
 }
+
+/// A lifted item joins its actual parent list. Only the touched marker changes;
+/// its descendants follow the resulting content column, not a fixed indent.
+pub(super) fn lifted_marker(parent: &str, number: Option<u64>) -> String {
+    match number {
+        Some(number) => format!(
+            "{}{}",
+            super::lists::physical_number(number + 1),
+            parent.chars().last().unwrap()
+        ),
+        None => parent.to_owned(),
+    }
+}
