@@ -196,8 +196,13 @@ fn typing_a_bare_url_waits_for_word_end_and_keeps_bare_source_through_history() 
     assert_eq!(links[0].range, range(4, 23));
     assert_eq!(links[0].destination, "https://youtube.com");
     view.apply(session.undo(Revision(2), &mut |_| Ok(())).unwrap().unwrap());
-    assert_eq!(session.source_text(), "");
-    assert_eq!(view.text, "");
+    assert_eq!(session.source_text(), "see https://youtube.com");
+    assert_eq!(view.text, "see https://youtube.com");
+    assert!(session
+        .project(Revision(3), range(0, 23))
+        .unwrap()
+        .links
+        .is_empty());
     view.apply(session.redo(Revision(3), &mut |_| Ok(())).unwrap().unwrap());
     assert_eq!(session.source_text(), "see https://youtube.com ok");
     assert_eq!(
