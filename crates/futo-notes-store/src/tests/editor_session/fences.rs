@@ -189,3 +189,86 @@ fn nested_code_enter_recovery_preserves_all_container_and_fence_spelling() {
         "> ~~~~Rust info\r\n> a\n> b\r\n> ~~~~~ \r\n\nend"
     );
 }
+
+#[test]
+fn unchanged_fence_many_runs_recover_exact_prefixes_after_append_and_undo_failures() {
+    for changed in [false, true] {
+        let opening = " ```Rust\n a\n\n b\n";
+        let selected = range(0, 3);
+        let mut runs = vec![futo_notes_editor::DisplayReplacement {
+            range: selected,
+            inserted: "a\n\n".into(),
+        }];
+        if changed {
+            runs.push(futo_notes_editor::DisplayReplacement {
+                range: range(3, 4),
+                inserted: "B".into(),
+            });
+        }
+        let expected = if changed {
+            " ```Rust\n a\n\n B\n"
+        } else {
+            opening
+        };
+        let display = if changed { "a\n\nB" } else { "a\n\nb" };
+        let root = TestRoot::new();
+        let store = store(&root);
+        store.create("", "code", opening).unwrap();
+        let disk = Arc::new(Mutex::new(storage::Disk::default()));
+        {
+            let mut editor = store
+                .open_editor_with_recovery("code", storage::options(&disk))
+                .unwrap();
+            editor
+                .select_with_affinity(Revision(0), selected, futo_notes_editor::Affinity::Forward)
+                .unwrap();
+            let original_display = editor.display_text();
+            disk.lock().unwrap().fault = Some(storage::Fault::Append);
+            assert!(matches!(
+                editor.replace_many(Revision(0), &runs),
+                Err(EditorStoreError::RecoveryAppend(_))
+            ));
+            assert_eq!(editor.source_text(), opening);
+            assert_eq!(editor.revision(), Revision(0));
+            assert_eq!(editor.display_text(), original_display);
+            assert_eq!(editor.selection(), selected);
+            assert!(matches!(
+                editor.replace_many(Revision(0), &runs),
+                Err(EditorStoreError::RecoveryPaused)
+            ));
+            disk.lock().unwrap().fault = None;
+            editor.resume_recovery().unwrap();
+            assert!(editor.undo(Revision(0)).unwrap().is_none());
+            editor.replace_many(Revision(0), &runs).unwrap();
+            assert_eq!(editor.source_text(), expected);
+            assert_eq!(editor.display_text(), display);
+            let selected = editor.selection();
+            disk.lock().unwrap().fault = Some(storage::Fault::Append);
+            assert!(matches!(
+                editor.undo(editor.revision()),
+                Err(EditorStoreError::RecoveryAppend(_))
+            ));
+            assert_eq!(editor.source_text(), expected);
+            assert_eq!(editor.display_text(), display);
+            assert_eq!(editor.selection(), selected);
+            disk.lock().unwrap().fault = None;
+            editor.resume_recovery().unwrap();
+            editor.undo(editor.revision()).unwrap().unwrap();
+            assert_eq!(editor.source_text(), opening);
+            editor.redo(editor.revision()).unwrap().unwrap();
+            assert_eq!(editor.source_text(), expected);
+            editor.flush_recovery().unwrap();
+            assert_eq!(store.read("code").unwrap(), opening);
+        }
+        let mut recovered = store
+            .open_editor_with_recovery("code", storage::options(&disk))
+            .unwrap();
+        assert_eq!(recovered.source_text(), expected);
+        assert_eq!(recovered.display_text(), display);
+        assert!(recovered.undo(recovered.revision()).unwrap().is_none());
+        recovered.checkpoint().unwrap();
+        assert_eq!(store.read("code").unwrap(), expected);
+        drop(recovered);
+        assert_eq!(store.open_editor("code").unwrap().source_text(), expected);
+    }
+}

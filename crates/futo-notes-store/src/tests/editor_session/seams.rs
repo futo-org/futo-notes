@@ -21,7 +21,7 @@ fn structural_seams_and_raw_composition_recover_exact_source_and_carets() {
         .into_iter()
         .flat_map(|source| serde_json::from_str::<Vec<serde_json::Value>>(source).unwrap())
         .collect();
-    assert_eq!(cases.len(), 64);
+    assert_eq!(cases.len(), 72);
     for case in &cases {
         let text = |key: &str| case[key].as_str().unwrap();
         let root = TestRoot::new();
@@ -159,16 +159,23 @@ fn structural_seams_and_raw_composition_recover_exact_source_and_carets() {
                     .unwrap(),
                 );
             } else if mode == "explicit" {
-                apply(
-                    s.replace_many_utf16(
-                        s.revision(),
-                        &[DisplayUtf16Replacement {
-                            range: selected,
-                            inserted,
-                        }],
-                    )
-                    .unwrap(),
-                );
+                let replacements: Vec<_> = if let Some(runs) = case["replacements"].as_array() {
+                    runs.iter()
+                        .map(|run| DisplayUtf16Replacement {
+                            range: range(
+                                run[0].as_u64().unwrap() as usize,
+                                run[1].as_u64().unwrap() as usize,
+                            ),
+                            inserted: run[2].as_str().unwrap().encode_utf16().collect(),
+                        })
+                        .collect()
+                } else {
+                    vec![DisplayUtf16Replacement {
+                        range: selected,
+                        inserted,
+                    }]
+                };
+                apply(s.replace_many_utf16(s.revision(), &replacements).unwrap());
             } else if mode == "batch" {
                 let replacements = [(0, 1, "!"), (1, 2, "?"), (3, 5, "AC")].map(|(a, z, text)| {
                     DisplayUtf16Replacement {

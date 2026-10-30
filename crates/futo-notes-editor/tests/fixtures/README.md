@@ -1,6 +1,6 @@
 # Structural seam fixtures
 
-`structural-seams.json` and `fence-physical-rows.json` contain sixty-four hand-worked synthetic public-interface
+`structural-seams.json` and `fence-physical-rows.json` contain seventy-two hand-worked synthetic public-interface
 regressions for #296 and #297. The original thirty-eight objects remain an exact
 byte prefix. These are source/display/history/caret oracles, not actual
 OS captures. Ranges and carets use native UTF-16 code units. `history` counts Undo
@@ -55,3 +55,8 @@ physical-row literals live separately to stay within the file-size gate. Public 
 finite endpoint basis, source/UTF-16 round trips, selection echoes, rejection,
 Undo/Redo and fresh projection comparison; store fence tests exercise real
 append/Undo faults, resume/retry, replay, checkpoint and reopen.
+
+Eight appended source-identity literals preserve differing internal blank-row prefixes
+through raw identical input, explicit unchanged runs, an unchanged run before a
+later changed run, and explicit empty-run acceptance. Existing explicit consumers
+forward optional `replacements` verbatim; no caller rediscovery of run identity occurs.

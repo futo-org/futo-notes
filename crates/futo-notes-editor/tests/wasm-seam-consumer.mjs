@@ -15,7 +15,7 @@ const { WasmSession } = await import(pathToFileURL(process.argv[2]).href);
 const cases = ['structural-seams', 'fence-physical-rows'].flatMap((name) =>
   JSON.parse(readFileSync(new URL(`fixtures/${name}.json`, import.meta.url))),
 );
-assert.equal(cases.length, 64);
+assert.equal(cases.length, 72);
 const units = (text) => Uint16Array.from({ length: text.length }, (_, at) => text.charCodeAt(at));
 function host(vault, source) {
   const worker = spawn(process.argv[3], [vault, source], { stdio: ['pipe', 'pipe', 'inherit'] });
@@ -135,15 +135,16 @@ for (const item of cases) {
         page.replace_utf16_action(revision, ...item.range, units(item.text), '"Isolated"'),
       );
     } else if (item.mode === 'explicit') {
+      const runs = item.replacements ?? [[...item.range, item.text]];
       await apply(
         page.replace_many_utf16(
           revision,
-          JSON.stringify([
-            {
-              range: { start: item.range[0], end: item.range[1] },
-              inserted: Array.from(units(item.text)),
-            },
-          ]),
+          JSON.stringify(
+            runs.map(([start, end, text]) => ({
+              range: { start, end },
+              inserted: Array.from(units(text)),
+            })),
+          ),
         ),
       );
     } else if (item.mode === 'batch') {

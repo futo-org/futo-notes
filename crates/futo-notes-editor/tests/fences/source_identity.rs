@@ -96,3 +96,93 @@ fn unchanged_multiline_code_runs_keep_each_physical_prefix() {
     }
     assert_eq!(count, 192);
 }
+
+#[test]
+fn identical_code_raw_os_ime_and_empty_many_keep_their_acceptance_policies() {
+    for eol in ["\n", "\r\n"] {
+        for depth in 0..=2 {
+            for closed in [false, true] {
+                let p = "> ".repeat(depth);
+                let source = format!(
+                    "{p} ```Rust{eol}{p} a{eol}{p}{eol}{p} b{eol}{}",
+                    if closed {
+                        format!("{p} ```")
+                    } else {
+                        String::new()
+                    }
+                );
+                let shown = format!("a{eol}{eol}b");
+                for route in ["raw", "os", "ime", "empty-many"] {
+                    let mut s = EditorSession::open(&source);
+                    let mut view = ReferenceView::new(&shown);
+                    let end = shown.len() - 1;
+                    let selected = range(0, end);
+                    s.select_with_affinity(s.revision(), selected, Affinity::Forward)
+                        .unwrap();
+                    let mut accepts = 0;
+                    let mut accept = |_: &SourceEdit| {
+                        accepts += 1;
+                        Ok(())
+                    };
+                    let change = match route {
+                        "raw" => Some(
+                            s.replace_action(
+                                s.revision(),
+                                selected,
+                                &shown[..end],
+                                InputAction::Isolated,
+                                &mut accept,
+                            )
+                            .unwrap(),
+                        ),
+                        "os" => s
+                            .replace_os(s.revision(), selected, &shown[..end], &[], &mut accept)
+                            .unwrap(),
+                        "ime" => {
+                            s.compose(s.revision(), selected, &shown[..end]).unwrap();
+                            s.commit_composition(s.revision(), None, &mut accept)
+                                .unwrap()
+                        }
+                        _ => Some(
+                            s.replace_many(
+                                s.revision(),
+                                &[DisplayReplacement {
+                                    range: range(0, 0),
+                                    inserted: String::new(),
+                                }],
+                                &mut accept,
+                            )
+                            .unwrap(),
+                        ),
+                    };
+                    let explicit = matches!(route, "raw" | "empty-many");
+                    assert_eq!(accepts, usize::from(explicit));
+                    assert_eq!(change.is_some(), explicit);
+                    if let Some(change) = change {
+                        view.apply(change);
+                    }
+                    assert_eq!(s.source_text(), source);
+                    assert_eq!(view.text, shown);
+                    assert_fresh_projection(&s, &shown);
+                    if explicit {
+                        let caret = if route == "empty-many" { 0 } else { end };
+                        assert_eq!(s.selection(), range(caret, caret));
+                        view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+                        assert_eq!(s.selection(), selected);
+                        assert_eq!(s.source_text(), source);
+                        view.apply(s.redo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+                        assert_eq!(s.selection(), range(caret, caret));
+                        assert_eq!(s.source_text(), source);
+                    } else {
+                        assert!(s
+                            .undo(s.revision(), &mut |_| panic!(
+                                "unchanged OS/IME has no history"
+                            ))
+                            .unwrap()
+                            .is_none());
+                    }
+                }
+            }
+        }
+    }
+}

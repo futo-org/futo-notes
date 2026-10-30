@@ -142,5 +142,149 @@
     "expectedDisplay": "a\r\nX",
     "caret": 4,
     "history": 1
+  },
+  {
+    "name": "code-source-identity-lf-raw",
+    "source": " ```Rust\n a\n\n b\n",
+    "display": "a\n\nb",
+    "mode": "typing",
+    "range": [
+      0,
+      3
+    ],
+    "text": "a\n\n",
+    "expectedSource": " ```Rust\n a\n\n b\n",
+    "expectedDisplay": "a\n\nb",
+    "caret": 3,
+    "history": 1
+  },
+  {
+    "name": "code-source-identity-lf-many",
+    "source": " ```Rust\n a\n\n b\n",
+    "display": "a\n\nb",
+    "mode": "explicit",
+    "range": [
+      0,
+      3
+    ],
+    "text": "a\n\n",
+    "expectedSource": " ```Rust\n a\n\n b\n",
+    "expectedDisplay": "a\n\nb",
+    "caret": 3,
+    "history": 1
+  },
+  {
+    "name": "code-source-identity-lf-many-changed",
+    "source": " ```Rust\n a\n\n b\n",
+    "display": "a\n\nb",
+    "mode": "explicit",
+    "range": [
+      0,
+      3
+    ],
+    "text": "a\n\n",
+    "expectedSource": " ```Rust\n a\n\n B\n",
+    "expectedDisplay": "a\n\nB",
+    "caret": 4,
+    "history": 1,
+    "replacements": [
+      [
+        0,
+        3,
+        "a\n\n"
+      ],
+      [
+        3,
+        4,
+        "B"
+      ]
+    ]
+  },
+  {
+    "name": "code-source-identity-lf-empty-many",
+    "source": " ```Rust\n a\n\n b\n",
+    "display": "a\n\nb",
+    "mode": "explicit",
+    "range": [
+      0,
+      0
+    ],
+    "text": "",
+    "expectedSource": " ```Rust\n a\n\n b\n",
+    "expectedDisplay": "a\n\nb",
+    "caret": 0,
+    "history": 1
+  },
+  {
+    "name": "code-source-identity-crlf-raw",
+    "source": "> >  ```Rust\r\n> >  a\r\n> > \r\n> >  b\r\n",
+    "display": "a\r\n\r\nb",
+    "mode": "typing",
+    "range": [
+      0,
+      5
+    ],
+    "text": "a\r\n\r\n",
+    "expectedSource": "> >  ```Rust\r\n> >  a\r\n> > \r\n> >  b\r\n",
+    "expectedDisplay": "a\r\n\r\nb",
+    "caret": 5,
+    "history": 1
+  },
+  {
+    "name": "code-source-identity-crlf-many",
+    "source": "> >  ```Rust\r\n> >  a\r\n> > \r\n> >  b\r\n",
+    "display": "a\r\n\r\nb",
+    "mode": "explicit",
+    "range": [
+      0,
+      5
+    ],
+    "text": "a\r\n\r\n",
+    "expectedSource": "> >  ```Rust\r\n> >  a\r\n> > \r\n> >  b\r\n",
+    "expectedDisplay": "a\r\n\r\nb",
+    "caret": 5,
+    "history": 1
+  },
+  {
+    "name": "code-source-identity-crlf-many-changed",
+    "source": "> >  ```Rust\r\n> >  a\r\n> > \r\n> >  b\r\n",
+    "display": "a\r\n\r\nb",
+    "mode": "explicit",
+    "range": [
+      0,
+      5
+    ],
+    "text": "a\r\n\r\n",
+    "expectedSource": "> >  ```Rust\r\n> >  a\r\n> > \r\n> >  B\r\n",
+    "expectedDisplay": "a\r\n\r\nB",
+    "caret": 6,
+    "history": 1,
+    "replacements": [
+      [
+        0,
+        5,
+        "a\r\n\r\n"
+      ],
+      [
+        5,
+        6,
+        "B"
+      ]
+    ]
+  },
+  {
+    "name": "code-source-identity-crlf-empty-many",
+    "source": "> >  ```Rust\r\n> >  a\r\n> > \r\n> >  b\r\n",
+    "display": "a\r\n\r\nb",
+    "mode": "explicit",
+    "range": [
+      0,
+      0
+    ],
+    "text": "",
+    "expectedSource": "> >  ```Rust\r\n> >  a\r\n> > \r\n> >  b\r\n",
+    "expectedDisplay": "a\r\n\r\nb",
+    "caret": 0,
+    "history": 1
   }
 ]

@@ -28,14 +28,14 @@ class NativeEditorStructuralSeamTest {
         val readmeTitle = assets.open("README.md").bufferedReader().use { it.readLine() }
         assertEquals("# Cross-language note-rule conformance", readmeTitle)
         val cases = structuralCases(assets)
-        assertEquals(64, cases.size)
+        assertEquals(72, cases.size)
     }
 
     @Test
     fun structuralSeamsAndRawMarkedInputKeepExactNativeCaretsAndRecovery() {
         val context = InstrumentationRegistry.getInstrumentation().context
         val cases = structuralCases(context.assets)
-        assertEquals(64, cases.size)
+        assertEquals(72, cases.size)
         for (index in 0 until cases.size) {
             val item = cases[index]
             val root = File(InstrumentationRegistry.getInstrumentation().targetContext.cacheDir, "editor-seams-${UUID.randomUUID()}")
@@ -115,7 +115,14 @@ class NativeEditorStructuralSeamTest {
                                 }
                             }
                             "typing" -> apply(s.replaceUtf16Action(0uL, selected, inserted, EditorInputAction.ISOLATED))
-                            "explicit" -> apply(s.replaceManyUtf16(0uL, listOf(EditorUtf16Replacement(selected, inserted))))
+                            "explicit" -> {
+                                val runs = item.optJSONArray("replacements")
+                                val replacements = if (runs == null) listOf(EditorUtf16Replacement(selected, inserted)) else (0 until runs.length()).map { at ->
+                                    val run = runs.getJSONArray(at)
+                                    EditorUtf16Replacement(EditorUtf16Range(run.getLong(0).toULong(), run.getLong(1).toULong()), units(run.getString(2)))
+                                }
+                                apply(s.replaceManyUtf16(0uL, replacements))
+                            }
                             "batch" -> apply(s.replaceManyUtf16(0uL, listOf(EditorUtf16Replacement(EditorUtf16Range(0uL, 1uL), units("!")), EditorUtf16Replacement(EditorUtf16Range(1uL, 2uL), units("?")), EditorUtf16Replacement(EditorUtf16Range(3uL, 5uL), units("AC")))))
                         }
                         assertEquals(item.getString("expectedDisplay"), view.toString(Charsets.UTF_8))
