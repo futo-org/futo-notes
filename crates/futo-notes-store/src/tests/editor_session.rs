@@ -8,6 +8,7 @@ mod durability;
 mod lifecycle;
 mod lifecycle_crashes;
 mod lifecycle_faults;
+mod lists;
 mod native_input_traces;
 mod paragraphs;
 mod portable;

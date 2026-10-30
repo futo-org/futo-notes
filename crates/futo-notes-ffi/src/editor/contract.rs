@@ -105,6 +105,10 @@ pub enum EditorBlockCommand {
     Indent,
     Outdent,
     Divider,
+    BulletList,
+    OrderedList,
+    TaskList,
+    ToggleTask,
 }
 impl From<EditorBlockCommand> for editor::BlockCommand {
     fn from(value: EditorBlockCommand) -> Self {
@@ -114,6 +118,10 @@ impl From<EditorBlockCommand> for editor::BlockCommand {
             EditorBlockCommand::Indent => Self::Indent,
             EditorBlockCommand::Outdent => Self::Outdent,
             EditorBlockCommand::Divider => Self::Divider,
+            EditorBlockCommand::BulletList => Self::BulletList,
+            EditorBlockCommand::OrderedList => Self::OrderedList,
+            EditorBlockCommand::TaskList => Self::TaskList,
+            EditorBlockCommand::ToggleTask => Self::ToggleTask,
         }
     }
 }
@@ -414,11 +422,29 @@ pub struct EditorProjection {
     pub blocks: Vec<EditorBlockDescription>,
 }
 #[derive(Debug, PartialEq, Eq, uniffi::Record)]
+pub struct EditorListDescription {
+    pub depth: u64,
+    pub number: Option<u64>,
+    pub checked: Option<bool>,
+    pub first: bool,
+}
+impl From<editor::ListDescription> for EditorListDescription {
+    fn from(value: editor::ListDescription) -> Self {
+        Self {
+            depth: value.depth as u64,
+            number: value.number,
+            checked: value.checked,
+            first: value.first,
+        }
+    }
+}
+#[derive(Debug, PartialEq, Eq, uniffi::Record)]
 pub struct EditorBlockDescription {
     pub range: EditorByteRange,
     pub heading: u8,
     pub quote_depth: u64,
     pub divider: bool,
+    pub list: Option<EditorListDescription>,
 }
 impl From<editor::ProjectionSlice> for EditorProjection {
     fn from(value: editor::ProjectionSlice) -> Self {
@@ -434,6 +460,7 @@ impl From<editor::ProjectionSlice> for EditorProjection {
                     heading: block.heading,
                     quote_depth: block.quote_depth as u64,
                     divider: block.divider,
+                    list: block.list.map(Into::into),
                 })
                 .collect(),
             runs: value

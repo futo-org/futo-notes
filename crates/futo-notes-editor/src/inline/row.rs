@@ -28,9 +28,12 @@ pub(crate) struct Row {
 
 impl Row {
     pub fn parse(source: &str) -> Self {
-        let events: Vec<_> = Parser::new_ext(source, Options::ENABLE_STRIKETHROUGH)
-            .into_offset_iter()
-            .collect();
+        let events: Vec<_> = Parser::new_ext(
+            source,
+            Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS,
+        )
+        .into_offset_iter()
+        .collect();
         let (blocks, prefixes) = super::blocks::describe(source, &events);
         let mut hidden = vec![false; source.len()];
         for prefix in prefixes {
@@ -200,7 +203,7 @@ pub(crate) fn paragraphs(source: &str) -> Vec<&str> {
     let protected: Vec<_> = Parser::new(source)
         .into_offset_iter()
         .filter_map(|(event, range)| match event {
-            Event::Start(Tag::CodeBlock(_)) => Some(range),
+            Event::Start(Tag::CodeBlock(_) | Tag::List(_)) => Some(range),
             _ => None,
         })
         .collect();

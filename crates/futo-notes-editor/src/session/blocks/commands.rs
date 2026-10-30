@@ -34,6 +34,15 @@ impl EditorSession {
         if matches!(command, BlockCommand::Heading(level) if level > 6) {
             return Err(EditorError::InvalidRange);
         }
+        if command == BlockCommand::ToggleTask {
+            return self.toggle_task(expected, range, accept);
+        }
+        if matches!(
+            command,
+            BlockCommand::BulletList | BlockCommand::OrderedList | BlockCommand::TaskList
+        ) {
+            return self.list_command(expected, range, command, accept);
+        }
         let lines = self.projection.block_lines(range);
         if !lines.iter().any(|line| changes_block(line, command)) {
             return Ok(None);
@@ -280,7 +289,11 @@ impl EditorSession {
                     }
                     BlockCommand::Indent => depth += 1,
                     BlockCommand::Outdent => depth -= 1,
-                    BlockCommand::Divider => {}
+                    BlockCommand::Divider
+                    | BlockCommand::ToggleTask
+                    | BlockCommand::BulletList
+                    | BlockCommand::OrderedList
+                    | BlockCommand::TaskList => {}
                 }
             }
             (heading, depth)
@@ -327,6 +340,10 @@ fn changes_block(line: &crate::inline::blocks::BlockLine, command: BlockCommand)
         BlockCommand::Quote => line.quote_depth == 0 || line.heading > 0,
         BlockCommand::Indent | BlockCommand::Outdent => line.quote_depth > 0,
         BlockCommand::Divider => true,
+        BlockCommand::ToggleTask
+        | BlockCommand::BulletList
+        | BlockCommand::OrderedList
+        | BlockCommand::TaskList => false,
     }
 }
 

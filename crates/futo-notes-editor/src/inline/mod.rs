@@ -1,6 +1,7 @@
 mod block_edit;
 pub(crate) mod blocks;
 mod edit;
+mod lists;
 mod row;
 mod spelling;
 mod tree;
@@ -132,6 +133,12 @@ impl Projection {
                 heading: block.heading,
                 quote_depth: block.quote_depth,
                 divider: block.divider,
+                list: block.list.as_ref().map(|list| crate::ListDescription {
+                    depth: list.depth,
+                    number: list.ordinal,
+                    checked: list.checked,
+                    first: list.first,
+                }),
             })
             .collect();
         ProjectionSlice {
@@ -172,6 +179,13 @@ impl Projection {
                     block.source.end += source;
                     block.content.start += source;
                     block.content.end += source;
+                    if let Some(list) = &mut block.list {
+                        list.shift(source);
+                    }
+                    if let Some(task) = &mut block.task {
+                        task.start += source;
+                        task.end += source;
+                    }
                     for physical in block.bodies.iter_mut().chain(block.underline.iter_mut()) {
                         physical.source.start += source;
                         physical.source.end += source;

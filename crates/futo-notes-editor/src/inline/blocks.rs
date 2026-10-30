@@ -26,6 +26,8 @@ pub(crate) struct BlockLine {
     pub quote_start: bool,
     pub divider: bool,
     pub code: bool,
+    pub list: Option<super::lists::ListLine>,
+    pub task: Option<Range<usize>>,
     pub bodies: Vec<PhysicalLine>,
     pub underline: Option<PhysicalLine>,
 }
@@ -49,6 +51,8 @@ pub(super) fn describe(
                 quote_start: false,
                 divider: false,
                 code: false,
+                list: None,
+                task: None,
                 bodies: Vec::new(),
                 underline: None,
             }
@@ -64,6 +68,8 @@ pub(super) fn describe(
             quote_start: false,
             divider: false,
             code: false,
+            list: None,
+            task: None,
             bodies: Vec::new(),
             underline: None,
         });
@@ -121,6 +127,7 @@ pub(super) fn describe(
             _ => {}
         }
     }
+    let (list_prefixes, lists) = super::lists::describe(source, events);
     let mut prefixes = Vec::new();
     for line in &mut lines {
         let end = line.content.end;
@@ -167,6 +174,53 @@ pub(super) fn describe(
                             .len();
                 }
             }
+        }
+        line.task = events.iter().find_map(|(event, range)| {
+            if matches!(event, Event::TaskListMarker(_))
+                && line.source.start <= range.start
+                && range.start < end
+            {
+                let at = range.start + source[range.clone()].find('[')?;
+                Some(at..at + 3)
+            } else {
+                None
+            }
+        });
+        line.list = lists
+            .iter()
+            .rev()
+            .find(|list| list.item.start <= end && line.source.start < list.item.end)
+            .cloned();
+        if let Some(list) = &mut line.list {
+            list.first = line.source.start <= list.marker.start && list.marker.start <= end;
+            if !list.first {
+                let first_start = source[..list.marker.start]
+                    .rfind('\n')
+                    .map_or(0, |at| at + 1);
+                let prefix_end = list_prefixes
+                    .iter()
+                    .find(|(at, _)| *at == list.marker.start)
+                    .unwrap()
+                    .1;
+                let required = prefix_end - first_start;
+                let mut column = start - line.source.start;
+                while start < end && column < required {
+                    match source.as_bytes()[start] {
+                        b' ' => column += 1,
+                        b'\t' => column += 4 - column % 4,
+                        _ => break,
+                    }
+                    start += 1;
+                }
+            }
+        }
+        if let Some(end) = list_prefixes
+            .iter()
+            .filter(|(at, _)| *at >= line.source.start && *at <= end)
+            .map(|(_, end)| *end)
+            .max()
+        {
+            start = start.max(end);
         }
         prefixes.push(line.source.start..start);
         line.content.start = start;

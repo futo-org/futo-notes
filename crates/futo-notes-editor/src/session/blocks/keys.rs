@@ -1,7 +1,7 @@
 use super::*;
 
 impl EditorSession {
-    fn commit_block_key(
+    pub(super) fn commit_block_key(
         &mut self,
         expected: Revision,
         input: DisplayRange,
