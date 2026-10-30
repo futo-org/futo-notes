@@ -34,6 +34,9 @@ impl EditorSession {
         if matches!(command, BlockCommand::Heading(level) if level > 6) {
             return Err(EditorError::InvalidRange);
         }
+        if command == BlockCommand::CodeBlock {
+            return self.code_block_command(expected, range, accept);
+        }
         let lines = self.projection.block_lines(range);
         if !lines.iter().any(|line| changes_block(line, command)) {
             return Ok(None);
@@ -280,7 +283,7 @@ impl EditorSession {
                     }
                     BlockCommand::Indent => depth += 1,
                     BlockCommand::Outdent => depth -= 1,
-                    BlockCommand::Divider => {}
+                    BlockCommand::Divider | BlockCommand::CodeBlock => {}
                 }
             }
             (heading, depth)
@@ -326,7 +329,7 @@ fn changes_block(line: &crate::inline::blocks::BlockLine, command: BlockCommand)
         BlockCommand::Heading(level) => line.heading != level,
         BlockCommand::Quote => line.quote_depth == 0 || line.heading > 0,
         BlockCommand::Indent | BlockCommand::Outdent => line.quote_depth > 0,
-        BlockCommand::Divider => true,
+        BlockCommand::Divider | BlockCommand::CodeBlock => true,
     }
 }
 

@@ -86,6 +86,8 @@ pub enum EditorParagraphKey {
     ShiftEnter,
     Backspace,
     Delete,
+    Tab,
+    ShiftTab,
 }
 impl From<EditorParagraphKey> for editor::ParagraphKey {
     fn from(value: EditorParagraphKey) -> Self {
@@ -94,6 +96,8 @@ impl From<EditorParagraphKey> for editor::ParagraphKey {
             EditorParagraphKey::ShiftEnter => Self::ShiftEnter,
             EditorParagraphKey::Backspace => Self::Backspace,
             EditorParagraphKey::Delete => Self::Delete,
+            EditorParagraphKey::Tab => Self::Tab,
+            EditorParagraphKey::ShiftTab => Self::ShiftTab,
         }
     }
 }
@@ -105,6 +109,7 @@ pub enum EditorBlockCommand {
     Indent,
     Outdent,
     Divider,
+    CodeBlock,
 }
 impl From<EditorBlockCommand> for editor::BlockCommand {
     fn from(value: EditorBlockCommand) -> Self {
@@ -114,6 +119,7 @@ impl From<EditorBlockCommand> for editor::BlockCommand {
             EditorBlockCommand::Indent => Self::Indent,
             EditorBlockCommand::Outdent => Self::Outdent,
             EditorBlockCommand::Divider => Self::Divider,
+            EditorBlockCommand::CodeBlock => Self::CodeBlock,
         }
     }
 }
@@ -419,6 +425,8 @@ pub struct EditorBlockDescription {
     pub heading: u8,
     pub quote_depth: u64,
     pub divider: bool,
+    pub code: bool,
+    pub language: Option<String>,
 }
 impl From<editor::ProjectionSlice> for EditorProjection {
     fn from(value: editor::ProjectionSlice) -> Self {
@@ -434,6 +442,8 @@ impl From<editor::ProjectionSlice> for EditorProjection {
                     heading: block.heading,
                     quote_depth: block.quote_depth as u64,
                     divider: block.divider,
+                    code: block.code,
+                    language: block.language,
                 })
                 .collect(),
             runs: value

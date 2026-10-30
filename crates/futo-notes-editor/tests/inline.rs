@@ -391,7 +391,7 @@ fn a_distant_edit_reparses_a_paragraph_window_instead_of_the_note() {
 fn inline_interpretation_does_not_enter_fenced_code_across_blank_lines() {
     let source =
         "before **bold**\n\n```md\n**literal**\n\n_unchanged_ [[x]] #tag\n```\n\nafter ~~gone~~";
-    let display = "before bold\n\n```md\n**literal**\n\n_unchanged_ [[x]] #tag\n```\n\nafter gone";
+    let display = "before bold\n\n**literal**\n\n_unchanged_ [[x]] #tag\n\nafter gone";
     let mut session = EditorSession::open(source);
     let mut view = ReferenceView::new(display);
     assert_eq!(session.display_text(), display);

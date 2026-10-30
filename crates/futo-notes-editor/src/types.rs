@@ -149,6 +149,9 @@ pub struct BlockDescription {
     pub heading: u8,
     pub quote_depth: usize,
     pub divider: bool,
+    pub code: bool,
+    /// First info-string word, preserving its case; rendering never rewrites source.
+    pub language: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

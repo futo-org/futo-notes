@@ -167,6 +167,9 @@ impl EditorSession {
         inserted: &str,
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<Option<ViewChange>, EditorError> {
+        if let Some(change) = self.fence_conversion(expected, range, inserted, accept)? {
+            return Ok(Some(change));
+        }
         if range.start != range.end {
             return Ok(None);
         }

@@ -1,8 +1,10 @@
 mod block_edit;
 pub(crate) mod blocks;
 mod edit;
+pub(crate) mod fences;
 mod row;
 mod spelling;
+mod toggle;
 mod tree;
 
 use crate::{
@@ -132,6 +134,8 @@ impl Projection {
                 heading: block.heading,
                 quote_depth: block.quote_depth,
                 divider: block.divider,
+                code: block.code,
+                language: block.code_language,
             })
             .collect();
         ProjectionSlice {
@@ -166,12 +170,20 @@ impl Projection {
                 } else {
                     a < range.end.0 && range.start.0 < z
                 };
-                if hit {
+                let empty_fence = block.fence.as_ref().is_some_and(|fence| {
+                    fence.body.is_empty()
+                        && block.source.start == fence.whole.start
+                        && a == range.start.0
+                });
+                if hit || empty_fence {
                     let mut block = block.clone();
                     block.source.start += source;
                     block.source.end += source;
                     block.content.start += source;
                     block.content.end += source;
+                    if let Some(fence) = &mut block.fence {
+                        fence.shift(source);
+                    }
                     for physical in block.bodies.iter_mut().chain(block.underline.iter_mut()) {
                         physical.source.start += source;
                         physical.source.end += source;

@@ -24,3 +24,10 @@ adjacent typing group through quote repair or divider insertion; an explicitly
 isolated first input keeps two. The same family covers a whitespace typing run
 that enters quote repair. Fixed-clock editor/store tests own the exact timing
 and failed-acceptance boundaries; thin consumers use the normal session clock.
+
+Fenced-code regression literals live in `../fences/`, driven through the public
+session and independent display-only reference view. The existing WASM block
+consumer and Swift/Kotlin block suites cover code/language semantics, Unicode
+Enter, Tab/Shift+Tab and the code-block command through real store recovery.
+They add no platform Markdown policy. The structural-seams fixture bytes remain
+unchanged; code literals are separately reviewed by their owning tests.
