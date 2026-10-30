@@ -366,3 +366,46 @@ fn a_label_correction_preserves_the_hidden_winning_definition_in_its_own_row() {
     view.apply(session.redo(Revision(2), &mut |_| Ok(())).unwrap().unwrap());
     assert_eq!(session.source_text(), corrected);
 }
+
+#[test]
+fn compound_last_use_removal_retains_the_later_body_target_across_definition_visibility() {
+    use futo_notes_editor::DisplayReplacement;
+    let original = "[one][id]\n\nmiddle\n\n[id]: /target 'T'\n\nbody";
+    let changed = "\n\nmiddle\n\n[id]: /target 'T'\n\nBODY";
+    let mut session = EditorSession::open(original);
+    let mut view = ReferenceView::new("one\n\nmiddle\n\nbody");
+    assert_eq!(session.display_text(), view.text);
+    let mut accepted = 0;
+    view.apply(
+        session
+            .replace_many(
+                Revision(0),
+                &[
+                    DisplayReplacement {
+                        range: range(0, 3),
+                        inserted: String::new(),
+                    },
+                    DisplayReplacement {
+                        range: range(13, 17),
+                        inserted: "BODY".into(),
+                    },
+                ],
+                &mut |_| {
+                    accepted += 1;
+                    Ok(())
+                },
+            )
+            .unwrap(),
+    );
+    assert_eq!(accepted, 1);
+    assert_eq!(session.source_text(), changed);
+    assert_eq!(view.text, changed);
+    assert_eq!(session.selection(), range(33, 33));
+    view.apply(session.undo(Revision(1), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(session.source_text(), original);
+    assert_eq!(view.text, "one\n\nmiddle\n\nbody");
+    view.apply(session.redo(Revision(2), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(session.source_text(), changed);
+    assert_eq!(session.selection(), range(33, 33));
+    assert_eq!(EditorSession::open(changed).display_text(), view.text);
+}
