@@ -379,3 +379,30 @@ fn outdent_lifts_one_container_level_and_preserves_descendants() {
     view.apply(s.redo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
     assert_eq!(s.source_text(), expected);
 }
+
+#[test]
+fn indent_moves_all_selected_siblings_as_one_exact_action() {
+    let raw = "* parent\n* one\n* two\n* keep";
+    let expected = "* parent\n  * one\n  * two\n* keep";
+    let shown = "parent\none\ntwo\nkeep";
+    let selected = range(7, 14);
+    let mut s = EditorSession::open(raw);
+    let mut view = ReferenceView::new(shown);
+    s.select(s.revision(), selected).unwrap();
+    view.apply(
+        s.block_command(
+            s.revision(),
+            selected,
+            BlockCommand::Indent,
+            &mut |_| Ok(()),
+        )
+        .unwrap()
+        .unwrap(),
+    );
+    assert_eq!(s.source_text(), expected);
+    assert_eq!(view.text, shown);
+    assert_eq!(s.selection(), selected);
+    view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(s.source_text(), raw);
+    assert_eq!(s.selection(), selected);
+}
