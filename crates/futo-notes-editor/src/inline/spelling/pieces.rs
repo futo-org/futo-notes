@@ -2,9 +2,15 @@
 use crate::inline::row::SpanKind;
 use std::ops::Range;
 
+#[derive(Clone)]
+pub(in crate::inline) enum PieceOrigin {
+    Source(Range<usize>),
+    Inserted(Range<usize>),
+}
+
 pub(in crate::inline) struct Piece {
     pub raw: String,
-    pub origin: Option<Range<usize>>,
+    pub origin: Option<PieceOrigin>,
     pub timing: bool,
     pub display: String,
     pub spans: Vec<usize>,
@@ -19,7 +25,7 @@ pub(in crate::inline) struct Marker {
 
 pub(in crate::inline) struct Spelling {
     pub text: String,
-    pub origins: Vec<(Range<usize>, Range<usize>)>,
+    pub origins: Vec<(PieceOrigin, Range<usize>)>,
     pub delimiters: Vec<Range<usize>>,
     pub caret: usize,
     pub input_start: usize,

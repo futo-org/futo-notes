@@ -279,14 +279,14 @@ pub(super) fn collect_origins(
     pieces: &[Piece],
     rendered: &Rendered,
     work: &mut usize,
-) -> Vec<(Range<usize>, Range<usize>)> {
+) -> Vec<(super::PieceOrigin, Range<usize>)> {
     pieces
         .iter()
         .zip(&rendered.pieces)
         .filter_map(|(piece, output)| {
             *work += 1;
             piece.origin.as_ref().map(|origin| {
-                *work += 2;
+                *work += 3;
                 (origin.clone(), output.clone())
             })
         })

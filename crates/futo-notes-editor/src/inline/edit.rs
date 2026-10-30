@@ -6,7 +6,7 @@ mod selection;
 mod source;
 use super::row::SpanKind;
 use super::{
-    spelling::{spell, Marker, Piece},
+    spelling::{spell, Marker, Piece, PieceOrigin},
     Projection,
 };
 use crate::{Affinity, DisplayRange, EditorError, InlineFormat};
@@ -116,13 +116,13 @@ impl Projection {
         }
         let mut changed = before;
         let insertion_index = changed.len();
-        changed.extend(inserted.chars().map(|ch| Piece {
+        changed.extend(inserted.char_indices().map(|(offset, ch)| Piece {
             raw: ch.to_string(),
             display: ch.to_string(),
             spans: active.clone(),
             trailing: false,
             definition: None,
-            origin: None,
+            origin: Some(PieceOrigin::Inserted(offset..offset + ch.len_utf8())),
             timing: false,
         }));
         let insertion_end = changed.len();
@@ -221,7 +221,7 @@ impl Projection {
         let output = rendered.text;
         let caret = rendered.caret;
         let (retained, correspondence_work) =
-            SourceCorrespondence::verify(&raw, &output, rendered.origins, source_start);
+            SourceCorrespondence::verify(&raw, inserted, &output, rendered.origins, source_start);
         let prefix = common_prefix(&raw, &output);
         let suffix: usize = raw[prefix..]
             .chars()
@@ -358,7 +358,7 @@ impl Projection {
                             spans: Vec::new(),
                             trailing: true,
                             definition: Some(key.clone()),
-                            origin: Some(base + range.start..base + range.end),
+                            origin: Some(PieceOrigin::Source(base + range.start..base + range.end)),
                             timing: false,
                         });
                     }
@@ -427,7 +427,9 @@ impl Projection {
                         spans: active,
                         trailing,
                         definition: None,
-                        origin: Some(base + segment.source.start..base + segment.source.end),
+                        origin: Some(PieceOrigin::Source(
+                            base + segment.source.start..base + segment.source.end,
+                        )),
                         timing: false,
                     });
                     continue;
@@ -438,7 +440,9 @@ impl Projection {
                     spans: active,
                     trailing: false,
                     definition: None,
-                    origin: Some(base + segment.source.start..base + segment.source.end),
+                    origin: Some(PieceOrigin::Source(
+                        base + segment.source.start..base + segment.source.end,
+                    )),
                     timing: row
                         .literal_delimiters
                         .binary_search_by_key(

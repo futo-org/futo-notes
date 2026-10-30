@@ -1,5 +1,6 @@
 //! Per-input display/source correspondence with exact step generation.
-use crate::{DisplayRange, EditorError, Revision, SourceEdit, SourceRange};
+use crate::session::EditorSession;
+use crate::{DisplayRange, EditorError, Revision, SourceEdit, SourceOffset, SourceRange};
 
 /// Sequential display replacements produced by one input. A structural boundary
 /// is staged before the ordinary input; retain both locations instead of
@@ -67,21 +68,52 @@ impl InputMapping {
         }
     }
 
-    pub(super) fn inserted_target(&self, within: usize, end: usize) -> Result<usize, EditorError> {
-        if let Some(display) = self.inserted_display {
-            if display.end.0 - display.start.0 == self.input.1 {
-                return Ok(display.start.0 + within);
+    pub(super) fn inserted_target(
+        &self,
+        within: usize,
+        staged: &EditorSession,
+    ) -> Result<(usize, usize), EditorError> {
+        if let Some(source) = self
+            .source
+            .as_ref()
+            .filter(|source| source.revision.0.checked_add(1) == Some(staged.revision().0))
+        {
+            let (mapped, mut work) = source.retained.map_inserted(within);
+            if let Some(offset) = mapped {
+                let point = crate::history::SourcePoint {
+                    source: SourceOffset(offset),
+                    within: 0,
+                    atom: None,
+                };
+                let (display, visits) = staged.projection.try_project_source_point(point);
+                work += visits;
+                if let Some(display) = display {
+                    return Ok((display, work));
+                }
+                if self.requires_source_identity {
+                    return Err(EditorError::UnrepresentableFormat);
+                }
             }
-            if within == 0 {
-                return Ok(display.start.0);
+            if self.requires_source_identity {
+                return Err(EditorError::UnrepresentableFormat);
             }
-            if within == self.input.1 {
-                return Ok(display.end.0);
+            if let Some(display) = self.inserted_display {
+                // Literal spelling already verified the exact inserted glyphs.
+                if display.end.0 - display.start.0 == self.input.1 {
+                    return Ok((display.start.0 + within, work));
+                }
             }
             return Err(EditorError::UnrepresentableFormat);
         }
-        end.checked_sub(self.input.1)
-            .map(|start| start + within)
+        if self.requires_source_identity {
+            return Err(EditorError::UnrepresentableFormat);
+        }
+        staged
+            .selection
+            .end
+            .0
+            .checked_sub(self.input.1)
+            .map(|start| (start + within, 1))
             .ok_or(EditorError::UnrepresentableFormat)
     }
 
@@ -114,4 +146,3 @@ impl InputMapping {
         Ok(offset)
     }
 }
-

@@ -2,7 +2,7 @@
 //! against the CommonMark parser before any source is accepted.
 mod pieces;
 mod render;
-pub(super) use pieces::{Marker, Piece, Spelling};
+pub(super) use pieces::{Marker, Piece, PieceOrigin, Spelling};
 mod url_timing;
 use super::row::SpanKind;
 use super::row::{Row, Span};

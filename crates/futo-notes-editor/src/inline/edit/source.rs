@@ -1,24 +1,43 @@
-//! Verify already-owned source pieces against their rendered physical ranges.
+//! Verify already-owned source/input pieces against rendered physical ranges.
 //! Equality validates lineage; it never searches for or discovers identities.
+use super::super::spelling::PieceOrigin;
 use crate::history::SourcePoint;
 use std::ops::Range;
 
+type Ranges = Vec<(Range<usize>, Range<usize>)>;
 #[derive(Default)]
 pub(crate) struct SourceCorrespondence {
-    retained: Vec<(Range<usize>, Range<usize>)>,
+    retained: Ranges,
+    inserted: Ranges,
+}
+fn append(ranges: &mut Ranges, old: Range<usize>, new: Range<usize>, work: &mut usize) {
+    *work += 1;
+    if let Some((last_old, last_new)) = ranges.last_mut() {
+        if last_old.end == old.start && last_new.end == new.start {
+            last_old.end = old.end;
+            last_new.end = new.end;
+            return;
+        }
+    }
+    ranges.push((old, new));
 }
 impl SourceCorrespondence {
     pub(super) fn verify(
         raw: &str,
+        inserted: &str,
         output: &str,
-        origins: Vec<(Range<usize>, Range<usize>)>,
+        origins: Vec<(PieceOrigin, Range<usize>)>,
         base: usize,
     ) -> (Self, usize) {
-        let mut retained: Vec<(Range<usize>, Range<usize>)> = Vec::new();
+        let mut result = Self::default();
         let mut work = 0;
-        for (old, new) in origins {
+        for (origin, new) in origins {
             work += 1;
-            let (Some(before), Some(after)) = (raw.get(old.clone()), output.get(new.clone()))
+            let (old, original, source) = match origin {
+                PieceOrigin::Source(range) => (range, raw, true),
+                PieceOrigin::Inserted(range) => (range, inserted, false),
+            };
+            let (Some(before), Some(after)) = (original.get(old.clone()), output.get(new.clone()))
             else {
                 continue;
             };
@@ -31,39 +50,54 @@ impl SourceCorrespondence {
             }) {
                 continue;
             }
-            work += 4;
-            let old = base + old.start..base + old.end;
+            work += 2;
             let new = base + new.start..base + new.end;
-            work += 1;
-            if let Some((last_old, last_new)) = retained.last_mut() {
-                if last_old.end == old.start && last_new.end == new.start {
-                    last_old.end = old.end;
-                    last_new.end = new.end;
-                    continue;
-                }
+            if source {
+                work += 2;
+                append(
+                    &mut result.retained,
+                    base + old.start..base + old.end,
+                    new,
+                    &mut work,
+                );
+            } else {
+                append(&mut result.inserted, old, new, &mut work);
             }
-            retained.push((old, new));
         }
-        (Self { retained }, work)
+        (result, work)
     }
 
     pub(crate) fn map(&self, mut point: SourcePoint) -> (Option<SourcePoint>, usize) {
-        let mut work = 0;
-        let first = self.retained.partition_point(|(old, _)| {
-            work += 1;
-            old.end < point.source.0
-        });
-        for (old, new) in &self.retained[first..] {
-            work += 1;
-            if old.start > point.source.0 {
-                break;
-            }
-            let end = point.source.0 + point.atom.map_or(0, |atom| atom.source_len);
-            if point.source.0 <= old.end && end <= old.end {
-                point.source.0 = new.start + point.source.0 - old.start;
-                return (Some(point), work);
-            }
+        let (mapped, work) = map(
+            &self.retained,
+            point.source.0,
+            point.atom.map_or(0, |atom| atom.source_len),
+        );
+        if let Some(source) = mapped {
+            point.source.0 = source;
+            (Some(point), work)
+        } else {
+            (None, work)
         }
-        (None, work)
     }
+    pub(crate) fn map_inserted(&self, offset: usize) -> (Option<usize>, usize) {
+        map(&self.inserted, offset, 0)
+    }
+}
+fn map(ranges: &Ranges, offset: usize, extent: usize) -> (Option<usize>, usize) {
+    let mut work = 0;
+    let first = ranges.partition_point(|(old, _)| {
+        work += 1;
+        old.end < offset
+    });
+    for (old, new) in &ranges[first..] {
+        work += 1;
+        if old.start > offset {
+            break;
+        }
+        if offset <= old.end && offset + extent <= old.end {
+            return (Some(new.start + offset - old.start), work);
+        }
+    }
+    (None, work)
 }

@@ -174,8 +174,33 @@ impl Row {
             return (None, 1);
         }
         let Some(atom) = point.atom else {
-            let (display, work) = self.display_at_with_work(point.source.0);
-            return (Some(display), work);
+            let mut work = 0;
+            let index = self.segments.partition_point(|segment| {
+                work += 1;
+                segment.source.end < point.source.0
+            });
+            let Some(segment) = self.segments.get(index) else {
+                return (Some(self.display.len()), work);
+            };
+            work += 1;
+            if !segment.identity
+                && segment.source.start < point.source.0
+                && point.source.0 < segment.source.end
+            {
+                return (None, work);
+            }
+            let display = if segment.identity {
+                segment.display.start + point.source.0 - segment.source.start
+            } else if point.source.0 == segment.source.end {
+                segment.display.end
+            } else {
+                segment.display.start
+            };
+            work += 1;
+            return (
+                self.display.is_char_boundary(display).then_some(display),
+                work,
+            );
         };
         let mut work = 0;
         let index = self.segments.partition_point(|segment| {

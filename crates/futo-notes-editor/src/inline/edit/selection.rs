@@ -1,5 +1,5 @@
 //! Visible range slicing retains exact spelling and inherited marker identity.
-use super::Piece;
+use super::{Piece, PieceOrigin};
 use std::ops::Range;
 
 pub(in crate::inline) struct Cut {
@@ -41,10 +41,14 @@ pub(in crate::inline) fn split_entities(pieces: Vec<Piece>, a: usize, z: usize) 
                 };
                 expanded.push(Piece {
                     origin: if piece.raw == piece.display {
-                        piece
-                            .origin
-                            .as_ref()
-                            .map(|source| source.start + pair[0]..source.start + pair[1])
+                        piece.origin.as_ref().map(|origin| match origin {
+                            PieceOrigin::Source(source) => {
+                                PieceOrigin::Source(source.start + pair[0]..source.start + pair[1])
+                            }
+                            PieceOrigin::Inserted(source) => PieceOrigin::Inserted(
+                                source.start + pair[0]..source.start + pair[1],
+                            ),
+                        })
                     } else {
                         None
                     },
