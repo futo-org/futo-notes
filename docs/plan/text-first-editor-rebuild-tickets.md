@@ -1,5 +1,10 @@
 # Shared Rust editor core: implementation tickets
 
+Table alignment changes, row reordering, column reordering and multi-cell/grid paste are
+also deferred by the maintainer. Preserve existing alignment and exact untouched bytes.
+Basic row/column insertion and deletion, cell editing/navigation and ordinary single-cell
+paste remain required; shared find and 20,000-line performance/durability remain required.
+
 Approved and published 2026-10-29 under [the engine/store spec](https://gitlab.futo.org/futo-notes/futo-notes/-/work_items/283).
 All 34 tickets are native Task children of #283. Active tickets carry `ready-for-agent`;
 execution must still respect their blockers and the explicit deferrals below. Conversion retained
@@ -20,8 +25,8 @@ from the current #283 milestone. Both issues stay open as future work and must n
 by agents or treated as completed. These two deferrals override the corresponding original
 parent stories; shipping editor behavior and defaults stay unchanged.
 
-Plain-text/Markdown copy, cut and paste (#302) remain required. Table-cell and grid paste
-(#310) remain required for the supported plain-text/Markdown forms; rich HTML conversion is
+Plain-text/Markdown copy, cut and paste (#302) remain required. Ordinary single-cell paste
+(#310) remains required for supported plain-text/Markdown forms; rich HTML conversion is
 deferred with #303. Consequently #310 depends on #302 and #309, and #315 no longer waits for
 #311. Final consumer acceptance and renderer handoff cover the active scope and list both
 deferrals explicitly. Tables, shared find, wikilink completion, the 20,000-line performance

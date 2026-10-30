@@ -1,5 +1,10 @@
 # Foundations and structural input
 
+Table alignment changes, row reordering, column reordering and multi-cell/grid paste are
+also deferred by the maintainer. Preserve existing alignment and exact untouched bytes.
+Basic row/column insertion and deletion, cell editing/navigation and ordinary single-cell
+paste remain required; shared find and 20,000-line performance/durability remain required.
+
 Part of the [#283 task graph](../text-first-editor-rebuild-tickets.md). Read its approved
 scope amendment before selecting work: rich HTML paste (#303) and rendered block movement
 (#311) are deferred; tables, shared find and 20,000-line performance/durability remain required.
