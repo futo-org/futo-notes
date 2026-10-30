@@ -361,7 +361,7 @@ struct Cut {
     right: Vec<usize>,
 }
 
-fn split_entities(pieces: Vec<Piece>, a: usize, z: usize) -> Vec<Piece> {
+pub(super) fn split_entities(pieces: Vec<Piece>, a: usize, z: usize) -> Vec<Piece> {
     let mut expanded = Vec::new();
     let mut position = 0;
     for piece in pieces {
