@@ -344,3 +344,18 @@ it('reference outdent retains an empty parent item when lifting a same-line nest
     { bullet_list: [{ list_item: ['paragraph:'] }, { list_item: ['paragraph:text'] }] },
   ]);
 });
+
+it('reference sink creates a new ordered child list starting at one', () => {
+  const list = s.nodes.ordered_list.create({ order: 9 }, [item('parent'), item('child')]);
+  const root = doc(list);
+  const state = stateAtText(root, 'child');
+  let after = state;
+  expect(
+    changeBlockIndent(1)(state, (tr) => {
+      after = state.apply(tr);
+    }),
+  ).toBe(true);
+  const nested = after.doc.firstChild!.firstChild!.lastChild!;
+  expect(nested.type.name).toBe('ordered_list');
+  expect(nested.attrs.order).toBe(1);
+});

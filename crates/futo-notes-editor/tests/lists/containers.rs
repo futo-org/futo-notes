@@ -295,3 +295,33 @@ fn outdent_retargets_each_selected_sibling_and_maps_its_own_descendants() {
     view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
     assert_eq!(s.source_text(), raw);
 }
+
+#[test]
+fn indent_starts_a_new_ordered_child_list_at_one() {
+    let raw = "9) parent\n10) child";
+    let mut s = EditorSession::open(raw);
+    let mut view = ReferenceView::new("parent\nchild");
+    s.select(s.revision(), range(7, 12)).unwrap();
+    view.apply(
+        s.block_command(
+            s.revision(),
+            range(7, 12),
+            BlockCommand::Indent,
+            &mut |_| Ok(()),
+        )
+        .unwrap()
+        .unwrap(),
+    );
+    assert_eq!(s.source_text(), "9) parent\n   1) child");
+    assert_eq!(view.text, "parent\nchild");
+    let p = s.project(s.revision(), range(7, 12)).unwrap();
+    let list = p
+        .blocks
+        .iter()
+        .find_map(|block| block.list.as_ref())
+        .unwrap();
+    assert_eq!(list.depth, 2);
+    assert_eq!(list.number, Some(1));
+    view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(s.source_text(), raw);
+}
