@@ -19,5 +19,6 @@ edit after a distant jump reparses only its paragraph window without rewriting
 the note's tail offsets. Work counters include actual parser input for candidate
 verification, paragraph partitioning and projection. Work in a single large
 paragraph, list or fence still depends on that region; progressive interpretation,
-complete allocation/work bounds and native device latency measurements remain
+a preceding list row retaining a long run of trailing blanks, complete allocation/work
+bounds and native device latency measurements remain
 in their dependent tickets.

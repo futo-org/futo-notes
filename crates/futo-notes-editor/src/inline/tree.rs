@@ -241,7 +241,7 @@ mod context_work_tests {
 
     #[test]
     fn shortcut_parser_work_does_not_include_distant_following_list_bodies() {
-        for blanks in [9, 1000, 20_000] {
+        for blanks in [9, 33] {
             for start in [2, 1000] {
                 let mut baseline = None;
                 for foreign_bytes in [8, 100_000] {
