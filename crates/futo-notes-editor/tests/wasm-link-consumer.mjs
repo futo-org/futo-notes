@@ -223,8 +223,73 @@ try {
     assert.deepEqual(await timingReopened(JSON.stringify({ checkpoint: true })), { id: 'plain' });
     await stop();
   }
+  for (const [original, finalSource, shown, selected, destination] of [
+    [
+      "# [id]: /target 'T'\n\n[one][id]\n\nbody",
+      "\\[id]: /target 'T'\n\n[one][id]\n\nbody",
+      "[id]: /target 'T'\n\n[one][id]\n\nbody",
+      4,
+      null,
+    ],
+    [
+      "# [a&acE;]: /target 'T'\n\n[one][a&acE;]\n\n[a&acE;]: /first 'First'",
+      "[a&acE;][a&acE;]: /target 'T'\n\n[one][a&acE;]\n\n[a&acE;]: /first 'First'",
+      "a\u223e\u0333: /target 'T'\n\none\n\n",
+      7,
+      '/first',
+    ],
+  ]) {
+    const blockVault = mkdtempSync(join(tmpdir(), 'futo-editor-wasm-reference-block-'));
+    timingVaults.push(blockVault);
+    const blockExchange = await start(original, blockVault);
+    let blockDisplay = shown;
+    let revision = 0n;
+    const applyBlock = async (request) => {
+      const ack = await blockExchange(request);
+      const change = JSON.parse(session.acknowledge(JSON.stringify(ack)));
+      const before = Buffer.from(blockDisplay);
+      blockDisplay = Buffer.concat([
+        before.subarray(0, change.range.start),
+        Buffer.from(change.inserted),
+        before.subarray(change.range.end),
+      ]).toString();
+      revision = BigInt(change.revision);
+      assert.equal(JSON.parse(session.acknowledge(JSON.stringify(ack))), null);
+      return change;
+    };
+    assert.equal(JSON.parse(session.project(0n, 0, Buffer.byteLength(shown))).text, shown);
+    const request = session.block_command_utf16(0n, 4, 4, JSON.stringify({ Heading: 0 }));
+    assert.equal(session.draft_text(), finalSource);
+    assert.equal(JSON.parse(session.status()).accepted, 0);
+    assert.equal(blockDisplay, shown);
+    assert.throws(() => session.project(1n, 0, Buffer.byteLength(shown)));
+    const change = await applyBlock(request);
+    assert.equal(blockDisplay, shown);
+    assert.deepEqual(change.selection, { start: selected, end: selected });
+    const at = Buffer.byteLength(shown.slice(0, shown.indexOf('one')));
+    const target = JSON.parse(session.inspect_link(revision, at, at + 1));
+    assert.equal(target?.destination ?? null, destination);
+    if (target) assert.equal(target.title, 'First');
+    await applyBlock(session.undo(revision));
+    assert.equal(session.draft_text(), original);
+    assert.equal(blockDisplay, shown);
+    await applyBlock(session.redo(revision));
+    assert.equal(session.draft_text(), finalSource);
+    assert.equal(blockDisplay, shown);
+    session.acknowledge(JSON.stringify(await blockExchange(session.flush())));
+    await stop();
+    const blockReopened = await start('--reopen', blockVault);
+    assert.equal(session.draft_text(), finalSource);
+    assert.equal(JSON.parse(session.project(revision, 0, Buffer.byteLength(shown))).text, shown);
+    assert.equal(
+      JSON.parse(session.inspect_link(revision, at, at + 1))?.destination ?? null,
+      destination,
+    );
+    assert.deepEqual(await blockReopened(JSON.stringify({ checkpoint: true })), { id: 'plain' });
+    await stop();
+  }
   console.log(
-    'Compiled WASM links: canonical inspection, URL timing, retained/inserted targets, ordered acceptance, exact history and real recovery passed.',
+    'Compiled WASM links: canonical inspection, actual-parent reference blocks, URL timing, retained/inserted targets, ordered acceptance, exact history and real recovery passed.',
   );
 } finally {
   if (session) await stop();
