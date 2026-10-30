@@ -186,6 +186,30 @@ const cases = [
     command: 'quote',
     anchor: 'quoted',
   },
+  {
+    name: 'nested Heading lifts list ancestry and preserves tail',
+    source: nested,
+    command: 'heading-2',
+    anchor: 'child😀',
+  },
+  {
+    name: 'nested Quote lifts list ancestry and preserves tail',
+    source: nested,
+    command: 'quote',
+    anchor: 'child😀',
+  },
+  {
+    name: 'Text lifts lists surrounding an intervening quote',
+    source: '- parent\n  > - child\n  >   - grandchild\n  > - sibling\n- following',
+    command: 'paragraph',
+    anchor: 'child',
+  },
+  {
+    name: 'Quote within a quoted nested list is a no-op',
+    source: '> - parent\n>   - child\n> - following',
+    command: 'quote',
+    anchor: 'child',
+  },
 ] as const;
 
 describe('pinned shipping toolbar container transactions (#299)', () => {
