@@ -462,3 +462,23 @@ fn a_first_list_sibling_inside_a_quote_cannot_indent_its_outer_quote() {
     assert_eq!(s.source_text(), initial);
     assert_eq!(s.revision(), Revision(0));
 }
+
+#[test]
+fn outdent_lifts_a_top_level_item_to_paragraph_text() {
+    let mut s = EditorSession::open("* a\n* b");
+    let mut view = ReferenceView::new("a\nb");
+    view.apply(
+        s.block_command(
+            s.revision(),
+            range(0, 1),
+            BlockCommand::Outdent,
+            &mut |_| Ok(()),
+        )
+        .unwrap()
+        .expect("the outer list item lifts into a paragraph"),
+    );
+    assert_eq!(s.source_text(), "a\n* b");
+    assert_eq!(view.text, "a\nb");
+    view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(s.source_text(), "* a\n* b");
+}
