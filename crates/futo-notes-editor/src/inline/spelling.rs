@@ -1,8 +1,10 @@
 //! Preserve marker spelling, repair delimiter boundaries and verify candidates
 //! against the CommonMark parser before any source is accepted.
+mod render;
 use super::row::SpanKind;
 use super::row::{Row, Span};
 use crate::{EditorError, InlineFormat};
+use render::{render, Rendered};
 use std::ops::Range;
 
 pub(super) struct Piece {
@@ -190,90 +192,6 @@ pub(super) fn spell(
         link_metadata_items,
         link_copied_bytes,
     })
-}
-
-struct Rendered {
-    text: String,
-    caret: usize,
-    spans: Vec<(usize, Span)>,
-    pieces: Vec<Range<usize>>,
-    link_metadata_items: usize,
-}
-fn render(
-    pieces: &[Piece],
-    markers: &[Marker],
-    insertion_index: usize,
-    insertion_end: usize,
-) -> Rendered {
-    let mut output = String::new();
-    let mut stack: Vec<usize> = Vec::new();
-    let mut openings: Vec<Range<usize>> = Vec::new();
-    let mut spans = Vec::new();
-    let mut caret = None;
-    let mut piece_ranges = Vec::with_capacity(pieces.len());
-    for (index, piece) in pieces.iter().enumerate() {
-        let common = stack
-            .iter()
-            .zip(&piece.spans)
-            .take_while(|(a, b)| a == b)
-            .count();
-        while stack.len() > common {
-            let id = stack.pop().unwrap();
-            let open = openings.pop().unwrap();
-            let start = output.len();
-            output.push_str(&markers[id].close);
-            spans.push((
-                id,
-                Span {
-                    kind: markers[id].kind.clone(),
-                    open,
-                    close: start..output.len(),
-                },
-            ));
-        }
-        if index == insertion_index && insertion_index == insertion_end {
-            caret = Some(output.len());
-        }
-        for &id in &piece.spans[common..] {
-            let start = output.len();
-            output.push_str(&markers[id].open);
-            openings.push(start..output.len());
-            stack.push(id);
-        }
-        let start = output.len();
-        output.push_str(&piece.raw);
-        piece_ranges.push(start..output.len());
-        if index + 1 == insertion_end {
-            caret = Some(output.len());
-        }
-    }
-    if insertion_index == pieces.len() && insertion_index == insertion_end {
-        caret = Some(output.len());
-    }
-    while let Some(id) = stack.pop() {
-        let open = openings.pop().unwrap();
-        let start = output.len();
-        output.push_str(&markers[id].close);
-        spans.push((
-            id,
-            Span {
-                kind: markers[id].kind.clone(),
-                open,
-                close: start..output.len(),
-            },
-        ));
-    }
-    let link_metadata_items = spans
-        .iter()
-        .filter(|(_, span)| matches!(span.kind, SpanKind::Link(_)))
-        .count();
-    Rendered {
-        link_metadata_items,
-        caret: caret.unwrap_or(output.len()),
-        text: output,
-        spans,
-        pieces: piece_ranges,
-    }
 }
 
 fn repair_literal_boundaries(
