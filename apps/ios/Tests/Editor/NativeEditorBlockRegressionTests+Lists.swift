@@ -128,7 +128,11 @@ extension NativeEditorBlockRegressionTests {
                             == (item.undoDisplays?[step] ?? item.display))
                 }
                 #expect(try s.undo(expected: s.revision()) == nil)
-                for _ in 0..<history { try apply(s.redo(expected: s.revision()), nil) }
+                for step in 0..<history {
+                    try apply(
+                        s.redo(expected: s.revision()), step == history - 1 ? item.resultRange : nil
+                    )
+                }
                 #expect(try s.sourceText() == item.expected)
                 #expect(String(decoding: view, as: UTF8.self) == item.shown)
                 _ = try s.flushRecovery()

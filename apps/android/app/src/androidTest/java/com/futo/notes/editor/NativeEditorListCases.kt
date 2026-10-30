@@ -75,7 +75,7 @@ internal fun sharedListActions() {
                         assertEquals(item.optJSONArray("undoDisplays")?.getString(step) ?: item.getString("display"), view.toString(Charsets.UTF_8))
                     }
                     assertNull(s.undo(s.revision()))
-                    repeat(history) { apply(s.redo(s.revision())) }
+                    repeat(history) { step -> apply(s.redo(s.revision()), if (step == history - 1) item.getJSONArray("resultRange") else null) }
                     assertEquals(item.getString("expected"), s.sourceText())
                     assertEquals(item.getString("shown"), view.toString(Charsets.UTF_8))
                     s.flushRecovery()
