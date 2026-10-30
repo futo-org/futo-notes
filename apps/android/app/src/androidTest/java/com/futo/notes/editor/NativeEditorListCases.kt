@@ -15,6 +15,9 @@ internal fun sharedListActions() {
     assertEquals(24, cases.length())
     assertEquals(38, shortcuts.length())
     for (at in 0 until shortcuts.length()) cases.put(shortcuts.getJSONObject(at))
+    val staging = JSONArray(context.assets.open("list-staging.json").bufferedReader().use { it.readText() })
+    assertEquals(12, staging.length())
+    for (at in 0 until staging.length()) cases.put(staging.getJSONObject(at))
     fun native(values: JSONArray) = EditorUtf16Range(values.getLong(0).toULong(), values.getLong(1).toULong())
     for (at in 0 until cases.length()) {
         val item = cases.getJSONObject(at)
@@ -51,8 +54,8 @@ internal fun sharedListActions() {
                     val selected = native(item.getJSONArray("range"))
                     val action = item.getString("action")
                     val inserted = item.optString("text", "").map { it.code.toUShort() }
-                    if (action == "ComposeToggleTask") {
-                        s.composeUtf16(0uL, native(item.getJSONArray("composeRange")), inserted)
+                    if (item.has("composeRange")) {
+                        s.composeUtf16(0uL, native(item.getJSONArray("composeRange")), item.optString("compositionText", item.optString("text", "")).map { it.code.toUShort() })
                         assertEquals(item.getString("source"), s.sourceText())
                     }
                     val change = when (action) {

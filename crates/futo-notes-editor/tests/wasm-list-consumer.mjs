@@ -18,7 +18,9 @@ const shortcuts = JSON.parse(
 );
 assert.equal(original.length, 24);
 assert.equal(shortcuts.length, 38);
-const cases = [...original, ...shortcuts];
+const staging = JSON.parse(readFileSync(new URL('fixtures/list-staging.json', import.meta.url)));
+assert.equal(staging.length, 12);
+const cases = [...original, ...shortcuts, ...staging];
 const units = (text) => Uint16Array.from({ length: text.length }, (_, at) => text.charCodeAt(at));
 function host(vault, source) {
   const worker = spawn(process.argv[3], [vault, source], { stdio: ['pipe', 'pipe', 'inherit'] });
@@ -94,8 +96,8 @@ for (const item of cases) {
       ...initial.map((at) => Buffer.byteLength(display.slice(0, at))),
       '"Forward"',
     );
-    if (item.action === 'ComposeToggleTask') {
-      page.compose_utf16(revision, ...item.composeRange, units(item.text));
+    if (item.composeRange) {
+      page.compose_utf16(revision, ...item.composeRange, units(item.compositionText ?? item.text));
       assert.equal(page.draft_text(), item.source);
     }
     if (item.action === 'Typing')

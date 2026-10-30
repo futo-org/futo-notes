@@ -16,7 +16,14 @@ fn shared_literal_list_actions_cover_native_coordinates_and_exact_history() {
         serde_json::from_str(include_str!("../fixtures/list-shortcuts.json")).unwrap();
     assert_eq!(original.len(), 24);
     assert_eq!(shortcuts.len(), 38);
-    let cases: Vec<_> = original.into_iter().chain(shortcuts).collect();
+    let staging: Vec<Value> =
+        serde_json::from_str(include_str!("../fixtures/list-staging.json")).unwrap();
+    assert_eq!(staging.len(), 12);
+    let cases: Vec<_> = original
+        .into_iter()
+        .chain(shortcuts)
+        .chain(staging)
+        .collect();
     for case in &cases {
         let text = |key: &str| case[key].as_str().unwrap();
         let mut s = EditorSession::open(text("source"));
@@ -27,9 +34,17 @@ fn shared_literal_list_actions_cover_native_coordinates_and_exact_history() {
         let selected = native(&case["range"]);
         let inserted: Vec<u16> = case["text"].as_str().unwrap_or("").encode_utf16().collect();
         let action = text("action");
-        if action == "ComposeToggleTask" {
-            s.compose_utf16(s.revision(), native(&case["composeRange"]), &inserted)
-                .unwrap();
+        if case.get("composeRange").is_some() {
+            s.compose_utf16(
+                s.revision(),
+                native(&case["composeRange"]),
+                &case["compositionText"]
+                    .as_str()
+                    .unwrap_or(case["text"].as_str().unwrap_or(""))
+                    .encode_utf16()
+                    .collect::<Vec<_>>(),
+            )
+            .unwrap();
             assert_eq!(s.source_text(), text("source"));
         }
         let mut accepts = 0;

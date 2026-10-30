@@ -20,6 +20,7 @@ private struct ListActionCase: Decodable {
     let range: [UInt64]
     let selection: [UInt64]?
     let composeRange: [UInt64]?
+    let compositionText: String?
     let text: String?
     let expected: String
     let shown: String
@@ -45,7 +46,9 @@ extension NativeEditorBlockRegressionTests {
             let shortcuts = try load("list-shortcuts")
             #expect(original.count == 24)
             #expect(shortcuts.count == 38)
-            let cases = original + shortcuts
+            let staging = try load("list-staging")
+            #expect(staging.count == 12)
+            let cases = original + shortcuts + staging
             for item in cases {
                 let root = FileManager.default.temporaryDirectory.appendingPathComponent(
                     "editor-lists-\(UUID().uuidString)")
@@ -91,10 +94,10 @@ extension NativeEditorBlockRegressionTests {
                 #expect(try s.displayText() == item.display)
                 let initial = item.selection ?? item.range
                 _ = try s.selectUtf16(expected: 0, range: native(initial))
-                if item.action == "ComposeToggleTask" {
+                if item.composeRange != nil {
                     _ = try s.composeUtf16(
                         expected: 0, range: native(#require(item.composeRange)),
-                        text: Array(#require(item.text).utf16))
+                        text: Array(#require(item.compositionText ?? item.text).utf16))
                     #expect(try s.sourceText() == item.source)
                 }
                 let change: EditorViewChange?

@@ -31,7 +31,16 @@ fn shared_list_actions_forward_native_coordinates_history_and_exact_recovery() {
     .unwrap();
     assert_eq!(original.len(), 24);
     assert_eq!(shortcuts.len(), 38);
-    let cases: Vec<_> = original.into_iter().chain(shortcuts).collect();
+    let staging: Vec<Value> = serde_json::from_str(include_str!(
+        "../../futo-notes-editor/tests/fixtures/list-staging.json"
+    ))
+    .unwrap();
+    assert_eq!(staging.len(), 12);
+    let cases: Vec<_> = original
+        .into_iter()
+        .chain(shortcuts)
+        .chain(staging)
+        .collect();
     for case in &cases {
         let text = |key: &str| case[key].as_str().unwrap();
         let tree = TempTree::new();
@@ -48,9 +57,17 @@ fn shared_list_actions_forward_native_coordinates_history_and_exact_recovery() {
         let selected = native(&case["range"]);
         let inserted: Vec<u16> = case["text"].as_str().unwrap_or("").encode_utf16().collect();
         let action = text("action");
-        if action == "ComposeToggleTask" {
-            s.compose_utf16(0, native(&case["composeRange"]), inserted.clone())
-                .unwrap();
+        if case.get("composeRange").is_some() {
+            s.compose_utf16(
+                0,
+                native(&case["composeRange"]),
+                case["compositionText"]
+                    .as_str()
+                    .unwrap_or(case["text"].as_str().unwrap_or(""))
+                    .encode_utf16()
+                    .collect::<Vec<_>>(),
+            )
+            .unwrap();
             assert_eq!(s.source_text().unwrap(), text("source"));
         }
         let change = match action {

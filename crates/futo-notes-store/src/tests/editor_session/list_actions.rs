@@ -120,7 +120,16 @@ fn shared_list_actions_survive_failed_append_undo_flush_power_loss_and_checkpoin
     .unwrap();
     assert_eq!(original.len(), 24);
     assert_eq!(shortcuts.len(), 38);
-    let cases: Vec<_> = original.into_iter().chain(shortcuts).collect();
+    let staging: Vec<Value> = serde_json::from_str(include_str!(
+        "../../../../futo-notes-editor/tests/fixtures/list-staging.json"
+    ))
+    .unwrap();
+    assert_eq!(staging.len(), 12);
+    let cases: Vec<_> = original
+        .into_iter()
+        .chain(shortcuts)
+        .chain(staging)
+        .collect();
     for case in &cases {
         let text = |key: &str| case[key].as_str().unwrap();
         let root = TestRoot::new();
@@ -135,11 +144,15 @@ fn shared_list_actions_survive_failed_append_undo_flush_power_loss_and_checkpoin
             assert_eq!(s.display_text(), view, "{}", text("name"));
             let initial = native(case.get("selection").unwrap_or(&case["range"]));
             s.select_utf16(s.revision(), initial).unwrap();
-            if text("action") == "ComposeToggleTask" {
+            if case.get("composeRange").is_some() {
                 s.compose_utf16(
                     s.revision(),
                     native(&case["composeRange"]),
-                    &text("text").encode_utf16().collect::<Vec<_>>(),
+                    &case["compositionText"]
+                        .as_str()
+                        .unwrap_or(case["text"].as_str().unwrap_or(""))
+                        .encode_utf16()
+                        .collect::<Vec<_>>(),
                 )
                 .unwrap();
             }
