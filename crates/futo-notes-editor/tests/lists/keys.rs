@@ -421,32 +421,40 @@ fn nested_backspace_retires_the_item_into_the_immediate_preceding_container() {
 
 #[test]
 fn enter_on_an_empty_nested_item_lifts_exactly_one_level() {
-    let raw = "- a\n  - ";
+    let raw = "- a\n\n  - ";
     let mut s = EditorSession::open(raw);
-    let mut view = ReferenceView::new("a\n");
-    assert_eq!(s.display_text(), "a\n");
-    s.select(s.revision(), range(2, 2)).unwrap();
+    let mut view = ReferenceView::new("a\n\n");
+    assert_eq!(s.display_text(), "a\n\n");
+    s.select(s.revision(), range(3, 3)).unwrap();
     view.apply(
-        s.paragraph_key(s.revision(), range(2, 2), ParagraphKey::Enter, &mut |_| {
+        s.paragraph_key(s.revision(), range(3, 3), ParagraphKey::Enter, &mut |_| {
             Ok(())
         })
         .unwrap()
         .unwrap(),
     );
-    assert_eq!(s.source_text(), "- a\n- ");
-    assert_eq!(view.text, "a\n");
-    assert_eq!(s.selection(), range(2, 2));
+    assert_eq!(s.source_text(), "- a\n\n- ");
+    assert_eq!(view.text, "a\n\n");
+    assert_eq!(s.selection(), range(3, 3));
     view.apply(
-        s.paragraph_key(s.revision(), range(2, 2), ParagraphKey::Enter, &mut |_| {
+        s.paragraph_key(s.revision(), range(3, 3), ParagraphKey::Enter, &mut |_| {
             Ok(())
         })
         .unwrap()
         .unwrap(),
     );
-    assert_eq!(s.source_text(), "- a\n");
+    assert_eq!(s.source_text(), "- a\n\n");
     view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
-    assert_eq!(s.source_text(), "- a\n- ");
+    assert_eq!(s.source_text(), "- a\n\n- ");
     view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
     assert_eq!(s.source_text(), raw);
-    assert_eq!(s.selection(), range(2, 2));
+    assert_eq!(s.selection(), range(3, 3));
+}
+
+#[test]
+fn ambiguous_empty_nested_marker_remains_a_setext_heading() {
+    let s = EditorSession::open("- a\n  - ");
+    assert_eq!(s.display_text(), "a");
+    let p = s.project(s.revision(), range(0, 1)).unwrap();
+    assert_eq!(p.blocks[0].heading, 2);
 }
