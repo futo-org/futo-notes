@@ -315,3 +315,27 @@ fn hand_typed_angle_link_saves_literal_brackets_around_the_inner_autolink() {
         view.text
     );
 }
+
+#[test]
+fn link_insertion_at_a_caret_uses_its_destination_as_label_and_preserves_exact_undo() {
+    let mut session = EditorSession::open("see ");
+    let mut view = ReferenceView::new("see ");
+    session.select(Revision(0), range(4, 4)).unwrap();
+    view.apply(
+        session
+            .set_link(Revision(0), range(4, 4), "https://x.test", &mut |_| Ok(()))
+            .unwrap()
+            .unwrap(),
+    );
+    assert_eq!(session.source_text(), "see https://x.test");
+    assert_eq!(view.text, "see https://x.test");
+    assert_eq!(session.selection(), range(18, 18));
+    assert_eq!(
+        session.project(Revision(1), range(0, 18)).unwrap().links[0].destination,
+        "https://x.test"
+    );
+    view.apply(session.undo(Revision(1), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(session.source_text(), "see ");
+    assert_eq!(view.text, "see ");
+    assert_eq!(session.selection(), range(4, 4));
+}
