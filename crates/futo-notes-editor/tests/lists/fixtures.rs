@@ -10,9 +10,14 @@ fn native(value: &Value) -> DisplayUtf16Range {
 
 #[test]
 fn shared_literal_list_actions_cover_native_coordinates_and_exact_history() {
-    let cases: Value = serde_json::from_str(include_str!("../fixtures/list-actions.json")).unwrap();
-    assert_eq!(cases.as_array().unwrap().len(), 40);
-    for case in cases.as_array().unwrap() {
+    let original: Vec<Value> =
+        serde_json::from_str(include_str!("../fixtures/list-actions.json")).unwrap();
+    let shortcuts: Vec<Value> =
+        serde_json::from_str(include_str!("../fixtures/list-shortcuts.json")).unwrap();
+    assert_eq!(original.len(), 24);
+    assert_eq!(shortcuts.len(), 22);
+    let cases: Vec<_> = original.into_iter().chain(shortcuts).collect();
+    for case in &cases {
         let text = |key: &str| case[key].as_str().unwrap();
         let mut s = EditorSession::open(text("source"));
         let mut view = ReferenceView::new(text("display"));

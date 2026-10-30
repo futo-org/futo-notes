@@ -61,12 +61,18 @@ fn apply(view: &mut String, change: ViewChange) {
 
 #[test]
 fn shared_list_actions_survive_failed_append_undo_flush_power_loss_and_checkpoint() {
-    let cases: Value = serde_json::from_str(include_str!(
+    let original: Vec<Value> = serde_json::from_str(include_str!(
         "../../../../futo-notes-editor/tests/fixtures/list-actions.json"
     ))
     .unwrap();
-    assert_eq!(cases.as_array().unwrap().len(), 40);
-    for case in cases.as_array().unwrap() {
+    let shortcuts: Vec<Value> = serde_json::from_str(include_str!(
+        "../../../../futo-notes-editor/tests/fixtures/list-shortcuts.json"
+    ))
+    .unwrap();
+    assert_eq!(original.len(), 24);
+    assert_eq!(shortcuts.len(), 22);
+    let cases: Vec<_> = original.into_iter().chain(shortcuts).collect();
+    for case in &cases {
         let text = |key: &str| case[key].as_str().unwrap();
         let root = TestRoot::new();
         let store = store(&root);

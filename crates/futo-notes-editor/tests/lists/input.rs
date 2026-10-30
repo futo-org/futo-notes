@@ -97,3 +97,63 @@ fn list_shortcuts_retain_literal_whitespace_and_task_looking_body_content() {
         assert_eq!(s.source_text(), raw);
     }
 }
+
+#[test]
+fn shortcut_acceptance_keeps_foreign_ownership_selection_and_carried_format() {
+    let raw = "2.body\n\n7. after";
+    let mut s = EditorSession::open(raw);
+    let mut view = ReferenceView::new("2.body\n\nafter");
+    s.select_with_affinity(s.revision(), range(2, 2), Affinity::Backward)
+        .unwrap();
+    s.toggle_format(s.revision(), InlineFormat::Bold, &mut |_| {
+        panic!("caret format")
+    })
+    .unwrap();
+    let mut proposals = Vec::new();
+    assert!(matches!(
+        s.replace(s.revision(), range(2, 2), " ", &mut |edit| {
+            proposals.push(edit.clone());
+            Err("append".into())
+        }),
+        Err(EditorError::Persistence(_))
+    ));
+    assert_eq!(s.source_text(), raw);
+    assert_eq!(s.display_text(), view.text);
+    assert_eq!(s.revision(), Revision(0));
+    assert_eq!(s.selection(), range(2, 2));
+    assert_eq!(s.affinity(), Affinity::Backward);
+    assert_eq!(s.active_formats(), vec![InlineFormat::Bold]);
+    assert_eq!(proposals.len(), 1);
+    let proposed = &proposals[0];
+    let mut source = raw.to_owned();
+    source.replace_range(
+        proposed.range.start.0..proposed.range.end.0,
+        &proposed.inserted,
+    );
+    assert_eq!(source, "2) body\n\n7. after");
+    view.apply(
+        s.replace(s.revision(), range(2, 2), " ", &mut |_| Ok(()))
+            .unwrap(),
+    );
+    assert_eq!(s.source_text(), source);
+    assert_eq!(view.text, "body\n\nafter");
+    assert_eq!(s.selection(), range(0, 0));
+    assert_eq!(s.affinity(), Affinity::Backward);
+    assert_eq!(s.active_formats(), vec![InlineFormat::Bold]);
+    view.apply(
+        s.replace(s.revision(), s.selection(), "!", &mut |_| Ok(()))
+            .unwrap(),
+    );
+    assert_eq!(s.source_text(), "2) **!**body\n\n7. after");
+    assert_eq!(view.text, "!body\n\nafter");
+    view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(s.source_text(), source);
+    view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(s.source_text(), raw);
+    assert_eq!(s.selection(), range(2, 2));
+    assert_eq!(s.active_formats(), vec![InlineFormat::Bold]);
+    view.apply(s.redo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(s.source_text(), source);
+    view.apply(s.redo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(s.source_text(), "2) **!**body\n\n7. after");
+}

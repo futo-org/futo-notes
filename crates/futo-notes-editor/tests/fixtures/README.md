@@ -25,8 +25,9 @@ isolated first input keeps two. The same family covers a whitespace typing run
 that enters quote repair. Fixed-clock editor/store tests own the exact timing
 and failed-acceptance boundaries; thin consumers use the normal session clock.
 
-`list-actions.json` contains twenty-four hand-worked synthetic public-interface
-regressions for #298. All consumers assert the family count. `range`, optional
+`list-actions.json` retains twenty-four hand-worked synthetic public-interface
+regressions for #298; `list-shortcuts.json` adds twenty-two literal shortcut boundary
+controls. All consumers assert both family counts. `range`, optional
 `selection`, `composeRange`, `resultRange` and `undoRanges` use native UTF-16 units.
 `expected`/`shown` are exact final source/display literals. Default history has one
 Undo to `source`/`display`/initial selection; optional `undoSources`, `undoDisplays`

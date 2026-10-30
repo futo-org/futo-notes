@@ -36,11 +36,16 @@ extension NativeEditorBlockRegressionTests {
     @Test("shared list actions preserve native carets, metadata, history and recovery bytes")
     func listActions() async throws {
         try await Task.detached {
-            let url = try #require(
-                Bundle(for: ListActionBundle.self).url(
-                    forResource: "list-actions", withExtension: "json"))
-            let cases = try JSONDecoder().decode([ListActionCase].self, from: Data(contentsOf: url))
-            #expect(cases.count == 40)
+            func load(_ name: String) throws -> [ListActionCase] {
+                let url = try #require(
+                    Bundle(for: ListActionBundle.self).url(forResource: name, withExtension: "json"))
+                return try JSONDecoder().decode([ListActionCase].self, from: Data(contentsOf: url))
+            }
+            let original = try load("list-actions")
+            let shortcuts = try load("list-shortcuts")
+            #expect(original.count == 24)
+            #expect(shortcuts.count == 22)
+            let cases = original + shortcuts
             for item in cases {
                 let root = FileManager.default.temporaryDirectory.appendingPathComponent(
                     "editor-lists-\(UUID().uuidString)")

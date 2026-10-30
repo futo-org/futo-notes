@@ -21,12 +21,18 @@ fn apply(view: &mut String, change: &EditorViewChange) {
 
 #[test]
 fn shared_list_actions_forward_native_coordinates_history_and_exact_recovery() {
-    let cases: Value = serde_json::from_str(include_str!(
+    let original: Vec<Value> = serde_json::from_str(include_str!(
         "../../futo-notes-editor/tests/fixtures/list-actions.json"
     ))
     .unwrap();
-    assert_eq!(cases.as_array().unwrap().len(), 40);
-    for case in cases.as_array().unwrap() {
+    let shortcuts: Vec<Value> = serde_json::from_str(include_str!(
+        "../../futo-notes-editor/tests/fixtures/list-shortcuts.json"
+    ))
+    .unwrap();
+    assert_eq!(original.len(), 24);
+    assert_eq!(shortcuts.len(), 22);
+    let cases: Vec<_> = original.into_iter().chain(shortcuts).collect();
+    for case in &cases {
         let text = |key: &str| case[key].as_str().unwrap();
         let tree = TempTree::new();
         std::fs::create_dir_all(tree.path("vault")).unwrap();
