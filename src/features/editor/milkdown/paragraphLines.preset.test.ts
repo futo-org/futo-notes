@@ -11,7 +11,14 @@
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import { Editor, defaultValueCtx, editorViewCtx, rootCtx } from '@milkdown/kit/core';
+import {
+  Editor,
+  defaultValueCtx,
+  editorViewCtx,
+  parserCtx,
+  rootCtx,
+  serializerCtx,
+} from '@milkdown/kit/core';
 import { TextSelection } from '@milkdown/kit/prose/state';
 import type { EditorView as ProseView } from '@milkdown/kit/prose/view';
 
@@ -27,6 +34,8 @@ const TYPED = [
   '  - ',
   '1. ',
   '12. ',
+  '999999999. ',
+  '1000000000. ',
   '> ',
   '# ',
   '### ',
@@ -124,5 +133,26 @@ describe('lineStartShortcut agrees with the presets at the start of a paragraph'
     }
     typeChar(typed.at(-1) as string);
     expect(!stillText(typed)).toBe(lineStartShortcut(typed));
+  });
+});
+
+// Public pinned-shipping reference evidence for #298. The input rule and the
+// persisted CommonMark grammar have different digit bounds; this records both.
+describe('ordered shortcut digit boundaries in the pinned shipping editor', () => {
+  it.each([
+    [999999999, 'ordered_list'],
+    [1000000000, 'paragraph'],
+  ] as const)('types %i as a list and reopens its saved source as %s', (order, reopenedKind) => {
+    emptyParagraph();
+    for (const char of `${order}. body`) typeChar(char);
+    expect(view.state.doc.firstChild?.type.name).toBe('ordered_list');
+    expect(view.state.doc.firstChild?.attrs.order).toBe(order);
+    const saved = editor.action((ctx) => ctx.get(serializerCtx)(view.state.doc));
+    expect(saved).toBe(`${order}. body\n`);
+    const reopened = editor.action((ctx) => ctx.get(parserCtx)(saved));
+    expect(reopened.firstChild?.type.name).toBe(reopenedKind);
+    expect(reopened.firstChild?.textContent).toBe(
+      reopenedKind === 'paragraph' ? `${order}. body` : 'body',
+    );
   });
 });
