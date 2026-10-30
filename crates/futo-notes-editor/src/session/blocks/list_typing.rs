@@ -44,13 +44,11 @@ impl EditorSession {
             )?;
             let line = staged.projection.block_lines(staged.selection()).remove(0);
             let styles = line.list.is_none().then(|| {
-                staged.list_styles(
-                    std::slice::from_ref(&line),
-                    if marker.ends_with(". ") {
-                        BlockCommand::OrderedList
-                    } else {
-                        BlockCommand::BulletList
-                    },
+                staged.list_shortcut_styles(
+                    &line,
+                    marker
+                        .strip_suffix(". ")
+                        .map(|number| number.parse().unwrap()),
                 )
             });
             let marker = if let Some(styles) = &styles {
@@ -79,7 +77,11 @@ impl EditorSession {
             );
             output.insert_str(at - line.source.start, &marker);
             let mut before = String::new();
-            if line.list.is_none() && marker.as_bytes()[0].is_ascii_digit() && !marker.starts_with("1.") && !marker.starts_with("1)") {
+            if line.list.is_none()
+                && marker.as_bytes()[0].is_ascii_digit()
+                && !marker.starts_with("1.")
+                && !marker.starts_with("1)")
+            {
                 let index = staged.source.byte_to_line(line.source.start);
                 if index > 0 {
                     let previous = staged.source.line_to_byte(index - 1);
@@ -110,9 +112,7 @@ impl EditorSession {
                 }
             }
             if line.list.is_none() {
-                if let Some(separator) =
-                    staged.list_neighbor_separator(end, line.quote_depth)
-                {
+                if let Some(separator) = staged.list_neighbor_separator(end, line.quote_depth) {
                     output.push_str(&separator);
                 }
             }

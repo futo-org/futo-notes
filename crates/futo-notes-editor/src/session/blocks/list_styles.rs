@@ -10,8 +10,34 @@ pub(super) struct ListStyles {
     pub comments: Vec<(usize, String)>,
 }
 
+enum ListIntent {
+    Independent,
+    Shortcut { start: Option<u64> },
+}
+
 impl EditorSession {
     pub(super) fn list_styles(&self, lines: &[BlockLine], command: BlockCommand) -> ListStyles {
+        self.plan_list_styles(lines, command, ListIntent::Independent)
+    }
+
+    pub(super) fn list_shortcut_styles(&self, line: &BlockLine, start: Option<u64>) -> ListStyles {
+        self.plan_list_styles(
+            std::slice::from_ref(line),
+            if start.is_some() {
+                BlockCommand::OrderedList
+            } else {
+                BlockCommand::BulletList
+            },
+            ListIntent::Shortcut { start },
+        )
+    }
+
+    fn plan_list_styles(
+        &self,
+        lines: &[BlockLine],
+        command: BlockCommand,
+        intent: ListIntent,
+    ) -> ListStyles {
         let ordered = command == BlockCommand::OrderedList;
         let candidates: &[u8] = if ordered { b".)" } else { b"-+*" };
         let planned_owners: HashSet<_> = lines
@@ -110,24 +136,25 @@ impl EditorSession {
                             return None;
                         }
                         if let Some(&marker) = resolved_owners.get(&list.owner.start) {
-                            return Some(marker);
+                            return Some((marker, None));
                         }
                         if planned_owners.contains(&list.owner.start) {
                             return None;
                         }
                         if list.ordinal.is_some() == ordered {
-                            return Some(
+                            return Some((
                                 self.source
                                     .byte_slice(list.marker.end - 1..list.marker.end)
                                     .bytes()
                                     .next()
                                     .unwrap(),
-                            );
+                                list.ordinal.map(|number| number + 1),
+                            ));
                         }
                         return None;
                     }
                     if let Some(&marker) = resolved_lines.get(&line.source.start) {
-                        return Some(marker);
+                        return Some((marker, None));
                     }
                     if planned_lines.contains(&line.source.start) || !line.content.is_empty() {
                         return None;
@@ -136,13 +163,24 @@ impl EditorSession {
                 }
                 None
             };
-            let before = neighbor(before_line as isize - 1, -1);
-            let after = neighbor(after_line as isize, 1);
-            let marker = candidates
-                .iter()
-                .copied()
-                .find(|&marker| Some(marker) != before && Some(marker) != after)
-                .unwrap_or(candidates[0]);
+            let preceding = neighbor(before_line as isize - 1, -1);
+            let before = preceding.map(|(marker, _)| marker);
+            let after = neighbor(after_line as isize, 1).map(|(marker, _)| marker);
+            // Shipping wrappingInputRule joins only the preceding list. Ordered
+            // input must spell its interpreted next number; bullets always join.
+            let join = match intent {
+                ListIntent::Shortcut { start } => preceding
+                    .filter(|(_, next)| start == *next)
+                    .map(|(marker, _)| marker),
+                ListIntent::Independent => None,
+            };
+            let marker = join.unwrap_or_else(|| {
+                candidates
+                    .iter()
+                    .copied()
+                    .find(|&marker| Some(marker) != before && Some(marker) != after)
+                    .unwrap_or(candidates[0])
+            });
             for index in first..last {
                 result.markers[index] = marker;
                 resolved_lines.insert(lines[index].source.start, marker);
@@ -163,7 +201,7 @@ impl EditorSession {
                 })
             };
             let comment = format!("{}<!-- -->\n", &prefix[..retained]);
-            if before == Some(marker) {
+            if before == Some(marker) && join.is_none() {
                 result.comments.push((head.source.start, comment));
             } else if after == Some(marker) {
                 let at = if after_line < self.source.len_lines() {
