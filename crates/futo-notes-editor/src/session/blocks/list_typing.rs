@@ -44,7 +44,15 @@ impl EditorSession {
             )?;
             let line = staged.projection.block_lines(staged.selection()).remove(0);
             let at = line.content.start;
+            let raw_body = staged.source.byte_slice(line.content.clone()).to_string();
+            let (body, body_work) =
+                super::list_commands::protect_list_body(&raw_body, marker.starts_with('['));
+            let body_bytes = raw_body.len() + body.len();
             let mut output = staged.source.byte_slice(line.source.clone()).to_string();
+            output.replace_range(
+                line.content.start - line.source.start..line.content.end - line.source.start,
+                &body,
+            );
             output.insert_str(at - line.source.start, &marker);
             let mut before = String::new();
             if line.list.is_none() && marker.ends_with(". ") && marker != "1. " {
@@ -95,8 +103,9 @@ impl EditorSession {
                 accept,
             )?;
             staged.carry_block_state(&mut change, formats, affinity);
-            change.work.materialized_source_bytes += removed.work.materialized_source_bytes;
-            change.work.parsed_source_bytes += removed.work.parsed_source_bytes;
+            change.work.materialized_source_bytes +=
+                removed.work.materialized_source_bytes + body_bytes;
+            change.work.parsed_source_bytes += removed.work.parsed_source_bytes + body_work;
             Ok(Some(change))
         })
     }
