@@ -155,12 +155,44 @@ try {
       );
       assert.equal(session.draft_text(), '');
     }
-    const correction = session.replace(timingRevision, 3, 4, 'B');
-    assert.equal(session.draft_text(), kind === 'typed' ? pendingSource : '');
+    const finalSource = 'x *B https://x.test/a* ';
+    const beforeCorrection = JSON.parse(session.status());
+    let correction = session.replace(timingRevision, 3, 4, 'B');
+    // Portable draft_text is the copyable pending local draft; only the
+    // accepted/displayed watermarks and released delta wait for host ack.
+    assert.equal(session.draft_text(), finalSource);
+    assert.equal(JSON.parse(session.status()).accepted, beforeCorrection.accepted);
+    assert.equal(JSON.parse(session.status()).displayed, beforeCorrection.displayed);
+    assert.equal(timingDisplay, kind === 'typed' ? 'x *b https://x.test/a*' : '');
     assert.throws(() => session.project(timingRevision + 1n, 0, 21));
+    if (kind === 'typed') {
+      // Inject a transport rejection before sending this request to the real
+      // store. Store append/short-write faults are separate Rust public tests.
+      const request = JSON.parse(correction);
+      const failed = JSON.stringify({
+        token: request.token,
+        sequence: request.sequence,
+        accepted: beforeCorrection.accepted,
+        durable: beforeCorrection.durable,
+        paused: true,
+        error: 'injected transport rejection',
+      });
+      assert.equal(JSON.parse(session.acknowledge(failed)), null);
+      assert.equal(JSON.parse(session.status()).accepted, beforeCorrection.accepted);
+      assert.equal(JSON.parse(session.status()).displayed, beforeCorrection.displayed);
+      assert.equal(JSON.parse(session.status()).paused, true);
+      assert.equal(session.draft_text(), finalSource);
+      assert.equal(timingDisplay, 'x *b https://x.test/a*');
+      assert.equal(
+        JSON.parse(session.acknowledge(JSON.stringify(await timingExchange(session.resume())))),
+        null,
+      );
+      correction = session.retry_pending();
+      assert.equal(JSON.parse(session.acknowledge(failed)), null);
+      assert.equal(JSON.parse(session.status()).paused, false);
+    }
     const corrected = await applyTiming(correction);
     assert.deepEqual(corrected.selection, { start: 3, end: 3 });
-    const finalSource = 'x *B https://x.test/a* ';
     assert.equal(session.draft_text(), finalSource);
     assert.equal(timingDisplay, 'x B https://x.test/a ');
     assert.equal(
