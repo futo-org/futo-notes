@@ -380,3 +380,55 @@ fn text_conversion_preserves_a_semantic_shortcut_before_definition_shaped_litera
     assert_eq!(session.source_text(), changed);
     assert_eq!(view.text, shown);
 }
+
+#[test]
+fn text_conversion_keeps_marked_reference_labels_and_interior_entity_history_points() {
+    use futo_notes_editor::{Affinity, BlockCommand};
+    for (label, text, selected) in [
+        ("**i&#100;**", "id", range(0, 2)),
+        ("a&acE;", "a\u{223e}\u{333}", range(1, 4)),
+    ] {
+        for affinity in [Affinity::Forward, Affinity::Backward] {
+            let suffix = format!(": /target 'T'\n\n[one][{label}]\n\n[{label}]: /first 'First'");
+            let original = format!("# [{label}]{suffix}");
+            let changed = format!("[{label}][{label}]{suffix}");
+            let shown = format!("{text}: /target 'T'\n\none\n\n");
+            let mut session = EditorSession::open(&original);
+            let mut view = ReferenceView::new(&shown);
+            assert_eq!(session.display_text(), shown);
+            session
+                .select_with_affinity(Revision(0), selected, affinity)
+                .unwrap();
+            let before = session.project(Revision(0), range(0, text.len())).unwrap();
+            view.apply(
+                session
+                    .block_command(Revision(0), selected, BlockCommand::Heading(0), &mut |_| {
+                        Ok(())
+                    })
+                    .unwrap()
+                    .unwrap(),
+            );
+            assert_eq!(session.source_text(), changed);
+            assert_eq!(view.text, shown);
+            assert_eq!(session.selection(), selected);
+            assert_eq!(session.affinity(), affinity);
+            let after = session.project(Revision(1), range(0, text.len())).unwrap();
+            assert_eq!(before.runs, after.runs);
+            let target = session
+                .inspect_link(Revision(1), range(0, text.len()))
+                .unwrap()
+                .unwrap();
+            assert_eq!(target.destination, "/first");
+            assert_eq!(target.title.as_deref(), Some("First"));
+            view.apply(session.undo(Revision(1), &mut |_| Ok(())).unwrap().unwrap());
+            assert_eq!(session.source_text(), original);
+            assert_eq!(session.selection(), selected);
+            assert_eq!(session.affinity(), affinity);
+            view.apply(session.redo(Revision(2), &mut |_| Ok(())).unwrap().unwrap());
+            assert_eq!(session.source_text(), changed);
+            assert_eq!(session.selection(), selected);
+            assert_eq!(session.affinity(), affinity);
+            assert_eq!(view.text, shown);
+        }
+    }
+}

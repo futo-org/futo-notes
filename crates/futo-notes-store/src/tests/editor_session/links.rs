@@ -223,57 +223,76 @@ fn literal_heading_definition_conversion_rejects_before_view_and_recovers_exact_
         end: DisplayUtf16Offset(4),
     };
     for fault in [storage::Fault::Append, storage::Fault::ShortWrite] {
-        let root = TestRoot::new();
-        let store = store(&root);
-        let original = "# [id]: /target 'T'\n\n[one][id]\n\nbody";
-        let changed = "\\[id]: /target 'T'\n\n[one][id]\n\nbody";
-        let shown = "[id]: /target 'T'\n\n[one][id]\n\nbody";
-        store.create("", "literal-heading", original).unwrap();
-        let disk = Arc::new(Mutex::new(storage::Disk::default()));
-        let mut editor = store
-            .open_editor_with_recovery("literal-heading", storage::options(&disk))
-            .unwrap();
-        editor.select_utf16(Revision(0), native_range).unwrap();
-        let before = editor.project(Revision(0), range(0, shown.len())).unwrap();
-        disk.lock().unwrap().fault = Some(fault);
-        assert!(matches!(
-            editor.block_command_utf16(Revision(0), native_range, BlockCommand::Heading(0)),
-            Err(EditorStoreError::RecoveryAppend(_))
-        ));
-        assert_eq!(editor.source_text(), original);
-        assert_eq!(editor.display_text(), shown);
-        assert_eq!(editor.selection(), range(4, 4));
-        assert_eq!(editor.revision(), Revision(0));
-        assert_eq!(
-            editor.project(Revision(0), range(0, shown.len())).unwrap(),
-            before
-        );
-        assert_eq!(store.read("literal-heading").unwrap(), original);
-        disk.lock().unwrap().fault = None;
-        editor.resume_recovery().unwrap();
-        editor
-            .block_command_utf16(Revision(0), native_range, BlockCommand::Heading(0))
-            .unwrap()
-            .unwrap();
-        assert_eq!(editor.source_text(), changed);
-        assert_eq!(editor.display_text(), shown);
-        assert_eq!(editor.selection(), range(4, 4));
-        editor.undo(Revision(1)).unwrap().unwrap();
-        assert_eq!(editor.source_text(), original);
-        editor.redo(Revision(2)).unwrap().unwrap();
-        assert_eq!(editor.source_text(), changed);
-        editor.flush_recovery().unwrap();
-        drop(editor);
-        let mut reopened = store
-            .open_editor_with_recovery("literal-heading", storage::options(&disk))
-            .unwrap();
-        assert_eq!(reopened.source_text(), changed);
-        assert_eq!(reopened.display_text(), shown);
-        assert!(reopened
-            .inspect_link(Revision(3), range(20, 23))
-            .unwrap()
-            .is_none());
-        reopened.checkpoint().unwrap();
-        assert_eq!(store.read("literal-heading").unwrap(), changed);
+        for (original, changed, shown, destination) in [
+            (
+                "# [id]: /target 'T'\n\n[one][id]\n\nbody",
+                "\\[id]: /target 'T'\n\n[one][id]\n\nbody",
+                "[id]: /target 'T'\n\n[one][id]\n\nbody",
+                None,
+            ),
+            (
+                "# [a&acE;]: /target 'T'\n\n[one][a&acE;]\n\n[a&acE;]: /first 'First'",
+                "[a&acE;][a&acE;]: /target 'T'\n\n[one][a&acE;]\n\n[a&acE;]: /first 'First'",
+                "a\u{223e}\u{333}: /target 'T'\n\none\n\n",
+                Some("/first"),
+            ),
+        ] {
+            let root = TestRoot::new();
+            let store = store(&root);
+            store.create("", "literal-heading", original).unwrap();
+            let disk = Arc::new(Mutex::new(storage::Disk::default()));
+            let mut editor = store
+                .open_editor_with_recovery("literal-heading", storage::options(&disk))
+                .unwrap();
+            editor.select_utf16(Revision(0), native_range).unwrap();
+            let before = editor.project(Revision(0), range(0, shown.len())).unwrap();
+            disk.lock().unwrap().fault = Some(fault);
+            assert!(matches!(
+                editor.block_command_utf16(Revision(0), native_range, BlockCommand::Heading(0)),
+                Err(EditorStoreError::RecoveryAppend(_))
+            ));
+            assert_eq!(editor.source_text(), original);
+            assert_eq!(editor.display_text(), shown);
+            assert_eq!(editor.selection(), range(4, 4));
+            assert_eq!(editor.revision(), Revision(0));
+            assert_eq!(
+                editor.project(Revision(0), range(0, shown.len())).unwrap(),
+                before
+            );
+            assert_eq!(store.read("literal-heading").unwrap(), original);
+            disk.lock().unwrap().fault = None;
+            editor.resume_recovery().unwrap();
+            editor
+                .block_command_utf16(Revision(0), native_range, BlockCommand::Heading(0))
+                .unwrap()
+                .unwrap();
+            assert_eq!(editor.source_text(), changed);
+            assert_eq!(editor.display_text(), shown);
+            assert_eq!(editor.selection(), range(4, 4));
+            editor.undo(Revision(1)).unwrap().unwrap();
+            assert_eq!(editor.source_text(), original);
+            editor.redo(Revision(2)).unwrap().unwrap();
+            assert_eq!(editor.source_text(), changed);
+            editor.flush_recovery().unwrap();
+            drop(editor);
+            let mut reopened = store
+                .open_editor_with_recovery("literal-heading", storage::options(&disk))
+                .unwrap();
+            assert_eq!(reopened.source_text(), changed);
+            assert_eq!(reopened.display_text(), shown);
+            let at = shown.find("one").unwrap();
+            let target = reopened
+                .inspect_link(Revision(3), range(at, at + 1))
+                .unwrap();
+            assert_eq!(
+                target.as_ref().map(|link| link.destination.as_str()),
+                destination
+            );
+            if let Some(target) = target {
+                assert_eq!(target.title.as_deref(), Some("First"));
+            }
+            reopened.checkpoint().unwrap();
+            assert_eq!(store.read("literal-heading").unwrap(), changed);
+        }
     }
 }
