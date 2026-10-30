@@ -2,6 +2,41 @@ use super::seams::indented_empty_quote;
 use super::*;
 
 #[test]
+fn the_baseline_qualified_plain_code_carry_also_accepts_the_next_character() {
+    let mut s = EditorSession::open("`ab`\n`cd`");
+    let mut view = ReferenceView::new("ab\ncd");
+    s.select_with_affinity(s.revision(), range(3, 3), Affinity::Forward)
+        .unwrap();
+    view.apply(
+        s.paragraph_key(s.revision(), range(3, 3), ParagraphKey::Delete, &mut |_| {
+            Ok(())
+        })
+        .unwrap()
+        .unwrap(),
+    );
+    assert_eq!(s.source_text(), "`ab`\n`d`");
+    assert_eq!(s.selection(), range(3, 3));
+    assert_eq!(s.affinity(), Affinity::Backward);
+    assert_eq!(s.active_formats(), vec![InlineFormat::Code]);
+    view.apply(
+        s.replace_action(
+            s.revision(),
+            s.selection(),
+            "!",
+            InputAction::Isolated,
+            &mut |_| Ok(()),
+        )
+        .unwrap(),
+    );
+    assert_eq!(s.source_text(), "`ab`\n`!d`");
+    assert_eq!(view.text, "ab\n!d");
+    view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(s.source_text(), "`ab`\n`d`");
+    view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(s.source_text(), "`ab`\n`cd`");
+}
+
+#[test]
 fn unchanged_whole_field_os_selection_is_separate_from_the_marked_commit_history() {
     let mut s = EditorSession::open("ab");
     s.compose(s.revision(), range(0, 0), "!").unwrap();
