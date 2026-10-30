@@ -91,12 +91,14 @@ struct NativeEditorStructuralSeamTests {
                     _ = try s.composeUtf16(
                         expected: 0, range: selected, text: Array(item.text.utf16))
                     #expect(try s.sourceText() == item.source)
-                    try apply(s.replaceManyUtf16(
-                        expected: 0, replacements: #require(item.replacements).map {
-                            EditorUtf16Replacement(
-                                range: EditorUtf16Range(start: $0.start, end: $0.end),
-                                inserted: Array($0.text.utf16))
-                        }))
+                    try apply(
+                        s.replaceManyUtf16(
+                            expected: 0,
+                            replacements: #require(item.replacements).map {
+                                EditorUtf16Replacement(
+                                    range: EditorUtf16Range(start: $0.start, end: $0.end),
+                                    inserted: Array($0.text.utf16))
+                            }))
                     #expect(try s.revision() == 1)
                 case "composition_os", "distant_composition_os":
                     _ = try s.composeUtf16(
@@ -138,10 +140,15 @@ struct NativeEditorStructuralSeamTests {
                 for _ in 0..<item.history { _ = try #require(try s.undo(expected: s.revision())) }
                 #expect(try s.sourceText() == item.source)
                 var redone: EditorViewChange?
-                for _ in 0..<item.history { redone = try #require(try s.redo(expected: s.revision())) }
+                for _ in 0..<item.history {
+                    redone = try #require(try s.redo(expected: s.revision()))
+                }
                 #expect(try s.sourceText() == item.expectedSource)
-                let redoneCaret = try s.displayToUtf16(expected: s.revision(), range: #require(redone).selection)
-                #expect(redoneCaret.start == (item.redoCaret ?? item.caret) && redoneCaret.end == redoneCaret.start)
+                let redoneCaret = try s.displayToUtf16(
+                    expected: s.revision(), range: #require(redone).selection)
+                #expect(
+                    redoneCaret.start == (item.redoCaret ?? item.caret)
+                        && redoneCaret.end == redoneCaret.start)
                 _ = try s.flushRecovery()
                 try s.detach()
                 let recovered = try store.openEditor(id: "seam")
