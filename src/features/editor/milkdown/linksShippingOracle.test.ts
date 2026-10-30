@@ -47,3 +47,43 @@ it('spells a modified URL label explicitly when its retained destination differs
   const doc = document([link('https://x.test/new', 'https://x.test')]);
   expect(serializer.serialize(doc)).toBe('[https://x.test/new](https://x.test)\n');
 });
+
+function linkedRuns(node: NodeJson): { text: string; href: string; title: string }[] {
+  const mark = node.marks?.find((mark) => mark.type === 'link');
+  const own = mark
+    ? [
+        {
+          text: node.text ?? '',
+          href: String(mark.attrs?.href ?? ''),
+          title: String(mark.attrs?.title ?? ''),
+        },
+      ]
+    : [];
+  return [...own, ...(node.content ?? []).flatMap(linkedRuns)];
+}
+
+it('reference labels resolve by canonical case folding while first duplicate definitions win', () => {
+  const source =
+    'See [DoCs].\n\n[docs]: https://first.test "T"\n[DOCS]: https://second.test "Unused"\n\nend\n';
+  const parsed = parser.parse(source);
+  expect(linkedRuns(parsed)).toEqual([{ text: 'DoCs', href: 'https://first.test', title: 'T' }]);
+  expect(serializer.serialize(parsed)).toBe(
+    'See [DoCs](https://first.test "T").\n\n[DOCS]: https://second.test "Unused"\n\nend\n',
+  );
+});
+
+it('a used reference definition inside a container resolves a later outside label', () => {
+  const source = '> [docs]: https://x.test "T"\n\nSee [docs].\n';
+  const parsed = parser.parse(source);
+  expect(linkedRuns(parsed)).toEqual([{ text: 'docs', href: 'https://x.test', title: 'T' }]);
+  expect(serializer.serialize(parsed)).toBe('See [docs](https://x.test "T").\n');
+});
+
+it('references occurring only in code leave their definition unused and exact', () => {
+  const source = 'use `[docs]` here\n\n[docs]: https://e.example/d\n';
+  expect(linkedRuns(parser.parse(source))).toEqual([]);
+  expect(serializer.serialize(parser.parse(source))).toBe(source);
+  const fenced = '[docs]\n\n```md\n[docs]: https://code.test\n```\n';
+  expect(linkedRuns(parser.parse(fenced))).toEqual([]);
+  expect(serializer.serialize(parser.parse(fenced))).toBe(fenced);
+});
