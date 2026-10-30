@@ -109,19 +109,23 @@ impl Row {
     }
 
     pub fn display_at(&self, source: usize) -> usize {
-        for segment in &self.segments {
+        self.display_at_with_work(source).0
+    }
+
+    pub fn display_at_with_work(&self, source: usize) -> (usize, usize) {
+        for (index, segment) in self.segments.iter().enumerate() {
             if segment.source.start <= source && source <= segment.source.end {
-                if segment.identity {
-                    return segment.display.start + source - segment.source.start;
-                }
-                return if source == segment.source.end {
+                let display = if segment.identity {
+                    segment.display.start + source - segment.source.start
+                } else if source == segment.source.end {
                     segment.display.end
                 } else {
                     segment.display.start
                 };
+                return (display, index + 1);
             }
         }
-        self.display.len()
+        (self.display.len(), self.segments.len())
     }
 
     pub fn formats_at(&self, source: usize) -> Vec<InlineFormat> {

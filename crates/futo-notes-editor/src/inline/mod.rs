@@ -123,8 +123,13 @@ impl Projection {
     }
 
     pub fn display_at(&self, offset: usize) -> usize {
+        self.display_at_with_work(offset).0
+    }
+
+    pub(crate) fn display_at_with_work(&self, offset: usize) -> (usize, usize) {
         let (row, source, display) = self.rows.at(self.rows.locate(offset, false));
-        display + row.display_at(offset - source)
+        let (local, work) = row.display_at_with_work(offset - source);
+        (display + local, work)
     }
 
     pub fn formats_at(&self, offset: usize) -> Vec<InlineFormat> {

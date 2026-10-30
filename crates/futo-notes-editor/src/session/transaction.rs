@@ -274,13 +274,6 @@ impl EditorSession {
             link_metadata_items += change.work.link_metadata_items;
             link_copied_bytes += change.work.link_copied_bytes;
         }
-        let targets = targets
-            .into_iter()
-            .map(|target| match target {
-                ResultTarget::Opening(anchor) => anchor.display,
-                ResultTarget::Inserted { .. } => unreachable!("every inserted run was staged"),
-            })
-            .collect();
         let selected_source = SourceRange {
             start: SourceOffset(
                 window.start
@@ -310,6 +303,24 @@ impl EditorSession {
             start: DisplayOffset(self.projection.display_at(selected_source.start.0)),
             end: DisplayOffset(self.projection.display_at(selected_source.end.0)),
         };
+        let targets = targets
+            .into_iter()
+            .map(|target| {
+                link_metadata_items += 1;
+                match target {
+                    ResultTarget::Opening(anchor) => match anchor.source {
+                        Some(source) => {
+                            let (display, work) =
+                                self.projection.display_at_with_work(window.start + source);
+                            link_metadata_items += work;
+                            display
+                        }
+                        None => anchor.display,
+                    },
+                    ResultTarget::Inserted { .. } => unreachable!("every inserted run was staged"),
+                }
+            })
+            .collect();
         self.affinity = staged.affinity;
         self.pending_formats = staged.pending_formats;
         change.selection = self.selection;
