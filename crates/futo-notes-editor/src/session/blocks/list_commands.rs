@@ -2,12 +2,45 @@
 use super::*;
 use std::collections::HashMap;
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum LiftScope {
+    AllAncestors,
+    CurrentContainer,
+}
+
 impl EditorSession {
     pub(super) fn list_command(
         &mut self,
         expected: Revision,
         range: DisplayRange,
         command: BlockCommand,
+        accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
+    ) -> Result<Option<ViewChange>, EditorError> {
+        self.scoped_list_command(expected, range, command, LiftScope::AllAncestors, accept)
+    }
+
+    /// Key exits and one-level Outdent retain list ancestors above a quote.
+    pub(super) fn lift_current_list(
+        &mut self,
+        expected: Revision,
+        range: DisplayRange,
+        accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
+    ) -> Result<Option<ViewChange>, EditorError> {
+        self.scoped_list_command(
+            expected,
+            range,
+            BlockCommand::Heading(0),
+            LiftScope::CurrentContainer,
+            accept,
+        )
+    }
+
+    fn scoped_list_command(
+        &mut self,
+        expected: Revision,
+        range: DisplayRange,
+        command: BlockCommand,
+        scope: LiftScope,
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<Option<ViewChange>, EditorError> {
         let mut lines: Vec<_> = self
@@ -85,8 +118,13 @@ impl EditorSession {
                 accept,
                 |staged, local, accept| {
                     let seams = staged.split_inline_block_seams(local, accept)?;
-                    let Some(mut change) =
-                        staged.list_command(staged.revision(), local, command, accept)?
+                    let Some(mut change) = staged.scoped_list_command(
+                        staged.revision(),
+                        local,
+                        command,
+                        scope,
+                        accept,
+                    )?
                     else {
                         return Ok(None);
                     };
@@ -100,6 +138,7 @@ impl EditorSession {
             );
         }
         if remove
+            && scope == LiftScope::AllAncestors
             && lines
                 .first()
                 .and_then(|line| line.list.as_ref())
@@ -108,6 +147,7 @@ impl EditorSession {
             return self.lift_crossquote_list(expected, range, &lines, accept);
         }
         if remove
+            && scope == LiftScope::AllAncestors
             && lines
                 .first()
                 .and_then(|line| line.list.as_ref())

@@ -149,15 +149,7 @@ impl EditorSession {
                 == lines[0].list.as_ref().unwrap().owner.start
             && range.start.0 == self.projection.display_at(lines[0].content.start)
         {
-            let list = lines[0].list.as_ref().unwrap();
-            let command = if list.checked.is_some() {
-                BlockCommand::TaskList
-            } else if list.ordinal.is_some() {
-                BlockCommand::OrderedList
-            } else {
-                BlockCommand::BulletList
-            };
-            return self.list_command(expected, range, command, accept);
+            return self.lift_current_list(expected, range, accept);
         }
         if !matches!(key, ParagraphKey::Enter | ParagraphKey::ShiftEnter) {
             return Ok(None);
