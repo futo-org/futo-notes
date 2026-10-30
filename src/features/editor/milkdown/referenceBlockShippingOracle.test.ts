@@ -9,6 +9,7 @@ import { softBreakView } from './paragraphLines';
 import { tableCellLineBreakRemark } from './table/tableLineBreak';
 import { wikilink } from './wikilink';
 import { createToolbarExec } from './toolbarExec';
+import { handleParityKeyDown } from './keyboardParity';
 import { withoutLeakedCtxTimers } from './__fixtures__/noLeakedCtxTimers';
 
 let editor: Editor;
@@ -29,7 +30,10 @@ beforeAll(async () => {
       .use(tableCellLineBreakRemark)
       .create(),
   );
-  editor.ctx.get(editorViewCtx).setProps({ handleScrollToSelection: () => true });
+  editor.ctx.get(editorViewCtx).setProps({
+    handleScrollToSelection: () => true,
+    handleKeyDown: (view, event) => handleParityKeyDown(view, event),
+  });
 });
 afterAll(async () => {
   await editor.destroy();
@@ -141,4 +145,29 @@ it('Text preserves reference label marks and decoded entity spelling intent', ()
     expect(links(candidate)).toEqual(ownedLinks);
     expect(candidate.content?.[0]?.content).toEqual(after.content?.[0]?.content);
   }
+});
+
+it('Enter preserves the visible heading body and unresolved reference through its real key handlers', () => {
+  const view = editor.ctx.get(editorViewCtx);
+  const parse = editor.ctx.get(parserCtx);
+  const original = "# prefix [id]: /target 'T'\n\n[one][id]\n\nbody";
+  const parsed = parse(original);
+  view.dispatch(view.state.tr.replaceWith(0, view.state.doc.content.size, parsed.content));
+  view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, 8)));
+  const event = new KeyboardEvent('keydown', {
+    key: 'Enter',
+    code: 'Enter',
+    bubbles: true,
+    cancelable: true,
+  });
+  expect(view.someProp('handleKeyDown', (handler) => handler(view, event))).toBe(true);
+  const after = view.state.doc.toJSON() as NodeJson;
+  expect(rows(after).map((row) => row.text)).toEqual([
+    'prefix ',
+    "[id]: /target 'T'",
+    '[one][id]',
+    'body',
+  ]);
+  expect(links(after)).toEqual([]);
+  console.info('REFERENCE_HEADING_ENTER_OWNED_ROWS', JSON.stringify(rows(after)));
 });
