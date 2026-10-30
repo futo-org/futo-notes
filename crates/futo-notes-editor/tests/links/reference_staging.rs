@@ -135,3 +135,36 @@ fn exact_nested_origins_include_prior_edits_and_each_of_two_reference_use_change
     assert_eq!(session.source_text(), changed);
     assert_eq!(session.selection(), range(36, 39));
 }
+
+#[test]
+fn os_replacement_returns_the_source_anchored_caret_after_remote_reference_visibility_changes() {
+    let original = "[id]: /target 'T'\n\npreamble\n\nbuffer\n\n[one][id]\n\nbody\n\ntail";
+    let changed = "[id]: /target 'T'\n\npreamble\n\nbuffer\n\n\n\nBODY\n\ntail";
+    let mut session = EditorSession::open(original);
+    let mut view = ReferenceView::new("preamble\n\nbuffer\n\none\n\nbody\n\ntail");
+    view.apply(
+        session
+            .replace_os(Revision(0), range(18, 27), "\n\nBODY", &[], &mut |_| Ok(()))
+            .unwrap()
+            .unwrap(),
+    );
+    assert_eq!(session.source_text(), changed);
+    assert_eq!(view.text, changed);
+    assert_eq!(session.selection(), range(43, 43));
+    view.apply(
+        session
+            .replace(Revision(1), session.selection(), "!", &mut |_| Ok(()))
+            .unwrap(),
+    );
+    assert_eq!(
+        session.source_text(),
+        "[id]: /target 'T'\n\npreamble\n\nbuffer\n\n\n\nBODY!\n\ntail"
+    );
+    view.apply(session.undo(Revision(2), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(session.source_text(), changed);
+    view.apply(session.undo(Revision(3), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(session.source_text(), original);
+    view.apply(session.redo(Revision(4), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(session.source_text(), changed);
+    assert_eq!(session.selection(), range(43, 43));
+}
