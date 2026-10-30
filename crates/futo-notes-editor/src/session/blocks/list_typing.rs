@@ -43,19 +43,43 @@ impl EditorSession {
                 accept,
             )?;
             let line = staged.projection.block_lines(staged.selection()).remove(0);
+            let styles = line.list.is_none().then(|| {
+                staged.list_styles(
+                    std::slice::from_ref(&line),
+                    if marker.ends_with(". ") {
+                        BlockCommand::OrderedList
+                    } else {
+                        BlockCommand::BulletList
+                    },
+                )
+            });
+            let marker = if let Some(styles) = &styles {
+                if let Some(number) = marker.strip_suffix(". ") {
+                    format!("{number}{} ", styles.markers[0] as char)
+                } else {
+                    format!("{} ", styles.markers[0] as char)
+                }
+            } else {
+                marker.clone()
+            };
             let at = line.content.start;
             let raw_body = staged.source.byte_slice(line.content.clone()).to_string();
             let (body, body_work) =
                 super::list_commands::protect_list_body(&raw_body, marker.starts_with('['));
             let body_bytes = raw_body.len() + body.len();
-            let mut output = staged.source.byte_slice(line.source.clone()).to_string();
+            let end = styles
+                .as_ref()
+                .and_then(|styles| styles.comments.iter().map(|(at, _)| *at).max())
+                .unwrap_or(0)
+                .max(line.source.end);
+            let mut output = staged.source.byte_slice(line.source.start..end).to_string();
             output.replace_range(
                 line.content.start - line.source.start..line.content.end - line.source.start,
                 &body,
             );
             output.insert_str(at - line.source.start, &marker);
             let mut before = String::new();
-            if line.list.is_none() && marker.ends_with(". ") && marker != "1. " {
+            if line.list.is_none() && marker.as_bytes()[0].is_ascii_digit() && !marker.starts_with("1.") && !marker.starts_with("1)") {
                 let index = staged.source.byte_to_line(line.source.start);
                 if index > 0 {
                     let previous = staged.source.line_to_byte(index - 1);
@@ -87,18 +111,33 @@ impl EditorSession {
             }
             if line.list.is_none() {
                 if let Some(separator) =
-                    staged.list_neighbor_separator(line.source.end, line.quote_depth)
+                    staged.list_neighbor_separator(end, line.quote_depth)
                 {
                     output.push_str(&separator);
+                }
+            }
+            let mut caret = at + marker.len() + before.len();
+            if let Some(styles) = styles {
+                let shift = output.len() as isize - (end - line.source.start) as isize;
+                for (position, comment) in styles.comments.into_iter().rev() {
+                    let offset = if position == line.source.start {
+                        0
+                    } else {
+                        (position as isize - line.source.start as isize + shift) as usize
+                    };
+                    if position <= at {
+                        caret += comment.len();
+                    }
+                    output.insert_str(offset, &comment);
                 }
             }
             let formats = staged.pending_formats.clone();
             let affinity = staged.affinity;
             let mut change = staged.commit_block_edit(
                 staged.revision(),
-                line.source.clone(),
+                line.source.start..end,
                 &output,
-                BlockSelection::Source(at + marker.len() + before.len()),
+                BlockSelection::Source(caret),
                 None,
                 accept,
             )?;
