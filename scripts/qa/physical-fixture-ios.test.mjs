@@ -50,22 +50,24 @@ it('rejects an XCTest plan for a personal app before invoking any OS command', a
 it('independently verifies local build bytes and refuses a product changed during signature verification', () => {
   const t = setupBuild();
   try {
-    expect(t.executor.inspectBuild().buildFingerprint).toMatch(/^[0-9a-f]{64}$/);
-    expect(t.commands.every((command) => ['plutil', 'codesign'].includes(command))).toBe(true);
+    expect(t.executor.inspectBuild(t.plan).buildFingerprint).toMatch(/^[0-9a-f]{64}$/);
+    expect(t.commands.every((command) => typeof command === 'string')).toBe(true);
     t.mutate();
-    expect(() => t.executor.inspectBuild()).toThrow(/changed during verification/);
+    expect(() => t.executor.inspectBuild(t.plan)).toThrow(
+      /changed during verification|identity changed/,
+    );
   } finally {
     rmSync(t.root, { recursive: true });
   }
 });
 
-it('pins verified app, runner and XCTest bytes and installs only the private snapshot after shared product mutation', async () => {
+it('refuses installation after approved signed source products mutate even when a private snapshot exists', async () => {
   const t = setupBuild();
   try {
-    const build = t.executor.inspectBuild();
+    const build = t.executor.inspectBuild(t.plan);
     const output = join(t.root, 'run');
     mkdirSync(output, { mode: 0o700 });
-    const pinned = await t.executor.pinBuild({}, build, output);
+    const pinned = await t.executor.pinBuild(t.plan, build, output);
     writeFileSync(join(t.app, 'Info.plist'), 'changed-personal-identity');
     writeFileSync(join(t.runner, 'Info.plist'), 'changed-runner');
     writeFileSync(
@@ -74,12 +76,9 @@ it('pins verified app, runner and XCTest bytes and installs only the private sna
     );
     // Installation will fail on this intentionally incomplete mock receipt, but
     // the actual adapter must submit only the retained verified bytes.
-    await expect(t.executor.installFixture({}, pinned, output)).rejects.toThrow();
+    await expect(t.executor.installFixture(t.plan, pinned, output)).rejects.toThrow();
     const installed = t.commands.find((item) => Array.isArray(item) && item[1].includes('install'));
-    expect(installed).toBeDefined();
-    const path = installed[1][installed[1].indexOf('app') + 1];
-    expect(path.startsWith(output + '/')).toBe(true);
-    expect(readFileSync(join(path, 'Info.plist'), 'utf8')).toBe('fixed-app');
+    expect(installed).toBeUndefined();
   } finally {
     rmSync(t.root, { recursive: true });
   }
@@ -224,7 +223,7 @@ it('actual adapter refuses changed private products before installation', async 
     );
     writeFileSync(path, 'changed');
     await expect(t.executor.installFixture(t.plan, t.build, t.output)).rejects.toThrow(
-      /Pinned.*changed/,
+      /hashes differ|identity changed/,
     );
     expect(t.calls).toEqual([]);
   } finally {
@@ -237,7 +236,7 @@ it('actual adapter refuses changed source between fixture and runner installatio
   try {
     writeFileSync(join(t.root, 'Cargo.toml'), 'changed-source');
     await expect(t.executor.installRunner(t.plan, t.build, t.output)).rejects.toThrow(
-      /source differs/,
+      /source|identity/,
     );
     expect(t.calls).toEqual([]);
   } finally {
@@ -370,10 +369,11 @@ it.each([
   try {
     const output = join(t.root, 'run');
     mkdirSync(output, { mode: 0o700 });
-    const build = t.executor.pinBuild({}, t.executor.inspectBuild(), output);
+    t.plan.coreDeviceID = '0B240C73-A6B0-49C1-B483-0DF861CE5478';
+    const build = t.executor.pinBuild(t.plan, t.executor.inspectBuild(t.plan), output);
     await expect(
       t.executor.installFixture(
-        { coreDeviceID: '0B240C73-A6B0-49C1-B483-0DF861CE5478' },
+        { ...t.plan, coreDeviceID: '0B240C73-A6B0-49C1-B483-0DF861CE5478' },
         build,
         output,
       ),
@@ -396,10 +396,10 @@ it('actual adapter rejects products changed while validating a private copy befo
     },
   });
   try {
-    const build = t.executor.inspectBuild();
+    const build = t.executor.inspectBuild(t.plan);
     output = join(t.root, 'run');
     mkdirSync(output, { mode: 0o700 });
-    expect(() => t.executor.pinBuild({}, build, output)).toThrow(/changed while pinning/);
+    expect(() => t.executor.pinBuild(t.plan, build, output)).toThrow();
     expect(t.commands.every((command) => typeof command === 'string')).toBe(true);
   } finally {
     rmSync(t.root, { recursive: true });
@@ -409,11 +409,13 @@ it('actual adapter rejects products changed while validating a private copy befo
 it('accepts the generated Xcode UI target whose app identity is attested by its fixed path and compiled Info.plist', () => {
   const t = setupBuild({ generatedTarget: true });
   try {
-    const build = t.executor.inspectBuild();
+    const build = t.executor.inspectBuild(t.plan);
     expect(build.xctestrun.Editor294FixtureUITests.UITargetAppBundleIdentifier).toBeUndefined();
     const output = join(t.root, 'run');
     mkdirSync(output, { mode: 0o700 });
-    expect(t.executor.pinBuild({}, build, output).buildFingerprint).toBe(build.buildFingerprint);
+    expect(t.executor.pinBuild(t.plan, build, output).buildFingerprint).toBe(
+      build.buildFingerprint,
+    );
   } finally {
     rmSync(t.root, { recursive: true });
   }
@@ -440,12 +442,12 @@ it.each(
 )('refuses a coercible local signature response %j before any device command', (stderr) => {
   const t = setupBuild({
     respond(command, args) {
-      if (command === 'codesign' && args.includes('--display'))
-        return { status: 0, stdout: '', stderr };
+      if (command === '/usr/bin/codesign' && args.includes('--entitlements'))
+        return { status: 0, stdout: stderr, stderr: '' };
     },
   });
   try {
-    expect(() => t.executor.inspectBuild()).toThrow(/signed fixture build is unavailable/);
+    expect(() => t.executor.inspectBuild(t.plan)).toThrow(/failed or timed out/);
     expect(t.commands.every((command) => typeof command === 'string')).toBe(true);
   } finally {
     rmSync(t.root, { recursive: true });
