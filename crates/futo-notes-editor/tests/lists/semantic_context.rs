@@ -149,7 +149,7 @@ fn semantic_context_stops_at_substantive_barriers_and_keeps_protected_triggers_l
         ),
         (
             "    2.body\n\n\n7. after",
-            6,
+            2,
             "    2. body\n\n\n7. after",
             vec![7],
         ),

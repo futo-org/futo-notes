@@ -40,6 +40,7 @@ first lines at depth one; `quoteDepth` defaults to zero. Consumers also request
 the EOF caret slice so a zero-width final item is checked. No expected value is
 derived from a Markdown parser. The original thirty-eight seam literals remain
 unchanged.
+
 Fenced-code regression literals live in `../fences/`, driven through the public
 session and independent display-only reference view. The existing WASM block
 consumer and Swift/Kotlin block suites cover code/language semantics, Unicode
