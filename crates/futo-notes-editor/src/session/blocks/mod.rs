@@ -43,30 +43,17 @@ enum BlockSelection {
 }
 
 impl EditorSession {
-    /// List formatting includes an item reached at its first text position.
-    /// Other boundaries retain their existing half-open scope, including a
-    /// protected multiline-inline-code neighbor.
+    /// Formatting includes a next item's first text boundary; replacement
+    /// queries keep their half-open scope. The projection owns this rule once.
     fn selected_block_lines(&self, range: DisplayRange) -> Vec<crate::inline::blocks::BlockLine> {
-        let mut lines = self.projection.block_lines(range);
-        if range.start != range.end {
-            let point = DisplayRange {
-                start: range.end,
-                end: range.end,
-            };
-            if let Some(last) = self.projection.block_lines(point).into_iter().find(|line| {
-                crate::inline::visit_container();
-                line.list.as_ref().is_some_and(|list| list.first)
-                    && self.projection.display_at(line.content.start) == range.end.0
-            }) {
-                if lines
-                    .last()
-                    .is_none_or(|line| line.source.start != last.source.start)
-                {
-                    lines.push(last);
-                }
-            }
-        }
-        lines
+        self.projection.format_block_lines(range)
+    }
+
+    fn selected_list_lines(
+        &self,
+        range: DisplayRange,
+    ) -> Vec<crate::inline::blocks::ListCommandLine> {
+        self.projection.list_command_lines(range)
     }
 
     fn carry_block_state(

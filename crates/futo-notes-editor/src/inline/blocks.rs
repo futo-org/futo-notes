@@ -20,6 +20,40 @@ pub(crate) struct SourcePrefix {
     pub list: Option<super::lists::ListLine>,
 }
 
+/// Body-free command metadata copied from retained canonical attribution.
+/// Original physical body vectors stay borrowed in the projection.
+pub(crate) struct ListCommandLine {
+    pub source: Range<usize>,
+    pub content: Range<usize>,
+    pub heading: u8,
+    pub quote_depth: usize,
+    pub divider: bool,
+    pub code: bool,
+    pub list: Option<super::lists::ListLine>,
+    pub task: Option<Range<usize>>,
+}
+
+impl ListCommandLine {
+    pub(crate) fn from_block(block: &BlockLine, base: usize) -> Self {
+        super::visit_container();
+        let shift = |range: &Range<usize>| base + range.start..base + range.end;
+        let mut list = block.list.clone();
+        if let Some(list) = &mut list {
+            list.shift(base);
+        }
+        Self {
+            source: shift(&block.source),
+            content: shift(&block.content),
+            heading: block.heading,
+            quote_depth: block.quote_depth,
+            divider: block.divider,
+            code: block.code,
+            list,
+            task: block.task.as_ref().map(shift),
+        }
+    }
+}
+
 /// A physical line retains its exact prefix, body and line-ending boundaries.
 #[derive(Clone, Debug)]
 pub(crate) struct PhysicalLine {

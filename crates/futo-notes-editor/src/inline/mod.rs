@@ -243,9 +243,41 @@ impl Projection {
     }
 
     pub(crate) fn block_lines(&self, range: DisplayRange) -> Vec<blocks::BlockLine> {
+        let mut result = Vec::new();
+        self.visit_block_lines(range, false, |block, base| {
+            let mut block = block.clone();
+            block.shift(base);
+            result.push(block);
+        });
+        result
+    }
+
+    pub(crate) fn format_block_lines(&self, range: DisplayRange) -> Vec<blocks::BlockLine> {
+        let mut result = Vec::new();
+        self.visit_block_lines(range, true, |block, base| {
+            let mut block = block.clone();
+            block.shift(base);
+            result.push(block);
+        });
+        result
+    }
+
+    pub(crate) fn list_command_lines(&self, range: DisplayRange) -> Vec<blocks::ListCommandLine> {
+        let mut result = Vec::new();
+        self.visit_block_lines(range, true, |block, base| {
+            result.push(blocks::ListCommandLine::from_block(block, base))
+        });
+        result
+    }
+
+    fn visit_block_lines(
+        &self,
+        range: DisplayRange,
+        formatting: bool,
+        mut visit: impl FnMut(&blocks::BlockLine, usize),
+    ) {
         let first = self.rows.locate(range.start.0, true);
         let last = self.rows.locate(range.end.0, true);
-        let mut result = Vec::new();
         for index in first..=last {
             let (row, source, display) = self.rows.at(index);
             for block in &row.blocks {
@@ -277,21 +309,22 @@ impl Projection {
                         && fence.whole.start < block.source.end
                         && a == range.start.0
                 });
-                if hit || empty_fence {
-                    let mut block = block.clone();
-                    block.shift(source);
+                let format_endpoint = formatting
+                    && range.start != range.end
+                    && block.list.as_ref().is_some_and(|list| list.first)
+                    && display + row.display_at(block.content.start) == range.end.0;
+                if hit || empty_fence || format_endpoint {
                     // The synthetic end line of a nonfinal row belongs to its successor.
                     if !block.source.is_empty()
                         || source + row.source_len
                             == self.rows.at(self.rows.len() - 1).1
                                 + self.rows.at(self.rows.len() - 1).0.source_len
                     {
-                        result.push(block);
+                        visit(block, source);
                     }
                 }
             }
         }
-        result
     }
 
     /// Reparse the edit's paragraphs and immediate neighbors, which can join

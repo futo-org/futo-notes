@@ -1,13 +1,13 @@
 //! Lift selected list text while promoting its remaining container tail.
 use super::*;
-use crate::inline::blocks::BlockLine;
+use crate::inline::blocks::ListCommandLine;
 
 impl EditorSession {
     pub(super) fn lift_nested_list(
         &mut self,
         expected: Revision,
         range: DisplayRange,
-        lines: &[BlockLine],
+        lines: &[ListCommandLine],
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<Option<ViewChange>, EditorError> {
         let first = &lines[0];

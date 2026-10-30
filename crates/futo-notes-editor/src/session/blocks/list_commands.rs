@@ -44,7 +44,7 @@ impl EditorSession {
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<Option<ViewChange>, EditorError> {
         let mut lines: Vec<_> = self
-            .selected_block_lines(range)
+            .selected_list_lines(range)
             .into_iter()
             .filter(|line| !line.code && !line.divider)
             .collect();
@@ -70,7 +70,7 @@ impl EditorSession {
                 };
                 lines.extend(
                     self.projection
-                        .block_lines(selected)
+                        .list_command_lines(selected)
                         .into_iter()
                         .filter(|line| {
                             !line.code && line.list.as_ref().is_some_and(|list| list.item == item)
@@ -89,7 +89,7 @@ impl EditorSession {
             };
             lines.extend(
                 self.projection
-                    .block_lines(group)
+                    .list_command_lines(group)
                     .into_iter()
                     .filter(|line| {
                         !line.code

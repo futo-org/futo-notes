@@ -2,7 +2,7 @@
 //! two ordered delimiters are both occupied, one standard empty comment keeps
 //! the chosen list independent (CommonMark 0.31.2, example 308).
 use super::*;
-use crate::inline::blocks::BlockLine;
+use crate::inline::blocks::{BlockLine, ListCommandLine};
 use std::collections::{HashMap, HashSet};
 
 pub(super) struct ListStylePlan {
@@ -17,7 +17,11 @@ enum ListIntent {
 }
 
 impl EditorSession {
-    pub(super) fn list_styles(&self, lines: &[BlockLine], command: BlockCommand) -> ListStylePlan {
+    pub(super) fn list_styles(
+        &self,
+        lines: &[ListCommandLine],
+        command: BlockCommand,
+    ) -> ListStylePlan {
         self.plan_list_styles(lines, command, ListIntent::Independent)
     }
 
@@ -26,8 +30,9 @@ impl EditorSession {
         line: &BlockLine,
         start: Option<u64>,
     ) -> ListStylePlan {
+        let line = ListCommandLine::from_block(line, 0);
         self.plan_list_styles(
-            std::slice::from_ref(line),
+            std::slice::from_ref(&line),
             if start.is_some() {
                 BlockCommand::OrderedList
             } else {
@@ -39,7 +44,7 @@ impl EditorSession {
 
     fn plan_list_styles(
         &self,
-        lines: &[BlockLine],
+        lines: &[ListCommandLine],
         command: BlockCommand,
         intent: ListIntent,
     ) -> ListStylePlan {

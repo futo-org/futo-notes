@@ -2,7 +2,7 @@
 use super::indent_source::{OwnedPrefixShift, PhysicalPrefixShift};
 use super::*;
 use crate::inline::{
-    blocks::{BlockLine, SourcePrefix},
+    blocks::{ListCommandLine, SourcePrefix},
     ListLine,
 };
 use std::{collections::BTreeMap, ops::Range};
@@ -17,7 +17,7 @@ impl EditorSession {
         &mut self,
         expected: Revision,
         range: DisplayRange,
-        lines: &[BlockLine],
+        lines: &[ListCommandLine],
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<Option<ViewChange>, EditorError> {
         let selected = lines[0]
