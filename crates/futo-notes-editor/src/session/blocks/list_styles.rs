@@ -7,6 +7,7 @@ use std::collections::{HashMap, HashSet};
 
 pub(super) struct ListStylePlan {
     pub markers: Vec<u8>,
+    pub quotes: Vec<usize>,
     pub comments: Vec<(usize, String)>,
 }
 
@@ -52,6 +53,20 @@ impl EditorSession {
         let mut resolved_lines = HashMap::new();
         let mut result = ListStylePlan {
             markers: vec![candidates[0]; lines.len()],
+            quotes: lines
+                .iter()
+                .map(|line| {
+                    crate::inline::visit_container();
+                    if matches!(intent, ListIntent::Independent)
+                        && line.list.is_none()
+                        && line.heading == 0
+                    {
+                        0
+                    } else {
+                        line.quote_depth
+                    }
+                })
+                .collect(),
             comments: Vec::new(),
         };
         let mut first = 0;
@@ -64,6 +79,7 @@ impl EditorSession {
                 last += 1;
             }
             let head = &lines[first];
+            let quote_depth = result.quotes[first];
             let tail = &lines[last - 1];
             let depth = head.list.as_ref().map_or(1, |list| list.depth);
             let before_line = self.source.byte_to_line(head.source.start);
@@ -117,9 +133,9 @@ impl EditorSession {
                 after_line -= 1;
             }
             let neighbor = |at: usize, forward: bool| {
-                let neighbor = self.semantic_neighbor(at, forward, head.quote_depth)?;
+                let neighbor = self.semantic_neighbor(at, forward, quote_depth)?;
                 let line = neighbor.witness;
-                if line.empty_comment || line.code || line.quote_depth != head.quote_depth {
+                if line.empty_comment || line.code || line.quote_depth != quote_depth {
                     return None;
                 }
                 if let Some(list) = &line.list {
@@ -180,10 +196,7 @@ impl EditorSession {
             let retained = if let Some(list) = &head.list {
                 list.marker.start - head.source.start
             } else {
-                prefix.rfind('>').map_or(0, |at| {
-                    at + 1
-                        + usize::from(matches!(prefix.as_bytes().get(at + 1), Some(b' ' | b'\t')))
-                })
+                super::indent_source::canonical_quote_end(&prefix, quote_depth).unwrap_or(0)
             };
             let comment = format!("{}<!-- -->\n", &prefix[..retained]);
             if before == Some(marker) && join.is_none() {

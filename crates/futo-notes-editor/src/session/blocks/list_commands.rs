@@ -270,6 +270,12 @@ impl EditorSession {
             let retained = if !remove && line.list.is_some() {
                 let list = line.list.as_ref().unwrap();
                 list.marker.start - line.source.start
+            } else if !remove {
+                super::indent_source::canonical_quote_end(
+                    &prefix,
+                    styles.as_ref().unwrap().quotes[index],
+                )
+                .unwrap_or(0)
             } else {
                 prefix.rfind('>').map_or(0, |at| {
                     at + 1
@@ -425,8 +431,9 @@ impl EditorSession {
             }
         }
         if !remove {
-            let last = lines.last().unwrap();
-            if let Some(separator) = self.list_neighbor_separator(end, last.quote_depth) {
+            if let Some(separator) =
+                self.list_neighbor_separator(end, styles.as_ref().unwrap().quotes[lines.len() - 1])
+            {
                 replacements.push((end - start..end - start, separator));
                 separators.push(self.projection.display_at(end));
             }
