@@ -203,6 +203,7 @@ impl super::Projection {
         Ok((
             Plan {
                 delimiters: Vec::new(),
+                input_start: 0,
                 range: source_start + prefix..source_end - suffix,
                 inserted: rendered.text[prefix..rendered.text.len() - suffix].into(),
                 caret: 0,
@@ -513,6 +514,7 @@ impl super::Projection {
             .sum();
         Ok(Plan {
             delimiters: Vec::new(),
+            input_start: 0,
             range: source_start + prefix..source_end - suffix,
             inserted: rendered.text[prefix..rendered.text.len() - suffix].into(),
             caret: source_start + rendered.caret,

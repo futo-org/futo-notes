@@ -27,6 +27,7 @@ pub(super) struct Spelling {
     pub text: String,
     pub delimiters: Vec<Range<usize>>,
     pub caret: usize,
+    pub input_start: usize,
     pub anchors: Vec<usize>,
     pub parsed: usize,
     pub link_metadata_items: usize,
@@ -236,6 +237,10 @@ pub(super) fn spell_with_anchors(
         mapped.push(found.ok_or(EditorError::UnrepresentableFormat)?);
     }
     Ok(Spelling {
+        input_start: rendered
+            .pieces
+            .get(insertion.start)
+            .map_or(rendered.caret, |range| range.start),
         delimiters: pieces
             .iter()
             .zip(&rendered.pieces)

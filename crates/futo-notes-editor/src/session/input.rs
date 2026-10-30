@@ -115,9 +115,15 @@ impl EditorSession {
             end: caret,
         };
         self.pending_formats = Some(plan.formats);
-        change.work.link_metadata_items += self
-            .projection
-            .finish_link_input(range, inserted, action, caret.0);
+        change.work.link_metadata_items += self.projection.finish_link_input(
+            DisplayRange {
+                start: DisplayOffset(self.projection.display_at(plan.input_start)),
+                end: caret,
+            },
+            inserted,
+            action,
+            caret.0,
+        );
         let (projection, link_work) = self
             .projection
             .query_with_work(self.revision, change.projection.range);
