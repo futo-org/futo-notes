@@ -387,3 +387,28 @@ fn non_one_ordered_text_without_a_separator_remains_a_parent_paragraph() {
     view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
     assert_eq!(s.source_text(), source);
 }
+
+#[test]
+fn list_indent_moves_owned_code_prefixes_without_changing_authored_blank_body_spaces() {
+    let source = "- before\n- parent\n  ```\n    \n  ```";
+    let expected = "- before\n  - parent\n    ```\n      \n    ```";
+    let shown = "before\nparent\n  ";
+    let mut s = EditorSession::open(source);
+    let mut view = ReferenceView::new(shown);
+    assert_eq!(s.display_text(), shown);
+    s.select(s.revision(), range(7, 13)).unwrap();
+    view.apply(
+        s.block_command(
+            s.revision(),
+            range(7, 13),
+            BlockCommand::Indent,
+            &mut |_| Ok(()),
+        )
+        .unwrap()
+        .unwrap(),
+    );
+    assert_eq!(s.source_text(), expected);
+    assert_eq!(view.text, shown);
+    view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(s.source_text(), source);
+}
