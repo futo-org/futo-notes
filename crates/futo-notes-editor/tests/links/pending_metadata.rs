@@ -304,3 +304,36 @@ fn whole_marked_url_text_finishes_only_when_a_separator_follows_its_closer() {
         assert_eq!(view.text, display);
     }
 }
+
+#[test]
+fn correction_inside_newly_composed_formatted_url_text_keeps_its_inserted_identity() {
+    let mut session = EditorSession::open("");
+    let mut view = ReferenceView::new("");
+    session
+        .compose(Revision(0), range(0, 0), "x *b https://x.test/a* ")
+        .unwrap();
+    let mut accepts = 0;
+    view.apply(
+        session
+            .replace(Revision(0), range(3, 4), "B", &mut |_| {
+                accepts += 1;
+                Ok(())
+            })
+            .unwrap(),
+    );
+    assert_eq!(accepts, 1);
+    assert_eq!(session.source_text(), "x *B https://x.test/a* ");
+    assert_eq!(view.text, "x B https://x.test/a ");
+    assert_eq!(session.selection(), range(3, 3));
+    view.apply(session.undo(Revision(1), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(session.source_text(), "x *b https://x.test/a* ");
+    assert_eq!(session.selection(), range(21, 21));
+    view.apply(session.undo(Revision(2), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(session.source_text(), "");
+    assert_eq!(view.text, "");
+    view.apply(session.redo(Revision(3), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(session.selection(), range(21, 21));
+    view.apply(session.redo(Revision(4), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(session.source_text(), "x *B https://x.test/a* ");
+    assert_eq!(session.selection(), range(3, 3));
+}
