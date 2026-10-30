@@ -301,7 +301,7 @@ impl super::Projection {
             .display
             .byte_slice(0..caret)
             .chars()
-            .rev()
+            .reversed()
             .take_while(|ch| !ch.is_whitespace())
             .map(char::len_utf8)
             .sum();
