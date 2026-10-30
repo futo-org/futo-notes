@@ -406,3 +406,42 @@ fn indent_moves_all_selected_siblings_as_one_exact_action() {
     assert_eq!(s.source_text(), raw);
     assert_eq!(s.selection(), selected);
 }
+
+#[test]
+fn indent_and_outdent_choose_the_nearest_list_or_quote_container() {
+    for (raw, expected) in [
+        ("> - a\n> - b", "> - a\n>   - b"),
+        ("- a\n  > b", "- a\n  > > b"),
+    ] {
+        let selected = range(2, 3);
+        let mut s = EditorSession::open(raw);
+        let mut view = ReferenceView::new("a\nb");
+        s.select(s.revision(), selected).unwrap();
+        view.apply(
+            s.block_command(
+                s.revision(),
+                selected,
+                BlockCommand::Indent,
+                &mut |_| Ok(()),
+            )
+            .unwrap()
+            .unwrap(),
+        );
+        assert_eq!(s.source_text(), expected);
+        assert_eq!(view.text, "a\nb");
+        assert_eq!(s.selection(), selected);
+        view.apply(
+            s.block_command(s.revision(), selected, BlockCommand::Outdent, &mut |_| {
+                Ok(())
+            })
+            .unwrap()
+            .unwrap(),
+        );
+        assert_eq!(s.source_text(), raw);
+        assert_eq!(view.text, "a\nb");
+        view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+        assert_eq!(s.source_text(), expected);
+        view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+        assert_eq!(s.source_text(), raw);
+    }
+}
