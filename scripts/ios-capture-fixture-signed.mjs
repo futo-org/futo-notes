@@ -174,6 +174,8 @@ function signAndVerifyFixture({
       '--sign',
       selection.identitySHA1,
       '--timestamp=none',
+      // XCTest executables are Mach-O bundles; macOS 15 omits library entitlements by default.
+      ...(path.endsWith('.xctest') ? ['--force-library-entitlements'] : []),
       '--entitlements',
       xmlPath,
       path,
@@ -276,8 +278,11 @@ export function buildSignedFixture(
   run('just', ['build-rust-ios'], {
     env: { ...process.env, FUTO_IOS_FFI_PROFILE: 'release-ffi', CARGO_NET_OFFLINE: 'true' },
   });
-  if (JSON.stringify(sourceProvenance(root)) !== JSON.stringify(source))
-    throw new Error('Fixture source changed during FFI build');
+  const assertFrozenSource = () => {
+    if (JSON.stringify(sourceProvenance(root)) !== JSON.stringify(source))
+      throw new Error('Fixture source changed from approved clean source');
+  };
+  assertFrozenSource();
   const provenance = {
     ...source,
     artifacts: ffiArtifacts(root),
@@ -329,6 +334,7 @@ export function buildSignedFixture(
     'CODE_SIGN_IDENTITY=',
     'build-for-testing',
   ]);
+  assertFrozenSource();
   assertBuildIdentity(root, provenance);
   const { signatures, signedArtifacts } = signAndVerifyFixture({
     output,
@@ -340,6 +346,7 @@ export function buildSignedFixture(
     run,
     now,
   });
+  assertFrozenSource();
   assertBuildIdentity(root, provenance);
   const receipt = {
     kind: 'VERIFIED_SIGNED_ISOLATED_FIXTURE',

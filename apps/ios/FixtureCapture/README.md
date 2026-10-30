@@ -26,7 +26,10 @@ This route rebuilds `release-ffi` with Cargo offline, disables automatic Xcode
 package resolution/updates, generates an isolated project from `project.yml`,
 and compiles generic iOS products in a fresh private `.build-signed/<runID>/`.
 It signs only the four fixed standalone bundles, inside out, without a timestamp
-service, using minimal development app/team entitlements. Bundled provenance says
+service, using minimal development app/team entitlements. Both XCTest library
+bundles explicitly retain entitlements under the macOS 15 codesign default. The
+complete frozen source identity, including checkout cleanliness outside the selected
+build inputs, is rechecked after native build and before the success receipt. Bundled provenance says
 `signed:false` and `development-signing-requested-not-verified`: it records the
 request before signing. Only the separate `verified-signing-receipt.json` records
 successful strict signature, leaf-certificate, entitlement, embedded-profile and
