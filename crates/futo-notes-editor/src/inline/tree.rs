@@ -233,3 +233,53 @@ fn visit_context() {
     #[cfg(test)]
     CONTEXT_VISITS.with(|visits| visits.set(visits.get() + 1));
 }
+
+#[cfg(test)]
+mod context_work_tests {
+    use super::CONTEXT_VISITS;
+    use crate::{DisplayOffset, DisplayRange, EditorSession};
+
+    #[test]
+    fn shortcut_context_skips_distant_blank_subtrees_and_foreign_list_bodies() {
+        for blanks in [9, 1000, 20_000] {
+            for foreign_bytes in [8, 100_000] {
+                let gap = "\n".repeat(blanks + 1);
+                let body = "x".repeat(foreign_bytes);
+                for start in [2, 1000] {
+                    let raw = format!("999. {body}{gap}{start}.body{gap}7. {body}\n1. tail");
+                    let mut session = EditorSession::open(&raw);
+                    let at = foreign_bytes + gap.len() + start.to_string().len() + 1;
+                    let selected = DisplayRange {
+                        start: DisplayOffset(at),
+                        end: DisplayOffset(at),
+                    };
+                    session.select(session.revision(), selected).unwrap();
+                    CONTEXT_VISITS.with(|visits| visits.set(0));
+                    let change = session
+                        .replace(session.revision(), selected, " ", &mut |_| Ok(()))
+                        .unwrap();
+                    let visits = CONTEXT_VISITS.with(|visits| visits.get());
+                    assert!(
+                        visits > 0 && visits < 160,
+                        "gap={blanks} body={foreign_bytes} visits={visits}"
+                    );
+                    assert!(change.work.parsed_source_bytes < 4096, "{:?}", change.work);
+                    assert!(
+                        change.work.materialized_source_bytes < 4096,
+                        "{:?}",
+                        change.work
+                    );
+                    let expected = if start == 2 {
+                        format!("999. {body}{gap}2) body{gap}7. {body}\n1. tail")
+                    } else {
+                        format!(
+                            "999. {body}{gap}1000. body\n<!-- -->\n{}7. {body}\n1. tail",
+                            "\n".repeat(blanks)
+                        )
+                    };
+                    assert_eq!(session.source_text(), expected);
+                }
+            }
+        }
+    }
+}
