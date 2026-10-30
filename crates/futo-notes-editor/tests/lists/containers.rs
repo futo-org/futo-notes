@@ -336,10 +336,10 @@ fn indent_joins_the_preceding_items_existing_compatible_child_list() {
             "- parent\n  + existing\n  + child",
         ),
         (
-            "1) parent\n   4) existing\n2) child",
-            "parent\nexisting\nchild",
-            range(16, 21),
-            "1) parent\n   4) existing\n   5) child",
+            "1) parent\n\n   4) existing\n2) child",
+            "parent\n\nexisting\nchild",
+            range(17, 22),
+            "1) parent\n\n   4) existing\n   5) child",
         ),
     ] {
         let mut s = EditorSession::open(source);
@@ -362,4 +362,28 @@ fn indent_joins_the_preceding_items_existing_compatible_child_list() {
         view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
         assert_eq!(s.source_text(), source);
     }
+}
+
+#[test]
+fn non_one_ordered_text_without_a_separator_remains_a_parent_paragraph() {
+    let source = "1) parent\n   4) existing\n2) child";
+    let shown = "parent\n4) existing\nchild";
+    let mut s = EditorSession::open(source);
+    let mut view = ReferenceView::new(shown);
+    assert_eq!(s.display_text(), shown);
+    s.select(s.revision(), range(19, 24)).unwrap();
+    view.apply(
+        s.block_command(
+            s.revision(),
+            range(19, 24),
+            BlockCommand::Indent,
+            &mut |_| Ok(()),
+        )
+        .unwrap()
+        .unwrap(),
+    );
+    assert_eq!(s.source_text(), "1) parent\n   4) existing\n   1) child");
+    assert_eq!(view.text, shown);
+    view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(s.source_text(), source);
 }
