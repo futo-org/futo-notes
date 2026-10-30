@@ -240,20 +240,24 @@ mod context_work_tests {
     use crate::{DisplayOffset, DisplayRange, EditorSession};
 
     #[test]
-    fn shortcut_context_skips_distant_blank_subtrees_and_foreign_list_bodies() {
+    fn shortcut_parser_work_does_not_include_distant_following_list_bodies() {
         for blanks in [9, 1000, 20_000] {
             for foreign_bytes in [8, 100_000] {
                 let gap = "\n".repeat(blanks + 1);
                 let body = "x".repeat(foreign_bytes);
                 for start in [2, 1000] {
-                    let raw = format!("999. {body}{gap}{start}.body{gap}7. {body}\n1. tail");
+                    let raw = format!("999. before{gap}{start}.body{gap}7. {body}\n1. tail");
                     let mut session = EditorSession::open(&raw);
-                    let at = foreign_bytes + gap.len() + start.to_string().len() + 1;
+                    let at = "before".len() + gap.len() + start.to_string().len() + 1;
                     let selected = DisplayRange {
                         start: DisplayOffset(at),
                         end: DisplayOffset(at),
                     };
                     session.select(session.revision(), selected).unwrap();
+                    // The existing neighboring-row stage can still include a
+                    // huge preceding list row, whose trailing blanks belong to
+                    // its CommonMark owner (#314). Here that row is fixed small;
+                    // growing the distant following witness must add no bytes.
                     let (window, _) = session.projection.edit_window(selected);
                     assert!(
                         window.len() < 4096,
@@ -280,14 +284,56 @@ mod context_work_tests {
                         change.work
                     );
                     let expected = if start == 2 {
-                        format!("999. {body}{gap}2) body{gap}7. {body}\n1. tail")
+                        format!("999. before{gap}2) body{gap}7. {body}\n1. tail")
                     } else {
                         format!(
-                            "999. {body}{gap}1000. body\n<!-- -->\n{}7. {body}\n1. tail",
+                            "999. before{gap}1000. body\n<!-- -->\n{}7. {body}\n1. tail",
                             "\n".repeat(blanks)
                         )
                     };
                     assert_eq!(session.source_text(), expected);
+                }
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod neighbor_work_tests {
+    use super::CONTEXT_VISITS;
+    use crate::inline::Projection;
+
+    #[test]
+    fn semantic_neighbor_metadata_skips_large_blank_runs_and_both_foreign_bodies() {
+        for blanks in [9, 1000, 20_000] {
+            for body_bytes in [8, 100_000] {
+                for quote in ["", "> ", "> > "] {
+                    let body = "x".repeat(body_bytes);
+                    let gap = format!("{}\n", quote.trim_end()).repeat(blanks);
+                    let before = format!("{quote}999. {body}\n{gap}");
+                    let target = format!("{quote}2.body\n");
+                    let source = format!("{before}{target}{gap}{quote}7. {body}\n{quote}1. tail");
+                    let projection = Projection::new(&source);
+                    CONTEXT_VISITS.with(|visits| visits.set(0));
+                    let preceding = projection
+                        .rows
+                        .context_neighbor(before.len(), false, quote.matches('>').count())
+                        .unwrap();
+                    let following = projection
+                        .rows
+                        .context_neighbor(
+                            before.len() + target.len(),
+                            true,
+                            quote.matches('>').count(),
+                        )
+                        .unwrap();
+                    let visits = CONTEXT_VISITS.with(|visits| visits.get());
+                    assert!(
+                        visits > 0 && visits < 160,
+                        "blanks={blanks} body={body_bytes} quote={quote:?} visits={visits}"
+                    );
+                    assert_eq!(preceding.list.unwrap().ordinal, Some(999));
+                    assert_eq!(following.list.unwrap().ordinal, Some(7));
                 }
             }
         }
