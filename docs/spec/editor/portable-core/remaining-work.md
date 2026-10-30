@@ -1,5 +1,11 @@
 # Remaining work and performance limits
 
+Rich HTML paste (#303) and rendered block movement (#311) are deferred by the maintainer's
+2026-10-30 scope decision and do not block this milestone; their issues remain open for later
+work. Plain-text/Markdown paste, including the supported table-cell/grid forms, remains
+required. Tables, shared find, wikilink completion and the 20,000-line/native durability
+acceptance targets have not been deferred. → docs/plan/text-first-editor-rebuild-tickets.md
+
 Block/link interpretation,
 note-id-dependent composition arbitration and renderer integration follow in their dependent tickets.
 
