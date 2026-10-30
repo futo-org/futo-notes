@@ -79,3 +79,59 @@ fn nested_composition_refreshes_an_exact_local_definition_before_following_input
     assert_eq!(session.source_text(), changed);
     assert_eq!(session.selection(), range(39, 39));
 }
+
+#[test]
+fn exact_nested_origins_include_prior_edits_and_each_of_two_reference_use_changes() {
+    let original =
+        "head\n\nbuffer\n\n[id]: /target 'T'\n\n[one][id] [two][id]\n\nbody\n\ntail\n\noutside";
+    let opening =
+        "head\n\nBUFFER++\n\n[id]: /target 'T'\n\n[one][id] [two][id]\n\nbody\n\ntail\n\noutside";
+    let marked = "head\n\nBUFFER++\n\n[id]: /target 'T'\n\n [two][id]\n\nbody\n\ntail\n\noutside";
+    let changed =
+        "head\n\nBUFFER++\n\n[id]: /target 'T'\n\n [two](</new> \"T\")\n\nbody\n\ntail\n\noutside";
+    let mut session = EditorSession::open(original);
+    let mut view = ReferenceView::new("head\n\nbuffer\n\none two\n\nbody\n\ntail\n\noutside");
+    view.apply(
+        session
+            .replace(Revision(0), range(6, 12), "BUFFER++", &mut |_| Ok(()))
+            .unwrap(),
+    );
+    assert_eq!(session.source_text(), opening);
+    session.compose(Revision(1), range(16, 19), "").unwrap();
+    let mut accepted = 0;
+    view.apply(
+        session
+            .set_link(Revision(1), range(17, 20), "/new", &mut |_| {
+                accepted += 1;
+                Ok(())
+            })
+            .unwrap()
+            .unwrap(),
+    );
+    assert_eq!(accepted, 1);
+    assert_eq!(session.source_text(), changed);
+    assert_eq!(
+        view.text,
+        "head\n\nBUFFER++\n\n[id]: /target 'T'\n\n two\n\nbody\n\ntail\n\noutside"
+    );
+    assert_eq!(session.selection(), range(36, 39));
+    let target = session
+        .inspect_link(Revision(2), range(36, 39))
+        .unwrap()
+        .unwrap();
+    assert_eq!(target.destination, "/new");
+    assert_eq!(target.title.as_deref(), Some("T"));
+    view.apply(session.undo(Revision(2), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(session.source_text(), marked);
+    assert_eq!(
+        view.text,
+        "head\n\nBUFFER++\n\n two\n\nbody\n\ntail\n\noutside"
+    );
+    assert_eq!(session.selection(), range(16, 16));
+    view.apply(session.undo(Revision(3), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(session.source_text(), opening);
+    view.apply(session.redo(Revision(4), &mut |_| Ok(())).unwrap().unwrap());
+    view.apply(session.redo(Revision(5), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(session.source_text(), changed);
+    assert_eq!(session.selection(), range(36, 39));
+}
