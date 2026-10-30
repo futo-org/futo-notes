@@ -31,6 +31,8 @@ impl EditorSession {
         };
         self.stage_block_action(expected, range, None, accept, |staged, local, accept| {
             let line = staged.projection.block_lines(local).remove(0);
+            let formats = staged.pending_formats.clone();
+            let affinity = staged.affinity;
             let start = DisplayOffset(staged.projection.display_at(line.content.start));
             let removed = staged.replace_action(
                 staged.revision(),
@@ -131,8 +133,6 @@ impl EditorSession {
                     output.insert_str(offset, &comment);
                 }
             }
-            let formats = staged.pending_formats.clone();
-            let affinity = staged.affinity;
             let mut change = staged.commit_block_edit(
                 staged.revision(),
                 line.source.start..end,
