@@ -268,3 +268,48 @@ fn a_visible_separator_outside_the_code_body_is_not_silently_clamped_into_it() {
         other => panic!("foreign-body deletion must edit or reject explicitly: {other:?}"),
     }
 }
+
+#[test]
+fn commonmark_body_events_keep_literal_fence_like_final_lines_inside_code() {
+    for (source, shown) in [
+        ("```\na\n```\u{a0}", "a\n```\u{a0}"),
+        ("```\na\n```\u{b}", "a\n```\u{b}"),
+        ("```\na\n    ```", "a\n    ```"),
+        ("```\na\n> ```", "a\n> ```"),
+    ] {
+        let session = EditorSession::open(source);
+        assert_eq!(session.source_text(), source);
+        assert_eq!(session.display_text(), shown);
+    }
+}
+
+#[test]
+fn literal_nonclosers_do_not_respell_untouched_delimiters() {
+    for trailing in ["\u{a0}", "\u{b}"] {
+        let source = "```\na\n```";
+        let inserted = format!("```{trailing}\n");
+        let mut session = EditorSession::open(source);
+        let mut view = ReferenceView::new("a");
+        view.apply(
+            session
+                .replace_action(
+                    session.revision(),
+                    range(0, 0),
+                    &inserted,
+                    InputAction::Isolated,
+                    &mut |_| Ok(()),
+                )
+                .unwrap(),
+        );
+        assert_eq!(session.source_text(), format!("```\n{inserted}a\n```"));
+        assert_eq!(view.text, format!("{inserted}a"));
+        view.apply(
+            session
+                .undo(session.revision(), &mut |_| Ok(()))
+                .unwrap()
+                .unwrap(),
+        );
+        assert_eq!(session.source_text(), source);
+        assert_eq!(view.text, "a");
+    }
+}

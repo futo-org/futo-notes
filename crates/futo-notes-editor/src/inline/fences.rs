@@ -66,6 +66,9 @@ pub(super) fn describe(
                         source[final_line.content.clone()].trim_start_matches([' ', '\t', '>']);
                     let close_width = tail.bytes().take_while(|&ch| ch == marker).count();
                     let closed = last > first + 1
+                        && !bodies.iter().any(|body| {
+                            body.start < final_line.source.end && final_line.source.start < body.end
+                        })
                         && close_width >= width
                         && tail[close_width..].trim().is_empty();
                     let closer = closed.then(|| {

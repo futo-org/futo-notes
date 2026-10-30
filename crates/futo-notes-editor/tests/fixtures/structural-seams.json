@@ -930,5 +930,35 @@
         "?"
       ]
     ]
+  },
+  {
+    "name": "fence-commonmark-open-noncloser",
+    "source": "```\na\n```\u00a0",
+    "display": "a\n```\u00a0",
+    "mode": "typing",
+    "range": [
+      6,
+      6
+    ],
+    "text": "!",
+    "expectedSource": "```\na\n```\u00a0!",
+    "expectedDisplay": "a\n```\u00a0!",
+    "caret": 7,
+    "history": 1
+  },
+  {
+    "name": "fence-literal-noncloser-keeps-frame",
+    "source": "```\na\n```",
+    "display": "a",
+    "mode": "typing",
+    "range": [
+      0,
+      0
+    ],
+    "text": "```\u00a0\n",
+    "expectedSource": "```\n```\u00a0\na\n```",
+    "expectedDisplay": "```\u00a0\na",
+    "caret": 5,
+    "history": 1
   }
 ]

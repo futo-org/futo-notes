@@ -184,7 +184,8 @@ impl EditorSession {
                 }
                 let raw = &raw[indentation..];
                 let width = raw.bytes().take_while(|&ch| ch == fence.marker).count();
-                (width >= fence.width && raw[width..].trim().is_empty()).then_some(width + 1)
+                (width >= fence.width && raw[width..].trim_matches([' ', '\t']).is_empty())
+                    .then_some(width + 1)
             })
             .max()
             .unwrap_or(fence.width);

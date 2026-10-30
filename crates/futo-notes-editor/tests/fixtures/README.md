@@ -1,6 +1,6 @@
 # Structural seam fixtures
 
-`structural-seams.json` contains fifty hand-worked synthetic public-interface
+`structural-seams.json` contains fifty-two hand-worked synthetic public-interface
 regressions for #296 and #297. The original thirty-eight objects remain an exact
 byte prefix. These are source/display/history/caret oracles, not actual
 OS captures. Ranges and carets use native UTF-16 code units. `history` counts Undo
@@ -30,10 +30,11 @@ Fenced-code regression literals live in `../fences/`, driven through the public
 session and independent display-only reference view. The existing WASM block
 consumer and Swift/Kotlin block suites cover code/language semantics, Unicode
 Enter, Tab/Shift+Tab and the code-block command through real store recovery.
-They add no platform Markdown policy. The twelve added structural-seam literals cover empty quoted code input/Enter,
+They add no platform Markdown policy. The fourteen added structural-seam literals cover empty quoted code input/Enter,
 nested CRLF, selected whole-body and authored terminal-break deletion, literal
 tilde/wider-backtick typing, the existing triple-backtick shortcut, composition,
-OS/explicit input and adjacent ordinary typing. Existing store/FFI/WASM/Swift/Kotlin
+OS/explicit input, adjacent ordinary typing and CommonMark-attributed literal
+nonclosers. Existing store/FFI/WASM/Swift/Kotlin
 consumers read the same hand-reviewed literals.
 
 Fence display follows the pinned shipping code schema's mdast `code.value`: one
