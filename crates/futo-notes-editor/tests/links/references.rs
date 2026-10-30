@@ -339,3 +339,30 @@ fn a_remaining_reference_image_keeps_the_definition_used_after_link_unlink() {
     view.apply(session.redo(Revision(2), &mut |_| Ok(())).unwrap().unwrap());
     assert_eq!(session.source_text(), unlinked);
 }
+
+#[test]
+fn a_label_correction_preserves_the_hidden_winning_definition_in_its_own_row() {
+    let original = "[id]: /target 'T'\n[teh][id] tail";
+    let corrected = "[id]: /target 'T'\n[the][id] tail";
+    let mut session = EditorSession::open(original);
+    let mut view = ReferenceView::new("teh tail");
+    assert_eq!(session.display_text(), view.text);
+    view.apply(
+        session
+            .replace(Revision(0), range(0, 3), "the", &mut |_| Ok(()))
+            .unwrap(),
+    );
+    assert_eq!(session.source_text(), corrected);
+    assert_eq!(view.text, "the tail");
+    let target = session
+        .inspect_link(Revision(1), range(0, 3))
+        .unwrap()
+        .unwrap();
+    assert_eq!(target.destination, "/target");
+    assert_eq!(target.title.as_deref(), Some("T"));
+    assert_eq!(EditorSession::open(corrected).display_text(), view.text);
+    view.apply(session.undo(Revision(1), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(session.source_text(), original);
+    view.apply(session.redo(Revision(2), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(session.source_text(), corrected);
+}
