@@ -229,6 +229,11 @@ fn an_outside_emphasis_closer_at_url_end_waits_for_word_end_including_exact_hist
             .links
             .is_empty());
     }
+    assert_eq!(session.source_text(), "x \\*b https://x.test/a\\*");
+    assert_eq!(
+        EditorSession::open(&session.source_text()).display_text(),
+        view.text
+    );
     clock.0.store(500, Ordering::Relaxed);
     view.apply(
         session
@@ -251,7 +256,7 @@ fn an_outside_emphasis_closer_at_url_end_waits_for_word_end_including_exact_hist
             .unwrap(),
     );
     assert_eq!(view.text, "x *b https://x.test/a*");
-    assert_eq!(session.source_text(), "x *b https://x.test/a*");
+    assert_eq!(session.source_text(), "x \\*b https://x.test/a\\*");
     view.apply(
         session
             .redo(session.revision(), &mut |_| Ok(()))

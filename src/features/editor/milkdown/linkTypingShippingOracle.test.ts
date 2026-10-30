@@ -56,7 +56,7 @@ it('the shipping text-input rule defers an outside emphasis closer in a URL unti
     parse: (text) => parse(text).toJSON() as NodeJson,
   });
   const beforeSource = serializer.serialize(view.state.doc.toJSON() as NodeJson);
-  expect(beforeSource).toBe('x \\*b https://x.test/a*\n');
+  expect(beforeSource).toBe('x \\*b https://x.test/a\\*\n');
   expect(parse(beforeSource).textContent).toBe('x *b https://x.test/a*');
   type(' ');
   expect(view.state.doc.textContent).toBe('x b https://x.test/a ');
