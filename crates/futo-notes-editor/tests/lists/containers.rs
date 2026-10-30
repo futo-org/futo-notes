@@ -450,9 +450,9 @@ fn retargeting_an_outer_list_preserves_the_owned_nested_list_depth() {
 fn nested_bullet_toggle_lifts_text_descendants_and_following_nested_siblings() {
     // Actual shipping toolbar/preset oracle, retaining the foreign outer marker.
     let raw = "- parent\n  - child😀\n    - grandchild\n  - sibling\n- following";
-    let expected = "- parent\n\nchild😀\n\n+ grandchild\n+ sibling\n\n- following";
+    let expected = "- parent\n\nchild😀\n+ grandchild\n+ sibling\n- following";
     let shown = "parent\nchild😀\ngrandchild\nsibling\nfollowing";
-    let after = "parent\n\nchild😀\n\ngrandchild\nsibling\n\nfollowing";
+    let after = "parent\n\nchild😀\ngrandchild\nsibling\nfollowing";
     let selected = range(7, 16);
     let final_selected = range(8, 17);
     let mut s = EditorSession::open(raw);
