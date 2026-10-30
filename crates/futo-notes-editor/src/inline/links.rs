@@ -86,24 +86,52 @@ impl super::Projection {
             ..
         } = self.edit_context(source, range);
         let mut pieces = split_entities(pieces, a, z);
-        let id = markers.len();
-        markers.push(Marker {
-            kind: SpanKind::Link(destination.into()),
-            open: "[".into(),
-            close: format!("](<{}>)", destination_source(destination)),
-        });
         let mut at = 0;
-        for piece in &mut pieces {
+        let mut existing = Vec::new();
+        for piece in &pieces {
             let end = at + piece.display.len();
             if at < z && a < end {
-                piece
-                    .spans
-                    .retain(|id| !matches!(markers[*id].kind, SpanKind::Link(_)));
-                if !destination.is_empty() {
-                    piece.spans.insert(0, id);
-                }
+                existing.extend(
+                    piece
+                        .spans
+                        .iter()
+                        .copied()
+                        .filter(|id| matches!(markers[*id].kind, SpanKind::Link(_))),
+                );
             }
             at = end;
+        }
+        existing.sort_unstable();
+        existing.dedup();
+        if existing.len() == 1 && !destination.is_empty() {
+            let marker = &mut markers[existing[0]];
+            marker.kind = SpanKind::Link(destination.into());
+            if marker.open == "[" && marker.close.starts_with("](") {
+                marker.close = replace_destination(&marker.close, destination);
+            } else {
+                marker.open = "[".into();
+                marker.close = format!("](<{}>)", destination_source(destination));
+            }
+        } else {
+            let id = markers.len();
+            markers.push(Marker {
+                kind: SpanKind::Link(destination.into()),
+                open: "[".into(),
+                close: format!("](<{}>)", destination_source(destination)),
+            });
+            let mut at = 0;
+            for piece in &mut pieces {
+                let end = at + piece.display.len();
+                if at < z && a < end {
+                    piece
+                        .spans
+                        .retain(|id| !matches!(markers[*id].kind, SpanKind::Link(_)));
+                    if !destination.is_empty() {
+                        piece.spans.insert(0, id);
+                    }
+                }
+                at = end;
+            }
         }
         let end = pieces.len();
         let rendered = spell(pieces, markers, end..end, true)?;
@@ -179,4 +207,51 @@ pub(super) fn bare_links(source: &str) -> (Vec<super::row::Span>, usize) {
         }
     }
     (spans, source.len())
+}
+
+/// Preserve the existing wrapper and title bytes while replacing only its
+/// destination token. Reference and autolink spellings use explicit syntax
+/// when the command changes their destination.
+fn replace_destination(close: &str, destination: &str) -> String {
+    let start = 2 + close[2..].len() - close[2..].trim_start_matches([' ', '\t', '\r', '\n']).len();
+    let angled = close[start..].starts_with('<');
+    let mut depth = 0;
+    let mut escaped = false;
+    let mut end = start + usize::from(angled);
+    for (at, ch) in close[end..].char_indices() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        if ch == '\\' {
+            escaped = true;
+            continue;
+        }
+        if angled && ch == '>' || !angled && depth == 0 && (ch == ')' || ch.is_ascii_whitespace()) {
+            end += at;
+            break;
+        }
+        if !angled && ch == '(' {
+            depth += 1;
+        }
+        if !angled && ch == ')' {
+            depth -= 1;
+        }
+    }
+    if angled {
+        format!(
+            "{}{}{}",
+            &close[..start + 1],
+            destination_source(destination),
+            &close[end..]
+        )
+    } else {
+        let text = destination_source(destination);
+        let text = if text.contains([' ', '(', ')']) {
+            format!("<{text}>")
+        } else {
+            text
+        };
+        format!("{}{text}{}", &close[..start], &close[end..])
+    }
 }
