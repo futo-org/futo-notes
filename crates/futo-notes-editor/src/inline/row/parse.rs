@@ -78,14 +78,26 @@ impl Row {
                             reference: None,
                         })
                     });
+                    // Pulldown consumes a collapsed tail but reports the
+                    // label-only source extent for this canonical link type.
+                    // Include those parser-owned bytes in hidden correspondence.
+                    let mut whole = range.clone();
+                    if matches!(
+                        link_type,
+                        pulldown_cmark::LinkType::Collapsed
+                            | pulldown_cmark::LinkType::CollapsedUnknown
+                    ) {
+                        debug_assert_eq!(source.get(whole.end..whole.end + 2), Some("[]"));
+                        whole.end += 2;
+                    }
                     if let Some(key) = &target.reference {
                         reference_uses.push(crate::inline::references::ReferenceUse {
-                            range: range.clone(),
+                            range: whole.clone(),
                             key: key.clone(),
                             image: false,
                         });
                     }
-                    link = Some((range.clone(), target, range.start + 1));
+                    link = Some((whole, target, range.start + 1));
                 }
                 Event::Start(Tag::Image { link_type, id, .. })
                     if crate::inline::references::is_reference(link_type) =>
