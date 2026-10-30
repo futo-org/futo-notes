@@ -86,17 +86,22 @@ impl EditorSession {
             return Ok(None);
         }
         let inserting = target.start == target.end;
-        let plan = if inserting {
-            self.projection.insert_link(
-                &self.source,
-                target,
-                destination,
-                self.input_affinity(range),
-                self.pending_formats.as_deref(),
-            )?
+        let (plan, selected_source) = if inserting {
+            (
+                self.projection.insert_link(
+                    &self.source,
+                    target,
+                    destination,
+                    self.input_affinity(range),
+                    self.pending_formats.as_deref(),
+                )?,
+                None,
+            )
         } else {
-            self.projection
-                .link_edit(&self.source, target, destination)?
+            let (plan, selection) =
+                self.projection
+                    .link_edit(&self.source, target, range, destination)?;
+            (plan, Some(selection))
         };
         let edit = self.prepare_source(
             expected,
@@ -116,7 +121,11 @@ impl EditorSession {
             let at = DisplayOffset(self.projection.display_at(plan.caret));
             DisplayRange { start: at, end: at }
         } else {
-            range
+            let source = selected_source.unwrap();
+            DisplayRange {
+                start: DisplayOffset(self.projection.display_at(source.start.0)),
+                end: DisplayOffset(self.projection.display_at(source.end.0)),
+            }
         };
         self.pending_formats = None;
         change.selection = self.selection;

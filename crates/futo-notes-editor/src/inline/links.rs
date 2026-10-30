@@ -102,12 +102,13 @@ impl super::Projection {
         &self,
         source: &ropey::Rope,
         range: crate::DisplayRange,
+        selection: crate::DisplayRange,
         destination: &str,
-    ) -> Result<super::edit::Plan, crate::EditorError> {
+    ) -> Result<(super::edit::Plan, crate::SourceRange), crate::EditorError> {
         use super::{
             edit::{common_prefix, split_entities, Context, Plan},
             row::SpanKind,
-            spelling::{spell, Marker},
+            spelling::{spell_with_anchors, Marker},
         };
         let Context {
             raw,
@@ -120,7 +121,12 @@ impl super::Projection {
             link_metadata_items,
             ..
         } = self.edit_context(source, range);
-        let mut pieces = split_entities(pieces, a, z);
+        let selected = [
+            a + selection.start.0 - range.start.0,
+            a + selection.end.0 - range.start.0,
+        ];
+        let pieces = split_entities(pieces, a, z);
+        let mut pieces = split_entities(pieces, selected[0], selected[1]);
         let mut at = 0;
         let mut existing = Vec::new();
         for piece in &pieces {
@@ -180,7 +186,12 @@ impl super::Projection {
             }
         }
         let end = pieces.len();
-        let rendered = spell(pieces, markers, end..end, true, &self.references)?;
+        let rendered =
+            spell_with_anchors(pieces, markers, end..end, true, &self.references, &selected)?;
+        let selection = crate::SourceRange {
+            start: crate::SourceOffset(source_start + rendered.anchors[0]),
+            end: crate::SourceOffset(source_start + rendered.anchors[1]),
+        };
         let prefix = common_prefix(&raw, &rendered.text);
         let suffix: usize = raw[prefix..]
             .chars()
@@ -189,16 +200,19 @@ impl super::Projection {
             .take_while(|(a, b)| a == b)
             .map(|(ch, _)| ch.len_utf8())
             .sum();
-        Ok(Plan {
-            range: source_start + prefix..source_end - suffix,
-            inserted: rendered.text[prefix..rendered.text.len() - suffix].into(),
-            caret: 0,
-            formats: Vec::new(),
-            materialized: raw.len() + rendered.text.len(),
-            parsed: rendered.parsed,
-            link_metadata_items: link_metadata_items + rendered.link_metadata_items + 1,
-            link_copied_bytes: rendered.link_copied_bytes + target_copied,
-        })
+        Ok((
+            Plan {
+                range: source_start + prefix..source_end - suffix,
+                inserted: rendered.text[prefix..rendered.text.len() - suffix].into(),
+                caret: 0,
+                formats: Vec::new(),
+                materialized: raw.len() + rendered.text.len(),
+                parsed: rendered.parsed,
+                link_metadata_items: link_metadata_items + rendered.link_metadata_items + 1,
+                link_copied_bytes: rendered.link_copied_bytes + target_copied,
+            },
+            selection,
+        ))
     }
 }
 

@@ -22,17 +22,29 @@ pub(super) struct Marker {
 pub(super) struct Spelling {
     pub text: String,
     pub caret: usize,
+    pub anchors: Vec<usize>,
     pub parsed: usize,
     pub link_metadata_items: usize,
     pub link_copied_bytes: usize,
 }
 
 pub(super) fn spell(
+    pieces: Vec<Piece>,
+    markers: Vec<Marker>,
+    insertion: Range<usize>,
+    literal: bool,
+    references: &std::sync::Arc<super::references::References>,
+) -> Result<Spelling, EditorError> {
+    spell_with_anchors(pieces, markers, insertion, literal, references, &[])
+}
+
+pub(super) fn spell_with_anchors(
     mut pieces: Vec<Piece>,
     mut markers: Vec<Marker>,
     insertion: Range<usize>,
     literal: bool,
     references: &std::sync::Arc<super::references::References>,
+    anchors: &[usize],
 ) -> Result<Spelling, EditorError> {
     split_paragraph_spans(&mut pieces);
     trim_emphasis_edges(&mut pieces, &markers);
@@ -196,7 +208,27 @@ pub(super) fn spell(
             }
         }
     }
+    let mut mapped = Vec::with_capacity(anchors.len());
+    for &anchor in anchors {
+        let mut at = 0;
+        let mut found = None;
+        for (piece, source) in pieces.iter().zip(&rendered.pieces) {
+            link_metadata_items += 1;
+            let end = at + piece.display.len();
+            if !piece.display.is_empty() && (anchor == at || anchor == end) {
+                found = Some(if anchor == at {
+                    source.start
+                } else {
+                    source.end
+                });
+                break;
+            }
+            at = end;
+        }
+        mapped.push(found.ok_or(EditorError::UnrepresentableFormat)?);
+    }
     Ok(Spelling {
+        anchors: mapped,
         text: rendered.text,
         caret: rendered.caret,
         parsed,
