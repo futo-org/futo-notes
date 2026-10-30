@@ -1,7 +1,7 @@
 mod block_edit;
 pub(crate) mod blocks;
 mod edit;
-pub(crate) use edit::SourceCorrespondence;
+pub(crate) use edit::{EditIntent, SourceCorrespondence};
 mod empty_comments;
 pub(crate) mod fences;
 mod links;

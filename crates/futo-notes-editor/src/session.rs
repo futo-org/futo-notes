@@ -357,7 +357,7 @@ impl EditorSession {
             "",
             self.affinity,
             None,
-            Some(format),
+            crate::inline::EditIntent::Toggle(format),
         )?;
         let edit = self.prepare_source(
             expected,

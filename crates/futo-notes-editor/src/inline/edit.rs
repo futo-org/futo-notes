@@ -16,6 +16,12 @@ pub(super) use selection::{cut, split_entities, Cut};
 pub(crate) use source::SourceCorrespondence;
 use std::ops::Range;
 
+#[derive(Clone, Copy)]
+pub(crate) enum EditIntent {
+    Input(crate::InputAction),
+    Toggle(InlineFormat),
+}
+
 pub(crate) struct Plan {
     pub retained: SourceCorrespondence,
     pub requires_source_identity: bool,
@@ -46,8 +52,12 @@ impl Projection {
         inserted: &str,
         affinity: Affinity,
         pending: Option<&[InlineFormat]>,
-        toggle: Option<InlineFormat>,
+        intent: EditIntent,
     ) -> Result<Plan, EditorError> {
+        let toggle = match intent {
+            EditIntent::Toggle(format) => Some(format),
+            _ => None,
+        };
         let Context {
             raw,
             source_start,
@@ -184,12 +194,13 @@ impl Projection {
                 .any(|id| markers[*id].kind == SpanKind::Format(InlineFormat::Code));
         let link_work =
             super::links::finish_angle_word(&mut changed, &mut markers, insertion_index, inserted);
-        let timing = if toggle.is_none() {
+        let timing = if let EditIntent::Input(action) = intent {
             super::spelling::prepare_url_input(
                 &mut changed,
                 &markers,
                 insertion_index..insertion_end,
                 inserted,
+                action,
                 &self.references,
             )
         } else {

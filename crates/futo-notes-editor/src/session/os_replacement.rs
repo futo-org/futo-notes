@@ -40,6 +40,25 @@ impl EditorSession {
         targets: &[usize],
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<(Option<ViewChange>, Vec<usize>), EditorError> {
+        self.replace_os_with_targets_action(
+            expected,
+            range,
+            text,
+            targets,
+            crate::InputAction::Isolated,
+            accept,
+        )
+    }
+
+    pub(super) fn replace_os_with_targets_action(
+        &mut self,
+        expected: Revision,
+        range: DisplayRange,
+        text: &str,
+        targets: &[usize],
+        action: crate::InputAction,
+        accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
+    ) -> Result<(Option<ViewChange>, Vec<usize>), EditorError> {
         self.validate_range(range)?;
         let old = self
             .projection
@@ -53,7 +72,7 @@ impl EditorSession {
             let mut targets = targets.to_vec();
             targets.push(range.start.0 + text.len());
             let (change, mut targets) =
-                self.replace_many_with_targets(expected, &replacements, &targets, accept)?;
+                self.replace_many_with_targets(expected, &replacements, &targets, action, accept)?;
             let caret = targets.pop().unwrap();
             (Some(change), targets, caret)
         };

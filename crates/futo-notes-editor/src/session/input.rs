@@ -90,9 +90,14 @@ impl EditorSession {
         } else {
             None
         };
-        let plan = self
-            .projection
-            .edit(&self.source, range, inserted, affinity, pending, None)?;
+        let plan = self.projection.edit(
+            &self.source,
+            range,
+            inserted,
+            affinity,
+            pending,
+            crate::inline::EditIntent::Input(action),
+        )?;
         let edit = self.prepare_source(
             expected,
             SourceRange {

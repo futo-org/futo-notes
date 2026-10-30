@@ -86,11 +86,22 @@ impl Projection {
         );
         let mut work = 0;
         for index in first..=last {
+            let (_, source, _) = self.rows.at(index);
             let row = self.rows.metadata_mut(index);
-            work += row.literal_links.len();
-            row.literal_links.clear();
-            work += row.literal_delimiters.len();
-            row.literal_delimiters.clear();
+            // A final parent paragraph can also own source outside the exact
+            // child output. Never clear that foreign pending metadata.
+            let inside = |range: &Range<usize>| {
+                snapshot.window.start <= source + range.start
+                    && source + range.end <= snapshot.window.end
+            };
+            row.literal_links.retain(|range| {
+                work += 1;
+                !inside(range)
+            });
+            row.literal_delimiters.retain(|range| {
+                work += 1;
+                !inside(range)
+            });
         }
         work += self.install_delimiters(snapshot.delimiters.iter().cloned());
         for range in &snapshot.ranges {
@@ -200,8 +211,10 @@ impl Projection {
             start: DisplayOffset(caret - word_bytes),
             end: DisplayOffset(caret),
         };
-        if action == crate::InputAction::Typing
-            && !inserted.is_empty()
+        if matches!(
+            action,
+            crate::InputAction::Typing | crate::InputAction::CompositionCommit
+        ) && !inserted.is_empty()
             && !inserted.chars().last().unwrap().is_whitespace()
         {
             let (links, query_work) = self.all_link_ranges(word);

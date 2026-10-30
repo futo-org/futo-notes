@@ -40,7 +40,59 @@ pub(super) struct StageContext {
     pub origin: Option<crate::inline::references::SourceOrigin>,
 }
 
+pub(super) enum PendingHistory {
+    Prepared,
+    Recorded,
+}
+
 impl EditorSession {
+    /// Only an unchanged exact source output may use this physical relocation.
+    /// A derived renderer must supply its own correspondence instead.
+    pub(super) fn prepare_pending_for_parent(
+        &self,
+        source_start: usize,
+    ) -> crate::inline::PendingLinks {
+        let mut pending = self.projection.pending_links(0..self.source.len_bytes());
+        pending.work += pending.relocate_source(source_start);
+        pending
+    }
+
+    pub(super) fn adopt_stage_pending(
+        &mut self,
+        pending: &crate::inline::PendingLinks,
+        change: &mut ViewChange,
+        history: PendingHistory,
+    ) {
+        change.work.link_metadata_items += pending.work + self.projection.restore_pending(pending);
+        let (projection, work) = self
+            .projection
+            .query_with_work(self.revision, change.projection.range);
+        change.projection = projection;
+        change.work.link_metadata_items += work.items;
+        change.work.link_copied_bytes += work.copied;
+        if let PendingHistory::Recorded = history {
+            let window = self
+                .undo
+                .last()
+                .unwrap()
+                .entries
+                .last()
+                .unwrap()
+                .after_links
+                .window
+                .clone();
+            let after = self.projection.pending_links(window);
+            change.work.link_metadata_items += after.work;
+            self.undo
+                .last_mut()
+                .unwrap()
+                .entries
+                .last_mut()
+                .unwrap()
+                .after_links = after;
+        }
+    }
+
     pub(super) fn semantic_neighbor(
         &self,
         at: usize,

@@ -120,7 +120,7 @@ impl EditorSession {
             staged.revision(),
             DisplayRange::default(),
             inserted,
-            crate::InputAction::Isolated,
+            action,
             &mut |_| Ok(()),
         )?;
         let raw = staged.source_text();
@@ -153,6 +153,15 @@ impl EditorSession {
         } else {
             (at..at, text)
         };
+        // The stage's complete raw output is inserted unchanged after the
+        // explicit separator/quote prefix. This is source-byte correspondence,
+        // not an arithmetic mapping through a derived inline body.
+        let body_start = if before {
+            line.source.start + quote.len()
+        } else {
+            line.content.end + 1 + quote.len()
+        };
+        let pending = staged.prepare_pending_for_parent(body_start);
         let mut change = self.commit_block_edit(
             expected,
             footprint,
@@ -165,6 +174,7 @@ impl EditorSession {
             }),
             accept,
         )?;
+        self.adopt_stage_pending(&pending, &mut change, staging::PendingHistory::Recorded);
         self.carry_block_state(&mut change, staged.pending_formats, staged.affinity);
         change.work.materialized_source_bytes += input.work.materialized_source_bytes;
         change.work.parsed_source_bytes += input.work.parsed_source_bytes;

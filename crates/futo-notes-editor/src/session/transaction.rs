@@ -231,7 +231,7 @@ impl EditorSession {
         if self.composition.is_some() {
             return self.compound_during_composition(expected, replacements, accept);
         }
-        self.replace_many_with_targets(expected, replacements, &[], accept)
+        self.replace_many_with_targets(expected, replacements, &[], InputAction::Isolated, accept)
             .map(|(change, _)| change)
     }
 
@@ -240,6 +240,7 @@ impl EditorSession {
         expected: Revision,
         replacements: &[DisplayReplacement],
         targets: &[usize],
+        action: InputAction,
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<(ViewChange, Vec<usize>), EditorError> {
         if replacements.is_empty() {
@@ -335,7 +336,7 @@ impl EditorSession {
                 staged.revision(),
                 local_range,
                 &replacement.inserted,
-                InputAction::Isolated,
+                action,
                 &mut |edit| {
                     edits.push((edit.previous_revision, edit.range, edit.inserted.len()));
                     transaction.apply(edit.range, &edit.inserted);
@@ -392,6 +393,7 @@ impl EditorSession {
         range.start.0 += window.start;
         range.end.0 += window.start;
         let edit = self.prepare_source(expected, range, &inserted)?;
+        let pending = staged.prepare_pending_for_parent(window.start);
         // No host-visible changes, history or clock boundaries before acceptance.
         accept(&edit).map_err(EditorError::Persistence)?;
         let before_selection = self.selection;
@@ -400,6 +402,7 @@ impl EditorSession {
         let before_formats = self.pending_formats.clone();
         let before_links = self.projection.pending_for_source_edit(edit.range);
         let mut change = self.apply(&edit);
+        self.adopt_stage_pending(&pending, &mut change, staging::PendingHistory::Prepared);
         let (start, a) = self.projection.project_source_point(selected_source.start);
         let (end, z) = self.projection.project_source_point(selected_source.end);
         link_metadata_items += a + z;

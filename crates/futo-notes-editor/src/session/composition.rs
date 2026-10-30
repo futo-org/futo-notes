@@ -52,14 +52,15 @@ impl EditorSession {
             return Ok(None);
         };
         self.composition = None;
-        match self.replace_os(
+        match self.replace_os_with_targets_action(
             expected,
             marked.range,
             text.unwrap_or(&marked.text),
             &[],
+            crate::InputAction::CompositionCommit,
             accept,
         ) {
-            Ok(change) => Ok(change),
+            Ok((change, _)) => Ok(change),
             Err(error) => {
                 self.composition = Some(marked);
                 Err(error)
@@ -147,6 +148,7 @@ impl EditorSession {
                             staged.revision(),
                             &replacements,
                             &[caret],
+                            crate::InputAction::Isolated,
                             accept,
                         )?;
                         caret = targets[0];
@@ -244,7 +246,7 @@ impl EditorSession {
             transaction.apply(edit.range, &edit.inserted);
             Ok(())
         };
-        let (first, targets) = staged.replace_os_with_targets(
+        let (first, targets) = staged.replace_os_with_targets_action(
             staged.revision(),
             local(marked.range),
             &marked.text,
@@ -252,6 +254,7 @@ impl EditorSession {
                 .iter()
                 .map(|offset| offset - display_start)
                 .collect::<Vec<_>>(),
+            crate::InputAction::CompositionCommit,
             &mut capture,
         )?;
         let second = operation(&mut staged, &targets, &mut capture)?;
@@ -284,20 +287,11 @@ impl EditorSession {
                 opening.before_source = opening_source;
                 opening.before_affinity = self.affinity;
                 opening.before_formats = self.pending_formats.clone();
-                let mut pending = staged
-                    .projection
-                    .pending_links(0..staged.source.len_bytes());
-                pending_work += pending.work + pending.relocate_source(window.start);
+                let pending = staged.prepare_pending_for_parent(window.start);
                 accept(&edit).map_err(EditorError::Persistence)?;
                 let mut delta = self.apply(&edit);
-                delta.work.link_metadata_items +=
-                    pending_work + self.projection.restore_pending(&pending);
-                let (projection, work) = self
-                    .projection
-                    .query_with_work(self.revision, delta.projection.range);
-                delta.projection = projection;
-                delta.work.link_metadata_items += work.items;
-                delta.work.link_copied_bytes += work.copied;
+                delta.work.link_metadata_items += pending_work;
+                self.adopt_stage_pending(&pending, &mut delta, staging::PendingHistory::Prepared);
                 delta.work.materialized_source_bytes += raw.len() + edit.inserted.len();
                 delta.work.parsed_source_bytes += staged.projection.initial_parse_work;
                 delta.work.link_metadata_items += staged.projection.initial_link_metadata_items;
@@ -408,6 +402,7 @@ impl EditorSession {
                         staged.revision(),
                         &replacements,
                         &[caret],
+                        crate::InputAction::Isolated,
                         accept,
                     )?;
                     caret = targets[0];

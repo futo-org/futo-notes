@@ -68,13 +68,21 @@ pub(in crate::inline) fn prepare_url_input(
     markers: &[Marker],
     insertion: Range<usize>,
     inserted: &str,
+    action: crate::InputAction,
     references: &Arc<References>,
 ) -> Timing {
     let mut timing = Timing::default();
     if insertion.is_empty() {
         return timing;
     }
-    let ending = inserted.chars().next().is_some_and(char::is_whitespace);
+    let ordered = action != crate::InputAction::Isolated;
+    // Composition and typing own an ordered text input. Keep the distinct
+    // existing isolated/OS/paste policy until its own input owner changes it.
+    let ending = if ordered {
+        inserted.contains(char::is_whitespace)
+    } else {
+        inserted.chars().next().is_some_and(char::is_whitespace)
+    };
     let punctuation = inserted.chars().any(|ch| matches!(ch, '*' | '_' | '~'));
     if !punctuation {
         if !ending
@@ -86,7 +94,8 @@ pub(in crate::inline) fn prepare_url_input(
             return timing;
         }
     }
-    let raw = timing.render(pieces, markers, &insertion);
+    let mut raw = timing.render(pieces, markers, &insertion);
+    let mut changed = false;
     if !raw.text.contains(':') && !raw.text.contains("www.") {
         return timing;
     }
@@ -121,11 +130,16 @@ pub(in crate::inline) fn prepare_url_input(
             let parsed = timing.parse(&candidate, references);
             let ends = bare_ends(&parsed, &mut timing.work.items);
             let opener = candidate.pieces[index].start..candidate.pieces[end - 1].end;
+            let separator = if ordered {
+                last_separator(pieces, &candidate, &insertion, &mut timing.work.items)
+            } else {
+                Some(candidate.pieces[insertion.start].start)
+            };
             let paired = parsed.spans.iter().any(|span| {
                 timing.work.items += 1;
                 emphasis(&span.kind)
                     && span.open == opener
-                    && span.close.end <= candidate.pieces[insertion.start].start
+                    && separator.is_some_and(|separator| span.close.end <= separator)
                     && ends_at(&ends, span.close.start, &mut timing.work.items)
             });
             for (piece, saved) in pieces[index..end].iter_mut().zip(saved) {
@@ -138,13 +152,23 @@ pub(in crate::inline) fn prepare_url_input(
             }
             if paired {
                 timing.literal = Some(false);
+                changed = true;
             }
             index = end;
         }
-    } else {
+    }
+    if punctuation && (ordered || !ending) {
+        if changed {
+            raw = timing.render(pieces, markers, &insertion);
+        }
         let parsed = timing.parse(&raw, references);
         let ends = bare_ends(&parsed, &mut timing.work.items);
         let input = raw.pieces[insertion.start].start..raw.pieces[insertion.end - 1].end;
+        let separator = if ordered {
+            last_separator(pieces, &raw, &insertion, &mut timing.work.items)
+        } else {
+            None
+        };
         for span in &parsed.spans {
             timing.work.items += 1;
             if !emphasis(&span.kind)
@@ -152,6 +176,10 @@ pub(in crate::inline) fn prepare_url_input(
                 || span.close.end <= input.start
                 || !ends_at(&ends, span.close.start, &mut timing.work.items)
             {
+                continue;
+            }
+            if separator.is_some_and(|separator| span.close.end <= separator) {
+                timing.literal = Some(false);
                 continue;
             }
             // CommonMark can initially pair only part of a run (the second
@@ -188,6 +216,28 @@ pub(in crate::inline) fn prepare_url_input(
     }
     timing
 }
+fn last_separator(
+    pieces: &[Piece],
+    rendered: &Rendered,
+    insertion: &Range<usize>,
+    work: &mut usize,
+) -> Option<usize> {
+    let mut separator = None;
+    for (piece, range) in pieces[insertion.clone()]
+        .iter()
+        .zip(&rendered.pieces[insertion.clone()])
+    {
+        *work += 1;
+        if piece.display.chars().any(|ch| {
+            *work += 1;
+            ch.is_whitespace()
+        }) {
+            separator = Some(range.start);
+        }
+    }
+    separator
+}
+
 fn emphasis(kind: &SpanKind) -> bool {
     matches!(
         kind,
