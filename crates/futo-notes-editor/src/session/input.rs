@@ -105,8 +105,8 @@ impl EditorSession {
         let before_selection = self.selection;
         let before_affinity = self.affinity;
         let before_formats = self.pending_formats.clone();
-        let before_links = self.projection.literal_links.clone();
         self.affinity = affinity;
+        let before_links = self.projection.pending_for_source_edit(edit.range);
         let mut change = self.apply(&edit);
         let caret = DisplayOffset(self.projection.display_at(plan.caret));
         self.selection = DisplayRange {
@@ -114,7 +114,8 @@ impl EditorSession {
             end: caret,
         };
         self.pending_formats = Some(plan.formats);
-        self.projection
+        change.work.link_metadata_items += self
+            .projection
             .finish_link_input(range, inserted, action, caret.0);
         change.projection = self
             .projection
@@ -122,6 +123,10 @@ impl EditorSession {
         change.selection = self.selection;
         change.work.materialized_source_bytes += plan.materialized;
         change.work.parsed_source_bytes += plan.parsed;
+        let after_links = self
+            .projection
+            .pending_links(before_links.after_window(&edit));
+        change.work.link_metadata_items += before_links.work + after_links.work;
         let entry = HistoryEntry {
             before_selection,
             before_affinity,
@@ -130,7 +135,7 @@ impl EditorSession {
             after_selection: self.selection,
             after_affinity: self.affinity,
             after_formats: self.pending_formats.clone(),
-            after_links: self.projection.literal_links.clone(),
+            after_links,
             range: edit.range,
             removed: edit.removed,
             inserted: edit.inserted,

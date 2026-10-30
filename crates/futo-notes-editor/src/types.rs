@@ -61,6 +61,9 @@ pub struct EditWork {
     pub inserted_bytes: usize,
     /// Bytes supplied to the markdown parser, including verification parses.
     pub parsed_source_bytes: usize,
+    /// Conservative charged visits/copies of pending-link metadata slots in
+    /// the affected rows. Excludes parser/AST work, counted above in bytes.
+    pub link_metadata_items: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

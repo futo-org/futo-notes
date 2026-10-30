@@ -97,3 +97,20 @@ fn source_position(offset: usize, affinity: Affinity, runs: &[Run]) -> usize {
     }
     after + offset - before
 }
+
+pub(super) fn pending(
+    before: &str,
+    after: &str,
+    snapshot: &crate::inline::PendingLinks,
+) -> crate::inline::PendingLinks {
+    let runs = changed_runs(before, after);
+    let map = |range: &std::ops::Range<usize>| {
+        source_position(range.start, Affinity::Backward, &runs)
+            ..source_position(range.end, Affinity::Forward, &runs)
+    };
+    crate::inline::PendingLinks {
+        window: map(&snapshot.window),
+        ranges: snapshot.ranges.iter().map(map).collect(),
+        work: snapshot.work,
+    }
+}

@@ -7,7 +7,7 @@ impl super::Projection {
     ) -> Vec<crate::LinkDescription> {
         self.all_links(range)
             .into_iter()
-            .filter(|link| !self.literal_links.contains(&link.range))
+            .filter(|link| !self.link_is_pending(link.range))
             .collect()
     }
 
@@ -240,94 +240,6 @@ fn replace_destination(close: &str, destination: &str) -> String {
             text
         };
         format!("{}{text}{}", &close[..start], &close[end..])
-    }
-}
-
-impl super::Projection {
-    pub(super) fn suppressed_link(
-        &self,
-        row: &super::row::Row,
-        span: &super::row::Span,
-        display: usize,
-    ) -> bool {
-        span.open.is_empty()
-            && span.close.is_empty()
-            && self.literal_links.contains(&crate::DisplayRange {
-                start: crate::DisplayOffset(display + row.display_at(span.open.end)),
-                end: crate::DisplayOffset(display + row.display_at(span.close.start)),
-            })
-    }
-
-    pub(crate) fn finish_link_input(
-        &mut self,
-        input: crate::DisplayRange,
-        inserted: &str,
-        action: crate::InputAction,
-        caret: usize,
-    ) {
-        // Remap pending ranges to their parser-owned glyph extent after local
-        // punctuation or an escaped delimiter changed the surrounding spelling.
-        self.literal_links = self
-            .literal_links
-            .iter()
-            .filter_map(|pending| {
-                self.all_links(*pending)
-                    .into_iter()
-                    .find(|link| link.range.start == pending.start)
-                    .map(|link| link.range)
-            })
-            .collect();
-        let word_bytes: usize = self
-            .display
-            .chars_at(self.display.byte_to_char(caret))
-            .reversed()
-            .take_while(|ch| !ch.is_whitespace())
-            .map(char::len_utf8)
-            .sum();
-        let word = crate::DisplayRange {
-            start: crate::DisplayOffset(caret - word_bytes),
-            end: crate::DisplayOffset(caret),
-        };
-        let candidates = self.all_links(word);
-        if action == crate::InputAction::Typing
-            && !inserted.is_empty()
-            && !inserted.chars().last().unwrap().is_whitespace()
-        {
-            for link in candidates {
-                let (row, _, display) = self.rows.at(self.rows.locate(link.range.start.0, true));
-                let bare = row.spans.iter().any(|span| {
-                    span.open.is_empty()
-                        && span.close.is_empty()
-                        && display + row.display_at(span.open.end) == link.range.start.0
-                        && display + row.display_at(span.close.start) == link.range.end.0
-                });
-                if bare
-                    && link.range.end.0 <= caret
-                    && link.range.start.0 < input.start.0 + inserted.len()
-                    && !self.literal_links.contains(&link.range)
-                {
-                    self.literal_links.push(link.range);
-                }
-            }
-        }
-        if inserted.contains(char::is_whitespace) {
-            let last_word = inserted
-                .rsplit(char::is_whitespace)
-                .next()
-                .unwrap_or("")
-                .len();
-            let ended = caret - last_word;
-            let preceding: usize = self
-                .display
-                .chars_at(self.display.byte_to_char(input.start.0))
-                .reversed()
-                .take_while(|ch| !ch.is_whitespace())
-                .map(char::len_utf8)
-                .sum();
-            let word_start = input.start.0 - preceding;
-            self.literal_links
-                .retain(|link| !(word_start <= link.start.0 && link.end.0 <= ended));
-        }
     }
 }
 

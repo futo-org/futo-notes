@@ -279,6 +279,7 @@ impl EditorSession {
                 materialized_source_bytes: edit.removed.len() + update.materialized_source_bytes,
                 inserted_bytes: edit.inserted.len(),
                 parsed_source_bytes: update.parsed_source_bytes,
+                link_metadata_items: update.link_metadata_items,
             },
         }
     }
@@ -316,7 +317,6 @@ impl EditorSession {
         let before_selection = self.selection;
         let before_affinity = self.affinity;
         let before_formats = self.pending_formats.clone();
-        let before_links = self.projection.literal_links.clone();
         let plan = self.projection.edit(
             &self.source,
             self.selection,
@@ -334,12 +334,17 @@ impl EditorSession {
             &plan.inserted,
         )?;
         accept(&edit).map_err(EditorError::Persistence)?;
+        let before_links = self.projection.pending_for_source_edit(edit.range);
         let mut change = self.apply(&edit);
         self.selection = before_selection;
         self.pending_formats = None;
         change.selection = self.selection;
         change.work.materialized_source_bytes += plan.materialized;
         change.work.parsed_source_bytes += plan.parsed;
+        let after_links = self
+            .projection
+            .pending_links(before_links.after_window(&edit));
+        change.work.link_metadata_items += before_links.work + after_links.work;
         self.undo.push(HistoryGroup {
             entries: vec![HistoryEntry {
                 before_selection,
@@ -349,7 +354,7 @@ impl EditorSession {
                 after_selection: self.selection,
                 after_affinity: self.affinity,
                 after_formats: None,
-                after_links: self.projection.literal_links.clone(),
+                after_links,
                 range: edit.range,
                 removed: edit.removed,
                 inserted: edit.inserted,
@@ -458,11 +463,12 @@ impl EditorSession {
         } else {
             entry.entries.first().unwrap().before_formats.clone()
         };
-        self.projection.literal_links = if redo {
-            entry.entries.last().unwrap().after_links.clone()
+        let pending = if redo {
+            &entry.entries.last().unwrap().after_links
         } else {
-            entry.entries.first().unwrap().before_links.clone()
+            &entry.entries.first().unwrap().before_links
         };
+        change.work.link_metadata_items += self.projection.restore_pending(pending);
         change.projection = self
             .projection
             .query(self.revision, change.projection.range);

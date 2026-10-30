@@ -3,6 +3,8 @@ pub(crate) mod blocks;
 mod edit;
 pub(crate) mod fences;
 mod links;
+mod pending_links;
+pub(crate) use pending_links::PendingLinks;
 mod row;
 mod spelling;
 mod toggle;
@@ -20,7 +22,6 @@ pub(crate) struct Projection {
     pub display: Rope,
     pub rows: Rows,
     pub initial_parse_work: usize,
-    pub literal_links: Vec<DisplayRange>,
 }
 
 pub(crate) struct Update {
@@ -29,6 +30,7 @@ pub(crate) struct Update {
     pub parsed_source_bytes: usize,
     pub materialized_source_bytes: usize,
     pub semantic_range: DisplayRange,
+    pub link_metadata_items: usize,
 }
 
 impl Projection {
@@ -49,7 +51,6 @@ impl Projection {
             display,
             rows,
             initial_parse_work,
-            literal_links: Vec::new(),
         }
     }
 
@@ -234,6 +235,7 @@ impl Projection {
             .locate(edit.range.start.0, false)
             .saturating_sub(1);
         let last = (self.rows.locate(edit.range.end.0, false) + 1).min(self.rows.len() - 1);
+        let (pending, metadata_work) = self.pending_display(first, last);
         let (_, source_start, display_start) = self.rows.at(first);
         let (row, old_end, display_end) = self.rows.at(last);
         let source_end = old_end + row.source_len - edit.removed.len() + edit.inserted.len();
@@ -281,25 +283,10 @@ impl Projection {
             start: DisplayOffset(display_start),
             end: DisplayOffset(display_start + parsed_display_len),
         };
-        let removed = range.end.0 - range.start.0;
-        let added = inserted.len();
-        self.literal_links.retain_mut(|link| {
-            if link.end.0 < range.start.0 {
-                return true;
-            }
-            if link.start.0 > range.end.0 {
-                link.start.0 = link.start.0 - removed + added;
-                link.end.0 = link.end.0 - removed + added;
-                return true;
-            }
-            if range.start.0 <= link.start.0 && link.end.0 <= range.end.0 && added == 0 {
-                return false;
-            }
-            link.start.0 = link.start.0.min(range.start.0);
-            link.end.0 = link.end.0.max(range.end.0) - removed + added;
-            true
-        });
+        let link_metadata_items =
+            metadata_work + self.preserve_pending_display(pending, range, inserted.len());
         Update {
+            link_metadata_items,
             range,
             inserted,
             parsed_source_bytes,

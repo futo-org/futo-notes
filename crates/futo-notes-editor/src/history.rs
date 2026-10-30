@@ -46,11 +46,11 @@ impl HistoryClock for MonotonicClock {
 pub(crate) struct HistoryEntry {
     pub(crate) before_selection: DisplayRange,
     pub(crate) before_affinity: Affinity,
-    pub(crate) before_links: Vec<DisplayRange>,
+    pub(crate) before_links: crate::inline::PendingLinks,
     pub(crate) before_formats: Option<Vec<InlineFormat>>,
     pub(crate) after_selection: DisplayRange,
     pub(crate) after_affinity: Affinity,
-    pub(crate) after_links: Vec<DisplayRange>,
+    pub(crate) after_links: crate::inline::PendingLinks,
     pub(crate) after_formats: Option<Vec<InlineFormat>>,
     pub(crate) range: SourceRange,
     pub(crate) removed: String,

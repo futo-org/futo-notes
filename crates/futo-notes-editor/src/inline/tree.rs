@@ -115,6 +115,21 @@ impl Rows {
             }
         }
     }
+    /// Mutating transient metadata never changes indexed source/display lengths.
+    pub fn metadata_mut(&mut self, mut index: usize) -> &mut Row {
+        let mut node = self.root.as_deref_mut().unwrap();
+        loop {
+            let left = count(&node.left);
+            if index < left {
+                node = node.left.as_deref_mut().unwrap();
+            } else if index == left {
+                return &mut node.row;
+            } else {
+                index -= left + 1;
+                node = node.right.as_deref_mut().unwrap();
+            }
+        }
+    }
     pub fn locate(&self, mut offset: usize, display: bool) -> usize {
         let mut node = self.root.as_deref().unwrap();
         let mut index = 0;
