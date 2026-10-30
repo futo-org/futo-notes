@@ -16,6 +16,7 @@ pub(crate) struct ListLine {
     pub content_column: usize,
     pub previous_content_column: Option<usize>,
     pub parent_marker_column: Option<usize>,
+    pub parent_content_column: Option<usize>,
 }
 
 impl ListLine {
@@ -153,6 +154,7 @@ pub(super) fn describe(source: &str, events: &[(Event<'_>, Range<usize>)]) -> Li
                     .map(|at| items[at].content_column);
                 *previous_items.last_mut().unwrap() = Some(items.len());
                 let parent_marker_column = active_items.last().map(|&at| items[at].marker_column);
+                let parent_content_column = active_items.last().map(|&at| items[at].content_column);
                 active_items.push(items.len());
                 items.push(ListLine {
                     marker: start..start + width,
@@ -167,6 +169,7 @@ pub(super) fn describe(source: &str, events: &[(Event<'_>, Range<usize>)]) -> Li
                     content_column,
                     previous_content_column,
                     parent_marker_column,
+                    parent_content_column,
                 });
             }
             Event::TaskListMarker(checked) => {
