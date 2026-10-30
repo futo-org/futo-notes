@@ -141,3 +141,24 @@ fn loaded_gfm_urls_report_canonical_destinations_and_leave_code_opaque() {
     assert_eq!(links[1].destination, "https://a.com/x_y");
     assert_eq!(session.source_text(), source);
 }
+
+#[test]
+fn updating_only_destination_preserves_title_quote_and_surrounding_marker_spelling() {
+    let original = "__before [one](https://old.test 'A title') after__\r\n";
+    let mut session = EditorSession::open(original);
+    let mut view = ReferenceView::new("before one after\r\n");
+    session.select(Revision(0), range(8, 9)).unwrap();
+    view.apply(
+        session
+            .set_link(Revision(0), range(8, 9), "https://x.test", &mut |_| Ok(()))
+            .unwrap()
+            .unwrap(),
+    );
+    assert_eq!(
+        session.source_text(),
+        "__before [one](https://x.test 'A title') after__\r\n"
+    );
+    assert_eq!(view.text, "before one after\r\n");
+    view.apply(session.undo(Revision(1), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(session.source_text(), original);
+}
