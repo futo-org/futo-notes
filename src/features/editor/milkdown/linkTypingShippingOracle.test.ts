@@ -104,3 +104,40 @@ it('a minimal standard source candidate keeps literal URL delimiters stable befo
   });
   expect(marks).toEqual([{ text: 'https://x.test/a', type: 'link', href: 'https://x.test/a' }]);
 });
+
+it('the shipping strong input rule waits for URL word end across both closing stars', () => {
+  const view = editor.ctx.get(editorViewCtx);
+  view.updateState(EditorState.create({ schema: view.state.schema, plugins: view.state.plugins }));
+  const type = (text: string) => {
+    for (const ch of text) {
+      const { from, to } = view.state.selection;
+      const handled = view.someProp('handleTextInput', (handler) =>
+        handler(view, from, to, ch, () => view.state.tr.insertText(ch)),
+      );
+      if (!handled) view.dispatch(view.state.tr.insertText(ch));
+    }
+  };
+  type('x **b https://x.test/a**');
+  expect(view.state.doc.textContent).toBe('x **b https://x.test/a**');
+  const marked = () => {
+    const runs: { text: string; types: string[]; href: unknown }[] = [];
+    view.state.doc.descendants((node) => {
+      if (node.isText && node.marks.length)
+        runs.push({
+          text: node.text ?? '',
+          types: node.marks.map((mark) => mark.type.name).sort(),
+          href: node.marks.find((mark) => mark.type.name === 'link')?.attrs.href,
+        });
+    });
+    return runs;
+  };
+  expect(marked()).toEqual([]);
+  type(' ');
+  expect(view.state.doc.textContent).toBe('x b https://x.test/a ');
+  expect(marked()).toEqual([
+    { text: 'b ', types: ['strong'], href: undefined },
+    { text: 'https://x.test/a', types: ['link', 'strong'], href: 'https://x.test/a' },
+  ]);
+  const parse = editor.ctx.get(parserCtx);
+  expect(parse('x \\*\\*b https://x.test/a**').textContent).toBe('x **b https://x.test/a**');
+});
