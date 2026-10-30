@@ -37,6 +37,7 @@ impl Boundary {
 pub(super) struct StageContext {
     before: Boundary,
     after: Boundary,
+    pub origin: Option<crate::inline::references::SourceOrigin>,
 }
 
 impl EditorSession {
@@ -134,9 +135,28 @@ impl EditorSession {
             projection.initial_link_metadata_items += projection.restore_pending(&pending);
         }
         let mut staged = Self::with_projection(raw, Revision(0), self.clock.clone(), projection);
+        let origin = if exact {
+            if let Some(origin) = &self.context.origin {
+                Some(crate::inline::references::SourceOrigin {
+                    source: origin.source.clone(),
+                    start: origin.start + window.start,
+                })
+            } else {
+                self.projection.references_complete.then(|| {
+                    crate::inline::references::SourceOrigin {
+                        source: self.source.clone(),
+                        start: window.start,
+                    }
+                })
+            }
+        } else {
+            None
+        };
+        staged.projection.initial_link_metadata_items += usize::from(origin.is_some());
         staged.context = StageContext {
             before: self.stage_boundary(window.start, false),
             after: self.stage_boundary(window.end, true),
+            origin,
         };
         staged
     }

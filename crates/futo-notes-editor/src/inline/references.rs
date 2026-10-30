@@ -12,6 +12,22 @@ pub(crate) struct ReferenceWork {
     pub copied: usize,
 }
 
+/// An exact stage owns a detached persistent canonical source root. Rope
+/// clones share their immutable tree; no note String or Rows snapshot is copied.
+pub(crate) struct SourceOrigin {
+    pub source: ropey::Rope,
+    pub start: usize,
+}
+impl SourceOrigin {
+    pub fn mirror(&mut self, edit: &crate::SourceEdit) -> usize {
+        let start = self.source.byte_to_char(self.start + edit.range.start.0);
+        let end = self.source.byte_to_char(self.start + edit.range.end.0);
+        self.source.remove(start..end);
+        self.source.insert(start, &edit.inserted);
+        edit.inserted.len()
+    }
+}
+
 #[derive(Default)]
 pub(crate) struct References {
     targets: HashMap<UniCase<String>, Arc<LinkMeaning>>,
@@ -335,6 +351,7 @@ impl super::Projection {
         local_parsed: usize,
         local_items: usize,
         local_copied: usize,
+        origin: Option<&SourceOrigin>,
     ) -> super::Update {
         let old = self.display.to_string();
         let old_source_len = source.len_bytes() - edit.inserted.len() + edit.removed.len();
@@ -351,7 +368,18 @@ impl super::Projection {
             true
         });
         let raw = source.to_string();
-        let mut fresh = Self::new(&raw);
+        let mut origin_materialized = 0;
+        let mut fresh = if self.references_complete {
+            Self::new(&raw)
+        } else {
+            let origin = origin.expect("an exact canonical source origin was checked");
+            let canonical = origin.source.to_string();
+            origin_materialized = canonical.len();
+            let (references, winners, mut work) = References::scan(&canonical);
+            let (local, visits) = window_winners(&winners, origin.start, raw.len());
+            work.items += visits;
+            Self::with_references(&raw, references, &local, work)
+        };
         pending.window = 0..raw.len();
         let pending_work = pending_work + fresh.restore_pending(&pending);
         let inserted = fresh.display.to_string();
@@ -375,7 +403,11 @@ impl super::Projection {
             },
             inserted: inserted[prefix..inserted.len() - suffix].into(),
             parsed_source_bytes: local_parsed + fresh.initial_parse_work,
-            materialized_source_bytes: local_materialized + raw.len() + old.len() + inserted.len(),
+            materialized_source_bytes: local_materialized
+                + raw.len()
+                + old.len()
+                + inserted.len()
+                + origin_materialized,
             semantic_range: crate::DisplayRange {
                 start: crate::DisplayOffset(0),
                 end: crate::DisplayOffset(inserted.len()),

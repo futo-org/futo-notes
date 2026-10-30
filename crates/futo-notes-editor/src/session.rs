@@ -270,11 +270,18 @@ impl EditorSession {
     }
 
     fn apply(&mut self, edit: &SourceEdit) -> ViewChange {
+        let mirror_bytes = self
+            .context
+            .origin
+            .as_mut()
+            .map_or(0, |origin| origin.mirror(edit));
         let start = self.source.byte_to_char(edit.range.start.0);
         let end = self.source.byte_to_char(edit.range.end.0);
         self.source.remove(start..end);
         self.source.insert(start, &edit.inserted);
-        let update = self.projection.apply(&self.source, edit);
+        let update = self
+            .projection
+            .apply(&self.source, edit, self.context.origin.as_ref());
         self.revision = edit.revision;
         let caret = DisplayOffset(
             self.projection
@@ -296,10 +303,14 @@ impl EditorSession {
             affinity: self.affinity,
             projection,
             work: EditWork {
-                materialized_source_bytes: edit.removed.len() + update.materialized_source_bytes,
+                materialized_source_bytes: edit.removed.len()
+                    + update.materialized_source_bytes
+                    + mirror_bytes,
                 inserted_bytes: edit.inserted.len(),
                 parsed_source_bytes: update.parsed_source_bytes,
-                link_metadata_items: update.link_metadata_items + link_work.items,
+                link_metadata_items: update.link_metadata_items
+                    + link_work.items
+                    + usize::from(self.context.origin.is_some()),
                 link_copied_bytes: update.link_copied_bytes + link_work.copied,
             },
         }

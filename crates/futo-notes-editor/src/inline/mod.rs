@@ -301,7 +301,12 @@ impl Projection {
 
     /// Reparse the edit's paragraphs and immediate neighbors, which can join
     /// when a blank-line separator changes. No tail offsets are rewritten.
-    pub fn apply(&mut self, source: &Rope, edit: &SourceEdit) -> Update {
+    pub fn apply(
+        &mut self,
+        source: &Rope,
+        edit: &SourceEdit,
+        origin: Option<&references::SourceOrigin>,
+    ) -> Update {
         let first = self
             .rows
             .locate(edit.range.start.0, false)
@@ -352,7 +357,7 @@ impl Projection {
             self.reference_meaning_changed(first, last, source_start, &parsed, edit);
         reference_work.items += comparison_work;
         if meaning_changed {
-            if self.references_complete {
+            if self.references_complete || origin.is_some() {
                 let local_parsed = text.len()
                     + parsed
                         .iter()
@@ -375,6 +380,7 @@ impl Projection {
                     local_parsed,
                     local_items + metadata_work,
                     local_copied,
+                    origin,
                 );
             }
             self.needs_global_references = true;
