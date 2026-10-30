@@ -144,7 +144,7 @@ fn shortcut_acceptance_keeps_foreign_ownership_selection_and_carried_format() {
         s.replace(s.revision(), s.selection(), "!", &mut |_| Ok(()))
             .unwrap(),
     );
-    assert_eq!(s.source_text(), "2) **!**body\n\n7. after");
+    assert_eq!(s.source_text(), "2) **!**&#98;ody\n\n7. after");
     assert_eq!(view.text, "!body\n\nafter");
     view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
     assert_eq!(s.source_text(), source);
@@ -155,5 +155,5 @@ fn shortcut_acceptance_keeps_foreign_ownership_selection_and_carried_format() {
     view.apply(s.redo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
     assert_eq!(s.source_text(), source);
     view.apply(s.redo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
-    assert_eq!(s.source_text(), "2) **!**body\n\n7. after");
+    assert_eq!(s.source_text(), "2) **!**&#98;ody\n\n7. after");
 }
