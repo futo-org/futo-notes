@@ -231,3 +231,48 @@ fn history_restores_interior_boundaries_in_two_distinct_decoded_atoms_with_both_
         assert_eq!(session.selection(), range(18, 18));
     }
 }
+
+#[test]
+fn text_conversion_preserves_a_headings_literal_reference_definition_and_distant_label() {
+    use futo_notes_editor::BlockCommand;
+    // Real shipping toolbar oracle: referenceBlockShippingOracle.test.ts.
+    let original = "# [id]: /target 'T'\n\n[one][id]\n\nbody";
+    let changed = "\\[id]: /target 'T'\n\n[one][id]\n\nbody";
+    let shown = "[id]: /target 'T'\n\n[one][id]\n\nbody";
+    let mut session = EditorSession::open(original);
+    let mut view = ReferenceView::new(shown);
+    assert_eq!(session.display_text(), shown);
+    session.select(Revision(0), range(4, 4)).unwrap();
+    let mut accepted = 0;
+    view.apply(
+        session
+            .block_command(
+                Revision(0),
+                range(4, 4),
+                BlockCommand::Heading(0),
+                &mut |_| {
+                    accepted += 1;
+                    Ok(())
+                },
+            )
+            .unwrap()
+            .unwrap(),
+    );
+    assert_eq!(accepted, 1);
+    assert_eq!(session.source_text(), changed);
+    assert_eq!(view.text, shown);
+    assert_eq!(session.display_text(), shown);
+    assert_eq!(session.selection(), range(4, 4));
+    assert!(session
+        .inspect_link(Revision(1), range(20, 23))
+        .unwrap()
+        .is_none());
+    view.apply(session.undo(Revision(1), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(session.source_text(), original);
+    assert_eq!(view.text, shown);
+    assert_eq!(session.selection(), range(4, 4));
+    view.apply(session.redo(Revision(2), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(session.source_text(), changed);
+    assert_eq!(view.text, shown);
+    assert_eq!(session.selection(), range(4, 4));
+}
