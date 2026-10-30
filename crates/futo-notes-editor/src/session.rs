@@ -316,6 +316,7 @@ impl EditorSession {
         let before_selection = self.selection;
         let before_affinity = self.affinity;
         let before_formats = self.pending_formats.clone();
+        let before_links = self.projection.literal_links.clone();
         let plan = self.projection.edit(
             &self.source,
             self.selection,
@@ -344,9 +345,11 @@ impl EditorSession {
                 before_selection,
                 before_affinity,
                 before_formats,
+                before_links,
                 after_selection: self.selection,
                 after_affinity: self.affinity,
                 after_formats: None,
+                after_links: self.projection.literal_links.clone(),
                 range: edit.range,
                 removed: edit.removed,
                 inserted: edit.inserted,
@@ -455,6 +458,14 @@ impl EditorSession {
         } else {
             entry.entries.first().unwrap().before_formats.clone()
         };
+        self.projection.literal_links = if redo {
+            entry.entries.last().unwrap().after_links.clone()
+        } else {
+            entry.entries.first().unwrap().before_links.clone()
+        };
+        change.projection = self
+            .projection
+            .query(self.revision, change.projection.range);
         self.typing = None;
         if redo {
             self.undo.push(entry);

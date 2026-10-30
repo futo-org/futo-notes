@@ -108,6 +108,13 @@ fn transform_groups(
             ),
             before_affinity: first.before_affinity,
             before_formats: first.before_formats.clone(),
+            before_links: first
+                .before_links
+                .iter()
+                .map(|range| {
+                    positions::selection(before, &before_rewritten, *range, first.before_affinity)
+                })
+                .collect(),
             after_selection: positions::selection(
                 after,
                 &after_rewritten,
@@ -116,6 +123,13 @@ fn transform_groups(
             ),
             after_affinity: last.after_affinity,
             after_formats: last.after_formats.clone(),
+            after_links: last
+                .after_links
+                .iter()
+                .map(|range| {
+                    positions::selection(after, &after_rewritten, *range, last.after_affinity)
+                })
+                .collect(),
             removed: before_rewritten[range.start.0..range.end.0].to_owned(),
             inserted,
             range,

@@ -193,11 +193,24 @@ pub(super) fn bare_links(source: &str) -> (Vec<super::row::Span>, usize) {
         markdown::to_mdast(source, &options).expect("CommonMark with GFM literals is infallible");
     let mut spans = Vec::new();
     let mut pending = vec![&tree];
+    let mut cursor = 0;
     while let Some(node) = pending.pop() {
         if let markdown::mdast::Node::Link(link) = node {
-            if let Some(position) = &link.position {
-                let start = position.start.offset;
-                let end = position.end.offset;
+            // GFM's post-parse text transform can leave a literal after a
+            // bracket without positions, just as the shipping remark parser
+            // does. Its parsed visible text is the literal source to locate.
+            let shown: String = link.children.iter().map(ToString::to_string).collect();
+            let bounds = link
+                .position
+                .as_ref()
+                .map(|position| (position.start.offset, position.end.offset))
+                .or_else(|| {
+                    source[cursor..]
+                        .find(&shown)
+                        .map(|at| (cursor + at, cursor + at + shown.len()))
+                });
+            if let Some((start, end)) = bounds {
+                cursor = end;
                 if !source[start..end].starts_with(['[', '<']) {
                     spans.push(super::row::Span {
                         kind: super::row::SpanKind::Link(link.url.clone()),

@@ -190,6 +190,7 @@ impl EditorSession {
         let before_selection = self.selection;
         let before_affinity = self.affinity;
         let before_formats = self.pending_formats.clone();
+        let before_links = self.projection.literal_links.clone();
         let mut change = self.apply(&edit);
         self.selection = DisplayRange {
             start: DisplayOffset(display_start + staged.selection.start.0),
@@ -206,9 +207,11 @@ impl EditorSession {
                 before_selection,
                 before_affinity,
                 before_formats,
+                before_links,
                 after_selection: self.selection,
                 after_affinity: self.affinity,
                 after_formats: self.pending_formats.clone(),
+                after_links: self.projection.literal_links.clone(),
                 range: edit.range,
                 removed: edit.removed,
                 inserted: edit.inserted,
