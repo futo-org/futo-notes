@@ -115,3 +115,21 @@ pub(super) fn pending(
         work: snapshot.work,
     }
 }
+
+pub(super) fn source_anchor(
+    before: &str,
+    after: &str,
+    anchor: crate::history::SourceSelection,
+    affinity: Affinity,
+) -> crate::history::SourceSelection {
+    match anchor {
+        crate::history::SourceSelection::Exact(range) => {
+            let runs = changed_runs(before, after);
+            crate::history::SourceSelection::Exact(SourceRange {
+                start: SourceOffset(source_position(range.start.0, affinity, &runs)),
+                end: SourceOffset(source_position(range.end.0, affinity, &runs)),
+            })
+        }
+        crate::history::SourceSelection::Derived => crate::history::SourceSelection::Derived,
+    }
+}

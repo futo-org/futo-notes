@@ -100,6 +100,18 @@ fn transform_groups(
         let after_rewritten = relink.rewrite(after);
         let (range, inserted) = difference(&before_rewritten, &after_rewritten);
         let entry = HistoryEntry {
+            before_source: positions::source_anchor(
+                before,
+                &before_rewritten,
+                first.before_source,
+                first.before_affinity,
+            ),
+            after_source: positions::source_anchor(
+                after,
+                &after_rewritten,
+                last.after_source,
+                last.after_affinity,
+            ),
             before_selection: positions::selection(
                 before,
                 &before_rewritten,

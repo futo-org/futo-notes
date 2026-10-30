@@ -72,10 +72,13 @@ impl EditorSession {
         self.affinity = Affinity::Backward;
         self.typing = None;
         if let Some(change) = change {
+            let (source, work) = self.capture_history_selection();
+            change.work.link_metadata_items += work;
             change.selection = self.selection;
             change.affinity = self.affinity;
             let entry = self.undo.last_mut().unwrap().entries.last_mut().unwrap();
             entry.after_selection = self.selection;
+            entry.after_source = source;
             entry.after_affinity = self.affinity;
             entry.after_formats = self.pending_formats.clone();
         }

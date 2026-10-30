@@ -103,6 +103,7 @@ impl EditorSession {
         )?;
         accept(&edit).map_err(EditorError::Persistence)?;
         let before_selection = self.selection;
+        let (before_source, before_source_work) = self.capture_history_selection();
         let before_affinity = self.affinity;
         let before_formats = self.pending_formats.clone();
         self.affinity = affinity;
@@ -135,11 +136,15 @@ impl EditorSession {
         change.work.parsed_source_bytes += plan.parsed;
         change.work.link_metadata_items += plan.link_metadata_items;
         change.work.link_copied_bytes += plan.link_copied_bytes;
+        let (after_source, after_source_work) = self.capture_history_selection();
+        change.work.link_metadata_items += before_source_work + after_source_work;
         let after_links = self
             .projection
             .pending_links(before_links.after_window(&edit));
         change.work.link_metadata_items += before_links.work + after_links.work;
         let entry = HistoryEntry {
+            before_source,
+            after_source,
             before_selection,
             before_affinity,
             before_formats,

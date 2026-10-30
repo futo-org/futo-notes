@@ -259,6 +259,13 @@ impl EditorSession {
             start: DisplayOffset(display_start + staged.selection.start.0),
             end: DisplayOffset(display_start + staged.selection.end.0),
         };
+        let (mut selected_source, selected_source_work) = staged.capture_history_selection();
+        let crate::history::SourceSelection::Exact(ref mut selected) = selected_source else {
+            return Err(EditorError::UnrepresentableFormat);
+        };
+        selected.start.0 += window.start;
+        selected.end.0 += window.start;
+        let (opening_source, opening_source_work) = self.capture_history_selection();
         let mut change = None;
         if recorded {
             let (mut footprint, inserted) = transaction.finish();
@@ -266,28 +273,22 @@ impl EditorSession {
             footprint.end.0 += window.start;
             let edit = self.prepare_source(expected, footprint, &inserted)?;
             if edit.removed != edit.inserted {
-                accept(&edit).map_err(EditorError::Persistence)?;
-                let mut pending_work = 0;
+                let mut pending_work = selected_source_work + opening_source_work + 2;
                 for group in &mut staged.undo {
                     for entry in &mut group.entries {
-                        pending_work += entry.before_links.relocate_source(window.start);
-                        pending_work += entry.after_links.relocate_source(window.start);
-                        entry.range.start.0 += window.start;
-                        entry.range.end.0 += window.start;
-                        entry.before_selection.start.0 += display_start;
-                        entry.before_selection.end.0 += display_start;
-                        entry.after_selection.start.0 += display_start;
-                        entry.after_selection.end.0 += display_start;
+                        pending_work += entry.relocate_exact(window.start, display_start)?;
                     }
                 }
                 let opening = &mut staged.undo.first_mut().unwrap().entries[0];
                 opening.before_selection = self.selection;
+                opening.before_source = opening_source;
                 opening.before_affinity = self.affinity;
                 opening.before_formats = self.pending_formats.clone();
                 let mut pending = staged
                     .projection
                     .pending_links(0..staged.source.len_bytes());
                 pending_work += pending.work + pending.relocate_source(window.start);
+                accept(&edit).map_err(EditorError::Persistence)?;
                 let mut delta = self.apply(&edit);
                 delta.work.link_metadata_items +=
                     pending_work + self.projection.restore_pending(&pending);
@@ -315,7 +316,12 @@ impl EditorSession {
             }
         }
         self.composition = None;
+        let (selection, selection_work) =
+            self.project_history_selection(selected_source, selection);
         self.selection = selection;
+        if let Some(delta) = &mut change {
+            delta.work.link_metadata_items += selection_work;
+        }
         self.affinity = staged.affinity;
         self.pending_formats = staged.pending_formats;
         self.typing = if change.is_some() {

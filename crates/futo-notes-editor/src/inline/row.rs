@@ -79,32 +79,41 @@ pub(crate) struct Row {
 
 impl Row {
     pub fn source_bounds(&self, at: usize) -> (usize, usize) {
+        self.source_bounds_with_work(at).0
+    }
+
+    pub fn source_bounds_with_work(&self, at: usize) -> ((usize, usize), usize) {
+        let mut work = 0;
+        let first = self.segments.partition_point(|segment| {
+            work += 1;
+            segment.display.end < at
+        });
         let mut low = self.source_len;
         let mut high = 0;
-        for segment in &self.segments {
-            if segment.display.start <= at && at <= segment.display.end {
-                let (a, b) = if segment.display.is_empty() {
-                    (segment.source.start, segment.source.end)
-                } else if at == segment.display.start {
-                    (segment.source.start, segment.source.start)
-                } else if at == segment.display.end {
-                    (segment.source.end, segment.source.end)
-                } else {
-                    if segment.identity {
-                        let position = segment.source.start + at - segment.display.start;
-                        (position, position)
-                    } else {
-                        (segment.source.start, segment.source.end)
-                    }
-                };
-                low = low.min(a);
-                high = high.max(b);
+        for segment in &self.segments[first..] {
+            work += 1;
+            if segment.display.start > at {
+                break;
             }
+            let (a, b) = if segment.display.is_empty() {
+                (segment.source.start, segment.source.end)
+            } else if at == segment.display.start {
+                (segment.source.start, segment.source.start)
+            } else if at == segment.display.end {
+                (segment.source.end, segment.source.end)
+            } else if segment.identity {
+                let position = segment.source.start + at - segment.display.start;
+                (position, position)
+            } else {
+                (segment.source.start, segment.source.end)
+            };
+            low = low.min(a);
+            high = high.max(b);
         }
         if self.segments.is_empty() {
-            (0, 0)
+            ((0, 0), work)
         } else {
-            (low, high)
+            ((low, high), work)
         }
     }
 

@@ -43,7 +43,15 @@ impl HistoryClock for MonotonicClock {
     }
 }
 
+#[derive(Clone, Copy)]
+pub(crate) enum SourceSelection {
+    Exact(SourceRange),
+    Derived,
+}
+
 pub(crate) struct HistoryEntry {
+    pub(crate) before_source: SourceSelection,
+    pub(crate) after_source: SourceSelection,
     pub(crate) before_selection: DisplayRange,
     pub(crate) before_affinity: Affinity,
     pub(crate) before_links: crate::inline::PendingLinks,
@@ -55,6 +63,33 @@ pub(crate) struct HistoryEntry {
     pub(crate) range: SourceRange,
     pub(crate) removed: String,
     pub(crate) inserted: String,
+}
+
+impl HistoryEntry {
+    pub(crate) fn relocate_exact(
+        &mut self,
+        source: usize,
+        display: usize,
+    ) -> Result<usize, crate::EditorError> {
+        let (SourceSelection::Exact(before), SourceSelection::Exact(after)) =
+            (&mut self.before_source, &mut self.after_source)
+        else {
+            return Err(crate::EditorError::UnrepresentableFormat);
+        };
+        before.start.0 += source;
+        before.end.0 += source;
+        after.start.0 += source;
+        after.end.0 += source;
+        self.range.start.0 += source;
+        self.range.end.0 += source;
+        self.before_selection.start.0 += display;
+        self.before_selection.end.0 += display;
+        self.after_selection.start.0 += display;
+        self.after_selection.end.0 += display;
+        Ok(10
+            + self.before_links.relocate_source(source)
+            + self.after_links.relocate_source(source))
+    }
 }
 
 pub(crate) struct HistoryGroup {

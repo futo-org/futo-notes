@@ -5,6 +5,7 @@ mod paragraphs;
 mod relink;
 pub use blocks::BlockCommand;
 pub use relink::OwnActionRelink;
+mod history_selection;
 mod input;
 mod links;
 mod staging;
@@ -347,6 +348,7 @@ impl EditorSession {
             return Ok(committed);
         }
         let before_selection = self.selection;
+        let (before_source, before_source_work) = self.capture_history_selection();
         let before_affinity = self.affinity;
         let before_formats = self.pending_formats.clone();
         let plan = self.projection.edit(
@@ -375,12 +377,16 @@ impl EditorSession {
         change.work.parsed_source_bytes += plan.parsed;
         change.work.link_metadata_items += plan.link_metadata_items;
         change.work.link_copied_bytes += plan.link_copied_bytes;
+        let (after_source, after_source_work) = self.capture_history_selection();
+        change.work.link_metadata_items += before_source_work + after_source_work;
         let after_links = self
             .projection
             .pending_links(before_links.after_window(&edit));
         change.work.link_metadata_items += before_links.work + after_links.work;
         self.undo.push(HistoryGroup {
             entries: vec![HistoryEntry {
+                before_source,
+                after_source,
                 before_selection,
                 before_affinity,
                 before_formats,
@@ -480,11 +486,25 @@ impl EditorSession {
         } else {
             self.undo.pop().unwrap()
         };
-        self.selection = if redo {
-            entry.entries.last().unwrap().after_selection
+        let step = if redo {
+            entry.entries.last().unwrap()
         } else {
-            entry.entries.first().unwrap().before_selection
+            entry.entries.first().unwrap()
         };
+        let (selection, selection_work) = self.project_history_selection(
+            if redo {
+                step.after_source
+            } else {
+                step.before_source
+            },
+            if redo {
+                step.after_selection
+            } else {
+                step.before_selection
+            },
+        );
+        self.selection = selection;
+        change.work.link_metadata_items += selection_work;
         self.affinity = if redo {
             entry.entries.last().unwrap().after_affinity
         } else {
