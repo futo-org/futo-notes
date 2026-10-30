@@ -17,5 +17,7 @@ mod os_input;
 mod pending_metadata;
 #[path = "links/projection.rs"]
 mod projection;
+#[path = "links/references.rs"]
+mod references;
 #[path = "links/word_end.rs"]
 mod word_end;
