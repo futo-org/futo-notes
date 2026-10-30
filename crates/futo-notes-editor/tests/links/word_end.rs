@@ -280,3 +280,39 @@ fn minimal_standard_pre_word_end_spelling_reopens_literal_delimiters_and_unchang
     assert_eq!(link.range, range(5, 21));
     assert_eq!(link.destination, "https://x.test/a");
 }
+
+#[test]
+fn loaded_or_reopened_escaped_openers_keep_literal_intent_at_url_word_end() {
+    for (source, typed) in [
+        ("x \\*b https://x.test/a*", " "),
+        ("x \\*b ", "https://x.test/a* "),
+    ] {
+        let mut session = EditorSession::open(source);
+        let mut view = ReferenceView::new(&session.display_text());
+        for ch in typed.chars() {
+            let at = view.text.len();
+            view.apply(
+                session
+                    .replace(
+                        session.revision(),
+                        range(at, at),
+                        &ch.to_string(),
+                        &mut |_| Ok(()),
+                    )
+                    .unwrap(),
+            );
+        }
+        assert_eq!(session.source_text(), "x \\*b https://x.test/a* ");
+        assert_eq!(view.text, "x *b https://x.test/a* ");
+        let projection = session
+            .project(session.revision(), range(0, view.text.len()))
+            .unwrap();
+        assert!(projection.runs.iter().all(|run| run.formats.is_empty()));
+        assert_eq!(projection.links.len(), 1);
+        assert_eq!(projection.links[0].destination, "https://x.test/a");
+        assert_eq!(
+            EditorSession::open(&session.source_text()).display_text(),
+            view.text
+        );
+    }
+}
