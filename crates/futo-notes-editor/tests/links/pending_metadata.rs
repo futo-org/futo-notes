@@ -104,3 +104,74 @@ fn unchanged_distant_composition_preserves_unfinished_url_metadata_through_word_
         1
     );
 }
+
+#[test]
+fn space_composition_maps_a_following_correction_inside_the_delimiter_rewrite() {
+    let mut session = EditorSession::open("");
+    let mut view = ReferenceView::new("");
+    for ch in "x *b https://x.test/a*".chars() {
+        let at = view.text.len();
+        view.apply(
+            session
+                .replace(
+                    session.revision(),
+                    range(at, at),
+                    &ch.to_string(),
+                    &mut |_| Ok(()),
+                )
+                .unwrap(),
+        );
+    }
+    session
+        .compose(session.revision(), range(22, 22), " ")
+        .unwrap();
+    let mut accepts = 0;
+    view.apply(
+        session
+            .replace(session.revision(), range(3, 4), "B", &mut |_| {
+                accepts += 1;
+                Ok(())
+            })
+            .unwrap(),
+    );
+    assert_eq!(accepts, 1);
+    assert_eq!(session.source_text(), "x *B https://x.test/a* ");
+    assert_eq!(view.text, "x B https://x.test/a ");
+    assert_eq!(session.selection(), range(3, 3));
+    let link = session
+        .inspect_link(session.revision(), range(4, 20))
+        .unwrap()
+        .unwrap();
+    assert_eq!(link.destination, "https://x.test/a");
+    view.apply(
+        session
+            .undo(session.revision(), &mut |_| Ok(()))
+            .unwrap()
+            .unwrap(),
+    );
+    assert_eq!(session.source_text(), "x *b https://x.test/a* ");
+    assert_eq!(view.text, "x b https://x.test/a ");
+    assert_eq!(session.selection(), range(21, 21));
+    view.apply(
+        session
+            .undo(session.revision(), &mut |_| Ok(()))
+            .unwrap()
+            .unwrap(),
+    );
+    assert_eq!(session.source_text(), "x \\*b https://x.test/a*");
+    assert_eq!(view.text, "x *b https://x.test/a*");
+    view.apply(
+        session
+            .redo(session.revision(), &mut |_| Ok(()))
+            .unwrap()
+            .unwrap(),
+    );
+    view.apply(
+        session
+            .redo(session.revision(), &mut |_| Ok(()))
+            .unwrap()
+            .unwrap(),
+    );
+    assert_eq!(session.source_text(), "x *B https://x.test/a* ");
+    assert_eq!(session.selection(), range(3, 3));
+}
