@@ -1,6 +1,6 @@
 //! List commands touch their selected bodies and retain unrelated source bytes.
 use super::*;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 
 impl EditorSession {
     pub(super) fn list_command(
@@ -276,12 +276,12 @@ impl EditorSession {
                     let column = crate::inline::columns(&replacement[..logical_end], 0);
                     let delta = column as isize - list.content_column as isize;
                     if delta != 0 {
-                        owned_shifts.push((
-                            line.source.end,
-                            list.item.clone(),
-                            list.quote_depth,
+                        owned_shifts.push(super::indent_source::OwnedPrefixShift {
+                            start: line.source.end,
+                            item: list.item.clone(),
+                            quote: list.quote_depth,
                             delta,
-                        ));
+                        });
                     }
                 }
             }
@@ -291,82 +291,13 @@ impl EditorSession {
                 replacement,
             ));
         }
-        let mut shifted_prefixes: BTreeMap<
-            usize,
-            (crate::inline::blocks::SourcePrefix, BTreeMap<usize, isize>),
-        > = BTreeMap::new();
-        let mut events = Vec::new();
-        for (at, item, quote, delta) in owned_shifts {
-            crate::inline::visit_container();
-            // A parser item may end in the following line's quote prefix.
-            // Normalize its end with canonical ownership, not byte indentation.
-            let end = if item.end >= self.source.len_bytes() {
-                self.source.len_bytes()
-            } else {
-                let line = self.source.line_to_byte(self.source.byte_to_line(item.end));
-                self.projection
-                    .source_prefix_at(line)
-                    .map_or(line, |prefix| {
-                        if prefix.list.as_ref().is_some_and(|list| {
-                            item.start <= list.marker.start && list.marker.start < item.end
-                        }) {
-                            prefix.source.end
-                        } else {
-                            line
-                        }
-                    })
-            };
-            if at < end {
-                events.push((at, quote, delta));
-                events.push((end, quote, -delta));
-            }
-        }
-        events.sort_by_key(|event| {
-            crate::inline::visit_container();
-            event.0
-        });
-        let mut next = 0;
-        let mut at = events.first().map_or(0, |event| event.0);
-        let mut active: BTreeMap<usize, isize> = BTreeMap::new();
-        while next < events.len() || !active.is_empty() {
-            while let Some(&(_, quote, delta)) = events.get(next).filter(|event| event.0 <= at) {
-                crate::inline::visit_container();
-                let value = active.entry(quote).or_default();
-                *value += delta;
-                if *value == 0 {
-                    active.remove(&quote);
-                }
-                next += 1;
-            }
-            if active.is_empty() {
-                if let Some(event) = events.get(next) {
-                    at = event.0;
-                    continue;
-                }
-                break;
-            }
-            crate::inline::visit_container();
-            let prefix = self
-                .projection
-                .source_prefix_at(at)
-                .ok_or(EditorError::UnrepresentableFormat)?;
-            let following = prefix.source.end;
-            if following <= at {
-                return Err(EditorError::UnrepresentableFormat);
-            }
-            if prefix.list.is_some() {
-                let shifts = active
-                    .iter()
-                    .map(|(&quote, &delta)| {
-                        crate::inline::visit_container();
-                        (quote, delta)
-                    })
-                    .collect();
-                shifted_prefixes.insert(at, (prefix, shifts));
-            }
-            at = following;
-        }
-        for (at, (prefix, mut shifts)) in shifted_prefixes {
+        let shifted_prefixes = self.owned_prefix_shifts(owned_shifts)?;
+        for super::indent_source::PhysicalPrefixShift {
+            prefix,
+            deltas: mut shifts,
+        } in shifted_prefixes
+        {
+            let at = prefix.source.start;
             let existing = head_prefixes.get(&at).copied();
             let mut value = if let Some(index) = existing {
                 std::mem::take(&mut replacements[index].1)

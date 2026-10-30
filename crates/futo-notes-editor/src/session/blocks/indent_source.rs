@@ -1,4 +1,112 @@
 //! Exact parser-owned container prefix spelling; never accepts body Markdown.
+use super::*;
+use std::collections::BTreeMap;
+use std::ops::Range;
+
+pub(super) struct OwnedPrefixShift {
+    pub start: usize,
+    pub item: Range<usize>,
+    pub quote: usize,
+    pub delta: isize,
+}
+
+pub(super) struct PhysicalPrefixShift {
+    pub prefix: crate::inline::blocks::SourcePrefix,
+    pub deltas: BTreeMap<usize, isize>,
+}
+
+impl EditorSession {
+    /// Normalize canonical item ends and visit each affected physical prefix
+    /// once, regardless of how many changed ancestors own it.
+    pub(super) fn owned_prefix_shifts(
+        &self,
+        spans: Vec<OwnedPrefixShift>,
+    ) -> Result<Vec<PhysicalPrefixShift>, EditorError> {
+        let mut plan = Vec::new();
+        let mut events = Vec::new();
+        for OwnedPrefixShift {
+            start: at,
+            item,
+            quote,
+            delta,
+        } in spans
+        {
+            crate::inline::visit_container();
+            // A parser item may end in the following line's quote prefix.
+            // Normalize its end with canonical ownership, not byte indentation.
+            let end = if item.end >= self.source.len_bytes() {
+                self.source.len_bytes()
+            } else {
+                let line = self.source.line_to_byte(self.source.byte_to_line(item.end));
+                self.projection
+                    .source_prefix_at(line)
+                    .map_or(line, |prefix| {
+                        if prefix.list.as_ref().is_some_and(|list| {
+                            item.start <= list.marker.start && list.marker.start < item.end
+                        }) {
+                            prefix.source.end
+                        } else {
+                            line
+                        }
+                    })
+            };
+            if at < end {
+                events.push((at, quote, delta));
+                events.push((end, quote, -delta));
+            }
+        }
+        events.sort_by_key(|event| {
+            crate::inline::visit_container();
+            event.0
+        });
+        let mut next = 0;
+        let mut at = events.first().map_or(0, |event| event.0);
+        let mut active: BTreeMap<usize, isize> = BTreeMap::new();
+        while next < events.len() || !active.is_empty() {
+            while let Some(&(_, quote, delta)) = events.get(next).filter(|event| event.0 <= at) {
+                crate::inline::visit_container();
+                let value = active.entry(quote).or_default();
+                *value += delta;
+                if *value == 0 {
+                    active.remove(&quote);
+                }
+                next += 1;
+            }
+            if active.is_empty() {
+                if let Some(event) = events.get(next) {
+                    at = event.0;
+                    continue;
+                }
+                break;
+            }
+            crate::inline::visit_container();
+            let prefix = self
+                .projection
+                .source_prefix_at(at)
+                .ok_or(EditorError::UnrepresentableFormat)?;
+            let following = prefix.source.end;
+            if following <= at {
+                return Err(EditorError::UnrepresentableFormat);
+            }
+            if prefix.list.is_some() {
+                let shifts = active
+                    .iter()
+                    .map(|(&quote, &delta)| {
+                        crate::inline::visit_container();
+                        (quote, delta)
+                    })
+                    .collect();
+                plan.push(PhysicalPrefixShift {
+                    prefix,
+                    deltas: shifts,
+                });
+            }
+            at = following;
+        }
+        Ok(plan)
+    }
+}
+
 /// Only enclosing quote prefixes precede a list's indentation. Quote markers
 /// inside the item are shifted with its body, never mistaken for its parent.
 pub(super) fn quote_prefix_end(line: &str, depth: usize) -> usize {
