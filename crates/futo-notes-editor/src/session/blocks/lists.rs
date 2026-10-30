@@ -116,7 +116,16 @@ impl EditorSession {
                     .previous_content_column
                     .or(list.parent_content_column)
                     .ok_or(EditorError::UnrepresentableFormat)?;
-                let replacement = " ".repeat(column);
+                let prefix = self
+                    .source
+                    .byte_slice(line.source.start..line.content.start)
+                    .to_string();
+                let quote_end = super::list_indent::quote_prefix_end(&prefix, list.quote_depth);
+                let base = crate::inline::columns(&prefix[..quote_end], 0);
+                let spaces = column
+                    .checked_sub(base)
+                    .ok_or(EditorError::UnrepresentableFormat)?;
+                let replacement = format!("{}{}", &prefix[..quote_end], " ".repeat(spaces));
                 return self
                     .commit_block_key(
                         expected,
