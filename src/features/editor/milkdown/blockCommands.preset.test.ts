@@ -225,6 +225,13 @@ const cases = [
     head: 'child😀',
     headOffset: 7,
   },
+  {
+    name: 'heading in quote becomes list while preserving quote ancestry',
+    source: '> ## heading',
+    command: 'bullet-list',
+    anchor: 'heading',
+    offset: 3,
+  },
 ] as const;
 
 describe('pinned shipping toolbar container transactions (#299)', () => {
