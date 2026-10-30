@@ -186,3 +186,45 @@ fn identical_code_raw_os_ime_and_empty_many_keep_their_acceptance_policies() {
         }
     }
 }
+
+#[test]
+fn changed_explicit_code_run_owns_its_supplied_breaks_without_os_rediscovery() {
+    // #296: changed supplied runs retain their identity. Interior equal-looking
+    // breaks are supplied input; only the ending mapped to the untouched next
+    // row independently preserves that row's original physical prefix.
+    for (end, inserted, expected, shown) in [
+        (3, "A\n\n", " ```Rust\n A\n \n b\n", "A\n\nb"),
+        (4, "A\n\nB", " ```Rust\n A\n \n B\n", "A\n\nB"),
+        (4, "a\n\nB", " ```Rust\n a\n \n B\n", "a\n\nB"),
+        (4, "A\n\n\nb", " ```Rust\n A\n \n \n b\n", "A\n\n\nb"),
+    ] {
+        let source = " ```Rust\n a\n\n b\n";
+        let mut s = EditorSession::open(source);
+        let mut view = ReferenceView::new("a\n\nb");
+        let mut accepted = 0;
+        view.apply(
+            s.replace_many(
+                s.revision(),
+                &[DisplayReplacement {
+                    range: range(0, end),
+                    inserted: inserted.into(),
+                }],
+                &mut |_| {
+                    accepted += 1;
+                    Ok(())
+                },
+            )
+            .unwrap(),
+        );
+        assert_eq!(accepted, 1);
+        assert_eq!(s.source_text(), expected);
+        assert_eq!(view.text, shown);
+        assert_fresh_projection(&s, shown);
+        view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+        assert_eq!(s.source_text(), source);
+        assert!(s.undo(s.revision(), &mut |_| Ok(())).unwrap().is_none());
+        view.apply(s.redo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+        assert_eq!(s.source_text(), expected);
+        assert_fresh_projection(&s, shown);
+    }
+}
