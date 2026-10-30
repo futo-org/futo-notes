@@ -212,3 +212,29 @@ fn unlinking_the_last_reference_reveals_its_retained_unused_definition_atomicall
     assert_eq!(session.source_text(), unlinked);
     assert_eq!(view.text, unlinked);
 }
+
+#[test]
+fn last_use_unlink_maps_selection_past_a_definition_revealed_before_the_label() {
+    let original = "[id]: <https://x.test> 'T'\n\nmiddle\n\n[one][id] end";
+    let unlinked = "[id]: <https://x.test> 'T'\n\nmiddle\n\none end";
+    let mut session = EditorSession::open(original);
+    let mut view = ReferenceView::new("middle\n\none end");
+    assert_eq!(session.display_text(), view.text);
+    session.select(Revision(0), range(9, 10)).unwrap();
+    view.apply(
+        session
+            .set_link(Revision(0), range(9, 10), "", &mut |_| Ok(()))
+            .unwrap()
+            .unwrap(),
+    );
+    assert_eq!(session.source_text(), unlinked);
+    assert_eq!(view.text, unlinked);
+    assert_eq!(session.selection(), range(37, 38));
+    view.apply(session.undo(Revision(1), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(session.source_text(), original);
+    assert_eq!(view.text, "middle\n\none end");
+    assert_eq!(session.selection(), range(9, 10));
+    view.apply(session.redo(Revision(2), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(session.source_text(), unlinked);
+    assert_eq!(session.selection(), range(37, 38));
+}
