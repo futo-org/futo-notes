@@ -288,3 +288,30 @@ fn replaying_winner_removal_uses_the_next_distant_definition_and_updates_visibil
     );
     assert_eq!(EditorSession::open(recovered).display_text(), view.text);
 }
+
+#[test]
+fn a_later_duplicate_inside_the_staged_window_never_shadows_the_global_first_definition() {
+    let original = "[id]: /first 'First'\n\nmiddle\n\n[teh][ID]\n\n[id]: /second 'Later'\n\nend";
+    let corrected = "[id]: /first 'First'\n\nmiddle\n\n[the][ID]\n\n[id]: /second 'Later'\n\nend";
+    let mut session = EditorSession::open(original);
+    let mut view = ReferenceView::new("middle\n\nteh\n\n[id]: /second 'Later'\n\nend");
+    assert_eq!(session.display_text(), view.text);
+    view.apply(
+        session
+            .replace_os(Revision(0), range(8, 11), "the", &[], &mut |_| Ok(()))
+            .unwrap()
+            .unwrap(),
+    );
+    assert_eq!(session.source_text(), corrected);
+    assert_eq!(view.text, "middle\n\nthe\n\n[id]: /second 'Later'\n\nend");
+    let target = session
+        .inspect_link(Revision(1), range(8, 11))
+        .unwrap()
+        .unwrap();
+    assert_eq!(target.destination, "/first");
+    assert_eq!(target.title.as_deref(), Some("First"));
+    view.apply(session.undo(Revision(1), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(session.source_text(), original);
+    view.apply(session.redo(Revision(2), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(session.source_text(), corrected);
+}
