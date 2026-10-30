@@ -353,3 +353,37 @@ fn maximum_supported_ordered_markers_continue_with_valid_lazy_physical_numbers()
         .list
         .is_none());
 }
+
+#[test]
+fn middle_empty_exit_keeps_the_two_lists_independent_after_fresh_open() {
+    let raw = "* a\n* \n* b";
+    let mut s = EditorSession::open(raw);
+    let mut view = ReferenceView::new("a\n\nb");
+    view.apply(
+        s.paragraph_key(s.revision(), range(2, 2), ParagraphKey::Enter, &mut |_| {
+            Ok(())
+        })
+        .unwrap()
+        .unwrap(),
+    );
+    assert_eq!(view.text, "a\n\nb");
+    let mut fresh = EditorSession::open(&s.source_text());
+    let mut reopened_view = ReferenceView::new("a\n\nb");
+    reopened_view.apply(
+        fresh
+            .block_command(
+                fresh.revision(),
+                range(3, 3),
+                BlockCommand::TaskList,
+                &mut |_| Ok(()),
+            )
+            .unwrap()
+            .unwrap(),
+    );
+    assert_eq!(fresh.source_text(), "* a\n\n<!-- -->\n- [ ] b");
+    assert_eq!(reopened_view.text, "a\n\nb");
+    assert_eq!(s.source_text(), "* a\n\n<!-- -->\n* b");
+    assert_eq!(s.selection(), range(2, 2));
+    view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(s.source_text(), raw);
+}
