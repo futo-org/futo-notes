@@ -259,3 +259,48 @@ fn url_conversion_retains_distinct_literal_and_entity_correction_targets() {
         assert_eq!(session.selection(), range(caret, caret));
     }
 }
+
+#[test]
+fn whole_marked_url_text_finishes_only_when_a_separator_follows_its_closer() {
+    for (typed, source, display, linked) in [
+        (
+            "x *b https://x.test/a*",
+            "x \\*b https://x.test/a*",
+            "x *b https://x.test/a*",
+            false,
+        ),
+        (
+            "x *b https://x.test/a* ",
+            "x *b https://x.test/a* ",
+            "x b https://x.test/a ",
+            true,
+        ),
+    ] {
+        let mut session = EditorSession::open("");
+        let mut view = ReferenceView::new("");
+        session.compose(Revision(0), range(0, 0), typed).unwrap();
+        assert_eq!(session.source_text(), "");
+        view.apply(
+            session
+                .commit_composition(Revision(0), None, &mut |_| Ok(()))
+                .unwrap()
+                .unwrap(),
+        );
+        assert_eq!(session.source_text(), source);
+        assert_eq!(view.text, display);
+        assert_eq!(session.selection(), range(display.len(), display.len()));
+        let projection = session
+            .project(Revision(1), range(0, display.len()))
+            .unwrap();
+        assert_eq!(!projection.links.is_empty(), linked);
+        if linked {
+            assert_eq!(projection.links[0].destination, "https://x.test/a");
+        }
+        view.apply(session.undo(Revision(1), &mut |_| Ok(())).unwrap().unwrap());
+        assert_eq!(session.source_text(), "");
+        assert_eq!(view.text, "");
+        view.apply(session.redo(Revision(2), &mut |_| Ok(())).unwrap().unwrap());
+        assert_eq!(session.source_text(), source);
+        assert_eq!(view.text, display);
+    }
+}
