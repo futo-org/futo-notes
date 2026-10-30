@@ -46,12 +46,21 @@ pub(crate) struct Update {
 impl Projection {
     pub fn new(source: &str) -> Self {
         let (references, winners, reference_work) = references::References::scan(source);
+        Self::with_references(source, references, &winners, reference_work)
+    }
+
+    pub(crate) fn with_references(
+        source: &str,
+        references: std::sync::Arc<references::References>,
+        winners: &[references::Winner],
+        reference_work: references::ReferenceWork,
+    ) -> Self {
         let mut origin = 0;
         let mut witness_work = 0;
         let parsed: Vec<_> = paragraphs(source)
             .into_iter()
             .map(|text| {
-                let (local, work) = references::window_winners(&winners, origin, text.len());
+                let (local, work) = references::window_winners(winners, origin, text.len());
                 witness_work += work;
                 let row = Row::parse_with_references(text, &references, &local);
                 origin += text.len();

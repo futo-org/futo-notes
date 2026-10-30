@@ -90,7 +90,7 @@ impl EditorSession {
     /// witness reaches the true document edge rather than inventing an EOF.
     pub(super) fn stage_source(&self, raw: &str, window: Range<usize>) -> Self {
         debug_assert_eq!(raw.len(), window.len());
-        self.stage_with_context(raw, window)
+        self.stage_with_context(raw, window, true)
     }
 
     /// Inline spelling may transform a body before its isolated split. Only
@@ -98,11 +98,38 @@ impl EditorSession {
     /// source/display anchors must use the inline owner's body correspondence;
     /// they must never be copied by an arithmetic window offset.
     pub(super) fn stage_body_source(&self, raw: &str, window: Range<usize>) -> Self {
-        self.stage_with_context(raw, window)
+        self.stage_with_context(raw, window, false)
     }
 
-    fn stage_with_context(&self, raw: &str, window: Range<usize>) -> Self {
-        let mut staged = Self::open_with_clock(raw, self.clock.clone());
+    fn stage_with_context(&self, raw: &str, window: Range<usize>, exact: bool) -> Self {
+        let (winners, work) = if exact {
+            self.projection.reference_winners(window.clone())
+        } else {
+            (
+                Vec::new(),
+                crate::inline::references::ReferenceWork::default(),
+            )
+        };
+        let mut projection = crate::inline::Projection::with_references(
+            raw,
+            self.projection.references.clone(),
+            &winners,
+            work,
+        );
+        if exact {
+            let mut pending = self.projection.pending_links(window.clone());
+            pending
+                .ranges
+                .retain(|range| window.start <= range.start && range.end <= window.end);
+            projection.initial_link_metadata_items += pending.work + pending.ranges.len();
+            for range in &mut pending.ranges {
+                range.start -= window.start;
+                range.end -= window.start;
+            }
+            pending.window = 0..raw.len();
+            projection.initial_link_metadata_items += projection.restore_pending(&pending);
+        }
+        let mut staged = Self::with_projection(raw, Revision(0), self.clock.clone(), projection);
         staged.context = StageContext {
             before: self.stage_boundary(window.start, false),
             after: self.stage_boundary(window.end, true),

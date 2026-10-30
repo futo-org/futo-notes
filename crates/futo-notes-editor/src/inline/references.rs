@@ -220,3 +220,39 @@ pub(super) fn window_winners(
         .collect();
     (result, items)
 }
+
+impl super::Projection {
+    /// Only occurrence witnesses in the exact source window cross a stage.
+    /// The immutable document resolver itself is shared without enumeration.
+    pub(crate) fn reference_winners(&self, window: Range<usize>) -> (Vec<Winner>, ReferenceWork) {
+        let first = self.rows.locate(window.start, false);
+        let last = self.rows.locate(
+            window.end.saturating_sub(usize::from(!window.is_empty())),
+            false,
+        );
+        let mut winners = Vec::new();
+        let mut work = ReferenceWork::default();
+        for index in first..=last {
+            let (row, origin, _) = self.rows.at(index);
+            work.items += row.definitions.len();
+            for definition in row
+                .definitions
+                .iter()
+                .filter(|definition| definition.winner)
+            {
+                let range = origin + definition.range.start..origin + definition.range.end;
+                if window.start <= range.start && range.end <= window.end {
+                    work.items += 2;
+                    work.copied += definition.key.as_ref().len();
+                    if let Some(target) = self.references.target(definition.key.as_ref()) {
+                        winners.push(Winner {
+                            range: range.start - window.start..range.end - window.start,
+                            key: target.reference.as_ref().unwrap().clone(),
+                        });
+                    }
+                }
+            }
+        }
+        (winners, work)
+    }
+}

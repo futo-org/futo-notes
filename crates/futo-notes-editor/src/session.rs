@@ -59,9 +59,23 @@ impl EditorSession {
         revision: Revision,
         clock: Arc<dyn HistoryClock>,
     ) -> Self {
+        Self::with_projection(
+            source,
+            revision,
+            clock,
+            crate::inline::Projection::new(source),
+        )
+    }
+
+    fn with_projection(
+        source: &str,
+        revision: Revision,
+        clock: Arc<dyn HistoryClock>,
+        projection: crate::inline::Projection,
+    ) -> Self {
         Self {
             source: Rope::from_str(source),
-            projection: crate::inline::Projection::new(source),
+            projection,
             revision,
             selection: DisplayRange::default(),
             affinity: Affinity::Forward,
