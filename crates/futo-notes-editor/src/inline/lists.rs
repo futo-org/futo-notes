@@ -12,6 +12,9 @@ pub(crate) struct ListLine {
     pub checked: Option<bool>,
     pub first: bool,
     pub indent: usize,
+    pub marker_column: usize,
+    pub content_column: usize,
+    pub previous_content_column: Option<usize>,
 }
 
 impl ListLine {
@@ -103,11 +106,16 @@ pub(super) fn describe(source: &str, events: &[(Event<'_>, Range<usize>)]) -> Li
     let mut tasks = Vec::new();
     let mut lists: Vec<(Range<usize>, Option<u64>)> = Vec::new();
     let mut active_items = Vec::new();
+    let mut previous_items = Vec::new();
     for (event, range) in events {
         match event {
-            Event::Start(Tag::List(number)) => lists.push((range.clone(), *number)),
+            Event::Start(Tag::List(number)) => {
+                lists.push((range.clone(), *number));
+                previous_items.push(None::<usize>);
+            }
             Event::End(TagEnd::List(_)) => {
                 lists.pop();
+                previous_items.pop();
             }
             Event::End(TagEnd::Item) => {
                 active_items.pop();
@@ -135,6 +143,14 @@ pub(super) fn describe(source: &str, events: &[(Event<'_>, Range<usize>)]) -> Li
                 let start = range.start + indent;
                 let first_start = source[..start].rfind('\n').map_or(0, |at| at + 1);
                 prefixes.push((start, start + width + padding));
+                let marker_column = columns(&source[first_start..start], 0);
+                let content_column =
+                    columns(&source[start..start + width + padding], marker_column);
+                let previous_content_column = previous_items
+                    .last()
+                    .unwrap()
+                    .map(|at| items[at].content_column);
+                *previous_items.last_mut().unwrap() = Some(items.len());
                 active_items.push(items.len());
                 items.push(ListLine {
                     marker: start..start + width,
@@ -145,6 +161,9 @@ pub(super) fn describe(source: &str, events: &[(Event<'_>, Range<usize>)]) -> Li
                     checked: None,
                     first: true,
                     indent: start + width + padding - first_start,
+                    marker_column,
+                    content_column,
+                    previous_content_column,
                 });
             }
             Event::TaskListMarker(checked) => {
@@ -170,4 +189,12 @@ pub(super) fn describe(source: &str, events: &[(Event<'_>, Range<usize>)]) -> Li
         next_prefix: 0,
         next_task: 0,
     }
+}
+
+/// CommonMark columns expand a tab to the next four-column stop.
+pub(super) fn columns(raw: &str, mut column: usize) -> usize {
+    for byte in raw.bytes() {
+        column += if byte == b'\t' { 4 - column % 4 } else { 1 };
+    }
+    column
 }

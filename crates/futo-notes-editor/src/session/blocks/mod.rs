@@ -25,6 +25,7 @@ mod fence_tab;
 mod fences;
 mod keys;
 mod list_commands;
+mod list_indent;
 mod list_join;
 mod list_styles;
 mod list_typing;

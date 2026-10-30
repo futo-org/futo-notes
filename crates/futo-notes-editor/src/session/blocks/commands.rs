@@ -52,6 +52,11 @@ impl EditorSession {
         {
             return self.list_command(expected, range, command, accept);
         }
+        if command == BlockCommand::Indent {
+            if let Some(change) = self.indent_list(expected, range, accept)? {
+                return Ok(Some(change));
+            }
+        }
         let lines = self.projection.block_lines(range);
         if !lines.iter().any(|line| changes_block(line, command)) {
             return Ok(None);
