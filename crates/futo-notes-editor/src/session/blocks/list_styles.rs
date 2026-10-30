@@ -38,8 +38,36 @@ impl EditorSession {
             let tail = &lines[last - 1];
             let depth = head.list.as_ref().map_or(1, |list| list.depth);
             let before_line = self.source.byte_to_line(head.source.start);
-            let owned_end = owner.as_ref().map_or(tail.source.end, |owner| owner.end);
-            let mut after_line = self.source.byte_to_line(owned_end.saturating_sub(1)) + 1;
+            // Container event endpoints can include a following quote prefix.
+            // Walk actual physical item ownership instead of skipping that line.
+            let mut after_line = self.source.byte_to_line(tail.source.end.saturating_sub(1)) + 1;
+            if let Some(owner) = &owner {
+                let mut scan = after_line;
+                while scan < self.source.len_lines() {
+                    let at = self.source.line_to_byte(scan);
+                    let Some(line) = self.projection.block_at_source(at) else {
+                        break;
+                    };
+                    let belongs = line.list.as_ref().is_some_and(|list| {
+                        list.owner == *owner
+                            || list.depth > depth
+                                && owner.start <= list.marker.start
+                                && list.marker.start < owner.end
+                    });
+                    if !belongs {
+                        break;
+                    }
+                    scan += 1;
+                    let blank = self
+                        .source
+                        .byte_slice(line.content.clone())
+                        .chars()
+                        .all(|ch| matches!(ch, ' ' | '\t'));
+                    if !blank || line.list.as_ref().is_some_and(|list| list.first) {
+                        after_line = scan;
+                    }
+                }
+            }
             while after_line > before_line + 1 {
                 let at = self.source.line_to_byte(after_line - 1);
                 let Some(line) = self.projection.block_at_source(at) else {
