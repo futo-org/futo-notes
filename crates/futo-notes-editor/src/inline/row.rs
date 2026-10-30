@@ -140,6 +140,28 @@ impl Row {
                 });
             }
         }
+        let (bare, additional_parse) = super::links::bare_links(source);
+        // GFM literal URLs own punctuation inside their parser-reported body.
+        // CommonMark's independent emphasis pass must not consume that same
+        // punctuation as an opener or closer outside the URL interpretation.
+        spans.retain(|span| {
+            let punctuation = matches!(
+                span.kind,
+                SpanKind::Format(InlineFormat::Bold | InlineFormat::Italic | InlineFormat::Strike)
+            );
+            let overlaps = |marker: &Range<usize>| {
+                bare.iter()
+                    .any(|url| marker.start < url.close.start && url.open.end < marker.end)
+            };
+            if punctuation && (overlaps(&span.open) || overlaps(&span.close)) {
+                hidden[span.open.clone()].fill(false);
+                hidden[span.close.clone()].fill(false);
+                false
+            } else {
+                true
+            }
+        });
+        spans.extend(bare);
         for block in &blocks {
             if let Some(fence) = &block.fence {
                 hidden[fence.separator.clone()].fill(true);
@@ -189,8 +211,6 @@ impl Row {
                 identity: !hidden[start],
             });
         }
-        let (bare, additional_parse) = super::links::bare_links(source);
-        spans.extend(bare);
         spans.sort_by_key(|span| (span.open.start, std::cmp::Reverse(span.close.end)));
         Self {
             source_len: source.len(),
