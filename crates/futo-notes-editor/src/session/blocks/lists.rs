@@ -158,6 +158,11 @@ impl EditorSession {
             .byte_slice(line.source.start..line.content.start)
             .to_string();
         if line.content.is_empty() {
+            if line.list.as_ref().is_some_and(|list| {
+                list.parent_marker_column.is_some() && line.quote_depth == list.quote_depth
+            }) {
+                return self.indent_list(expected, range, BlockCommand::Outdent, accept);
+            }
             let quote_end = prefix.rfind('>').map_or(0, |at| {
                 at + 1 + usize::from(matches!(prefix.as_bytes().get(at + 1), Some(b' ' | b'\t')))
             });
