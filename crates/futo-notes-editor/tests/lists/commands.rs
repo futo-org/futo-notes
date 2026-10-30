@@ -528,3 +528,42 @@ fn outdent_does_not_cross_a_quote_between_two_list_containers() {
     view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
     assert_eq!(s.source_text(), source);
 }
+
+#[test]
+fn outdent_retargets_the_lifted_item_to_its_parent_list_kind_and_content_width() {
+    for (source, expected) in [
+        ("- a\n  1) b", "- a\n- b"),
+        ("9) a\n   - b\n     - c", "9) a\n10) b\n    - c"),
+    ] {
+        let mut s = EditorSession::open(source);
+        let mut view = ReferenceView::new(if source.ends_with('c') {
+            "a\nb\nc"
+        } else {
+            "a\nb"
+        });
+        s.select(s.revision(), range(2, 3)).unwrap();
+        view.apply(
+            s.block_command(
+                s.revision(),
+                range(2, 3),
+                BlockCommand::Outdent,
+                &mut |_| Ok(()),
+            )
+            .unwrap()
+            .unwrap(),
+        );
+        assert_eq!(s.source_text(), expected);
+        assert_eq!(s.display_text(), view.text);
+        let p = s.project(s.revision(), range(2, 3)).unwrap();
+        assert_eq!(
+            p.blocks
+                .iter()
+                .find_map(|block| block.list.as_ref())
+                .unwrap()
+                .depth,
+            1
+        );
+        view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+        assert_eq!(s.source_text(), source);
+    }
+}
