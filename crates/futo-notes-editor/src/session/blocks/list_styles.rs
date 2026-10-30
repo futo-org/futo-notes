@@ -165,13 +165,7 @@ impl EditorSession {
                     .map(|(marker, _)| marker),
                 ListIntent::Independent => None,
             };
-            let marker = join.unwrap_or_else(|| {
-                candidates
-                    .iter()
-                    .copied()
-                    .find(|&marker| Some(marker) != before && Some(marker) != after)
-                    .unwrap_or(candidates[0])
-            });
+            let marker = join.unwrap_or_else(|| independent_marker(ordered, before, after));
             for index in first..last {
                 result.markers[index] = marker;
                 resolved_lines.insert(lines[index].source.start, marker);
@@ -227,4 +221,14 @@ fn marker_at_number(marker: &str, number: Option<u64>) -> String {
         ),
         None => marker.to_owned(),
     }
+}
+
+/// Shared supported-marker choice for newly independent list owners.
+pub(super) fn independent_marker(ordered: bool, before: Option<u8>, after: Option<u8>) -> u8 {
+    let candidates: &[u8] = if ordered { b".)" } else { b"-+*" };
+    candidates
+        .iter()
+        .copied()
+        .find(|&marker| Some(marker) != before && Some(marker) != after)
+        .unwrap_or(candidates[0])
 }
