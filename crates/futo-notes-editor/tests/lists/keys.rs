@@ -424,6 +424,7 @@ fn enter_on_an_empty_nested_item_lifts_exactly_one_level() {
     let raw = "- a\n  - ";
     let mut s = EditorSession::open(raw);
     let mut view = ReferenceView::new("a\n");
+    assert_eq!(s.display_text(), "a\n");
     s.select(s.revision(), range(2, 2)).unwrap();
     view.apply(
         s.paragraph_key(s.revision(), range(2, 2), ParagraphKey::Enter, &mut |_| {
