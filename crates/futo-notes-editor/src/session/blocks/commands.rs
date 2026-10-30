@@ -37,6 +37,21 @@ impl EditorSession {
         if command == BlockCommand::CodeBlock {
             return self.code_block_command(expected, range, accept);
         }
+        if command == BlockCommand::ToggleTask {
+            return self.toggle_task(expected, range, accept);
+        }
+        if matches!(
+            command,
+            BlockCommand::BulletList | BlockCommand::OrderedList | BlockCommand::TaskList
+        ) || command == BlockCommand::Heading(0)
+            && self
+                .projection
+                .block_lines(range)
+                .iter()
+                .any(|line| line.list.is_some())
+        {
+            return self.list_command(expected, range, command, accept);
+        }
         let lines = self.projection.block_lines(range);
         if !lines.iter().any(|line| changes_block(line, command)) {
             return Ok(None);
@@ -283,7 +298,12 @@ impl EditorSession {
                     }
                     BlockCommand::Indent => depth += 1,
                     BlockCommand::Outdent => depth -= 1,
-                    BlockCommand::Divider | BlockCommand::CodeBlock => {}
+                    BlockCommand::Divider
+                    | BlockCommand::CodeBlock
+                    | BlockCommand::ToggleTask
+                    | BlockCommand::BulletList
+                    | BlockCommand::OrderedList
+                    | BlockCommand::TaskList => {}
                 }
             }
             (heading, depth)
@@ -330,6 +350,10 @@ fn changes_block(line: &crate::inline::blocks::BlockLine, command: BlockCommand)
         BlockCommand::Quote => line.quote_depth == 0 || line.heading > 0,
         BlockCommand::Indent | BlockCommand::Outdent => line.quote_depth > 0,
         BlockCommand::Divider | BlockCommand::CodeBlock => true,
+        BlockCommand::ToggleTask
+        | BlockCommand::BulletList
+        | BlockCommand::OrderedList
+        | BlockCommand::TaskList => false,
     }
 }
 

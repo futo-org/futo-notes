@@ -1,7 +1,7 @@
 use super::*;
 
 impl EditorSession {
-    fn commit_block_key(
+    pub(super) fn commit_block_key(
         &mut self,
         expected: Revision,
         input: DisplayRange,
@@ -348,7 +348,7 @@ impl EditorSession {
     ) -> Result<ViewChange, EditorError> {
         let (window, display_start) = self.projection.edit_window(range);
         let raw = self.source.byte_slice(window.clone()).to_string();
-        let mut staged = Self::open_with_clock(&raw, self.clock.clone());
+        let mut staged = self.stage_source(&raw, window.clone());
         let local = DisplayRange {
             start: DisplayOffset(range.start.0 - display_start),
             end: DisplayOffset(range.end.0 - display_start),

@@ -1,7 +1,9 @@
 mod block_edit;
 pub(crate) mod blocks;
 mod edit;
+mod empty_comments;
 pub(crate) mod fences;
+mod lists;
 mod row;
 mod spelling;
 mod toggle;
@@ -13,7 +15,10 @@ use crate::{
 };
 use ropey::Rope;
 use row::{paragraphs, Row};
+pub(crate) use tree::ContextWitness;
 use tree::Rows;
+#[cfg(test)]
+pub(crate) use tree::CONTEXT_VISITS;
 
 pub(crate) struct Projection {
     pub display: Rope,
@@ -134,6 +139,12 @@ impl Projection {
                 heading: block.heading,
                 quote_depth: block.quote_depth,
                 divider: block.divider,
+                list: block.list.as_ref().map(|list| crate::ListDescription {
+                    depth: list.depth,
+                    number: list.ordinal,
+                    checked: list.checked,
+                    first: list.first,
+                }),
                 code: block.code,
                 language: block.code_language,
             })
@@ -151,6 +162,18 @@ impl Projection {
         }
     }
 
+    pub(crate) fn block_at_source(&self, at: usize) -> Option<blocks::BlockLine> {
+        let (row, base, _) = self.rows.at(self.rows.locate(at, false));
+        let local = at - base;
+        let index = row
+            .blocks
+            .partition_point(|block| block.source.start <= local)
+            .saturating_sub(1);
+        let mut block = row.blocks.get(index)?.clone();
+        block.shift(base);
+        Some(block)
+    }
+
     pub(crate) fn block_lines(&self, range: DisplayRange) -> Vec<blocks::BlockLine> {
         let first = self.rows.locate(range.start.0, true);
         let last = self.rows.locate(range.end.0, true);
@@ -158,6 +181,9 @@ impl Projection {
         for index in first..=last {
             let (row, source, display) = self.rows.at(index);
             for block in &row.blocks {
+                if block.empty_comment {
+                    continue;
+                }
                 let a = display + row.display_at(block.source.start);
                 let z = display + row.display_at(block.source.end);
                 let hit = if range.start == range.end {
@@ -184,19 +210,7 @@ impl Projection {
                 });
                 if hit || empty_fence {
                     let mut block = block.clone();
-                    block.source.start += source;
-                    block.source.end += source;
-                    block.content.start += source;
-                    block.content.end += source;
-                    if let Some(fence) = &mut block.fence {
-                        fence.shift(source);
-                    }
-                    for physical in block.bodies.iter_mut().chain(block.underline.iter_mut()) {
-                        physical.source.start += source;
-                        physical.source.end += source;
-                        physical.content.start += source;
-                        physical.content.end += source;
-                    }
+                    block.shift(source);
                     // The synthetic end line of a nonfinal row belongs to its successor.
                     if !block.source.is_empty()
                         || source + row.source_len

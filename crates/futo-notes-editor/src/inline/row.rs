@@ -18,19 +18,33 @@ pub(crate) struct Segment {
     pub identity: bool,
 }
 
+/// Consecutive transparent physical blanks share a context run. All other
+/// blocks are individual witnesses, including code and quote boundaries.
+pub(super) struct ContextRun {
+    pub source: Range<usize>,
+    pub first: usize,
+    pub last: usize,
+    pub transparent_quote: Option<usize>,
+}
+
 pub(crate) struct Row {
     pub source_len: usize,
     pub display: String,
     pub segments: Vec<Segment>,
     pub spans: Vec<Span>,
     pub blocks: Vec<super::blocks::BlockLine>,
+    pub(super) context: Vec<ContextRun>,
+    pub(super) transparent_quote: Option<usize>,
 }
 
 impl Row {
     pub fn parse(source: &str) -> Self {
-        let events: Vec<_> = Parser::new_ext(source, Options::ENABLE_STRIKETHROUGH)
-            .into_offset_iter()
-            .collect();
+        let events: Vec<_> = Parser::new_ext(
+            source,
+            Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS,
+        )
+        .into_offset_iter()
+        .collect();
         let (blocks, prefixes) = super::blocks::describe(source, &events);
         let mut hidden = vec![false; source.len()];
         for prefix in prefixes {
@@ -100,6 +114,10 @@ impl Row {
             }
         }
         for block in &blocks {
+            if block.empty_comment {
+                hidden[block.source.clone()].fill(true);
+                continue;
+            }
             if let Some(fence) = &block.fence {
                 hidden[fence.separator.clone()].fill(true);
             }
@@ -148,7 +166,39 @@ impl Row {
                 identity: !hidden[start],
             });
         }
+        let mut context: Vec<ContextRun> = Vec::new();
+        for (index, block) in blocks.iter().enumerate() {
+            // A nonfinal row's synthetic EOF is owned by the next row.
+            if block.source.is_empty() && !source.is_empty() {
+                continue;
+            }
+            let transparent_quote = (!block.code
+                && !block.empty_comment
+                && block.list.as_ref().is_none_or(|list| !list.first)
+                && source[block.content.clone()]
+                    .bytes()
+                    .all(|b| matches!(b, b' ' | b'\t')))
+            .then_some(block.quote_depth);
+            if let Some(previous) = context.last_mut().filter(|previous| {
+                transparent_quote.is_some() && previous.transparent_quote == transparent_quote
+            }) {
+                previous.source.end = block.source.end;
+                previous.last = index;
+            } else {
+                context.push(ContextRun {
+                    source: block.source.clone(),
+                    first: index,
+                    last: index,
+                    transparent_quote,
+                });
+            }
+        }
+        let transparent_quote = (context.len() == 1)
+            .then(|| context[0].transparent_quote)
+            .flatten();
         Self {
+            context,
+            transparent_quote,
             source_len: source.len(),
             display,
             segments,
@@ -218,7 +268,7 @@ pub(crate) fn paragraphs(source: &str) -> Vec<&str> {
     let protected: Vec<_> = Parser::new(source)
         .into_offset_iter()
         .filter_map(|(event, range)| match event {
-            Event::Start(Tag::CodeBlock(_)) => Some(range),
+            Event::Start(Tag::CodeBlock(_) | Tag::List(_)) => Some(range),
             _ => None,
         })
         .collect();

@@ -26,11 +26,39 @@ pub(crate) struct BlockLine {
     pub quote_start: bool,
     pub divider: bool,
     pub code: bool,
+    pub empty_comment: bool,
+    pub list: Option<super::lists::ListLine>,
+    pub task: Option<Range<usize>>,
     pub in_list: bool,
     pub code_language: Option<String>,
     pub fence: Option<super::fences::Fence>,
     pub bodies: Vec<PhysicalLine>,
     pub underline: Option<PhysicalLine>,
+}
+
+impl BlockLine {
+    pub(crate) fn shift(&mut self, by: usize) {
+        for range in [&mut self.source, &mut self.content] {
+            range.start += by;
+            range.end += by;
+        }
+        if let Some(fence) = &mut self.fence {
+            fence.shift(by);
+        }
+        if let Some(list) = &mut self.list {
+            list.shift(by);
+        }
+        if let Some(task) = &mut self.task {
+            task.start += by;
+            task.end += by;
+        }
+        for physical in self.bodies.iter_mut().chain(self.underline.iter_mut()) {
+            physical.source.start += by;
+            physical.source.end += by;
+            physical.content.start += by;
+            physical.content.end += by;
+        }
+    }
 }
 
 pub(super) fn describe(
@@ -52,6 +80,9 @@ pub(super) fn describe(
                 quote_start: false,
                 divider: false,
                 code: false,
+                empty_comment: false,
+                list: None,
+                task: None,
                 in_list: false,
                 code_language: None,
                 fence: None,
@@ -70,6 +101,9 @@ pub(super) fn describe(
             quote_start: false,
             divider: false,
             code: false,
+            empty_comment: false,
+            list: None,
+            task: None,
             in_list: false,
             code_language: None,
             fence: None,
@@ -138,6 +172,9 @@ pub(super) fn describe(
             _ => {}
         }
     }
+    let mut lists = super::lists::describe(source, events);
+    let comments = super::empty_comments::ranges(events);
+    let mut comment = 0;
     let mut prefixes = Vec::new();
     for line in &mut lines {
         let end = line.content.end;
@@ -185,6 +222,38 @@ pub(super) fn describe(
                 }
             }
         }
+        let attribution = lists.line(line.source.start, end);
+        line.task = attribution.task;
+        line.list = attribution.list;
+        if let Some(list) = &line.list {
+            if !list.first {
+                let mut column = start - line.source.start;
+                while start < end && column < list.indent {
+                    match source.as_bytes()[start] {
+                        b' ' => column += 1,
+                        b'\t' => column += 4 - column % 4,
+                        _ => break,
+                    }
+                    start += 1;
+                }
+            }
+        }
+        if let Some(end) = attribution.prefix_end {
+            start = start.max(end);
+        }
+        while comments
+            .get(comment)
+            .is_some_and(|range| range.end <= line.source.start)
+        {
+            comment += 1;
+        }
+        line.empty_comment = !line.code
+            && line.list.is_none()
+            && source[line.source.clone()].ends_with('\n')
+            && super::empty_comments::standard(&source[start..line.content.end])
+            && comments.get(comment).is_some_and(|range| {
+                line.source.start <= range.start && range.end <= line.source.end
+            });
         prefixes.push(line.source.start..start);
         line.content.start = start;
         line.bodies.push(PhysicalLine {

@@ -25,8 +25,8 @@ opaque to inline interpretation.
 
 Source/display text queries explicitly materialize whole text. Input reparses the
 affected paragraphs and their neighbors; paragraph-tree sums avoid rewriting tail
-offsets after a distant caret jump. Large single paragraphs/fences still cost
-proportional work and need the later progressive/bounded-work tickets. Count all
+offsets after a distant caret jump. Large paragraphs, lists and fences still
+need the later progressive/bounded-work tickets. Count all
 parser input, including paragraph partitioning and candidate verification.
 History retains inverse source edits plus selection, affinity and carried formats
 rather than whole-note strings.

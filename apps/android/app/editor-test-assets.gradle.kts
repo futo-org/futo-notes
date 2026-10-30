@@ -1,9 +1,9 @@
-// Own the synthetic fixture assets without packaging neighboring documentation
+// Own explicit synthetic fixture assets without packaging neighboring documentation
 // beside the existing conformance README. Sync owns this complete output folder.
 val generatedEditorTestAssetsDirectory = layout.buildDirectory.dir("generated/editor-test-assets")
 val stageEditorTestAssets = tasks.register<Sync>("stageEditorTestAssets") {
     from(rootProject.file("../../crates/futo-notes-editor/tests/fixtures")) {
-        include("structural-seams.json", "fence-physical-rows.json")
+        include("structural-seams.json", "list-actions.json", "list-shortcuts.json", "list-staging.json", "fence-physical-rows.json")
     }
     into(generatedEditorTestAssetsDirectory)
 }

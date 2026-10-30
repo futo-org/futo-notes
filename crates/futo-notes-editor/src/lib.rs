@@ -12,8 +12,8 @@ mod types;
 pub use session::{BlockCommand, Composition, EditorSession, OwnActionRelink, ParagraphKey};
 pub use types::{
     Affinity, BlockDescription, CaretDirection, Correspondence, DisplayOffset, DisplayRange,
-    DisplayUtf16Offset, DisplayUtf16Range, EditWork, EditorError, InlineFormat, ProjectionSlice,
-    Revision, SelectionChange, SemanticRun, SourceEdit, SourceOffset, SourceRange,
+    DisplayUtf16Offset, DisplayUtf16Range, EditWork, EditorError, InlineFormat, ListDescription,
+    ProjectionSlice, Revision, SelectionChange, SemanticRun, SourceEdit, SourceOffset, SourceRange,
     SourceUtf16Offset, SourceUtf16Range, ViewChange,
 };
 

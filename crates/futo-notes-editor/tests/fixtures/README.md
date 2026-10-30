@@ -26,6 +26,21 @@ isolated first input keeps two. The same family covers a whitespace typing run
 that enters quote repair. Fixed-clock editor/store tests own the exact timing
 and failed-acceptance boundaries; thin consumers use the normal session clock.
 
+`list-actions.json` retains twenty-four hand-worked synthetic public-interface
+regressions for #298; `list-shortcuts.json` adds thirty-eight literal shortcut boundary
+controls, including newline-terminated empty bodies that temporarily inherit a preceding
+list owner after prefix removal, and multiple transparent blank paragraphs on either side. All consumers assert both family counts. `range`, optional
+`selection`, `composeRange`, `resultRange` and `undoRanges` use native UTF-16 units.
+`expected`/`shown` are exact final source/display literals. Default history has one
+Undo to `source`/`display`/initial selection; optional `undoSources`, `undoDisplays`
+and `undoRanges` describe every intermediate group. Composition plus checkbox
+shares one protected acceptance and retains two Undo groups. `finalItems` gives
+literal `[interpreted ordinal or null, checked state or null]` pairs for the final
+first lines at depth one; `quoteDepth` defaults to zero. Consumers also request
+the EOF caret slice so a zero-width final item is checked. No expected value is
+derived from a Markdown parser. The original thirty-eight seam literals remain
+unchanged.
+
 Fenced-code regression literals live in `../fences/`, driven through the public
 session and independent display-only reference view. The existing WASM block
 consumer and Swift/Kotlin block suites cover code/language semantics, Unicode
@@ -60,3 +75,13 @@ Eight appended source-identity literals preserve differing internal blank-row pr
 through raw identical input, explicit unchanged runs, an unchanged run before a
 later changed run, and explicit empty-run acceptance. Existing explicit consumers
 forward optional `replacements` verbatim; no caller rediscovery of run identity occurs.
+
+Twelve `list-staging.json` literals add multiline bold/underscore list commands,
+unchanged/changed marked-text commands and typing, nested marked-text plus inline
+seams, and LF/CRLF boundaries. The original 24 actions and 38 shortcuts remain
+byte-identical. All six consumers include this file separately. Optional
+`compositionText` supplies raw marked text independently of a later Typing `text`;
+`composeRange` requests marking for any action. Changed marking and the command
+share one protected acceptance but retain their separate literal Undo groups.
+Store and real-WASM acceptance retain the same rejection/retry/history/recovery
+checks. Native fixture source is not proof that its current native binaries ran.
