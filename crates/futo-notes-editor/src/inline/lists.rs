@@ -157,8 +157,11 @@ pub(super) fn describe(source: &str, events: &[(Event<'_>, Range<usize>)]) -> Li
                     .unwrap()
                     .map(|at| items[at].content_column);
                 *previous_items.last_mut().unwrap() = Some(items.len());
-                let parent_marker_column = active_items.last().map(|&at| items[at].marker_column);
-                let parent_content_column = active_items.last().map(|&at| items[at].content_column);
+                let parent = active_items
+                    .last()
+                    .filter(|&&at| items[at].quote_depth == quote_depth);
+                let parent_marker_column = parent.map(|&at| items[at].marker_column);
+                let parent_content_column = parent.map(|&at| items[at].content_column);
                 active_items.push(items.len());
                 items.push(ListLine {
                     marker: start..start + width,

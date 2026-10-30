@@ -110,6 +110,7 @@ impl EditorSession {
             let list = line.list.as_ref().unwrap();
             if list.first
                 && list.depth > 1
+                && (list.parent_content_column.is_some() || list.previous_content_column.is_some())
                 && range.start.0 == self.projection.display_at(line.content.start)
             {
                 let column = list
