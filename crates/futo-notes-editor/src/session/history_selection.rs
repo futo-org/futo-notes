@@ -21,16 +21,16 @@ impl EditorSession {
     ) -> (DisplayRange, usize) {
         match selection {
             SourceSelection::Exact(range) => {
-                let (start, a) = self.projection.display_at_with_work(range.start.source.0);
+                let (start, a) = self.projection.project_source_point(range.start);
                 let (end, z) = if range.start == range.end {
                     (start, 0)
                 } else {
-                    self.projection.display_at_with_work(range.end.source.0)
+                    self.projection.project_source_point(range.end)
                 };
                 (
                     DisplayRange {
-                        start: DisplayOffset(start + range.start.within),
-                        end: DisplayOffset(end + range.end.within),
+                        start: DisplayOffset(start),
+                        end: DisplayOffset(end),
                     },
                     a + z,
                 )

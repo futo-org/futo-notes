@@ -142,6 +142,16 @@ impl Projection {
         (crate::history::ExactSelection { start, end }, a + z)
     }
 
+    pub(crate) fn project_source_point(
+        &self,
+        mut point: crate::history::SourcePoint,
+    ) -> (usize, usize) {
+        let (row, source, display) = self.rows.at(self.rows.locate(point.source.0, false));
+        point.source.0 -= source;
+        let (local, work) = row.project_source_point(point);
+        (display + local, work)
+    }
+
     pub fn display_at(&self, offset: usize) -> usize {
         self.display_at_with_work(offset).0
     }

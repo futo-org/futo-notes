@@ -121,25 +121,30 @@ pub(super) fn source_anchor(
     after: &str,
     anchor: crate::history::SourceSelection,
     affinity: Affinity,
-) -> crate::history::SourceSelection {
+) -> Result<crate::history::SourceSelection, EditorError> {
     match anchor {
         crate::history::SourceSelection::Exact(range) => {
             let runs = changed_runs(before, after);
             let map = |mut point: crate::history::SourcePoint| {
-                if runs
-                    .iter()
-                    .any(|run| run.start < point.source.0 && point.source.0 < run.end)
-                {
-                    point.within = 0;
+                if let Some(atom) = point.atom {
+                    let end = point.source.0 + atom.source_len;
+                    if runs.iter().any(|run| {
+                        point.source.0 < run.end && run.start < end
+                            || run.start == run.end && point.source.0 < run.start && run.start < end
+                    }) {
+                        return Err(EditorError::UnrepresentableFormat);
+                    }
                 }
                 point.source.0 = source_position(point.source.0, affinity, &runs);
-                point
+                Ok(point)
             };
-            crate::history::SourceSelection::Exact(crate::history::ExactSelection {
-                start: map(range.start),
-                end: map(range.end),
-            })
+            Ok(crate::history::SourceSelection::Exact(
+                crate::history::ExactSelection {
+                    start: map(range.start)?,
+                    end: map(range.end)?,
+                },
+            ))
         }
-        crate::history::SourceSelection::Derived => crate::history::SourceSelection::Derived,
+        crate::history::SourceSelection::Derived => Ok(crate::history::SourceSelection::Derived),
     }
 }

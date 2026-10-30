@@ -44,10 +44,16 @@ impl HistoryClock for MonotonicClock {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) struct SourceAtom {
+    pub source_len: usize,
+    pub display_len: usize,
+}
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) struct SourcePoint {
     pub source: SourceOffset,
     /// An interior boundary of one decoded source atom, in visible UTF-8 bytes.
     pub within: usize,
+    pub atom: Option<SourceAtom>,
 }
 #[derive(Clone, Copy)]
 pub(crate) struct ExactSelection {

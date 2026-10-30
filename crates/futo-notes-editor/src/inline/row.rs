@@ -134,6 +134,10 @@ impl Row {
                     crate::history::SourcePoint {
                         source: crate::SourceOffset(segment.source.start),
                         within: at - segment.display.start,
+                        atom: Some(crate::history::SourceAtom {
+                            source_len: segment.source.len(),
+                            display_len: segment.display.len(),
+                        }),
                     },
                     work,
                 );
@@ -148,9 +152,38 @@ impl Row {
                     low
                 }),
                 within: 0,
+                atom: None,
             },
             work + visits,
         )
+    }
+
+    pub fn project_source_point(&self, point: crate::history::SourcePoint) -> (usize, usize) {
+        let Some(atom) = point.atom else {
+            return self.display_at_with_work(point.source.0);
+        };
+        let mut work = 0;
+        let index = self.segments.partition_point(|segment| {
+            work += 1;
+            segment.source.start < point.source.0
+        });
+        let segment = self
+            .segments
+            .get(index)
+            .expect("an exact history source atom is restored");
+        work += 1;
+        // Exact history restores the entry's own complete source generation.
+        // Relink rejects rewritten atoms before accepting its new source.
+        assert!(
+            !segment.identity
+                && segment.source.start == point.source.0
+                && segment.source.len() == atom.source_len
+                && segment.display.len() == atom.display_len
+                && point.within < atom.display_len
+                && self.display[segment.display.clone()].is_char_boundary(point.within),
+            "history source atom correspondence changed"
+        );
+        (segment.display.start + point.within, work)
     }
 
     pub fn display_at(&self, source: usize) -> usize {
