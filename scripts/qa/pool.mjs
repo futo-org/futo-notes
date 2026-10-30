@@ -1,5 +1,6 @@
 // qa.mjs shared state: pool size, state and SDK paths, process helpers, worktree identity and
 // the per-device owner files that make a claim.
+import { randomUUID } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -119,14 +120,89 @@ export function markWiped(platform, name) {
 // devices owned by other live worktrees, reclaim stale ones. `fresh` is true
 // when the device changed hands and no wipe has completed since, i.e. its app
 // data may belong to someone else; call markWiped once it has been wiped.
-export function claimPoolName(platform, root) {
+export function claimPoolName(platform, root, { sim, inspectSimulators } = {}) {
+  if (sim && platform !== 'ios') throw new Error('--sim requires the explicit ios target');
+  if (platform !== 'ios') return allocatePoolName(platform, root);
+  // Serialize selection and persistence, including default allocation. Never hold
+  // this across boot/wipe. A crashed allocator leaves a visible lock for inspection.
+  const file = path.join(STATE, 'ios-allocation.lock');
+  fs.mkdirSync(STATE, { recursive: true });
+  const payload = JSON.stringify({ worktree: root, pid: process.pid, token: randomUUID() });
+  let fd;
+  try {
+    fd = fs.openSync(file, 'wx');
+  } catch (error) {
+    if (error.code === 'EEXIST')
+      throw new Error(`another iOS allocation owns ${file}; inspect the lock before retrying`);
+    throw error;
+  }
+  const identity = fs.fstatSync(fd);
+  const ownsLock = () => {
+    try {
+      const current = fs.statSync(file);
+      return (
+        current.ino === identity.ino &&
+        current.dev === identity.dev &&
+        fs.readFileSync(file, 'utf8') === payload
+      );
+    } catch (error) {
+      if (error.code === 'ENOENT') return false;
+      throw error;
+    }
+  };
+  try {
+    fs.writeFileSync(fd, payload);
+    if (!sim) return allocatePoolName(platform, root);
+    const devices = inspectSimulators();
+    const matches = devices.filter((device) => device.name === sim || device.udid === sim);
+    const selected = matches[0];
+    const names = Array.from({ length: POOL }, (_, index) => `futo-qa-${index}`);
+    if (
+      matches.length !== 1 ||
+      !names.includes(selected?.name) ||
+      selected.isAvailable === false ||
+      devices.filter((device) => device.name === selected.name && device.isAvailable !== false)
+        .length !== 1
+    )
+      throw new Error(
+        `--sim requires an exact existing available QA pool simulator name or ID: ${sim}`,
+      );
+    // A preference never moves this worktree off another existing iOS claim.
+    const owned = fs.existsSync(DEV_DIR)
+      ? fs.readdirSync(DEV_DIR).filter((file) => {
+          const match = file.match(/^ios-(.+)\.json$/);
+          return (
+            match && match[1] !== selected.name && readOwner('ios', match[1])?.worktree === root
+          );
+        })
+      : [];
+    if (owned.length)
+      throw new Error(
+        'this worktree already owns a different iOS simulator; release it explicitly before selecting --sim',
+      );
+    if (!ownsLock()) throw new Error('iOS allocation lock identity changed; refusing claim');
+    const claim = tryClaimOwner('ios', selected.name, root);
+    if (!claim)
+      throw new Error(`${selected.name} is claimed by another live worktree; refusing --sim`);
+    return { name: selected.name, fresh: claim === 'new' };
+  } finally {
+    // Release only the exact lock created here, never a replacement's token/inode.
+    try {
+      if (ownsLock()) fs.unlinkSync(file);
+    } finally {
+      fs.closeSync(fd);
+    }
+  }
+}
+
+function allocatePoolName(platform, root) {
   const start = slotOf(root) % POOL;
   for (let k = 0; k < POOL; k++) {
     const name = `futo-qa-${(start + k) % POOL}`;
     const claim = tryClaimOwner(platform, name, root);
     if (claim) return { name, fresh: claim === 'new' };
   }
-  die(
+  throw new Error(
     `all ${POOL} ${platform} pool devices are owned by live worktrees — release one (just qa-release) or run just qa-gc`,
   );
 }

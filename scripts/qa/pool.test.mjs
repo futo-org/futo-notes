@@ -57,4 +57,43 @@ describe('claimPoolName', () => {
     pool.markWiped('android', name);
     expect(pool.claimPoolName('android', root)).toEqual({ name, fresh: false });
   });
+
+  it.each(['token', 'inode'])(
+    'refuses a replaced iOS allocation lock with different %s identity without removing it',
+    (replacement) => {
+      const file = path.join(home, '.futo-notes-qa', 'ios-allocation.lock');
+      const foreign = JSON.stringify({ worktree: '/foreign', pid: process.pid, token: 'foreign' });
+      expect(() =>
+        pool.claimPoolName('ios', root, {
+          sim: 'futo-qa-1',
+          inspectSimulators: () => {
+            if (replacement === 'inode') fs.unlinkSync(file);
+            fs.writeFileSync(file, foreign);
+            return [{ name: 'futo-qa-1', udid: 'one', isAvailable: true }];
+          },
+        }),
+      ).toThrow('lock identity changed');
+      expect(fs.readFileSync(file, 'utf8')).toBe(foreign);
+      expect(fs.existsSync(path.join(home, '.futo-notes-qa/devices'))).toBe(false);
+    },
+  );
+
+  it('shares the iOS allocation critical section with the default allocator', () => {
+    let refusal;
+    const result = pool.claimPoolName('ios', root, {
+      sim: 'futo-qa-1',
+      inspectSimulators: () => {
+        try {
+          pool.claimPoolName('ios', root);
+        } catch (error) {
+          refusal = error;
+        }
+        expect(fs.existsSync(path.join(home, '.futo-notes-qa/devices'))).toBe(false);
+        return [{ name: 'futo-qa-1', udid: 'one', isAvailable: true }];
+      },
+    });
+    expect(refusal?.message).toContain('another iOS allocation');
+    expect(result).toEqual({ name: 'futo-qa-1', fresh: true });
+    expect(fs.existsSync(path.join(home, '.futo-notes-qa/ios-allocation.lock'))).toBe(false);
+  });
 });
