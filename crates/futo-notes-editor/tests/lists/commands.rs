@@ -505,3 +505,26 @@ fn quoted_tab_outdent_uses_physical_tab_stops_after_the_quote_prefix() {
     view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
     assert_eq!(s.source_text(), source);
 }
+
+#[test]
+fn outdent_does_not_cross_a_quote_between_two_list_containers() {
+    let source = "- a\n  > - b";
+    let mut s = EditorSession::open(source);
+    let mut view = ReferenceView::new("a\nb");
+    s.select(s.revision(), range(2, 3)).unwrap();
+    view.apply(
+        s.block_command(
+            s.revision(),
+            range(2, 3),
+            BlockCommand::Outdent,
+            &mut |_| Ok(()),
+        )
+        .unwrap()
+        .unwrap(),
+    );
+    assert_eq!(s.source_text(), "- a\n  > b");
+    assert_eq!(view.text, "a\nb");
+    assert_eq!(s.selection(), range(2, 3));
+    view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(s.source_text(), source);
+}
