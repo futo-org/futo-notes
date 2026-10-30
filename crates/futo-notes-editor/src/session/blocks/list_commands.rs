@@ -103,6 +103,39 @@ impl EditorSession {
         lines.retain(|line| remove || line.list.as_ref().is_none_or(|list| list.first));
         lines.sort_by_key(|line| line.source.start);
         lines.dedup_by_key(|line| line.source.start);
+        let mut covered_descendants = false;
+        if remove && scope == LiftScope::AllAncestors {
+            let mut ancestor: Option<crate::inline::ListLine> = None;
+            let kind = |list: &crate::inline::ListLine| {
+                if list.checked.is_some() {
+                    BlockCommand::TaskList
+                } else if list.ordinal.is_some() {
+                    BlockCommand::OrderedList
+                } else {
+                    BlockCommand::BulletList
+                }
+            };
+            lines.retain(|line| {
+                crate::inline::visit_container();
+                let Some(list) = &line.list else {
+                    ancestor = None;
+                    return true;
+                };
+                if ancestor.as_ref().is_some_and(|outer| {
+                    outer.item.start <= list.marker.start
+                        && list.marker.start < outer.item.end
+                        && outer.depth < list.depth
+                        && kind(outer) == kind(list)
+                }) {
+                    covered_descendants = true;
+                    return false;
+                }
+                if list.first {
+                    ancestor = Some(list.clone());
+                }
+                true
+            });
+        }
         if lines.is_empty() {
             return Ok(None);
         }
@@ -151,7 +184,7 @@ impl EditorSession {
             && lines
                 .first()
                 .and_then(|line| line.list.as_ref())
-                .is_some_and(|list| list.parent_marker.is_some())
+                .is_some_and(|list| list.parent_marker.is_some() || covered_descendants)
         {
             return self.lift_nested_list(expected, range, &lines, accept);
         }

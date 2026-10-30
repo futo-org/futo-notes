@@ -45,13 +45,40 @@ impl EditorSession {
         } else {
             "\n"
         };
+        let separator = selected.parent_marker.is_some() || {
+            let line = self.source.byte_to_line(start);
+            if line == 0 {
+                false
+            } else {
+                let previous = self.source.line_to_byte(line - 1);
+                let nonempty = !self.source.byte_slice(previous..start).chars().all(|ch| {
+                    crate::inline::visit_container();
+                    matches!(ch, ' ' | '\t' | '\r' | '\n')
+                });
+                nonempty
+                    && self
+                        .projection
+                        .source_prefix_at(previous)
+                        .and_then(|prefix| prefix.list)
+                        .is_some_and(|list| {
+                            list.owner == selected.owner
+                                && !lines.iter().any(|line| {
+                                    line.list
+                                        .as_ref()
+                                        .is_some_and(|other| other.marker == list.marker)
+                                })
+                        })
+            }
+        };
         let mut output = String::new();
         if shared_line {
             output.push_str(&quote[..selected.marker.start - start]);
             output.push_str(newline);
         }
-        output.push_str(quote[..retained].trim_end());
-        output.push_str(newline);
+        if separator {
+            output.push_str(quote[..retained].trim_end());
+            output.push_str(newline);
+        }
         output.push_str(&quote[..retained]);
         let mut materialized = quote.len() + ending.len();
         let body = self.source.byte_slice(first.content.clone()).to_string();
@@ -145,7 +172,7 @@ impl EditorSession {
             at = prefix.source.end;
         }
         let mut selection = range;
-        let added = newline.len() * (1 + usize::from(shared_line));
+        let added = newline.len() * (usize::from(separator) + usize::from(shared_line));
         selection.start.0 += added;
         selection.end.0 += added;
         let formats = (range == self.selection)
