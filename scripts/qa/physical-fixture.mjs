@@ -183,6 +183,7 @@ export async function executePhysicalFixture(operation, plan, runtime) {
         sourceFingerprint: build.sourceFingerprint,
         buildFingerprint: build.buildFingerprint,
         provenance: build.provenance,
+        signing: build.signing,
         artifacts: build.artifacts,
       });
       const receipt = {

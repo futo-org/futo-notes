@@ -15,7 +15,8 @@ import {
   readEvidence,
   writeEvidenceJSON,
 } from './physical-fixture-evidence.mjs';
-import { validateFixtureResult } from './physical-fixture-contract.mjs';
+import { isFixtureRunID, validateFixtureResult } from './physical-fixture-contract.mjs';
+import { fixtureFile } from './physical-fixture-signed.mjs';
 import { createFixtureBuilds, fixedUITarget } from './physical-fixture-build.mjs';
 
 const appID = 'org.futo.fixture.editor294';
@@ -23,7 +24,7 @@ const runnerID = `${appID}.uitests.xctrunner`;
 const testID = 'DictationCaptureTests/testCapture';
 const save = (path, value) => writeEvidenceJSON(path, value, { exclusive: true });
 
-async function captureScenario(plan, build, output, { products, runner, run }) {
+async function captureScenario(plan, build, output, { products, runner, run, beforeUse }) {
   assertPrivateTree(output);
   for (const name of [
     'capture.xctestrun',
@@ -66,6 +67,7 @@ async function captureScenario(plan, build, output, { products, runner, run }) {
     __xctestrun_metadata__: build.xctestrun.__xctestrun_metadata__,
   });
   const resultPath = join(output, 'capture.xcresult');
+  beforeUse();
   run(
     'xcodebuild',
     [
@@ -185,8 +187,8 @@ function inspectPhysicalDevice(plan, deviceJSON, appInventory) {
   };
 }
 
-export function createIOSFixtureExecutor(root, { runCommand = spawnSync } = {}) {
-  function run(command, args, { timeout = 20000, output, name } = {}) {
+function fixtureCommands(root, runCommand) {
+  return function run(command, args, { timeout = 20000, output, name, input } = {}) {
     let result;
     const mask = process.umask(0o077);
     try {
@@ -195,6 +197,7 @@ export function createIOSFixtureExecutor(root, { runCommand = spawnSync } = {}) 
         encoding: 'utf8',
         timeout,
         maxBuffer: 32 * 1024 * 1024,
+        input,
         env: { ...process.env, NSUnbufferedIO: 'YES' },
       });
     } finally {
@@ -210,10 +213,14 @@ export function createIOSFixtureExecutor(root, { runCommand = spawnSync } = {}) 
         stderr: result.stderr,
         error: result.error?.message,
       });
-    if (result.error || result.status !== 0)
+    if (result.error || result.status !== 0 || typeof result.stdout !== 'string')
       throw new Error(`${command} failed or timed out: ${result.error?.message ?? result.stderr}`);
     return result.stdout;
-  }
+  };
+}
+
+export function createIOSFixtureExecutor(root, { runCommand = spawnSync } = {}) {
+  const run = fixtureCommands(root, runCommand);
   const plist = (path) => JSON.parse(run('plutil', ['-convert', 'json', '-o', '-', path]));
   function deviceJSON(plan, args, options) {
     const raw = JSON.parse(
@@ -291,12 +298,18 @@ export function createIOSFixtureExecutor(root, { runCommand = spawnSync } = {}) 
     pinBuild,
     inspectDevice: (plan) => inspectPhysicalDevice(plan, deviceJSON, appInventory),
     async installFixture(plan, build, output) {
-      return install(plan, pinnedPaths(build, output).app, appID, output, 'install-fixture.json');
+      return install(
+        plan,
+        pinnedPaths(build, output, plan).app,
+        appID,
+        output,
+        'install-fixture.json',
+      );
     },
     async installRunner(plan, build, output) {
       return install(
         plan,
-        pinnedPaths(build, output).runner,
+        pinnedPaths(build, output, plan).runner,
         runnerID,
         output,
         'install-runner.json',
@@ -304,7 +317,11 @@ export function createIOSFixtureExecutor(root, { runCommand = spawnSync } = {}) 
     },
     async capture(plan, build, output) {
       fixedUITarget(build.xctestrun);
-      return captureScenario(plan, build, output, { ...pinnedPaths(build, output), run });
+      return captureScenario(plan, build, output, {
+        ...pinnedPaths(build, output, plan),
+        run,
+        beforeUse: () => pinnedPaths(build, output, plan),
+      });
     },
     copyArtifact(plan, output) {
       assertPrivateTree(output);
@@ -334,14 +351,26 @@ export function createIOSFixtureExecutor(root, { runCommand = spawnSync } = {}) 
 }
 
 if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) {
-  if (process.argv.length !== 3 || process.argv[2] !== '--identity')
+  if (
+    process.argv.length !== 5 ||
+    process.argv[2] !== '--identity' ||
+    process.argv[3] !== '--run' ||
+    !isFixtureRunID(process.argv[4])
+  )
     throw new Error(
-      'Only --identity (local compiled build/signature verification; no device) is supported',
+      'Only --identity --run <UUID> (local signed fixture verification; no device) is supported',
     );
   const root = realpathSync(fileURLToPath(new URL('../..', import.meta.url)));
-  const build = createIOSFixtureExecutor(root).inspectBuild();
+  const runID = process.argv[4];
+  const selection = JSON.parse(
+    fixtureFile(join(root, 'apps/ios/FixtureCapture/.build-signed', runID, 'selection.json')),
+  );
+  if (selection?.runID !== runID)
+    throw new Error('Signed fixture selection differs from requested run');
+  const build = createIOSFixtureExecutor(root).inspectBuild({ ...selection, runID });
   console.log(
     JSON.stringify({
+      signing: build.signing,
       worktree: root,
       sourceSHA: build.sourceSHA,
       sourceFingerprint: build.sourceFingerprint,

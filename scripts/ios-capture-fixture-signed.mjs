@@ -28,7 +28,7 @@ const bundleIDs = [
   'org.futo.fixture.editor294.uitests',
   'org.futo.fixture.editor294.uitests.xctrunner',
 ];
-function selectionShape(selection) {
+export function validateSigningSelectionShape(selection) {
   const fields = {
     formatVersion: (v) => v === 1,
     sourceSHA: (v) => typeof v === 'string' && /^[a-f0-9]{40}$/.test(v),
@@ -55,7 +55,7 @@ function selectionShape(selection) {
 }
 
 export function validateSigningSelection(selection, profile, now = new Date()) {
-  selectionShape(selection);
+  validateSigningSelectionShape(selection);
   const team = selection.teamID;
   const allowedEntitlements = new Set([
     'application-identifier',
@@ -121,6 +121,26 @@ const systemCommand = (command, args, options = {}) =>
   });
 const decodePlist = (bytes, command) =>
   JSON.parse(command('/usr/bin/plutil', ['-convert', 'json', '-o', '-', '-'], { input: bytes }));
+
+export function decodeSigningProfile(profileBytes, command) {
+  const cms = command('/usr/bin/security', ['cms', '-D'], { input: profileBytes });
+  const decoded = JSON.parse(
+    command(
+      '/usr/bin/python3',
+      [
+        '-c',
+        'import sys,plistlib,json,datetime,base64; p=plistlib.loads(sys.stdin.buffer.read()); print(json.dumps(p,default=lambda x: x.isoformat()+"Z" if isinstance(x,datetime.datetime) else base64.b64encode(x).decode("ascii")))',
+      ],
+      { input: cms },
+    ),
+  );
+  return {
+    ...decoded,
+    DeveloperCertificates: decoded.DeveloperCertificates?.map((der) =>
+      hash(Buffer.from(der, 'base64'), 'sha1').toUpperCase(),
+    ),
+  };
+}
 
 function signAndVerifyFixture({
   output,
@@ -224,7 +244,7 @@ export function buildSignedFixture(
   selection,
   { command = systemCommand, now = () => new Date() } = {},
 ) {
-  selectionShape(selection);
+  validateSigningSelectionShape(selection);
   if (realpathSync(root) !== root) throw new Error('Canonical fixture checkout required');
   const source = sourceProvenance(root);
   if (
@@ -236,23 +256,7 @@ export function buildSignedFixture(
   const profileBytes = regularBytes(selection.profilePath);
   if (hash(profileBytes) !== selection.profileSHA256)
     throw new Error('Approved profile bytes differ');
-  const cms = command('/usr/bin/security', ['cms', '-D'], { input: profileBytes });
-  const decoded = JSON.parse(
-    command(
-      '/usr/bin/python3',
-      [
-        '-c',
-        'import sys,plistlib,json,datetime,base64; p=plistlib.loads(sys.stdin.buffer.read()); print(json.dumps(p,default=lambda x: x.isoformat()+"Z" if isinstance(x,datetime.datetime) else base64.b64encode(x).decode("ascii")))',
-      ],
-      { input: cms },
-    ),
-  );
-  const profile = {
-    ...decoded,
-    DeveloperCertificates: decoded.DeveloperCertificates?.map((der) =>
-      hash(Buffer.from(der, 'base64'), 'sha1').toUpperCase(),
-    ),
-  };
+  const profile = decodeSigningProfile(profileBytes, command);
   validateSigningSelection(selection, profile, now());
   if (hash(regularBytes(selection.profilePath)) !== selection.profileSHA256)
     throw new Error('Profile changed during decoding');

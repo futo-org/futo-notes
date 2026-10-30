@@ -36,11 +36,16 @@ successful strict signature, leaf-certificate, entitlement, embedded-profile and
 final source/artifact verification. A failed or interrupted run retains its
 output and never receives a success receipt. Existing outputs are never replaced.
 
-The physical capture owner still consumes the historical unsigned recipe's fixed
-`.build-native` location. Signed-output consumption needs a separate bounded,
-reviewed integration before any actual capture. Do not copy or relabel these
-products into that location. A successful signed build grants no physical lease,
-installation, launch, Dictation, microphone, privacy, unlock or audio permission.
+Physical capture consumes only `.build-signed/<runID>/`, selected by the existing
+manifest run UUID. It independently rechecks the exact private signing receipt,
+selection, clean current source/FFI, all four actual signatures, leaf certificates,
+minimal entitlements, embedded profile and product hashes. Receipt and product
+file identities are rechecked before pinning and each installation or XCTest use;
+identical bytes at a replaced inode also refuse. There is no `.build-native`
+fallback or caller-selected product path. The retained build evidence distinguishes
+verified external signing state from the bundled pre-signing request metadata.
+A successful signed build grants no physical lease, installation, launch,
+Dictation, microphone, privacy, unlock or audio permission.
 
 The application identity is `org.futo.fixture.editor294`; the unit bundle is
 `org.futo.fixture.editor294.tests`. The UI bundle is `org.futo.fixture.editor294.uitests`,
@@ -94,11 +99,11 @@ runID, nonce: fresh distinct uppercase UUIDs
 bundleID: org.futo.fixture.editor294
 runnerBundleID: org.futo.fixture.editor294.uitests.xctrunner
 seconds: integer 1–120
-buildFingerprint: SHA256 of the verified compiled fixture/runner/XCTest/provenance artifacts
+buildFingerprint: SHA256 binding the verified signing receipt, selection and original file/directory identities
 ```
 
 After separately authorized local signature-availability verification,
-`just ios-capture-fixture-build-identity` supplies the canonical checkout/source/build
+`just ios-capture-fixture-build-identity <runID>` supplies the canonical checkout/source/build
 fingerprints. It reads existing compiled signatures without accessing a device, signing,
 or provisioning. It cannot turn the unsigned preparation build into an installable build.
 
