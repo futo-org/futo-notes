@@ -61,4 +61,49 @@ struct NativeEditorLinkTests {
             try recovered.detach()
         }.value
     }
+    @Test("reference visibility and source selection survive native history and recovery")
+    func referencesRecoverExactly() async throws {
+        try await Task.detached {
+            let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+                "editor-references-\(UUID().uuidString)", isDirectory: true)
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: root) }
+            let store = NoteStore(notesRoot: root.path)
+            let original = "[id]: <https://x.test> 'T'\n\nmiddle\n\n[one][id] end"
+            let unlinked = "[id]: <https://x.test> 'T'\n\nmiddle\n\none end"
+            _ = try store.createNote(title: "references", folder: "", content: original)
+            let session = try store.openEditor(id: "references")
+            _ = try session.selectWithAffinity(
+                expected: 0, range: EditorByteRange(start: 9, end: 10), affinity: .forward)
+            let target = try #require(
+                try session.inspectLink(expected: 0, range: EditorByteRange(start: 8, end: 11)))
+            #expect(target.destination == "https://x.test")
+            #expect(target.title == "T")
+            let change = try #require(
+                try session.setLink(
+                    expected: 0, range: EditorByteRange(start: 9, end: 10), destination: ""))
+            var view = Array("middle\n\none end".utf8)
+            view.replaceSubrange(
+                Int(change.range.start)..<Int(change.range.end), with: change.inserted.utf8)
+            #expect(String(decoding: view, as: UTF8.self) == unlinked)
+            #expect(change.selection == EditorByteRange(start: 37, end: 38))
+            #expect(try session.sourceText() == unlinked)
+            let undone = try #require(try session.undo(expected: 1))
+            #expect(undone.selection == EditorByteRange(start: 9, end: 10))
+            #expect(try session.sourceText() == original)
+            let redone = try #require(try session.redo(expected: 2))
+            #expect(redone.selection == EditorByteRange(start: 37, end: 38))
+            _ = try session.flushRecovery()
+            try session.detach()
+            let recovered = try store.openEditor(id: "references")
+            #expect(try recovered.sourceText() == unlinked)
+            #expect(
+                try recovered.project(expected: 3, range: EditorByteRange(start: 0, end: 43)).text
+                    == unlinked)
+            _ = try recovered.checkpoint()
+            #expect(try store.read(id: "references") == unlinked)
+            try recovered.detach()
+        }.value
+    }
+
 }

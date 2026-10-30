@@ -50,4 +50,41 @@ class NativeEditorLinkTest {
             }
         } finally { root.deleteRecursively() }
     }
+    @Test
+    fun referenceVisibilityAndSourceSelectionSurviveHistoryAndRecovery() {
+        val root = File(InstrumentationRegistry.getInstrumentation().targetContext.cacheDir, "editor-references-${UUID.randomUUID()}")
+        check(root.mkdirs())
+        try {
+            NoteStore(root.absolutePath).use { store ->
+                val original = "[id]: <https://x.test> 'T'\n\nmiddle\n\n[one][id] end"
+                val unlinked = "[id]: <https://x.test> 'T'\n\nmiddle\n\none end"
+                store.createNote("references", "", original)
+                store.openEditor("references").use { session ->
+                    session.selectWithAffinity(0uL, EditorByteRange(9uL, 10uL), EditorAffinity.FORWARD)
+                    val target = checkNotNull(session.inspectLink(0uL, EditorByteRange(8uL, 11uL)))
+                    assertEquals("https://x.test", target.destination)
+                    assertEquals("T", target.title)
+                    val change = checkNotNull(session.setLink(0uL, EditorByteRange(9uL, 10uL), ""))
+                    val opening = "middle\n\none end".toByteArray(Charsets.UTF_8)
+                    val view = opening.copyOfRange(0, change.range.start.toInt()) + change.inserted.toByteArray(Charsets.UTF_8) + opening.copyOfRange(change.range.end.toInt(), opening.size)
+                    assertEquals(unlinked, view.toString(Charsets.UTF_8))
+                    assertEquals(EditorByteRange(37uL, 38uL), change.selection)
+                    assertEquals(unlinked, session.sourceText())
+                    assertEquals(EditorByteRange(9uL, 10uL), checkNotNull(session.undo(1uL)).selection)
+                    assertEquals(original, session.sourceText())
+                    assertEquals(EditorByteRange(37uL, 38uL), checkNotNull(session.redo(2uL)).selection)
+                    session.flushRecovery()
+                    session.detach()
+                }
+                store.openEditor("references").use { recovered ->
+                    assertEquals(unlinked, recovered.sourceText())
+                    assertEquals(unlinked, recovered.project(3uL, EditorByteRange(0uL, 43uL)).text)
+                    recovered.checkpoint()
+                    assertEquals(unlinked, store.read("references"))
+                    recovered.detach()
+                }
+            }
+        } finally { root.deleteRecursively() }
+    }
+
 }
