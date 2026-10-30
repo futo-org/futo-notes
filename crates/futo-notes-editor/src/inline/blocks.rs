@@ -227,8 +227,8 @@ pub(super) fn describe(
         line.list = attribution.list;
         if let Some(list) = &line.list {
             if !list.first {
-                let mut column = start - line.source.start;
-                while start < end && column < list.indent {
+                let mut column = super::columns(&source[line.source.start..start], 0);
+                while start < end && column < list.content_column {
                     match source.as_bytes()[start] {
                         b' ' => column += 1,
                         b'\t' => column += 4 - column % 4,
