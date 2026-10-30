@@ -355,3 +355,35 @@ fn selected_body_retirement_keeps_one_line_and_carried_inline_formats_local() {
         assert_eq!(view.text, shown);
     }
 }
+
+#[test]
+fn separator_only_selections_do_not_acquire_body_ownership_from_empty_lines() {
+    for (raw, shown, selected) in [
+        ("> > !\n>\n> ab\n> ===", "!\n\nab", range(1, 5)),
+        ("> > !\n>\n>\n> ab\n> ===", "!\n\n\nab", range(2, 6)),
+    ] {
+        let mut s = EditorSession::open(raw);
+        s.select(s.revision(), selected).unwrap();
+        let mut accepts = 0;
+        assert_eq!(
+            s.replace_many(
+                s.revision(),
+                &[DisplayReplacement {
+                    range: selected,
+                    inserted: "AC".into(),
+                }],
+                &mut |_| {
+                    accepts += 1;
+                    Ok(())
+                }
+            ),
+            Err(EditorError::UnrepresentableFormat)
+        );
+        assert_eq!(accepts, 0);
+        assert_eq!(s.source_text(), raw);
+        assert_eq!(s.display_text(), shown);
+        assert_eq!(s.revision(), Revision(0));
+        assert_eq!(s.selection(), selected);
+        assert!(s.undo(s.revision(), &mut |_| Ok(())).unwrap().is_none());
+    }
+}

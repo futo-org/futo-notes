@@ -220,7 +220,9 @@ impl Projection {
                         && block.underline.is_some()
                         && range.start.0 <= body_start
                         && body_end <= range.end.0;
-                    selected_body_before |= range.start.0 < body_end && body_start < range.end.0;
+                    selected_body_before |= body_start < body_end
+                        && range.start.0 < body_end
+                        && body_start < range.end.0;
                     retire
                 })
                 .collect();
