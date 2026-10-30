@@ -313,3 +313,56 @@ fn literal_nonclosers_do_not_respell_untouched_delimiters() {
         assert_eq!(view.text, "a");
     }
 }
+
+#[test]
+fn list_container_termination_closes_code_and_keeps_a_visible_block_boundary() {
+    // Synthetic structural reductions of recorded census6084 (F19), whose
+    // original note and corpus identity remain in the local replay receipt.
+    for (source, shown, sibling) in [
+        (
+            "* parent\n  ```\n* sibling\n\n**outside**",
+            "parent\nsibling\n\noutside",
+            7,
+        ),
+        (
+            "* parent\n  ```\n  literal\n* sibling\n\n**outside**",
+            "parent\nliteral\nsibling\n\noutside",
+            15,
+        ),
+        ("> ```\n> literal\noutside", "literal\noutside", 8),
+    ] {
+        let mut s = EditorSession::open(source);
+        let mut view = ReferenceView::new(shown);
+        assert_eq!(s.display_text(), shown, "{source:?}");
+        assert_eq!(s.source_text(), source);
+        assert!(s
+            .project(s.revision(), range(sibling, sibling + 1))
+            .unwrap()
+            .blocks
+            .iter()
+            .all(|block| !block.code));
+        s.select(s.revision(), range(sibling, sibling)).unwrap();
+        view.apply(
+            s.replace_action(
+                s.revision(),
+                range(sibling, sibling),
+                "!",
+                InputAction::Isolated,
+                &mut |_| Ok(()),
+            )
+            .unwrap(),
+        );
+        let expected = if source.contains("* sibling") {
+            source.replace("* sibling", "* !sibling")
+        } else {
+            source.replace("outside", "!outside")
+        };
+        assert_eq!(s.source_text(), expected);
+        let mut expected_display = shown.to_owned();
+        expected_display.insert(sibling, '!');
+        assert_eq!(view.text, expected_display);
+        view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+        assert_eq!(s.source_text(), source);
+        assert_eq!(view.text, shown);
+    }
+}
