@@ -1,11 +1,18 @@
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { setupBuild, setupScenario } from './physical-fixture-ios-test-data.mjs';
+import {
+  lstatSync,
+  renameSync,
+  symlinkSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, it } from 'vitest';
-import { execFileSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
-import { dirname } from 'node:path';
-import { sourceProvenance } from '../ios-capture-fixture.mjs';
 import { createIOSFixtureExecutor } from './physical-fixture-ios.mjs';
 
 it('rejects an XCTest plan for a personal app before invoking any OS command', async () => {
@@ -33,102 +40,40 @@ it('rejects an XCTest plan for a personal app before invoking any OS command', a
 });
 
 it('independently verifies local build bytes and refuses a product changed during signature verification', () => {
-  const root = realpathSync(mkdtempSync(join(tmpdir(), 'physical-build-test-')));
-  const fixture = join(root, 'apps/ios/FixtureCapture');
-  const products = join(fixture, '.build-native/Build/Products');
-  const app = join(products, 'Debug-iphoneos/Editor294Fixture.app');
-  const runner = join(products, 'Debug-iphoneos/Editor294FixtureUITests-Runner.app');
-  const artifactPaths = [
-    'apps/ios/Sources/Generated/futo_notes_ffi.swift',
-    'apps/ios/FutoNotesFfi.xcframework/Info.plist',
-    'apps/ios/FutoNotesFfi.xcframework/ios-arm64/Headers/module.modulemap',
-    'apps/ios/FutoNotesFfi.xcframework/ios-arm64/Headers/futo_notes_ffiFFI.h',
-    'apps/ios/FutoNotesFfi.xcframework/ios-arm64/libfuto_notes_ffi.a',
-    'apps/ios/FutoNotesFfi.xcframework/ios-arm64_x86_64-simulator/libfuto_notes_ffi.a',
-  ];
-  const commands = [];
-  let mutate = false;
+  const t = setupBuild();
   try {
-    execFileSync('git', ['init', '-q', root]);
-    writeFileSync(join(root, 'Cargo.toml'), '[workspace]');
-    writeFileSync(
-      join(root, '.gitignore'),
-      'apps/ios/FixtureCapture/Generated/\napps/ios/FixtureCapture/.build-native/\napps/ios/Sources/Generated/\napps/ios/FutoNotesFfi.xcframework/\n',
-    );
-    execFileSync('git', ['-C', root, 'add', 'Cargo.toml', '.gitignore']);
-    execFileSync('git', [
-      '-C',
-      root,
-      '-c',
-      'user.email=test@example.invalid',
-      '-c',
-      'user.name=Test',
-      'commit',
-      '-qm',
-      'fixture',
-    ]);
-    for (const path of artifactPaths) {
-      mkdirSync(dirname(join(root, path)), { recursive: true });
-      writeFileSync(join(root, path), 'bound-ffi');
-    }
-    const provenance = {
-      ...sourceProvenance(root),
-      artifacts: artifactPaths.map((path) => ({
-        path,
-        sha256: createHash('sha256').update('bound-ffi').digest('hex'),
-      })),
-    };
-    mkdirSync(join(fixture, 'Generated'), { recursive: true });
-    mkdirSync(app, { recursive: true });
-    mkdirSync(runner, { recursive: true });
-    writeFileSync(join(fixture, 'Generated/build-provenance.json'), JSON.stringify(provenance));
-    writeFileSync(join(app, 'build-provenance.json'), JSON.stringify(provenance));
-    writeFileSync(join(app, 'Info.plist'), 'fixed-app');
-    writeFileSync(join(runner, 'Info.plist'), 'fixed-runner');
-    writeFileSync(
-      join(products, 'Editor294Fixture_iphoneos27.2-arm64.xctestrun'),
-      'fixed-test-run',
-    );
-    const executor = createIOSFixtureExecutor(root, {
-      runCommand: (command, args) => {
-        commands.push(command);
-        if (command === 'plutil') {
-          const path = args.at(-1);
-          if (path.endsWith('Info.plist'))
-            return {
-              status: 0,
-              stdout: JSON.stringify({
-                CFBundleIdentifier: path.includes('UITests-Runner')
-                  ? 'org.futo.fixture.editor294.uitests.xctrunner'
-                  : 'org.futo.fixture.editor294',
-              }),
-            };
-          return {
-            status: 0,
-            stdout: JSON.stringify({
-              __xctestrun_metadata__: { FormatVersion: 1 },
-              Editor294FixtureUITests: {
-                IsUITestBundle: true,
-                UITargetAppBundleIdentifier: 'org.futo.fixture.editor294',
-                TestHostBundleIdentifier: 'org.futo.fixture.editor294.uitests.xctrunner',
-                TestHostPath: '__TESTROOT__/Debug-iphoneos/Editor294FixtureUITests-Runner.app',
-                UITargetAppPath: '__TESTROOT__/Debug-iphoneos/Editor294Fixture.app',
-                TestBundlePath: '__TESTHOST__/PlugIns/Editor294FixtureUITests.xctest',
-              },
-            }),
-          };
-        }
-        if (mutate && args.includes('--display'))
-          writeFileSync(join(app, 'changed-during-verification'), 'changed');
-        return { status: 0, stdout: '', stderr: 'Authority=Mock signing metadata only\n' };
-      },
-    });
-    expect(executor.inspectBuild().buildFingerprint).toMatch(/^[0-9a-f]{64}$/);
-    expect(commands.every((command) => ['plutil', 'codesign'].includes(command))).toBe(true);
-    mutate = true;
-    expect(() => executor.inspectBuild()).toThrow(/changed during verification/);
+    expect(t.executor.inspectBuild().buildFingerprint).toMatch(/^[0-9a-f]{64}$/);
+    expect(t.commands.every((command) => ['plutil', 'codesign'].includes(command))).toBe(true);
+    t.mutate();
+    expect(() => t.executor.inspectBuild()).toThrow(/changed during verification/);
   } finally {
-    rmSync(root, { recursive: true });
+    rmSync(t.root, { recursive: true });
+  }
+});
+
+it('pins verified app, runner and XCTest bytes and installs only the private snapshot after shared product mutation', async () => {
+  const t = setupBuild();
+  try {
+    const build = t.executor.inspectBuild();
+    const output = join(t.root, 'run');
+    mkdirSync(output, { mode: 0o700 });
+    const pinned = await t.executor.pinBuild({}, build, output);
+    writeFileSync(join(t.app, 'Info.plist'), 'changed-personal-identity');
+    writeFileSync(join(t.runner, 'Info.plist'), 'changed-runner');
+    writeFileSync(
+      join(t.products, 'Editor294Fixture_iphoneos27.2-arm64.xctestrun'),
+      'changed-xctest',
+    );
+    // Installation will fail on this intentionally incomplete mock receipt, but
+    // the actual adapter must submit only the retained verified bytes.
+    await expect(t.executor.installFixture({}, pinned, output)).rejects.toThrow();
+    const installed = t.commands.find((item) => Array.isArray(item) && item[1].includes('install'));
+    expect(installed).toBeDefined();
+    const path = installed[1][installed[1].indexOf('app') + 1];
+    expect(path.startsWith(output + '/')).toBe(true);
+    expect(readFileSync(join(path, 'Info.plist'), 'utf8')).toBe('fixed-app');
+  } finally {
+    rmSync(t.root, { recursive: true });
   }
 });
 
@@ -154,7 +99,11 @@ it('queries only the two exact fixture identities, without the all-apps override
           },
         };
       else if (args.includes('lockState'))
-        result = { passcodeRequired: false, unlockedSinceBoot: true };
+        result = {
+          deviceIdentifier: plan.coreDeviceID,
+          passcodeRequired: false,
+          unlockedSinceBoot: true,
+        };
       else result = { apps: [], deviceIdentifier: plan.coreDeviceID };
       return { status: 0, stdout: JSON.stringify({ info: { outcome: 'success' }, result }) };
     },
@@ -170,91 +119,281 @@ it('queries only the two exact fixture identities, without the all-apps override
 });
 
 it('runs only the pinned XCTest target and binds its retained attachment to the actual destination', async () => {
-  const root = realpathSync(mkdtempSync(join(tmpdir(), 'physical-executor-test-')));
-  const plan = {
-    deviceUDID: '00008150-001C70A634F0401C',
-    runID: '650D54CC-6339-4D62-B550-834BFBB8D7AA',
-    nonce: '9ADC97CB-1A3D-443E-B5C7-62E50B90CDF1',
-    seconds: 10,
-  };
-  const commands = [];
-  const xctestrun = {
-    __xctestrun_metadata__: { FormatVersion: 1 },
-    Editor294FixtureUITests: {
-      IsUITestBundle: true,
-      UITargetAppBundleIdentifier: 'org.futo.fixture.editor294',
-      TestHostBundleIdentifier: 'org.futo.fixture.editor294.uitests.xctrunner',
-      TestHostPath: '__TESTROOT__/Debug-iphoneos/Editor294FixtureUITests-Runner.app',
-      UITargetAppPath: '__TESTROOT__/Debug-iphoneos/Editor294Fixture.app',
-      TestBundlePath: '__TESTHOST__/PlugIns/Editor294FixtureUITests.xctest',
-      CommandLineArguments: ['must-not-survive'],
-    },
-  };
-  const gesture = { runID: plan.runID, nonce: plan.nonce, action: 'tap-system-dictate' };
-  const executor = createIOSFixtureExecutor(root, {
-    runCommand: (command, args) => {
-      commands.push([command, args]);
-      if (command === 'xcodebuild') {
-        const fixed = JSON.parse(readFileSync(args[args.indexOf('-xctestrun') + 1], 'utf8'));
-        expect(Object.keys(fixed)).toEqual(['Editor294FixtureUITests', '__xctestrun_metadata__']);
-        expect(fixed.Editor294FixtureUITests.CommandLineArguments).toEqual([]);
-        expect(fixed.Editor294FixtureUITests.OnlyTestIdentifiers).toEqual([
-          'DictationCaptureTests/testCapture',
-        ]);
-        expect(
-          JSON.parse(fixed.Editor294FixtureUITests.EnvironmentVariables.FUTO_EDITOR294_LAUNCH),
-        ).toEqual({
-          runID: plan.runID,
-          nonce: plan.nonce,
-          destination: plan.deviceUDID,
-          seconds: 10,
-        });
-        mkdirSync(join(root, 'capture.xcresult'));
-        writeFileSync(join(root, 'capture.xcresult/Info.plist'), 'retained result');
-        return { status: 0, stdout: 'one fixed test' };
-      }
-      if (args.includes('summary'))
-        return {
-          status: 0,
-          stdout: JSON.stringify({
-            totalTestCount: 1,
-            passedTests: 1,
-            failedTests: 0,
-            skippedTests: 0,
-            devicesAndConfigurations: [{ device: { deviceId: plan.deviceUDID, platform: 'iOS' } }],
-          }),
-        };
-      mkdirSync(join(root, 'attachments'));
-      writeFileSync(join(root, 'attachments/gesture.json'), JSON.stringify(gesture));
-      writeFileSync(
-        join(root, 'attachments/manifest.json'),
-        JSON.stringify([
-          {
-            testIdentifier: 'DictationCaptureTests/testCapture()',
-            attachments: [
-              {
-                suggestedHumanReadableName: 'editor294-gesture.json',
-                exportedFileName: 'gesture.json',
-                deviceId: plan.deviceUDID,
-              },
-            ],
-          },
-        ]),
-      );
-      return { status: 0, stdout: '' };
-    },
-  });
+  const t = setupScenario();
   try {
-    const result = await executor.capture(plan, { xctestrun }, root);
-    expect(result.gesture).toEqual(gesture);
-    expect(commands[0][1]).toContain(`platform=iOS,id=${plan.deviceUDID}`);
-    expect(commands[0][1]).toContain(
+    expect((await t.executor.capture(t.plan, t.build, t.output)).gesture).toEqual(t.gesture);
+    expect(t.calls[0][1]).toContain(`platform=iOS,id=${t.plan.deviceUDID}`);
+    expect(t.calls[0][1]).toContain(
       '-only-testing:Editor294FixtureUITests/DictationCaptureTests/testCapture',
     );
     expect(
-      JSON.parse(readFileSync(join(root, 'xctest-evidence-hashes.json'), 'utf8')).result,
+      JSON.parse(readFileSync(join(t.output, 'xctest-evidence-hashes.json'), 'utf8')).result,
     ).toHaveLength(1);
   } finally {
-    rmSync(root, { recursive: true });
+    rmSync(t.root, { recursive: true });
+  }
+});
+
+it.each([
+  ['zero tests', { summary: { totalTestCount: 0, passedTests: 0 } }],
+  ['skipped test', { summary: { skippedTests: 1 } }],
+  [
+    'wrong destination',
+    {
+      summary: { devicesAndConfigurations: [{ device: { deviceId: 'foreign', platform: 'iOS' } }] },
+    },
+  ],
+  ['missing destination', { summary: { devicesAndConfigurations: null } }],
+  [
+    'unknown destination platform',
+    {
+      summary: {
+        devicesAndConfigurations: [
+          { device: { deviceId: '00008150-001C70A634F0401C', platform: 'iOS Simulator' } },
+        ],
+      },
+    },
+  ],
+  ['symlink gesture file', { exportSymlink: 'file' }],
+  ['symlink attachment directory', { exportSymlink: 'directory' }],
+  ['missing gesture', { manifest: [] }],
+  ['ambiguous gesture', { duplicate: true }],
+  ['wrong gesture test', { manifest: [{ testIdentifier: 'Other/test()', attachments: [] }] }],
+  ['malformed attachment manifest', { manifest: { unknown: true } }],
+  ['wrong gesture device', { attachment: { deviceId: 'foreign' } }],
+  ['traversing gesture filename', { attachment: { exportedFileName: '../outside' } }],
+  ['wrong run gesture', { gesture: { runID: 'foreign' } }],
+  ['wrong nonce gesture', { gesture: { nonce: 'foreign' } }],
+  ['absent Dictate', { gesture: { control: { label: 'Other', hittable: false } } }],
+])('actual adapter refuses %s from injected provider output', async (_name, change) => {
+  const t = setupScenario(change);
+  try {
+    await expect(t.executor.capture(t.plan, t.build, t.output)).rejects.toThrow();
+  } finally {
+    rmSync(t.root, { recursive: true });
+  }
+});
+
+it.each(['capture.xctestrun', 'capture.xcresult', 'attachments', 'xctest-command.json'])(
+  'actual adapter refuses a preexisting %s output before XCTest',
+  async (name) => {
+    const t = setupScenario();
+    try {
+      const path = join(t.output, name);
+      writeFileSync(path, 'sentinel', { mode: 0o600 });
+      await expect(t.executor.capture(t.plan, t.build, t.output)).rejects.toThrow(/collision/);
+      expect(t.calls).toEqual([]);
+      expect(readFileSync(path, 'utf8')).toBe('sentinel');
+    } finally {
+      rmSync(t.root, { recursive: true });
+    }
+  },
+);
+
+it.each(['capture.raw.json', 'copy-artifact-command.json'])(
+  'actual adapter refuses a symlink %s before copying from a device',
+  (name) => {
+    const t = setupScenario();
+    try {
+      const outside = join(t.root, 'outside.json');
+      writeFileSync(outside, 'sentinel', { mode: 0o600 });
+      symlinkSync(outside, join(t.output, name));
+      expect(() => t.executor.copyArtifact(t.plan, t.output)).toThrow(/evidence|collision/);
+      expect(t.calls).toEqual([]);
+      expect(readFileSync(outside, 'utf8')).toBe('sentinel');
+    } finally {
+      rmSync(t.root, { recursive: true });
+    }
+  },
+);
+
+it('actual adapter refuses changed private products before installation', async () => {
+  const t = setupScenario();
+  try {
+    const path = join(
+      t.output,
+      'pinned-products/Products/Debug-iphoneos/Editor294Fixture.app/Info.plist',
+    );
+    writeFileSync(path, 'changed');
+    await expect(t.executor.installFixture(t.plan, t.build, t.output)).rejects.toThrow(
+      /Pinned.*changed/,
+    );
+    expect(t.calls).toEqual([]);
+  } finally {
+    rmSync(t.root, { recursive: true });
+  }
+});
+
+it('actual adapter refuses changed source between fixture and runner installation', async () => {
+  const t = setupScenario();
+  try {
+    writeFileSync(join(t.root, 'Cargo.toml'), 'changed-source');
+    await expect(t.executor.installRunner(t.plan, t.build, t.output)).rejects.toThrow(
+      /source differs/,
+    );
+    expect(t.calls).toEqual([]);
+  } finally {
+    rmSync(t.root, { recursive: true });
+  }
+});
+
+it.each(['symlink-file', 'symlink-directory'])(
+  'actual adapter rejects provider-created %s attachment evidence without reading it',
+  async (kind) => {
+    const t = setupScenario();
+    const original = t.executor;
+    // Exercise the same injected provider boundary as the successful scenario;
+    // replace its retained files between export and the adapter read.
+    const saved = t.calls;
+    try {
+      await original.capture(t.plan, t.build, t.output);
+      const path = join(
+        t.output,
+        kind === 'symlink-file' ? 'attachments/gesture.json' : 'attachments',
+      );
+      renameSync(path, path + '-retained');
+      symlinkSync(path + '-retained', path);
+      const calls = saved.length;
+      await expect(original.installFixture(t.plan, t.build, t.output)).rejects.toThrow(/evidence/);
+      expect(saved).toHaveLength(calls);
+      expect(lstatSync(path).isSymbolicLink()).toBe(true);
+    } finally {
+      rmSync(t.root, { recursive: true });
+    }
+  },
+);
+
+it.each([
+  ['malformed JSON', 'details', '{'],
+  ['unknown details', 'details', {}],
+  ['wrong details device', 'details', { device: { identifier: 'foreign' } }],
+  ['unknown lock', 'lockState', {}],
+  ['locked device', 'lockState', { passcodeRequired: true, unlockedSinceBoot: true }],
+  [
+    'wrong lock destination',
+    'lockState',
+    { deviceIdentifier: 'foreign', passcodeRequired: false, unlockedSinceBoot: true },
+  ],
+  ['unknown apps', 'apps', { apps: { unknown: true } }],
+  ['wrong inventory destination', 'apps', { deviceIdentifier: 'foreign', apps: [] }],
+  [
+    'wrong inventory filter',
+    'apps',
+    {
+      apps: [
+        { bundleIdentifier: 'com.futo.notes.dev', bundleVersion: '1', url: 'file:///foreign' },
+      ],
+    },
+  ],
+  ['partial inventory', 'apps', { apps: [{ bundleIdentifier: 'org.futo.fixture.editor294' }] }],
+])('actual adapter refuses %s from CoreDevice', (_name, operation, replacement) => {
+  const plan = {
+    deviceUDID: '00008150-001C70A634F0401C',
+    coreDeviceID: '0B240C73-A6B0-49C1-B483-0DF861CE5478',
+  };
+  const commands = [];
+  const executor = createIOSFixtureExecutor('/unused', {
+    runCommand: (_command, args) => {
+      commands.push(args);
+      let result = args.includes('details')
+        ? {
+            device: {
+              identifier: plan.coreDeviceID,
+              properties: {
+                hardware: { udid: plan.deviceUDID, reality: 'physical', platform: 'iOS' },
+                state: { bootState: 'booted' },
+                connection: { pairingState: 'paired', state: 'connected', transportType: 'wired' },
+              },
+            },
+          }
+        : args.includes('lockState')
+          ? {
+              deviceIdentifier: plan.coreDeviceID,
+              passcodeRequired: false,
+              unlockedSinceBoot: true,
+            }
+          : { deviceIdentifier: plan.coreDeviceID, apps: [] };
+      if (args.includes(operation)) {
+        if (typeof replacement === 'string') return { status: 0, stdout: replacement };
+        result = { ...replacement };
+        if (!Object.hasOwn(result, 'deviceIdentifier') && operation !== 'details')
+          result.deviceIdentifier = plan.coreDeviceID;
+      }
+      return { status: 0, stdout: JSON.stringify({ info: { outcome: 'success' }, result }) };
+    },
+  });
+  expect(() => executor.inspectDevice(plan)).toThrow();
+  expect(commands.every((args) => args.includes('info'))).toBe(true);
+});
+
+it.each([
+  null,
+  {},
+  { installedApplications: [] },
+  {
+    deviceIdentifier: 'foreign',
+    installedApplications: [{ bundleID: 'org.futo.fixture.editor294' }],
+  },
+  { installedApplications: [{ bundleID: 'com.futo.notes.dev' }] },
+  {
+    installedApplications: [
+      { bundleID: 'org.futo.fixture.editor294' },
+      { bundleID: 'org.futo.fixture.editor294' },
+    ],
+  },
+])('actual adapter refuses malformed or foreign install receipt %j', async (replacement) => {
+  let installation = false;
+  const t = setupBuild({
+    respond(command, _args) {
+      if (command !== 'xcrun') return;
+      installation = true;
+      return {
+        status: 0,
+        stdout: JSON.stringify({
+          info: { outcome: 'success' },
+          result: replacement && {
+            deviceIdentifier: '0B240C73-A6B0-49C1-B483-0DF861CE5478',
+            ...replacement,
+          },
+        }),
+      };
+    },
+  });
+  try {
+    const output = join(t.root, 'run');
+    mkdirSync(output, { mode: 0o700 });
+    const build = t.executor.pinBuild({}, t.executor.inspectBuild(), output);
+    await expect(
+      t.executor.installFixture(
+        { coreDeviceID: '0B240C73-A6B0-49C1-B483-0DF861CE5478' },
+        build,
+        output,
+      ),
+    ).rejects.toThrow();
+    expect(installation).toBe(true);
+  } finally {
+    rmSync(t.root, { recursive: true });
+  }
+});
+
+it('actual adapter rejects products changed while validating a private copy before any install', () => {
+  let output;
+  const t = setupBuild({
+    respond(command, args) {
+      if (command === 'plutil' && output && args.at(-1).includes('/pinned-products/'))
+        writeFileSync(
+          join(output, 'pinned-products/Products/Debug-iphoneos/Editor294Fixture.app/Info.plist'),
+          'changed-copy',
+        );
+    },
+  });
+  try {
+    const build = t.executor.inspectBuild();
+    output = join(t.root, 'run');
+    mkdirSync(output, { mode: 0o700 });
+    expect(() => t.executor.pinBuild({}, build, output)).toThrow(/changed while pinning/);
+    expect(t.commands.every((command) => typeof command === 'string')).toBe(true);
+  } finally {
+    rmSync(t.root, { recursive: true });
   }
 });

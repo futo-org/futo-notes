@@ -32,6 +32,7 @@ describe('physical fixture reservation', () => {
   it('reserves an exact host and hardware device without sharing or taking over a lease', async () => {
     const directory = realpathSync(mkdtempSync(join(tmpdir(), 'physical-lease-test-')));
     const plan = {
+      formatVersion: 1,
       host: 'capture-host',
       deviceUDID: '00008150-001C70A634F0401C',
       coreDeviceID: '0B240C73-A6B0-49C1-B483-0DF861CE5478',

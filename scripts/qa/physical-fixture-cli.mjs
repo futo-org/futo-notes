@@ -5,11 +5,13 @@ import { hostname } from 'node:os';
 import process from 'node:process';
 import console from 'node:console';
 import { join } from 'node:path';
-import { readFileSync, realpathSync } from 'node:fs';
+import { realpathSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL, URL } from 'node:url';
 import { executePhysicalFixture } from './physical-fixture.mjs';
 import { createIOSFixtureExecutor } from './physical-fixture-ios.mjs';
 import { physicalFixtureHostPaths } from './physical-fixture-lease.mjs';
+
+import { evidenceRun, readEvidenceJSON } from './physical-fixture-evidence.mjs';
 
 const usage = 'physical-fixture capture --manifest <path> | read|close --run <UUID>';
 
@@ -29,8 +31,10 @@ export async function runPhysicalFixtureCLI(args, runtimeOverrides = {}) {
   const root =
     runtimeOverrides.root ?? realpathSync(fileURLToPath(new URL('../..', import.meta.url)));
   const scratch = runtimeOverrides.scratch ?? physicalFixtureHostPaths().evidenceDirectory;
-  const path = operation === 'capture' ? value : join(scratch, value, 'manifest.json');
-  const plan = JSON.parse(readFileSync(path, 'utf8'));
+  const path = operation === 'capture' ? value : join(evidenceRun(scratch, value), 'manifest.json');
+  const plan = readEvidenceJSON(path);
+  if (operation !== 'capture' && plan.runID !== value)
+    throw new Error('Retained manifest differs from requested run');
   return executePhysicalFixture(operation, plan, {
     root,
     scratch,

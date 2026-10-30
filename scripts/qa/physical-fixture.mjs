@@ -2,10 +2,18 @@
 // Device executors are the OS boundary, never caller-selected commands/filters.
 // No pooled target resolution, signing, provisioning, preference repair or reset.
 import { hostname } from 'node:os';
-import process from 'node:process';
 import { join } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
-import { existsSync, lstatSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import {
+  evidenceRun,
+  assertPrivateTree,
+  assertEvidenceAbsent,
+  createEvidenceDirectory,
+  readEvidence,
+  readEvidenceJSON as json,
+  writeEvidence,
+  writeEvidenceJSON as write,
+} from './physical-fixture-evidence.mjs';
 import {
   readLease,
   releaseLease,
@@ -13,26 +21,13 @@ import {
   physicalFixtureHostPaths,
 } from './physical-fixture-lease.mjs';
 
-const planFields = [
-  'formatVersion',
-  'host',
-  'deviceUDID',
-  'coreDeviceID',
-  'worktree',
-  'sourceSHA',
-  'sourceFingerprint',
-  'runID',
-  'nonce',
-  'ownerPID',
-  'bundleID',
-  'runnerBundleID',
-  'seconds',
-  'buildFingerprint',
-].sort();
+import {
+  validateFixturePlan,
+  validateTerminalReceipt,
+  validateFixtureResult,
+} from './physical-fixture-contract.mjs';
+
 const digest = (bytes) => createHash('sha256').update(bytes).digest('hex');
-const json = (path) => JSON.parse(readFileSync(path, 'utf8'));
-const write = (path, value) =>
-  writeFileSync(path, JSON.stringify(value, null, 2) + '\n', { mode: 0o600 });
 const ordered = (installations) =>
   [...installations].sort((a, b) => a.bundleID.localeCompare(b.bundleID));
 function canonical(value) {
@@ -44,19 +39,6 @@ function canonical(value) {
         .map((key) => [key, canonical(value[key])]),
     );
   return value;
-}
-
-function validatePlan(plan) {
-  if (
-    !plan ||
-    JSON.stringify(Object.keys(plan).sort()) !== JSON.stringify(planFields) ||
-    plan.formatVersion !== 1 ||
-    !Number.isInteger(plan.seconds) ||
-    plan.seconds < 1 ||
-    plan.seconds > 120 ||
-    !/^[0-9a-f]{64}$/.test(plan.buildFingerprint)
-  )
-    throw new Error('Expected the fixed, bounded physical fixture manifest');
 }
 
 function validateDevice(plan, device, installations) {
@@ -73,35 +55,6 @@ function validateDevice(plan, device, installations) {
     JSON.stringify(ordered(device.installations)) !== JSON.stringify(ordered(installations))
   )
     throw new Error('Unknown or changed fixture installation; no replacement permitted');
-}
-
-function validateResult(plan, result) {
-  const gesture = result?.gesture;
-  if (
-    result?.totalTestCount !== 1 ||
-    result.passedTests !== 1 ||
-    result.failedTests !== 0 ||
-    result.skippedTests !== 0 ||
-    result.deviceUDID !== plan.deviceUDID ||
-    result.testIdentifier !== 'DictationCaptureTests/testCapture'
-  )
-    throw new Error('Fixed XCTest scenario or actual device destination did not pass exactly once');
-  const control = gesture?.control;
-  if (
-    gesture?.runID !== plan.runID ||
-    gesture.nonce !== plan.nonce ||
-    gesture.bundleID !== plan.bundleID ||
-    gesture.destination !== plan.deviceUDID ||
-    gesture.action !== 'tap-system-dictate' ||
-    gesture.status !== 'capture-window-ended' ||
-    control?.hittable !== true ||
-    !['Dictate', 'Start Dictation'].includes(control.label) ||
-    !control.frame ||
-    !['x', 'y', 'width', 'height'].every((key) => Number.isFinite(control.frame[key])) ||
-    control.frame.width <= 0 ||
-    control.frame.height <= 0
-  )
-    throw new Error('Missing or mismatched live system Dictate gesture receipt');
 }
 
 function validateArtifact(plan, build, raw) {
@@ -159,27 +112,35 @@ export async function executePhysicalFixture(operation, plan, runtime) {
   } = runtime;
   if (!['capture', 'read', 'close'].includes(operation))
     throw new Error('Unknown fixture operation');
-  validatePlan(plan);
+  validateFixturePlan(plan);
   if (plan.host !== host) throw new Error('Physical transport owner host differs');
   if (plan.worktree !== root) throw new Error('Physical fixture checkout differs');
   readLease(plan, runtime.leaseRuntime);
   const output = join(scratch, plan.runID);
   const receiptPath = join(output, 'receipt.json');
-  if (operation === 'close') {
+  if (operation !== 'capture') evidenceRun(scratch, plan.runID);
+  const retainedReceipt = () => {
+    evidenceRun(scratch, plan.runID);
+    if (JSON.stringify(json(join(output, 'manifest.json'))) !== JSON.stringify(plan))
+      throw new Error('Retained run manifest differs');
     const receipt = json(receiptPath);
-    if (
-      JSON.stringify(json(join(output, 'manifest.json'))) !== JSON.stringify(plan) ||
-      receipt.runID !== plan.runID ||
-      receipt.status === 'running'
-    )
-      throw new Error('Cannot close an unknown or unfinished capture');
-    releaseLease(plan, runtime.leaseRuntime);
+    validateTerminalReceipt(plan, receipt, output);
+    if (receipt.status === 'captured') {
+      validateFixtureResult(plan, receipt.result);
+      if (digest(readEvidence(join(output, 'capture.json'))) !== receipt.artifactSHA256)
+        throw new Error('Retained capture hash differs');
+    }
+    return receipt;
+  };
+  if (operation === 'close') {
+    releaseLease(plan, runtime.leaseRuntime, retainedReceipt);
     return { runID: plan.runID, status: 'closed', evidenceRetained: output };
   }
   const deviceObservations = [];
   let activeReceipt;
   const guard = async (installations) => {
     readLease(plan, runtime.leaseRuntime);
+    if (activeReceipt || operation === 'read') evidenceRun(scratch, plan.runID);
     const build = await executor.inspectBuild(plan);
     if (
       build.sourceSHA !== plan.sourceSHA ||
@@ -197,26 +158,23 @@ export async function executePhysicalFixture(operation, plan, runtime) {
     return useLease(
       plan,
       async () => {
-        if (JSON.stringify(json(join(output, 'manifest.json'))) !== JSON.stringify(plan))
-          throw new Error('Retained run manifest differs');
-        const receipt = json(receiptPath);
-        if (receipt.status === 'running')
-          throw new Error('Capture remains in progress; no read or takeover');
+        const receipt = retainedReceipt();
         const build = await guard(receipt.installations);
         if (receipt.status === 'failed') {
           const rawOutput = join(output, `failed-read-${randomUUID()}`);
-          mkdirSync(rawOutput, { mode: 0o700 });
+          createEvidenceDirectory(rawOutput);
           const raw = await executor.copyArtifact(plan, rawOutput);
           const rawPath = join(rawOutput, 'capture.json');
-          writeFileSync(rawPath, raw, { flag: 'wx', mode: 0o600 });
+          assertPrivateTree(output);
+          writeEvidence(rawPath, raw, { exclusive: true });
           receipt.rawReads = [...(receipt.rawReads ?? []), { path: rawPath, sha256: digest(raw) }];
           write(receiptPath, receipt);
           await guard(receipt.installations);
           throw new Error(`Attempt remains failed; raw evidence retained at ${rawPath}`);
         }
         if (receipt.status !== 'captured') throw new Error('Unknown retained capture state');
-        validateResult(plan, receipt.result);
-        const raw = readFileSync(join(output, 'capture.json'), 'utf8');
+        validateFixtureResult(plan, receipt.result);
+        const raw = readEvidence(join(output, 'capture.json'));
         if (digest(raw) !== receipt.artifactSHA256)
           throw new Error('Retained capture hash differs');
         return { receipt, artifact: validateArtifact(plan, build, raw) };
@@ -224,22 +182,12 @@ export async function executePhysicalFixture(operation, plan, runtime) {
       runtime.leaseRuntime,
     );
   }
-  const build = await guard([]);
-  if (existsSync(output)) throw new Error('Capture output collision; no overwrite');
   return useLease(
     plan,
     async () => {
-      await guard([]);
-      mkdirSync(scratch, { recursive: true, mode: 0o700 });
-      const parent = lstatSync(scratch);
-      if (
-        !parent.isDirectory() ||
-        parent.isSymbolicLink() ||
-        parent.uid !== process.getuid() ||
-        (parent.mode & 0o777) !== 0o700
-      )
-        throw new Error('Capture output parent ownership or private mode differs; no repair');
-      mkdirSync(output, { mode: 0o700 });
+      assertEvidenceAbsent(output);
+      let build = await guard([]);
+      evidenceRun(scratch, plan.runID, { create: true });
       write(join(output, 'manifest.json'), plan);
       write(join(output, 'build.json'), {
         sourceSHA: build.sourceSHA,
@@ -261,6 +209,9 @@ export async function executePhysicalFixture(operation, plan, runtime) {
       activeReceipt = receipt;
       write(receiptPath, receipt);
       try {
+        build = await executor.pinBuild(plan, build, output);
+        if (build.buildFingerprint !== plan.buildFingerprint)
+          throw new Error('Pinned fixture build identity differs');
         for (const [method, bundleID] of [
           ['installFixture', plan.bundleID],
           ['installRunner', plan.runnerBundleID],
@@ -275,10 +226,11 @@ export async function executePhysicalFixture(operation, plan, runtime) {
         await guard(receipt.installations);
         receipt.result = await executor.capture(plan, build, output);
         write(receiptPath, receipt);
-        validateResult(plan, receipt.result);
+        validateFixtureResult(plan, receipt.result);
         await guard(receipt.installations);
         const raw = await executor.copyArtifact(plan, output);
-        writeFileSync(join(output, 'capture.json'), raw, { flag: 'wx', mode: 0o600 });
+        assertPrivateTree(output);
+        writeEvidence(join(output, 'capture.json'), raw, { exclusive: true });
         await guard(receipt.installations);
         validateArtifact(plan, build, raw);
         receipt.artifactSHA256 = digest(raw);

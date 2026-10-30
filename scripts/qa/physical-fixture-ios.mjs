@@ -4,104 +4,36 @@
 import { spawnSync } from 'node:child_process';
 import process from 'node:process';
 import console from 'node:console';
-import { createHash } from 'node:crypto';
-import { lstatSync, readFileSync, readdirSync, realpathSync, writeFileSync } from 'node:fs';
+import { realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL, URL } from 'node:url';
-import { assertBuildIdentity, sourceProvenance } from '../ios-capture-fixture.mjs';
+import {
+  assertPrivateTree,
+  assertEvidenceAbsent,
+  evidenceHashes,
+  readEvidenceJSON,
+  readEvidence,
+  writeEvidenceJSON,
+} from './physical-fixture-evidence.mjs';
+import { validateFixtureResult } from './physical-fixture-contract.mjs';
+import { createFixtureBuilds, fixedUITarget } from './physical-fixture-build.mjs';
 
 const appID = 'org.futo.fixture.editor294';
 const runnerID = `${appID}.uitests.xctrunner`;
 const testID = 'DictationCaptureTests/testCapture';
-const hash = (bytes) => createHash('sha256').update(bytes).digest('hex');
-const readJSON = (path) => JSON.parse(readFileSync(path, 'utf8'));
-const save = (path, value) => writeFileSync(path, JSON.stringify(value, null, 2) + '\n');
-
-function files(path, prefix = '') {
-  if (lstatSync(path).isSymbolicLink())
-    throw new Error('Fixture artifacts must not contain symlinks');
-  if (lstatSync(path).isFile()) return [{ path: prefix, sha256: hash(readFileSync(path)) }];
-  if (!lstatSync(path).isDirectory()) throw new Error('Unsupported fixture artifact');
-  return readdirSync(path)
-    .sort()
-    .flatMap((name) => files(join(path, name), `${prefix}/${name}`));
-}
-
-function fixedUITarget(xctestrun) {
-  const target = xctestrun?.Editor294FixtureUITests;
-  if (
-    xctestrun?.__xctestrun_metadata__?.FormatVersion !== 1 ||
-    target?.IsUITestBundle !== true ||
-    target.UITargetAppBundleIdentifier !== appID ||
-    target.TestHostBundleIdentifier !== runnerID ||
-    target.TestHostPath !== '__TESTROOT__/Debug-iphoneos/Editor294FixtureUITests-Runner.app' ||
-    target.UITargetAppPath !== '__TESTROOT__/Debug-iphoneos/Editor294Fixture.app' ||
-    target.TestBundlePath !== '__TESTHOST__/PlugIns/Editor294FixtureUITests.xctest'
-  )
-    throw new Error('XCTest build does not name only the fixed physical fixture and runner');
-  return target;
-}
-
-function inspectFixtureBuild(root, { fixture, products, app, runner }, { run, plist, runCommand }) {
-  const provenance = readJSON(join(fixture, 'Generated/build-provenance.json'));
-  assertBuildIdentity(root, provenance);
-  const appProvenance = readJSON(join(app, 'build-provenance.json'));
-  if (JSON.stringify(appProvenance) !== JSON.stringify(provenance))
-    throw new Error('Bundled fixture provenance differs');
-  const candidates = readdirSync(products).filter((name) =>
-    /^Editor294Fixture_iphoneos[^/]*\.xctestrun$/.test(name),
-  );
-  if (candidates.length !== 1)
-    throw new Error('Exactly one physical fixture XCTest build is required');
-  const testRunPath = join(products, candidates[0]);
-  const xctestrun = plist(testRunPath);
-  fixedUITarget(xctestrun);
-  if (
-    plist(join(app, 'Info.plist')).CFBundleIdentifier !== appID ||
-    plist(join(runner, 'Info.plist')).CFBundleIdentifier !== runnerID
-  )
-    throw new Error('Built fixture or runner bundle identity differs');
-  const artifactSnapshot = () => ({
-    app: files(app),
-    runner: files(runner),
-    xctestrun: hash(readFileSync(testRunPath)),
-    provenance: hash(JSON.stringify(provenance)),
-  });
-  const artifacts = artifactSnapshot();
-  // Verification reads compiled signatures only. It cannot provision, sign,
-  // update a profile or inspect keychains. Unsigned/ad-hoc builds refuse here,
-  // before any device command. Availability is separate from authorization.
-  for (const path of [app, runner]) {
-    run('codesign', ['--verify', '--strict', '--deep', path]);
-    const signature = runCommand('codesign', ['--display', '--verbose=4', path], {
-      cwd: root,
-      encoding: 'utf8',
-      timeout: 10000,
-    });
-    if (
-      signature.error ||
-      signature.status !== 0 ||
-      !/^Authority=/m.test(signature.stderr ?? '') ||
-      /^Signature=adhoc$/m.test(signature.stderr ?? '')
-    )
-      throw new Error('A separately authorized signed fixture build is unavailable');
-  }
-  assertBuildIdentity(root, provenance);
-  if (JSON.stringify(artifactSnapshot()) !== JSON.stringify(artifacts))
-    throw new Error('Compiled fixture artifacts changed during verification');
-  const source = sourceProvenance(root);
-  return {
-    sourceSHA: source.sourceSHA,
-    sourceFingerprint: source.sourceFingerprint,
-    buildFingerprint: hash(JSON.stringify(artifacts)),
-    provenance,
-    artifacts,
-    xctestrun,
-    products,
-  };
-}
+const save = (path, value) => writeEvidenceJSON(path, value, { exclusive: true });
 
 async function captureScenario(plan, build, output, { products, runner, run }) {
+  assertPrivateTree(output);
+  for (const name of [
+    'capture.xctestrun',
+    'capture.xcresult',
+    'xctest-command.json',
+    'xctest-summary.json',
+    'attachments',
+    'xctest-evidence-hashes.json',
+  ])
+    assertEvidenceAbsent(join(output, name));
   const target = fixedUITarget(build.xctestrun);
   const launch = {
     runID: plan.runID,
@@ -167,7 +99,13 @@ async function captureScenario(plan, build, output, { products, runner, run }) {
     '--output-path',
     join(output, 'attachments'),
   ]);
-  const attachmentManifest = readJSON(join(output, 'attachments/manifest.json'));
+  assertPrivateTree(output);
+  const attachmentManifest = readEvidenceJSON(join(output, 'attachments/manifest.json'));
+  if (
+    !Array.isArray(attachmentManifest) ||
+    attachmentManifest.some((item) => !Array.isArray(item.attachments))
+  )
+    throw new Error('Malformed XCTest attachment manifest');
   const attachments = attachmentManifest
     .filter((item) => item.testIdentifier === `${testID}()`)
     .flatMap((item) => item.attachments)
@@ -178,7 +116,7 @@ async function captureScenario(plan, build, output, { products, runner, run }) {
     );
   if (attachments.length !== 1 || !/^[^/\\]+$/.test(attachments[0].exportedFileName))
     throw new Error('Fixed XCTest gesture attachment is missing or ambiguous');
-  const gesture = readJSON(join(output, 'attachments', attachments[0].exportedFileName));
+  const gesture = readEvidenceJSON(join(output, 'attachments', attachments[0].exportedFileName));
   const destinations = Array.isArray(summary.devicesAndConfigurations)
     ? summary.devicesAndConfigurations
     : [summary.devicesAndConfigurations];
@@ -189,10 +127,10 @@ async function captureScenario(plan, build, output, { products, runner, run }) {
   )
     throw new Error('Actual XCTest physical destination differs');
   save(join(output, 'xctest-evidence-hashes.json'), {
-    result: files(resultPath),
-    attachments: files(join(output, 'attachments')),
+    result: evidenceHashes(resultPath),
+    attachments: evidenceHashes(join(output, 'attachments')),
   });
-  return {
+  const result = {
     totalTestCount: summary.totalTestCount,
     passedTests: summary.passedTests,
     failedTests: summary.failedTests,
@@ -201,21 +139,63 @@ async function captureScenario(plan, build, output, { products, runner, run }) {
     testIdentifier: testID,
     gesture,
   };
+  validateFixtureResult(plan, result);
+  return result;
+}
+
+function inspectPhysicalDevice(plan, deviceJSON, appInventory) {
+  const details = deviceJSON(plan, ['info', 'details', '--omit-deprecated-fields-in-json']);
+  const device = details.result?.device ?? details.result;
+  const lock = deviceJSON(plan, ['info', 'lockState']);
+  const properties = device?.properties;
+  if (
+    device?.identifier !== plan.coreDeviceID ||
+    properties?.hardware?.udid !== plan.deviceUDID ||
+    properties?.hardware?.reality !== 'physical' ||
+    properties?.hardware?.platform !== 'iOS' ||
+    properties?.state?.bootState !== 'booted' ||
+    properties?.connection?.pairingState !== 'paired' ||
+    properties?.connection?.state !== 'connected' ||
+    properties?.connection?.transportType !== 'wired' ||
+    lock.result?.passcodeRequired !== false ||
+    lock.result?.unlockedSinceBoot !== true
+  )
+    throw new Error('Physical fixture device details or lock schema differs or is unavailable');
+  const inventories = [appInventory(plan, appID), appInventory(plan, runnerID)];
+  return {
+    deviceUDID: properties?.hardware?.udid,
+    coreDeviceID: device?.identifier,
+    physical:
+      properties?.hardware?.reality === 'physical' && properties?.hardware?.platform === 'iOS',
+    available:
+      properties?.state?.bootState === 'booted' &&
+      properties?.connection?.pairingState === 'paired' &&
+      properties?.connection?.state === 'connected' &&
+      properties?.connection?.transportType === 'wired',
+    // Unknown lock-result shapes fail closed; first authorized device read
+    // must retain the raw schema rather than infer unlocked from availability.
+    unlocked: lock.result?.passcodeRequired === false && lock.result?.unlockedSinceBoot === true,
+    installations: inventories.flatMap((inventory) => inventory.installations),
+    raw: { details, lock, apps: inventories.map((inventory) => inventory.raw) },
+  };
 }
 
 export function createIOSFixtureExecutor(root, { runCommand = spawnSync } = {}) {
-  const fixture = join(root, 'apps/ios/FixtureCapture');
-  const products = join(fixture, '.build-native/Build/Products');
-  const app = join(products, 'Debug-iphoneos/Editor294Fixture.app');
-  const runner = join(products, 'Debug-iphoneos/Editor294FixtureUITests-Runner.app');
   function run(command, args, { timeout = 20000, output, name } = {}) {
-    const result = runCommand(command, args, {
-      cwd: root,
-      encoding: 'utf8',
-      timeout,
-      maxBuffer: 32 * 1024 * 1024,
-      env: { ...process.env, NSUnbufferedIO: 'YES' },
-    });
+    let result;
+    const mask = process.umask(0o077);
+    try {
+      result = runCommand(command, args, {
+        cwd: root,
+        encoding: 'utf8',
+        timeout,
+        maxBuffer: 32 * 1024 * 1024,
+        env: { ...process.env, NSUnbufferedIO: 'YES' },
+      });
+    } finally {
+      process.umask(mask);
+    }
+    if (output) assertPrivateTree(output);
     if (output && name)
       save(join(output, name), {
         command,
@@ -248,7 +228,9 @@ export function createIOSFixtureExecutor(root, { runCommand = spawnSync } = {}) 
         options,
       ),
     );
-    if (raw.info?.outcome !== 'success') throw new Error('CoreDevice operation did not succeed');
+    if (raw?.info?.outcome !== 'success') throw new Error('CoreDevice operation did not succeed');
+    if (!args.includes('details') && raw.result?.deviceIdentifier !== plan.coreDeviceID)
+      throw new Error('CoreDevice operation destination differs or is unknown');
     return raw;
   }
   function appInventory(plan, bundleID) {
@@ -262,7 +244,14 @@ export function createIOSFixtureExecutor(root, { runCommand = spawnSync } = {}) 
     if (
       raw.result?.deviceIdentifier !== plan.coreDeviceID ||
       !Array.isArray(raw.result.apps) ||
-      raw.result.apps.some((a) => a.bundleIdentifier !== bundleID)
+      raw.result.apps.some(
+        (a) =>
+          a.bundleIdentifier !== bundleID ||
+          typeof a.bundleVersion !== 'string' ||
+          !a.bundleVersion ||
+          typeof a.url !== 'string' ||
+          !a.url,
+      )
     )
       throw new Error('Installed bundle inventory destination or filter differs');
     return {
@@ -275,6 +264,9 @@ export function createIOSFixtureExecutor(root, { runCommand = spawnSync } = {}) 
     };
   }
   function install(plan, path, bundleID, output, name) {
+    assertPrivateTree(output);
+    assertEvidenceAbsent(join(output, name));
+    assertEvidenceAbsent(join(output, `${name}.inventory.json`));
     const raw = deviceJSON(plan, ['install', 'app', path], { output, name });
     const installed = raw.result?.installedApplications;
     if (!Array.isArray(installed) || installed.length !== 1 || installed[0].bundleID !== bundleID)
@@ -284,41 +276,36 @@ export function createIOSFixtureExecutor(root, { runCommand = spawnSync } = {}) 
     if (inventory.installations.length !== 1) throw new Error('Fixture installation is ambiguous');
     return inventory.installations[0];
   }
+  const { inspectBuild, pinBuild, pinnedPaths } = createFixtureBuilds(root, {
+    run,
+    plist,
+    runCommand,
+  });
   return {
-    inspectBuild: () =>
-      inspectFixtureBuild(root, { fixture, products, app, runner }, { run, plist, runCommand }),
-    inspectDevice(plan) {
-      const details = deviceJSON(plan, ['info', 'details', '--omit-deprecated-fields-in-json']);
-      const device = details.result?.device ?? details.result;
-      const lock = deviceJSON(plan, ['info', 'lockState']);
-      const inventories = [appInventory(plan, appID), appInventory(plan, runnerID)];
-      const properties = device?.properties;
-      return {
-        deviceUDID: properties?.hardware?.udid,
-        coreDeviceID: device?.identifier,
-        physical:
-          properties?.hardware?.reality === 'physical' && properties?.hardware?.platform === 'iOS',
-        available:
-          properties?.state?.bootState === 'booted' &&
-          properties?.connection?.pairingState === 'paired' &&
-          properties?.connection?.state === 'connected' &&
-          properties?.connection?.transportType === 'wired',
-        // Unknown lock-result shapes fail closed; first authorized device read
-        // must retain the raw schema rather than infer unlocked from availability.
-        unlocked:
-          lock.result?.passcodeRequired === false && lock.result?.unlockedSinceBoot === true,
-        installations: inventories.flatMap((inventory) => inventory.installations),
-        raw: { details, lock, apps: inventories.map((inventory) => inventory.raw) },
-      };
+    inspectBuild,
+    pinBuild,
+    inspectDevice: (plan) => inspectPhysicalDevice(plan, deviceJSON, appInventory),
+    async installFixture(plan, build, output) {
+      return install(plan, pinnedPaths(build, output).app, appID, output, 'install-fixture.json');
     },
-    installFixture: (plan, _build, output) =>
-      install(plan, app, appID, output, 'install-fixture.json'),
-    installRunner: (plan, _build, output) =>
-      install(plan, runner, runnerID, output, 'install-runner.json'),
-    capture: (plan, build, output) =>
-      captureScenario(plan, build, output, { products, runner, run }),
+    async installRunner(plan, build, output) {
+      return install(
+        plan,
+        pinnedPaths(build, output).runner,
+        runnerID,
+        output,
+        'install-runner.json',
+      );
+    },
+    async capture(plan, build, output) {
+      fixedUITarget(build.xctestrun);
+      return captureScenario(plan, build, output, { ...pinnedPaths(build, output), run });
+    },
     copyArtifact(plan, output) {
+      assertPrivateTree(output);
       const path = join(output, 'capture.raw.json');
+      assertEvidenceAbsent(path);
+      assertEvidenceAbsent(join(output, 'copy-artifact-command.json'));
       deviceJSON(
         plan,
         [
@@ -335,7 +322,8 @@ export function createIOSFixtureExecutor(root, { runCommand = spawnSync } = {}) 
         ],
         { output, name: 'copy-artifact-command.json' },
       );
-      return readFileSync(path, 'utf8');
+      assertPrivateTree(output);
+      return readEvidence(path);
     },
   };
 }

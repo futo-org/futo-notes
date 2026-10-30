@@ -10,9 +10,7 @@ import {
   closeSync,
   existsSync,
   lstatSync,
-  mkdirSync,
   openSync,
-  readFileSync,
   realpathSync,
   unlinkSync,
   writeFileSync,
@@ -22,7 +20,14 @@ import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { setTimeout } from 'node:timers/promises';
 
-const UUID = /^[0-9A-F]{8}(?:-[0-9A-F]{4}){3}-[0-9A-F]{12}$/;
+import {
+  assertPrivateDirectory,
+  createEvidenceDirectory,
+  readEvidence,
+  readEvidenceJSON,
+} from './physical-fixture-evidence.mjs';
+import { validateFixturePlan } from './physical-fixture-contract.mjs';
+
 const fields = [
   'host',
   'deviceUDID',
@@ -69,25 +74,8 @@ export function physicalFixtureHostPaths() {
 }
 
 function reservation(plan, runtime) {
+  validateFixturePlan(plan);
   if (plan.host !== runtime.host) throw new Error('Physical transport owner host differs');
-  if (!/^[0-9A-F]{8}-[0-9A-F]{16}$/.test(plan.deviceUDID) || !UUID.test(plan.coreDeviceID))
-    throw new Error('An exact physical hardware UDID and CoreDevice ID are required');
-  if (!UUID.test(plan.runID) || !UUID.test(plan.nonce) || plan.runID === plan.nonce)
-    throw new Error('Fresh distinct run and nonce UUIDs are required');
-  if (!/^[0-9a-f]{40}$/.test(plan.sourceSHA) || !/^[0-9a-f]{64}$/.test(plan.sourceFingerprint))
-    throw new Error('Exact source identity is required');
-  if (
-    !/^[0-9a-f]{64}$/.test(plan.buildFingerprint) ||
-    !Number.isInteger(plan.seconds) ||
-    plan.seconds < 1 ||
-    plan.seconds > 120
-  )
-    throw new Error('Exact fixture build and bounded duration are required');
-  if (
-    plan.bundleID !== 'org.futo.fixture.editor294' ||
-    plan.runnerBundleID !== 'org.futo.fixture.editor294.uitests.xctrunner'
-  )
-    throw new Error('Only the standalone fixture identities may be reserved');
   if (realpathSync(plan.worktree) !== plan.worktree) throw new Error('Canonical checkout required');
   const ownerStart = runtime.processIdentity(plan.ownerPID);
   if (!ownerStart) throw new Error('Lease owner is not live');
@@ -104,19 +92,16 @@ function leasePath(plan, runtime) {
 }
 
 function validateDirectory(runtime) {
-  const directory = lstatSync(runtime.directory);
-  if (
-    !directory.isDirectory() ||
-    directory.isSymbolicLink() ||
-    directory.uid !== process.getuid() ||
-    (directory.mode & 0o777) !== 0o700 ||
-    realpathSync(runtime.directory) !== runtime.directory
-  )
-    throw new Error('Lease directory ownership, canonical path or private mode differs; no repair');
+  assertPrivateDirectory(runtime.directory);
 }
 
 function lockLease(plan, runtime) {
-  mkdirSync(runtime.directory, { recursive: true, mode: 0o700 });
+  try {
+    lstatSync(runtime.directory);
+  } catch (error) {
+    if (error.code !== 'ENOENT') throw error;
+    createEvidenceDirectory(runtime.directory);
+  }
   validateDirectory(runtime);
   const path = leasePath(plan, runtime) + '.in-use';
   const identity = JSON.stringify({
@@ -138,7 +123,7 @@ function lockLease(plan, runtime) {
     closeSync(fd);
   }
   return () => {
-    if (readFileSync(path, 'utf8') !== identity)
+    if (readEvidence(path) !== identity)
       throw new Error('Physical reservation lock changed; retained');
     unlinkSync(path);
   };
@@ -175,18 +160,19 @@ export function readLease(plan, options = {}) {
   const path = leasePath(plan, runtime);
   if (!lstatSync(path).isFile() || lstatSync(path).isSymbolicLink())
     throw new Error('Invalid lease file');
-  const lease = JSON.parse(readFileSync(path, 'utf8'));
+  const lease = readEvidenceJSON(path);
   if (JSON.stringify(lease) !== JSON.stringify(expected))
     throw new Error('Physical lease, source, run, or owner process identity differs');
   return lease;
 }
 
-export function releaseLease(plan, options = {}) {
+export function releaseLease(plan, options = {}, beforeRelease = () => {}) {
   const runtime = runtimeDefaults(options);
   readLease(plan, runtime);
   const unlock = lockLease(plan, runtime);
   try {
     readLease(plan, runtime);
+    beforeRelease();
     unlinkSync(leasePath(plan, runtime));
   } finally {
     unlock();
@@ -209,8 +195,7 @@ export async function useLease(plan, action, options = {}) {
 /// PID. It remains live across separate Puppet calls and exits after exact
 /// release/close. Interrupting it preserves a stale lease for explicit diagnosis.
 export async function holdLease(template, options = {}) {
-  if (Object.hasOwn(template, 'ownerPID'))
-    throw new Error('The reservation keeper owns its PID; omit ownerPID');
+  validateFixturePlan(template, { template: true });
   const runtime = runtimeDefaults(options);
   const plan = { ...template, ownerPID: process.pid };
   const lease = acquireLease(plan, runtime);
@@ -255,7 +240,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     extra.length
   )
     throw new Error('physical-fixture-lease acquire|read|release --manifest <path>');
-  const plan = JSON.parse(readFileSync(path, 'utf8'));
+  const plan = readEvidenceJSON(path);
   const result = await { acquire: holdLease, read: readLease, release: releaseLease }[operation](
     plan,
   );
