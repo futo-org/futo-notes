@@ -293,7 +293,7 @@ impl EditorSession {
         }
         let mut shifted_prefixes: BTreeMap<
             usize,
-            (crate::inline::blocks::SourcePrefix, Vec<(usize, isize)>),
+            (crate::inline::blocks::SourcePrefix, BTreeMap<usize, isize>),
         > = BTreeMap::new();
         for (mut at, item, quote, delta) in owned_shifts {
             while at < item.end {
@@ -310,16 +310,17 @@ impl EditorSession {
                     item.start <= list.marker.start && list.marker.start < item.end
                 });
                 if belongs {
-                    shifted_prefixes
+                    *shifted_prefixes
                         .entry(at)
-                        .or_insert_with(|| (prefix, Vec::new()))
+                        .or_insert_with(|| (prefix, BTreeMap::new()))
                         .1
-                        .push((quote, delta));
+                        .entry(quote)
+                        .or_default() += delta;
                 }
                 at = next;
             }
         }
-        for (at, (prefix, mut shifts)) in shifted_prefixes {
+        for (at, (prefix, shifts)) in shifted_prefixes {
             let existing = head_prefixes.get(&at).copied();
             let mut value = if let Some(index) = existing {
                 std::mem::take(&mut replacements[index].1)
@@ -328,8 +329,8 @@ impl EditorSession {
                 materialized += value.len();
                 value
             };
-            shifts.sort_by_key(|(quote, _)| *quote);
             for (quote, delta) in shifts {
+                crate::inline::visit_container();
                 let blank = !prefix.code
                     && !prefix.list.as_ref().is_some_and(|list| list.first)
                     && prefix.quote_depth <= quote
