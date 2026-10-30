@@ -26,14 +26,6 @@ impl EditorSession {
                     BlockCommand::TaskList => list.checked.is_some(),
                     _ => false,
                 });
-        if remove
-            && lines
-                .first()
-                .and_then(|line| line.list.as_ref())
-                .is_some_and(|list| list.parent_marker.is_some())
-        {
-            return self.lift_nested_list(expected, range, &lines, accept);
-        }
         if remove {
             let items: Vec<_> = lines
                 .iter()
@@ -107,6 +99,14 @@ impl EditorSession {
                     Ok(Some(change))
                 },
             );
+        }
+        if remove
+            && lines
+                .first()
+                .and_then(|line| line.list.as_ref())
+                .is_some_and(|list| list.parent_marker.is_some())
+        {
+            return self.lift_nested_list(expected, range, &lines, accept);
         }
         let styles = (!remove).then(|| self.list_styles(&lines, command));
         let start = lines.first().unwrap().source.start;

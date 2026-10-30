@@ -55,7 +55,7 @@ impl EditorSession {
         output.push_str(&quote[..retained]);
         let mut materialized = quote.len() + ending.len();
         let body = self.source.byte_slice(first.content.clone()).to_string();
-        let (body, parsed) = super::content::protect_content(&body, false, true);
+        let (body, mut parsed) = super::content::protect_content(&body, false, true);
         output.push_str(&body);
         output.push_str(&ending);
         materialized += body.len();
@@ -69,6 +69,25 @@ impl EditorSession {
                 .ok_or(EditorError::UnrepresentableFormat)?;
             if prefix.source.end <= at {
                 return Err(EditorError::UnrepresentableFormat);
+            }
+            if let Ok(index) = lines.binary_search_by_key(&at, |line| line.source.start) {
+                let line = &lines[index];
+                if let Some(list) = line.list.as_ref() {
+                    shift = list.content_column - base;
+                    let raw = self.source.byte_slice(line.content.clone()).to_string();
+                    let (body, work) = super::content::protect_content(&raw, false, true);
+                    parsed += work;
+                    output.push_str(&quote[..retained]);
+                    output.push_str(&body);
+                    let ending = self
+                        .source
+                        .byte_slice(line.content.end..line.source.end)
+                        .to_string();
+                    output.push_str(&ending);
+                    materialized += raw.len() + body.len() + ending.len();
+                    at = line.source.end;
+                    continue;
+                }
             }
             if let Some(list) = &prefix.list {
                 if list.first
