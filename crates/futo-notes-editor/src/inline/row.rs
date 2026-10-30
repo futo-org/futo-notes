@@ -90,6 +90,10 @@ impl Row {
             }
         }
         for block in &blocks {
+            if block.empty_comment {
+                hidden[block.source.clone()].fill(true);
+                continue;
+            }
             hidden[block.source.start..block.content.start].fill(true);
             let end = source[block.source.clone()]
                 .trim_end_matches(['\r', '\n'])

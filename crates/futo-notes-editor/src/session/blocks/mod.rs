@@ -22,6 +22,7 @@ mod divider;
 mod keys;
 mod list_commands;
 mod list_join;
+mod list_styles;
 mod list_typing;
 mod lists;
 mod transaction;

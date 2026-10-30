@@ -99,10 +99,25 @@ impl EditorSession {
                 },
             );
         }
+        let styles = (!remove).then(|| self.list_styles(&lines, command));
         let start = lines.first().unwrap().source.start;
-        let end = lines.last().unwrap().source.end;
+        let end = lines.last().unwrap().source.end.max(
+            styles
+                .as_ref()
+                .and_then(|styles| styles.comments.iter().map(|(at, _)| *at).max())
+                .unwrap_or(0),
+        );
         let mut output = self.source.byte_slice(start..end).to_string();
-        let mut replacements = Vec::new();
+        let mut replacements: Vec<_> = styles
+            .as_ref()
+            .map(|styles| {
+                styles
+                    .comments
+                    .iter()
+                    .map(|(at, text)| (at - start..at - start, text.clone()))
+                    .collect()
+            })
+            .unwrap_or_default();
         let mut parsed = 0;
         let mut materialized = 0;
         let mut selection = range;
@@ -123,7 +138,7 @@ impl EditorSession {
         let mut separators = Vec::new();
         let mut ordinal = 1u64;
         let mut previous_owner = None;
-        for line in &lines {
+        for (index, line) in lines.iter().enumerate() {
             let body = self.source.byte_slice(line.content.clone()).to_string();
             let (body, work) = if remove {
                 super::content::protect_content(&body, false, true)
@@ -155,7 +170,10 @@ impl EditorSession {
                 String::new()
             } else {
                 match command {
-                    BlockCommand::OrderedList => format!("{ordinal}. "),
+                    BlockCommand::OrderedList => format!(
+                        "{ordinal}{} ",
+                        styles.as_ref().unwrap().markers[index] as char
+                    ),
                     BlockCommand::TaskList => {
                         let checked = line
                             .task
@@ -166,9 +184,12 @@ impl EditorSession {
                                     .to_string()
                             })
                             .unwrap_or_else(|| " ".into());
-                        format!("- [{checked}] ")
+                        format!(
+                            "{} [{checked}] ",
+                            styles.as_ref().unwrap().markers[index] as char
+                        )
                     }
-                    _ => "- ".into(),
+                    _ => format!("{} ", styles.as_ref().unwrap().markers[index] as char),
                 }
             };
             ordinal += 1;
