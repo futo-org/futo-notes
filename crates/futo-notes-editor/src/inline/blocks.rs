@@ -29,6 +29,7 @@ pub(crate) struct ListCommandLine {
     pub quote_depth: usize,
     pub divider: bool,
     pub code: bool,
+    pub empty_comment: bool,
     pub list: Option<super::lists::ListLine>,
     pub task: Option<Range<usize>>,
 }
@@ -48,6 +49,7 @@ impl ListCommandLine {
             quote_depth: block.quote_depth,
             divider: block.divider,
             code: block.code,
+            empty_comment: block.empty_comment,
             list,
             task: block.task.as_ref().map(shift),
         }

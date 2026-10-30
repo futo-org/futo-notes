@@ -31,6 +31,7 @@ mod list_join;
 mod list_lift;
 mod list_lift_crossquote;
 mod list_styles;
+mod list_targets;
 mod list_typing;
 mod lists;
 mod transaction;

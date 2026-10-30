@@ -43,46 +43,27 @@ impl EditorSession {
         scope: LiftScope,
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<Option<ViewChange>, EditorError> {
-        let mut lines: Vec<_> = self
-            .selected_list_lines(range)
-            .into_iter()
-            .filter(|line| !line.code && !line.divider)
-            .collect();
-        let remove = command == BlockCommand::Heading(0)
-            || lines
-                .first()
-                .and_then(|line| line.list.as_ref())
-                .is_some_and(|list| match command {
-                    BlockCommand::BulletList => list.ordinal.is_none() && list.checked.is_none(),
-                    BlockCommand::OrderedList => list.ordinal.is_some() && list.checked.is_none(),
-                    BlockCommand::TaskList => list.checked.is_some(),
-                    _ => false,
-                });
-        if remove {
-            let items: Vec<_> = lines
-                .iter()
-                .filter_map(|line| line.list.as_ref().map(|list| list.item.clone()))
-                .collect();
-            for item in items {
-                let selected = DisplayRange {
-                    start: DisplayOffset(self.projection.display_at(item.start)),
-                    end: DisplayOffset(self.projection.display_at(item.end)),
-                };
-                lines.extend(
-                    self.projection
-                        .list_command_lines(selected)
-                        .into_iter()
-                        .filter(|line| {
-                            !line.code && line.list.as_ref().is_some_and(|list| list.item == item)
-                        }),
-                );
-            }
+        let mut lines = self.selected_list_lines(range);
+        let targets = super::list_targets::ListTargets::new(
+            &lines,
+            command,
+            scope == LiftScope::AllAncestors,
+        );
+        for item in targets.retired_items() {
+            let selected = DisplayRange {
+                start: DisplayOffset(self.projection.display_at(item.start)),
+                end: DisplayOffset(self.projection.display_at(item.end)),
+            };
+            lines.extend(
+                self.projection
+                    .list_command_lines(selected)
+                    .into_iter()
+                    .filter(|line| {
+                        !line.code && line.list.as_ref().is_some_and(|list| list.item == *item)
+                    }),
+            );
         }
-        let owners: Vec<_> = lines
-            .iter()
-            .filter_map(|line| line.list.as_ref().map(|list| list.owner.clone()))
-            .collect();
-        for owner in owners.into_iter().filter(|_| !remove) {
+        for owner in targets.changed_owners() {
             let group = DisplayRange {
                 start: DisplayOffset(self.projection.display_at(owner.start)),
                 end: DisplayOffset(self.projection.display_at(owner.end)),
@@ -96,46 +77,20 @@ impl EditorSession {
                             && line
                                 .list
                                 .as_ref()
-                                .is_some_and(|list| list.first && list.owner == owner)
+                                .is_some_and(|list| list.first && list.owner == *owner)
                     }),
             );
         }
-        lines.retain(|line| remove || line.list.as_ref().is_none_or(|list| list.first));
-        lines.sort_by_key(|line| line.source.start);
-        lines.dedup_by_key(|line| line.source.start);
-        let mut covered_descendants = false;
-        if remove && scope == LiftScope::AllAncestors {
-            let mut ancestor: Option<crate::inline::ListLine> = None;
-            let kind = |list: &crate::inline::ListLine| {
-                if list.checked.is_some() {
-                    BlockCommand::TaskList
-                } else if list.ordinal.is_some() {
-                    BlockCommand::OrderedList
-                } else {
-                    BlockCommand::BulletList
-                }
-            };
-            lines.retain(|line| {
-                crate::inline::visit_container();
-                let Some(list) = &line.list else {
-                    ancestor = None;
-                    return true;
-                };
-                if ancestor.as_ref().is_some_and(|outer| {
-                    outer.item.start <= list.marker.start
-                        && list.marker.start < outer.item.end
-                        && outer.depth < list.depth
-                        && kind(outer) == kind(list)
-                }) {
-                    covered_descendants = true;
-                    return false;
-                }
-                if list.first {
-                    ancestor = Some(list.clone());
-                }
-                true
-            });
-        }
+        lines.retain(|line| targets.applies(line));
+        lines.sort_by_key(|line| {
+            crate::inline::visit_container();
+            line.source.start
+        });
+        lines.dedup_by_key(|line| {
+            crate::inline::visit_container();
+            line.source.start
+        });
+        let remove = lines.iter().all(|line| targets.removes(line));
         if lines.is_empty() {
             return Ok(None);
         }
@@ -184,17 +139,18 @@ impl EditorSession {
             && lines
                 .first()
                 .and_then(|line| line.list.as_ref())
-                .is_some_and(|list| list.parent_marker.is_some() || covered_descendants)
+                .is_some_and(|list| list.parent_marker.is_some() || targets.covered_descendants)
         {
             return self.lift_nested_list(expected, range, &lines, accept);
         }
-        let styles = (!remove).then(|| self.list_styles(&lines, command));
+        let styles = (!remove).then(|| self.list_styles(&lines, command, &targets));
         let start = lines.first().unwrap().source.start;
         let owned_end = if remove {
             0
         } else {
             lines
                 .iter()
+                .filter(|line| !targets.removes(line))
                 .filter_map(|line| line.list.as_ref())
                 .map(|list| list.item.end)
                 .max()
@@ -222,14 +178,10 @@ impl EditorSession {
         let mut head_prefixes = HashMap::new();
         let mut owned_shifts = Vec::new();
         let mut selection = range;
-        let selected: Vec<_> = lines
-            .iter()
-            .filter_map(|line| line.list.as_ref().map(|list| list.marker.start))
-            .collect();
         let at_source = |at| {
             let point = DisplayOffset(self.projection.display_at(at));
             self.projection
-                .block_lines(DisplayRange {
+                .list_command_lines(DisplayRange {
                     start: point,
                     end: point,
                 })
@@ -237,9 +189,8 @@ impl EditorSession {
                 .next()
         };
         let mut separators = Vec::new();
-        let mut ordinal = 1u64;
-        let mut previous_owner = None;
         for (index, line) in lines.iter().enumerate() {
+            let remove = targets.removes(line);
             if line.heading > 0 {
                 // ATX closing hashes and a setext underline belong to the
                 // retired heading; retain its final physical line ending.
@@ -257,11 +208,6 @@ impl EditorSession {
             parsed += work;
             materialized += line.content.len() + body.len();
             replacements.push((line.content.start - start..line.content.end - start, body));
-            let owner = line.list.as_ref().map(|list| list.owner.clone());
-            if owner != previous_owner {
-                ordinal = 1;
-            }
-            previous_owner = owner;
             let prefix = self
                 .source
                 .byte_slice(line.source.start..line.content.start)
@@ -288,7 +234,7 @@ impl EditorSession {
                 match command {
                     BlockCommand::OrderedList => format!(
                         "{}{} ",
-                        super::lists::physical_number(ordinal),
+                        super::lists::physical_number(styles.as_ref().unwrap().ordinals[index]),
                         styles.as_ref().unwrap().markers[index] as char
                     ),
                     BlockCommand::TaskList => {
@@ -309,7 +255,6 @@ impl EditorSession {
                     _ => format!("{} ", styles.as_ref().unwrap().markers[index] as char),
                 }
             };
-            ordinal += 1;
             let mut replacement = format!("{}{marker}", &prefix[..retained]);
             if remove {
                 if let Some(list) = &line.list {
@@ -324,8 +269,7 @@ impl EditorSession {
                             .is_empty()
                             && at_source(previous).and_then(|line| line.list).is_some_and(
                                 |previous| {
-                                    previous.owner == list.owner
-                                        && !selected.contains(&previous.marker.start)
+                                    previous.owner == list.owner && !targets.retires_item(&previous)
                                 },
                             )
                         {
@@ -337,7 +281,7 @@ impl EditorSession {
                     if line.source.end < self.source.len_bytes() {
                         if let Some(next) = at_source(line.source.end).and_then(|line| line.list) {
                             if next.owner == list.owner
-                                && !selected.contains(&next.marker.start)
+                                && !targets.retires_item(&next)
                                 && next.ordinal.is_some()
                                 && self
                                     .source

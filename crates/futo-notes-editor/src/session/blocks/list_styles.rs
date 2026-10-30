@@ -1,6 +1,7 @@
 //! Pick a supported marker without changing either neighboring list. When the
 //! two ordered delimiters are both occupied, one standard empty comment keeps
 //! the chosen list independent (CommonMark 0.31.2, example 308).
+use super::list_targets::ListTargets;
 use super::*;
 use crate::inline::blocks::{BlockLine, ListCommandLine};
 use std::collections::{HashMap, HashSet};
@@ -8,6 +9,7 @@ use std::collections::{HashMap, HashSet};
 pub(super) struct ListStylePlan {
     pub markers: Vec<u8>,
     pub quotes: Vec<usize>,
+    pub ordinals: Vec<u64>,
     pub comments: Vec<(usize, String)>,
 }
 
@@ -21,8 +23,9 @@ impl EditorSession {
         &self,
         lines: &[ListCommandLine],
         command: BlockCommand,
+        targets: &ListTargets,
     ) -> ListStylePlan {
-        self.plan_list_styles(lines, command, ListIntent::Independent)
+        self.plan_list_styles(lines, command, ListIntent::Independent, Some(targets))
     }
 
     pub(super) fn list_shortcut_styles(
@@ -39,6 +42,7 @@ impl EditorSession {
                 BlockCommand::BulletList
             },
             ListIntent::Shortcut { start },
+            None,
         )
     }
 
@@ -47,17 +51,20 @@ impl EditorSession {
         lines: &[ListCommandLine],
         command: BlockCommand,
         intent: ListIntent,
+        targets: Option<&ListTargets>,
     ) -> ListStylePlan {
         let ordered = command == BlockCommand::OrderedList;
         let candidates: &[u8] = if ordered { b".)" } else { b"-+*" };
         let planned_owners: HashSet<_> = lines
             .iter()
+            .filter(|line| targets.is_none_or(|targets| !targets.removes(line)))
             .filter_map(|line| line.list.as_ref().map(|list| list.owner.start))
             .collect();
         let mut resolved_owners = HashMap::new();
         let mut resolved_lines = HashMap::new();
         let mut result = ListStylePlan {
             markers: vec![candidates[0]; lines.len()],
+            ordinals: vec![1; lines.len()],
             quotes: lines
                 .iter()
                 .map(|line| {
@@ -76,10 +83,19 @@ impl EditorSession {
         };
         let mut first = 0;
         while first < lines.len() {
+            if targets.is_some_and(|targets| targets.removes(&lines[first])) {
+                first += 1;
+                continue;
+            }
             let owner = lines[first].list.as_ref().map(|list| list.owner.clone());
             let mut last = first + 1;
             while last < lines.len()
+                && targets.is_none_or(|targets| !targets.removes(&lines[last]))
                 && lines[last].list.as_ref().map(|list| list.owner.clone()) == owner
+                && (owner.is_some()
+                    || targets.is_none_or(|targets| {
+                        targets.run(&lines[first]) == targets.run(&lines[last])
+                    }))
             {
                 last += 1;
             }
@@ -95,7 +111,7 @@ impl EditorSession {
                 let mut scan = after_line;
                 while scan < self.source.len_lines() {
                     let at = self.source.line_to_byte(scan);
-                    let Some(line) = self.projection.block_at_source(at) else {
+                    let Some(line) = self.projection.list_command_line_at_source(at) else {
                         break;
                     };
                     let belongs = line.list.as_ref().is_some_and(|list| {
@@ -120,7 +136,7 @@ impl EditorSession {
             }
             while after_line > before_line + 1 {
                 let at = self.source.line_to_byte(after_line - 1);
-                let Some(line) = self.projection.block_at_source(at) else {
+                let Some(line) = self.projection.list_command_line_at_source(at) else {
                     break;
                 };
                 let blank = self
@@ -140,18 +156,35 @@ impl EditorSession {
             let neighbor = |at: usize, forward: bool| {
                 let neighbor = self.semantic_neighbor(at, forward, quote_depth)?;
                 let line = neighbor.witness;
-                if line.empty_comment || line.code || line.quote_depth != quote_depth {
+                if line.empty_comment || line.code {
+                    return None;
+                }
+                if neighbor.local
+                    && targets.is_some_and(|targets| {
+                        targets.retires(line.source.start, line.list.as_ref())
+                    })
+                {
+                    return None;
+                }
+                // A planned local paragraph may now be a root list. Resolve its
+                // explicit outcome before consulting its original quote scope.
+                if neighbor.local && line.list.is_none() {
+                    if let Some(&(marker, quote, nested)) = resolved_lines.get(&line.source.start) {
+                        return (quote == quote_depth && nested == depth).then_some((marker, None));
+                    }
+                }
+                if line.quote_depth != quote_depth {
                     return None;
                 }
                 if let Some(list) = &line.list {
                     if list.depth != depth {
                         return None;
                     }
-                    if let Some(&marker) = resolved_owners
+                    if let Some(&(marker, quote, nested)) = resolved_owners
                         .get(&list.owner.start)
                         .filter(|_| neighbor.local)
                     {
-                        return Some((marker, None));
+                        return (quote == quote_depth && nested == depth).then_some((marker, None));
                     }
                     if neighbor.local && planned_owners.contains(&list.owner.start) {
                         return None;
@@ -162,13 +195,8 @@ impl EditorSession {
                             list.ordinal.map(|number| number + 1),
                         ));
                     }
-                    return None;
                 }
-                resolved_lines
-                    .get(&line.source.start)
-                    .filter(|_| neighbor.local)
-                    .copied()
-                    .map(|marker| (marker, None))
+                None
             };
             let preceding = neighbor(head.source.start, false);
             let before = preceding.map(|(marker, _)| marker);
@@ -188,11 +216,16 @@ impl EditorSession {
             };
             let marker = join.unwrap_or_else(|| independent_marker(ordered, before, after));
             for index in first..last {
+                crate::inline::visit_container();
                 result.markers[index] = marker;
-                resolved_lines.insert(lines[index].source.start, marker);
+                result.ordinals[index] = (index - first) as u64 + 1;
+                resolved_lines.insert(
+                    lines[index].source.start,
+                    (marker, result.quotes[index], depth),
+                );
             }
             if let Some(owner) = &owner {
-                resolved_owners.insert(owner.start, marker);
+                resolved_owners.insert(owner.start, (marker, quote_depth, depth));
             }
             let prefix = self
                 .source

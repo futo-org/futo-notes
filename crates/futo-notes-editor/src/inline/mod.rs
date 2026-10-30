@@ -192,6 +192,11 @@ impl Projection {
         Some((row.blocks.get(index)?, base))
     }
 
+    pub(crate) fn list_command_line_at_source(&self, at: usize) -> Option<blocks::ListCommandLine> {
+        let (block, base) = self.block_ref_at_source(at)?;
+        Some(blocks::ListCommandLine::from_block(block, base))
+    }
+
     pub(crate) fn block_at_source(&self, at: usize) -> Option<blocks::BlockLine> {
         let (block, base) = self.block_ref_at_source(at)?;
         let mut block = block.clone();
