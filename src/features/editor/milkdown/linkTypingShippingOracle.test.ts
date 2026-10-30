@@ -187,3 +187,35 @@ it('the shipping composition transaction links first and the owned compositionen
     { text: 'https://x.test/a', types: ['emphasis', 'link'], href: 'https://x.test/a' },
   ]);
 });
+
+it('the shipping compositionend rule keeps an unfinished URL closer literal and unlinked', async () => {
+  const view = editor.ctx.get(editorViewCtx);
+  view.updateState(EditorState.create({ schema: view.state.schema, plugins: view.state.plugins }));
+  const text = 'x *b https://x.test/a*';
+  // A no-op rule has no changed-display condition to await. Drain the owned
+  // composition callbacks with the boundary clock before destroying the ctx.
+  vi.useFakeTimers();
+  try {
+    view.dom.dispatchEvent(new window.CompositionEvent('compositionstart', { bubbles: true }));
+    expect(view.composing).toBe(true);
+    const { from, to } = view.state.selection;
+    const commit = () => view.state.tr.insertText(text, from, to).setMeta('composition', 1);
+    const handled = view.someProp('handleTextInput', (handler) =>
+      handler(view, from, to, text, commit),
+    );
+    if (!handled) view.dispatch(commit());
+    view.dom.dispatchEvent(
+      new window.CompositionEvent('compositionend', { bubbles: true, data: text }),
+    );
+    await vi.runOnlyPendingTimersAsync();
+    expect(view.composing).toBe(false);
+    expect(view.state.doc.textContent).toBe(text);
+    const marked: string[] = [];
+    view.state.doc.descendants((node) => {
+      if (node.isText && node.marks.length) marked.push(node.text ?? '');
+    });
+    expect(marked).toEqual([]);
+  } finally {
+    vi.useRealTimers();
+  }
+});
