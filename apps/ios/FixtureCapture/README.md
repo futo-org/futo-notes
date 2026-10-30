@@ -11,6 +11,37 @@ on an already owned, booted pool simulator after the build; it never auto-claims
 or accepts a physical destination. The native tests are synthetic calls and public store projection checks; neither
 suite is actual OS dictation evidence.
 
+`just build-ios-capture-fixture-signed <approved-private-selection.json>` is a
+separate, explicitly authorized development-signing preparation route. It requires
+an exact clean source SHA/fingerprint, fresh uppercase run UUID, previously recorded
+phone UDID, certificate SHA1, actual team ID and exact existing wildcard development
+profile UUID/path/SHA256. Its strict selection fields are `formatVersion` (1),
+`sourceSHA`, `sourceFingerprint`, `runID`, `deviceUDID`, `identitySHA1`, `teamID`,
+`profileUUID`, `profileSHA256`, and `profilePath`. The metadata must match the
+certificate, development entitlements, expiration and declared phone inclusion.
+It performs no device query. No profile search, creation, download, installation,
+automatic provisioning or repair is supported.
+
+This route rebuilds `release-ffi` with Cargo offline, disables automatic Xcode
+package resolution/updates, generates an isolated project from `project.yml`,
+and compiles generic iOS products in a fresh private `.build-signed/<runID>/`.
+It signs only the four fixed standalone bundles, inside out, without a timestamp
+service, using minimal development app/team entitlements. Both XCTest library
+bundles explicitly retain entitlements under the macOS 15 codesign default. The
+complete frozen source identity, including checkout cleanliness outside the selected
+build inputs, is rechecked after native build and before the success receipt. Bundled provenance says
+`signed:false` and `development-signing-requested-not-verified`: it records the
+request before signing. Only the separate `verified-signing-receipt.json` records
+successful strict signature, leaf-certificate, entitlement, embedded-profile and
+final source/artifact verification. A failed or interrupted run retains its
+output and never receives a success receipt. Existing outputs are never replaced.
+
+The physical capture owner still consumes the historical unsigned recipe's fixed
+`.build-native` location. Signed-output consumption needs a separate bounded,
+reviewed integration before any actual capture. Do not copy or relabel these
+products into that location. A successful signed build grants no physical lease,
+installation, launch, Dictation, microphone, privacy, unlock or audio permission.
+
 The application identity is `org.futo.fixture.editor294`; the unit bundle is
 `org.futo.fixture.editor294.tests`. The UI bundle is `org.futo.fixture.editor294.uitests`,
 with runner `org.futo.fixture.editor294.uitests.xctrunner`. `FixtureApp` compiles no shipping app startup,

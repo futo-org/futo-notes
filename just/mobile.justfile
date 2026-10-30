@@ -323,6 +323,10 @@ ios-remote *args: check-node-version
 build-ios-capture-fixture:
   bash scripts/dev-env.sh node scripts/ios-capture-fixture.mjs
 
+# Explicit existing-profile development signing of isolated fixture outputs only (no device/provisioning).
+build-ios-capture-fixture-signed selection:
+  bash scripts/dev-env.sh node scripts/ios-capture-fixture-signed.mjs --selection "$1"
+
 # Read the existing fixture's compiled identity/signatures (no device, signing or provisioning changes).
 ios-capture-fixture-build-identity:
   bash scripts/dev-env.sh node scripts/qa/physical-fixture-ios.mjs --identity

@@ -22,6 +22,7 @@ const inputs = [
   'apps/ios/Sources/InputCapture',
   'apps/ios/Sources/App/NativeInputRecorderScope.swift',
   'scripts/ios-capture-fixture.mjs',
+  'scripts/ios-capture-fixture-signed.mjs',
   'scripts/qa/physical-fixture*.mjs',
   'scripts/build-rust-ios.sh',
   'just/mobile.justfile',
@@ -74,7 +75,7 @@ export function sourceProvenance(root) {
   };
 }
 
-function ffiArtifacts(root) {
+export function ffiArtifacts(root) {
   return ffiArtifactPaths.map((path) => ({ path, sha256: fileDigest(join(root, path)) }));
 }
 
