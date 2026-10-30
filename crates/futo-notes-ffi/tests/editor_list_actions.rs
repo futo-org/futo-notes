@@ -30,7 +30,7 @@ fn shared_list_actions_forward_native_coordinates_history_and_exact_recovery() {
     ))
     .unwrap();
     assert_eq!(original.len(), 24);
-    assert_eq!(shortcuts.len(), 32);
+    assert_eq!(shortcuts.len(), 38);
     let cases: Vec<_> = original.into_iter().chain(shortcuts).collect();
     for case in &cases {
         let text = |key: &str| case[key].as_str().unwrap();

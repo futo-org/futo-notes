@@ -119,7 +119,7 @@ fn shared_list_actions_survive_failed_append_undo_flush_power_loss_and_checkpoin
     ))
     .unwrap();
     assert_eq!(original.len(), 24);
-    assert_eq!(shortcuts.len(), 32);
+    assert_eq!(shortcuts.len(), 38);
     let cases: Vec<_> = original.into_iter().chain(shortcuts).collect();
     for case in &cases {
         let text = |key: &str| case[key].as_str().unwrap();

@@ -929,5 +929,175 @@
         null
       ]
     ]
+  },
+  {
+    "name": "nonempty shortcut retains following owner across 2 blank lines",
+    "source": "2.body\n\n\n7. after",
+    "display": "2.body\n\n\nafter",
+    "action": "Typing",
+    "range": [
+      2,
+      2
+    ],
+    "text": " ",
+    "expected": "2) body\n\n\n7. after",
+    "shown": "body\n\n\nafter",
+    "resultRange": [
+      0,
+      0
+    ],
+    "finalItems": [
+      [
+        2,
+        null
+      ],
+      [
+        7,
+        null
+      ]
+    ]
+  },
+  {
+    "name": "nonempty shortcut retains following owner across 3 blank lines",
+    "source": "2.body\n\n\n\n7. after",
+    "display": "2.body\n\n\n\nafter",
+    "action": "Typing",
+    "range": [
+      2,
+      2
+    ],
+    "text": " ",
+    "expected": "2) body\n\n\n\n7. after",
+    "shown": "body\n\n\n\nafter",
+    "resultRange": [
+      0,
+      0
+    ],
+    "finalItems": [
+      [
+        2,
+        null
+      ],
+      [
+        7,
+        null
+      ]
+    ]
+  },
+  {
+    "name": "nonempty shortcut retains following owner across 9 blank lines",
+    "source": "2.body\n\n\n\n\n\n\n\n\n\n7. after",
+    "display": "2.body\n\n\n\n\n\n\n\n\n\nafter",
+    "action": "Typing",
+    "range": [
+      2,
+      2
+    ],
+    "text": " ",
+    "expected": "2) body\n\n\n\n\n\n\n\n\n\n7. after",
+    "shown": "body\n\n\n\n\n\n\n\n\n\nafter",
+    "resultRange": [
+      0,
+      0
+    ],
+    "finalItems": [
+      [
+        2,
+        null
+      ],
+      [
+        7,
+        null
+      ]
+    ]
+  },
+  {
+    "name": "empty shortcut retains both owners across two blank lines",
+    "source": "9. before\n\n\n2\\.\n\n\n7) after",
+    "display": "before\n\n\n2.\n\n\nafter",
+    "action": "Typing",
+    "range": [
+      11,
+      11
+    ],
+    "text": " ",
+    "expected": "9. before\n\n\n<!-- -->\n2. \n\n\n7) after",
+    "shown": "before\n\n\n\n\n\nafter",
+    "resultRange": [
+      9,
+      9
+    ],
+    "finalItems": [
+      [
+        9,
+        null
+      ],
+      [
+        2,
+        null
+      ],
+      [
+        7,
+        null
+      ]
+    ]
+  },
+  {
+    "name": "intentional next joins preceding across blank gaps and locally separates following",
+    "source": "999. before\n\n\n1000.body\n\n\n7. after",
+    "display": "before\n\n\n1000.body\n\n\nafter",
+    "action": "Typing",
+    "range": [
+      14,
+      14
+    ],
+    "text": " ",
+    "expected": "999. before\n\n\n1000. body\n<!-- -->\n\n\n7. after",
+    "shown": "before\n\n\nbody\n\n\nafter",
+    "resultRange": [
+      9,
+      9
+    ],
+    "finalItems": [
+      [
+        999,
+        null
+      ],
+      [
+        1000,
+        null
+      ],
+      [
+        7,
+        null
+      ]
+    ]
+  },
+  {
+    "name": "empty CRLF shortcut retains following owner beyond two blank lines",
+    "source": "2\\.\r\n\r\n\r\n7. after",
+    "display": "2.\r\n\r\n\r\nafter",
+    "action": "Typing",
+    "range": [
+      2,
+      2
+    ],
+    "text": " ",
+    "expected": "2) \r\n\r\n\r\n7. after",
+    "shown": "\r\n\r\n\r\nafter",
+    "resultRange": [
+      0,
+      0
+    ],
+    "finalItems": [
+      [
+        2,
+        null
+      ],
+      [
+        7,
+        null
+      ]
+    ]
   }
 ]

@@ -17,7 +17,7 @@ const shortcuts = JSON.parse(
   readFileSync(new URL('fixtures/list-shortcuts.json', import.meta.url)),
 );
 assert.equal(original.length, 24);
-assert.equal(shortcuts.length, 32);
+assert.equal(shortcuts.length, 38);
 const cases = [...original, ...shortcuts];
 const units = (text) => Uint16Array.from({ length: text.length }, (_, at) => text.charCodeAt(at));
 function host(vault, source) {
