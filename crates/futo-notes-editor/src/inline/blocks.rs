@@ -127,7 +127,7 @@ pub(super) fn describe(
             _ => {}
         }
     }
-    let (list_prefixes, lists) = super::lists::describe(source, events);
+    let mut lists = super::lists::describe(source, events);
     let mut prefixes = Vec::new();
     for line in &mut lines {
         let end = line.content.end;
@@ -175,36 +175,13 @@ pub(super) fn describe(
                 }
             }
         }
-        line.task = events.iter().find_map(|(event, range)| {
-            if matches!(event, Event::TaskListMarker(_))
-                && line.source.start <= range.start
-                && range.start < end
-            {
-                let at = range.start + source[range.clone()].find('[')?;
-                Some(at..at + 3)
-            } else {
-                None
-            }
-        });
-        line.list = lists
-            .iter()
-            .rev()
-            .find(|list| list.item.start <= end && line.source.start < list.item.end)
-            .cloned();
-        if let Some(list) = &mut line.list {
-            list.first = line.source.start <= list.marker.start && list.marker.start <= end;
+        let attribution = lists.line(line.source.start, end);
+        line.task = attribution.task;
+        line.list = attribution.list;
+        if let Some(list) = &line.list {
             if !list.first {
-                let first_start = source[..list.marker.start]
-                    .rfind('\n')
-                    .map_or(0, |at| at + 1);
-                let prefix_end = list_prefixes
-                    .iter()
-                    .find(|(at, _)| *at == list.marker.start)
-                    .unwrap()
-                    .1;
-                let required = prefix_end - first_start;
                 let mut column = start - line.source.start;
-                while start < end && column < required {
+                while start < end && column < list.indent {
                     match source.as_bytes()[start] {
                         b' ' => column += 1,
                         b'\t' => column += 4 - column % 4,
@@ -214,12 +191,7 @@ pub(super) fn describe(
                 }
             }
         }
-        if let Some(end) = list_prefixes
-            .iter()
-            .filter(|(at, _)| *at >= line.source.start && *at <= end)
-            .map(|(_, end)| *end)
-            .max()
-        {
+        if let Some(end) = attribution.prefix_end {
             start = start.max(end);
         }
         prefixes.push(line.source.start..start);

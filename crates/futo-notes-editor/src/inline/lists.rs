@@ -11,6 +11,7 @@ pub(crate) struct ListLine {
     pub depth: usize,
     pub checked: Option<bool>,
     pub first: bool,
+    pub indent: usize,
 }
 
 impl ListLine {
@@ -22,18 +23,94 @@ impl ListLine {
     }
 }
 
-pub(super) fn describe(
-    source: &str,
-    events: &[(Event<'_>, Range<usize>)],
-) -> (Vec<(usize, usize)>, Vec<ListLine>) {
+pub(super) struct Attribution {
+    pub list: Option<ListLine>,
+    pub task: Option<Range<usize>>,
+    pub prefix_end: Option<usize>,
+}
+
+/// Physical lines arrive in source order. Each item, prefix and task marker is
+/// visited once, rather than rescanning every event for every line of a list.
+pub(super) struct ListCursor {
+    items: Vec<ListLine>,
+    prefixes: Vec<(usize, usize)>,
+    tasks: Vec<Range<usize>>,
+    active: Vec<usize>,
+    next_item: usize,
+    next_prefix: usize,
+    next_task: usize,
+}
+
+impl ListCursor {
+    pub fn line(&mut self, start: usize, end: usize) -> Attribution {
+        while self.next_item < self.items.len() && self.items[self.next_item].item.start <= end {
+            let next = self.next_item;
+            while self
+                .active
+                .last()
+                .is_some_and(|&at| self.items[at].item.end <= self.items[next].item.start)
+            {
+                self.active.pop();
+            }
+            self.active.push(next);
+            self.next_item += 1;
+        }
+        while self
+            .active
+            .last()
+            .is_some_and(|&at| self.items[at].item.end <= start)
+        {
+            self.active.pop();
+        }
+        let list = self.active.last().map(|&at| {
+            let mut list = self.items[at].clone();
+            list.first = start <= list.marker.start && list.marker.start <= end;
+            list
+        });
+        let mut prefix_end = None;
+        while let Some(&(at, prefix)) = self
+            .prefixes
+            .get(self.next_prefix)
+            .filter(|(at, _)| *at <= end)
+        {
+            if at >= start {
+                prefix_end = Some(prefix_end.map_or(prefix, |old: usize| old.max(prefix)));
+            }
+            self.next_prefix += 1;
+        }
+        let mut task = None;
+        while let Some(next) = self
+            .tasks
+            .get(self.next_task)
+            .filter(|task| task.start <= end)
+        {
+            if next.start >= start {
+                task = Some(next.clone());
+            }
+            self.next_task += 1;
+        }
+        Attribution {
+            list,
+            task,
+            prefix_end,
+        }
+    }
+}
+
+pub(super) fn describe(source: &str, events: &[(Event<'_>, Range<usize>)]) -> ListCursor {
     let mut prefixes = Vec::new();
     let mut items: Vec<ListLine> = Vec::new();
+    let mut tasks = Vec::new();
     let mut lists: Vec<(Range<usize>, Option<u64>)> = Vec::new();
+    let mut active_items = Vec::new();
     for (event, range) in events {
         match event {
             Event::Start(Tag::List(number)) => lists.push((range.clone(), *number)),
             Event::End(TagEnd::List(_)) => {
                 lists.pop();
+            }
+            Event::End(TagEnd::Item) => {
+                active_items.pop();
             }
             Event::Start(Tag::Item) => {
                 let depth = lists.len();
@@ -56,7 +133,9 @@ pub(super) fn describe(
                     .count();
                 let padding = if padding > 4 { 1 } else { padding };
                 let start = range.start + indent;
+                let first_start = source[..start].rfind('\n').map_or(0, |at| at + 1);
                 prefixes.push((start, start + width + padding));
+                active_items.push(items.len());
                 items.push(ListLine {
                     marker: start..start + width,
                     owner: owner.clone(),
@@ -65,6 +144,7 @@ pub(super) fn describe(
                     depth,
                     checked: None,
                     first: true,
+                    indent: start + width + padding - first_start,
                 });
             }
             Event::TaskListMarker(checked) => {
@@ -74,16 +154,20 @@ pub(super) fn describe(
                         Some(b' ' | b'\t')
                     ));
                 prefixes.push((range.start, end));
-                if let Some(item) = items
-                    .iter_mut()
-                    .rev()
-                    .find(|item| item.item.start <= range.start && range.end <= item.item.end)
-                {
-                    item.checked = Some(*checked);
-                }
+                let at = range.start + source[range.clone()].find('[').unwrap();
+                tasks.push(at..at + 3);
+                items[*active_items.last().unwrap()].checked = Some(*checked);
             }
             _ => {}
         }
     }
-    (prefixes, items)
+    ListCursor {
+        items,
+        prefixes,
+        tasks,
+        active: Vec::new(),
+        next_item: 0,
+        next_prefix: 0,
+        next_task: 0,
+    }
 }
