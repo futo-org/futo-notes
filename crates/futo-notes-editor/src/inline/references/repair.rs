@@ -30,7 +30,6 @@ impl super::super::Projection {
         // This is the final physical replacement, including retained wrappers.
         let (local, parsed) = declarations(output, &[]);
         work = parsed;
-        work.items += output.len() * 2; // declaration eligibility byte guards
         let mut repairs = Vec::new();
         for definition in local {
             for body in bodies {
@@ -43,13 +42,12 @@ impl super::super::Projection {
                 let after = output
                     .get(body.after.clone())
                     .ok_or(EditorError::UnrepresentableFormat)?;
-                work.items += before.len().min(after.len());
-                if before != after {
+                if !same_bytes(&before, after, &mut work.items) {
                     return Err(EditorError::UnrepresentableFormat);
                 }
                 let old = body.before.start + definition.range.start - body.after.start;
-                let row_index = self.rows.locate(old, false);
-                let (row, base, _) = self.rows.at(row_index);
+                let (row, base, _, visits) = self.rows.source_row_with_work(old);
+                work.items += visits;
                 let at = old - base;
                 let mut literal = false;
                 for segment in &row.segments {
@@ -133,7 +131,7 @@ impl super::super::Projection {
         copied += raw.len() + output.len();
         let (actual, actual_work) = declarations(&raw, &[]);
         work.parsed += actual_work.parsed;
-        work.items += actual_work.items + raw.len() * 2;
+        work.items += actual_work.items;
         work.copied += actual_work.copied;
         repairs.retain(|repair| {
             actual.iter().any(|definition| {
@@ -176,24 +174,35 @@ impl super::super::Projection {
             return Err(EditorError::UnrepresentableFormat);
         }
         let (winners, visits) = self.reference_winners(range.clone());
-        work.items += visits.items;
-        work.copied += visits.copied;
         let checked =
             super::super::Projection::with_references(output, references, &winners, visits);
         work.parsed += checked.initial_parse_work;
         work.items += checked.initial_link_metadata_items;
         work.copied += checked.initial_link_copied_bytes;
-        let old_start = self.display_at(range.start);
-        let old_end = self.display_at(range.end);
+        let mut display_at = |at| {
+            let (row, base, display, visits) = self.rows.source_row_with_work(at);
+            let (offset, segments) = row.display_at_with_work(at - base);
+            work.items += visits + segments;
+            display + offset
+        };
+        let old_start = display_at(range.start);
+        let old_end = display_at(range.end);
         let old = self.display.byte_slice(old_start..old_end).to_string();
         let new = checked.display.to_string();
         copied += old.len() + new.len();
-        work.items += old.len().min(new.len());
-        if old != new {
+        if !same_bytes(&old, &new, &mut work.items) {
             return Err(EditorError::UnrepresentableFormat);
         }
         // The unchanged visible body also preserves this slice's returned
         // display endpoints; source history is captured from the final edit.
         Ok((work, copied))
     }
+}
+
+fn same_bytes(before: &str, after: &str, work: &mut usize) -> bool {
+    before.len() == after.len()
+        && before.bytes().zip(after.bytes()).all(|(a, b)| {
+            *work += 1;
+            a == b
+        })
 }

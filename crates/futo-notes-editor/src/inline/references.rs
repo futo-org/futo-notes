@@ -71,23 +71,27 @@ pub(super) fn is_reference(kind: &LinkType) -> bool {
     )
 }
 
+/// Byte eligibility guards perform no parsing, but their visits still count.
+fn declaration_eligible(source: &str, work: &mut ReferenceWork) -> bool {
+    [b'[', b':'].into_iter().all(|wanted| {
+        source.bytes().any(|byte| {
+            work.items += 1;
+            byte == wanted
+        })
+    })
+}
+
 impl References {
     pub fn scan(source: &str) -> (Arc<Self>, Vec<Winner>, ReferenceWork) {
-        if !source.contains('[') || !source.contains(':') {
-            return (
-                Arc::new(Self::default()),
-                Vec::new(),
-                ReferenceWork::default(),
-            );
+        let mut work = ReferenceWork::default();
+        if !declaration_eligible(source, &mut work) {
+            return (Arc::new(Self::default()), Vec::new(), work);
         }
         let parser = Parser::new_ext(
             source,
             Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS,
         );
-        let mut work = ReferenceWork {
-            parsed: source.len(),
-            ..Default::default()
-        };
+        work.parsed = source.len();
         let mut targets = HashMap::new();
         let mut winners = Vec::new();
         for (key, definition) in parser.reference_definitions().iter() {
@@ -157,29 +161,29 @@ impl References {
 /// Collect every definition occurrence, including later duplicates omitted by
 /// pulldown's first-definition map. mdast owns positions and normalization.
 pub(super) fn declarations(source: &str, winners: &[Winner]) -> (Vec<Definition>, ReferenceWork) {
-    if !source.contains('[') || !source.contains(':') {
-        return (Vec::new(), ReferenceWork::default());
+    let mut work = ReferenceWork::default();
+    if !declaration_eligible(source, &mut work) {
+        return (Vec::new(), work);
     }
     let tree = markdown::to_mdast(source, &markdown::ParseOptions::default())
         .expect("CommonMark declarations are infallible");
-    let mut work = ReferenceWork {
-        parsed: source.len(),
-        ..Default::default()
-    };
+    work.parsed = source.len();
     let mut result = Vec::new();
     let mut pending = vec![&tree];
     while let Some(node) = pending.pop() {
+        work.items += 1;
         if let markdown::mdast::Node::Definition(definition) = node {
             if let Some(position) = &definition.position {
                 let range = position.start.offset..position.end.offset;
                 let key = UniCase::new(definition.identifier.clone());
-                work.items += 1 + winners.len();
+                work.items += 1;
                 work.copied += definition.identifier.len()
                     + definition.url.len()
                     + definition.title.as_ref().map_or(0, String::len);
                 let witness = winners
                     .iter()
                     .find(|winner| {
+                        work.items += 1;
                         UniCase::new(winner.key.as_ref())
                             == UniCase::new(definition.identifier.as_str())
                             && winner.range.start <= range.start
@@ -197,6 +201,7 @@ pub(super) fn declarations(source: &str, winners: &[Winner]) -> (Vec<Definition>
             }
         }
         if let Some(children) = node.children() {
+            work.items += children.len();
             pending.extend(children.iter().rev());
         }
     }

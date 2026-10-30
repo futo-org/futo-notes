@@ -123,6 +123,30 @@ impl Rows {
             }
         }
     }
+    /// One indexed physical-source query with its actual node visits.
+    pub fn source_row_with_work(&self, mut offset: usize) -> (&Row, usize, usize, usize) {
+        let mut node = self.root.as_deref().unwrap();
+        let (mut source, mut display, mut work) = (0, 0, 0);
+        loop {
+            work += 1;
+            let left = length(&node.left, false);
+            if offset < left {
+                node = node.left.as_deref().unwrap();
+            } else if offset < left + node.row.source_len || node.right.is_none() {
+                return (
+                    &node.row,
+                    source + left,
+                    display + length(&node.left, true),
+                    work,
+                );
+            } else {
+                offset -= left + node.row.source_len;
+                source += left + node.row.source_len;
+                display += length(&node.left, true) + node.row.display.len();
+                node = node.right.as_deref().unwrap();
+            }
+        }
+    }
     /// Mutating transient metadata never changes indexed source/display lengths.
     pub fn metadata_mut(&mut self, mut index: usize) -> &mut Row {
         let mut node = self.root.as_deref_mut().unwrap();
