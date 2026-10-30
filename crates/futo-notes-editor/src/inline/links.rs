@@ -38,6 +38,13 @@ impl super::Projection {
         &self,
         range: crate::DisplayRange,
     ) -> Vec<crate::LinkDescription> {
+        self.all_links(range)
+            .into_iter()
+            .filter(|link| !self.literal_links.contains(&link.range))
+            .collect()
+    }
+
+    pub(crate) fn all_links(&self, range: crate::DisplayRange) -> Vec<crate::LinkDescription> {
         let first = self.rows.locate(range.start.0, true);
         let last = self.rows.locate(range.end.0, true);
         let mut links = Vec::new();
@@ -253,5 +260,59 @@ fn replace_destination(close: &str, destination: &str) -> String {
             text
         };
         format!("{}{text}{}", &close[..start], &close[end..])
+    }
+}
+
+impl super::Projection {
+    pub(super) fn suppressed_link(
+        &self,
+        row: &super::row::Row,
+        span: &super::row::Span,
+        display: usize,
+    ) -> bool {
+        span.open.is_empty()
+            && span.close.is_empty()
+            && self.literal_links.contains(&crate::DisplayRange {
+                start: crate::DisplayOffset(display + row.display_at(span.open.end)),
+                end: crate::DisplayOffset(display + row.display_at(span.close.start)),
+            })
+    }
+
+    pub(crate) fn finish_link_input(
+        &mut self,
+        input: crate::DisplayRange,
+        inserted: &str,
+        action: crate::InputAction,
+        caret: usize,
+    ) {
+        let point = crate::DisplayRange {
+            start: crate::DisplayOffset(caret),
+            end: crate::DisplayOffset(caret),
+        };
+        let candidates = self.all_links(point);
+        if action == crate::InputAction::Typing
+            && !inserted.is_empty()
+            && !inserted.chars().last().unwrap().is_whitespace()
+        {
+            for link in candidates {
+                if link.range.start.0 <= caret
+                    && caret <= link.range.end.0
+                    && link.range.start.0 < input.start.0 + inserted.len()
+                    && !self.literal_links.contains(&link.range)
+                {
+                    self.literal_links.push(link.range);
+                }
+            }
+        }
+        if inserted.contains(char::is_whitespace) {
+            let last_word = inserted
+                .rsplit(char::is_whitespace)
+                .next()
+                .unwrap_or("")
+                .len();
+            let ended = caret - last_word;
+            self.literal_links
+                .retain(|link| !(input.start.0 <= link.end.0 && link.end.0 <= ended));
+        }
     }
 }

@@ -20,6 +20,7 @@ pub(crate) struct Projection {
     pub display: Rope,
     pub rows: Rows,
     pub initial_parse_work: usize,
+    pub literal_links: Vec<DisplayRange>,
 }
 
 pub(crate) struct Update {
@@ -48,6 +49,7 @@ impl Projection {
             display,
             rows,
             initial_parse_work,
+            literal_links: Vec::new(),
         }
     }
 
@@ -279,6 +281,24 @@ impl Projection {
             start: DisplayOffset(display_start),
             end: DisplayOffset(display_start + parsed_display_len),
         };
+        let removed = range.end.0 - range.start.0;
+        let added = inserted.len();
+        self.literal_links.retain_mut(|link| {
+            if link.end.0 < range.start.0 {
+                return true;
+            }
+            if link.start.0 > range.end.0 {
+                link.start.0 = link.start.0 - removed + added;
+                link.end.0 = link.end.0 - removed + added;
+                return true;
+            }
+            if range.start.0 <= link.start.0 && link.end.0 <= range.end.0 && added == 0 {
+                return false;
+            }
+            link.start.0 = link.start.0.min(range.start.0);
+            link.end.0 = link.end.0.max(range.end.0) - removed + added;
+            true
+        });
         Update {
             range,
             inserted,

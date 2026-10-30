@@ -214,7 +214,7 @@ impl Projection {
         });
         let mut selected_body_before = false;
         for index in first..=last {
-            let (row, row_source, _) = self.rows.at(index);
+            let (row, row_source, row_display) = self.rows.at(index);
             let base = row_source - source_start;
             let span_base = markers.len();
             for pair in row.blocks.windows(2) {
@@ -283,7 +283,8 @@ impl Projection {
                     .iter()
                     .enumerate()
                     .filter(|(_, span)| {
-                        span.open.end <= segment.source.start
+                        !self.suppressed_link(row, span, row_display)
+                            && span.open.end <= segment.source.start
                             && segment.source.end <= span.close.start
                     })
                     .map(|(i, _)| span_base + i)

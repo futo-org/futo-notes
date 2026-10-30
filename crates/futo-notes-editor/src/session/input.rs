@@ -113,6 +113,11 @@ impl EditorSession {
             end: caret,
         };
         self.pending_formats = Some(plan.formats);
+        self.projection
+            .finish_link_input(range, inserted, action, caret.0);
+        change.projection = self
+            .projection
+            .query(self.revision, change.projection.range);
         change.selection = self.selection;
         change.work.materialized_source_bytes += plan.materialized;
         change.work.parsed_source_bytes += plan.parsed;
