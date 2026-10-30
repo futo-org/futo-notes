@@ -380,3 +380,80 @@ fn outside_strong_url_closers_wait_for_word_end_as_one_marker_pair() {
     assert_eq!(view.text, "x b https://x.test/a ");
     assert_eq!(session.source_text(), "x **b https://x.test/a** ");
 }
+
+#[test]
+fn selected_format_rewrites_retain_owned_pending_url_delimiters_through_history() {
+    use futo_notes_editor::InlineFormat;
+    let mut session = EditorSession::open("");
+    let mut view = ReferenceView::new("");
+    for ch in "x *b https://x.test/a*".chars() {
+        let at = view.text.len();
+        view.apply(
+            session
+                .replace(
+                    session.revision(),
+                    range(at, at),
+                    &ch.to_string(),
+                    &mut |_| Ok(()),
+                )
+                .unwrap(),
+        );
+    }
+    session.select(session.revision(), range(0, 22)).unwrap();
+    view.apply(
+        session
+            .toggle_format(session.revision(), InlineFormat::Bold, &mut |_| Ok(()))
+            .unwrap()
+            .unwrap(),
+    );
+    assert_eq!(view.text, "x *b https://x.test/a*");
+    assert_eq!(session.source_text(), "**x \\*b https://x.test/a***");
+    session.select(session.revision(), range(22, 22)).unwrap();
+    view.apply(
+        session
+            .replace(session.revision(), range(22, 22), " ", &mut |_| Ok(()))
+            .unwrap(),
+    );
+    assert_eq!(view.text, "x b https://x.test/a ");
+    assert_eq!(session.source_text(), "**x *b https://x.test/a*** ");
+    let projection = session
+        .project(session.revision(), range(0, view.text.len()))
+        .unwrap();
+    assert_eq!(projection.links[0].destination, "https://x.test/a");
+    let italic: Vec<_> = projection
+        .runs
+        .iter()
+        .filter(|run| run.formats.contains(&InlineFormat::Italic))
+        .map(|run| run.range)
+        .collect();
+    assert_eq!(italic, vec![range(2, 20)]);
+    view.apply(
+        session
+            .undo(session.revision(), &mut |_| Ok(()))
+            .unwrap()
+            .unwrap(),
+    );
+    assert_eq!(session.source_text(), "**x \\*b https://x.test/a***");
+    assert_eq!(view.text, "x *b https://x.test/a*");
+    view.apply(
+        session
+            .undo(session.revision(), &mut |_| Ok(()))
+            .unwrap()
+            .unwrap(),
+    );
+    assert_eq!(session.source_text(), "x \\*b https://x.test/a*");
+    view.apply(
+        session
+            .redo(session.revision(), &mut |_| Ok(()))
+            .unwrap()
+            .unwrap(),
+    );
+    assert_eq!(session.source_text(), "**x \\*b https://x.test/a***");
+    view.apply(
+        session
+            .replace(session.revision(), range(22, 22), " ", &mut |_| Ok(()))
+            .unwrap(),
+    );
+    assert_eq!(view.text, "x b https://x.test/a ");
+    assert_eq!(session.source_text(), "**x *b https://x.test/a*** ");
+}
