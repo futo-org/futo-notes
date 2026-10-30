@@ -344,6 +344,8 @@ fn outside_strong_url_closers_wait_for_word_end_as_one_marker_pair() {
     }
     assert_eq!(session.source_text(), "x \\*\\*b https://x.test/a**");
     let at = view.text.len();
+    session.select(session.revision(), range(0, 0)).unwrap();
+    session.select(session.revision(), range(at, at)).unwrap();
     view.apply(
         session
             .replace(session.revision(), range(at, at), " ", &mut |_| Ok(()))
