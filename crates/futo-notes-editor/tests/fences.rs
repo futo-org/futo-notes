@@ -9,8 +9,12 @@ fn range(a: usize, b: usize) -> DisplayRange {
     }
 }
 
+#[path = "fences/basis.rs"]
+mod basis;
 #[path = "fences/commands.rs"]
 mod commands;
+#[path = "fences/frame.rs"]
+mod frame;
 #[path = "fences/input.rs"]
 mod input;
 #[path = "fences/keys.rs"]

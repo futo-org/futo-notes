@@ -7,6 +7,7 @@ use std::ops::Range;
 pub(crate) struct Fence {
     pub whole: Range<usize>,
     pub body: Range<usize>,
+    pub separator: Range<usize>,
     pub opener: Range<usize>,
     pub closer: Option<Range<usize>>,
     pub marker: u8,
@@ -14,7 +15,12 @@ pub(crate) struct Fence {
 }
 impl Fence {
     pub fn shift(&mut self, by: usize) {
-        for range in [&mut self.whole, &mut self.body, &mut self.opener] {
+        for range in [
+            &mut self.whole,
+            &mut self.body,
+            &mut self.opener,
+            &mut self.separator,
+        ] {
             range.start += by;
             range.end += by;
         }
@@ -66,13 +72,23 @@ pub(super) fn describe(
                         let start = final_line.content.end - tail.len();
                         start..start + close_width
                     });
+                    let physical_end = if closed {
+                        final_line.source.start
+                    } else {
+                        whole.end
+                    };
+                    // The final ending terminates code.value in the shipping
+                    // CommonMark schema; preceding endings are editable text.
+                    let ending = if source[body_start..physical_end].ends_with("\r\n") {
+                        2
+                    } else {
+                        usize::from(source[body_start..physical_end].ends_with('\n'))
+                    };
+                    let body_end = physical_end - ending;
                     Some(Fence {
+                        separator: body_end..physical_end,
                         whole: whole.clone(),
-                        body: body_start..if closed {
-                            final_line.source.start
-                        } else {
-                            whole.end
-                        },
+                        body: body_start..body_end,
                         opener,
                         closer,
                         marker,
@@ -90,11 +106,12 @@ pub(super) fn describe(
                         .filter(|body| body.start < line.source.end && line.source.start < body.end)
                         .map(|body| body.start.max(line.source.start))
                         .min();
-                    // Hidden opening/closing lines include their own line break.
+                    // Only a closer with following source supplies an inter-block
+                    // break; its delimiter and the body frame ending stay hidden.
                     line.content = match start {
                         Some(start) => start..line.content.end,
                         None if fence.as_ref().is_some_and(|fence| {
-                            fence.body.is_empty()
+                            line.source.end < source.len()
                                 && fence.closer.as_ref().is_some_and(|close| {
                                     line.source.start <= close.start && close.end <= line.source.end
                                 })

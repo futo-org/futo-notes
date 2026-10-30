@@ -78,7 +78,7 @@ fn code_block_command_wraps_only_its_selected_physical_lines() {
         session.source_text(),
         "before\r\n\r\n```\nab\n```\r\n\r\nafter"
     );
-    assert_eq!(view.text, "before\r\n\r\nab\n\r\nafter");
+    assert_eq!(view.text, "before\r\n\r\nab\r\n\r\nafter");
     view.apply(
         session
             .undo(session.revision(), &mut |_| Ok(()))
@@ -91,21 +91,21 @@ fn code_block_command_wraps_only_its_selected_physical_lines() {
 #[test]
 fn code_command_obeys_physical_line_heading_quote_list_and_existing_code_scope() {
     for (opening, shown, selected, expected, display) in [
-        ("# __ab__ ##", "ab", range(0, 0), "```\nab\n```", "ab\n"),
-        ("> one", "one", range(0, 0), "> ```\n> one\n> ```", "one\n"),
+        ("# __ab__ ##", "ab", range(0, 0), "```\nab\n```", "ab"),
+        ("> one", "one", range(0, 0), "> ```\n> one\n> ```", "one"),
         (
             "one\ntwo",
             "one\ntwo",
             range(0, 7),
             "```\none\n```\n\n```\ntwo\n```",
-            "one\n\ntwo\n",
+            "one\n\ntwo",
         ),
         (
             "left\n\n~~~x\nraw\n~~~\n\nright",
             "left\n\nraw\n\nright",
             range(0, 16),
             "```\nleft\n```\n\n~~~x\nraw\n~~~\n\n```\nright\n```",
-            "left\n\nraw\n\nright\n",
+            "left\n\nraw\n\nright",
         ),
     ] {
         let mut session = EditorSession::open(opening);
@@ -166,4 +166,40 @@ fn a_fence_like_prefix_inside_inline_code_does_not_trigger_block_conversion() {
     );
     assert_eq!(session.source_text(), "`~~~js `");
     assert_eq!(view.text, "~~~js ");
+}
+
+#[test]
+fn the_shipping_triple_backtick_shortcut_is_inert_inside_literal_inline_code() {
+    let source = "```` ```js ````";
+    let mut session = EditorSession::open(source);
+    let mut view = ReferenceView::new("```js");
+    assert_eq!(session.display_text(), view.text);
+    session
+        .select_with_affinity(session.revision(), range(5, 5), Affinity::Backward)
+        .unwrap();
+    view.apply(
+        session
+            .replace(session.revision(), range(5, 5), " ", &mut |_| Ok(()))
+            .unwrap(),
+    );
+    assert_eq!(view.text, "```js ");
+    assert!(session.active_formats().contains(&InlineFormat::Code));
+    assert!(!session
+        .project(session.revision(), range(0, view.text.len()))
+        .unwrap()
+        .blocks
+        .iter()
+        .any(|b| b.code));
+    assert_eq!(
+        EditorSession::open(&session.source_text()).display_text(),
+        view.text
+    );
+    view.apply(
+        session
+            .undo(session.revision(), &mut |_| Ok(()))
+            .unwrap()
+            .unwrap(),
+    );
+    assert_eq!(session.source_text(), source);
+    assert_eq!(view.text, "```js");
 }

@@ -5,9 +5,9 @@ fn fences_hide_only_structure_and_keep_exact_opaque_contents() {
     for (source, display) in [
         (
             "~~~~ c++ extra\r\n**a** [[x]] #tag &amp;\r\n~~~~~  \r\n",
-            "**a** [[x]] #tag &amp;\r\n",
+            "**a** [[x]] #tag &amp;",
         ),
-        ("```rust\na\n\nb\n```", "a\n\nb\n"),
+        ("```rust\na\n\nb\n```", "a\n\nb"),
         ("```unknown\n*raw*\0", "*raw*\0"),
     ] {
         let session = EditorSession::open(source);

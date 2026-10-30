@@ -100,6 +100,9 @@ impl Row {
             }
         }
         for block in &blocks {
+            if let Some(fence) = &block.fence {
+                hidden[fence.separator.clone()].fill(true);
+            }
             hidden[block.source.start..block.content.start].fill(true);
             let end = source[block.source.clone()]
                 .trim_end_matches(['\r', '\n'])

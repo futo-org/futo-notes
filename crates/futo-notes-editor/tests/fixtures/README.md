@@ -1,7 +1,8 @@
 # Structural seam fixtures
 
-`structural-seams.json` contains thirty-eight hand-worked synthetic public-interface
-regressions for #296. These are source/display/history/caret oracles, not actual
+`structural-seams.json` contains fifty hand-worked synthetic public-interface
+regressions for #296 and #297. The original thirty-eight objects remain an exact
+byte prefix. These are source/display/history/caret oracles, not actual
 OS captures. Ranges and carets use native UTF-16 code units. `history` counts Undo
 steps, which can exceed the accepted source-record count for composition plus
 following input. The editor owner tests retain the original red regressions;
@@ -29,5 +30,17 @@ Fenced-code regression literals live in `../fences/`, driven through the public
 session and independent display-only reference view. The existing WASM block
 consumer and Swift/Kotlin block suites cover code/language semantics, Unicode
 Enter, Tab/Shift+Tab and the code-block command through real store recovery.
-They add no platform Markdown policy. The structural-seams fixture bytes remain
-unchanged; code literals are separately reviewed by their owning tests.
+They add no platform Markdown policy. The twelve added structural-seam literals cover empty quoted code input/Enter,
+nested CRLF, selected whole-body and authored terminal-break deletion, literal
+tilde/wider-backtick typing, the existing triple-backtick shortcut, composition,
+OS/explicit input and adjacent ordinary typing. Existing store/FFI/WASM/Swift/Kotlin
+consumers read the same hand-reviewed literals.
+
+Fence display follows the pinned shipping code schema's mdast `code.value`: one
+terminal ending terminates the frame and additional blank lines are code text.
+The schema's Markdown runner passes that value directly into the code text node;
+`editor-embed-milkdown-interactive-code-blocks.spec.ts` independently names a
+multiline node without the frame LF. New #297 EOF display expectations were
+corrected against that authority; exact source oracles and historical red logs
+remain intact. `../fences/frame.rs` and `../fences/basis.rs` lock the frame/body
+ownership, fresh-open agreement and exact history through public sessions.

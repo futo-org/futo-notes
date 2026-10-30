@@ -65,7 +65,7 @@ fn empty_fence_has_a_hidden_structural_caret_and_accepts_literal_text() {
             _ => "```js\n# x",
         };
         assert_eq!(session.source_text(), expected);
-        assert_eq!(view.text, if opening == "```js" { "# x" } else { "# x\n" });
+        assert_eq!(view.text, "# x");
     }
 }
 
@@ -74,27 +74,27 @@ fn code_delimiters_and_nested_enter_stay_inside_the_original_block() {
     for (source, shown, selected, inserted, expected, display) in [
         (
             "~~~js\na\n~~~",
-            "a\n",
+            "a",
             range(0, 0),
             "*",
             "~~~js\n*a\n~~~",
-            "*a\n",
+            "*a",
         ),
         (
             "```js\na\n```",
-            "a\n",
+            "a",
             range(0, 0),
             "```\n",
             "````js\n```\na\n````",
-            "```\na\n",
+            "```\na",
         ),
         (
             "> ~~~js\n> ab\n> ~~~",
-            "ab\n",
+            "ab",
             range(1, 1),
             "\n",
             "> ~~~js\n> a\n> b\n> ~~~",
-            "a\nb\n",
+            "a\nb",
         ),
     ] {
         let mut session = EditorSession::open(source);
@@ -165,7 +165,7 @@ fn empty_native_input_does_not_add_a_body_line_or_respell_an_empty_fence() {
 #[test]
 fn indented_delimiter_text_that_cannot_close_code_does_not_respell_fences() {
     let mut session = EditorSession::open("```js\na\n```  ");
-    let mut view = ReferenceView::new("a\n");
+    let mut view = ReferenceView::new("a");
     view.apply(
         session
             .replace_action(
@@ -178,13 +178,13 @@ fn indented_delimiter_text_that_cannot_close_code_does_not_respell_fences() {
             .unwrap(),
     );
     assert_eq!(session.source_text(), "```js\n    ```\na\n```  ");
-    assert_eq!(view.text, "    ```\na\n");
+    assert_eq!(view.text, "    ```\na");
 }
 
 #[test]
 fn a_longer_original_closer_is_never_shortened_during_delimiter_repair() {
     let mut session = EditorSession::open("```js\na\n``````  ");
-    let mut view = ReferenceView::new("a\n");
+    let mut view = ReferenceView::new("a");
     view.apply(
         session
             .replace_action(
@@ -197,5 +197,5 @@ fn a_longer_original_closer_is_never_shortened_during_delimiter_repair() {
             .unwrap(),
     );
     assert_eq!(session.source_text(), "````js\n```\na\n``````  ");
-    assert_eq!(view.text, "```\na\n");
+    assert_eq!(view.text, "```\na");
 }

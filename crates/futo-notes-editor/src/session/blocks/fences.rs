@@ -34,8 +34,8 @@ impl EditorSession {
             .to_string();
         let marker = prefix.as_bytes().first().copied().unwrap_or(0);
         let width = prefix.bytes().take_while(|&ch| ch == marker).count();
-        if !matches!(marker, b'`' | b'~')
-            || width < 3
+        if marker != b'`'
+            || width != 3
             || prefix[width..].contains(char::is_whitespace)
             || prefix[width..].contains('`')
         {
@@ -103,12 +103,26 @@ impl EditorSession {
         }) {
             return Ok(None);
         }
+        // A visible inter-block separator is outside this fence's editable
+        // body. Let the ordinary strict edit planner handle that request rather
+        // than narrowing a supplied display selection into an unrelated no-op.
+        if range.start.0 < self.projection.display_at(fence.body.start)
+            || self.projection.display_at(fence.body.end) < range.end.0
+        {
+            return Ok(None);
+        }
         let (a, b) = (
             self.projection.source_bounds(range.start.0).1,
             self.projection.source_bounds(range.end.0).0,
         );
         let a = a.clamp(fence.body.start, fence.body.end);
-        let b = b.clamp(a, fence.body.end);
+        let b = if range.start != range.end
+            && range.end.0 == self.projection.display_at(fence.body.end)
+        {
+            fence.body.end
+        } else {
+            b.clamp(a, fence.body.end)
+        };
         if range.start == range.end && inserted.is_empty() {
             return self
                 .commit_block_edit(
@@ -131,10 +145,17 @@ impl EditorSession {
                     .byte_slice(line.source.start..line.content.start)
                     .to_string()
             } else {
-                String::new()
+                self.source
+                    .byte_slice(
+                        self.source
+                            .line_to_byte(self.source.byte_to_line(fence.opener.start))
+                            ..fence.opener.start,
+                    )
+                    .to_string()
             };
         let mut input = inserted.replace('\n', &format!("\n{prefix}"));
         if fence.body.is_empty() {
+            input.insert_str(0, &prefix);
             if fence.body.start == fence.whole.end
                 && !self
                     .source
@@ -145,7 +166,8 @@ impl EditorSession {
                 input.insert(0, '\n');
             }
         }
-        let added_ending = fence.closer.is_some() && a == fence.body.end && !input.ends_with('\n');
+        let added_ending = fence.separator.is_empty()
+            && ((fence.closer.is_some() && a == fence.body.end) || inserted.ends_with('\n'));
         if added_ending {
             input.push('\n');
         }

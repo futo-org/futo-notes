@@ -158,3 +158,56 @@ fn compound_os_and_explicit_input_across_code_and_prose_keep_each_source_identit
         assert_eq!(session.source_text(), original);
     }
 }
+
+#[test]
+fn global_os_and_explicit_code_runs_preserve_the_unselected_terminal_frame() {
+    for os in [false, true] {
+        let source = "__head__\r\n\r\n> ~~~Rust\r\n> ab &amp; cd\r\n> ~~~~~  ";
+        let expected = "__head__\r\n\r\n> ~~~Rust\r\n> Ab &amp; CD\r\n> ~~~~~  ";
+        let mut session = EditorSession::open(source);
+        let mut view = ReferenceView::new("head\r\n\r\nab &amp; cd");
+        assert_eq!(session.display_text(), view.text);
+        let change = if os {
+            session
+                .replace_os(
+                    session.revision(),
+                    range(8, 19),
+                    "Ab &amp; CD",
+                    &[],
+                    &mut |_| Ok(()),
+                )
+                .unwrap()
+                .unwrap()
+        } else {
+            session
+                .replace_many(
+                    session.revision(),
+                    &[
+                        DisplayReplacement {
+                            range: range(8, 9),
+                            inserted: "A".into(),
+                        },
+                        DisplayReplacement {
+                            range: range(17, 19),
+                            inserted: "CD".into(),
+                        },
+                    ],
+                    &mut |_| Ok(()),
+                )
+                .unwrap()
+        };
+        view.apply(change);
+        assert_eq!(session.source_text(), expected);
+        assert_eq!(view.text, "head\r\n\r\nAb &amp; CD");
+        assert_eq!(EditorSession::open(expected).display_text(), view.text);
+        assert_eq!(session.selection(), range(19, 19));
+        view.apply(
+            session
+                .undo(session.revision(), &mut |_| Ok(()))
+                .unwrap()
+                .unwrap(),
+        );
+        assert_eq!(session.source_text(), source);
+        assert_eq!(view.text, "head\r\n\r\nab &amp; cd");
+    }
+}

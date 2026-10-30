@@ -94,5 +94,5 @@ fn native_code_block_command_remains_a_thin_engine_projection() {
         .unwrap()
         .unwrap();
     assert_eq!(session.source_text().unwrap(), "```\nab\n```");
-    assert_eq!(session.display_text().unwrap(), "ab\n");
+    assert_eq!(session.display_text().unwrap(), "ab");
 }

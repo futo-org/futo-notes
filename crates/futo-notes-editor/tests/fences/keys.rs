@@ -76,27 +76,28 @@ fn code_tab_and_shift_tab_share_exact_history_and_supplied_selection() {
             range(1, 1),
             ParagraphKey::Tab,
             "~~~x\na  b\n cd\n~~~",
-            "a  b\n cd\n",
+            "a  b\n cd",
             range(3, 3),
         ),
         (
             range(1, 5),
             ParagraphKey::Tab,
             "~~~x\n  ab\n   cd\n~~~",
-            "  ab\n   cd\n",
+            "  ab\n   cd",
             range(3, 9),
         ),
         (
             range(4, 4),
             ParagraphKey::ShiftTab,
             "~~~x\nab\ncd\n~~~",
-            "ab\ncd\n",
+            "ab\ncd",
             range(3, 3),
         ),
     ] {
         let opening = "~~~x\nab\n cd\n~~~";
         let mut session = EditorSession::open(opening);
-        let mut view = ReferenceView::new("ab\n cd\n");
+        let mut view = ReferenceView::new("ab\n cd");
+        assert_eq!(session.display_text(), view.text);
         session.select(session.revision(), selected).unwrap();
         view.apply(
             session
@@ -121,7 +122,7 @@ fn code_tab_and_shift_tab_share_exact_history_and_supplied_selection() {
 #[test]
 fn empty_code_enter_returns_a_caret_that_types_in_its_new_body_line() {
     for (opening, shown, expected, display) in [
-        ("```js\n```", "", "```js\n\nx\n```", "\nx\n"),
+        ("```js\n```", "", "```js\n\nx\n```", "\nx"),
         (
             "```js\n```\nafter",
             "\nafter",

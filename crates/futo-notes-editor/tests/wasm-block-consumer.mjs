@@ -167,15 +167,15 @@ async function reviewedBlockRegression(
 }
 
 export async function runBlockRegressions() {
-  await reviewedBlockRegression('ab', 'CodeBlock', '```\nab\n```', 'ab', 0, 0, 'ab\n', false, null);
+  await reviewedBlockRegression('ab', 'CodeBlock', '```\nab\n```', 'ab', 0, 0, 'ab', false, null);
   await reviewedBlockRegression(
     '~~~js\nab\n cd\n~~~',
     'Tab',
     '~~~js\na  b\n cd\n~~~',
-    'ab\n cd\n',
+    'ab\n cd',
     1,
     1,
-    'a  b\n cd\n',
+    'a  b\n cd',
     false,
     'js',
   );
@@ -183,10 +183,10 @@ export async function runBlockRegressions() {
     '~~~js\nab\n cd\n~~~',
     'ShiftTab',
     '~~~js\nab\ncd\n~~~',
-    'ab\n cd\n',
+    'ab\n cd',
     4,
     4,
-    'ab\ncd\n',
+    'ab\ncd',
     false,
     'js',
   );

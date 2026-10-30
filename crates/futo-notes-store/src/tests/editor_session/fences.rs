@@ -16,7 +16,7 @@ fn fenced_edits_pause_on_append_failure_then_recover_and_checkpoint_literal_byte
             range(0, 0),
             "```\n",
             "````js\n```\na\n````",
-            "```\na\n",
+            "```\na",
         ),
         (
             "\\`\\`\\`js\n\ntail",
@@ -25,6 +25,18 @@ fn fenced_edits_pause_on_append_failure_then_recover_and_checkpoint_literal_byte
             "```js\n\n```\n\ntail",
             "\n\ntail",
         ),
+        ("> ```\n> ```", range(0, 0), "x", "> ```\n> x\n> ```", "x"),
+        (
+            "> ~~~\n> ~~~",
+            range(0, 0),
+            "\n",
+            "> ~~~\n> \n> \n> ~~~",
+            "\n",
+        ),
+        ("> ```\n> a\n> ```", range(0, 1), "", "> ```\n> \n> ```", ""),
+        ("~~~\na\n\n~~~~  ", range(1, 2), "", "~~~\na\n~~~~  ", "a"),
+        ("&#126;~~js", range(5, 5), " ", "&#126;~~js ", "~~~js "),
+        ("&#96;```js", range(6, 6), " ", "&#96;```js ", "````js "),
     ] {
         let root = TestRoot::new();
         let store = store(&root);
@@ -53,6 +65,16 @@ fn fenced_edits_pause_on_append_failure_then_recover_and_checkpoint_literal_byte
             editor.replace(Revision(0), selected, inserted).unwrap();
             assert_eq!(editor.source_text(), expected);
             assert_eq!(editor.display_text(), display);
+            let selected = editor.selection();
+            disk.lock().unwrap().fault = Some(storage::Fault::Append);
+            assert!(matches!(
+                editor.undo(editor.revision()),
+                Err(EditorStoreError::RecoveryAppend(_))
+            ));
+            assert_eq!(editor.source_text(), expected);
+            assert_eq!(editor.selection(), selected);
+            disk.lock().unwrap().fault = None;
+            editor.resume_recovery().unwrap();
             editor.undo(editor.revision()).unwrap().unwrap();
             assert_eq!(editor.source_text(), opening);
             editor.redo(editor.revision()).unwrap().unwrap();

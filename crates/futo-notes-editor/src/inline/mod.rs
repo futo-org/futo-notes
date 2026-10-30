@@ -163,6 +163,12 @@ impl Projection {
                 let hit = if range.start == range.end {
                     a <= range.start.0
                         && (range.start.0 < z
+                            || block.fence.as_ref().is_some_and(|fence| {
+                                fence.body.start <= block.source.start
+                                    && block.source.start <= fence.body.end
+                                    && row.display_at(block.content.end) + display == range.start.0
+                                    && row.display_at(fence.body.end) + display == range.start.0
+                            })
                             || (block.source.start == row.blocks.last().unwrap().source.start
                                 && source + block.source.end
                                     == self.rows.at(self.rows.len() - 1).1
@@ -171,8 +177,9 @@ impl Projection {
                     a < range.end.0 && range.start.0 < z
                 };
                 let empty_fence = block.fence.as_ref().is_some_and(|fence| {
-                    fence.body.is_empty()
-                        && block.source.start == fence.whole.start
+                    row.display_at(fence.body.start) == row.display_at(fence.body.end)
+                        && block.source.start <= fence.whole.start
+                        && fence.whole.start < block.source.end
                         && a == range.start.0
                 });
                 if hit || empty_fence {
