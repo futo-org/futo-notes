@@ -445,3 +445,20 @@ fn indent_and_outdent_choose_the_nearest_list_or_quote_container() {
         assert_eq!(s.source_text(), raw);
     }
 }
+
+#[test]
+fn a_first_list_sibling_inside_a_quote_cannot_indent_its_outer_quote() {
+    let mut s = EditorSession::open("> - a\n> - b");
+    let initial = s.source_text();
+    assert!(s
+        .block_command(
+            s.revision(),
+            range(0, 0),
+            BlockCommand::Indent,
+            &mut |_| panic!("no sink target")
+        )
+        .unwrap()
+        .is_none());
+    assert_eq!(s.source_text(), initial);
+    assert_eq!(s.revision(), Revision(0));
+}
