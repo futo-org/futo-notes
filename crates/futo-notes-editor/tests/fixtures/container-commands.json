@@ -124,5 +124,124 @@
       1,
       1
     ]
+  },
+  {
+    "name": "bare-quote-becomes-root-list-between-foreign-owners",
+    "source": "- before\n\n> middle\n\n- after",
+    "display": "before\n\nmiddle\n\nafter",
+    "action": "BulletList",
+    "range": [
+      8,
+      14
+    ],
+    "expected": "- before\n\n+ middle\n\n- after",
+    "shown": "before\n\nmiddle\n\nafter",
+    "resultRange": [
+      8,
+      14
+    ],
+    "finalItems": [
+      [
+        null,
+        null
+      ],
+      [
+        null,
+        null
+      ],
+      [
+        null,
+        null
+      ]
+    ]
+  },
+  {
+    "name": "heading-in-quote-retains-quote-on-list-conversion",
+    "source": "> ## heading",
+    "display": "heading",
+    "action": "BulletList",
+    "range": [
+      3,
+      3
+    ],
+    "expected": "> - heading",
+    "shown": "heading",
+    "resultRange": [
+      3,
+      3
+    ],
+    "finalItems": [
+      [
+        null,
+        null
+      ]
+    ],
+    "quoteDepth": 1
+  },
+  {
+    "name": "quoted-existing-child-list-retarget-keeps-outer-owners",
+    "source": "> - parent\n>   - child\n> - following",
+    "display": "parent\nchild\nfollowing",
+    "action": "OrderedList",
+    "range": [
+      7,
+      12
+    ],
+    "expected": "> - parent\n>   1. child\n> - following",
+    "shown": "parent\nchild\nfollowing",
+    "resultRange": [
+      7,
+      12
+    ],
+    "finalItems": [
+      [
+        null,
+        null
+      ],
+      [
+        1,
+        null
+      ],
+      [
+        null,
+        null
+      ]
+    ],
+    "itemDepths": [
+      1,
+      2,
+      1
+    ],
+    "quoteDepth": 1
+  },
+  {
+    "name": "mixed-original-format-runs-toggle-independently",
+    "source": "- bullet\n\n> quoted\n\nplain\n\n1. numbered",
+    "display": "bullet\n\nquoted\n\nplain\n\nnumbered",
+    "action": "BulletList",
+    "range": [
+      0,
+      31
+    ],
+    "expected": "bullet\n\n- quoted\n\n+ plain\n\n- numbered",
+    "shown": "bullet\n\nquoted\n\nplain\n\nnumbered",
+    "resultRange": [
+      0,
+      31
+    ],
+    "finalItems": [
+      [
+        null,
+        null
+      ],
+      [
+        null,
+        null
+      ],
+      [
+        null,
+        null
+      ]
+    ]
   }
 ]

@@ -22,7 +22,7 @@ internal fun sharedListActions() {
     assertEquals(35, nested.length())
     for (at in 0 until nested.length()) cases.put(nested.getJSONObject(at))
     val commands = JSONArray(context.assets.open("container-commands.json").bufferedReader().use { it.readText() })
-    assertEquals(3, commands.length())
+    assertEquals(7, commands.length())
     for (at in 0 until commands.length()) cases.put(commands.getJSONObject(at))
     fun native(values: JSONArray) = EditorUtf16Range(values.getLong(0).toULong(), values.getLong(1).toULong())
     for (at in 0 until cases.length()) {

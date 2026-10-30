@@ -232,6 +232,28 @@ const cases = [
     anchor: 'heading',
     offset: 3,
   },
+  {
+    name: 'mixed ancestor bullet and ordered descendant selection',
+    source: '- parent\n  1. child😀\n     - grandchild\n  2. sibling\n- following',
+    command: 'bullet-list',
+    anchor: 'parent',
+    head: 'child😀',
+    headOffset: 7,
+  },
+  {
+    name: 'nested and outer owner retarget at next first text endpoint',
+    source: '- parent\n  - child\n- following',
+    command: 'ordered-list',
+    anchor: 'child',
+    head: 'following',
+  },
+  {
+    name: 'mixed ancestor selection ending at outer first text endpoint',
+    source: '- parent\n  1. child\n  2. sibling\n- following',
+    command: 'bullet-list',
+    anchor: 'parent',
+    head: 'following',
+  },
 ] as const;
 
 describe('pinned shipping toolbar container transactions (#299)', () => {
