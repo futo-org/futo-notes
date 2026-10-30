@@ -86,3 +86,36 @@ it('Text preserves a heading declaration as literal body instead of creating a r
   expect(rows(candidate)).toEqual(expected);
   expect(links(candidate)).toEqual([]);
 });
+
+it('Text keeps an already resolved shortcut in definition-shaped heading text', () => {
+  const view = editor.ctx.get(editorViewCtx);
+  const parse = editor.ctx.get(parserCtx);
+  const original = "# [id]: /target 'T'\n\n[one][id]\n\n[id]: /first 'First'";
+  const parsed = parse(original);
+  view.dispatch(view.state.tr.replaceWith(0, view.state.doc.content.size, parsed.content));
+  const expectedBefore = [
+    { type: 'heading', text: "id: /target 'T'" },
+    { type: 'paragraph', text: 'one' },
+  ];
+  expect(rows(view.state.doc.toJSON() as NodeJson)).toEqual(expectedBefore);
+  view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, 1, 3)));
+  createToolbarExec(() => editor).paragraph();
+  const after = view.state.doc.toJSON() as NodeJson;
+  const expected = [
+    { type: 'paragraph', text: "id: /target 'T'" },
+    { type: 'paragraph', text: 'one' },
+  ];
+  const marks = [
+    { type: 'link', attrs: { href: '/first', title: 'First' } },
+    { type: 'link', attrs: { href: '/first', title: 'First' } },
+  ];
+  expect(rows(after)).toEqual(expected);
+  expect(links(after)).toEqual(marks);
+  // A full reference tail preserves the owned shortcut identity while keeping
+  // the following colon visible in the actual future paragraph.
+  const candidate = parse(
+    "[id][id]: /target 'T'\n\n[one][id]\n\n[id]: /first 'First'",
+  ).toJSON() as NodeJson;
+  expect(rows(candidate)).toEqual(expected);
+  expect(links(candidate)).toEqual(marks);
+});
