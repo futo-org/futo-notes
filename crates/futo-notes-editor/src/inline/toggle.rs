@@ -54,7 +54,7 @@ pub(super) fn pieces(
             piece
                 .spans
                 .retain(|id| markers[*id].kind != SpanKind::Format(format));
-            if format == SpanKind::Format(InlineFormat::Code) {
+            if format == InlineFormat::Code {
                 if all_active {
                     piece.raw = piece
                         .display
