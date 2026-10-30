@@ -418,3 +418,34 @@ fn nested_backspace_retires_the_item_into_the_immediate_preceding_container() {
         assert_eq!(s.source_text(), expected);
     }
 }
+
+#[test]
+fn enter_on_an_empty_nested_item_lifts_exactly_one_level() {
+    let raw = "- a\n  - ";
+    let mut s = EditorSession::open(raw);
+    let mut view = ReferenceView::new("a\n");
+    s.select(s.revision(), range(2, 2)).unwrap();
+    view.apply(
+        s.paragraph_key(s.revision(), range(2, 2), ParagraphKey::Enter, &mut |_| {
+            Ok(())
+        })
+        .unwrap()
+        .unwrap(),
+    );
+    assert_eq!(s.source_text(), "- a\n- ");
+    assert_eq!(view.text, "a\n");
+    assert_eq!(s.selection(), range(2, 2));
+    view.apply(
+        s.paragraph_key(s.revision(), range(2, 2), ParagraphKey::Enter, &mut |_| {
+            Ok(())
+        })
+        .unwrap()
+        .unwrap(),
+    );
+    assert_eq!(s.source_text(), "- a\n");
+    view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(s.source_text(), "- a\n- ");
+    view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(s.source_text(), raw);
+    assert_eq!(s.selection(), range(2, 2));
+}
