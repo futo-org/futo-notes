@@ -11,6 +11,18 @@ import uniffi.futo_notes_ffi.*
 /** Synthetic binding/recovery checks; these are not captured OS callbacks. */
 class NativeEditorStructuralSeamTest {
     @Test
+    fun structuralFixtureAssetsCoexistWithTheOriginalConformanceAssets() {
+        val assets = InstrumentationRegistry.getInstrumentation().context.assets
+        val names = checkNotNull(assets.list(""))
+        assertEquals(1, names.count { it == "structural-seams.json" })
+        assertTrue(names.contains("server-url.json"))
+        val readmeTitle = assets.open("README.md").bufferedReader().use { it.readLine() }
+        assertEquals("# Cross-language note-rule conformance", readmeTitle)
+        val cases = JSONArray(assets.open("structural-seams.json").bufferedReader().use { it.readText() })
+        assertEquals(12, cases.length())
+    }
+
+    @Test
     fun structuralSeamsAndRawMarkedInputKeepExactNativeCaretsAndRecovery() {
         val context = InstrumentationRegistry.getInstrumentation().context
         val cases = JSONArray(context.assets.open("structural-seams.json").bufferedReader().use { it.readText() })
