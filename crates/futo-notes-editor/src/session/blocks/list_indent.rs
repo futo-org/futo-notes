@@ -50,22 +50,27 @@ impl EditorSession {
         let mut output = String::with_capacity(raw.len() + width);
         for line in raw.split_inclusive('\n') {
             let prefix = quote_prefix_end(line, item.quote_depth);
+            let base = crate::inline::columns(&line[..prefix], 0);
             output.push_str(&line[..prefix]);
             let line = &line[prefix..];
+            if line.trim_matches([' ', '\t', '\r', '\n']).is_empty() {
+                output.push_str(line);
+                continue;
+            }
             if add {
                 output.push_str(&" ".repeat(width));
                 output.push_str(line);
             } else {
-                let mut removed = 0;
+                let mut column = base;
                 let mut bytes = 0;
                 for byte in line.bytes() {
-                    if removed >= width || !matches!(byte, b' ' | b'\t') {
+                    if column - base >= width || !matches!(byte, b' ' | b'\t') {
                         break;
                     }
-                    removed += if byte == b'\t' { 4 - removed % 4 } else { 1 };
+                    column = crate::inline::columns(&line[bytes..bytes + 1], column);
                     bytes += 1;
                 }
-                output.push_str(&" ".repeat(removed.saturating_sub(width)));
+                output.push_str(&" ".repeat((column - base).saturating_sub(width)));
                 output.push_str(&line[bytes..]);
             }
         }

@@ -13,6 +13,7 @@ use crate::{
     Correspondence, DisplayOffset, DisplayRange, InlineFormat, ProjectionSlice, Revision,
     SemanticRun, SourceEdit, SourceOffset, SourceRange,
 };
+pub(crate) use lists::columns;
 use ropey::Rope;
 use row::{paragraphs, Row};
 pub(crate) use tree::ContextWitness;

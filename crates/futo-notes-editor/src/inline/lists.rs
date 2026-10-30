@@ -203,7 +203,7 @@ pub(super) fn describe(source: &str, events: &[(Event<'_>, Range<usize>)]) -> Li
 }
 
 /// CommonMark columns expand a tab to the next four-column stop.
-pub(super) fn columns(raw: &str, mut column: usize) -> usize {
+pub(crate) fn columns(raw: &str, mut column: usize) -> usize {
     for byte in raw.bytes() {
         column += if byte == b'\t' { 4 - column % 4 } else { 1 };
     }
