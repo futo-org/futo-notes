@@ -358,11 +358,11 @@ pub(super) struct Context {
     pub(super) pieces: Vec<Piece>,
     pub(super) block_boundaries: Vec<usize>,
 }
-struct Cut {
-    before: Vec<Piece>,
-    after: Vec<Piece>,
-    left: Vec<usize>,
-    right: Vec<usize>,
+pub(super) struct Cut {
+    pub(super) before: Vec<Piece>,
+    pub(super) after: Vec<Piece>,
+    pub(super) left: Vec<usize>,
+    pub(super) right: Vec<usize>,
 }
 
 pub(super) fn split_entities(pieces: Vec<Piece>, a: usize, z: usize) -> Vec<Piece> {
@@ -408,7 +408,7 @@ pub(super) fn split_entities(pieces: Vec<Piece>, a: usize, z: usize) -> Vec<Piec
     expanded
 }
 
-fn cut(expanded: Vec<Piece>, selected: Range<usize>, keep: bool) -> Cut {
+pub(super) fn cut(expanded: Vec<Piece>, selected: Range<usize>, keep: bool) -> Cut {
     let (a, z) = (selected.start, selected.end);
     let mut offset = 0;
     let mut before = Vec::new();
@@ -445,7 +445,7 @@ fn cut(expanded: Vec<Piece>, selected: Range<usize>, keep: bool) -> Cut {
     }
 }
 
-fn carry_formats(
+pub(super) fn carry_formats(
     before: &mut [Piece],
     after: &[Piece],
     markers: &mut Vec<Marker>,

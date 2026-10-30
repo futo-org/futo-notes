@@ -418,3 +418,89 @@ pub(super) fn finish_angle_word(
     }
     work
 }
+
+impl super::Projection {
+    pub(crate) fn insert_link(
+        &self,
+        source: &ropey::Rope,
+        range: crate::DisplayRange,
+        destination: &str,
+        affinity: crate::Affinity,
+        pending: Option<&[crate::InlineFormat]>,
+    ) -> Result<super::edit::Plan, crate::EditorError> {
+        use super::{
+            edit::{carry_formats, common_prefix, cut, split_entities, Context, Cut, Plan},
+            row::SpanKind,
+            spelling::{spell, Marker, Piece},
+        };
+        let Context {
+            raw,
+            source_start,
+            source_end,
+            a,
+            z,
+            mut markers,
+            pieces,
+            ..
+        } = self.edit_context(source, range);
+        let Cut {
+            mut before,
+            after,
+            left,
+            right,
+        } = cut(split_entities(pieces, a, z), a..z, false);
+        let mut active = if affinity == crate::Affinity::Backward {
+            left
+        } else {
+            right
+        };
+        if let Some(formats) = pending {
+            carry_formats(&mut before, &after, &mut markers, &mut active, formats);
+        }
+        let formats = active
+            .iter()
+            .filter_map(|id| markers[*id].kind.format())
+            .collect();
+        let (links, work) = bare_links(destination);
+        let bare = links.len() == 1
+            && links[0].open.start == 0
+            && links[0].close.end == destination.len()
+            && links[0].kind == SpanKind::Link(destination.into());
+        let id = markers.len();
+        markers.push(Marker {
+            kind: SpanKind::Link(destination.into()),
+            open: if bare { "".into() } else { "[".into() },
+            close: if bare {
+                "".into()
+            } else {
+                format!("](<{}>)", destination_source(destination))
+            },
+        });
+        active.push(id);
+        let insertion = before.len();
+        before.push(Piece {
+            raw: destination.into(),
+            display: destination.into(),
+            spans: active,
+            trailing: false,
+        });
+        before.extend(after);
+        let rendered = spell(before, markers, insertion..insertion + 1, true)?;
+        let prefix = common_prefix(&raw, &rendered.text);
+        let suffix: usize = raw[prefix..]
+            .chars()
+            .rev()
+            .zip(rendered.text[prefix..].chars().rev())
+            .take_while(|(a, b)| a == b)
+            .map(|(ch, _)| ch.len_utf8())
+            .sum();
+        Ok(Plan {
+            range: source_start + prefix..source_end - suffix,
+            inserted: rendered.text[prefix..rendered.text.len() - suffix].into(),
+            caret: source_start + rendered.caret,
+            formats,
+            materialized: raw.len() + rendered.text.len(),
+            parsed: work + rendered.parsed,
+        })
+    }
+}

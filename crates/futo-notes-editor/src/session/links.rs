@@ -62,9 +62,6 @@ impl EditorSession {
             return Ok(None);
         }
         let target = link.map_or(range, |link| link.range);
-        if target.start == target.end {
-            return Ok(None);
-        }
         if self
             .projection
             .block_lines(target)
@@ -73,9 +70,19 @@ impl EditorSession {
         {
             return Ok(None);
         }
-        let plan = self
-            .projection
-            .link_edit(&self.source, target, destination)?;
+        let inserting = target.start == target.end;
+        let plan = if inserting {
+            self.projection.insert_link(
+                &self.source,
+                target,
+                destination,
+                self.input_affinity(range),
+                self.pending_formats.as_deref(),
+            )?
+        } else {
+            self.projection
+                .link_edit(&self.source, target, destination)?
+        };
         let edit = self.prepare_source(
             expected,
             SourceRange {
@@ -90,9 +97,14 @@ impl EditorSession {
         let before_formats = self.pending_formats.clone();
         let before_links = self.projection.literal_links.clone();
         let mut change = self.apply(&edit);
-        self.selection = range;
+        self.selection = if inserting {
+            let at = DisplayOffset(self.projection.display_at(plan.caret));
+            DisplayRange { start: at, end: at }
+        } else {
+            range
+        };
         self.pending_formats = None;
-        change.selection = range;
+        change.selection = self.selection;
         change.work.materialized_source_bytes += plan.materialized;
         change.work.parsed_source_bytes += plan.parsed;
         self.record_input_history(
@@ -101,7 +113,7 @@ impl EditorSession {
                 before_affinity,
                 before_formats,
                 before_links,
-                after_selection: range,
+                after_selection: self.selection,
                 after_affinity: self.affinity,
                 after_formats: None,
                 after_links: self.projection.literal_links.clone(),
