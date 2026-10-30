@@ -180,7 +180,7 @@ impl Rows {
             if let Some(found) = search(first.0, first.1, at, forward, quote) {
                 return Some(found);
             }
-            if (forward && next > at || !forward && own < at) {
+            if forward && next > at || !forward && own < at {
                 let runs = &node.row.context;
                 let index = runs.partition_point(|run| {
                     visit_context();
@@ -254,6 +254,12 @@ mod context_work_tests {
                         end: DisplayOffset(at),
                     };
                     session.select(session.revision(), selected).unwrap();
+                    let (window, _) = session.projection.edit_window(selected);
+                    assert!(
+                        window.len() < 4096,
+                        "gap={blanks} body={foreign_bytes} start={start} window={window:?} rows={}",
+                        session.projection.rows.len()
+                    );
                     CONTEXT_VISITS.with(|visits| visits.set(0));
                     let change = session
                         .replace(session.revision(), selected, " ", &mut |_| Ok(()))
@@ -263,7 +269,11 @@ mod context_work_tests {
                         visits > 0 && visits < 160,
                         "gap={blanks} body={foreign_bytes} visits={visits}"
                     );
-                    assert!(change.work.parsed_source_bytes < 4096, "{:?}", change.work);
+                    assert!(
+                        change.work.parsed_source_bytes < 4096,
+                        "gap={blanks} body={foreign_bytes} start={start} {:?}",
+                        change.work
+                    );
                     assert!(
                         change.work.materialized_source_bytes < 4096,
                         "{:?}",
