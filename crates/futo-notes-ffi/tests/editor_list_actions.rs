@@ -1,0 +1,185 @@
+mod support;
+use futo_notes_ffi::{
+    EditorBlockCommand, EditorByteRange, EditorInputAction, EditorParagraphKey, EditorUtf16Range,
+    EditorViewChange, NoteStore,
+};
+use serde_json::Value;
+use support::{path_string, TempTree};
+
+fn native(value: &Value) -> EditorUtf16Range {
+    EditorUtf16Range {
+        start: value[0].as_u64().unwrap(),
+        end: value[1].as_u64().unwrap(),
+    }
+}
+fn apply(view: &mut String, change: &EditorViewChange) {
+    view.replace_range(
+        change.range.start as usize..change.range.end as usize,
+        &change.inserted,
+    );
+}
+
+#[test]
+fn shared_list_actions_forward_native_coordinates_history_and_exact_recovery() {
+    let cases: Value = serde_json::from_str(include_str!(
+        "../../futo-notes-editor/tests/fixtures/list-actions.json"
+    ))
+    .unwrap();
+    assert_eq!(cases.as_array().unwrap().len(), 24);
+    for case in cases.as_array().unwrap() {
+        let text = |key: &str| case[key].as_str().unwrap();
+        let tree = TempTree::new();
+        std::fs::create_dir_all(tree.path("vault")).unwrap();
+        let store = NoteStore::new(path_string(&tree.path("vault")));
+        store
+            .create_note("lists".into(), "".into(), text("source").into())
+            .unwrap();
+        let s = store.open_editor("lists".into()).unwrap();
+        let mut view = text("display").to_owned();
+        assert_eq!(s.display_text().unwrap(), view);
+        let initial = native(case.get("selection").unwrap_or(&case["range"]));
+        s.select_utf16(0, initial.clone()).unwrap();
+        let selected = native(&case["range"]);
+        let inserted: Vec<u16> = case["text"].as_str().unwrap_or("").encode_utf16().collect();
+        let action = text("action");
+        if action == "ComposeToggleTask" {
+            s.compose_utf16(0, native(&case["composeRange"]), inserted.clone())
+                .unwrap();
+            assert_eq!(s.source_text().unwrap(), text("source"));
+        }
+        let change = match action {
+            "Typing" => s
+                .replace_utf16_action(0, selected, inserted, EditorInputAction::Typing)
+                .unwrap(),
+            "Enter" | "Backspace" => s
+                .paragraph_key_utf16(
+                    0,
+                    selected,
+                    if action == "Enter" {
+                        EditorParagraphKey::Enter
+                    } else {
+                        EditorParagraphKey::Backspace
+                    },
+                )
+                .unwrap()
+                .unwrap(),
+            command => s
+                .block_command_utf16(
+                    0,
+                    selected,
+                    match command {
+                        "BulletList" => EditorBlockCommand::BulletList,
+                        "OrderedList" => EditorBlockCommand::OrderedList,
+                        "TaskList" => EditorBlockCommand::TaskList,
+                        "ToggleTask" | "ComposeToggleTask" => EditorBlockCommand::ToggleTask,
+                        _ => panic!("unknown fixture action {command}"),
+                    },
+                )
+                .unwrap()
+                .unwrap(),
+        };
+        apply(&mut view, &change);
+        assert_eq!(change.revision, 1);
+        assert_eq!(
+            s.source_text().unwrap(),
+            text("expected"),
+            "{}",
+            text("name")
+        );
+        assert_eq!(view, text("shown"));
+        assert_eq!(
+            s.display_to_utf16(1, change.selection).unwrap(),
+            native(&case["resultRange"])
+        );
+        let mut blocks = s
+            .project(
+                1,
+                EditorByteRange {
+                    start: 0,
+                    end: view.len() as u64,
+                },
+            )
+            .unwrap()
+            .blocks;
+        for block in s
+            .project(
+                1,
+                EditorByteRange {
+                    start: view.len() as u64,
+                    end: view.len() as u64,
+                },
+            )
+            .unwrap()
+            .blocks
+        {
+            if !blocks.contains(&block) {
+                blocks.push(block);
+            }
+        }
+        let items: Vec<_> = blocks
+            .into_iter()
+            .filter_map(|block| {
+                block.list.filter(|list| list.first).map(|list| {
+                    assert_eq!(list.depth, 1);
+                    assert_eq!(block.quote_depth, case["quoteDepth"].as_u64().unwrap_or(0));
+                    serde_json::json!([list.number, list.checked])
+                })
+            })
+            .collect();
+        assert_eq!(
+            serde_json::json!(items),
+            case["finalItems"],
+            "{}",
+            text("name")
+        );
+        let histories = case["undoSources"].as_array().map_or(1, Vec::len);
+        for step in 0..histories {
+            let change = s.undo(s.revision().unwrap()).unwrap().unwrap();
+            apply(&mut view, &change);
+            assert_eq!(
+                s.source_text().unwrap(),
+                case["undoSources"][step].as_str().unwrap_or(text("source"))
+            );
+            assert_eq!(
+                view,
+                case["undoDisplays"][step]
+                    .as_str()
+                    .unwrap_or(text("display"))
+            );
+            assert_eq!(
+                s.display_to_utf16(change.revision, change.selection)
+                    .unwrap(),
+                case["undoRanges"]
+                    .get(step)
+                    .map(native)
+                    .unwrap_or(initial.clone())
+            );
+        }
+        assert!(s.undo(s.revision().unwrap()).unwrap().is_none());
+        for _ in 0..histories {
+            apply(&mut view, &s.redo(s.revision().unwrap()).unwrap().unwrap());
+        }
+        assert_eq!(s.source_text().unwrap(), text("expected"));
+        assert_eq!(view, text("shown"));
+        s.flush_recovery().unwrap();
+        s.detach().unwrap();
+        let recovered = store.open_editor("lists".into()).unwrap();
+        assert_eq!(recovered.source_text().unwrap(), text("expected"));
+        assert_eq!(recovered.display_text().unwrap(), text("shown"));
+        assert!(recovered
+            .undo(recovered.revision().unwrap())
+            .unwrap()
+            .is_none());
+        recovered.checkpoint().unwrap();
+        assert_eq!(store.read("lists".into()).unwrap(), text("expected"));
+        recovered.detach().unwrap();
+        assert_eq!(
+            store
+                .open_editor("lists".into())
+                .unwrap()
+                .source_text()
+                .unwrap(),
+            text("expected")
+        );
+    }
+}
