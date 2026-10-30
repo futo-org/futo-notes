@@ -97,6 +97,121 @@ if (tool === 'xcrun' && args.join(' ') === 'simctl list -j devices') {
   });
   afterEach(() => fs.rmSync(scratch, { recursive: true, force: true }));
 
+  // Schedule a complete second public invocation at the first allocator lock open.
+  // This catches callers that cached absence before entering the critical section.
+  it.each(['claim', 'device'])(
+    '%s reuses a preferred claim completed immediately before acquiring its lock',
+    (command) => {
+      const index = (slotOf(root) + 1) % 7;
+      const preload = path.join(scratch, 'schedule.mjs');
+      fs.writeFileSync(
+        preload,
+        `
+import fs from 'node:fs';
+import { spawnSync } from 'node:child_process';
+const original = fs.openSync;
+let fired = false;
+fs.openSync = function(file, ...args) {
+  if (!fired && file === ${JSON.stringify(path.join(scratch, '.futo-notes-qa/ios-allocation.lock'))}) {
+    fired = true;
+    const env = { ...process.env };
+    delete env.NODE_OPTIONS;
+    const child = spawnSync(process.execPath, [${JSON.stringify(QA)}, 'claim', 'ios', '--sim', 'futo-qa-${index}'], { cwd: ${JSON.stringify(root)}, env, encoding: 'utf8' });
+    if (child.status !== 0) throw new Error(child.stderr);
+    fs.writeFileSync(process.env.QA_TOOL_LOG, '');
+  }
+  return original.call(this, file, ...args);
+};
+`,
+      );
+      const result = spawnSync(process.execPath, [QA, command, 'ios'], {
+        cwd: root,
+        env: { ...env, NODE_OPTIONS: `--import=${preload}` },
+        encoding: 'utf8',
+        timeout: 10000,
+      });
+      expect(result.status, result.stderr).toBe(0);
+      expect(result.stdout).toBe(
+        command === 'device'
+          ? JSON.stringify({ name: `futo-qa-${index}`, id: `pool-id-${index}` }) + '\n'
+          : `export SIM=pool-id-${index}\n`,
+      );
+      expect(Object.keys(owners())).toEqual([`ios-futo-qa-${index}.json`]);
+      expect(commands()).not.toMatch(/uninstall|keychain|shutdown|erase/);
+    },
+  );
+
+  it.each([
+    ['claim', undefined],
+    ['device', undefined],
+    ['claim', 'futo-qa-5'],
+  ])('%s refuses lock replacement at owner persistence (selector %s)', (command, selector) => {
+    const preload = path.join(scratch, 'replace.mjs');
+    const lock = path.join(scratch, '.futo-notes-qa/ios-allocation.lock');
+    fs.writeFileSync(
+      preload,
+      `
+import fs from 'node:fs';
+const original = fs.mkdirSync;
+let fired = false;
+fs.mkdirSync = function(file, ...args) {
+  if (!fired && file === ${JSON.stringify(path.join(scratch, '.futo-notes-qa/devices'))}) {
+    fired = true;
+    fs.writeFileSync(${JSON.stringify(lock)}, 'FOREIGN LOCK');
+  }
+  return original.call(this, file, ...args);
+};
+`,
+    );
+    const result = spawnSync(
+      process.execPath,
+      [QA, command, 'ios', ...(selector ? ['--sim', selector] : [])],
+      {
+        cwd: root,
+        env: { ...env, NODE_OPTIONS: `--import=${preload}` },
+        encoding: 'utf8',
+        timeout: 10000,
+      },
+    );
+    expectRefused(result, {});
+    expect(result.stderr).toContain('lock identity changed');
+    expect(fs.readFileSync(lock, 'utf8')).toBe('FOREIGN LOCK');
+  });
+
+  it('device reuses an ordinary completed preferred claim without a handover wipe', () => {
+    expect(run(root, 'ios', '--sim', 'futo-qa-5').status).toBe(0);
+    const before = owners();
+    fs.writeFileSync(env.QA_TOOL_LOG, '');
+    const result = spawnSync(process.execPath, [QA, 'device', 'ios'], {
+      cwd: root,
+      env,
+      encoding: 'utf8',
+      timeout: 10000,
+    });
+    expect(result.status, result.stderr).toBe(0);
+    expect(JSON.parse(result.stdout)).toEqual({ name: 'futo-qa-5', id: 'pool-id-5' });
+    expect(owners()).toEqual(before);
+    expect(commands()).not.toMatch(/uninstall|keychain|shutdown|erase/);
+  });
+
+  it('device refuses an extant allocation lock even when its preferred claim is already held', () => {
+    expect(run(root, 'ios', '--sim', 'futo-qa-5').status).toBe(0);
+    const before = owners();
+    const lock = path.join(scratch, '.futo-notes-qa/ios-allocation.lock');
+    fs.writeFileSync(lock, 'OTHER ALLOCATOR');
+    fs.writeFileSync(env.QA_TOOL_LOG, '');
+    const result = spawnSync(process.execPath, [QA, 'device', 'ios'], {
+      cwd: root,
+      env,
+      encoding: 'utf8',
+      timeout: 10000,
+    });
+    expectRefused(result, before);
+    expect(result.stderr).toContain('another iOS allocation');
+    expect(commands()).toBe('');
+    expect(fs.readFileSync(lock, 'utf8')).toBe('OTHER ALLOCATOR');
+  });
+
   it('selects exactly the requested existing pooled simulator by name', () => {
     const result = run(root, 'ios', '--sim', 'futo-qa-5');
     expect(result.status, result.stderr).toBe(0);

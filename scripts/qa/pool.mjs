@@ -82,7 +82,8 @@ export function recordId(platform, name, id) {
 // earlier claim never finished its handover wipe (`wipePending`: the boot died
 // first), 'held' when the worktree already owned it, false when a live
 // worktree owns it.
-function tryClaimOwner(platform, name, root) {
+function tryClaimOwner(platform, name, root, assertOwnership = () => {}) {
+  assertOwnership();
   fs.mkdirSync(DEV_DIR, { recursive: true });
   const payload = JSON.stringify(
     {
@@ -94,6 +95,9 @@ function tryClaimOwner(platform, name, root) {
     null,
     2,
   );
+  // Revalidate here after filesystem/branch lookup, at every owner write path.
+  // Keeping this in the persistence owner covers default and preferred callers.
+  assertOwnership();
   try {
     fs.writeFileSync(ownerPath(platform, name), payload, { flag: 'wx' });
     return 'new';
@@ -101,6 +105,7 @@ function tryClaimOwner(platform, name, root) {
     const owner = readOwner(platform, name);
     if (owner && owner.worktree === root) return owner.wipePending ? 'new' : 'held';
     if (!owner || ownerIsStale(owner)) {
+      assertOwnership();
       fs.writeFileSync(ownerPath(platform, name), payload);
       return 'new';
     }
@@ -152,7 +157,29 @@ export function claimPoolName(platform, root, { sim, inspectSimulators } = {}) {
   };
   try {
     fs.writeFileSync(fd, payload);
-    if (!sim) return allocatePoolName(platform, root);
+    const assertOwnership = () => {
+      if (!ownsLock()) throw new Error('iOS allocation lock identity changed; refusing claim');
+    };
+    // Read current ownership only after acquiring the lock: a preferred claim
+    // may have finished while this invocation was still resolving its worktree.
+    const owned = fs.existsSync(DEV_DIR)
+      ? fs
+          .readdirSync(DEV_DIR)
+          .sort()
+          .flatMap((file) => {
+            const match = file.match(/^ios-(.+)\.json$/);
+            const owner = match && readOwner('ios', match[1]);
+            return owner?.worktree === root
+              ? [{ name: match[1], fresh: owner.wipePending === true }]
+              : [];
+          })
+      : [];
+    assertOwnership();
+    if (!sim) {
+      const result = owned[0] ?? allocatePoolName(platform, root, assertOwnership);
+      assertOwnership();
+      return Object.freeze(result);
+    }
     const devices = inspectSimulators();
     const matches = devices.filter((device) => device.name === sim || device.udid === sim);
     const selected = matches[0];
@@ -168,23 +195,15 @@ export function claimPoolName(platform, root, { sim, inspectSimulators } = {}) {
         `--sim requires an exact existing available QA pool simulator name or ID: ${sim}`,
       );
     // A preference never moves this worktree off another existing iOS claim.
-    const owned = fs.existsSync(DEV_DIR)
-      ? fs.readdirSync(DEV_DIR).filter((file) => {
-          const match = file.match(/^ios-(.+)\.json$/);
-          return (
-            match && match[1] !== selected.name && readOwner('ios', match[1])?.worktree === root
-          );
-        })
-      : [];
-    if (owned.length)
+    if (owned.some((owner) => owner.name !== selected.name))
       throw new Error(
         'this worktree already owns a different iOS simulator; release it explicitly before selecting --sim',
       );
-    if (!ownsLock()) throw new Error('iOS allocation lock identity changed; refusing claim');
-    const claim = tryClaimOwner('ios', selected.name, root);
+    const claim = tryClaimOwner('ios', selected.name, root, assertOwnership);
     if (!claim)
       throw new Error(`${selected.name} is claimed by another live worktree; refusing --sim`);
-    return { name: selected.name, fresh: claim === 'new' };
+    assertOwnership();
+    return Object.freeze({ name: selected.name, fresh: claim === 'new' });
   } finally {
     // Release only the exact lock created here, never a replacement's token/inode.
     try {
@@ -195,11 +214,11 @@ export function claimPoolName(platform, root, { sim, inspectSimulators } = {}) {
   }
 }
 
-function allocatePoolName(platform, root) {
+function allocatePoolName(platform, root, assertOwnership) {
   const start = slotOf(root) % POOL;
   for (let k = 0; k < POOL; k++) {
     const name = `futo-qa-${(start + k) % POOL}`;
-    const claim = tryClaimOwner(platform, name, root);
+    const claim = tryClaimOwner(platform, name, root, assertOwnership);
     if (claim) return { name, fresh: claim === 'new' };
   }
   throw new Error(

@@ -168,7 +168,16 @@ async function cmdDevice(platform) {
   if (platform !== 'ios' && platform !== 'android') die(`unknown target ${platform}`);
   if (platform === 'ios' && !IS_MAC) die('iOS simulators need macOS');
   const root = worktreeRoot();
-  let { name, fresh } = myDevices(root).find((device) => device.platform === platform) ?? {};
+  let claim;
+  try {
+    claim =
+      platform === 'ios'
+        ? claimPoolName('ios', root)
+        : (myDevices(root).find((device) => device.platform === platform) ?? {});
+  } catch (error) {
+    die(error.message);
+  }
+  let { name, fresh } = claim;
   let id;
   if (name && platform === 'ios') {
     const sim = findSim(name);

@@ -78,6 +78,16 @@ describe('claimPoolName', () => {
     },
   );
 
+  it('keeps Android allocation independent of a foreign iOS lock', () => {
+    const file = path.join(home, '.futo-notes-qa', 'ios-allocation.lock');
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, 'OTHER ALLOCATOR');
+    const result = pool.claimPoolName('android', root);
+    expect(result.fresh).toBe(true);
+    expect(JSON.parse(fs.readFileSync(ownerFile(result.name), 'utf8')).worktree).toBe(root);
+    expect(fs.readFileSync(file, 'utf8')).toBe('OTHER ALLOCATOR');
+  });
+
   it('shares the iOS allocation critical section with the default allocator', () => {
     let refusal;
     const result = pool.claimPoolName('ios', root, {
