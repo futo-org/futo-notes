@@ -337,3 +337,85 @@ fn correction_inside_newly_composed_formatted_url_text_keeps_its_inserted_identi
     assert_eq!(session.source_text(), "x *B https://x.test/a* ");
     assert_eq!(session.selection(), range(3, 3));
 }
+
+#[test]
+fn mixed_retained_and_inserted_equal_glyphs_remain_distinct_after_composition_conversion() {
+    for (input, changed, display, caret) in [
+        (
+            range(3, 4),
+            "x *B b https://x.test/a* ",
+            "x B b https://x.test/a ",
+            3,
+        ),
+        (
+            range(5, 6),
+            "x *b B https://x.test/a* ",
+            "x b B https://x.test/a ",
+            5,
+        ),
+    ] {
+        let mut session = EditorSession::open("x *b ");
+        let mut view = ReferenceView::new("x *b ");
+        session
+            .compose(Revision(0), range(5, 5), "b https://x.test/a* ")
+            .unwrap();
+        let mut accepts = 0;
+        view.apply(
+            session
+                .replace(Revision(0), input, "B", &mut |_| {
+                    accepts += 1;
+                    Ok(())
+                })
+                .unwrap(),
+        );
+        assert_eq!(accepts, 1);
+        assert_eq!(session.source_text(), changed);
+        assert_eq!(view.text, display);
+        assert_eq!(session.selection(), range(caret, caret));
+        view.apply(session.undo(Revision(1), &mut |_| Ok(())).unwrap().unwrap());
+        assert_eq!(session.source_text(), "x *b b https://x.test/a* ");
+        view.apply(session.undo(Revision(2), &mut |_| Ok(())).unwrap().unwrap());
+        assert_eq!(session.source_text(), "x *b ");
+        view.apply(session.redo(Revision(3), &mut |_| Ok(())).unwrap().unwrap());
+        view.apply(session.redo(Revision(4), &mut |_| Ok(())).unwrap().unwrap());
+        assert_eq!(session.source_text(), changed);
+        assert_eq!(session.selection(), range(caret, caret));
+    }
+}
+
+#[test]
+fn an_unmapped_inserted_entity_syntax_target_rejects_before_accept_and_can_retry() {
+    let mut session = EditorSession::open("");
+    let mut view = ReferenceView::new("");
+    let marked = session.compose(Revision(0), range(0, 0), "&acE;").unwrap();
+    let mut accepts = 0;
+    assert_eq!(
+        session.replace(Revision(0), range(1, 2), "A", &mut |_| {
+            accepts += 1;
+            Ok(())
+        }),
+        Err(futo_notes_editor::EditorError::UnrepresentableFormat)
+    );
+    assert_eq!(accepts, 0);
+    assert_eq!(session.revision(), Revision(0));
+    assert_eq!(session.source_text(), "");
+    assert_eq!(session.composition(), Some(&marked));
+    view.apply(
+        session
+            .commit_composition(Revision(0), None, &mut |_| {
+                accepts += 1;
+                Ok(())
+            })
+            .unwrap()
+            .unwrap(),
+    );
+    assert_eq!(accepts, 1);
+    assert_eq!(session.source_text(), "&acE;");
+    assert_eq!(view.text, "∾\u{333}");
+    assert_eq!(session.selection(), range(5, 5));
+    view.apply(session.undo(Revision(1), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(session.source_text(), "");
+    view.apply(session.redo(Revision(2), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(session.source_text(), "&acE;");
+    assert_eq!(view.text, "∾\u{333}");
+}
