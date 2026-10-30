@@ -233,6 +233,20 @@ fn repair_literal_boundaries(
             piece.raw = "&#92;".into();
         }
     }
+    // A newly completed hand-typed link is still literal text. Escape the
+    // visible opener, leaving the URL inside available for GFM word-end linking.
+    for (piece, source) in pieces.iter_mut().zip(&rendered.pieces) {
+        if matches!(piece.display.as_str(), "[" | "<")
+            && piece.raw == piece.display
+            && candidate.spans.iter().any(|span| {
+                matches!(span.kind, SpanKind::Link(_))
+                    && span.open.start <= source.start
+                    && source.end <= span.open.end
+            })
+        {
+            piece.raw.insert(0, '\\');
+        }
+    }
     let mut closers = Vec::new();
     for (piece, source) in pieces.iter_mut().zip(&rendered.pieces) {
         if piece.trailing && piece.display.is_empty() && piece.raw == "#" {

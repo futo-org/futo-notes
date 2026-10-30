@@ -285,18 +285,45 @@ impl super::Projection {
         action: crate::InputAction,
         caret: usize,
     ) {
-        let point = crate::DisplayRange {
-            start: crate::DisplayOffset(caret),
+        // Remap pending ranges to their parser-owned glyph extent after local
+        // punctuation or an escaped delimiter changed the surrounding spelling.
+        self.literal_links = self
+            .literal_links
+            .iter()
+            .filter_map(|pending| {
+                self.all_links(*pending)
+                    .into_iter()
+                    .find(|link| link.range.start == pending.start)
+                    .map(|link| link.range)
+            })
+            .collect();
+        let word_bytes: usize = self
+            .display
+            .byte_slice(0..caret)
+            .chars()
+            .rev()
+            .take_while(|ch| !ch.is_whitespace())
+            .map(char::len_utf8)
+            .sum();
+        let word = crate::DisplayRange {
+            start: crate::DisplayOffset(caret - word_bytes),
             end: crate::DisplayOffset(caret),
         };
-        let candidates = self.all_links(point);
+        let candidates = self.all_links(word);
         if action == crate::InputAction::Typing
             && !inserted.is_empty()
             && !inserted.chars().last().unwrap().is_whitespace()
         {
             for link in candidates {
-                if link.range.start.0 <= caret
-                    && caret <= link.range.end.0
+                let (row, _, display) = self.rows.at(self.rows.locate(link.range.start.0, true));
+                let bare = row.spans.iter().any(|span| {
+                    span.open.is_empty()
+                        && span.close.is_empty()
+                        && display + row.display_at(span.open.end) == link.range.start.0
+                        && display + row.display_at(span.close.start) == link.range.end.0
+                });
+                if bare
+                    && link.range.end.0 <= caret
                     && link.range.start.0 < input.start.0 + inserted.len()
                     && !self.literal_links.contains(&link.range)
                 {
