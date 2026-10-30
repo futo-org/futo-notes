@@ -1,9 +1,17 @@
 // @vitest-environment jsdom
 import { afterAll, beforeAll, expect, it } from 'vitest';
-import { Editor, defaultValueCtx, editorViewCtx, parserCtx, rootCtx } from '@milkdown/kit/core';
+import {
+  Editor,
+  defaultValueCtx,
+  editorViewCtx,
+  parserCtx,
+  rootCtx,
+  serializerCtx,
+} from '@milkdown/kit/core';
 import { EditorState } from '@milkdown/kit/prose/state';
 import { commonmarkWithCompat, gfmWithCompat } from '@futo-notes/editor/milkdown-compat';
 import { createMarkdownSerializer, type NodeJson } from '@futo-notes/editor/markdown';
+import { autolink } from './autolink';
 import { withoutLeakedCtxTimers } from './__fixtures__/noLeakedCtxTimers';
 
 let editor: Editor;
@@ -19,6 +27,7 @@ beforeAll(async () => {
       })
       .use(commonmarkWithCompat())
       .use(gfmWithCompat())
+      .use(autolink)
       .create(),
   );
 });
@@ -30,6 +39,19 @@ afterAll(async () => {
 it('the shipping text-input rule defers an outside emphasis closer in a URL until its word ends', () => {
   const view = editor.ctx.get(editorViewCtx);
   view.updateState(EditorState.create({ schema: view.state.schema, plugins: view.state.plugins }));
+  const parse = editor.ctx.get(parserCtx);
+  const serializer = createMarkdownSerializer({
+    parse: (text) => parse(text).toJSON() as NodeJson,
+  });
+  editor.ctx.set(serializerCtx, (doc) => serializer.serialize(doc.toJSON() as NodeJson));
+  const links = (doc = view.state.doc) => {
+    const runs: { text: string; href: string }[] = [];
+    doc.descendants((node) => {
+      const mark = node.marks.find((mark) => mark.type.name === 'link');
+      if (mark) runs.push({ text: node.text ?? '', href: String(mark.attrs.href) });
+    });
+    return runs;
+  };
   const type = (text: string) => {
     for (const ch of text) {
       const { from, to } = view.state.selection;
@@ -51,19 +73,23 @@ it('the shipping text-input rule defers an outside emphasis closer in a URL unti
   type('x *b https://x.test/a*');
   expect(view.state.doc.textContent).toBe('x *b https://x.test/a*');
   expect(emphasis()).toEqual([]);
-  const parse = editor.ctx.get(parserCtx);
-  const serializer = createMarkdownSerializer({
-    parse: (text) => parse(text).toJSON() as NodeJson,
-  });
+  expect(links()).toEqual([]);
   const beforeSource = serializer.serialize(view.state.doc.toJSON() as NodeJson);
   expect(beforeSource).toBe('x \\*b https://x.test/a\\*\n');
   expect(parse(beforeSource).textContent).toBe('x *b https://x.test/a\\*');
+  expect(links(parse(beforeSource))).toEqual([
+    { text: 'https://x.test/a\\', href: 'https://x.test/a\\' },
+  ]);
   type(' ');
   expect(view.state.doc.textContent).toBe('x b https://x.test/a ');
-  expect(emphasis()).toEqual(['b https://x.test/a']);
+  expect(emphasis().join('')).toBe('b https://x.test/a');
+  expect(links()).toEqual([{ text: 'https://x.test/a', href: 'https://x.test/a' }]);
   const afterSource = serializer.serialize(view.state.doc.toJSON() as NodeJson);
-  expect(afterSource).toBe('x *b https://x.test/a* \n');
-  expect(parse(afterSource).textContent).toBe('x b https://x.test/a ');
+  expect(afterSource).toBe('x *b https://x.test/a*\n');
+  expect(parse(afterSource).textContent).toBe('x b https://x.test/a');
+  expect(links(parse(afterSource))).toEqual([
+    { text: 'https://x.test/a', href: 'https://x.test/a' },
+  ]);
 });
 
 it('a minimal standard source candidate keeps literal URL delimiters stable before conversion', () => {
