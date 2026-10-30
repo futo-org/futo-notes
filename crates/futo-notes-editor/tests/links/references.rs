@@ -131,10 +131,15 @@ fn os_correction_and_nested_composition_keep_a_distant_reference_context() {
     assert_eq!(target.title.as_deref(), Some("Title"));
     assert_eq!(EditorSession::open(reconverted).display_text(), view.text);
     view.apply(session.undo(Revision(2), &mut |_| Ok(())).unwrap().unwrap());
-    assert_eq!(session.source_text(), corrected);
+    // Committing the marked text and the following input retain separate
+    // history groups, as in the existing compound-composition contract.
+    assert_eq!(session.source_text(), "see [the __ドックス__][id] tail\r\n\r\nmiddle\r\n\r\n[id]: <https://x.test/a> 'Title'\r\n\r\ntail");
     view.apply(session.undo(Revision(3), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(session.source_text(), corrected);
+    view.apply(session.undo(Revision(4), &mut |_| Ok(())).unwrap().unwrap());
     assert_eq!(session.source_text(), original);
-    view.apply(session.redo(Revision(4), &mut |_| Ok(())).unwrap().unwrap());
     view.apply(session.redo(Revision(5), &mut |_| Ok(())).unwrap().unwrap());
+    view.apply(session.redo(Revision(6), &mut |_| Ok(())).unwrap().unwrap());
+    view.apply(session.redo(Revision(7), &mut |_| Ok(())).unwrap().unwrap());
     assert_eq!(session.source_text(), reconverted);
 }
