@@ -204,3 +204,30 @@ fn composition_history_selections_follow_source_identity_when_a_remote_definitio
     assert_eq!(session.source_text(), changed);
     assert_eq!(session.selection(), range(43, 43));
 }
+
+#[test]
+fn history_restores_interior_boundaries_in_two_distinct_decoded_atoms_with_both_affinities() {
+    use futo_notes_editor::Affinity;
+    for affinity in [Affinity::Forward, Affinity::Backward] {
+        let original = "__&acE; / &NotEqualTilde;__ tail";
+        let mut session = EditorSession::open(original);
+        let mut view = ReferenceView::new("∾\u{333} / ≂\u{338} tail");
+        session
+            .select_with_affinity(Revision(0), range(3, 11), affinity)
+            .unwrap();
+        view.apply(
+            session
+                .replace(Revision(0), range(14, 18), "done", &mut |_| Ok(()))
+                .unwrap(),
+        );
+        assert_eq!(session.source_text(), "__&acE; / &NotEqualTilde;__ done");
+        assert_eq!(view.text, "∾\u{333} / ≂\u{338} done");
+        view.apply(session.undo(Revision(1), &mut |_| Ok(())).unwrap().unwrap());
+        assert_eq!(session.source_text(), original);
+        assert_eq!(session.selection(), range(3, 11));
+        assert_eq!(session.affinity(), affinity);
+        view.apply(session.redo(Revision(2), &mut |_| Ok(())).unwrap().unwrap());
+        assert_eq!(session.source_text(), "__&acE; / &NotEqualTilde;__ done");
+        assert_eq!(session.selection(), range(18, 18));
+    }
+}

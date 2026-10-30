@@ -132,3 +132,85 @@ fn last_reference_use_visibility_and_selection_survive_rejected_append_retry_and
         assert_eq!(store.read("references").unwrap(), unlinked);
     }
 }
+
+#[test]
+fn nested_reference_composition_and_source_anchored_history_survive_append_and_history_faults() {
+    for fault in [storage::Fault::Append, storage::Fault::ShortWrite] {
+        let root = TestRoot::new();
+        let store = store(&root);
+        let original = "[id]: /target 'T'\n\npreamble\n\nbuffer\n\n[one][id]\n\nbody\n\ntail";
+        let committed = "[id]: /target 'T'\n\npreamble\n\nbuffer\n\n\n\nbody\n\ntail";
+        let changed = "[id]: /target 'T'\n\npreamble\n\nbuffer\n\n\n\nBODY\n\ntail";
+        store.create("", "nested-references", original).unwrap();
+        let disk = Arc::new(Mutex::new(storage::Disk::default()));
+        let mut session = store
+            .open_editor_with_recovery("nested-references", storage::options(&disk))
+            .unwrap();
+        session
+            .select_with_affinity(
+                Revision(0),
+                range(18, 21),
+                futo_notes_editor::Affinity::Backward,
+            )
+            .unwrap();
+        let marked = session.compose(Revision(0), range(18, 21), "").unwrap();
+        disk.lock().unwrap().fault = Some(fault);
+        assert!(matches!(
+            session.replace(Revision(0), range(20, 24), "BODY"),
+            Err(EditorStoreError::RecoveryAppend(_))
+        ));
+        assert_eq!(session.source_text(), original);
+        assert_eq!(session.selection(), range(18, 21));
+        assert_eq!(session.composition(), Some(marked));
+        disk.lock().unwrap().fault = None;
+        session.resume_recovery().unwrap();
+        session.replace(Revision(0), range(20, 24), "BODY").unwrap();
+        assert_eq!(session.source_text(), changed);
+        assert_eq!(session.display_text(), changed);
+        assert_eq!(session.selection(), range(43, 43));
+        assert!(session.composition().is_none());
+
+        disk.lock().unwrap().fault = Some(fault);
+        assert!(matches!(
+            session.undo(Revision(1)),
+            Err(EditorStoreError::RecoveryAppend(_))
+        ));
+        assert_eq!(session.source_text(), changed);
+        assert_eq!(session.selection(), range(43, 43));
+        disk.lock().unwrap().fault = None;
+        session.resume_recovery().unwrap();
+        session.undo(Revision(1)).unwrap().unwrap();
+        assert_eq!(session.source_text(), committed);
+        assert_eq!(session.selection(), range(37, 37));
+
+        disk.lock().unwrap().fault = Some(fault);
+        assert!(matches!(
+            session.redo(Revision(2)),
+            Err(EditorStoreError::RecoveryAppend(_))
+        ));
+        assert_eq!(session.source_text(), committed);
+        assert_eq!(session.selection(), range(37, 37));
+        disk.lock().unwrap().fault = None;
+        session.resume_recovery().unwrap();
+        session.redo(Revision(2)).unwrap().unwrap();
+        assert_eq!(session.source_text(), changed);
+        assert_eq!(session.selection(), range(43, 43));
+        session.undo(Revision(3)).unwrap().unwrap();
+        session.undo(Revision(4)).unwrap().unwrap();
+        assert_eq!(session.source_text(), original);
+        assert_eq!(session.selection(), range(18, 21));
+        session.redo(Revision(5)).unwrap().unwrap();
+        session.redo(Revision(6)).unwrap().unwrap();
+        assert_eq!(session.source_text(), changed);
+        assert_eq!(session.selection(), range(43, 43));
+        session.flush_recovery().unwrap();
+        drop(session);
+        let mut recovered = store
+            .open_editor_with_recovery("nested-references", storage::options(&disk))
+            .unwrap();
+        assert_eq!(recovered.source_text(), changed);
+        assert_eq!(recovered.display_text(), changed);
+        recovered.checkpoint().unwrap();
+        assert_eq!(store.read("nested-references").unwrap(), changed);
+    }
+}
