@@ -79,3 +79,35 @@ fn indented_loose_lists_keep_one_owner_across_continuation_and_blank_lines() {
     view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
     assert_eq!(s.source_text(), raw);
 }
+
+#[test]
+fn a_long_lazy_list_keeps_distant_marker_bytes_and_continuation_semantics() {
+    let raw = (0..4096)
+        .map(|n| format!("1) line{n}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let shown = (0..4096)
+        .map(|n| format!("line{n}"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let mut s = EditorSession::open(&raw);
+    let mut view = ReferenceView::new(&shown);
+    assert_eq!(s.display_text(), shown);
+    let at = shown.find("line2048").unwrap() + "line2048".len();
+    view.apply(
+        s.replace(s.revision(), range(at, at), "!", &mut |_| Ok(()))
+            .unwrap(),
+    );
+    assert_eq!(s.source_text(), raw.replacen("line2048", "line2048!", 1));
+    assert_eq!(view.text, shown.replacen("line2048", "line2048!", 1));
+    let tail = view.text.find("line4095").unwrap();
+    let projection = s
+        .project(s.revision(), range(tail, view.text.len()))
+        .unwrap();
+    assert_eq!(
+        projection.blocks[0].list.as_ref().unwrap().number,
+        Some(4096)
+    );
+    view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(s.source_text(), raw);
+}
