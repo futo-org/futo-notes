@@ -295,30 +295,72 @@ impl EditorSession {
             usize,
             (crate::inline::blocks::SourcePrefix, BTreeMap<usize, isize>),
         > = BTreeMap::new();
-        for (mut at, item, quote, delta) in owned_shifts {
-            while at < item.end {
-                crate::inline::visit_container();
-                let prefix = self
-                    .projection
-                    .source_prefix_at(at)
-                    .ok_or(EditorError::UnrepresentableFormat)?;
-                let next = prefix.source.end;
-                if next <= at {
-                    return Err(EditorError::UnrepresentableFormat);
-                }
-                let belongs = prefix.list.as_ref().is_some_and(|list| {
-                    item.start <= list.marker.start && list.marker.start < item.end
-                });
-                if belongs {
-                    *shifted_prefixes
-                        .entry(at)
-                        .or_insert_with(|| (prefix, BTreeMap::new()))
-                        .1
-                        .entry(quote)
-                        .or_default() += delta;
-                }
-                at = next;
+        let mut events = Vec::new();
+        for (at, item, quote, delta) in owned_shifts {
+            crate::inline::visit_container();
+            // A parser item may end in the following line's quote prefix.
+            // Normalize its end with canonical ownership, not byte indentation.
+            let end = if item.end >= self.source.len_bytes() {
+                self.source.len_bytes()
+            } else {
+                let line = self.source.line_to_byte(self.source.byte_to_line(item.end));
+                self.projection
+                    .source_prefix_at(line)
+                    .map_or(line, |prefix| {
+                        if prefix.list.as_ref().is_some_and(|list| {
+                            item.start <= list.marker.start && list.marker.start < item.end
+                        }) {
+                            prefix.source.end
+                        } else {
+                            line
+                        }
+                    })
+            };
+            if at < end {
+                events.push((at, quote, delta));
+                events.push((end, quote, -delta));
             }
+        }
+        events.sort_by_key(|event| {
+            crate::inline::visit_container();
+            event.0
+        });
+        let mut next = 0;
+        let mut at = events.first().map_or(0, |event| event.0);
+        let mut active: BTreeMap<usize, isize> = BTreeMap::new();
+        while next < events.len() || !active.is_empty() {
+            while let Some(&(position, quote, delta)) =
+                events.get(next).filter(|event| event.0 <= at)
+            {
+                crate::inline::visit_container();
+                let _ = position;
+                let value = active.entry(quote).or_default();
+                *value += delta;
+                if *value == 0 {
+                    active.remove(&quote);
+                }
+                next += 1;
+            }
+            if active.is_empty() {
+                if let Some(event) = events.get(next) {
+                    at = event.0;
+                    continue;
+                }
+                break;
+            }
+            crate::inline::visit_container();
+            let prefix = self
+                .projection
+                .source_prefix_at(at)
+                .ok_or(EditorError::UnrepresentableFormat)?;
+            let following = prefix.source.end;
+            if following <= at {
+                return Err(EditorError::UnrepresentableFormat);
+            }
+            if prefix.list.is_some() {
+                shifted_prefixes.insert(at, (prefix, active.clone()));
+            }
+            at = following;
         }
         for (at, (prefix, shifts)) in shifted_prefixes {
             let existing = head_prefixes.get(&at).copied();
@@ -329,22 +371,19 @@ impl EditorSession {
                 materialized += value.len();
                 value
             };
-            for (quote, delta) in shifts {
-                crate::inline::visit_container();
-                let blank = !prefix.code
-                    && !prefix.list.as_ref().is_some_and(|list| list.first)
-                    && prefix.quote_depth <= quote
-                    && self
-                        .source
-                        .byte_slice(prefix.content.clone())
-                        .chars()
-                        .all(|ch| {
-                            crate::inline::visit_container();
-                            matches!(ch, ' ' | '\t' | '\r' | '\n')
-                        });
-                value = super::indent_source::shift_prefix(&value, quote, delta, blank);
-                materialized += value.len();
-            }
+            let blank = !prefix.code
+                && !prefix.list.as_ref().is_some_and(|list| list.first)
+                && self
+                    .source
+                    .byte_slice(prefix.content.clone())
+                    .chars()
+                    .all(|ch| {
+                        crate::inline::visit_container();
+                        matches!(ch, ' ' | '\t' | '\r' | '\n')
+                    });
+            value =
+                super::indent_source::shift_prefixes(&value, prefix.quote_depth, &shifts, blank)?;
+            materialized += value.len();
             if let Some(index) = existing {
                 replacements[index].1 = value;
             } else {
