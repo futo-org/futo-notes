@@ -83,12 +83,25 @@ impl EditorSession {
         }
     }
 
-    /// `window` addresses unchanged opening source, never display coordinates.
+    /// `raw` is the exact opening source window, never display coordinates.
     /// Its two outside contexts remain valid as local source changes: every
     /// new read searches the current local rows before consulting either edge.
     /// Nested windows capture through the same interface, so an absent local
     /// witness reaches the true document edge rather than inventing an EOF.
     pub(super) fn stage_source(&self, raw: &str, window: Range<usize>) -> Self {
+        debug_assert_eq!(raw.len(), window.len());
+        self.stage_with_context(raw, window)
+    }
+
+    /// Inline spelling may transform a body before its isolated split. Only
+    /// the outside semantic context uses these original source edges. Interior
+    /// source/display anchors must use the inline owner's body correspondence;
+    /// they must never be copied by an arithmetic window offset.
+    pub(super) fn stage_body_source(&self, raw: &str, window: Range<usize>) -> Self {
+        self.stage_with_context(raw, window)
+    }
+
+    fn stage_with_context(&self, raw: &str, window: Range<usize>) -> Self {
         let mut staged = Self::open_with_clock(raw, self.clock.clone());
         staged.context = StageContext {
             before: self.stage_boundary(window.start, false),
