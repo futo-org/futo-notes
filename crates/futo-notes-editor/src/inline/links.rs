@@ -350,8 +350,16 @@ impl super::Projection {
                 .unwrap_or("")
                 .len();
             let ended = caret - last_word;
+            let preceding: usize = self
+                .display
+                .chars_at(self.display.byte_to_char(input.start.0))
+                .reversed()
+                .take_while(|ch| !ch.is_whitespace())
+                .map(char::len_utf8)
+                .sum();
+            let word_start = input.start.0 - preceding;
             self.literal_links
-                .retain(|link| !(input.start.0 <= link.end.0 && link.end.0 <= ended));
+                .retain(|link| !(word_start <= link.start.0 && link.end.0 <= ended));
         }
     }
 }
