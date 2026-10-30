@@ -199,3 +199,52 @@ fn list_commands_and_later_line_shortcuts_keep_plain_neighbors_outside_the_new_l
         assert_eq!(s.selection(), range(at, at));
     }
 }
+
+#[test]
+fn text_and_list_commands_keep_item_continuations_and_literal_body_text() {
+    for (raw, command, at, expected, shown) in [
+        (
+            "* a\n* b\n\n+ keep",
+            BlockCommand::Heading(0),
+            0,
+            "a\n* b\n\n+ keep",
+            "a\nb\n\nkeep",
+        ),
+        (
+            "* first\n  second\n* third",
+            BlockCommand::BulletList,
+            8,
+            "first\nsecond\n* third",
+            "first\nsecond\nthird",
+        ),
+        ("  foo", BlockCommand::BulletList, 0, "- &#32; foo", "  foo"),
+        (
+            "[x] foo",
+            BlockCommand::BulletList,
+            0,
+            "- \\[x] foo",
+            "[x] foo",
+        ),
+        (
+            "before\n2) text",
+            BlockCommand::BulletList,
+            7,
+            "before\n- 2\\) text",
+            "before\n2) text",
+        ),
+    ] {
+        let mut s = EditorSession::open(raw);
+        let mut view = ReferenceView::new(&s.display_text());
+        s.select(s.revision(), range(at, at)).unwrap();
+        view.apply(
+            s.block_command(s.revision(), range(at, at), command, &mut |_| Ok(()))
+                .unwrap()
+                .unwrap(),
+        );
+        assert_eq!(s.source_text(), expected, "{raw:?}");
+        assert_eq!(view.text, shown);
+        assert_eq!(s.selection(), range(at, at));
+        view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+        assert_eq!(s.source_text(), raw);
+    }
+}
