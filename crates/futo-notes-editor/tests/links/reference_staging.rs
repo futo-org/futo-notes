@@ -41,3 +41,41 @@ fn a_partial_compound_draft_escalates_before_mapping_targets_past_a_remote_defin
     assert_eq!(session.source_text(), changed);
     assert_eq!(session.selection(), range(43, 43));
 }
+
+#[test]
+fn nested_composition_refreshes_an_exact_local_definition_before_following_input_and_history() {
+    let original = "head\n\nbuffer\n\n[id]: /target 'T'\n\n[one][id]\n\nbody\n\ntail\n\noutside";
+    let committed = "head\n\nbuffer\n\n[id]: /target 'T'\n\n\n\nbody\n\ntail\n\noutside";
+    let changed = "head\n\nbuffer\n\n[id]: /target 'T'\n\n\n\nBODY\n\ntail\n\noutside";
+    let mut session = EditorSession::open(original);
+    let mut view = ReferenceView::new("head\n\nbuffer\n\none\n\nbody\n\ntail\n\noutside");
+    assert_eq!(session.display_text(), view.text);
+    session.compose(Revision(0), range(14, 17), "").unwrap();
+    let mut accepted = 0;
+    view.apply(
+        session
+            .replace(Revision(0), range(16, 20), "BODY", &mut |_| {
+                accepted += 1;
+                Ok(())
+            })
+            .unwrap(),
+    );
+    assert_eq!(accepted, 1);
+    assert_eq!(session.source_text(), changed);
+    assert_eq!(view.text, changed);
+    assert_eq!(session.selection(), range(39, 39));
+    view.apply(session.undo(Revision(1), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(session.source_text(), committed);
+    assert_eq!(view.text, committed);
+    assert_eq!(session.selection(), range(33, 33));
+    view.apply(session.undo(Revision(2), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(session.source_text(), original);
+    assert_eq!(
+        view.text,
+        "head\n\nbuffer\n\none\n\nbody\n\ntail\n\noutside"
+    );
+    view.apply(session.redo(Revision(3), &mut |_| Ok(())).unwrap().unwrap());
+    view.apply(session.redo(Revision(4), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(session.source_text(), changed);
+    assert_eq!(session.selection(), range(39, 39));
+}
