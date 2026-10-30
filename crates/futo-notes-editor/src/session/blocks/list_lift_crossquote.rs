@@ -320,3 +320,7 @@ impl EditorSession {
         Ok(Some(change))
     }
 }
+
+#[cfg(test)]
+#[path = "list_lift_crossquote_work.rs"]
+mod work_tests;
