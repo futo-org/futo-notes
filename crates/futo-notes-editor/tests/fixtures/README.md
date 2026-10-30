@@ -24,3 +24,16 @@ adjacent typing group through quote repair or divider insertion; an explicitly
 isolated first input keeps two. The same family covers a whitespace typing run
 that enters quote repair. Fixed-clock editor/store tests own the exact timing
 and failed-acceptance boundaries; thin consumers use the normal session clock.
+
+`list-actions.json` contains twenty-four hand-worked synthetic public-interface
+regressions for #298. All consumers assert the family count. `range`, optional
+`selection`, `composeRange`, `resultRange` and `undoRanges` use native UTF-16 units.
+`expected`/`shown` are exact final source/display literals. Default history has one
+Undo to `source`/`display`/initial selection; optional `undoSources`, `undoDisplays`
+and `undoRanges` describe every intermediate group. Composition plus checkbox
+shares one protected acceptance and retains two Undo groups. `finalItems` gives
+literal `[interpreted ordinal or null, checked state or null]` pairs for the final
+first lines at depth one; `quoteDepth` defaults to zero. Consumers also request
+the EOF caret slice so a zero-width final item is checked. No expected value is
+derived from a Markdown parser. The original thirty-eight seam literals remain
+unchanged.
