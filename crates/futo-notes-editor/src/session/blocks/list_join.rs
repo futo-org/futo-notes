@@ -123,11 +123,8 @@ impl EditorSession {
                 continue;
             }
             let number = item.ordinal.unwrap();
-            if number > 999_999_999 {
-                return Err(EditorError::UnrepresentableFormat);
-            }
             let digits = item.marker.start..item.marker.end - 1;
-            let replacement = number.to_string();
+            let replacement = super::lists::physical_number(number).to_string();
             if self.source.byte_slice(digits.clone()).to_string() != replacement {
                 output.replace_range(
                     digits.start - list.owner.start..digits.end - list.owner.start,

@@ -40,7 +40,7 @@ impl EditorSession {
             let before_line = self.source.byte_to_line(head.source.start);
             let owned_end = owner.as_ref().map_or(tail.source.end, |owner| owner.end);
             let after_line = self.source.byte_to_line(owned_end.saturating_sub(1)) + 1;
-            let mut neighbor = |mut index: isize, direction: isize| {
+            let neighbor = |mut index: isize, direction: isize| {
                 while index >= 0 && (index as usize) < self.source.len_lines() {
                     let at = self.source.line_to_byte(index as usize);
                     let Some(line) = self.projection.block_at_source(at) else {

@@ -237,11 +237,8 @@ impl EditorSession {
                     continue;
                 };
                 let number = number + u64::from(item.marker.start > list.marker.start);
-                if number > 999_999_999 {
-                    return Err(EditorError::UnrepresentableFormat);
-                }
                 let digits = item.marker.start..item.marker.end - 1;
-                let replacement = number.to_string();
+                let replacement = physical_number(number).to_string();
                 if digits.start < line.source.start {
                     caret = caret - digits.len() + replacement.len();
                 }
@@ -276,15 +273,22 @@ fn replace_number(
     line: &crate::inline::blocks::BlockLine,
     number: u64,
 ) -> Result<(), EditorError> {
-    if number > 999_999_999 {
-        return Err(EditorError::UnrepresentableFormat);
-    }
     let marker = &line.list.as_ref().unwrap().marker;
     let start = marker.start - line.source.start;
     let digits = prefix[start..]
         .bytes()
         .take_while(u8::is_ascii_digit)
         .count();
-    prefix.replace_range(start..start + digits, &number.to_string());
+    prefix.replace_range(start..start + digits, &physical_number(number).to_string());
     Ok(())
+}
+
+/// CommonMark limits physical ordered markers to nine digits, while a list's
+/// interpreted ordinal may grow beyond that. Lazy `1` remains valid source.
+pub(super) fn physical_number(ordinal: u64) -> u64 {
+    if ordinal <= 999_999_999 {
+        ordinal
+    } else {
+        1
+    }
 }

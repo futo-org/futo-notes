@@ -171,7 +171,8 @@ impl EditorSession {
             } else {
                 match command {
                     BlockCommand::OrderedList => format!(
-                        "{ordinal}{} ",
+                        "{}{} ",
+                        super::lists::physical_number(ordinal),
                         styles.as_ref().unwrap().markers[index] as char
                     ),
                     BlockCommand::TaskList => {
