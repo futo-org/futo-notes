@@ -1,7 +1,9 @@
 //! Document-wide reference read context with row-relative occurrence witnesses.
 //! Only the canonical parsers normalize labels and identify declarations/uses.
+mod repair;
 use super::row::LinkMeaning;
 use pulldown_cmark::{BrokenLink, CowStr, Event, LinkType, Options, Parser, Tag};
+pub(crate) use repair::RetainedBody;
 use std::{collections::HashMap, ops::Range, sync::Arc};
 use unicase::UniCase;
 
