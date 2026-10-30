@@ -384,6 +384,17 @@ fn outside_strong_url_closers_wait_for_word_end_as_one_marker_pair() {
 #[test]
 fn selected_format_rewrites_retain_owned_pending_url_delimiters_through_history() {
     use futo_notes_editor::InlineFormat;
+    let standard = EditorSession::open("__x \\*b https://x.test/a*__");
+    assert_eq!(standard.display_text(), "x *b https://x.test/a*");
+    let bold: Vec<_> = standard
+        .project(Revision(0), range(0, 22))
+        .unwrap()
+        .runs
+        .into_iter()
+        .filter(|run| run.formats.contains(&InlineFormat::Bold))
+        .map(|run| run.range)
+        .collect();
+    assert_eq!(bold, vec![range(0, 22)]);
     let mut session = EditorSession::open("");
     let mut view = ReferenceView::new("");
     for ch in "x *b https://x.test/a*".chars() {
@@ -407,7 +418,7 @@ fn selected_format_rewrites_retain_owned_pending_url_delimiters_through_history(
             .unwrap(),
     );
     assert_eq!(view.text, "x *b https://x.test/a*");
-    assert_eq!(session.source_text(), "**x \\*b https://x.test/a***");
+    assert_eq!(session.source_text(), "__x \\*b https://x.test/a*__");
     session.select(session.revision(), range(22, 22)).unwrap();
     view.apply(
         session
@@ -415,7 +426,7 @@ fn selected_format_rewrites_retain_owned_pending_url_delimiters_through_history(
             .unwrap(),
     );
     assert_eq!(view.text, "x b https://x.test/a ");
-    assert_eq!(session.source_text(), "**x *b https://x.test/a*** ");
+    assert_eq!(session.source_text(), "__x *b https://x.test/a*__ ");
     let projection = session
         .project(session.revision(), range(0, view.text.len()))
         .unwrap();
@@ -433,7 +444,7 @@ fn selected_format_rewrites_retain_owned_pending_url_delimiters_through_history(
             .unwrap()
             .unwrap(),
     );
-    assert_eq!(session.source_text(), "**x \\*b https://x.test/a***");
+    assert_eq!(session.source_text(), "__x \\*b https://x.test/a*__");
     assert_eq!(view.text, "x *b https://x.test/a*");
     view.apply(
         session
@@ -448,12 +459,12 @@ fn selected_format_rewrites_retain_owned_pending_url_delimiters_through_history(
             .unwrap()
             .unwrap(),
     );
-    assert_eq!(session.source_text(), "**x \\*b https://x.test/a***");
+    assert_eq!(session.source_text(), "__x \\*b https://x.test/a*__");
     view.apply(
         session
             .replace(session.revision(), range(22, 22), " ", &mut |_| Ok(()))
             .unwrap(),
     );
     assert_eq!(view.text, "x b https://x.test/a ");
-    assert_eq!(session.source_text(), "**x *b https://x.test/a*** ");
+    assert_eq!(session.source_text(), "__x *b https://x.test/a*__ ");
 }
