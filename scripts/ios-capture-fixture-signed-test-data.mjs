@@ -41,7 +41,7 @@ export function sandbox() {
   const fixture = join(root, 'apps/ios/FixtureCapture');
   write(
     join(root, '.gitignore'),
-    'existing.mobileprovision\napps/ios/FixtureCapture/.build-signed/\napps/ios/Sources/Generated/\napps/ios/FutoNotesFfi.xcframework/\n',
+    '/run/\nexisting.mobileprovision\napps/ios/FixtureCapture/.build-signed/\napps/ios/Sources/Generated/\napps/ios/FutoNotesFfi.xcframework/\n',
   );
   write(join(root, 'Cargo.toml'), '[workspace]\n');
   write(
