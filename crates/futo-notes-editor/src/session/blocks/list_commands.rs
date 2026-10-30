@@ -362,7 +362,7 @@ impl EditorSession {
             }
             at = following;
         }
-        for (at, (prefix, shifts)) in shifted_prefixes {
+        for (at, (prefix, mut shifts)) in shifted_prefixes {
             let existing = head_prefixes.get(&at).copied();
             let mut value = if let Some(index) = existing {
                 std::mem::take(&mut replacements[index].1)

@@ -77,7 +77,7 @@ pub(super) fn shift_prefixes(
         if crate::inline::columns(whitespace, new_column) == target {
             result.push_str(whitespace);
         } else {
-            result.push_str(&" ".repeat(target - new_column));
+            result.extend(std::iter::repeat(' ').take(target - new_column));
         }
         new_column = target;
         let Some(ch) = prefix[at..].chars().next() else {
