@@ -2,6 +2,17 @@
 use pulldown_cmark::{Event, Tag, TagEnd};
 use std::ops::Range;
 
+#[cfg(test)]
+thread_local! {
+    pub(crate) static CONTAINER_METADATA_VISITS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+#[inline]
+pub(crate) fn visit_container() {
+    #[cfg(test)]
+    CONTAINER_METADATA_VISITS.with(|count| count.set(count.get() + 1));
+}
+
 #[derive(Clone, Debug)]
 pub(crate) struct SinkTarget {
     pub marker: Range<usize>,
@@ -63,6 +74,7 @@ pub(super) struct ListCursor {
 
 impl ListCursor {
     pub fn line(&mut self, start: usize, end: usize) -> Attribution {
+        visit_container();
         while self.next_item < self.items.len() && self.items[self.next_item].item.start <= end {
             let next = self.next_item;
             while self
@@ -127,6 +139,7 @@ pub(super) fn describe(source: &str, events: &[(Event<'_>, Range<usize>)]) -> Li
     let mut previous_items = Vec::new();
     let mut last_child: Vec<Option<usize>> = Vec::new();
     for (event, range) in events {
+        visit_container();
         if matches!(
             event,
             Event::Start(
@@ -257,6 +270,7 @@ pub(super) fn describe(source: &str, events: &[(Event<'_>, Range<usize>)]) -> Li
 /// CommonMark columns expand a tab to the next four-column stop.
 pub(crate) fn columns(raw: &str, mut column: usize) -> usize {
     for byte in raw.bytes() {
+        visit_container();
         column += if byte == b'\t' { 4 - column % 4 } else { 1 };
     }
     column

@@ -13,7 +13,9 @@ use crate::{
     Correspondence, DisplayOffset, DisplayRange, InlineFormat, ProjectionSlice, Revision,
     SemanticRun, SourceEdit, SourceOffset, SourceRange,
 };
-pub(crate) use lists::columns;
+#[cfg(test)]
+pub(crate) use lists::CONTAINER_METADATA_VISITS;
+pub(crate) use lists::{columns, visit_container};
 use ropey::Rope;
 use row::{paragraphs, Row};
 pub(crate) use tree::ContextWitness;

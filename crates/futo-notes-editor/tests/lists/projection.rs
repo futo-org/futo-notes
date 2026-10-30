@@ -134,3 +134,29 @@ fn tab_expanded_content_columns_hide_the_complete_owned_continuation_prefix() {
     view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
     assert_eq!(s.source_text(), raw);
 }
+
+#[test]
+fn nested_navigation_stops_at_visible_graphemes_and_tab_leaves_source_history_untouched() {
+    let raw = "> - 🦊a\r\n>   - e\u{301}b";
+    let mut s = EditorSession::open(raw);
+    assert_eq!(s.display_text(), "🦊a\r\ne\u{301}b");
+    for at in [4, 5, 7, 10, 11, 11] {
+        let change = s.move_caret(Revision(0), CaretDirection::Forward).unwrap();
+        assert_eq!(change.selection, range(at, at));
+        assert_eq!(change.revision, Revision(0));
+    }
+    for key in [ParagraphKey::Tab, ParagraphKey::ShiftTab] {
+        assert!(s
+            .paragraph_key(Revision(0), range(10, 11), key, &mut |_| panic!(
+                "non-code Tab accepted"
+            ))
+            .unwrap()
+            .is_none());
+    }
+    assert_eq!(s.source_text(), raw);
+    assert_eq!(s.revision(), Revision(0));
+    assert!(s
+        .undo(Revision(0), &mut |_| panic!("selection wrote history"))
+        .unwrap()
+        .is_none());
+}

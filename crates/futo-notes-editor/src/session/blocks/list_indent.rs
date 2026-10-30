@@ -53,7 +53,10 @@ impl EditorSession {
             .line_to_byte(self.source.byte_to_line(item.marker.start));
         let end = lines
             .iter()
-            .filter_map(|line| line.list.as_ref())
+            .filter_map(|line| {
+                crate::inline::visit_container();
+                line.list.as_ref()
+            })
             .filter(|other| other.owner == item.owner)
             .map(|other| other.item.end)
             .max()
@@ -64,13 +67,23 @@ impl EditorSession {
         {
             let mut roots: Vec<_> = lines
                 .iter()
-                .filter_map(|line| line.list.as_ref())
+                .filter_map(|line| {
+                    crate::inline::visit_container();
+                    line.list.as_ref()
+                })
                 .filter(|root| root.owner == item.owner)
                 .cloned()
                 .collect();
-            roots.sort_by_key(|root| root.marker.start);
-            roots.dedup_by_key(|root| root.marker.start);
+            roots.sort_by_key(|root| {
+                crate::inline::visit_container();
+                root.marker.start
+            });
+            roots.dedup_by_key(|root| {
+                crate::inline::visit_container();
+                root.marker.start
+            });
             for (index, root) in roots.iter().enumerate() {
+                crate::inline::visit_container();
                 let head = self
                     .source
                     .line_to_byte(self.source.byte_to_line(root.marker.start));
@@ -133,6 +146,7 @@ impl EditorSession {
         let mut offset = 0;
         let mut active = 0;
         for line in raw.split_inclusive('\n') {
+            crate::inline::visit_container();
             let line_at = start + offset;
             offset += line.len();
             while active + 1 < plans.len() && plans[active + 1].head <= line_at {
@@ -219,4 +233,56 @@ pub(super) fn quote_prefix_end(line: &str, depth: usize) -> usize {
         }
     }
     at
+}
+
+#[cfg(test)]
+mod work_tests {
+    use crate::*;
+
+    #[test]
+    fn distant_unrelated_paragraphs_do_not_enter_container_parser_or_metadata_work() {
+        let mut measurements = Vec::new();
+        for paragraphs in [1, 20_000] {
+            let prefix = "foreign\n\n".repeat(paragraphs);
+            let raw = format!("{prefix}\nanchor\n\n- a\n- b\n\nend");
+            let shown = format!("{prefix}\nanchor\n\na\nb\n\nend");
+            let expected = format!("{prefix}\nanchor\n\n- a\n  - b\n\nend");
+            let at = prefix.len() + 11;
+            let selected = DisplayRange {
+                start: DisplayOffset(at),
+                end: DisplayOffset(at + 1),
+            };
+            let mut session = EditorSession::open(&raw);
+            assert_eq!(session.display_text(), shown);
+            session.select(Revision(0), selected).unwrap();
+            crate::inline::CONTAINER_METADATA_VISITS.with(|visits| visits.set(0));
+            let change = session
+                .block_command(Revision(0), selected, BlockCommand::Indent, &mut |_| Ok(()))
+                .unwrap()
+                .unwrap();
+            let visits = crate::inline::CONTAINER_METADATA_VISITS.with(|visits| visits.get());
+            let mut view = shown.clone();
+            view.replace_range(change.range.start.0..change.range.end.0, &change.inserted);
+            assert_eq!(view, shown);
+            assert_eq!(session.source_text(), expected);
+            assert_eq!(session.selection(), selected);
+            assert!(visits > 0 && visits < 4096, "{visits}");
+            assert!(change.work.parsed_source_bytes > 0 && change.work.parsed_source_bytes < 4096);
+            assert!(
+                change.work.materialized_source_bytes > 0
+                    && change.work.materialized_source_bytes < 4096
+            );
+            measurements.push((
+                change.work.parsed_source_bytes,
+                change.work.materialized_source_bytes,
+                visits,
+            ));
+            session
+                .undo(session.revision(), &mut |_| Ok(()))
+                .unwrap()
+                .unwrap();
+            assert_eq!(session.source_text(), raw);
+        }
+        assert_eq!(measurements[0], measurements[1]);
+    }
 }
