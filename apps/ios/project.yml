@@ -169,6 +169,8 @@ targets:
         buildPhase: resources
       - path: ../../crates/futo-notes-editor/tests/fixtures/structural-seams.json
         buildPhase: resources
+      - path: ../../crates/futo-notes-editor/tests/fixtures/fence-physical-rows.json
+        buildPhase: resources
       - path: ../../tests/localization/cases.json
         buildPhase: resources
       - path: StoreKit/FutoNotes.storekit

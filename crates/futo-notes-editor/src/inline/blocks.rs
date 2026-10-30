@@ -26,6 +26,9 @@ pub(crate) struct BlockLine {
     pub quote_start: bool,
     pub divider: bool,
     pub code: bool,
+    pub in_list: bool,
+    pub code_language: Option<String>,
+    pub fence: Option<super::fences::Fence>,
     pub bodies: Vec<PhysicalLine>,
     pub underline: Option<PhysicalLine>,
 }
@@ -49,6 +52,9 @@ pub(super) fn describe(
                 quote_start: false,
                 divider: false,
                 code: false,
+                in_list: false,
+                code_language: None,
+                fence: None,
                 bodies: Vec::new(),
                 underline: None,
             }
@@ -64,6 +70,9 @@ pub(super) fn describe(
             quote_start: false,
             divider: false,
             code: false,
+            in_list: false,
+            code_language: None,
+            fence: None,
             bodies: Vec::new(),
             underline: None,
         });
@@ -110,6 +119,14 @@ pub(super) fn describe(
                     .partition_point(|line| line.source.start <= range.start)
                     .saturating_sub(1);
                 lines[at].divider = true;
+            }
+            Event::Start(Tag::Item) => {
+                for line in lines
+                    .iter_mut()
+                    .filter(|line| line.source.start < range.end && range.start < line.source.end)
+                {
+                    line.in_list = true;
+                }
             }
             Event::Start(Tag::CodeBlock(_)) => {
                 let first = lines.partition_point(|line| line.source.end <= range.start);
@@ -186,5 +203,6 @@ pub(super) fn describe(
         lines[first].source.end = lines[last].source.end;
         lines.drain(first + 1..=last);
     }
+    super::fences::describe(source, events, &mut lines);
     (lines, prefixes)
 }

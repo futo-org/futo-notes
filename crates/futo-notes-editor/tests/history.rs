@@ -429,3 +429,5 @@ fn rejected_isolated_input_and_compound_command_leave_the_previous_typing_group_
         .unwrap()
         .is_none());
 }
+#[path = "history/fences.rs"]
+mod fences;

@@ -710,5 +710,255 @@
         "?"
       ]
     ]
+  },
+  {
+    "name": "fence-empty-quoted-typing",
+    "source": "> ```\n> ```",
+    "display": "",
+    "mode": "typing",
+    "range": [
+      0,
+      0
+    ],
+    "text": "x",
+    "expectedSource": "> ```\n> x\n> ```",
+    "expectedDisplay": "x",
+    "caret": 1,
+    "history": 1
+  },
+  {
+    "name": "fence-empty-quoted-enter",
+    "source": "> ```\n> ```",
+    "display": "",
+    "mode": "typing",
+    "range": [
+      0,
+      0
+    ],
+    "text": "\n",
+    "expectedSource": "> ```\n> \n> \n> ```",
+    "expectedDisplay": "\n",
+    "caret": 1,
+    "history": 1
+  },
+  {
+    "name": "fence-empty-nested-crlf",
+    "source": "> > ~~~~Rust\r\n> > ~~~~~  ",
+    "display": "",
+    "mode": "typing",
+    "range": [
+      0,
+      0
+    ],
+    "text": "\u732b",
+    "expectedSource": "> > ~~~~Rust\r\n> > \u732b\n> > ~~~~~  ",
+    "expectedDisplay": "\u732b",
+    "caret": 1,
+    "history": 1
+  },
+  {
+    "name": "fence-whole-quoted-body-delete",
+    "source": "> ```\n> a\n> ```",
+    "display": "a",
+    "mode": "typing",
+    "range": [
+      0,
+      1
+    ],
+    "text": "",
+    "expectedSource": "> ```\n> \n> ```",
+    "expectedDisplay": "",
+    "caret": 0,
+    "history": 1
+  },
+  {
+    "name": "fence-authored-terminal-lf-delete",
+    "source": "~~~\na\n\n~~~~  ",
+    "display": "a\n",
+    "mode": "typing",
+    "range": [
+      1,
+      2
+    ],
+    "text": "",
+    "expectedSource": "~~~\na\n~~~~  ",
+    "expectedDisplay": "a",
+    "caret": 1,
+    "history": 1
+  },
+  {
+    "name": "fence-literal-tilde-shortcut",
+    "source": "",
+    "display": "",
+    "mode": "typing_sequence",
+    "range": [
+      0,
+      0
+    ],
+    "text": "",
+    "expectedSource": "&#126;~~js ",
+    "expectedDisplay": "~~~js ",
+    "caret": 6,
+    "history": 2,
+    "inputs": [
+      [
+        "Typing",
+        "~~~js"
+      ],
+      [
+        "Typing",
+        " "
+      ]
+    ]
+  },
+  {
+    "name": "fence-literal-wide-backtick-shortcut",
+    "source": "",
+    "display": "",
+    "mode": "typing_sequence",
+    "range": [
+      0,
+      0
+    ],
+    "text": "",
+    "expectedSource": "&#96;```js ",
+    "expectedDisplay": "````js ",
+    "caret": 7,
+    "history": 2,
+    "inputs": [
+      [
+        "Typing",
+        "````js"
+      ],
+      [
+        "Typing",
+        " "
+      ]
+    ]
+  },
+  {
+    "name": "fence-triple-backtick-shortcut-control",
+    "source": "",
+    "display": "",
+    "mode": "typing_sequence",
+    "range": [
+      0,
+      0
+    ],
+    "text": "",
+    "expectedSource": "```js\n\n```",
+    "expectedDisplay": "",
+    "caret": 0,
+    "history": 2,
+    "inputs": [
+      [
+        "Typing",
+        "```js"
+      ],
+      [
+        "Typing",
+        " "
+      ]
+    ]
+  },
+  {
+    "name": "fence-empty-quoted-composition",
+    "source": "> ```\n> ```",
+    "display": "",
+    "mode": "composition_commit",
+    "range": [
+      0,
+      0
+    ],
+    "text": "\u65e5\u672c",
+    "expectedSource": "> ```\n> \u65e5\u672c\n> ```",
+    "expectedDisplay": "\u65e5\u672c",
+    "caret": 2,
+    "history": 1
+  },
+  {
+    "name": "fence-quoted-whole-explicit-delete",
+    "source": "> ~~~\n> a\n> ~~~~~  ",
+    "display": "a",
+    "mode": "explicit",
+    "range": [
+      0,
+      1
+    ],
+    "text": "",
+    "expectedSource": "> ~~~\n> \n> ~~~~~  ",
+    "expectedDisplay": "",
+    "caret": 0,
+    "history": 1
+  },
+  {
+    "name": "fence-quoted-os-body-delete",
+    "source": "> ~~~\n> a\n> ~~~~~  ",
+    "display": "a",
+    "mode": "os",
+    "range": [
+      0,
+      1
+    ],
+    "text": "",
+    "expectedSource": "> ~~~\n> \n> ~~~~~  ",
+    "expectedDisplay": "",
+    "caret": 0,
+    "history": 1
+  },
+  {
+    "name": "fence-empty-quoted-adjacent-typing",
+    "source": "> ```\n> ```",
+    "display": "",
+    "mode": "typing_sequence",
+    "range": [
+      0,
+      0
+    ],
+    "text": "",
+    "expectedSource": "> ```\n> !?\n> ```",
+    "expectedDisplay": "!?",
+    "caret": 2,
+    "history": 1,
+    "inputs": [
+      [
+        "Typing",
+        "!"
+      ],
+      [
+        "Typing",
+        "?"
+      ]
+    ]
+  },
+  {
+    "name": "fence-commonmark-open-noncloser",
+    "source": "```\na\n```\u00a0",
+    "display": "a\n```\u00a0",
+    "mode": "typing",
+    "range": [
+      6,
+      6
+    ],
+    "text": "!",
+    "expectedSource": "```\na\n```\u00a0!",
+    "expectedDisplay": "a\n```\u00a0!",
+    "caret": 7,
+    "history": 1
+  },
+  {
+    "name": "fence-literal-noncloser-keeps-frame",
+    "source": "```\na\n```",
+    "display": "a",
+    "mode": "typing",
+    "range": [
+      0,
+      0
+    ],
+    "text": "```\u00a0\n",
+    "expectedSource": "```\n```\u00a0\na\n```",
+    "expectedDisplay": "```\u00a0\na",
+    "caret": 5,
+    "history": 1
   }
 ]

@@ -1,8 +1,10 @@
 mod block_edit;
 pub(crate) mod blocks;
 mod edit;
+pub(crate) mod fences;
 mod row;
 mod spelling;
+mod toggle;
 mod tree;
 
 use crate::{
@@ -132,6 +134,8 @@ impl Projection {
                 heading: block.heading,
                 quote_depth: block.quote_depth,
                 divider: block.divider,
+                code: block.code,
+                language: block.code_language,
             })
             .collect();
         ProjectionSlice {
@@ -159,6 +163,12 @@ impl Projection {
                 let hit = if range.start == range.end {
                     a <= range.start.0
                         && (range.start.0 < z
+                            || block.fence.as_ref().is_some_and(|fence| {
+                                fence.body.start <= block.source.start
+                                    && block.source.start <= fence.body.end
+                                    && row.display_at(block.content.end) + display == range.start.0
+                                    && row.display_at(fence.body.end) + display == range.start.0
+                            })
                             || (block.source.start == row.blocks.last().unwrap().source.start
                                 && source + block.source.end
                                     == self.rows.at(self.rows.len() - 1).1
@@ -166,12 +176,21 @@ impl Projection {
                 } else {
                     a < range.end.0 && range.start.0 < z
                 };
-                if hit {
+                let empty_fence = block.fence.as_ref().is_some_and(|fence| {
+                    row.display_at(fence.body.start) == row.display_at(fence.body.end)
+                        && block.source.start <= fence.whole.start
+                        && fence.whole.start < block.source.end
+                        && a == range.start.0
+                });
+                if hit || empty_fence {
                     let mut block = block.clone();
                     block.source.start += source;
                     block.source.end += source;
                     block.content.start += source;
                     block.content.end += source;
+                    if let Some(fence) = &mut block.fence {
+                        fence.shift(source);
+                    }
                     for physical in block.bodies.iter_mut().chain(block.underline.iter_mut()) {
                         physical.source.start += source;
                         physical.source.end += source;

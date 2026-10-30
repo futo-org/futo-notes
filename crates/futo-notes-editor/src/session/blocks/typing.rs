@@ -21,16 +21,16 @@ impl EditorSession {
         let Some(line) = self.projection.block_lines(range).into_iter().next() else {
             return Ok(None);
         };
-        if !self
-            .source
-            .byte_slice(line.content.clone())
-            .chars()
-            .all(|ch| matches!(ch, ' ' | '\t'))
-            || range.end.0 > self.projection.display_at(line.content.end)
+        if line.code
             || line.heading > 0
             || line.quote_depth == 0
             || line.divider
-            || line.code
+            || !self
+                .source
+                .byte_slice(line.content.clone())
+                .chars()
+                .all(|ch| matches!(ch, ' ' | '\t'))
+            || range.end.0 > self.projection.display_at(line.content.end)
         {
             return Ok(None);
         }
@@ -167,6 +167,9 @@ impl EditorSession {
         inserted: &str,
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<Option<ViewChange>, EditorError> {
+        if let Some(change) = self.fence_conversion(expected, range, inserted, accept)? {
+            return Ok(Some(change));
+        }
         if range.start != range.end {
             return Ok(None);
         }

@@ -16,6 +16,7 @@ targets remain in scope. The dependency plan records these deferrals so agents d
 reintroduce them or wait for them at final acceptance. → docs/plan/text-first-editor-rebuild-tickets.md
 
 - [Exact source, interpretation and input](portable-core/interpretation-and-input.md)
+- [Fenced code and key intent](portable-core/fenced-code.md)
 - [Persistence, recovery and outside writers](portable-core/recovery.md)
 - [Portable and native transports](portable-core/transports.md)
 - [Remaining work and performance limits](portable-core/remaining-work.md)
