@@ -1,0 +1,115 @@
+use super::*;
+
+#[test]
+fn a_bare_quote_becomes_an_independent_root_list_between_foreign_lists() {
+    let raw = "- before\n\n> middle\n\n- after";
+    let expected = "- before\n\n+ middle\n\n- after";
+    let shown = "before\n\nmiddle\n\nafter";
+    let selected = range(8, 14);
+    let mut s = EditorSession::open(raw);
+    let mut view = ReferenceView::new(shown);
+    s.select_with_affinity(s.revision(), selected, Affinity::Backward)
+        .unwrap();
+    let mut accepted = 0;
+    view.apply(
+        s.block_command(
+            s.revision(),
+            selected,
+            BlockCommand::BulletList,
+            &mut |_| {
+                accepted += 1;
+                Ok(())
+            },
+        )
+        .unwrap()
+        .unwrap(),
+    );
+    assert_eq!(accepted, 1);
+    assert_eq!(s.source_text(), expected);
+    assert_eq!(view.text, shown);
+    assert_eq!(s.selection(), selected);
+    let p = s.project(s.revision(), range(0, shown.len())).unwrap();
+    assert_eq!(
+        p.blocks
+            .iter()
+            .filter_map(|block| block
+                .list
+                .as_ref()
+                .filter(|list| list.first)
+                .map(|list| (list.depth, block.quote_depth)))
+            .collect::<Vec<_>>(),
+        vec![(1, 0), (1, 0), (1, 0)]
+    );
+    view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(s.source_text(), raw);
+    assert_eq!(s.selection(), selected);
+    assert_eq!(s.affinity(), Affinity::Backward);
+    view.apply(s.redo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(s.source_text(), expected);
+}
+
+#[test]
+fn a_heading_inside_a_quote_keeps_its_quote_when_becoming_a_list() {
+    let raw = "> ## heading";
+    let mut s = EditorSession::open(raw);
+    let mut view = ReferenceView::new("heading");
+    let selected = range(3, 3);
+    s.select_with_affinity(s.revision(), selected, Affinity::Backward)
+        .unwrap();
+    view.apply(
+        s.block_command(
+            s.revision(),
+            selected,
+            BlockCommand::BulletList,
+            &mut |_| Ok(()),
+        )
+        .unwrap()
+        .unwrap(),
+    );
+    assert_eq!(s.source_text(), "> - heading");
+    assert_eq!(view.text, "heading");
+    assert_eq!(s.selection(), selected);
+    let p = s.project(s.revision(), range(0, 7)).unwrap();
+    assert!(p
+        .blocks
+        .iter()
+        .all(|block| block.quote_depth == 1
+            && block.list.as_ref().is_some_and(|list| list.depth == 1)));
+    view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(s.source_text(), raw);
+    assert_eq!(s.selection(), selected);
+    assert_eq!(s.affinity(), Affinity::Backward);
+}
+
+#[test]
+fn retargeting_an_existing_quoted_list_keeps_its_quote_and_outer_neighbors() {
+    let raw = "> - parent\n>   - child\n> - following";
+    let expected = "> - parent\n>   1. child\n> - following";
+    let shown = "parent\nchild\nfollowing";
+    let selected = range(7, 12);
+    let mut s = EditorSession::open(raw);
+    let mut view = ReferenceView::new(shown);
+    s.select(s.revision(), selected).unwrap();
+    view.apply(
+        s.block_command(
+            s.revision(),
+            selected,
+            BlockCommand::OrderedList,
+            &mut |_| Ok(()),
+        )
+        .unwrap()
+        .unwrap(),
+    );
+    assert_eq!(s.source_text(), expected);
+    assert_eq!(view.text, shown);
+    assert_eq!(s.selection(), selected);
+    let p = s.project(s.revision(), selected).unwrap();
+    assert!(p.blocks.iter().all(|block| block.quote_depth == 1
+        && block
+            .list
+            .as_ref()
+            .is_some_and(|list| list.depth == 2 && list.number == Some(1))));
+    view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(s.source_text(), raw);
+    assert_eq!(s.selection(), selected);
+}
