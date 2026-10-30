@@ -325,3 +325,40 @@ fn indent_starts_a_new_ordered_child_list_at_one() {
     view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
     assert_eq!(s.source_text(), raw);
 }
+
+#[test]
+fn indent_joins_the_preceding_items_existing_compatible_child_list() {
+    for (source, shown, selected, expected) in [
+        (
+            "- parent\n  + existing\n- child",
+            "parent\nexisting\nchild",
+            range(16, 21),
+            "- parent\n  + existing\n  + child",
+        ),
+        (
+            "1) parent\n   4) existing\n2) child",
+            "parent\nexisting\nchild",
+            range(16, 21),
+            "1) parent\n   4) existing\n   5) child",
+        ),
+    ] {
+        let mut s = EditorSession::open(source);
+        let mut view = ReferenceView::new(shown);
+        s.select(s.revision(), selected).unwrap();
+        view.apply(
+            s.block_command(
+                s.revision(),
+                selected,
+                BlockCommand::Indent,
+                &mut |_| Ok(()),
+            )
+            .unwrap()
+            .unwrap(),
+        );
+        assert_eq!(s.source_text(), expected);
+        assert_eq!(view.text, shown);
+        assert_eq!(s.selection(), selected);
+        view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+        assert_eq!(s.source_text(), source);
+    }
+}
