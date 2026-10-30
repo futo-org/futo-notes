@@ -250,3 +250,55 @@ fn text_conversion_reconciles_each_actual_quote_prefix_and_ordered_retained_body
         assert_eq!(view.text, shown);
     }
 }
+
+#[test]
+fn heading_split_preserves_literal_reference_body_in_its_actual_following_paragraph() {
+    use futo_notes_editor::ParagraphKey;
+    // Spec and accepted blocks/keys gold: middle heading Enter starts a paragraph.
+    let original = "# prefix[id]: /target 'T'\n\n[one][id]\n\nbody";
+    let entered = "# prefix\n\\[id]: /target 'T'\n\n[one][id]\n\nbody";
+    let shown = "prefix\n[id]: /target 'T'\n\n[one][id]\n\nbody";
+    assert_eq!(EditorSession::open(entered).display_text(), shown);
+    let mut session = EditorSession::open(original);
+    let mut view = ReferenceView::new("prefix[id]: /target 'T'\n\n[one][id]\n\nbody");
+    session.select(Revision(0), range(6, 6)).unwrap();
+    let mut accepted = 0;
+    let change = session
+        .paragraph_key(Revision(0), range(6, 6), ParagraphKey::Enter, &mut |_| {
+            accepted += 1;
+            Ok(())
+        })
+        .unwrap()
+        .unwrap();
+    let target = change.selection;
+    view.apply(change);
+    assert_eq!(accepted, 1);
+    assert_eq!(session.source_text(), entered);
+    assert_eq!(view.text, shown);
+    assert_eq!(target, range(7, 7));
+    assert!(session
+        .project(Revision(1), range(0, shown.len()))
+        .unwrap()
+        .links
+        .is_empty());
+    view.apply(session.undo(Revision(1), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(session.source_text(), original);
+    assert_eq!(session.selection(), range(6, 6));
+    view.apply(session.redo(Revision(2), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(session.source_text(), entered);
+    assert_eq!(session.selection(), target);
+    view.apply(
+        session
+            .replace(Revision(3), target, "!", &mut |_| Ok(()))
+            .unwrap(),
+    );
+    assert_eq!(
+        session.source_text(),
+        "# prefix\n!\\[id]: /target 'T'\n\n[one][id]\n\nbody"
+    );
+    assert_eq!(view.text, "prefix\n![id]: /target 'T'\n\n[one][id]\n\nbody");
+    view.apply(session.undo(Revision(4), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(session.source_text(), entered);
+    view.apply(session.undo(Revision(5), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(session.source_text(), original);
+}
