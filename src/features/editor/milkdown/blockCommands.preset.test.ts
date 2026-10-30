@@ -210,6 +210,21 @@ const cases = [
     command: 'quote',
     anchor: 'child',
   },
+  {
+    name: 'Text lifts across two intervening list quote boundaries',
+    source:
+      '- outer\n  > - middle\n  >   > - child\n  >   >   - grandchild\n  >   > - inner sibling\n  > - middle sibling\n- following',
+    command: 'paragraph',
+    anchor: 'child',
+  },
+  {
+    name: 'Text selection spanning an ancestor retains the descendant list subtree',
+    source: nested,
+    command: 'paragraph',
+    anchor: 'parent',
+    head: 'child😀',
+    headOffset: 7,
+  },
 ] as const;
 
 describe('pinned shipping toolbar container transactions (#299)', () => {
