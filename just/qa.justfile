@@ -157,6 +157,10 @@ android-drive *args:
 qa-shot *args:
   @node scripts/qa-shot.mjs "$@"
 
+# Reserve/read/release an exact physical-fixture host lease; never selects or drives a device.
+physical-fixture-lease operation manifest:
+  bash scripts/dev-env.sh node scripts/qa/physical-fixture-lease.mjs "$1" --manifest "$2"
+
 # Drive and read the running debug app (crates/futo-puppet); see justfile-notes.md.
 #   just puppet   with no arguments, every command and its arguments
 #   FUTO_PUPPET_TARGET=desktop (default) | ios | android

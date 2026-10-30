@@ -28,6 +28,16 @@ struct CaptureWorkspace {
     let root: URL
     var vault: URL { root.appendingPathComponent("vault", isDirectory: true) }
     var artifact: URL { root.appendingPathComponent("capture.json") }
+    var artifactRelativePath: String? {
+        let expected = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+            .appendingPathComponent("tmp", isDirectory: true)
+            .appendingPathComponent("editor294-\(launch.runID.uuidString)", isDirectory: true)
+            .appendingPathComponent("capture.json")
+        guard artifact.resolvingSymlinksInPath() == expected.resolvingSymlinksInPath() else {
+            return nil
+        }
+        return "tmp/editor294-\(launch.runID.uuidString)/capture.json"
+    }
 
     init(launch: CaptureLaunch) throws {
         self.launch = try CaptureLaunch.decode(JSONEncoder().encode(launch))
@@ -46,6 +56,7 @@ struct CaptureWorkspace {
             "formatVersion": 1, "runID": launch.runID.uuidString,
             "nonce": launch.nonce.uuidString, "declaredDestination": launch.destination,
             "destinationBinding": "declared-only", "acceptance": "unreviewed-raw-capture",
+            "artifactRelativePath": artifactRelativePath as Any? ?? NSNull(),
             "maximumDurationSeconds": launch.seconds, "provenance": provenance,
             "sourceUTF16": Array(source.utf16), "opening": opening, "current": current,
             "events": events, "lifecycle": lifecycle, "traits": traits, "status": status,
