@@ -213,3 +213,102 @@ fn text_lifts_every_list_above_an_intervening_quote_and_keeps_fragment_owners() 
     assert_eq!(s.source_text(), expected);
     assert_eq!(s.selection(), selected);
 }
+
+#[test]
+fn text_lifts_two_quote_crossings_without_merging_the_inner_list_fragments() {
+    let raw = "- outer\n  > - middle\n  >   > - child\n  >   >   - grandchild\n  >   > - inner sibling\n  > - middle sibling\n- following";
+    let expected = "outer\n> middle\n> > child\n> > + grandchild\n> > - inner sibling\n> - middle sibling\n- following";
+    let shown = "outer\nmiddle\nchild\ngrandchild\ninner sibling\nmiddle sibling\nfollowing";
+    let selected = range(13, 18);
+    let mut s = EditorSession::open(raw);
+    let mut view = ReferenceView::new(shown);
+    s.select_with_affinity(s.revision(), selected, Affinity::Backward)
+        .unwrap();
+    let mut accepted = 0;
+    view.apply(
+        s.block_command(
+            s.revision(),
+            selected,
+            BlockCommand::Heading(0),
+            &mut |_| {
+                accepted += 1;
+                Ok(())
+            },
+        )
+        .unwrap()
+        .unwrap(),
+    );
+    assert_eq!(accepted, 1);
+    assert_eq!(s.source_text(), expected);
+    assert_eq!(view.text, shown);
+    assert_eq!(s.selection(), selected);
+    let p = s.project(s.revision(), range(0, shown.len())).unwrap();
+    let lists = p
+        .blocks
+        .iter()
+        .filter_map(|block| {
+            block
+                .list
+                .as_ref()
+                .filter(|list| list.first)
+                .map(|list| (list.depth, block.quote_depth))
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(lists, vec![(1, 2), (1, 2), (1, 1), (1, 0)]);
+    view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(s.source_text(), raw);
+    assert_eq!(s.selection(), selected);
+    assert_eq!(s.affinity(), Affinity::Backward);
+    view.apply(s.redo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(s.source_text(), expected);
+}
+
+#[test]
+fn text_selection_starting_in_an_ancestor_keeps_the_descendant_list_subtree() {
+    // The actual toolbar loop stops once selection.from has left its list.
+    let raw = "- parent\n  - child😀\n    - grandchild\n  - sibling\n- following";
+    let expected = "parent\n+ child😀\n  - grandchild\n+ sibling\n- following";
+    let shown = "parent\nchild😀\ngrandchild\nsibling\nfollowing";
+    let selected = range(0, 16);
+    let mut s = EditorSession::open(raw);
+    let mut view = ReferenceView::new(shown);
+    s.select_with_affinity(s.revision(), selected, Affinity::Backward)
+        .unwrap();
+    let mut accepted = 0;
+    view.apply(
+        s.block_command(
+            s.revision(),
+            selected,
+            BlockCommand::Heading(0),
+            &mut |_| {
+                accepted += 1;
+                Ok(())
+            },
+        )
+        .unwrap()
+        .unwrap(),
+    );
+    assert_eq!(accepted, 1);
+    assert_eq!(s.source_text(), expected);
+    assert_eq!(view.text, shown);
+    assert_eq!(s.selection(), selected);
+    let p = s.project(s.revision(), range(0, shown.len())).unwrap();
+    let depths = p
+        .blocks
+        .iter()
+        .filter_map(|block| {
+            block
+                .list
+                .as_ref()
+                .filter(|list| list.first)
+                .map(|list| list.depth)
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(depths, vec![1, 2, 1, 1]);
+    view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(s.source_text(), raw);
+    assert_eq!(s.selection(), selected);
+    assert_eq!(s.affinity(), Affinity::Backward);
+    view.apply(s.redo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(s.source_text(), expected);
+}
