@@ -78,6 +78,7 @@ async function reviewedBlockRegression(
   end = caret,
   finalDisplay = shown,
   followup = false,
+  language,
 ) {
   const vault = mkdtempSync(join(tmpdir(), 'futo-editor-wasm-reviewed-blocks-'));
   const worker = spawn(process.argv[3], [vault, opening], { stdio: ['pipe', 'pipe', 'inherit'] });
@@ -108,7 +109,7 @@ async function reviewedBlockRegression(
       return change;
     };
     const change = await accept(
-      ['Enter', 'KeyDelete', 'Backspace'].includes(command)
+      ['Enter', 'KeyDelete', 'Backspace', 'Tab', 'ShiftTab'].includes(command)
         ? session.paragraph_key_utf16(
             0n,
             caret,
@@ -127,6 +128,11 @@ async function reviewedBlockRegression(
             ? session.replace_utf16_action(0n, caret, end, new Uint16Array(), '"Isolated"')
             : session.block_command_utf16(0n, caret, end, JSON.stringify(command)),
     );
+    if (language !== undefined) {
+      const code = change.projection.blocks.find((block) => block.code);
+      assert.ok(code);
+      assert.equal(code.language, language);
+    }
     if (caret === end && typeof command === 'object')
       assert.deepEqual(change.selection, { start: caret, end: caret });
     let revision = 1n;
@@ -161,6 +167,40 @@ async function reviewedBlockRegression(
 }
 
 export async function runBlockRegressions() {
+  await reviewedBlockRegression('ab', 'CodeBlock', '```\nab\n```', 'ab', 0, 0, 'ab', false, null);
+  await reviewedBlockRegression(
+    '~~~js\nab\n cd\n~~~',
+    'Tab',
+    '~~~js\na  b\n cd\n~~~',
+    'ab\n cd',
+    1,
+    1,
+    'a  b\n cd',
+    false,
+    'js',
+  );
+  await reviewedBlockRegression(
+    '~~~js\nab\n cd\n~~~',
+    'ShiftTab',
+    '~~~js\nab\ncd\n~~~',
+    'ab\n cd',
+    4,
+    4,
+    'ab\ncd',
+    false,
+    'js',
+  );
+  await reviewedBlockRegression(
+    '~~~~ c++ info\r\n猫🦊\r\n~~~~~  \r\n\n__tail__',
+    'Enter',
+    '~~~~ c++ info\r\n猫\n🦊\r\n~~~~~  \r\n\n__tail__',
+    '猫🦊\r\n\ntail',
+    1,
+    1,
+    '猫\n🦊\r\n\ntail',
+    false,
+    'c++',
+  );
   await blockRegression(
     '\\#A #\r\ntail  ',
     '#A #\r\ntail  ',

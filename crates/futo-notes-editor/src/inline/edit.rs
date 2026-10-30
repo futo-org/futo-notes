@@ -120,7 +120,16 @@ impl Projection {
             }
         }
         if let Some(format) = toggle {
-            toggle_pieces(&mut changed, &mut markers, a..z, format);
+            let opaque: Vec<_> = self
+                .block_lines(range)
+                .into_iter()
+                .filter(|line| line.code)
+                .map(|line| {
+                    self.display_at(line.content.start) - self.display_at(source_start)
+                        ..self.display_at(line.content.end) - self.display_at(source_start)
+                })
+                .collect();
+            super::toggle::pieces(&mut changed, &mut markers, a..z, format, &opaque);
         }
         let speculative_block = inserted
             .chars()
@@ -134,7 +143,18 @@ impl Projection {
                 )
                 .chars()
                 .all(|ch| matches!(ch, '#' | '>' | '*' | '_'));
-        let literal = speculative_block
+        let display_line = self
+            .display
+            .line_to_byte(self.display.byte_to_line(range.start.0));
+        let prefix = format!(
+            "{}{}",
+            self.display.byte_slice(display_line..range.start.0),
+            inserted
+        );
+        let speculative_fence = (prefix.starts_with("```") || prefix.starts_with("~~~"))
+            && !prefix.contains(char::is_whitespace);
+        let literal = speculative_fence
+            || speculative_block
             || toggle.is_some()
             || inserted.is_empty()
             || !inserted.contains(['*', '_', '~', '`', '\\', '&', '<', '>'])
@@ -477,60 +497,5 @@ fn carry_formats(
             };
             active.push(id);
         }
-    }
-}
-
-fn toggle_pieces(
-    changed: &mut [Piece],
-    markers: &mut Vec<Marker>,
-    selected: Range<usize>,
-    format: InlineFormat,
-) {
-    let (a, z) = (selected.start, selected.end);
-    // Formatting commands modify only the selected visible pieces.
-    let mut start = 0;
-    let all_active = changed
-        .iter()
-        .filter(|piece| {
-            let end = start + piece.display.len();
-            let hit = start < z && a < end;
-            start = end;
-            hit
-        })
-        .all(|piece| piece.spans.iter().any(|id| markers[*id].format == format));
-    let id = markers.len();
-    let delimiter = delimiter(format);
-    markers.push(Marker {
-        format,
-        open: delimiter.into(),
-        close: delimiter.into(),
-    });
-    let mut start = 0;
-    for piece in changed {
-        let end = start + piece.display.len();
-        if start < z && a < end {
-            piece.spans.retain(|id| markers[*id].format != format);
-            if format == InlineFormat::Code {
-                if all_active {
-                    piece.raw = piece
-                        .display
-                        .chars()
-                        .map(|ch| {
-                            if ch.is_ascii_punctuation() {
-                                format!("&#{};", ch as u32)
-                            } else {
-                                ch.to_string()
-                            }
-                        })
-                        .collect();
-                } else if !piece.display.contains(['\r', '\n']) {
-                    piece.spans.push(id);
-                    piece.raw.clone_from(&piece.display);
-                }
-            } else if !all_active {
-                piece.spans.insert(0, id);
-            }
-        }
-        start = end;
     }
 }

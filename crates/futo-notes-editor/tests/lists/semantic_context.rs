@@ -143,7 +143,7 @@ fn semantic_context_stops_at_substantive_barriers_and_keeps_protected_triggers_l
     for (raw, at, expected, numbers) in [
         (
             "```\n2.body\n```\n\n\n7. after",
-            6,
+            2,
             "```\n2. body\n```\n\n\n7. after",
             vec![7],
         ),
@@ -161,7 +161,7 @@ fn semantic_context_stops_at_substantive_barriers_and_keeps_protected_triggers_l
         ),
         (
             "```\n2.body\n\n\n7. after",
-            6,
+            2,
             "```\n2. body\n\n\n7. after",
             vec![],
         ),
@@ -189,4 +189,92 @@ fn semantic_context_stops_at_substantive_barriers_and_keeps_protected_triggers_l
         assert_eq!(ordinals(&EditorSession::open(expected)), numbers);
         assert_eq!(view.text, session.display_text());
     }
+}
+
+#[test]
+fn integrated_fences_keep_list_and_comment_triggers_opaque_at_shifted_origins() {
+    for (raw, expected, quote) in [
+        (
+            "prefix\n\n```js\n2.body\n<!-- -->\n```\n\n7. after",
+            "prefix\n\n```js\n2. body\n<!-- -->\n```\n\n7. after",
+            0,
+        ),
+        (
+            "prefix\n\n> ```js\n> 2.body\n> <!-- -->\n> ```\n\n7. after",
+            "prefix\n\n> ```js\n> 2. body\n> <!-- -->\n> ```\n\n7. after",
+            1,
+        ),
+        (
+            "prefix\n\n* ```js\n  2.body\n  <!-- -->\n  ```\n\n7. after",
+            "prefix\n\n* ```js\n  2. body\n  <!-- -->\n  ```\n\n7. after",
+            0,
+        ),
+    ] {
+        let mut session = EditorSession::open(raw);
+        let shown = session.display_text();
+        assert!(shown.contains("2.body\n<!-- -->"));
+        let at = shown.find("2.body").unwrap() + 2;
+        session.select(session.revision(), range(at, at)).unwrap();
+        let block = session
+            .project(session.revision(), range(at, at))
+            .unwrap()
+            .blocks;
+        assert!(block.iter().any(|block| block.code
+            && block.language.as_deref() == Some("js")
+            && block.quote_depth == quote));
+        for command in [
+            BlockCommand::BulletList,
+            BlockCommand::OrderedList,
+            BlockCommand::TaskList,
+            BlockCommand::ToggleTask,
+        ] {
+            assert!(session
+                .block_command(session.revision(), range(at, at), command, &mut |_| panic!(
+                    "code command no-op"
+                ))
+                .unwrap()
+                .is_none());
+        }
+        let mut view = ReferenceView::new(&shown);
+        view.apply(
+            session
+                .replace(session.revision(), range(at, at), " ", &mut |_| Ok(()))
+                .unwrap(),
+        );
+        assert_eq!(session.source_text(), expected);
+        let fresh = EditorSession::open(expected);
+        assert_eq!(view.text, fresh.display_text());
+        assert!(
+            view.text.contains("<!-- -->"),
+            "code comment must stay visible"
+        );
+        assert_eq!(ordinals(&fresh), [7]);
+        view.apply(
+            session
+                .undo(session.revision(), &mut |_| Ok(()))
+                .unwrap()
+                .unwrap(),
+        );
+        assert_eq!(session.source_text(), raw);
+        assert_eq!(view.text, shown);
+        view.apply(
+            session
+                .redo(session.revision(), &mut |_| Ok(()))
+                .unwrap()
+                .unwrap(),
+        );
+        assert_eq!(session.source_text(), expected);
+    }
+    // A list caret outside code does not acquire fence Tab semantics.
+    let mut session = EditorSession::open("* body\n\n<!-- -->\n\n```\nopaque\n```");
+    assert!(session
+        .paragraph_key(
+            session.revision(),
+            range(1, 1),
+            ParagraphKey::Tab,
+            &mut |_| panic!("noncode Tab")
+        )
+        .unwrap()
+        .is_none());
+    assert_eq!(session.revision(), Revision(0));
 }

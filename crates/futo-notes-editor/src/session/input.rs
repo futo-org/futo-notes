@@ -65,6 +65,10 @@ impl EditorSession {
                 });
         }
         self.validate_range(range)?;
+        if let Some(change) = self.fence_input(expected, range, inserted, action, accept)? {
+            let mapping = InputMapping::new(range, inserted.len());
+            return Ok((change, mapping));
+        }
         if action == crate::InputAction::Typing {
             if let Some(change) = self.line_start_conversion(expected, range, inserted, accept)? {
                 let mapping = InputMapping::new(change.range, change.inserted.len());

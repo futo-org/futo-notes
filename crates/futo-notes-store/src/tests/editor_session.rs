@@ -5,6 +5,7 @@ mod block_input;
 mod blocks;
 mod composition;
 mod durability;
+mod fences;
 mod lifecycle;
 mod lifecycle_crashes;
 mod lifecycle_faults;

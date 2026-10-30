@@ -7,12 +7,15 @@ fn range(a: u64, z: u64) -> EditorUtf16Range {
 
 #[test]
 fn native_structural_seams_and_raw_composition_keep_exact_recovery_and_carets() {
-    let cases: serde_json::Value = serde_json::from_str(include_str!(
-        "../../futo-notes-editor/tests/fixtures/structural-seams.json"
-    ))
-    .unwrap();
-    assert_eq!(cases.as_array().unwrap().len(), 38);
-    for case in cases.as_array().unwrap() {
+    let cases: Vec<serde_json::Value> = [
+        include_str!("../../futo-notes-editor/tests/fixtures/structural-seams.json"),
+        include_str!("../../futo-notes-editor/tests/fixtures/fence-physical-rows.json"),
+    ]
+    .into_iter()
+    .flat_map(|source| serde_json::from_str::<Vec<serde_json::Value>>(source).unwrap())
+    .collect();
+    assert_eq!(cases.len(), 72);
+    for case in &cases {
         let text = |key: &str| case[key].as_str().unwrap();
         let tree = TempTree::new();
         std::fs::create_dir_all(tree.path("vault")).unwrap();
@@ -58,7 +61,7 @@ fn native_structural_seams_and_raw_composition_keep_exact_recovery_and_carets() 
         if mode == "composition_commit" {
             for value in ["に", "日本"] {
                 let marked = s
-                    .compose_utf16(0, range(0, 0), value.encode_utf16().collect())
+                    .compose_utf16(0, selected, value.encode_utf16().collect())
                     .unwrap();
                 assert_eq!(marked.text, value);
                 assert_eq!(s.source_text().unwrap(), text("source"));
@@ -66,7 +69,7 @@ fn native_structural_seams_and_raw_composition_keep_exact_recovery_and_carets() 
             }
             s.cancel_composition(0).unwrap();
             assert!(s.composition().unwrap().is_none());
-            s.compose_utf16(0, range(0, 0), inserted).unwrap();
+            s.compose_utf16(0, selected, inserted).unwrap();
             apply(s.commit_composition_utf16(0, None).unwrap().unwrap());
         } else if mode == "composition_batch" {
             s.compose_utf16(0, selected, inserted).unwrap();
@@ -147,16 +150,20 @@ fn native_structural_seams_and_raw_composition_keep_exact_recovery_and_carets() 
                     .unwrap(),
             );
         } else if mode == "explicit" {
-            apply(
-                s.replace_many_utf16(
-                    0,
-                    vec![EditorUtf16Replacement {
-                        range: selected,
-                        inserted,
-                    }],
-                )
-                .unwrap(),
-            );
+            let replacements: Vec<_> = if let Some(runs) = case["replacements"].as_array() {
+                runs.iter()
+                    .map(|run| EditorUtf16Replacement {
+                        range: range(run[0].as_u64().unwrap(), run[1].as_u64().unwrap()),
+                        inserted: run[2].as_str().unwrap().encode_utf16().collect(),
+                    })
+                    .collect()
+            } else {
+                vec![EditorUtf16Replacement {
+                    range: selected,
+                    inserted,
+                }]
+            };
+            apply(s.replace_many_utf16(0, replacements).unwrap());
         } else if mode == "batch" {
             let replacements = [(0, 1, "!"), (1, 2, "?"), (3, 5, "AC")].map(|(a, z, text)| {
                 EditorUtf16Replacement {

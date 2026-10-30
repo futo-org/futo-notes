@@ -14,6 +14,11 @@ class NativeEditorBlockRegressionTest {
     private data class Case(val opening: String, val command: EditorBlockCommand, val expected: String, val shown: String, val caret: ULong)
 
     @Test
+    fun fencedCodeExposesLanguageAndRecoversExactOpaqueUnicodeContents() {
+        runNativeEditorFenceContract()
+    }
+
+    @Test
     fun sharedBlockCommandsProjectStructureAndRecoverExactBytes() {
         val root = File(InstrumentationRegistry.getInstrumentation().targetContext.cacheDir, "editor-blocks-${UUID.randomUUID()}")
         check(root.mkdirs())

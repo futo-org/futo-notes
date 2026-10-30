@@ -20,7 +20,7 @@ fn repaired_ordinary_input_groups_survive_failed_append_and_recover_exact_source
         .iter()
         .filter(|case| case["mode"] == "typing_sequence")
         .collect();
-    assert_eq!(cases.len(), 10);
+    assert_eq!(cases.len(), 14);
     for case in cases {
         let text = |key: &str| case[key].as_str().unwrap();
         let root = TestRoot::new();

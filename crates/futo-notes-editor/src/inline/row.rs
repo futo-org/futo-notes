@@ -52,7 +52,20 @@ impl Row {
         }
         let mut spans = Vec::new();
         let mut replacements = Vec::<(Range<usize>, String)>::new();
+        let mut in_code = false;
         for (event, range) in events {
+            match &event {
+                Event::Start(Tag::CodeBlock(_)) => {
+                    in_code = true;
+                    continue;
+                }
+                Event::End(pulldown_cmark::TagEnd::CodeBlock) => {
+                    in_code = false;
+                    continue;
+                }
+                _ if in_code => continue,
+                _ => {}
+            }
             let format = match event {
                 Event::Start(Tag::Strong) => Some((InlineFormat::Bold, 2)),
                 Event::Start(Tag::Emphasis) => Some((InlineFormat::Italic, 1)),
@@ -105,12 +118,17 @@ impl Row {
                 hidden[block.source.clone()].fill(true);
                 continue;
             }
+            if let Some(fence) = &block.fence {
+                hidden[fence.separator.clone()].fill(true);
+            }
             hidden[block.source.start..block.content.start].fill(true);
             let end = source[block.source.clone()]
                 .trim_end_matches(['\r', '\n'])
                 .len()
                 + block.source.start;
-            hidden[block.content.end..end].fill(true);
+            if block.content.end <= end {
+                hidden[block.content.end..end].fill(true);
+            }
             if block.divider {
                 replacements.push((block.content.clone(), "\u{fffc}".into()));
             }

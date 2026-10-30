@@ -38,12 +38,15 @@ struct NativeEditorStructuralSeamTests {
     @Test("shared literal seams, raw marked text and OS runs recover with exact native carets")
     func structuralSeams() async throws {
         try await Task.detached {
-            let url = try #require(
-                Bundle(for: StructuralSeamBundle.self).url(
-                    forResource: "structural-seams", withExtension: "json"))
-            let cases = try JSONDecoder().decode(
-                [StructuralSeamCase].self, from: Data(contentsOf: url))
-            #expect(cases.count == 38)
+            let cases = try ["structural-seams", "fence-physical-rows"].flatMap {
+                name -> [StructuralSeamCase] in
+                let url = try #require(
+                    Bundle(for: StructuralSeamBundle.self).url(
+                        forResource: name, withExtension: "json"))
+                return try JSONDecoder().decode(
+                    [StructuralSeamCase].self, from: Data(contentsOf: url))
+            }
+            #expect(cases.count == 72)
             for item in cases {
                 let root = FileManager.default.temporaryDirectory.appendingPathComponent(
                     "editor-seams-\(UUID().uuidString)")
@@ -148,13 +151,16 @@ struct NativeEditorStructuralSeamTests {
                             expected: 0, range: selected, inserted: Array(item.text.utf16),
                             action: .isolated))
                 case "explicit":
-                    try apply(
-                        s.replaceManyUtf16(
-                            expected: 0,
-                            replacements: [
-                                EditorUtf16Replacement(
-                                    range: selected, inserted: Array(item.text.utf16))
-                            ]))
+                    let runs =
+                        item.replacements?.map {
+                            EditorUtf16Replacement(
+                                range: EditorUtf16Range(start: $0.start, end: $0.end),
+                                inserted: Array($0.text.utf16))
+                        } ?? [
+                            EditorUtf16Replacement(
+                                range: selected, inserted: Array(item.text.utf16))
+                        ]
+                    try apply(s.replaceManyUtf16(expected: 0, replacements: runs))
                 case "batch":
                     let runs: [(UInt64, UInt64, String)] = [(0, 1, "!"), (1, 2, "?"), (3, 5, "AC")]
                     try apply(

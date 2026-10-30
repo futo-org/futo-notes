@@ -14,11 +14,15 @@ pub enum BlockCommand {
     BulletList,
     OrderedList,
     TaskList,
+    CodeBlock,
 }
 
+mod code_command;
 mod commands;
 mod content;
 mod divider;
+mod fence_tab;
+mod fences;
 mod keys;
 mod list_commands;
 mod list_join;
@@ -31,6 +35,7 @@ mod typing;
 enum BlockSelection {
     Display(DisplayRange),
     Source(usize),
+    SourceRange(std::ops::Range<usize>),
 }
 
 impl EditorSession {
@@ -72,6 +77,10 @@ impl EditorSession {
         let mut change = self.apply(&edit);
         self.selection = match selection {
             BlockSelection::Display(selection) => selection,
+            BlockSelection::SourceRange(range) => DisplayRange {
+                start: DisplayOffset(self.projection.display_at(range.start)),
+                end: DisplayOffset(self.projection.display_at(range.end)),
+            },
             BlockSelection::Source(source) => {
                 let at = DisplayOffset(self.projection.display_at(source));
                 DisplayRange { start: at, end: at }

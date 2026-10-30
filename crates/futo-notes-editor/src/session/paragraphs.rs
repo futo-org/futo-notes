@@ -10,6 +10,8 @@ pub enum ParagraphKey {
     ShiftEnter,
     Backspace,
     Delete,
+    Tab,
+    ShiftTab,
 }
 
 impl EditorSession {
@@ -35,6 +37,14 @@ impl EditorSession {
             );
         }
         self.validate_range(range)?;
+        if matches!(key, ParagraphKey::Tab | ParagraphKey::ShiftTab) {
+            return self.fence_tab(expected, range, key == ParagraphKey::ShiftTab, accept);
+        }
+        if matches!(key, ParagraphKey::Enter | ParagraphKey::ShiftEnter) {
+            if let Some(change) = self.fence_conversion(expected, range, "\n", accept)? {
+                return Ok(Some(change));
+            }
+        }
         if let Some(change) = self.list_key(expected, range, key, accept)? {
             return Ok(Some(change));
         }
@@ -43,6 +53,7 @@ impl EditorSession {
         }
         let stop = |position, direction| self.grapheme_stop(position, direction, false);
         let inserted = match key {
+            ParagraphKey::Tab | ParagraphKey::ShiftTab => unreachable!(),
             ParagraphKey::Enter | ParagraphKey::ShiftEnter => "\n",
             ParagraphKey::Backspace | ParagraphKey::Delete => {
                 if range.start == range.end {

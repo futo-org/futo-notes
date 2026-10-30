@@ -292,6 +292,14 @@ impl EditorSession {
     ) -> Result<Option<ViewChange>, EditorError> {
         self.check_revision(expected)?;
         let committed = self.commit_composition(expected, None, accept)?;
+        if self
+            .projection
+            .block_lines(self.selection)
+            .iter()
+            .all(|line| line.code)
+        {
+            return Ok(committed);
+        }
         if self.selection.start == self.selection.end {
             let mut formats = self.active_formats();
             if formats.contains(&format) {

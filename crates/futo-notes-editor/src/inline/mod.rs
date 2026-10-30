@@ -2,9 +2,11 @@ mod block_edit;
 pub(crate) mod blocks;
 mod edit;
 mod empty_comments;
+pub(crate) mod fences;
 mod lists;
 mod row;
 mod spelling;
+mod toggle;
 mod tree;
 
 use crate::{
@@ -140,6 +142,8 @@ impl Projection {
                     checked: list.checked,
                     first: list.first,
                 }),
+                code: block.code,
+                language: block.code_language,
             })
             .collect();
         ProjectionSlice {
@@ -182,6 +186,12 @@ impl Projection {
                 let hit = if range.start == range.end {
                     a <= range.start.0
                         && (range.start.0 < z
+                            || block.fence.as_ref().is_some_and(|fence| {
+                                fence.body.start <= block.source.start
+                                    && block.source.start <= fence.body.end
+                                    && row.display_at(block.content.end) + display == range.start.0
+                                    && row.display_at(fence.body.end) + display == range.start.0
+                            })
                             || (block.source.start == row.blocks.last().unwrap().source.start
                                 && source + block.source.end
                                     == self.rows.at(self.rows.len() - 1).1
@@ -189,7 +199,13 @@ impl Projection {
                 } else {
                     a < range.end.0 && range.start.0 < z
                 };
-                if hit {
+                let empty_fence = block.fence.as_ref().is_some_and(|fence| {
+                    row.display_at(fence.body.start) == row.display_at(fence.body.end)
+                        && block.source.start <= fence.whole.start
+                        && fence.whole.start < block.source.end
+                        && a == range.start.0
+                });
+                if hit || empty_fence {
                     let mut block = block.clone();
                     block.shift(source);
                     // The synthetic end line of a nonfinal row belongs to its successor.

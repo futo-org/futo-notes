@@ -29,6 +29,9 @@ pub(crate) struct BlockLine {
     pub empty_comment: bool,
     pub list: Option<super::lists::ListLine>,
     pub task: Option<Range<usize>>,
+    pub in_list: bool,
+    pub code_language: Option<String>,
+    pub fence: Option<super::fences::Fence>,
     pub bodies: Vec<PhysicalLine>,
     pub underline: Option<PhysicalLine>,
 }
@@ -38,6 +41,9 @@ impl BlockLine {
         for range in [&mut self.source, &mut self.content] {
             range.start += by;
             range.end += by;
+        }
+        if let Some(fence) = &mut self.fence {
+            fence.shift(by);
         }
         if let Some(list) = &mut self.list {
             list.shift(by);
@@ -77,6 +83,9 @@ pub(super) fn describe(
                 empty_comment: false,
                 list: None,
                 task: None,
+                in_list: false,
+                code_language: None,
+                fence: None,
                 bodies: Vec::new(),
                 underline: None,
             }
@@ -95,6 +104,9 @@ pub(super) fn describe(
             empty_comment: false,
             list: None,
             task: None,
+            in_list: false,
+            code_language: None,
+            fence: None,
             bodies: Vec::new(),
             underline: None,
         });
@@ -141,6 +153,14 @@ pub(super) fn describe(
                     .partition_point(|line| line.source.start <= range.start)
                     .saturating_sub(1);
                 lines[at].divider = true;
+            }
+            Event::Start(Tag::Item) => {
+                for line in lines
+                    .iter_mut()
+                    .filter(|line| line.source.start < range.end && range.start < line.source.end)
+                {
+                    line.in_list = true;
+                }
             }
             Event::Start(Tag::CodeBlock(_)) => {
                 let first = lines.partition_point(|line| line.source.end <= range.start);
@@ -252,5 +272,6 @@ pub(super) fn describe(
         lines[first].source.end = lines[last].source.end;
         lines.drain(first + 1..=last);
     }
+    super::fences::describe(source, events, &mut lines);
     (lines, prefixes)
 }
