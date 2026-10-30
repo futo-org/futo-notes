@@ -175,3 +175,87 @@ fn space_composition_maps_a_following_correction_inside_the_delimiter_rewrite() 
     assert_eq!(session.source_text(), "x *B https://x.test/a* ");
     assert_eq!(session.selection(), range(3, 3));
 }
+
+#[test]
+fn url_conversion_retains_distinct_literal_and_entity_correction_targets() {
+    for (initial, at, input, changed, shown, caret, pending, committed) in [
+        (
+            "x *b&#98; ",
+            6,
+            range(3, 4),
+            "x *B&#98; https://x.test/a* ",
+            "x Bb https://x.test/a ",
+            3,
+            "x \\*b&#98; https://x.test/a*",
+            "x *b&#98; https://x.test/a* ",
+        ),
+        (
+            "x *b&acE; ",
+            10,
+            range(7, 9),
+            "x *b&#8766;z https://x.test/a* ",
+            "x b∾z https://x.test/a ",
+            7,
+            "x \\*b&acE; https://x.test/a*",
+            "x *b&acE; https://x.test/a* ",
+        ),
+    ] {
+        let mut session = EditorSession::open(initial);
+        let mut view = ReferenceView::new(&session.display_text());
+        for (index, ch) in "https://x.test/a*".chars().enumerate() {
+            let point = at + index;
+            view.apply(
+                session
+                    .replace(
+                        session.revision(),
+                        range(point, point),
+                        &ch.to_string(),
+                        &mut |_| Ok(()),
+                    )
+                    .unwrap(),
+            );
+        }
+        assert_eq!(session.source_text(), pending);
+        let end = view.text.len();
+        session
+            .compose(session.revision(), range(end, end), " ")
+            .unwrap();
+        let replacement = if at == 6 { "B" } else { "z" };
+        view.apply(
+            session
+                .replace(session.revision(), input, replacement, &mut |_| Ok(()))
+                .unwrap(),
+        );
+        assert_eq!(session.source_text(), changed);
+        assert_eq!(view.text, shown);
+        assert_eq!(session.selection(), range(caret, caret));
+        view.apply(
+            session
+                .undo(session.revision(), &mut |_| Ok(()))
+                .unwrap()
+                .unwrap(),
+        );
+        assert_eq!(session.source_text(), committed);
+        view.apply(
+            session
+                .undo(session.revision(), &mut |_| Ok(()))
+                .unwrap()
+                .unwrap(),
+        );
+        assert_eq!(session.source_text(), pending);
+        view.apply(
+            session
+                .redo(session.revision(), &mut |_| Ok(()))
+                .unwrap()
+                .unwrap(),
+        );
+        view.apply(
+            session
+                .redo(session.revision(), &mut |_| Ok(()))
+                .unwrap()
+                .unwrap(),
+        );
+        assert_eq!(session.source_text(), changed);
+        assert_eq!(session.selection(), range(caret, caret));
+    }
+}
