@@ -121,7 +121,7 @@ function verifySignatures({ app, runner, receipt, selection, run, plist }) {
       throw new Error('Compiled fixture bundle identity differs');
     run('/usr/bin/codesign', ['--verify', '--strict', '--deep', path]);
     const prefix = join(certificates, `certificate-${index}-`);
-    run('/usr/bin/codesign', ['--display', '--extract-certificates', prefix, path]);
+    run('/usr/bin/codesign', ['--display', `--extract-certificates=${prefix}`, path]);
     if (hash(fixtureFile(`${prefix}0`), 'sha1').toUpperCase() !== selection.identitySHA1)
       throw new Error('Actual signing certificate differs');
     const actual = JSON.parse(

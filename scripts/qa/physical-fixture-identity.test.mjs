@@ -89,7 +89,9 @@ cp.spawnSync=(program,args,options)=>{
   else if(program==='/usr/bin/security')stdout='fake CMS';
   else if(program==='/usr/bin/python3')stdout=${JSON.stringify(t.command('/usr/bin/python3', []))};
   else if(program==='/usr/bin/codesign'){
-    if(args.includes('--extract-certificates'))writeFileSync(args[2]+'0','abc',{mode:0o600});
+    if(args.includes('--extract-certificates'))return {status:1,stdout:'',stderr:args[2]+': No such file or directory'};
+    const extraction=args.find(arg=>arg.startsWith('--extract-certificates='));
+    if(extraction)writeFileSync(extraction.slice('--extract-certificates='.length)+'0','abc',{mode:0o600});
     if(args.includes('--entitlements')){
       const info=JSON.parse(readFileSync(join(args.at(-1),'Info.plist')));
       stdout=JSON.stringify({'application-identifier':'TESTTEAM01.'+info.CFBundleIdentifier,'com.apple.developer.team-identifier':'TESTTEAM01','get-task-allow':true});
