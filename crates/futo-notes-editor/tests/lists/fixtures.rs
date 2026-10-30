@@ -21,7 +21,7 @@ fn shared_literal_list_actions_cover_native_coordinates_and_exact_history() {
     assert_eq!(staging.len(), 12);
     let nested: Vec<Value> =
         serde_json::from_str(include_str!("../fixtures/nested-containers.json")).unwrap();
-    assert_eq!(nested.len(), 12);
+    assert_eq!(nested.len(), 28);
     let cases: Vec<_> = original
         .into_iter()
         .chain(shortcuts)
@@ -66,12 +66,14 @@ fn shared_literal_list_actions_cover_native_coordinates_and_exact_history() {
                     &mut accept,
                 )
                 .unwrap(),
-            "Enter" | "Backspace" => s
+            "Enter" | "Backspace" | "Delete" => s
                 .paragraph_key_utf16(
                     s.revision(),
                     selected,
                     if action == "Enter" {
                         ParagraphKey::Enter
+                    } else if action == "Delete" {
+                        ParagraphKey::Delete
                     } else {
                         ParagraphKey::Backspace
                     },

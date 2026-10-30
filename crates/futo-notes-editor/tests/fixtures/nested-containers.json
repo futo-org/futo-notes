@@ -390,5 +390,550 @@
       2
     ],
     "quoteDepth": 0
+  },
+  {
+    "name": "quoted-tab-outdent",
+    "source": "> - a\n> \t- b",
+    "display": "a\nb",
+    "action": "Outdent",
+    "range": [
+      2,
+      3
+    ],
+    "expected": "> - a\n> - b",
+    "shown": "a\nb",
+    "resultRange": [
+      2,
+      3
+    ],
+    "finalItems": [
+      [
+        null,
+        null
+      ],
+      [
+        null,
+        null
+      ]
+    ],
+    "itemDepths": [
+      1,
+      1
+    ],
+    "quoteDepth": 1
+  },
+  {
+    "name": "quoted-crlf-nested-backspace",
+    "source": "> - a\r\n>   - 🦊b",
+    "display": "a\r\n🦊b",
+    "action": "Backspace",
+    "range": [
+      3,
+      3
+    ],
+    "expected": "> - a\r\n>   🦊b",
+    "shown": "a\r\n🦊b",
+    "resultRange": [
+      3,
+      3
+    ],
+    "finalItems": [
+      [
+        null,
+        null
+      ]
+    ],
+    "itemDepths": [
+      1
+    ],
+    "quoteDepth": 1
+  },
+  {
+    "name": "second-backspace-joins-continuation",
+    "source": "- a\n  b",
+    "display": "a\nb",
+    "action": "Backspace",
+    "range": [
+      2,
+      2
+    ],
+    "expected": "- ab",
+    "shown": "ab",
+    "resultRange": [
+      1,
+      1
+    ],
+    "finalItems": [
+      [
+        null,
+        null
+      ]
+    ],
+    "itemDepths": [
+      1
+    ],
+    "quoteDepth": 0
+  },
+  {
+    "name": "mixed-kind-lift-into-bullets",
+    "source": "- a\n  1) b",
+    "display": "a\nb",
+    "action": "Outdent",
+    "range": [
+      2,
+      3
+    ],
+    "expected": "- a\n- b",
+    "shown": "a\nb",
+    "resultRange": [
+      2,
+      3
+    ],
+    "finalItems": [
+      [
+        null,
+        null
+      ],
+      [
+        null,
+        null
+      ]
+    ],
+    "itemDepths": [
+      1,
+      1
+    ],
+    "quoteDepth": 0
+  },
+  {
+    "name": "mixed-kind-lift-content-width",
+    "source": "9) a\n   - b\n     - c",
+    "display": "a\nb\nc",
+    "action": "Outdent",
+    "range": [
+      2,
+      3
+    ],
+    "expected": "9) a\n10) b\n    - c",
+    "shown": "a\nb\nc",
+    "resultRange": [
+      2,
+      3
+    ],
+    "finalItems": [
+      [
+        9,
+        null
+      ],
+      [
+        10,
+        null
+      ],
+      [
+        null,
+        null
+      ]
+    ],
+    "itemDepths": [
+      1,
+      1,
+      2
+    ],
+    "quoteDepth": 0
+  },
+  {
+    "name": "mixed-kind-lift-selected-siblings",
+    "source": "9) a\n   - b\n     - child\n   - c",
+    "display": "a\nb\nchild\nc",
+    "action": "Outdent",
+    "range": [
+      2,
+      11
+    ],
+    "expected": "9) a\n10) b\n    - child\n11) c",
+    "shown": "a\nb\nchild\nc",
+    "resultRange": [
+      2,
+      11
+    ],
+    "finalItems": [
+      [
+        9,
+        null
+      ],
+      [
+        10,
+        null
+      ],
+      [
+        null,
+        null
+      ],
+      [
+        11,
+        null
+      ]
+    ],
+    "itemDepths": [
+      1,
+      1,
+      2,
+      1
+    ],
+    "quoteDepth": 0
+  },
+  {
+    "name": "same-line-nested-lift-empty-parent",
+    "source": "* 0. text",
+    "display": "text",
+    "action": "Outdent",
+    "range": [
+      0,
+      4
+    ],
+    "expected": "* \n* text",
+    "shown": "\ntext",
+    "resultRange": [
+      1,
+      5
+    ],
+    "finalItems": [
+      [
+        null,
+        null
+      ],
+      [
+        null,
+        null
+      ]
+    ],
+    "itemDepths": [
+      1,
+      1
+    ],
+    "quoteDepth": 0
+  },
+  {
+    "name": "new-ordered-child-starts-one",
+    "source": "9) parent\n10) child",
+    "display": "parent\nchild",
+    "action": "Indent",
+    "range": [
+      7,
+      12
+    ],
+    "expected": "9) parent\n   1) child",
+    "shown": "parent\nchild",
+    "resultRange": [
+      7,
+      12
+    ],
+    "finalItems": [
+      [
+        9,
+        null
+      ],
+      [
+        1,
+        null
+      ]
+    ],
+    "itemDepths": [
+      1,
+      2
+    ],
+    "quoteDepth": 0
+  },
+  {
+    "name": "sink-joins-existing-bullet-child",
+    "source": "- parent\n  + existing\n- child",
+    "display": "parent\nexisting\nchild",
+    "action": "Indent",
+    "range": [
+      16,
+      21
+    ],
+    "expected": "- parent\n  + existing\n  + child",
+    "shown": "parent\nexisting\nchild",
+    "resultRange": [
+      16,
+      21
+    ],
+    "finalItems": [
+      [
+        null,
+        null
+      ],
+      [
+        null,
+        null
+      ],
+      [
+        null,
+        null
+      ]
+    ],
+    "itemDepths": [
+      1,
+      2,
+      2
+    ],
+    "quoteDepth": 0
+  },
+  {
+    "name": "sink-joins-existing-ordered-child",
+    "source": "1) parent\n\n   4) existing\n2) child",
+    "display": "parent\n\nexisting\nchild",
+    "action": "Indent",
+    "range": [
+      17,
+      22
+    ],
+    "expected": "1) parent\n\n   4) existing\n   5) child",
+    "shown": "parent\n\nexisting\nchild",
+    "resultRange": [
+      17,
+      22
+    ],
+    "finalItems": [
+      [
+        1,
+        null
+      ],
+      [
+        4,
+        null
+      ],
+      [
+        5,
+        null
+      ]
+    ],
+    "itemDepths": [
+      1,
+      2,
+      2
+    ],
+    "quoteDepth": 0
+  },
+  {
+    "name": "owned-code-authored-blank-spaces",
+    "source": "- before\n- parent\n  ```\n    \n  ```",
+    "display": "before\nparent\n  ",
+    "action": "Indent",
+    "range": [
+      7,
+      13
+    ],
+    "expected": "- before\n  - parent\n    ```\n      \n    ```",
+    "shown": "before\nparent\n  ",
+    "resultRange": [
+      7,
+      13
+    ],
+    "finalItems": [
+      [
+        null,
+        null
+      ],
+      [
+        null,
+        null
+      ]
+    ],
+    "itemDepths": [
+      1,
+      2
+    ],
+    "quoteDepth": 0
+  },
+  {
+    "name": "f19-container-ended-fence-outside-typing",
+    "source": "* parent\n  ```\n  literal\n* sibling\n\n**outside**",
+    "display": "parent\nliteral\nsibling\n\noutside",
+    "action": "Typing",
+    "range": [
+      16,
+      16
+    ],
+    "expected": "* parent\n  ```\n  literal\n* s!ibling\n\n**outside**",
+    "shown": "parent\nliteral\ns!ibling\n\noutside",
+    "resultRange": [
+      17,
+      17
+    ],
+    "finalItems": [
+      [
+        null,
+        null
+      ],
+      [
+        null,
+        null
+      ]
+    ],
+    "itemDepths": [
+      1,
+      1
+    ],
+    "quoteDepth": 0,
+    "text": "!"
+  },
+  {
+    "name": "nested-enter-continues-child",
+    "source": "- a\n  - b",
+    "display": "a\nb",
+    "action": "Enter",
+    "range": [
+      3,
+      3
+    ],
+    "expected": "- a\n  - b\n  - ",
+    "shown": "a\nb\n",
+    "resultRange": [
+      4,
+      4
+    ],
+    "finalItems": [
+      [
+        null,
+        null
+      ],
+      [
+        null,
+        null
+      ],
+      [
+        null,
+        null
+      ]
+    ],
+    "itemDepths": [
+      1,
+      2,
+      2
+    ],
+    "quoteDepth": 0
+  },
+  {
+    "name": "nested-delete-joins-child-siblings",
+    "source": "- a\n  - b\n  - c",
+    "display": "a\nb\nc",
+    "action": "Delete",
+    "range": [
+      3,
+      3
+    ],
+    "expected": "- a\n  - bc",
+    "shown": "a\nbc",
+    "resultRange": [
+      3,
+      3
+    ],
+    "finalItems": [
+      [
+        null,
+        null
+      ],
+      [
+        null,
+        null
+      ]
+    ],
+    "itemDepths": [
+      1,
+      2
+    ],
+    "quoteDepth": 0
+  },
+  {
+    "name": "changed-marked-indent-is-two-history-groups",
+    "source": "- a\n- b",
+    "display": "a\nb",
+    "action": "Indent",
+    "range": [
+      2,
+      2
+    ],
+    "expected": "- a\n  - 🦊",
+    "shown": "a\n🦊",
+    "resultRange": [
+      2,
+      2
+    ],
+    "finalItems": [
+      [
+        null,
+        null
+      ],
+      [
+        null,
+        null
+      ]
+    ],
+    "itemDepths": [
+      1,
+      2
+    ],
+    "quoteDepth": 0,
+    "composeRange": [
+      2,
+      3
+    ],
+    "compositionText": "🦊",
+    "undoSources": [
+      "- a\n- 🦊",
+      "- a\n- b"
+    ],
+    "undoDisplays": [
+      "a\n🦊",
+      "a\nb"
+    ],
+    "undoRanges": [
+      [
+        4,
+        4
+      ],
+      [
+        2,
+        2
+      ]
+    ]
+  },
+  {
+    "name": "unchanged-marked-indent-one-history-group",
+    "source": "- a\n- b",
+    "display": "a\nb",
+    "action": "Indent",
+    "range": [
+      2,
+      2
+    ],
+    "expected": "- a\n  - b",
+    "shown": "a\nb",
+    "resultRange": [
+      2,
+      2
+    ],
+    "finalItems": [
+      [
+        null,
+        null
+      ],
+      [
+        null,
+        null
+      ]
+    ],
+    "itemDepths": [
+      1,
+      2
+    ],
+    "quoteDepth": 0,
+    "composeRange": [
+      2,
+      3
+    ],
+    "compositionText": "b"
   }
 ]

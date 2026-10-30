@@ -23,7 +23,7 @@ assert.equal(staging.length, 12);
 const nested = JSON.parse(
   readFileSync(new URL('fixtures/nested-containers.json', import.meta.url)),
 );
-assert.equal(nested.length, 12);
+assert.equal(nested.length, 28);
 const cases = [...original, ...shortcuts, ...staging, ...nested];
 const units = (text) => Uint16Array.from({ length: text.length }, (_, at) => text.charCodeAt(at));
 function host(vault, source) {
@@ -106,7 +106,7 @@ for (const item of cases) {
     }
     if (item.action === 'Typing')
       await apply(page.replace_utf16_action(revision, ...item.range, units(item.text), '"Typing"'));
-    else if (['Enter', 'Backspace'].includes(item.action))
+    else if (['Enter', 'Backspace', 'Delete'].includes(item.action))
       await apply(page.paragraph_key_utf16(revision, ...item.range, JSON.stringify(item.action)));
     else
       await apply(

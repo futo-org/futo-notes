@@ -40,7 +40,7 @@ fn shared_list_actions_forward_native_coordinates_history_and_exact_recovery() {
         "../../futo-notes-editor/tests/fixtures/nested-containers.json"
     ))
     .unwrap();
-    assert_eq!(nested.len(), 12);
+    assert_eq!(nested.len(), 28);
     let cases: Vec<_> = original
         .into_iter()
         .chain(shortcuts)
@@ -80,12 +80,14 @@ fn shared_list_actions_forward_native_coordinates_history_and_exact_recovery() {
             "Typing" => s
                 .replace_utf16_action(0, selected, inserted, EditorInputAction::Typing)
                 .unwrap(),
-            "Enter" | "Backspace" => s
+            "Enter" | "Backspace" | "Delete" => s
                 .paragraph_key_utf16(
                     0,
                     selected,
                     if action == "Enter" {
                         EditorParagraphKey::Enter
+                    } else if action == "Delete" {
+                        EditorParagraphKey::Delete
                     } else {
                         EditorParagraphKey::Backspace
                     },

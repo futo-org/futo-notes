@@ -29,12 +29,14 @@ fn action(
                 .collect::<Vec<_>>(),
             InputAction::Typing,
         )?,
-        "Enter" | "Backspace" => s
+        "Enter" | "Backspace" | "Delete" => s
             .paragraph_key_utf16(
                 s.revision(),
                 selected,
                 if name == "Enter" {
                     ParagraphKey::Enter
+                } else if name == "Delete" {
+                    ParagraphKey::Delete
                 } else {
                     ParagraphKey::Backspace
                 },
@@ -136,7 +138,7 @@ fn shared_list_actions_survive_failed_append_undo_flush_power_loss_and_checkpoin
         "../../../../futo-notes-editor/tests/fixtures/nested-containers.json"
     ))
     .unwrap();
-    assert_eq!(nested.len(), 12);
+    assert_eq!(nested.len(), 28);
     let cases: Vec<_> = original
         .into_iter()
         .chain(shortcuts)

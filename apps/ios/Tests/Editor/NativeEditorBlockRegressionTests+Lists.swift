@@ -51,7 +51,7 @@ extension NativeEditorBlockRegressionTests {
             let staging = try load("list-staging")
             #expect(staging.count == 12)
             let nested = try load("nested-containers")
-            #expect(nested.count == 12)
+            #expect(nested.count == 28)
             let cases = original + shortcuts + staging + nested
             for item in cases {
                 let root = FileManager.default.temporaryDirectory.appendingPathComponent(
@@ -111,10 +111,10 @@ extension NativeEditorBlockRegressionTests {
                     change = try s.replaceUtf16Action(
                         expected: 0, range: native(item.range),
                         inserted: Array(#require(item.text).utf16), action: .typing)
-                case "Enter", "Backspace":
+                case "Enter", "Backspace", "Delete":
                     change = try s.paragraphKeyUtf16(
                         expected: 0, range: native(item.range),
-                        key: item.action == "Enter" ? .enter : .backspace)
+                        key: item.action == "Enter" ? .enter : item.action == "Delete" ? .delete : .backspace)
                 default:
                     let command: EditorBlockCommand
                     switch item.action {
