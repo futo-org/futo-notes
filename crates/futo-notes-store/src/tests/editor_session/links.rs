@@ -217,7 +217,11 @@ fn nested_reference_composition_and_source_anchored_history_survive_append_and_h
 
 #[test]
 fn literal_heading_definition_conversion_rejects_before_view_and_recovers_exact_retry() {
-    use futo_notes_editor::BlockCommand;
+    use futo_notes_editor::{BlockCommand, DisplayUtf16Offset, DisplayUtf16Range};
+    let native_range = DisplayUtf16Range {
+        start: DisplayUtf16Offset(4),
+        end: DisplayUtf16Offset(4),
+    };
     for fault in [storage::Fault::Append, storage::Fault::ShortWrite] {
         let root = TestRoot::new();
         let store = store(&root);
@@ -229,11 +233,11 @@ fn literal_heading_definition_conversion_rejects_before_view_and_recovers_exact_
         let mut editor = store
             .open_editor_with_recovery("literal-heading", storage::options(&disk))
             .unwrap();
-        editor.select(Revision(0), range(4, 4)).unwrap();
+        editor.select_utf16(Revision(0), native_range).unwrap();
         let before = editor.project(Revision(0), range(0, shown.len())).unwrap();
         disk.lock().unwrap().fault = Some(fault);
         assert!(matches!(
-            editor.block_command(Revision(0), range(4, 4), BlockCommand::Heading(0)),
+            editor.block_command_utf16(Revision(0), native_range, BlockCommand::Heading(0)),
             Err(EditorStoreError::RecoveryAppend(_))
         ));
         assert_eq!(editor.source_text(), original);
@@ -248,7 +252,7 @@ fn literal_heading_definition_conversion_rejects_before_view_and_recovers_exact_
         disk.lock().unwrap().fault = None;
         editor.resume_recovery().unwrap();
         editor
-            .block_command(Revision(0), range(4, 4), BlockCommand::Heading(0))
+            .block_command_utf16(Revision(0), native_range, BlockCommand::Heading(0))
             .unwrap()
             .unwrap();
         assert_eq!(editor.source_text(), changed);
