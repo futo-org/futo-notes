@@ -17,7 +17,7 @@ import { createHash } from 'node:crypto';
 import { sourceProvenance } from '../ios-capture-fixture.mjs';
 import { createIOSFixtureExecutor } from './physical-fixture-ios.mjs';
 
-export function setupBuild({ respond = () => undefined } = {}) {
+export function setupBuild({ respond = () => undefined, generatedTarget = false } = {}) {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'physical-build-test-')));
   const fixture = join(root, 'apps/ios/FixtureCapture');
   const products = join(fixture, '.build-native/Build/Products');
@@ -92,7 +92,9 @@ export function setupBuild({ respond = () => undefined } = {}) {
             __xctestrun_metadata__: { FormatVersion: 1 },
             Editor294FixtureUITests: {
               IsUITestBundle: true,
-              UITargetAppBundleIdentifier: 'org.futo.fixture.editor294',
+              ...(generatedTarget
+                ? {}
+                : { UITargetAppBundleIdentifier: 'org.futo.fixture.editor294' }),
               TestHostBundleIdentifier: 'org.futo.fixture.editor294.uitests.xctrunner',
               TestHostPath: '__TESTROOT__/Debug-iphoneos/Editor294FixtureUITests-Runner.app',
               UITargetAppPath: '__TESTROOT__/Debug-iphoneos/Editor294Fixture.app',

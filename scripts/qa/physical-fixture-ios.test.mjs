@@ -397,3 +397,16 @@ it('actual adapter rejects products changed while validating a private copy befo
     rmSync(t.root, { recursive: true });
   }
 });
+
+it('accepts the generated Xcode UI target whose app identity is attested by its fixed path and compiled Info.plist', () => {
+  const t = setupBuild({ generatedTarget: true });
+  try {
+    const build = t.executor.inspectBuild();
+    expect(build.xctestrun.Editor294FixtureUITests.UITargetAppBundleIdentifier).toBeUndefined();
+    const output = join(t.root, 'run');
+    mkdirSync(output, { mode: 0o700 });
+    expect(t.executor.pinBuild({}, build, output).buildFingerprint).toBe(build.buildFingerprint);
+  } finally {
+    rmSync(t.root, { recursive: true });
+  }
+});

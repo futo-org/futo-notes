@@ -64,7 +64,8 @@ export function fixedUITarget(xctestrun) {
   if (
     xctestrun?.__xctestrun_metadata__?.FormatVersion !== 1 ||
     target?.IsUITestBundle !== true ||
-    target.UITargetAppBundleIdentifier !== appID ||
+    (Object.hasOwn(target, 'UITargetAppBundleIdentifier') &&
+      target.UITargetAppBundleIdentifier !== appID) ||
     target.TestHostBundleIdentifier !== runnerID ||
     target.TestHostPath !== '__TESTROOT__/Debug-iphoneos/Editor294FixtureUITests-Runner.app' ||
     target.UITargetAppPath !== '__TESTROOT__/Debug-iphoneos/Editor294Fixture.app' ||
