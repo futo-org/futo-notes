@@ -16,7 +16,8 @@ impl Row {
         references: &Arc<crate::inline::references::References>,
         winners: &[crate::inline::references::Winner],
     ) -> Self {
-        let (definitions, mut reference_work) = crate::inline::references::declarations(source, winners);
+        let (definitions, mut reference_work) =
+            crate::inline::references::declarations(source, winners);
         let callback_items = std::cell::Cell::new(0);
         let callback_copied = std::cell::Cell::new(0);
         let events: Vec<_> = Parser::new_with_broken_link_callback(
