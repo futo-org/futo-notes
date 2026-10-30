@@ -329,11 +329,8 @@ impl EditorSession {
         let mut at = events.first().map_or(0, |event| event.0);
         let mut active: BTreeMap<usize, isize> = BTreeMap::new();
         while next < events.len() || !active.is_empty() {
-            while let Some(&(position, quote, delta)) =
-                events.get(next).filter(|event| event.0 <= at)
-            {
+            while let Some(&(_, quote, delta)) = events.get(next).filter(|event| event.0 <= at) {
                 crate::inline::visit_container();
-                let _ = position;
                 let value = active.entry(quote).or_default();
                 *value += delta;
                 if *value == 0 {
@@ -358,7 +355,14 @@ impl EditorSession {
                 return Err(EditorError::UnrepresentableFormat);
             }
             if prefix.list.is_some() {
-                shifted_prefixes.insert(at, (prefix, active.clone()));
+                let shifts = active
+                    .iter()
+                    .map(|(&quote, &delta)| {
+                        crate::inline::visit_container();
+                        (quote, delta)
+                    })
+                    .collect();
+                shifted_prefixes.insert(at, (prefix, shifts));
             }
             at = following;
         }
@@ -384,7 +388,10 @@ impl EditorSession {
             if blank {
                 // An empty body retains its own trailing padding, but an
                 // enclosing list still moves the quote markers before it.
-                shifts.retain(|quote, _| *quote < prefix.quote_depth);
+                shifts.retain(|quote, _| {
+                    crate::inline::visit_container();
+                    *quote < prefix.quote_depth
+                });
             }
             if !shifts.is_empty() {
                 value = super::indent_source::shift_prefixes(

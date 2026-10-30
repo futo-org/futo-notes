@@ -8,6 +8,7 @@ use std::ops::Range;
 #[cfg(test)]
 thread_local! {
     pub(crate) static CONTAINER_METADATA_VISITS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    pub(crate) static CONTAINER_PREFIX_QUERIES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
 #[inline]

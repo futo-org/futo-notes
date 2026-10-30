@@ -77,7 +77,7 @@ pub(super) fn shift_prefixes(
         if crate::inline::columns(whitespace, new_column) == target {
             result.push_str(whitespace);
         } else {
-            result.extend(std::iter::repeat(' ').take(target - new_column));
+            result.extend(std::iter::repeat_n(' ', target - new_column));
         }
         new_column = target;
         let Some(ch) = prefix[at..].chars().next() else {
@@ -95,7 +95,10 @@ pub(super) fn shift_prefixes(
                 .ok_or(super::EditorError::UnrepresentableFormat)?;
         }
     }
-    if shifts.keys().any(|&quote| quote > depth) {
+    if shifts.keys().any(|&quote| {
+        crate::inline::visit_container();
+        quote > depth
+    }) {
         return Err(super::EditorError::UnrepresentableFormat);
     }
     Ok(result)

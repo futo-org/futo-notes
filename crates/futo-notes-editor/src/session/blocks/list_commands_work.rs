@@ -18,6 +18,7 @@ fn nested_selected_retarget_does_not_copy_each_prefix_for_every_ancestor() {
         assert_eq!(session.display_text(), shown);
         session.select(Revision(0), selected).unwrap();
         crate::inline::CONTAINER_METADATA_VISITS.with(|visits| visits.set(0));
+        crate::inline::CONTAINER_PREFIX_QUERIES.with(|queries| queries.set(0));
         let change = session
             .block_command(
                 Revision(0),
@@ -28,6 +29,15 @@ fn nested_selected_retarget_does_not_copy_each_prefix_for_every_ancestor() {
             .unwrap()
             .unwrap();
         let visits = crate::inline::CONTAINER_METADATA_VISITS.with(|visits| visits.get());
+        let prefix_queries = crate::inline::CONTAINER_PREFIX_QUERIES.with(|queries| queries.get());
+        assert!(
+            prefix_queries > 0 && prefix_queries <= 3 * depth,
+            "depth={depth} prefix queries={prefix_queries}"
+        );
+        assert!(
+            visits > 0 && visits < 64 * raw.len(),
+            "depth={depth} metadata={visits}"
+        );
         let mut view = shown.clone();
         view.replace_range(change.range.start.0..change.range.end.0, &change.inserted);
         assert_eq!(view, shown);
@@ -68,6 +78,7 @@ fn alternating_quote_retarget_does_not_copy_each_prefix_for_every_container() {
         assert_eq!(session.display_text(), shown);
         session.select(Revision(0), selected).unwrap();
         crate::inline::CONTAINER_METADATA_VISITS.with(|visits| visits.set(0));
+        crate::inline::CONTAINER_PREFIX_QUERIES.with(|queries| queries.set(0));
         let change = session
             .block_command(
                 Revision(0),
@@ -78,6 +89,15 @@ fn alternating_quote_retarget_does_not_copy_each_prefix_for_every_container() {
             .unwrap()
             .unwrap();
         let visits = crate::inline::CONTAINER_METADATA_VISITS.with(|visits| visits.get());
+        let prefix_queries = crate::inline::CONTAINER_PREFIX_QUERIES.with(|queries| queries.get());
+        assert!(
+            prefix_queries > 0 && prefix_queries <= 3 * depth,
+            "depth={depth} prefix queries={prefix_queries}"
+        );
+        assert!(
+            visits > 0 && visits < 64 * raw.len(),
+            "depth={depth} metadata={visits}"
+        );
         let mut view = shown.clone();
         view.replace_range(change.range.start.0..change.range.end.0, &change.inserted);
         assert_eq!(view, shown);

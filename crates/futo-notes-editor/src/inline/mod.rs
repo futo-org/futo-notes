@@ -13,9 +13,9 @@ use crate::{
     Correspondence, DisplayOffset, DisplayRange, InlineFormat, ProjectionSlice, Revision,
     SemanticRun, SourceEdit, SourceOffset, SourceRange,
 };
-#[cfg(test)]
-pub(crate) use lists::CONTAINER_METADATA_VISITS;
 pub(crate) use lists::{columns, visit_container};
+#[cfg(test)]
+pub(crate) use lists::{CONTAINER_METADATA_VISITS, CONTAINER_PREFIX_QUERIES};
 use ropey::Rope;
 use row::{paragraphs, Row};
 pub(crate) use tree::ContextWitness;
@@ -186,6 +186,8 @@ impl Projection {
     }
 
     pub(crate) fn source_prefix_at(&self, at: usize) -> Option<blocks::SourcePrefix> {
+        #[cfg(test)]
+        CONTAINER_PREFIX_QUERIES.with(|count| count.set(count.get() + 1));
         let (block, base) = self.block_ref_at_source(at)?;
         let local = at - base;
         let index = block
