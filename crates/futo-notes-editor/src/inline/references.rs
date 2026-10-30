@@ -14,7 +14,7 @@ pub(crate) struct ReferenceWork {
 
 #[derive(Default)]
 pub(crate) struct References {
-    targets: HashMap<UniCase<CowStr<'static>>, Arc<LinkMeaning>>,
+    targets: HashMap<UniCase<String>, Arc<LinkMeaning>>,
     uses: HashMap<Arc<str>, usize>,
 }
 
@@ -75,7 +75,7 @@ impl References {
                 + definition.title.as_ref().map_or(0, |title| title.len());
             let key: Arc<str> = Arc::from(key);
             targets.insert(
-                UniCase::new(CowStr::from(key.to_string())),
+                UniCase::new(key.to_string()),
                 Arc::new(LinkMeaning {
                     destination: definition.dest.to_string(),
                     title: definition.title.as_ref().map(ToString::to_string),
@@ -95,7 +95,7 @@ impl References {
             {
                 if is_reference(&link_type) {
                     work.items += 1;
-                    if let Some(target) = targets.get(&UniCase::new(id)) {
+                    if let Some(target) = targets.get(&UniCase::new(id.to_string())) {
                         let key = target.reference.as_ref().unwrap().clone();
                         *uses.entry(key).or_insert(0) += 1;
                     }
@@ -107,10 +107,9 @@ impl References {
     }
 
     pub fn target(&self, parsed_key: &str) -> Option<&Arc<LinkMeaning>> {
-        // UniCase's borrowed key supports lookup without cloning the map or its
-        // values. The parser already normalized whitespace in parsed_key.
-        self.targets
-            .get(&UniCase::new(CowStr::Borrowed(parsed_key)))
+        // A lookup owns only this parser-normalized key, never the map or its
+        // values. UniCase supplies the same case folding as pulldown.
+        self.targets.get(&UniCase::new(parsed_key.to_owned()))
     }
 
     pub fn broken<'a>(&'a self, link: BrokenLink<'_>) -> Option<(CowStr<'a>, CowStr<'a>)> {
