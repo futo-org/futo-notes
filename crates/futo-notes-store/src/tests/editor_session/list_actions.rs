@@ -1,6 +1,7 @@
 use super::*;
 use futo_notes_editor::{
-    BlockCommand, DisplayUtf16Offset, DisplayUtf16Range, InputAction, ParagraphKey, ViewChange,
+    BlockCommand, DisplayOffset, DisplayRange, DisplayUtf16Offset, DisplayUtf16Range, InputAction,
+    ParagraphKey, ViewChange,
 };
 use serde_json::Value;
 
@@ -59,6 +60,54 @@ fn apply(view: &mut String, change: ViewChange) {
     view.replace_range(change.range.start.0..change.range.end.0, &change.inserted);
 }
 
+fn assert_items(s: &crate::StoreEditorSession<'_>, case: &Value) {
+    let end = case["shown"].as_str().unwrap().len();
+    let mut blocks = s
+        .project(
+            s.revision(),
+            DisplayRange {
+                start: DisplayOffset(0),
+                end: DisplayOffset(end),
+            },
+        )
+        .unwrap()
+        .blocks;
+    for block in s
+        .project(
+            s.revision(),
+            DisplayRange {
+                start: DisplayOffset(end),
+                end: DisplayOffset(end),
+            },
+        )
+        .unwrap()
+        .blocks
+    {
+        if !blocks.contains(&block) {
+            blocks.push(block);
+        }
+    }
+    let items: Vec<_> = blocks
+        .into_iter()
+        .filter_map(|block| {
+            block.list.filter(|list| list.first).map(|list| {
+                assert_eq!(list.depth, 1);
+                assert_eq!(
+                    block.quote_depth,
+                    case["quoteDepth"].as_u64().unwrap_or(0) as usize
+                );
+                serde_json::json!([list.number, list.checked])
+            })
+        })
+        .collect();
+    assert_eq!(
+        serde_json::json!(items),
+        case["finalItems"],
+        "{}",
+        case["name"]
+    );
+}
+
 #[test]
 fn shared_list_actions_survive_failed_append_undo_flush_power_loss_and_checkpoint() {
     let original: Vec<Value> = serde_json::from_str(include_str!(
@@ -106,6 +155,10 @@ fn shared_list_actions_survive_failed_append_undo_flush_power_loss_and_checkpoin
             );
             assert_eq!(s.source_text(), text("source"));
             assert_eq!(s.revision(), Revision(0));
+            assert_eq!(
+                s.display_to_utf16(s.revision(), s.selection()).unwrap(),
+                initial
+            );
             assert_eq!(s.composition(), marked);
             assert!(matches!(
                 action(&mut s, case),
@@ -116,6 +169,7 @@ fn shared_list_actions_survive_failed_append_undo_flush_power_loss_and_checkpoin
             apply(&mut view, action(&mut s, case).unwrap());
             assert_eq!(s.source_text(), text("expected"), "{}", text("name"));
             assert_eq!(view, text("shown"));
+            assert_items(&s, case);
             assert_eq!(
                 s.display_to_utf16(s.revision(), s.selection()).unwrap(),
                 native(&case["resultRange"])
@@ -153,6 +207,7 @@ fn shared_list_actions_survive_failed_append_undo_flush_power_loss_and_checkpoin
             }
             assert_eq!(s.source_text(), text("expected"));
             assert_eq!(view, text("shown"));
+            assert_items(&s, case);
             assert_eq!(store.read("lists").unwrap(), text("source"));
             assert_eq!(s.flush_recovery().unwrap().durable, s.revision());
         }
@@ -162,13 +217,13 @@ fn shared_list_actions_survive_failed_append_undo_flush_power_loss_and_checkpoin
             .unwrap();
         assert_eq!(recovered.source_text(), text("expected"));
         assert_eq!(recovered.display_text(), text("shown"));
+        assert_items(&recovered, case);
         assert!(recovered.undo(recovered.revision()).unwrap().is_none());
         recovered.checkpoint().unwrap();
         assert_eq!(store.read("lists").unwrap(), text("expected"));
         drop(recovered);
-        assert_eq!(
-            store.open_editor("lists").unwrap().source_text(),
-            text("expected")
-        );
+        let fresh = store.open_editor("lists").unwrap();
+        assert_eq!(fresh.source_text(), text("expected"));
+        assert_items(&fresh, case);
     }
 }

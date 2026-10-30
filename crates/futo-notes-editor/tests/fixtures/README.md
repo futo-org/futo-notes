@@ -26,8 +26,9 @@ that enters quote repair. Fixed-clock editor/store tests own the exact timing
 and failed-acceptance boundaries; thin consumers use the normal session clock.
 
 `list-actions.json` retains twenty-four hand-worked synthetic public-interface
-regressions for #298; `list-shortcuts.json` adds twenty-two literal shortcut boundary
-controls. All consumers assert both family counts. `range`, optional
+regressions for #298; `list-shortcuts.json` adds thirty-two literal shortcut boundary
+controls, including newline-terminated empty bodies that temporarily inherit a preceding
+list owner after prefix removal. All consumers assert both family counts. `range`, optional
 `selection`, `composeRange`, `resultRange` and `undoRanges` use native UTF-16 units.
 `expected`/`shown` are exact final source/display literals. Default history has one
 Undo to `source`/`display`/initial selection; optional `undoSources`, `undoDisplays`

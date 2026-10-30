@@ -102,14 +102,24 @@ fn list_shortcuts_retain_literal_whitespace_and_task_looking_body_content() {
 fn shortcut_acceptance_keeps_foreign_ownership_selection_and_carried_format() {
     for (raw, display, at, converted, shown, caret, followup, followup_display) in [
         (
-            "2.body\n\n7. after", "2.body\n\nafter", 2,
-            "2) body\n\n7. after", "body\n\nafter", 0,
-            "2) **!**&#98;ody\n\n7. after", "!body\n\nafter",
+            "2.body\n\n7. after",
+            "2.body\n\nafter",
+            2,
+            "2) body\n\n7. after",
+            "body\n\nafter",
+            0,
+            "2) **!**&#98;ody\n\n7. after",
+            "!body\n\nafter",
         ),
         (
-            "9. before\n\n2\\.\n\n7) after", "before\n\n2.\n\nafter", 10,
-            "9. before\n\n<!-- -->\n2. \n\n7) after", "before\n\n\n\nafter", 8,
-            "9. before\n\n<!-- -->\n2. **!**\n\n7) after", "before\n\n!\n\nafter",
+            "9. before\n\n2\\.\n\n7) after",
+            "before\n\n2.\n\nafter",
+            10,
+            "9. before\n\n<!-- -->\n2. \n\n7) after",
+            "before\n\n\n\nafter",
+            8,
+            "9. before\n\n<!-- -->\n2. **!**\n\n7) after",
+            "before\n\n!\n\nafter",
         ),
     ] {
         let mut s = EditorSession::open(raw);
