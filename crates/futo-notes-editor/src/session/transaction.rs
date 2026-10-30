@@ -281,6 +281,20 @@ impl EditorSession {
                 ResultTarget::Inserted { .. } => unreachable!("every inserted run was staged"),
             })
             .collect();
+        let selected_source = SourceRange {
+            start: SourceOffset(
+                window.start
+                    + staged
+                        .source_at(staged.revision(), staged.selection.start, Affinity::Forward)?
+                        .0,
+            ),
+            end: SourceOffset(
+                window.start
+                    + staged
+                        .source_at(staged.revision(), staged.selection.end, Affinity::Forward)?
+                        .0,
+            ),
+        };
         let (mut range, inserted) = transaction.finish();
         range.start.0 += window.start;
         range.end.0 += window.start;
@@ -293,8 +307,8 @@ impl EditorSession {
         let before_links = self.projection.pending_for_source_edit(edit.range);
         let mut change = self.apply(&edit);
         self.selection = DisplayRange {
-            start: DisplayOffset(display_start + staged.selection.start.0),
-            end: DisplayOffset(display_start + staged.selection.end.0),
+            start: DisplayOffset(self.projection.display_at(selected_source.start.0)),
+            end: DisplayOffset(self.projection.display_at(selected_source.end.0)),
         };
         self.affinity = staged.affinity;
         self.pending_formats = staged.pending_formats;
