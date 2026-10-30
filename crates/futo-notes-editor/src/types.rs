@@ -137,6 +137,14 @@ pub struct SemanticRun {
     pub formats: Vec<InlineFormat>,
 }
 
+/// One contiguous link identity, independent of nested formatting or other
+/// links with the same destination. The range covers only visible link glyphs.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LinkDescription {
+    pub range: DisplayRange,
+    pub destination: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Correspondence {
     pub source: SourceRange,
@@ -162,4 +170,5 @@ pub struct ProjectionSlice {
     pub runs: Vec<SemanticRun>,
     pub correspondence: Vec<Correspondence>,
     pub blocks: Vec<BlockDescription>,
+    pub links: Vec<LinkDescription>,
 }

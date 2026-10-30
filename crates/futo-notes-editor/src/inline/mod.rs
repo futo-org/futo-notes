@@ -139,7 +139,9 @@ impl Projection {
                 language: block.code_language,
             })
             .collect();
+        let links = self.link_descriptions(range);
         ProjectionSlice {
+            links,
             blocks,
             revision,
             range,

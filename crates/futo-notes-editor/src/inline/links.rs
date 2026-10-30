@@ -32,3 +32,33 @@ pub(super) fn label_range(source: &str, whole: Range<usize>) -> Range<usize> {
     }
     whole
 }
+
+impl super::Projection {
+    pub(crate) fn link_descriptions(
+        &self,
+        range: crate::DisplayRange,
+    ) -> Vec<crate::LinkDescription> {
+        let first = self.rows.locate(range.start.0, true);
+        let last = self.rows.locate(range.end.0, true);
+        let mut links = Vec::new();
+        for index in first..=last {
+            let (row, _, display) = self.rows.at(index);
+            for span in &row.spans {
+                if let super::row::SpanKind::Link(destination) = &span.kind {
+                    let start = display + row.display_at(span.open.end);
+                    let end = display + row.display_at(span.close.start);
+                    if start <= range.end.0 && range.start.0 <= end {
+                        links.push(crate::LinkDescription {
+                            range: crate::DisplayRange {
+                                start: crate::DisplayOffset(start),
+                                end: crate::DisplayOffset(end),
+                            },
+                            destination: destination.clone(),
+                        });
+                    }
+                }
+            }
+        }
+        links
+    }
+}

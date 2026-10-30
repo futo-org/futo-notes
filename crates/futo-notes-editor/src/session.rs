@@ -6,6 +6,7 @@ mod relink;
 pub use blocks::BlockCommand;
 pub use relink::OwnActionRelink;
 mod input;
+mod links;
 mod transaction;
 use crate::history::{
     HistoryClock, HistoryEntry, HistoryGroup, HistoryInput, MonotonicClock, TypingRun,
