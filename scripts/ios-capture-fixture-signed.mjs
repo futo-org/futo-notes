@@ -205,7 +205,7 @@ function signAndVerifyFixture({
   for (const [index, path] of bundles.entries()) {
     run('/usr/bin/codesign', ['--verify', '--strict', '--deep', path]);
     const certPrefix = join(output, `certificate-${index}-`);
-    run('/usr/bin/codesign', ['--display', '--extract-certificates', certPrefix, path]);
+    run('/usr/bin/codesign', ['--display', `--extract-certificates=${certPrefix}`, path]);
     if (hash(regularBytes(`${certPrefix}0`), 'sha1').toUpperCase() !== selection.identitySHA1)
       throw new Error('Actual signing certificate differs');
     const actual = decodePlist(

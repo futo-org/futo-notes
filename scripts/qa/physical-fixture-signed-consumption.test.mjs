@@ -175,9 +175,9 @@ it.each([
           kind === 'leaf' &&
           args.at(-1).endsWith(bundles[index]) &&
           command === '/usr/bin/codesign' &&
-          args.includes('--extract-certificates')
+          args.some((arg) => arg.startsWith('--extract-certificates='))
         ) {
-          writeFileSync(args[2] + '0', 'wrong certificate');
+          writeFileSync(args[1].slice('--extract-certificates='.length) + '0', 'wrong certificate');
           return { status: 0, stdout: '' };
         }
         if (kind === 'profile' && command === '/usr/bin/python3')
@@ -229,12 +229,14 @@ it.each(['cms', 'serializer', 'info-plist', 'verify', 'certificate', 'entitlemen
                 : boundary === 'xctestrun'
                   ? command === 'plutil' && args.at(-1).endsWith('.xctestrun')
                   : command === '/usr/bin/codesign' &&
-                    args.includes(
-                      boundary === 'verify'
-                        ? '--verify'
-                        : boundary === 'certificate'
-                          ? '--extract-certificates'
-                          : '--entitlements',
+                    args.some(
+                      (arg) =>
+                        arg.split('=')[0] ===
+                        (boundary === 'verify'
+                          ? '--verify'
+                          : boundary === 'certificate'
+                            ? '--extract-certificates'
+                            : '--entitlements'),
                     );
         if (matches && !changed) {
           changed = true;
@@ -379,3 +381,10 @@ it.each(['receipt', 'selection', 'profile'])(
     });
   },
 );
+
+it('independently checks the signed output with Apple certificate extraction semantics', () => {
+  const t = setupBuild();
+  const build = t.executor.inspectBuild(t.plan);
+  expect(build.signing.status).toBe('independently-verified-signed-output');
+  expect(t.commands.some((command) => Array.isArray(command))).toBe(false);
+});

@@ -85,7 +85,7 @@ it.each([
               ? 'sign'
               : args[0] === '--verify'
                 ? 'verify'
-                : args.includes('--extract-certificates')
+                : args.some((arg) => arg.startsWith('--extract-certificates='))
                   ? 'certificate'
                   : 'entitlements';
         if (current === phase && ++matched === occurrence)
@@ -172,3 +172,18 @@ it.each([1, 2, 3, 4])(
     }
   },
 );
+
+it('completes all four leaf checks with Apple certificate extraction semantics', () => {
+  const fixture = sandbox();
+  try {
+    const result = buildSignedFixture(fixture.root, fixture.selected, {
+      command: fixture.command,
+      now: () => new Date('2026-10-30T00:00:00Z'),
+    });
+    expect(result.receipt.signatures).toHaveLength(4);
+    for (const signature of result.receipt.signatures)
+      expect(signature.certificateSHA1).toBe(fixture.selected.identitySHA1);
+  } finally {
+    rmSync(fixture.root, { recursive: true });
+  }
+});

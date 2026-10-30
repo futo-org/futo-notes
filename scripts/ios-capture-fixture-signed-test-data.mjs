@@ -120,7 +120,11 @@ export function sandbox() {
     } else if (program === '/usr/bin/plutil')
       return options.input ?? readFileSync(args.at(-1), 'utf8');
     else if (program === '/usr/bin/codesign') {
-      if (args.includes('--extract-certificates')) write(`${args[2]}0`, 'abc');
+      // Observed with Apple codesign: a separated optional prefix is a code target.
+      if (args.includes('--extract-certificates'))
+        throw new Error(`${args[2]}: No such file or directory`);
+      const extraction = args.find((arg) => arg.startsWith('--extract-certificates='));
+      if (extraction) write(`${extraction.slice('--extract-certificates='.length)}0`, 'abc');
       if (args.includes('--entitlements') && args[0] === '--display') {
         const info = JSON.parse(readFileSync(join(args.at(-1), 'Info.plist'), 'utf8'));
         return JSON.stringify({
