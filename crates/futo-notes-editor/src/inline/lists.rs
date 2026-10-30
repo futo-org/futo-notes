@@ -106,7 +106,7 @@ pub(super) fn describe(source: &str, events: &[(Event<'_>, Range<usize>)]) -> Li
     let mut items: Vec<ListLine> = Vec::new();
     let mut tasks = Vec::new();
     let mut lists: Vec<(Range<usize>, Option<u64>)> = Vec::new();
-    let mut active_items = Vec::new();
+    let mut active_items: Vec<usize> = Vec::new();
     let mut previous_items = Vec::new();
     for (event, range) in events {
         match event {
