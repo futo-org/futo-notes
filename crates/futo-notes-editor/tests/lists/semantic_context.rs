@@ -27,6 +27,33 @@ fn ordinals(session: &EditorSession) -> Vec<u64> {
 }
 
 #[test]
+fn nested_staging_retains_foreign_interpreted_start() {
+    for blanks in [1, 2, 3, 9] {
+        for eol in ["\n", "\r\n"] {
+            for marked in [false, true] {
+                let raw = format!("**a{eol}b**{eol}{}7. after", eol.repeat(blanks));
+                let mut session = EditorSession::open(&raw);
+                let shown = session.display_text();
+                let mut view = ReferenceView::new(&shown);
+                let selected = range(0, 2 + eol.len());
+                session.select(session.revision(), selected).unwrap();
+                if marked {
+                    session.compose(session.revision(), range(0, 1), "x").unwrap();
+                }
+                view.apply(session.block_command(session.revision(), selected,
+                    BlockCommand::OrderedList, &mut |_| Ok(())).unwrap().unwrap());
+                let source = session.source_text();
+                assert!(source.ends_with(&format!("{eol}{}7. after", eol.repeat(blanks))));
+                assert_eq!(ordinals(&session), [1, 2, 7], "{raw:?}, marked={marked}");
+                let fresh = EditorSession::open(&source);
+                assert_eq!(ordinals(&fresh), [1, 2, 7]);
+                assert_eq!(view.text, fresh.display_text());
+            }
+        }
+    }
+}
+
+#[test]
 fn shortcuts_retain_foreign_bytes_and_interpreted_ordinals_across_transparent_gaps() {
     for blanks in [1, 2, 3, 9] {
         for quote in ["", "> ", "> > "] {
