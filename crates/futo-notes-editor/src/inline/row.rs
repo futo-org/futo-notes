@@ -37,14 +37,18 @@ pub(crate) struct Row {
     pub(super) transparent_quote: Option<usize>,
 }
 
+pub(super) fn source_events(source: &str) -> Vec<(Event<'_>, Range<usize>)> {
+    Parser::new_ext(
+        source,
+        Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS,
+    )
+    .into_offset_iter()
+    .collect()
+}
+
 impl Row {
     pub fn parse(source: &str) -> Self {
-        let events: Vec<_> = Parser::new_ext(
-            source,
-            Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS,
-        )
-        .into_offset_iter()
-        .collect();
+        let events = source_events(source);
         let (blocks, prefixes) = super::blocks::describe(source, &events);
         let mut hidden = vec![false; source.len()];
         for prefix in prefixes {

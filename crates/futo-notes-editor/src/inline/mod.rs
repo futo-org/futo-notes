@@ -13,7 +13,7 @@ use crate::{
     Correspondence, DisplayOffset, DisplayRange, InlineFormat, ProjectionSlice, Revision,
     SemanticRun, SourceEdit, SourceOffset, SourceRange,
 };
-pub(crate) use lists::{columns, visit_container};
+pub(crate) use lists::{columns, visit_container, ListLine};
 #[cfg(test)]
 pub(crate) use lists::{CONTAINER_METADATA_VISITS, CONTAINER_PREFIX_QUERIES};
 use ropey::Rope;
@@ -163,6 +163,20 @@ impl Projection {
             runs,
             correspondence,
         }
+    }
+
+    /// Command-local canonical metadata from the original retained row. The
+    /// returned byte count charges both source materialization and parser input.
+    pub(crate) fn list_items_at(&self, source: &Rope, at: usize) -> (Vec<ListLine>, usize) {
+        let (row, base, _) = self.rows.at(self.rows.locate(at, false));
+        let raw = source.byte_slice(base..base + row.source_len).to_string();
+        let events = row::source_events(&raw);
+        let mut items = lists::describe(&raw, &events).into_items();
+        for item in &mut items {
+            visit_container();
+            item.shift(base);
+        }
+        (items, raw.len())
     }
 
     fn block_ref_at_source(&self, at: usize) -> Option<(&blocks::BlockLine, usize)> {

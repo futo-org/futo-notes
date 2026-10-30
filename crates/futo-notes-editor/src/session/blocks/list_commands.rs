@@ -103,6 +103,14 @@ impl EditorSession {
             && lines
                 .first()
                 .and_then(|line| line.list.as_ref())
+                .is_some_and(|list| list.outer_depth > 1)
+        {
+            return self.lift_crossquote_list(expected, range, &lines, accept);
+        }
+        if remove
+            && lines
+                .first()
+                .and_then(|line| line.list.as_ref())
                 .is_some_and(|list| list.parent_marker.is_some())
         {
             return self.lift_nested_list(expected, range, &lines, accept);

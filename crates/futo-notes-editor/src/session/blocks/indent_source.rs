@@ -38,17 +38,21 @@ impl EditorSession {
                 self.source.len_bytes()
             } else {
                 let line = self.source.line_to_byte(self.source.byte_to_line(item.end));
-                self.projection
-                    .source_prefix_at(line)
-                    .map_or(line, |prefix| {
-                        if prefix.list.as_ref().is_some_and(|list| {
-                            item.start <= list.marker.start && list.marker.start < item.end
-                        }) {
-                            prefix.source.end
-                        } else {
-                            line
-                        }
-                    })
+                if line == item.end {
+                    item.end
+                } else {
+                    self.projection
+                        .source_prefix_at(line)
+                        .map_or(line, |prefix| {
+                            if prefix.list.as_ref().is_some_and(|list| {
+                                item.start <= list.marker.start && list.marker.start < item.end
+                            }) {
+                                prefix.source.end
+                            } else {
+                                line
+                            }
+                        })
+                }
             };
             if at < end {
                 events.push((at, quote, delta));
@@ -210,4 +214,21 @@ pub(super) fn shift_prefixes(
         return Err(super::EditorError::UnrepresentableFormat);
     }
     Ok(result)
+}
+
+/// Quote count is parser attribution; a source prefix contains no body text.
+/// Container padding before a quote may exceed three columns after wide lists.
+pub(super) fn canonical_quote_end(prefix: &str, depth: usize) -> Option<usize> {
+    let mut at = 0;
+    for _ in 0..depth {
+        let next = prefix[at..].find('>')?;
+        for _ in 0..=next {
+            crate::inline::visit_container();
+        }
+        at += next + 1;
+        if matches!(prefix.as_bytes().get(at), Some(b' ' | b'\t')) {
+            at += 1;
+        }
+    }
+    Some(at)
 }

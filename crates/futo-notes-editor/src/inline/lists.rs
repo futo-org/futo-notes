@@ -84,6 +84,10 @@ pub(super) struct ListCursor {
 }
 
 impl ListCursor {
+    pub(super) fn into_items(self) -> Vec<ListLine> {
+        self.items
+    }
+
     pub fn line(&mut self, start: usize, end: usize) -> Attribution {
         visit_container();
         while self.next_item < self.items.len() && self.items[self.next_item].item.start <= end {
