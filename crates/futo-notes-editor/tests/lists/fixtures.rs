@@ -84,10 +84,22 @@ fn shared_literal_list_actions_cover_native_coordinates_and_exact_history() {
         let fresh = EditorSession::open(text("expected"));
         assert_eq!(fresh.display_text(), text("shown"));
         for session in [&s, &fresh] {
-            let items: Vec<_> = session
+            // A nonempty projection slice excludes a zero-width final item;
+            // request its caret slice too, just as a view at EOF does.
+            let mut blocks = session
                 .project(session.revision(), range(0, view.text.len()))
                 .unwrap()
+                .blocks;
+            for block in session
+                .project(session.revision(), range(view.text.len(), view.text.len()))
+                .unwrap()
                 .blocks
+            {
+                if !blocks.contains(&block) {
+                    blocks.push(block);
+                }
+            }
+            let items: Vec<_> = blocks
                 .into_iter()
                 .filter_map(|block| {
                     block.list.filter(|list| list.first).map(|list| {
