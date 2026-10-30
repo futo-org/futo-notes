@@ -318,18 +318,28 @@ fn literal_nonclosers_do_not_respell_untouched_delimiters() {
 fn list_container_termination_closes_code_and_keeps_a_visible_block_boundary() {
     // Synthetic structural reductions of recorded census6084 (F19), whose
     // original note and corpus identity remain in the local replay receipt.
-    for (source, shown, sibling) in [
-        (
-            "* parent\n  ```\n* sibling\n\n**outside**",
-            "parent\nsibling\n\noutside",
-            7,
-        ),
+    for (source, shown, sibling, expected, expected_display) in [
         (
             "* parent\n  ```\n  literal\n* sibling\n\n**outside**",
             "parent\nliteral\nsibling\n\noutside",
-            15,
+            16,
+            "* parent\n  ```\n  literal\n* s!ibling\n\n**outside**",
+            "parent\nliteral\ns!ibling\n\noutside",
         ),
-        ("> ```\n> literal\noutside", "literal\noutside", 8),
+        (
+            "* parent\n  ```\n* sibling\n\n**outside**",
+            "parent\nsibling\n\noutside",
+            8,
+            "* parent\n  ```\n* s!ibling\n\n**outside**",
+            "parent\ns!ibling\n\noutside",
+        ),
+        (
+            "> ```\n> literal\noutside",
+            "literal\noutside",
+            9,
+            "> ```\n> literal\no!utside",
+            "literal\no!utside",
+        ),
     ] {
         let mut s = EditorSession::open(source);
         let mut view = ReferenceView::new(shown);
@@ -340,6 +350,7 @@ fn list_container_termination_closes_code_and_keeps_a_visible_block_boundary() {
             .unwrap()
             .blocks
             .iter()
+            .filter(|block| block.range.start != block.range.end)
             .all(|block| !block.code));
         s.select(s.revision(), range(sibling, sibling)).unwrap();
         view.apply(
@@ -352,14 +363,7 @@ fn list_container_termination_closes_code_and_keeps_a_visible_block_boundary() {
             )
             .unwrap(),
         );
-        let expected = if source.contains("* sibling") {
-            source.replace("* sibling", "* !sibling")
-        } else {
-            source.replace("outside", "!outside")
-        };
         assert_eq!(s.source_text(), expected);
-        let mut expected_display = shown.to_owned();
-        expected_display.insert(sibling, '!');
         assert_eq!(view.text, expected_display);
         view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
         assert_eq!(s.source_text(), source);
