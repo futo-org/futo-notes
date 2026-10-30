@@ -119,7 +119,12 @@ impl Row {
                 continue;
             }
             if let Some(fence) = &block.fence {
-                hidden[fence.separator.clone()].fill(true);
+                // A container can end an unmatched fence before the note
+                // ends. Its terminal ending then separates the next block;
+                // there is no closing-frame line to supply that boundary.
+                if fence.closer.is_some() || fence.whole.end == source.len() {
+                    hidden[fence.separator.clone()].fill(true);
+                }
             }
             hidden[block.source.start..block.content.start].fill(true);
             let end = source[block.source.clone()]
