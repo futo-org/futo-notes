@@ -46,8 +46,46 @@ impl InputMapping {
 /// A target in the intended replacement result belongs either to unchanged
 /// opening text or to a specific inserted run. Keep that identity through the
 /// protected structural replacements, including targets inside marked text.
+struct SourceAnchor {
+    display: usize,
+    source: Option<usize>,
+}
+
+impl SourceAnchor {
+    fn map(
+        &mut self,
+        edits: &[(SourceRange, usize)],
+        mapping: &InputMapping,
+        origin: usize,
+        staged: &EditorSession,
+        references_changed: bool,
+    ) -> Result<usize, EditorError> {
+        for (range, inserted) in edits {
+            if let Some(source) = self.source {
+                self.source = if source <= range.start.0 {
+                    Some(source)
+                } else if range.end.0 <= source {
+                    Some(source - (range.end.0 - range.start.0) + inserted)
+                } else {
+                    None
+                };
+            }
+        }
+        self.display = if let Some(source) = self.source {
+            origin + staged.projection.display_at(source)
+        } else if references_changed {
+            // A rewritten source identity requires renderer correspondence;
+            // display replacement arithmetic cannot cross global visibility.
+            return Err(EditorError::UnrepresentableFormat);
+        } else {
+            mapping.map(self.display, origin)?
+        };
+        Ok(1 + edits.len())
+    }
+}
+
 enum ResultTarget {
-    Opening(usize),
+    Opening(SourceAnchor),
     Inserted { run: usize, within: usize },
 }
 
@@ -57,7 +95,10 @@ impl ResultTarget {
         for (run, replacement) in replacements.iter().enumerate() {
             let start = new_end + replacement.range.start.0 - old_end;
             if offset < start {
-                return Self::Opening(offset + old_end - new_end);
+                return Self::Opening(SourceAnchor {
+                    display: offset + old_end - new_end,
+                    source: None,
+                });
             }
             if offset <= start + replacement.inserted.len() {
                 return Self::Inserted {
@@ -68,7 +109,10 @@ impl ResultTarget {
             old_end = replacement.range.end.0;
             new_end = start + replacement.inserted.len();
         }
-        Self::Opening(offset + old_end - new_end)
+        Self::Opening(SourceAnchor {
+            display: offset + old_end - new_end,
+            source: None,
+        })
     }
 }
 
@@ -120,20 +164,38 @@ impl EditorSession {
         let mut anchors: Vec<_> = replacements
             .iter()
             .flat_map(|replacement| [replacement.range.start.0, replacement.range.end.0])
-            .map(|offset| offset - display_start)
-            .collect();
+            .map(|offset| {
+                Ok(SourceAnchor {
+                    display: offset - display_start,
+                    source: Some(
+                        self.source_at(expected, DisplayOffset(offset), Affinity::Forward)?
+                            .0
+                            - window.start,
+                    ),
+                })
+            })
+            .collect::<Result<_, EditorError>>()?;
         let mut targets: Vec<_> = targets
             .iter()
             .map(|&offset| ResultTarget::new(replacements, offset))
             .collect();
+        for target in &mut targets {
+            if let ResultTarget::Opening(anchor) = target {
+                anchor.source = Some(
+                    self.source_at(expected, DisplayOffset(anchor.display), Affinity::Forward)?
+                        .0
+                        - window.start,
+                );
+            }
+        }
         let mut materialized = raw.len();
         let mut parsed = staged.projection.initial_parse_work;
         let mut link_metadata_items = staged.projection.initial_link_metadata_items;
         let mut link_copied_bytes = staged.projection.initial_link_copied_bytes;
         for (index, replacement) in replacements.iter().enumerate() {
             let local_range = DisplayRange {
-                start: DisplayOffset(anchors[2 * index]),
-                end: DisplayOffset(anchors[2 * index + 1]),
+                start: DisplayOffset(anchors[2 * index].display),
+                end: DisplayOffset(anchors[2 * index + 1].display),
             };
             let affinity = if replacement.range == self.selection {
                 self.affinity
@@ -146,29 +208,50 @@ impl EditorSession {
             if replacement.range == self.selection {
                 staged.pending_formats = self.pending_formats.clone();
             }
+            let references = staged.projection.references.clone();
+            let mut edits = Vec::new();
             let (change, mapping) = staged.replace_action_mapped(
                 staged.revision(),
                 local_range,
                 &replacement.inserted,
                 InputAction::Isolated,
                 &mut |edit| {
+                    edits.push((edit.range, edit.inserted.len()));
                     transaction.apply(edit.range, &edit.inserted);
                     Ok(())
                 },
             )?;
-            for offset in &mut anchors[2 * index + 2..] {
-                *offset = mapping.map(*offset, 0)?;
+            let references_changed = !Arc::ptr_eq(&references, &staged.projection.references);
+            link_metadata_items += edits.len();
+            for anchor in &mut anchors[2 * index + 2..] {
+                link_metadata_items +=
+                    anchor.map(&edits, &mapping, 0, &staged, references_changed)?;
             }
             for target in &mut targets {
                 match target {
-                    ResultTarget::Opening(offset) => {
-                        *offset = mapping.map(*offset, display_start)?
+                    ResultTarget::Opening(anchor) => {
+                        link_metadata_items += anchor.map(
+                            &edits,
+                            &mapping,
+                            display_start,
+                            &staged,
+                            references_changed,
+                        )?;
                     }
                     ResultTarget::Inserted { run, within } if *run == index => {
-                        *target = ResultTarget::Opening(
-                            display_start + staged.selection.end.0 - replacement.inserted.len()
-                                + *within,
-                        );
+                        let at = staged.selection.end.0 - replacement.inserted.len() + *within;
+                        *target = ResultTarget::Opening(SourceAnchor {
+                            display: display_start + at,
+                            source: Some(
+                                staged
+                                    .source_at(
+                                        staged.revision(),
+                                        DisplayOffset(at),
+                                        Affinity::Forward,
+                                    )?
+                                    .0,
+                            ),
+                        });
                     }
                     _ => {}
                 }
@@ -181,7 +264,7 @@ impl EditorSession {
         let targets = targets
             .into_iter()
             .map(|target| match target {
-                ResultTarget::Opening(offset) => offset,
+                ResultTarget::Opening(anchor) => anchor.display,
                 ResultTarget::Inserted { .. } => unreachable!("every inserted run was staged"),
             })
             .collect();
