@@ -168,3 +168,39 @@ fn os_replacement_returns_the_source_anchored_caret_after_remote_reference_visib
     assert_eq!(session.source_text(), changed);
     assert_eq!(session.selection(), range(43, 43));
 }
+
+#[test]
+fn composition_history_selections_follow_source_identity_when_a_remote_definition_becomes_visible()
+{
+    let original = "[id]: /target 'T'\n\npreamble\n\nbuffer\n\n[one][id]\n\nbody\n\ntail";
+    let committed = "[id]: /target 'T'\n\npreamble\n\nbuffer\n\n\n\nbody\n\ntail";
+    let changed = "[id]: /target 'T'\n\npreamble\n\nbuffer\n\n\n\nBODY\n\ntail";
+    let mut session = EditorSession::open(original);
+    let mut view = ReferenceView::new("preamble\n\nbuffer\n\none\n\nbody\n\ntail");
+    session.compose(Revision(0), range(18, 21), "").unwrap();
+    let mut accepts = 0;
+    view.apply(
+        session
+            .replace(Revision(0), range(20, 24), "BODY", &mut |_| {
+                accepts += 1;
+                Ok(())
+            })
+            .unwrap(),
+    );
+    assert_eq!(accepts, 1);
+    assert_eq!(session.source_text(), changed);
+    assert_eq!(view.text, changed);
+    assert_eq!(session.selection(), range(43, 43));
+    view.apply(session.undo(Revision(1), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(session.source_text(), committed);
+    assert_eq!(view.text, committed);
+    assert_eq!(session.selection(), range(37, 37));
+    view.apply(session.undo(Revision(2), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(session.source_text(), original);
+    assert_eq!(view.text, "preamble\n\nbuffer\n\none\n\nbody\n\ntail");
+    view.apply(session.redo(Revision(3), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(session.selection(), range(37, 37));
+    view.apply(session.redo(Revision(4), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(session.source_text(), changed);
+    assert_eq!(session.selection(), range(43, 43));
+}
