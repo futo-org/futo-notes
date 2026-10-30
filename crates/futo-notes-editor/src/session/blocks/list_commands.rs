@@ -1,5 +1,6 @@
 //! List commands touch their selected bodies and retain unrelated source bytes.
 use super::*;
+use std::collections::{BTreeMap, HashMap};
 
 impl EditorSession {
     pub(super) fn list_command(
@@ -101,7 +102,17 @@ impl EditorSession {
         }
         let styles = (!remove).then(|| self.list_styles(&lines, command));
         let start = lines.first().unwrap().source.start;
-        let end = lines.last().unwrap().source.end.max(
+        let owned_end = if remove {
+            0
+        } else {
+            lines
+                .iter()
+                .filter_map(|line| line.list.as_ref())
+                .map(|list| list.item.end)
+                .max()
+                .unwrap_or(0)
+        };
+        let end = lines.last().unwrap().source.end.max(owned_end).max(
             styles
                 .as_ref()
                 .and_then(|styles| styles.comments.iter().map(|(at, _)| *at).max())
@@ -120,6 +131,8 @@ impl EditorSession {
             .unwrap_or_default();
         let mut parsed = 0;
         let mut materialized = 0;
+        let mut head_prefixes = HashMap::new();
+        let mut owned_shifts = Vec::new();
         let mut selection = range;
         let selected: Vec<_> = lines
             .iter()
@@ -249,10 +262,89 @@ impl EditorSession {
                     }
                 }
             }
+            if !remove {
+                if let Some(list) = &line.list {
+                    let logical_end =
+                        replacement.len() - usize::from(command == BlockCommand::TaskList) * 4;
+                    let column = crate::inline::columns(&replacement[..logical_end], 0);
+                    let delta = column as isize - list.content_column as isize;
+                    if delta != 0 {
+                        owned_shifts.push((
+                            line.source.end,
+                            list.item.clone(),
+                            list.quote_depth,
+                            delta,
+                        ));
+                    }
+                }
+            }
+            head_prefixes.insert(line.source.start, replacements.len());
             replacements.push((
                 line.source.start - start..line.content.start - start,
                 replacement,
             ));
+        }
+        let mut shifted_prefixes: BTreeMap<
+            usize,
+            (crate::inline::blocks::SourcePrefix, Vec<(usize, isize)>),
+        > = BTreeMap::new();
+        for (mut at, item, quote, delta) in owned_shifts {
+            while at < item.end {
+                crate::inline::visit_container();
+                let prefix = self
+                    .projection
+                    .source_prefix_at(at)
+                    .ok_or(EditorError::UnrepresentableFormat)?;
+                let next = prefix.source.end;
+                if next <= at {
+                    return Err(EditorError::UnrepresentableFormat);
+                }
+                let belongs = prefix.list.as_ref().is_some_and(|list| {
+                    item.start <= list.marker.start && list.marker.start < item.end
+                });
+                if belongs {
+                    shifted_prefixes
+                        .entry(at)
+                        .or_insert_with(|| (prefix, Vec::new()))
+                        .1
+                        .push((quote, delta));
+                }
+                at = next;
+            }
+        }
+        for (at, (prefix, mut shifts)) in shifted_prefixes {
+            let existing = head_prefixes.get(&at).copied();
+            let mut value = if let Some(index) = existing {
+                std::mem::take(&mut replacements[index].1)
+            } else {
+                let value = self.source.byte_slice(prefix.prefix.clone()).to_string();
+                materialized += value.len();
+                value
+            };
+            shifts.sort_by_key(|(quote, _)| *quote);
+            for (quote, delta) in shifts {
+                let blank = !prefix.code
+                    && !prefix.list.as_ref().is_some_and(|list| list.first)
+                    && prefix.quote_depth <= quote
+                    && self
+                        .source
+                        .byte_slice(prefix.content.clone())
+                        .chars()
+                        .all(|ch| {
+                            crate::inline::visit_container();
+                            matches!(ch, ' ' | '\t' | '\r' | '\n')
+                        });
+                value = super::indent_source::shift_prefix(&value, quote, delta, blank);
+                materialized += value.len();
+            }
+            if let Some(index) = existing {
+                replacements[index].1 = value;
+            } else {
+                replacements.push((
+                    prefix.prefix.start - start..prefix.prefix.end - start,
+                    value,
+                ));
+            }
         }
         if !remove {
             let last = lines.last().unwrap();

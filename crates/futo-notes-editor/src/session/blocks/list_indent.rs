@@ -153,7 +153,7 @@ impl EditorSession {
                 active += 1;
             }
             let plan = plans.get(active);
-            let prefix = quote_prefix_end(line, item.quote_depth);
+            let prefix = super::indent_source::quote_prefix_end(line, item.quote_depth);
             let base = crate::inline::columns(&line[..prefix], 0);
             output.push_str(&line[..prefix]);
             if let Some(plan) = plan.filter(|plan| plan.head == line_at) {
@@ -218,23 +218,6 @@ impl EditorSession {
         change.work.materialized_source_bytes += materialized;
         Ok(Some(change))
     }
-}
-
-/// Only enclosing quote prefixes precede a list's indentation. Quote markers
-/// inside the item are shifted with its body, never mistaken for its parent.
-pub(super) fn quote_prefix_end(line: &str, depth: usize) -> usize {
-    let mut at = 0;
-    for _ in 0..depth {
-        let spaces = line[at..].bytes().take_while(|&b| b == b' ').count().min(3);
-        if line.as_bytes().get(at + spaces) != Some(&b'>') {
-            break;
-        }
-        at += spaces + 1;
-        if matches!(line.as_bytes().get(at), Some(b' ' | b'\t')) {
-            at += 1;
-        }
-    }
-    at
 }
 
 #[cfg(test)]

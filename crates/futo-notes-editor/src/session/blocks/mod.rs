@@ -23,6 +23,7 @@ mod content;
 mod divider;
 mod fence_tab;
 mod fences;
+mod indent_source;
 mod keys;
 mod list_commands;
 mod list_indent;

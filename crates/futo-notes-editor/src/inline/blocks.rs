@@ -9,6 +9,17 @@ pub(crate) enum HeadingSyntax {
     Setext,
 }
 
+/// Fixed-size physical source attribution for container prefix edits. Bodies
+/// remain borrowed in the retained row; callers never clone their vectors.
+pub(crate) struct SourcePrefix {
+    pub source: Range<usize>,
+    pub prefix: Range<usize>,
+    pub content: Range<usize>,
+    pub quote_depth: usize,
+    pub code: bool,
+    pub list: Option<super::lists::ListLine>,
+}
+
 /// A physical line retains its exact prefix, body and line-ending boundaries.
 #[derive(Clone, Debug)]
 pub(crate) struct PhysicalLine {

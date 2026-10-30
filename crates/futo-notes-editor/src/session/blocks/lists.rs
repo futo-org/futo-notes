@@ -121,7 +121,7 @@ impl EditorSession {
                     .source
                     .byte_slice(line.source.start..line.content.start)
                     .to_string();
-                let quote_end = super::list_indent::quote_prefix_end(&prefix, list.quote_depth);
+                let quote_end = super::indent_source::quote_prefix_end(&prefix, list.quote_depth);
                 let base = crate::inline::columns(&prefix[..quote_end], 0);
                 let spaces = column
                     .checked_sub(base)

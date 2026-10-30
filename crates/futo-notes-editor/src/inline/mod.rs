@@ -185,6 +185,42 @@ impl Projection {
         Some(block)
     }
 
+    pub(crate) fn source_prefix_at(&self, at: usize) -> Option<blocks::SourcePrefix> {
+        let (block, base) = self.block_ref_at_source(at)?;
+        let local = at - base;
+        let index = block
+            .bodies
+            .partition_point(|body| {
+                visit_container();
+                body.source.start <= local
+            })
+            .saturating_sub(1);
+        let body = block.bodies.get(index)?;
+        if body.source.start != local {
+            return None;
+        }
+        let mut end = body.content.start;
+        if let Some(fence) = &block.fence {
+            for marker in std::iter::once(&fence.opener).chain(fence.closer.iter()) {
+                if body.source.start <= marker.start && marker.start < body.source.end {
+                    end = end.min(marker.start);
+                }
+            }
+        }
+        let mut list = block.list.clone();
+        if let Some(list) = &mut list {
+            list.shift(base);
+        }
+        Some(blocks::SourcePrefix {
+            source: base + body.source.start..base + body.source.end,
+            prefix: base + body.source.start..base + end,
+            content: base + body.content.start..base + body.content.end,
+            quote_depth: block.quote_depth,
+            code: block.code,
+            list,
+        })
+    }
+
     pub(crate) fn block_is_code(&self, at: usize) -> bool {
         self.block_ref_at_source(at)
             .is_some_and(|(block, _)| block.code)
