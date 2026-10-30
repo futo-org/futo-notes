@@ -90,3 +90,51 @@ fn shortcut_and_collapsed_label_corrections_retain_definition_identity_with_a_fu
         assert_eq!(session.source_text(), corrected);
     }
 }
+
+#[test]
+fn os_correction_and_nested_composition_keep_a_distant_reference_context() {
+    let original = "see [teh __docs__][id] tail\r\n\r\nmiddle\r\n\r\n[id]: <https://x.test/a> 'Title'\r\n\r\ntail";
+    let corrected = "see [the __docs__][id] tail\r\n\r\nmiddle\r\n\r\n[id]: <https://x.test/a> 'Title'\r\n\r\ntail";
+    let reconverted = "see [the __資料__][id] tail\r\n\r\nmiddle\r\n\r\n[id]: <https://x.test/a> 'Title'\r\n\r\ntail";
+    let mut session = EditorSession::open(original);
+    let mut view = ReferenceView::new("see teh docs tail\r\n\r\nmiddle\r\n\r\ntail");
+    assert_eq!(session.display_text(), view.text);
+    view.apply(
+        session
+            .replace_os(
+                Revision(0),
+                range(0, 19),
+                "see the docs tail\r\n",
+                &[],
+                &mut |_| Ok(()),
+            )
+            .unwrap()
+            .unwrap(),
+    );
+    assert_eq!(session.source_text(), corrected);
+    assert_eq!(view.text, "see the docs tail\r\n\r\nmiddle\r\n\r\ntail");
+    session
+        .compose(Revision(1), range(8, 12), "ドックス")
+        .unwrap();
+    view.apply(
+        session
+            .replace(Revision(1), range(8, 20), "資料", &mut |_| Ok(()))
+            .unwrap(),
+    );
+    assert_eq!(session.source_text(), reconverted);
+    assert_eq!(view.text, "see the 資料 tail\r\n\r\nmiddle\r\n\r\ntail");
+    let target = session
+        .inspect_link(Revision(2), range(8, 14))
+        .unwrap()
+        .unwrap();
+    assert_eq!(target.destination, "https://x.test/a");
+    assert_eq!(target.title.as_deref(), Some("Title"));
+    assert_eq!(EditorSession::open(reconverted).display_text(), view.text);
+    view.apply(session.undo(Revision(2), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(session.source_text(), corrected);
+    view.apply(session.undo(Revision(3), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(session.source_text(), original);
+    view.apply(session.redo(Revision(4), &mut |_| Ok(())).unwrap().unwrap());
+    view.apply(session.redo(Revision(5), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(session.source_text(), reconverted);
+}
