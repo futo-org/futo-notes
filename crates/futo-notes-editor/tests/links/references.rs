@@ -238,3 +238,53 @@ fn last_use_unlink_maps_selection_past_a_definition_revealed_before_the_label() 
     assert_eq!(session.source_text(), unlinked);
     assert_eq!(session.selection(), range(37, 38));
 }
+
+#[test]
+fn replaying_winner_removal_uses_the_next_distant_definition_and_updates_visibility() {
+    use futo_notes_editor::{SourceEdit, SourceOffset, SourceRange};
+    let original = "[id]: /first\n\nmiddle\n\n[x][id]\n\n[id]: /second\n\nend";
+    let recovered = "middle\n\n[x][id]\n\n[id]: /second\n\nend";
+    let mut session = EditorSession::open(original);
+    let mut view = ReferenceView::new("middle\n\nx\n\n[id]: /second\n\nend");
+    assert_eq!(session.display_text(), view.text);
+    assert_eq!(
+        session
+            .inspect_link(Revision(0), range(8, 9))
+            .unwrap()
+            .unwrap()
+            .destination,
+        "/first"
+    );
+    let record = SourceEdit {
+        previous_revision: Revision(0),
+        revision: Revision(1),
+        range: SourceRange {
+            start: SourceOffset(0),
+            end: SourceOffset(14),
+        },
+        removed: "[id]: /first\n\n".into(),
+        inserted: String::new(),
+    };
+    let mut accepted = 0;
+    view.apply(
+        session
+            .replay_with_accept(&record, &mut |actual| {
+                assert_eq!(actual, &record);
+                accepted += 1;
+                Ok(())
+            })
+            .unwrap(),
+    );
+    assert_eq!(accepted, 1);
+    assert_eq!(session.source_text(), recovered);
+    assert_eq!(view.text, "middle\n\nx\n\nend");
+    assert_eq!(
+        session
+            .inspect_link(Revision(1), range(8, 9))
+            .unwrap()
+            .unwrap()
+            .destination,
+        "/second"
+    );
+    assert_eq!(EditorSession::open(recovered).display_text(), view.text);
+}
