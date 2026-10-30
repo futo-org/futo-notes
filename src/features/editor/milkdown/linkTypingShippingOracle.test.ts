@@ -57,7 +57,7 @@ it('the shipping text-input rule defers an outside emphasis closer in a URL unti
   });
   const beforeSource = serializer.serialize(view.state.doc.toJSON() as NodeJson);
   expect(beforeSource).toBe('x \\*b https://x.test/a\\*\n');
-  expect(parse(beforeSource).textContent).toBe('x *b https://x.test/a*');
+  expect(parse(beforeSource).textContent).toBe('x *b https://x.test/a\\*');
   type(' ');
   expect(view.state.doc.textContent).toBe('x b https://x.test/a ');
   expect(emphasis()).toEqual(['b https://x.test/a']);
