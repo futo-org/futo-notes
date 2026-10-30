@@ -19,14 +19,14 @@ class NativeEditorStructuralSeamTest {
         val readmeTitle = assets.open("README.md").bufferedReader().use { it.readLine() }
         assertEquals("# Cross-language note-rule conformance", readmeTitle)
         val cases = JSONArray(assets.open("structural-seams.json").bufferedReader().use { it.readText() })
-        assertEquals(19, cases.length())
+        assertEquals(28, cases.length())
     }
 
     @Test
     fun structuralSeamsAndRawMarkedInputKeepExactNativeCaretsAndRecovery() {
         val context = InstrumentationRegistry.getInstrumentation().context
         val cases = JSONArray(context.assets.open("structural-seams.json").bufferedReader().use { it.readText() })
-        assertEquals(19, cases.length())
+        assertEquals(28, cases.length())
         for (index in 0 until cases.length()) {
             val item = cases.getJSONObject(index)
             val root = File(InstrumentationRegistry.getInstrumentation().targetContext.cacheDir, "editor-seams-${UUID.randomUUID()}")
@@ -83,6 +83,7 @@ class NativeEditorStructuralSeamTest {
                             }
                             "os", "indent_os" -> apply(s.replaceOsUtf16(s.revision(), selected, inserted, emptyList()))
                             "typing" -> apply(s.replaceUtf16Action(0uL, selected, inserted, EditorInputAction.ISOLATED))
+                            "explicit" -> apply(s.replaceManyUtf16(0uL, listOf(EditorUtf16Replacement(selected, inserted))))
                             "batch" -> apply(s.replaceManyUtf16(0uL, listOf(EditorUtf16Replacement(EditorUtf16Range(0uL, 1uL), units("!")), EditorUtf16Replacement(EditorUtf16Range(1uL, 2uL), units("?")), EditorUtf16Replacement(EditorUtf16Range(3uL, 5uL), units("AC")))))
                         }
                         assertEquals(item.getString("expectedDisplay"), view.toString(Charsets.UTF_8))

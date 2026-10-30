@@ -44,14 +44,7 @@ impl Projection {
             mut markers,
             pieces,
             block_boundaries,
-        } = self.edit_context_for_change(
-            source,
-            range,
-            inserted
-                .split('\n')
-                .any(|line| line.trim_matches([' ', '\t', '\r']).is_empty())
-                && toggle.is_none(),
-        );
+        } = self.edit_context_for_change(source, range, toggle.is_none().then_some(inserted));
         let expanded = split_entities(pieces, a, z);
         let Cut {
             mut before,
@@ -170,14 +163,14 @@ impl Projection {
         })
     }
     pub(super) fn edit_context(&self, source: &Rope, range: DisplayRange) -> Context {
-        self.edit_context_for_change(source, range, false)
+        self.edit_context_for_change(source, range, None)
     }
 
     fn edit_context_for_change(
         &self,
         source: &Rope,
         range: DisplayRange,
-        deleting: bool,
+        replacement: Option<&str>,
     ) -> Context {
         let first = self.rows.locate(range.start.0, true);
         let last = self.rows.locate(range.end.0, true);
@@ -191,6 +184,11 @@ impl Projection {
         let mut z = range.end.0 - display_start;
         let mut display_len = 0;
         let mut block_boundaries = Vec::new();
+        let may_empty_heading = replacement.is_some_and(|text| {
+            text.split('\n')
+                .any(|line| line.trim_matches([' ', '\t', '\r']).is_empty())
+        });
+        let mut selected_body_before = false;
         for index in first..=last {
             let (row, row_source, _) = self.rows.at(index);
             let base = row_source - source_start;
@@ -208,18 +206,26 @@ impl Projection {
                 open: raw[base + span.open.start..base + span.open.end].into(),
                 close: raw[base + span.close.start..base + span.close.end].into(),
             }));
-            let empty_headings: Vec<_> = row
+            let retired_headings: Vec<_> = row
                 .blocks
                 .iter()
                 .filter(|block| {
-                    deleting
+                    let body_start = self.display_at(row_source + block.content.start);
+                    let body_end = self.display_at(row_source + block.content.end);
+                    // Replacing body text across blocks owns a complete lower
+                    // heading's dependent syntax. Selecting only its preceding
+                    // separator does not grant that same body ownership.
+                    let retire = replacement.is_some()
+                        && (may_empty_heading || selected_body_before)
                         && block.underline.is_some()
-                        && range.start.0 <= self.display_at(row_source + block.content.start)
-                        && self.display_at(row_source + block.content.end) <= range.end.0
+                        && range.start.0 <= body_start
+                        && body_end <= range.end.0;
+                    selected_body_before |= range.start.0 < body_end && body_start < range.end.0;
+                    retire
                 })
                 .collect();
             for segment in &row.segments {
-                for block in &empty_headings {
+                for block in &retired_headings {
                     if segment.source.start == block.source.start {
                         // Setext syntax depends on nonempty body text. Preserve
                         // the heading/container intent using the existing empty
@@ -236,7 +242,7 @@ impl Projection {
                         });
                     }
                 }
-                if empty_headings.iter().any(|block| {
+                if retired_headings.iter().any(|block| {
                     segment.display.is_empty()
                         && (segment.source.end <= block.content.start
                             && block.source.start <= segment.source.start

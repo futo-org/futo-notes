@@ -13,7 +13,7 @@ import console from 'node:console';
 import { setTimeout, clearTimeout } from 'node:timers';
 const { WasmSession } = await import(pathToFileURL(process.argv[2]).href);
 const cases = JSON.parse(readFileSync(new URL('fixtures/structural-seams.json', import.meta.url)));
-assert.equal(cases.length, 19);
+assert.equal(cases.length, 28);
 const units = (text) => Uint16Array.from({ length: text.length }, (_, at) => text.charCodeAt(at));
 function host(vault, source) {
   const worker = spawn(process.argv[3], [vault, source], { stdio: ['pipe', 'pipe', 'inherit'] });
@@ -115,6 +115,18 @@ for (const item of cases) {
     } else if (item.mode === 'typing') {
       await apply(
         page.replace_utf16_action(revision, ...item.range, units(item.text), '"Isolated"'),
+      );
+    } else if (item.mode === 'explicit') {
+      await apply(
+        page.replace_many_utf16(
+          revision,
+          JSON.stringify([
+            {
+              range: { start: item.range[0], end: item.range[1] },
+              inserted: Array.from(units(item.text)),
+            },
+          ]),
+        ),
       );
     } else if (item.mode === 'batch') {
       await apply(

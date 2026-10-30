@@ -14,6 +14,7 @@ mod portable_attachment;
 mod portable_readiness;
 mod recovery;
 mod seams;
+mod selected_source;
 mod storage;
 
 fn range(start: usize, end: usize) -> DisplayRange {

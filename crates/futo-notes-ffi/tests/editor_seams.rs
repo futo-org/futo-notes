@@ -11,7 +11,7 @@ fn native_structural_seams_and_raw_composition_keep_exact_recovery_and_carets() 
         "../../futo-notes-editor/tests/fixtures/structural-seams.json"
     ))
     .unwrap();
-    assert_eq!(cases.as_array().unwrap().len(), 19);
+    assert_eq!(cases.as_array().unwrap().len(), 28);
     for case in cases.as_array().unwrap() {
         let text = |key: &str| case[key].as_str().unwrap();
         let tree = TempTree::new();
@@ -116,6 +116,17 @@ fn native_structural_seams_and_raw_composition_keep_exact_recovery_and_carets() 
             apply(
                 s.replace_utf16_action(0, selected, inserted, EditorInputAction::Isolated)
                     .unwrap(),
+            );
+        } else if mode == "explicit" {
+            apply(
+                s.replace_many_utf16(
+                    0,
+                    vec![EditorUtf16Replacement {
+                        range: selected,
+                        inserted,
+                    }],
+                )
+                .unwrap(),
             );
         } else if mode == "batch" {
             let replacements = [(0, 1, "!"), (1, 2, "?"), (3, 5, "AC")].map(|(a, z, text)| {
