@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
 import { afterAll, beforeAll, expect, it } from 'vitest';
-import { Editor, defaultValueCtx, editorViewCtx, rootCtx } from '@milkdown/kit/core';
+import { Editor, defaultValueCtx, editorViewCtx, parserCtx, rootCtx } from '@milkdown/kit/core';
 import { EditorState } from '@milkdown/kit/prose/state';
 import { commonmarkWithCompat, gfmWithCompat } from '@futo-notes/editor/milkdown-compat';
+import { createMarkdownSerializer, type NodeJson } from '@futo-notes/editor/markdown';
 import { withoutLeakedCtxTimers } from './__fixtures__/noLeakedCtxTimers';
 
 let editor: Editor;
@@ -50,6 +51,13 @@ it('the shipping text-input rule defers an outside emphasis closer in a URL unti
   type('x *b https://x.test/a*');
   expect(view.state.doc.textContent).toBe('x *b https://x.test/a*');
   expect(emphasis()).toEqual([]);
+  const parse = editor.ctx.get(parserCtx);
+  const serializer = createMarkdownSerializer({
+    parse: (text) => parse(text).toJSON() as NodeJson,
+  });
+  const beforeSource = serializer.serialize(view.state.doc.toJSON() as NodeJson);
+  expect(beforeSource).toBe('x \\*b https://x.test/a*\n');
+  expect(parse(beforeSource).textContent).toBe('x *b https://x.test/a*');
   type(' ');
   expect(view.state.doc.textContent).toBe('x b https://x.test/a ');
   expect(emphasis()).toEqual(['b https://x.test/a']);
