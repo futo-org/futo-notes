@@ -21,6 +21,8 @@ mod fixtures;
 mod input;
 #[path = "lists/keys.rs"]
 mod keys;
+#[path = "lists/lifting.rs"]
+mod lifting;
 #[path = "lists/projection.rs"]
 mod projection;
 
