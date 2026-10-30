@@ -110,7 +110,21 @@ impl EditorSession {
         let before_links = self.projection.pending_for_source_edit(edit.range);
         let mut change = self.apply(&edit);
         change.work.link_metadata_items += self.projection.install_delimiters(plan.delimiters);
-        let caret = DisplayOffset(self.projection.display_at(plan.caret));
+        let (caret, caret_work) = self.projection.display_at_with_work(plan.caret);
+        let caret = DisplayOffset(caret);
+        let (input_start, input_work) = self.projection.display_at_with_work(plan.input_start);
+        change.work.link_metadata_items += caret_work + input_work;
+        let mapping = InputMapping::from_source(
+            range,
+            inserted.len(),
+            &edit,
+            plan.retained,
+            plan.requires_source_identity,
+            DisplayRange {
+                start: DisplayOffset(input_start),
+                end: caret,
+            },
+        );
         self.selection = DisplayRange {
             start: caret,
             end: caret,
@@ -118,7 +132,7 @@ impl EditorSession {
         self.pending_formats = Some(plan.formats);
         change.work.link_metadata_items += self.projection.finish_link_input(
             DisplayRange {
-                start: DisplayOffset(self.projection.display_at(plan.input_start)),
+                start: DisplayOffset(input_start),
                 end: caret,
             },
             inserted,
@@ -165,7 +179,7 @@ impl EditorSession {
                 action,
             }),
         );
-        Ok((change, InputMapping::new(range, inserted.len())))
+        Ok((change, mapping))
     }
 
     pub(super) fn record_input_history(

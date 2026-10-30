@@ -224,3 +224,21 @@ impl super::Spelling {
         2 * self.delimiters.len()
     }
 }
+
+pub(super) fn collect_origins(
+    pieces: &[Piece],
+    rendered: &Rendered,
+    work: &mut usize,
+) -> Vec<(Range<usize>, Range<usize>)> {
+    pieces
+        .iter()
+        .zip(&rendered.pieces)
+        .filter_map(|(piece, output)| {
+            *work += 1;
+            piece.origin.as_ref().map(|origin| {
+                *work += 2;
+                (origin.clone(), output.clone())
+            })
+        })
+        .collect()
+}

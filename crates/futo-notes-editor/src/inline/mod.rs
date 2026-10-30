@@ -1,6 +1,7 @@
 mod block_edit;
 pub(crate) mod blocks;
 mod edit;
+pub(crate) use edit::SourceCorrespondence;
 mod empty_comments;
 pub(crate) mod fences;
 mod links;
@@ -150,6 +151,16 @@ impl Projection {
         point.source.0 -= source;
         let (local, work) = row.project_source_point(point);
         (display + local, work)
+    }
+
+    pub(crate) fn try_project_source_point(
+        &self,
+        mut point: crate::history::SourcePoint,
+    ) -> (Option<usize>, usize) {
+        let (row, source, display) = self.rows.at(self.rows.locate(point.source.0, false));
+        point.source.0 -= source;
+        let (local, work) = row.try_project_source_point(point);
+        (local.map(|local| display + local), work)
     }
 
     pub fn display_at(&self, offset: usize) -> usize {

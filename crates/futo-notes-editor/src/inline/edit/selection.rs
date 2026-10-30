@@ -40,6 +40,14 @@ pub(in crate::inline) fn split_entities(pieces: Vec<Piece>, a: usize, z: usize) 
                         .collect()
                 };
                 expanded.push(Piece {
+                    origin: if piece.raw == piece.display {
+                        piece
+                            .origin
+                            .as_ref()
+                            .map(|source| source.start + pair[0]..source.start + pair[1])
+                    } else {
+                        None
+                    },
                     raw,
                     display,
                     spans: piece.spans.clone(),

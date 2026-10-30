@@ -8,6 +8,15 @@ use crate::{DisplayReplacement, InputAction};
 pub(super) struct InputMapping {
     input: (DisplayRange, usize),
     boundary: Option<(DisplayRange, usize)>,
+    source: Option<InputSource>,
+    requires_source_identity: bool,
+    inserted_display: Option<DisplayRange>,
+}
+struct InputSource {
+    revision: Revision,
+    range: SourceRange,
+    inserted: usize,
+    retained: crate::inline::SourceCorrespondence,
 }
 
 impl InputMapping {
@@ -15,10 +24,74 @@ impl InputMapping {
         Self {
             input: (range, inserted),
             boundary: None,
+            source: None,
+            requires_source_identity: false,
+            inserted_display: None,
         }
     }
 
+    pub fn from_source(
+        range: DisplayRange,
+        inserted: usize,
+        edit: &SourceEdit,
+        retained: crate::inline::SourceCorrespondence,
+        requires_source_identity: bool,
+        inserted_display: DisplayRange,
+    ) -> Self {
+        Self {
+            input: (range, inserted),
+            boundary: None,
+            source: Some(InputSource {
+                revision: edit.previous_revision,
+                range: edit.range,
+                inserted: edit.inserted.len(),
+                retained,
+            }),
+            requires_source_identity,
+            inserted_display: Some(inserted_display),
+        }
+    }
+
+    fn retained_source(
+        &self,
+        revision: Revision,
+        range: SourceRange,
+        inserted: usize,
+        point: crate::history::SourcePoint,
+    ) -> (Option<crate::history::SourcePoint>, usize) {
+        if let Some(source) = self.source.as_ref().filter(|source| {
+            source.revision == revision && source.range == range && source.inserted == inserted
+        }) {
+            source.retained.map(point)
+        } else {
+            (None, 1)
+        }
+    }
+
+    fn inserted_target(&self, within: usize, end: usize) -> Result<usize, EditorError> {
+        if let Some(display) = self.inserted_display {
+            if display.end.0 - display.start.0 == self.input.1 {
+                return Ok(display.start.0 + within);
+            }
+            if within == 0 {
+                return Ok(display.start.0);
+            }
+            if within == self.input.1 {
+                return Ok(display.end.0);
+            }
+            return Err(EditorError::UnrepresentableFormat);
+        }
+        end.checked_sub(self.input.1)
+            .map(|start| start + within)
+            .ok_or(EditorError::UnrepresentableFormat)
+    }
+
     pub fn with_boundary(mut self, change: &ViewChange, origin: usize) -> Self {
+        // Display origin alone cannot translate a source table through an
+        // earlier structural source generation. Preserve explicit rejection
+        // for a rewritten identity until that step supplies correspondence.
+        self.source = None;
+        self.inserted_display = None;
         self.boundary = Some((change.range, change.inserted.len()));
         for (range, _) in self
             .boundary
@@ -48,36 +121,47 @@ impl InputMapping {
 /// protected structural replacements, including targets inside marked text.
 struct SourceAnchor {
     display: usize,
-    source: Option<usize>,
+    source: Option<crate::history::SourcePoint>,
 }
 
 impl SourceAnchor {
     fn map(
         &mut self,
-        edits: &[(SourceRange, usize)],
+        edits: &[(Revision, SourceRange, usize)],
         mapping: &InputMapping,
         origin: usize,
         staged: &EditorSession,
         references_changed: bool,
     ) -> Result<usize, EditorError> {
-        for (range, inserted) in edits {
-            if let Some(source) = self.source {
-                self.source = if source < range.start.0 {
-                    Some(source)
-                } else if range.end.0 <= source {
-                    Some(source - (range.end.0 - range.start.0) + inserted)
-                } else if source == range.start.0 {
-                    Some(source)
+        let mut work = 0;
+        for &(revision, range, inserted) in edits {
+            work += 1;
+            if let Some(mut point) = self.source {
+                let source = point.source.0;
+                let atom_end = source + point.atom.map_or(0, |atom| atom.source_len);
+                let atom_touched =
+                    point.atom.is_some() && source < range.end.0 && range.start.0 < atom_end;
+                self.source = if !atom_touched && source < range.start.0 {
+                    Some(point)
+                } else if !atom_touched && range.end.0 <= source {
+                    point.source.0 = source - (range.end.0 - range.start.0) + inserted;
+                    Some(point)
+                } else if !atom_touched && source == range.start.0 && point.within == 0 {
+                    Some(point)
                 } else {
-                    None
+                    let (mapped, visits) =
+                        mapping.retained_source(revision, range, inserted, point);
+                    work += visits;
+                    mapped
                 };
             }
         }
-        self.display = if let Some(source) = self.source {
-            origin + staged.projection.display_at(source)
-        } else if references_changed {
-            // A rewritten source identity requires renderer correspondence;
-            // display replacement arithmetic cannot cross global visibility.
+        work += 1;
+        self.display = if let Some(point) = self.source {
+            let (display, visits) = staged.projection.try_project_source_point(point);
+            work += visits;
+            origin + display.ok_or(EditorError::UnrepresentableFormat)?
+        } else if references_changed || mapping.requires_source_identity {
             return Err(EditorError::UnrepresentableFormat);
         } else {
             let display = mapping.map(self.display, origin)?;
@@ -85,15 +169,19 @@ impl SourceAnchor {
                 .checked_sub(origin)
                 .filter(|local| *local <= staged.projection.display.len_bytes())
             {
-                self.source = Some(
-                    staged
-                        .source_at(staged.revision(), DisplayOffset(local), Affinity::Forward)?
-                        .0,
+                let (selected, visits) = staged.projection.source_selection(
+                    DisplayRange {
+                        start: DisplayOffset(local),
+                        end: DisplayOffset(local),
+                    },
+                    Affinity::Forward,
                 );
+                work += visits;
+                self.source = Some(selected.start);
             }
             display
         };
-        Ok(1 + edits.len())
+        Ok(work)
     }
 }
 
@@ -174,36 +262,56 @@ impl EditorSession {
         let raw = self.source.byte_slice(window.clone()).to_string();
         let mut staged = self.stage_source(&raw, window.clone());
         let mut transaction = Transaction::new(&staged.source);
+        let mut anchor_work = 0;
         let mut anchors: Vec<_> = replacements
             .iter()
             .flat_map(|replacement| [replacement.range.start.0, replacement.range.end.0])
             .map(|offset| {
-                Ok(SourceAnchor {
+                let (selected, work) = self.projection.source_selection(
+                    DisplayRange {
+                        start: DisplayOffset(offset),
+                        end: DisplayOffset(offset),
+                    },
+                    Affinity::Forward,
+                );
+                anchor_work += work;
+                let mut point = selected.start;
+                point.source.0 -= window.start;
+                SourceAnchor {
                     display: offset - display_start,
-                    source: Some(
-                        self.source_at(expected, DisplayOffset(offset), Affinity::Forward)?
-                            .0
-                            - window.start,
-                    ),
-                })
+                    source: Some(point),
+                }
             })
-            .collect::<Result<_, EditorError>>()?;
+            .collect();
         let mut targets: Vec<_> = targets
             .iter()
             .map(|&offset| ResultTarget::new(replacements, offset))
             .collect();
         for target in &mut targets {
             if let ResultTarget::Opening(anchor) = target {
-                anchor.source = self
-                    .source_at(expected, DisplayOffset(anchor.display), Affinity::Forward)?
+                let (selected, work) = self.projection.source_selection(
+                    DisplayRange {
+                        start: DisplayOffset(anchor.display),
+                        end: DisplayOffset(anchor.display),
+                    },
+                    Affinity::Forward,
+                );
+                anchor_work += work;
+                let mut point = selected.start;
+                anchor.source = point
+                    .source
                     .0
                     .checked_sub(window.start)
-                    .filter(|source| *source <= raw.len());
+                    .filter(|source| *source <= raw.len())
+                    .map(|source| {
+                        point.source.0 = source;
+                        point
+                    });
             }
         }
         let mut materialized = raw.len();
         let mut parsed = staged.projection.initial_parse_work;
-        let mut link_metadata_items = staged.projection.initial_link_metadata_items;
+        let mut link_metadata_items = staged.projection.initial_link_metadata_items + anchor_work;
         let mut link_copied_bytes = staged.projection.initial_link_copied_bytes;
         for (index, replacement) in replacements.iter().enumerate() {
             let local_range = DisplayRange {
@@ -229,7 +337,7 @@ impl EditorSession {
                 &replacement.inserted,
                 InputAction::Isolated,
                 &mut |edit| {
-                    edits.push((edit.range, edit.inserted.len()));
+                    edits.push((edit.previous_revision, edit.range, edit.inserted.len()));
                     transaction.apply(edit.range, &edit.inserted);
                     Ok(())
                 },
@@ -252,18 +360,18 @@ impl EditorSession {
                         )?;
                     }
                     ResultTarget::Inserted { run, within } if *run == index => {
-                        let at = staged.selection.end.0 - replacement.inserted.len() + *within;
+                        let at = mapping.inserted_target(*within, staged.selection.end.0)?;
+                        let (selected, work) = staged.projection.source_selection(
+                            DisplayRange {
+                                start: DisplayOffset(at),
+                                end: DisplayOffset(at),
+                            },
+                            Affinity::Forward,
+                        );
+                        link_metadata_items += work;
                         *target = ResultTarget::Opening(SourceAnchor {
                             display: display_start + at,
-                            source: Some(
-                                staged
-                                    .source_at(
-                                        staged.revision(),
-                                        DisplayOffset(at),
-                                        Affinity::Forward,
-                                    )?
-                                    .0,
-                            ),
+                            source: Some(selected.start),
                         });
                     }
                     _ => {}
@@ -274,20 +382,12 @@ impl EditorSession {
             link_metadata_items += change.work.link_metadata_items;
             link_copied_bytes += change.work.link_copied_bytes;
         }
-        let selected_source = SourceRange {
-            start: SourceOffset(
-                window.start
-                    + staged
-                        .source_at(staged.revision(), staged.selection.start, Affinity::Forward)?
-                        .0,
-            ),
-            end: SourceOffset(
-                window.start
-                    + staged
-                        .source_at(staged.revision(), staged.selection.end, Affinity::Forward)?
-                        .0,
-            ),
-        };
+        let (mut selected_source, selection_work) = staged
+            .projection
+            .source_selection(staged.selection, Affinity::Forward);
+        link_metadata_items += selection_work + 2;
+        selected_source.start.source.0 += window.start;
+        selected_source.end.source.0 += window.start;
         let (mut range, inserted) = transaction.finish();
         range.start.0 += window.start;
         range.end.0 += window.start;
@@ -300,9 +400,12 @@ impl EditorSession {
         let before_formats = self.pending_formats.clone();
         let before_links = self.projection.pending_for_source_edit(edit.range);
         let mut change = self.apply(&edit);
+        let (start, a) = self.projection.project_source_point(selected_source.start);
+        let (end, z) = self.projection.project_source_point(selected_source.end);
+        link_metadata_items += a + z;
         self.selection = DisplayRange {
-            start: DisplayOffset(self.projection.display_at(selected_source.start.0)),
-            end: DisplayOffset(self.projection.display_at(selected_source.end.0)),
+            start: DisplayOffset(start),
+            end: DisplayOffset(end),
         };
         let targets = targets
             .into_iter()
@@ -310,9 +413,9 @@ impl EditorSession {
                 link_metadata_items += 1;
                 match target {
                     ResultTarget::Opening(anchor) => match anchor.source {
-                        Some(source) => {
-                            let (display, work) =
-                                self.projection.display_at_with_work(window.start + source);
+                        Some(mut point) => {
+                            point.source.0 += window.start;
+                            let (display, work) = self.projection.project_source_point(point);
                             link_metadata_items += work;
                             display
                         }

@@ -184,6 +184,8 @@ impl Projection {
             .map(|(ch, _)| ch.len_utf8())
             .sum();
         Ok(Some(Plan {
+            retained: Default::default(),
+            requires_source_identity: false,
             delimiters: rendered.delimiters,
             input_start: 0,
             range: source_start + prefix..source_end - suffix,

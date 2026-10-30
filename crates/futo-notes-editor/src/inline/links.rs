@@ -203,6 +203,8 @@ impl super::Projection {
             .sum();
         Ok((
             Plan {
+                retained: Default::default(),
+                requires_source_identity: false,
                 delimiters: rendered.delimiters,
                 input_start: 0,
                 range: source_start + prefix..source_end - suffix,
@@ -498,6 +500,7 @@ impl super::Projection {
             spans: active,
             trailing: false,
             definition: None,
+            origin: None,
             timing: false,
         });
         before.extend(after);
@@ -518,6 +521,8 @@ impl super::Projection {
             .map(|(ch, _)| ch.len_utf8())
             .sum();
         Ok(Plan {
+            retained: Default::default(),
+            requires_source_identity: false,
             delimiters: rendered.delimiters,
             input_start: 0,
             range: source_start + prefix..source_end - suffix,

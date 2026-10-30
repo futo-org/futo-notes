@@ -11,6 +11,7 @@ pub(super) use url_timing::prepare_url_input;
 
 pub(super) struct Piece {
     pub raw: String,
+    pub origin: Option<Range<usize>>,
     pub timing: bool,
     pub display: String,
     pub spans: Vec<usize>,
@@ -25,6 +26,7 @@ pub(super) struct Marker {
 
 pub(super) struct Spelling {
     pub text: String,
+    pub origins: Vec<(Range<usize>, Range<usize>)>,
     pub delimiters: Vec<Range<usize>>,
     pub caret: usize,
     pub input_start: usize,
@@ -237,6 +239,7 @@ pub(super) fn spell_with_anchors(
         mapped.push(found.ok_or(EditorError::UnrepresentableFormat)?);
     }
     Ok(Spelling {
+        origins: url_timing::collect_origins(&pieces, &rendered, &mut link_metadata_items),
         input_start: rendered
             .pieces
             .get(insertion.start)

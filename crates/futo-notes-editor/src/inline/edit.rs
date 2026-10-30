@@ -3,6 +3,7 @@
 //! move. The parser remains the authority for interpreting candidate source.
 mod carry;
 mod selection;
+mod source;
 use super::row::SpanKind;
 use super::{
     spelling::{spell, Marker, Piece},
@@ -12,9 +13,12 @@ use crate::{Affinity, DisplayRange, EditorError, InlineFormat};
 pub(super) use carry::carry_formats;
 use ropey::Rope;
 pub(super) use selection::{cut, split_entities, Cut};
+pub(crate) use source::SourceCorrespondence;
 use std::ops::Range;
 
 pub(crate) struct Plan {
+    pub retained: SourceCorrespondence,
+    pub requires_source_identity: bool,
     pub range: Range<usize>,
     pub delimiters: Vec<Range<usize>>,
     pub inserted: String,
@@ -108,6 +112,7 @@ impl Projection {
             spans: active.clone(),
             trailing: false,
             definition: None,
+            origin: None,
             timing: false,
         }));
         let insertion_end = changed.len();
@@ -204,6 +209,8 @@ impl Projection {
         let parsed = rendered.parsed + link_work.parsed;
         let output = rendered.text;
         let caret = rendered.caret;
+        let (retained, correspondence_work) =
+            SourceCorrespondence::verify(&raw, &output, rendered.origins, source_start);
         let prefix = common_prefix(&raw, &output);
         let suffix: usize = raw[prefix..]
             .chars()
@@ -213,6 +220,8 @@ impl Projection {
             .map(|(c, _)| c.len_utf8())
             .sum();
         Ok(Plan {
+            retained,
+            requires_source_identity: !literal,
             delimiters: rendered.delimiters,
             range: source_start + prefix..source_end - suffix,
             inserted: output[prefix..output.len() - suffix].to_owned(),
@@ -223,6 +232,7 @@ impl Projection {
             parsed: parsed + timing.work.parsed,
             link_metadata_items: link_metadata_items
                 + delimiter_work
+                + correspondence_work
                 + timing.work.items
                 + rendered.link_metadata_items
                 + link_work.items,
@@ -337,6 +347,7 @@ impl Projection {
                             spans: Vec::new(),
                             trailing: true,
                             definition: Some(key.clone()),
+                            origin: Some(base + range.start..base + range.end),
                             timing: false,
                         });
                     }
@@ -357,6 +368,7 @@ impl Projection {
                             spans: Vec::new(),
                             trailing: false,
                             definition: None,
+                            origin: None,
                             timing: false,
                         });
                     }
@@ -404,6 +416,7 @@ impl Projection {
                         spans: active,
                         trailing,
                         definition: None,
+                        origin: Some(base + segment.source.start..base + segment.source.end),
                         timing: false,
                     });
                     continue;
@@ -414,6 +427,7 @@ impl Projection {
                     spans: active,
                     trailing: false,
                     definition: None,
+                    origin: Some(base + segment.source.start..base + segment.source.end),
                     timing: row
                         .literal_delimiters
                         .binary_search_by_key(
