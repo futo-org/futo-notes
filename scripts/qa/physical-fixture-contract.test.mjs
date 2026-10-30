@@ -332,3 +332,38 @@ it('keeps the primitive keeper and public capture/read/close controls usable', a
     t.clean();
   }
 });
+
+it.each([
+  ['os', []],
+  ['os', [['iOS']]],
+  ['os', null],
+  ['os', true],
+  ['os', 1],
+  ['os', {}],
+  ['traits', []],
+  ['traits', [[]]],
+  ['traits', null],
+  ['traits', true],
+  ['traits', 1],
+  ['traits', 'iOS'],
+])(
+  'refuses typed-malformed raw artifact %s=%j before recording capture success',
+  async (field, value) => {
+    const t = setup();
+    try {
+      const copy = t.runtime.executor.copyArtifact;
+      t.runtime.executor.copyArtifact = () =>
+        JSON.stringify({ ...JSON.parse(copy()), [field]: value });
+      await expect(executePhysicalFixture('capture', t.plan, t.runtime)).rejects.toThrow(
+        /incomplete/,
+      );
+      const receipt = JSON.parse(
+        readFileSync(join(t.runtime.scratch, t.plan.runID, 'receipt.json'), 'utf8'),
+      );
+      expect(receipt.status).toBe('failed');
+      expect(receipt.artifactSHA256).toBeUndefined();
+    } finally {
+      t.clean();
+    }
+  },
+);

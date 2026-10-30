@@ -89,6 +89,9 @@ function validateArtifact(plan, build, raw) {
     !artifact.lifecycle.some((e) => e.event === 'ready') ||
     !artifact.lifecycle.some((e) => e.event === 'capture-window-ended') ||
     !artifact.traits ||
+    typeof artifact.traits !== 'object' ||
+    Array.isArray(artifact.traits) ||
+    typeof artifact.os !== 'string' ||
     !artifact.os
   )
     throw new Error('Capture artifact is incomplete');
