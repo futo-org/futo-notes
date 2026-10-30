@@ -15,6 +15,7 @@ const { WasmSession } = await import(pathToFileURL(process.argv[2]).href);
 
 const vault = mkdtempSync(join(tmpdir(), 'futo-editor-wasm-links-'));
 const referenceVault = mkdtempSync(join(tmpdir(), 'futo-editor-wasm-references-'));
+const timingVaults = [];
 let session;
 let worker;
 let exited;
@@ -110,11 +111,92 @@ try {
   assert.equal(JSON.parse(session.project(1n, 0, 43)).text, unlinkedSource);
   assert.deepEqual(await referenceReopened(JSON.stringify({ checkpoint: true })), { id: 'plain' });
   await stop();
+  for (const kind of ['typed', 'composed']) {
+    const timingVault = mkdtempSync(join(tmpdir(), `futo-editor-wasm-url-${kind}-`));
+    timingVaults.push(timingVault);
+    const timingExchange = await start('', timingVault);
+    let timingDisplay = '';
+    let timingRevision = 0n;
+    const applyTiming = async (request) => {
+      const ack = await timingExchange(request);
+      const change = JSON.parse(session.acknowledge(JSON.stringify(ack)));
+      const before = Buffer.from(timingDisplay);
+      timingDisplay = Buffer.concat([
+        before.subarray(0, change.range.start),
+        Buffer.from(change.inserted),
+        before.subarray(change.range.end),
+      ]).toString();
+      timingRevision += 1n;
+      assert.equal(change.revision, Number(timingRevision));
+      assert.equal(JSON.parse(session.acknowledge(JSON.stringify(ack))), null);
+      return change;
+    };
+    const pendingSource = 'x \\*b https://x.test/a*';
+    if (kind === 'typed') {
+      for (const ch of 'x *b https://x.test/a*') {
+        const at = Buffer.byteLength(timingDisplay);
+        await applyTiming(session.replace(timingRevision, at, at, ch));
+        assert.equal(
+          JSON.parse(session.project(timingRevision, 0, Buffer.byteLength(timingDisplay))).links
+            .length,
+          0,
+        );
+      }
+      assert.equal(timingDisplay, 'x *b https://x.test/a*');
+      assert.equal(session.draft_text(), pendingSource);
+      session.compose_utf16(timingRevision, 22, 22, Uint16Array.of(32));
+    } else {
+      const text = 'x *b https://x.test/a* ';
+      session.compose_utf16(
+        timingRevision,
+        0,
+        0,
+        Uint16Array.from([...text].map((ch) => ch.charCodeAt(0))),
+      );
+      assert.equal(session.draft_text(), '');
+    }
+    const correction = session.replace(timingRevision, 3, 4, 'B');
+    assert.equal(session.draft_text(), kind === 'typed' ? pendingSource : '');
+    assert.throws(() => session.project(timingRevision + 1n, 0, 21));
+    const corrected = await applyTiming(correction);
+    assert.deepEqual(corrected.selection, { start: 3, end: 3 });
+    const finalSource = 'x *B https://x.test/a* ';
+    assert.equal(session.draft_text(), finalSource);
+    assert.equal(timingDisplay, 'x B https://x.test/a ');
+    assert.equal(
+      JSON.parse(session.inspect_link(timingRevision, 4, 20)).destination,
+      'https://x.test/a',
+    );
+    const undoCorrection = await applyTiming(session.undo(timingRevision));
+    assert.equal(session.draft_text(), 'x *b https://x.test/a* ');
+    assert.deepEqual(undoCorrection.selection, { start: 21, end: 21 });
+    await applyTiming(session.undo(timingRevision));
+    assert.equal(session.draft_text(), kind === 'typed' ? pendingSource : '');
+    assert.equal(timingDisplay, kind === 'typed' ? 'x *b https://x.test/a*' : '');
+    await applyTiming(session.redo(timingRevision));
+    const redone = await applyTiming(session.redo(timingRevision));
+    assert.equal(session.draft_text(), finalSource);
+    assert.deepEqual(redone.selection, { start: 3, end: 3 });
+    session.acknowledge(JSON.stringify(await timingExchange(session.flush())));
+    assert.equal(JSON.parse(session.status()).durable, Number(timingRevision));
+    await stop();
+    const timingReopened = await start('--reopen', timingVault);
+    assert.equal(session.draft_text(), finalSource);
+    assert.equal(JSON.parse(session.project(timingRevision, 0, 21)).text, 'x B https://x.test/a ');
+    assert.equal(
+      JSON.parse(session.inspect_link(timingRevision, 4, 20)).destination,
+      'https://x.test/a',
+    );
+    assert.equal(JSON.parse(session.undo(timingRevision)), null);
+    assert.deepEqual(await timingReopened(JSON.stringify({ checkpoint: true })), { id: 'plain' });
+    await stop();
+  }
   console.log(
-    'Compiled WASM links: canonical inspection, ordered acceptance, exact history and real recovery passed.',
+    'Compiled WASM links: canonical inspection, URL timing, retained/inserted targets, ordered acceptance, exact history and real recovery passed.',
   );
 } finally {
   if (session) await stop();
   rmSync(vault, { recursive: true });
   rmSync(referenceVault, { recursive: true });
+  for (const timingVault of timingVaults) rmSync(timingVault, { recursive: true });
 }
