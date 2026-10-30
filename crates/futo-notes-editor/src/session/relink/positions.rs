@@ -125,9 +125,19 @@ pub(super) fn source_anchor(
     match anchor {
         crate::history::SourceSelection::Exact(range) => {
             let runs = changed_runs(before, after);
-            crate::history::SourceSelection::Exact(SourceRange {
-                start: SourceOffset(source_position(range.start.0, affinity, &runs)),
-                end: SourceOffset(source_position(range.end.0, affinity, &runs)),
+            let map = |mut point: crate::history::SourcePoint| {
+                if runs
+                    .iter()
+                    .any(|run| run.start < point.source.0 && point.source.0 < run.end)
+                {
+                    point.within = 0;
+                }
+                point.source.0 = source_position(point.source.0, affinity, &runs);
+                point
+            };
+            crate::history::SourceSelection::Exact(crate::history::ExactSelection {
+                start: map(range.start),
+                end: map(range.end),
             })
         }
         crate::history::SourceSelection::Derived => crate::history::SourceSelection::Derived,

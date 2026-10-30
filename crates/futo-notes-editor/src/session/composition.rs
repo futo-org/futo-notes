@@ -263,8 +263,8 @@ impl EditorSession {
         let crate::history::SourceSelection::Exact(ref mut selected) = selected_source else {
             return Err(EditorError::UnrepresentableFormat);
         };
-        selected.start.0 += window.start;
-        selected.end.0 += window.start;
+        selected.start.source.0 += window.start;
+        selected.end.source.0 += window.start;
         let (opening_source, opening_source_work) = self.capture_history_selection();
         let mut change = None;
         if recorded {

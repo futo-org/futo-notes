@@ -126,21 +126,12 @@ impl Projection {
         &self,
         range: DisplayRange,
         affinity: crate::Affinity,
-    ) -> (SourceRange, usize) {
+    ) -> (crate::history::ExactSelection, usize) {
         let endpoint = |offset: usize| {
             let (row, source, display) = self.rows.at(self.rows.locate(offset, true));
-            let ((low, high), work) = row.source_bounds_with_work(offset - display);
-            (
-                SourceOffset(
-                    source
-                        + if affinity == crate::Affinity::Forward {
-                            high
-                        } else {
-                            low
-                        },
-                ),
-                work,
-            )
+            let (mut point, work) = row.source_point_with_work(offset - display, affinity);
+            point.source.0 += source;
+            (point, work)
         };
         let (start, a) = endpoint(range.start.0);
         let (end, z) = if range.start == range.end {
@@ -148,7 +139,7 @@ impl Projection {
         } else {
             endpoint(range.end.0)
         };
-        (SourceRange { start, end }, a + z)
+        (crate::history::ExactSelection { start, end }, a + z)
     }
 
     pub fn display_at(&self, offset: usize) -> usize {

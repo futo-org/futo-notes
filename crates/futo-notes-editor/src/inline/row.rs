@@ -117,24 +117,65 @@ impl Row {
         }
     }
 
+    pub fn source_point_with_work(
+        &self,
+        at: usize,
+        affinity: crate::Affinity,
+    ) -> (crate::history::SourcePoint, usize) {
+        let mut work = 0;
+        let first = self.segments.partition_point(|segment| {
+            work += 1;
+            segment.display.end < at
+        });
+        if let Some(segment) = self.segments.get(first) {
+            work += 1;
+            if !segment.identity && segment.display.start < at && at < segment.display.end {
+                return (
+                    crate::history::SourcePoint {
+                        source: crate::SourceOffset(segment.source.start),
+                        within: at - segment.display.start,
+                    },
+                    work,
+                );
+            }
+        }
+        let ((low, high), visits) = self.source_bounds_with_work(at);
+        (
+            crate::history::SourcePoint {
+                source: crate::SourceOffset(if affinity == crate::Affinity::Forward {
+                    high
+                } else {
+                    low
+                }),
+                within: 0,
+            },
+            work + visits,
+        )
+    }
+
     pub fn display_at(&self, source: usize) -> usize {
         self.display_at_with_work(source).0
     }
 
     pub fn display_at_with_work(&self, source: usize) -> (usize, usize) {
-        for (index, segment) in self.segments.iter().enumerate() {
-            if segment.source.start <= source && source <= segment.source.end {
-                let display = if segment.identity {
-                    segment.display.start + source - segment.source.start
-                } else if source == segment.source.end {
-                    segment.display.end
-                } else {
-                    segment.display.start
-                };
-                return (display, index + 1);
-            }
+        let mut work = 0;
+        let index = self.segments.partition_point(|segment| {
+            work += 1;
+            segment.source.end < source
+        });
+        if let Some(segment) = self.segments.get(index) {
+            work += 1;
+            let display = if segment.identity {
+                segment.display.start + source - segment.source.start
+            } else if source == segment.source.end {
+                segment.display.end
+            } else {
+                segment.display.start
+            };
+            (display, work)
+        } else {
+            (self.display.len(), work)
         }
-        (self.display.len(), self.segments.len())
     }
 
     pub fn formats_at(&self, source: usize) -> Vec<InlineFormat> {

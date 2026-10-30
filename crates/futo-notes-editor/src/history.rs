@@ -43,9 +43,20 @@ impl HistoryClock for MonotonicClock {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) struct SourcePoint {
+    pub source: SourceOffset,
+    /// An interior boundary of one decoded source atom, in visible UTF-8 bytes.
+    pub within: usize,
+}
+#[derive(Clone, Copy)]
+pub(crate) struct ExactSelection {
+    pub start: SourcePoint,
+    pub end: SourcePoint,
+}
 #[derive(Clone, Copy)]
 pub(crate) enum SourceSelection {
-    Exact(SourceRange),
+    Exact(ExactSelection),
     Derived,
 }
 
@@ -76,10 +87,10 @@ impl HistoryEntry {
         else {
             return Err(crate::EditorError::UnrepresentableFormat);
         };
-        before.start.0 += source;
-        before.end.0 += source;
-        after.start.0 += source;
-        after.end.0 += source;
+        before.start.source.0 += source;
+        before.end.source.0 += source;
+        after.start.source.0 += source;
+        after.end.source.0 += source;
         self.range.start.0 += source;
         self.range.end.0 += source;
         self.before_selection.start.0 += display;
