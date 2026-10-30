@@ -215,8 +215,12 @@ mod tests {
                     } else if let Some(neighbor) = actual {
                         assert!(!neighbor.local);
                         assert_eq!(
-                            neighbor.witness.list.as_ref().unwrap().ordinal,
-                            Some(if forward { 7 } else { 1000 })
+                            meaning(Some(neighbor)),
+                            meaning(session.semantic_neighbor(
+                                if forward { at + 5 } else { at },
+                                forward,
+                                quote
+                            ))
                         );
                     }
                 }
