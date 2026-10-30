@@ -90,6 +90,41 @@ impl WasmSession {
                 .map_err(error)?,
         )
     }
+    pub fn inspect_link(&self, revision: u64, start: usize, end: usize) -> Result<String, JsValue> {
+        json(
+            &self
+                .0
+                .inspect_link(
+                    Revision(revision),
+                    DisplayRange {
+                        start: DisplayOffset(start),
+                        end: DisplayOffset(end),
+                    },
+                )
+                .map_err(error)?,
+        )
+    }
+    pub fn set_link(
+        &mut self,
+        revision: u64,
+        start: usize,
+        end: usize,
+        destination: &str,
+    ) -> Result<String, JsValue> {
+        json(
+            &self
+                .0
+                .set_link(
+                    Revision(revision),
+                    DisplayRange {
+                        start: DisplayOffset(start),
+                        end: DisplayOffset(end),
+                    },
+                    destination,
+                )
+                .map_err(error)?,
+        )
+    }
     pub fn active_formats(&self) -> Result<String, JsValue> {
         json(&self.0.active_formats().map_err(error)?)
     }
