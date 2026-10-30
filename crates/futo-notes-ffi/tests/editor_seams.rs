@@ -11,7 +11,7 @@ fn native_structural_seams_and_raw_composition_keep_exact_recovery_and_carets() 
         "../../futo-notes-editor/tests/fixtures/structural-seams.json"
     ))
     .unwrap();
-    assert_eq!(cases.as_array().unwrap().len(), 17);
+    assert_eq!(cases.as_array().unwrap().len(), 19);
     for case in cases.as_array().unwrap() {
         let text = |key: &str| case[key].as_str().unwrap();
         let tree = TempTree::new();
@@ -137,10 +137,19 @@ fn native_structural_seams_and_raw_composition_keep_exact_recovery_and_carets() 
             s.undo(s.revision().unwrap()).unwrap().unwrap();
         }
         assert_eq!(s.source_text().unwrap(), text("source"));
+        let mut redone = None;
         for _ in 0..case["history"].as_u64().unwrap() {
-            s.redo(s.revision().unwrap()).unwrap().unwrap();
+            redone = s.redo(s.revision().unwrap()).unwrap();
         }
         assert_eq!(s.source_text().unwrap(), text("expectedSource"));
+        let caret = case["redoCaret"]
+            .as_u64()
+            .unwrap_or(case["caret"].as_u64().unwrap());
+        assert_eq!(
+            s.display_to_utf16(s.revision().unwrap(), redone.unwrap().selection)
+                .unwrap(),
+            range(caret, caret)
+        );
         s.flush_recovery().unwrap();
         s.detach().unwrap();
         let recovered = store.open_editor("seam".into()).unwrap();

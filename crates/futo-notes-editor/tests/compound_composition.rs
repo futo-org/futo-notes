@@ -333,3 +333,179 @@ fn explicit_composition_runs_retain_equal_visible_scalars_with_distinct_source_s
         }
     }
 }
+
+#[test]
+fn unchanged_explicit_runs_do_not_add_history_after_a_changed_marked_commit() {
+    for (selected, inserted) in [(range(3, 4), "b"), (range(1, 2), " ")] {
+        let mut session = EditorSession::open("a&#32; b c");
+        let mut view = ReferenceView::new("a  b c");
+        let marked = session.compose(Revision(0), range(5, 6), "C").unwrap();
+        assert_eq!(
+            session.replace_many(Revision(0), &[], &mut |_| panic!("empty batch")),
+            Err(EditorError::InvalidRange)
+        );
+        assert_eq!(session.composition(), Some(&marked));
+        let replacements = [DisplayReplacement {
+            range: selected,
+            inserted: inserted.into(),
+        }];
+        let mut calls = 0;
+        assert_eq!(
+            session.replace_many(Revision(0), &replacements, &mut |_| {
+                calls += 1;
+                Err("disk full".into())
+            }),
+            Err(EditorError::Persistence("disk full".into()))
+        );
+        assert_eq!(calls, 1);
+        assert_eq!(session.source_text(), "a&#32; b c");
+        assert_eq!(session.composition(), Some(&marked));
+        calls = 0;
+        view.apply(
+            session
+                .replace_many(Revision(0), &replacements, &mut |_| {
+                    calls += 1;
+                    Ok(())
+                })
+                .unwrap(),
+        );
+        assert_eq!(calls, 1);
+        assert_eq!(session.source_text(), "a&#32; b C");
+        assert_eq!(view.text, "a  b C");
+        assert_eq!(session.selection(), range(selected.end.0, selected.end.0));
+        view.apply(
+            session
+                .undo(session.revision(), &mut |_| Ok(()))
+                .unwrap()
+                .unwrap(),
+        );
+        assert_eq!(session.source_text(), "a&#32; b c");
+        assert_eq!(view.text, "a  b c");
+        assert!(session
+            .undo(session.revision(), &mut |_| panic!(
+                "no phantom following group"
+            ))
+            .unwrap()
+            .is_none());
+        view.apply(
+            session
+                .redo(session.revision(), &mut |_| Ok(()))
+                .unwrap()
+                .unwrap(),
+        );
+        assert_eq!(session.source_text(), "a&#32; b C");
+        assert_eq!(session.selection(), range(6, 6));
+    }
+}
+
+#[test]
+fn unchanged_marking_and_explicit_runs_keep_the_existing_mandatory_change_policy() {
+    let mut session = EditorSession::open("a&#32; b c");
+    let marked = session.compose(Revision(0), range(5, 6), "c").unwrap();
+    assert_eq!(
+        session.replace_many(Revision(0), &[], &mut |_| panic!("empty batch")),
+        Err(EditorError::InvalidRange)
+    );
+    let unchanged = DisplayReplacement {
+        range: range(1, 2),
+        inserted: " ".into(),
+    };
+    assert_eq!(
+        session.replace_many(
+            Revision(0),
+            &[
+                unchanged.clone(),
+                DisplayReplacement {
+                    range: range(99, 100),
+                    inserted: "x".into()
+                }
+            ],
+            &mut |_| panic!("invalid later range")
+        ),
+        Err(EditorError::InvalidRange)
+    );
+    assert_eq!(session.composition(), Some(&marked));
+    assert_eq!(session.source_text(), "a&#32; b c");
+    let mut calls = 0;
+    let change = session
+        .replace_many(Revision(0), &[unchanged], &mut |_| {
+            calls += 1;
+            Ok(())
+        })
+        .unwrap();
+    assert_eq!(calls, 1);
+    assert_eq!(change.selection, range(2, 2));
+    assert_eq!(session.source_text(), "a&#32; b c");
+    assert!(session.composition().is_none());
+    // replace_many returns a mandatory ViewChange, including its existing empty
+    // source action when both the marking and every explicit run are unchanged.
+    assert!(session
+        .undo(session.revision(), &mut |_| Ok(()))
+        .unwrap()
+        .is_some());
+    assert!(session
+        .undo(session.revision(), &mut |_| panic!("one mandatory action"))
+        .unwrap()
+        .is_none());
+    session
+        .redo(session.revision(), &mut |_| Ok(()))
+        .unwrap()
+        .unwrap();
+    assert_eq!(session.source_text(), "a&#32; b c");
+    assert_eq!(session.selection(), range(2, 2));
+    assert!(session
+        .commit_composition(session.revision(), None, &mut |_| panic!("repeated commit"))
+        .unwrap()
+        .is_none());
+}
+
+#[test]
+fn unchanged_explicit_runs_keep_source_identity_and_the_final_supplied_caret() {
+    for marked in ["C", "c"] {
+        let mut session = EditorSession::open("a&#32; b c");
+        let mut view = ReferenceView::new("a  b c");
+        session.compose(Revision(0), range(5, 6), marked).unwrap();
+        view.apply(
+            session
+                .replace_many(
+                    Revision(0),
+                    &[
+                        DisplayReplacement {
+                            range: range(1, 2),
+                            inserted: " ".into(),
+                        },
+                        DisplayReplacement {
+                            range: range(3, 4),
+                            inserted: "B".into(),
+                        },
+                        DisplayReplacement {
+                            range: range(5, 6),
+                            inserted: marked.into(),
+                        },
+                    ],
+                    &mut |_| Ok(()),
+                )
+                .unwrap(),
+        );
+        assert_eq!(session.source_text(), format!("a&#32; B {marked}"));
+        assert_eq!(view.text, format!("a  B {marked}"));
+        assert_eq!(session.selection(), range(6, 6));
+        view.apply(
+            session
+                .undo(session.revision(), &mut |_| Ok(()))
+                .unwrap()
+                .unwrap(),
+        );
+        assert_eq!(session.source_text(), format!("a&#32; b {marked}"));
+        if marked == "C" {
+            view.apply(
+                session
+                    .undo(session.revision(), &mut |_| Ok(()))
+                    .unwrap()
+                    .unwrap(),
+            );
+        }
+        assert_eq!(session.source_text(), "a&#32; b c");
+        assert_eq!(view.text, "a  b c");
+    }
+}

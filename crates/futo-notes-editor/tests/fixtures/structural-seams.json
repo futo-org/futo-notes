@@ -287,5 +287,60 @@
     "caret": 27,
     "history": 2,
     "mode": "composition_batch"
+  },
+  {
+    "name": "explicit-marked-noop-entity",
+    "source": "a&#32; b c",
+    "display": "a  b c",
+    "mode": "composition_batch",
+    "range": [
+      5,
+      6
+    ],
+    "text": "C",
+    "replacements": [
+      [
+        1,
+        2,
+        " "
+      ]
+    ],
+    "expectedSource": "a&#32; b C",
+    "expectedDisplay": "a  b C",
+    "caret": 2,
+    "redoCaret": 6,
+    "history": 1
+  },
+  {
+    "name": "explicit-marked-unchanged-final-run",
+    "source": "a&#32; b c",
+    "display": "a  b c",
+    "mode": "composition_batch",
+    "range": [
+      5,
+      6
+    ],
+    "text": "C",
+    "replacements": [
+      [
+        1,
+        2,
+        ""
+      ],
+      [
+        3,
+        4,
+        "B"
+      ],
+      [
+        5,
+        6,
+        "C"
+      ]
+    ],
+    "expectedSource": "a B C",
+    "expectedDisplay": "a B C",
+    "caret": 5,
+    "history": 2
   }
 ]

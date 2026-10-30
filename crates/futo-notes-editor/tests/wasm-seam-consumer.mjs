@@ -13,7 +13,7 @@ import console from 'node:console';
 import { setTimeout, clearTimeout } from 'node:timers';
 const { WasmSession } = await import(pathToFileURL(process.argv[2]).href);
 const cases = JSON.parse(readFileSync(new URL('fixtures/structural-seams.json', import.meta.url)));
-assert.equal(cases.length, 17);
+assert.equal(cases.length, 19);
 const units = (text) => Uint16Array.from({ length: text.length }, (_, at) => text.charCodeAt(at));
 function host(vault, source) {
   const worker = spawn(process.argv[3], [vault, source], { stdio: ['pipe', 'pipe', 'inherit'] });
@@ -136,7 +136,10 @@ for (const item of cases) {
     assert.equal(display, item.display);
     for (let at = 0; at < item.history; at++) await apply(page.redo(revision));
     assert.equal(page.draft_text(), item.expectedSource);
-    assert.deepEqual(caret, { start: item.caret, end: item.caret });
+    assert.deepEqual(caret, {
+      start: item.redoCaret ?? item.caret,
+      end: item.redoCaret ?? item.caret,
+    });
     page.acknowledge(JSON.stringify(await worker.exchange(page.flush())));
     assert.equal(JSON.parse(page.status()).durable, Number(revision));
     await worker.close();

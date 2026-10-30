@@ -25,6 +25,7 @@ private struct StructuralSeamCase: Decodable {
     let expectedSource: String
     let expectedDisplay: String
     let caret: UInt64
+    let redoCaret: UInt64?
     let history: Int
     let replacements: [StructuralSeamReplacement]?
 }
@@ -40,7 +41,7 @@ struct NativeEditorStructuralSeamTests {
                     forResource: "structural-seams", withExtension: "json"))
             let cases = try JSONDecoder().decode(
                 [StructuralSeamCase].self, from: Data(contentsOf: url))
-            #expect(cases.count == 17)
+            #expect(cases.count == 19)
             for item in cases {
                 let root = FileManager.default.temporaryDirectory.appendingPathComponent(
                     "editor-seams-\(UUID().uuidString)")
@@ -136,8 +137,11 @@ struct NativeEditorStructuralSeamTests {
                 #expect(caret.start == item.caret && caret.end == item.caret)
                 for _ in 0..<item.history { _ = try #require(try s.undo(expected: s.revision())) }
                 #expect(try s.sourceText() == item.source)
-                for _ in 0..<item.history { _ = try #require(try s.redo(expected: s.revision())) }
+                var redone: EditorViewChange?
+                for _ in 0..<item.history { redone = try #require(try s.redo(expected: s.revision())) }
                 #expect(try s.sourceText() == item.expectedSource)
+                let redoneCaret = try s.displayToUtf16(expected: s.revision(), range: #require(redone).selection)
+                #expect(redoneCaret.start == (item.redoCaret ?? item.caret) && redoneCaret.end == redoneCaret.start)
                 _ = try s.flushRecovery()
                 try s.detach()
                 let recovered = try store.openEditor(id: "seam")

@@ -332,9 +332,19 @@ impl EditorSession {
                 return Err(EditorError::InvalidRange);
             }
         }
-        let targets: Vec<_> = replacements
+        // An entirely unchanged supplied run is selection-only. Retain every
+        // changed run verbatim; do not rediscover its interior with a diff.
+        let changed: Vec<_> = replacements
+            .iter()
+            .filter(|replacement| {
+                display.byte_slice(replacement.range.start.0..replacement.range.end.0)
+                    != replacement.inserted
+            })
+            .collect();
+        let targets: Vec<_> = changed
             .iter()
             .flat_map(|replacement| [replacement.range.start.0, replacement.range.end.0])
+            .chain(std::iter::once(end))
             .collect();
         let change = self.command_during_composition_with_targets(
             expected,
@@ -348,7 +358,7 @@ impl EditorSession {
                 // These are explicit caller-selected runs. Preserve their
                 // identities through the marked commit rather than inferring
                 // different runs from equal visible characters afterward.
-                let replacements: Vec<_> = replacements
+                let replacements: Vec<_> = changed
                     .iter()
                     .enumerate()
                     .map(|(index, replacement)| crate::DisplayReplacement {
@@ -359,9 +369,25 @@ impl EditorSession {
                         inserted: replacement.inserted.clone(),
                     })
                     .collect();
-                staged
-                    .replace_many(staged.revision(), &replacements, accept)
-                    .map(Some)
+                let mut caret = *targets.last().unwrap();
+                for replacement in &replacements {
+                    caret = caret - (replacement.range.end.0 - replacement.range.start.0)
+                        + replacement.inserted.len();
+                }
+                let mut change = if replacements.is_empty() {
+                    None
+                } else {
+                    let (change, targets) = staged.replace_many_with_targets(
+                        staged.revision(),
+                        &replacements,
+                        &[caret],
+                        accept,
+                    )?;
+                    caret = targets[0];
+                    Some(change)
+                };
+                staged.finish_os_selection(caret, change.as_mut());
+                Ok(change)
             },
         )?;
         match change {

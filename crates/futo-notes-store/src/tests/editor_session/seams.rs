@@ -15,7 +15,7 @@ fn range(a: usize, z: usize) -> DisplayUtf16Range {
 #[test]
 fn structural_seams_and_raw_composition_recover_exact_source_and_carets() {
     let cases: serde_json::Value = serde_json::from_str(CASES).unwrap();
-    assert_eq!(cases.as_array().unwrap().len(), 17);
+    assert_eq!(cases.as_array().unwrap().len(), 19);
     for case in cases.as_array().unwrap() {
         let text = |key: &str| case[key].as_str().unwrap();
         let root = TestRoot::new();
@@ -149,10 +149,11 @@ fn structural_seams_and_raw_composition_recover_exact_source_and_carets() {
                 s.redo(s.revision()).unwrap().unwrap();
             }
             assert_eq!(s.source_text(), text("expectedSource"));
-            assert_eq!(
-                s.display_to_utf16(s.revision(), s.selection()).unwrap(),
-                caret
-            );
+            let redone = s.display_to_utf16(s.revision(), s.selection()).unwrap();
+            let redo_caret = case["redoCaret"]
+                .as_u64()
+                .unwrap_or(case["caret"].as_u64().unwrap()) as usize;
+            assert_eq!(redone, range(redo_caret, redo_caret));
             assert_eq!(store.read("seam").unwrap(), text("source"));
             assert_eq!(s.flush_recovery().unwrap().durable, s.revision());
         }
