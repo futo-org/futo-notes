@@ -219,6 +219,22 @@ impl StoreEditorSession<'_> {
         state.redo(&self.store, expected)
     }
 
+    pub fn block_command_utf16(
+        &mut self,
+        expected: Revision,
+        range: DisplayUtf16Range,
+        command: futo_notes_editor::BlockCommand,
+    ) -> Result<Option<ViewChange>, EditorStoreError> {
+        let _gate = self.store.lock_gate().map_err(EditorStoreError::Recovery)?;
+        let _vault =
+            futo_notes_core::files::vault_mutation_guard().map_err(EditorStoreError::Recovery)?;
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        if state.terminal {
+            return Err(EditorStoreError::SessionDeleted);
+        }
+        state.block_command_utf16(&self.store, expected, range, command)
+    }
+
     pub fn paragraph_key_utf16(
         &mut self,
         expected: Revision,

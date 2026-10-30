@@ -249,6 +249,25 @@ impl PortableSession {
         Ok(request)
     }
 
+    pub fn block_command_utf16(
+        &mut self,
+        expected: Revision,
+        range: DisplayUtf16Range,
+        command: crate::BlockCommand,
+    ) -> Result<Option<HostRequest>, PortableError> {
+        self.ready()?;
+        let mut record = None;
+        let change = self
+            .engine
+            .block_command_utf16(expected, range, command, &mut |edit| {
+                record = Some(edit.clone());
+                Ok(())
+            })?;
+        change
+            .map(|change| self.stage(record.unwrap(), change))
+            .transpose()
+    }
+
     pub fn paragraph_key_utf16(
         &mut self,
         expected: Revision,

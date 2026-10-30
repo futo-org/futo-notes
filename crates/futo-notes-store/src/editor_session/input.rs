@@ -17,6 +17,24 @@ impl Attachment {
         Ok(())
     }
 
+    pub fn block_command_utf16(
+        &mut self,
+        store: &LocalNoteStore,
+        expected: Revision,
+        range: DisplayUtf16Range,
+        command: futo_notes_editor::BlockCommand,
+    ) -> Result<Option<ViewChange>, EditorStoreError> {
+        self.input_ready()?;
+        self.engine
+            .block_command_utf16(expected, range, command, &mut |edit| {
+                self.recovery.append(&store.root, edit)
+            })
+            .map_err(|error| match error {
+                EditorError::Persistence(error) => EditorStoreError::RecoveryAppend(error),
+                other => EditorStoreError::Editor(other),
+            })
+    }
+
     pub fn paragraph_key_utf16(
         &mut self,
         store: &LocalNoteStore,

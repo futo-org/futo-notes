@@ -23,16 +23,22 @@ pub(crate) struct Row {
     pub display: String,
     pub segments: Vec<Segment>,
     pub spans: Vec<Span>,
+    pub blocks: Vec<super::blocks::BlockLine>,
 }
 
 impl Row {
     pub fn parse(source: &str) -> Self {
+        let events: Vec<_> = Parser::new_ext(source, Options::ENABLE_STRIKETHROUGH)
+            .into_offset_iter()
+            .collect();
+        let (blocks, prefixes) = super::blocks::describe(source, &events);
         let mut hidden = vec![false; source.len()];
+        for prefix in prefixes {
+            hidden[prefix].fill(true);
+        }
         let mut spans = Vec::new();
         let mut replacements = Vec::<(Range<usize>, String)>::new();
-        for (event, range) in
-            Parser::new_ext(source, Options::ENABLE_STRIKETHROUGH).into_offset_iter()
-        {
+        for (event, range) in events {
             let format = match event {
                 Event::Start(Tag::Strong) => Some((InlineFormat::Bold, 2)),
                 Event::Start(Tag::Emphasis) => Some((InlineFormat::Italic, 1)),
@@ -80,6 +86,17 @@ impl Row {
                 });
             }
         }
+        for block in &blocks {
+            hidden[block.source.start..block.content.start].fill(true);
+            let end = source[block.source.clone()]
+                .trim_end_matches(['\r', '\n'])
+                .len()
+                + block.source.start;
+            hidden[block.content.end..end].fill(true);
+            if block.divider {
+                replacements.push((block.content.clone(), "\u{fffc}".into()));
+            }
+        }
         replacements.sort_by_key(|(r, _)| r.start);
         let mut replacements = replacements.into_iter().peekable();
         let mut display = String::new();
@@ -102,9 +119,7 @@ impl Row {
                 }
             }
             if hidden[at] {
-                while at < source.len() && hidden[at] {
-                    at += 1;
-                }
+                at += source[at..].chars().next().unwrap().len_utf8();
             } else {
                 at += source[at..].chars().next().unwrap().len_utf8();
                 display.push_str(&source[start..at]);
@@ -120,6 +135,7 @@ impl Row {
             display,
             segments,
             spans,
+            blocks,
         }
     }
 

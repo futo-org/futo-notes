@@ -11,6 +11,7 @@ import { Buffer } from 'node:buffer';
 import process from 'node:process';
 import console from 'node:console';
 import { setTimeout, clearTimeout } from 'node:timers';
+import { runBlockRegressions } from './wasm-block-consumer.mjs';
 const { WasmSession } = await import(pathToFileURL(process.argv[2]).href);
 
 (async () => {
@@ -188,29 +189,58 @@ const { WasmSession } = await import(pathToFileURL(process.argv[2]).href);
     apply(JSON.parse(page.acknowledge(JSON.stringify(await exchange(JSON.parse(page.undo(19n)))))));
     assert.equal(text, '😀z日 b\r\n');
     assert.equal(JSON.parse(page.paragraph_key_utf16(20n, 0, 0, '"Backspace"')), null);
+    const heading = JSON.parse(page.block_command_utf16(20n, 0, 0, '{"Heading":6}'));
+    assert.equal(text, '😀z日 b\r\n');
+    const headingChange = JSON.parse(page.acknowledge(JSON.stringify(await exchange(heading))));
+    apply(headingChange);
+    assert.equal(headingChange.projection.blocks[0].heading, 6);
+    assert.equal(page.draft_text(), '###### ~~__😀z日 b__~~\r\n');
+    assert.equal(text, '😀z日 b\r\n');
+    const blockEnter = JSON.parse(page.paragraph_key_utf16(21n, 3, 3, '"Enter"'));
+    apply(JSON.parse(page.acknowledge(JSON.stringify(await exchange(blockEnter)))));
+    assert.equal(page.draft_text(), '###### ~~__😀z__~~\n~~__日 b__~~\r\n');
+    assert.equal(text, '😀z\n日 b\r\n');
+    apply(JSON.parse(page.acknowledge(JSON.stringify(await exchange(JSON.parse(page.undo(22n)))))));
+    assert.equal(page.draft_text(), '###### ~~__😀z日 b__~~\r\n');
     const marked = JSON.parse(
-      page.compose_utf16(20n, 3, 4, new Uint16Array([0x306b, 0x307b, 0x3093])),
+      page.compose_utf16(23n, 3, 4, new Uint16Array([0x306b, 0x307b, 0x3093])),
     );
     assert.equal(marked.text, 'にほん');
-    assert.equal(page.draft_text(), '~~__😀z日 b__~~\r\n');
-    assert.equal(JSON.parse(page.undo(20n)), null);
-    assert.throws(() => page.compose_utf16(20n, 3, 4, new Uint16Array([0xd800])));
+    assert.equal(page.draft_text(), '###### ~~__😀z日 b__~~\r\n');
+    assert.equal(JSON.parse(page.undo(23n)), null);
+    assert.throws(() => page.compose_utf16(23n, 3, 4, new Uint16Array([0xd800])));
     assert.throws(
-      () => page.replace_utf16_action(20n, 3, 6, new Uint16Array([0x65e5]), '"CompositionCommit"'),
+      () => page.replace_utf16_action(23n, 3, 6, new Uint16Array([0x65e5]), '"CompositionCommit"'),
       /CompositionActive/,
     );
     const markedCommit = JSON.parse(
-      page.commit_composition_utf16(20n, new Uint16Array([0x65e5, 0x672c])),
+      page.commit_composition_utf16(23n, new Uint16Array([0x65e5, 0x672c])),
     );
     assert.equal(text, '😀z日 b\r\n');
     apply(JSON.parse(page.acknowledge(JSON.stringify(await exchange(markedCommit)))));
     assert.equal(text, '😀z日本 b\r\n');
-    assert.equal(page.draft_text(), '~~__😀z日本 b__~~\r\n');
-    assert.equal(JSON.parse(page.commit_composition_utf16(21n)), null);
+    assert.equal(page.draft_text(), '###### ~~__😀z日本 b__~~\r\n');
+    assert.equal(JSON.parse(page.commit_composition_utf16(24n)), null);
+    for (const [revision, command, expected] of [
+      [24n, '"Quote"', '> ~~__😀z日本 b__~~\r\n'],
+      [25n, '"Indent"', '> > ~~__😀z日本 b__~~\r\n'],
+      [26n, '"Outdent"', '> ~~__😀z日本 b__~~\r\n'],
+    ]) {
+      const request = JSON.parse(page.block_command_utf16(revision, 0, 0, command));
+      apply(JSON.parse(page.acknowledge(JSON.stringify(await exchange(request)))));
+      assert.equal(page.draft_text(), expected);
+      assert.equal(text, '😀z日本 b\r\n');
+    }
+    const divider = JSON.parse(page.block_command_utf16(27n, 7, 7, '"Divider"'));
+    const dividerChange = JSON.parse(page.acknowledge(JSON.stringify(await exchange(divider))));
+    apply(dividerChange);
+    assert.equal(page.draft_text(), '> ~~__😀z日本 b__~~\n> ***\n> \r\n');
+    assert.equal(text, '😀z日本 b\n\ufffc\n\r\n');
+    assert.ok(dividerChange.projection.blocks.some((block) => block.divider));
     const flush = JSON.parse(page.flush());
     assert.equal(JSON.parse(page.status()).durable, 0);
     page.acknowledge(JSON.stringify(await exchange(flush)));
-    assert.equal(JSON.parse(page.status()).durable, 21);
+    assert.equal(JSON.parse(page.status()).durable, 28);
   } finally {
     clearTimeout(deadline);
     page?.free();
@@ -219,7 +249,10 @@ const { WasmSession } = await import(pathToFileURL(process.argv[2]).href);
     rmSync(vault, { recursive: true });
     assert.equal(code, 0);
   }
-  console.log('Compiled WASM / Rust store consumer: ordered edit/undo/redo/append/flush passed.');
+  await runBlockRegressions();
+  console.log(
+    'Compiled WASM / Rust store consumer: ordered edit/undo/redo/append/flush and block regressions passed.',
+  );
   const identityVault = mkdtempSync(join(tmpdir(), 'futo-editor-wasm-identity-'));
   const identityWorker = spawn(process.argv[3], [identityVault, 'lifecycle'], {
     stdio: ['pipe', 'pipe', 'inherit'],

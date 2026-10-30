@@ -1,6 +1,8 @@
 use super::*;
 use futo_notes_editor::{DisplayOffset, DisplayRange, Revision};
 
+mod block_input;
+mod blocks;
 mod composition;
 mod durability;
 mod lifecycle;
@@ -12,6 +14,8 @@ mod portable;
 mod portable_attachment;
 mod portable_readiness;
 mod recovery;
+mod seams;
+mod selected_source;
 mod storage;
 
 fn range(start: usize, end: usize) -> DisplayRange {

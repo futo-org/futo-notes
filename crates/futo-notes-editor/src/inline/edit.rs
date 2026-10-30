@@ -17,7 +17,7 @@ pub(crate) struct Plan {
     pub materialized: usize,
     pub parsed: usize,
 }
-fn common_prefix(a: &str, b: &str) -> usize {
+pub(super) fn common_prefix(a: &str, b: &str) -> usize {
     a.chars()
         .zip(b.chars())
         .take_while(|(a, b)| a == b)
@@ -43,7 +43,8 @@ impl Projection {
             z,
             mut markers,
             pieces,
-        } = self.edit_context(source, range);
+            block_boundaries,
+        } = self.edit_context_for_change(source, range, toggle.is_none().then_some(inserted));
         let expanded = split_entities(pieces, a, z);
         let Cut {
             mut before,
@@ -92,9 +93,23 @@ impl Projection {
             raw: ch.to_string(),
             display: ch.to_string(),
             spans: active.clone(),
+            trailing: false,
         }));
         let insertion_end = changed.len();
         changed.extend(after);
+        let boundaries: Vec<_> = block_boundaries
+            .into_iter()
+            .filter_map(|boundary| {
+                if boundary <= a {
+                    Some(boundary)
+                } else if boundary >= z {
+                    Some(boundary - (z - a) + inserted.len())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        super::spelling::split_block_spans(&mut changed, &boundaries);
         // A native line break stays a line break. Split inline code around it
         // rather than allowing CommonMark code-space normalization to eat it.
         for piece in &mut changed {
@@ -107,7 +122,20 @@ impl Projection {
         if let Some(format) = toggle {
             toggle_pieces(&mut changed, &mut markers, a..z, format);
         }
-        let literal = toggle.is_some()
+        let speculative_block = inserted
+            .chars()
+            .all(|ch| matches!(ch, '#' | '>' | '*' | '_'))
+            && self
+                .display
+                .byte_slice(
+                    self.display
+                        .line_to_byte(self.display.byte_to_line(range.start.0))
+                        ..range.start.0,
+                )
+                .chars()
+                .all(|ch| matches!(ch, '#' | '>' | '*' | '_'));
+        let literal = speculative_block
+            || toggle.is_some()
             || inserted.is_empty()
             || !inserted.contains(['*', '_', '~', '`', '\\', '&', '<', '>'])
             || active
@@ -134,7 +162,16 @@ impl Projection {
             parsed,
         })
     }
-    fn edit_context(&self, source: &Rope, range: DisplayRange) -> Context {
+    pub(super) fn edit_context(&self, source: &Rope, range: DisplayRange) -> Context {
+        self.edit_context_for_change(source, range, None)
+    }
+
+    fn edit_context_for_change(
+        &self,
+        source: &Rope,
+        range: DisplayRange,
+        replacement: Option<&str>,
+    ) -> Context {
         let first = self.rows.locate(range.start.0, true);
         let last = self.rows.locate(range.end.0, true);
         let (_, source_start, display_start) = self.rows.at(first);
@@ -146,17 +183,75 @@ impl Projection {
         let mut a = range.start.0 - display_start;
         let mut z = range.end.0 - display_start;
         let mut display_len = 0;
+        let mut block_boundaries = Vec::new();
+        let may_empty_heading = replacement.is_some_and(|text| {
+            text.split('\n')
+                .any(|line| line.trim_matches([' ', '\t', '\r']).is_empty())
+        });
+        let mut selected_body_before = false;
         for index in first..=last {
             let (row, row_source, _) = self.rows.at(index);
             let base = row_source - source_start;
             let span_base = markers.len();
+            for pair in row.blocks.windows(2) {
+                if pair[0].heading > 0
+                    || pair[1].heading > 0
+                    || pair[0].quote_depth != pair[1].quote_depth
+                {
+                    block_boundaries.push(display_len + row.display_at(pair[1].source.start));
+                }
+            }
             markers.extend(row.spans.iter().map(|span| Marker {
                 format: span.format,
                 open: raw[base + span.open.start..base + span.open.end].into(),
                 close: raw[base + span.close.start..base + span.close.end].into(),
             }));
+            let retired_headings: Vec<_> = row
+                .blocks
+                .iter()
+                .filter(|block| {
+                    let body_start = self.display_at(row_source + block.content.start);
+                    let body_end = self.display_at(row_source + block.content.end);
+                    // Replacing body text across blocks owns a complete lower
+                    // heading's dependent syntax. Selecting only its preceding
+                    // separator does not grant that same body ownership.
+                    let retire = replacement.is_some()
+                        && (may_empty_heading || selected_body_before)
+                        && block.underline.is_some()
+                        && range.start.0 <= body_start
+                        && body_end <= range.end.0;
+                    selected_body_before |= body_start < body_end
+                        && range.start.0 < body_end
+                        && body_start < range.end.0;
+                    retire
+                })
+                .collect();
             for segment in &row.segments {
-                if segment.display.is_empty() {
+                for block in &retired_headings {
+                    if segment.source.start == block.source.start {
+                        // Setext syntax depends on nonempty body text. Preserve
+                        // the heading/container intent using the existing empty
+                        // ATX form, retiring only the owned underline below.
+                        pieces.push(Piece {
+                            raw: format!(
+                                "{}{} ",
+                                &raw[base + block.source.start..base + block.content.start],
+                                "#".repeat(block.heading as usize)
+                            ),
+                            display: String::new(),
+                            spans: Vec::new(),
+                            trailing: false,
+                        });
+                    }
+                }
+                if retired_headings.iter().any(|block| {
+                    segment.display.is_empty()
+                        && (segment.source.end <= block.content.start
+                            && block.source.start <= segment.source.start
+                            || block.content.end <= segment.source.start
+                                && segment.source.end
+                                    <= block.underline.as_ref().unwrap().content.end)
+                }) {
                     continue;
                 }
                 let active = row
@@ -169,10 +264,34 @@ impl Projection {
                     })
                     .map(|(i, _)| span_base + i)
                     .collect();
+                if segment.display.is_empty() {
+                    // Inline markers are reconstructed from spans; block markers
+                    // are exact source pieces outside that inline stack.
+                    if row.spans.iter().any(|span| {
+                        span.open.start <= segment.source.start
+                            && segment.source.end <= span.open.end
+                            || span.close.start <= segment.source.start
+                                && segment.source.end <= span.close.end
+                    }) {
+                        continue;
+                    }
+                    let trailing = row.blocks.iter().any(|block| {
+                        block.content.end <= segment.source.start
+                            && segment.source.end <= block.source.end
+                    });
+                    pieces.push(Piece {
+                        raw: raw[base + segment.source.start..base + segment.source.end].to_owned(),
+                        display: String::new(),
+                        spans: active,
+                        trailing,
+                    });
+                    continue;
+                }
                 pieces.push(Piece {
                     raw: raw[base + segment.source.start..base + segment.source.end].to_owned(),
                     display: row.display[segment.display.clone()].to_owned(),
                     spans: active,
+                    trailing: false,
                 });
             }
             display_len += row.display.len();
@@ -187,6 +306,7 @@ impl Projection {
             z,
             markers,
             pieces,
+            block_boundaries,
         }
     }
 }
@@ -200,14 +320,15 @@ pub(crate) fn delimiter(format: InlineFormat) -> &'static str {
     }
 }
 
-struct Context {
-    raw: String,
-    source_start: usize,
-    source_end: usize,
-    a: usize,
-    z: usize,
-    markers: Vec<Marker>,
-    pieces: Vec<Piece>,
+pub(super) struct Context {
+    pub(super) raw: String,
+    pub(super) source_start: usize,
+    pub(super) source_end: usize,
+    pub(super) a: usize,
+    pub(super) z: usize,
+    pub(super) markers: Vec<Marker>,
+    pub(super) pieces: Vec<Piece>,
+    pub(super) block_boundaries: Vec<usize>,
 }
 struct Cut {
     before: Vec<Piece>,
@@ -220,6 +341,10 @@ fn split_entities(pieces: Vec<Piece>, a: usize, z: usize) -> Vec<Piece> {
     let mut expanded = Vec::new();
     let mut position = 0;
     for piece in pieces {
+        if piece.display.is_empty() {
+            expanded.push(piece);
+            continue;
+        }
         let end = position + piece.display.len();
         let mut cuts = vec![0, piece.display.len()];
         for boundary in [a, z] {
@@ -246,6 +371,7 @@ fn split_entities(pieces: Vec<Piece>, a: usize, z: usize) -> Vec<Piece> {
                     raw,
                     display,
                     spans: piece.spans.clone(),
+                    trailing: piece.trailing,
                 });
             }
         }
@@ -269,7 +395,12 @@ fn cut(expanded: Vec<Piece>, selected: Range<usize>, keep: bool) -> Cut {
         if offset <= a && a < end {
             right = piece.spans.clone();
         }
-        if keep || end <= a {
+        if piece.display.is_empty() && !piece.trailing && offset == z && a < z && !keep {
+            // Joining lines retires the following line's block prefix. Its
+            // inline spans still join through their visible pieces below.
+        } else if piece.display.is_empty() && piece.trailing && offset >= z && !keep {
+            after.push(piece);
+        } else if keep || end <= a {
             before.push(piece);
         } else if offset >= z {
             after.push(piece);
@@ -299,8 +430,13 @@ fn carry_formats(
             let previous = before
                 .iter()
                 .rev()
+                .take_while(|piece| {
+                    !piece.display.contains(['\r', '\n'])
+                        && !(piece.display.is_empty() && !piece.raw.is_empty())
+                })
                 .find(|piece| !piece.display.chars().all(char::is_whitespace));
-            let neighbor = previous.or_else(|| after.first());
+            let neighbor =
+                previous.or_else(|| after.iter().find(|piece| !piece.display.is_empty()));
             let reusable = neighbor.and_then(|piece| {
                 piece
                     .spans
@@ -310,7 +446,10 @@ fn carry_formats(
             });
             let id = if let Some(id) = reusable {
                 for piece in before.iter_mut().rev() {
-                    if !piece.display.chars().all(char::is_whitespace) {
+                    if piece.display.contains(['\r', '\n'])
+                        || piece.display.is_empty() && !piece.raw.is_empty()
+                        || !piece.display.chars().all(char::is_whitespace)
+                    {
                         break;
                     }
                     piece.spans.push(id);
@@ -318,11 +457,20 @@ fn carry_formats(
                 id
             } else {
                 let delimiter = delimiter(format);
+                let spelling = before.iter().rev().chain(after.iter()).find_map(|piece| {
+                    piece
+                        .spans
+                        .iter()
+                        .find(|id| markers[**id].format == format)
+                        .map(|id| (markers[*id].open.clone(), markers[*id].close.clone()))
+                });
                 let id = markers.len();
+                let (open, close) =
+                    spelling.unwrap_or_else(|| (delimiter.into(), delimiter.into()));
                 markers.push(Marker {
                     format,
-                    open: delimiter.into(),
-                    close: delimiter.into(),
+                    open,
+                    close,
                 });
                 id
             };

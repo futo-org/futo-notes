@@ -9,12 +9,12 @@ mod portable;
 mod session;
 mod types;
 
-pub use session::{Composition, EditorSession, OwnActionRelink, ParagraphKey};
+pub use session::{BlockCommand, Composition, EditorSession, OwnActionRelink, ParagraphKey};
 pub use types::{
-    Affinity, CaretDirection, Correspondence, DisplayOffset, DisplayRange, DisplayUtf16Offset,
-    DisplayUtf16Range, EditWork, EditorError, InlineFormat, ProjectionSlice, Revision,
-    SelectionChange, SemanticRun, SourceEdit, SourceOffset, SourceRange, SourceUtf16Offset,
-    SourceUtf16Range, ViewChange,
+    Affinity, BlockDescription, CaretDirection, Correspondence, DisplayOffset, DisplayRange,
+    DisplayUtf16Offset, DisplayUtf16Range, EditWork, EditorError, InlineFormat, ProjectionSlice,
+    Revision, SelectionChange, SemanticRun, SourceEdit, SourceOffset, SourceRange,
+    SourceUtf16Offset, SourceUtf16Range, ViewChange,
 };
 
 pub use portable::{

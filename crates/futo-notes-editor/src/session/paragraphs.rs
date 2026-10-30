@@ -15,7 +15,8 @@ pub enum ParagraphKey {
 impl EditorSession {
     /// Paragraph Enter/Shift+Enter insert one LF. Directional deletion removes
     /// the selection or one visible extended grapheme (CRLF is one line break).
-    /// Structural block/table keys belong to their subsequent command layer.
+    /// Headings, quotes and divider edges route through the shared block owner;
+    /// list, fence and table keys belong to their subsequent command layer.
     /// Boundary deletion is a no-op with no acceptance, revision or history.
     pub fn paragraph_key(
         &mut self,
@@ -25,19 +26,19 @@ impl EditorSession {
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<Option<ViewChange>, EditorError> {
         self.check_revision(expected)?;
-        let overlay = self
-            .composition
-            .as_ref()
-            .map(|_| self.provisional_display());
-        if let Some(display) = &overlay {
-            super::composition::validate_overlay_range(display, range)?;
-        } else {
-            self.validate_range(range)?;
+        if self.composition.is_some() {
+            return self.command_during_composition(
+                expected,
+                range,
+                accept,
+                |staged, local, accept| staged.paragraph_key(staged.revision(), local, key, accept),
+            );
         }
-        let stop = |position, direction| match &overlay {
-            Some(display) => Self::grapheme_stop_in(display, position, direction, false),
-            None => self.grapheme_stop(position, direction, false),
-        };
+        self.validate_range(range)?;
+        if let Some(change) = self.structural_key(expected, range, key, accept)? {
+            return Ok(Some(change));
+        }
+        let stop = |position, direction| self.grapheme_stop(position, direction, false);
         let inserted = match key {
             ParagraphKey::Enter | ParagraphKey::ShiftEnter => "\n",
             ParagraphKey::Backspace | ParagraphKey::Delete => {
@@ -59,12 +60,8 @@ impl EditorSession {
                 ""
             }
         };
-        if overlay.is_some() {
-            self.finish_provisional_input(expected, range, inserted, InputAction::Isolated, accept)
-        } else {
-            self.replace_action(expected, range, inserted, InputAction::Isolated, accept)
-                .map(Some)
-        }
+        self.replace_action(expected, range, inserted, InputAction::Isolated, accept)
+            .map(Some)
     }
 
     pub fn paragraph_key_utf16(

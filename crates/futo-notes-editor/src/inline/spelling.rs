@@ -8,6 +8,7 @@ pub(super) struct Piece {
     pub raw: String,
     pub display: String,
     pub spans: Vec<usize>,
+    pub trailing: bool,
 }
 pub(super) struct Marker {
     pub format: InlineFormat,
@@ -34,8 +35,31 @@ pub(super) fn spell(
     let mut rendered = render(&pieces, &markers, insertion.start, insertion.end);
     let mut parsed = 0;
     if literal {
-        let candidate = Row::parse(&rendered.text);
+        let mut candidate = Row::parse(&rendered.text);
         parsed += rendered.text.len();
+        if candidate.display != expected {
+            repair_literal_boundaries(&mut pieces, &rendered, &candidate, &insertion);
+            // A speculative line-start marker must reopen as the literal text
+            // the writer still sees. The block shortcut replaces this spelling
+            // only when its final triggering character arrives.
+            for piece in &mut pieces[insertion.clone()] {
+                if piece.raw == piece.display
+                    && piece
+                        .display
+                        .chars()
+                        .all(|ch| matches!(ch, '#' | '>' | '*' | '_' | '-'))
+                {
+                    piece.raw = piece
+                        .display
+                        .chars()
+                        .map(|ch| format!("&#{};", ch as u32))
+                        .collect();
+                }
+            }
+            rendered = render(&pieces, &markers, insertion.start, insertion.end);
+            candidate = Row::parse(&rendered.text);
+            parsed += rendered.text.len();
+        }
         let missing: Vec<_> = rendered
             .spans
             .iter()
@@ -112,6 +136,7 @@ struct Rendered {
     text: String,
     caret: usize,
     spans: Vec<(usize, Span)>,
+    pieces: Vec<Range<usize>>,
 }
 fn render(
     pieces: &[Piece],
@@ -124,6 +149,7 @@ fn render(
     let mut openings: Vec<Range<usize>> = Vec::new();
     let mut spans = Vec::new();
     let mut caret = None;
+    let mut piece_ranges = Vec::with_capacity(pieces.len());
     for (index, piece) in pieces.iter().enumerate() {
         let common = stack
             .iter()
@@ -153,7 +179,9 @@ fn render(
             openings.push(start..output.len());
             stack.push(id);
         }
+        let start = output.len();
         output.push_str(&piece.raw);
+        piece_ranges.push(start..output.len());
         if index + 1 == insertion_end {
             caret = Some(output.len());
         }
@@ -178,6 +206,73 @@ fn render(
         caret: caret.unwrap_or(output.len()),
         text: output,
         spans,
+        pieces: piece_ranges,
+    }
+}
+
+fn repair_literal_boundaries(
+    pieces: &mut [Piece],
+    rendered: &Rendered,
+    candidate: &Row,
+    insertion: &Range<usize>,
+) {
+    for (piece, source) in pieces.iter_mut().zip(&rendered.pieces) {
+        if piece.raw == "\\"
+            && piece.display == "\\"
+            && candidate.segments.iter().any(|segment| {
+                !segment.identity
+                    && segment.source.start == source.start
+                    && source.end < segment.source.end
+                    && candidate.display_at(source.start) == candidate.display_at(source.end)
+            })
+        {
+            piece.raw = "&#92;".into();
+        }
+    }
+    let mut closers = Vec::new();
+    for (piece, source) in pieces.iter_mut().zip(&rendered.pieces) {
+        if piece.trailing && piece.display.is_empty() && piece.raw == "#" {
+            if let Some(block) = candidate.blocks.iter().find(|block| {
+                block.heading > 0
+                    && block.heading_syntax == super::blocks::HeadingSyntax::Atx
+                    && block.content.start <= source.start
+                    && source.end <= block.content.end
+            }) {
+                if !closers.contains(&block.source.start) {
+                    piece.raw.insert(0, ' ');
+                    closers.push(block.source.start);
+                }
+            }
+        }
+    }
+    // A deletion can expose a body space as ATX separation, or a
+    // literal hash as an opener/closer. Repair only visible pieces
+    // that the candidate now consumes as hidden block syntax.
+    let mut repaired = Vec::new();
+    for (index, (piece, source)) in pieces.iter_mut().zip(&rendered.pieces).enumerate() {
+        let boundary = candidate.blocks.iter().find_map(|block| {
+            if block.source.start <= source.start && source.end <= block.content.start {
+                Some((block.source.start, false))
+            } else if block.content.end <= source.start && source.end <= block.source.end {
+                Some((block.source.start, true))
+            } else {
+                None
+            }
+        });
+        if piece.raw == piece.display
+            && piece.display.chars().count() == 1
+            && !piece.display.contains(['\r', '\n'])
+            && boundary.is_some_and(|boundary| !repaired.contains(&boundary))
+            && candidate.display_at(source.start) == candidate.display_at(source.end)
+        {
+            let scalar = piece.display.chars().next().unwrap();
+            piece.raw = if scalar.is_ascii_punctuation() && !insertion.contains(&index) {
+                format!("\\{scalar}")
+            } else {
+                format!("&#{};", scalar as u32)
+            };
+            repaired.push(boundary.unwrap());
+        }
     }
 }
 
@@ -194,6 +289,14 @@ fn repair_boundaries(pieces: &mut [Piece], missing: &[usize]) {
             if index + 1 < pieces.len() && !pieces[index + 1].spans.contains(&id) {
                 encode.push(index + 1);
             }
+            // A literal backslash immediately before a new closing marker
+            // must not escape that marker, including at the body's end.
+            if (index + 1 == pieces.len() || !pieces[index + 1].spans.contains(&id))
+                && pieces[index].raw == "\\"
+                && pieces[index].display == "\\"
+            {
+                encode.push(index);
+            }
         }
     }
     encode.sort_unstable();
@@ -207,6 +310,22 @@ fn repair_boundaries(pieces: &mut [Piece], missing: &[usize]) {
             let scalar = piece.display.chars().next().unwrap() as u32;
             piece.raw = format!("&#{scalar};");
         }
+    }
+}
+
+// Block commands create a real parser boundary even with one source newline.
+// Close before that exact separator and reopen after the following block prefix.
+pub(super) fn split_block_spans(pieces: &mut [Piece], boundaries: &[usize]) {
+    let mut at = 0;
+    for piece in pieces {
+        let end = at + piece.display.len();
+        if (piece.display.ends_with('\n') && boundaries.contains(&end))
+            || (piece.display == "\r" && boundaries.contains(&(end + 1)))
+            || (piece.display.is_empty() && !piece.trailing && boundaries.contains(&at))
+        {
+            piece.spans.clear();
+        }
+        at = end;
     }
 }
 
@@ -254,23 +373,29 @@ fn trim_emphasis_edges(pieces: &mut [Piece], markers: &[Marker]) {
         if marker.format == InlineFormat::Code {
             continue;
         }
-        let selected: Vec<_> = pieces
-            .iter()
-            .enumerate()
-            .filter(|(_, p)| p.spans.contains(&id))
-            .map(|(i, _)| i)
-            .collect();
-        for &i in &selected {
-            if !pieces[i].display.chars().all(char::is_whitespace) {
-                break;
+        let mut start = 0;
+        while start < pieces.len() {
+            if !pieces[start].spans.contains(&id) {
+                start += 1;
+                continue;
             }
-            pieces[i].spans.retain(|v| *v != id);
-        }
-        for &i in selected.iter().rev() {
-            if !pieces[i].display.chars().all(char::is_whitespace) {
-                break;
+            let mut end = start + 1;
+            while end < pieces.len() && pieces[end].spans.contains(&id) {
+                end += 1;
             }
-            pieces[i].spans.retain(|v| *v != id);
+            for piece in &mut pieces[start..end] {
+                if !piece.display.chars().all(char::is_whitespace) {
+                    break;
+                }
+                piece.spans.retain(|v| *v != id);
+            }
+            for piece in pieces[start..end].iter_mut().rev() {
+                if !piece.display.chars().all(char::is_whitespace) {
+                    break;
+                }
+                piece.spans.retain(|v| *v != id);
+            }
+            start = end;
         }
     }
 }
