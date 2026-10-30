@@ -29,19 +29,46 @@ impl EditorSession {
                 return Ok(None);
             }
         };
+        // Semantic witnesses belong to the original projection. A local stage
+        // edge is not a document boundary, even after several blank paragraphs.
+        let creating_list = line.list.is_none();
+        let styles = creating_list.then(|| {
+            self.list_shortcut_styles(
+                &line,
+                marker
+                    .strip_suffix(". ")
+                    .map(|number| number.parse().unwrap()),
+            )
+        });
+        let (window, display_origin) = self.projection.edit_window(range);
+        let source_anchor = line
+            .source
+            .start
+            .checked_sub(window.start)
+            .ok_or(EditorError::InvalidRange)?;
+        let display_anchor = self
+            .projection
+            .display_at(line.content.start)
+            .checked_sub(display_origin)
+            .ok_or(EditorError::InvalidRange)?;
+        let mut styles = styles
+            .map(|mut styles| {
+                for (position, _) in &mut styles.comments {
+                    if *position < window.start || *position > window.end {
+                        return Err(EditorError::InvalidRange);
+                    }
+                    *position -= window.start;
+                }
+                Ok(styles)
+            })
+            .transpose()?;
         self.stage_block_action(expected, range, None, accept, |staged, local, accept| {
             let line = staged.projection.block_lines(local).remove(0);
-            // Prefix removal can turn a paragraph into a blank continuation of
-            // its preceding list. Plan from the original owner before that edit.
-            let creating_list = line.list.is_none();
-            let mut styles = creating_list.then(|| {
-                staged.list_shortcut_styles(
-                    &line,
-                    marker
-                        .strip_suffix(". ")
-                        .map(|number| number.parse().unwrap()),
-                )
-            });
+            if line.source.start != source_anchor
+                || staged.projection.display_at(line.content.start) != display_anchor
+            {
+                return Err(EditorError::InvalidRange);
+            }
             let formats = staged.pending_formats.clone();
             let affinity = staged.affinity;
             let start = DisplayOffset(staged.projection.display_at(line.content.start));

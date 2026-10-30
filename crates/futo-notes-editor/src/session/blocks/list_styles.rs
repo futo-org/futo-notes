@@ -5,7 +5,7 @@ use super::*;
 use crate::inline::blocks::BlockLine;
 use std::collections::{HashMap, HashSet};
 
-pub(super) struct ListStyles {
+pub(super) struct ListStylePlan {
     pub markers: Vec<u8>,
     pub comments: Vec<(usize, String)>,
 }
@@ -16,11 +16,15 @@ enum ListIntent {
 }
 
 impl EditorSession {
-    pub(super) fn list_styles(&self, lines: &[BlockLine], command: BlockCommand) -> ListStyles {
+    pub(super) fn list_styles(&self, lines: &[BlockLine], command: BlockCommand) -> ListStylePlan {
         self.plan_list_styles(lines, command, ListIntent::Independent)
     }
 
-    pub(super) fn list_shortcut_styles(&self, line: &BlockLine, start: Option<u64>) -> ListStyles {
+    pub(super) fn list_shortcut_styles(
+        &self,
+        line: &BlockLine,
+        start: Option<u64>,
+    ) -> ListStylePlan {
         self.plan_list_styles(
             std::slice::from_ref(line),
             if start.is_some() {
@@ -37,17 +41,16 @@ impl EditorSession {
         lines: &[BlockLine],
         command: BlockCommand,
         intent: ListIntent,
-    ) -> ListStyles {
+    ) -> ListStylePlan {
         let ordered = command == BlockCommand::OrderedList;
         let candidates: &[u8] = if ordered { b".)" } else { b"-+*" };
         let planned_owners: HashSet<_> = lines
             .iter()
             .filter_map(|line| line.list.as_ref().map(|list| list.owner.start))
             .collect();
-        let planned_lines: HashSet<_> = lines.iter().map(|line| line.source.start).collect();
         let mut resolved_owners = HashMap::new();
         let mut resolved_lines = HashMap::new();
-        let mut result = ListStyles {
+        let mut result = ListStylePlan {
             markers: vec![candidates[0]; lines.len()],
             comments: Vec::new(),
         };
@@ -113,59 +116,49 @@ impl EditorSession {
                 }
                 after_line -= 1;
             }
-            let neighbor = |mut index: isize, direction: isize| {
-                while index >= 0 && (index as usize) < self.source.len_lines() {
-                    let at = self.source.line_to_byte(index as usize);
-                    let Some(line) = self.projection.block_at_source(at) else {
-                        return None;
-                    };
-                    if line.empty_comment || line.code || line.quote_depth != head.quote_depth {
-                        return None;
-                    }
-                    let blank = self
-                        .source
-                        .byte_slice(line.content.clone())
-                        .chars()
-                        .all(|ch| matches!(ch, ' ' | '\t'));
-                    if blank && line.list.as_ref().is_none_or(|list| !list.first) {
-                        index += direction;
-                        continue;
-                    }
-                    if let Some(list) = &line.list {
-                        if list.depth != depth {
-                            return None;
-                        }
-                        if let Some(&marker) = resolved_owners.get(&list.owner.start) {
-                            return Some((marker, None));
-                        }
-                        if planned_owners.contains(&list.owner.start) {
-                            return None;
-                        }
-                        if list.ordinal.is_some() == ordered {
-                            return Some((
-                                self.source
-                                    .byte_slice(list.marker.end - 1..list.marker.end)
-                                    .bytes()
-                                    .next()
-                                    .unwrap(),
-                                list.ordinal.map(|number| number + 1),
-                            ));
-                        }
+            let neighbor = |at: usize, forward: bool| {
+                let line = self
+                    .projection
+                    .rows
+                    .context_neighbor(at, forward, head.quote_depth)?;
+                if line.empty_comment || line.code || line.quote_depth != head.quote_depth {
+                    return None;
+                }
+                if let Some(list) = &line.list {
+                    if list.depth != depth {
                         return None;
                     }
-                    if let Some(&marker) = resolved_lines.get(&line.source.start) {
+                    if let Some(&marker) = resolved_owners.get(&list.owner.start) {
                         return Some((marker, None));
                     }
-                    if planned_lines.contains(&line.source.start) || !line.content.is_empty() {
+                    if planned_owners.contains(&list.owner.start) {
                         return None;
                     }
-                    index += direction;
+                    if list.ordinal.is_some() == ordered {
+                        return Some((
+                            self.source
+                                .byte_slice(list.marker.end - 1..list.marker.end)
+                                .bytes()
+                                .next()
+                                .unwrap(),
+                            list.ordinal.map(|number| number + 1),
+                        ));
+                    }
+                    return None;
                 }
-                None
+                resolved_lines
+                    .get(&line.source.start)
+                    .copied()
+                    .map(|marker| (marker, None))
             };
-            let preceding = neighbor(before_line as isize - 1, -1);
+            let preceding = neighbor(head.source.start, false);
             let before = preceding.map(|(marker, _)| marker);
-            let after = neighbor(after_line as isize, 1).map(|(marker, _)| marker);
+            let after_at = if after_line < self.source.len_lines() {
+                self.source.line_to_byte(after_line)
+            } else {
+                self.source.len_bytes()
+            };
+            let after = neighbor(after_at, true).map(|(marker, _)| marker);
             // Shipping wrappingInputRule joins only the preceding list. Ordered
             // input must spell its interpreted next number; bullets always join.
             let join = match intent {

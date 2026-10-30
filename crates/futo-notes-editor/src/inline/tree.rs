@@ -11,10 +11,17 @@ pub(crate) struct Node {
     count: usize,
     source: usize,
     display: usize,
+    transparent_quote: Option<usize>,
 }
 
 impl Node {
     fn update(&mut self) {
+        self.transparent_quote = self.row.transparent_quote.filter(|quote| {
+            [&self.left, &self.right].into_iter().all(|link| {
+                link.as_ref()
+                    .is_none_or(|child| child.transparent_quote == Some(*quote))
+            })
+        });
         self.count = 1 + count(&self.left) + count(&self.right);
         self.source = self.row.source_len + length(&self.left, false) + length(&self.right, false);
         self.display =
@@ -83,6 +90,7 @@ impl Rows {
             priority = (priority ^ (priority >> 27)).wrapping_mul(0x94d049bb133111eb);
             priority ^= priority >> 31;
             let node = Box::new(Node {
+                transparent_quote: row.transparent_quote,
                 source: row.source_len,
                 display: row.display.len(),
                 row,
@@ -136,4 +144,92 @@ impl Rows {
             }
         }
     }
+}
+
+/// Search the retained interpretation, skipping blank-only subtrees. The work
+/// count includes each visited tree node and binary-search context comparison.
+impl Rows {
+    pub fn context_neighbor(
+        &self,
+        at: usize,
+        forward: bool,
+        quote: usize,
+    ) -> Option<super::blocks::BlockLine> {
+        fn search(
+            link: &Link,
+            base: usize,
+            at: usize,
+            forward: bool,
+            quote: usize,
+        ) -> Option<super::blocks::BlockLine> {
+            let node = link.as_ref()?;
+            visit_context();
+            if node.transparent_quote == Some(quote)
+                || (forward && base + node.source <= at)
+                || (!forward && base >= at)
+            {
+                return None;
+            }
+            let own = base + length(&node.left, false);
+            let next = own + node.row.source_len;
+            let first = if forward {
+                (&node.left, base)
+            } else {
+                (&node.right, next)
+            };
+            if let Some(found) = search(first.0, first.1, at, forward, quote) {
+                return Some(found);
+            }
+            if (forward && next > at || !forward && own < at) {
+                let runs = &node.row.context;
+                let index = runs.partition_point(|run| {
+                    visit_context();
+                    if forward {
+                        own + run.source.end <= at
+                    } else {
+                        own + run.source.start < at
+                    }
+                });
+                let mut index = if forward {
+                    index
+                } else {
+                    index.saturating_sub(1)
+                };
+                if let Some(run) = runs.get(index) {
+                    if run.transparent_quote == Some(quote) {
+                        if forward {
+                            index += 1;
+                        } else if index > 0 {
+                            index -= 1;
+                        } else {
+                            index = runs.len();
+                        }
+                    }
+                    if let Some(run) = runs.get(index) {
+                        visit_context();
+                        let block = if forward { run.first } else { run.last };
+                        let mut block = node.row.blocks[block].clone();
+                        block.shift(own);
+                        return Some(block);
+                    }
+                }
+            }
+            let last = if forward {
+                (&node.right, next)
+            } else {
+                (&node.left, base)
+            };
+            search(last.0, last.1, at, forward, quote)
+        }
+        search(&self.root, 0, at, forward, quote)
+    }
+}
+
+#[cfg(test)]
+thread_local! {
+    pub(crate) static CONTEXT_VISITS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+fn visit_context() {
+    #[cfg(test)]
+    CONTEXT_VISITS.with(|visits| visits.set(visits.get() + 1));
 }
