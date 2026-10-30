@@ -1,5 +1,10 @@
 # Markdown features and commands
 
+Table alignment changes, row reordering, column reordering and multi-cell/grid paste are
+also deferred by the maintainer. Preserve existing alignment and exact untouched bytes.
+Basic row/column insertion and deletion, cell editing/navigation and ordinary single-cell
+paste remain required; shared find and 20,000-line performance/durability remain required.
+
 Part of the [#283 task graph](../text-first-editor-rebuild-tickets.md). Read its approved
 scope amendment before selecting work: rich HTML paste (#303) and rendered block movement
 (#311) are deferred; tables, shared find and 20,000-line performance/durability remain required.
@@ -18,8 +23,8 @@ scope amendment before selecting work: rich HTML paste (#303) and rendered block
 | 23         | [#306 - Complete wikilinks through the engine contract](https://gitlab.futo.org/futo-notes/futo-notes/-/work_items/306)                | [#305](https://gitlab.futo.org/futo-notes/futo-notes/-/work_items/305)                                                                                             |
 | 24         | [#307 - Describe and edit images and non-text atoms safely](https://gitlab.futo.org/futo-notes/futo-notes/-/work_items/307)            | [#300](https://gitlab.futo.org/futo-notes/futo-notes/-/work_items/300), [#301](https://gitlab.futo.org/futo-notes/futo-notes/-/work_items/301)                     |
 | 25         | [#308 - Edit and navigate individual table cells](https://gitlab.futo.org/futo-notes/futo-notes/-/work_items/308)                      | [#299](https://gitlab.futo.org/futo-notes/futo-notes/-/work_items/299), [#301](https://gitlab.futo.org/futo-notes/futo-notes/-/work_items/301)                     |
-| 26         | [#309 - Change table rows, columns and alignment](https://gitlab.futo.org/futo-notes/futo-notes/-/work_items/309)                      | [#308](https://gitlab.futo.org/futo-notes/futo-notes/-/work_items/308)                                                                                             |
-| 27         | [#310 - Paste content into table cells and grids](https://gitlab.futo.org/futo-notes/futo-notes/-/work_items/310)                      | [#302](https://gitlab.futo.org/futo-notes/futo-notes/-/work_items/302), [#309](https://gitlab.futo.org/futo-notes/futo-notes/-/work_items/309); rich HTML deferred |
+| 26         | [#309 - Insert and delete table rows and columns](https://gitlab.futo.org/futo-notes/futo-notes/-/work_items/309)                      | [#308](https://gitlab.futo.org/futo-notes/futo-notes/-/work_items/308)                                                                                             |
+| 27         | [#310 - Paste plain text into individual table cells](https://gitlab.futo.org/futo-notes/futo-notes/-/work_items/310)                  | [#302](https://gitlab.futo.org/futo-notes/futo-notes/-/work_items/302), [#309](https://gitlab.futo.org/futo-notes/futo-notes/-/work_items/309); rich HTML deferred |
 | 28         | **DEFERRED:** [#311 - Move rendered blocks without exposing syntax](https://gitlab.futo.org/futo-notes/futo-notes/-/work_items/311)    | Future work; not a current milestone blocker                                                                                                                       |
 | 29         | [#312 - Find visible note text without adding typing scans](https://gitlab.futo.org/futo-notes/futo-notes/-/work_items/312)            | [#305](https://gitlab.futo.org/futo-notes/futo-notes/-/work_items/305), [#308](https://gitlab.futo.org/futo-notes/futo-notes/-/work_items/308)                     |
 | 30         | [#313 - Reinterpret large semantic changes progressively](https://gitlab.futo.org/futo-notes/futo-notes/-/work_items/313)              | [#300](https://gitlab.futo.org/futo-notes/futo-notes/-/work_items/300), [#308](https://gitlab.futo.org/futo-notes/futo-notes/-/work_items/308)                     |
