@@ -344,6 +344,7 @@ fn indent_joins_the_preceding_items_existing_compatible_child_list() {
     ] {
         let mut s = EditorSession::open(source);
         let mut view = ReferenceView::new(shown);
+        assert_eq!(s.display_text(), shown, "{source:?}");
         s.select(s.revision(), selected).unwrap();
         view.apply(
             s.block_command(
