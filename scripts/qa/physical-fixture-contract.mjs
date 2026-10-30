@@ -1,6 +1,7 @@
 // Exact operator-template, keeper-manifest and terminal-receipt contracts for
 // the one physical fixture. Unknown fields are errors before ownership changes.
 const UUID = /^[0-9A-F]{8}(?:-[0-9A-F]{4}){3}-[0-9A-F]{12}$/;
+export const isFixtureRunID = (value) => typeof value === 'string' && UUID.test(value);
 const fields = [
   'formatVersion',
   'host',
@@ -16,6 +17,7 @@ const fields = [
   'seconds',
   'buildFingerprint',
 ];
+const textFields = fields.filter((field) => !['formatVersion', 'seconds'].includes(field));
 const exact = (value, keys) =>
   value &&
   typeof value === 'object' &&
@@ -28,13 +30,12 @@ export function validateFixturePlan(plan, { template = false } = {}) {
   if (
     !exact(plan, template ? fields : [...fields, 'ownerPID']) ||
     plan.formatVersion !== 1 ||
-    typeof plan.host !== 'string' ||
+    !textFields.every((field) => typeof plan[field] === 'string') ||
     !plan.host ||
-    typeof plan.worktree !== 'string' ||
     !/^[0-9A-F]{8}-[0-9A-F]{16}$/.test(plan.deviceUDID) ||
     !UUID.test(plan.coreDeviceID) ||
-    !UUID.test(plan.runID) ||
-    !UUID.test(plan.nonce) ||
+    !isFixtureRunID(plan.runID) ||
+    !isFixtureRunID(plan.nonce) ||
     plan.runID === plan.nonce ||
     !/^[0-9a-f]{40}$/.test(plan.sourceSHA) ||
     !/^[0-9a-f]{64}$/.test(plan.sourceFingerprint) ||
@@ -48,6 +49,14 @@ export function validateFixturePlan(plan, { template = false } = {}) {
   )
     throw new Error('Expected the fixed, bounded physical fixture manifest or template');
 }
+
+export const isFixtureInstallation = (item, bundleID) =>
+  exact(item, ['bundleID', 'version', 'url']) &&
+  item.bundleID === bundleID &&
+  typeof item.version === 'string' &&
+  item.version.length > 0 &&
+  typeof item.url === 'string' &&
+  item.url.length > 0;
 
 export function validateTerminalReceipt(plan, receipt, output) {
   const required = [
@@ -74,13 +83,7 @@ export function validateTerminalReceipt(plan, receipt, output) {
     !Array.isArray(receipt.installations) ||
     receipt.installations.length > 2 ||
     receipt.installations.some(
-      (item, i) =>
-        !exact(item, ['bundleID', 'version', 'url']) ||
-        item.bundleID !== [plan.bundleID, plan.runnerBundleID][i] ||
-        typeof item.version !== 'string' ||
-        !item.version ||
-        typeof item.url !== 'string' ||
-        !item.url,
+      (item, i) => !isFixtureInstallation(item, [plan.bundleID, plan.runnerBundleID][i]),
     ) ||
     !Array.isArray(receipt.deviceObservations) ||
     !receipt.deviceObservations.length ||
@@ -94,10 +97,13 @@ export function validateTerminalReceipt(plan, receipt, output) {
         item.available !== true ||
         item.unlocked !== true,
     ) ||
+    (receipt.artifactSHA256 !== undefined &&
+      (typeof receipt.artifactSHA256 !== 'string' ||
+        !/^[0-9a-f]{64}$/.test(receipt.artifactSHA256))) ||
     (receipt.status === 'captured' &&
       (receipt.installations.length !== 2 ||
         !receipt.result ||
-        !/^[0-9a-f]{64}$/.test(receipt.artifactSHA256) ||
+        receipt.artifactSHA256 === undefined ||
         receipt.error !== undefined)) ||
     (receipt.status === 'failed' && (typeof receipt.error !== 'string' || !receipt.error)) ||
     (receipt.rawReads !== undefined &&
@@ -105,6 +111,7 @@ export function validateTerminalReceipt(plan, receipt, output) {
         receipt.rawReads.some(
           (read) =>
             !exact(read, ['path', 'sha256']) ||
+            typeof read.sha256 !== 'string' ||
             !/^[0-9a-f]{64}$/.test(read.sha256) ||
             typeof read.path !== 'string' ||
             !read.path.startsWith(output + '/failed-read-') ||

@@ -16,6 +16,7 @@ import {
 import { createHash } from 'node:crypto';
 import process from 'node:process';
 import { dirname, join } from 'node:path';
+import { isFixtureRunID } from './physical-fixture-contract.mjs';
 
 function privateEntry(stat, directory) {
   if (
@@ -62,8 +63,7 @@ export function createEvidenceDirectory(path) {
 }
 
 export function evidenceRun(scratch, runID, { create = false } = {}) {
-  if (!/^[0-9A-F]{8}(?:-[0-9A-F]{4}){3}-[0-9A-F]{12}$/.test(runID))
-    throw new Error('Exact evidence run UUID required');
+  if (!isFixtureRunID(runID)) throw new Error('Exact evidence run UUID required');
   if (create) {
     try {
       lstatSync(scratch);

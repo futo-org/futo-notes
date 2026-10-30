@@ -10,6 +10,7 @@ import { fileURLToPath, pathToFileURL, URL } from 'node:url';
 import { executePhysicalFixture } from './physical-fixture.mjs';
 import { createIOSFixtureExecutor } from './physical-fixture-ios.mjs';
 import { physicalFixtureHostPaths } from './physical-fixture-lease.mjs';
+import { isFixtureRunID } from './physical-fixture-contract.mjs';
 
 import { evidenceRun, readEvidenceJSON } from './physical-fixture-evidence.mjs';
 
@@ -19,12 +20,11 @@ export async function runPhysicalFixtureCLI(args, runtimeOverrides = {}) {
   const [operation, flag, value, ...extra] = args;
   if (
     extra.length ||
+    typeof value !== 'string' ||
     !value ||
     !(
       (operation === 'capture' && flag === '--manifest') ||
-      (['read', 'close'].includes(operation) &&
-        flag === '--run' &&
-        /^[0-9A-F]{8}(?:-[0-9A-F]{4}){3}-[0-9A-F]{12}$/.test(value))
+      (['read', 'close'].includes(operation) && flag === '--run' && isFixtureRunID(value))
     )
   )
     throw new Error(usage);

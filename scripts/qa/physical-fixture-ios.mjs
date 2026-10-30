@@ -114,7 +114,12 @@ async function captureScenario(plan, build, output, { products, runner, run }) {
         item.suggestedHumanReadableName === 'editor294-gesture.json' &&
         item.deviceId === plan.deviceUDID,
     );
-  if (attachments.length !== 1 || !/^[^/\\]+$/.test(attachments[0].exportedFileName))
+  if (
+    attachments.length !== 1 ||
+    typeof attachments[0].exportedFileName !== 'string' ||
+    ['.', '..'].includes(attachments[0].exportedFileName) ||
+    !/^[^/\\]+$/.test(attachments[0].exportedFileName)
+  )
     throw new Error('Fixed XCTest gesture attachment is missing or ambiguous');
   const gesture = readEvidenceJSON(join(output, 'attachments', attachments[0].exportedFileName));
   const destinations = Array.isArray(summary.devicesAndConfigurations)

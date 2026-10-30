@@ -114,8 +114,9 @@ function inspectFixtureBuild(root, { fixture, products, app, runner }, { run, pl
     if (
       signature.error ||
       signature.status !== 0 ||
-      !/^Authority=/m.test(signature.stderr ?? '') ||
-      /^Signature=adhoc$/m.test(signature.stderr ?? '')
+      typeof signature.stderr !== 'string' ||
+      !/^Authority=/m.test(signature.stderr) ||
+      /^Signature=adhoc$/m.test(signature.stderr)
     )
       throw new Error('A separately authorized signed fixture build is unavailable');
   }

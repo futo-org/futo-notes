@@ -418,3 +418,36 @@ it('accepts the generated Xcode UI target whose app identity is attested by its 
     rmSync(t.root, { recursive: true });
   }
 });
+
+it.each(
+  [['gesture.json'], [['gesture.json']], null, true, 1, {}, '.', '..'].map((value) => [value]),
+)(
+  'refuses a non-file or typed-malformed exported attachment name %j before reading it',
+  async (exportedFileName) => {
+    const t = setupScenario({ attachment: { exportedFileName } });
+    try {
+      await expect(t.executor.capture(t.plan, t.build, t.output)).rejects.toThrow(
+        /attachment.*missing or ambiguous/,
+      );
+    } finally {
+      rmSync(t.root, { recursive: true });
+    }
+  },
+);
+
+it.each(
+  [['Authority=Mock'], [['Authority=Mock']], Object('Authority=Mock')].map((value) => [value]),
+)('refuses a coercible local signature response %j before any device command', (stderr) => {
+  const t = setupBuild({
+    respond(command, args) {
+      if (command === 'codesign' && args.includes('--display'))
+        return { status: 0, stdout: '', stderr };
+    },
+  });
+  try {
+    expect(() => t.executor.inspectBuild()).toThrow(/signed fixture build is unavailable/);
+    expect(t.commands.every((command) => typeof command === 'string')).toBe(true);
+  } finally {
+    rmSync(t.root, { recursive: true });
+  }
+});

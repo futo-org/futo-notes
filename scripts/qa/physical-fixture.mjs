@@ -25,6 +25,7 @@ import {
   validateFixturePlan,
   validateTerminalReceipt,
   validateFixtureResult,
+  isFixtureInstallation,
 } from './physical-fixture-contract.mjs';
 
 const digest = (bytes) => createHash('sha256').update(bytes).digest('hex');
@@ -218,7 +219,7 @@ export async function executePhysicalFixture(operation, plan, runtime) {
         ]) {
           await guard(receipt.installations);
           const installation = await executor[method](plan, build, output);
-          if (installation?.bundleID !== bundleID || !installation.url || !installation.version)
+          if (!isFixtureInstallation(installation, bundleID))
             throw new Error('Fixture installation receipt differs');
           receipt.installations.push(installation);
           write(receiptPath, receipt);
