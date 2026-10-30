@@ -13,6 +13,8 @@ fn range(a: usize, b: usize) -> DisplayRange {
 mod commands;
 #[path = "lists/comment_seams.rs"]
 mod comment_seams;
+#[path = "lists/fixtures.rs"]
+mod fixtures;
 #[path = "lists/input.rs"]
 mod input;
 #[path = "lists/keys.rs"]
