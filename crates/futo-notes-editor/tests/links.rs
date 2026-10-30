@@ -128,7 +128,7 @@ fn selected_link_commands_preserve_selection_nested_styles_and_byte_exact_undo()
 fn loaded_gfm_urls_report_canonical_destinations_and_leave_code_opaque() {
     let source = "go to www.example.com. or https://a.com/x_y, not https:// `https://code.test`\n\n```\nhttps://fence.test\n```";
     let session = EditorSession::open(source);
-    let display = "go to www.example.com. or https://a.com/x_y, not https:// https://code.test\n\nhttps://fence.test\n";
+    let display = "go to www.example.com. or https://a.com/x_y, not https:// https://code.test\n\nhttps://fence.test";
     assert_eq!(session.display_text(), display);
     let links = session
         .project(Revision(0), range(0, display.len()))
