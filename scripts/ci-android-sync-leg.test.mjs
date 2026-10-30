@@ -18,83 +18,10 @@ afterEach(() => {
   for (const dir of scratch.splice(0)) fs.rmSync(dir, { recursive: true, force: true });
 });
 
-// One process per call; state lives in a JSON file between calls. Phases after
-// a restart: down (2 calls) -> starting (3 calls: package service up, installs
-// still NPE, no enable_screen yet) -> up.
-const FAKE_ADB = String.raw`#!/usr/bin/env node
-const fs = require('fs');
-const file = process.env.FAKE_ADB_STATE;
-const st = JSON.parse(fs.readFileSync(file, 'utf8'));
-let args = process.argv.slice(2);
-if (args[0] === '-s') args = args.slice(2);
-st.sinceRestart += 1;
-if (st.phase === 'down' && st.sinceRestart > 2) st.phase = 'starting';
-if (st.phase === 'starting' && st.sinceRestart > 5) {
-  st.phase = 'up';
-  st.booted.push(st.pid);
-}
-const save = () => {
-  const target = file + '.' + process.pid + '.next';
-  const descriptor = fs.openSync(target, 'w');
-  // A probe can be killed between truncating its state and writing the bytes.
-  // Pause that actual process boundary once, rather than relying on CI load.
-  if (st.interruptStateWrite && st.pmStalled && !fs.existsSync(file + '.interrupted')) {
-    fs.writeFileSync(file + '.interrupted', '');
-    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1200);
-  }
-  fs.writeFileSync(descriptor, JSON.stringify(st));
-  fs.closeSync(descriptor);
-  fs.renameSync(target, file);
-};
-const out = (s, code = 0) => { save(); if (s) process.stdout.write(s + '\n'); process.exit(code); };
-const gone = "cmd: Can't find service: package";
-const cmd = args.join(' ');
-if (cmd.startsWith('shell pm ') && st.healthyPmDelay) {
-  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, st.healthyPmDelay);
-}
-if (cmd === 'get-state') {
-  if (st.pmStalled) st.transportProbesAfterStall += 1;
-  out('device');
-}
-if (cmd === 'emu avd name') out('ci\nOK');
-if (cmd === 'emu kill') out('');
-if (cmd === 'shell getprop sys.boot_completed') out('1');
-if (cmd === 'shell getprop sys.system_server.start_count') out(String(st.generation));
-if (cmd === 'shell pidof system_server') st.phase === 'down' ? out('', 1) : out(String(st.pid));
-if (cmd === 'shell service check package') out(st.phase === 'down' ? 'Service package: not found' : 'Service package: found');
-if (cmd.startsWith('shell pm list packages')) {
-  const respond = () => st.phase === 'down' ? out(gone, 1) : out('package:android' + (st.installed ? '\npackage:com.futo.notes.dev' : ''));
-  const shouldStall = !st.pmStalled && (st.stallAt === 'framework' ? !st.installed : st.stallAt === 'post-install' && st.installed);
-  if (shouldStall) {
-    st.pmStalled = true;
-    save();
-    setTimeout(() => { st.pmCompleted = true; respond(); }, 1200);
-  } else respond();
-} else {
-if (cmd === 'shell pm install-create') st.phase === 'down' ? out(gone, 1) : out('Success: created install session [42]');
-if (cmd.startsWith('shell pm install-abandon')) out(st.failAbandon ? 'Failure: cleanup failed' : 'Success', st.failAbandon ? 1 : 0);
-if (cmd === 'logcat -b events -d -v threadtime') {
-  out(st.booted.map((pid) => '10-08 16:10:21.794  ' + pid + '  ' + (pid + 1) + ' I boot_progress_enable_screen: 1234').join('\n'));
-}
-if (args[0] === 'logcat') out('');
-if (args[0] === 'install') {
-  st.installAttempts += 1;
-  if (st.restartOnInstall.includes(st.installAttempts)) {
-    st.generation += 1;
-    st.pid += 100;
-    st.phase = 'down';
-    st.sinceRestart = 0;
-    out('Performing Streamed Install\nadb: failed to install ' + args.at(-1) + ': ' + gone, 1);
-  }
-  if (st.phase !== 'up') {
-    out("Exception occurred while executing 'install':\njava.lang.NullPointerException: Attempt to invoke virtual method 'void android.content.pm.PackageManagerInternal.freeStorage(java.lang.String, long, int)' on a null object reference", 1);
-  }
-  st.installed = true;
-  out('Performing Streamed Install\nSuccess');
-}
-out('fake adb: unhandled ' + cmd, 2);
-}
-`;
+// Phases after a restart: down (2 calls) -> starting (3 calls: package
+// service up, installs still NPE, no enable_screen yet) -> up. State is
+// atomically replaced between real executable calls by the bash fixture.
+const FAKE_ADB = fs.readFileSync(path.join(root, 'scripts/__fixtures__/ci-android-adb.sh'), 'utf8');
 
 function runSyncLeg({
   restartOnInstall,
@@ -102,6 +29,7 @@ function runSyncLeg({
   failAbandon = false,
   interruptStateWrite = false,
   healthyPmDelay = 0,
+  slowNodeStartup = false,
 }) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'android-sync-leg-'));
   scratch.push(dir);
@@ -124,6 +52,9 @@ function runSyncLeg({
   fs.mkdirSync(apkDir, { recursive: true });
   fs.writeFileSync(path.join(apkDir, 'app-direct-debug.apk'), 'apk');
 
+  const wait = path.join(dir, 'adb-wait');
+  const fifo = spawnSync('mkfifo', [wait], { encoding: 'utf8' });
+  expect(fifo.status, fifo.stderr).toBe(0);
   const state = path.join(dir, 'adb-state.json');
   fs.writeFileSync(
     state,
@@ -184,15 +115,32 @@ esac
     },
   );
 
+  // Model interpreter startup under a contended runner without burning CPU
+  // or extending any probe/test deadline. This is inherited by real probe
+  // processes and executable fake adb children alike.
+  const startupDelay = path.join(dir, 'node-startup-delay.cjs');
+  fs.writeFileSync(
+    startupDelay,
+    'Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 120);\n',
+  );
+
   const result = spawnSync('bash', [path.join(project, 'scripts/ci-android-sync-leg.sh')], {
     encoding: 'utf8',
     timeout: 60_000,
     env: {
       ...process.env,
+      ...(slowNodeStartup
+        ? {
+            NODE_OPTIONS: [process.env.NODE_OPTIONS, `--require=${JSON.stringify(startupDelay)}`]
+              .filter(Boolean)
+              .join(' '),
+          }
+        : {}),
       PATH: `${bin}${path.delimiter}${process.env.PATH}`,
       CI_PROJECT_DIR: project,
       ANDROID_HOME: sdk,
       FAKE_ADB_STATE: state,
+      FAKE_ADB_WAIT: wait,
       FAKE_EMULATOR_PID: emulatorPid,
       FAKE_STALL_AT: stallAt ?? '',
       ANDROID_CI_AVD: 'ci',
@@ -275,6 +223,15 @@ describe('native-Android sync leg against a framework that restarts after boot',
     expect(run.stdout).toContain('Android framework restarted during adb install');
     // Two attempts, the second only after the new system_server booted: an
     // install in its "starting" window would have hit the freeStorage NPE.
+    expect(run.adb.installAttempts).toBe(2);
+    expect(run.adb.installed).toBe(true);
+    expect(run.harness).toContain('--android-only');
+  });
+
+  it('recovers one framework restart within the test budget when Node startup is slow', () => {
+    const run = runSyncLeg({ restartOnInstall: [1], slowNodeStartup: true });
+
+    expect(run.status, run.stdout + run.stderr).toBe(0);
     expect(run.adb.installAttempts).toBe(2);
     expect(run.adb.installed).toBe(true);
     expect(run.harness).toContain('--android-only');
