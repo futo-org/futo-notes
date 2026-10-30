@@ -2,6 +2,9 @@
 use pulldown_cmark::{Event, Tag, TagEnd};
 use std::ops::Range;
 
+// Test work units count canonical events/column bytes, row-tree visits,
+// block-search comparisons and touched item/row planning. They complement
+// parser/materialization bytes and do not claim complete allocation or latency.
 #[cfg(test)]
 thread_local! {
     pub(crate) static CONTAINER_METADATA_VISITS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };

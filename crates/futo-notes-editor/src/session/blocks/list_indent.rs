@@ -169,7 +169,9 @@ impl EditorSession {
                 continue;
             }
             let line = &line[prefix..];
-            if line.trim_matches([' ', '\t', '\r', '\n']).is_empty() {
+            if line.trim_matches([' ', '\t', '\r', '\n']).is_empty()
+                && !self.projection.block_is_code(line_at)
+            {
                 output.push_str(line);
                 continue;
             }
@@ -283,6 +285,9 @@ mod work_tests {
                 .unwrap();
             assert_eq!(session.source_text(), raw);
         }
-        assert_eq!(measurements[0], measurements[1]);
+        // Parser/materialization footprints stay identical; the retained
+        // row-tree metadata lookup may grow logarithmically with note size.
+        assert_eq!(measurements[0].0, measurements[1].0);
+        assert_eq!(measurements[0].1, measurements[1].1);
     }
 }

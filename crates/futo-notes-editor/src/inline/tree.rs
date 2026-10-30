@@ -16,6 +16,7 @@ pub(crate) struct Node {
 
 impl Node {
     fn update(&mut self) {
+        super::visit_container();
         self.transparent_quote = self.row.transparent_quote.filter(|quote| {
             [&self.left, &self.right].into_iter().all(|link| {
                 link.as_ref()
@@ -107,6 +108,7 @@ impl Rows {
         let mut node = self.root.as_deref().unwrap();
         let (mut source, mut display) = (0, 0);
         loop {
+            super::visit_container();
             let n = count(&node.left);
             if index < n {
                 node = node.left.as_deref().unwrap();
@@ -127,6 +129,7 @@ impl Rows {
         let mut node = self.root.as_deref().unwrap();
         let mut index = 0;
         loop {
+            super::visit_container();
             let left = length(&node.left, display);
             let own = if display {
                 node.row.display.len()
@@ -252,6 +255,7 @@ thread_local! {
     pub(crate) static CONTEXT_VISITS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 fn visit_context() {
+    super::visit_container();
     #[cfg(test)]
     CONTEXT_VISITS.with(|visits| visits.set(visits.get() + 1));
 }

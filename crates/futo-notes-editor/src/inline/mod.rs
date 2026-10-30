@@ -165,16 +165,29 @@ impl Projection {
         }
     }
 
-    pub(crate) fn block_at_source(&self, at: usize) -> Option<blocks::BlockLine> {
+    fn block_ref_at_source(&self, at: usize) -> Option<(&blocks::BlockLine, usize)> {
         let (row, base, _) = self.rows.at(self.rows.locate(at, false));
         let local = at - base;
         let index = row
             .blocks
-            .partition_point(|block| block.source.start <= local)
+            .partition_point(|block| {
+                visit_container();
+                block.source.start <= local
+            })
             .saturating_sub(1);
-        let mut block = row.blocks.get(index)?.clone();
+        Some((row.blocks.get(index)?, base))
+    }
+
+    pub(crate) fn block_at_source(&self, at: usize) -> Option<blocks::BlockLine> {
+        let (block, base) = self.block_ref_at_source(at)?;
+        let mut block = block.clone();
         block.shift(base);
         Some(block)
+    }
+
+    pub(crate) fn block_is_code(&self, at: usize) -> bool {
+        self.block_ref_at_source(at)
+            .is_some_and(|(block, _)| block.code)
     }
 
     pub(crate) fn block_lines(&self, range: DisplayRange) -> Vec<blocks::BlockLine> {
@@ -184,6 +197,7 @@ impl Projection {
         for index in first..=last {
             let (row, source, display) = self.rows.at(index);
             for block in &row.blocks {
+                visit_container();
                 if block.empty_comment {
                     continue;
                 }
