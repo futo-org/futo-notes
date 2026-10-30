@@ -248,3 +248,25 @@ fn outdent_retargets_the_lifted_item_to_its_parent_list_kind_and_content_width()
         assert_eq!(s.source_text(), source);
     }
 }
+#[test]
+fn outdent_same_line_nested_syntax_preserves_the_empty_parent_item() {
+    let source = "* 0. text";
+    let mut s = EditorSession::open(source);
+    let mut view = ReferenceView::new("text");
+    assert_eq!(s.display_text(), "text");
+    let selected = range(0, 4);
+    s.select(s.revision(), selected).unwrap();
+    view.apply(
+        s.block_command(s.revision(), selected, BlockCommand::Outdent, &mut |_| {
+            Ok(())
+        })
+        .unwrap()
+        .unwrap(),
+    );
+    assert_eq!(s.source_text(), "* \n* text");
+    assert_eq!(view.text, "\ntext");
+    assert_eq!(s.selection(), range(1, 5));
+    view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(s.source_text(), source);
+    assert_eq!(s.selection(), selected);
+}
