@@ -622,5 +622,312 @@
         null
       ]
     ]
+  },
+  {
+    "name": "newline empty shortcut keeps both foreign owners",
+    "source": "9. before\n\n2\\.\n\n7) after",
+    "display": "before\n\n2.\n\nafter",
+    "action": "Typing",
+    "range": [
+      10,
+      10
+    ],
+    "text": " ",
+    "expected": "9. before\n\n<!-- -->\n2. \n\n7) after",
+    "shown": "before\n\n\n\nafter",
+    "resultRange": [
+      8,
+      8
+    ],
+    "finalItems": [
+      [
+        9,
+        null
+      ],
+      [
+        2,
+        null
+      ],
+      [
+        7,
+        null
+      ]
+    ]
+  },
+  {
+    "name": "newline empty shortcut retains preceding start",
+    "source": "9. before\n\n2\\.\n\n",
+    "display": "before\n\n2.\n\n",
+    "action": "Typing",
+    "range": [
+      10,
+      10
+    ],
+    "text": " ",
+    "expected": "9. before\n\n2) \n\n",
+    "shown": "before\n\n\n\n",
+    "resultRange": [
+      8,
+      8
+    ],
+    "finalItems": [
+      [
+        9,
+        null
+      ],
+      [
+        2,
+        null
+      ]
+    ]
+  },
+  {
+    "name": "newline empty expected next joins left and isolates right",
+    "source": "9. before\n\n10\\.\n\n7. after",
+    "display": "before\n\n10.\n\nafter",
+    "action": "Typing",
+    "range": [
+      11,
+      11
+    ],
+    "text": " ",
+    "expected": "9. before\n\n10. \n<!-- -->\n\n7. after",
+    "shown": "before\n\n\n\nafter",
+    "resultRange": [
+      8,
+      8
+    ],
+    "finalItems": [
+      [
+        9,
+        null
+      ],
+      [
+        10,
+        null
+      ],
+      [
+        7,
+        null
+      ]
+    ]
+  },
+  {
+    "name": "newline empty reversed conflicts isolate right",
+    "source": "9) before\n\n2\\.\n\n7. after",
+    "display": "before\n\n2.\n\nafter",
+    "action": "Typing",
+    "range": [
+      10,
+      10
+    ],
+    "text": " ",
+    "expected": "9) before\n\n2. \n<!-- -->\n\n7. after",
+    "shown": "before\n\n\n\nafter",
+    "resultRange": [
+      8,
+      8
+    ],
+    "finalItems": [
+      [
+        9,
+        null
+      ],
+      [
+        2,
+        null
+      ],
+      [
+        7,
+        null
+      ]
+    ]
+  },
+  {
+    "name": "quoted CRLF empty shortcut keeps both foreign owners",
+    "source": "> 9. before\r\n> \r\n> 2\\.\r\n> \r\n> 7) after",
+    "display": "before\r\n\r\n2.\r\n\r\nafter",
+    "action": "Typing",
+    "range": [
+      12,
+      12
+    ],
+    "text": " ",
+    "expected": "> 9. before\r\n> \r\n> <!-- -->\n> 2. \r\n> \r\n> 7) after",
+    "shown": "before\r\n\r\n\r\n\r\nafter",
+    "resultRange": [
+      10,
+      10
+    ],
+    "finalItems": [
+      [
+        9,
+        null
+      ],
+      [
+        2,
+        null
+      ],
+      [
+        7,
+        null
+      ]
+    ],
+    "quoteDepth": 1
+  },
+  {
+    "name": "newline empty shortcut retains owner with 1 initial spaces",
+    "source": "9. before\n\n 2\\.\n\n7) after",
+    "display": "before\n\n 2.\n\nafter",
+    "action": "Typing",
+    "range": [
+      11,
+      11
+    ],
+    "text": " ",
+    "expected": "9. before\n\n<!-- -->\n2. \n\n7) after",
+    "shown": "before\n\n\n\nafter",
+    "resultRange": [
+      8,
+      8
+    ],
+    "finalItems": [
+      [
+        9,
+        null
+      ],
+      [
+        2,
+        null
+      ],
+      [
+        7,
+        null
+      ]
+    ]
+  },
+  {
+    "name": "newline empty shortcut retains owner with 2 initial spaces",
+    "source": "9. before\n\n  2\\.\n\n7) after",
+    "display": "before\n\n  2.\n\nafter",
+    "action": "Typing",
+    "range": [
+      12,
+      12
+    ],
+    "text": " ",
+    "expected": "9. before\n\n<!-- -->\n2. \n\n7) after",
+    "shown": "before\n\n\n\nafter",
+    "resultRange": [
+      8,
+      8
+    ],
+    "finalItems": [
+      [
+        9,
+        null
+      ],
+      [
+        2,
+        null
+      ],
+      [
+        7,
+        null
+      ]
+    ]
+  },
+  {
+    "name": "newline empty shortcut retains owner with 3 initial spaces",
+    "source": "9. before\n\n   2\\.\n\n7) after",
+    "display": "before\n\n   2.\n\nafter",
+    "action": "Typing",
+    "range": [
+      13,
+      13
+    ],
+    "text": " ",
+    "expected": "9. before\n\n<!-- -->\n2. \n\n7) after",
+    "shown": "before\n\n\n\nafter",
+    "resultRange": [
+      8,
+      8
+    ],
+    "finalItems": [
+      [
+        9,
+        null
+      ],
+      [
+        2,
+        null
+      ],
+      [
+        7,
+        null
+      ]
+    ]
+  },
+  {
+    "name": "newline empty shortcut preserves typed start 0",
+    "source": "9. before\n\n0\\.\n\n7) after",
+    "display": "before\n\n0.\n\nafter",
+    "action": "Typing",
+    "range": [
+      10,
+      10
+    ],
+    "text": " ",
+    "expected": "9. before\n\n<!-- -->\n0. \n\n7) after",
+    "shown": "before\n\n\n\nafter",
+    "resultRange": [
+      8,
+      8
+    ],
+    "finalItems": [
+      [
+        9,
+        null
+      ],
+      [
+        0,
+        null
+      ],
+      [
+        7,
+        null
+      ]
+    ]
+  },
+  {
+    "name": "newline empty shortcut preserves typed start 999999999",
+    "source": "9. before\n\n999999999\\.\n\n7) after",
+    "display": "before\n\n999999999.\n\nafter",
+    "action": "Typing",
+    "range": [
+      18,
+      18
+    ],
+    "text": " ",
+    "expected": "9. before\n\n<!-- -->\n999999999. \n\n7) after",
+    "shown": "before\n\n\n\nafter",
+    "resultRange": [
+      8,
+      8
+    ],
+    "finalItems": [
+      [
+        9,
+        null
+      ],
+      [
+        999999999,
+        null
+      ],
+      [
+        7,
+        null
+      ]
+    ]
   }
 ]

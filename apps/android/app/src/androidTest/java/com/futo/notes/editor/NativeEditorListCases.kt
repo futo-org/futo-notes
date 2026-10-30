@@ -13,7 +13,7 @@ internal fun sharedListActions() {
     val cases = JSONArray(context.assets.open("list-actions.json").bufferedReader().use { it.readText() })
     val shortcuts = JSONArray(context.assets.open("list-shortcuts.json").bufferedReader().use { it.readText() })
     assertEquals(24, cases.length())
-    assertEquals(22, shortcuts.length())
+    assertEquals(32, shortcuts.length())
     for (at in 0 until shortcuts.length()) cases.put(shortcuts.getJSONObject(at))
     fun native(values: JSONArray) = EditorUtf16Range(values.getLong(0).toULong(), values.getLong(1).toULong())
     for (at in 0 until cases.length()) {

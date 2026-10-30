@@ -44,7 +44,7 @@ extension NativeEditorBlockRegressionTests {
             let original = try load("list-actions")
             let shortcuts = try load("list-shortcuts")
             #expect(original.count == 24)
-            #expect(shortcuts.count == 22)
+            #expect(shortcuts.count == 32)
             let cases = original + shortcuts
             for item in cases {
                 let root = FileManager.default.temporaryDirectory.appendingPathComponent(
