@@ -146,6 +146,16 @@ impl Rows {
     }
 }
 
+/// Only fixed-size canonical metadata crosses the semantic read boundary;
+/// foreign physical-body vectors and source text stay with their parsed row.
+pub(crate) struct ContextWitness {
+    pub source: std::ops::Range<usize>,
+    pub quote_depth: usize,
+    pub code: bool,
+    pub empty_comment: bool,
+    pub list: Option<super::lists::ListLine>,
+}
+
 /// Search the retained interpretation, skipping blank-only subtrees. The work
 /// count includes each visited tree node and binary-search context comparison.
 impl Rows {
@@ -154,14 +164,14 @@ impl Rows {
         at: usize,
         forward: bool,
         quote: usize,
-    ) -> Option<super::blocks::BlockLine> {
+    ) -> Option<ContextWitness> {
         fn search(
             link: &Link,
             base: usize,
             at: usize,
             forward: bool,
             quote: usize,
-        ) -> Option<super::blocks::BlockLine> {
+        ) -> Option<ContextWitness> {
             let node = link.as_ref()?;
             visit_context();
             if node.transparent_quote == Some(quote)
@@ -208,9 +218,18 @@ impl Rows {
                     if let Some(run) = runs.get(index) {
                         visit_context();
                         let block = if forward { run.first } else { run.last };
-                        let mut block = node.row.blocks[block].clone();
-                        block.shift(own);
-                        return Some(block);
+                        let block = &node.row.blocks[block];
+                        let mut list = block.list.clone();
+                        if let Some(list) = &mut list {
+                            list.shift(own);
+                        }
+                        return Some(ContextWitness {
+                            source: own + block.source.start..own + block.source.end,
+                            quote_depth: block.quote_depth,
+                            code: block.code,
+                            empty_comment: block.empty_comment,
+                            list,
+                        });
                     }
                 }
             }
