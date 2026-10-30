@@ -1,6 +1,18 @@
 //! Container indentation uses canonical item ownership and content columns.
 use super::*;
 
+struct LiftPlan {
+    head: usize,
+    marker_at: usize,
+    prefix_end: usize,
+    column: usize,
+    marker: String,
+    padding: String,
+    body_delta: isize,
+    shared_line: bool,
+    display_anchor: usize,
+}
+
 impl EditorSession {
     pub(super) fn indent_list(
         &mut self,
@@ -47,55 +59,76 @@ impl EditorSession {
             .max()
             .unwrap_or(item.item.end);
         let raw = self.source.byte_slice(start..end).to_string();
-        let shared_line = !add
-            && item
-                .parent_marker
-                .as_ref()
-                .is_some_and(|parent| parent.start >= start);
-        let mut extra_materialized = 0;
-        let lifted = if add {
-            None
-        } else {
-            let parent = self
-                .source
-                .byte_slice(
-                    item.parent_marker
-                        .clone()
-                        .ok_or(EditorError::UnrepresentableFormat)?,
-                )
-                .to_string();
-            extra_materialized += parent.len();
-            Some(super::list_styles::lifted_marker(
-                &parent,
-                item.parent_number,
-            ))
-        };
-        let padding = self
-            .source
-            .byte_slice(item.marker.end..start + item.indent)
-            .to_string();
-        let body_delta = lifted
-            .as_ref()
-            .map(|marker| {
-                let target = item.parent_marker_column.unwrap() + marker.len();
-                crate::inline::columns(&padding, target) as isize - item.content_column as isize
-            })
-            .unwrap_or(width as isize);
+        let mut plans = Vec::new();
+        let mut materialized = raw.len();
+        if !add {
+            let mut roots: Vec<_> = lines
+                .iter()
+                .filter_map(|line| line.list.as_ref())
+                .filter(|root| root.owner == item.owner)
+                .cloned()
+                .collect();
+            roots.sort_by_key(|root| root.marker.start);
+            roots.dedup_by_key(|root| root.marker.start);
+            for (index, root) in roots.iter().enumerate() {
+                let head = self
+                    .source
+                    .line_to_byte(self.source.byte_to_line(root.marker.start));
+                let parent_range = root
+                    .parent_marker
+                    .clone()
+                    .ok_or(EditorError::UnrepresentableFormat)?;
+                let parent = self.source.byte_slice(parent_range.clone()).to_string();
+                let marker = super::list_styles::lifted_marker(
+                    &parent,
+                    root.parent_number.map(|number| number + index as u64),
+                );
+                let padding = self
+                    .source
+                    .byte_slice(root.marker.end..head + root.indent)
+                    .to_string();
+                let column = root
+                    .parent_marker_column
+                    .ok_or(EditorError::UnrepresentableFormat)?;
+                let body_delta = crate::inline::columns(&padding, column + marker.len()) as isize
+                    - root.content_column as isize;
+                materialized += parent.len() + padding.len();
+                plans.push(LiftPlan {
+                    head,
+                    marker_at: root.marker.start - head,
+                    prefix_end: root.indent,
+                    column,
+                    marker,
+                    padding,
+                    body_delta,
+                    shared_line: parent_range.start >= head,
+                    display_anchor: self.projection.display_at(root.marker.start),
+                });
+            }
+        }
         let mut output = String::with_capacity(raw.len() + width);
-        for (index, line) in raw.split_inclusive('\n').enumerate() {
+        let mut offset = 0;
+        let mut active = 0;
+        for line in raw.split_inclusive('\n') {
+            let line_at = start + offset;
+            offset += line.len();
+            while active + 1 < plans.len() && plans[active + 1].head <= line_at {
+                active += 1;
+            }
+            let plan = plans.get(active);
             let prefix = quote_prefix_end(line, item.quote_depth);
             let base = crate::inline::columns(&line[..prefix], 0);
             output.push_str(&line[..prefix]);
-            if let Some(marker) = lifted.as_ref().filter(|_| index == 0) {
-                if shared_line {
-                    output.push_str(&line[prefix..item.marker.start - start]);
+            if let Some(plan) = plan.filter(|plan| plan.head == line_at) {
+                if plan.shared_line {
+                    output.push_str(&line[prefix..plan.marker_at]);
                     output.push('\n');
                     output.push_str(&line[..prefix]);
                 }
-                output.push_str(&" ".repeat(item.parent_marker_column.unwrap() - base));
-                output.push_str(marker);
-                output.push_str(&padding);
-                output.push_str(&line[item.indent..]);
+                output.push_str(&" ".repeat(plan.column - base));
+                output.push_str(&plan.marker);
+                output.push_str(&plan.padding);
+                output.push_str(&line[plan.prefix_end..]);
                 continue;
             }
             let line = &line[prefix..];
@@ -103,6 +136,7 @@ impl EditorSession {
                 output.push_str(line);
                 continue;
             }
+            let body_delta = plan.map_or(width as isize, |plan| plan.body_delta);
             if body_delta >= 0 {
                 output.push_str(&" ".repeat(body_delta as usize));
                 output.push_str(line);
@@ -122,9 +156,12 @@ impl EditorSession {
             }
         }
         let mut selection = range;
-        if shared_line {
-            selection.start.0 += 1;
-            selection.end.0 += 1;
+        for endpoint in [&mut selection.start.0, &mut selection.end.0] {
+            let opening = *endpoint;
+            *endpoint += plans
+                .iter()
+                .filter(|plan| plan.shared_line && plan.display_anchor <= opening)
+                .count();
         }
         let formats = (range == self.selection)
             .then(|| self.pending_formats.clone())
@@ -139,7 +176,7 @@ impl EditorSession {
             accept,
         )?;
         self.carry_block_state(&mut change, formats, affinity);
-        change.work.materialized_source_bytes += raw.len() + padding.len() + extra_materialized;
+        change.work.materialized_source_bytes += materialized;
         Ok(Some(change))
     }
 }
