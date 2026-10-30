@@ -12,8 +12,10 @@ import process from 'node:process';
 import console from 'node:console';
 import { setTimeout, clearTimeout } from 'node:timers';
 const { WasmSession } = await import(pathToFileURL(process.argv[2]).href);
-const cases = JSON.parse(readFileSync(new URL('fixtures/structural-seams.json', import.meta.url)));
-assert.equal(cases.length, 52);
+const cases = ['structural-seams', 'fence-physical-rows'].flatMap((name) =>
+  JSON.parse(readFileSync(new URL(`fixtures/${name}.json`, import.meta.url))),
+);
+assert.equal(cases.length, 62);
 const units = (text) => Uint16Array.from({ length: text.length }, (_, at) => text.charCodeAt(at));
 function host(vault, source) {
   const worker = spawn(process.argv[3], [vault, source], { stdio: ['pipe', 'pipe', 'inherit'] });
@@ -77,14 +79,14 @@ for (const item of cases) {
       await apply(page.block_command_utf16(revision, 0, 0, '"Indent"'));
     if (item.mode === 'composition_commit') {
       for (const text of ['に', '日本']) {
-        const marked = JSON.parse(page.compose_utf16(revision, 0, 0, units(text)));
+        const marked = JSON.parse(page.compose_utf16(revision, ...item.range, units(text)));
         assert.equal(marked.text, text);
         assert.equal(page.draft_text(), item.source);
         assert.equal(JSON.parse(page.status()).local, 0);
       }
       page.cancel_composition(revision);
       assert.equal(JSON.parse(page.composition()), null);
-      page.compose_utf16(revision, 0, 0, units(item.text));
+      page.compose_utf16(revision, ...item.range, units(item.text));
       await apply(page.commit_composition_utf16(revision, null));
     } else if (item.mode === 'composition_batch') {
       page.compose_utf16(revision, ...item.range, units(item.text));

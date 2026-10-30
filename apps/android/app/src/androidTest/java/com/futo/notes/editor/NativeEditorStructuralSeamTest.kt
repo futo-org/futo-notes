@@ -1,5 +1,7 @@
 package com.futo.notes.editor
 
+import android.content.res.AssetManager
+import org.json.JSONObject
 import androidx.test.platform.app.InstrumentationRegistry
 import java.io.File
 import java.util.UUID
@@ -10,25 +12,32 @@ import uniffi.futo_notes_ffi.*
 
 /** Synthetic binding/recovery checks; these are not captured OS callbacks. */
 class NativeEditorStructuralSeamTest {
+    private fun structuralCases(assets: AssetManager): List<JSONObject> =
+        listOf("structural-seams.json", "fence-physical-rows.json").flatMap { name ->
+            val values = JSONArray(assets.open(name).bufferedReader().use { it.readText() })
+            (0 until values.length()).map { values.getJSONObject(it) }
+        }
+
     @Test
     fun structuralFixtureAssetsCoexistWithTheOriginalConformanceAssets() {
         val assets = InstrumentationRegistry.getInstrumentation().context.assets
         val names = checkNotNull(assets.list(""))
         assertEquals(1, names.count { it == "structural-seams.json" })
+        assertEquals(1, names.count { it == "fence-physical-rows.json" })
         assertTrue(names.contains("server-url.json"))
         val readmeTitle = assets.open("README.md").bufferedReader().use { it.readLine() }
         assertEquals("# Cross-language note-rule conformance", readmeTitle)
-        val cases = JSONArray(assets.open("structural-seams.json").bufferedReader().use { it.readText() })
-        assertEquals(52, cases.length())
+        val cases = structuralCases(assets)
+        assertEquals(62, cases.size)
     }
 
     @Test
     fun structuralSeamsAndRawMarkedInputKeepExactNativeCaretsAndRecovery() {
         val context = InstrumentationRegistry.getInstrumentation().context
-        val cases = JSONArray(context.assets.open("structural-seams.json").bufferedReader().use { it.readText() })
-        assertEquals(52, cases.length())
-        for (index in 0 until cases.length()) {
-            val item = cases.getJSONObject(index)
+        val cases = structuralCases(context.assets)
+        assertEquals(62, cases.size)
+        for (index in 0 until cases.size) {
+            val item = cases[index]
             val root = File(InstrumentationRegistry.getInstrumentation().targetContext.cacheDir, "editor-seams-${UUID.randomUUID()}")
             check(root.mkdirs())
             try {

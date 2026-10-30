@@ -13,7 +13,75 @@ pub(crate) struct Fence {
     pub marker: u8,
     pub width: usize,
 }
+pub(crate) struct FenceInput {
+    pub source: Range<usize>,
+    pub continues_existing_row: bool,
+}
+
 impl Fence {
+    /// Map only editable code endpoints. A selected physical ending retires
+    /// its next row's hidden prefix; a caret or body-only selection does not.
+    /// The terminal frame ending and closer never belong to the replacement.
+    pub fn input_range(
+        &self,
+        projection: &super::Projection,
+        range: crate::DisplayRange,
+        touched: &[BlockLine],
+        inserted: &str,
+    ) -> Option<FenceInput> {
+        let body_start = projection.display_at(self.body.start);
+        let body_end = projection.display_at(self.body.end);
+        if range.start.0 < body_start || body_end < range.end.0 {
+            return None;
+        }
+        let start = if range.start.0 == body_end {
+            self.body.end
+        } else {
+            projection.source_bounds(range.start.0).1
+        };
+        let mut end = if range.end.0 == body_end {
+            self.body.end
+        } else if range.start == range.end {
+            start
+        } else {
+            projection.source_bounds(range.end.0).0
+        };
+        let mut continues_existing_row = false;
+        if range.start != range.end {
+            let left = projection.source_bounds(range.end.0).0;
+            let endpoint = crate::DisplayRange {
+                start: range.end,
+                end: range.end,
+            };
+            for next in projection.block_lines(endpoint) {
+                if next
+                    .fence
+                    .as_ref()
+                    .is_some_and(|fence| fence.whole == self.whole)
+                    && next.source.start == left
+                    && next.content.start <= self.body.end
+                    && touched.iter().any(|previous| {
+                        previous.source.end == next.source.start
+                            && previous.content.end < previous.source.end
+                            && start <= previous.content.end
+                    })
+                {
+                    continues_existing_row = inserted.ends_with('\n');
+                    end = if continues_existing_row {
+                        next.source.start
+                    } else {
+                        next.content.start
+                    };
+                    break;
+                }
+            }
+        }
+        (self.body.start <= start && start <= end && end <= self.body.end).then_some(FenceInput {
+            source: start..end,
+            continues_existing_row,
+        })
+    }
+
     pub fn shift(&mut self, by: usize) {
         for range in [
             &mut self.whole,
@@ -112,6 +180,11 @@ pub(super) fn describe(
                     // Only a closer with following source supplies an inter-block
                     // break; its delimiter and the body frame ending stay hidden.
                     line.content = match start {
+                        // A Text event can begin at LF in an otherwise empty
+                        // CRLF row. Its offset attributes code membership, not
+                        // ownership of the physical ending. Keep that ending
+                        // out of the prefix and retain the valid empty body.
+                        Some(start) if start > line.content.end => line.content.clone(),
                         Some(start) => start..line.content.end,
                         None if fence.as_ref().is_some_and(|fence| {
                             line.source.end < source.len()
@@ -125,6 +198,23 @@ pub(super) fn describe(
                         None => line.source.end..line.source.end,
                     };
                     line.bodies[0].content = line.content.clone();
+                }
+                // An unmatched fence owns EOF, including the synthetic row
+                // after its terminal ending. It must not introduce a foreign
+                // prose owner at the editable body-end caret.
+                if let Some(fence) =
+                    fence.filter(|fence| fence.closer.is_none() && fence.whole.end == source.len())
+                {
+                    let depth = lines[last - 1].quote_depth;
+                    if let Some(terminal) = lines
+                        .get_mut(last)
+                        .filter(|line| line.source.is_empty() && line.source.start == source.len())
+                    {
+                        terminal.code = true;
+                        terminal.code_language.clone_from(&language);
+                        terminal.quote_depth = depth;
+                        terminal.fence = Some(fence);
+                    }
                 }
             }
             _ => {}

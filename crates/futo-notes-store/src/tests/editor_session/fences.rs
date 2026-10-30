@@ -5,6 +5,48 @@ use futo_notes_editor::ParagraphKey;
 fn fenced_edits_pause_on_append_failure_then_recover_and_checkpoint_literal_bytes() {
     for (opening, selected, inserted, expected, display) in [
         (
+            "```Rust\r\na\r\n\r\n",
+            range(3, 3),
+            "X",
+            "```Rust\r\na\r\nX\r\n",
+            "a\r\nX",
+        ),
+        (
+            "> ```\n> a\n> b\n> ```",
+            range(1, 2),
+            "",
+            "> ```\n> ab\n> ```",
+            "ab",
+        ),
+        (
+            "> ```\n> a\n> b\n> ```",
+            range(1, 2),
+            "X",
+            "> ```\n> aXb\n> ```",
+            "aXb",
+        ),
+        (
+            "> > ~~~Rust\r\n> > a\r\n> > b\r\n> > ~~~~  ",
+            range(1, 3),
+            "X",
+            "> > ~~~Rust\r\n> > aXb\r\n> > ~~~~  ",
+            "aXb",
+        ),
+        (
+            "```\r\na\r\nb\r\n```",
+            range(1, 1),
+            "\n",
+            "```\r\na\n\r\nb\r\n```",
+            "a\n\r\nb",
+        ),
+        (
+            "> ```\n>\ta\n> b\n> ```",
+            range(1, 2),
+            "X\n",
+            "> ```\n>\taX\n> b\n> ```",
+            "aX\nb",
+        ),
+        (
             "~~~ c++ extra\r\n猫🦊\r\n~~~~  \r\n\n__tail__",
             range(3, 3),
             "!",
@@ -49,6 +91,7 @@ fn fenced_edits_pause_on_append_failure_then_recover_and_checkpoint_literal_byte
             editor
                 .select_with_affinity(Revision(0), selected, futo_notes_editor::Affinity::Forward)
                 .unwrap();
+            let original_display = editor.display_text();
             disk.lock().unwrap().fault = Some(storage::Fault::Append);
             assert!(matches!(
                 editor.replace(Revision(0), selected, inserted),
@@ -56,12 +99,15 @@ fn fenced_edits_pause_on_append_failure_then_recover_and_checkpoint_literal_byte
             ));
             assert_eq!(editor.source_text(), opening);
             assert_eq!(editor.revision(), Revision(0));
+            assert_eq!(editor.display_text(), original_display);
+            assert_eq!(editor.selection(), selected);
             assert!(matches!(
                 editor.replace(Revision(0), selected, inserted),
                 Err(EditorStoreError::RecoveryPaused)
             ));
             disk.lock().unwrap().fault = None;
             editor.resume_recovery().unwrap();
+            assert!(editor.undo(Revision(0)).unwrap().is_none());
             editor.replace(Revision(0), selected, inserted).unwrap();
             assert_eq!(editor.source_text(), expected);
             assert_eq!(editor.display_text(), display);
@@ -72,6 +118,7 @@ fn fenced_edits_pause_on_append_failure_then_recover_and_checkpoint_literal_byte
                 Err(EditorStoreError::RecoveryAppend(_))
             ));
             assert_eq!(editor.source_text(), expected);
+            assert_eq!(editor.display_text(), display);
             assert_eq!(editor.selection(), selected);
             disk.lock().unwrap().fault = None;
             editor.resume_recovery().unwrap();

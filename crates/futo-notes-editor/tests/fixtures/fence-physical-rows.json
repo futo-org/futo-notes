@@ -1,0 +1,122 @@
+[
+  {
+    "name": "code-physical-blank-crlf-end",
+    "source": "```Rust\r\na\r\n\r\n",
+    "display": "a\r\n",
+    "mode": "typing",
+    "range": [3, 3],
+    "text": "X",
+    "expectedSource": "```Rust\r\na\r\nX\r\n",
+    "expectedDisplay": "a\r\nX",
+    "caret": 4,
+    "history": 1
+  },
+  {
+    "name": "code-physical-internal-blank-crlf",
+    "source": "```Rust\r\na\r\n\r\nb\r\n```",
+    "display": "a\r\n\r\nb",
+    "mode": "typing",
+    "range": [3, 3],
+    "text": "X",
+    "expectedSource": "```Rust\r\na\r\nX\r\nb\r\n```",
+    "expectedDisplay": "a\r\nX\r\nb",
+    "caret": 4,
+    "history": 1
+  },
+  {
+    "name": "code-physical-selected-lf-delete",
+    "source": "> ```\n> a\n> b\n> ```",
+    "display": "a\nb",
+    "mode": "typing",
+    "range": [1, 2],
+    "text": "",
+    "expectedSource": "> ```\n> ab\n> ```",
+    "expectedDisplay": "ab",
+    "caret": 1,
+    "history": 1
+  },
+  {
+    "name": "code-physical-selected-lf-replace",
+    "source": "> ```\n> a\n> b\n> ```",
+    "display": "a\nb",
+    "mode": "typing",
+    "range": [1, 2],
+    "text": "X",
+    "expectedSource": "> ```\n> aXb\n> ```",
+    "expectedDisplay": "aXb",
+    "caret": 2,
+    "history": 1
+  },
+  {
+    "name": "code-physical-selected-crlf-explicit",
+    "source": "> > ~~~Rust\r\n> > a\r\n> > b\r\n> > ~~~~  ",
+    "display": "a\r\nb",
+    "mode": "explicit",
+    "range": [1, 3],
+    "text": "X",
+    "expectedSource": "> > ~~~Rust\r\n> > aXb\r\n> > ~~~~  ",
+    "expectedDisplay": "aXb",
+    "caret": 2,
+    "history": 1
+  },
+  {
+    "name": "code-physical-selected-lf-os",
+    "source": "> ```\n> a\n> b\n> ```",
+    "display": "a\nb",
+    "mode": "os",
+    "range": [1, 2],
+    "text": "X",
+    "expectedSource": "> ```\n> aXb\n> ```",
+    "expectedDisplay": "aXb",
+    "caret": 2,
+    "history": 1
+  },
+  {
+    "name": "code-physical-end-composition",
+    "source": "> ```Rust\r\n> a\r\n> \r\n",
+    "display": "a\r\n",
+    "mode": "composition_commit",
+    "range": [3, 3],
+    "text": "\u732b\ud83e\udd8a",
+    "expectedSource": "> ```Rust\r\n> a\r\n> \u732b\ud83e\udd8a\r\n",
+    "expectedDisplay": "a\r\n\u732b\ud83e\udd8a",
+    "caret": 6,
+    "history": 1
+  },
+  {
+    "name": "code-physical-shifted-end-explicit",
+    "source": "__\u732b\ud83e\udd8a__\n\n> > ~~~Rust\r\n> > a\r\n> > \r\n",
+    "display": "\u732b\ud83e\udd8a\n\na\r\n",
+    "mode": "explicit",
+    "range": [8, 8],
+    "text": "X",
+    "expectedSource": "__\u732b\ud83e\udd8a__\n\n> > ~~~Rust\r\n> > a\r\n> > X\r\n",
+    "expectedDisplay": "\u732b\ud83e\udd8a\n\na\r\nX",
+    "caret": 9,
+    "history": 1
+  },
+  {
+    "name": "code-physical-enter-keeps-authored-cr",
+    "source": "```\r\na\r\nb\r\n```",
+    "display": "a\r\nb",
+    "mode": "typing",
+    "range": [1, 1],
+    "text": "\n",
+    "expectedSource": "```\r\na\n\r\nb\r\n```",
+    "expectedDisplay": "a\n\r\nb",
+    "caret": 2,
+    "history": 1
+  },
+  {
+    "name": "code-physical-surviving-break-prefix",
+    "source": "> ```\n>\ta\n> b\n> ```",
+    "display": "a\nb",
+    "mode": "explicit",
+    "range": [1, 2],
+    "text": "X\n",
+    "expectedSource": "> ```\n>\taX\n> b\n> ```",
+    "expectedDisplay": "aX\nb",
+    "caret": 3,
+    "history": 1
+  }
+]

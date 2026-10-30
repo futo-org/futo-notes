@@ -23,3 +23,22 @@ mod keys;
 mod projection;
 #[path = "fences/protected_input.rs"]
 mod protected_input;
+
+#[path = "fences/physical_rows.rs"]
+mod physical_rows;
+
+#[path = "fences/physical_basis.rs"]
+mod physical_basis;
+
+fn assert_fresh_projection(session: &EditorSession, shown: &str) {
+    assert_eq!(session.display_text(), shown);
+    let mut actual = session
+        .project(session.revision(), range(0, shown.len()))
+        .unwrap();
+    let fresh = EditorSession::open(&session.source_text());
+    let expected = fresh
+        .project(fresh.revision(), range(0, shown.len()))
+        .unwrap();
+    actual.revision = expected.revision;
+    assert_eq!(actual, expected);
+}

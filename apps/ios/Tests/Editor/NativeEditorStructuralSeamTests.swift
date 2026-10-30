@@ -38,12 +38,15 @@ struct NativeEditorStructuralSeamTests {
     @Test("shared literal seams, raw marked text and OS runs recover with exact native carets")
     func structuralSeams() async throws {
         try await Task.detached {
-            let url = try #require(
-                Bundle(for: StructuralSeamBundle.self).url(
-                    forResource: "structural-seams", withExtension: "json"))
-            let cases = try JSONDecoder().decode(
-                [StructuralSeamCase].self, from: Data(contentsOf: url))
-            #expect(cases.count == 52)
+            let cases = try ["structural-seams", "fence-physical-rows"].flatMap {
+                name -> [StructuralSeamCase] in
+                let url = try #require(
+                    Bundle(for: StructuralSeamBundle.self).url(
+                        forResource: name, withExtension: "json"))
+                return try JSONDecoder().decode(
+                    [StructuralSeamCase].self, from: Data(contentsOf: url))
+            }
+            #expect(cases.count == 62)
             for item in cases {
                 let root = FileManager.default.temporaryDirectory.appendingPathComponent(
                     "editor-seams-\(UUID().uuidString)")

@@ -103,26 +103,11 @@ impl EditorSession {
         }) {
             return Ok(None);
         }
-        // A visible inter-block separator is outside this fence's editable
-        // body. Let the ordinary strict edit planner handle that request rather
-        // than narrowing a supplied display selection into an unrelated no-op.
-        if range.start.0 < self.projection.display_at(fence.body.start)
-            || self.projection.display_at(fence.body.end) < range.end.0
-        {
+        let Some(owned) = fence.input_range(&self.projection, range, &lines, inserted) else {
+            // Keep foreign code/prose separators with the strict generic planner.
             return Ok(None);
-        }
-        let (a, b) = (
-            self.projection.source_bounds(range.start.0).1,
-            self.projection.source_bounds(range.end.0).0,
-        );
-        let a = a.clamp(fence.body.start, fence.body.end);
-        let b = if range.start != range.end
-            && range.end.0 == self.projection.display_at(fence.body.end)
-        {
-            fence.body.end
-        } else {
-            b.clamp(a, fence.body.end)
         };
+        let (a, b) = (owned.source.start, owned.source.end);
         if range.start == range.end && inserted.is_empty() {
             return self
                 .commit_block_edit(
@@ -154,6 +139,11 @@ impl EditorSession {
                     .to_string()
             };
         let mut input = inserted.replace('\n', &format!("\n{prefix}"));
+        if owned.continues_existing_row {
+            // The selected ending survives in the replacement. Its following
+            // physical prefix is still in source, with its exact own spelling.
+            input.truncate(input.len() - prefix.len());
+        }
         if fence.body.is_empty() {
             input.insert_str(0, &prefix);
             if fence.body.start == fence.whole.end

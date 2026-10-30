@@ -1,6 +1,6 @@
 # Structural seam fixtures
 
-`structural-seams.json` contains fifty-two hand-worked synthetic public-interface
+`structural-seams.json` and `fence-physical-rows.json` contain sixty-two hand-worked synthetic public-interface
 regressions for #296 and #297. The original thirty-eight objects remain an exact
 byte prefix. These are source/display/history/caret oracles, not actual
 OS captures. Ranges and carets use native UTF-16 code units. `history` counts Undo
@@ -45,3 +45,12 @@ multiline node without the frame LF. New #297 EOF display expectations were
 corrected against that authority; exact source oracles and historical red logs
 remain intact. `../fences/frame.rs` and `../fences/basis.rs` lock the frame/body
 ownership, fresh-open agreement and exact history through public sessions.
+
+The ten physical-row literals cover authored blank CRLF, valid unmatched EOF
+carets, selected internal LF/CRLF replacement, exact surviving prefixes, shifted
+Unicode origins and composition through the same public transports. The original
+fifty-two-object structural fixture remains entirely byte-identical; the ten
+physical-row literals live separately to stay within the file-size gate. Public `physical_rows.rs` adds a
+finite endpoint basis, source/UTF-16 round trips, selection echoes, rejection,
+Undo/Redo and fresh projection comparison; store fence tests exercise real
+append/Undo faults, resume/retry, replay, checkpoint and reopen.
