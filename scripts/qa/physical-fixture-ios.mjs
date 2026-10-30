@@ -365,7 +365,9 @@ if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) 
   const selection = JSON.parse(
     fixtureFile(join(root, 'apps/ios/FixtureCapture/.build-signed', runID, 'selection.json')),
   );
-  const build = createIOSFixtureExecutor(root).inspectBuild(selection);
+  if (selection?.runID !== runID)
+    throw new Error('Signed fixture selection differs from requested run');
+  const build = createIOSFixtureExecutor(root).inspectBuild({ ...selection, runID });
   console.log(
     JSON.stringify({
       signing: build.signing,
