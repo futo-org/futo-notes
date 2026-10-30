@@ -65,7 +65,7 @@ fn shared_list_actions_survive_failed_append_undo_flush_power_loss_and_checkpoin
         "../../../../futo-notes-editor/tests/fixtures/list-actions.json"
     ))
     .unwrap();
-    assert_eq!(cases.as_array().unwrap().len(), 24);
+    assert_eq!(cases.as_array().unwrap().len(), 26);
     for case in cases.as_array().unwrap() {
         let text = |key: &str| case[key].as_str().unwrap();
         let root = TestRoot::new();

@@ -690,5 +690,59 @@
         null
       ]
     ]
+  },
+  {
+    "name": "ordered shortcut preserves following foreign start",
+    "source": "2.body\n\n7. after",
+    "display": "2.body\n\nafter",
+    "action": "Typing",
+    "range": [
+      2,
+      2
+    ],
+    "text": " ",
+    "expected": "2) body\n\n7. after",
+    "shown": "body\n\nafter",
+    "resultRange": [
+      0,
+      0
+    ],
+    "finalItems": [
+      [
+        2,
+        null
+      ],
+      [
+        7,
+        null
+      ]
+    ]
+  },
+  {
+    "name": "ordered shortcut preserves preceding foreign owner",
+    "source": "9. before\n\n2.body",
+    "display": "before\n\n2.body",
+    "action": "Typing",
+    "range": [
+      10,
+      10
+    ],
+    "text": " ",
+    "expected": "9. before\n\n2) body",
+    "shown": "before\n\nbody",
+    "resultRange": [
+      8,
+      8
+    ],
+    "finalItems": [
+      [
+        9,
+        null
+      ],
+      [
+        2,
+        null
+      ]
+    ]
   }
 ]

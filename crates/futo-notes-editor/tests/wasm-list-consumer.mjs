@@ -13,7 +13,7 @@ import console from 'node:console';
 import { setTimeout, clearTimeout } from 'node:timers';
 const { WasmSession } = await import(pathToFileURL(process.argv[2]).href);
 const cases = JSON.parse(readFileSync(new URL('fixtures/list-actions.json', import.meta.url)));
-assert.equal(cases.length, 24);
+assert.equal(cases.length, 26);
 const units = (text) => Uint16Array.from({ length: text.length }, (_, at) => text.charCodeAt(at));
 function host(vault, source) {
   const worker = spawn(process.argv[3], [vault, source], { stdio: ['pipe', 'pipe', 'inherit'] });

@@ -25,7 +25,7 @@ fn shared_list_actions_forward_native_coordinates_history_and_exact_recovery() {
         "../../futo-notes-editor/tests/fixtures/list-actions.json"
     ))
     .unwrap();
-    assert_eq!(cases.as_array().unwrap().len(), 24);
+    assert_eq!(cases.as_array().unwrap().len(), 26);
     for case in cases.as_array().unwrap() {
         let text = |key: &str| case[key].as_str().unwrap();
         let tree = TempTree::new();

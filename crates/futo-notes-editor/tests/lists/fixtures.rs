@@ -11,7 +11,7 @@ fn native(value: &Value) -> DisplayUtf16Range {
 #[test]
 fn shared_literal_list_actions_cover_native_coordinates_and_exact_history() {
     let cases: Value = serde_json::from_str(include_str!("../fixtures/list-actions.json")).unwrap();
-    assert_eq!(cases.as_array().unwrap().len(), 24);
+    assert_eq!(cases.as_array().unwrap().len(), 26);
     for case in cases.as_array().unwrap() {
         let text = |key: &str| case[key].as_str().unwrap();
         let mut s = EditorSession::open(text("source"));
