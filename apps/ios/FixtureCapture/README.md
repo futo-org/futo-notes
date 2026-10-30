@@ -118,6 +118,16 @@ its raw artifact in a fresh owned subdirectory while still returning a failure r
 `close` releases the exact completed/failed reservation and retains evidence and installations.
 It refuses an unfinished capture. No cleanup removes a vault, installation or evidence tree.
 
+The version-1 recorder wire schema is checked before capture success, successful read,
+and release of a captured receipt (`scripts/qa/physical-fixture-artifact.mjs`). It requires
+the writer's complete callback snapshots, method-specific arguments/returns, nullable
+selections/marked ranges/language/token observations, traits and lifecycle stamps. Unknown
+methods, missing members and wrong primitive types fail with the original raw bytes retained
+under a failed capture receipt; explicit failed close remains available. This is shape
+validation, not callback-order, range-bound, keyboard, Markdown or OS-result interpretation.
+The hosted synthetic projection test exports current recorder/writer bytes as
+`Editor294SyntheticRecorderArtifact:` for a separately labelled host compatibility replay.
+
 The fixed UI scenario remains physical-only; the simulator test recipe runs only the hosted
 synthetic unit bundle. Physical execution and live CoreDevice/XCTest schema validation are
 separate outstanding checks. Existing pool, SIMULATOR_UDID, selector, and allowlist rules

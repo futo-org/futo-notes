@@ -4,6 +4,7 @@
 import { hostname } from 'node:os';
 import { join } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
+import { parseFixtureArtifact } from './physical-fixture-artifact.mjs';
 import {
   evidenceRun,
   assertPrivateTree,
@@ -59,12 +60,7 @@ function validateDevice(plan, device, installations) {
 }
 
 function validateArtifact(plan, build, raw) {
-  let artifact;
-  try {
-    artifact = JSON.parse(raw);
-  } catch {
-    throw new Error('Malformed or partial capture artifact');
-  }
+  const artifact = parseFixtureArtifact(raw);
   if (
     artifact?.formatVersion !== 1 ||
     artifact.runID !== plan.runID ||
@@ -78,21 +74,9 @@ function validateArtifact(plan, build, raw) {
     JSON.stringify(canonical(artifact.provenance)) !== JSON.stringify(canonical(build.provenance))
   )
     throw new Error('Capture artifact identity, provenance, path, or completion differs');
-  const utf16 = (units) =>
-    Array.isArray(units) && units.every((n) => Number.isInteger(n) && n >= 0 && n <= 65535);
   if (
-    !utf16(artifact.sourceUTF16) ||
-    !utf16(artifact.opening?.textUTF16) ||
-    !utf16(artifact.current?.textUTF16) ||
-    !Array.isArray(artifact.events) ||
-    !Array.isArray(artifact.lifecycle) ||
     !artifact.lifecycle.some((e) => e.event === 'ready') ||
-    !artifact.lifecycle.some((e) => e.event === 'capture-window-ended') ||
-    !artifact.traits ||
-    typeof artifact.traits !== 'object' ||
-    Array.isArray(artifact.traits) ||
-    typeof artifact.os !== 'string' ||
-    !artifact.os
+    !artifact.lifecycle.some((e) => e.event === 'capture-window-ended')
   )
     throw new Error('Capture artifact is incomplete');
   const source = [95, 95, 97, 98, 95, 95, 32, 38, 97, 109, 112, 59, 32, 99, 100, 13, 10];
@@ -131,8 +115,9 @@ export async function executePhysicalFixture(operation, plan, runtime) {
     validateTerminalReceipt(plan, receipt, output);
     if (receipt.status === 'captured') {
       validateFixtureResult(plan, receipt.result);
-      if (digest(readEvidence(join(output, 'capture.json'))) !== receipt.artifactSHA256)
-        throw new Error('Retained capture hash differs');
+      const raw = readEvidence(join(output, 'capture.json'));
+      if (digest(raw) !== receipt.artifactSHA256) throw new Error('Retained capture hash differs');
+      parseFixtureArtifact(raw);
     }
     return receipt;
   };

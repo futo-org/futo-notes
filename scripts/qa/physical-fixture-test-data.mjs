@@ -5,6 +5,49 @@ import { join } from 'node:path';
 import { acquireLease } from './physical-fixture-lease.mjs';
 export const runID = '650D54CC-6339-4D62-B550-834BFBB8D7AA';
 export const nonce = '9ADC97CB-1A3D-443E-B5C7-62E50B90CDF1';
+
+// Synthetic wire example of NativeInputRecorder + CaptureWorkspace, never OS
+// input evidence. Keep the full producer shape so successful mocks cannot hide
+// missing snapshots, traits or lifecycle members.
+export function recorderPayload() {
+  const snapshot = (textUTF16) => ({
+    textUTF16,
+    selected: [textUTF16.length, textUTF16.length],
+    marked: null,
+    language: 'en-US',
+    availableLanguages: ['en-US'],
+  });
+  const opening = snapshot([97, 98, 32, 38, 32, 99, 100, 13, 10]);
+  const current = snapshot([...opening.textUTF16, 33]);
+  return {
+    opening,
+    current,
+    events: [
+      {
+        id: 1,
+        parent: null,
+        method: 'insertText',
+        arguments: { textUTF16: [33] },
+        before: opening,
+        after: current,
+      },
+    ],
+    lifecycle: [
+      { event: 'ready', uptime: 1, time: '2026-10-30T01:00:00Z' },
+      { event: 'capture-window-ended', uptime: 11, time: '2026-10-30T01:00:10Z' },
+    ],
+    traits: {
+      autocorrection: 1,
+      autocapitalization: 2,
+      spellChecking: 1,
+      keyboard: 0,
+      deviceModel: 'iPhone',
+      systemName: 'iOS',
+      systemVersion: '27.2',
+    },
+    os: 'iOS',
+  };
+}
 export function setup(reserve = true) {
   const directory = realpathSync(mkdtempSync(join(tmpdir(), 'physical-capture-test-')));
   const plan = {
@@ -110,12 +153,7 @@ export function setup(reserve = true) {
           provenance: { sourceSHA: plan.sourceSHA, sourceFingerprint: plan.sourceFingerprint },
           status: 'capture-window-ended',
           sourceUTF16: [95, 95, 97, 98, 95, 95, 32, 38, 97, 109, 112, 59, 32, 99, 100, 13, 10],
-          opening: { textUTF16: [97] },
-          current: { textUTF16: [97, 98] },
-          events: [{ id: 1, parent: null, method: 'insertText' }],
-          lifecycle: [{ event: 'ready' }, { event: 'capture-window-ended' }],
-          traits: { systemName: 'iOS' },
-          os: 'iOS',
+          ...recorderPayload(),
         });
       },
     },

@@ -55,6 +55,7 @@ function createMockCLI(root) {
     `
 import { holdLease, useLease, releaseLease } from ${JSON.stringify(new URL('./physical-fixture-lease.mjs', import.meta.url).href)};
 import { runPhysicalFixtureCLI } from ${JSON.stringify(new URL('./physical-fixture-cli.mjs', import.meta.url).href)};
+import { recorderPayload } from ${JSON.stringify(new URL('./physical-fixture-test-data.mjs', import.meta.url).href)};
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 const root = ${JSON.stringify(root)};
@@ -80,8 +81,7 @@ const executor = {
     declaredDestination: template.deviceUDID,destinationBinding: 'declared-only',acceptance: 'unreviewed-raw-capture',
     artifactRelativePath: 'tmp/editor294-' + template.runID + '/capture.json', maximumDurationSeconds: 10,
     provenance,status: 'capture-window-ended',sourceUTF16: [95,95,97,98,95,95,32,38,97,109,112,59,32,99,100,13,10],
-    opening: {textUTF16: [97]},current: {textUTF16: [97,98]},events: [{id: 1,parent: null,method: 'insertText'}],
-    lifecycle: [{event: 'ready'},{event: 'capture-window-ended'}],traits: {systemName: 'iOS'},os: 'iOS'}),
+    ...recorderPayload()}),
 };
 if (process.argv[2] === 'acquire') console.log(JSON.stringify(await holdLease(template, leaseRuntime)));
 else if (process.argv[2] === 'interrupt-use') {
