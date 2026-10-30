@@ -19,7 +19,7 @@ internal fun sharedListActions() {
     assertEquals(12, staging.length())
     for (at in 0 until staging.length()) cases.put(staging.getJSONObject(at))
     val nested = JSONArray(context.assets.open("nested-containers.json").bufferedReader().use { it.readText() })
-    assertEquals(28, nested.length())
+    assertEquals(35, nested.length())
     for (at in 0 until nested.length()) cases.put(nested.getJSONObject(at))
     fun native(values: JSONArray) = EditorUtf16Range(values.getLong(0).toULong(), values.getLong(1).toULong())
     for (at in 0 until cases.length()) {
@@ -65,6 +65,8 @@ internal fun sharedListActions() {
                         "Typing" -> s.replaceUtf16Action(0uL, selected, inserted, EditorInputAction.TYPING)
                         "Enter", "Backspace", "Delete" -> s.paragraphKeyUtf16(0uL, selected, if (action == "Enter") EditorParagraphKey.ENTER else if (action == "Delete") EditorParagraphKey.DELETE else EditorParagraphKey.BACKSPACE)
                         else -> s.blockCommandUtf16(0uL, selected, when (action) {
+                            "Text" -> EditorBlockCommand.Heading(0u)
+                            "Heading2" -> EditorBlockCommand.Heading(2u)
                             "Indent" -> EditorBlockCommand.Indent
                             "Outdent" -> EditorBlockCommand.Outdent
                             "BulletList" -> EditorBlockCommand.BulletList

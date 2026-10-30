@@ -40,7 +40,7 @@ fn shared_list_actions_forward_native_coordinates_history_and_exact_recovery() {
         "../../futo-notes-editor/tests/fixtures/nested-containers.json"
     ))
     .unwrap();
-    assert_eq!(nested.len(), 28);
+    assert_eq!(nested.len(), 35);
     let cases: Vec<_> = original
         .into_iter()
         .chain(shortcuts)
@@ -99,6 +99,8 @@ fn shared_list_actions_forward_native_coordinates_history_and_exact_recovery() {
                     0,
                     selected,
                     match command {
+                        "Text" => EditorBlockCommand::Heading { level: 0 },
+                        "Heading2" => EditorBlockCommand::Heading { level: 2 },
                         "Indent" => EditorBlockCommand::Indent,
                         "Outdent" => EditorBlockCommand::Outdent,
                         "BulletList" => EditorBlockCommand::BulletList,

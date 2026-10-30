@@ -23,7 +23,7 @@ assert.equal(staging.length, 12);
 const nested = JSON.parse(
   readFileSync(new URL('fixtures/nested-containers.json', import.meta.url)),
 );
-assert.equal(nested.length, 28);
+assert.equal(nested.length, 35);
 const cases = [...original, ...shortcuts, ...staging, ...nested];
 const units = (text) => Uint16Array.from({ length: text.length }, (_, at) => text.charCodeAt(at));
 function host(vault, source) {
@@ -113,7 +113,15 @@ for (const item of cases) {
         page.block_command_utf16(
           revision,
           ...item.range,
-          JSON.stringify(item.action === 'ComposeToggleTask' ? 'ToggleTask' : item.action),
+          JSON.stringify(
+            item.action === 'Text'
+              ? { Heading: 0 }
+              : item.action === 'Heading2'
+                ? { Heading: 2 }
+                : item.action === 'ComposeToggleTask'
+                  ? 'ToggleTask'
+                  : item.action,
+          ),
         ),
       );
     assert.equal(revision, 1n, 'one protected append');

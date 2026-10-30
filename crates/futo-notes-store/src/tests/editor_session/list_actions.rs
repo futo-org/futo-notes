@@ -47,6 +47,8 @@ fn action(
                 s.revision(),
                 selected,
                 match command {
+                    "Text" => BlockCommand::Heading(0),
+                    "Heading2" => BlockCommand::Heading(2),
                     "Indent" => BlockCommand::Indent,
                     "Outdent" => BlockCommand::Outdent,
                     "BulletList" => BlockCommand::BulletList,
@@ -138,7 +140,7 @@ fn shared_list_actions_survive_failed_append_undo_flush_power_loss_and_checkpoin
         "../../../../futo-notes-editor/tests/fixtures/nested-containers.json"
     ))
     .unwrap();
-    assert_eq!(nested.len(), 28);
+    assert_eq!(nested.len(), 35);
     let cases: Vec<_> = original
         .into_iter()
         .chain(shortcuts)

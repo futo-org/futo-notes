@@ -51,7 +51,7 @@ extension NativeEditorBlockRegressionTests {
             let staging = try load("list-staging")
             #expect(staging.count == 12)
             let nested = try load("nested-containers")
-            #expect(nested.count == 28)
+            #expect(nested.count == 35)
             let cases = original + shortcuts + staging + nested
             for item in cases {
                 let root = FileManager.default.temporaryDirectory.appendingPathComponent(
@@ -119,6 +119,8 @@ extension NativeEditorBlockRegressionTests {
                 default:
                     let command: EditorBlockCommand
                     switch item.action {
+                    case "Text": command = .heading(level: 0)
+                    case "Heading2": command = .heading(level: 2)
                     case "Indent": command = .indent
                     case "Outdent": command = .outdent
                     case "BulletList": command = .bulletList
