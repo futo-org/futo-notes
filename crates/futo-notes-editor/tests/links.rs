@@ -396,3 +396,31 @@ fn unfinished_urls_elsewhere_do_not_add_metadata_work_to_a_local_keystroke() {
         "distant unfinished URL metadata must stay in its own rows"
     );
 }
+
+#[test]
+fn editing_a_loaded_bare_url_label_retains_its_destination_with_explicit_spelling() {
+    let mut session = EditorSession::open("https://x.test");
+    let mut view = ReferenceView::new("https://x.test");
+    view.apply(
+        session
+            .replace(Revision(0), range(14, 14), "/new", &mut |_| Ok(()))
+            .unwrap(),
+    );
+    assert_eq!(view.text, "https://x.test/new");
+    assert_eq!(
+        session.source_text(),
+        "[https://x.test/new](<https://x.test>)"
+    );
+    assert_eq!(
+        session
+            .inspect_link(Revision(1), range(1, 2))
+            .unwrap()
+            .unwrap()
+            .destination,
+        "https://x.test"
+    );
+    view.apply(session.undo(Revision(1), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(session.source_text(), "https://x.test");
+    view.apply(session.redo(Revision(2), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(view.text, "https://x.test/new");
+}
