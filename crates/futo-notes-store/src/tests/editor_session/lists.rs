@@ -31,7 +31,7 @@ fn list_keys_protect_exact_history_and_recover_after_append_failures_and_flush()
             "* a\r\n* \r\n* b",
             "a\r\n\r\nb",
             3,
-            "* a\r\n\r\n* b",
+            "* a\r\n\r\n<!-- -->\n* b",
             "a\r\n\r\nb",
             3,
         ),

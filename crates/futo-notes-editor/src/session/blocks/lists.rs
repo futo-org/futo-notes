@@ -141,10 +141,42 @@ impl EditorSession {
                 .then(|| self.pending_formats.clone())
                 .flatten();
             let affinity = self.input_affinity(range);
+            let list = line.list.as_ref().unwrap();
+            let group = DisplayRange {
+                start: DisplayOffset(self.projection.display_at(list.owner.start)),
+                end: DisplayOffset(self.projection.display_at(list.owner.end)),
+            };
+            let members = self.projection.block_lines(group);
+            let before = members.iter().any(|other| {
+                other.list.as_ref().is_some_and(|item| {
+                    item.owner == list.owner && item.marker.start < list.marker.start
+                })
+            });
+            let after = members.iter().any(|other| {
+                other.list.as_ref().is_some_and(|item| {
+                    item.owner == list.owner && item.marker.start > list.marker.start
+                })
+            });
+            let mut replacement = prefix[..quote_end].to_owned();
+            let end = if before && after {
+                // Blank lines alone leave both halves in one loose CommonMark
+                // list. Keep this exited blank line and persist the boundary.
+                replacement.push_str(
+                    &self
+                        .source
+                        .byte_slice(line.content.end..line.source.end)
+                        .to_string(),
+                );
+                replacement.push_str(&prefix[..quote_end]);
+                replacement.push_str("<!-- -->\n");
+                line.source.end
+            } else {
+                line.content.start
+            };
             let mut change = self.commit_block_edit(
                 expected,
-                line.source.start..line.content.start,
-                &prefix[..quote_end],
+                line.source.start..end,
+                &replacement,
                 BlockSelection::Display(range),
                 None,
                 accept,

@@ -85,7 +85,7 @@ fn empty_item_enter_exits_without_changing_neighboring_items_or_endings() {
             "* a\r\n* \r\n* b",
             "a\r\n\r\nb",
             range(3, 3),
-            "* a\r\n\r\n* b",
+            "* a\r\n\r\n<!-- -->\n* b",
             "a\r\n\r\nb",
         ),
         ("> - [ ] ", "", range(0, 0), "> ", ""),
