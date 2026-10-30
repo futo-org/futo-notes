@@ -7,6 +7,7 @@ use crate::FlushDraftResult;
 
 mod composition;
 mod contract;
+mod links;
 pub use contract::*;
 
 /// Blocking store endpoint. Call on the native I/O worker, including append

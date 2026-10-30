@@ -16,6 +16,7 @@ pub(crate) mod deletion;
 mod facade;
 mod identity;
 mod input;
+mod links;
 mod state;
 pub(crate) use identity::IdentityTransition;
 mod lease;

@@ -401,6 +401,19 @@ pub struct EditorSemanticRun {
     pub formats: Vec<EditorInlineFormat>,
 }
 #[derive(Debug, PartialEq, Eq, uniffi::Record)]
+pub struct EditorLinkDescription {
+    pub range: EditorByteRange,
+    pub destination: String,
+}
+impl From<editor::LinkDescription> for EditorLinkDescription {
+    fn from(value: editor::LinkDescription) -> Self {
+        Self {
+            range: value.range.into(),
+            destination: value.destination,
+        }
+    }
+}
+#[derive(Debug, PartialEq, Eq, uniffi::Record)]
 pub struct EditorSourceByteRange {
     pub start: u64,
     pub end: u64,
@@ -418,6 +431,7 @@ pub struct EditorProjection {
     pub runs: Vec<EditorSemanticRun>,
     pub correspondence: Vec<EditorCorrespondence>,
     pub blocks: Vec<EditorBlockDescription>,
+    pub links: Vec<EditorLinkDescription>,
 }
 #[derive(Debug, PartialEq, Eq, uniffi::Record)]
 pub struct EditorBlockDescription {
@@ -434,6 +448,7 @@ impl From<editor::ProjectionSlice> for EditorProjection {
             revision: value.revision.0,
             range: value.range.into(),
             text: value.text,
+            links: value.links.into_iter().map(Into::into).collect(),
             blocks: value
                 .blocks
                 .into_iter()
