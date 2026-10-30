@@ -12,6 +12,7 @@ pub(super) struct Piece {
     pub display: String,
     pub spans: Vec<usize>,
     pub trailing: bool,
+    pub definition: Option<std::sync::Arc<str>>,
 }
 pub(super) struct Marker {
     pub kind: SpanKind,
@@ -55,7 +56,8 @@ pub(super) fn spell_with_anchors(
     let mut link_metadata_items = rendered.link_metadata_items;
     let mut link_copied_bytes = 0;
     if literal {
-        let mut candidate = Row::parse_with_references(&rendered.text, references, &[]);
+        let mut candidate =
+            Row::parse_with_references(&rendered.text, references, &rendered.winners);
         parsed += candidate.parsed_source_bytes;
         link_metadata_items += candidate.reference_work.items;
         link_copied_bytes += candidate.reference_work.copied;
@@ -80,7 +82,7 @@ pub(super) fn spell_with_anchors(
             }
             rendered = render(&pieces, &markers, insertion.start, insertion.end);
             link_metadata_items += rendered.link_metadata_items;
-            candidate = Row::parse_with_references(&rendered.text, references, &[]);
+            candidate = Row::parse_with_references(&rendered.text, references, &rendered.winners);
             parsed += candidate.parsed_source_bytes;
             link_metadata_items += candidate.reference_work.items;
             link_copied_bytes += candidate.reference_work.copied;
@@ -129,7 +131,7 @@ pub(super) fn spell_with_anchors(
         if repaired_link {
             rendered = render(&pieces, &markers, insertion.start, insertion.end);
             link_metadata_items += rendered.link_metadata_items;
-            candidate = Row::parse_with_references(&rendered.text, references, &[]);
+            candidate = Row::parse_with_references(&rendered.text, references, &rendered.winners);
             parsed += candidate.parsed_source_bytes;
             link_metadata_items += candidate.reference_work.items;
             link_copied_bytes += candidate.reference_work.copied;
@@ -153,7 +155,8 @@ pub(super) fn spell_with_anchors(
             repair_boundaries(&mut pieces, &missing);
             rendered = render(&pieces, &markers, insertion.start, insertion.end);
             link_metadata_items += rendered.link_metadata_items;
-            let candidate = Row::parse_with_references(&rendered.text, references, &[]);
+            let candidate =
+                Row::parse_with_references(&rendered.text, references, &rendered.winners);
             parsed += candidate.parsed_source_bytes;
             link_metadata_items += candidate.reference_work.items;
             link_copied_bytes += candidate.reference_work.copied;
@@ -191,7 +194,8 @@ pub(super) fn spell_with_anchors(
             }
             rendered = render(&pieces, &markers, insertion.start, insertion.end);
             link_metadata_items += rendered.link_metadata_items;
-            let candidate = Row::parse_with_references(&rendered.text, references, &[]);
+            let candidate =
+                Row::parse_with_references(&rendered.text, references, &rendered.winners);
             parsed += candidate.parsed_source_bytes;
             link_metadata_items += candidate.reference_work.items;
             link_copied_bytes += candidate.reference_work.copied;

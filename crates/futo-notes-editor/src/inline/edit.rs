@@ -103,6 +103,7 @@ impl Projection {
             display: ch.to_string(),
             spans: active.clone(),
             trailing: false,
+            definition: None,
         }));
         let insertion_end = changed.len();
         changed.extend(after);
@@ -274,7 +275,48 @@ impl Projection {
                     retire
                 })
                 .collect();
+            link_metadata_items += row.definitions.len();
+            let hidden: Vec<_> = row
+                .definitions
+                .iter()
+                .filter(|definition| {
+                    definition.winner
+                        && row.display_at(definition.range.start)
+                            == row.display_at(definition.range.end)
+                })
+                .map(|definition| {
+                    (
+                        super::references::hidden_definition(
+                            &raw[base..base + row.source_len],
+                            definition,
+                        ),
+                        definition.witness.as_ref().unwrap().clone(),
+                    )
+                })
+                .collect();
+            let mut hidden = hidden.iter().peekable();
             for segment in &row.segments {
+                while hidden
+                    .peek()
+                    .is_some_and(|(range, _)| range.end <= segment.source.start)
+                {
+                    hidden.next();
+                }
+                if let Some((range, key)) = hidden.peek().filter(|(range, _)| {
+                    range.start <= segment.source.start && segment.source.end <= range.end
+                }) {
+                    link_metadata_items += 1;
+                    if segment.source.start == range.start {
+                        pieces.push(Piece {
+                            raw: raw[base + range.start..base + range.end].into(),
+                            display: String::new(),
+                            spans: Vec::new(),
+                            trailing: true,
+                            definition: Some(key.clone()),
+                        });
+                    }
+                    continue;
+                }
                 for block in &retired_headings {
                     if segment.source.start == block.source.start {
                         // Setext syntax depends on nonempty body text. Preserve
@@ -289,6 +331,7 @@ impl Projection {
                             display: String::new(),
                             spans: Vec::new(),
                             trailing: false,
+                            definition: None,
                         });
                     }
                 }
@@ -334,6 +377,7 @@ impl Projection {
                         display: String::new(),
                         spans: active,
                         trailing,
+                        definition: None,
                     });
                     continue;
                 }
@@ -342,6 +386,7 @@ impl Projection {
                     display: row.display[segment.display.clone()].to_owned(),
                     spans: active,
                     trailing: false,
+                    definition: None,
                 });
             }
             display_len += row.display.len();

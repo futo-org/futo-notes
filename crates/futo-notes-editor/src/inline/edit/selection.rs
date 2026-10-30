@@ -44,6 +44,7 @@ pub(in crate::inline) fn split_entities(pieces: Vec<Piece>, a: usize, z: usize) 
                     display,
                     spans: piece.spans.clone(),
                     trailing: piece.trailing,
+                    definition: piece.definition.clone(),
                 });
             }
         }
@@ -67,7 +68,14 @@ pub(in crate::inline) fn cut(expanded: Vec<Piece>, selected: Range<usize>, keep:
         if offset <= a && a < end {
             right = piece.spans.clone();
         }
-        if piece.display.is_empty() && !piece.trailing && offset == z && a < z && !keep {
+        if piece.definition.is_some() {
+            // Hidden declaration source was never part of the visible selection.
+            if offset <= a {
+                before.push(piece);
+            } else {
+                after.push(piece);
+            }
+        } else if piece.display.is_empty() && !piece.trailing && offset == z && a < z && !keep {
             // Joining lines retires the following line's block prefix. Its
             // inline spans still join through their visible pieces below.
         } else if piece.display.is_empty() && piece.trailing && offset >= z && !keep {

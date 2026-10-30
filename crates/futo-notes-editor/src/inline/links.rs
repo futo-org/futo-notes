@@ -491,6 +491,7 @@ impl super::Projection {
             display: destination.into(),
             spans: active,
             trailing: false,
+            definition: None,
         });
         before.extend(after);
         let rendered = spell(

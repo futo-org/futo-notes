@@ -5,6 +5,7 @@ use std::ops::Range;
 pub(super) struct Rendered {
     pub(super) text: String,
     pub(super) caret: usize,
+    pub(super) winners: Vec<crate::inline::references::Winner>,
     pub(super) spans: Vec<(usize, Span)>,
     pub(super) pieces: Vec<Range<usize>>,
     pub(super) link_metadata_items: usize,
@@ -20,6 +21,7 @@ pub(super) fn render(
     let mut openings: Vec<Range<usize>> = Vec::new();
     let mut spans = Vec::new();
     let mut caret = None;
+    let mut winners = Vec::new();
     let mut piece_ranges = Vec::with_capacity(pieces.len());
     for (index, piece) in pieces.iter().enumerate() {
         let common = stack
@@ -53,6 +55,12 @@ pub(super) fn render(
         let start = output.len();
         output.push_str(&piece.raw);
         piece_ranges.push(start..output.len());
+        if let Some(key) = &piece.definition {
+            winners.push(crate::inline::references::Winner {
+                range: start..output.len(),
+                key: key.clone(),
+            });
+        }
         if index + 1 == insertion_end {
             caret = Some(output.len());
         }
@@ -73,12 +81,14 @@ pub(super) fn render(
             },
         ));
     }
-    let link_metadata_items = spans
-        .iter()
-        .filter(|(_, span)| matches!(span.kind, SpanKind::Link(_)))
-        .count();
+    let link_metadata_items = winners.len()
+        + spans
+            .iter()
+            .filter(|(_, span)| matches!(span.kind, SpanKind::Link(_)))
+            .count();
     Rendered {
         link_metadata_items,
+        winners,
         caret: caret.unwrap_or(output.len()),
         text: output,
         spans,

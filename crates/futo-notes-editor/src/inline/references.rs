@@ -25,6 +25,7 @@ pub(crate) struct Definition {
     pub destination: String,
     pub title: Option<String>,
     pub winner: bool,
+    pub witness: Option<Arc<str>>,
 }
 
 #[derive(Clone, Debug)]
@@ -158,18 +159,22 @@ pub(super) fn declarations(source: &str, winners: &[Winner]) -> (Vec<Definition>
                 work.copied += definition.identifier.len()
                     + definition.url.len()
                     + definition.title.as_ref().map_or(0, String::len);
-                let winner = winners.iter().any(|winner| {
-                    UniCase::new(winner.key.as_ref())
-                        == UniCase::new(definition.identifier.as_str())
-                        && winner.range.start <= range.start
-                        && range.start < winner.range.end
-                });
+                let witness = winners
+                    .iter()
+                    .find(|winner| {
+                        UniCase::new(winner.key.as_ref())
+                            == UniCase::new(definition.identifier.as_str())
+                            && winner.range.start <= range.start
+                            && range.start < winner.range.end
+                    })
+                    .map(|winner| winner.key.clone());
                 result.push(Definition {
                     range,
                     key,
                     destination: definition.url.clone(),
                     title: definition.title.clone(),
-                    winner,
+                    winner: witness.is_some(),
+                    witness,
                 });
             }
         }
