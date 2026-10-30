@@ -15,15 +15,36 @@ impl EditorSession {
             .into_iter()
             .filter(|line| !line.code && !line.divider)
             .collect();
-        let remove = lines
-            .first()
-            .and_then(|line| line.list.as_ref())
-            .is_some_and(|list| match command {
-                BlockCommand::BulletList => list.ordinal.is_none() && list.checked.is_none(),
-                BlockCommand::OrderedList => list.ordinal.is_some() && list.checked.is_none(),
-                BlockCommand::TaskList => list.checked.is_some(),
-                _ => false,
-            });
+        let remove = command == BlockCommand::Heading(0)
+            || lines
+                .first()
+                .and_then(|line| line.list.as_ref())
+                .is_some_and(|list| match command {
+                    BlockCommand::BulletList => list.ordinal.is_none() && list.checked.is_none(),
+                    BlockCommand::OrderedList => list.ordinal.is_some() && list.checked.is_none(),
+                    BlockCommand::TaskList => list.checked.is_some(),
+                    _ => false,
+                });
+        if remove {
+            let items: Vec<_> = lines
+                .iter()
+                .filter_map(|line| line.list.as_ref().map(|list| list.item.clone()))
+                .collect();
+            for item in items {
+                let selected = DisplayRange {
+                    start: DisplayOffset(self.projection.display_at(item.start)),
+                    end: DisplayOffset(self.projection.display_at(item.end)),
+                };
+                lines.extend(
+                    self.projection
+                        .block_lines(selected)
+                        .into_iter()
+                        .filter(|line| {
+                            !line.code && line.list.as_ref().is_some_and(|list| list.item == item)
+                        }),
+                );
+            }
+        }
         let owners: Vec<_> = lines
             .iter()
             .filter_map(|line| line.list.as_ref().map(|list| list.owner.clone()))
@@ -46,7 +67,7 @@ impl EditorSession {
                     }),
             );
         }
-        lines.retain(|line| line.list.as_ref().is_none_or(|list| list.first));
+        lines.retain(|line| remove || line.list.as_ref().is_none_or(|list| list.first));
         lines.sort_by_key(|line| line.source.start);
         lines.dedup_by_key(|line| line.source.start);
         if lines.is_empty() {
@@ -82,6 +103,8 @@ impl EditorSession {
         let end = lines.last().unwrap().source.end;
         let mut output = self.source.byte_slice(start..end).to_string();
         let mut replacements = Vec::new();
+        let mut parsed = 0;
+        let mut materialized = 0;
         let mut selection = range;
         let selected: Vec<_> = lines
             .iter()
@@ -101,6 +124,15 @@ impl EditorSession {
         let mut ordinal = 1u64;
         let mut previous_owner = None;
         for line in &lines {
+            let body = self.source.byte_slice(line.content.clone()).to_string();
+            let (body, work) = if remove {
+                super::content::protect_content(&body, false, true)
+            } else {
+                protect_list_body(&body, command == BlockCommand::TaskList)
+            };
+            parsed += work;
+            materialized += line.content.len() + body.len();
+            replacements.push((line.content.start - start..line.content.end - start, body));
             let owner = line.list.as_ref().map(|list| list.owner.clone());
             if owner != previous_owner {
                 ordinal = 1;
@@ -219,6 +251,26 @@ impl EditorSession {
             accept,
         )?;
         self.carry_block_state(&mut change, formats, affinity);
+        change.work.parsed_source_bytes += parsed;
+        change.work.materialized_source_bytes += materialized;
         Ok(Some(change))
     }
+}
+
+pub(super) fn protect_list_body(raw: &str, task: bool) -> (String, usize) {
+    let (mut body, work) = super::content::protect_content(raw, false, true);
+    if let Some(first @ (' ' | '\t')) = body.chars().next() {
+        body.replace_range(..first.len_utf8(), &format!("&#{};", first as u32));
+    }
+    let bytes = body.as_bytes();
+    if !task
+        && bytes.len() >= 4
+        && bytes[0] == b'['
+        && matches!(bytes[1], b' ' | b'\t' | b'x' | b'X')
+        && bytes[2] == b']'
+        && matches!(bytes[3], b' ' | b'\t')
+    {
+        body.insert(0, '\\');
+    }
+    (body, work)
 }

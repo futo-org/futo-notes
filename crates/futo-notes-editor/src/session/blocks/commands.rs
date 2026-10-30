@@ -40,7 +40,13 @@ impl EditorSession {
         if matches!(
             command,
             BlockCommand::BulletList | BlockCommand::OrderedList | BlockCommand::TaskList
-        ) {
+        ) || command == BlockCommand::Heading(0)
+            && self
+                .projection
+                .block_lines(range)
+                .iter()
+                .any(|line| line.list.is_some())
+        {
             return self.list_command(expected, range, command, accept);
         }
         let lines = self.projection.block_lines(range);
