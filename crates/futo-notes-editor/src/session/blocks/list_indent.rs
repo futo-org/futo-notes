@@ -75,12 +75,21 @@ impl EditorSession {
                     .source
                     .line_to_byte(self.source.byte_to_line(root.marker.start));
                 let (marker, column, shared_line) = if add {
-                    let marker = self.source.byte_slice(root.marker.clone()).to_string();
+                    let (range, number, column) = if let Some(sink) = &item.sink {
+                        (sink.marker.clone(), sink.next_number, sink.column)
+                    } else {
+                        (
+                            root.marker.clone(),
+                            root.ordinal.map(|_| 1),
+                            item.previous_content_column
+                                .ok_or(EditorError::UnrepresentableFormat)?,
+                        )
+                    };
+                    let marker = self.source.byte_slice(range).to_string();
                     materialized += marker.len();
                     (
-                        super::list_styles::nested_marker(&marker, root.ordinal, index),
-                        item.previous_content_column
-                            .ok_or(EditorError::UnrepresentableFormat)?,
+                        super::list_styles::nested_marker(&marker, number, index),
+                        column,
                         false,
                     )
                 } else {

@@ -214,8 +214,8 @@ pub(super) fn lifted_marker(parent: &str, number: Option<u64>) -> String {
     marker_at_number(parent, number.map(|number| number + 1))
 }
 
-pub(super) fn nested_marker(current: &str, number: Option<u64>, index: usize) -> String {
-    marker_at_number(current, number.map(|_| index as u64 + 1))
+pub(super) fn nested_marker(current: &str, start: Option<u64>, index: usize) -> String {
+    marker_at_number(current, start.map(|number| number + index as u64))
 }
 
 fn marker_at_number(marker: &str, number: Option<u64>) -> String {
