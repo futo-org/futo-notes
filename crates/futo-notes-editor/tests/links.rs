@@ -272,3 +272,46 @@ fn hand_typed_link_syntax_keeps_literal_outer_text_around_only_the_bare_url() {
         view.text
     );
 }
+
+#[test]
+fn hand_typed_angle_link_saves_literal_brackets_around_the_inner_autolink() {
+    let mut session = EditorSession::open("");
+    let mut view = ReferenceView::new("");
+    for ch in "<https://x.test>".chars() {
+        let at = view.text.len();
+        view.apply(
+            session
+                .replace(
+                    session.revision(),
+                    range(at, at),
+                    &ch.to_string(),
+                    &mut |_| Ok(()),
+                )
+                .unwrap(),
+        );
+        assert!(session
+            .project(session.revision(), range(0, view.text.len()))
+            .unwrap()
+            .links
+            .is_empty());
+    }
+    let at = view.text.len();
+    view.apply(
+        session
+            .replace(session.revision(), range(at, at), " ok", &mut |_| Ok(()))
+            .unwrap(),
+    );
+    assert_eq!(view.text, "<https://x.test> ok");
+    assert_eq!(session.source_text(), "<<https://x.test>> ok");
+    let links = session
+        .project(session.revision(), range(0, view.text.len()))
+        .unwrap()
+        .links;
+    assert_eq!(links.len(), 1);
+    assert_eq!(links[0].range, range(1, 15));
+    assert_eq!(links[0].destination, "https://x.test");
+    assert_eq!(
+        EditorSession::open(&session.source_text()).display_text(),
+        view.text
+    );
+}
