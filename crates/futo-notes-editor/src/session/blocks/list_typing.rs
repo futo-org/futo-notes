@@ -42,7 +42,6 @@ impl EditorSession {
                         .map(|number| number.parse().unwrap()),
                 )
             });
-            let source_bytes = staged.source.len_bytes();
             let formats = staged.pending_formats.clone();
             let affinity = staged.affinity;
             let start = DisplayOffset(staged.projection.display_at(line.content.start));
@@ -54,19 +53,22 @@ impl EditorSession {
                 },
                 "",
                 crate::InputAction::Isolated,
-                accept,
+                &mut |edit| {
+                    accept(edit)?;
+                    if let Some(styles) = &mut styles {
+                        // Comments are outside the prefix edit. Map the following
+                        // boundary using its exact accepted source-edit anchors.
+                        for (position, _) in &mut styles.comments {
+                            if *position >= edit.range.end.0 {
+                                *position = *position - (edit.range.end.0 - edit.range.start.0)
+                                    + edit.inserted.len();
+                            }
+                        }
+                    }
+                    Ok(())
+                },
             )?;
             let line = staged.projection.block_lines(staged.selection()).remove(0);
-            if let Some(styles) = &mut styles {
-                // Planned comments lie outside the removed prefix: only the
-                // following boundary moves with the temporary source edit.
-                let shift = staged.source.len_bytes() as isize - source_bytes as isize;
-                for (position, _) in &mut styles.comments {
-                    if *position > line.source.start {
-                        *position = position.checked_add_signed(shift).unwrap();
-                    }
-                }
-            }
             let marker = if let Some(styles) = &styles {
                 if let Some(number) = marker.strip_suffix(". ") {
                     format!("{number}{} ", styles.markers[0] as char)

@@ -839,7 +839,7 @@
   },
   {
     "name": "newline empty shortcut retains owner with 3 initial spaces",
-    "source": "9. before\n\n   2\\.\n\n7) after",
+    "source": "999. before\n\n   2\\.\n\n7) after",
     "display": "before\n\n   2.\n\nafter",
     "action": "Typing",
     "range": [
@@ -847,7 +847,7 @@
       13
     ],
     "text": " ",
-    "expected": "9. before\n\n<!-- -->\n2. \n\n7) after",
+    "expected": "999. before\n\n<!-- -->\n2. \n\n7) after",
     "shown": "before\n\n\n\nafter",
     "resultRange": [
       8,
@@ -855,7 +855,7 @@
     ],
     "finalItems": [
       [
-        9,
+        999,
         null
       ],
       [
