@@ -200,3 +200,53 @@ fn text_conversion_keeps_marked_reference_labels_and_interior_entity_history_poi
         }
     }
 }
+
+#[test]
+fn text_conversion_reconciles_each_actual_quote_prefix_and_ordered_retained_body() {
+    use futo_notes_editor::BlockCommand;
+    for (original, changed, shown, selected) in [
+        (
+            "> # [id]: /target 'T'\n\n[one][id]\n\nbody",
+            "> \\[id]: /target 'T'\n\n[one][id]\n\nbody",
+            "[id]: /target 'T'\n\n[one][id]\n\nbody",
+            range(4, 4),
+        ),
+        (
+            "# [a]: /A\n\n# [b]: /B\n\n[one][a] [two][b]",
+            "\\[a]: /A\n\n\\[b]: /B\n\n[one][a] [two][b]",
+            "[a]: /A\n\n[b]: /B\n\n[one][a] [two][b]",
+            range(1, 17),
+        ),
+    ] {
+        let mut session = EditorSession::open(original);
+        let mut view = ReferenceView::new(shown);
+        assert_eq!(session.display_text(), shown);
+        session.select(Revision(0), selected).unwrap();
+        let mut accepted = 0;
+        view.apply(
+            session
+                .block_command(Revision(0), selected, BlockCommand::Heading(0), &mut |_| {
+                    accepted += 1;
+                    Ok(())
+                })
+                .unwrap()
+                .unwrap(),
+        );
+        assert_eq!(accepted, 1);
+        assert_eq!(session.source_text(), changed);
+        assert_eq!(view.text, shown);
+        assert_eq!(session.selection(), selected);
+        assert!(session
+            .project(Revision(1), range(0, shown.len()))
+            .unwrap()
+            .links
+            .is_empty());
+        view.apply(session.undo(Revision(1), &mut |_| Ok(())).unwrap().unwrap());
+        assert_eq!(session.source_text(), original);
+        assert_eq!(session.selection(), selected);
+        view.apply(session.redo(Revision(2), &mut |_| Ok(())).unwrap().unwrap());
+        assert_eq!(session.source_text(), changed);
+        assert_eq!(session.selection(), selected);
+        assert_eq!(view.text, shown);
+    }
+}
