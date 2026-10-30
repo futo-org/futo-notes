@@ -223,18 +223,20 @@ fn literal_heading_definition_conversion_rejects_before_view_and_recovers_exact_
         end: DisplayUtf16Offset(4),
     };
     for fault in [storage::Fault::Append, storage::Fault::ShortWrite] {
-        for (original, changed, shown, destination) in [
+        for (original, changed, shown, destination, selected_byte) in [
             (
                 "# [id]: /target 'T'\n\n[one][id]\n\nbody",
                 "\\[id]: /target 'T'\n\n[one][id]\n\nbody",
                 "[id]: /target 'T'\n\n[one][id]\n\nbody",
                 None,
+                4,
             ),
             (
                 "# [a&acE;]: /target 'T'\n\n[one][a&acE;]\n\n[a&acE;]: /first 'First'",
                 "[a&acE;][a&acE;]: /target 'T'\n\n[one][a&acE;]\n\n[a&acE;]: /first 'First'",
                 "a\u{223e}\u{333}: /target 'T'\n\none\n\n",
                 Some("/first"),
+                7,
             ),
         ] {
             let root = TestRoot::new();
@@ -253,7 +255,7 @@ fn literal_heading_definition_conversion_rejects_before_view_and_recovers_exact_
             ));
             assert_eq!(editor.source_text(), original);
             assert_eq!(editor.display_text(), shown);
-            assert_eq!(editor.selection(), range(4, 4));
+            assert_eq!(editor.selection(), range(selected_byte, selected_byte));
             assert_eq!(editor.revision(), Revision(0));
             assert_eq!(
                 editor.project(Revision(0), range(0, shown.len())).unwrap(),
@@ -268,7 +270,7 @@ fn literal_heading_definition_conversion_rejects_before_view_and_recovers_exact_
                 .unwrap();
             assert_eq!(editor.source_text(), changed);
             assert_eq!(editor.display_text(), shown);
-            assert_eq!(editor.selection(), range(4, 4));
+            assert_eq!(editor.selection(), range(selected_byte, selected_byte));
             editor.undo(Revision(1)).unwrap().unwrap();
             assert_eq!(editor.source_text(), original);
             editor.redo(Revision(2)).unwrap().unwrap();
