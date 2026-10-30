@@ -40,7 +40,7 @@ extension NativeEditorBlockRegressionTests {
                 Bundle(for: ListActionBundle.self).url(
                     forResource: "list-actions", withExtension: "json"))
             let cases = try JSONDecoder().decode([ListActionCase].self, from: Data(contentsOf: url))
-            #expect(cases.count == 26)
+            #expect(cases.count == 40)
             for item in cases {
                 let root = FileManager.default.temporaryDirectory.appendingPathComponent(
                     "editor-lists-\(UUID().uuidString)")

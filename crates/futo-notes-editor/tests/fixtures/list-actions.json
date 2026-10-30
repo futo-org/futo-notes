@@ -744,5 +744,400 @@
         null
       ]
     ]
+  },
+  {
+    "name": "expected next ordered shortcut joins preceding owner",
+    "source": "9. before\n\n10.body",
+    "display": "before\n\n10.body",
+    "action": "Typing",
+    "range": [
+      11,
+      11
+    ],
+    "text": " ",
+    "expected": "9. before\n\n10. body",
+    "shown": "before\n\nbody",
+    "resultRange": [
+      8,
+      8
+    ],
+    "finalItems": [
+      [
+        9,
+        null
+      ],
+      [
+        10,
+        null
+      ]
+    ]
+  },
+  {
+    "name": "expected next shortcut retains preceding parenthesis style",
+    "source": "9) before\n\n10.body",
+    "display": "before\n\n10.body",
+    "action": "Typing",
+    "range": [
+      11,
+      11
+    ],
+    "text": " ",
+    "expected": "9) before\n\n10) body",
+    "shown": "before\n\nbody",
+    "resultRange": [
+      8,
+      8
+    ],
+    "finalItems": [
+      [
+        9,
+        null
+      ],
+      [
+        10,
+        null
+      ]
+    ]
+  },
+  {
+    "name": "expected next shortcut counts lazy preceding items",
+    "source": "9. before\n1. tail\n\n11.body",
+    "display": "before\ntail\n\n11.body",
+    "action": "Typing",
+    "range": [
+      16,
+      16
+    ],
+    "text": " ",
+    "expected": "9. before\n1. tail\n\n11. body",
+    "shown": "before\ntail\n\nbody",
+    "resultRange": [
+      13,
+      13
+    ],
+    "finalItems": [
+      [
+        9,
+        null
+      ],
+      [
+        10,
+        null
+      ],
+      [
+        11,
+        null
+      ]
+    ]
+  },
+  {
+    "name": "shortcut conflicting delimiters needs before comment",
+    "source": "9. before\n\n2.body\n\n7) after",
+    "display": "before\n\n2.body\n\nafter",
+    "action": "Typing",
+    "range": [
+      10,
+      10
+    ],
+    "text": " ",
+    "expected": "9. before\n\n<!-- -->\n2. body\n\n7) after",
+    "shown": "before\n\nbody\n\nafter",
+    "resultRange": [
+      8,
+      8
+    ],
+    "finalItems": [
+      [
+        9,
+        null
+      ],
+      [
+        2,
+        null
+      ],
+      [
+        7,
+        null
+      ]
+    ]
+  },
+  {
+    "name": "shortcut reversed conflicts needs after comment",
+    "source": "9) before\n\n2.body\n\n7. after",
+    "display": "before\n\n2.body\n\nafter",
+    "action": "Typing",
+    "range": [
+      10,
+      10
+    ],
+    "text": " ",
+    "expected": "9) before\n\n2. body\n<!-- -->\n\n7. after",
+    "shown": "before\n\nbody\n\nafter",
+    "resultRange": [
+      8,
+      8
+    ],
+    "finalItems": [
+      [
+        9,
+        null
+      ],
+      [
+        2,
+        null
+      ],
+      [
+        7,
+        null
+      ]
+    ]
+  },
+  {
+    "name": "quoted CRLF shortcut preserves foreign neighbors",
+    "source": "> 9. before\r\n> \r\n> 2.body\r\n> \r\n> 7) after",
+    "display": "before\r\n\r\n2.body\r\n\r\nafter",
+    "action": "Typing",
+    "range": [
+      12,
+      12
+    ],
+    "text": " ",
+    "expected": "> 9. before\r\n> \r\n> <!-- -->\n> 2. body\r\n> \r\n> 7) after",
+    "shown": "before\r\n\r\nbody\r\n\r\nafter",
+    "resultRange": [
+      10,
+      10
+    ],
+    "finalItems": [
+      [
+        9,
+        null
+      ],
+      [
+        2,
+        null
+      ],
+      [
+        7,
+        null
+      ]
+    ],
+    "quoteDepth": 1
+  },
+  {
+    "name": "bullet shortcut joins preceding style",
+    "source": "+ before\n\n*body",
+    "display": "before\n\n*body",
+    "action": "Typing",
+    "range": [
+      9,
+      9
+    ],
+    "text": " ",
+    "expected": "+ before\n\n+ body",
+    "shown": "before\n\nbody",
+    "resultRange": [
+      8,
+      8
+    ],
+    "finalItems": [
+      [
+        null,
+        null
+      ],
+      [
+        null,
+        null
+      ]
+    ]
+  },
+  {
+    "name": "bullet shortcut avoids following foreign owner",
+    "source": "*body\n\n- after",
+    "display": "*body\n\nafter",
+    "action": "Typing",
+    "range": [
+      1,
+      1
+    ],
+    "text": " ",
+    "expected": "+ body\n\n- after",
+    "shown": "body\n\nafter",
+    "resultRange": [
+      0,
+      0
+    ],
+    "finalItems": [
+      [
+        null,
+        null
+      ],
+      [
+        null,
+        null
+      ]
+    ]
+  },
+  {
+    "name": "ordered shortcut empty body preserves following owner",
+    "source": "2\\.\n\n7. after",
+    "display": "2.\n\nafter",
+    "action": "Typing",
+    "range": [
+      2,
+      2
+    ],
+    "text": " ",
+    "expected": "2) \n\n7. after",
+    "shown": "\n\nafter",
+    "resultRange": [
+      0,
+      0
+    ],
+    "finalItems": [
+      [
+        2,
+        null
+      ],
+      [
+        7,
+        null
+      ]
+    ]
+  },
+  {
+    "name": "ordered shortcut empty body preserves preceding owner",
+    "source": "9. before\n\n2\\.",
+    "display": "before\n\n2.",
+    "action": "Typing",
+    "range": [
+      10,
+      10
+    ],
+    "text": " ",
+    "expected": "9. before\n\n2) ",
+    "shown": "before\n\n",
+    "resultRange": [
+      8,
+      8
+    ],
+    "finalItems": [
+      [
+        9,
+        null
+      ],
+      [
+        2,
+        null
+      ]
+    ]
+  },
+  {
+    "name": "ordered shortcut accepts 0 initial spaces",
+    "source": "2.body\n\n7. after",
+    "display": "2.body\n\nafter",
+    "action": "Typing",
+    "range": [
+      2,
+      2
+    ],
+    "text": " ",
+    "expected": "2) body\n\n7. after",
+    "shown": "body\n\nafter",
+    "resultRange": [
+      0,
+      0
+    ],
+    "finalItems": [
+      [
+        2,
+        null
+      ],
+      [
+        7,
+        null
+      ]
+    ]
+  },
+  {
+    "name": "ordered shortcut accepts 1 initial spaces",
+    "source": " 2.body\n\n7. after",
+    "display": " 2.body\n\nafter",
+    "action": "Typing",
+    "range": [
+      3,
+      3
+    ],
+    "text": " ",
+    "expected": "2) body\n\n7. after",
+    "shown": "body\n\nafter",
+    "resultRange": [
+      0,
+      0
+    ],
+    "finalItems": [
+      [
+        2,
+        null
+      ],
+      [
+        7,
+        null
+      ]
+    ]
+  },
+  {
+    "name": "ordered shortcut accepts 2 initial spaces",
+    "source": "  2.body\n\n7. after",
+    "display": "  2.body\n\nafter",
+    "action": "Typing",
+    "range": [
+      4,
+      4
+    ],
+    "text": " ",
+    "expected": "2) body\n\n7. after",
+    "shown": "body\n\nafter",
+    "resultRange": [
+      0,
+      0
+    ],
+    "finalItems": [
+      [
+        2,
+        null
+      ],
+      [
+        7,
+        null
+      ]
+    ]
+  },
+  {
+    "name": "ordered shortcut accepts 3 initial spaces",
+    "source": "   2.body\n\n7. after",
+    "display": "   2.body\n\nafter",
+    "action": "Typing",
+    "range": [
+      5,
+      5
+    ],
+    "text": " ",
+    "expected": "2) body\n\n7. after",
+    "shown": "body\n\nafter",
+    "resultRange": [
+      0,
+      0
+    ],
+    "finalItems": [
+      [
+        2,
+        null
+      ],
+      [
+        7,
+        null
+      ]
+    ]
   }
 ]
