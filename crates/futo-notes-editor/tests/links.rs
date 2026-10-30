@@ -23,3 +23,6 @@ mod reference_staging;
 mod references;
 #[path = "links/word_end.rs"]
 mod word_end;
+
+#[path = "links/reference_blocks.rs"]
+mod reference_blocks;
