@@ -45,8 +45,7 @@ impl EditorSession {
             BlockCommand::BulletList | BlockCommand::OrderedList | BlockCommand::TaskList
         ) || command == BlockCommand::Heading(0)
             && self
-                .projection
-                .block_lines(range)
+                .selected_block_lines(range)
                 .iter()
                 .any(|line| line.list.is_some())
         {
@@ -54,8 +53,7 @@ impl EditorSession {
         }
         if matches!(command, BlockCommand::Indent | BlockCommand::Outdent) {
             if self
-                .projection
-                .block_lines(range)
+                .selected_block_lines(range)
                 .first()
                 .is_some_and(|line| {
                     !line.code
@@ -68,7 +66,7 @@ impl EditorSession {
                 return self.indent_list(expected, range, command, accept);
             }
         }
-        let lines = self.projection.block_lines(range);
+        let lines = self.selected_block_lines(range);
         if matches!(command, BlockCommand::Heading(1..=6) | BlockCommand::Quote)
             && lines.iter().any(|line| {
                 !line.code

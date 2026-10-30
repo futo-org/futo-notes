@@ -11,8 +11,7 @@ impl EditorSession {
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<Option<ViewChange>, EditorError> {
         let mut lines: Vec<_> = self
-            .projection
-            .block_lines(range)
+            .selected_block_lines(range)
             .into_iter()
             .filter(|line| !line.code && !line.divider)
             .collect();

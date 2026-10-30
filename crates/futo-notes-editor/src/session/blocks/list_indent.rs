@@ -21,7 +21,7 @@ impl EditorSession {
         command: BlockCommand,
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<Option<ViewChange>, EditorError> {
-        let lines = self.projection.block_lines(range);
+        let lines = self.selected_block_lines(range);
         let Some(first) = lines.first().filter(|line| !line.code) else {
             return Ok(None);
         };
