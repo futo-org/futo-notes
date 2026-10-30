@@ -65,3 +65,70 @@ fn failed_link_acceptance_keeps_draft_selection_history_and_retry_recovery_exact
         assert_eq!(store.read("links").unwrap(), updated);
     }
 }
+
+#[test]
+fn last_reference_use_visibility_and_selection_survive_rejected_append_retry_and_recovery() {
+    for fault in [storage::Fault::Append, storage::Fault::ShortWrite] {
+        let root = TestRoot::new();
+        let store = store(&root);
+        let original = "[id]: <https://x.test> 'T'\n\nmiddle\n\n[one][id] end";
+        let unlinked = "[id]: <https://x.test> 'T'\n\nmiddle\n\none end";
+        store.create("", "references", original).unwrap();
+        let disk = Arc::new(Mutex::new(storage::Disk::default()));
+        let mut session = store
+            .open_editor_with_recovery("references", storage::options(&disk))
+            .unwrap();
+        session
+            .select_with_affinity(
+                Revision(0),
+                range(9, 10),
+                futo_notes_editor::Affinity::Forward,
+            )
+            .unwrap();
+        let before = session.project(Revision(0), range(0, 15)).unwrap();
+        disk.lock().unwrap().fault = Some(fault);
+        assert!(matches!(
+            session.set_link(Revision(0), range(9, 10), ""),
+            Err(EditorStoreError::RecoveryAppend(_))
+        ));
+        assert_eq!(session.source_text(), original);
+        assert_eq!(session.display_text(), "middle\n\none end");
+        assert_eq!(session.selection(), range(9, 10));
+        assert_eq!(session.project(Revision(0), range(0, 15)).unwrap(), before);
+        assert_eq!(
+            session
+                .inspect_link(Revision(0), range(8, 11))
+                .unwrap()
+                .unwrap()
+                .destination,
+            "https://x.test"
+        );
+        disk.lock().unwrap().fault = None;
+        session.resume_recovery().unwrap();
+        session
+            .set_link(Revision(0), range(9, 10), "")
+            .unwrap()
+            .unwrap();
+        assert_eq!(session.source_text(), unlinked);
+        assert_eq!(session.display_text(), unlinked);
+        assert_eq!(session.selection(), range(37, 38));
+        session.undo(Revision(1)).unwrap().unwrap();
+        assert_eq!(session.source_text(), original);
+        assert_eq!(session.display_text(), "middle\n\none end");
+        assert_eq!(session.selection(), range(9, 10));
+        session.redo(Revision(2)).unwrap().unwrap();
+        session.flush_recovery().unwrap();
+        drop(session);
+        let mut recovered = store
+            .open_editor_with_recovery("references", storage::options(&disk))
+            .unwrap();
+        assert_eq!(recovered.source_text(), unlinked);
+        assert_eq!(recovered.display_text(), unlinked);
+        assert!(recovered
+            .inspect_link(Revision(3), range(36, 39))
+            .unwrap()
+            .is_none());
+        recovered.checkpoint().unwrap();
+        assert_eq!(store.read("references").unwrap(), unlinked);
+    }
+}
