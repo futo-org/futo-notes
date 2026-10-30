@@ -53,8 +53,19 @@ impl EditorSession {
             return self.list_command(expected, range, command, accept);
         }
         if matches!(command, BlockCommand::Indent | BlockCommand::Outdent) {
-            if let Some(change) = self.indent_list(expected, range, command, accept)? {
-                return Ok(Some(change));
+            if self
+                .projection
+                .block_lines(range)
+                .first()
+                .is_some_and(|line| {
+                    !line.code
+                        && line
+                            .list
+                            .as_ref()
+                            .is_some_and(|list| line.quote_depth == list.quote_depth)
+                })
+            {
+                return self.indent_list(expected, range, command, accept);
             }
         }
         let lines = self.projection.block_lines(range);
