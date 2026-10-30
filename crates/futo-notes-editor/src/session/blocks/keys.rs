@@ -14,8 +14,14 @@ impl EditorSession {
             .then(|| self.pending_formats.clone())
             .flatten();
         let affinity = self.input_affinity(input);
-        let mut change =
-            self.commit_block_edit(expected, footprint, inserted, None, Some(caret), accept)?;
+        let mut change = self.commit_block_edit(
+            expected,
+            footprint,
+            inserted,
+            BlockSelection::Source(caret),
+            None,
+            accept,
+        )?;
         self.carry_block_state(&mut change, formats, affinity);
         Ok(change)
     }
@@ -54,19 +60,26 @@ impl EditorSession {
                     .projection
                     .has_multiline_block_code(&self.source, range))
         {
-            return self.stage_block_action(expected, range, accept, |staged, local, accept| {
-                let seams = staged.split_inline_block_seams(local, accept)?;
-                let Some(mut change) =
-                    staged.paragraph_key(staged.revision(), local, key, accept)?
-                else {
-                    return Ok(None);
-                };
-                if let Some(seams) = seams {
-                    change.work.materialized_source_bytes += seams.work.materialized_source_bytes;
-                    change.work.parsed_source_bytes += seams.work.parsed_source_bytes;
-                }
-                Ok(Some(change))
-            });
+            return self.stage_block_action(
+                expected,
+                range,
+                None,
+                accept,
+                |staged, local, accept| {
+                    let seams = staged.split_inline_block_seams(local, accept)?;
+                    let Some(mut change) =
+                        staged.paragraph_key(staged.revision(), local, key, accept)?
+                    else {
+                        return Ok(None);
+                    };
+                    if let Some(seams) = seams {
+                        change.work.materialized_source_bytes +=
+                            seams.work.materialized_source_bytes;
+                        change.work.parsed_source_bytes += seams.work.parsed_source_bytes;
+                    }
+                    Ok(Some(change))
+                },
+            );
         }
         let start_display = self.projection.display_at(line.content.start);
         let at_start = range.start.0 == start_display;
@@ -316,8 +329,8 @@ impl EditorSession {
             expected,
             line.source.start..suffix_end,
             &output,
+            BlockSelection::Source(caret),
             None,
-            Some(caret),
             accept,
         )?;
         self.carry_block_state(&mut change, body.formats, body.affinity);
@@ -367,7 +380,7 @@ impl EditorSession {
             expected,
             footprint.start.0..footprint.end.0,
             &inserted,
-            Some(selection),
+            BlockSelection::Display(selection),
             None,
             accept,
         )?;

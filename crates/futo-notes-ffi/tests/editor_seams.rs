@@ -11,7 +11,7 @@ fn native_structural_seams_and_raw_composition_keep_exact_recovery_and_carets() 
         "../../futo-notes-editor/tests/fixtures/structural-seams.json"
     ))
     .unwrap();
-    assert_eq!(cases.as_array().unwrap().len(), 28);
+    assert_eq!(cases.as_array().unwrap().len(), 38);
     for case in cases.as_array().unwrap() {
         let text = |key: &str| case[key].as_str().unwrap();
         let tree = TempTree::new();
@@ -112,6 +112,35 @@ fn native_structural_seams_and_raw_composition_keep_exact_recovery_and_carets() 
                     .unwrap()
                     .unwrap(),
             );
+        } else if mode == "typing_sequence" {
+            if let Some(format) = case["format"].as_str() {
+                let format = match format {
+                    "Bold" => EditorInlineFormat::Bold,
+                    "Code" => EditorInlineFormat::Code,
+                    _ => panic!("invalid fixture format"),
+                };
+                assert!(s.toggle_format(0, format).unwrap().is_none());
+            }
+            let mut caret = selected;
+            for input in case["inputs"].as_array().unwrap() {
+                let action = match input[0].as_str().unwrap() {
+                    "Typing" => EditorInputAction::Typing,
+                    "Isolated" => EditorInputAction::Isolated,
+                    _ => panic!("invalid fixture action"),
+                };
+                let change = s
+                    .replace_utf16_action(
+                        s.revision().unwrap(),
+                        caret,
+                        input[1].as_str().unwrap().encode_utf16().collect(),
+                        action,
+                    )
+                    .unwrap();
+                caret = s
+                    .display_to_utf16(s.revision().unwrap(), change.selection)
+                    .unwrap();
+                apply(change);
+            }
         } else if mode == "typing" {
             apply(
                 s.replace_utf16_action(0, selected, inserted, EditorInputAction::Isolated)

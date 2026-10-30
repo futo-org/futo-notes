@@ -28,6 +28,8 @@ private struct StructuralSeamCase: Decodable {
     let redoCaret: UInt64?
     let history: Int
     let replacements: [StructuralSeamReplacement]?
+    let inputs: [[String]]?
+    let format: String?
 }
 private final class StructuralSeamBundle {}
 
@@ -41,7 +43,7 @@ struct NativeEditorStructuralSeamTests {
                     forResource: "structural-seams", withExtension: "json"))
             let cases = try JSONDecoder().decode(
                 [StructuralSeamCase].self, from: Data(contentsOf: url))
-            #expect(cases.count == 28)
+            #expect(cases.count == 38)
             for item in cases {
                 let root = FileManager.default.temporaryDirectory.appendingPathComponent(
                     "editor-seams-\(UUID().uuidString)")
@@ -116,6 +118,30 @@ struct NativeEditorStructuralSeamTests {
                         s.replaceOsUtf16(
                             expected: s.revision(), range: selected, text: Array(item.text.utf16),
                             placeholders: []))
+                case "typing_sequence":
+                    if let format = item.format {
+                        let carried: EditorInlineFormat
+                        switch format {
+                        case "Bold": carried = .bold
+                        case "Code": carried = .code
+                        default: throw CocoaError(.coderInvalidValue)
+                        }
+                        #expect(try s.toggleFormat(expected: 0, format: carried) == nil)
+                    }
+                    var next = selected
+                    for input in try #require(item.inputs) {
+                        let action: EditorInputAction
+                        switch input[0] {
+                        case "Typing": action = .typing
+                        case "Isolated": action = .isolated
+                        default: throw CocoaError(.coderInvalidValue)
+                        }
+                        let change = try s.replaceUtf16Action(
+                            expected: s.revision(), range: next, inserted: Array(input[1].utf16),
+                            action: action)
+                        next = try s.displayToUtf16(expected: s.revision(), range: change.selection)
+                        try apply(change)
+                    }
                 case "typing":
                     try apply(
                         s.replaceUtf16Action(

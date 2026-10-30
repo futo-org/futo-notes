@@ -6,6 +6,7 @@ impl EditorSession {
         &mut self,
         expected: Revision,
         range: DisplayRange,
+        input: Option<HistoryInput<'_>>,
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
         operation: impl FnOnce(
             &mut Self,
@@ -43,8 +44,8 @@ impl EditorSession {
             expected,
             footprint.start.0..footprint.end.0,
             &inserted,
-            Some(selection),
-            None,
+            BlockSelection::Display(selection),
+            input,
             accept,
         )?;
         self.carry_block_state(&mut change, staged.pending_formats, staged.affinity);

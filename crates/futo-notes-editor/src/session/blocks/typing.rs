@@ -40,8 +40,16 @@ impl EditorSession {
             return Ok(None);
         };
         let mut mapping = None;
-        let change =
-            self.stage_block_action(expected, range, accept, |staged, local, accept| {
+        let change = self.stage_block_action(
+            expected,
+            range,
+            Some(HistoryInput {
+                range,
+                inserted,
+                action,
+            }),
+            accept,
+            |staged, local, accept| {
                 let line = staged.projection.block_lines(local).remove(0);
                 let formats = staged.pending_formats.clone();
                 let affinity = staged.affinity;
@@ -49,7 +57,7 @@ impl EditorSession {
                     staged.revision(),
                     line.source.end..line.source.end,
                     &separator,
-                    Some(local),
+                    BlockSelection::Display(local),
                     None,
                     accept,
                 )?;
@@ -63,7 +71,8 @@ impl EditorSession {
                 input.work.materialized_source_bytes += boundary.work.materialized_source_bytes;
                 input.work.parsed_source_bytes += boundary.work.parsed_source_bytes;
                 Ok(Some(input))
-            })?;
+            },
+        )?;
         Ok(change.map(|change| (change, mapping.unwrap())))
     }
 
@@ -72,6 +81,7 @@ impl EditorSession {
         expected: Revision,
         range: DisplayRange,
         inserted: &str,
+        action: crate::InputAction,
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<Option<ViewChange>, EditorError> {
         if range.start != range.end || inserted.is_empty() {
@@ -91,6 +101,10 @@ impl EditorSession {
             return Ok(None);
         }
         let mut staged = Self::open_with_clock("", self.clock.clone());
+        staged.affinity = self.input_affinity(range);
+        if range == self.selection {
+            staged.pending_formats = self.pending_formats.clone();
+        }
         let input = staged.replace_action(
             staged.revision(),
             DisplayRange::default(),
@@ -128,8 +142,19 @@ impl EditorSession {
         } else {
             (at..at, text)
         };
-        let mut change =
-            self.commit_block_edit(expected, footprint, &text, None, Some(caret), accept)?;
+        let mut change = self.commit_block_edit(
+            expected,
+            footprint,
+            &text,
+            BlockSelection::Source(caret),
+            Some(HistoryInput {
+                range,
+                inserted,
+                action,
+            }),
+            accept,
+        )?;
+        self.carry_block_state(&mut change, staged.pending_formats, staged.affinity);
         change.work.materialized_source_bytes += input.work.materialized_source_bytes;
         change.work.parsed_source_bytes += input.work.parsed_source_bytes;
         Ok(Some(change))
@@ -174,7 +199,7 @@ impl EditorSession {
         } else {
             BlockCommand::Divider
         };
-        self.stage_block_action(expected, range, accept, |staged, local, accept| {
+        self.stage_block_action(expected, range, None, accept, |staged, local, accept| {
             let line = staged.projection.block_lines(local).remove(0);
             let prefix = DisplayRange {
                 start: DisplayOffset(staged.projection.display_at(line.content.start)),

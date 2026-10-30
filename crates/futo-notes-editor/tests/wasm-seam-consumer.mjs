@@ -13,7 +13,7 @@ import console from 'node:console';
 import { setTimeout, clearTimeout } from 'node:timers';
 const { WasmSession } = await import(pathToFileURL(process.argv[2]).href);
 const cases = JSON.parse(readFileSync(new URL('fixtures/structural-seams.json', import.meta.url)));
-assert.equal(cases.length, 28);
+assert.equal(cases.length, 38);
 const units = (text) => Uint16Array.from({ length: text.length }, (_, at) => text.charCodeAt(at));
 function host(vault, source) {
   const worker = spawn(process.argv[3], [vault, source], { stdio: ['pipe', 'pipe', 'inherit'] });
@@ -112,6 +112,22 @@ for (const item of cases) {
       assert.equal(revision, 1n, 'composition + OS input have one protected append');
     } else if (['os', 'indent_os'].includes(item.mode)) {
       await apply(page.replace_os_utf16(revision, ...item.range, units(item.text), '[]'));
+    } else if (item.mode === 'typing_sequence') {
+      if (item.format)
+        assert.equal(JSON.parse(page.toggle_format(revision, JSON.stringify(item.format))), null);
+      let next = { start: item.range[0], end: item.range[1] };
+      for (const [action, text] of item.inputs) {
+        await apply(
+          page.replace_utf16_action(
+            revision,
+            next.start,
+            next.end,
+            units(text),
+            JSON.stringify(action),
+          ),
+        );
+        next = caret;
+      }
     } else if (item.mode === 'typing') {
       await apply(
         page.replace_utf16_action(revision, ...item.range, units(item.text), '"Isolated"'),

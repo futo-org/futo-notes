@@ -19,14 +19,14 @@ class NativeEditorStructuralSeamTest {
         val readmeTitle = assets.open("README.md").bufferedReader().use { it.readLine() }
         assertEquals("# Cross-language note-rule conformance", readmeTitle)
         val cases = JSONArray(assets.open("structural-seams.json").bufferedReader().use { it.readText() })
-        assertEquals(28, cases.length())
+        assertEquals(38, cases.length())
     }
 
     @Test
     fun structuralSeamsAndRawMarkedInputKeepExactNativeCaretsAndRecovery() {
         val context = InstrumentationRegistry.getInstrumentation().context
         val cases = JSONArray(context.assets.open("structural-seams.json").bufferedReader().use { it.readText() })
-        assertEquals(28, cases.length())
+        assertEquals(38, cases.length())
         for (index in 0 until cases.length()) {
             val item = cases.getJSONObject(index)
             val root = File(InstrumentationRegistry.getInstrumentation().targetContext.cacheDir, "editor-seams-${UUID.randomUUID()}")
@@ -82,6 +82,29 @@ class NativeEditorStructuralSeamTest {
                                 assertEquals(1uL, s.revision())
                             }
                             "os", "indent_os" -> apply(s.replaceOsUtf16(s.revision(), selected, inserted, emptyList()))
+                            "typing_sequence" -> {
+                                if (item.has("format")) {
+                                    val format = when (item.getString("format")) {
+                                        "Bold" -> EditorInlineFormat.BOLD
+                                        "Code" -> EditorInlineFormat.CODE
+                                        else -> error("invalid fixture format")
+                                    }
+                                    assertNull(s.toggleFormat(0uL, format))
+                                }
+                                var next = selected
+                                val inputs = item.getJSONArray("inputs")
+                                for (at in 0 until inputs.length()) {
+                                    val input = inputs.getJSONArray(at)
+                                    val action = when (input.getString(0)) {
+                                        "Typing" -> EditorInputAction.TYPING
+                                        "Isolated" -> EditorInputAction.ISOLATED
+                                        else -> error("invalid fixture action")
+                                    }
+                                    val change = s.replaceUtf16Action(s.revision(), next, units(input.getString(1)), action)
+                                    next = s.displayToUtf16(s.revision(), change.selection)
+                                    apply(change)
+                                }
+                            }
                             "typing" -> apply(s.replaceUtf16Action(0uL, selected, inserted, EditorInputAction.ISOLATED))
                             "explicit" -> apply(s.replaceManyUtf16(0uL, listOf(EditorUtf16Replacement(selected, inserted))))
                             "batch" -> apply(s.replaceManyUtf16(0uL, listOf(EditorUtf16Replacement(EditorUtf16Range(0uL, 1uL), units("!")), EditorUtf16Replacement(EditorUtf16Range(1uL, 2uL), units("?")), EditorUtf16Replacement(EditorUtf16Range(3uL, 5uL), units("AC")))))

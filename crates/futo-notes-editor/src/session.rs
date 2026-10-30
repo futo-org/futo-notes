@@ -7,7 +7,9 @@ pub use blocks::BlockCommand;
 pub use relink::OwnActionRelink;
 mod input;
 mod transaction;
-use crate::history::{HistoryClock, HistoryEntry, HistoryGroup, MonotonicClock, TypingRun};
+use crate::history::{
+    HistoryClock, HistoryEntry, HistoryGroup, HistoryInput, MonotonicClock, TypingRun,
+};
 pub use composition::Composition;
 pub use paragraphs::ParagraphKey;
 use ropey::Rope;

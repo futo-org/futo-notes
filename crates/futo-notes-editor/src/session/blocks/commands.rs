@@ -44,22 +44,29 @@ impl EditorSession {
                 .projection
                 .has_multiline_block_code(&self.source, range)
         {
-            return self.stage_block_action(expected, range, accept, |staged, local, accept| {
-                let base = range.start.0 - local.start.0;
-                let boundaries: Vec<_> =
-                    boundaries.iter().map(|boundary| boundary - base).collect();
-                let seams = staged.split_inline_block_seams_at(local, &boundaries, accept)?;
-                let Some(mut change) =
-                    staged.block_command(staged.revision(), local, command, accept)?
-                else {
-                    return Ok(None);
-                };
-                if let Some(seams) = seams {
-                    change.work.materialized_source_bytes += seams.work.materialized_source_bytes;
-                    change.work.parsed_source_bytes += seams.work.parsed_source_bytes;
-                }
-                Ok(Some(change))
-            });
+            return self.stage_block_action(
+                expected,
+                range,
+                None,
+                accept,
+                |staged, local, accept| {
+                    let base = range.start.0 - local.start.0;
+                    let boundaries: Vec<_> =
+                        boundaries.iter().map(|boundary| boundary - base).collect();
+                    let seams = staged.split_inline_block_seams_at(local, &boundaries, accept)?;
+                    let Some(mut change) =
+                        staged.block_command(staged.revision(), local, command, accept)?
+                    else {
+                        return Ok(None);
+                    };
+                    if let Some(seams) = seams {
+                        change.work.materialized_source_bytes +=
+                            seams.work.materialized_source_bytes;
+                        change.work.parsed_source_bytes += seams.work.parsed_source_bytes;
+                    }
+                    Ok(Some(change))
+                },
+            );
         }
         if command == BlockCommand::Divider {
             return self.insert_divider(expected, range, lines, accept);
@@ -235,8 +242,14 @@ impl EditorSession {
             .then(|| self.pending_formats.clone())
             .flatten();
         let affinity = self.input_affinity(range);
-        let mut change =
-            self.commit_block_edit(expected, start..end, &output, Some(selection), None, accept)?;
+        let mut change = self.commit_block_edit(
+            expected,
+            start..end,
+            &output,
+            BlockSelection::Display(selection),
+            None,
+            accept,
+        )?;
         self.carry_block_state(&mut change, formats, affinity);
         change.work.parsed_source_bytes += parsed;
         change.work.materialized_source_bytes += materialized;

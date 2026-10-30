@@ -71,7 +71,7 @@ impl EditorSession {
                 return Ok((change, mapping));
             }
         }
-        if let Some(change) = self.input_at_divider(expected, range, inserted, accept)? {
+        if let Some(change) = self.input_at_divider(expected, range, inserted, action, accept)? {
             let mapping = InputMapping::new(change.range, change.inserted.len());
             return Ok((change, mapping));
         }
@@ -123,16 +123,33 @@ impl EditorSession {
             removed: edit.removed,
             inserted: edit.inserted,
         };
+        self.record_input_history(
+            entry,
+            Some(HistoryInput {
+                range,
+                inserted,
+                action,
+            }),
+        );
+        Ok((change, InputMapping::new(range, inserted.len())))
+    }
+
+    pub(super) fn record_input_history(
+        &mut self,
+        entry: HistoryEntry,
+        input: Option<HistoryInput<'_>>,
+    ) {
         let now = self.clock.now();
-        let kind = if action == crate::InputAction::Typing {
-            crate::history::typing_kind(range, inserted, before_selection)
-        } else {
-            None
-        };
+        let kind = input
+            .as_ref()
+            .filter(|input| input.action == crate::InputAction::Typing)
+            .and_then(|input| {
+                crate::history::typing_kind(input.range, input.inserted, entry.before_selection)
+            });
         let join = kind.is_some_and(|kind| {
             self.typing
                 .as_ref()
-                .is_some_and(|run| run.continues(kind, range, now))
+                .is_some_and(|run| run.continues(kind, input.as_ref().unwrap().range, now))
         });
         self.typing = kind.map(|kind| TypingRun::new(kind, self.selection, now));
         if join {
@@ -143,6 +160,5 @@ impl EditorSession {
             });
         }
         self.redo.clear();
-        Ok((change, InputMapping::new(range, inserted.len())))
     }
 }

@@ -88,8 +88,14 @@ impl EditorSession {
         if !right.is_empty() {
             output.push_str(&format!("\n{last_prefix}{right}{last_suffix}"));
         }
-        let mut change =
-            self.commit_block_edit(expected, start..end, &output, None, Some(caret), accept)?;
+        let mut change = self.commit_block_edit(
+            expected,
+            start..end,
+            &output,
+            BlockSelection::Source(caret),
+            None,
+            accept,
+        )?;
         change.work.materialized_source_bytes += body.materialized;
         change.work.parsed_source_bytes += body.parsed + left_work + right_work;
         Ok(Some(change))

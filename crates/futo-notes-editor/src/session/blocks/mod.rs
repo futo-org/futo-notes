@@ -19,6 +19,11 @@ mod keys;
 mod transaction;
 mod typing;
 
+enum BlockSelection {
+    Display(DisplayRange),
+    Source(usize),
+}
+
 impl EditorSession {
     fn carry_block_state(
         &mut self,
@@ -39,8 +44,8 @@ impl EditorSession {
         expected: Revision,
         range: std::ops::Range<usize>,
         inserted: &str,
-        selection: Option<DisplayRange>,
-        source_caret: Option<usize>,
+        selection: BlockSelection,
+        input: Option<HistoryInput<'_>>,
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<ViewChange, EditorError> {
         let edit = self.prepare_source(
@@ -56,18 +61,18 @@ impl EditorSession {
         let before_affinity = self.affinity;
         let before_formats = self.pending_formats.clone();
         let mut change = self.apply(&edit);
-        if let Some(selection) = selection {
-            self.selection = selection;
-        }
-        if let Some(source) = source_caret {
-            let at = DisplayOffset(self.projection.display_at(source));
-            self.selection = DisplayRange { start: at, end: at };
-        }
+        self.selection = match selection {
+            BlockSelection::Display(selection) => selection,
+            BlockSelection::Source(source) => {
+                let at = DisplayOffset(self.projection.display_at(source));
+                DisplayRange { start: at, end: at }
+            }
+        };
         self.pending_formats = None;
         change.selection = self.selection;
         change.work.materialized_source_bytes += inserted.len();
-        self.undo.push(HistoryGroup {
-            entries: vec![HistoryEntry {
+        self.record_input_history(
+            HistoryEntry {
                 before_selection,
                 before_affinity,
                 before_formats,
@@ -77,10 +82,9 @@ impl EditorSession {
                 range: edit.range,
                 removed: edit.removed,
                 inserted: edit.inserted,
-            }],
-        });
-        self.redo.clear();
-        self.typing = None;
+            },
+            input,
+        );
         Ok(change)
     }
 }

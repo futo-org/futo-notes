@@ -1,6 +1,7 @@
 use super::*;
 use futo_notes_editor::{
-    BlockCommand, DisplayUtf16Offset, DisplayUtf16Range, DisplayUtf16Replacement, InputAction,
+    BlockCommand, DisplayUtf16Offset, DisplayUtf16Range, DisplayUtf16Replacement, InlineFormat,
+    InputAction,
 };
 
 const CASES: &str =
@@ -15,7 +16,7 @@ fn range(a: usize, z: usize) -> DisplayUtf16Range {
 #[test]
 fn structural_seams_and_raw_composition_recover_exact_source_and_carets() {
     let cases: serde_json::Value = serde_json::from_str(CASES).unwrap();
-    assert_eq!(cases.as_array().unwrap().len(), 28);
+    assert_eq!(cases.as_array().unwrap().len(), 38);
     for case in cases.as_array().unwrap() {
         let text = |key: &str| case[key].as_str().unwrap();
         let root = TestRoot::new();
@@ -117,6 +118,32 @@ fn structural_seams_and_raw_composition_recover_exact_source_and_carets() {
                         .unwrap()
                         .unwrap(),
                 );
+            } else if mode == "typing_sequence" {
+                if let Some(format) = case["format"].as_str() {
+                    assert!(s
+                        .toggle_format(
+                            s.revision(),
+                            serde_json::from_value::<InlineFormat>(format.into()).unwrap()
+                        )
+                        .unwrap()
+                        .is_none());
+                }
+                for input in case["inputs"].as_array().unwrap() {
+                    let selected = s.display_to_utf16(s.revision(), s.selection()).unwrap();
+                    apply(
+                        s.replace_utf16_action(
+                            s.revision(),
+                            selected,
+                            &input[1]
+                                .as_str()
+                                .unwrap()
+                                .encode_utf16()
+                                .collect::<Vec<_>>(),
+                            serde_json::from_value(input[0].clone()).unwrap(),
+                        )
+                        .unwrap(),
+                    );
+                }
             } else if mode == "typing" {
                 apply(
                     s.replace_utf16_action(

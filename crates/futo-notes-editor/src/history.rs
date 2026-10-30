@@ -58,6 +58,12 @@ pub(crate) struct HistoryEntry {
 pub(crate) struct HistoryGroup {
     pub entries: Vec<HistoryEntry>,
 }
+/// The user input that owns a source edit, including any necessary local repair.
+pub(crate) struct HistoryInput<'a> {
+    pub range: DisplayRange,
+    pub inserted: &'a str,
+    pub action: InputAction,
+}
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum TypingKind {
     Insert,
