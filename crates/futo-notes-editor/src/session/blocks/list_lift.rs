@@ -15,19 +15,8 @@ impl EditorSession {
             .list
             .as_ref()
             .ok_or(EditorError::UnrepresentableFormat)?;
-        let mut outer = selected.clone();
-        while let Some(parent) = &outer.parent_marker {
-            crate::inline::visit_container();
-            let next = self
-                .projection
-                .source_prefix_at(parent.start)
-                .and_then(|prefix| prefix.list)
-                .filter(|list| list.depth < outer.depth)
-                .ok_or(EditorError::UnrepresentableFormat)?;
-            outer = next;
-        }
         let start = first.source.start;
-        let end = outer.item.end;
+        let end = selected.outer_item.end;
         let after = self
             .semantic_neighbor(end, true, selected.quote_depth)
             .filter(|neighbor| {
@@ -35,7 +24,7 @@ impl EditorSession {
                     .witness
                     .list
                     .as_ref()
-                    .is_some_and(|list| list.depth == outer.depth)
+                    .is_some_and(|list| list.depth == selected.outer_depth)
             });
         let quote = self
             .source
@@ -43,17 +32,32 @@ impl EditorSession {
             .to_string();
         let retained = super::indent_source::quote_prefix_end(&quote, selected.quote_depth);
         let base = crate::inline::columns(&quote[..retained], 0);
-        let mut output = format!("{}\n{}", quote[..retained].trim_end(), &quote[..retained]);
-        let mut materialized = quote.len();
+        let shared_line = selected
+            .parent_marker
+            .as_ref()
+            .is_some_and(|parent| parent.start >= start);
+        let ending = self
+            .source
+            .byte_slice(first.content.end..first.source.end)
+            .to_string();
+        let newline = if ending.ends_with("\r\n") {
+            "\r\n"
+        } else {
+            "\n"
+        };
+        let mut output = String::new();
+        if shared_line {
+            output.push_str(&quote[..selected.marker.start - start]);
+            output.push_str(newline);
+        }
+        output.push_str(quote[..retained].trim_end());
+        output.push_str(newline);
+        output.push_str(&quote[..retained]);
+        let mut materialized = quote.len() + ending.len();
         let body = self.source.byte_slice(first.content.clone()).to_string();
         let (body, parsed) = super::content::protect_content(&body, false, true);
         output.push_str(&body);
-        output.push_str(
-            &self
-                .source
-                .byte_slice(first.content.end..first.source.end)
-                .to_string(),
-        );
+        output.push_str(&ending);
         materialized += body.len();
         let mut at = first.source.end;
         let mut shift = selected.content_column - base;
@@ -80,7 +84,10 @@ impl EditorSession {
                     .source
                     .byte_slice(prefix.content.clone())
                     .chars()
-                    .all(|ch| matches!(ch, ' ' | '\t' | '\r' | '\n'));
+                    .all(|ch| {
+                        crate::inline::visit_container();
+                        matches!(ch, ' ' | '\t' | '\r' | '\n')
+                    });
             let mut moved = super::indent_source::shift_prefix(
                 &raw,
                 selected.quote_depth,
@@ -119,8 +126,9 @@ impl EditorSession {
             at = prefix.source.end;
         }
         let mut selection = range;
-        selection.start.0 += 1;
-        selection.end.0 += 1;
+        let added = newline.len() * (1 + usize::from(shared_line));
+        selection.start.0 += added;
+        selection.end.0 += added;
         let formats = (range == self.selection)
             .then(|| self.pending_formats.clone())
             .flatten();

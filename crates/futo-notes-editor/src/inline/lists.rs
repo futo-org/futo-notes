@@ -28,6 +28,8 @@ pub(crate) struct ListLine {
     pub marker: Range<usize>,
     pub owner: Range<usize>,
     pub item: Range<usize>,
+    pub outer_item: Range<usize>,
+    pub outer_depth: usize,
     pub ordinal: Option<u64>,
     pub depth: usize,
     pub checked: Option<bool>,
@@ -46,10 +48,15 @@ pub(crate) struct ListLine {
 
 impl ListLine {
     pub fn shift(&mut self, by: usize) {
-        for range in [&mut self.marker, &mut self.owner, &mut self.item]
-            .into_iter()
-            .chain(self.parent_marker.iter_mut())
-            .chain(self.sink.iter_mut().map(|sink| &mut sink.marker))
+        for range in [
+            &mut self.marker,
+            &mut self.owner,
+            &mut self.item,
+            &mut self.outer_item,
+        ]
+        .into_iter()
+        .chain(self.parent_marker.iter_mut())
+        .chain(self.sink.iter_mut().map(|sink| &mut sink.marker))
         {
             range.start += by;
             range.end += by;
@@ -216,6 +223,9 @@ pub(super) fn describe(source: &str, events: &[(Event<'_>, Range<usize>)]) -> Li
                 let parent = active_items
                     .last()
                     .filter(|&&at| items[at].quote_depth == quote_depth);
+                let outer_item =
+                    parent.map_or_else(|| range.clone(), |&at| items[at].outer_item.clone());
+                let outer_depth = parent.map_or(depth, |&at| items[at].outer_depth);
                 let parent_marker_column = parent.map(|&at| items[at].marker_column);
                 let parent_marker = parent.map(|&at| items[at].marker.clone());
                 let parent_number = parent.and_then(|&at| items[at].ordinal);
@@ -228,6 +238,8 @@ pub(super) fn describe(source: &str, events: &[(Event<'_>, Range<usize>)]) -> Li
                     marker: start..start + width,
                     owner: owner.clone(),
                     item: range.clone(),
+                    outer_item,
+                    outer_depth,
                     ordinal,
                     depth,
                     checked: None,
