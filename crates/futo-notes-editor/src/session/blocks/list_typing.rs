@@ -31,6 +31,18 @@ impl EditorSession {
         };
         self.stage_block_action(expected, range, None, accept, |staged, local, accept| {
             let line = staged.projection.block_lines(local).remove(0);
+            // Prefix removal can turn a paragraph into a blank continuation of
+            // its preceding list. Plan from the original owner before that edit.
+            let creating_list = line.list.is_none();
+            let mut styles = creating_list.then(|| {
+                staged.list_shortcut_styles(
+                    &line,
+                    marker
+                        .strip_suffix(". ")
+                        .map(|number| number.parse().unwrap()),
+                )
+            });
+            let source_bytes = staged.source.len_bytes();
             let formats = staged.pending_formats.clone();
             let affinity = staged.affinity;
             let start = DisplayOffset(staged.projection.display_at(line.content.start));
@@ -45,14 +57,16 @@ impl EditorSession {
                 accept,
             )?;
             let line = staged.projection.block_lines(staged.selection()).remove(0);
-            let styles = line.list.is_none().then(|| {
-                staged.list_shortcut_styles(
-                    &line,
-                    marker
-                        .strip_suffix(". ")
-                        .map(|number| number.parse().unwrap()),
-                )
-            });
+            if let Some(styles) = &mut styles {
+                // Planned comments lie outside the removed prefix: only the
+                // following boundary moves with the temporary source edit.
+                let shift = staged.source.len_bytes() as isize - source_bytes as isize;
+                for (position, _) in &mut styles.comments {
+                    if *position > line.source.start {
+                        *position = position.checked_add_signed(shift).unwrap();
+                    }
+                }
+            }
             let marker = if let Some(styles) = &styles {
                 if let Some(number) = marker.strip_suffix(". ") {
                     format!("{number}{} ", styles.markers[0] as char)
@@ -79,7 +93,7 @@ impl EditorSession {
             );
             output.insert_str(at - line.source.start, &marker);
             let mut before = String::new();
-            if line.list.is_none()
+            if creating_list
                 && marker.as_bytes()[0].is_ascii_digit()
                 && !marker.starts_with("1.")
                 && !marker.starts_with("1)")
@@ -113,7 +127,7 @@ impl EditorSession {
                     }
                 }
             }
-            if line.list.is_none() {
+            if creating_list {
                 if let Some(separator) = staged.list_neighbor_separator(end, line.quote_depth) {
                     output.push_str(&separator);
                 }
