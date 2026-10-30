@@ -146,6 +146,7 @@ impl super::Projection {
                 _ => None,
             };
             target_copied += title.as_ref().map_or(0, String::len);
+            let explicit = explicit_close(destination, title.as_deref());
             marker.kind = SpanKind::Link(std::sync::Arc::new(LinkMeaning {
                 destination: destination.into(),
                 title,
@@ -155,7 +156,7 @@ impl super::Projection {
                 marker.close = replace_destination(&marker.close, destination);
             } else {
                 marker.open = "[".into();
-                marker.close = format!("](<{}>)", destination_source(destination));
+                marker.close = explicit;
             }
         } else {
             let id = markers.len();
@@ -199,6 +200,28 @@ impl super::Projection {
             link_copied_bytes: rendered.link_copied_bytes + target_copied,
         })
     }
+}
+
+fn explicit_close(destination: &str, title: Option<&str>) -> String {
+    let mut close = format!("](<{}>", destination_source(destination));
+    if let Some(title) = title {
+        close.push_str(" \"");
+        for ch in title.chars() {
+            match ch {
+                '&' => close.push_str("&amp;"),
+                '\\' | '"' => {
+                    close.push('\\');
+                    close.push(ch);
+                }
+                '\r' => close.push_str("&#13;"),
+                '\n' => close.push_str("&#10;"),
+                _ => close.push(ch),
+            }
+        }
+        close.push('"');
+    }
+    close.push(')');
+    close
 }
 
 pub(super) fn destination_source(destination: &str) -> String {
