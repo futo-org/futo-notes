@@ -189,3 +189,63 @@ fn delimiters_inside_typed_urls_remain_url_characters_and_only_trailing_ones_are
         );
     }
 }
+
+#[test]
+fn an_outside_emphasis_closer_at_url_end_waits_for_word_end_including_exact_history() {
+    let mut session = EditorSession::open("");
+    let mut view = ReferenceView::new("");
+    let mut typed = String::new();
+    for ch in "x *b https://x.test/a*".chars() {
+        let at = view.text.len();
+        typed.push(ch);
+        view.apply(
+            session
+                .replace(
+                    session.revision(),
+                    range(at, at),
+                    &ch.to_string(),
+                    &mut |_| Ok(()),
+                )
+                .unwrap(),
+        );
+        assert_eq!(
+            view.text, typed,
+            "delimiter conversion occurred before word end"
+        );
+        assert!(session
+            .project(session.revision(), range(0, view.text.len()))
+            .unwrap()
+            .links
+            .is_empty());
+    }
+    view.apply(
+        session
+            .replace(session.revision(), range(22, 22), " ", &mut |_| Ok(()))
+            .unwrap(),
+    );
+    assert_eq!(view.text, "x b https://x.test/a ");
+    assert_eq!(session.source_text(), "x *b https://x.test/a* ");
+    let links = session
+        .project(session.revision(), range(0, 21))
+        .unwrap()
+        .links;
+    assert_eq!(links.len(), 1);
+    assert_eq!(links[0].range, range(4, 20));
+    assert_eq!(links[0].destination, "https://x.test/a");
+    view.apply(
+        session
+            .undo(session.revision(), &mut |_| Ok(()))
+            .unwrap()
+            .unwrap(),
+    );
+    assert_eq!(view.text, "x *b https://x.test/a*");
+    assert_eq!(session.source_text(), "x *b https://x.test/a*");
+    view.apply(
+        session
+            .redo(session.revision(), &mut |_| Ok(()))
+            .unwrap()
+            .unwrap(),
+    );
+    assert_eq!(view.text, "x b https://x.test/a ");
+    assert_eq!(session.source_text(), "x *b https://x.test/a* ");
+}
