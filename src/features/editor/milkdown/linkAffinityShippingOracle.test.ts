@@ -50,11 +50,11 @@ function insert(source: string, at: number) {
 }
 
 for (const [at, source, linked, selection] of [
-  [1, 'x[ab](https://x.test)\n', 'ab', 2],
+  [1, '[xab](https://x.test)\n', 'xab', 2],
   [2, '[axb](https://x.test)\n', 'axb', 3],
-  [3, '[ab](https://x.test)x\n', 'ab', 4],
+  [3, '[abx](https://x.test)\n', 'abx', 4],
 ] as const) {
-  it(`shipping links have noninclusive boundaries and retain destination at PM position ${at}`, () => {
+  it(`shipping transaction insertion extends links while retaining destination at PM position ${at}`, () => {
     expect(insert('[ab](https://x.test)', at)).toEqual({
       source,
       display: at === 1 ? 'xab' : at === 2 ? 'axb' : 'abx',
@@ -64,11 +64,11 @@ for (const [at, source, linked, selection] of [
   });
 }
 
-it('outer bold survives at a link boundary without extending the destination', () => {
+it('outer bold and link destination survive transaction insertion at their boundary', () => {
   expect(insert('__[ab](https://x.test)__', 3)).toEqual({
-    source: '**[ab](https://x.test)x**\n',
+    source: '**[abx](https://x.test)**\n',
     display: 'abx',
-    links: [{ text: 'ab', href: 'https://x.test' }],
+    links: [{ text: 'abx', href: 'https://x.test' }],
     selection: 4,
   });
 });

@@ -71,11 +71,11 @@ impl Row {
             }
             match &event {
                 Event::Start(Tag::Link { dest_url, .. }) => {
-                    link = Some((range.clone(), dest_url.to_string()));
+                    link = Some((range.clone(), dest_url.to_string(), range.start + 1));
                 }
                 Event::End(pulldown_cmark::TagEnd::Link) => {
-                    if let Some((whole, destination)) = link.take() {
-                        let label = super::links::label_range(source, whole.clone());
+                    if let Some((whole, destination, label_end)) = link.take() {
+                        let label = whole.start + 1..label_end;
                         let span = Span {
                             kind: SpanKind::Link(destination),
                             open: whole.start..label.start,
@@ -86,7 +86,11 @@ impl Row {
                         spans.push(span);
                     }
                 }
-                _ => {}
+                _ => {
+                    if let Some((_, _, label_end)) = &mut link {
+                        *label_end = (*label_end).max(range.end);
+                    }
+                }
             }
             let format = match event {
                 Event::Start(Tag::Strong) => Some((InlineFormat::Bold, 2)),
