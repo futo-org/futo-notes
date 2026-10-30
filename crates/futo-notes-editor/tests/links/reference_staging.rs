@@ -276,3 +276,61 @@ fn text_conversion_preserves_a_headings_literal_reference_definition_and_distant
     assert_eq!(view.text, shown);
     assert_eq!(session.selection(), range(4, 4));
 }
+
+#[test]
+fn text_conversion_keeps_existing_definition_winners_duplicates_and_code_opaque() {
+    use futo_notes_editor::BlockCommand;
+    let original = "# [new]: /target 'T'\n\n[one][keep]\n\n[keep]: /first 'First'\n\n[keep]: /second 'Later'\n\n```\n[new]: /code\n```";
+    let changed = "\\[new]: /target 'T'\n\n[one][keep]\n\n[keep]: /first 'First'\n\n[keep]: /second 'Later'\n\n```\n[new]: /code\n```";
+    let shown = "[new]: /target 'T'\n\none\n\n[keep]: /second 'Later'\n\n[new]: /code";
+    let mut session = EditorSession::open(original);
+    let mut view = ReferenceView::new(shown);
+    assert_eq!(session.display_text(), shown);
+    view.apply(
+        session
+            .block_command(
+                Revision(0),
+                range(4, 4),
+                BlockCommand::Heading(0),
+                &mut |_| Ok(()),
+            )
+            .unwrap()
+            .unwrap(),
+    );
+    assert_eq!(session.source_text(), changed);
+    assert_eq!(view.text, shown);
+    let target = session
+        .inspect_link(Revision(1), range(20, 21))
+        .unwrap()
+        .unwrap();
+    assert_eq!(target.destination, "/first");
+    assert_eq!(target.title.as_deref(), Some("First"));
+    view.apply(session.undo(Revision(1), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(session.source_text(), original);
+    view.apply(session.redo(Revision(2), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(session.source_text(), changed);
+    assert_eq!(view.text, shown);
+}
+
+#[test]
+fn ordinary_heading_text_conversion_does_not_scan_distant_reference_context() {
+    use futo_notes_editor::BlockCommand;
+    let mut measured = Vec::new();
+    for count in [20, 200] {
+        let tail = "[other][keep]\n\n".repeat(count);
+        let original = format!("# body\n\nbuffer\n\n{tail}[keep]: /kept 'T'");
+        let mut session = EditorSession::open(&original);
+        let change = session
+            .block_command(
+                Revision(0),
+                range(2, 2),
+                BlockCommand::Heading(0),
+                &mut |_| Ok(()),
+            )
+            .unwrap()
+            .unwrap();
+        assert_eq!(session.source_text(), original[2..]);
+        measured.push(change.work);
+    }
+    assert_eq!(measured[0], measured[1]);
+}

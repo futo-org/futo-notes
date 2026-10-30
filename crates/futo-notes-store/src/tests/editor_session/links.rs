@@ -214,3 +214,62 @@ fn nested_reference_composition_and_source_anchored_history_survive_append_and_h
         assert_eq!(store.read("nested-references").unwrap(), changed);
     }
 }
+
+#[test]
+fn literal_heading_definition_conversion_rejects_before_view_and_recovers_exact_retry() {
+    use futo_notes_editor::BlockCommand;
+    for fault in [storage::Fault::Append, storage::Fault::ShortWrite] {
+        let root = TestRoot::new();
+        let store = store(&root);
+        let original = "# [id]: /target 'T'\n\n[one][id]\n\nbody";
+        let changed = "\\[id]: /target 'T'\n\n[one][id]\n\nbody";
+        let shown = "[id]: /target 'T'\n\n[one][id]\n\nbody";
+        store.create("", "literal-heading", original).unwrap();
+        let disk = Arc::new(Mutex::new(storage::Disk::default()));
+        let mut editor = store
+            .open_editor_with_recovery("literal-heading", storage::options(&disk))
+            .unwrap();
+        editor.select(Revision(0), range(4, 4)).unwrap();
+        let before = editor.project(Revision(0), range(0, shown.len())).unwrap();
+        disk.lock().unwrap().fault = Some(fault);
+        assert!(matches!(
+            editor.block_command(Revision(0), range(4, 4), BlockCommand::Heading(0)),
+            Err(EditorStoreError::RecoveryAppend(_))
+        ));
+        assert_eq!(editor.source_text(), original);
+        assert_eq!(editor.display_text(), shown);
+        assert_eq!(editor.selection(), range(4, 4));
+        assert_eq!(editor.revision(), Revision(0));
+        assert_eq!(
+            editor.project(Revision(0), range(0, shown.len())).unwrap(),
+            before
+        );
+        assert_eq!(store.read("literal-heading").unwrap(), original);
+        disk.lock().unwrap().fault = None;
+        editor.resume_recovery().unwrap();
+        editor
+            .block_command(Revision(0), range(4, 4), BlockCommand::Heading(0))
+            .unwrap()
+            .unwrap();
+        assert_eq!(editor.source_text(), changed);
+        assert_eq!(editor.display_text(), shown);
+        assert_eq!(editor.selection(), range(4, 4));
+        editor.undo(Revision(1)).unwrap().unwrap();
+        assert_eq!(editor.source_text(), original);
+        editor.redo(Revision(2)).unwrap().unwrap();
+        assert_eq!(editor.source_text(), changed);
+        editor.flush_recovery().unwrap();
+        drop(editor);
+        let mut reopened = store
+            .open_editor_with_recovery("literal-heading", storage::options(&disk))
+            .unwrap();
+        assert_eq!(reopened.source_text(), changed);
+        assert_eq!(reopened.display_text(), shown);
+        assert!(reopened
+            .inspect_link(Revision(3), range(20, 23))
+            .unwrap()
+            .is_none());
+        reopened.checkpoint().unwrap();
+        assert_eq!(store.read("literal-heading").unwrap(), changed);
+    }
+}
