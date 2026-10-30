@@ -142,5 +142,150 @@
     "expectedDisplay": "One\n\ntwo\n\nthree\n\n!\n\nAC",
     "caret": 22,
     "history": 2
+  },
+  {
+    "name": "explicit-marked-entity-space",
+    "source": "a&#32; b c",
+    "display": "a  b c",
+    "range": [
+      5,
+      6
+    ],
+    "text": "C",
+    "replacements": [
+      [
+        1,
+        2,
+        ""
+      ],
+      [
+        3,
+        4,
+        "B"
+      ]
+    ],
+    "expectedSource": "a B C",
+    "expectedDisplay": "a B C",
+    "caret": 3,
+    "history": 2,
+    "mode": "composition_batch"
+  },
+  {
+    "name": "explicit-unchanged-marked-entity-space",
+    "source": "a&#32; b c",
+    "display": "a  b c",
+    "range": [
+      5,
+      6
+    ],
+    "text": "c",
+    "replacements": [
+      [
+        1,
+        2,
+        ""
+      ],
+      [
+        3,
+        4,
+        "B"
+      ]
+    ],
+    "expectedSource": "a B c",
+    "expectedDisplay": "a B c",
+    "caret": 3,
+    "history": 1,
+    "mode": "composition_batch"
+  },
+  {
+    "name": "explicit-marked-escaped-scalar",
+    "source": "a&#33;\\! b c",
+    "display": "a!! b c",
+    "range": [
+      6,
+      7
+    ],
+    "text": "C",
+    "replacements": [
+      [
+        1,
+        2,
+        ""
+      ],
+      [
+        4,
+        5,
+        "B"
+      ]
+    ],
+    "expectedSource": "a\\! B C",
+    "expectedDisplay": "a! B C",
+    "caret": 4,
+    "history": 2,
+    "mode": "composition_batch"
+  },
+  {
+    "name": "explicit-marked-protected-separator",
+    "source": "> > \n> a&#32; b\n> =",
+    "display": "\na  b",
+    "range": [
+      0,
+      0
+    ],
+    "text": "!",
+    "replacements": [
+      [
+        3,
+        4,
+        ""
+      ],
+      [
+        5,
+        6,
+        "B"
+      ]
+    ],
+    "expectedSource": "> > !\n>\n> a B\n> =",
+    "expectedDisplay": "!\n\na B",
+    "caret": 6,
+    "history": 2,
+    "mode": "composition_batch"
+  },
+  {
+    "name": "explicit-marked-distant-both-sides",
+    "source": "\u9060\u65b9\ud83d\ude00\n\none\n\ntwo\n\na&#32; b\n\n> > \n> c&#32; d\n> =",
+    "display": "\u9060\u65b9\ud83d\ude00\n\none\n\ntwo\n\na  b\n\n\nc  d",
+    "range": [
+      22,
+      22
+    ],
+    "text": "!",
+    "replacements": [
+      [
+        17,
+        18,
+        ""
+      ],
+      [
+        19,
+        20,
+        "B"
+      ],
+      [
+        25,
+        26,
+        ""
+      ],
+      [
+        27,
+        28,
+        "D"
+      ]
+    ],
+    "expectedSource": "\u9060\u65b9\ud83d\ude00\n\none\n\ntwo\n\na B\n\n> > !\n>\n> c D\n> =",
+    "expectedDisplay": "\u9060\u65b9\ud83d\ude00\n\none\n\ntwo\n\na B\n\n!\n\nc D",
+    "caret": 27,
+    "history": 2,
+    "mode": "composition_batch"
   }
 ]

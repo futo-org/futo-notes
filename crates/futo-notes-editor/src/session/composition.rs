@@ -332,25 +332,48 @@ impl EditorSession {
                 return Err(EditorError::InvalidRange);
             }
         }
-        let mut text = display.byte_slice(first..end).to_string();
-        for replacement in replacements.iter().rev() {
-            text.replace_range(
-                replacement.range.start.0 - first..replacement.range.end.0 - first,
-                &replacement.inserted,
-            );
-        }
-        let last = replacements.last().unwrap();
-        let change = self.input_during_composition(
+        let targets: Vec<_> = replacements
+            .iter()
+            .flat_map(|replacement| [replacement.range.start.0, replacement.range.end.0])
+            .collect();
+        let change = self.command_during_composition_with_targets(
             expected,
             DisplayRange {
                 start: DisplayOffset(first),
-                end: DisplayOffset(last.range.end.0),
+                end: DisplayOffset(end),
             },
-            &text,
-            crate::InputAction::Isolated,
+            &targets,
             accept,
+            |staged, targets, accept| {
+                // These are explicit caller-selected runs. Preserve their
+                // identities through the marked commit rather than inferring
+                // different runs from equal visible characters afterward.
+                let replacements: Vec<_> = replacements
+                    .iter()
+                    .enumerate()
+                    .map(|(index, replacement)| crate::DisplayReplacement {
+                        range: DisplayRange {
+                            start: DisplayOffset(targets[2 * index]),
+                            end: DisplayOffset(targets[2 * index + 1]),
+                        },
+                        inserted: replacement.inserted.clone(),
+                    })
+                    .collect();
+                staged
+                    .replace_many(staged.revision(), &replacements, accept)
+                    .map(Some)
+            },
         )?;
-        Ok(change)
+        match change {
+            Some(change) => Ok(change),
+            None => self.replace_action(
+                expected,
+                self.selection,
+                "",
+                crate::InputAction::Isolated,
+                accept,
+            ),
+        }
     }
 
     pub fn cancel_composition(&mut self, expected: Revision) -> Result<(), EditorError> {

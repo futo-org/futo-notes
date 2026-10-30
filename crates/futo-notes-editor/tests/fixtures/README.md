@@ -1,6 +1,6 @@
 # Structural seam fixtures
 
-`structural-seams.json` contains twelve hand-worked synthetic public-interface
+`structural-seams.json` contains seventeen hand-worked synthetic public-interface
 regressions for #296. These are source/display/history/caret oracles, not actual
 OS captures. Ranges and carets use native UTF-16 code units. `history` counts Undo
 steps, which can exceed the accepted source-record count for composition plus

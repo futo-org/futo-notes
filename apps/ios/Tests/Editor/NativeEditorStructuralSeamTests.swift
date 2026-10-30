@@ -3,6 +3,18 @@ import Testing
 
 @testable import FutoNotesNative
 
+private struct StructuralSeamReplacement: Decodable {
+    let start: UInt64
+    let end: UInt64
+    let text: String
+
+    init(from decoder: Decoder) throws {
+        var values = try decoder.unkeyedContainer()
+        start = try values.decode(UInt64.self)
+        end = try values.decode(UInt64.self)
+        text = try values.decode(String.self)
+    }
+}
 private struct StructuralSeamCase: Decodable {
     let name: String
     let source: String
@@ -14,6 +26,7 @@ private struct StructuralSeamCase: Decodable {
     let expectedDisplay: String
     let caret: UInt64
     let history: Int
+    let replacements: [StructuralSeamReplacement]?
 }
 private final class StructuralSeamBundle {}
 
@@ -27,7 +40,7 @@ struct NativeEditorStructuralSeamTests {
                     forResource: "structural-seams", withExtension: "json"))
             let cases = try JSONDecoder().decode(
                 [StructuralSeamCase].self, from: Data(contentsOf: url))
-            #expect(cases.count == 12)
+            #expect(cases.count == 17)
             for item in cases {
                 let root = FileManager.default.temporaryDirectory.appendingPathComponent(
                     "editor-seams-\(UUID().uuidString)")
@@ -73,6 +86,17 @@ struct NativeEditorStructuralSeamTests {
                     _ = try s.composeUtf16(
                         expected: 0, range: selected, text: Array(item.text.utf16))
                     try apply(s.commitCompositionUtf16(expected: 0, text: nil))
+                case "composition_batch":
+                    _ = try s.composeUtf16(
+                        expected: 0, range: selected, text: Array(item.text.utf16))
+                    #expect(try s.sourceText() == item.source)
+                    try apply(s.replaceManyUtf16(
+                        expected: 0, replacements: #require(item.replacements).map {
+                            EditorUtf16Replacement(
+                                range: EditorUtf16Range(start: $0.start, end: $0.end),
+                                inserted: Array($0.text.utf16))
+                        }))
+                    #expect(try s.revision() == 1)
                 case "composition_os", "distant_composition_os":
                     _ = try s.composeUtf16(
                         expected: 0,
