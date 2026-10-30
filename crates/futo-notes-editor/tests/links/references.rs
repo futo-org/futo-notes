@@ -315,3 +315,27 @@ fn a_later_duplicate_inside_the_staged_window_never_shadows_the_global_first_def
     view.apply(session.redo(Revision(2), &mut |_| Ok(())).unwrap().unwrap());
     assert_eq!(session.source_text(), corrected);
 }
+
+#[test]
+fn a_remaining_reference_image_keeps_the_definition_used_after_link_unlink() {
+    let original = "[one][id] and ![alt][id]\n\nmiddle\n\n[id]: /image 'T'\n\nend";
+    let unlinked = "one and ![alt][id]\n\nmiddle\n\n[id]: /image 'T'\n\nend";
+    let mut session = EditorSession::open(original);
+    // Image rendering is a separate feature; its existing literal source body
+    // still counts as a canonical reference use for definition visibility.
+    let mut view = ReferenceView::new("one and ![alt][id]\n\nmiddle\n\nend");
+    assert_eq!(session.display_text(), view.text);
+    view.apply(
+        session
+            .set_link(Revision(0), range(0, 3), "", &mut |_| Ok(()))
+            .unwrap()
+            .unwrap(),
+    );
+    assert_eq!(session.source_text(), unlinked);
+    assert_eq!(view.text, "one and ![alt][id]\n\nmiddle\n\nend");
+    assert_eq!(EditorSession::open(unlinked).display_text(), view.text);
+    view.apply(session.undo(Revision(1), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(session.source_text(), original);
+    view.apply(session.redo(Revision(2), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(session.source_text(), unlinked);
+}
