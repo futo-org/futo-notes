@@ -61,4 +61,20 @@ it('the shipping text-input rule defers an outside emphasis closer in a URL unti
   type(' ');
   expect(view.state.doc.textContent).toBe('x b https://x.test/a ');
   expect(emphasis()).toEqual(['b https://x.test/a']);
+  const afterSource = serializer.serialize(view.state.doc.toJSON() as NodeJson);
+  expect(afterSource).toBe('x *b https://x.test/a* \n');
+  expect(parse(afterSource).textContent).toBe('x b https://x.test/a ');
+});
+
+it('a minimal standard source candidate keeps literal URL delimiters stable before conversion', () => {
+  const parse = editor.ctx.get(parserCtx);
+  const before = parse('x \\*b https://x.test/a*');
+  expect(before.textContent).toBe('x *b https://x.test/a*');
+  const marks: { text: string; type: string; href: unknown }[] = [];
+  before.descendants((node) => {
+    for (const mark of node.marks) {
+      marks.push({ text: node.text ?? '', type: mark.type.name, href: mark.attrs.href });
+    }
+  });
+  expect(marks).toEqual([{ text: 'https://x.test/a', type: 'link', href: 'https://x.test/a' }]);
 });

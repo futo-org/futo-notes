@@ -266,3 +266,17 @@ fn an_outside_emphasis_closer_at_url_end_waits_for_word_end_including_exact_hist
     assert_eq!(view.text, "x b https://x.test/a ");
     assert_eq!(session.source_text(), "x *b https://x.test/a* ");
 }
+
+#[test]
+fn minimal_standard_pre_word_end_spelling_reopens_literal_delimiters_and_unchanged_url() {
+    let source = "x \\*b https://x.test/a*";
+    let session = EditorSession::open(source);
+    assert_eq!(session.source_text(), source);
+    assert_eq!(session.display_text(), "x *b https://x.test/a*");
+    let link = session
+        .inspect_link(Revision(0), range(5, 21))
+        .unwrap()
+        .unwrap();
+    assert_eq!(link.range, range(5, 21));
+    assert_eq!(link.destination, "https://x.test/a");
+}
