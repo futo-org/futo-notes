@@ -108,21 +108,39 @@ impl EditorSession {
             return Ok(None);
         };
         let (a, b) = (owned.source.start, owned.source.end);
-        if range.start == range.end && inserted.is_empty() {
-            return self
-                .commit_block_edit(
-                    expected,
-                    a..a,
-                    "",
-                    BlockSelection::Display(range),
-                    Some(HistoryInput {
-                        range,
-                        inserted,
-                        action,
-                    }),
-                    accept,
-                )
-                .map(Some);
+        // An unchanged supplied code run owns its exact physical spelling,
+        // including every hidden prefix inside it. Do not reconstruct those
+        // rows from the first row's prefix. Still record the explicit action
+        // through the same acceptance/history path as an empty replacement.
+        if self
+            .projection
+            .display
+            .byte_slice(range.start.0..range.end.0)
+            == inserted
+        {
+            let caret = DisplayRange {
+                start: range.end,
+                end: range.end,
+            };
+            let code_end_caret = fence.closer.is_some()
+                && range.end.0 == self.projection.display_at(fence.body.end)
+                && range.start != range.end;
+            let mut change = self.commit_block_edit(
+                expected,
+                a..a,
+                "",
+                BlockSelection::Display(caret),
+                Some(HistoryInput {
+                    range,
+                    inserted,
+                    action,
+                }),
+                accept,
+            )?;
+            if code_end_caret {
+                self.carry_block_state(&mut change, None, Affinity::Backward);
+            }
+            return Ok(Some(change));
         }
         let prefix =
             if line.content.start <= fence.body.end && line.source.start >= fence.body.start {
