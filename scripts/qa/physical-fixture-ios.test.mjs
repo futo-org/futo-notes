@@ -27,7 +27,15 @@ it('rejects an XCTest plan for a personal app before invoking any OS command', a
         { bundleID: 'org.futo.fixture.editor294' },
         {
           xctestrun: {
-            Editor294FixtureUITests: { UITargetAppBundleIdentifier: 'com.futo.notes.dev' },
+            __xctestrun_metadata__: { FormatVersion: 1 },
+            Editor294FixtureUITests: {
+              IsUITestBundle: true,
+              UITargetAppBundleIdentifier: 'com.futo.notes.dev',
+              TestHostBundleIdentifier: 'org.futo.fixture.editor294.uitests.xctrunner',
+              TestHostPath: '__TESTROOT__/Debug-iphoneos/Editor294FixtureUITests-Runner.app',
+              UITargetAppPath: '__TESTROOT__/Debug-iphoneos/Editor294Fixture.app',
+              TestBundlePath: '__TESTHOST__/PlugIns/Editor294FixtureUITests.xctest',
+            },
           },
         },
         root,
