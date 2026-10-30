@@ -76,7 +76,7 @@ it('a used reference definition inside a container resolves a later outside labe
   const source = '> [docs]: https://x.test "T"\n\nSee [docs].\n';
   const parsed = parser.parse(source);
   expect(linkedRuns(parsed)).toEqual([{ text: 'docs', href: 'https://x.test', title: 'T' }]);
-  expect(serializer.serialize(parsed)).toBe('See [docs](https://x.test "T").\n');
+  expect(serializer.serialize(parsed)).toBe('>\n\nSee [docs](https://x.test "T").\n');
 });
 
 it('references occurring only in code leave their definition unused and exact', () => {
