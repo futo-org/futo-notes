@@ -359,3 +359,22 @@ it('reference sink creates a new ordered child list starting at one', () => {
   expect(nested.type.name).toBe('ordered_list');
   expect(nested.attrs.order).toBe(1);
 });
+
+it('reference retarget changes the outer list kind and retains its child list', () => {
+  const parent = s.nodes.list_item.create(null, [p('a'), bullets(item('b'))]);
+  const root = doc(bullets(parent));
+  const state = stateAtText(root, 'a');
+  let after = state;
+  expect(
+    blockCommand('ordered')(state, (tr) => {
+      after = state.apply(tr);
+    }),
+  ).toBe(true);
+  expect(shapes(after.doc)).toEqual([
+    {
+      ordered_list: [
+        { list_item: ['paragraph:a', { bullet_list: [{ list_item: ['paragraph:b'] }] }] },
+      ],
+    },
+  ]);
+});
