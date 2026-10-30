@@ -6,17 +6,17 @@ impl Row {
     pub fn parse(source: &str) -> Self {
         Self::parse_with_references(
             source,
-            &Arc::new(super::references::References::default()),
+            &Arc::new(crate::inline::references::References::default()),
             &[],
         )
     }
 
     pub(crate) fn parse_with_references(
         source: &str,
-        references: &Arc<super::references::References>,
-        winners: &[super::references::Winner],
+        references: &Arc<crate::inline::references::References>,
+        winners: &[crate::inline::references::Winner],
     ) -> Self {
-        let (definitions, mut reference_work) = super::references::declarations(source, winners);
+        let (definitions, mut reference_work) = crate::inline::references::declarations(source, winners);
         let callback_items = std::cell::Cell::new(0);
         let callback_copied = std::cell::Cell::new(0);
         let events: Vec<_> = Parser::new_with_broken_link_callback(
@@ -33,7 +33,7 @@ impl Row {
         reference_work.items += callback_items.get();
         reference_work.copied += callback_copied.get();
         let mut reference_uses = Vec::new();
-        let (blocks, prefixes) = super::blocks::describe(source, &events);
+        let (blocks, prefixes) = crate::inline::blocks::describe(source, &events);
         let mut hidden = vec![false; source.len()];
         for prefix in prefixes {
             hidden[prefix].fill(true);
@@ -63,7 +63,7 @@ impl Row {
                     id,
                 }) => {
                     reference_work.items += 1;
-                    let target = if super::references::is_reference(link_type) {
+                    let target = if crate::inline::references::is_reference(link_type) {
                         reference_work.copied += id.len();
                         references.target(id).cloned()
                     } else {
@@ -78,7 +78,7 @@ impl Row {
                         })
                     });
                     if let Some(key) = &target.reference {
-                        reference_uses.push(super::references::ReferenceUse {
+                        reference_uses.push(crate::inline::references::ReferenceUse {
                             range: range.clone(),
                             key: key.clone(),
                             image: false,
@@ -87,12 +87,12 @@ impl Row {
                     link = Some((range.clone(), target, range.start + 1));
                 }
                 Event::Start(Tag::Image { link_type, id, .. })
-                    if super::references::is_reference(link_type) =>
+                    if crate::inline::references::is_reference(link_type) =>
                 {
                     reference_work.items += 1;
                     reference_work.copied += id.len();
                     if let Some(target) = references.target(id) {
-                        reference_uses.push(super::references::ReferenceUse {
+                        reference_uses.push(crate::inline::references::ReferenceUse {
                             range: range.clone(),
                             key: target.reference.as_ref().unwrap().clone(),
                             image: true,
@@ -168,7 +168,7 @@ impl Row {
                 });
             }
         }
-        let (bare, additional_parse) = super::links::bare_links(source);
+        let (bare, additional_parse) = crate::inline::links::bare_links(source);
         // GFM literal URLs own punctuation inside their parser-reported body.
         // CommonMark's independent emphasis pass must not consume that same
         // punctuation as an opener or closer outside the URL interpretation.
@@ -204,7 +204,7 @@ impl Row {
             reference_work.items += 1;
             reference_work.copied += definition.key.as_ref().len();
             if references.used(definition.key.as_ref()) {
-                hidden[super::references::hidden_definition(source, definition)].fill(true);
+                hidden[crate::inline::references::hidden_definition(source, definition)].fill(true);
             }
         }
         for block in &blocks {
