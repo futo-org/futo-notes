@@ -183,3 +183,32 @@ fn changing_one_reference_destination_retains_title_and_other_reference_meaning(
     view.apply(session.redo(Revision(2), &mut |_| Ok(())).unwrap().unwrap());
     assert_eq!(session.source_text(), changed);
 }
+
+#[test]
+fn unlinking_the_last_reference_reveals_its_retained_unused_definition_atomically() {
+    let original = "[one][id]\n\nmiddle\n\n[id]: <https://x.test> 'T'\n\nend";
+    let unlinked = "one\n\nmiddle\n\n[id]: <https://x.test> 'T'\n\nend";
+    let mut session = EditorSession::open(original);
+    let mut view = ReferenceView::new("one\n\nmiddle\n\nend");
+    session.select(Revision(0), range(1, 2)).unwrap();
+    view.apply(
+        session
+            .set_link(Revision(0), range(1, 2), "", &mut |_| Ok(()))
+            .unwrap()
+            .unwrap(),
+    );
+    assert_eq!(session.source_text(), unlinked);
+    assert_eq!(view.text, unlinked);
+    assert_eq!(session.selection(), range(1, 2));
+    assert!(session
+        .inspect_link(Revision(1), range(0, 3))
+        .unwrap()
+        .is_none());
+    assert_eq!(EditorSession::open(unlinked).display_text(), view.text);
+    view.apply(session.undo(Revision(1), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(session.source_text(), original);
+    assert_eq!(view.text, "one\n\nmiddle\n\nend");
+    view.apply(session.redo(Revision(2), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(session.source_text(), unlinked);
+    assert_eq!(view.text, unlinked);
+}
