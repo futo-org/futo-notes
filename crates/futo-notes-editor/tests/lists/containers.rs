@@ -270,3 +270,28 @@ fn outdent_same_line_nested_syntax_preserves_the_empty_parent_item() {
     assert_eq!(s.source_text(), source);
     assert_eq!(s.selection(), selected);
 }
+
+#[test]
+fn outdent_retargets_each_selected_sibling_and_maps_its_own_descendants() {
+    let raw = "9) a\n   - b\n     - child\n   - c";
+    let expected = "9) a\n10) b\n    - child\n11) c";
+    let shown = "a\nb\nchild\nc";
+    let mut s = EditorSession::open(raw);
+    let mut view = ReferenceView::new(shown);
+    s.select(s.revision(), range(2, 11)).unwrap();
+    view.apply(
+        s.block_command(
+            s.revision(),
+            range(2, 11),
+            BlockCommand::Outdent,
+            &mut |_| Ok(()),
+        )
+        .unwrap()
+        .unwrap(),
+    );
+    assert_eq!(s.source_text(), expected);
+    assert_eq!(view.text, shown);
+    assert_eq!(s.selection(), range(2, 11));
+    view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(s.source_text(), raw);
+}
