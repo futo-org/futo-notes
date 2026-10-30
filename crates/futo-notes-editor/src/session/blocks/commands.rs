@@ -69,6 +69,48 @@ impl EditorSession {
             }
         }
         let lines = self.projection.block_lines(range);
+        if matches!(command, BlockCommand::Heading(1..=6) | BlockCommand::Quote)
+            && lines.iter().any(|line| {
+                !line.code
+                    && line.list.is_some()
+                    && (command != BlockCommand::Quote || line.quote_depth == 0)
+            })
+        {
+            return self.stage_block_action(
+                expected,
+                range,
+                None,
+                accept,
+                |staged, local, accept| {
+                    let Some(lifted) = staged.block_command(
+                        staged.revision(),
+                        local,
+                        BlockCommand::Heading(0),
+                        accept,
+                    )?
+                    else {
+                        return Ok(None);
+                    };
+                    let local = staged.selection();
+                    if staged
+                        .projection
+                        .block_lines(local)
+                        .iter()
+                        .any(|line| line.list.is_some())
+                    {
+                        return Err(EditorError::UnrepresentableFormat);
+                    }
+                    let Some(mut change) =
+                        staged.block_command(staged.revision(), local, command, accept)?
+                    else {
+                        return Ok(Some(lifted));
+                    };
+                    change.work.parsed_source_bytes += lifted.work.parsed_source_bytes;
+                    change.work.materialized_source_bytes += lifted.work.materialized_source_bytes;
+                    Ok(Some(change))
+                },
+            );
+        }
         if !lines.iter().any(|line| changes_block(line, command)) {
             return Ok(None);
         }
