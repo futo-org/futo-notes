@@ -370,6 +370,7 @@ impl EditorSession {
         accept(&edit).map_err(EditorError::Persistence)?;
         let before_links = self.projection.pending_for_source_edit(edit.range);
         let mut change = self.apply(&edit);
+        change.work.link_metadata_items += self.projection.install_delimiters(plan.delimiters);
         self.selection = before_selection;
         self.pending_formats = None;
         change.selection = self.selection;

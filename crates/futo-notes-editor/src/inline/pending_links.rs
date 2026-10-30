@@ -92,19 +92,7 @@ impl Projection {
             work += row.literal_delimiters.len();
             row.literal_delimiters.clear();
         }
-        for range in &snapshot.delimiters {
-            let index = self.rows.locate(range.start, false);
-            let (row, source, _) = self.rows.at(index);
-            work += row.segments.len() + 1;
-            let local = range.start - source..range.end - source;
-            if row
-                .segments
-                .iter()
-                .any(|s| s.source == local && !s.identity)
-            {
-                self.rows.metadata_mut(index).literal_delimiters.push(local);
-            }
-        }
+        work += self.install_delimiters(snapshot.delimiters.iter().cloned());
         for range in &snapshot.ranges {
             let index = self.rows.locate(range.start, false);
             let (_, source, _) = self.rows.at(index);
@@ -280,16 +268,37 @@ impl Projection {
 }
 
 impl Projection {
-    pub(crate) fn install_delimiters(&mut self, ranges: Vec<Range<usize>>) -> usize {
+    pub(crate) fn install_delimiters(
+        &mut self,
+        ranges: impl IntoIterator<Item = Range<usize>>,
+    ) -> usize {
         let mut work = 0;
         for range in ranges {
+            work += 1;
             let index = self.rows.locate(range.start, false);
             let (_, source, _) = self.rows.at(index);
             let row = self.rows.metadata_mut(index);
             let local = range.start - source..range.end - source;
-            work += 1 + row.literal_delimiters.len();
-            if !row.literal_delimiters.contains(&local) {
-                row.literal_delimiters.push(local);
+            let segment = row.segments.partition_point(|segment| {
+                work += 1;
+                segment.source.start < local.start
+            });
+            let valid = row.segments.get(segment).is_some_and(|segment| {
+                work += 1;
+                segment.source == local && !segment.identity
+            });
+            if !valid {
+                continue;
+            }
+            let position =
+                row.literal_delimiters
+                    .binary_search_by_key(&(local.start, local.end), |range| {
+                        work += 1;
+                        (range.start, range.end)
+                    });
+            if let Err(position) = position {
+                work += row.literal_delimiters.len() - position;
+                row.literal_delimiters.insert(position, local);
             }
         }
         work

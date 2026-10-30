@@ -89,6 +89,7 @@ impl EditorSession {
             &plan.inserted,
         )?;
         let mut change = self.replay_with_accept(&edit, accept)?;
+        change.work.link_metadata_items += self.projection.install_delimiters(plan.delimiters);
         change.work.materialized_source_bytes += plan.materialized;
         change.work.parsed_source_bytes += plan.parsed;
         change.work.link_metadata_items += plan.link_metadata_items;

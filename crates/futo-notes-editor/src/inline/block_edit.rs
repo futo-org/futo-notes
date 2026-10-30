@@ -170,10 +170,11 @@ impl Projection {
             at += piece.display.len();
         }
         let end = pieces.len();
-        let rendered = spell(pieces, markers, end..end, true, &self.references)?;
+        let mut rendered = spell(pieces, markers, end..end, true, &self.references)?;
         if rendered.text == raw {
             return Ok(None);
         }
+        let delimiter_work = rendered.relocate_delimiters(source_start);
         let prefix = common_prefix(&raw, &rendered.text);
         let suffix: usize = raw[prefix..]
             .chars()
@@ -183,7 +184,7 @@ impl Projection {
             .map(|(ch, _)| ch.len_utf8())
             .sum();
         Ok(Some(Plan {
-            delimiters: Vec::new(),
+            delimiters: rendered.delimiters,
             input_start: 0,
             range: source_start + prefix..source_end - suffix,
             inserted: rendered.text[prefix..rendered.text.len() - suffix].to_owned(),
@@ -191,7 +192,9 @@ impl Projection {
             formats: Vec::new(),
             materialized: raw.len() + rendered.text.len(),
             parsed: rendered.parsed,
-            link_metadata_items: link_metadata_items + rendered.link_metadata_items,
+            link_metadata_items: link_metadata_items
+                + delimiter_work
+                + rendered.link_metadata_items,
             link_copied_bytes: rendered.link_copied_bytes,
         }))
     }

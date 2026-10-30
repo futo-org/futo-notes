@@ -193,13 +193,14 @@ impl Projection {
         if let Some(value) = timing.literal {
             literal = value;
         }
-        let rendered = spell(
+        let mut rendered = spell(
             changed,
             markers,
             insertion_index..insertion_end,
             literal,
             &self.references,
         )?;
+        let delimiter_work = rendered.relocate_delimiters(source_start);
         let parsed = rendered.parsed + link_work.parsed;
         let output = rendered.text;
         let caret = rendered.caret;
@@ -212,11 +213,7 @@ impl Projection {
             .map(|(c, _)| c.len_utf8())
             .sum();
         Ok(Plan {
-            delimiters: rendered
-                .delimiters
-                .into_iter()
-                .map(|r| source_start + r.start..source_start + r.end)
-                .collect(),
+            delimiters: rendered.delimiters,
             range: source_start + prefix..source_end - suffix,
             inserted: output[prefix..output.len() - suffix].to_owned(),
             caret: source_start + caret,
@@ -225,6 +222,7 @@ impl Projection {
             materialized: raw.len() + output.len() + timing.materialized,
             parsed: parsed + timing.work.parsed,
             link_metadata_items: link_metadata_items
+                + delimiter_work
                 + timing.work.items
                 + rendered.link_metadata_items
                 + link_work.items,
@@ -416,7 +414,16 @@ impl Projection {
                     spans: active,
                     trailing: false,
                     definition: None,
-                    timing: row.literal_delimiters.contains(&segment.source),
+                    timing: row
+                        .literal_delimiters
+                        .binary_search_by_key(
+                            &(segment.source.start, segment.source.end),
+                            |range| {
+                                link_metadata_items += 1;
+                                (range.start, range.end)
+                            },
+                        )
+                        .is_ok(),
                 });
             }
             display_len += row.display.len();

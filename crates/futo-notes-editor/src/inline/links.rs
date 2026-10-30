@@ -186,12 +186,13 @@ impl super::Projection {
             }
         }
         let end = pieces.len();
-        let rendered =
+        let mut rendered =
             spell_with_anchors(pieces, markers, end..end, true, &self.references, &selected)?;
         let selection = crate::SourceRange {
             start: crate::SourceOffset(source_start + rendered.anchors[0]),
             end: crate::SourceOffset(source_start + rendered.anchors[1]),
         };
+        let delimiter_work = rendered.relocate_delimiters(source_start);
         let prefix = common_prefix(&raw, &rendered.text);
         let suffix: usize = raw[prefix..]
             .chars()
@@ -202,7 +203,7 @@ impl super::Projection {
             .sum();
         Ok((
             Plan {
-                delimiters: Vec::new(),
+                delimiters: rendered.delimiters,
                 input_start: 0,
                 range: source_start + prefix..source_end - suffix,
                 inserted: rendered.text[prefix..rendered.text.len() - suffix].into(),
@@ -210,7 +211,10 @@ impl super::Projection {
                 formats: Vec::new(),
                 materialized: raw.len() + rendered.text.len(),
                 parsed: rendered.parsed,
-                link_metadata_items: link_metadata_items + rendered.link_metadata_items + 1,
+                link_metadata_items: link_metadata_items
+                    + delimiter_work
+                    + rendered.link_metadata_items
+                    + 1,
                 link_copied_bytes: rendered.link_copied_bytes + target_copied,
             },
             selection,
@@ -497,13 +501,14 @@ impl super::Projection {
             timing: false,
         });
         before.extend(after);
-        let rendered = spell(
+        let mut rendered = spell(
             before,
             markers,
             insertion..insertion + 1,
             true,
             &self.references,
         )?;
+        let delimiter_work = rendered.relocate_delimiters(source_start);
         let prefix = common_prefix(&raw, &rendered.text);
         let suffix: usize = raw[prefix..]
             .chars()
@@ -513,7 +518,7 @@ impl super::Projection {
             .map(|(ch, _)| ch.len_utf8())
             .sum();
         Ok(Plan {
-            delimiters: Vec::new(),
+            delimiters: rendered.delimiters,
             input_start: 0,
             range: source_start + prefix..source_end - suffix,
             inserted: rendered.text[prefix..rendered.text.len() - suffix].into(),
@@ -522,6 +527,7 @@ impl super::Projection {
             materialized: raw.len() + rendered.text.len(),
             parsed: work + rendered.parsed,
             link_metadata_items: link_metadata_items
+                + delimiter_work
                 + rendered.link_metadata_items
                 + links.len()
                 + 1,

@@ -241,12 +241,7 @@ pub(super) fn spell_with_anchors(
             .pieces
             .get(insertion.start)
             .map_or(rendered.caret, |range| range.start),
-        delimiters: pieces
-            .iter()
-            .zip(&rendered.pieces)
-            .filter(|(piece, _)| piece.timing)
-            .map(|(_, range)| range.clone())
-            .collect(),
+        delimiters: url_timing::collect_delimiters(&pieces, &rendered, &mut link_metadata_items),
         anchors: mapped,
         text: rendered.text,
         caret: rendered.caret,

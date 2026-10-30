@@ -113,7 +113,7 @@ pub(in crate::inline) fn prepare_url_input(
                 .iter_mut()
                 .map(|piece| {
                     timing.work.items += 1;
-                    timing.work.copied += piece.raw.len() + piece.display.len();
+                    timing.work.copied += piece.display.len();
                     std::mem::replace(&mut piece.raw, piece.display.clone())
                 })
                 .collect();
@@ -193,4 +193,34 @@ fn emphasis(kind: &SpanKind) -> bool {
         kind,
         SpanKind::Format(InlineFormat::Bold | InlineFormat::Italic | InlineFormat::Strike)
     )
+}
+
+pub(super) fn collect_delimiters(
+    pieces: &[Piece],
+    rendered: &Rendered,
+    work: &mut usize,
+) -> Vec<Range<usize>> {
+    pieces
+        .iter()
+        .zip(&rendered.pieces)
+        .filter_map(|(piece, range)| {
+            *work += 1;
+            if piece.timing {
+                *work += 1;
+                Some(range.clone())
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
+impl super::Spelling {
+    pub(in crate::inline) fn relocate_delimiters(&mut self, source: usize) -> usize {
+        for range in &mut self.delimiters {
+            range.start += source;
+            range.end += source;
+        }
+        2 * self.delimiters.len()
+    }
 }

@@ -118,6 +118,7 @@ impl EditorSession {
         let before_formats = self.pending_formats.clone();
         let before_links = self.projection.pending_for_source_edit(edit.range);
         let mut change = self.apply(&edit);
+        change.work.link_metadata_items += self.projection.install_delimiters(plan.delimiters);
         self.selection = if inserting {
             let at = DisplayOffset(self.projection.display_at(plan.caret));
             DisplayRange { start: at, end: at }
