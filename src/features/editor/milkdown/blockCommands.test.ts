@@ -328,3 +328,19 @@ describe('inIndentableContainer', () => {
     );
   });
 });
+
+it('reference outdent retains an empty parent item when lifting a same-line nested list', () => {
+  const empty = s.nodes.paragraph.create();
+  const parent = s.nodes.list_item.create(null, [empty, ordered(item('text'))]);
+  const root = doc(bullets(parent));
+  const state = stateAtText(root, 'text');
+  let after = state;
+  expect(
+    changeBlockIndent(-1)(state, (tr) => {
+      after = state.apply(tr);
+    }),
+  ).toBe(true);
+  expect(shapes(after.doc)).toEqual([
+    { bullet_list: [{ list_item: ['paragraph:'] }, { list_item: ['paragraph:text'] }] },
+  ]);
+});
