@@ -328,8 +328,8 @@ build-ios-capture-fixture-signed selection:
   bash scripts/dev-env.sh node scripts/ios-capture-fixture-signed.mjs --selection "$1"
 
 # Read the existing fixture's compiled identity/signatures (no device, signing or provisioning changes).
-ios-capture-fixture-build-identity:
-  bash scripts/dev-env.sh node scripts/qa/physical-fixture-ios.mjs --identity
+ios-capture-fixture-build-identity run:
+  bash scripts/dev-env.sh node scripts/qa/physical-fixture-ios.mjs --identity --run "$1"
 
 # Run fixture artifact contracts on the host; native UIKit contracts are compiled by the build recipe.
 test-ios-capture-artifact:
