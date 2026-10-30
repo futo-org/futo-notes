@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { afterAll, beforeAll, expect, it } from 'vitest';
+import { afterAll, beforeAll, expect, it, vi } from 'vitest';
 import {
   Editor,
   defaultValueCtx,
@@ -142,17 +142,28 @@ it('the shipping strong input rule waits for URL word end across both closing st
   expect(parse('x \\*\\*b https://x.test/a**').textContent).toBe('x **b https://x.test/a**');
 });
 
-it('the shipping composing text transaction retains literal outside delimiters at a bulk word end', () => {
+it('the shipping composition transaction links first and the owned compositionend rule then formats', async () => {
   const view = editor.ctx.get(editorViewCtx);
   view.updateState(EditorState.create({ schema: view.state.schema, plugins: view.state.plugins }));
   const text = 'x *b https://x.test/a* ';
+  const marked = () => {
+    const runs: { text: string; types: string[]; href: unknown }[] = [];
+    view.state.doc.descendants((node) => {
+      if (node.isText && node.marks.length)
+        runs.push({
+          text: node.text ?? '',
+          types: node.marks.map((mark) => mark.type.name).sort(),
+          href: node.marks.find((mark) => mark.type.name === 'link')?.attrs.href,
+        });
+    });
+    return runs;
+  };
   view.dom.dispatchEvent(new window.CompositionEvent('compositionstart', { bubbles: true }));
   expect(view.composing).toBe(true);
   try {
-    // ProseMirror1.42.7 domchange.ts attaches its compositionID to mkTr;
-    // the same-text-node branch offers handleTextInput before dispatching mkTr.
-    // This exercises that actual composing guard and transaction/plugin seam,
-    // not a native keyboard or the final DOM-observer scheduling boundary.
+    // Pinned ProseMirror domchange.ts supplies this composition-tagged default
+    // transaction to the composing guard. This is a transaction/plugin oracle,
+    // not native OS input or a claim about DOM-observer scheduling on a phone.
     const { from, to } = view.state.selection;
     const commit = () => view.state.tr.insertText(text, from, to).setMeta('composition', 1);
     const handled = view.someProp('handleTextInput', (handler) =>
@@ -160,20 +171,19 @@ it('the shipping composing text transaction retains literal outside delimiters a
     );
     if (!handled) view.dispatch(commit());
     expect(view.state.doc.textContent).toBe(text);
-    const marks: { text: string; types: string[]; href: unknown }[] = [];
-    view.state.doc.descendants((node) => {
-      if (node.isText && node.marks.length) {
-        marks.push({
-          text: node.text ?? '',
-          types: node.marks.map((mark) => mark.type.name).sort(),
-          href: node.marks.find((mark) => mark.type.name === 'link')?.attrs.href,
-        });
-      }
-    });
-    expect(marks).toEqual([]);
+    expect(marked()).toEqual([
+      { text: 'https://x.test/a', types: ['link'], href: 'https://x.test/a' },
+    ]);
   } finally {
     view.dom.dispatchEvent(
       new window.CompositionEvent('compositionend', { bubbles: true, data: text }),
     );
+    // The real input-rules compositionend callback runs after the commit.
+    // Observe its result before editor destruction, rather than outliving ctx.
+    await vi.waitFor(() => expect(view.state.doc.textContent).toBe('x b https://x.test/a '));
   }
+  expect(marked()).toEqual([
+    { text: 'b ', types: ['emphasis'], href: undefined },
+    { text: 'https://x.test/a', types: ['emphasis', 'link'], href: 'https://x.test/a' },
+  ]);
 });
