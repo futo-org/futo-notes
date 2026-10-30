@@ -36,7 +36,13 @@ impl EditorSession {
         let start = self
             .source
             .line_to_byte(self.source.byte_to_line(item.marker.start));
-        let end = item.item.end;
+        let end = lines
+            .iter()
+            .filter_map(|line| line.list.as_ref())
+            .filter(|other| other.owner == item.owner)
+            .map(|other| other.item.end)
+            .max()
+            .unwrap_or(item.item.end);
         let raw = self.source.byte_slice(start..end).to_string();
         let mut output = String::with_capacity(raw.len() + width);
         for line in raw.split_inclusive('\n') {
