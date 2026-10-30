@@ -62,10 +62,12 @@ impl SourceAnchor {
     ) -> Result<usize, EditorError> {
         for (range, inserted) in edits {
             if let Some(source) = self.source {
-                self.source = if source <= range.start.0 {
+                self.source = if source < range.start.0 {
                     Some(source)
                 } else if range.end.0 <= source {
                     Some(source - (range.end.0 - range.start.0) + inserted)
+                } else if source == range.start.0 {
+                    Some(source)
                 } else {
                     None
                 };
@@ -78,7 +80,18 @@ impl SourceAnchor {
             // display replacement arithmetic cannot cross global visibility.
             return Err(EditorError::UnrepresentableFormat);
         } else {
-            mapping.map(self.display, origin)?
+            let display = mapping.map(self.display, origin)?;
+            if let Some(local) = display
+                .checked_sub(origin)
+                .filter(|local| *local <= staged.projection.display.len_bytes())
+            {
+                self.source = Some(
+                    staged
+                        .source_at(staged.revision(), DisplayOffset(local), Affinity::Forward)?
+                        .0,
+                );
+            }
+            display
         };
         Ok(1 + edits.len())
     }
@@ -181,11 +194,11 @@ impl EditorSession {
             .collect();
         for target in &mut targets {
             if let ResultTarget::Opening(anchor) = target {
-                anchor.source = Some(
-                    self.source_at(expected, DisplayOffset(anchor.display), Affinity::Forward)?
-                        .0
-                        - window.start,
-                );
+                anchor.source = self
+                    .source_at(expected, DisplayOffset(anchor.display), Affinity::Forward)?
+                    .0
+                    .checked_sub(window.start)
+                    .filter(|source| *source <= raw.len());
             }
         }
         let mut materialized = raw.len();
