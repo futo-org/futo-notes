@@ -1,0 +1,81 @@
+{
+  "after": {
+    "documentJson": "{"type":"doc","content":[{"type":"bullet_list","attrs":{"spread":false},"content":[{"type":"list_item","attrs":{"label":"•","listType":"bullet","spread":false,"checked":null},"content":[{"type":"paragraph","content":[{"type":"text","text":"parent"}]}]}]},{"type":"paragraph","content":[{"type":"text","text":"child😀"}]},{"type":"bullet_list","attrs":{"spread":false},"content":[{"type":"list_item","attrs":{"label":"•","listType":"bullet","spread":false,"checked":null},"content":[{"type":"paragraph","content":[{"type":"text","text":"grandchild"}]}]},{"type":"list_item","attrs":{"label":"•","listType":"bullet","spread":false,"checked":null},"content":[{"type":"paragraph","content":[{"type":"text","text":"sibling"}]}]}]},{"type":"bullet_list","attrs":{"spread":false},"content":[{"type":"list_item","attrs":{"label":"•","listType":"bullet","spread":false,"checked":null},"content":[{"type":"paragraph","content":[{"type":"text","text":"following"}]}]}]}]}",
+    "selection": {
+      "anchor": {
+        "ancestry": [
+          "paragraph",
+        ],
+        "pm": 20,
+        "textblockUtf16": 7,
+      },
+      "head": {
+        "ancestry": [
+          "paragraph",
+        ],
+        "pm": 20,
+        "textblockUtf16": 7,
+      },
+    },
+    "source": "- parent
+
+child😀
+
+- grandchild
+- sibling
+
+* following
+",
+    "storedMarks": null,
+    "textblockRows": "parent
+child😀
+grandchild
+sibling
+following",
+  },
+  "before": {
+    "documentJson": "{"type":"doc","content":[{"type":"bullet_list","attrs":{"spread":false},"content":[{"type":"list_item","attrs":{"label":"•","listType":"bullet","spread":false,"checked":null},"content":[{"type":"paragraph","content":[{"type":"text","text":"parent"}]},{"type":"bullet_list","attrs":{"spread":false},"content":[{"type":"list_item","attrs":{"label":"•","listType":"bullet","spread":false,"checked":null},"content":[{"type":"paragraph","content":[{"type":"text","text":"child😀"}]},{"type":"bullet_list","attrs":{"spread":false},"content":[{"type":"list_item","attrs":{"label":"•","listType":"bullet","spread":false,"checked":null},"content":[{"type":"paragraph","content":[{"type":"text","text":"grandchild"}]}]}]}]},{"type":"list_item","attrs":{"label":"•","listType":"bullet","spread":false,"checked":null},"content":[{"type":"paragraph","content":[{"type":"text","text":"sibling"}]}]}]}]},{"type":"list_item","attrs":{"label":"•","listType":"bullet","spread":false,"checked":null},"content":[{"type":"paragraph","content":[{"type":"text","text":"following"}]}]}]}]}",
+    "selection": {
+      "anchor": {
+        "ancestry": [
+          "bullet_list",
+          "list_item",
+          "bullet_list",
+          "list_item",
+          "paragraph",
+        ],
+        "pm": 20,
+        "textblockUtf16": 7,
+      },
+      "head": {
+        "ancestry": [
+          "bullet_list",
+          "list_item",
+          "bullet_list",
+          "list_item",
+          "paragraph",
+        ],
+        "pm": 20,
+        "textblockUtf16": 7,
+      },
+    },
+    "source": "- parent
+  - child😀
+    - grandchild
+  - sibling
+- following
+",
+    "storedMarks": null,
+    "textblockRows": "parent
+child😀
+grandchild
+sibling
+following",
+  },
+  "command": "bullet-list",
+  "input": "- parent
+  - child😀
+    - grandchild
+  - sibling
+- following",
+}
