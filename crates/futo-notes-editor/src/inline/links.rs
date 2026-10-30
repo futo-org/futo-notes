@@ -299,8 +299,7 @@ impl super::Projection {
             .collect();
         let word_bytes: usize = self
             .display
-            .byte_slice(0..caret)
-            .chars()
+            .chars_at(self.display.byte_to_char(caret))
             .reversed()
             .take_while(|ch| !ch.is_whitespace())
             .map(char::len_utf8)
