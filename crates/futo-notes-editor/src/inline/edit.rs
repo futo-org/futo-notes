@@ -276,7 +276,8 @@ impl Projection {
                         continue;
                     }
                     let trailing = row.blocks.iter().any(|block| {
-                        block.content.end <= segment.source.start
+                        !block.empty_comment
+                            && block.content.end <= segment.source.start
                             && segment.source.end <= block.source.end
                     });
                     pieces.push(Piece {

@@ -39,7 +39,26 @@ impl EditorSession {
             let depth = head.list.as_ref().map_or(1, |list| list.depth);
             let before_line = self.source.byte_to_line(head.source.start);
             let owned_end = owner.as_ref().map_or(tail.source.end, |owner| owner.end);
-            let after_line = self.source.byte_to_line(owned_end.saturating_sub(1)) + 1;
+            let mut after_line = self.source.byte_to_line(owned_end.saturating_sub(1)) + 1;
+            while after_line > before_line + 1 {
+                let at = self.source.line_to_byte(after_line - 1);
+                let Some(line) = self.projection.block_at_source(at) else {
+                    break;
+                };
+                let blank = self
+                    .source
+                    .byte_slice(line.content.clone())
+                    .chars()
+                    .all(|ch| matches!(ch, ' ' | '\t'));
+                if !blank
+                    || line.empty_comment
+                    || line.quote_depth != head.quote_depth
+                    || line.list.as_ref().is_some_and(|list| list.first)
+                {
+                    break;
+                }
+                after_line -= 1;
+            }
             let neighbor = |mut index: isize, direction: isize| {
                 while index >= 0 && (index as usize) < self.source.len_lines() {
                     let at = self.source.line_to_byte(index as usize);
@@ -48,6 +67,15 @@ impl EditorSession {
                     };
                     if line.empty_comment || line.code || line.quote_depth != head.quote_depth {
                         return None;
+                    }
+                    let blank = self
+                        .source
+                        .byte_slice(line.content.clone())
+                        .chars()
+                        .all(|ch| matches!(ch, ' ' | '\t'));
+                    if blank && line.list.as_ref().is_none_or(|list| !list.first) {
+                        index += direction;
+                        continue;
                     }
                     if let Some(list) = &line.list {
                         if list.depth != depth {

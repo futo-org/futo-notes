@@ -229,6 +229,8 @@ pub(super) fn describe(
         }
         line.empty_comment = !line.code
             && line.list.is_none()
+            && source[line.source.clone()].ends_with('\n')
+            && super::empty_comments::standard(&source[start..line.content.end])
             && comments.get(comment).is_some_and(|range| {
                 line.source.start <= range.start && range.end <= line.source.end
             });
