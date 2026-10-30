@@ -139,6 +139,14 @@ impl EditorSession {
         let mut ordinal = 1u64;
         let mut previous_owner = None;
         for (index, line) in lines.iter().enumerate() {
+            if line.heading > 0 {
+                // ATX closing hashes and a setext underline belong to the
+                // retired heading; retain its final physical line ending.
+                let raw = self.source.byte_slice(line.source.clone()).to_string();
+                let end = line.source.start + raw.trim_end_matches(['\r', '\n']).len();
+                replacements.push((line.content.end - start..end - start, String::new()));
+                materialized += raw.len();
+            }
             let body = self.source.byte_slice(line.content.clone()).to_string();
             let (body, work) = if remove {
                 super::content::protect_content(&body, false, true)
