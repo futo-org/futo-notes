@@ -13,6 +13,7 @@ fn a_full_reference_label_edits_locally_without_rewriting_its_definition_or_titl
         .unwrap();
     assert_eq!(link.range, range(4, 12));
     assert_eq!(link.destination, "https://x.test/a");
+    assert_eq!(link.title.as_deref(), Some("Title"));
     view.apply(
         session
             .replace(Revision(0), range(4, 7), "the", &mut |_| Ok(()))
