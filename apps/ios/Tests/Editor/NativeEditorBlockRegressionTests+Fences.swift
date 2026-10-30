@@ -7,7 +7,8 @@ extension NativeEditorBlockRegressionTests {
     @Test("fences expose language and recover exact opaque Unicode contents")
     func fencedCode() async throws {
         try await Task.detached {
-            let root = FileManager.default.temporaryDirectory.appendingPathComponent("editor-fences-\(UUID().uuidString)", isDirectory: true)
+            let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+                "editor-fences-\(UUID().uuidString)", isDirectory: true)
             try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
             defer { try? FileManager.default.removeItem(at: root) }
             let store = NoteStore(notesRoot: root.path)
@@ -16,7 +17,8 @@ extension NativeEditorBlockRegressionTests {
             _ = try store.createNote(title: "code", folder: "", content: opening)
             let session = try store.openEditor(id: "code")
             #expect(try session.displayText() == "猫🦊\r\n\ntail")
-            let change = try session.paragraphKeyUtf16(expected: 0, range: EditorUtf16Range(start: 1, end: 1), key: .enter)
+            let change = try session.paragraphKeyUtf16(
+                expected: 0, range: EditorUtf16Range(start: 1, end: 1), key: .enter)
             #expect(change?.projection.blocks.first(where: { $0.code })?.language == "c++")
             #expect(try session.sourceText() == expected)
             #expect(try session.displayText() == "猫\n🦊\r\n\ntail")
@@ -32,14 +34,17 @@ extension NativeEditorBlockRegressionTests {
             try recovered.detach()
             _ = try store.createNote(title: "tabs", folder: "", content: "~~~js\nab\n cd\n~~~")
             let tabs = try store.openEditor(id: "tabs")
-            _ = try tabs.paragraphKeyUtf16(expected: 0, range: EditorUtf16Range(start: 1, end: 1), key: .tab)
+            _ = try tabs.paragraphKeyUtf16(
+                expected: 0, range: EditorUtf16Range(start: 1, end: 1), key: .tab)
             #expect(try tabs.sourceText() == "~~~js\na  b\n cd\n~~~")
-            _ = try tabs.paragraphKeyUtf16(expected: 1, range: EditorUtf16Range(start: 6, end: 6), key: .shiftTab)
+            _ = try tabs.paragraphKeyUtf16(
+                expected: 1, range: EditorUtf16Range(start: 6, end: 6), key: .shiftTab)
             #expect(try tabs.sourceText() == "~~~js\na  b\ncd\n~~~")
             try tabs.detach()
             _ = try store.createNote(title: "command", folder: "", content: "ab")
             let command = try store.openEditor(id: "command")
-            _ = try command.blockCommandUtf16(expected: 0, range: EditorUtf16Range(start: 0, end: 0), command: .codeBlock)
+            _ = try command.blockCommandUtf16(
+                expected: 0, range: EditorUtf16Range(start: 0, end: 0), command: .codeBlock)
             #expect(try command.sourceText() == "```\nab\n```")
             try command.detach()
         }.value
