@@ -48,6 +48,28 @@ fn quoted_crlf_conflicting_lists_keep_exact_bodies_and_one_reversible_empty_comm
     let mut s = EditorSession::open(raw);
     let mut view = ReferenceView::new(shown);
     s.select(s.revision(), range(10, 10)).unwrap();
+    assert_eq!(s.display_text(), shown);
+    let initial = s.project(s.revision(), range(0, shown.len())).unwrap();
+    let shape: Vec<_> = initial
+        .blocks
+        .into_iter()
+        .filter_map(|block| {
+            block
+                .list
+                .filter(|list| list.first)
+                .map(|list| (list.number, block.quote_depth))
+        })
+        .collect();
+    assert_eq!(
+        shape,
+        vec![(Some(9), 1), (None, 1), (None, 1), (Some(7), 1)]
+    );
+    assert_eq!(
+        s.source_at(s.revision(), DisplayOffset(18), Affinity::Forward)
+            .unwrap()
+            .0,
+        raw.find("after").unwrap()
+    );
     assert!(matches!(
         s.block_command(
             s.revision(),
