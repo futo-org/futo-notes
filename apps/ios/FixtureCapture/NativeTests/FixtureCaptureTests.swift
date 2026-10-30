@@ -56,6 +56,9 @@ struct FixtureCaptureTests {
             runID: UUID(), nonce: UUID(), destination: "synthetic-unit-test", seconds: 1)
         let workspace = try CaptureWorkspace(launch: launch)
         defer { try? FileManager.default.removeItem(at: workspace.root) }
+        #expect(
+            workspace.artifactRelativePath
+                == "tmp/editor294-\(launch.runID.uuidString)/capture.json")
         let projection = try await FixtureProjection.open(workspace: workspace)
         #expect(projection.source == "__ab__ &amp; cd\r\n")
         #expect(projection.display == "ab & cd\r\n")
@@ -63,6 +66,40 @@ struct FixtureCaptureTests {
             try String(
                 contentsOf: workspace.vault.appendingPathComponent("fixture.md"), encoding: .utf8)
                 == projection.source)
+        // Export actual current recorder/writer bytes for the host's public
+        // capture/read compatibility control. All calls here are synthetic;
+        // neither this artifact nor the Node replay establishes OS dictation.
+        let view = NativeInputRecorder()
+        view.text = projection.display
+        view.selectedRange = NSRange(location: projection.display.utf16.count, length: 0)
+        view.beginCapture()
+        let opening = view.snapshot()
+        view.insertText("!")
+        let token = view.insertDictationResultPlaceholder
+        _ = view.frame(forDictationResultPlaceholder: token)
+        view.removeDictationResultPlaceholder(token, willInsertResult: false)
+        view.endCapture()
+        let stamp: (String) -> [String: Any] = { event in
+            [
+                "event": event, "uptime": ProcessInfo.processInfo.systemUptime,
+                "time": ISO8601DateFormatter().string(from: Date()),
+            ]
+        }
+        try workspace.write(
+            provenance: ["synthetic": true], source: projection.source, opening: opening,
+            current: view.snapshot(), events: view.events,
+            lifecycle: [stamp("ready"), stamp("capture-window-ended")],
+            traits: [
+                "autocorrection": view.autocorrectionType.rawValue,
+                "autocapitalization": view.autocapitalizationType.rawValue,
+                "spellChecking": view.spellCheckingType.rawValue,
+                "keyboard": view.keyboardType.rawValue, "deviceModel": UIDevice.current.model,
+                "systemName": UIDevice.current.systemName,
+                "systemVersion": UIDevice.current.systemVersion,
+            ], status: "capture-window-ended")
+        print(
+            "Editor294SyntheticRecorderArtifact:"
+                + (try Data(contentsOf: workspace.artifact)).base64EncodedString())
     }
 }
 

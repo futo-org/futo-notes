@@ -4,10 +4,13 @@
 // access in build mode. --test-simulator runs only synthetic native unit tests on an
 // already claimed booted pool simulator; no claim, physical input, dictation or signing.
 import { execFileSync } from 'node:child_process';
+import { Buffer } from 'node:buffer';
+import process from 'node:process';
+import console from 'node:console';
 import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync, openSync, readSync, closeSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, URL } from 'node:url';
 import { findSim } from './qa/ios-simulators.mjs';
 import { POOL, readOwner } from './qa/pool.mjs';
 
@@ -19,8 +22,10 @@ const inputs = [
   'apps/ios/Sources/InputCapture',
   'apps/ios/Sources/App/NativeInputRecorderScope.swift',
   'scripts/ios-capture-fixture.mjs',
+  'scripts/qa/physical-fixture*.mjs',
   'scripts/build-rust-ios.sh',
   'just/mobile.justfile',
+  'just/qa.justfile',
 ];
 const ffiArtifactPaths = [
   'apps/ios/Sources/Generated/futo_notes_ffi.swift',
@@ -187,7 +192,9 @@ function build(root) {
     [...common, '-destination', 'generic/platform=iOS Simulator', 'build-for-testing'],
     { cwd: fixture },
   );
-  run('xcodebuild', [...common, '-destination', 'generic/platform=iOS', 'build'], { cwd: fixture });
+  run('xcodebuild', [...common, '-destination', 'generic/platform=iOS', 'build-for-testing'], {
+    cwd: fixture,
+  });
   if (JSON.stringify(after) !== JSON.stringify(sourceProvenance(root)))
     throw new Error('Fixture source changed during native build');
   console.log(

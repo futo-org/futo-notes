@@ -50,6 +50,7 @@ mod gesture_arguments;
 mod json_text;
 mod native;
 mod phone_listener;
+mod physical_fixture;
 mod reads;
 mod receipts;
 mod refusals;
@@ -97,6 +98,7 @@ use std::process::{Command, ExitCode, Stdio};
 use std::time::{Duration, Instant};
 
 const USAGE: &str = "usage:
+  futo-puppet physical-fixture capture --manifest <path> | read|close --run <UUID>   bounded standalone physical fixture (separate host/device reservation; never pooled)
   futo-puppet look                               the whole screen in one read: state, elements, the screen's verbs, the vault's size
   futo-puppet actions
   futo-puppet system-elements                    (ios) read the owned simulator's system accessibility, including keyboard candidates; JSON frames are screen points
@@ -342,7 +344,9 @@ fn take_json_switch(args: &mut Value) -> bool {
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    match run(&args) {
+    // This bounded capability has its own host/device reservation and never
+    // falls through to the pooled phone listener or its simulator-only guards.
+    match physical_fixture::dispatch(&args).unwrap_or_else(|| run(&args)) {
         Ok(code) => code,
         Err(message) => fail(message),
     }
