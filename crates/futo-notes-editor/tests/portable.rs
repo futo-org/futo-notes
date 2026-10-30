@@ -245,3 +245,37 @@ fn paused_recovered_source_remains_available_as_a_rich_display_projection() {
     );
     assert!(page.status().paused);
 }
+
+#[test]
+fn link_commands_wait_for_acceptance_and_return_canonical_semantics_with_exact_history() {
+    let mut page = PortableSession::open(SessionToken(101), "__docs__", Revision(0), Revision(0));
+    let mut view = common::ReferenceView::new("docs");
+    let range = DisplayRange {
+        start: DisplayOffset(0),
+        end: DisplayOffset(4),
+    };
+    let request = page
+        .set_link(Revision(0), range, "https://x.test")
+        .unwrap()
+        .unwrap();
+    assert_eq!(page.draft_text(), "[__docs__](<https://x.test>)");
+    assert_eq!(view.text, "docs");
+    assert!(page.inspect_link(Revision(1), range).is_err());
+    view.apply(
+        page.acknowledge(request.accepted(Revision(1), Revision(0)))
+            .unwrap()
+            .unwrap(),
+    );
+    let link = page.inspect_link(Revision(1), range).unwrap().unwrap();
+    assert_eq!(link.destination, "https://x.test");
+    assert_eq!(link.range, range);
+    let undo = page.undo(Revision(1)).unwrap().unwrap();
+    view.apply(
+        page.acknowledge(undo.accepted(Revision(2), Revision(0)))
+            .unwrap()
+            .unwrap(),
+    );
+    assert_eq!(page.draft_text(), "__docs__");
+    assert_eq!(view.text, "docs");
+    assert!(page.inspect_link(Revision(2), range).unwrap().is_none());
+}
