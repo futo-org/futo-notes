@@ -162,3 +162,50 @@ fn updating_only_destination_preserves_title_quote_and_surrounding_marker_spelli
     view.apply(session.undo(Revision(1), &mut |_| Ok(())).unwrap().unwrap());
     assert_eq!(session.source_text(), original);
 }
+
+#[test]
+fn typing_a_bare_url_waits_for_word_end_and_keeps_bare_source_through_history() {
+    let mut session = EditorSession::open("");
+    let mut view = ReferenceView::new("");
+    view.apply(
+        session
+            .replace(
+                Revision(0),
+                range(0, 0),
+                "see https://youtube.com",
+                &mut |_| Ok(()),
+            )
+            .unwrap(),
+    );
+    assert_eq!(view.text, "see https://youtube.com");
+    assert_eq!(session.source_text(), "see https://youtube.com");
+    assert!(session
+        .project(Revision(1), range(0, 23))
+        .unwrap()
+        .links
+        .is_empty());
+    view.apply(
+        session
+            .replace(Revision(1), range(23, 23), " ok", &mut |_| Ok(()))
+            .unwrap(),
+    );
+    assert_eq!(view.text, "see https://youtube.com ok");
+    assert_eq!(session.source_text(), "see https://youtube.com ok");
+    let links = session.project(Revision(2), range(0, 26)).unwrap().links;
+    assert_eq!(links.len(), 1);
+    assert_eq!(links[0].range, range(4, 23));
+    assert_eq!(links[0].destination, "https://youtube.com");
+    view.apply(session.undo(Revision(2), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(session.source_text(), "");
+    assert_eq!(view.text, "");
+    view.apply(session.redo(Revision(3), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(session.source_text(), "see https://youtube.com ok");
+    assert_eq!(
+        session
+            .project(Revision(4), range(0, 26))
+            .unwrap()
+            .links
+            .len(),
+        1
+    );
+}
