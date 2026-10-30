@@ -1,6 +1,8 @@
 //! Per-input display/source correspondence with exact step generation.
 use crate::session::EditorSession;
-use crate::{DisplayRange, EditorError, Revision, SourceEdit, SourceOffset, SourceRange};
+use crate::{
+    DisplayRange, EditorError, Revision, SourceEdit, SourceOffset, SourceRange, ViewChange,
+};
 
 /// Sequential display replacements produced by one input. A structural boundary
 /// is staged before the ordinary input; retain both locations instead of
