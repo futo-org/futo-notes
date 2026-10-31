@@ -259,8 +259,19 @@ fn mixed_parent_retirement_promotes_a_retargeted_child_owner_and_keeps_foreign_l
         items.iter().map(|list| list.depth).collect::<Vec<_>>(),
         vec![1, 2, 1, 1]
     );
-    assert_eq!(items[0].owner, items[2].owner);
-    assert_ne!(items[2].owner, items[3].owner);
+    let mut plan = plan;
+    plan.block_command(
+        plan.revision(),
+        range(7, 7),
+        BlockCommand::OrderedList,
+        &mut |_| Ok(()),
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(
+        plan.source_text(),
+        "parent\n1. child\u{1f600}\n   - grandchild\n2. sibling\n- following"
+    );
     let mut s = EditorSession::open(raw);
     let mut view = ReferenceView::new(shown);
     assert_eq!(s.display_text(), shown);
