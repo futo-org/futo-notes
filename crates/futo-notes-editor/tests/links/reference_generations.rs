@@ -9,6 +9,29 @@ fn prior_delete_and_nested_winner_use_changes_keep_the_current_normalized_refere
     const MARKED: &str = "[É  ID]: /first 'First'\n\n[one][é\tid] [two][É ID]\n\nbody\n\nbuffer\n\n[é id]: /second 'Second'\n\ntail";
     const CHANGED: &str = "[É  ID]: /first 'First'\n\n [two][É ID]\n\nBODY\n\nbuffer\n\n[é id]: /second 'Second'\n\ntail";
     const LINKED: &str = "[É  ID]: /first 'First'\n\n [two](</third> \"First\")\n\nBODY\n\nbuffer\n\n[é id]: /second 'Second'\n\ntail";
+    let raw_links: Vec<_> = pulldown_cmark::Parser::new_ext(
+        CHANGED,
+        pulldown_cmark::Options::ENABLE_STRIKETHROUGH | pulldown_cmark::Options::ENABLE_TASKLISTS,
+    )
+    .filter_map(|event| match event {
+        pulldown_cmark::Event::Start(pulldown_cmark::Tag::Link {
+            dest_url,
+            title,
+            id,
+            ..
+        }) => Some((
+            dest_url.into_string(),
+            title.into_string(),
+            id.into_string(),
+        )),
+        _ => None,
+    })
+    .collect();
+    assert_eq!(
+        raw_links,
+        vec![("/first".into(), "First".into(), "É ID".into())],
+        "independent canonical parser must establish the normalized winner"
+    );
     let canonical = EditorSession::open(CHANGED);
     assert_eq!(
         canonical.display_text(),
