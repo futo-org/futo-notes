@@ -28,7 +28,13 @@ impl TypedState {
         if start == end {
             // Preserve the non-conversion decision with ordinary literal
             // source, without trimming separators into activation authority.
-            return self.literal_ending(input, pieces, markers, work);
+            // A closed capsule plus two separators needs at least five
+            // scalar pieces. Separator-only structural input has no candidate
+            // and must not inspect a URI body or separator run.
+            if input.insertion.len() >= 5 {
+                return self.literal_ending(input, pieces, markers, work);
+            }
+            return Ok(());
         }
         work.items += 1;
         let closed = pieces[end - 1].display == ">";
