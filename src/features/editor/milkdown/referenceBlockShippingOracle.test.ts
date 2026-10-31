@@ -224,3 +224,22 @@ it('the real Link prompt wraps only the selected partial URI in unlinked literal
   expect(rows(candidate)).toEqual(rows(after));
   expect(links(candidate)).toEqual(links(after));
 });
+
+it('Code over a literal angle URI makes that selected URL opaque without linking it', () => {
+  const view = editor.ctx.get(editorViewCtx);
+  const paragraph = view.state.schema.nodes.paragraph.create(
+    null,
+    view.state.schema.text('<https://x.test>'),
+  );
+  view.dispatch(view.state.tr.replaceWith(0, view.state.doc.content.size, paragraph));
+  view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, 2, 16)));
+  createToolbarExec(() => editor).code();
+  const after = view.state.doc.toJSON() as NodeJson;
+  expect(rows(after)).toEqual([{ type: 'paragraph', text: '<https://x.test>' }]);
+  expect(links(after)).toEqual([]);
+  const uri = after.content?.[0]?.content?.find((part) => part.text === 'https://x.test');
+  expect(uri?.marks?.map((mark) => mark.type)).toContain('inlineCode');
+  const candidate = editor.ctx.get(parserCtx)('\\<`https://x.test`>').toJSON() as NodeJson;
+  expect(rows(candidate)).toEqual(rows(after));
+  expect(links(candidate)).toEqual([]);
+});

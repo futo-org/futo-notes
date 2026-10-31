@@ -503,3 +503,85 @@ fn explicit_partial_set_link_respects_selection_in_pending_literal_angle_text() 
         links
     );
 }
+
+#[test]
+fn code_command_makes_pending_angle_uri_opaque_in_live_and_standard_source() {
+    use futo_notes_editor::InlineFormat;
+    let candidate = EditorSession::open("\\<`https://x.test`>");
+    assert_eq!(candidate.display_text(), "<https://x.test>");
+    assert!(candidate
+        .project(Revision(0), range(0, 16))
+        .unwrap()
+        .links
+        .is_empty());
+    let mut session = EditorSession::open("");
+    let mut view = ReferenceView::new("");
+    view.apply(
+        session
+            .replace(Revision(0), range(0, 0), "<https://x.test", &mut |_| Ok(()))
+            .unwrap(),
+    );
+    view.apply(
+        session
+            .replace(Revision(1), range(15, 15), ">", &mut |_| Ok(()))
+            .unwrap(),
+    );
+    session.select(Revision(2), range(1, 15)).unwrap();
+    view.apply(
+        session
+            .toggle_format(Revision(2), InlineFormat::Code, &mut |_| Ok(()))
+            .unwrap()
+            .unwrap(),
+    );
+    assert_eq!(view.text, "<https://x.test>");
+    let query = session.project(session.revision(), range(0, 16)).unwrap();
+    assert!(query.links.is_empty());
+    let code_ranges: Vec<_> = query
+        .runs
+        .iter()
+        .filter(|run| run.formats.contains(&InlineFormat::Code))
+        .map(|run| run.range)
+        .collect();
+    assert_eq!(code_ranges, vec![range(1, 15)]);
+    let source = session.source_text();
+    let loaded = EditorSession::open(&source);
+    assert_eq!(loaded.display_text(), view.text);
+    assert!(
+        loaded
+            .project(Revision(0), range(0, 16))
+            .unwrap()
+            .links
+            .is_empty(),
+        "Code must be opaque on reopen too; source={source:?}"
+    );
+    view.apply(
+        session
+            .undo(session.revision(), &mut |_| Ok(()))
+            .unwrap()
+            .unwrap(),
+    );
+    assert_eq!(session.source_text(), "<<https://x.test>>");
+    assert!(session
+        .inspect_link(session.revision(), range(1, 2))
+        .unwrap()
+        .is_none());
+    view.apply(
+        session
+            .redo(session.revision(), &mut |_| Ok(()))
+            .unwrap()
+            .unwrap(),
+    );
+    assert_eq!(session.source_text(), source);
+    session.select(session.revision(), range(16, 16)).unwrap();
+    view.apply(
+        session
+            .replace(session.revision(), range(16, 16), " ", &mut |_| Ok(()))
+            .unwrap(),
+    );
+    assert_eq!(view.text, "<https://x.test> ");
+    assert!(session
+        .project(session.revision(), range(0, 17))
+        .unwrap()
+        .links
+        .is_empty());
+}
