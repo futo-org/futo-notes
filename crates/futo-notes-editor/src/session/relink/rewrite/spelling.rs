@@ -179,6 +179,7 @@ impl Rewrite {
                 }
             }
             unique.push((before, after));
+            work.link_metadata_items += 14;
         }
         let mut candidates = Vec::new();
         for (before, after) in unique {
@@ -197,17 +198,22 @@ impl Rewrite {
                 work.link_metadata_items += 1;
                 if scope.pending.window.start <= after.open.start
                     && after.close.end <= scope.pending.window.end
-                    && !scope.pending.ranges.contains(&after.body)
+                    && !scope.pending.ranges.iter().any(|range| {
+                        work.link_metadata_items += 1;
+                        range == &after.body
+                    })
                 {
                     return Err(EditorError::UnrepresentableFormat);
                 }
             }
             candidates.push((before, after));
+            work.link_metadata_items += 14;
         }
         if candidates.is_empty() {
             return Ok(work);
         }
         let mut required = points.to_vec();
+        work.link_metadata_items += 5 * points.len();
         for scope in fields.iter() {
             for at in [scope.pending.window.start, scope.pending.window.end] {
                 required.push(SourcePoint {
@@ -215,13 +221,17 @@ impl Rewrite {
                     within: 0,
                     atom: None,
                 });
+                work.link_metadata_items += 5;
             }
         }
         required.sort_unstable_by(|a, b| {
             work.link_metadata_items += 1;
             a.source.0.cmp(&b.source.0)
         });
-        required.dedup();
+        required.dedup_by(|a, b| {
+            work.link_metadata_items += 5;
+            a == b
+        });
         let mut output = String::new();
         let mut copies = Vec::new();
         let mut anchors = Vec::new();

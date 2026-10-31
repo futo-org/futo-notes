@@ -234,7 +234,10 @@ impl Projection {
             }
             let mut seen: Vec<Vec<bool>> = proofs[first..last]
                 .iter()
-                .map(|p| vec![false; p.2.len()])
+                .map(|p| {
+                    work += 1 + p.2.len();
+                    vec![false; p.2.len()]
+                })
                 .collect();
             let mut segment = 0;
             for (range, expected, _) in &proofs[first..last] {
