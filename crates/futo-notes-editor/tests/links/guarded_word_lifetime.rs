@@ -160,6 +160,11 @@ fn typed_angle_word_end_has_a_pending_owner_before_any_code_command() {
                 .replace(Revision(0), range(0, 0), &unfinished, &mut |_| Ok(()))
                 .unwrap(),
         );
+        let opening_source = session.source_text();
+        let opening_fresh = EditorSession::open(&opening_source);
+        let opening_canonical = opening_fresh
+            .inspect_link(Revision(0), range(1, 2))
+            .unwrap();
         view.apply(
             session
                 .replace(Revision(1), range(end, end), ">", &mut |_| Ok(()))
@@ -186,9 +191,42 @@ fn typed_angle_word_end_has_a_pending_owner_before_any_code_command() {
         assert_eq!(
             link.as_ref().map(|link| link.destination.as_str()),
             Some(destination),
-            "inner={inner:?}; before={before:?}; canonical={canonical:?}; after={:?}",
+            "inner={inner:?}; opening_source={opening_source:?}; opening_canonical={opening_canonical:?}; before={before:?}; canonical={canonical:?}; after={:?}",
             session.source_text()
         );
         assert_eq!(view.text, format!("<{inner}> "));
+    }
+}
+
+#[test]
+fn standard_literal_opener_and_explicit_inner_www_link_have_canonical_raw_owners() {
+    let observed: Vec<_> = [
+        ("\\<www.x.test/path", "<www.x.test/path"),
+        (
+            "<[www.x.test/path](<http://www.x.test/path>)>",
+            "<www.x.test/path>",
+        ),
+    ]
+    .into_iter()
+    .map(|(source, display)| {
+        let loaded = EditorSession::open(source);
+        let link = loaded.inspect_link(Revision(0), range(1, 2)).unwrap();
+        (
+            source,
+            display,
+            loaded.display_text(),
+            link.map(|link| link.destination),
+        )
+    })
+    .collect();
+    // Evaluate both independent standard-source candidates before asserting;
+    // neither candidate discovers ownership in an existing live session.
+    for (source, display, actual, destination) in &observed {
+        assert_eq!(actual, display, "source={source:?}; observed={observed:?}");
+        assert_eq!(
+            destination.as_deref(),
+            Some("http://www.x.test/path"),
+            "source={source:?}; observed={observed:?}"
+        );
     }
 }
