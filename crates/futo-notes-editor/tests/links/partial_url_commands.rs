@@ -427,6 +427,26 @@ fn a_live_code_colon_keeps_its_origin_through_a_multiline_quoted_heading_split()
         .unwrap()
         .links
         .is_empty());
+    // Same exact canonical source and selection, freshly loaded without the
+    // live scalar field, distinguish source/layout from transient transport.
+    let mut loaded_control = EditorSession::open(&guarded);
+    loaded_control.select(Revision(0), range(20, 25)).unwrap();
+    let mut loaded_view = ReferenceView::new("head\n<https://x.test/path>");
+    loaded_view.apply(
+        loaded_control
+            .paragraph_key(Revision(0), range(5, 5), ParagraphKey::Enter, &mut |_| {
+                Ok(())
+            })
+            .unwrap_or_else(|error| {
+                panic!("fresh source split rejected: {error:?}; source={guarded:?}")
+            })
+            .unwrap(),
+    );
+    assert_eq!(loaded_view.text, "head\n\n<https://x.test/path>");
+    assert_eq!(
+        loaded_control.source_text(),
+        "> head\n> ===\n> \n> <https\\://x.test`/path`>"
+    );
     let mut calls = 0;
     view.apply(
         session
