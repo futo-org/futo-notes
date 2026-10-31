@@ -371,3 +371,10 @@ fn a_same_line_quoted_item_keeps_its_following_list_independent() {
         4,
     );
 }
+
+#[test]
+fn text_retires_only_canonical_tab_indented_heading_syntax() {
+    assert_text_source("> \t# b", "> b", "b", "b", 0, 0);
+    assert_text_source("- \t> \t# b", "\n> b", "b", "\nb", 0, 1);
+    assert_text_source("> \t> # b", "> \t> b", "b", "b", 0, 0);
+}

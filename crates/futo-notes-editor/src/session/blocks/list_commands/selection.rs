@@ -125,4 +125,95 @@ mod tests {
         }
         assert_eq!(measured[0], measured[1]);
     }
+
+    #[test]
+    fn one_header_preview_uses_bounded_passes_over_its_actual_large_list_row() {
+        let mut measured = Vec::new();
+        for count in [64, 512] {
+            let tail = (0..count)
+                .map(|i| format!("- p{i}"))
+                .collect::<Vec<_>>()
+                .join("\n");
+            let tail_view = (0..count)
+                .map(|i| format!("p{i}"))
+                .collect::<Vec<_>>()
+                .join("\n");
+            let raw = format!("- > &acE;\n{tail}");
+            let expected = format!("\n> &acE;\n{tail}");
+            let before = format!("\u{223e}\u{0333}\n{tail_view}");
+            let shown = format!("\n{before}");
+            assert_eq!(EditorSession::open(&expected).display_text(), shown);
+            let mut s = EditorSession::open(&raw);
+            assert_eq!(s.display_text(), before);
+            let selected = DisplayRange {
+                start: DisplayOffset(3),
+                end: DisplayOffset(3),
+            };
+            s.select_with_affinity(Revision(0), selected, Affinity::Backward)
+                .unwrap();
+            crate::inline::CONTAINER_METADATA_VISITS.with(|c| c.set(0));
+            let mut accepted = 0;
+            let change = s
+                .block_command(Revision(0), selected, BlockCommand::Heading(0), &mut |_| {
+                    accepted += 1;
+                    Ok(())
+                })
+                .unwrap()
+                .unwrap();
+            let visits = crate::inline::CONTAINER_METADATA_VISITS.with(|c| c.get());
+            let mut view = before.clone();
+            view.replace_range(change.range.start.0..change.range.end.0, &change.inserted);
+            assert_eq!(accepted, 1);
+            assert_eq!(view, shown);
+            assert_eq!(s.source_text(), expected);
+            assert_eq!(
+                s.selection(),
+                DisplayRange {
+                    start: DisplayOffset(4),
+                    end: DisplayOffset(4)
+                }
+            );
+            let p = s
+                .project(
+                    s.revision(),
+                    DisplayRange {
+                        start: DisplayOffset(0),
+                        end: DisplayOffset(shown.len()),
+                    },
+                )
+                .unwrap();
+            assert_eq!(
+                p.blocks
+                    .iter()
+                    .filter_map(|b| b.list.as_ref().filter(|l| l.first))
+                    .count(),
+                count
+            );
+            assert!(
+                visits > 0 && visits < 128 * raw.len(),
+                "count={count} metadata={visits}"
+            );
+            assert!(
+                change.work.parsed_source_bytes < 32 * raw.len(),
+                "count={count} parsed={}",
+                change.work.parsed_source_bytes
+            );
+            assert!(
+                change.work.materialized_source_bytes < 32 * raw.len(),
+                "count={count} copied={}",
+                change.work.materialized_source_bytes
+            );
+            measured.push((raw.len(), visits));
+            s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap();
+            assert_eq!(s.source_text(), raw);
+            assert_eq!(s.selection(), selected);
+            assert_eq!(s.affinity(), Affinity::Backward);
+        }
+        let (a_bytes, a) = measured[0];
+        let (b_bytes, b) = measured[1];
+        assert!(
+            (b as u128) * (a_bytes as u128) < 2 * (a as u128) * (b_bytes as u128),
+            "header row input={a_bytes}..{b_bytes} metadata={a}..{b}"
+        );
+    }
 }
