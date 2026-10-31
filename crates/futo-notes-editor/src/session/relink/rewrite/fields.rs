@@ -51,7 +51,7 @@ pub(in crate::session::relink) struct Fields {
     pub programs: Vec<Vec<(usize, usize)>>,
     pub codes: Vec<Vec<crate::inline::guarded_words::CodeWitness>>,
     pub guard_atoms: Vec<Option<Vec<crate::inline::guarded_words::ValidationAtom>>>,
-    pub plain_typed: Vec<Option<super::super::transformed::PlainTyped>>,
+    pub plain_typed: Vec<Option<super::super::transformed::TypedAtoms>>,
     pub changed_links: Vec<bool>,
     pub changed_origins: Vec<bool>,
     pub origin_programs: Vec<Vec<(usize, usize)>>,

@@ -4,7 +4,6 @@ use crate::{EditorError, SourceEdit};
 use std::{ops::Range, sync::Arc};
 mod input;
 mod phase;
-mod relink;
 mod snapshots;
 pub(in crate::inline) use input::Input;
 mod state;

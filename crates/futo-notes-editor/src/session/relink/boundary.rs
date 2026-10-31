@@ -97,9 +97,9 @@ impl Boundary {
             let mut prepared = rewrite.fields(side.pending, witnesses)?;
             charge(
                 &mut work,
-                prepared.validate_original(&replay.session, side.pending, &rewrite.source)?,
+                prepared.validate_original(&replay.session, side.pending)?,
             );
-            charge(&mut work, rewrite.guard_atoms(&mut prepared)?);
+            charge(&mut work, rewrite.retirement_atoms(&mut prepared)?);
             work.link_metadata_items += rewrite.code_witnesses(&mut prepared.codes)?;
             work.link_metadata_items += prepared.pending.work;
             prepared.pending.work = 0;
@@ -125,9 +125,9 @@ impl Boundary {
         let mut aggregate = rewrite.fields(&before, witnesses)?;
         charge(
             &mut work,
-            aggregate.validate_original(&replay.session, &before, &rewrite.source)?,
+            aggregate.validate_original(&replay.session, &before)?,
         );
-        charge(&mut work, rewrite.guard_atoms(&mut aggregate)?);
+        charge(&mut work, rewrite.retirement_atoms(&mut aggregate)?);
         work.link_metadata_items += rewrite.code_witnesses(&mut aggregate.codes)?;
         work.link_metadata_items += aggregate.pending.work;
         aggregate.pending.work = 0;

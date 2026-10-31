@@ -2,26 +2,50 @@
 use super::*;
 use crate::inline::guarded_words::ValidationAtom;
 
+enum Emission {
+    RetainedCode,
+    PlainTyped,
+}
 impl Rewrite {
-    pub fn guard_atoms(&self, fields: &mut Fields) -> Result<EditWork, EditorError> {
+    pub fn retirement_atoms(&self, fields: &mut Fields) -> Result<EditWork, EditorError> {
         let mut work = EditWork::default();
         for step in &self.steps {
             for atoms in &mut fields.guard_atoms {
                 let Some(original) = atoms.take() else {
                     continue;
                 };
-                *atoms = step.guard_atoms(original, &mut work)?;
+                *atoms = step.retirement_atoms(original, Emission::RetainedCode, &mut work)?;
+            }
+            for proof in &mut fields.plain_typed {
+                let Some(mut original) = proof.take() else {
+                    continue;
+                };
+                if let Some(atoms) =
+                    step.retirement_atoms(original.atoms, Emission::PlainTyped, &mut work)?
+                {
+                    original.atoms = atoms;
+                    *proof = Some(original);
+                }
+            }
+        }
+        for proof in fields.plain_typed.iter_mut().flatten() {
+            for atom in &proof.atoms {
+                proof.expected.push_str(&atom.displayed);
+                work.link_copied_bytes += atom.displayed.len();
+                work.link_metadata_items += 1;
             }
         }
         Ok(work)
     }
 }
 impl WikiStep {
-    fn guard_atoms(
+    fn retirement_atoms(
         &self,
         atoms: Vec<ValidationAtom>,
+        role: Emission,
         work: &mut EditWork,
     ) -> Result<Option<Vec<ValidationAtom>>, EditorError> {
+        let code = matches!(role, Emission::RetainedCode);
         let mut output = Vec::new();
         let mut atoms = atoms.into_iter().peekable();
         while let Some(mut atom) = atoms.next() {
@@ -42,9 +66,13 @@ impl WikiStep {
                 return Ok(None);
             };
             work.link_metadata_items += 3;
-            // Only a complete original identity footprint inside retained
-            // opaque Code can turn actual emitted bytes into semantic atoms.
-            if atom.source.start != replacement.range.before.start || !atom.identity || !atom.code {
+            // A whole original identity footprint must have this role's
+            // proved context: retained Code or unformatted Typed text. The
+            // final atom/envelope check must still prove emitted identity.
+            if atom.source.start != replacement.range.before.start
+                || !atom.identity
+                || atom.code != code
+            {
                 return Ok(None);
             }
             let mut end = atom.source.end;
@@ -53,7 +81,7 @@ impl WikiStep {
                 let Some(next) = atoms.next() else {
                     return Ok(None);
                 };
-                if next.source.start != end || !next.identity || !next.code {
+                if next.source.start != end || !next.identity || next.code != code {
                     return Ok(None);
                 }
                 end = next.source.end;
@@ -69,7 +97,7 @@ impl WikiStep {
                         ..replacement.range.after.start + at + ch.len_utf8(),
                     displayed,
                     identity: true,
-                    code: true,
+                    code,
                 });
                 work.link_metadata_items += 7;
             }

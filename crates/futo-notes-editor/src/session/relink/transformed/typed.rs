@@ -2,11 +2,12 @@
 use super::*;
 use std::ops::Range;
 
-pub(in crate::session::relink) struct PlainTyped {
+pub(in crate::session::relink) struct TypedAtoms {
     opener: Range<usize>,
     word: Range<usize>,
     original: String,
-    pub(super) expected: String,
+    pub(in crate::session::relink) atoms: Vec<crate::inline::guarded_words::ValidationAtom>,
+    pub(in crate::session::relink) expected: String,
 }
 #[derive(Default)]
 pub(in crate::session::relink) struct Seeds {
@@ -20,7 +21,7 @@ struct Seed {
 impl Seeds {
     pub(super) fn prepare(
         &mut self,
-        proof: &PlainTyped,
+        proof: &TypedAtoms,
         program: &[(usize, usize)],
         candidate: CanonicalUri,
         work: &mut EditWork,
@@ -55,11 +56,10 @@ impl Seeds {
     }
 }
 impl rewrite::Fields {
-    pub(super) fn capture_plain_typed(
+    pub(super) fn capture_typed_atoms(
         &mut self,
         session: &EditorSession,
         original: &crate::inline::PendingLinks,
-        rewritten: &str,
         work: &mut EditWork,
     ) -> Result<(), EditorError> {
         self.plain_typed = Vec::with_capacity(original.typed_inputs.len());
@@ -70,39 +70,50 @@ impl rewrite::Fields {
                 self.plain_typed.push(None);
                 continue;
             }
-            let text = session.source.byte_slice(input.word.clone()).to_string();
-            work.materialized_source_bytes += text.len();
-            let (plain, visits) = session.projection.plain_relink_typed(input, &text, 0);
-            work.link_metadata_items += visits;
-            if !plain {
+            // Original row validation already proves this supplied opener's
+            // literal semantics. The new proof additionally requires its
+            // actual one-byte copied source representation.
+            work.link_metadata_items += 2;
+            if input.opener.len() != 1
+                || session.source.byte_slice(input.opener.clone()).byte(0) != b'<'
+            {
                 self.plain_typed.push(None);
                 continue;
             }
-            // Original identity atoms plus actual complete canonical emission
-            // give this expected body BEFORE any candidate interpretation.
-            let expected = rewritten
-                .get(self.pending.typed_inputs[index].word.clone())
-                .ok_or(EditorError::UnrepresentableFormat)?
-                .to_owned();
-            work.link_copied_bytes += expected.len();
-            self.plain_typed.push(Some(PlainTyped {
+            let (atoms, captured) =
+                session
+                    .projection
+                    .capture_relink_guard_atoms(input.word.clone(), &[], 0)?;
+            charge(work, captured);
+            let Some(atoms) = atoms else {
+                self.plain_typed.push(None);
+                continue;
+            };
+            let mut text = String::new();
+            for atom in &atoms {
+                text.push_str(&atom.displayed);
+                work.link_copied_bytes += atom.displayed.len();
+                work.link_metadata_items += 1;
+            }
+            self.plain_typed.push(Some(TypedAtoms {
                 opener: input.opener.clone(),
                 word: input.word.clone(),
                 original: text,
-                expected,
+                atoms,
+                expected: String::new(),
             }));
-            work.link_metadata_items += 11;
+            work.link_metadata_items += 14;
         }
         Ok(())
     }
-    pub(super) fn require_plain_typed(
+    pub(super) fn require_typed_atoms(
         &self,
         staged: &EditorSession,
         origin: usize,
         index: usize,
         displayed: &str,
         work: &mut EditWork,
-    ) -> Result<&PlainTyped, EditorError> {
+    ) -> Result<&TypedAtoms, EditorError> {
         work.link_metadata_items += 1;
         let proof = self
             .plain_typed
@@ -112,17 +123,20 @@ impl rewrite::Fields {
         if !same_text(&proof.expected, displayed, work) {
             return Err(EditorError::UnrepresentableFormat);
         }
-        // B maps this whole opener/word only with actual byte-copy evidence.
-        // Its final mapped range is used here, never the pre-spelling offset.
-        let (plain, visits) = staged.projection.plain_relink_typed(
-            &self.pending.typed_inputs[index],
-            &proof.expected,
-            origin,
-        );
-        work.link_metadata_items += visits;
-        if !plain {
-            return Err(EditorError::UnrepresentableFormat);
-        }
+        // Retained nonidentity atoms have actual whole copied ranges through
+        // Wiki and B; emitted identity scalars still need the final parser's
+        // identity witness. Neither equal display nor an offset hull suffices.
+        work.link_metadata_items +=
+            staged
+                .projection
+                .validate_relink_guard_atoms(&proof.atoms, &[], origin)?;
+        let input = &self.pending.typed_inputs[index];
+        let envelope = input.opener.start..input.word.end;
+        let expected = format!("<{}", proof.expected);
+        work.link_copied_bytes += expected.len();
+        work.link_metadata_items += staged
+            .projection
+            .validate_retired_link_texts(&[(&envelope, expected.as_str(), &[])], origin)?;
         Ok(proof)
     }
 }

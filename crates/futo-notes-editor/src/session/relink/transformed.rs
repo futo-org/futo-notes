@@ -5,7 +5,7 @@ mod typed;
 use crate::inline::guarded_words::{CanonicalUri, CodeWordIdentity, RelinkWord};
 use requests::Role;
 use std::{collections::HashMap, sync::Arc};
-pub(super) use typed::{PlainTyped, Seeds};
+pub(super) use typed::{Seeds, TypedAtoms};
 
 #[derive(Default)]
 pub(super) struct Identities {
@@ -129,7 +129,6 @@ impl rewrite::Fields {
         &mut self,
         session: &EditorSession,
         original: &crate::inline::PendingLinks,
-        rewritten: &str,
     ) -> Result<EditWork, EditorError> {
         let mut work = EditWork::default();
         let requests = self.requests(original, &mut work)?;
@@ -179,7 +178,7 @@ impl rewrite::Fields {
                 guard_atoms[index] = atoms;
             }
         }
-        self.capture_plain_typed(session, original, rewritten, &mut work)?;
+        self.capture_typed_atoms(session, original, &mut work)?;
         self.guard_atoms = guard_atoms;
         self.codes = codes;
         Ok(work)
@@ -219,12 +218,12 @@ impl rewrite::Fields {
                 (None, RelinkWord::Literal(_), Role::Typed(_)) => None,
                 (None, RelinkWord::Uri(uri), Role::Typed(index)) => {
                     let proof =
-                        self.require_plain_typed(staged, origin, index, &uri.displayed, &mut work)?;
+                        self.require_typed_atoms(staged, origin, index, &uri.displayed, &mut work)?;
                     Some(seeds.prepare(proof, request.program, uri, &mut work)?)
                 }
                 (Some(original), RelinkWord::Literal(displayed), Role::Typed(index)) => {
                     let proof =
-                        self.require_plain_typed(staged, origin, index, &displayed, &mut work)?;
+                        self.require_typed_atoms(staged, origin, index, &displayed, &mut work)?;
                     identities.retire(original, request.program, &proof.expected, &mut work)?;
                     retired_origins.push(index);
                     retired_requests.push(request_index);
@@ -329,7 +328,7 @@ impl rewrite::Fields {
             self.guard_atoms.remove(index);
         }
         for index in retired_origins.into_iter().rev() {
-            work.link_metadata_items += 20 * (self.pending.typed_inputs.len() - index);
+            work.link_metadata_items += 23 * (self.pending.typed_inputs.len() - index);
             self.pending.typed_inputs.remove(index);
             self.changed_origins.remove(index);
             self.origin_programs.remove(index);
