@@ -226,6 +226,8 @@ impl Projection {
         change: DisplayRange,
         inserted: usize,
     ) -> usize {
+        #[cfg(test)]
+        let visits = super::coordinate_work_tests::visits();
         let removed = change.end.0 - change.start.0;
         let mut work = 0;
         for mut range in pending {
@@ -257,6 +259,8 @@ impl Projection {
                 self.rows.metadata_mut(index).literal_links.push(local);
             }
         }
+        #[cfg(test)]
+        super::coordinate_work_tests::query("pending-preserve", visits, work);
         work
     }
 

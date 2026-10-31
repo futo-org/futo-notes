@@ -8,6 +8,12 @@ fn range(start: usize, end: usize) -> DisplayRange {
     }
 }
 fn measured(work: EditWork) -> (EditWork, usize) {
+    for (name, actual, reported) in snapshot() {
+        assert!(
+            reported >= actual,
+            "{name}: actual nodes{actual}, reported{reported}"
+        );
+    }
     let nodes = added_nodes();
     let mut fixed = work;
     fixed.link_metadata_items = fixed
