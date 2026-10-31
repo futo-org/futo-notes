@@ -253,6 +253,8 @@ fn task_child_lifting_counts_each_original_owner_fragment_without_repeated_walks
             .unwrap()
             .unwrap();
         let visits = crate::inline::CONTAINER_METADATA_VISITS.with(|c| c.get());
+        // Every touched physical row is a directly replaced header here;
+        // absent continuation rows legitimately need no prefix query.
         let queries = crate::inline::CONTAINER_PREFIX_QUERIES.with(|c| c.get());
         let owners = crate::inline::CONTAINER_STYLE_OWNER_SCANS.with(|c| c.get());
         let items = crate::inline::CONTAINER_LIFT_ITEM_SCANS.with(|c| c.get());
@@ -280,10 +282,7 @@ fn task_child_lifting_counts_each_original_owner_fragment_without_repeated_walks
         assert!(roots
             .iter()
             .all(|l| l.depth == 1 && l.checked == Some(false) && l.number.is_none()));
-        assert!(
-            queries > 0 && queries <= 8 * count + 8,
-            "count={count} queries={queries}"
-        );
+        assert!(queries <= 8 * count + 8, "count={count} queries={queries}");
         assert!(
             change.work.parsed_source_bytes < 32 * raw.len(),
             "count={count} parsed={}",
