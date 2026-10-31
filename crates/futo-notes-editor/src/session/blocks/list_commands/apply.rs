@@ -200,50 +200,50 @@ impl EditorSession {
                         + usize::from(matches!(prefix.as_bytes().get(at + 1), Some(b' ' | b'\t')))
                 })
             };
+            let default_number = styles.as_ref().map_or(1, |styles| styles.ordinals[index]);
+            let (ordered_number, ordered_head) =
+                line.list.as_ref().map_or((default_number, false), |list| {
+                    if command == BlockCommand::OrderedList && !remove {
+                        lift_plan.ordered_number(list, styles.as_ref().unwrap().ordinals[index])
+                    } else {
+                        (1, false)
+                    }
+                });
             let marker = if remove {
                 String::new()
             } else {
-                match command {
-                    BlockCommand::OrderedList
-                        if line
-                            .list
-                            .as_ref()
-                            .is_some_and(|list| list.ordinal.is_some()) =>
-                    {
-                        // Task state is independent of the existing ordered
-                        // marker. Retain lazy physical numbers and tab padding.
-                        let end = line
-                            .task
-                            .as_ref()
-                            .map_or(prefix.len(), |task| task.start - line.source.start);
-                        prefix[retained..end].to_owned()
-                    }
-                    BlockCommand::OrderedList => format!(
-                        "{}{} ",
-                        super::super::lists::physical_number(
-                            styles.as_ref().unwrap().ordinals[index]
-                        ),
-                        styles.as_ref().unwrap().markers[index] as char
+                self.list_command_marker(
+                    line,
+                    command,
+                    &prefix,
+                    retained,
+                    (
+                        styles.as_ref().unwrap().markers[index],
+                        ordered_number,
+                        ordered_head,
                     ),
-                    BlockCommand::TaskList => {
-                        let checked = line
-                            .task
-                            .as_ref()
-                            .map(|task| {
-                                self.source
-                                    .byte_slice(task.start + 1..task.start + 2)
-                                    .to_string()
-                            })
-                            .unwrap_or_else(|| " ".into());
-                        format!(
-                            "{} [{checked}] ",
-                            styles.as_ref().unwrap().markers[index] as char
-                        )
-                    }
-                    _ => format!("{} ", styles.as_ref().unwrap().markers[index] as char),
-                }
+                )
             };
             let mut replacement = format!("{}{marker}", &prefix[..retained]);
+            if ordered_head && ordered_number != 1 {
+                let physical = self.source.byte_to_line(line.source.start);
+                let separated = physical > 0
+                    && self
+                        .projection
+                        .source_prefix_at(self.source.line_to_byte(physical - 1))
+                        .is_some_and(|previous| {
+                            !previous.code
+                                && previous.quote_depth == line.quote_depth
+                                && self.source.byte_slice(previous.content).chars().all(|ch| {
+                                    crate::inline::visit_container();
+                                    ch.is_whitespace()
+                                })
+                        });
+                if !separated {
+                    replacement.insert_str(0, &format!("{}\n", prefix[..retained].trim_end()));
+                    separators.push(self.projection.display_at(line.source.start));
+                }
+            }
             if remove {
                 if let Some(list) = &line.list {
                     let index = self.source.byte_to_line(line.source.start);

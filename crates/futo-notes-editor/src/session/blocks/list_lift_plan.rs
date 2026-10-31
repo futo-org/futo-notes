@@ -17,6 +17,7 @@ pub(super) struct MixedLiftPlan {
     depths: HashMap<usize, Vec<(usize, Option<usize>)>>,
     implicit_items: HashMap<usize, std::ops::Range<usize>>,
     implicit_depths: Vec<(usize, usize)>,
+    ordered_cuts: HashMap<usize, Vec<(usize, u64, u64)>>,
 }
 
 impl MixedLiftPlan {
@@ -33,6 +34,22 @@ impl MixedLiftPlan {
     pub fn marker_at(&self, source: usize) -> Option<u8> {
         crate::inline::visit_container();
         self.markers.get(&source).copied()
+    }
+
+    /// A following owner copies the original start when a lifted paragraph
+    /// splits its earlier retained item. Cuts apply only within that owner.
+    pub fn ordered_number(&self, list: &ListLine, planned: u64) -> (u64, bool) {
+        crate::inline::visit_container();
+        let cut = self.ordered_cuts.get(&list.owner.start).and_then(|cuts| {
+            let end = cuts.partition_point(|&(at, _, _)| {
+                crate::inline::visit_container();
+                at <= list.marker.start
+            });
+            end.checked_sub(1).map(|index| cuts[index])
+        });
+        cut.map_or((planned, false), |(at, baseline, start)| {
+            (planned - baseline + start, at == list.marker.start)
+        })
     }
 
     pub fn depth_for(&self, list: &ListLine, targets: &ListTargets) -> usize {
@@ -144,6 +161,8 @@ impl EditorSession {
         let mut row_range = 0..0;
         let mut items = Vec::new();
         let mut next_item = 0;
+        let mut item_index = HashMap::new();
+        let mut owner_starts = HashMap::new();
         // Transient canonical-event indices, not ancestry retained per witness.
         let mut open_items: Vec<usize> = Vec::new();
         for (rank, line) in lines.iter().enumerate() {
@@ -160,6 +179,15 @@ impl EditorSession {
                     .projection
                     .list_items_at(&self.source, selected.marker.start);
                 items = original;
+                item_index.clear();
+                owner_starts.clear();
+                for (index, item) in items.iter().enumerate() {
+                    crate::inline::visit_container();
+                    item_index.insert(item.item.start, index);
+                    owner_starts
+                        .entry(item.owner.start)
+                        .or_insert(item.ordinal.unwrap_or(1));
+                }
                 row_range = range;
                 plan.parsed += bytes;
                 plan.materialized += bytes;
@@ -179,6 +207,35 @@ impl EditorSession {
                 }
                 open_items.push(next_item);
                 next_item += 1;
+            }
+            // Same-quote full lifting leaves the earlier ancestor item
+            // listed, but its following items form a new owner after the
+            // lifted paragraph. Locate that exact cut in original events.
+            if command == BlockCommand::OrderedList && selected.outer_depth == 1 {
+                crate::inline::visit_container();
+                if let Some(&parent_index) = item_index.get(&selected.outer_item.start) {
+                    let parent = &items[parent_index];
+                    let next = items.partition_point(|item| {
+                        crate::inline::visit_container();
+                        item.marker.start < parent.item.end
+                    });
+                    if let Some(following) = items
+                        .get(next)
+                        .filter(|item| item.owner == parent.owner && !targets.retires_item(item))
+                    {
+                        let head = self
+                            .source
+                            .line_to_byte(self.source.byte_to_line(following.marker.start));
+                        crate::inline::visit_container();
+                        if let Some(&index) = styled.get(&head) {
+                            let start = owner_starts[&parent.owner.start];
+                            plan.ordered_cuts
+                                .entry(parent.owner.start)
+                                .or_default()
+                                .push((following.marker.start, styles.ordinals[index], start));
+                        }
+                    }
+                }
             }
             // A quote crossing promotes the enclosing group's removed item,
             // including its earlier paragraph. Same-quote parents stay listed.
@@ -313,6 +370,22 @@ impl EditorSession {
                     ),
                 );
             }
+        }
+        for cuts in plan.ordered_cuts.values_mut() {
+            cuts.sort_by_key(|cut| {
+                crate::inline::visit_container();
+                cut.0
+            });
+            for pair in cuts.windows(2) {
+                crate::inline::visit_container();
+                if pair[0].0 == pair[1].0 && pair[0] != pair[1] {
+                    return Err(EditorError::UnrepresentableFormat);
+                }
+            }
+            cuts.dedup_by_key(|cut| {
+                crate::inline::visit_container();
+                cut.0
+            });
         }
         plan.index_depths();
         Ok(plan)
