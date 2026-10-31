@@ -10,6 +10,7 @@ use crate::inline::{
 };
 use crate::{DisplayRange, InlineFormat, InputAction};
 mod ending;
+mod seed;
 mod separator;
 
 pub(in crate::inline) struct Input<'a> {
@@ -159,6 +160,13 @@ impl TypedState {
         if input.inserted.is_empty() {
             return Ok(work);
         }
+        if !inserted_run(
+            &pieces[input.insertion.clone()],
+            input.inserted,
+            &mut work.items,
+        ) {
+            return Err(EditorError::UnrepresentableFormat);
+        }
         let mut active = None;
         if let Some(origins) = &self.retained {
             for (index, origin) in origins.iter().enumerate() {
@@ -185,13 +193,6 @@ impl TypedState {
             }
         }
         if let Some(index) = active {
-            if !inserted_run(
-                &pieces[input.insertion.clone()],
-                input.inserted,
-                &mut work.items,
-            ) {
-                return Err(EditorError::UnrepresentableFormat);
-            }
             let origin = self.retained.as_mut().unwrap().remove(index);
             // Build one source-ordered index for this actual field query, never
             // a text search or a per-endpoint reconstruction of an old display.
@@ -244,7 +245,14 @@ impl TypedState {
                 ending::finish(pieces, markers, body, &origin, &mut work)?;
                 return Ok(work);
             }
-            if let Some(end) = separator::body_end(pieces, &input.insertion, &mut work.items) {
+            let separator = separator::body_end(pieces, &input.insertion, &mut work.items);
+            let mut end = separator.unwrap_or(input.insertion.end);
+            work.items += 2;
+            let closed = input.insertion.start < end && pieces[end - 1].display == ">";
+            if closed {
+                end -= 1;
+            }
+            if separator.is_some() || closed {
                 let completed = body.start..end;
                 if separator::word(pieces, completed.clone(), &mut work.items) {
                     if end == input.insertion.start {
@@ -261,8 +269,12 @@ impl TypedState {
                 ending::finish(pieces, markers, body, &origin, &mut work)?;
                 return Ok(work);
             }
-            if input.inserted.contains(char::is_whitespace) || input.inserted.contains(['<', '>']) {
-                return Err(EditorError::UnrepresentableFormat);
+            if input.inserted.chars().any(|ch| {
+                work.items += 1;
+                ch.is_whitespace()
+            }) {
+                self.seed_last_word(&input, pieces, markers, &mut work)?;
+                return Ok(work);
             }
             let body = body.start..input.insertion.end;
             let text = displayed(&pieces[body.clone()], &mut work);
@@ -289,69 +301,7 @@ impl TypedState {
         if !typing || input.range.start != input.range.end || input.insertion.is_empty() {
             return Ok(work);
         }
-        let inserted = &pieces[input.insertion.clone()];
-        let (opener, mut body) = if inserted.first().is_some_and(|piece| piece.display == "<") {
-            (
-                input.insertion.start,
-                input.insertion.start + 1..input.insertion.end,
-            )
-        } else if input.insertion.start > 0 && pieces[input.insertion.start - 1].display == "<" {
-            (input.insertion.start - 1, input.insertion.clone())
-        } else {
-            return Ok(work);
-        };
-        if !inserted_run(inserted, input.inserted, &mut work.items) {
-            return Ok(work);
-        }
-        let ending = separator::body_end(pieces, &input.insertion, &mut work.items);
-        body.end = ending.unwrap_or(input.insertion.end);
-        if body.is_empty() || !safe(&pieces[opener..body.end], markers, &mut work.items) {
-            return Ok(work);
-        }
-        let prefix: [&str; 4] = std::array::from_fn(|index| {
-            work.items += 1;
-            pieces
-                .get(body.start + index)
-                .filter(|_| body.start + index < body.end)
-                .map_or("", |piece| piece.display.as_str())
-        });
-        let small = body.len() <= 3 && prefix[..body.len()].iter().all(|part| *part == "w");
-        if !(small || prefix == ["w", "w", "w", "."]) {
-            return Ok(work);
-        }
-        let text = displayed(&pieces[body.clone()], &mut work);
-        work.items += 1;
-        if !candidate(&text) {
-            return Ok(work);
-        }
-        if text.contains(char::is_whitespace) || text.contains(['<', '>']) {
-            return Err(EditorError::UnrepresentableFormat);
-        }
-        // A source suffix would be retained inner text, not a newly inserted
-        // whole seed. A separate later input must own any such continuation.
-        if pieces.get(input.insertion.end).is_some_and(|piece| {
-            !piece.display.is_empty() && !piece.display.chars().all(char::is_whitespace)
-        }) {
-            return Ok(work);
-        }
-        if opaque(&input, pieces, &mut work.items) {
-            return Ok(work);
-        }
-        if ending.is_some() {
-            ending::finish_typed(pieces, markers, body, &mut work)?;
-            return Ok(work);
-        }
-        let (target, _) = meaning(&text, &mut work);
-        let uri = target.map(|meaning| {
-            work.items += 2;
-            work.copied += text.len();
-            Arc::new(CodeWordIdentity {
-                meaning,
-                displayed: Arc::from(text),
-            })
-        });
-        work.items += usize::from(self.emitted.len() == self.emitted.capacity());
-        self.emitted.push(EmittedOrigin { opener, body, uri });
+        self.seed_last_word(&input, pieces, markers, &mut work)?;
         Ok(work)
     }
 }
