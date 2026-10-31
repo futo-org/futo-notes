@@ -287,6 +287,48 @@ impl Projection {
         result
     }
 
+    /// Fixed records in a canonical item/owner source window. Hidden prefixes
+    /// are source ownership, so expansion need not round-trip through display.
+    pub(crate) fn list_command_lines_in_source(
+        &self,
+        range: &std::ops::Range<usize>,
+    ) -> Vec<blocks::ListCommandLine> {
+        let mut result = Vec::new();
+        if range.is_empty() {
+            return result;
+        }
+        let first = self.rows.locate(range.start, false);
+        let last = self.rows.locate(range.end - 1, false);
+        for index in first..=last {
+            let (row, source, _) = self.rows.at(index);
+            let begin = range.start.max(source) - source;
+            let end = range.end.min(source + row.source_len) - source;
+            if begin >= end {
+                continue;
+            }
+            let first = row
+                .blocks
+                .partition_point(|block| {
+                    visit_container();
+                    block.source.start < begin
+                })
+                .saturating_sub(1);
+            let last = row.blocks.partition_point(|block| {
+                visit_container();
+                block.source.start < end
+            });
+            for block in &row.blocks[first..last] {
+                #[cfg(test)]
+                CONTAINER_BLOCK_QUERY_VISITS.with(|count| count.set(count.get() + 1));
+                visit_container();
+                if !block.empty_comment && begin < block.source.end && block.source.start < end {
+                    result.push(blocks::ListCommandLine::from_block(block, source));
+                }
+            }
+        }
+        result
+    }
+
     fn visit_block_lines(
         &self,
         range: DisplayRange,

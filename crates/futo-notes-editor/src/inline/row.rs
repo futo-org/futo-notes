@@ -217,52 +217,76 @@ impl Row {
     }
 
     pub fn source_bounds(&self, at: usize) -> (usize, usize) {
-        super::visit_correspondence(self.segments.len());
-        let mut low = self.source_len;
-        let mut high = 0;
-        for segment in &self.segments {
-            if segment.display.start <= at && at <= segment.display.end {
-                let (a, b) = if segment.display.is_empty() {
-                    (segment.source.start, segment.source.end)
-                } else if at == segment.display.start {
-                    (segment.source.start, segment.source.start)
-                } else if at == segment.display.end {
-                    (segment.source.end, segment.source.end)
-                } else {
-                    if segment.identity {
+        if self.segments.is_empty() {
+            return (0, 0);
+        }
+        let mut examined = 0;
+        let first = self.segments.partition_point(|segment| {
+            examined += 1;
+            segment.display.end < at
+        });
+        let last = self.segments.partition_point(|segment| {
+            examined += 1;
+            segment.display.start <= at
+        });
+        // Row construction advances both cursors monotonically without overlap.
+        // Thus the first/last inclusive matches own the complete union extrema,
+        // including every intervening hidden zero-display segment.
+        let result = if first < last {
+            let begin = &self.segments[first];
+            let end = &self.segments[last - 1];
+            examined += 2;
+            if begin.display.start <= at
+                && at <= begin.display.end
+                && end.display.start <= at
+                && at <= end.display.end
+            {
+                let bounds = |segment: &Segment| {
+                    if segment.display.is_empty() {
+                        (segment.source.start, segment.source.end)
+                    } else if at == segment.display.start {
+                        (segment.source.start, segment.source.start)
+                    } else if at == segment.display.end {
+                        (segment.source.end, segment.source.end)
+                    } else if segment.identity {
                         let position = segment.source.start + at - segment.display.start;
                         (position, position)
                     } else {
                         (segment.source.start, segment.source.end)
                     }
                 };
-                low = low.min(a);
-                high = high.max(b);
+                Some((bounds(begin).0, bounds(end).1))
+            } else {
+                None
             }
-        }
-        if self.segments.is_empty() {
-            (0, 0)
         } else {
-            (low, high)
-        }
+            None
+        };
+        super::visit_correspondence(examined);
+        result.unwrap_or((self.source_len, 0))
     }
 
     pub fn display_at(&self, source: usize) -> usize {
-        for (index, segment) in self.segments.iter().enumerate() {
-            if segment.source.start <= source && source <= segment.source.end {
-                super::visit_correspondence(index + 1);
-                if segment.identity {
-                    return segment.display.start + source - segment.source.start;
-                }
-                return if source == segment.source.end {
-                    segment.display.end
-                } else {
-                    segment.display.start
-                };
+        let mut examined = 0;
+        // Seek the FIRST inclusive end; equal ends must retain the old bias.
+        let index = self.segments.partition_point(|segment| {
+            examined += 1;
+            segment.source.end < source
+        });
+        let segment = self.segments.get(index).filter(|segment| {
+            examined += 1;
+            segment.source.start <= source && source <= segment.source.end
+        });
+        super::visit_correspondence(examined);
+        segment.map_or(self.display.len(), |segment| {
+            if segment.identity {
+                segment.display.start + source - segment.source.start
+            } else if source == segment.source.end {
+                segment.display.end
+            } else {
+                segment.display.start
             }
-        }
-        super::visit_correspondence(self.segments.len());
-        self.display.len()
+        })
     }
 
     pub fn formats_at(&self, source: usize) -> Vec<InlineFormat> {

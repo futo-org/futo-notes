@@ -17,13 +17,9 @@ impl EditorSession {
             scope == LiftScope::AllAncestors,
         );
         for item in targets.retired_items() {
-            let selected = DisplayRange {
-                start: DisplayOffset(self.projection.display_at(item.start)),
-                end: DisplayOffset(self.projection.display_at(item.end)),
-            };
             lines.extend(
                 self.projection
-                    .list_command_lines(selected)
+                    .list_command_lines_in_source(item)
                     .into_iter()
                     .filter(|line| {
                         !line.code && line.list.as_ref().is_some_and(|list| list.item == *item)
@@ -31,13 +27,9 @@ impl EditorSession {
             );
         }
         for owner in targets.changed_owners() {
-            let group = DisplayRange {
-                start: DisplayOffset(self.projection.display_at(owner.start)),
-                end: DisplayOffset(self.projection.display_at(owner.end)),
-            };
             lines.extend(
                 self.projection
-                    .list_command_lines(group)
+                    .list_command_lines_in_source(owner)
                     .into_iter()
                     .filter(|line| {
                         !line.code
@@ -151,14 +143,9 @@ impl EditorSession {
         let mut owned_shifts = Vec::new();
         let mut selection = range;
         let at_source = |at| {
-            let point = DisplayOffset(self.projection.display_at(at));
             self.projection
-                .list_command_lines(DisplayRange {
-                    start: point,
-                    end: point,
-                })
-                .into_iter()
-                .next()
+                .list_command_line_at_source(at)
+                .filter(|line| !line.empty_comment)
         };
         let mut separators = Vec::new();
         let mixed = !remove;

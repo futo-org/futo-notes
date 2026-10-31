@@ -25,7 +25,10 @@ pub(crate) fn visit_container() {
 #[inline]
 pub(crate) fn visit_correspondence(_segments: usize) {
     #[cfg(test)]
-    CONTAINER_CORRESPONDENCE_SCANS.with(|count| count.set(count.get() + _segments as u64));
+    {
+        CONTAINER_CORRESPONDENCE_SCANS.with(|count| count.set(count.get() + _segments as u64));
+        CONTAINER_METADATA_VISITS.with(|count| count.set(count.get() + _segments));
+    }
 }
 
 #[derive(Clone, Debug)]

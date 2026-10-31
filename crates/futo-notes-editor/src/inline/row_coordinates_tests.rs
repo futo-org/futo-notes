@@ -82,7 +82,8 @@ fn check_canonical_rows(source: &str) -> usize {
                 "inverse mismatch: source_bytes={} row={index} offset={at}",
                 source.len()
             );
-            let global = display_offset(&projection, at + projection.rows.at(index).2);
+            let global =
+                historical_global_source_bounds(&projection, at + projection.rows.at(index).2);
             assert_eq!(
                 projection.source_bounds(at + projection.rows.at(index).2),
                 global
@@ -90,10 +91,53 @@ fn check_canonical_rows(source: &str) -> usize {
             checked += 1;
         }
     }
+    check_source_owner_queries(&projection);
     checked
 }
 
-fn display_offset(projection: &Projection, at: usize) -> (usize, usize) {
+fn check_source_owner_queries(projection: &Projection) {
+    let mut ranges = std::collections::BTreeSet::new();
+    for index in 0..projection.rows.len() {
+        let (row, base, _) = projection.rows.at(index);
+        for block in &row.blocks {
+            if let Some(list) = &block.list {
+                ranges.insert((base + list.item.start, base + list.item.end, false));
+                ranges.insert((base + list.owner.start, base + list.owner.end, true));
+            }
+        }
+    }
+    for (start, end, owner) in ranges {
+        let range = start..end;
+        let relevant = |lines: Vec<super::super::blocks::ListCommandLine>| {
+            lines
+                .into_iter()
+                .filter(|line| {
+                    !line.code
+                        && line.list.as_ref().is_some_and(|list| {
+                            if owner {
+                                list.first && list.owner == range
+                            } else {
+                                list.item == range
+                            }
+                        })
+                })
+                .map(|line| line.source)
+                .collect::<Vec<_>>()
+        };
+        let old = projection.list_command_lines(crate::DisplayRange {
+            start: crate::DisplayOffset(projection.display_at(start)),
+            end: crate::DisplayOffset(projection.display_at(end)),
+        });
+        let bounded = projection.list_command_lines_in_source(&range);
+        assert_eq!(
+            relevant(bounded),
+            relevant(old),
+            "canonical source owner query changed: {start}..{end} owner={owner}"
+        );
+    }
+}
+
+fn historical_global_source_bounds(projection: &Projection, at: usize) -> (usize, usize) {
     let (row, source, display) = projection.rows.at(projection.rows.locate(at, true));
     let (low, high) = historical_linear_source_bounds(row, at - display);
     (source + low, source + high)
@@ -186,6 +230,25 @@ fn model(source_len: usize, display: &str, segments: Vec<Segment>) -> Row {
 #[test]
 fn source_coordinate_index_keeps_first_inclusive_equal_ends_and_gap_fallback() {
     let cases = [
+        (
+            model(
+                3,
+                "0123456789",
+                vec![
+                    Segment {
+                        source: 0..1,
+                        display: 0..1,
+                        identity: true,
+                    },
+                    Segment {
+                        source: 2..3,
+                        display: 9..10,
+                        identity: true,
+                    },
+                ],
+            ),
+            vec![0, 1, 9, 10],
+        ),
         (
             model(
                 3,
