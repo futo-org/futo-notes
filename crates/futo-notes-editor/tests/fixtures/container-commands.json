@@ -778,5 +778,138 @@
         null
       ]
     ]
+  },
+  {
+    "name": "ordered-fragments-repeat-between-foreign-owners",
+    "source": "9) before\n\n- [ ] p0\n  1. c0\n- [x] p1\n  1. c1\n- [ ] tail\n\n3. after",
+    "display": "before\n\np0\nc0\np1\nc1\ntail\n\nafter",
+    "action": "OrderedList",
+    "range": [
+      8,
+      19
+    ],
+    "expected": "9) before\n\n1. p0\n\nc0\n1. p1\n\nc1\n1) tail\n\n3. after",
+    "shown": "before\n\np0\n\nc0\np1\n\nc1\ntail\n\nafter",
+    "resultRange": [
+      8,
+      21
+    ],
+    "finalItems": [
+      [
+        9,
+        null
+      ],
+      [
+        1,
+        null
+      ],
+      [
+        1,
+        null
+      ],
+      [
+        1,
+        null
+      ],
+      [
+        3,
+        null
+      ]
+    ]
+  },
+  {
+    "name": "ordered-start-seven-fragments-repeat-between-foreign-owners",
+    "source": "9. before\n\n7) [ ] p0\n   1. c0\n8) [x] p1\n   1. c1\n9) [ ] tail\n\n3. after",
+    "display": "before\n\np0\nc0\np1\nc1\ntail\n\nafter",
+    "action": "OrderedList",
+    "range": [
+      8,
+      19
+    ],
+    "expected": "9. before\n\n7) p0\n\nc0\n\n7) p1\n\nc1\n\n7) tail\n\n3. after",
+    "shown": "before\n\np0\n\nc0\n\np1\n\nc1\n\ntail\n\nafter",
+    "resultRange": [
+      8,
+      22
+    ],
+    "finalItems": [
+      [
+        9,
+        null
+      ],
+      [
+        7,
+        null
+      ],
+      [
+        7,
+        null
+      ],
+      [
+        7,
+        null
+      ],
+      [
+        3,
+        null
+      ]
+    ]
+  },
+  {
+    "name": "quoted-task-owner-copies-ordered-fragment-start",
+    "source": "> - [ ] parent\n>   1. child\n> - [x] following",
+    "display": "parent\nchild\nfollowing",
+    "action": "OrderedList",
+    "range": [
+      0,
+      12
+    ],
+    "expected": "> 1. parent\n>\n> child\n> 1. following",
+    "shown": "parent\n\nchild\nfollowing",
+    "resultRange": [
+      0,
+      13
+    ],
+    "finalItems": [
+      [
+        1,
+        null
+      ],
+      [
+        1,
+        null
+      ]
+    ],
+    "quoteDepth": 1
+  },
+  {
+    "name": "mixed-task-ancestor-descendant-retains-listed-grandchild",
+    "source": "- [ ] parent\n  1. child\n     1. grandchild\n- [x] following",
+    "display": "parent\nchild\ngrandchild\nfollowing",
+    "action": "OrderedList",
+    "range": [
+      0,
+      23
+    ],
+    "expected": "1. parent\n\nchild\n1) grandchild\n1. following",
+    "shown": "parent\n\nchild\ngrandchild\nfollowing",
+    "resultRange": [
+      0,
+      24
+    ],
+    "finalItems": [
+      [
+        1,
+        null
+      ],
+      [
+        1,
+        null
+      ],
+      [
+        1,
+        null
+      ]
+    ]
   }
 ]
