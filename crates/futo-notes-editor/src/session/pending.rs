@@ -181,6 +181,22 @@ impl EditorSession {
         required: &[Range<usize>],
         targets: SelectionTargets<'_>,
     ) -> Result<PendingPreview, EditorError> {
+        let (preview, initial) = self.with_exact_candidate(edit, window.clone(), |staged| {
+            self.validate_exact_candidate(staged, window, pending, require_all, required, targets)
+        })?;
+        let mut preview = preview;
+        super::relink::charge(&mut preview.work, initial);
+        Ok(preview)
+    }
+
+    /// One detached canonical apply serves every field/target at this boundary.
+    /// The callback cannot accept, record history, or mutate the real session.
+    pub(super) fn with_exact_candidate<T>(
+        &self,
+        edit: &SourceEdit,
+        window: Range<usize>,
+        prepare: impl FnOnce(&mut Self) -> Result<T, EditorError>,
+    ) -> Result<(T, EditWork), EditorError> {
         if edit.range.start.0 < window.start || edit.range.end.0 > window.end {
             return Err(EditorError::UnrepresentableFormat);
         }
@@ -202,10 +218,24 @@ impl EditorSession {
         work.parsed_source_bytes += staged.projection.initial_parse_work;
         work.link_metadata_items += staged.projection.initial_link_metadata_items;
         work.link_copied_bytes += staged.projection.initial_link_copied_bytes;
+        let prepared = prepare(&mut staged)?;
+        Ok((prepared, work))
+    }
+
+    pub(super) fn validate_exact_candidate(
+        &self,
+        staged: &mut Self,
+        window: Range<usize>,
+        pending: Option<&PendingLinks>,
+        require_all: bool,
+        required: &[Range<usize>],
+        targets: SelectionTargets<'_>,
+    ) -> Result<PendingPreview, EditorError> {
+        let mut work = EditWork::default();
         work.link_metadata_items += staged
             .projection
             .verify_pending_link_witnesses(targets.links, window.start)?;
-        self.preview_exact_selections(&staged, window.clone(), targets, &mut work)?;
+        self.preview_exact_selections(staged, window.clone(), targets, &mut work)?;
         let Some(pending) = pending else {
             return Ok(PendingPreview {
                 supported: None,
