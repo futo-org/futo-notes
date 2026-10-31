@@ -7,6 +7,10 @@ pub(crate) struct CanonicalUri {
     pub displayed: String,
     pub meaning: Arc<LinkMeaning>,
 }
+pub(crate) enum RelinkWord {
+    Uri(CanonicalUri),
+    Literal(String),
+}
 #[derive(Clone, PartialEq, Eq)]
 pub(crate) struct CodeWitness {
     pub open: Range<usize>,
@@ -77,7 +81,7 @@ impl Projection {
         words: &[Range<usize>],
         origin: usize,
         expected: Option<&[Vec<CodeWitness>]>,
-    ) -> Result<(Vec<Option<CanonicalUri>>, Vec<Vec<CodeWitness>>, EditWork), EditorError> {
+    ) -> Result<(Vec<RelinkWord>, Vec<Vec<CodeWitness>>, EditWork), EditorError> {
         let mut work = EditWork::default();
         let (codes, visits) = self.relink_code_witnesses(words, origin)?;
         work.link_metadata_items += visits;
@@ -163,7 +167,7 @@ impl Projection {
                 }) else {
                     // None is no COMPLETE URI, and may contain a partial
                     // canonical link. It is not a word-end retirement policy.
-                    result.push(None);
+                    result.push(RelinkWord::Literal(displayed));
                     work.link_metadata_items += 1;
                     first += 1;
                     continue;
@@ -174,7 +178,7 @@ impl Projection {
                 if meaning.title.is_some() || meaning.reference.is_some() {
                     return Err(EditorError::UnrepresentableFormat);
                 }
-                result.push(Some(CanonicalUri {
+                result.push(RelinkWord::Uri(CanonicalUri {
                     displayed,
                     meaning: meaning.clone(),
                 }));
@@ -183,5 +187,52 @@ impl Projection {
             }
         }
         Ok((result, codes, work))
+    }
+}
+
+impl Projection {
+    /// One actual row span walk excludes Links from every retired envelope.
+    /// Code pairing is independently checked by relink_owned_uris.
+    pub(crate) fn validate_literal_relink_envelopes(
+        &self,
+        envelopes: &[Range<usize>],
+        origin: usize,
+    ) -> Result<usize, EditorError> {
+        let mut work = 0;
+        let mut first = 0;
+        while first < envelopes.len() {
+            let at = envelopes[first]
+                .start
+                .checked_sub(origin)
+                .ok_or(EditorError::UnrepresentableFormat)?;
+            let (row, base, _, visits) = self.rows.source_row_with_work(at);
+            work += visits;
+            let base = origin + base;
+            let last = envelopes.partition_point(|range| {
+                work += 1;
+                range.start < base + row.source_len
+            });
+            if last <= first || envelopes[last - 1].end > base + row.source_len {
+                return Err(EditorError::UnrepresentableFormat);
+            }
+            for span in &row.spans {
+                work += 1;
+                if !matches!(span.kind, SpanKind::Link(_)) {
+                    continue;
+                }
+                let start = base + span.open.start;
+                let end = base + span.close.end;
+                let index = first
+                    + envelopes[first..last].partition_point(|range| {
+                        work += 1;
+                        range.end <= start
+                    });
+                if index < last && envelopes[index].start < end {
+                    return Err(EditorError::UnrepresentableFormat);
+                }
+            }
+            first = last;
+        }
+        Ok(work)
     }
 }

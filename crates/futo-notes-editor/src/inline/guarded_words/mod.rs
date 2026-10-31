@@ -2,7 +2,7 @@
 //! Standard Markdown owns saved meaning; these fields never survive recovery.
 mod context;
 mod relink;
-pub(crate) use relink::{CanonicalUri, CodeWitness};
+pub(crate) use relink::{CanonicalUri, CodeWitness, RelinkWord};
 mod deletion;
 mod split;
 pub(crate) use split::{SplitInventory, ValidationAtom};

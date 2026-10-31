@@ -145,7 +145,12 @@ impl Boundary {
                     for prepared in &mut fields {
                         charge(
                             &mut work,
-                            prepared.prepare_candidate(staged, before.window.start, identities)?,
+                            prepared.prepare_candidate(
+                                staged,
+                                before.window.start,
+                                identities,
+                                &rewrite.source,
+                            )?,
                         );
                     }
                     for (index, prepared) in fields.iter().enumerate() {
