@@ -167,6 +167,7 @@ pub(super) fn describe(source: &str, events: &[(Event<'_>, Range<usize>)]) -> Li
     let mut active_items: Vec<usize> = Vec::new();
     let mut previous_items = Vec::new();
     let mut last_child: Vec<Option<usize>> = Vec::new();
+    let mut physical = PhysicalColumns::default();
     for (event, range) in events {
         visit_container();
         if matches!(
@@ -215,9 +216,8 @@ pub(super) fn describe(source: &str, events: &[(Event<'_>, Range<usize>)]) -> Li
                     .count();
                 let padding = if padding > 4 { 1 } else { padding };
                 let start = range.start + indent;
-                let first_start = source[..start].rfind('\n').map_or(0, |at| at + 1);
+                let (first_start, marker_column) = physical.at_marker(source, start);
                 prefixes.push((start, start + width + padding));
-                let marker_column = columns(&source[first_start..start], 0);
                 let content_column =
                     columns(&source[start..start + width + padding], marker_column);
                 let previous_content_column = previous_items
@@ -301,6 +301,40 @@ pub(super) fn describe(source: &str, events: &[(Event<'_>, Range<usize>)]) -> Li
     }
 }
 
+/// Canonical item starts arrive in source order. Carry physical byte/column
+/// position across them rather than rereading a shared prefix per nested item.
+#[derive(Default)]
+struct PhysicalColumns {
+    at: usize,
+    line: usize,
+    column: usize,
+}
+
+impl PhysicalColumns {
+    fn at_marker(&mut self, source: &str, marker: usize) -> (usize, usize) {
+        if marker < self.at {
+            // Preserve the old result for a privately supplied noncanonical
+            // event stream; real parser Item starts are monotonically ordered.
+            *self = Self::default();
+        }
+        for byte in source.as_bytes()[self.at..marker].iter().copied() {
+            visit_container();
+            self.at += 1;
+            if byte == b'\n' {
+                self.line = self.at;
+                self.column = 0;
+            } else {
+                self.column += if byte == b'\t' {
+                    4 - self.column % 4
+                } else {
+                    1
+                };
+            }
+        }
+        (self.line, self.column)
+    }
+}
+
 /// CommonMark columns expand a tab to the next four-column stop.
 pub(crate) fn columns(raw: &str, mut column: usize) -> usize {
     for byte in raw.bytes() {
@@ -309,3 +343,7 @@ pub(crate) fn columns(raw: &str, mut column: usize) -> usize {
     }
     column
 }
+
+#[cfg(test)]
+#[path = "lists_frozen_columns.rs"]
+pub(super) mod frozen_columns;

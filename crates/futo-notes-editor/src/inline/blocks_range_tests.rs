@@ -271,3 +271,30 @@ fn authored_blank_between_prose_blocks_has_no_prose_fact() {
         vec![true, false, true]
     );
 }
+
+#[test]
+fn canonical_list_constructor_preserves_all_pre_cursor_fields_and_source_order() {
+    for source in sources() {
+        let events = super::super::row::source_events(&source);
+        let old = super::super::lists::frozen_columns::describe(&source, &events).into_items();
+        let new = super::super::lists::describe(&source, &events).into_items();
+        assert!(
+            old.windows(2)
+                .all(|pair| pair[0].marker.start <= pair[1].marker.start),
+            "{source:?}"
+        );
+        assert_eq!(format!("{new:?}"), format!("{old:?}"), "{source:?}");
+        for base in [0, 61] {
+            let mut old = old.clone();
+            let mut new = new.clone();
+            for item in old.iter_mut().chain(new.iter_mut()) {
+                item.shift(base);
+            }
+            assert_eq!(
+                format!("{new:?}"),
+                format!("{old:?}"),
+                "base={base}, {source:?}"
+            );
+        }
+    }
+}

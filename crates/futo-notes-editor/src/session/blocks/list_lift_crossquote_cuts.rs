@@ -22,29 +22,103 @@ impl EditorSession {
         let mut bodies: BTreeMap<usize, (Range<usize>, String)> = BTreeMap::new();
         let mut parsed = 0;
         let mut materialized = 0;
+        let mut current = None;
+        // One transient borrowed index retains original event order within a
+        // quote scope. Each group owns a distinct containing quote scope.
+        #[cfg(test)]
+        let metadata_before = trace::metadata();
+        let mut by_quote: Vec<_> = items
+            .iter()
+            .enumerate()
+            .map(|item| {
+                crate::inline::visit_container();
+                item
+            })
+            .collect();
+        by_quote.sort_by(|(left_at, left), (right_at, right)| {
+            crate::inline::visit_container();
+            match left.quote_depth.cmp(&right.quote_depth) {
+                std::cmp::Ordering::Equal => {
+                    crate::inline::visit_container();
+                    left_at.cmp(right_at)
+                }
+                order => order,
+            }
+        });
+        #[cfg(test)]
+        trace::record(|ledger| ledger.index_metadata += trace::metadata() - metadata_before);
         for group in groups {
             crate::inline::visit_container();
             let item = &group.removed;
             let head = self
                 .source
                 .line_to_byte(self.source.byte_to_line(item.marker.start));
-            #[cfg(test)]
-            trace::record(|ledger| ledger.head_queries += 1);
-            let prefix = self
-                .projection
-                .source_prefix_at(head)
-                .ok_or(EditorError::UnrepresentableFormat)?;
-            let raw = self.source.byte_slice(prefix.prefix.clone()).to_string();
-            materialized += raw.len();
-            #[cfg(test)]
-            trace::record(|ledger| ledger.prefix_copies += raw.len());
+            if current
+                .as_ref()
+                .is_none_or(|cached: &HeadPrefix| cached.head != head)
+            {
+                #[cfg(test)]
+                trace::record(|ledger| ledger.head_queries += 1);
+                let prefix = self
+                    .projection
+                    .source_prefix_at(head)
+                    .ok_or(EditorError::UnrepresentableFormat)?;
+                let raw = self.source.byte_slice(prefix.prefix.clone()).to_string();
+                materialized += raw.len();
+                #[cfg(test)]
+                trace::record(|ledger| ledger.prefix_copies += raw.len());
+                if !prefix.code {
+                    let raw_body = self.source.byte_slice(prefix.content.clone()).to_string();
+                    #[cfg(test)]
+                    trace::record(|ledger| {
+                        ledger.body_calls += 1;
+                        ledger.body_bytes += raw_body.len();
+                    });
+                    let (protected, work) = super::content::protect_content(&raw_body, false, true);
+                    parsed += work;
+                    materialized += raw_body.len() + protected.len();
+                    if protected != raw_body {
+                        let before = raw_body
+                            .chars()
+                            .zip(protected.chars())
+                            .take_while(|(a, b)| a == b)
+                            .map(|(ch, _)| ch.len_utf8())
+                            .sum::<usize>();
+                        let after = raw_body[before..]
+                            .chars()
+                            .rev()
+                            .zip(protected[before..].chars().rev())
+                            .take_while(|(a, b)| a == b)
+                            .map(|(ch, _)| ch.len_utf8())
+                            .sum::<usize>();
+                        bodies.insert(
+                            prefix.content.start,
+                            (
+                                prefix.content.start + before..prefix.content.end - after,
+                                protected[before..protected.len() - after].to_owned(),
+                            ),
+                        );
+                    }
+                }
+                heads.entry(head).or_insert(prefix);
+                current = Some(HeadPrefix {
+                    head,
+                    raw,
+                    quotes: 0,
+                    end: 0,
+                    column: 0,
+                });
+            }
             #[cfg(test)]
             let metadata_before = trace::metadata();
-            let quote_end = super::indent_source::canonical_quote_end(&raw, item.quote_depth)
+            let base = current
+                .as_mut()
+                .unwrap()
+                .quote_column(item.quote_depth)
                 .ok_or(EditorError::UnrepresentableFormat)?;
-            let base = crate::inline::columns(&raw[..quote_end], 0);
             #[cfg(test)]
             trace::record(|ledger| ledger.prefix_metadata += trace::metadata() - metadata_before);
+            let prefix = heads.get(&head).unwrap();
             let mut retired_end = head + item.indent;
             if item.checked.is_some() {
                 retired_end += 3;
@@ -85,39 +159,6 @@ impl EditorSession {
                     delta,
                 });
             }
-            if !prefix.code {
-                let raw_body = self.source.byte_slice(prefix.content.clone()).to_string();
-                #[cfg(test)]
-                trace::record(|ledger| {
-                    ledger.body_calls += 1;
-                    ledger.body_bytes += raw_body.len();
-                });
-                let (protected, work) = super::content::protect_content(&raw_body, false, true);
-                parsed += work;
-                materialized += raw_body.len() + protected.len();
-                if protected != raw_body {
-                    let before = raw_body
-                        .chars()
-                        .zip(protected.chars())
-                        .take_while(|(a, b)| a == b)
-                        .map(|(ch, _)| ch.len_utf8())
-                        .sum::<usize>();
-                    let after = raw_body[before..]
-                        .chars()
-                        .rev()
-                        .zip(protected[before..].chars().rev())
-                        .take_while(|(a, b)| a == b)
-                        .map(|(ch, _)| ch.len_utf8())
-                        .sum::<usize>();
-                    bodies.insert(
-                        prefix.content.start,
-                        (
-                            prefix.content.start + before..prefix.content.end - after,
-                            protected[before..protected.len() - after].to_owned(),
-                        ),
-                    );
-                }
-            }
             #[cfg(test)]
             let metadata_before = trace::metadata();
             let after = self
@@ -132,7 +173,19 @@ impl EditorSession {
             #[cfg(test)]
             trace::record(|ledger| ledger.neighbor_metadata += trace::metadata() - metadata_before);
             let mut tail_end = item.item.end;
-            for child in items {
+            #[cfg(test)]
+            let metadata_before = trace::metadata();
+            let begin = by_quote.partition_point(|(_, child)| {
+                crate::inline::visit_container();
+                child.quote_depth < item.quote_depth
+            });
+            let end = by_quote.partition_point(|(_, child)| {
+                crate::inline::visit_container();
+                child.quote_depth <= item.quote_depth
+            });
+            #[cfg(test)]
+            trace::record(|ledger| ledger.index_metadata += trace::metadata() - metadata_before);
+            for (_, child) in &by_quote[begin..end] {
                 crate::inline::visit_container();
                 #[cfg(test)]
                 trace::record(|ledger| ledger.child_visits += 1);
@@ -194,7 +247,6 @@ impl EditorSession {
                 ));
                 heads.entry(child_head).or_insert(child_prefix);
             }
-            heads.entry(head).or_insert(prefix);
         }
         Ok(CrossquoteCuts {
             spans,
@@ -204,5 +256,38 @@ impl EditorSession {
             parsed,
             materialized,
         })
+    }
+}
+
+/// Only the current physical prefix, never a retained body or ancestor graph.
+/// Containing canonical groups are source-ordered and advance through quotes.
+struct HeadPrefix {
+    head: usize,
+    raw: String,
+    quotes: usize,
+    end: usize,
+    column: usize,
+}
+impl HeadPrefix {
+    fn quote_column(&mut self, depth: usize) -> Option<usize> {
+        if depth < self.quotes {
+            self.quotes = 0;
+            self.end = 0;
+            self.column = 0;
+        }
+        while self.quotes < depth {
+            let start = self.end;
+            let next = self.raw[start..].find('>')?;
+            for _ in 0..=next {
+                crate::inline::visit_container();
+            }
+            self.end += next + 1;
+            if matches!(self.raw.as_bytes().get(self.end), Some(b' ' | b'\t')) {
+                self.end += 1;
+            }
+            self.column = crate::inline::columns(&self.raw[start..self.end], self.column);
+            self.quotes += 1;
+        }
+        Some(self.column)
     }
 }

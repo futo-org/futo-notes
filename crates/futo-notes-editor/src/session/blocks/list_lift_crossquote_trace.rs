@@ -10,6 +10,7 @@ pub(super) struct Ledger {
     pub body_calls: usize,
     pub body_bytes: usize,
     pub child_visits: usize,
+    pub index_metadata: usize,
     pub neighbor_metadata: usize,
     pub emit_metadata: usize,
 }
