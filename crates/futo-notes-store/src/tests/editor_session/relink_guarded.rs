@@ -168,3 +168,97 @@ fn affected_uri_relink_offer_and_both_history_directions_retry_real_store_append
         assert_eq!(store.read("plain").unwrap(), saved);
     }
 }
+
+#[test]
+fn eligible_typed_origin_relink_and_history_retry_real_store_appends_before_closer() {
+    for fault in [storage::Fault::Append, storage::Fault::ShortWrite] {
+        let root = TestRoot::new();
+        let store = store(&root);
+        store.create("", "Old", "target").unwrap();
+        store.create("", "plain", "").unwrap();
+        let disk = Arc::new(Mutex::new(storage::Disk::default()));
+        let mut host = store
+            .open_editor_with_recovery("plain", storage::options(&disk))
+            .unwrap()
+            .into_portable_host(SessionToken(781))
+            .unwrap();
+        let mut page = PortableSession::from_snapshot(host.snapshot()).unwrap();
+        let mut shown = String::new();
+        let old = "<www.x.test/[[Old]]/path";
+        let new = "<www.x.test/[[New]]/path";
+        let request = page.replace(Revision(0), range(0, 0), old).unwrap();
+        accepted(&mut page, &mut host, request, &mut shown);
+        assert_eq!(shown, old);
+        assert_eq!(page.draft_text(), old);
+        let before = page.project(Revision(1), range(0, 24)).unwrap();
+        assert!(before.links.is_empty());
+        host.checkpoint().unwrap();
+        assert_eq!(store.rename("Old", "New").unwrap().relinked, ["plain"]);
+        assert_eq!(store.read("plain").unwrap(), new);
+        assert_eq!(page.project(Revision(1), range(0, 24)).unwrap(), before);
+        let poll = page.flush().unwrap();
+        let offer = host.handle(poll);
+        assert!(offer.relink.is_some());
+        assert!(page.acknowledge(offer).unwrap().is_none());
+        let request = page.apply_relink_offer().unwrap().unwrap();
+        assert_eq!(page.draft_text(), new);
+        assert_eq!(shown, old);
+        failed_then_retry(&mut page, &mut host, request, &mut shown, &disk, fault);
+        assert_eq!(shown, new);
+        assert!(page
+            .project(Revision(2), range(0, 24))
+            .unwrap()
+            .links
+            .is_empty());
+        let request = page.undo(Revision(2)).unwrap().unwrap();
+        failed_then_retry(&mut page, &mut host, request, &mut shown, &disk, fault);
+        assert_eq!(shown, "");
+        assert_eq!(page.draft_text(), "");
+        let request = page.redo(Revision(3)).unwrap().unwrap();
+        failed_then_retry(&mut page, &mut host, request, &mut shown, &disk, fault);
+        assert_eq!(shown, new);
+        assert_eq!(page.draft_text(), new);
+        assert!(page
+            .project(Revision(4), range(0, 24))
+            .unwrap()
+            .links
+            .is_empty());
+        let request = page.replace(Revision(4), range(24, 24), ">").unwrap();
+        accepted(&mut page, &mut host, request, &mut shown);
+        assert_eq!(shown, "<www.x.test/[[New]]/path>");
+        assert!(page
+            .project(Revision(5), range(0, 25))
+            .unwrap()
+            .links
+            .is_empty());
+        let request = page.replace(Revision(5), range(25, 25), " ").unwrap();
+        accepted(&mut page, &mut host, request, &mut shown);
+        assert_eq!(shown, "<www.x.test/[[New]]/path> ");
+        let active = page.project(Revision(6), range(0, 26)).unwrap();
+        assert_eq!(active.links.len(), 1);
+        assert_eq!(
+            active.links[0].destination,
+            "http://www.x.test/[[New]]/path"
+        );
+        let flush = page.flush().unwrap();
+        page.acknowledge(host.handle(flush)).unwrap();
+        let saved = page.draft_text();
+        drop(host);
+        let mut reopened = store
+            .open_editor_with_recovery("plain", storage::options(&disk))
+            .unwrap();
+        assert_eq!(reopened.source_text(), saved);
+        assert_eq!(reopened.display_text(), shown);
+        assert_eq!(
+            reopened
+                .inspect_link(reopened.revision(), range(1, 2))
+                .unwrap()
+                .unwrap()
+                .destination,
+            "http://www.x.test/[[New]]/path"
+        );
+        assert!(reopened.undo(reopened.revision()).unwrap().is_none());
+        reopened.checkpoint().unwrap();
+        assert_eq!(store.read("plain").unwrap(), saved);
+    }
+}
