@@ -205,6 +205,11 @@ fn text_promotes_fence_after_preceding_list_without_reabsorbing_parent_prose() {
 }
 
 #[test]
+fn text_promotes_continuation_and_two_fences_without_rewriting_opaque_bodies() {
+    mutate_scope(&MULTIPLE);
+}
+
+#[test]
 fn existing_blank_before_promoted_fence_is_retained_without_duplication() {
     let case = ScopeCase {
         source: "- before\n\n- parent\n  ```lang\n  opaque\n- outside",
