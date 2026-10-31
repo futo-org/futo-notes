@@ -2,6 +2,7 @@
 import { dividerPendingConsumer } from './wasm-divider-pending-consumer.mjs';
 import { anglePendingConsumer } from './wasm-angle-consumer.mjs';
 import { typedOriginConsumer } from './wasm-typed-origin-consumer.mjs';
+import { literalRetirementConsumer } from './wasm-literal-retirement-consumer.mjs';
 import { sourceGenerationsConsumer } from './wasm-source-generations-consumer.mjs';
 
 export async function liveSourceConsumers({ start, stop, getSession, createRoot, parseSource }) {
@@ -52,6 +53,13 @@ export async function liveSourceConsumers({ start, stop, getSession, createRoot,
     start,
     stop,
     getSession: checked('WWW typed origin'),
+    createRoot,
+    parseSource,
+  });
+  await literalRetirementConsumer({
+    start,
+    stop,
+    getSession: checked('literal retirement'),
     createRoot,
     parseSource,
   });
