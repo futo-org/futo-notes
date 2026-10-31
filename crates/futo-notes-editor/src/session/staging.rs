@@ -33,10 +33,25 @@ impl Boundary {
     }
 }
 
+/// Opening-generation boundary facts, without source offsets or identity.
+/// Edits within a staged window do not move or change its untouched outside.
+#[derive(Clone, Copy, Debug, Default)]
+pub(super) enum PhysicalTail {
+    #[default]
+    Eof,
+    Row {
+        code: bool,
+        quote_depth: usize,
+        first_item: Option<bool>,
+    },
+    Unknown,
+}
+
 #[derive(Default)]
 pub(super) struct StageContext {
     before: Boundary,
     after: Boundary,
+    physical_tail: PhysicalTail,
 }
 
 impl EditorSession {
@@ -90,7 +105,7 @@ impl EditorSession {
     /// witness reaches the true document edge rather than inventing an EOF.
     pub(super) fn stage_source(&self, raw: &str, window: Range<usize>) -> Self {
         debug_assert_eq!(raw.len(), window.len());
-        self.stage_with_context(raw, window)
+        self.stage_with_context(raw, window, true)
     }
 
     /// Inline spelling may transform a body before its isolated split. Only
@@ -98,14 +113,37 @@ impl EditorSession {
     /// source/display anchors must use the inline owner's body correspondence;
     /// they must never be copied by an arithmetic window offset.
     pub(super) fn stage_body_source(&self, raw: &str, window: Range<usize>) -> Self {
-        self.stage_with_context(raw, window)
+        self.stage_with_context(raw, window, false)
     }
 
-    fn stage_with_context(&self, raw: &str, window: Range<usize>) -> Self {
+    pub(super) fn physical_tail(&self) -> PhysicalTail {
+        self.context.physical_tail
+    }
+
+    fn stage_with_context(&self, raw: &str, window: Range<usize>, exact: bool) -> Self {
+        let physical_tail = if !exact || matches!(self.physical_tail(), PhysicalTail::Unknown) {
+            PhysicalTail::Unknown
+        } else if window.end == self.source.len_bytes() {
+            self.physical_tail()
+        } else if window.end < self.source.len_bytes() {
+            // source_prefix_at succeeds only at an actual physical row start.
+            // No visible-neighbor query or global source coordinate is evidence
+            // for this untouched outside row's identity.
+            self.projection
+                .source_prefix_at(window.end)
+                .map_or(PhysicalTail::Unknown, |prefix| PhysicalTail::Row {
+                    code: prefix.code,
+                    quote_depth: prefix.quote_depth,
+                    first_item: prefix.list.as_ref().map(|list| list.first),
+                })
+        } else {
+            PhysicalTail::Unknown
+        };
         let mut staged = Self::open_with_clock(raw, self.clock.clone());
         staged.context = StageContext {
             before: self.stage_boundary(window.start, false),
             after: self.stage_boundary(window.end, true),
+            physical_tail,
         };
         staged
     }
