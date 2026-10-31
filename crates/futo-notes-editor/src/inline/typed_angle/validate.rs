@@ -55,8 +55,9 @@ pub(in crate::inline) fn validate_row(
                 }
                 for ch in text.chars() {
                     work += 1;
-                    if ch.is_whitespace() || matches!(ch, '<' | '>') {
-                        eprintln!("301 diagnostic typed-scalar: scalar={ch:?}; segment-source={:?}; segment-display={:?}; identity={}; opener={:?}; word={:?}; uri={}", segment.source, segment.display, segment.identity, origin.opener, origin.word, origin.uri.is_some());
+                    // The producer owns terminal closer syntax. A canonical
+                    // URI may include a nonterminal angle scalar as word data.
+                    if ch.is_whitespace() {
                         return Err(EditorError::UnrepresentableFormat);
                     }
                 }
