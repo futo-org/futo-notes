@@ -91,3 +91,67 @@ fn a_divider_transports_the_live_code_scalar_into_its_unchanged_right_body() {
     assert_eq!(session.source_text(), guarded);
     assert_eq!(view.text, "pre <https://x.test/path>");
 }
+
+#[test]
+fn divider_uses_the_current_empty_snapshot_after_its_actual_word_end_retires_pending_uri() {
+    let mut session = EditorSession::open("");
+    let mut view = ReferenceView::new("");
+    view.apply(
+        session
+            .replace(Revision(0), range(0, 0), "<https://x.test", &mut |_| Ok(()))
+            .unwrap(),
+    );
+    view.apply(
+        session
+            .replace(Revision(1), range(15, 15), ">", &mut |_| Ok(()))
+            .unwrap(),
+    );
+    assert_eq!(session.source_text(), "<<https://x.test>>");
+    assert!(session
+        .inspect_link(Revision(2), range(1, 2))
+        .unwrap()
+        .is_none());
+    let mut accepts = 0;
+    view.apply(
+        session
+            .block_command(
+                Revision(2),
+                range(16, 16),
+                BlockCommand::Divider,
+                &mut |_| {
+                    accepts += 1;
+                    Ok(())
+                },
+            )
+            .unwrap()
+            .unwrap(),
+    );
+    assert_eq!(accepts, 1);
+    assert_eq!(session.source_text(), "<<https://x.test>>\n***\n");
+    assert_eq!(view.text, "<https://x.test>\n\u{fffc}\n");
+    assert_eq!(session.selection(), range(21, 21));
+    assert_eq!(
+        session
+            .inspect_link(Revision(3), range(1, 2))
+            .unwrap()
+            .unwrap()
+            .destination,
+        "https://x.test"
+    );
+    view.apply(session.undo(Revision(3), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(session.source_text(), "<<https://x.test>>");
+    assert!(session
+        .inspect_link(Revision(4), range(1, 2))
+        .unwrap()
+        .is_none());
+    view.apply(session.redo(Revision(4), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(session.source_text(), "<<https://x.test>>\n***\n");
+    assert_eq!(
+        session
+            .inspect_link(Revision(5), range(1, 2))
+            .unwrap()
+            .unwrap()
+            .destination,
+        "https://x.test"
+    );
+}
