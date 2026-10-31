@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { Buffer } from 'node:buffer';
 
-export async function sourceGenerationsConsumer({ start, stop, getSession, root }) {
+export async function sourceGenerationsConsumer({ start, stop, getSession, root, prefixRoot }) {
   const opening = '> > \n> ab\n> ===';
   const typed = '> > *ab* \n>\n> ab\n> ===';
   const headed = '> > ### *ab* \n>\n> ab\n> ===';
@@ -59,6 +59,53 @@ export async function sourceGenerationsConsumer({ start, stop, getSession, root 
   page = getSession();
   assert.equal(page.draft_text(), headed);
   assert.equal(JSON.parse(page.project(revision, 0, 7)).text, shown);
+  assert.deepEqual(await exchange(JSON.stringify({ checkpoint: true })), { id: 'plain' });
+  await stop();
+
+  exchange = await start('> head\n> seed\n> ===', prefixRoot);
+  page = getSession();
+  shown = 'head\nseed';
+  revision = 0n;
+  await apply(page.replace(0n, 5, 9, '<https://x.test/path'));
+  await apply(page.replace(1n, 25, 25, '>'));
+  assert.equal(page.draft_text(), '> head\n> <<https://x.test/path>>\n> ===');
+  assert.deepEqual(JSON.parse(page.project(revision, 0, 26)).links, []);
+  page.select_with_affinity(revision, 20, 25, '"Forward"');
+  await apply(page.toggle_format(revision, '"Code"'));
+  const guarded = page.draft_text();
+  assert.deepEqual(JSON.parse(page.project(revision, 0, 26)).links, []);
+  await apply(page.paragraph_key_utf16(revision, 5, 5, '"Enter"'));
+  const split = '> head\n> ===\n\n> <https\\://x.test`/path`>';
+  assert.equal(page.draft_text(), split);
+  assert.equal(shown, 'head\n\n<https://x.test/path>');
+  page.select_with_affinity(revision, 21, 26, '"Backward"');
+  await apply(page.toggle_format(revision, '"Code"'));
+  const released = page.draft_text();
+  page.select_with_affinity(revision, 27, 27, '"Forward"');
+  await apply(page.replace_utf16_action(revision, 27, 27, [32], '"Isolated"'));
+  assert.equal(shown, 'head\n\n<https://x.test/path> ');
+  assert.equal(JSON.parse(page.inspect_link(revision, 7, 8)).destination, 'https://x.test/path');
+  await apply(page.undo(revision));
+  assert.equal(page.draft_text(), released);
+  await apply(page.undo(revision));
+  assert.equal(page.draft_text(), split);
+  await apply(page.undo(revision));
+  assert.equal(page.draft_text(), guarded);
+  await apply(page.redo(revision));
+  assert.equal(page.draft_text(), split);
+  await apply(page.redo(revision));
+  assert.equal(page.draft_text(), released);
+  page.select_with_affinity(revision, 27, 27, '"Forward"');
+  await apply(page.replace_utf16_action(revision, 27, 27, [32], '"Isolated"'));
+  assert.equal(JSON.parse(page.inspect_link(revision, 7, 8)).destination, 'https://x.test/path');
+  const canonical = page.draft_text();
+  page.acknowledge(JSON.stringify(await exchange(page.flush())));
+  await stop();
+  exchange = await start('--reopen', prefixRoot);
+  page = getSession();
+  assert.equal(page.draft_text(), canonical);
+  assert.equal(JSON.parse(page.project(revision, 0, 28)).text, shown);
+  assert.equal(JSON.parse(page.inspect_link(revision, 7, 8)).destination, 'https://x.test/path');
   assert.deepEqual(await exchange(JSON.stringify({ checkpoint: true })), { id: 'plain' });
   await stop();
 }

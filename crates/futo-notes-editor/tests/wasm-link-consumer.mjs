@@ -423,8 +423,15 @@ try {
   }
   {
     const sourceVault = mkdtempSync(join(tmpdir(), 'futo-editor-wasm-source-generations-'));
-    timingVaults.push(sourceVault);
-    await sourceGenerationsConsumer({ start, stop, getSession: () => session, root: sourceVault });
+    const prefixVault = mkdtempSync(join(tmpdir(), 'futo-editor-wasm-prefix-'));
+    timingVaults.push(sourceVault, prefixVault);
+    await sourceGenerationsConsumer({
+      start,
+      stop,
+      getSession: () => session,
+      root: sourceVault,
+      prefixRoot: prefixVault,
+    });
   }
   console.log(
     'Compiled WASM links: canonical inspection, actual-parent reference blocks, URL timing, retained/inserted targets, ordered acceptance, exact history and real recovery passed.',
