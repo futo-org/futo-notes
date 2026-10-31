@@ -1,6 +1,8 @@
 //! Primitive indexed-node ledger reached only through public session actions.
 use std::cell::{Cell, RefCell};
 thread_local! {
+    static BARE_VISITS: Cell<usize> = const { Cell::new(0) };
+    static BARE_QUERIES: RefCell<Vec<(usize, usize, usize)>> = const { RefCell::new(Vec::new()) };
     static BOUNDS: Cell<(usize, usize)> = const { Cell::new((0, 0)) };
     static CAPTURE_BOUNDS: RefCell<Vec<(usize, usize)>> = const { RefCell::new(Vec::new()) };
     static VISITS: Cell<usize> = const { Cell::new(0) };
@@ -139,5 +141,44 @@ fn public_distant_input_exposes_its_actual_query_ledger() {
         for (_, actual, reported) in queries {
             assert!(reported >= actual);
         }
+    }
+}
+
+// Primitive post-parser stack operations. This extends the existing cfg-only
+// ledger; it is independent of the primitive's returned work calculation.
+pub(super) fn bare_visit() {
+    BARE_VISITS.with(|n| n.set(n.get() + 1));
+}
+pub(super) fn bare_before() -> usize {
+    BARE_VISITS.with(Cell::get)
+}
+pub(super) fn bare_query(before: usize, hints: usize, reported: usize) {
+    BARE_QUERIES.with(|q| {
+        q.borrow_mut()
+            .push((hints, bare_before() - before, reported))
+    });
+}
+#[test]
+fn public_link_input_charges_the_actual_post_parser_node_and_child_walk() {
+    use crate::{DisplayOffset, DisplayRange, EditorSession, Revision};
+    let mut session = EditorSession::open("__label__ https://x.test");
+    BARE_QUERIES.with(|q| q.borrow_mut().clear());
+    let change = session
+        .replace(
+            Revision(0),
+            DisplayRange {
+                start: DisplayOffset(0),
+                end: DisplayOffset(1),
+            },
+            "B",
+            &mut |_| Ok(()),
+        )
+        .unwrap();
+    assert_eq!(session.source_text(), "__Babel__ https://x.test");
+    assert_eq!(session.display_text(), "Babel https://x.test");
+    let queries = BARE_QUERIES.with(|q| q.borrow().clone());
+    assert!(!queries.is_empty());
+    for (hints, actual, reported) in &queries {
+        assert!(*reported >= hints + actual, "bare consumer: hint={hints}; actual stack/node/child={actual}; reported={reported}; ledger={queries:?}; work={:?}", change.work);
     }
 }

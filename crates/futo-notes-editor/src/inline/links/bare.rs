@@ -28,6 +28,10 @@ pub(in crate::inline) fn bare_links(source: &str) -> (Vec<Span>, usize, usize) {
     if !possible {
         return (Vec::new(), 0, hint_items);
     }
+    #[cfg(test)]
+    let primitive = crate::inline::coordinate_work_tests::bare_before();
+    #[cfg(test)]
+    crate::inline::coordinate_work_tests::bare_visit(); // initial root stack copy
     let options = markdown::ParseOptions {
         constructs: markdown::Constructs {
             gfm_autolink_literal: true,
@@ -41,6 +45,8 @@ pub(in crate::inline) fn bare_links(source: &str) -> (Vec<Span>, usize, usize) {
     let mut pending = vec![&tree];
     let mut cursor = 0;
     while let Some(node) = pending.pop() {
+        #[cfg(test)]
+        crate::inline::coordinate_work_tests::bare_visit();
         if let markdown::mdast::Node::Link(link) = node {
             // GFM's post-parse text transform can leave a literal after a
             // bracket without positions, just as the shipping remark parser
@@ -73,9 +79,14 @@ pub(in crate::inline) fn bare_links(source: &str) -> (Vec<Span>, usize, usize) {
             continue;
         }
         if let Some(children) = node.children() {
-            pending.extend(children.iter().rev());
+            pending.extend(children.iter().rev().inspect(|_| {
+                #[cfg(test)]
+                crate::inline::coordinate_work_tests::bare_visit();
+            }));
         }
     }
+    #[cfg(test)]
+    crate::inline::coordinate_work_tests::bare_query(primitive, hint_items, hint_items);
     (spans, source.len(), hint_items)
 }
 
