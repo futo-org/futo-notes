@@ -32,6 +32,15 @@ fn prior_delete_and_nested_winner_use_changes_keep_the_current_normalized_refere
         vec![("/first".into(), "First".into(), "É ID".into())],
         "independent canonical parser must establish the normalized winner"
     );
+    let parsed = pulldown_cmark::Parser::new(CHANGED);
+    eprintln!(
+        "raw reference definitions: {:?}",
+        parsed.reference_definitions()
+    );
+    eprintln!(
+        "raw mdast definitions: {:?}",
+        markdown::to_mdast(CHANGED, &Default::default()).unwrap()
+    );
     let canonical = EditorSession::open(CHANGED);
     assert_eq!(
         canonical.display_text(),
