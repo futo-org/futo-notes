@@ -347,6 +347,22 @@ const cases = [
     anchor: 'parent',
     offset: 3,
   },
+  {
+    name: 'task owner retarget then ordered child lift splits ordinal fragments',
+    source: '- [ ] parent\n  1. child\n- [x] following',
+    command: 'ordered-list',
+    anchor: 'parent',
+    head: 'child',
+    headOffset: 5,
+  },
+  {
+    name: 'ordered task owner child lift copies its original start after split',
+    source: '7) [ ] parent\n   1. child\n8) [x] following',
+    command: 'ordered-list',
+    anchor: 'parent',
+    head: 'child',
+    headOffset: 5,
+  },
 ] as const;
 
 describe('pinned shipping toolbar container transactions (#299)', () => {
