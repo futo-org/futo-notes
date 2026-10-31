@@ -55,6 +55,13 @@ enum HeaderShape<'a> {
         inserted_at: usize,
         newline: &'a str,
     },
+    ParagraphPlain {
+        quotes: usize,
+        earlier: Option<(usize, Option<u64>)>,
+        body: usize,
+        inserted_at: usize,
+        newline: &'a str,
+    },
     Plain {
         quotes: usize,
         earlier: Option<(usize, Option<u64>)>,

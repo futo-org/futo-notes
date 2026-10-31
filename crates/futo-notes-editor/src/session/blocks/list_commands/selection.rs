@@ -85,6 +85,12 @@ impl EditorSession {
                 inserted_at,
                 newline,
                 ..
+            }
+            | HeaderShape::ParagraphPlain {
+                body,
+                inserted_at,
+                newline,
+                ..
             } = shape
             {
                 let (cut, text) = edits.first().ok_or(EditorError::UnrepresentableFormat)?;
@@ -128,6 +134,7 @@ impl EditorSession {
             let quotes = match shape {
                 HeaderShape::List { quotes, .. }
                 | HeaderShape::ParagraphList { quotes, .. }
+                | HeaderShape::ParagraphPlain { quotes, .. }
                 | HeaderShape::Plain { quotes, .. } => quotes,
             };
             if actual.code
@@ -176,7 +183,8 @@ impl EditorSession {
                         return Err(EditorError::UnrepresentableFormat);
                     }
                 }
-                HeaderShape::Plain { earlier, .. } => {
+                HeaderShape::Plain { earlier, .. }
+                | HeaderShape::ParagraphPlain { earlier, .. } => {
                     if actual.list.is_some() {
                         return Err(EditorError::UnrepresentableFormat);
                     }
@@ -207,10 +215,14 @@ impl EditorSession {
                 }
             }
         }
-        if let Some(HeaderShape::ParagraphList {
-            original, quotes, ..
-        }) = shape
-        {
+        let paragraph = match shape {
+            Some(HeaderShape::ParagraphList {
+                original, quotes, ..
+            }) => Some((Some(original), quotes)),
+            Some(HeaderShape::ParagraphPlain { quotes, .. }) => Some((None, quotes)),
+            _ => None,
+        };
+        if let Some((original, quotes)) = paragraph {
             let (cut, text) = edits.first().ok_or(EditorError::UnrepresentableFormat)?;
             if cut.start != 0 {
                 return Err(EditorError::UnrepresentableFormat);
@@ -234,15 +246,18 @@ impl EditorSession {
                     || actual.divider
                     || actual.heading != 0
                     || actual.quote_depth != quotes
-                    || !actual.list.as_ref().is_some_and(|list| {
-                        !list.first
-                            && list.depth == original.depth
-                            && list.ordinal == original.ordinal
-                            && list.checked == original.checked
-                            && list.marker.start + window.start == original.marker.start
-                            && list.owner.start + window.start == original.owner.start
-                            && list.item.start + window.start == original.item.start
-                    })
+                    || !match original {
+                        None => actual.list.is_none(),
+                        Some(original) => actual.list.as_ref().is_some_and(|list| {
+                            !list.first
+                                && list.depth == original.depth
+                                && list.ordinal == original.ordinal
+                                && list.checked == original.checked
+                                && list.marker.start + window.start == original.marker.start
+                                && list.owner.start + window.start == original.owner.start
+                                && list.item.start + window.start == original.item.start
+                        }),
+                    }
                 {
                     return Err(EditorError::UnrepresentableFormat);
                 }

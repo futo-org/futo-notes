@@ -21,6 +21,16 @@ impl EditorSession {
         if lines.len() == 1 {
             let targets = super::list_targets::ListTargets::new(&lines, command, true);
             if targets.removes(&lines[0]) {
+                if command == BlockCommand::Heading(0) {
+                    if let Some(change) = self.shared_prefix_frames(
+                        expected,
+                        range,
+                        super::list_prefix_frames::FrameAction::Text,
+                        accept,
+                    )? {
+                        return Ok(Some(change));
+                    }
+                }
                 if let Some(change) =
                     self.promote_root_list_fence(expected, range, &lines, accept)?
                 {
