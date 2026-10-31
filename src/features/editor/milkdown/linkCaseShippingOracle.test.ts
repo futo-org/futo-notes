@@ -153,3 +153,29 @@ it('an actual committed text transaction ending in LF ends its HTTP word', () =>
   expect(view.state.doc.textContent).toBe(text);
   expect(found).toEqual([{ text: 'HTTPS://x.test/PaTh', href: 'HTTPS://x.test/PaTh' }]);
 });
+
+// One committed-TEXT branch, covering its remaining separator decisions.
+// CRLF/two-space are multiple separators at this seam, not native normalization.
+for (const [name, ending, linked] of [
+  ['TAB', '\t', true],
+  ['NBSP', '\u00a0', true],
+  ['CRLF', '\r\n', false],
+  ['two spaces', '  ', false],
+] as const) {
+  it(`committed TEXT with ${name} preserves its actual last-word decision`, () => {
+    const view = editor.ctx.get(editorViewCtx);
+    view.updateState(
+      EditorState.create({ schema: view.state.schema, plugins: view.state.plugins }),
+    );
+    const inner = 'HTTPS://x.test/PaTh';
+    const text = `<${inner}>${ending}`;
+    view.dispatch(view.state.tr.insertText(text).setMeta('composition', 301));
+    const found: { text: string; href: string }[] = [];
+    view.state.doc.descendants((node) => {
+      const mark = node.marks.find((mark) => mark.type.name === 'link');
+      if (mark && node.isText) found.push({ text: node.text ?? '', href: String(mark.attrs.href) });
+    });
+    expect(view.state.doc.textContent).toBe(text);
+    expect(found).toEqual(linked ? [{ text: inner, href: inner }] : []);
+  });
+}
