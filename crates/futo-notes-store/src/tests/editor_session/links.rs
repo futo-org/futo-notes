@@ -224,3 +224,5 @@ mod code_literal;
 mod divider_references;
 
 mod typed_origin;
+
+mod literal_retirement;
