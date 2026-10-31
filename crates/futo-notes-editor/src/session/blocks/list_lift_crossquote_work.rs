@@ -159,6 +159,7 @@ fn shared_physical_quote_heads_do_not_reprotect_the_same_large_body() {
             .unwrap();
         crate::inline::CONTAINER_METADATA_VISITS.with(|count| count.set(0));
         crate::inline::CONTAINER_PREFIX_QUERIES.with(|count| count.set(0));
+        super::trace::reset();
         let mut accepts = 0;
         let change = session
             .block_command(Revision(0), selected, BlockCommand::Heading(0), &mut |_| {
@@ -169,6 +170,10 @@ fn shared_physical_quote_heads_do_not_reprotect_the_same_large_body() {
             .unwrap();
         let metadata = crate::inline::CONTAINER_METADATA_VISITS.with(|count| count.get());
         let queries = crate::inline::CONTAINER_PREFIX_QUERIES.with(|count| count.get());
+        eprintln!(
+            "shared-head depth={depth} primitive ledger: {:?}",
+            super::trace::get()
+        );
         let work = change.work;
         assert_eq!(accepts, 1);
         let mut view = body.clone();

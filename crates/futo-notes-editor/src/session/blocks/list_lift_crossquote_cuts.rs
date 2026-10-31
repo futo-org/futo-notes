@@ -28,15 +28,23 @@ impl EditorSession {
             let head = self
                 .source
                 .line_to_byte(self.source.byte_to_line(item.marker.start));
+            #[cfg(test)]
+            trace::record(|ledger| ledger.head_queries += 1);
             let prefix = self
                 .projection
                 .source_prefix_at(head)
                 .ok_or(EditorError::UnrepresentableFormat)?;
             let raw = self.source.byte_slice(prefix.prefix.clone()).to_string();
             materialized += raw.len();
+            #[cfg(test)]
+            trace::record(|ledger| ledger.prefix_copies += raw.len());
+            #[cfg(test)]
+            let metadata_before = trace::metadata();
             let quote_end = super::indent_source::canonical_quote_end(&raw, item.quote_depth)
                 .ok_or(EditorError::UnrepresentableFormat)?;
             let base = crate::inline::columns(&raw[..quote_end], 0);
+            #[cfg(test)]
+            trace::record(|ledger| ledger.prefix_metadata += trace::metadata() - metadata_before);
             let mut retired_end = head + item.indent;
             if item.checked.is_some() {
                 retired_end += 3;
@@ -79,6 +87,11 @@ impl EditorSession {
             }
             if !prefix.code {
                 let raw_body = self.source.byte_slice(prefix.content.clone()).to_string();
+                #[cfg(test)]
+                trace::record(|ledger| {
+                    ledger.body_calls += 1;
+                    ledger.body_bytes += raw_body.len();
+                });
                 let (protected, work) = super::content::protect_content(&raw_body, false, true);
                 parsed += work;
                 materialized += raw_body.len() + protected.len();
@@ -105,6 +118,8 @@ impl EditorSession {
                     );
                 }
             }
+            #[cfg(test)]
+            let metadata_before = trace::metadata();
             let after = self
                 .semantic_neighbor(group.root.item.end, true, item.quote_depth)
                 .filter(|neighbor| {
@@ -114,9 +129,13 @@ impl EditorSession {
                         .as_ref()
                         .is_some_and(|list| list.depth == group.root.depth)
                 });
+            #[cfg(test)]
+            trace::record(|ledger| ledger.neighbor_metadata += trace::metadata() - metadata_before);
             let mut tail_end = item.item.end;
             for child in items {
                 crate::inline::visit_container();
+                #[cfg(test)]
+                trace::record(|ledger| ledger.child_visits += 1);
                 if child.quote_depth != item.quote_depth {
                     continue;
                 }

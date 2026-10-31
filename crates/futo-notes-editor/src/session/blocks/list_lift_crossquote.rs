@@ -29,9 +29,13 @@ impl EditorSession {
             .list
             .as_ref()
             .ok_or(EditorError::UnrepresentableFormat)?;
+        #[cfg(test)]
+        let metadata_before = trace::metadata();
         let (items, planning_bytes, _) = self
             .projection
             .list_items_at(&self.source, selected.marker.start);
+        #[cfg(test)]
+        trace::record(|ledger| ledger.canonical_metadata += trace::metadata() - metadata_before);
         let mut groups: Vec<Group> = Vec::new();
         for item in &items {
             crate::inline::visit_container();
@@ -60,11 +64,15 @@ impl EditorSession {
             return Ok(Some(change));
         }
         let cuts = self.plan_crossquote_cuts(&groups, &items)?;
+        #[cfg(test)]
+        let metadata_before = trace::metadata();
         let emit::CrossquoteEdits {
             mut edits,
             parsed,
             mut materialized,
         } = self.emit_crossquote_cuts(cuts)?;
+        #[cfg(test)]
+        trace::record(|ledger| ledger.emit_metadata += trace::metadata() - metadata_before);
         materialized += self.add_shared_root_frame(lines, &groups, &mut edits)?;
         let parsed = planning_bytes + parsed;
         materialized += planning_bytes;
@@ -251,3 +259,7 @@ impl EditorSession {
 #[cfg(test)]
 #[path = "list_lift_crossquote_work.rs"]
 mod work_tests;
+
+#[cfg(test)]
+#[path = "list_lift_crossquote_trace.rs"]
+mod trace;
