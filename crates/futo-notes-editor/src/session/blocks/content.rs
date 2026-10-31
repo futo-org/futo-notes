@@ -29,7 +29,7 @@ impl EditorSession {
         end: usize,
         depth: usize,
         nonempty: bool,
-    ) -> Option<String> {
+    ) -> Option<(String, usize)> {
         if end >= self.source.len_bytes() {
             return None;
         }
@@ -52,11 +52,35 @@ impl EditorSession {
         {
             return None;
         }
+        if next.list.as_ref().is_some_and(|list| {
+            crate::inline::visit_container();
+            list.first
+                && list.depth == 1
+                && list.quote_depth == next.quote_depth
+                && matches!(list.ordinal, None | Some(1))
+        }) {
+            // A canonical nonempty bullet/ordered-one item interrupts the new
+            // quote paragraph itself. An extra marker would create a new item.
+            return None;
+        }
         let prefix = self
             .source
             .byte_slice(next.source.start..next.content.start)
             .to_string();
-        Some(format!("{}\n", prefix.trim_end_matches([' ', '\t'])))
+        let kept = if next.list.is_some() {
+            // A noninterrupting ordinal needs a real blank in its retained
+            // quote scope. Its list marker belongs only to the untouched item.
+            super::indent_source::canonical_quote_end(&prefix, next.quote_depth)?
+        } else {
+            prefix.len()
+        };
+        let retained = prefix[..kept].trim_end_matches([' ', '\t']);
+        for _ in retained.len()..=kept {
+            crate::inline::visit_container();
+        }
+        let separator = format!("{retained}\n");
+        let copied = prefix.len() + separator.len();
+        Some((separator, copied))
     }
 
     /// The block owner supplies physical layout; the inline owner spells the

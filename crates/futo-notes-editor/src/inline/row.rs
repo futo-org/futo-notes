@@ -1,6 +1,6 @@
 mod parse;
 use crate::InlineFormat;
-use pulldown_cmark::{Event, Parser, Tag};
+use pulldown_cmark::{Event, Options, Parser, Tag};
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -79,44 +79,67 @@ pub(crate) struct Row {
     pub(super) transparent_quote: Option<usize>,
 }
 
+pub(super) fn parser_options() -> Options {
+    Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS
+}
+pub(super) fn source_events(source: &str) -> Vec<(Event<'_>, Range<usize>)> {
+    Parser::new_ext(source, parser_options())
+        .into_offset_iter()
+        .collect()
+}
+
 impl Row {
     pub fn source_bounds(&self, at: usize) -> (usize, usize) {
         self.source_bounds_with_work(at).0
     }
-
     pub fn source_bounds_with_work(&self, at: usize) -> ((usize, usize), usize) {
-        let mut work = 0;
+        if self.segments.is_empty() {
+            return ((0, 0), 0);
+        }
+        let mut examined = 0;
         let first = self.segments.partition_point(|segment| {
-            work += 1;
+            examined += 1;
             segment.display.end < at
         });
-        let mut low = self.source_len;
-        let mut high = 0;
-        for segment in &self.segments[first..] {
-            work += 1;
-            if segment.display.start > at {
-                break;
-            }
-            let (a, b) = if segment.display.is_empty() {
-                (segment.source.start, segment.source.end)
-            } else if at == segment.display.start {
-                (segment.source.start, segment.source.start)
-            } else if at == segment.display.end {
-                (segment.source.end, segment.source.end)
-            } else if segment.identity {
-                let position = segment.source.start + at - segment.display.start;
-                (position, position)
+        let last = self.segments.partition_point(|segment| {
+            examined += 1;
+            segment.display.start <= at
+        });
+        // Row construction advances both cursors monotonically without overlap.
+        // Thus the first/last inclusive matches own the complete union extrema,
+        // including every intervening hidden zero-display segment.
+        let result = if first < last {
+            let begin = &self.segments[first];
+            let end = &self.segments[last - 1];
+            examined += 2;
+            if begin.display.start <= at
+                && at <= begin.display.end
+                && end.display.start <= at
+                && at <= end.display.end
+            {
+                let bounds = |segment: &Segment| {
+                    if segment.display.is_empty() {
+                        (segment.source.start, segment.source.end)
+                    } else if at == segment.display.start {
+                        (segment.source.start, segment.source.start)
+                    } else if at == segment.display.end {
+                        (segment.source.end, segment.source.end)
+                    } else if segment.identity {
+                        let position = segment.source.start + at - segment.display.start;
+                        (position, position)
+                    } else {
+                        (segment.source.start, segment.source.end)
+                    }
+                };
+                Some((bounds(begin).0, bounds(end).1))
             } else {
-                (segment.source.start, segment.source.end)
-            };
-            low = low.min(a);
-            high = high.max(b);
-        }
-        if self.segments.is_empty() {
-            ((0, 0), work)
+                None
+            }
         } else {
-            ((low, high), work)
-        }
+            None
+        };
+        super::visit_correspondence(examined);
+        (result.unwrap_or((self.source_len, 0)), examined)
     }
 
     pub fn source_point_with_work(
@@ -132,6 +155,7 @@ impl Row {
         if let Some(segment) = self.segments.get(first) {
             work += 1;
             if !segment.identity && segment.display.start < at && at < segment.display.end {
+                super::visit_correspondence(work);
                 return (
                     crate::history::SourcePoint {
                         source: crate::SourceOffset(segment.source.start),
@@ -145,6 +169,7 @@ impl Row {
                 );
             }
         }
+        super::visit_correspondence(work);
         let ((low, high), visits) = self.source_bounds_with_work(at);
         (
             crate::history::SourcePoint {
@@ -173,6 +198,7 @@ impl Row {
         point: crate::history::SourcePoint,
     ) -> (Option<usize>, usize) {
         if point.source.0 > self.source_len {
+            super::visit_correspondence(1);
             return (None, 1);
         }
         let Some(atom) = point.atom else {
@@ -182,6 +208,7 @@ impl Row {
                 segment.source.end < point.source.0
             });
             let Some(segment) = self.segments.get(index) else {
+                super::visit_correspondence(work);
                 return (Some(self.display.len()), work);
             };
             work += 1;
@@ -189,6 +216,7 @@ impl Row {
                 && segment.source.start < point.source.0
                 && point.source.0 < segment.source.end
             {
+                super::visit_correspondence(work);
                 return (None, work);
             }
             let display = if segment.identity {
@@ -199,6 +227,7 @@ impl Row {
                 segment.display.start
             };
             work += 1;
+            super::visit_correspondence(work);
             return (
                 self.display.is_char_boundary(display).then_some(display),
                 work,
@@ -210,6 +239,7 @@ impl Row {
             segment.source.start < point.source.0
         });
         let Some(segment) = self.segments.get(index) else {
+            super::visit_correspondence(work);
             return (None, work);
         };
         work += 1;
@@ -219,6 +249,7 @@ impl Row {
             && segment.display.len() == atom.display_len
             && point.within < atom.display_len
             && self.display[segment.display.clone()].is_char_boundary(point.within);
+        super::visit_correspondence(work);
         (valid.then_some(segment.display.start + point.within), work)
     }
 
@@ -232,8 +263,12 @@ impl Row {
             work += 1;
             segment.source.end < source
         });
-        if let Some(segment) = self.segments.get(index) {
+        let segment = self.segments.get(index).filter(|segment| {
             work += 1;
+            segment.source.start <= source && source <= segment.source.end
+        });
+        super::visit_correspondence(work);
+        if let Some(segment) = segment {
             let display = if segment.identity {
                 segment.display.start + source - segment.source.start
             } else if source == segment.source.end {
@@ -289,3 +324,7 @@ pub(crate) fn paragraphs(source: &str) -> Vec<&str> {
     }
     result
 }
+
+#[cfg(test)]
+#[path = "row_coordinates_tests.rs"]
+mod coordinates_tests;

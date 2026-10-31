@@ -4,6 +4,7 @@
 use super::*;
 use crate::inline::ContextWitness;
 use std::ops::Range;
+mod construction;
 
 #[derive(Clone)]
 pub(super) struct Neighbor {
@@ -33,11 +34,66 @@ impl Boundary {
     }
 }
 
-#[derive(Default)]
+/// Opening-generation boundary facts, without source offsets or identity.
+/// Edits within a staged window do not move or change its untouched outside.
+#[derive(Clone, Copy, Debug, Default)]
+pub(super) enum PhysicalTail {
+    Eof,
+    Row {
+        code: bool,
+        quote_depth: usize,
+        first_item: Option<bool>,
+        item_depth: Option<usize>,
+        empty_comment: bool,
+        quote_start: bool,
+    },
+    #[default]
+    Unknown,
+}
+
+/// Original complete-item ownership, separate from physical EOF/tail facts.
+/// It has no source offsets, body references or cross-generation identity.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct FenceBoundary {
+    pub depth: usize,
+    pub list_quote: usize,
+    pub code_quote: usize,
+    pub gap_bytes: usize,
+}
+
 pub(super) struct StageContext {
     before: Boundary,
     after: Boundary,
+    physical_tail: PhysicalTail,
+    original_canonical: bool,
+    fence_edge: Option<FenceBoundary>,
+    leading_list_prose: Option<bool>,
     pub origin: Option<crate::inline::references::SourceOrigin>,
+}
+
+impl Default for StageContext {
+    fn default() -> Self {
+        Self {
+            before: Boundary::default(),
+            after: Boundary::default(),
+            physical_tail: PhysicalTail::Unknown,
+            original_canonical: false,
+            fence_edge: None,
+            leading_list_prose: None,
+            origin: None,
+        }
+    }
+}
+
+impl StageContext {
+    /// Only the constructor for a complete real source may certify its edge.
+    pub(super) fn complete_source() -> Self {
+        Self {
+            physical_tail: PhysicalTail::Eof,
+            original_canonical: true,
+            ..Self::default()
+        }
+    }
 }
 
 pub(super) struct BodyStage {
@@ -195,300 +251,218 @@ impl EditorSession {
         })
     }
 
-    fn stage_with_context(
-        &self,
-        raw: &str,
-        window: Range<usize>,
-        exact: bool,
-    ) -> Result<Self, EditorError> {
-        let (winners, work) = if exact {
-            self.projection.reference_winners(window.clone())
-        } else {
-            (
-                Vec::new(),
-                crate::inline::references::ReferenceWork::default(),
-            )
-        };
-        let mut projection = crate::inline::Projection::with_references(
-            raw,
-            self.projection.references.clone(),
-            &winners,
-            work,
-        );
-        projection.references_complete = exact
-            && self.projection.references_complete
-            && window.start == 0
-            && window.end == self.source.len_bytes();
-        if exact {
-            let mut pending = self.projection.pending_links(window.clone());
-            pending
-                .ranges
-                .retain(|range| window.start <= range.start && range.end <= window.end);
-            projection.initial_link_metadata_items += pending.work + pending.ranges.len();
-            for range in &mut pending.ranges {
-                range.start -= window.start;
-                range.end -= window.start;
-            }
-            pending
-                .delimiters
-                .retain(|range| window.start <= range.start && range.end <= window.end);
-            projection.initial_link_metadata_items += pending.delimiters.len();
-            for range in &mut pending.delimiters {
-                range.start -= window.start;
-                range.end -= window.start;
-            }
-            let mut guards = Vec::new();
-            for word in &pending.guarded_words {
-                projection.initial_link_metadata_items += 2;
-                if window.start <= word.envelope.start && word.envelope.end <= window.end {
-                    let (word, work) = word.map(&(0..raw.len()), &mut |range| {
-                        (
-                            range
-                                .start
-                                .checked_sub(window.start)
-                                .zip(range.end.checked_sub(window.start))
-                                .map(|(a, z)| a..z),
-                            2,
-                        )
-                    })?;
-                    projection.initial_link_metadata_items += work;
-                    guards.push(word);
-                } else if word.envelope.start < window.end && window.start < word.envelope.end {
-                    return Err(EditorError::UnrepresentableFormat);
-                }
-            }
-            pending.guarded_words = guards;
-            let mut origins = Vec::new();
-            for origin in &pending.typed_inputs {
-                projection.initial_link_metadata_items += 2;
-                if window.start <= origin.opener.start && origin.word.end <= window.end {
-                    let (origin, work) = origin.map(&(0..raw.len()), &mut |range| {
-                        (
-                            range
-                                .start
-                                .checked_sub(window.start)
-                                .zip(range.end.checked_sub(window.start))
-                                .map(|(a, z)| a..z),
-                            2,
-                        )
-                    })?;
-                    projection.initial_link_metadata_items += work;
-                    origins.push(origin);
-                } else if origin.opener.start < window.end && window.start < origin.word.end {
-                    return Err(EditorError::UnrepresentableFormat);
-                }
-            }
-            pending.typed_inputs = origins;
-            pending.window = 0..raw.len();
-            let guard_work = if !pending.has_words() {
-                EditWork::default()
-            } else {
-                let source = ropey::Rope::from_str(raw);
-                let mut work = projection.validate_word_origins(&source, &pending)?;
-                work.materialized_source_bytes += raw.len();
-                work
-            };
-            // No materialization in the empty path. Nonempty source copies are
-            // carried with planning's existing initial copied-byte accounting.
-            projection.initial_link_metadata_items += guard_work.link_metadata_items;
-            projection.initial_link_copied_bytes += guard_work.materialized_source_bytes;
-            projection.initial_link_metadata_items += projection.restore_pending(&pending);
+    /// Original outside prose authority, without a foreign source coordinate.
+    pub(super) fn inherited_leading_list_prose(&self) -> Option<bool> {
+        self.context.leading_list_prose
+    }
+
+    fn capture_leading_list_prose(&self, at: usize) -> Option<bool> {
+        if !self.context.original_canonical {
+            return (at == 0)
+                .then_some(self.context.leading_list_prose)
+                .flatten();
         }
-        let mut staged = Self::with_projection(raw, Revision(0), self.clock.clone(), projection);
-        let origin = if exact {
-            if let Some(origin) = &self.context.origin {
-                Some(crate::inline::references::SourceOrigin {
-                    source: origin.source.clone(),
-                    start: origin.start + window.start,
-                })
-            } else {
-                self.projection.references_complete.then(|| {
-                    crate::inline::references::SourceOrigin {
-                        source: self.source.clone(),
-                        start: window.start,
-                    }
-                })
+        if at == 0 {
+            return Some(false);
+        }
+        // Both sides must be complete physical rows in the original parser's
+        // context. A cut inside a container/body cannot certify an outside.
+        let current = self.projection.source_prefix_at(at)?;
+        crate::inline::visit_container();
+        if current.source.start != at {
+            return None;
+        }
+        let previous = self.source.line_to_byte(self.source.byte_to_line(at - 1));
+        let (block, base) = self.projection.block_ref_at_source(previous)?;
+        crate::inline::visit_container();
+        if base + block.source.start != previous || base + block.source.end != at {
+            return None;
+        }
+        Some(
+            block.paragraph_text
+                && block.quote_depth == 0
+                && block.list.as_ref().is_some_and(|list| list.depth == 1),
+        )
+    }
+
+    pub(super) fn physical_tail(&self) -> PhysicalTail {
+        self.context.physical_tail
+    }
+
+    pub(super) fn physical_tail_at(&self, at: usize) -> PhysicalTail {
+        if matches!(self.physical_tail(), PhysicalTail::Unknown) {
+            PhysicalTail::Unknown
+        } else if at == self.source.len_bytes() {
+            self.physical_tail()
+        } else if at < self.source.len_bytes() && self.context.original_canonical {
+            let Some(prefix) = self.projection.source_prefix_at(at) else {
+                return PhysicalTail::Unknown;
+            };
+            let Some((block, base)) = self.projection.block_ref_at_source(at) else {
+                return PhysicalTail::Unknown;
+            };
+            PhysicalTail::Row {
+                code: prefix.code,
+                quote_depth: prefix.quote_depth,
+                first_item: prefix.list.as_ref().map(|list| list.first),
+                item_depth: prefix.list.as_ref().map(|list| list.depth),
+                empty_comment: block.empty_comment,
+                quote_start: block.quote_start && base + block.source.start == at,
             }
+        } else {
+            PhysicalTail::Unknown
+        }
+    }
+
+    /// Only the complete canonical source may construct original ownership.
+    /// Gap rows are actual item-owned physical blanks, never omitted content.
+    fn original_fence_boundary(&self, at: usize, end: usize) -> Option<FenceBoundary> {
+        if !self.context.original_canonical {
+            return None;
+        }
+        let (block, base) = self.projection.block_ref_at_source(at)?;
+        let (fence, item) = (block.fence.as_ref()?, block.list.as_ref()?);
+        crate::inline::visit_container();
+        if base + item.item.end != end {
+            return None;
+        }
+        let physical_end = if let Some(close) = &fence.closer {
+            let physical = self
+                .source
+                .line_to_byte(self.source.byte_to_line(base + close.start));
+            let row = self.projection.source_prefix_at(physical)?;
+            if !row.code {
+                return None;
+            }
+            row.source.end
+        } else {
+            base + fence.whole.end
+        };
+        if physical_end > end {
+            return None;
+        }
+        if !self.blank_item_gap(physical_end, end, base + item.item.start) {
+            return None;
+        }
+        Some(FenceBoundary {
+            depth: item.depth,
+            list_quote: item.quote_depth,
+            code_quote: block.quote_depth,
+            gap_bytes: end - physical_end,
+        })
+    }
+
+    /// Current blank syntax is checked separately from original authority;
+    /// matching extents alone never establish retained content or ownership.
+    fn blank_item_gap(&self, start: usize, end: usize, item_start: usize) -> bool {
+        let mut next = start;
+        while next < end {
+            crate::inline::visit_container();
+            let Some(row) = self.projection.source_prefix_at(next) else {
+                return false;
+            };
+            if row.source.end <= next
+                || row.source.end > end
+                || row.code
+                || row.quote_depth != 0
+                || !row.list.as_ref().is_some_and(|list| {
+                    !list.first && list.item.start == item_start && list.item.end == end
+                })
+                || self.source.byte(row.source.end - 1) != b'\n'
+                || !self
+                    .source
+                    .byte_slice(row.source.clone())
+                    .bytes()
+                    .all(|byte| {
+                        crate::inline::visit_container();
+                        matches!(byte, b' ' | b'\t' | b'\r' | b'\n')
+                    })
+            {
+                return false;
+            }
+            next = row.source.end;
+        }
+        next == end
+    }
+
+    /// Original facts can be inherited only with the whole opening item kept.
+    /// Trimming a staged start retains physical EOF but loses item authority.
+    fn capture_fence_edge(&self, window: &Range<usize>) -> Option<FenceBoundary> {
+        if !self.context.original_canonical {
+            return (window.start == 0 && window.end == self.source.len_bytes())
+                .then_some(self.context.fence_edge)
+                .flatten();
+        }
+        let mut at = window.end;
+        while at > window.start {
+            crate::inline::visit_container();
+            let previous = self.source.line_to_byte(self.source.byte_to_line(at - 1));
+            if previous < window.start {
+                return None;
+            }
+            let row = self.projection.source_prefix_at(previous)?;
+            let item = row.list.as_ref()?;
+            if item.depth != 1 || item.item.start < window.start || item.item.end != window.end {
+                return None;
+            }
+            if row.code {
+                return self.original_fence_boundary(previous, window.end);
+            }
+            if row.source.end != at
+                || row.quote_depth != 0
+                || !self
+                    .source
+                    .byte_slice(row.source.clone())
+                    .bytes()
+                    .all(|byte| {
+                        crate::inline::visit_container();
+                        matches!(byte, b' ' | b'\t' | b'\r' | b'\n')
+                    })
+            {
+                return None;
+            }
+            at = previous;
+        }
+        None
+    }
+
+    pub(super) fn physical_fence_tail_at(
+        &self,
+        opener: usize,
+        fence_end: usize,
+        end: usize,
+    ) -> (PhysicalTail, Option<FenceBoundary>) {
+        let outside = self.physical_tail_at(end);
+        let boundary = if self.context.original_canonical {
+            self.original_fence_boundary(opener, end)
+        } else if end == self.source.len_bytes() {
+            self.context.fence_edge
         } else {
             None
         };
-        staged.projection.initial_link_metadata_items += usize::from(origin.is_some());
-        staged.context = StageContext {
-            before: self.stage_boundary(window.start, false),
-            after: self.stage_boundary(window.end, true),
-            origin,
-        };
-        Ok(staged)
+        let boundary = boundary
+            .filter(|proof| end.checked_sub(fence_end) == Some(proof.gap_bytes))
+            .filter(|proof| {
+                if self.context.original_canonical || proof.gap_bytes == 0 {
+                    return true;
+                }
+                let Some((block, base)) = self.projection.block_ref_at_source(opener) else {
+                    return false;
+                };
+                let Some(item) = block.list.as_ref() else {
+                    return false;
+                };
+                crate::inline::visit_container();
+                self.blank_item_gap(fence_end, end, base + item.item.start)
+            });
+        (outside, boundary)
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
+#[path = "staging_context_tests.rs"]
+mod tests;
 
-    #[test]
-    fn capturing_nested_origins_skips_foreign_bodies_and_blank_subtrees() {
-        for blanks in [9, 1000, 20_000] {
-            for body_bytes in [8, 100_000] {
-                let gap = "\n".repeat(blanks + 1);
-                let raw = format!(
-                    "999. {}\n1. lazy{gap}body\n{gap}7) {}",
-                    "x".repeat(body_bytes),
-                    "y".repeat(body_bytes)
-                );
-                let session = EditorSession::open(&raw);
-                let at = raw.find("body").unwrap();
-                crate::inline::CONTEXT_VISITS.with(|visits| visits.set(0));
-                let staged = session.stage_source("body\n", at..at + 5).unwrap();
-                let nested = staged.stage_source("body\n", 0..5).unwrap();
-                let before = nested.semantic_neighbor(0, false, 0).unwrap();
-                let after = nested.semantic_neighbor(5, true, 0).unwrap();
-                assert_eq!(before.witness.list.unwrap().ordinal, Some(1000));
-                assert_eq!(after.witness.list.unwrap().ordinal, Some(7));
-                let visits = crate::inline::CONTEXT_VISITS.with(|visits| visits.get());
-                assert!(
-                    visits > 0 && visits < 640,
-                    "blanks={blanks}, body={body_bytes}, visits={visits}"
-                );
-                assert_eq!(nested.source.len_bytes(), 5);
-            }
-        }
-    }
-
-    fn meaning(
-        neighbor: Option<Neighbor>,
-    ) -> Option<(
-        usize,
-        bool,
-        bool,
-        Option<usize>,
-        Option<u8>,
-        Option<u64>,
-        Option<usize>,
-    )> {
-        neighbor.map(|n| {
-            (
-                n.witness.quote_depth,
-                n.witness.code,
-                n.witness.empty_comment,
-                n.witness.transparent_quote,
-                n.marker,
-                n.witness.list.as_ref().and_then(|l| l.ordinal),
-                n.witness.list.as_ref().map(|l| l.depth),
-            )
-        })
-    }
-
-    #[test]
-    fn boundary_carriers_equal_canonical_queries_at_every_source_cut_and_quote_depth() {
-        for eol in ["\n", "\r\n"] {
-            for middle in [
-                "",
-                "\n\n",
-                ">\n>\n",
-                "> >\n> >\n",
-                ">\n\n> >\n",
-                "<!-- -->\n",
-                "```\ncode\n```\n",
-                "**a\nb**\n",
-                "`a\nb`\n",
-                "# heading\n",
-            ] {
-                let raw =
-                    format!("999. before\n1. lazy\n\n{middle}\n7) after\n").replace('\n', eol);
-                let session = EditorSession::open(&raw);
-                for at in raw
-                    .char_indices()
-                    .filter_map(|(at, ch)| (ch == '\n').then_some(at + 1))
-                    .chain([0, raw.len()])
-                {
-                    let staged = session.stage_source("", at..at).unwrap();
-                    let nested = staged.stage_source("", 0..0).unwrap();
-                    for quote in [0, 1, 2, 3, 19, usize::MAX] {
-                        for forward in [false, true] {
-                            let expected = meaning(session.semantic_neighbor(at, forward, quote));
-                            assert_eq!(
-                                meaning(staged.semantic_neighbor(0, forward, quote)),
-                                expected,
-                                "{raw:?} at={at} quote={quote} forward={forward}"
-                            );
-                            assert_eq!(
-                                meaning(nested.semantic_neighbor(0, forward, quote)),
-                                expected
-                            );
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn local_edits_override_external_witnesses_without_reusing_foreign_coordinates() {
-        let session = EditorSession::open("999. before\n1. lazy\n\nbody\n\n\n7) after");
-        let at = session.source_text().find("body").unwrap();
-        for replacement in [
-            "",
-            "\n\n",
-            ">\n",
-            "> >\n",
-            "<!-- -->\n",
-            "plain\n",
-            "3. body\n",
-        ] {
-            let mut staged = session.stage_source("body\n", at..at + 5).unwrap();
-            staged
-                .replace_action(
-                    staged.revision(),
-                    DisplayRange {
-                        start: DisplayOffset(0),
-                        end: DisplayOffset(5),
-                    },
-                    replacement,
-                    crate::InputAction::Isolated,
-                    &mut |_| Ok(()),
-                )
-                .unwrap();
-            let local = EditorSession::open(&staged.source_text());
-            for quote in [0, 1, 2, 3] {
-                for forward in [false, true] {
-                    let point = if forward {
-                        0
-                    } else {
-                        staged.source.len_bytes()
-                    };
-                    let expected = local.semantic_neighbor(point, forward, quote);
-                    let actual = staged.semantic_neighbor(point, forward, quote);
-                    if expected.is_some() {
-                        assert_eq!(
-                            meaning(actual),
-                            meaning(expected),
-                            "{replacement:?}, quote={quote}"
-                        );
-                    } else if let Some(neighbor) = actual {
-                        assert!(!neighbor.local);
-                        assert_eq!(
-                            meaning(Some(neighbor)),
-                            meaning(session.semantic_neighbor(
-                                if forward { at + 5 } else { at },
-                                forward,
-                                quote
-                            ))
-                        );
-                    }
-                }
-            }
-            let nested = staged
-                .stage_source(&staged.source_text(), 0..staged.source.len_bytes())
-                .unwrap();
-            assert_eq!(
-                meaning(nested.semantic_neighbor(0, false, 0)),
-                meaning(staged.semantic_neighbor(0, false, 0))
-            );
-            assert_eq!(
-                meaning(nested.semantic_neighbor(nested.source.len_bytes(), true, 0)),
-                meaning(staged.semantic_neighbor(staged.source.len_bytes(), true, 0))
-            );
-        }
-    }
-}
+#[cfg(test)]
+#[path = "staging_physical_tests.rs"]
+mod physical_tests;

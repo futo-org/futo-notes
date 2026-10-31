@@ -23,16 +23,52 @@ mod content;
 mod divider;
 mod fence_tab;
 mod fences;
+mod indent_source;
 mod keys;
 mod list_commands;
+mod list_fence_promotion;
+mod list_indent;
 mod list_join;
+mod list_lift;
+mod list_lift_crossquote;
+mod list_lift_plan;
+mod list_prefix_frames;
 mod list_styles;
+mod list_targets;
 mod list_typing;
 mod lists;
 mod physical_layout;
 mod split;
 mod transaction;
 mod typing;
+
+#[derive(Clone, Copy)]
+enum HeaderShape<'a> {
+    List {
+        original: &'a crate::inline::ListLine,
+        quotes: usize,
+        first: bool,
+    },
+    ParagraphList {
+        original: &'a crate::inline::ListLine,
+        quotes: usize,
+        first: bool,
+        body: usize,
+        inserted_at: usize,
+        newline: &'a str,
+    },
+    ParagraphPlain {
+        quotes: usize,
+        earlier: Option<(usize, Option<u64>)>,
+        body: usize,
+        inserted_at: usize,
+        newline: &'a str,
+    },
+    Plain {
+        quotes: usize,
+        earlier: Option<(usize, Option<u64>)>,
+    },
+}
 
 enum BlockSelection {
     Display(DisplayRange),
@@ -49,6 +85,19 @@ enum BlockSelection {
 }
 
 impl EditorSession {
+    /// Formatting includes a next item's first text boundary; replacement
+    /// queries keep their half-open scope. The projection owns this rule once.
+    fn selected_block_lines(&self, range: DisplayRange) -> Vec<crate::inline::blocks::BlockLine> {
+        self.projection.format_block_lines(range)
+    }
+
+    fn selected_list_lines(
+        &self,
+        range: DisplayRange,
+    ) -> Vec<crate::inline::blocks::ListCommandLine> {
+        self.projection.list_command_lines(range)
+    }
+
     fn carry_block_state(
         &mut self,
         change: &mut ViewChange,

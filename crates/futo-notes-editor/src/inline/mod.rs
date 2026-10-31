@@ -1,6 +1,8 @@
 mod block_edit;
 pub(crate) use block_edit::BodySource;
+mod block_queries;
 pub(crate) mod blocks;
+mod blocks_paragraph;
 mod edit;
 pub(crate) use edit::{EditIntent, Plan, SourceCorrespondence};
 mod empty_comments;
@@ -16,6 +18,7 @@ pub(crate) use pending_links::{PendingLinkWitness, PendingLinks};
 mod coordinate_work_tests;
 #[cfg(test)]
 mod query_growth_tests;
+mod retained_points;
 mod row;
 mod source_points;
 mod spelling;
@@ -25,6 +28,12 @@ mod tree;
 use crate::{
     Correspondence, DisplayOffset, DisplayRange, InlineFormat, ProjectionSlice, Revision,
     SemanticRun, SourceEdit, SourceOffset, SourceRange,
+};
+pub(crate) use lists::{columns, visit_container, visit_correspondence, ListLine};
+#[cfg(test)]
+pub(crate) use lists::{
+    CONTAINER_BLOCK_QUERY_VISITS, CONTAINER_CORRESPONDENCE_SCANS, CONTAINER_LIFT_ITEM_SCANS,
+    CONTAINER_METADATA_VISITS, CONTAINER_PREFIX_QUERIES, CONTAINER_STYLE_OWNER_SCANS,
 };
 use ropey::Rope;
 use row::{paragraphs, Row};
@@ -242,69 +251,6 @@ impl Projection {
             },
             work,
         )
-    }
-
-    pub(crate) fn block_at_source(&self, at: usize) -> Option<blocks::BlockLine> {
-        let (row, base, _) = self.rows.at(self.rows.locate(at, false));
-        let local = at - base;
-        let index = row
-            .blocks
-            .partition_point(|block| block.source.start <= local)
-            .saturating_sub(1);
-        let mut block = row.blocks.get(index)?.clone();
-        block.shift(base);
-        Some(block)
-    }
-
-    pub(crate) fn block_lines(&self, range: DisplayRange) -> Vec<blocks::BlockLine> {
-        let first = self.rows.locate(range.start.0, true);
-        let last = self.rows.locate(range.end.0, true);
-        let mut result = Vec::new();
-        for index in first..=last {
-            let (row, source, display) = self.rows.at(index);
-            for block in &row.blocks {
-                if block.empty_comment {
-                    continue;
-                }
-                let a = display + row.display_at(block.source.start);
-                let z = display + row.display_at(block.source.end);
-                let hit = if range.start == range.end {
-                    a <= range.start.0
-                        && (range.start.0 < z
-                            || block.fence.as_ref().is_some_and(|fence| {
-                                fence.body.start <= block.source.start
-                                    && block.source.start <= fence.body.end
-                                    && row.display_at(block.content.end) + display == range.start.0
-                                    && row.display_at(fence.body.end) + display == range.start.0
-                            })
-                            || (block.source.start == row.blocks.last().unwrap().source.start
-                                && source + block.source.end
-                                    == self.rows.at(self.rows.len() - 1).1
-                                        + self.rows.at(self.rows.len() - 1).0.source_len))
-                } else {
-                    a < range.end.0 && range.start.0 < z
-                };
-                let empty_fence = block.fence.as_ref().is_some_and(|fence| {
-                    row.display_at(fence.body.start) == row.display_at(fence.body.end)
-                        && block.source.start <= fence.whole.start
-                        && fence.whole.start < block.source.end
-                        && a == range.start.0
-                });
-                if hit || empty_fence {
-                    let mut block = block.clone();
-                    block.shift(source);
-                    // The synthetic end line of a nonfinal row belongs to its successor.
-                    if !block.source.is_empty()
-                        || source + row.source_len
-                            == self.rows.at(self.rows.len() - 1).1
-                                + self.rows.at(self.rows.len() - 1).0.source_len
-                    {
-                        result.push(block);
-                    }
-                }
-            }
-        }
-        result
     }
 
     /// Reparse the edit's paragraphs and immediate neighbors, which can join

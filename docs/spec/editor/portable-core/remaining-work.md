@@ -11,8 +11,35 @@ work. Plain-text/Markdown paste, including ordinary single-cell table paste, rem
 required. Tables, shared find, wikilink completion and the 20,000-line/native durability
 acceptance targets have not been deferred. → docs/plan/text-first-editor-rebuild-tickets.md
 
-Deeper container commands (#299), fence/table/link interpretation,
-note-id-dependent composition arbitration and renderer integration follow in their dependent tickets.
+Fenced-code interpretation and key intent (#297) are accepted on the integration branch;
+large-fence work bounds, progressive reinterpretation and physical device validation remain
+required. → docs/spec/editor/portable-core/fenced-code.md
+
+Container commands (#299) are accepted on the integration branch and include canonical
+nested and cross-quote lifting,
+mixed original-format runs, exact owner fragments, copied ordered starts and same-line
+empty prefix frames with distinct nearest/full intents. Root fenced-tail promotion
+preserves opaque code and original containment through certified physical edge facts;
+new source queries and canonical code-body overlap queries have measured work controls.
+The pinned multiline quoted-body Outdent, Backspace and full Text observations,
+representative CRLF/entity cases and separate inner/foreign quote ownership now
+have exact-source/history and measured-work controls. The 218 shared list literals
+run through all six consumers, including compiled WASM and synthetic Swift/Kotlin
+FFI/Store tests. Native execution covers arm64 iOS Simulator and an actual x86
+Android process; the remaining shipped native architectures have compilation proof.
+
+The bounded source cases now cover promoted code after preceding listed prose,
+blank/continuation and multiple fenced blocks, existing nested authored code blanks,
+the quoted CRLF task pair and the final established Heading/Quote contexts.
+The multiple-fence path has 64/512 parser, copy and metadata growth controls;
+original mixed, reversed and endpoint controls remain in the owner chain.
+The command planning/proof owners have completed bounded readability cleanup.
+The shared-head path has measured source/caret/history and parser/copy/metadata
+controls, with an independent pre-cursor constructor field differential. These
+finite controls and synthetic consumers do not prove real keyboard/IME input,
+renderer parity, complete allocation bounds, physical latency or durability.
+Links (#301) remain unmerged WIP. Tables, note-id-dependent composition arbitration
+and renderer integration retain their own owners and dependent tickets.
 
 Paragraph projections use a length-indexed tree and display Rope, so an ordinary
 edit after a distant jump reparses only its paragraph window without rewriting

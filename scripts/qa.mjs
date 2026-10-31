@@ -12,13 +12,14 @@
 // containing the claiming worktree path. Staleness is self-healing: an owner
 // whose worktree directory no longer exists is reclaimable — no TTLs, no
 // heartbeats. Pool devices plus explicitly named futo-api28/29/30 fixtures are managed.
-// Named fixtures retain their images and app data; personal devices are never touched.
+// Named fixtures retain their images and app data. Explicit --serial reserves a physical
+// Android device without boot/wipe/reset; no stale takeover, shutdown or gc of that device.
 // --sim selects only an exact existing available iOS pool simulator name/ID.
 // It refuses live sibling ownership or a different current iOS claim, never falls
 // back or moves a claim, and cannot be combined with --erase. Default selection
 // stays slot-based. iOS allocation contention fails closed before boot/wipe.
 //
-//   node scripts/qa.mjs claim [ios|android|all] [--reboot] [--erase (ios only)] [--avd legacy-name] [--sim pool-name-or-id (ios only)]
+//   node scripts/qa.mjs claim [ios|android|all] [--reboot] [--erase (ios only)] [--avd legacy-name] [--sim pool-name-or-id (ios only)] [--serial physical-android-serial]
 //   node scripts/qa.mjs device ios|android        # this worktree's device as JSON, claimed on first use
 //   node scripts/qa.mjs status                    # pool devices + servers, owners, state
 //   node scripts/qa.mjs release [ios|android] [--shutdown]  # release this worktree's claims
@@ -58,6 +59,8 @@ import {
   SRV_DIR,
   claimPoolName,
   claimNamedAndroid,
+  claimPhysicalAndroid,
+  assertPhysicalAndroid,
   markWiped,
   die,
   info,
@@ -93,11 +96,23 @@ function wipeOnFreshClaim(platform, name, fresh, wipe) {
   info(`${platform}: wiped com.futo.notes.dev data on ${name} (new claim)`);
 }
 
-async function cmdClaim(target, { reboot = false, erase = false, avd, sim } = {}) {
+async function cmdClaim(target, { reboot = false, erase = false, avd, sim, serial } = {}) {
   if (sim && target !== 'ios') die('--sim requires the explicit ios target');
   if (sim && erase) die('--sim cannot be combined with --erase; erase uses the existing claim');
   if (erase && target !== 'ios') die('--erase requires the explicit ios target');
+  if (serial && (target !== 'android' || avd || sim || reboot || erase))
+    die('--serial requires explicit android and cannot combine with emulator/reset options');
   const root = worktreeRoot();
+  if (serial) {
+    try {
+      claimPhysicalAndroid(root, serial);
+      info(`physical Android reserved for ${root}; app data preserved`);
+      process.stdout.write(`export ANDROID_SERIAL=${serial}\n`);
+      return;
+    } catch (error) {
+      die(error.message);
+    }
+  }
   if (avd) {
     if (target !== 'android') die('--avd requires the android target');
     if (!LEGACY_ANDROID_AVDS.includes(avd)) die(`unsupported QA AVD ${avd}`);
@@ -178,6 +193,14 @@ async function cmdDevice(platform) {
     die(error.message);
   }
   let { name, fresh } = claim;
+  if (platform === 'android' && name?.startsWith('physical-')) {
+    const owner = readOwner('android', name);
+    if (!owner?.physical || owner.worktree !== root || name !== `physical-${owner.id}`)
+      die('physical Android ownership is invalid');
+    assertPhysicalAndroid(owner.id);
+    process.stdout.write(JSON.stringify({ name, id: owner.id }) + '\n');
+    return;
+  }
   let id;
   if (name && platform === 'ios') {
     const sim = findSim(name);
@@ -212,6 +235,7 @@ function myDevices(root) {
 }
 
 function shutdownDevice(platform, name) {
+  if (platform === 'android' && name.startsWith('physical-')) return;
   if (platform === 'ios') {
     const sim = IS_MAC && findSim(name);
     if (sim && sim.state === 'Booted') tryRun('xcrun', ['simctl', 'shutdown', sim.udid]);
@@ -253,6 +277,7 @@ function cmdGc() {
       const m = f.match(/^(ios|android)-(.+)\.json$/);
       if (!m) continue;
       const owner = readOwner(m[1], m[2]);
+      if (m[1] === 'android' && m[2].startsWith('physical-')) continue;
       if (!owner || !ownerIsStale(owner)) continue;
       info(`gc: ${m[1]} ${m[2]} owned by deleted worktree ${owner.worktree}`);
       // Legacy fixture images belong to the developer: gc only releases the claim.
@@ -291,11 +316,22 @@ function cmdStatus() {
       `— ${platform} QA devices (${POOL} pooled${platform === 'android' ? ' + legacy fixtures' : ''}) —`,
     );
     const names = Array.from({ length: POOL }, (_, i) => `futo-qa-${i}`);
-    if (platform === 'android') names.push(...LEGACY_ANDROID_AVDS);
+    if (platform === 'android') {
+      names.push(...LEGACY_ANDROID_AVDS);
+      if (fs.existsSync(DEV_DIR))
+        names.push(
+          ...fs
+            .readdirSync(DEV_DIR)
+            .filter((file) => /^android-physical-.+\.json$/.test(file))
+            .map((file) => file.slice(8, -5)),
+        );
+    }
     for (const name of names) {
       const owner = readOwner(platform, name);
       let state = 'absent';
-      if (platform === 'ios' && IS_MAC) {
+      if (platform === 'android' && name.startsWith('physical-')) {
+        state = `physical ${owner?.id ?? 'unknown'} (${owner?.model ?? 'unknown'})`;
+      } else if (platform === 'ios' && IS_MAC) {
         const sim = findSim(name);
         if (sim) state = sim.state === 'Booted' ? `booted ${sim.udid}` : 'shutdown';
       } else if (platform === 'android') {
@@ -326,7 +362,7 @@ function cmdStatus() {
 // ── main ───────────────────────────────────────────────────────────────────
 
 const USAGE =
-  'usage: qa.mjs claim [ios|android|all] [--reboot] [--erase (ios only)] [--avd legacy-name] [--sim pool-name-or-id (ios only)] | device ios|android | camera-poster <png> | android-target | android-apk [path] | status | release [ios|android] [--shutdown] | gc | server-start [--standin] | server-stop [--drop] | avd-baseline';
+  'usage: qa.mjs claim [ios|android|all] [--reboot] [--erase (ios only)] [--avd legacy-name] [--sim pool-name-or-id (ios only)] [--serial physical-android-serial] | device ios|android | camera-poster <png> | android-target | android-apk [path] | status | release [ios|android] [--shutdown] | gc | server-start [--standin] | server-stop [--drop] | avd-baseline';
 const [cmd, ...args] = process.argv.slice(2);
 // Handle help before worktree discovery or invoking any platform tool. A help
 // request must never acquire an owner file, boot a device, or wipe app data.
@@ -340,6 +376,7 @@ switch (cmd) {
     // for an already-booted sim whose UI reads as a 0x0 root (see ensureSim).
     let avd;
     let sim;
+    let serial;
     let reboot = false;
     let erase = false;
     const positional = [];
@@ -355,11 +392,15 @@ switch (cmd) {
         if (sim) die('claim accepts --sim only once');
         sim = args[++i];
         if (!sim || sim.startsWith('-')) die('--sim needs a QA pool simulator name or ID');
+      } else if (arg === '--serial') {
+        if (serial) die('claim accepts --serial only once');
+        serial = args[++i];
+        if (!serial || serial.startsWith('-')) die('--serial needs a physical Android serial');
       } else if (arg.startsWith('-')) die(`unknown claim option ${arg}`);
       else positional.push(arg);
     }
     if (positional.length > 1) die('claim accepts at most one platform: ios, android or all');
-    await cmdClaim(positional[0] || 'all', { reboot, erase, avd, sim });
+    await cmdClaim(positional[0] || 'all', { reboot, erase, avd, sim, serial });
     break;
   }
   case 'camera-poster': {

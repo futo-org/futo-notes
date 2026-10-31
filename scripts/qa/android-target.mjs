@@ -1,8 +1,8 @@
 // A pooled emulator's adb serial can be recycled by a different AVD. Resolve
 // its name and verify the worktree's claim immediately before device access.
-// Physical devices and CI's non-pool AVDs retain their existing explicit setup.
+// Physical devices require an explicit serial claim; CI non-pool AVDs retain explicit setup.
 import { execFileSync } from 'node:child_process';
-import { LEGACY_ANDROID_AVDS, readOwner, worktreeRoot } from './pool.mjs';
+import { LEGACY_ANDROID_AVDS, readOwner, worktreeRoot, assertPhysicalAndroid } from './pool.mjs';
 
 export function assertAndroidTarget({
   serial = process.env.ANDROID_SERIAL,
@@ -13,7 +13,7 @@ export function assertAndroidTarget({
   const options = { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 5000 };
   const target = serial || execFile('adb', ['get-serialno'], options).trim();
   if (!target) throw new Error('no Android device selected; run just qa-claim android');
-  if (!target.startsWith('emulator-')) return target;
+  if (!target.startsWith('emulator-')) return assertPhysicalAndroid(target, { execFile });
   const name = execFile('adb', ['-s', target, 'emu', 'avd', 'name'], options)
     .split(/\r?\n/)[0]
     .trim();

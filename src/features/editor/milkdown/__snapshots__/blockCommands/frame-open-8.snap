@@ -1,0 +1,37 @@
+{
+  "input": "- > - b",
+  "opened": {
+    "documentJson": "{"type":"doc","content":[{"type":"bullet_list","attrs":{"spread":false},"content":[{"type":"list_item","attrs":{"label":"•","listType":"bullet","spread":false,"checked":null},"content":[{"type":"paragraph"},{"type":"blockquote","content":[{"type":"bullet_list","attrs":{"spread":false},"content":[{"type":"list_item","attrs":{"label":"•","listType":"bullet","spread":false,"checked":null},"content":[{"type":"paragraph","content":[{"type":"text","text":"b"}]}]}]}]}]}]}]}",
+    "selection": {
+      "anchor": {
+        "ancestry": [
+          "bullet_list",
+          "list_item",
+          "blockquote",
+          "bullet_list",
+          "list_item",
+          "paragraph",
+        ],
+        "pm": 9,
+        "textblockUtf16": 1,
+      },
+      "head": {
+        "ancestry": [
+          "bullet_list",
+          "list_item",
+          "blockquote",
+          "bullet_list",
+          "list_item",
+          "paragraph",
+        ],
+        "pm": 9,
+        "textblockUtf16": 1,
+      },
+    },
+    "source": "- > - b
+",
+    "storedMarks": null,
+    "textblockRows": "
+b",
+  },
+}

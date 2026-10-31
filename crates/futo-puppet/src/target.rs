@@ -115,9 +115,10 @@ pub(crate) fn resolve_target() -> Result<Target, String> {
 fn forwarded_device(recorded: Option<String>, port: u16) -> Result<String, String> {
     let forwards = adb(&["forward", "--list"])?;
     let forward = forward_of(&forwards, port);
-    if let Some(device) =
-        recorded.filter(|device| forward == Some((device.as_str(), ANDROID_LISTENER)))
-    {
+    if let Some(device) = recorded.filter(|device| {
+        // Physical identity is revalidated by qa.mjs even when adb kept a forward.
+        device.starts_with("emulator-") && forward == Some((device.as_str(), ANDROID_LISTENER))
+    }) {
         return Ok(device);
     }
     let device = claimed_device(NativePlatform::Android)?;

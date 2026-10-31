@@ -1,0 +1,66 @@
+{
+  "after": {
+    "documentJson": "{"type":"doc","content":[{"type":"blockquote","content":[{"type":"bullet_list","attrs":{"spread":false},"content":[{"type":"list_item","attrs":{"label":"•","listType":"bullet","spread":false,"checked":null},"content":[{"type":"paragraph","content":[{"type":"text","text":"b"}]}]}]}]}]}",
+    "selection": {
+      "anchor": {
+        "ancestry": [
+          "blockquote",
+          "bullet_list",
+          "list_item",
+          "paragraph",
+        ],
+        "pm": 4,
+        "textblockUtf16": 0,
+      },
+      "head": {
+        "ancestry": [
+          "blockquote",
+          "bullet_list",
+          "list_item",
+          "paragraph",
+        ],
+        "pm": 4,
+        "textblockUtf16": 0,
+      },
+    },
+    "source": "> - b
+",
+    "storedMarks": null,
+    "textblockRows": "b",
+  },
+  "before": {
+    "documentJson": "{"type":"doc","content":[{"type":"blockquote","content":[{"type":"bullet_list","attrs":{"spread":false},"content":[{"type":"list_item","attrs":{"label":"•","listType":"bullet","spread":false,"checked":null},"content":[{"type":"paragraph"},{"type":"blockquote","content":[{"type":"paragraph","content":[{"type":"text","text":"b"}]}]}]}]}]}]}",
+    "selection": {
+      "anchor": {
+        "ancestry": [
+          "blockquote",
+          "bullet_list",
+          "list_item",
+          "blockquote",
+          "paragraph",
+        ],
+        "pm": 7,
+        "textblockUtf16": 0,
+      },
+      "head": {
+        "ancestry": [
+          "blockquote",
+          "bullet_list",
+          "list_item",
+          "blockquote",
+          "paragraph",
+        ],
+        "pm": 7,
+        "textblockUtf16": 0,
+      },
+    },
+    "source": "> - > b
+",
+    "storedMarks": null,
+    "textblockRows": "
+b",
+  },
+  "handled": true,
+  "input": "> - > b",
+  "key": "Backspace",
+}

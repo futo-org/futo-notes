@@ -374,6 +374,7 @@ function main() {
     sha,
     recipe: verdict.recipe,
     recipeArgs: opts.recipeArgs,
+    androidEnv: opts.androidEnv,
     nonce,
     ndkVersion,
   });

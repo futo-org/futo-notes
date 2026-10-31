@@ -2,21 +2,77 @@
 use pulldown_cmark::{Event, Tag, TagEnd};
 use std::ops::Range;
 
+// Test work units count canonical events/column bytes, row-tree visits,
+// block-search comparisons and touched item/row planning. They complement
+// parser/materialization bytes and do not claim complete allocation or latency.
+#[cfg(test)]
+thread_local! {
+    pub(crate) static CONTAINER_METADATA_VISITS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    pub(crate) static CONTAINER_PREFIX_QUERIES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    pub(crate) static CONTAINER_STYLE_OWNER_SCANS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    pub(crate) static CONTAINER_LIFT_ITEM_SCANS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    pub(crate) static CONTAINER_BLOCK_QUERY_VISITS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    pub(crate) static CONTAINER_CORRESPONDENCE_SCANS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+#[inline]
+pub(crate) fn visit_container() {
+    #[cfg(test)]
+    CONTAINER_METADATA_VISITS.with(|count| count.set(count.get() + 1));
+}
+
+/// Aggregate the actual examined segments once per coordinate query.
+#[inline]
+pub(crate) fn visit_correspondence(_segments: usize) {
+    #[cfg(test)]
+    {
+        CONTAINER_CORRESPONDENCE_SCANS.with(|count| count.set(count.get() + _segments as u64));
+        CONTAINER_METADATA_VISITS.with(|count| count.set(count.get() + _segments));
+    }
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct SinkTarget {
+    pub marker: Range<usize>,
+    pub next_number: Option<u64>,
+    pub column: usize,
+}
+
 #[derive(Clone, Debug)]
 pub(crate) struct ListLine {
     pub marker: Range<usize>,
     pub owner: Range<usize>,
     pub item: Range<usize>,
+    pub outer_item: Range<usize>,
+    pub outer_depth: usize,
     pub ordinal: Option<u64>,
     pub depth: usize,
     pub checked: Option<bool>,
     pub first: bool,
     pub indent: usize,
+    pub marker_column: usize,
+    pub content_column: usize,
+    pub previous_content_column: Option<usize>,
+    pub sink: Option<SinkTarget>,
+    pub parent_marker_column: Option<usize>,
+    pub parent_marker: Option<Range<usize>>,
+    pub parent_number: Option<u64>,
+    pub parent_content_column: Option<usize>,
+    pub quote_depth: usize,
 }
 
 impl ListLine {
     pub fn shift(&mut self, by: usize) {
-        for range in [&mut self.marker, &mut self.owner, &mut self.item] {
+        for range in [
+            &mut self.marker,
+            &mut self.owner,
+            &mut self.item,
+            &mut self.outer_item,
+        ]
+        .into_iter()
+        .chain(self.parent_marker.iter_mut())
+        .chain(self.sink.iter_mut().map(|sink| &mut sink.marker))
+        {
             range.start += by;
             range.end += by;
         }
@@ -42,7 +98,12 @@ pub(super) struct ListCursor {
 }
 
 impl ListCursor {
+    pub(super) fn into_items(self) -> Vec<ListLine> {
+        self.items
+    }
+
     pub fn line(&mut self, start: usize, end: usize) -> Attribution {
+        visit_container();
         while self.next_item < self.items.len() && self.items[self.next_item].item.start <= end {
             let next = self.next_item;
             while self
@@ -101,13 +162,35 @@ pub(super) fn describe(source: &str, events: &[(Event<'_>, Range<usize>)]) -> Li
     let mut prefixes = Vec::new();
     let mut items: Vec<ListLine> = Vec::new();
     let mut tasks = Vec::new();
+    let mut quote_depth = 0;
     let mut lists: Vec<(Range<usize>, Option<u64>)> = Vec::new();
-    let mut active_items = Vec::new();
+    let mut active_items: Vec<usize> = Vec::new();
+    let mut previous_items = Vec::new();
+    let mut last_child: Vec<Option<usize>> = Vec::new();
+    let mut physical = PhysicalColumns::default();
     for (event, range) in events {
+        visit_container();
+        if matches!(
+            event,
+            Event::Start(
+                Tag::Paragraph | Tag::Heading { .. } | Tag::CodeBlock(_) | Tag::BlockQuote(_)
+            ) | Event::Html(_)
+                | Event::Rule
+        ) {
+            if let Some(&parent) = active_items.last() {
+                last_child[parent] = None;
+            }
+        }
         match event {
-            Event::Start(Tag::List(number)) => lists.push((range.clone(), *number)),
+            Event::Start(Tag::BlockQuote(_)) => quote_depth += 1,
+            Event::End(TagEnd::BlockQuote(_)) => quote_depth -= 1,
+            Event::Start(Tag::List(number)) => {
+                lists.push((range.clone(), *number));
+                previous_items.push(None::<usize>);
+            }
             Event::End(TagEnd::List(_)) => {
                 lists.pop();
+                previous_items.pop();
             }
             Event::End(TagEnd::Item) => {
                 active_items.pop();
@@ -133,19 +216,65 @@ pub(super) fn describe(source: &str, events: &[(Event<'_>, Range<usize>)]) -> Li
                     .count();
                 let padding = if padding > 4 { 1 } else { padding };
                 let start = range.start + indent;
-                let first_start = source[..start].rfind('\n').map_or(0, |at| at + 1);
+                let (first_start, marker_column) = physical.at_marker(source, start);
                 prefixes.push((start, start + width + padding));
+                let content_column =
+                    columns(&source[start..start + width + padding], marker_column);
+                let previous_content_column = previous_items
+                    .last()
+                    .unwrap()
+                    .map(|at| items[at].content_column);
+                let sink = previous_items
+                    .last()
+                    .copied()
+                    .flatten()
+                    .and_then(|previous| last_child[previous])
+                    .filter(|&child| {
+                        items[child].ordinal.is_some() == ordinal.is_some()
+                            && items[child].quote_depth == quote_depth
+                    })
+                    .map(|child| SinkTarget {
+                        marker: items[child].marker.clone(),
+                        next_number: items[child].ordinal.map(|number| number + 1),
+                        column: items[child].marker_column,
+                    });
+                *previous_items.last_mut().unwrap() = Some(items.len());
+                let parent = active_items
+                    .last()
+                    .filter(|&&at| items[at].quote_depth == quote_depth);
+                let outer_item =
+                    parent.map_or_else(|| range.clone(), |&at| items[at].outer_item.clone());
+                let outer_depth = parent.map_or(depth, |&at| items[at].outer_depth);
+                let parent_marker_column = parent.map(|&at| items[at].marker_column);
+                let parent_marker = parent.map(|&at| items[at].marker.clone());
+                let parent_number = parent.and_then(|&at| items[at].ordinal);
+                let parent_content_column = parent.map(|&at| items[at].content_column);
+                if let Some(&parent) = parent {
+                    last_child[parent] = Some(items.len());
+                }
                 active_items.push(items.len());
                 items.push(ListLine {
                     marker: start..start + width,
                     owner: owner.clone(),
                     item: range.clone(),
+                    outer_item,
+                    outer_depth,
                     ordinal,
                     depth,
                     checked: None,
                     first: true,
                     indent: start + width + padding - first_start,
+                    marker_column,
+                    content_column,
+                    previous_content_column,
+                    sink,
+                    parent_marker_column,
+                    parent_marker,
+                    parent_number,
+                    parent_content_column,
+                    quote_depth,
                 });
+                last_child.push(None);
             }
             Event::TaskListMarker(checked) => {
                 let end = range.end
@@ -171,3 +300,50 @@ pub(super) fn describe(source: &str, events: &[(Event<'_>, Range<usize>)]) -> Li
         next_task: 0,
     }
 }
+
+/// Canonical item starts arrive in source order. Carry physical byte/column
+/// position across them rather than rereading a shared prefix per nested item.
+#[derive(Default)]
+struct PhysicalColumns {
+    at: usize,
+    line: usize,
+    column: usize,
+}
+
+impl PhysicalColumns {
+    fn at_marker(&mut self, source: &str, marker: usize) -> (usize, usize) {
+        if marker < self.at {
+            // Preserve the old result for a privately supplied noncanonical
+            // event stream; real parser Item starts are monotonically ordered.
+            *self = Self::default();
+        }
+        for byte in source.as_bytes()[self.at..marker].iter().copied() {
+            visit_container();
+            self.at += 1;
+            if byte == b'\n' {
+                self.line = self.at;
+                self.column = 0;
+            } else {
+                self.column += if byte == b'\t' {
+                    4 - self.column % 4
+                } else {
+                    1
+                };
+            }
+        }
+        (self.line, self.column)
+    }
+}
+
+/// CommonMark columns expand a tab to the next four-column stop.
+pub(crate) fn columns(raw: &str, mut column: usize) -> usize {
+    for byte in raw.bytes() {
+        visit_container();
+        column += if byte == b'\t' { 4 - column % 4 } else { 1 };
+    }
+    column
+}
+
+#[cfg(test)]
+#[path = "lists_frozen_columns.rs"]
+pub(super) mod frozen_columns;

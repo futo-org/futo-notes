@@ -3,8 +3,8 @@
 Planning decisions recorded, 2026-10-29. The detailed implementation contract is
 [Build the production text-first editor engine with store-owned recovery](https://gitlab.futo.org/futo-notes/futo-notes/-/work_items/283),
 GitLab issue #283, published with `ready-for-agent`. This file preserves the agreed planning
-decisions and evidence; the issue owns the implementation spec. Child tickets are not yet
-approved or published.
+decisions and evidence; the issue owns the implementation spec. The approved 34 child Tasks
+#284–#317 are published; the ticket index records their dependency graph and scope amendments.
 
 ## Accepted direction
 
@@ -74,7 +74,7 @@ regressions; timing claims require the real target device and declared build con
 5. Validate the agreed engine behavior through native and WebAssembly bindings, use small
    real-platform checks throughout, and measure the typing/durability targets on devices.
 
-The detailed spec and tickets will turn this sequence into independently verifiable behavior
+The published spec and tickets express this sequence as independently verifiable behavior
 slices with acceptance criteria and blocking relationships. Full renderer parity and cutover
 follow; detailed renderer sequencing and large Bootcamp campaigns are later planning work.
 

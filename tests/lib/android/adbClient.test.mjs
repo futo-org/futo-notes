@@ -5,6 +5,12 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+// Non-ownership command tests use a fake CI emulator with an explicit identity reply.
+const ciAdb = (execute) =>
+  vi.fn((command, args, options) =>
+    args.includes('avd') ? 'ci\nOK\n' : execute(command, args, options),
+  );
+
 // A serial is a port, not an emulator identity: another AVD can reuse it.
 describe('pooled Android target identity', () => {
   let home;
@@ -117,12 +123,12 @@ describe('pooled Android target identity', () => {
     const apkPath = path.join(home, 'large.apk');
     fs.writeFileSync(apkPath, bytes);
     const expected = createHash('sha256').update(bytes).digest('hex');
-    const execFile = vi.fn((_cmd, args) =>
+    const execFile = ciAdb((_cmd, args) =>
       args.includes('sha256sum')
         ? expected + '  /data/app/test/base.apk\n'
         : 'package:/data/app/test/base.apk\n',
     );
-    expect(verifyAndroidApk({ serial: 'fake-phone', apkPath, execFile })).toBe(expected);
+    expect(verifyAndroidApk({ serial: 'emulator-5556', apkPath, execFile })).toBe(expected);
   });
 
   it.each([
@@ -132,8 +138,8 @@ describe('pooled Android target identity', () => {
     const { verifyAndroidApk } = await import('../../../scripts/qa/android-apk.mjs');
     const apkPath = path.join(home, 'own.apk');
     fs.writeFileSync(apkPath, 'build');
-    const execFile = vi.fn(() => output);
-    expect(() => verifyAndroidApk({ serial: 'fake-phone', apkPath, execFile })).toThrow(error);
+    const execFile = ciAdb(() => output);
+    expect(() => verifyAndroidApk({ serial: 'emulator-5556', apkPath, execFile })).toThrow(error);
     expect(execFile.mock.calls.some(([, args]) => args.includes('sha256sum'))).toBe(false);
   });
   it('requires ownership for legacy-WebView AVDs as well as pooled devices', () => {
@@ -148,11 +154,15 @@ describe('pooled Android target identity', () => {
   });
   it('replaces a native field through the shared client and accepts quoted text in the sync sibling', async () => {
     const commands = [];
-    const execFile = vi.fn((_command, args) => {
+    const execFile = ciAdb((_command, args) => {
       commands.push(args.at(-1));
       return '';
     });
-    const client = createAdbClient({ pkg: 'com.futo.notes.dev', serial: 'fake-phone', execFile });
+    const client = createAdbClient({
+      pkg: 'com.futo.notes.dev',
+      serial: 'emulator-5556',
+      execFile,
+    });
     client.replaceText('https://10.0.2.2:8445');
     expect(commands).toEqual([
       'input keycombination 113 29',
@@ -161,19 +171,19 @@ describe('pooled Android target identity', () => {
     ]);
     const { AndroidDevice } = await import('../android-device.mjs');
     expect(() =>
-      new AndroidDevice('fake-phone', { execFile }).typeReplacingSelection("Bob's note"),
+      new AndroidDevice('emulator-5556', { execFile }).typeReplacingSelection("Bob's note"),
     ).not.toThrow();
     expect(commands.at(-1)).toContain('Bob');
   });
   it('uses the gesture Back driver in the sync harness sibling too', async () => {
     const commands = [];
-    const execFile = vi.fn((_command, args) => {
+    const execFile = ciAdb((_command, args) => {
       const text = args.at(-1);
       commands.push(text);
       return text === 'wm size' ? 'Physical size: 720x1600' : '2';
     });
     const { AndroidDevice } = await import('../android-device.mjs');
-    new AndroidDevice('fake-phone', { execFile }).pressBack();
+    new AndroidDevice('emulator-5556', { execFile }).pressBack();
     expect(commands.some((command) => command.startsWith('input swipe 2 '))).toBe(true);
     expect(commands).not.toContain('input keyevent 4');
   });

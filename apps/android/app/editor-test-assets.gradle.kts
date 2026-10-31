@@ -3,7 +3,7 @@
 val generatedEditorTestAssetsDirectory = layout.buildDirectory.dir("generated/editor-test-assets")
 val stageEditorTestAssets = tasks.register<Sync>("stageEditorTestAssets") {
     from(rootProject.file("../../crates/futo-notes-editor/tests/fixtures")) {
-        include("structural-seams.json", "list-actions.json", "list-shortcuts.json", "list-staging.json", "fence-physical-rows.json")
+        include("structural-seams.json", "list-actions.json", "list-shortcuts.json", "list-staging.json", "nested-containers.json", "container-commands.json", "list-header-commands.json", "prefix-frame-commands.json", "fence-container-commands.json", "heading-quote-commands.json", "fence-physical-rows.json")
     }
     into(generatedEditorTestAssetsDirectory)
 }

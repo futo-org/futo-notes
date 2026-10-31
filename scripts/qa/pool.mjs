@@ -127,39 +127,11 @@ export function markWiped(platform, name) {
 // data may belong to someone else; call markWiped once it has been wiped.
 export function claimPoolName(platform, root, { sim, inspectSimulators } = {}) {
   if (sim && platform !== 'ios') throw new Error('--sim requires the explicit ios target');
-  if (platform !== 'ios') return allocatePoolName(platform, root);
-  // Serialize selection and persistence, including default allocation. Never hold
-  // this across boot/wipe. A crashed allocator leaves a visible lock for inspection.
-  const file = path.join(STATE, 'ios-allocation.lock');
-  fs.mkdirSync(STATE, { recursive: true });
-  const payload = JSON.stringify({ worktree: root, pid: process.pid, token: randomUUID() });
-  let fd;
-  try {
-    fd = fs.openSync(file, 'wx');
-  } catch (error) {
-    if (error.code === 'EEXIST')
-      throw new Error(`another iOS allocation owns ${file}; inspect the lock before retrying`);
-    throw error;
-  }
-  const identity = fs.fstatSync(fd);
-  const ownsLock = () => {
-    try {
-      const current = fs.statSync(file);
-      return (
-        current.ino === identity.ino &&
-        current.dev === identity.dev &&
-        fs.readFileSync(file, 'utf8') === payload
-      );
-    } catch (error) {
-      if (error.code === 'ENOENT') return false;
-      throw error;
+  return withAllocationLock(platform, root, (assertOwnership) => {
+    if (platform === 'android') {
+      assertNoPhysicalClaim(root);
+      return allocatePoolName(platform, root, assertOwnership);
     }
-  };
-  try {
-    fs.writeFileSync(fd, payload);
-    const assertOwnership = () => {
-      if (!ownsLock()) throw new Error('iOS allocation lock identity changed; refusing claim');
-    };
     // Read current ownership only after acquiring the lock: a preferred claim
     // may have finished while this invocation was still resolving its worktree.
     const owned = fs.existsSync(DEV_DIR)
@@ -204,6 +176,48 @@ export function claimPoolName(platform, root, { sim, inspectSimulators } = {}) {
       throw new Error(`${selected.name} is claimed by another live worktree; refusing --sim`);
     assertOwnership();
     return Object.freeze({ name: selected.name, fresh: claim === 'new' });
+  });
+}
+
+function withAllocationLock(platform, root, allocate) {
+  // Serialize selection and persistence, including default allocation. Never hold
+  // this across boot/wipe. A crashed allocator leaves a visible lock for inspection.
+  const file = path.join(STATE, `${platform}-allocation.lock`);
+  fs.mkdirSync(STATE, { recursive: true });
+  const payload = JSON.stringify({ worktree: root, pid: process.pid, token: randomUUID() });
+  let fd;
+  try {
+    fd = fs.openSync(file, 'wx');
+  } catch (error) {
+    if (error.code === 'EEXIST')
+      throw new Error(
+        `another ${platform === 'ios' ? 'iOS' : 'Android'} allocation owns ${file}; inspect the lock before retrying`,
+      );
+    throw error;
+  }
+  const identity = fs.fstatSync(fd);
+  const ownsLock = () => {
+    try {
+      const current = fs.statSync(file);
+      return (
+        current.ino === identity.ino &&
+        current.dev === identity.dev &&
+        fs.readFileSync(file, 'utf8') === payload
+      );
+    } catch (error) {
+      if (error.code === 'ENOENT') return false;
+      throw error;
+    }
+  };
+  try {
+    fs.writeFileSync(fd, payload);
+    const assertOwnership = () => {
+      if (!ownsLock())
+        throw new Error(
+          `${platform === 'ios' ? 'iOS' : 'Android'} allocation lock identity changed; refusing claim`,
+        );
+    };
+    return allocate(assertOwnership);
   } finally {
     // Release only the exact lock created here, never a replacement's token/inode.
     try {
@@ -232,7 +246,101 @@ export function claimNamedAndroid(root, name) {
   if (!LEGACY_ANDROID_AVDS.includes(name)) {
     throw new Error(`unsupported QA AVD ${name}; use ${LEGACY_ANDROID_AVDS.join(', ')}`);
   }
-  const claim = tryClaimOwner('android', name, root);
-  if (!claim) throw new Error(`${name} is claimed by another worktree`);
-  return { name, fresh: claim === 'new' };
+  return withAllocationLock('android', root, (assertOwnership) => {
+    assertNoPhysicalClaim(root);
+    const claim = tryClaimOwner('android', name, root, assertOwnership);
+    if (!claim) throw new Error(`${name} is claimed by another worktree`);
+    return { name, fresh: claim === 'new' };
+  });
+}
+
+function androidOwners(root) {
+  if (!fs.existsSync(DEV_DIR)) return [];
+  return fs
+    .readdirSync(DEV_DIR)
+    .filter((name) => /^android-.+\.json$/.test(name))
+    .map((name) => ({ name: name.slice(8, -5), owner: readOwner('android', name.slice(8, -5)) }))
+    .filter(({ owner }) => owner?.worktree === root);
+}
+
+function assertNoPhysicalClaim(root) {
+  if (androidOwners(root).some(({ owner }) => owner.physical))
+    throw new Error('release the physical Android claim explicitly before selecting an emulator');
+}
+
+// Exact physical claims never boot/wipe/install or reclaim another owner, even
+// a stale one. The same allocation lock prevents ambiguous per-worktree targets.
+export function claimPhysicalAndroid(root, serial) {
+  const name = physicalAndroidName(serial);
+  return withAllocationLock('android', root, (assertOwnership) => {
+    if (androidOwners(root).some((item) => item.name !== name))
+      throw new Error('release this worktree’s existing Android claim before selecting --serial');
+    const file = ownerPath('android', name);
+    if (fs.existsSync(file)) {
+      const owner = readOwner('android', name);
+      if (owner?.worktree !== root || owner.id !== serial || !owner.physical)
+        throw new Error(
+          'physical Android serial already reserved; explicit owner release required',
+        );
+      assertPhysicalAndroid(serial);
+      return { name, fresh: false };
+    }
+    const identity = inspectPhysicalAndroid(serial);
+    fs.mkdirSync(DEV_DIR, { recursive: true });
+    const payload = JSON.stringify(
+      {
+        worktree: root,
+        branch: branchOf(root),
+        claimedAt: new Date().toISOString(),
+        id: serial,
+        physical: true,
+        ...identity,
+      },
+      null,
+      2,
+    );
+    assertOwnership();
+    fs.writeFileSync(file, payload, { flag: 'wx' });
+    return { name, fresh: false };
+  });
+}
+
+export function inspectPhysicalAndroid(serial, { execFile = execFileSync } = {}) {
+  const options = { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], timeout: 5000 };
+  if (execFile('adb', ['-s', serial, 'get-state'], options).trim() !== 'device')
+    throw new Error('physical Android device is not connected and authorized');
+  const model = execFile(
+    'adb',
+    ['-s', serial, 'shell', 'getprop', 'ro.product.model'],
+    options,
+  ).trim();
+  const abiList = execFile(
+    'adb',
+    ['-s', serial, 'shell', 'getprop', 'ro.product.cpu.abilist'],
+    options,
+  ).trim();
+  if (!model || !abiList) throw new Error('physical Android model/ABI identity is unavailable');
+  return { model, abiList };
+}
+
+export function assertPhysicalAndroid(serial, options = {}) {
+  const owner = readOwner('android', physicalAndroidName(serial));
+  if (!owner?.physical || owner.worktree !== worktreeRoot() || owner.id !== serial)
+    throw new Error(
+      'physical Android target is unclaimed or foreign; run just qa-claim android --serial SERIAL',
+    );
+  const current = inspectPhysicalAndroid(serial, options);
+  if (owner.model !== current.model || owner.abiList !== current.abiList)
+    throw new Error('physical Android model/ABI changed since claim; inspect identity before use');
+  return serial;
+}
+
+function physicalAndroidName(serial) {
+  if (
+    typeof serial !== 'string' ||
+    !/^[A-Za-z0-9][A-Za-z0-9_.:-]*$/.test(serial) ||
+    serial.startsWith('emulator-')
+  )
+    throw new Error('--serial requires an exact physical Android serial');
+  return `physical-${serial}`;
 }

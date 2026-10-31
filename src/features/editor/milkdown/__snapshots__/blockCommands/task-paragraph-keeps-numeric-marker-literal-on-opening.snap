@@ -1,0 +1,54 @@
+{
+  "after": {
+    "documentJson": "{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"0. text"}]}]}",
+    "selection": {
+      "anchor": {
+        "ancestry": [
+          "paragraph",
+        ],
+        "pm": 1,
+        "textblockUtf16": 0,
+      },
+      "head": {
+        "ancestry": [
+          "paragraph",
+        ],
+        "pm": 1,
+        "textblockUtf16": 0,
+      },
+    },
+    "source": "0\. text
+",
+    "storedMarks": null,
+    "textblockRows": "0. text",
+  },
+  "before": {
+    "documentJson": "{"type":"doc","content":[{"type":"bullet_list","attrs":{"spread":false},"content":[{"type":"list_item","attrs":{"label":"•","listType":"bullet","spread":false,"checked":true},"content":[{"type":"paragraph","content":[{"type":"text","text":"0. text"}]}]}]}]}",
+    "selection": {
+      "anchor": {
+        "ancestry": [
+          "bullet_list",
+          "list_item",
+          "paragraph",
+        ],
+        "pm": 3,
+        "textblockUtf16": 0,
+      },
+      "head": {
+        "ancestry": [
+          "bullet_list",
+          "list_item",
+          "paragraph",
+        ],
+        "pm": 3,
+        "textblockUtf16": 0,
+      },
+    },
+    "source": "- [x] 0. text
+",
+    "storedMarks": null,
+    "textblockRows": "0. text",
+  },
+  "command": "paragraph",
+  "input": "- [x] 0. text",
+}

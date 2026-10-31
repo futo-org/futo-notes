@@ -34,12 +34,12 @@ impl EditorSession {
         {
             return Ok(None);
         }
-        let Some(separator) =
+        let Some((separator, copied)) =
             self.quote_neighbor_separator(line.source.end, line.quote_depth, true)
         else {
             return Ok(None);
         };
-        self.stage_mapped_block_action(
+        let change = self.stage_mapped_block_action(
             expected,
             range,
             Some(HistoryInput {
@@ -77,7 +77,11 @@ impl EditorSession {
                 input.work.link_copied_bytes += boundary.work.link_copied_bytes;
                 Ok(Some((input, mapping)))
             },
-        )
+        )?;
+        Ok(change.map(|(mut change, mapping)| {
+            change.work.materialized_source_bytes += copied;
+            (change, mapping)
+        }))
     }
 
     pub(in crate::session) fn input_at_divider(

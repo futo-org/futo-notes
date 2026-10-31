@@ -1,15 +1,22 @@
 //! List key intent uses the engine's visible body and exact source prefix.
+#[path = "list_paragraph.rs"]
+mod paragraph;
+
 use super::*;
 
 impl EditorSession {
-    pub(super) fn list_neighbor_separator(&self, end: usize, depth: usize) -> Option<String> {
+    pub(super) fn list_neighbor_separator(
+        &self,
+        end: usize,
+        depth: usize,
+    ) -> Option<(String, usize)> {
         if end >= self.source.len_bytes() {
             return None;
         }
         let point = DisplayOffset(self.projection.display_at(end));
         let next = self
             .projection
-            .block_lines(DisplayRange {
+            .list_command_lines(DisplayRange {
                 start: point,
                 end: point,
             })
@@ -24,11 +31,31 @@ impl EditorSession {
         {
             return None;
         }
+        let next_line = self.source.byte_to_line(next.source.start);
+        if next_line > 0 {
+            let previous = self.source.line_to_byte(next_line - 1);
+            if self
+                .projection
+                .source_prefix_at(previous)
+                .is_some_and(|prefix| {
+                    !prefix.code
+                        && prefix.quote_depth == next.quote_depth
+                        && self.source.byte_slice(prefix.content).chars().all(|ch| {
+                            crate::inline::visit_container();
+                            ch.is_whitespace()
+                        })
+                })
+            {
+                return None;
+            }
+        }
         let prefix = self
             .source
             .byte_slice(next.source.start..next.content.start)
             .to_string();
-        Some(format!("{}\n", prefix.trim_end_matches([' ', '\t'])))
+        let separator = format!("{}\n", prefix.trim_end_matches([' ', '\t']));
+        let materialized = prefix.len() + separator.len();
+        Some((separator, materialized))
     }
 
     pub(super) fn toggle_task(
@@ -109,6 +136,50 @@ impl EditorSession {
         if lines.len() != 1 || lines[0].list.is_none() || lines[0].code {
             return Ok(None);
         }
+        if key == ParagraphKey::Backspace {
+            if let Some(change) = self.shared_prefix_frames(
+                expected,
+                range,
+                super::list_prefix_frames::FrameAction::Backspace,
+                accept,
+            )? {
+                return Ok(Some(change));
+            }
+        }
+        if key == ParagraphKey::Backspace && range.start == range.end {
+            let line = &lines[0];
+            let list = line.list.as_ref().unwrap();
+            if list.first
+                && list.depth > 1
+                && (list.parent_content_column.is_some() || list.previous_content_column.is_some())
+                && range.start.0 == self.projection.display_at(line.content.start)
+            {
+                let column = list
+                    .previous_content_column
+                    .or(list.parent_content_column)
+                    .ok_or(EditorError::UnrepresentableFormat)?;
+                let prefix = self
+                    .source
+                    .byte_slice(line.source.start..line.content.start)
+                    .to_string();
+                let quote_end = super::indent_source::quote_prefix_end(&prefix, list.quote_depth);
+                let base = crate::inline::columns(&prefix[..quote_end], 0);
+                let spaces = column
+                    .checked_sub(base)
+                    .ok_or(EditorError::UnrepresentableFormat)?;
+                let replacement = format!("{}{}", &prefix[..quote_end], " ".repeat(spaces));
+                return self
+                    .commit_block_key(
+                        expected,
+                        range,
+                        line.source.start..line.content.start,
+                        &replacement,
+                        line.source.start + replacement.len(),
+                        accept,
+                    )
+                    .map(Some);
+            }
+        }
         if let Some(change) = self.join_list_key(expected, range, key, accept)? {
             return Ok(Some(change));
         }
@@ -119,188 +190,12 @@ impl EditorSession {
                 == lines[0].list.as_ref().unwrap().owner.start
             && range.start.0 == self.projection.display_at(lines[0].content.start)
         {
-            let list = lines[0].list.as_ref().unwrap();
-            let command = if list.checked.is_some() {
-                BlockCommand::TaskList
-            } else if list.ordinal.is_some() {
-                BlockCommand::OrderedList
-            } else {
-                BlockCommand::BulletList
-            };
-            return self.list_command(expected, range, command, accept);
+            return self.lift_current_list(expected, range, accept);
         }
         if !matches!(key, ParagraphKey::Enter | ParagraphKey::ShiftEnter) {
             return Ok(None);
         }
-        let line = &lines[0];
-        let prefix = self
-            .source
-            .byte_slice(line.source.start..line.content.start)
-            .to_string();
-        if line.content.is_empty() {
-            let quote_end = prefix.rfind('>').map_or(0, |at| {
-                at + 1 + usize::from(matches!(prefix.as_bytes().get(at + 1), Some(b' ' | b'\t')))
-            });
-            let formats = (range == self.selection)
-                .then(|| self.pending_formats.clone())
-                .flatten();
-            let affinity = self.input_affinity(range);
-            let list = line.list.as_ref().unwrap();
-            let group = DisplayRange {
-                start: DisplayOffset(self.projection.display_at(list.owner.start)),
-                end: DisplayOffset(self.projection.display_at(list.owner.end)),
-            };
-            let members = self.projection.block_lines(group);
-            let before = members.iter().any(|other| {
-                other.list.as_ref().is_some_and(|item| {
-                    item.owner == list.owner && item.marker.start < list.marker.start
-                })
-            });
-            let after = members.iter().any(|other| {
-                other.list.as_ref().is_some_and(|item| {
-                    item.owner == list.owner && item.marker.start > list.marker.start
-                })
-            });
-            let mut replacement = prefix[..quote_end].to_owned();
-            let end = if before && after {
-                // Blank lines alone leave both halves in one loose CommonMark
-                // list. Keep this exited blank line and persist the boundary.
-                replacement.push_str(
-                    &self
-                        .source
-                        .byte_slice(line.content.end..line.source.end)
-                        .to_string(),
-                );
-                replacement.push_str(&prefix[..quote_end]);
-                replacement.push_str("<!-- -->\n");
-                line.source.end
-            } else {
-                line.content.start
-            };
-            let mut change = self.commit_block_edit(
-                expected,
-                line.source.start..end,
-                &replacement,
-                BlockSelection::Display(range),
-                None,
-                accept,
-            )?;
-            self.carry_block_state(&mut change, formats, affinity);
-            return Ok(Some(change));
-        }
-        let list = line.list.as_ref().unwrap();
-        let at_start = range.start.0 == self.projection.display_at(line.content.start);
-        if list.first && line.task.is_none() && at_start {
-            return self
-                .commit_block_key(
-                    expected,
-                    range,
-                    line.source.start..line.source.start,
-                    "\n",
-                    line.source.start + 1,
-                    accept,
-                )
-                .map(Some);
-        }
-        let body = self.split_block_body(&lines, range)?;
-        let origin = if list.first {
-            line.clone()
-        } else {
-            let start = self
-                .source
-                .line_to_byte(self.source.byte_to_line(list.marker.start));
-            let point = DisplayOffset(self.projection.display_at(start));
-            self.projection
-                .block_lines(DisplayRange {
-                    start: point,
-                    end: point,
-                })
-                .into_iter()
-                .find(|line| {
-                    line.list
-                        .as_ref()
-                        .is_some_and(|item| item.first && item.marker == list.marker)
-                })
-                .ok_or(EditorError::UnrepresentableFormat)?
-        };
-        let mut prefix = prefix;
-        if list.first {
-            if let Some(number) = list.ordinal {
-                replace_number(&mut prefix, line, number)?;
-            }
-        }
-        let mut continuation = self
-            .source
-            .byte_slice(origin.source.start..origin.content.start)
-            .to_string();
-        if let Some(number) = list.ordinal {
-            replace_number(&mut continuation, &origin, number + 1)?;
-        }
-        let mut left_prefix = prefix.clone();
-        if origin.task.is_some() {
-            let target = if list.first && at_start {
-                &mut left_prefix
-            } else {
-                &mut continuation
-            };
-            let at = target.rfind('[').unwrap() + 1;
-            target.replace_range(at..at + 1, " ");
-        }
-        let mut output = format!("{left_prefix}{}\n{continuation}{}", body.left, body.right);
-        let mut caret =
-            line.source.start + left_prefix.len() + body.left.len() + 1 + continuation.len();
-        let mut footprint = line.source.start..line.content.end;
-        if list.ordinal.is_some() {
-            let group = DisplayRange {
-                start: DisplayOffset(self.projection.display_at(list.owner.start)),
-                end: DisplayOffset(self.projection.display_at(list.owner.end)),
-            };
-            footprint =
-                line.source.start.min(list.owner.start)..line.content.end.max(list.owner.end);
-            let mut raw = self.source.byte_slice(footprint.clone()).to_string();
-            let mut edits = vec![(line.source.start..line.content.end, output)];
-            for other in self.projection.block_lines(group) {
-                let Some(item) = other.list.as_ref() else {
-                    continue;
-                };
-                if !item.first
-                    || item.owner != list.owner
-                    || item.marker == list.marker && list.first
-                {
-                    continue;
-                }
-                let Some(number) = item.ordinal else {
-                    continue;
-                };
-                let number = number + u64::from(item.marker.start > list.marker.start);
-                let digits = item.marker.start..item.marker.end - 1;
-                let replacement = physical_number(number).to_string();
-                if digits.start < line.source.start {
-                    caret = caret - digits.len() + replacement.len();
-                }
-                edits.push((digits, replacement));
-            }
-            edits.sort_by_key(|(range, _)| range.start);
-            for (range, text) in edits.into_iter().rev() {
-                raw.replace_range(
-                    range.start - footprint.start..range.end - footprint.start,
-                    &text,
-                );
-            }
-            output = raw;
-        }
-        let mut change = self.commit_block_edit(
-            expected,
-            footprint,
-            &output,
-            BlockSelection::Source(caret),
-            None,
-            accept,
-        )?;
-        self.carry_block_state(&mut change, body.formats, body.affinity);
-        change.work.materialized_source_bytes += body.materialized;
-        change.work.parsed_source_bytes += body.parsed;
-        Ok(Some(change))
+        self.insert_list_paragraph(expected, range, lines, accept)
     }
 }
 

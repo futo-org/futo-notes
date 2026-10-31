@@ -87,7 +87,7 @@ impl EditorSession {
             clock,
             typing: None,
             composition: None,
-            context: staging::StageContext::default(),
+            context: staging::StageContext::complete_source(),
         }
     }
 

@@ -156,12 +156,17 @@ impl EditorSession {
                     }
                 }
             }
+            let mut separator_bytes = 0;
             if creating_list {
-                if let Some(separator) = staged.list_neighbor_separator(end, line.quote_depth) {
+                if let Some((separator, work)) =
+                    staged.list_neighbor_separator(end, line.quote_depth)
+                {
+                    separator_bytes += work;
                     output.push_str(&separator);
                 }
             }
             let mut caret = at + marker.len() + before.len();
+            let style_bytes = styles.as_ref().map_or(0, |styles| styles.materialized);
             if let Some(styles) = styles {
                 let shift = output.len() as isize - (end - line.source.start) as isize;
                 for (position, comment) in styles.comments.into_iter().rev() {
@@ -186,7 +191,7 @@ impl EditorSession {
             )?;
             staged.carry_block_state(&mut change, formats, affinity);
             change.work.materialized_source_bytes +=
-                removed.work.materialized_source_bytes + body_bytes;
+                removed.work.materialized_source_bytes + body_bytes + separator_bytes + style_bytes;
             change.work.parsed_source_bytes += removed.work.parsed_source_bytes + body_work;
             Ok(Some(change))
         })

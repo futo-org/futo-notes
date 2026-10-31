@@ -1,6 +1,6 @@
 //! Parse one source row into display, correspondence and canonical meaning.
 use super::*;
-use pulldown_cmark::{BrokenLink, Options};
+use pulldown_cmark::BrokenLink;
 
 impl Row {
     pub(crate) fn parse_with_references(
@@ -14,7 +14,7 @@ impl Row {
         let callback_copied = std::cell::Cell::new(0);
         let events: Vec<_> = Parser::new_with_broken_link_callback(
             source,
-            Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS,
+            super::parser_options(),
             Some(|link: BrokenLink<'_>| {
                 callback_items.set(callback_items.get() + 1);
                 callback_copied.set(callback_copied.get() + link.reference.len());
@@ -219,7 +219,10 @@ impl Row {
                 continue;
             }
             if let Some(fence) = &block.fence {
-                hidden[fence.separator.clone()].fill(true);
+                // Retain the terminal boundary of an unmatched container fence.
+                if fence.closer.is_some() || fence.whole.end == source.len() {
+                    hidden[fence.separator.clone()].fill(true);
+                }
             }
             hidden[block.source.start..block.content.start].fill(true);
             let end = source[block.source.clone()]
