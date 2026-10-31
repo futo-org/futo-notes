@@ -11,9 +11,12 @@ pub(super) struct MixedLiftPlan {
     pub overrides: Vec<OwnedPrefixOverride>,
     pub markers: HashMap<usize, u8>,
     pub paragraph_heads: HashSet<usize>,
+    pub promoted_ancestors: HashSet<usize>,
     pub parsed: usize,
     pub materialized: usize,
     depths: HashMap<usize, Vec<(usize, Option<usize>)>>,
+    implicit_items: HashMap<usize, std::ops::Range<usize>>,
+    implicit_depths: Vec<(usize, usize)>,
 }
 
 impl MixedLiftPlan {
@@ -27,12 +30,37 @@ impl MixedLiftPlan {
             end.checked_sub(1).and_then(|index| events[index].1)
         });
         cut.map_or_else(
-            || targets.output_depth(list),
+            || {
+                let end = self.implicit_depths.partition_point(|&(at, _)| {
+                    crate::inline::visit_container();
+                    at <= list.marker.start
+                });
+                let removed = end
+                    .checked_sub(1)
+                    .map_or(0, |index| self.implicit_depths[index].1);
+                targets.output_depth(list).saturating_sub(removed).max(1)
+            },
             |cut| list.depth.saturating_sub(cut).max(1),
         )
     }
 
     fn index_depths(&mut self) {
+        let mut implicit = Vec::new();
+        for (&marker, item) in &self.implicit_items {
+            crate::inline::visit_container();
+            implicit.push((marker + 1, 1isize));
+            implicit.push((item.end, -1));
+        }
+        implicit.sort_by_key(|event| {
+            crate::inline::visit_container();
+            event.0
+        });
+        let mut removed = 0isize;
+        for (at, delta) in implicit {
+            crate::inline::visit_container();
+            removed += delta;
+            self.implicit_depths.push((at, removed as usize));
+        }
         let mut events = Vec::new();
         for (index, fragment) in self.overrides.iter().enumerate() {
             crate::inline::visit_container();
@@ -104,8 +132,7 @@ impl EditorSession {
             crate::inline::visit_container();
             let Some(selected) = line.list.as_ref().filter(|list| {
                 list.first
-                    && list.parent_marker.is_some()
-                    && list.outer_depth == 1
+                    && (list.parent_marker.is_some() || list.outer_depth > 1)
                     && targets.retires_item(list)
             }) else {
                 continue;
@@ -118,6 +145,32 @@ impl EditorSession {
                 row_range = range;
                 plan.parsed += bytes;
                 plan.materialized += bytes;
+            }
+            // A quote crossing promotes the enclosing group's removed item,
+            // including its earlier paragraph. Same-quote parents stay listed.
+            if selected.outer_depth > 1 {
+                let mut crossed = BTreeMap::new();
+                for item in &items {
+                    crate::inline::visit_container();
+                    if item.quote_depth != selected.quote_depth
+                        && item.item.start <= selected.marker.start
+                        && selected.marker.start < item.item.end
+                    {
+                        crossed.insert(item.quote_depth, item);
+                    }
+                }
+                for parent in crossed.values() {
+                    crate::inline::visit_container();
+                    if !targets.retires_item(parent) {
+                        let head = self
+                            .source
+                            .line_to_byte(self.source.byte_to_line(parent.marker.start));
+                        plan.promoted_ancestors.insert(head);
+                        plan.implicit_items
+                            .entry(parent.marker.start)
+                            .or_insert_with(|| parent.item.clone());
+                    }
+                }
             }
             let raw = self
                 .source

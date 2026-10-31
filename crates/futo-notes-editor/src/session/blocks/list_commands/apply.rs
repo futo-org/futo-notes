@@ -163,7 +163,8 @@ impl EditorSession {
         let mut separators = Vec::new();
         let mixed = !remove;
         for (index, line) in lines.iter().enumerate() {
-            let remove = targets.removes(line);
+            let remove =
+                targets.removes(line) || lift_plan.promoted_ancestors.contains(&line.source.start);
             if line.heading > 0 {
                 // ATX closing hashes and a setext underline belong to the
                 // retired heading; retain its final physical line ending.
@@ -335,10 +336,13 @@ impl EditorSession {
         {
             let at = prefix.source.start;
             let existing = head_prefixes.get(&at).copied();
-            // Direct removal already replaces the entire list-owned prefix.
-            // Ancestor shifts must not remove the same columns a second time.
+            // Direct removal already strips list columns inside its quote.
+            // Earlier quote components still move with promoted outer lists.
             if existing.is_some_and(|(_, removed)| removed) {
-                continue;
+                shifts.retain(|quote, _| {
+                    crate::inline::visit_container();
+                    *quote < prefix.quote_depth
+                });
             }
             let existing = existing.map(|(index, _)| index);
             let mut value = if let Some(index) = existing {
