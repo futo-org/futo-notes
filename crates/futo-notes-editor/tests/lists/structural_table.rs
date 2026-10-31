@@ -124,3 +124,113 @@ fn cross_quote_heading_literal_promotes_outer_item_and_retains_quote() {
 fn cross_quote_noop_literal_preserves_original_item_ancestry() {
     literal(&CASES[5]);
 }
+
+fn execute(case: &StructuralCase) {
+    let at = case.before.find("child").unwrap();
+    let next = case.shown.find("child").unwrap();
+    let selected = range(at, at + 3);
+    let mapped = range(next, next + 3);
+    for affinity in [Affinity::Backward, Affinity::Forward] {
+        let mut s = EditorSession::open(case.source);
+        let mut view = ReferenceView::new(case.before);
+        s.select_with_affinity(Revision(0), selected, affinity)
+            .unwrap();
+        if case.source == case.expected {
+            assert!(s
+                .block_command(Revision(0), selected, case.command, &mut |_| panic!(
+                    "quoted Quote reached host"
+                ))
+                .unwrap()
+                .is_none());
+            assert_eq!(s.source_text(), case.source);
+            assert_eq!(s.display_text(), case.before);
+            assert_eq!(s.revision(), Revision(0));
+            assert_eq!(s.selection(), selected);
+            assert_eq!(s.affinity(), affinity);
+            assert!(s
+                .undo(Revision(0), &mut |_| panic!("no-op made history"))
+                .unwrap()
+                .is_none());
+            continue;
+        }
+        let mut refused = 0;
+        let rejection = s.block_command(Revision(0), selected, case.command, &mut |_| {
+            refused += 1;
+            Err("refused".into())
+        });
+        assert!(
+            matches!(rejection, Err(EditorError::Persistence(_))),
+            "{rejection:?}"
+        );
+        assert_eq!(refused, 1);
+        assert_eq!(s.source_text(), case.source);
+        assert_eq!(s.display_text(), case.before);
+        assert_eq!(s.revision(), Revision(0));
+        assert_eq!(s.selection(), selected);
+        assert_eq!(s.affinity(), affinity);
+        assert!(s
+            .undo(Revision(0), &mut |_| panic!("rejected history"))
+            .unwrap()
+            .is_none());
+        let mut accepted = 0;
+        view.apply(
+            s.block_command(Revision(0), selected, case.command, &mut |edit| {
+                accepted += 1;
+                assert_eq!(edit.previous_revision, Revision(0));
+                assert_eq!(edit.revision, Revision(1));
+                assert_eq!(
+                    edit.removed,
+                    case.source[edit.range.start.0..edit.range.end.0]
+                );
+                Ok(())
+            })
+            .unwrap()
+            .unwrap(),
+        );
+        assert_eq!(accepted, 1);
+        assert_eq!(s.source_text(), case.expected);
+        assert_eq!(s.display_text(), case.shown);
+        assert_eq!(view.text, case.shown);
+        assert_eq!(s.selection(), mapped);
+        assert_eq!(s.affinity(), affinity);
+        let p = s.project(s.revision(), mapped).unwrap();
+        assert!(p.blocks.iter().all(|b| !b.code
+            && b.heading == case.heading
+            && b.quote_depth == case.quote
+            && b.list.as_ref().map(|l| l.depth) == case.list));
+        view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+        assert_eq!(s.source_text(), case.source);
+        assert_eq!(view.text, case.before);
+        assert_eq!(s.selection(), selected);
+        assert_eq!(s.affinity(), affinity);
+        view.apply(s.redo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+        assert_eq!(s.source_text(), case.expected);
+        assert_eq!(view.text, case.shown);
+        assert_eq!(s.selection(), mapped);
+    }
+}
+
+#[test]
+fn final_plain_nested_heading_preserves_owners_source_selection_and_history() {
+    execute(&CASES[0]);
+}
+#[test]
+fn final_plain_nested_quote_preserves_owners_source_selection_and_history() {
+    execute(&CASES[1]);
+}
+#[test]
+fn final_same_quote_nested_heading_preserves_owners_source_selection_and_history() {
+    execute(&CASES[2]);
+}
+#[test]
+fn final_same_quote_quote_declines_without_source_host_or_history() {
+    execute(&CASES[3]);
+}
+#[test]
+fn final_cross_quote_heading_preserves_owners_source_selection_and_history() {
+    execute(&CASES[4]);
+}
+#[test]
+fn final_cross_quote_quote_declines_without_source_host_or_history() {
+    execute(&CASES[5]);
+}
