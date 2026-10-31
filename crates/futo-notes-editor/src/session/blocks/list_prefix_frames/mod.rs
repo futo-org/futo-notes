@@ -1,6 +1,9 @@
 //! Command-local plans for empty list parents sharing a quoted body.
 use super::*;
 
+mod full;
+mod nearest;
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum FrameAction {
     Outdent,
@@ -120,5 +123,4 @@ impl EditorSession {
 }
 
 #[cfg(test)]
-#[path = "list_prefix_frames_work.rs"]
 mod work_tests;

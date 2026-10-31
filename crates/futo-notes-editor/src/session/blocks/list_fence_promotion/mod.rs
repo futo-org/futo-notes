@@ -2,6 +2,16 @@
 use super::*;
 use crate::inline::blocks::ListCommandLine;
 
+mod boundary;
+mod edits;
+mod preview;
+mod scope;
+
+#[cfg(test)]
+mod leading_tests;
+#[cfg(test)]
+mod origin_tests;
+
 impl EditorSession {
     pub(super) fn promote_root_list_fence(
         &mut self,
@@ -45,5 +55,4 @@ impl EditorSession {
 }
 
 #[cfg(test)]
-#[path = "list_fence_promotion_work.rs"]
 mod work_tests;

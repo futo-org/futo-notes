@@ -1,6 +1,6 @@
 //! Final canonical meaning proofs for promoted item source.
-use super::list_fence_edits::FenceEdits;
-use super::list_fence_scope::FencedItem;
+use super::edits::FenceEdits;
+use super::scope::FencedItem;
 use super::*;
 
 use crate::inline::blocks::ListCommandLine;

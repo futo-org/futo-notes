@@ -1,5 +1,4 @@
 //! Full-toolbar list retirement through a complete quoted paragraph.
-use super::list_prefix_frames::FramePlan;
 use super::*;
 
 impl EditorSession {

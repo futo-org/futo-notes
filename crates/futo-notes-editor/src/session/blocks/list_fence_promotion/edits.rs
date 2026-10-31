@@ -1,5 +1,5 @@
 //! One physical prefix sweep, source emission and original-source anchor index.
-use super::list_fence_scope::{FenceTail, FencedItem};
+use super::scope::{FenceTail, FencedItem};
 use super::*;
 use std::collections::BTreeMap;
 

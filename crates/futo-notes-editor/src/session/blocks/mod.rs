@@ -26,18 +26,12 @@ mod fences;
 mod indent_source;
 mod keys;
 mod list_commands;
-mod list_fence_boundary;
-mod list_fence_edits;
-mod list_fence_preview;
 mod list_fence_promotion;
-mod list_fence_scope;
-mod list_full_frame;
 mod list_indent;
 mod list_join;
 mod list_lift;
 mod list_lift_crossquote;
 mod list_lift_plan;
-mod list_nearest_frame;
 mod list_prefix_frames;
 mod list_styles;
 mod list_targets;
@@ -161,10 +155,3 @@ impl EditorSession {
         Ok(change)
     }
 }
-
-#[cfg(test)]
-#[path = "list_fence_origin_tests.rs"]
-mod list_fence_origin_tests;
-
-#[cfg(test)]
-mod list_fence_leading_tests;

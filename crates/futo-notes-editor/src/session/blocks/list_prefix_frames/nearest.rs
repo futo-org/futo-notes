@@ -1,5 +1,4 @@
 //! Nearest key/Outdent header spelling and canonical quote-prefix retirement.
-use super::list_prefix_frames::{FrameAction, FramePlan};
 use super::*;
 
 struct NearestHeader {

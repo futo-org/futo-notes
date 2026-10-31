@@ -12,9 +12,7 @@ struct Group {
     removed: ListLine,
 }
 
-#[path = "list_lift_crossquote_cuts.rs"]
 mod cuts;
-#[path = "list_lift_crossquote_emit.rs"]
 mod emit;
 
 impl EditorSession {
@@ -235,5 +233,4 @@ impl EditorSession {
 }
 
 #[cfg(test)]
-#[path = "list_lift_crossquote_work.rs"]
 mod work_tests;
