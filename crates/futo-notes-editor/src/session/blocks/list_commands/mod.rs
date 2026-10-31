@@ -17,6 +17,17 @@ impl EditorSession {
         command: BlockCommand,
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<Option<ViewChange>, EditorError> {
+        let lines = self.selected_list_lines(range);
+        if lines.len() == 1 {
+            let targets = super::list_targets::ListTargets::new(&lines, command, true);
+            if targets.removes(&lines[0]) {
+                if let Some(change) =
+                    self.promote_root_list_fence(expected, range, &lines, accept)?
+                {
+                    return Ok(Some(change));
+                }
+            }
+        }
         self.scoped_list_command(expected, range, command, LiftScope::AllAncestors, accept)
     }
 

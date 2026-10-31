@@ -192,7 +192,7 @@ impl Projection {
         (items, raw.len(), base..base + row.source_len)
     }
 
-    fn block_ref_at_source(&self, at: usize) -> Option<(&blocks::BlockLine, usize)> {
+    pub(crate) fn block_ref_at_source(&self, at: usize) -> Option<(&blocks::BlockLine, usize)> {
         let (row, base, _) = self.rows.at(self.rows.locate(at, false));
         let local = at - base;
         let index = row
