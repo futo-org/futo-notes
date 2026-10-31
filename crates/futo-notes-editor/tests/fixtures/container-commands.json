@@ -417,5 +417,69 @@
       ]
     ],
     "quoteDepth": 1
+  },
+  {
+    "name": "reversed-mixed-retarget-ancestor-before-descendant-lift",
+    "source": "1. parent\n   - child😀\n     - grandchild\n   - sibling\n2. following",
+    "display": "parent\nchild😀\ngrandchild\nsibling\nfollowing",
+    "action": "BulletList",
+    "range": [
+      0,
+      14
+    ],
+    "expected": "- parent\n\nchild😀\n+ grandchild\n+ sibling\n- following",
+    "shown": "parent\n\nchild😀\ngrandchild\nsibling\nfollowing",
+    "resultRange": [
+      0,
+      15
+    ],
+    "finalItems": [
+      [
+        null,
+        null
+      ],
+      [
+        null,
+        null
+      ],
+      [
+        null,
+        null
+      ],
+      [
+        null,
+        null
+      ]
+    ]
+  },
+  {
+    "name": "reversed-mixed-outer-endpoint-keeps-nested-paragraph-barrier",
+    "source": "1. parent\n   - child😀\n     - grandchild\n   - sibling\n2. following",
+    "display": "parent\nchild😀\ngrandchild\nsibling\nfollowing",
+    "action": "BulletList",
+    "range": [
+      0,
+      34
+    ],
+    "expected": "- parent\n\nchild😀\n- grandchild\n\nsibling\n- following",
+    "shown": "parent\n\nchild😀\ngrandchild\n\nsibling\nfollowing",
+    "resultRange": [
+      0,
+      36
+    ],
+    "finalItems": [
+      [
+        null,
+        null
+      ],
+      [
+        null,
+        null
+      ],
+      [
+        null,
+        null
+      ]
+    ]
   }
 ]
