@@ -80,3 +80,6 @@ mod typed_mixed_word;
 
 #[path = "links/typed_mixed_boundaries.rs"]
 mod typed_mixed_boundaries;
+
+#[path = "links/case_actions.rs"]
+mod case_actions;
