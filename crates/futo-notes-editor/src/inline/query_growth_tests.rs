@@ -141,13 +141,17 @@ fn public_pending_growth_work_keeps_foreign_word_fields_outside_the_local_ledger
         let change = session
             .replace(session.revision(), range(8, 8), "x", &mut |_| Ok(()))
             .unwrap();
-        let (fixed, nodes) = measured(change.work);
+        let (mut fixed, nodes) = measured(change.work);
         assert_eq!(nodes, [404, 361][index]);
         assert_eq!(bounds_delta(), 9);
-        eprintln!(
-            "pending count={count} bare primitive={:?}",
-            super::coordinate_work_tests::bare_snapshot()
+        // Seven independently observed actual bare traversals each add
+        // root/node/child6 + extraction3 + emitted records2 beyond old H6.
+        assert_eq!(
+            super::coordinate_work_tests::bare_snapshot(),
+            vec![(6, 6, 17); 7]
         );
+        assert_eq!(fixed.link_metadata_items, 910 + 7 * (6 + 3 + 2));
+        fixed.link_metadata_items -= 7 * (6 + 3 + 2);
         assert_eq!(fixed.link_metadata_items, 910);
         let mut previous = fixed;
         previous.link_metadata_items = previous

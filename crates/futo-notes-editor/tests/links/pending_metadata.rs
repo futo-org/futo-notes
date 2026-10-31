@@ -30,11 +30,12 @@ fn unfinished_urls_elsewhere_do_not_add_metadata_work_to_a_local_keystroke() {
         );
         work.push(change.work.link_metadata_items);
     }
-    assert_eq!(work, [1314, 1271]);
+    assert_eq!(work, [1314 + 77, 1271 + 77]);
     // Independent public primitive counts keep the original local-field
-    // equality plus 9 indexed inverse-query items; actual index shape stays visible.
+    // equality plus 9 indexed inverse-query items and the independently pinned
+    // seven bare primitives (7 * 11); actual index shape stays visible.
     for (value, nodes) in work.iter_mut().zip([404, 361]) {
-        *value -= nodes + 9;
+        *value -= nodes + 9 + 77;
     }
     assert_eq!(
         work[0], work[1],
