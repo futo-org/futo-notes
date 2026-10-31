@@ -353,3 +353,51 @@ frame!(
     Backspace,
     0
 );
+
+#[test]
+fn full_text_preserves_complete_entity_atoms_in_same_quote_empty_frame_with_crlf() {
+    frame_action(
+        "- - > &acE;\r\n",
+        "\u{223e}\u{0333}\r\n",
+        "- \r\n\r\n> &acE;\r\n",
+        "\r\n\r\n\u{223e}\u{0333}\r\n",
+        Action::Text,
+        3,
+        7,
+    );
+}
+
+#[test]
+fn full_text_preserves_complete_entity_atoms_across_quote_empty_frame_with_crlf() {
+    frame_action(
+        "- > - &acE;\r\n",
+        "\u{223e}\u{0333}\r\n",
+        "\r\n> &acE;\r\n",
+        "\r\n\u{223e}\u{0333}\r\n",
+        Action::Text,
+        3,
+        5,
+    );
+}
+
+#[test]
+fn full_text_keeps_inline_code_body_opaque_inside_retained_quote_frames() {
+    frame_action(
+        "- - > `> b`",
+        "> b",
+        "- \n\n> `> b`",
+        "\n\n> b",
+        Action::Text,
+        0,
+        2,
+    );
+    frame_action(
+        "- > - `> b`",
+        "> b",
+        "\n> `> b`",
+        "\n> b",
+        Action::Text,
+        0,
+        1,
+    );
+}
