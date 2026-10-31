@@ -56,7 +56,28 @@ fn complete_code_deletion_keeps_a_canonical_trimmed_uri_literal() {
         .runs
         .iter()
         .any(|run| run.range == selected && run.formats.contains(&InlineFormat::Code)));
+    let before_revision = session.revision();
     let mut accepts = 0;
+    let refused = session.replace_action(
+        session.revision(),
+        selected,
+        "",
+        InputAction::Isolated,
+        &mut |_| {
+            accepts += 1;
+            Err("no append".into())
+        },
+    );
+    assert!(matches!(
+        refused,
+        Err(futo_notes_editor::EditorError::Persistence(_))
+    ));
+    assert_eq!(accepts, 1);
+    assert_eq!(session.revision(), before_revision);
+    assert_eq!(session.source_text(), guarded);
+    assert_eq!(session.display_text(), original);
+    assert_eq!(session.selection(), selected);
+    accepts = 0;
     session.replace_action(session.revision(), selected, "", InputAction::Isolated, &mut |_| { accepts += 1; Ok(()) }).unwrap_or_else(|error| panic!("complete actual Code deletion; accepts={accepts}; guarded={guarded:?}; error={error:?}"));
     assert_eq!(accepts, 1);
     assert_eq!(session.display_text(), literal.display_text());
@@ -68,6 +89,42 @@ fn complete_code_deletion_keeps_a_canonical_trimmed_uri_literal() {
         .runs
         .iter()
         .all(|run| !run.formats.contains(&InlineFormat::Code)));
+    let deleted = session.source_text();
+    let mut loaded = EditorSession::open(&deleted);
+    let recovered = EditorSession::restore(&deleted, session.revision());
+    for equal in [&loaded, &recovered] {
+        assert_eq!(equal.display_text(), literal.display_text());
+        assert!(equal
+            .project(equal.revision(), range(0, equal.display_text().len()))
+            .unwrap()
+            .links
+            .is_empty());
+    }
+    session
+        .undo(session.revision(), &mut |_| Ok(()))
+        .unwrap()
+        .unwrap();
+    assert_eq!(session.source_text(), guarded);
+    assert_eq!(session.selection(), selected);
+    session
+        .redo(session.revision(), &mut |_| Ok(()))
+        .unwrap()
+        .unwrap();
+    assert_eq!(session.source_text(), deleted);
+    let at = session.display_text().len();
+    for equal in [&mut session, &mut loaded] {
+        equal.select(equal.revision(), range(0, 0)).unwrap();
+        equal.select(equal.revision(), range(at, at)).unwrap();
+        equal
+            .replace(equal.revision(), range(at, at), " ", &mut |_| Ok(()))
+            .unwrap();
+        assert!(equal
+            .project(equal.revision(), range(0, at + 1))
+            .unwrap()
+            .links
+            .is_empty());
+    }
+    assert_eq!(session.source_text(), loaded.source_text());
 }
 
 #[test]

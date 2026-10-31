@@ -132,7 +132,7 @@ impl GuardState {
             return Ok(work);
         }
         let Some(span) = canonical.first().filter(|span| {
-            canonical.len() == 1 && span.open.start == 0 && span.close.end == displayed.len()
+            canonical.len() == 1 && span.open.start == 0 && span.close.end <= displayed.len()
         }) else {
             return Err(EditorError::UnrepresentableFormat);
         };
@@ -141,6 +141,14 @@ impl GuardState {
         };
         if meaning.title.is_some() || meaning.reference.is_some() {
             return Err(EditorError::UnrepresentableFormat);
+        }
+        work.items += 1;
+        if span.close.end < displayed.len() {
+            // A parser-trimmed suffix no longer forms the whole owned URI.
+            // Keep the same complete literal retirement proof as a non-URI.
+            work.items += 2;
+            self.after_deletion = Some(AfterDeletion::RetireLiteral { owner, displayed });
+            return Ok(work);
         }
         work.items += 3;
         work.copied += displayed.len();
