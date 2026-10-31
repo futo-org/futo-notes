@@ -48,12 +48,28 @@ fn public_growth_work_separates_actual_index_visits_from_retained_local_work() {
                 .replace(Revision(1), range(5, 9), "BODY", &mut |_| Ok(()))
                 .unwrap();
             let (mut body_fixed, body_nodes) = measured(body.work);
-            eprintln!(
-                "reference growing={growing} count={count} bare primitive={:?}",
-                super::coordinate_work_tests::bare_snapshot()
-            );
+            let bare = super::coordinate_work_tests::bare_snapshot();
+            let added_bare = if growing == "definitions" {
+                // The actual neighboring unused declaration has no Link:
+                // H10 plus root/node/child4, with no emitted-record cost.
+                assert_eq!(bare, vec![(10, 4, 14)]);
+                4
+            } else {
+                assert!(bare.is_empty());
+                0
+            };
+            body_fixed.link_metadata_items -= added_bare;
             assert_eq!(bounds_delta(), -1);
             body_fixed.link_metadata_items += 1;
+            let old_local = match growing {
+                "definitions" => (255, 265),
+                "uses" => (287, 329),
+                _ => (255, 255),
+            };
+            assert_eq!(
+                (label.0.link_metadata_items, body_fixed.link_metadata_items),
+                old_local
+            );
             let body = (body_fixed, body_nodes);
             let expected_nodes = if growing == "uses" {
                 [(99, 125), (183, 206)]
