@@ -236,6 +236,7 @@ impl Projection {
                         continue;
                     }
                     let trailing = row.blocks.iter().any(|block| {
+                        super::super::visit_container();
                         !block.empty_comment
                             && block.content.end <= segment.source.start
                             && segment.source.end <= block.source.end
@@ -321,3 +322,7 @@ pub(in crate::inline) struct Context {
     pub(in crate::inline) pending_links: Vec<Range<usize>>,
     pub(in crate::inline) link_metadata_items: usize,
 }
+
+#[cfg(test)]
+#[path = "context_work_tests.rs"]
+mod work_tests;
