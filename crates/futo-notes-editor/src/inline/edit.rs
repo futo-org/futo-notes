@@ -154,6 +154,7 @@ impl Projection {
                     .retain(|id| markers[*id].kind != SpanKind::Format(InlineFormat::Code));
             }
         }
+        let mut toggle_work = 0;
         if let Some(format) = toggle {
             let opaque: Vec<_> = self
                 .block_lines(range)
@@ -164,7 +165,7 @@ impl Projection {
                         ..self.display_at(line.content.end) - self.display_at(source_start)
                 })
                 .collect();
-            super::toggle::pieces(&mut changed, &mut markers, a..z, format, &opaque);
+            toggle_work = super::toggle::pieces(&mut changed, &mut markers, a..z, format, &opaque);
         }
         let speculative_block = inserted
             .chars()
@@ -270,7 +271,8 @@ impl Projection {
                 + timing.work.items
                 + rendered.link_metadata_items
                 + angle.work.items
-                + completion.work.items,
+                + completion.work.items
+                + toggle_work,
             link_copied_bytes: rendered.link_copied_bytes
                 + angle.work.copied
                 + completion.work.copied
