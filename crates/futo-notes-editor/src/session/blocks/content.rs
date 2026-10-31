@@ -243,13 +243,6 @@ pub(super) fn physical_body<'a>(
     result
 }
 
-pub(super) fn restore_body_prefixes<'a>(
-    body: &str,
-    prefixes: impl Iterator<Item = &'a String>,
-) -> String {
-    physical_body(body, prefixes, false).text
-}
-
 pub(super) fn protect_content(raw: &str, heading: bool, paragraph: bool) -> (String, usize) {
     let mut output = raw.to_owned();
     let mut parsed = 0;
