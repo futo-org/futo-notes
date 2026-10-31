@@ -43,7 +43,7 @@ fn sources() -> Vec<String> {
     ] {
         let cases: serde_json::Value = serde_json::from_str(fixture).unwrap();
         for case in cases.as_array().unwrap() {
-            for key in ["source", "expected"] {
+            for key in ["source", "expected", "expectedSource"] {
                 if let Some(source) = case[key].as_str() {
                     sources.push(source.to_owned());
                 }
@@ -53,7 +53,7 @@ fn sources() -> Vec<String> {
             }
         }
     }
-    assert!(sources.len() > 400);
+    assert_eq!(sources.len(), 460);
     sources
 }
 
