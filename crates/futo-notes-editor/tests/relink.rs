@@ -163,3 +163,6 @@ fn own_relink_maps_hidden_unicode_boundaries_by_affinity_without_changing_other_
 
 #[path = "relink/guarded.rs"]
 mod guarded;
+
+#[path = "relink/canonical_emitter.rs"]
+mod canonical_emitter;

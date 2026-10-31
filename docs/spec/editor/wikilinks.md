@@ -126,5 +126,5 @@ rewrite_wikilinks}` + `relink_note_references`), conformance-locked
   bare-leaf and full-path links in other notes rewrote on disk).
   `[[target|alias]]` links are not rewritten — the TS rules treat the whole
   inner text as the target, and the Rust port pins that behavior. →
-  futo-notes-wikilinks lib.rs, futo-notes-store `LocalNoteStore::rename`,
+  futo-notes-wikilinks lib.rs / rewrite.rs, futo-notes-store `LocalNoteStore::rename`,
   futo-notes-ffi `NoteStore::{rename,move_note}`

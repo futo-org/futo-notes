@@ -11,6 +11,9 @@
 //! inside the inner text. The port follows TS verbatim; the conformance
 //! fixtures `tests/conformance/wikilinks-*.json` lock both sides together.
 
+mod rewrite;
+pub use rewrite::{observe_wikilink_rewrite, RewriteRange, WikilinkRewrite};
+
 /// Extract wikilink targets from `content`. An empty target (`[[]]` or
 /// `[[ |x]]`) is skipped. Matches the resolution the TS `wikilinks.ts` uses
 /// (target = text before the first `|`, trimmed).
@@ -229,42 +232,7 @@ pub fn rewrite_wikilinks(
     new_id: &str,
     all_ids: &[String],
 ) -> (String, u32) {
-    let could_name_old_id =
-        |target: &str| link_targets_naming(old_id).any(|naming| naming == target);
-    let occurrences = find_wikilinks(text);
-    if !occurrences.iter().any(|occ| could_name_old_id(&occ.target)) {
-        return (text.to_string(), 0);
-    }
-    // The id-resolution context must include `old_id` so legacy bare-filename
-    // links targeting it still resolve. Replace `new_id` with `old_id` so
-    // resolution sees the pre-rename universe.
-    let mut ctx = all_ids.to_vec();
-    if !ctx.iter().any(|id| id == old_id) {
-        if let Some(position) = ctx.iter().position(|id| id == new_id) {
-            ctx[position] = old_id.to_owned();
-        } else {
-            ctx.push(old_id.to_owned());
-        }
-    }
-    let mut rewrites = 0u32;
-    let mut cursor = 0usize;
-    let mut out = String::with_capacity(text.len());
-    for occ in &occurrences {
-        out.push_str(&text[cursor..occ.start]);
-        if could_name_old_id(&occ.target)
-            && resolve_wikilink(&occ.target, &ctx).as_deref() == Some(old_id)
-        {
-            out.push_str("[[");
-            out.push_str(new_id);
-            out.push_str("]]");
-            rewrites += 1;
-        } else {
-            out.push_str(&text[occ.start..occ.end]);
-        }
-        cursor = occ.end;
-    }
-    out.push_str(&text[cursor..]);
-    (out, rewrites)
+    rewrite::rewrite(text, old_id, new_id, all_ids, None)
 }
 
 #[cfg(test)]
