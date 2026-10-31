@@ -183,6 +183,11 @@ impl Projection {
             visit_container();
             item.shift(base);
         }
+        // Command-local event records are queried by original source range.
+        items.sort_by_key(|item| {
+            visit_container();
+            item.marker.start
+        });
         (items, raw.len(), base..base + row.source_len)
     }
 

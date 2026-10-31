@@ -143,6 +143,9 @@ impl EditorSession {
         }
         let mut row_range = 0..0;
         let mut items = Vec::new();
+        let mut next_item = 0;
+        // Transient canonical-event indices, not ancestry retained per witness.
+        let mut open_items: Vec<usize> = Vec::new();
         for (rank, line) in lines.iter().enumerate() {
             crate::inline::visit_container();
             let Some(selected) = line.list.as_ref().filter(|list| {
@@ -160,12 +163,29 @@ impl EditorSession {
                 row_range = range;
                 plan.parsed += bytes;
                 plan.materialized += bytes;
+                next_item = 0;
+                open_items.clear();
+            }
+            while next_item < items.len() && items[next_item].marker.start <= selected.marker.start
+            {
+                #[cfg(test)]
+                crate::inline::CONTAINER_LIFT_ITEM_SCANS.with(|count| count.set(count.get() + 1));
+                crate::inline::visit_container();
+                while open_items.last().is_some_and(|&index| {
+                    crate::inline::visit_container();
+                    items[index].item.end <= items[next_item].marker.start
+                }) {
+                    open_items.pop();
+                }
+                open_items.push(next_item);
+                next_item += 1;
             }
             // A quote crossing promotes the enclosing group's removed item,
             // including its earlier paragraph. Same-quote parents stay listed.
             if selected.outer_depth > 1 {
                 let mut crossed = BTreeMap::new();
-                for item in &items {
+                for &index in &open_items {
+                    let item = &items[index];
                     #[cfg(test)]
                     crate::inline::CONTAINER_LIFT_ITEM_SCANS
                         .with(|count| count.set(count.get() + 1));
@@ -209,7 +229,18 @@ impl EditorSession {
             });
             let after = self.semantic_neighbor(selected.outer_item.end, true, selected.quote_depth);
             let mut tail_end = selected.item.end;
-            for child in &items {
+            let first = items.partition_point(|item| {
+                crate::inline::visit_container();
+                item.marker.start <= selected.marker.start
+            });
+            let last = items.partition_point(|item| {
+                crate::inline::visit_container();
+                item.marker.start < selected.outer_item.end
+            });
+            if first > last {
+                return Err(EditorError::UnrepresentableFormat);
+            }
+            for child in &items[first..last] {
                 #[cfg(test)]
                 crate::inline::CONTAINER_LIFT_ITEM_SCANS.with(|count| count.set(count.get() + 1));
                 crate::inline::visit_container();

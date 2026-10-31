@@ -126,6 +126,13 @@ impl EditorSession {
                     let Some(line) = self.projection.list_command_line_at_source(at) else {
                         break;
                     };
+                    // An exact retired item becomes a paragraph outside this
+                    // list. It ends the current owner fragment immediately.
+                    if targets.is_some_and(|targets| {
+                        targets.retires(line.source.start, line.list.as_ref())
+                    }) {
+                        break;
+                    }
                     let belongs = line.list.as_ref().is_some_and(|list| {
                         list.owner == *owner
                             || list.depth > depth
