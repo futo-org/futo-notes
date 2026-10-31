@@ -321,3 +321,131 @@ fn a_canonical_rewrite_of_only_the_code_wikilink_keeps_the_surrounding_owned_uri
     assert_eq!(link.range, range(1, 28));
     assert_eq!(link.destination, "https://x.test/[[New]]/path");
 }
+
+#[test]
+fn equal_uri_owners_keep_distinct_lifetimes_after_the_same_canonical_rewrite() {
+    let uri = "https://x.test/[[Old]]/path";
+    let next = "https://x.test/[[New]]/path";
+    let mut editor = EditorSession::open("");
+    let mut view = common::ReferenceView::new("");
+    view.apply(
+        editor
+            .replace(
+                Revision(0),
+                range(0, 0),
+                &format!("<{uri}"),
+                &mut |_| Ok(()),
+            )
+            .unwrap(),
+    );
+    view.apply(
+        editor
+            .replace(Revision(1), range(28, 28), ">", &mut |_| Ok(()))
+            .unwrap(),
+    );
+    editor.select(Revision(2), range(1, 28)).unwrap();
+    view.apply(
+        editor
+            .toggle_format(Revision(2), InlineFormat::Code, &mut |_| Ok(()))
+            .unwrap()
+            .unwrap(),
+    );
+    view.apply(
+        editor
+            .replace(Revision(3), range(29, 29), &format!(" <{uri}"), &mut |_| {
+                Ok(())
+            })
+            .unwrap(),
+    );
+    view.apply(
+        editor
+            .replace(Revision(4), range(58, 58), ">", &mut |_| Ok(()))
+            .unwrap(),
+    );
+    editor.select(Revision(5), range(31, 58)).unwrap();
+    view.apply(
+        editor
+            .toggle_format(Revision(5), InlineFormat::Code, &mut |_| Ok(()))
+            .unwrap()
+            .unwrap(),
+    );
+    assert_eq!(view.text, format!("<{uri}> <{uri}>"));
+    assert_eq!(editor.source_text(), format!("<`{uri}`> <`{uri}`>"));
+    let action = OwnActionRelink {
+        mappings: vec![("Old".into(), "New".into())],
+        note_ids: vec!["Old".into()],
+    };
+    view.apply(
+        editor
+            .apply_own_relink(Revision(6), &action, &mut |_| Ok(()))
+            .expect("equal URI text never merges distinct owned lifetimes")
+            .unwrap(),
+    );
+    assert_eq!(editor.source_text(), format!("<`{next}`> <`{next}`>"));
+    assert!(editor
+        .project(Revision(7), range(0, 59))
+        .unwrap()
+        .links
+        .is_empty());
+    editor.select(Revision(7), range(1, 28)).unwrap();
+    view.apply(
+        editor
+            .toggle_format(Revision(7), InlineFormat::Code, &mut |_| Ok(()))
+            .unwrap()
+            .unwrap(),
+    );
+    view.apply(
+        editor
+            .replace(Revision(8), range(29, 29), " ", &mut |_| Ok(()))
+            .unwrap(),
+    );
+    assert_eq!(view.text, format!("<{next}>  <{next}>"));
+    let first = editor
+        .inspect_link(Revision(9), range(1, 2))
+        .unwrap()
+        .unwrap();
+    assert_eq!(first.range, range(1, 28));
+    assert_eq!(first.destination, next);
+    assert!(editor
+        .inspect_link(Revision(9), range(32, 33))
+        .unwrap()
+        .is_none());
+    let opaque = editor.project(Revision(9), range(0, 60)).unwrap();
+    assert_eq!(
+        opaque
+            .runs
+            .iter()
+            .filter(|run| run.formats.contains(&InlineFormat::Code))
+            .map(|run| run.range)
+            .collect::<Vec<_>>(),
+        vec![range(32, 59)]
+    );
+    editor.select(Revision(9), range(32, 59)).unwrap();
+    view.apply(
+        editor
+            .toggle_format(Revision(9), InlineFormat::Code, &mut |_| Ok(()))
+            .unwrap()
+            .unwrap(),
+    );
+    view.apply(
+        editor
+            .replace(Revision(10), range(60, 60), " ", &mut |_| Ok(()))
+            .unwrap(),
+    );
+    assert_eq!(
+        editor
+            .inspect_link(Revision(11), range(32, 33))
+            .unwrap()
+            .unwrap()
+            .destination,
+        next
+    );
+    assert_eq!(
+        editor
+            .project(Revision(11), range(0, 61))
+            .unwrap()
+            .links
+            .len(),
+        2
+    );
+}

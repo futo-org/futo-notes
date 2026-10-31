@@ -169,3 +169,6 @@ mod canonical_emitter;
 
 #[path = "relink/affected.rs"]
 mod affected;
+
+#[path = "relink/typed.rs"]
+mod typed;
