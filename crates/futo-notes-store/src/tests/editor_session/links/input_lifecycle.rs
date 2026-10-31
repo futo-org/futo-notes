@@ -345,6 +345,11 @@ fn paragraph_lf_refusal_preserves_the_actual_unfinished_word_for_retry_and_histo
             .unwrap();
         let start = FOREIGN_VIEW.len();
         let at = start + TYPED.len();
+        assert!(shown.is_ascii());
+        let native = futo_notes_editor::DisplayUtf16Range {
+            start: futo_notes_editor::DisplayUtf16Offset(at),
+            end: futo_notes_editor::DisplayUtf16Offset(at),
+        };
         editor
             .replace(Revision(0), range(start, start), TYPED)
             .unwrap();
@@ -363,9 +368,9 @@ fn paragraph_lf_refusal_preserves_the_actual_unfinished_word_for_retry_and_histo
             .unwrap();
         refuse(&mut editor, &disk, fault, |editor| {
             editor
-                .paragraph_key(
+                .paragraph_key_utf16(
                     editor.revision(),
-                    range(at, at),
+                    native,
                     futo_notes_editor::ParagraphKey::Enter,
                 )
                 .map(|change| assert!(change.is_some()))
@@ -376,9 +381,9 @@ fn paragraph_lf_refusal_preserves_the_actual_unfinished_word_for_retry_and_histo
         assert_eq!(editor.display_text(), format!("{FOREIGN_VIEW}{TYPED}z"));
         editor.undo(editor.revision()).unwrap().unwrap();
         editor
-            .paragraph_key(
+            .paragraph_key_utf16(
                 editor.revision(),
-                range(at, at),
+                native,
                 futo_notes_editor::ParagraphKey::Enter,
             )
             .unwrap()
