@@ -5,6 +5,7 @@ use pulldown_cmark::{Event, Parser, Tag};
 
 pub(super) struct BodySplit {
     pub retained: Vec<crate::inline::references::RetainedBody>,
+    pub pending: Option<crate::inline::PendingLinks>,
     pub split: usize,
     pub left: String,
     pub right: String,
@@ -73,28 +74,22 @@ impl EditorSession {
             start: DisplayOffset(start),
             end: DisplayOffset(end),
         };
+        let rendered =
+            self.projection
+                .body_source(&self.source, body_range, false, self.revision)?;
+        let staging::BodyStage {
+            session: mut staged,
+            had_pending,
+        } = self.stage_body_source(&rendered, first.content.start..last.content.end)?;
         let crate::inline::BodySource {
             text: raw,
-            revision,
-            window,
             retained,
             materialized,
             parsed,
-            work: mut link_work,
-        } = self
-            .projection
-            .body_source(&self.source, body_range, false, self.revision)?;
-        if revision != self.revision
-            || window.end > self.source.len_bytes()
-            || retained.iter().any(|body| {
-                link_work.items += 1;
-                body.before.start < window.start || body.before.end > window.end
-            })
-        {
-            return Err(EditorError::UnrepresentableFormat);
-        }
+            work: link_work,
+            ..
+        } = rendered;
         let shown = self.projection.display.byte_slice(start..end).to_string();
-        let mut staged = self.stage_body_source(&raw, first.content.start..last.content.end);
         if staged.display_text() != shown {
             return Err(EditorError::UnrepresentableFormat);
         }
@@ -138,7 +133,17 @@ impl EditorSession {
             );
         }
         let prefix_bytes = prefixes.iter().map(String::len).sum::<usize>();
+        let pending = if had_pending {
+            Some(
+                staged
+                    .projection
+                    .pending_body(0..staged.source.len_bytes())?,
+            )
+        } else {
+            None
+        };
         Ok(BodySplit {
+            pending,
             retained,
             split,
             left: body[..split].into(),

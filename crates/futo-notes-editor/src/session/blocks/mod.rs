@@ -66,6 +66,19 @@ impl EditorSession {
         input: Option<HistoryInput<'_>>,
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<ViewChange, EditorError> {
+        self.commit_block_with_pending(expected, range, inserted, selection, input, None, accept)
+    }
+
+    fn commit_block_with_pending(
+        &mut self,
+        expected: Revision,
+        range: std::ops::Range<usize>,
+        inserted: &str,
+        selection: BlockSelection,
+        input: Option<HistoryInput<'_>>,
+        pending: Option<crate::inline::PendingLinks>,
+        accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
+    ) -> Result<ViewChange, EditorError> {
         let edit = self.prepare_source(
             expected,
             SourceRange {
@@ -74,13 +87,36 @@ impl EditorSession {
             },
             inserted,
         )?;
+        let before_links = self.projection.pending_for_source_edit(edit.range);
+        let validation = if let Some(pending) = &pending {
+            if pending.window != (edit.range.start.0..edit.range.start.0 + edit.inserted.len()) {
+                return Err(EditorError::UnrepresentableFormat);
+            }
+            self.preview_pending_edit(&edit, before_links.window.clone(), pending, true)?
+                .work
+        } else {
+            EditWork::default()
+        };
         accept(&edit).map_err(EditorError::Persistence)?;
         let before_selection = self.selection;
         let (before_source, before_source_work) = self.capture_history_selection();
         let before_affinity = self.affinity;
         let before_formats = self.pending_formats.clone();
-        let before_links = self.projection.pending_for_source_edit(edit.range);
         let mut change = self.apply(&edit);
+        let EditWork {
+            materialized_source_bytes,
+            inserted_bytes: _,
+            parsed_source_bytes,
+            link_metadata_items,
+            link_copied_bytes,
+        } = validation;
+        change.work.materialized_source_bytes += materialized_source_bytes;
+        change.work.parsed_source_bytes += parsed_source_bytes;
+        change.work.link_metadata_items += link_metadata_items;
+        change.work.link_copied_bytes += link_copied_bytes;
+        if let Some(pending) = &pending {
+            self.adopt_stage_pending(pending, &mut change, staging::PendingHistory::Prepared);
+        }
         self.selection = match selection {
             BlockSelection::Display(selection) => selection,
             BlockSelection::SourceRange(range) => DisplayRange {

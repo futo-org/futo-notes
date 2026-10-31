@@ -40,7 +40,7 @@ impl super::super::Projection {
         output: &mut String,
         bodies: &[RetainedBody],
     ) -> Result<(ReferenceWork, usize), EditorError> {
-        self.protect_body_definitions(source, origin, range, output, bodies, None)
+        self.protect_body_definitions(source, origin, range, output, bodies, None, None)
     }
 
     pub(crate) fn protect_body_definitions(
@@ -51,6 +51,7 @@ impl super::super::Projection {
         output: &mut String,
         bodies: &[RetainedBody],
         intent: Option<BodyIntent<'_>>,
+        mut pending: Option<&mut crate::inline::PendingLinks>,
     ) -> Result<(ReferenceWork, usize), EditorError> {
         let mut work = ReferenceWork::default();
         let mut copied = 0;
@@ -202,7 +203,15 @@ impl super::super::Projection {
                 }
             }
         }
+        if let Some(pending) = &pending {
+            if pending.window != (0..output.len()) {
+                return Err(EditorError::UnrepresentableFormat);
+            }
+        }
         for repair in repairs.into_iter().rev() {
+            if let Some(pending) = pending.as_deref_mut() {
+                pending.source_step(repair.range.clone(), repair.inserted.len())?;
+            }
             copied += output.len() - repair.range.end + repair.inserted.len();
             output.replace_range(repair.range, &repair.inserted);
         }

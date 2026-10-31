@@ -80,6 +80,26 @@ impl SourceCorrespondence {
             (None, work)
         }
     }
+    pub(crate) fn from_bodies(
+        bodies: &[crate::inline::references::RetainedBody],
+    ) -> Result<(Self, usize), crate::EditorError> {
+        let (ordered, mut work) = crate::inline::references::RetainedBody::ordered(bodies);
+        if !ordered {
+            return Err(crate::EditorError::UnrepresentableFormat);
+        }
+        let mut result = Self::default();
+        for body in bodies {
+            work += 5;
+            append(
+                &mut result.retained,
+                body.before.clone(),
+                body.after.clone(),
+                &mut work,
+            );
+        }
+        Ok((result, work))
+    }
+
     pub(crate) fn retained_range(&self, range: Range<usize>) -> (Option<Range<usize>>, usize) {
         let (start, work) = map(&self.retained, range.start, range.len());
         (start.map(|start| start..start + range.len()), work)

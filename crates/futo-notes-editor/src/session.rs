@@ -8,6 +8,7 @@ pub use relink::OwnActionRelink;
 mod history_selection;
 mod input;
 mod links;
+mod pending;
 mod staging;
 mod transaction;
 use crate::history::{

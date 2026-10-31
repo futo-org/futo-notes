@@ -40,6 +40,11 @@ pub(super) struct StageContext {
     pub origin: Option<crate::inline::references::SourceOrigin>,
 }
 
+pub(super) struct BodyStage {
+    pub session: EditorSession,
+    pub had_pending: bool,
+}
+
 pub(super) enum PendingHistory {
     Prepared,
     Recorded,
@@ -150,8 +155,34 @@ impl EditorSession {
     /// the outside semantic context uses these original source edges. Interior
     /// source/display anchors must use the inline owner's body correspondence;
     /// they must never be copied by an arithmetic window offset.
-    pub(super) fn stage_body_source(&self, raw: &str, window: Range<usize>) -> Self {
-        self.stage_with_context(raw, window, false)
+    pub(super) fn stage_body_source(
+        &self,
+        body: &crate::inline::BodySource,
+        window: Range<usize>,
+    ) -> Result<BodyStage, EditorError> {
+        if body.revision != self.revision
+            || window.start < body.window.start
+            || window.end > body.window.end
+        {
+            return Err(EditorError::UnrepresentableFormat);
+        }
+        let original = self.projection.pending_body(window.clone())?;
+        let had_pending = original.has_fields();
+        let mut staged = self.stage_with_context(&body.text, window, false);
+        staged.projection.initial_link_metadata_items += original.work;
+        if had_pending {
+            let (index, work) = crate::inline::SourceCorrespondence::from_bodies(&body.retained)?;
+            let mut pending =
+                original.map_copied(0..body.text.len(), |range| index.retained_range(range))?;
+            // The original collection has already been charged above.
+            pending.work -= original.work;
+            staged.projection.initial_link_metadata_items +=
+                work + pending.work + staged.projection.restore_pending(&pending);
+        }
+        Ok(BodyStage {
+            session: staged,
+            had_pending,
+        })
     }
 
     fn stage_with_context(&self, raw: &str, window: Range<usize>, exact: bool) -> Self {

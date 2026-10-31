@@ -11,6 +11,119 @@ mod snapshot;
 pub(crate) use snapshot::PendingLinks;
 
 impl Projection {
+    /// A derived body owns only fields wholly inside its physical input window.
+    /// Query actual indexed rows and charge each visited node and field.
+    pub(crate) fn pending_body(
+        &self,
+        window: Range<usize>,
+    ) -> Result<PendingLinks, crate::EditorError> {
+        let mut result = PendingLinks {
+            window: window.clone(),
+            ranges: Vec::new(),
+            delimiters: Vec::new(),
+            work: 0,
+        };
+        let mut at = window.start;
+        loop {
+            let (row, base, _, visits) = self.rows.source_row_with_work(at);
+            result.work += visits + 1;
+            for (fields, output) in [
+                (&row.literal_links, &mut result.ranges),
+                (&row.literal_delimiters, &mut result.delimiters),
+            ] {
+                for field in fields {
+                    result.work += 3;
+                    let range = base + field.start..base + field.end;
+                    if window.start <= range.start && range.end <= window.end {
+                        output.push(range);
+                    } else if range.start < window.end && window.start < range.end {
+                        return Err(crate::EditorError::UnrepresentableFormat);
+                    }
+                }
+            }
+            let end = base + row.source_len;
+            if end >= window.end || end <= at {
+                break;
+            }
+            at = end;
+        }
+        Ok(result)
+    }
+
+    /// Prepare only complete retained URL identities. User-overwritten glyphs
+    /// are new canonical fields; untouched identities without lineage reject.
+    pub(crate) fn retained_input_pending(
+        &self,
+        before: &PendingLinks,
+        edit: &SourceEdit,
+        correspondence: &super::SourceCorrespondence,
+        input: DisplayRange,
+    ) -> Result<PendingLinks, crate::EditorError> {
+        let mut result = PendingLinks {
+            window: before.after_window(edit),
+            ranges: Vec::new(),
+            delimiters: Vec::new(),
+            work: 0,
+        };
+        for field in &before.ranges {
+            result.work += 1;
+            let mapped = if field.end <= edit.range.start.0 {
+                Some(field.clone())
+            } else if edit.range.end.0 <= field.start {
+                result.work += 2;
+                Some(
+                    field.start - edit.removed.len() + edit.inserted.len()
+                        ..field.end - edit.removed.len() + edit.inserted.len(),
+                )
+            } else {
+                let (mapped, work) = correspondence.retained_range(field.clone());
+                result.work += work;
+                mapped
+            };
+            if let Some(mapped) = mapped {
+                result.ranges.push(mapped);
+            } else {
+                let mut display_at = |at| {
+                    let (row, base, display, visits) = self.rows.source_row_with_work(at);
+                    let (local, segments) = row.display_at_with_work(at - base);
+                    result.work += visits + segments;
+                    display + local
+                };
+                let start = display_at(field.start);
+                let end = display_at(field.end);
+                let overwritten = input.start.0 < end && start < input.end.0
+                    || input.start == input.end && start < input.start.0 && input.start.0 < end;
+                if !overwritten {
+                    return Err(crate::EditorError::UnrepresentableFormat);
+                }
+            }
+        }
+        Ok(result)
+    }
+
+    /// Merge prevalidated retained fields with canonical new/fallback fields.
+    /// No late failure, and finish_link_input still owns intent retirement.
+    pub(crate) fn merge_input_pending(&mut self, retained: &PendingLinks) -> usize {
+        let mut current = self.pending_links(retained.window.clone());
+        let mut work = current.work + retained.work;
+        for (fields, prepared) in [
+            (&mut current.ranges, &retained.ranges),
+            (&mut current.delimiters, &retained.delimiters),
+        ] {
+            work += 2 * prepared.len();
+            fields.extend(prepared.iter().cloned());
+            fields.sort_unstable_by(|a, b| {
+                work += 1;
+                (a.start, a.end).cmp(&(b.start, b.end))
+            });
+            fields.dedup_by(|a, b| {
+                work += 1;
+                a == b
+            });
+        }
+        work + self.restore_pending(&current)
+    }
+
     pub(crate) fn pending_for_source_edit(&self, edit: SourceRange) -> PendingLinks {
         let first = self.rows.locate(edit.start.0, false).saturating_sub(1);
         let last = (self.rows.locate(edit.end.0, false) + 1).min(self.rows.len() - 1);

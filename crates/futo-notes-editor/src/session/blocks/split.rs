@@ -2,6 +2,50 @@
 use super::*;
 use crate::inline::blocks::BlockLine;
 
+struct SplitLayout<'a> {
+    left: &'a super::content::PhysicalBody,
+    right: &'a super::content::PhysicalBody,
+    prefix: usize,
+    right_start: usize,
+    break_start: usize,
+    heading_end: usize,
+    split: usize,
+    unchanged_left: bool,
+    unchanged_right: bool,
+    setext: bool,
+}
+impl SplitLayout<'_> {
+    fn retained_range(
+        &self,
+        range: std::ops::Range<usize>,
+    ) -> (Option<std::ops::Range<usize>>, usize) {
+        if self.unchanged_left && range.end <= self.heading_end {
+            let (mapped, work) = self.left.retained_range(range);
+            (
+                mapped.map(|r| self.prefix + r.start..self.prefix + r.end),
+                work + 1,
+            )
+        } else if self.setext && range.start >= self.heading_end && range.end <= self.split {
+            (
+                Some(
+                    self.break_start + range.start - self.heading_end
+                        ..self.break_start + range.end - self.heading_end,
+                ),
+                1,
+            )
+        } else if self.unchanged_right && range.start >= self.split + 2 {
+            let local = range.start - self.split - 2..range.end - self.split - 2;
+            let (mapped, work) = self.right.retained_range(local);
+            (
+                mapped.map(|r| self.right_start + r.start..self.right_start + r.end),
+                work + 1,
+            )
+        } else {
+            (None, 1)
+        }
+    }
+}
+
 impl EditorSession {
     pub(super) fn split_structural_body(
         &mut self,
@@ -53,12 +97,17 @@ impl EditorSession {
         let (right, right_work) = super::content::protect_content(&body.right, false, true);
         let unchanged_left = left == body.left[..heading_end];
         let unchanged_right = right == body.right;
+        let retain_layout = line.heading > 0
+            || body
+                .pending
+                .as_ref()
+                .is_some_and(|pending| pending.has_fields());
         let left_layout =
-            super::content::physical_body(&left, body.prefixes.iter().skip(1), line.heading > 0);
+            super::content::physical_body(&left, body.prefixes.iter().skip(1), retain_layout);
         let right_layout = super::content::physical_body(
             &right,
             body.prefixes.iter().skip(body.right_line + 1),
-            line.heading > 0,
+            retain_layout,
         );
         let left = &left_layout.text;
         let right = &right_layout.text;
@@ -72,6 +121,24 @@ impl EditorSession {
             + 1
             + separator.len()
             + continuation.len();
+        let layout = SplitLayout {
+            left: &left_layout,
+            right: &right_layout,
+            prefix: prefix.len(),
+            right_start: caret - line.source.start,
+            break_start: prefix.len() + left.len() + suffix.len(),
+            heading_end,
+            split: body.split,
+            unchanged_left,
+            unchanged_right,
+            setext,
+        };
+        let mut pending = body
+            .pending
+            .map(|pending| {
+                pending.map_copied(0..output.len(), |range| layout.retained_range(range))
+            })
+            .transpose()?;
         let mut reference_work = crate::inline::references::ReferenceWork::default();
         let mut reference_bytes = 0;
         if line.heading > 0 {
@@ -80,31 +147,8 @@ impl EditorSession {
             let mut visits = 0;
             for witness in body.retained {
                 visits += 1;
-                let mapped = if unchanged_left && witness.after.end <= heading_end {
-                    let (range, work) = left_layout.retained_range(witness.after.clone());
-                    visits += work;
-                    range.map(|range| prefix.len() + range.start..prefix.len() + range.end)
-                } else if setext
-                    && witness.after.start >= heading_end
-                    && witness.after.end <= body.split
-                {
-                    // This retained terminal break is emitted AFTER the exact
-                    // setext suffix. Its old body identity does not move through
-                    // an inferred visible offset.
-                    let at = prefix.len() + left.len() + suffix.len();
-                    Some(
-                        at + witness.after.start - heading_end
-                            ..at + witness.after.end - heading_end,
-                    )
-                } else if unchanged_right && witness.after.start >= body.split + 2 {
-                    let local =
-                        witness.after.start - body.split - 2..witness.after.end - body.split - 2;
-                    let (range, work) = right_layout.retained_range(local);
-                    visits += work;
-                    range.map(|range| right_start + range.start..right_start + range.end)
-                } else {
-                    None
-                };
+                let (mapped, work) = layout.retained_range(witness.after);
+                visits += work;
                 if let Some(after) = mapped {
                     retained.push(crate::inline::references::RetainedBody {
                         before: witness.before,
@@ -140,17 +184,22 @@ impl EditorSession {
                         caret: right_start,
                         display_caret: range.start.0 + 1 - start_display,
                     }),
+                    pending.as_mut(),
                 )?;
                 work.items += visits;
                 (work, reference_bytes + bytes)
             };
         }
-        let mut change = self.commit_block_edit(
+        if let Some(pending) = &mut pending {
+            pending.work += pending.relocate_source(line.source.start);
+        }
+        let mut change = self.commit_block_with_pending(
             expected,
             line.source.start..suffix_end,
             &output,
             BlockSelection::Source(caret),
             None,
+            pending,
             accept,
         )?;
         self.carry_block_state(&mut change, body.formats, body.affinity);
