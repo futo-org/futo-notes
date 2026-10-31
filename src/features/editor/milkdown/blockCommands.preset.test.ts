@@ -363,6 +363,22 @@ const cases = [
     head: 'child',
     headOffset: 5,
   },
+  {
+    name: 'repeated ordered child lifts copy starts between foreign owners',
+    source: '9) before\n\n- [ ] p0\n  1. c0\n- [x] p1\n  1. c1\n- [ ] tail\n\n3. after',
+    command: 'ordered-list',
+    anchor: 'p0',
+    head: 'c1',
+    headOffset: 2,
+  },
+  {
+    name: 'repeated ordered task child lifts copy original start between foreign owners',
+    source: '9. before\n\n7) [ ] p0\n   1. c0\n8) [x] p1\n   1. c1\n9) [ ] tail\n\n3. after',
+    command: 'ordered-list',
+    anchor: 'p0',
+    head: 'c1',
+    headOffset: 2,
+  },
 ] as const;
 
 describe('pinned shipping toolbar container transactions (#299)', () => {
