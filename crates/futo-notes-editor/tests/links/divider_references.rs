@@ -451,3 +451,74 @@ fn before_caret_repair_adds_a_nonzero_unicode_window_base_exactly_once() {
     assert_eq!(editor.source_text(), edited);
     assert_eq!(editor.display_text(), edited_view);
 }
+
+#[test]
+fn a_current_typed_word_after_a_before_caret_repair_remains_usable() {
+    let original = "[id]: /target extra \n\n[one][id]";
+    let word = "<www.x.test/path";
+    let expected = "\\[id]: /target\n***\n\n extra <www.x.test/path\n\n[one][id]";
+    let shown = "[id]: /target\n\u{fffc}\n\n extra <www.x.test/path\n\n[one][id]";
+    let canonical = EditorSession::open(expected);
+    assert_eq!(canonical.display_text(), shown);
+    assert!(canonical
+        .project(Revision(0), range(0, shown.len()))
+        .unwrap()
+        .links
+        .is_empty());
+    let mut editor = EditorSession::open(original);
+    let mut view = ReferenceView::new(original);
+    view.apply(
+        editor
+            .replace(Revision(0), range(20, 20), word, &mut |_| Ok(()))
+            .unwrap(),
+    );
+    let typed = editor.source_text();
+    view.apply(
+        editor
+            .block_command(
+                Revision(1),
+                range(13, 13),
+                BlockCommand::Divider,
+                &mut |_| Ok(()),
+            )
+            .unwrap()
+            .unwrap(),
+    );
+    assert_eq!(editor.source_text(), expected);
+    assert_eq!(view.text, shown);
+    assert_eq!(editor.selection(), range(18, 18));
+    let end = 26 + word.len();
+    editor.select(Revision(2), range(end, end)).unwrap();
+    view.apply(
+        editor
+            .replace(Revision(2), range(end, end), ">", &mut |_| Ok(()))
+            .unwrap(),
+    );
+    assert!(editor
+        .inspect_link(Revision(3), range(27, 28))
+        .unwrap()
+        .is_none());
+    view.apply(
+        editor
+            .replace(Revision(3), range(end + 1, end + 1), " ", &mut |_| Ok(()))
+            .unwrap(),
+    );
+    let link = editor
+        .inspect_link(Revision(4), range(27, 28))
+        .unwrap()
+        .unwrap();
+    assert_eq!(link.destination, "http://www.x.test/path");
+    assert_eq!(link.range, range(27, end));
+    let finished = editor.source_text();
+    let reopened = EditorSession::open(&finished);
+    assert_eq!(reopened.display_text(), view.text);
+    assert_eq!(
+        reopened.inspect_link(Revision(0), range(27, 28)).unwrap(),
+        Some(link)
+    );
+    view.apply(editor.undo(Revision(4), &mut |_| Ok(())).unwrap().unwrap());
+    view.apply(editor.undo(Revision(5), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(editor.source_text(), typed);
+    view.apply(editor.redo(Revision(6), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(editor.source_text(), expected);
+}
