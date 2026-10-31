@@ -1,8 +1,11 @@
 //! Per-input display/source correspondence with exact step generation.
+mod protected;
 use crate::session::EditorSession;
 use crate::{
     DisplayRange, EditorError, Revision, SourceEdit, SourceOffset, SourceRange, ViewChange,
 };
+use protected::Protected;
+pub(in crate::session) use protected::SourceStep;
 
 /// Sequential display replacements produced by one input. A structural boundary
 /// is staged before the ordinary input; retain both locations instead of
@@ -11,6 +14,7 @@ pub(in crate::session) struct InputMapping {
     input: (DisplayRange, usize),
     boundary: Option<(DisplayRange, usize)>,
     source: Option<InputSource>,
+    protected: Option<Protected>,
     pub(super) requires_source_identity: bool,
     inserted_display: Option<DisplayRange>,
 }
@@ -26,6 +30,7 @@ impl InputMapping {
         Self {
             input: (range, inserted),
             boundary: None,
+            protected: None,
             source: None,
             requires_source_identity: false,
             inserted_display: None,
@@ -43,6 +48,7 @@ impl InputMapping {
         Self {
             input: (range, inserted),
             boundary: None,
+            protected: None,
             source: Some(InputSource {
                 revision: edit.previous_revision,
                 range: edit.range,
@@ -61,9 +67,16 @@ impl InputMapping {
         inserted: usize,
         point: crate::history::SourcePoint,
     ) -> (Option<crate::history::SourcePoint>, usize) {
-        if let Some(source) = self.source.as_ref().filter(|source| {
-            source.revision == revision && source.range == range && source.inserted == inserted
-        }) {
+        if let Some(path) = &self.protected {
+            return path.retained(
+                self.source.as_ref().unwrap(),
+                revision,
+                range,
+                inserted,
+                point,
+            );
+        }
+        if let Some(source) = self.source_at(revision, range, inserted) {
             source.retained.map(point)
         } else {
             (None, 1)
@@ -81,14 +94,14 @@ impl InputMapping {
             return Err(EditorError::UnrepresentableFormat);
         }
         let source = self
-            .source
-            .as_ref()
-            .filter(|source| {
-                source.revision == revision && source.range == range && source.inserted == inserted
-            })
+            .source_at(revision, range, inserted)
             .ok_or(EditorError::UnrepresentableFormat)?;
         let (mapped, work) = source.retained.inserted_range(input);
-        Ok((mapped.ok_or(EditorError::UnrepresentableFormat)?, work + 1))
+        let mut mapped = mapped.ok_or(EditorError::UnrepresentableFormat)?;
+        let relocation = self.protected.as_ref().map_or(0, |path| path.window.start);
+        mapped.start += relocation;
+        mapped.end += relocation;
+        Ok((mapped, work + 3))
     }
 
     pub(in crate::session) fn transfer_body(
@@ -99,17 +112,17 @@ impl InputMapping {
         bodies: Vec<crate::inline::references::RetainedBody>,
     ) -> Result<(Vec<crate::inline::references::RetainedBody>, usize), EditorError> {
         let source = self
-            .source
-            .as_ref()
-            .filter(|source| {
-                source.revision == revision && source.range == range && source.inserted == inserted
-            })
+            .source_at(revision, range, inserted)
             .ok_or(EditorError::UnrepresentableFormat)?;
         let mut result = Vec::new();
         let mut work = 1;
         for body in bodies {
             work += 1;
-            let (after, visits) = source.retained.retained_range(body.after);
+            let (after, visits) = if let Some(path) = &self.protected {
+                path.retained_range(source, body.after)
+            } else {
+                source.retained.retained_range(body.after)
+            };
             work += visits;
             if let Some(after) = after {
                 // The whole parser-owned atom survived this exact source step.
@@ -132,15 +145,18 @@ impl InputMapping {
         within: usize,
         staged: &EditorSession,
     ) -> Result<(usize, usize), EditorError> {
-        if let Some(source) = self
-            .source
-            .as_ref()
-            .filter(|source| source.revision.0.checked_add(1) == Some(staged.revision().0))
-        {
+        if let Some(source) = self.source.as_ref().filter(|source| {
+            self.protected.as_ref().map_or(
+                source.revision.0.checked_add(1) == Some(staged.revision().0),
+                |path| path.outer.revision.0.checked_add(1) == Some(staged.revision().0),
+            )
+        }) {
             let (mapped, mut work) = source.retained.map_inserted(within);
             if let Some(offset) = mapped {
                 let point = crate::history::SourcePoint {
-                    source: SourceOffset(offset),
+                    source: SourceOffset(
+                        offset + self.protected.as_ref().map_or(0, |path| path.window.start),
+                    ),
                     within: 0,
                     atom: None,
                 };
@@ -156,7 +172,7 @@ impl InputMapping {
             if self.requires_source_identity {
                 return Err(EditorError::UnrepresentableFormat);
             }
-            if let Some(display) = self.inserted_display {
+            if let Some(display) = self.inserted_display.filter(|_| self.protected.is_none()) {
                 // Literal spelling already verified the exact inserted glyphs.
                 if display.end.0 - display.start.0 == self.input.1 {
                     return Ok((display.start.0 + within, work));
@@ -176,13 +192,57 @@ impl InputMapping {
             .ok_or(EditorError::UnrepresentableFormat)
     }
 
-    pub fn with_boundary(mut self, change: &ViewChange, origin: usize) -> Self {
-        // Display origin alone cannot translate a source table through an
-        // earlier structural source generation. Preserve explicit rejection
-        // for a rewritten identity until that step supplies correspondence.
-        self.source = None;
-        self.inserted_display = None;
+    fn source_at(
+        &self,
+        revision: Revision,
+        range: SourceRange,
+        inserted: usize,
+    ) -> Option<&InputSource> {
+        self.source.as_ref().filter(|source| {
+            self.protected.as_ref().map_or(
+                source.revision == revision && source.range == range && source.inserted == inserted,
+                |path| path.outer.matches(revision, range, inserted),
+            )
+        })
+    }
+
+    pub(in crate::session) fn protect(
+        mut self,
+        outer: &SourceEdit,
+        steps: [Option<SourceStep>; 2],
+        count: usize,
+        window: std::ops::Range<usize>,
+    ) -> Result<Self, EditorError> {
+        if let Some(source) = &self.source {
+            if count != 2 {
+                return Err(EditorError::UnrepresentableFormat);
+            }
+            let boundary = steps[0].ok_or(EditorError::UnrepresentableFormat)?;
+            let input = steps[1].ok_or(EditorError::UnrepresentableFormat)?;
+            if boundary.revision != Revision(0)
+                || boundary.range.start != boundary.range.end
+                || boundary.revision.0 + 1 != input.revision.0
+                || !input.matches(source.revision, source.range, source.inserted)
+            {
+                return Err(EditorError::UnrepresentableFormat);
+            }
+            self.protected = Some(Protected {
+                outer: SourceStep::read(outer),
+                boundary,
+                window,
+            });
+            // A missing inserted witness is an explicit error on this path.
+            self.requires_source_identity = true;
+        }
+        Ok(self)
+    }
+
+    pub(in crate::session) fn with_source_boundary(mut self, change: &ViewChange) -> Self {
         self.boundary = Some((change.range, change.inserted.len()));
+        self
+    }
+
+    pub(in crate::session) fn relocate_display(&mut self, origin: usize) {
         for (range, _) in self
             .boundary
             .iter_mut()
@@ -191,7 +251,6 @@ impl InputMapping {
             range.start.0 += origin;
             range.end.0 += origin;
         }
-        self
     }
 
     pub fn map(&self, mut offset: usize, origin: usize) -> Result<usize, EditorError> {

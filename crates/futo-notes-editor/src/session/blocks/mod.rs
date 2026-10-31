@@ -37,6 +37,10 @@ enum BlockSelection {
     Display(DisplayRange),
     Source(usize),
     SourceRange(std::ops::Range<usize>),
+    Exact {
+        selection: crate::history::ExactSelection,
+        window: std::ops::Range<usize>,
+    },
 }
 
 impl EditorSession {
@@ -88,14 +92,35 @@ impl EditorSession {
             inserted,
         )?;
         let before_links = self.projection.pending_for_source_edit(edit.range);
-        let validation = if let Some(pending) = &pending {
+        let (validation, validated_selection) = if let BlockSelection::Exact { selection, window } =
+            &selection
+        {
+            if pending.as_ref().is_some_and(|pending| {
+                pending.window
+                    != (window.start..window.end - edit.removed.len() + edit.inserted.len())
+            }) {
+                return Err(EditorError::UnrepresentableFormat);
+            }
+            let (preview, selected) = self.preview_exact_edit(
+                &edit,
+                window.clone(),
+                pending.as_ref(),
+                true,
+                &[],
+                Some(*selection),
+            )?;
+            (preview.work, selected)
+        } else if let Some(pending) = &pending {
             if pending.window != (edit.range.start.0..edit.range.start.0 + edit.inserted.len()) {
                 return Err(EditorError::UnrepresentableFormat);
             }
-            self.preview_pending_edit(&edit, before_links.window.clone(), pending, true, &[])?
-                .work
+            (
+                self.preview_pending_edit(&edit, before_links.window.clone(), pending, true, &[])?
+                    .work,
+                None,
+            )
         } else {
-            EditWork::default()
+            (EditWork::default(), None)
         };
         accept(&edit).map_err(EditorError::Persistence)?;
         let before_selection = self.selection;
@@ -119,6 +144,9 @@ impl EditorSession {
         }
         self.selection = match selection {
             BlockSelection::Display(selection) => selection,
+            BlockSelection::Exact { .. } => {
+                validated_selection.expect("selection was validated before acceptance")
+            }
             BlockSelection::SourceRange(range) => DisplayRange {
                 start: DisplayOffset(self.projection.display_at(range.start)),
                 end: DisplayOffset(self.projection.display_at(range.end)),

@@ -39,8 +39,7 @@ impl EditorSession {
         else {
             return Ok(None);
         };
-        let mut mapping = None;
-        let change = self.stage_block_action(
+        self.stage_mapped_block_action(
             expected,
             range,
             Some(HistoryInput {
@@ -62,22 +61,23 @@ impl EditorSession {
                     accept,
                 )?;
                 staged.carry_block_state(&mut boundary, formats, affinity);
-                let mut input =
-                    staged.replace_action(staged.revision(), local, inserted, action, accept)?;
-                mapping = Some(
-                    InputMapping::new(local, inserted.len())
-                        .with_boundary(&boundary, range.start.0 - local.start.0),
-                );
+                let (mut input, mapping) = staged.replace_action_mapped(
+                    staged.revision(),
+                    local,
+                    inserted,
+                    action,
+                    accept,
+                )?;
+                let mapping = mapping.with_source_boundary(&boundary);
                 input.work.materialized_source_bytes += boundary.work.materialized_source_bytes;
                 input.work.parsed_source_bytes += boundary.work.parsed_source_bytes;
 
                 input.work.link_metadata_items += boundary.work.link_metadata_items;
 
                 input.work.link_copied_bytes += boundary.work.link_copied_bytes;
-                Ok(Some(input))
+                Ok(Some((input, mapping)))
             },
-        )?;
-        Ok(change.map(|change| (change, mapping.unwrap())))
+        )
     }
 
     pub(in crate::session) fn input_at_divider(

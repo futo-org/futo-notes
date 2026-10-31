@@ -34,6 +34,9 @@ pub(crate) struct Projection {
     pub references: std::sync::Arc<references::References>,
     pub(crate) references_complete: bool,
     pub(crate) needs_global_references: bool,
+    /// Set only by the canonical actual-meaning-change rebuild owner. A fresh
+    /// bounded preview can use this result to project its physical prefix.
+    pub(crate) has_rebuilt_references: bool,
     pub initial_link_metadata_items: usize,
     pub initial_link_copied_bytes: usize,
 }
@@ -106,6 +109,7 @@ impl Projection {
             references,
             references_complete: false,
             needs_global_references: false,
+            has_rebuilt_references: false,
         }
     }
 

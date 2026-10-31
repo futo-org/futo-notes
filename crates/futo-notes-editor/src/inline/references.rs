@@ -432,6 +432,7 @@ impl super::Projection {
             link_metadata_items: local_items + fresh.initial_link_metadata_items + pending_work,
             link_copied_bytes: local_copied + fresh.initial_link_copied_bytes,
         };
+        fresh.has_rebuilt_references = true;
         *self = fresh;
         update
     }

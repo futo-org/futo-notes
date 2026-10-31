@@ -3,7 +3,7 @@ use super::*;
 use crate::history::Transaction;
 use crate::{DisplayReplacement, InputAction};
 mod mapping;
-pub(super) use mapping::InputMapping;
+pub(super) use mapping::{InputMapping, SourceStep};
 
 /// A target in the intended replacement result belongs either to unchanged
 /// opening text or to a specific inserted run. Keep that identity through the

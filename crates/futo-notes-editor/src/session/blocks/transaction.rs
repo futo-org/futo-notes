@@ -14,6 +14,59 @@ impl EditorSession {
             &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
         ) -> Result<Option<ViewChange>, EditorError>,
     ) -> Result<Option<ViewChange>, EditorError> {
+        self.stage_block_action_inner(
+            expected,
+            range,
+            input,
+            false,
+            accept,
+            |staged, local, accept| {
+                operation(staged, local, accept).map(|step| step.map(|step| (step, None)))
+            },
+        )
+        .map(|result| result.map(|(change, _)| change))
+    }
+
+    pub(super) fn stage_mapped_block_action(
+        &mut self,
+        expected: Revision,
+        range: DisplayRange,
+        input: Option<HistoryInput<'_>>,
+        accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
+        operation: impl FnOnce(
+            &mut Self,
+            DisplayRange,
+            &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
+        ) -> Result<Option<(ViewChange, InputMapping)>, EditorError>,
+    ) -> Result<Option<(ViewChange, InputMapping)>, EditorError> {
+        self.stage_block_action_inner(
+            expected,
+            range,
+            input,
+            true,
+            accept,
+            |staged, local, accept| {
+                operation(staged, local, accept)
+                    .map(|step| step.map(|(step, mapping)| (step, Some(mapping))))
+            },
+        )
+        .map(|result| result.map(|(change, mapping)| (change, mapping.unwrap())))
+    }
+
+    fn stage_block_action_inner(
+        &mut self,
+        expected: Revision,
+        range: DisplayRange,
+        input: Option<HistoryInput<'_>>,
+        capture_steps: bool,
+        accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
+        operation: impl FnOnce(
+            &mut Self,
+            DisplayRange,
+            &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
+        )
+            -> Result<Option<(ViewChange, Option<InputMapping>)>, EditorError>,
+    ) -> Result<Option<(ViewChange, Option<InputMapping>)>, EditorError> {
         let (window, display_start) = self.projection.edit_window(range);
         let raw = self.source.byte_slice(window.clone()).to_string();
         let mut staged = self.stage_source(&raw, window.clone());
@@ -26,7 +79,13 @@ impl EditorSession {
             staged.pending_formats = self.pending_formats.clone();
         }
         let mut transaction = crate::history::Transaction::new(&staged.source);
-        let Some(step) = operation(&mut staged, local, &mut |edit| {
+        let mut steps = [None, None];
+        let mut count = 0;
+        let Some((step, mapping)) = operation(&mut staged, local, &mut |edit| {
+            if capture_steps && count < steps.len() {
+                steps[count] = Some(super::super::transaction::SourceStep::read(edit));
+            }
+            count += usize::from(capture_steps);
             transaction.apply(edit.range, &edit.inserted);
             Ok(())
         })?
@@ -36,20 +95,47 @@ impl EditorSession {
         let (mut footprint, inserted) = transaction.finish();
         footprint.start.0 += window.start;
         footprint.end.0 += window.start;
-        let selection = DisplayRange {
-            start: DisplayOffset(display_start + staged.selection.start.0),
-            end: DisplayOffset(display_start + staged.selection.end.0),
+        let mut selection_work = 0;
+        let mapped = mapping.is_some();
+        let mapping = if let Some(mut mapping) = mapping {
+            let edit = self.prepare_source(expected, footprint, &inserted)?;
+            mapping.relocate_display(display_start);
+            Some(mapping.protect(&edit, steps, count, window.clone())?)
+        } else {
+            None
         };
-        let pending = staged.prepare_pending_for_parent(window.start);
-        let mut change = self.commit_block_edit(
+        let pending = mapped.then(|| staged.prepare_pending_for_parent(window.start));
+        let selection = if mapped {
+            let (mut exact, work) = staged
+                .projection
+                .source_selection(staged.selection, staged.affinity);
+            exact.start.source.0 += window.start;
+            exact.end.source.0 += window.start;
+            selection_work = work + 2;
+            BlockSelection::Exact {
+                selection: exact,
+                window: window.clone(),
+            }
+        } else {
+            BlockSelection::Display(DisplayRange {
+                start: DisplayOffset(display_start + staged.selection.start.0),
+                end: DisplayOffset(display_start + staged.selection.end.0),
+            })
+        };
+        let mut change = self.commit_block_with_pending(
             expected,
             footprint.start.0..footprint.end.0,
             &inserted,
-            BlockSelection::Display(selection),
+            selection,
             input,
+            pending,
             accept,
         )?;
-        self.adopt_stage_pending(&pending, &mut change, staging::PendingHistory::Recorded);
+        if !mapped {
+            let pending = staged.prepare_pending_for_parent(window.start);
+            self.adopt_stage_pending(&pending, &mut change, staging::PendingHistory::Recorded);
+        }
+        change.work.link_metadata_items += selection_work + if mapped { count * 4 + 9 } else { 0 };
         self.carry_block_state(&mut change, staged.pending_formats, staged.affinity);
         change.work.materialized_source_bytes += raw.len() + step.work.materialized_source_bytes;
         change.work.parsed_source_bytes +=
@@ -58,7 +144,7 @@ impl EditorSession {
             staged.projection.initial_link_metadata_items + step.work.link_metadata_items;
         change.work.link_copied_bytes +=
             staged.projection.initial_link_copied_bytes + step.work.link_copied_bytes;
-        Ok(Some(change))
+        Ok(Some((change, mapping)))
     }
 
     pub(super) fn split_inline_block_seams(

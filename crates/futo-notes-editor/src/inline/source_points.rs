@@ -36,9 +36,9 @@ impl Projection {
         &self,
         mut point: crate::history::SourcePoint,
     ) -> (Option<usize>, usize) {
-        let (row, source, display) = self.rows.at(self.rows.locate(point.source.0, false));
+        let (row, source, display, visits) = self.rows.source_row_with_work(point.source.0);
         point.source.0 -= source;
         let (local, work) = row.try_project_source_point(point);
-        (local.map(|local| display + local), work)
+        (local.map(|local| display + local), work + visits)
     }
 }

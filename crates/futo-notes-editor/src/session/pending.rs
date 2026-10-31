@@ -130,6 +130,21 @@ impl EditorSession {
         require_all: bool,
         required: &[Range<usize>],
     ) -> Result<PendingPreview, EditorError> {
+        self.preview_exact_edit(edit, window, Some(pending), require_all, required, None)
+            .map(|(preview, _)| preview)
+    }
+
+    /// Validate a physical exact output and its transient fields in one bounded
+    /// apply. Nothing fallible remains for the real acceptance's installation.
+    pub(super) fn preview_exact_edit(
+        &self,
+        edit: &SourceEdit,
+        window: Range<usize>,
+        pending: Option<&PendingLinks>,
+        require_all: bool,
+        required: &[Range<usize>],
+        selection: Option<crate::history::ExactSelection>,
+    ) -> Result<(PendingPreview, Option<DisplayRange>), EditorError> {
         if edit.range.start.0 < window.start || edit.range.end.0 > window.end {
             return Err(EditorError::UnrepresentableFormat);
         }
@@ -151,6 +166,18 @@ impl EditorSession {
         work.parsed_source_bytes += staged.projection.initial_parse_work;
         work.link_metadata_items += staged.projection.initial_link_metadata_items;
         work.link_copied_bytes += staged.projection.initial_link_copied_bytes;
+        let selected =
+            self.preview_exact_selection(&staged, window.clone(), selection, &mut work)?;
+        let Some(pending) = pending else {
+            return Ok((
+                PendingPreview {
+                    supported: None,
+                    retired: Vec::new(),
+                    work,
+                },
+                selected,
+            ));
+        };
         let start = pending
             .window
             .start
@@ -227,21 +254,108 @@ impl EditorSession {
                     return Err(EditorError::UnrepresentableFormat);
                 }
             }
-            Ok(PendingPreview {
-                supported: None,
-                retired: Vec::new(),
-                work,
-            })
+            Ok((
+                PendingPreview {
+                    supported: None,
+                    retired: Vec::new(),
+                    work,
+                },
+                selected,
+            ))
         } else {
             // Only canonical whole bare spans supported by the actual candidate
             // survive. Changed URL extents are new fields, not old identities.
             actual.work = 0;
             work.link_metadata_items += actual.relocate_source(window.start);
-            Ok(PendingPreview {
-                supported: Some(actual),
-                retired: Vec::new(),
-                work,
-            })
+            Ok((
+                PendingPreview {
+                    supported: Some(actual),
+                    retired: Vec::new(),
+                    work,
+                },
+                selected,
+            ))
         }
+    }
+
+    fn preview_exact_selection(
+        &self,
+        staged: &Self,
+        window: Range<usize>,
+        selection: Option<crate::history::ExactSelection>,
+        work: &mut EditWork,
+    ) -> Result<Option<DisplayRange>, EditorError> {
+        let Some(selection) = selection else {
+            return Ok(None);
+        };
+        work.link_metadata_items += 1;
+        if staged.projection.needs_global_references {
+            return Err(EditorError::UnrepresentableFormat);
+        }
+        // This flag is produced only by reference_meaning_changed followed by
+        // rebuild_references. Shared resolver allocation is not an eligibility
+        // signal. A genuine mutation can change display before the window.
+        let canonical = if staged.projection.has_rebuilt_references && window.start != 0 {
+            let origin = staged
+                .context
+                .origin
+                .as_ref()
+                .ok_or(EditorError::UnrepresentableFormat)?;
+            let raw = origin.source.to_string();
+            let projection = crate::inline::Projection::new(&raw);
+            work.materialized_source_bytes += raw.len();
+            work.parsed_source_bytes += projection.initial_parse_work;
+            work.link_metadata_items += projection.initial_link_metadata_items;
+            work.link_copied_bytes += projection.initial_link_copied_bytes;
+            Some((
+                projection,
+                origin
+                    .start
+                    .checked_sub(window.start)
+                    .ok_or(EditorError::UnrepresentableFormat)?,
+            ))
+        } else {
+            None
+        };
+        let (prefix, visits) = if let Some((projection, parent_start)) = &canonical {
+            projection.display_at_with_work(*parent_start)
+        } else {
+            self.projection.display_at_with_work(window.start)
+        };
+        work.link_metadata_items += visits;
+        let project = |mut point: crate::history::SourcePoint,
+                       work: &mut EditWork|
+         -> Result<usize, EditorError> {
+            let (offset, visits) = if let Some((projection, parent_start)) = &canonical {
+                point.source.0 += parent_start;
+                let (offset, visits) = projection.try_project_source_point(point);
+                (
+                    offset.and_then(|offset| offset.checked_sub(prefix)),
+                    visits + 1,
+                )
+            } else {
+                point.source.0 = point
+                    .source
+                    .0
+                    .checked_sub(window.start)
+                    .ok_or(EditorError::UnrepresentableFormat)?;
+                if point.source.0 > staged.source.len_bytes() {
+                    return Err(EditorError::UnrepresentableFormat);
+                }
+                let (offset, visits) = staged.projection.try_project_source_point(point);
+                (offset.map(|offset| prefix + offset), visits + 2)
+            };
+            work.link_metadata_items += visits;
+            offset.ok_or(EditorError::UnrepresentableFormat)
+        };
+        let start = project(selection.start, work)?;
+        let end = project(selection.end, work)?;
+        if start > end {
+            return Err(EditorError::UnrepresentableFormat);
+        }
+        Ok(Some(DisplayRange {
+            start: DisplayOffset(start),
+            end: DisplayOffset(end),
+        }))
     }
 }
