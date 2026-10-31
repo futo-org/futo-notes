@@ -226,19 +226,42 @@ pub(super) fn describe(
     for line in &mut lines {
         let end = line.content.end;
         let mut start = line.source.start;
-        for _ in 0..line.quote_depth {
-            let spaces = source[start..end]
-                .bytes()
-                .take_while(|b| *b == b' ')
-                .count()
-                .min(3);
-            if source.as_bytes().get(start + spaces) != Some(&b'>') {
-                break;
+        let (quote_end, mut column, consumed_quotes) =
+            consume_quote_prefix(source.as_bytes(), start, end, line.quote_depth, 0);
+        start = quote_end;
+        let attribution = lists.line(line.source.start, end);
+        line.task = attribution.task;
+        line.list = attribution.list;
+        if let Some(list) = &line.list {
+            if !list.first {
+                while start < end && column < list.content_column {
+                    super::visit_container();
+                    match source.as_bytes()[start] {
+                        b' ' => column += 1,
+                        b'\t' => column += 4 - column % 4,
+                        _ => break,
+                    }
+                    start += 1;
+                }
             }
-            start += spaces + 1;
-            if matches!(source.as_bytes().get(start), Some(b' ' | b'\t')) {
-                start += 1;
-            }
+        }
+        if let Some(list) = &line.list {
+            let remaining = if list.first {
+                let header = line.source.start + list.indent;
+                if header > start {
+                    column = super::columns(&source[start..header], column);
+                    start = header;
+                }
+                // The innermost item already owns every quote before its
+                // header, including quotes crossed by same-line list syntax.
+                line.quote_depth.saturating_sub(list.quote_depth)
+            } else {
+                line.quote_depth.saturating_sub(consumed_quotes)
+            };
+            start = consume_quote_prefix(source.as_bytes(), start, end, remaining, column).0;
+        }
+        if let Some(end) = attribution.prefix_end {
+            start = start.max(end);
         }
         if line.heading_syntax == HeadingSyntax::Atx {
             let spaces = source[start..end]
@@ -268,25 +291,6 @@ pub(super) fn describe(
                             .len();
                 }
             }
-        }
-        let attribution = lists.line(line.source.start, end);
-        line.task = attribution.task;
-        line.list = attribution.list;
-        if let Some(list) = &line.list {
-            if !list.first {
-                let mut column = super::columns(&source[line.source.start..start], 0);
-                while start < end && column < list.content_column {
-                    match source.as_bytes()[start] {
-                        b' ' => column += 1,
-                        b'\t' => column += 4 - column % 4,
-                        _ => break,
-                    }
-                    start += 1;
-                }
-            }
-        }
-        if let Some(end) = attribution.prefix_end {
-            start = start.max(end);
         }
         while comments
             .get(comment)
@@ -321,4 +325,54 @@ pub(super) fn describe(
     }
     super::fences::describe(source, events, &mut lines);
     (lines, prefixes)
+}
+
+/// Consume only the parser-attributed quote levels at this container origin.
+/// Tabs advance physical four-column stops; indentation is at most three
+/// columns relative to each quote's content origin, never three bytes.
+fn consume_quote_prefix(
+    source: &[u8],
+    mut start: usize,
+    end: usize,
+    depth: usize,
+    mut column: usize,
+) -> (usize, usize, usize) {
+    let mut consumed = 0;
+    for _ in 0..depth {
+        let mut at = start;
+        let mut at_column = column;
+        loop {
+            super::visit_container();
+            if at >= end {
+                break;
+            }
+            let next = match source[at] {
+                b' ' => at_column + 1,
+                b'\t' => at_column + 4 - at_column % 4,
+                _ => break,
+            };
+            if next - column > 3 {
+                break;
+            }
+            at += 1;
+            at_column = next;
+        }
+        super::visit_container();
+        if at >= end || source[at] != b'>' {
+            break;
+        }
+        start = at + 1;
+        column = at_column + 1;
+        super::visit_container();
+        if start < end && matches!(source[start], b' ' | b'\t') {
+            column += if source[start] == b'\t' {
+                4 - column % 4
+            } else {
+                1
+            };
+            start += 1;
+        }
+        consumed += 1;
+    }
+    (start, column, consumed)
 }
