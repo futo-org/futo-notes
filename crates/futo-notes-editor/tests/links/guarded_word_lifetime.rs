@@ -235,7 +235,18 @@ fn the_raw_parser_requires_explicit_inner_www_source_after_a_literal_angle() {
 
 fn assert_new_www_typing(character_by_character: bool, closing: bool, loaded_opener: bool) {
     let initial = if loaded_opener { "<" } else { "" };
-    let mut session = EditorSession::open(initial);
+    use std::sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc,
+    };
+    struct Clock(AtomicU64);
+    impl futo_notes_editor::HistoryClock for Clock {
+        fn now(&self) -> std::time::Duration {
+            std::time::Duration::from_millis(self.0.load(Ordering::Relaxed))
+        }
+    }
+    let clock = Arc::new(Clock(AtomicU64::new(0)));
+    let mut session = EditorSession::open_with_clock(initial, clock.clone());
     let mut view = ReferenceView::new(initial);
     let input = if loaded_opener {
         "www.x.test/path"
@@ -273,6 +284,9 @@ fn assert_new_www_typing(character_by_character: bool, closing: bool, loaded_ope
         .unwrap()
         .is_none());
     if closing {
+        // A real pause gives the handoff its own history group. Continuous
+        // character typing intentionally remains one group under the contract.
+        clock.0.store(500, Ordering::Relaxed);
         let at = view.text.len();
         view.apply(
             session
@@ -309,6 +323,7 @@ fn assert_new_www_typing(character_by_character: bool, closing: bool, loaded_ope
                 .unwrap(),
         );
     }
+    clock.0.store(1000, Ordering::Relaxed);
     let before_space = session.source_text();
     let at = view.text.len();
     view.apply(
