@@ -50,3 +50,6 @@ mod block_pending_consumers;
 
 #[path = "links/divider_references.rs"]
 mod divider_references;
+
+#[path = "links/guarded_word_lifetime.rs"]
+mod guarded_word_lifetime;
