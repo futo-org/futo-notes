@@ -258,36 +258,55 @@ pub(super) fn describe(
             } else {
                 line.quote_depth.saturating_sub(consumed_quotes)
             };
-            start = consume_quote_prefix(source.as_bytes(), start, end, remaining, column).0;
+            let (quote_end, quote_column, _) =
+                consume_quote_prefix(source.as_bytes(), start, end, remaining, column);
+            start = quote_end;
+            column = quote_column;
         }
-        if let Some(end) = attribution.prefix_end {
-            start = start.max(end);
+        if let Some(end) = attribution.prefix_end.filter(|&end| end > start) {
+            column = super::columns(&source[start..end], column);
+            start = end;
         }
         if line.heading_syntax == HeadingSyntax::Atx {
-            let spaces = source[start..end]
-                .bytes()
-                .take_while(|b| *b == b' ')
-                .count()
-                .min(3);
-            let marker = start + spaces;
+            let (marker, _) = container_indent(source.as_bytes(), start, end, column);
             let hashes = source[marker..end]
                 .bytes()
-                .take_while(|b| *b == b'#')
+                .take_while(|b| {
+                    super::visit_container();
+                    *b == b'#'
+                })
                 .count();
             if hashes > 0 {
                 start = marker + hashes;
-                while start < end && matches!(source.as_bytes()[start], b' ' | b'\t') {
+                loop {
+                    super::visit_container();
+                    if start >= end || !matches!(source.as_bytes()[start], b' ' | b'\t') {
+                        break;
+                    }
                     start += 1;
                 }
-                let trimmed = source[start..end].trim_end_matches([' ', '\t']);
-                let closing = trimmed.bytes().rev().take_while(|b| *b == b'#').count();
+                let trimmed = source[start..end].trim_end_matches(|ch| {
+                    super::visit_container();
+                    matches!(ch, ' ' | '\t')
+                });
+                let closing = trimmed
+                    .bytes()
+                    .rev()
+                    .take_while(|b| {
+                        super::visit_container();
+                        *b == b'#'
+                    })
+                    .count();
                 if closing > 0
                     && (closing == trimmed.len()
                         || trimmed.as_bytes()[trimmed.len() - closing - 1].is_ascii_whitespace())
                 {
                     line.content.end = start
                         + trimmed[..trimmed.len() - closing]
-                            .trim_end_matches([' ', '\t'])
+                            .trim_end_matches(|ch| {
+                                super::visit_container();
+                                matches!(ch, ' ' | '\t')
+                            })
                             .len();
                 }
             }
@@ -339,24 +358,7 @@ fn consume_quote_prefix(
 ) -> (usize, usize, usize) {
     let mut consumed = 0;
     for _ in 0..depth {
-        let mut at = start;
-        let mut at_column = column;
-        loop {
-            super::visit_container();
-            if at >= end {
-                break;
-            }
-            let next = match source[at] {
-                b' ' => at_column + 1,
-                b'\t' => at_column + 4 - at_column % 4,
-                _ => break,
-            };
-            if next - column > 3 {
-                break;
-            }
-            at += 1;
-            at_column = next;
-        }
+        let (at, at_column) = container_indent(source, start, end, column);
         super::visit_container();
         if at >= end || source[at] != b'>' {
             break;
@@ -375,4 +377,26 @@ fn consume_quote_prefix(
         consumed += 1;
     }
     (start, column, consumed)
+}
+
+fn container_indent(source: &[u8], start: usize, end: usize, column: usize) -> (usize, usize) {
+    let mut at = start;
+    let mut at_column = column;
+    loop {
+        super::visit_container();
+        if at >= end {
+            break;
+        }
+        let next = match source[at] {
+            b' ' => at_column + 1,
+            b'\t' => at_column + 4 - at_column % 4,
+            _ => break,
+        };
+        if next - column > 3 {
+            break;
+        }
+        at += 1;
+        at_column = next;
+    }
+    (at, at_column)
 }
