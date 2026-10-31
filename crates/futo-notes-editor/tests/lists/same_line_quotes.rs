@@ -7,7 +7,7 @@ fn same_line_quotes_have_canonical_outer_list_ownership_after_wide_and_tab_paddi
         ("1000. > b", Some(1000)),
         ("1000.\t> b", Some(1000)),
     ] {
-        let mut s = EditorSession::open(raw);
+        let s = EditorSession::open(raw);
         assert_eq!(s.source_text(), raw);
         assert_eq!(s.display_text(), "b");
         let projected = s.project(s.revision(), range(0, 1)).unwrap();
@@ -17,7 +17,7 @@ fn same_line_quotes_have_canonical_outer_list_ownership_after_wide_and_tab_paddi
                 .as_ref()
                 .is_some_and(|list| list.first && list.depth == 1 && list.number == number)));
     }
-    let mut negative = EditorSession::open("> b");
+    let negative = EditorSession::open("> b");
     let p = negative.project(negative.revision(), range(0, 1)).unwrap();
     assert!(p
         .blocks
@@ -28,7 +28,7 @@ fn same_line_quotes_have_canonical_outer_list_ownership_after_wide_and_tab_paddi
 #[test]
 fn text_lifts_the_outer_same_line_list_and_retains_its_empty_paragraph_before_the_quote() {
     let expected = "\n> b";
-    let mut plan = EditorSession::open(expected);
+    let plan = EditorSession::open(expected);
     assert_eq!(plan.display_text(), "\nb");
     let projected = plan.project(plan.revision(), range(0, 2)).unwrap();
     assert!(projected.blocks.iter().all(|block| block.list.is_none()));
@@ -89,7 +89,7 @@ fn canonical_same_line_prefix_order_hides_only_owned_quote_and_heading_markers()
         ("- > # b", 1, 1, 1),
         ("> - > # b", 1, 2, 1),
     ] {
-        let mut s = EditorSession::open(raw);
+        let s = EditorSession::open(raw);
         assert_eq!(s.source_text(), raw);
         assert_eq!(s.display_text(), "b", "{raw}");
         let p = s.project(s.revision(), range(0, 1)).unwrap();
@@ -110,7 +110,7 @@ fn escaped_and_code_quote_markers_remain_opaque_to_container_prefixes() {
         ("> \\> b", 1, false),
         ("> ```\n> > b\n> ```", 1, true),
     ] {
-        let mut s = EditorSession::open(raw);
+        let s = EditorSession::open(raw);
         assert_eq!(s.source_text(), raw);
         assert_eq!(s.display_text(), "> b", "{raw}");
         let p = s.project(s.revision(), range(0, 3)).unwrap();
@@ -130,7 +130,7 @@ fn task_body_markers_remain_literal_and_wide_continuations_keep_quote_ownership(
         ("- [x] # b", "# b", 0),
         ("> - [x] > b", "> b", 1),
     ] {
-        let mut s = EditorSession::open(raw);
+        let s = EditorSession::open(raw);
         assert_eq!(s.display_text(), shown);
         assert_eq!(s.source_text(), raw);
         let p = s.project(s.revision(), range(0, shown.len())).unwrap();
@@ -139,7 +139,7 @@ fn task_body_markers_remain_literal_and_wide_continuations_keep_quote_ownership(
             && b.list.as_ref().is_some_and(|l| l.checked == Some(true))));
     }
     let raw = "1000. parent\n      > b";
-    let mut s = EditorSession::open(raw);
+    let s = EditorSession::open(raw);
     assert_eq!(s.display_text(), "parent\nb");
     assert_eq!(s.source_text(), raw);
     let p = s.project(s.revision(), range(7, 8)).unwrap();
@@ -299,7 +299,7 @@ fn canonical_heading_indent_uses_tab_columns_after_its_quote_and_list_origins() 
         ("- \t> \t# b", 1, true),
         ("> \t> # b", 2, false),
     ] {
-        let mut s = EditorSession::open(raw);
+        let s = EditorSession::open(raw);
         assert_eq!(s.source_text(), raw);
         assert_eq!(s.display_text(), "b", "{raw}");
         let p = s.project(s.revision(), range(0, 1)).unwrap();
@@ -311,7 +311,7 @@ fn canonical_heading_indent_uses_tab_columns_after_its_quote_and_list_origins() 
         );
     }
     let raw = "> \t#b";
-    let mut s = EditorSession::open(raw);
+    let s = EditorSession::open(raw);
     assert_eq!(s.display_text(), "\t#b");
     assert_eq!(s.source_text(), raw);
     assert!(s
@@ -328,7 +328,7 @@ fn a_same_line_quoted_item_keeps_one_empty_paragraph_after_a_listed_sibling() {
         ("- p\n\n> &acE;", "p\n\n\u{223e}\u{0333}"),
         ("\n> &acE;\n- p", "\n\u{223e}\u{0333}\np"),
     ] {
-        let mut plan = EditorSession::open(expected);
+        let plan = EditorSession::open(expected);
         assert_eq!(plan.display_text(), shown);
         let p = plan
             .project(plan.revision(), range(0, shown.len()))

@@ -240,13 +240,6 @@ impl Projection {
         Some(blocks::ListCommandLine::from_block(block, base))
     }
 
-    pub(crate) fn block_at_source(&self, at: usize) -> Option<blocks::BlockLine> {
-        let (block, base) = self.block_ref_at_source(at)?;
-        let mut block = block.clone();
-        block.shift(base);
-        Some(block)
-    }
-
     pub(crate) fn source_prefix_at(&self, at: usize) -> Option<blocks::SourcePrefix> {
         #[cfg(test)]
         CONTAINER_PREFIX_QUERIES.with(|count| count.set(count.get() + 1));

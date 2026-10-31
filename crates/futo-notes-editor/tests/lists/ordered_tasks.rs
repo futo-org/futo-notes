@@ -196,7 +196,7 @@ fn repeated_ordered_child_lifts_keep_new_owner_starts_between_foreign_lists() {
             7,
         ),
     ] {
-        let mut plan = EditorSession::open(expected);
+        let plan = EditorSession::open(expected);
         assert_eq!(plan.display_text(), shown);
         let projected = plan
             .project(plan.revision(), range(0, shown.len()))
@@ -279,7 +279,7 @@ fn quoted_and_ancestor_selected_ordered_fragments_keep_their_canonical_owners() 
             3,
         ),
     ] {
-        let mut plan = EditorSession::open(expected);
+        let plan = EditorSession::open(expected);
         assert_eq!(plan.display_text(), shown);
         let projected = plan
             .project(plan.revision(), range(0, shown.len()))
