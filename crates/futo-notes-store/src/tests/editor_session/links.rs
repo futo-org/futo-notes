@@ -298,3 +298,77 @@ fn literal_heading_definition_conversion_rejects_before_view_and_recovers_exact_
         }
     }
 }
+
+#[test]
+fn derived_reference_body_split_preserves_interior_atom_history_on_append_rejection() {
+    use futo_notes_editor::{Affinity, DisplayUtf16Offset, DisplayUtf16Range, ParagraphKey};
+    let native = DisplayUtf16Range {
+        start: DisplayUtf16Offset(2),
+        end: DisplayUtf16Offset(2),
+    };
+    let original = "# &acE;[id]: /target 'T'\n\n[one][id]";
+    let entered = "# &acE;\n\\[id]: /target 'T'\n\n[one][id]";
+    let opening = "\u{223e}\u{333}[id]: /target 'T'\n\n[one][id]";
+    let shown = "\u{223e}\u{333}\n[id]: /target 'T'\n\n[one][id]";
+    for fault in [storage::Fault::Append, storage::Fault::ShortWrite] {
+        let root = TestRoot::new();
+        let store = store(&root);
+        store.create("", "split-reference", original).unwrap();
+        let disk = Arc::new(Mutex::new(storage::Disk::default()));
+        let mut editor = store
+            .open_editor_with_recovery("split-reference", storage::options(&disk))
+            .unwrap();
+        editor
+            .select_with_affinity(Revision(0), range(3, 3), Affinity::Backward)
+            .unwrap();
+        let before = editor
+            .project(Revision(0), range(0, opening.len()))
+            .unwrap();
+        disk.lock().unwrap().fault = Some(fault);
+        assert!(matches!(
+            editor.paragraph_key_utf16(Revision(0), native, ParagraphKey::Enter),
+            Err(EditorStoreError::RecoveryAppend(_))
+        ));
+        assert_eq!(editor.source_text(), original);
+        assert_eq!(editor.display_text(), opening);
+        assert_eq!(editor.selection(), range(3, 3));
+        assert_eq!(editor.affinity(), Affinity::Backward);
+        assert_eq!(
+            editor
+                .project(Revision(0), range(0, opening.len()))
+                .unwrap(),
+            before
+        );
+        assert_eq!(store.read("split-reference").unwrap(), original);
+        disk.lock().unwrap().fault = None;
+        editor.resume_recovery().unwrap();
+        editor
+            .paragraph_key_utf16(Revision(0), native, ParagraphKey::Enter)
+            .unwrap()
+            .unwrap();
+        assert_eq!(editor.source_text(), entered);
+        assert_eq!(editor.display_text(), shown);
+        assert_eq!(editor.selection(), range(6, 6));
+        editor.undo(Revision(1)).unwrap().unwrap();
+        assert_eq!(editor.source_text(), original);
+        assert_eq!(editor.selection(), range(3, 3));
+        assert_eq!(editor.affinity(), Affinity::Backward);
+        editor.redo(Revision(2)).unwrap().unwrap();
+        assert_eq!(editor.source_text(), entered);
+        assert_eq!(editor.selection(), range(6, 6));
+        editor.flush_recovery().unwrap();
+        drop(editor);
+        let mut reopened = store
+            .open_editor_with_recovery("split-reference", storage::options(&disk))
+            .unwrap();
+        assert_eq!(reopened.source_text(), entered);
+        assert_eq!(reopened.display_text(), shown);
+        assert!(reopened
+            .project(Revision(3), range(0, shown.len()))
+            .unwrap()
+            .links
+            .is_empty());
+        reopened.checkpoint().unwrap();
+        assert_eq!(store.read("split-reference").unwrap(), entered);
+    }
+}

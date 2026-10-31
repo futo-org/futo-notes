@@ -302,3 +302,63 @@ fn heading_split_preserves_literal_reference_body_in_its_actual_following_paragr
     view.apply(session.undo(Revision(5), &mut |_| Ok(())).unwrap().unwrap());
     assert_eq!(session.source_text(), original);
 }
+
+#[test]
+fn heading_split_transports_quote_layout_and_whole_nonidentity_atoms_without_length_guessing() {
+    use futo_notes_editor::{Affinity, ParagraphKey};
+    for (original, entered, opening, shown, caret, after) in [
+        (
+            "> # prefix[id]: /target 'T'\n\n[one][id]",
+            "> # prefix\n> \\[id]: /target 'T'\n\n[one][id]",
+            "prefix[id]: /target 'T'\n\n[one][id]",
+            "prefix\n[id]: /target 'T'\n\n[one][id]",
+            6,
+            7,
+        ),
+        (
+            "# &acE;[id]: /target 'T'\n\n[one][id]",
+            "# &acE;\n\\[id]: /target 'T'\n\n[one][id]",
+            "\u{223e}\u{333}[id]: /target 'T'\n\n[one][id]",
+            "\u{223e}\u{333}\n[id]: /target 'T'\n\n[one][id]",
+            5,
+            6,
+        ),
+    ] {
+        for affinity in [Affinity::Forward, Affinity::Backward] {
+            let mut session = EditorSession::open(original);
+            let mut view = ReferenceView::new(opening);
+            assert_eq!(session.display_text(), opening);
+            // Byte3 is inside the entity's displayed representation in the
+            // second case; source and display coincidentally both have length5.
+            session
+                .select_with_affinity(Revision(0), range(3, 3), affinity)
+                .unwrap();
+            let change = session
+                .paragraph_key(
+                    Revision(0),
+                    range(caret, caret),
+                    ParagraphKey::Enter,
+                    &mut |_| Ok(()),
+                )
+                .unwrap()
+                .unwrap();
+            view.apply(change);
+            assert_eq!(session.source_text(), entered);
+            assert_eq!(view.text, shown);
+            assert_eq!(session.selection(), range(after, after));
+            assert!(session
+                .project(Revision(1), range(0, shown.len()))
+                .unwrap()
+                .links
+                .is_empty());
+            view.apply(session.undo(Revision(1), &mut |_| Ok(())).unwrap().unwrap());
+            assert_eq!(session.source_text(), original);
+            assert_eq!(session.selection(), range(3, 3));
+            assert_eq!(session.affinity(), affinity);
+            view.apply(session.redo(Revision(2), &mut |_| Ok(())).unwrap().unwrap());
+            assert_eq!(session.source_text(), entered);
+            assert_eq!(session.selection(), range(after, after));
+            assert_eq!(view.text, shown);
+        }
+    }
+}
