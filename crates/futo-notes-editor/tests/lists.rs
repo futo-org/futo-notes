@@ -55,3 +55,6 @@ mod multiline_frames;
 
 #[path = "lists/fence_scope.rs"]
 mod fence_scope;
+
+#[path = "lists/structural_table.rs"]
+mod structural_table;
