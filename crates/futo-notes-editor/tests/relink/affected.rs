@@ -85,6 +85,22 @@ fn a_canonical_rewrite_inside_a_whole_code_uri_reaches_acceptance() {
         mappings: vec![("Old".into(), "New".into())],
         note_ids: vec!["Old".into()],
     };
+    let before = editor.project(Revision(3), range(0, end + 1)).unwrap();
+    let selection = editor.selection();
+    let refused = editor.apply_own_relink(Revision(3), &action, &mut |_| {
+        Err("injected affected-owner refusal".into())
+    });
+    assert!(
+        matches!(refused, Err(EditorError::Persistence(_))),
+        "valid affected rename must reach acceptance: {refused:?}"
+    );
+    assert_eq!(editor.source_text(), original);
+    assert_eq!(editor.revision(), Revision(3));
+    assert_eq!(editor.selection(), selection);
+    assert_eq!(
+        editor.project(Revision(3), range(0, end + 1)).unwrap(),
+        before
+    );
     let mut calls = 0;
     let change = editor
         .apply_own_relink(Revision(3), &action, &mut |_| {
@@ -108,6 +124,51 @@ fn a_canonical_rewrite_inside_a_whole_code_uri_reaches_acceptance() {
             .collect::<Vec<_>>(),
         vec![range(1, end)]
     );
-    // Post-Code word-end lifetime is deliberately a separate policy proof;
-    // this first discriminator establishes valid source and actual mutation.
+    view.apply(editor.undo(Revision(4), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(view.text, format!("<{next_uri}>"));
+    assert!(editor
+        .project(Revision(5), range(0, end + 1))
+        .unwrap()
+        .links
+        .is_empty());
+    view.apply(editor.redo(Revision(5), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(editor.source_text(), format!("<`{next_uri}`>"));
+    let restored = editor.project(Revision(6), range(0, end + 1)).unwrap();
+    assert_eq!(restored.links, query.links);
+    assert_eq!(restored.runs, query.runs);
+    editor.select(Revision(6), range(1, end)).unwrap();
+    view.apply(
+        editor
+            .toggle_format(Revision(6), InlineFormat::Code, &mut |_| Ok(()))
+            .unwrap()
+            .unwrap(),
+    );
+    assert!(editor
+        .project(Revision(7), range(0, end + 1))
+        .unwrap()
+        .links
+        .is_empty());
+    editor.select(Revision(7), range(end + 1, end + 1)).unwrap();
+    view.apply(
+        editor
+            .replace(Revision(7), range(end + 1, end + 1), " ", &mut |_| Ok(()))
+            .unwrap(),
+    );
+    assert_eq!(view.text, format!("<{next_uri}> "));
+    let link = editor
+        .inspect_link(Revision(8), range(1, 2))
+        .unwrap()
+        .unwrap();
+    assert_eq!(link.range, range(1, end));
+    assert_eq!(link.destination, next_uri);
+    let fresh = EditorSession::open(&editor.source_text());
+    assert_eq!(fresh.display_text(), view.text);
+    assert_eq!(
+        fresh
+            .inspect_link(Revision(0), range(1, 2))
+            .unwrap()
+            .unwrap()
+            .destination,
+        next_uri
+    );
 }
