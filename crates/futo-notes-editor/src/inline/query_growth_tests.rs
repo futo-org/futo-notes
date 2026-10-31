@@ -20,6 +20,12 @@ fn measured(work: EditWork) -> (EditWork, usize) {
         .link_metadata_items
         .checked_sub(nodes)
         .unwrap_or_else(|| panic!("work={work:?}; nodes={nodes}; ledger={:?}", snapshot()));
+    eprintln!(
+        "query-ledger total={} nodes={} bounds_delta={}",
+        work.link_metadata_items,
+        nodes,
+        bounds_delta()
+    );
     (fixed, nodes)
 }
 #[test]
@@ -132,7 +138,10 @@ fn public_pending_growth_work_keeps_foreign_word_fields_outside_the_local_ledger
         assert_eq!(bounds_delta(), 9);
         assert_eq!(fixed.link_metadata_items, 910);
         let mut previous = fixed;
-        previous.link_metadata_items -= bounds_delta();
+        previous.link_metadata_items = previous
+            .link_metadata_items
+            .checked_add_signed(-bounds_delta())
+            .unwrap();
         assert_eq!(previous.link_metadata_items, 901);
         results.push(previous);
     }

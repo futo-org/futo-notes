@@ -24,14 +24,12 @@ pub(super) fn capture_bounds(before: (usize, usize)) {
             .push((after.0 - before.0, after.1 - before.1))
     });
 }
-pub(super) fn bounds_delta() -> usize {
+pub(super) fn bounds_delta() -> isize {
     CAPTURE_BOUNDS.with(|v| {
-        v.borrow()
-            .iter()
-            .map(|(a, _)| a)
-            .sum::<usize>()
-            .checked_sub(v.borrow().iter().map(|(_, p)| p).sum::<usize>())
-            .unwrap()
+        let rows = v.borrow();
+        rows.iter()
+            .map(|(actual, previous)| *actual as isize - *previous as isize)
+            .sum()
     })
 }
 pub(super) fn visit() {
@@ -129,7 +127,9 @@ fn public_distant_input_exposes_its_actual_query_ledger() {
         assert_eq!(change.work.link_metadata_items, expected_metadata);
         assert_eq!(bounds_delta(), 10);
         assert_eq!(
-            change.work.link_metadata_items - added - bounds_delta(),
+            (change.work.link_metadata_items - added)
+                .checked_add_signed(-bounds_delta())
+                .unwrap(),
             384
         );
         assert_eq!(change.work.materialized_source_bytes, 87);
