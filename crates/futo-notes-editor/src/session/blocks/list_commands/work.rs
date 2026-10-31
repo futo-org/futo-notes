@@ -208,87 +208,108 @@ fn mixed_parent_retirement_uses_one_prefix_sweep_and_skips_unrelated_paragraphs(
 #[test]
 fn reversed_mixed_lift_overrides_do_not_repeat_ancestor_width_work() {
     for depth in [8, 64] {
-        let descendants = (0..depth)
-            .map(|at| format!("{}- n{at}\n", " ".repeat(5 + 2 * at)))
-            .collect::<String>();
-        let promoted = (0..depth)
-            .map(|at| {
-                format!(
-                    "{}{} n{at}\n",
-                    "  ".repeat(at),
-                    if at == 0 { '+' } else { '-' }
-                )
-            })
-            .collect::<String>();
-        let touched = format!("1. parent\n   - child\n{descendants}2. following");
-        let changed = format!("- parent\n\nchild\n{promoted}- following");
-        let rows = (0..depth).map(|at| format!("n{at}\n")).collect::<String>();
-        let before = format!("parent\nchild\n{rows}following");
-        let after = format!("parent\n\nchild\n{rows}following");
-        let mut measurements = Vec::new();
-        for paragraphs in [1, 20_000] {
-            let prefix = "foreign\n\n".repeat(paragraphs);
-            let raw = format!("{prefix}{touched}");
-            let selected = DisplayRange {
-                start: DisplayOffset(prefix.len()),
-                end: DisplayOffset(prefix.len() + 12),
-            };
-            let mapped = DisplayRange {
-                start: selected.start,
-                end: DisplayOffset(selected.end.0 + 1),
-            };
-            let mut s = EditorSession::open(&raw);
-            assert_eq!(s.display_text(), format!("{prefix}{before}"));
-            s.select_with_affinity(Revision(0), selected, Affinity::Backward)
-                .unwrap();
-            crate::inline::CONTAINER_METADATA_VISITS.with(|count| count.set(0));
-            crate::inline::CONTAINER_PREFIX_QUERIES.with(|count| count.set(0));
-            let mut accepts = 0;
-            let change = s
-                .block_command(Revision(0), selected, BlockCommand::BulletList, &mut |_| {
-                    accepts += 1;
-                    Ok(())
+        for quoted in [false, true] {
+            let descendants = (0..depth)
+                .map(|at| {
+                    if quoted {
+                        format!("   > {}- n{at}\n", "  ".repeat(at + 1))
+                    } else {
+                        format!("{}- n{at}\n", " ".repeat(5 + 2 * at))
+                    }
                 })
-                .unwrap()
-                .unwrap();
-            let visits = crate::inline::CONTAINER_METADATA_VISITS.with(|count| count.get());
-            let queries = crate::inline::CONTAINER_PREFIX_QUERIES.with(|count| count.get());
-            assert_eq!(accepts, 1);
-            let mut view = format!("{prefix}{before}");
-            view.replace_range(change.range.start.0..change.range.end.0, &change.inserted);
-            assert_eq!(view, format!("{prefix}{after}"));
-            assert_eq!(s.source_text(), format!("{prefix}{changed}"));
-            assert_eq!(s.selection(), mapped);
-            assert!(
-                queries > 0 && queries <= 4 * depth + 8,
-                "depth={depth} queries={queries}"
+                .collect::<String>();
+            let promoted = (0..depth)
+                .map(|at| {
+                    format!(
+                        "{}{}{} n{at}\n",
+                        if quoted { "> " } else { "" },
+                        "  ".repeat(at),
+                        if at == 0 && !quoted { '+' } else { '-' }
+                    )
+                })
+                .collect::<String>();
+            let touched = if quoted {
+                format!("1. parent\n   > - child\n{descendants}2. following")
+            } else {
+                format!("1. parent\n   - child\n{descendants}2. following")
+            };
+            let changed = if quoted {
+                format!("parent\n> child\n{promoted}- following")
+            } else {
+                format!("- parent\n\nchild\n{promoted}- following")
+            };
+            let rows = (0..depth).map(|at| format!("n{at}\n")).collect::<String>();
+            let before = format!("parent\nchild\n{rows}following");
+            let after = if quoted {
+                before.clone()
+            } else {
+                format!("parent\n\nchild\n{rows}following")
+            };
+            let mut measurements = Vec::new();
+            for paragraphs in [1, 20_000] {
+                let prefix = "foreign\n\n".repeat(paragraphs);
+                let raw = format!("{prefix}{touched}");
+                let selected = DisplayRange {
+                    start: DisplayOffset(prefix.len()),
+                    end: DisplayOffset(prefix.len() + 12),
+                };
+                let mapped = DisplayRange {
+                    start: selected.start,
+                    end: DisplayOffset(selected.end.0 + usize::from(!quoted)),
+                };
+                let mut s = EditorSession::open(&raw);
+                assert_eq!(s.display_text(), format!("{prefix}{before}"));
+                s.select_with_affinity(Revision(0), selected, Affinity::Backward)
+                    .unwrap();
+                crate::inline::CONTAINER_METADATA_VISITS.with(|count| count.set(0));
+                crate::inline::CONTAINER_PREFIX_QUERIES.with(|count| count.set(0));
+                let mut accepts = 0;
+                let change = s
+                    .block_command(Revision(0), selected, BlockCommand::BulletList, &mut |_| {
+                        accepts += 1;
+                        Ok(())
+                    })
+                    .unwrap()
+                    .unwrap();
+                let visits = crate::inline::CONTAINER_METADATA_VISITS.with(|count| count.get());
+                let queries = crate::inline::CONTAINER_PREFIX_QUERIES.with(|count| count.get());
+                assert_eq!(accepts, 1);
+                let mut view = format!("{prefix}{before}");
+                view.replace_range(change.range.start.0..change.range.end.0, &change.inserted);
+                assert_eq!(view, format!("{prefix}{after}"));
+                assert_eq!(s.source_text(), format!("{prefix}{changed}"));
+                assert_eq!(s.selection(), mapped);
+                assert!(
+                    queries > 0 && queries <= 4 * depth + 8,
+                    "depth={depth} queries={queries}"
+                );
+                assert!(
+                    visits > 0 && visits < 128 * touched.len(),
+                    "depth={depth} metadata={visits}"
+                );
+                assert!(
+                    change.work.parsed_source_bytes < 32 * touched.len(),
+                    "depth={depth} parsed={}",
+                    change.work.parsed_source_bytes
+                );
+                assert!(
+                    change.work.materialized_source_bytes < 32 * touched.len(),
+                    "depth={depth} materialized={}",
+                    change.work.materialized_source_bytes
+                );
+                measurements.push((
+                    change.work.parsed_source_bytes,
+                    change.work.materialized_source_bytes,
+                ));
+                s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap();
+                assert_eq!(s.source_text(), raw);
+                assert_eq!(s.selection(), selected);
+                assert_eq!(s.affinity(), Affinity::Backward);
+            }
+            assert_eq!(
+                measurements[0], measurements[1],
+                "unrelated paragraphs entered reversed mixed parser/copy work"
             );
-            assert!(
-                visits > 0 && visits < 128 * touched.len(),
-                "depth={depth} metadata={visits}"
-            );
-            assert!(
-                change.work.parsed_source_bytes < 32 * touched.len(),
-                "depth={depth} parsed={}",
-                change.work.parsed_source_bytes
-            );
-            assert!(
-                change.work.materialized_source_bytes < 32 * touched.len(),
-                "depth={depth} materialized={}",
-                change.work.materialized_source_bytes
-            );
-            measurements.push((
-                change.work.parsed_source_bytes,
-                change.work.materialized_source_bytes,
-            ));
-            s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap();
-            assert_eq!(s.source_text(), raw);
-            assert_eq!(s.selection(), selected);
-            assert_eq!(s.affinity(), Affinity::Backward);
         }
-        assert_eq!(
-            measurements[0], measurements[1],
-            "unrelated paragraphs entered reversed mixed parser/copy work"
-        );
     }
 }

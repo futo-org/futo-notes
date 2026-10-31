@@ -481,5 +481,40 @@
         null
       ]
     ]
+  },
+  {
+    "name": "reversed-mixed-retained-quote-promotes-outer-item",
+    "source": "1. parent\n   > - child😀\n   >   - grandchild\n   > - sibling\n2. following",
+    "display": "parent\nchild😀\ngrandchild\nsibling\nfollowing",
+    "action": "BulletList",
+    "range": [
+      0,
+      14
+    ],
+    "expected": "parent\n> child😀\n> + grandchild\n> - sibling\n- following",
+    "shown": "parent\nchild😀\ngrandchild\nsibling\nfollowing",
+    "resultRange": [
+      0,
+      14
+    ],
+    "finalItems": [
+      [
+        null,
+        null
+      ],
+      [
+        null,
+        null
+      ],
+      [
+        null,
+        null
+      ]
+    ],
+    "itemQuoteDepths": [
+      1,
+      1,
+      0
+    ]
   }
 ]

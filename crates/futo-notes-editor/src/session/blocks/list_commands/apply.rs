@@ -163,8 +163,7 @@ impl EditorSession {
         let mut separators = Vec::new();
         let mixed = !remove;
         for (index, line) in lines.iter().enumerate() {
-            let remove =
-                targets.removes(line) || lift_plan.promoted_ancestors.contains(&line.source.start);
+            let remove = targets.removes(line) || lift_plan.promotes_ancestor(line.source.start);
             if line.heading > 0 {
                 // ATX closing hashes and a setext underline belong to the
                 // retired heading; retain its final physical line ending.
@@ -253,8 +252,7 @@ impl EditorSession {
                                                 && previous.quote_depth == list.quote_depth
                                                 && lift_plan.depth_for(&previous, &targets)
                                                     == if lift_plan
-                                                        .paragraph_heads
-                                                        .contains(&line.source.start)
+                                                        .starts_paragraph(line.source.start)
                                                     {
                                                         1
                                                     } else {
@@ -379,7 +377,7 @@ impl EditorSession {
                 )?;
                 materialized += value.len();
             }
-            if let Some(&marker) = lift_plan.markers.get(&at) {
+            if let Some(marker) = lift_plan.marker_at(at) {
                 crate::inline::visit_container();
                 let cut =
                     super::super::indent_source::canonical_quote_end(&value, prefix.quote_depth)

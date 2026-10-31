@@ -9,9 +9,9 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 #[derive(Default)]
 pub(super) struct MixedLiftPlan {
     pub overrides: Vec<OwnedPrefixOverride>,
-    pub markers: HashMap<usize, u8>,
-    pub paragraph_heads: HashSet<usize>,
-    pub promoted_ancestors: HashSet<usize>,
+    markers: HashMap<usize, u8>,
+    paragraph_heads: HashSet<usize>,
+    promoted_ancestors: HashSet<usize>,
     pub parsed: usize,
     pub materialized: usize,
     depths: HashMap<usize, Vec<(usize, Option<usize>)>>,
@@ -20,6 +20,21 @@ pub(super) struct MixedLiftPlan {
 }
 
 impl MixedLiftPlan {
+    pub fn promotes_ancestor(&self, source: usize) -> bool {
+        crate::inline::visit_container();
+        self.promoted_ancestors.contains(&source)
+    }
+
+    pub fn starts_paragraph(&self, source: usize) -> bool {
+        crate::inline::visit_container();
+        self.paragraph_heads.contains(&source)
+    }
+
+    pub fn marker_at(&self, source: usize) -> Option<u8> {
+        crate::inline::visit_container();
+        self.markers.get(&source).copied()
+    }
+
     pub fn depth_for(&self, list: &ListLine, targets: &ListTargets) -> usize {
         crate::inline::visit_container();
         let cut = self.depths.get(&list.quote_depth).and_then(|events| {
@@ -222,6 +237,7 @@ impl EditorSession {
                 if targets.retires_item(child) {
                     continue;
                 }
+                crate::inline::visit_container();
                 let barrier = retired_heads.get(&child.quote_depth).is_some_and(|heads| {
                     let next = heads.partition_point(|&marker| {
                         crate::inline::visit_container();
