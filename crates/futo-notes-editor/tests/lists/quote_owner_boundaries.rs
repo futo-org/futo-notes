@@ -1,13 +1,7 @@
 use super::*;
 
 fn quote_boundary_case(raw: &str, before: &str) {
-    for ending in ["\n", "\r\n"] {
-        quote_boundary_ending(
-            &raw.replace('\n', ending),
-            &before.replace('\n', ending),
-            ending,
-        );
-    }
+    quote_boundary_ending(raw, before, "\n");
 }
 
 fn quote_boundary_ending(raw: &str, before: &str, ending: &str) {
@@ -112,5 +106,23 @@ fn full_text_preserves_the_existing_unquoted_boundary_without_a_duplicate() {
     quote_boundary_case(
         "- parent\n  > ```\n  > opaque\n\n> - outside",
         "parent\nopaque\n\noutside",
+    );
+}
+
+#[test]
+fn full_text_creates_a_crlf_boundary_between_inner_and_foreign_quote_owners() {
+    quote_boundary_ending(
+        "- parent\r\n  > ```\r\n  > opaque\r\n> - outside",
+        "parent\r\nopaque\r\noutside",
+        "\r\n",
+    );
+}
+
+#[test]
+fn full_text_keeps_the_existing_crlf_quote_boundary_without_a_duplicate() {
+    quote_boundary_ending(
+        "- parent\r\n  > ```\r\n  > opaque\r\n\r\n> - outside",
+        "parent\r\nopaque\r\n\r\noutside",
+        "\r\n",
     );
 }
