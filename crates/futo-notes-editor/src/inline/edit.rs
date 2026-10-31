@@ -78,9 +78,7 @@ impl Projection {
             pending_links,
             link_metadata_items,
         } = self.edit_context_for_change(source, range, toggle.is_none().then_some(inserted))?;
-        let typed = super::typed_angle::TypedState::current(typed_inputs);
-        let typed_work =
-            typed.require_unchanged_input(self, source_start, range, inserted, intent)?;
+        let mut typed = super::typed_angle::TypedState::current(typed_inputs);
         let expanded = split_entities(pieces, a, z);
         let (deleting_guard, deletion_proof_work) =
             guard_state.prove_deletion(&expanded, &markers, a..z, inserted, intent)?;
@@ -152,6 +150,18 @@ impl Projection {
             guard_work.copied += work.copied;
             guard_work.parsed += work.parsed;
         }
+        let typed_work = typed.prepare_input(
+            super::typed_angle::Input {
+                projection: self,
+                source_start,
+                range,
+                inserted,
+                intent,
+                insertion: insertion_index..insertion_end,
+            },
+            &mut changed,
+            &mut markers,
+        )?;
         let boundaries: Vec<_> = block_boundaries
             .into_iter()
             .filter_map(|boundary| {
@@ -301,8 +311,8 @@ impl Projection {
                 + angle.materialized
                 + completion.materialized
                 + rendered.materialized,
-            parsed: parsed + timing.work.parsed + guard_work.parsed,
-            link_metadata_items: typed_work
+            parsed: parsed + timing.work.parsed + guard_work.parsed + typed_work.parsed,
+            link_metadata_items: typed_work.items
                 + guard_work.items
                 + link_metadata_items
                 + delimiter_work
@@ -312,7 +322,8 @@ impl Projection {
                 + angle.work.items
                 + completion.work.items
                 + toggle_work,
-            link_copied_bytes: guard_work.copied
+            link_copied_bytes: typed_work.copied
+                + guard_work.copied
                 + rendered.link_copied_bytes
                 + angle.work.copied
                 + completion.work.copied

@@ -123,6 +123,10 @@ impl PendingLinks {
             }
         }
         for origin in &mut self.typed_inputs {
+            self.work += 1;
+            if range.is_empty() && range.start == origin.word.end && inserted > 0 {
+                return Err(crate::EditorError::UnrepresentableFormat);
+            }
             for field in [&mut origin.opener, &mut origin.word] {
                 self.work += 1;
                 if range.end <= field.start {

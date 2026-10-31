@@ -3,18 +3,26 @@ use super::*;
 use crate::inline::{edit::EditIntent, Projection};
 use crate::DisplayRange;
 
+pub(in crate::inline) struct EmittedOrigin {
+    pub opener: usize,
+    pub body: Range<usize>,
+    pub uri: Option<Arc<CodeWordIdentity>>,
+}
+
 pub(in crate::inline) struct TypedState {
     // None records an explicitly retired local owner for Some(empty) output.
     pub retained: Option<Vec<TypedAngleOrigin>>,
+    pub emitted: Vec<EmittedOrigin>,
 }
 impl TypedState {
     pub fn current(origins: Vec<TypedAngleOrigin>) -> Self {
         Self {
             retained: (!origins.is_empty()).then_some(origins),
+            emitted: Vec::new(),
         }
     }
     pub fn has_update(&self) -> bool {
-        self.retained.is_some()
+        self.retained.is_some() || !self.emitted.is_empty()
     }
     /// Until the input producer supplies a real continuation/handoff, a touched
     /// supplied origin must fail before acceptance rather than survive stale.
