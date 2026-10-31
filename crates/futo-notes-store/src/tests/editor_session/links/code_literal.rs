@@ -322,7 +322,13 @@ fn failed_last_code_body_deletion_preserves_the_old_owner_and_retries_a_fresh_ur
             .replace(Revision(0), range(0, 0), "<https://x.test/path")
             .unwrap();
         editor.replace(Revision(1), range(20, 20), ">").unwrap();
-        editor.select(Revision(2), range(15, 20)).unwrap();
+        editor
+            .select_with_affinity(
+                Revision(2),
+                range(15, 20),
+                futo_notes_editor::Affinity::Forward,
+            )
+            .unwrap();
         editor
             .toggle_format(Revision(2), InlineFormat::Code)
             .unwrap()
@@ -383,7 +389,13 @@ fn failed_last_code_body_deletion_preserves_the_old_owner_and_retries_a_fresh_ur
         editor.resume_recovery().unwrap();
         editor.redo(Revision(5)).unwrap().unwrap();
         assert_eq!(editor.source_text(), deleted);
-        editor.select(Revision(6), range(16, 16)).unwrap();
+        editor
+            .select_with_affinity(
+                Revision(6),
+                range(16, 16),
+                futo_notes_editor::Affinity::Forward,
+            )
+            .unwrap();
         editor.replace(Revision(6), range(16, 16), " ").unwrap();
         let active = editor
             .inspect_link(Revision(7), range(1, 2))

@@ -47,8 +47,20 @@ fn failed_first_www_eligibility_keeps_prefix_history_and_retries_the_same_input(
             .unwrap()
             .links
             .is_empty());
-        editor.select(Revision(5), range(0, 0)).unwrap();
-        editor.select(Revision(5), range(17, 17)).unwrap();
+        editor
+            .select_with_affinity(
+                Revision(5),
+                range(0, 0),
+                futo_notes_editor::Affinity::Forward,
+            )
+            .unwrap();
+        editor
+            .select_with_affinity(
+                Revision(5),
+                range(17, 17),
+                futo_notes_editor::Affinity::Forward,
+            )
+            .unwrap();
         editor.replace(Revision(5), range(17, 17), " ").unwrap();
         let active = editor.project(Revision(6), range(0, 18)).unwrap();
         assert_eq!(active.text, "<www.x.test/path> ");
