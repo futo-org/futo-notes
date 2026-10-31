@@ -3,6 +3,7 @@ use super::*;
 use crate::history::{SourcePoint, SourceSelection};
 use crate::inline::{references::RetainedBody, PendingLinks, SourceCorrespondence};
 use futo_notes_wikilinks::RewriteRange;
+mod atoms;
 mod fields;
 mod spelling;
 pub(super) use fields::Fields;
@@ -11,6 +12,7 @@ use spelling::SpellingStep;
 struct Replacement {
     range: RewriteRange,
     caret: super::positions::TargetCaret,
+    emitted: String,
 }
 struct WikiStep {
     input_len: usize,
@@ -81,7 +83,18 @@ impl Rewrite {
                     .ok_or(EditorError::UnrepresentableFormat)?;
                 let (caret, visits) = super::positions::TargetCaret::new(old_target, new_target);
                 work.link_metadata_items += visits + 4;
-                replaced.push(Replacement { range, caret });
+                let emitted = observed
+                    .source
+                    .get(range.after.clone())
+                    .ok_or(EditorError::UnrepresentableFormat)?
+                    .to_owned();
+                work.link_copied_bytes += emitted.len();
+                work.link_metadata_items += 3;
+                replaced.push(Replacement {
+                    range,
+                    caret,
+                    emitted,
+                });
             }
             if from != to {
                 let (coverage, visits) = fields::coverage(bodies, &replaced);

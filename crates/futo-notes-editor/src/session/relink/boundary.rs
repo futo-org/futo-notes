@@ -99,6 +99,7 @@ impl Boundary {
                 &mut work,
                 prepared.validate_original(&replay.session, side.pending, &rewrite.source)?,
             );
+            charge(&mut work, rewrite.guard_atoms(&mut prepared)?);
             work.link_metadata_items += rewrite.code_witnesses(&mut prepared.codes)?;
             work.link_metadata_items += prepared.pending.work;
             prepared.pending.work = 0;
@@ -126,6 +127,7 @@ impl Boundary {
             &mut work,
             aggregate.validate_original(&replay.session, &before, &rewrite.source)?,
         );
+        charge(&mut work, rewrite.guard_atoms(&mut aggregate)?);
         work.link_metadata_items += rewrite.code_witnesses(&mut aggregate.codes)?;
         work.link_metadata_items += aggregate.pending.work;
         aggregate.pending.work = 0;
@@ -178,7 +180,6 @@ impl Boundary {
                                 before.window.start,
                                 identities,
                                 &mut seeds,
-                                &rewrite.source,
                             )?,
                         );
                     }

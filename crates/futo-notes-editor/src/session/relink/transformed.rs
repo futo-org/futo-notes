@@ -140,8 +140,11 @@ impl rewrite::Fields {
         work.link_metadata_items += 2 * ranges.len() + usize::from(!ranges.is_empty());
         let (uris, codes, parsed) = session.projection.relink_owned_uris(&ranges, 0, None)?;
         charge(&mut work, parsed);
-        let mut whole_code_guards = vec![false; original.guarded_words.len()];
-        work.link_metadata_items += whole_code_guards.len();
+        let mut guard_atoms: Vec<Option<Vec<crate::inline::guarded_words::ValidationAtom>>> =
+            std::iter::repeat_with(|| None)
+                .take(original.guarded_words.len())
+                .collect();
+        work.link_metadata_items += guard_atoms.len();
         for (request_index, (request, uri)) in requests.iter().zip(&uris).enumerate() {
             work.link_metadata_items += 1;
             match (request.original, uri, request.role) {
@@ -151,28 +154,33 @@ impl rewrite::Fields {
             }
             if let Role::Guard(index) = request.role {
                 let word = &original.guarded_words[index];
-                work.link_metadata_items += 3;
-                if let [code] = codes[request_index].as_slice() {
-                    if code.open.start == word.inner.start && code.close.end == word.inner.end {
-                        // Opaque Code makes each raw content scalar semantic.
-                        // Prove this before transport; normalization or hidden
-                        // original content cannot be dropped by retirement.
-                        let raw = session.source.byte_slice(code.open.end..code.close.start);
-                        work.link_metadata_items += 1;
-                        whole_code_guards[index] = raw.len_bytes() == word.identity.displayed.len()
-                            && raw
-                                .bytes()
-                                .zip(word.identity.displayed.bytes())
-                                .all(|(a, b)| {
-                                    work.link_metadata_items += 1;
-                                    a == b
-                                });
+                let (atoms, captured) = session.projection.capture_relink_guard_atoms(
+                    word.inner.clone(),
+                    &codes[request_index],
+                    0,
+                )?;
+                charge(&mut work, captured);
+                let mut offset = 0;
+                for atom in atoms.iter().flatten() {
+                    work.link_metadata_items += 1;
+                    let expected = word
+                        .identity
+                        .displayed
+                        .get(offset..offset + atom.displayed.len())
+                        .ok_or(EditorError::UnrepresentableFormat)?;
+                    if !same_text(expected, &atom.displayed, &mut work) {
+                        return Err(EditorError::UnrepresentableFormat);
                     }
+                    offset += atom.displayed.len();
                 }
+                if atoms.is_some() && offset != word.identity.displayed.len() {
+                    return Err(EditorError::UnrepresentableFormat);
+                }
+                guard_atoms[index] = atoms;
             }
         }
         self.capture_plain_typed(session, original, rewritten, &mut work)?;
-        self.whole_code_guards = whole_code_guards;
+        self.guard_atoms = guard_atoms;
         self.codes = codes;
         Ok(work)
     }
@@ -183,7 +191,6 @@ impl rewrite::Fields {
         origin: usize,
         identities: &mut Identities,
         seeds: &mut Seeds,
-        rewritten: &str,
     ) -> Result<EditWork, EditorError> {
         let mut work = EditWork::default();
         let requests = self.requests(&self.pending, &mut work)?;
@@ -224,26 +231,26 @@ impl rewrite::Fields {
                     work.link_metadata_items += 2;
                     continue;
                 }
-                (Some(original), RelinkWord::Literal(displayed), Role::Guard(index))
-                    if self.whole_code_guards[index] =>
-                {
+                (Some(original), RelinkWord::Literal(displayed), Role::Guard(index)) => {
                     let word = &self.pending.guarded_words[index];
-                    let [code] = self.codes[request_index].as_slice() else {
-                        return Err(EditorError::UnrepresentableFormat);
-                    };
-                    if code.open.start != word.inner.start || code.close.end != word.inner.end {
-                        return Err(EditorError::UnrepresentableFormat);
-                    }
-                    // Expected semantics come from the actual canonical
-                    // emitter's immutable output, under retained opaque Code.
-                    // They are not copied from the candidate's own display.
-                    let expected = rewritten
-                        .get(code.open.end..code.close.start)
+                    let atoms = self.guard_atoms[index]
+                        .as_deref()
                         .ok_or(EditorError::UnrepresentableFormat)?;
-                    if !same_text(&displayed, expected, &mut work) {
+                    work.link_metadata_items += staged.projection.validate_relink_guard_atoms(
+                        atoms,
+                        &self.codes[request_index],
+                        origin,
+                    )?;
+                    let mut expected = String::new();
+                    for atom in atoms {
+                        expected.push_str(&atom.displayed);
+                        work.link_metadata_items += 1;
+                        work.link_copied_bytes += atom.displayed.len();
+                    }
+                    if !same_text(&displayed, &expected, &mut work) {
                         return Err(EditorError::UnrepresentableFormat);
                     }
-                    identities.retire(original, request.program, expected, &mut work)?;
+                    identities.retire(original, request.program, &expected, &mut work)?;
                     retired_guards.push(index);
                     retired_requests.push(request_index);
                     retired_envelopes.push(word.envelope.clone());
@@ -315,11 +322,11 @@ impl rewrite::Fields {
         // vectors coherent, while concrete scoped pending output remains even
         // when the last word is removed.
         for index in retired_guards.into_iter().rev() {
-            work.link_metadata_items += 10 * (self.pending.guarded_words.len() - index);
+            work.link_metadata_items += 13 * (self.pending.guarded_words.len() - index);
             self.pending.guarded_words.remove(index);
             self.changed_guards.remove(index);
             self.programs.remove(index);
-            self.whole_code_guards.remove(index);
+            self.guard_atoms.remove(index);
         }
         for index in retired_origins.into_iter().rev() {
             work.link_metadata_items += 20 * (self.pending.typed_inputs.len() - index);

@@ -91,6 +91,12 @@ impl SpellingStep {
                 code.close = self.range(code.close.clone(), &mut work)?;
             }
         }
+        for atoms in fields.guard_atoms.iter_mut().flatten() {
+            for atom in atoms {
+                atom.source = self.range(atom.source.clone(), &mut work)?;
+                work += 2;
+            }
+        }
         let old = std::mem::take(&mut fields.original_witnesses);
         let witnesses = std::mem::take(&mut fields.witnesses);
         let changed = std::mem::take(&mut fields.changed_links);
