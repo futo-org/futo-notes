@@ -98,14 +98,17 @@ fn an_affected_unclosed_www_origin_keeps_its_actual_typing_lifetime() {
 }
 
 #[test]
-fn an_actual_ineligible_www_candidate_accepts_the_same_literal_rename_as_loaded_source() {
-    let before = "<www.[[Old]]";
-    let after = "<www.[[New]]";
+fn an_actual_partial_www_candidate_keeps_its_seed_through_literal_rename_and_continuation() {
+    let before = "<www.x.test/[[Old]]/path.";
+    let after = "<www.x.test/[[New]]/path.";
     let action = OwnActionRelink {
         mappings: vec![("Old".into(), "New".into())],
         note_ids: vec!["Old".into()],
     };
-    for source in [before, after] {
+    for (source, destination) in [
+        (before, "http://www.x.test/[[Old]]/path"),
+        (after, "http://www.x.test/[[New]]/path"),
+    ] {
         let canonical = EditorSession::open(source);
         assert_eq!(canonical.display_text(), source);
         assert!(canonical
@@ -114,14 +117,28 @@ fn an_actual_ineligible_www_candidate_accepts_the_same_literal_rename_as_loaded_
             .links
             .is_empty());
         let bare = EditorSession::open(&source[1..]);
-        assert!(bare
+        let links = bare
             .project(Revision(0), range(0, source.len() - 1))
             .unwrap()
-            .links
-            .is_empty());
+            .links;
+        assert_eq!(links.len(), 1);
+        assert_eq!(links[0].range, range(0, 23));
+        assert_eq!(links[0].destination, destination);
+        assert!(
+            links[0].range.end.0 < source.len() - 1,
+            "a partial canonical URL does not give the complete candidate URI meaning"
+        );
     }
-    // The actual canonical command must rewrite this exact literal source;
-    // a pattern that the emitter never touches cannot prove an owner defect.
+    // The next actual Typing continuation makes that period an interior path
+    // scalar. Prove its complete canonical URI independently before commands.
+    let completed_word = "www.x.test/[[New]]/path.next";
+    let completed = EditorSession::open(completed_word);
+    let link = completed
+        .inspect_link(Revision(0), range(0, 1))
+        .unwrap()
+        .unwrap();
+    assert_eq!(link.range, range(0, completed_word.len()));
+    assert_eq!(link.destination, format!("http://{completed_word}"));
     let mut loaded = EditorSession::open(before);
     let mut calls = 0;
     loaded
@@ -134,11 +151,6 @@ fn an_actual_ineligible_www_candidate_accepts_the_same_literal_rename_as_loaded_
     assert_eq!(calls, 1);
     assert_eq!(loaded.source_text(), after);
     assert_eq!(loaded.display_text(), after);
-    assert!(loaded
-        .project(Revision(1), range(0, after.len()))
-        .unwrap()
-        .links
-        .is_empty());
     let mut editor = EditorSession::open("");
     let mut view = common::ReferenceView::new("");
     view.apply(
@@ -153,77 +165,66 @@ fn an_actual_ineligible_www_candidate_accepts_the_same_literal_rename_as_loaded_
         .unwrap()
         .links
         .is_empty());
-    view.apply(editor.apply_own_relink(Revision(1), &action, &mut |_| Ok(())).expect("the same canonical literal rename must accept an actual ineligible typed candidate").unwrap());
+    view.apply(
+        editor
+            .apply_own_relink(Revision(1), &action, &mut |_| Ok(()))
+            .expect(
+                "the same canonical literal rename must preserve an actual source-owned candidate",
+            )
+            .unwrap(),
+    );
     assert_eq!(editor.source_text(), after);
     assert_eq!(view.text, after);
     let end = after.len();
     view.apply(
         editor
-            .replace(Revision(2), range(end, end), " ", &mut |_| Ok(()))
+            .replace(Revision(2), range(end, end), "next", &mut |_| Ok(()))
             .unwrap(),
     );
-    assert_eq!(view.text, format!("{after} "));
+    assert_eq!(view.text, format!("<{completed_word}"));
     assert!(editor
-        .project(Revision(3), range(0, end + 1))
+        .project(Revision(3), range(0, end + 4))
         .unwrap()
         .links
         .is_empty());
-    view.apply(editor.undo(Revision(3), &mut |_| Ok(())).unwrap().unwrap());
-    assert_eq!(editor.source_text(), after);
-    view.apply(editor.redo(Revision(4), &mut |_| Ok(())).unwrap().unwrap());
-    assert_eq!(view.text, format!("{after} "));
+    view.apply(
+        editor
+            .replace(Revision(3), range(end + 4, end + 4), ">", &mut |_| Ok(()))
+            .unwrap(),
+    );
+    assert_eq!(view.text, format!("<{completed_word}>"));
     assert!(editor
-        .project(Revision(5), range(0, end + 1))
+        .project(Revision(4), range(0, end + 5))
         .unwrap()
         .links
         .is_empty());
-}
-
-// Temporary public-seam diagnosis: preserve 4e190's failed premise while
-// measuring whole-vs-partial canonical recognition before any policy change.
-#[test]
-fn canonical_www_candidate_extent_diagnostic() {
-    for word in [
-        "www.[[Old]]",
-        "www.x.test/[[Old]]/path.",
-        "www.",
-        "www.([[Old]])",
-    ] {
-        let bare = EditorSession::open(word);
-        let bare_links = bare
-            .project(Revision(0), range(0, word.len()))
+    let closed = editor.source_text();
+    editor.select(Revision(4), range(0, 0)).unwrap();
+    editor.select(Revision(4), range(end + 5, end + 5)).unwrap();
+    view.apply(
+        editor
+            .replace(Revision(4), range(end + 5, end + 5), " ", &mut |_| Ok(()))
+            .unwrap(),
+    );
+    assert_eq!(view.text, format!("<{completed_word}> "));
+    assert_eq!(
+        editor
+            .inspect_link(Revision(5), range(1, 2))
             .unwrap()
-            .links;
-        let source = format!("<{word}");
-        let mut loaded = EditorSession::open(&source);
-        let unclosed_links = loaded
-            .project(Revision(0), range(0, source.len()))
             .unwrap()
-            .links;
-        let action = OwnActionRelink {
-            mappings: vec![("Old".into(), "New".into())],
-            note_ids: vec!["Old".into()],
-        };
-        let mut calls = 0;
-        let loaded_result = loaded.apply_own_relink(Revision(0), &action, &mut |_| {
-            calls += 1;
-            Ok(())
-        });
-        let loaded_result = loaded_result.map(|change| change.is_some());
-        let mut typed = EditorSession::open("");
-        let input = typed
-            .replace(Revision(0), range(0, 0), &source, &mut |_| Ok(()))
-            .map(|_| ());
-        let typed_relink = if input.is_ok() {
-            Some(
-                typed
-                    .apply_own_relink(Revision(1), &action, &mut |_| Ok(()))
-                    .map(|change| change.is_some()),
-            )
-        } else {
-            None
-        };
-        eprintln!("WWW_CANDIDATE word={word:?} bare={bare_links:?} unclosed={unclosed_links:?} loaded_relink={loaded_result:?} calls={calls} loaded_after={:?} input={input:?} typed_relink={typed_relink:?} typed_after={:?}", loaded.source_text(), typed.source_text());
-    }
-    panic!("diagnostic-only stop: preserve all public WWW candidate observations before policy");
+            .destination,
+        format!("http://{completed_word}")
+    );
+    view.apply(editor.undo(Revision(5), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(editor.source_text(), closed);
+    view.apply(editor.redo(Revision(6), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(view.text, format!("<{completed_word}> "));
+    assert_eq!(
+        editor
+            .inspect_link(Revision(7), range(1, 2))
+            .unwrap()
+            .unwrap()
+            .destination,
+        format!("http://{completed_word}")
+    );
 }
