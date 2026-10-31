@@ -86,22 +86,8 @@ impl EditorSession {
             .collect();
         materialized += relative.iter().map(|(_, text)| text.len()).sum::<usize>();
         let output = super::transaction::spell_edits(&original, &relative)?;
-        let map = |point: usize| -> Result<usize, EditorError> {
-            let original = self.projection.source_bounds(point).1;
-            let mut shift = 0isize;
-            for (range, text) in &edits {
-                crate::inline::visit_container();
-                if original >= range.end {
-                    shift += text.len() as isize - range.len() as isize;
-                } else if original > range.start {
-                    return Err(EditorError::UnrepresentableFormat);
-                }
-            }
-            original
-                .checked_add_signed(shift)
-                .ok_or(EditorError::UnrepresentableFormat)
-        };
-        let selected = map(range.start.0)?..map(range.end.0)?;
+        let (selected, preview_parsed, preview_copied) =
+            self.preview_header_selection(range, footprint.clone(), &relative, &output, None)?;
         let formats = (range == self.selection)
             .then(|| self.pending_formats.clone())
             .flatten();
@@ -110,13 +96,13 @@ impl EditorSession {
             expected,
             footprint,
             &output,
-            BlockSelection::SourceRange(selected),
+            BlockSelection::Display(selected),
             None,
             accept,
         )?;
         self.carry_block_state(&mut change, formats, affinity);
-        change.work.parsed_source_bytes += parsed;
-        change.work.materialized_source_bytes += materialized;
+        change.work.parsed_source_bytes += parsed + preview_parsed;
+        change.work.materialized_source_bytes += materialized + output.len() + preview_copied;
         Ok(Some(change))
     }
 
