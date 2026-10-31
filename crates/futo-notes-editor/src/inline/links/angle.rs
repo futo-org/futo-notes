@@ -78,6 +78,7 @@ pub(in crate::inline) fn finish_angle_word(
     result.work.items += 1;
     let id = markers.len();
     markers.push(super::super::spelling::Marker {
+        source: None,
         literal_url: false,
         pending: false,
         activate: false,
@@ -202,6 +203,7 @@ pub(in crate::inline) fn complete_typed_angle(
     };
     let id = markers.len();
     markers.push(super::super::spelling::Marker {
+        source: None,
         literal_url: false,
         pending: true,
         activate: false,

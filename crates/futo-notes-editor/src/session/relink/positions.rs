@@ -102,18 +102,30 @@ pub(super) fn pending(
     before: &str,
     after: &str,
     snapshot: &crate::inline::PendingLinks,
-) -> crate::inline::PendingLinks {
+) -> Result<crate::inline::PendingLinks, EditorError> {
+    if !snapshot.guarded_words.is_empty() {
+        // This historical source is rewritten by the canonical relinker, but
+        // that owner currently returns no retained-source witnesses. TextDiff
+        // equality cannot prove guard lineage through a changed generation.
+        if before != after {
+            return Err(EditorError::UnrepresentableFormat);
+        }
+        let mut same = snapshot.clone();
+        same.work += 5 * snapshot.guarded_words.len();
+        return Ok(same);
+    }
     let runs = changed_runs(before, after);
     let map = |range: &std::ops::Range<usize>| {
         source_position(range.start, Affinity::Backward, &runs)
             ..source_position(range.end, Affinity::Forward, &runs)
     };
-    crate::inline::PendingLinks {
+    Ok(crate::inline::PendingLinks {
         window: map(&snapshot.window),
         ranges: snapshot.ranges.iter().map(map).collect(),
         delimiters: snapshot.delimiters.iter().map(map).collect(),
+        guarded_words: Vec::new(),
         work: snapshot.work,
-    }
+    })
 }
 
 pub(super) fn source_anchor(

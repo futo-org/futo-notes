@@ -111,7 +111,7 @@ impl EditorSession {
             } else {
                 line.content.end..line.content.end
             },
-        );
+        )?;
         staged.affinity = self.input_affinity(range);
         if range == self.selection {
             staged.pending_formats = self.pending_formats.clone();

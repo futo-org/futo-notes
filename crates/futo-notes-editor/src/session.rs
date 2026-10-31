@@ -481,9 +481,29 @@ impl EditorSession {
         }
         let (range, inserted) = transaction.finish();
         let edit = self.prepare_source(expected, range, &inserted)?;
+        let target = if redo {
+            &entry.entries.last().unwrap().after_links
+        } else {
+            &entry.entries.first().unwrap().before_links
+        };
+        let guarded_preview = if target.guarded_words.is_empty() {
+            None
+        } else {
+            let opening = self.projection.pending_for_source_edit(edit.range);
+            let mut preview =
+                self.preview_pending_edit(&edit, opening.window, target, true, &[])?;
+            preview.work.link_metadata_items += opening.work;
+            Some(preview)
+        };
         accept(&edit).map_err(EditorError::Persistence)?;
         let mut change = self.apply(&edit);
         change.work.materialized_source_bytes += edit.inserted.len();
+        if let Some(preview) = guarded_preview {
+            change.work.materialized_source_bytes += preview.work.materialized_source_bytes;
+            change.work.parsed_source_bytes += preview.work.parsed_source_bytes;
+            change.work.link_metadata_items += preview.work.link_metadata_items;
+            change.work.link_copied_bytes += preview.work.link_copied_bytes;
+        }
         let entry = if redo {
             self.redo.pop().unwrap()
         } else {

@@ -7,6 +7,7 @@ pub(crate) struct PendingLinks {
     pub window: Range<usize>,
     pub ranges: Vec<Range<usize>>,
     pub delimiters: Vec<Range<usize>>,
+    pub guarded_words: Vec<crate::inline::guarded_words::GuardedWord>,
     pub work: usize,
 }
 impl PendingLinks {
@@ -18,11 +19,15 @@ impl PendingLinks {
             range.start += origin;
             range.end += origin;
         }
-        2 * (1 + self.ranges.len() + self.delimiters.len())
+        let mut work = 2 * (1 + self.ranges.len() + self.delimiters.len());
+        for word in &mut self.guarded_words {
+            work += word.relocate(origin);
+        }
+        work
     }
 
     pub(crate) fn has_fields(&self) -> bool {
-        !self.ranges.is_empty() || !self.delimiters.is_empty()
+        !self.ranges.is_empty() || !self.delimiters.is_empty() || !self.guarded_words.is_empty()
     }
 
     /// A logical emitted window is owned by the planner. Every payload field
@@ -36,6 +41,7 @@ impl PendingLinks {
             window,
             ranges: Vec::new(),
             delimiters: Vec::new(),
+            guarded_words: Vec::new(),
             work: self.work + 2,
         };
         for (before, after) in [
@@ -54,6 +60,11 @@ impl PendingLinks {
                 }
                 after.push(found);
             }
+        }
+        for word in &self.guarded_words {
+            let (word, work) = word.map(&mapped.window, &mut map)?;
+            mapped.work += work;
+            mapped.guarded_words.push(word);
         }
         Ok(mapped)
     }
@@ -79,6 +90,19 @@ impl PendingLinks {
             } else if field.end <= range.start {
             } else {
                 return Err(crate::EditorError::UnrepresentableFormat);
+            }
+        }
+        for word in &mut self.guarded_words {
+            for field in [&mut word.envelope, &mut word.inner] {
+                self.work += 1;
+                if range.end <= field.start {
+                    field.start = field.start - removed + inserted;
+                    field.end = field.end - removed + inserted;
+                    self.work += 2;
+                } else if field.end <= range.start {
+                } else {
+                    return Err(crate::EditorError::UnrepresentableFormat);
+                }
             }
         }
         self.window.end = self.window.end - removed + inserted;

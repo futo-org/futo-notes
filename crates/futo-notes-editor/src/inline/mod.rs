@@ -5,6 +5,7 @@ mod edit;
 pub(crate) use edit::{EditIntent, Plan, SourceCorrespondence};
 mod empty_comments;
 pub(crate) mod fences;
+pub(crate) mod guarded_words;
 mod links;
 mod lists;
 mod pending_links;
@@ -326,6 +327,7 @@ impl Projection {
         let last = (self.rows.locate(edit.range.end.0, false) + 1).min(self.rows.len() - 1);
         let (pending, metadata_work) = self.pending_display(first, last);
         let (delimiters, delimiter_work) = self.retained_delimiters(first, last, edit);
+        let (guards, guard_work) = self.retained_raw_guard_words(first, last, edit);
         let (_, source_start, display_start) = self.rows.at(first);
         let (row, old_end, display_end) = self.rows.at(last);
         let source_end = old_end + row.source_len - edit.removed.len() + edit.inserted.len();
@@ -333,6 +335,7 @@ impl Projection {
         let text = source.byte_slice(source_start..source_end).to_string();
         let mut winners = Vec::new();
         let mut reference_work = references::ReferenceWork::default();
+        reference_work.items += guard_work;
         for index in first..=last {
             let (row, base, _) = self.rows.at(index);
             for definition in row
@@ -403,7 +406,7 @@ impl Projection {
                 .iter()
                 .map(|row| row.reference_work.copied)
                 .sum::<usize>();
-        let reference_items = reference_work.items
+        let mut reference_items = reference_work.items
             + parsed
                 .iter()
                 .map(|row| row.reference_work.items)
@@ -427,6 +430,15 @@ impl Projection {
         self.display.remove(start..end);
         self.display.insert(start, &inserted);
         self.rows.replace(first, last + 1, parsed);
+        if !guards.is_empty() {
+            reference_items += self.restore_guard_words(&PendingLinks {
+                window: source_start..source_end,
+                ranges: Vec::new(),
+                delimiters: Vec::new(),
+                guarded_words: guards,
+                work: 0,
+            });
+        }
         let prefix: usize = old
             .chars()
             .zip(inserted.chars())

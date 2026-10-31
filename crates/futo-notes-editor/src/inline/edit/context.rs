@@ -2,7 +2,11 @@
 use super::*;
 
 impl Projection {
-    pub(in crate::inline) fn edit_context(&self, source: &Rope, range: DisplayRange) -> Context {
+    pub(in crate::inline) fn edit_context(
+        &self,
+        source: &Rope,
+        range: DisplayRange,
+    ) -> Result<Context, crate::EditorError> {
         self.edit_context_for_change(source, range, None)
     }
 
@@ -11,7 +15,7 @@ impl Projection {
         source: &Rope,
         range: DisplayRange,
         replacement: Option<&str>,
-    ) -> Context {
+    ) -> Result<Context, crate::EditorError> {
         let first = self.rows.locate(range.start.0, true);
         let last = self.rows.locate(range.end.0, true);
         let (_, source_start, display_start) = self.rows.at(first);
@@ -19,6 +23,7 @@ impl Projection {
         let source_end = source_end + end_row.source_len;
         let raw = source.byte_slice(source_start..source_end).to_string();
         let mut markers = Vec::new();
+        let mut guarded_words = Vec::new();
         let mut link_metadata_items = 0;
         let mut pieces = Vec::<Piece>::new();
         let mut a = range.start.0 - display_start;
@@ -39,6 +44,16 @@ impl Projection {
         for index in first..=last {
             let (row, row_source, row_display) = self.rows.at(index);
             let base = row_source - source_start;
+            link_metadata_items += super::super::guarded_words::validate_row(
+                &raw[base..base + row.source_len],
+                row,
+                &row.guarded_words,
+            )?;
+            for word in &row.guarded_words {
+                let mut word = word.clone();
+                link_metadata_items += 5 + word.relocate(base);
+                guarded_words.push(word);
+            }
             let prefixes = super::prefixes::PhysicalPrefixes::read(
                 row,
                 needs_word_prefixes,
@@ -67,7 +82,16 @@ impl Projection {
                         link_metadata_items += 1;
                         *range == (span.open.end..span.close.start)
                     });
+                if pending {
+                    link_metadata_items += 4;
+                }
                 Marker {
+                    source: pending.then(|| {
+                        (
+                            base + span.open.start..base + span.open.end,
+                            base + span.close.start..base + span.close.end,
+                        )
+                    }),
                     literal_url: false,
                     pending,
                     activate: false,
@@ -129,6 +153,7 @@ impl Projection {
                     link_metadata_items += 1;
                     if segment.source.start == range.start {
                         pieces.push(Piece {
+                            guard: None,
                             physical_prefix: false,
                             literal_url: None,
                             raw: raw[base + range.start..base + range.end].into(),
@@ -148,6 +173,7 @@ impl Projection {
                         // the heading/container intent using the existing empty
                         // ATX form, retiring only the owned underline below.
                         pieces.push(Piece {
+                            guard: None,
                             physical_prefix: false,
                             literal_url: None,
                             raw: format!(
@@ -202,6 +228,7 @@ impl Projection {
                             && segment.source.end <= block.source.end
                     });
                     pieces.push(Piece {
+                        guard: None,
                         physical_prefix: prefixes
                             .contains(&segment.source, &mut link_metadata_items),
                         literal_url: None,
@@ -218,6 +245,7 @@ impl Projection {
                     continue;
                 }
                 pieces.push(Piece {
+                    guard: None,
                     physical_prefix: false,
                     literal_url: None,
                     raw: raw[base + segment.source.start..base + segment.source.end].to_owned(),
@@ -244,7 +272,13 @@ impl Projection {
         }
         a = a.min(display_len);
         z = z.min(display_len);
-        Context {
+        let guard_state = super::super::guarded_words::GuardState::bind(
+            guarded_words,
+            &mut pieces,
+            &mut link_metadata_items,
+        )?;
+        Ok(Context {
+            guard_state,
             raw,
             source_start,
             source_end,
@@ -255,11 +289,12 @@ impl Projection {
             block_boundaries,
             pending_links,
             link_metadata_items,
-        }
+        })
     }
 }
 
 pub(in crate::inline) struct Context {
+    pub(in crate::inline) guard_state: super::super::guarded_words::GuardState,
     pub(in crate::inline) raw: String,
     pub(in crate::inline) source_start: usize,
     pub(in crate::inline) source_end: usize,

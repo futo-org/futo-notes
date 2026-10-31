@@ -146,7 +146,11 @@ impl EditorSession {
     /// new read searches the current local rows before consulting either edge.
     /// Nested windows capture through the same interface, so an absent local
     /// witness reaches the true document edge rather than inventing an EOF.
-    pub(super) fn stage_source(&self, raw: &str, window: Range<usize>) -> Self {
+    pub(super) fn stage_source(
+        &self,
+        raw: &str,
+        window: Range<usize>,
+    ) -> Result<Self, EditorError> {
         debug_assert_eq!(raw.len(), window.len());
         self.stage_with_context(raw, window, true)
     }
@@ -168,7 +172,7 @@ impl EditorSession {
         }
         let original = self.projection.pending_body(window.clone())?;
         let had_pending = original.has_fields();
-        let mut staged = self.stage_with_context(&body.text, window, false);
+        let mut staged = self.stage_with_context(&body.text, window, false)?;
         staged.projection.initial_link_metadata_items += original.work;
         if had_pending {
             let (index, work) = crate::inline::SourceCorrespondence::from_bodies(&body.retained)?;
@@ -185,7 +189,12 @@ impl EditorSession {
         })
     }
 
-    fn stage_with_context(&self, raw: &str, window: Range<usize>, exact: bool) -> Self {
+    fn stage_with_context(
+        &self,
+        raw: &str,
+        window: Range<usize>,
+        exact: bool,
+    ) -> Result<Self, EditorError> {
         let (winners, work) = if exact {
             self.projection.reference_winners(window.clone())
         } else {
@@ -222,7 +231,40 @@ impl EditorSession {
                 range.start -= window.start;
                 range.end -= window.start;
             }
+            let mut guards = Vec::new();
+            for word in &pending.guarded_words {
+                projection.initial_link_metadata_items += 2;
+                if window.start <= word.envelope.start && word.envelope.end <= window.end {
+                    let (word, work) = word.map(&(0..raw.len()), &mut |range| {
+                        (
+                            range
+                                .start
+                                .checked_sub(window.start)
+                                .zip(range.end.checked_sub(window.start))
+                                .map(|(a, z)| a..z),
+                            2,
+                        )
+                    })?;
+                    projection.initial_link_metadata_items += work;
+                    guards.push(word);
+                } else if word.envelope.start < window.end && window.start < word.envelope.end {
+                    return Err(EditorError::UnrepresentableFormat);
+                }
+            }
+            pending.guarded_words = guards;
             pending.window = 0..raw.len();
+            let guard_work = if pending.guarded_words.is_empty() {
+                EditWork::default()
+            } else {
+                let source = ropey::Rope::from_str(raw);
+                let mut work = projection.validate_guard_words(&source, &pending)?;
+                work.materialized_source_bytes += raw.len();
+                work
+            };
+            // No materialization in the empty path. Nonempty source copies are
+            // carried with planning's existing initial copied-byte accounting.
+            projection.initial_link_metadata_items += guard_work.link_metadata_items;
+            projection.initial_link_copied_bytes += guard_work.materialized_source_bytes;
             projection.initial_link_metadata_items += projection.restore_pending(&pending);
         }
         let mut staged = Self::with_projection(raw, Revision(0), self.clock.clone(), projection);
@@ -249,7 +291,7 @@ impl EditorSession {
             after: self.stage_boundary(window.end, true),
             origin,
         };
-        staged
+        Ok(staged)
     }
 }
 
@@ -270,8 +312,8 @@ mod tests {
                 let session = EditorSession::open(&raw);
                 let at = raw.find("body").unwrap();
                 crate::inline::CONTEXT_VISITS.with(|visits| visits.set(0));
-                let staged = session.stage_source("body\n", at..at + 5);
-                let nested = staged.stage_source("body\n", 0..5);
+                let staged = session.stage_source("body\n", at..at + 5).unwrap();
+                let nested = staged.stage_source("body\n", 0..5).unwrap();
                 let before = nested.semantic_neighbor(0, false, 0).unwrap();
                 let after = nested.semantic_neighbor(5, true, 0).unwrap();
                 assert_eq!(before.witness.list.unwrap().ordinal, Some(1000));
@@ -333,8 +375,8 @@ mod tests {
                     .filter_map(|(at, ch)| (ch == '\n').then_some(at + 1))
                     .chain([0, raw.len()])
                 {
-                    let staged = session.stage_source("", at..at);
-                    let nested = staged.stage_source("", 0..0);
+                    let staged = session.stage_source("", at..at).unwrap();
+                    let nested = staged.stage_source("", 0..0).unwrap();
                     for quote in [0, 1, 2, 3, 19, usize::MAX] {
                         for forward in [false, true] {
                             let expected = meaning(session.semantic_neighbor(at, forward, quote));
@@ -367,7 +409,7 @@ mod tests {
             "plain\n",
             "3. body\n",
         ] {
-            let mut staged = session.stage_source("body\n", at..at + 5);
+            let mut staged = session.stage_source("body\n", at..at + 5).unwrap();
             staged
                 .replace_action(
                     staged.revision(),
@@ -409,7 +451,9 @@ mod tests {
                     }
                 }
             }
-            let nested = staged.stage_source(&staged.source_text(), 0..staged.source.len_bytes());
+            let nested = staged
+                .stage_source(&staged.source_text(), 0..staged.source.len_bytes())
+                .unwrap();
             assert_eq!(
                 meaning(nested.semantic_neighbor(0, false, 0)),
                 meaning(staged.semantic_neighbor(0, false, 0))

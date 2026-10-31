@@ -40,6 +40,7 @@ impl EditorSession {
                 window: before.after_window(edit),
                 ranges: Vec::new(),
                 delimiters: Vec::new(),
+                guarded_words: Vec::new(),
                 work: 0,
             }
         };
@@ -149,7 +150,7 @@ impl EditorSession {
             return Err(EditorError::UnrepresentableFormat);
         }
         let raw = self.source.byte_slice(window.clone()).to_string();
-        let mut staged = self.stage_source(&raw, window.clone());
+        let mut staged = self.stage_source(&raw, window.clone())?;
         let local_edit = staged.prepare_source(
             staged.revision(),
             SourceRange {
@@ -202,6 +203,11 @@ impl EditorSession {
             )
         })?;
         local.work -= pending.work;
+        let guard_work = staged
+            .projection
+            .validate_guard_words(&staged.source, &local)?;
+        work.materialized_source_bytes += guard_work.materialized_source_bytes;
+        work.link_metadata_items += guard_work.link_metadata_items;
         work.link_metadata_items += local.work + staged.projection.restore_pending(&local);
         let mut actual = staged.projection.pending_body(local.window.clone())?;
         work.link_metadata_items += actual.work;

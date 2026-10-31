@@ -64,6 +64,7 @@ impl Projection {
             _ => None,
         };
         let Context {
+            guard_state,
             raw,
             source_start,
             source_end,
@@ -74,7 +75,7 @@ impl Projection {
             block_boundaries,
             pending_links,
             link_metadata_items,
-        } = self.edit_context_for_change(source, range, toggle.is_none().then_some(inserted));
+        } = self.edit_context_for_change(source, range, toggle.is_none().then_some(inserted))?;
         let expanded = split_entities(pieces, a, z);
         let Cut {
             mut before,
@@ -123,6 +124,7 @@ impl Projection {
         let mut changed = before;
         let insertion_index = changed.len();
         changed.extend(inserted.char_indices().map(|(offset, ch)| Piece {
+            guard: None,
             physical_prefix: false,
             literal_url: None,
             raw: ch.to_string(),
@@ -228,6 +230,7 @@ impl Projection {
         }
         let mut rendered = spell(
             changed,
+            guard_state,
             markers,
             insertion_index..insertion_end,
             literal,

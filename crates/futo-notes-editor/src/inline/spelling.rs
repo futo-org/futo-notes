@@ -17,22 +17,27 @@ pub(super) use url_timing::prepare_url_input;
 
 pub(super) fn spell(
     pieces: Vec<Piece>,
+    guards: super::guarded_words::GuardState,
     markers: Vec<Marker>,
     insertion: Range<usize>,
     literal: bool,
     references: &std::sync::Arc<super::references::References>,
 ) -> Result<Spelling, EditorError> {
-    spell_with_anchors(pieces, markers, insertion, literal, references, &[])
+    spell_with_anchors(pieces, guards, markers, insertion, literal, references, &[])
 }
 
 pub(super) fn spell_with_anchors(
     mut pieces: Vec<Piece>,
+    guards: super::guarded_words::GuardState,
     mut markers: Vec<Marker>,
     insertion: Range<usize>,
     literal: bool,
     references: &std::sync::Arc<super::references::References>,
     anchors: &[usize],
 ) -> Result<Spelling, EditorError> {
+    if !guards.owners.is_empty() {
+        return Err(EditorError::UnrepresentableFormat);
+    }
     split_paragraph_spans(&mut pieces);
     trim_emphasis_edges(&mut pieces, &markers);
     repair_code_delimiters(&pieces, &mut markers);

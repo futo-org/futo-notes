@@ -21,6 +21,7 @@ impl Projection {
             window: window.clone(),
             ranges: Vec::new(),
             delimiters: Vec::new(),
+            guarded_words: Vec::new(),
             work: 0,
         };
         let mut at = window.start;
@@ -41,6 +42,7 @@ impl Projection {
                     }
                 }
             }
+            result.capture_body_guards(row, base)?;
             let end = base + row.source_len;
             if end >= window.end || end <= at {
                 break;
@@ -63,6 +65,7 @@ impl Projection {
             window: before.after_window(edit),
             ranges: Vec::new(),
             delimiters: Vec::new(),
+            guarded_words: Vec::new(),
             work: 0,
         };
         for field in &before.ranges {
@@ -112,6 +115,7 @@ impl Projection {
                 }
             }
         }
+        result.retain_guards(before, edit, correspondence)?;
         Ok(result)
     }
 
@@ -135,6 +139,8 @@ impl Projection {
                 a == b
             });
         }
+        work += 5 * retained.guarded_words.len();
+        current.guarded_words = retained.guarded_words.clone();
         work + self.restore_pending(&current)
     }
 
@@ -187,6 +193,7 @@ impl Projection {
         );
         let mut ranges = Vec::new();
         let mut delimiters = Vec::new();
+        let mut guarded_words = Vec::new();
         let mut work = 0;
         for index in first..=last {
             let (row, source, _) = self.rows.at(index);
@@ -196,6 +203,11 @@ impl Projection {
                     .iter()
                     .map(|r| source + r.start..source + r.end),
             );
+            for word in &row.guarded_words {
+                let mut word = word.clone();
+                work += 5 + word.relocate(source);
+                guarded_words.push(word);
+            }
             ranges.extend(
                 row.literal_links
                     .iter()
@@ -205,6 +217,7 @@ impl Projection {
         PendingLinks {
             window,
             delimiters,
+            guarded_words,
             ranges,
             work,
         }
@@ -233,11 +246,16 @@ impl Projection {
                 work += 1;
                 !inside(range)
             });
+            row.guarded_words.retain(|word| {
+                work += 3;
+                !inside(&word.envelope)
+            });
             row.literal_delimiters.retain(|range| {
                 work += 1;
                 !inside(range)
             });
         }
+        work += self.restore_guard_words(snapshot);
         work += self.install_delimiters(snapshot.delimiters.iter().cloned());
         for range in &snapshot.ranges {
             let index = self.rows.locate(range.start, false);

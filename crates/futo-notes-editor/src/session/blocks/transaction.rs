@@ -69,7 +69,7 @@ impl EditorSession {
     ) -> Result<Option<(ViewChange, Option<InputMapping>)>, EditorError> {
         let (window, display_start) = self.projection.edit_window(range);
         let raw = self.source.byte_slice(window.clone()).to_string();
-        let mut staged = self.stage_source(&raw, window.clone());
+        let mut staged = self.stage_source(&raw, window.clone())?;
         let display_window = display_start..display_start + staged.projection.display.len_bytes();
         let local = DisplayRange {
             start: DisplayOffset(range.start.0 - display_start),

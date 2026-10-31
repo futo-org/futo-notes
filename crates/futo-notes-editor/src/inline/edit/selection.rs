@@ -40,6 +40,11 @@ pub(in crate::inline) fn split_entities(pieces: Vec<Piece>, a: usize, z: usize) 
                         .collect()
                 };
                 expanded.push(Piece {
+                    guard: if piece.raw == piece.display {
+                        piece.guard
+                    } else {
+                        None
+                    },
                     physical_prefix: false,
                     literal_url: piece.literal_url,
                     origin: if piece.raw == piece.display {

@@ -152,7 +152,7 @@ impl EditorSession {
         };
         let (window, display_start) = self.projection.edit_window(range);
         let raw = self.source.byte_slice(window.clone()).to_string();
-        let mut staged = self.stage_source(&raw, window.clone());
+        let mut staged = self.stage_source(&raw, window.clone())?;
         let mut transaction = Transaction::new(&staged.source);
         let mut anchor_work = 0;
         let mut anchors: Vec<_> = replacements

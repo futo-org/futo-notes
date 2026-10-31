@@ -297,6 +297,7 @@ impl Row {
             .then(|| context[0].transparent_quote)
             .flatten();
         Self {
+            guarded_words: Vec::new(),
             context,
             transparent_quote,
             source_len: source.len(),

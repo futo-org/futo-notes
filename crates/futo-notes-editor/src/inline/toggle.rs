@@ -82,6 +82,7 @@ pub(super) fn pieces(
     let id = markers.len();
     let delimiter = delimiter(format);
     markers.push(Marker {
+        source: None,
         literal_url: false,
         pending: false,
         activate: false,

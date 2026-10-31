@@ -49,10 +49,22 @@ impl EditorSession {
         let selection = positions::selection(&source, &rewritten, self.selection, self.affinity);
         let (range, inserted) = difference(&source, &rewritten);
         let edit = self.prepare_source(expected, range, &inserted)?;
+        let pending = self.projection.pending_for_source_edit(edit.range);
+        if pending.guarded_words.iter().any(|word| {
+            word.envelope.start < edit.range.end.0 && edit.range.start.0 < word.envelope.end
+                || edit.range.start == edit.range.end
+                    && word.envelope.start < edit.range.start.0
+                    && edit.range.start.0 < word.envelope.end
+        }) {
+            // Relink's existing TextDiff endpoints are not guard lineage. A
+            // real source transformation owner must close this required path.
+            return Err(EditorError::UnrepresentableFormat);
+        }
         // Stage all history and selection work before acceptance. A failed
         // persistence callback changes neither history nor the visible draft.
         accept(&edit).map_err(EditorError::Persistence)?;
         let mut change = self.apply(&edit);
+        change.work.link_metadata_items += pending.work;
         self.undo = undo;
         self.redo = redo;
         self.selection = selection;
@@ -120,7 +132,7 @@ fn transform_groups(
             ),
             before_affinity: first.before_affinity,
             before_formats: first.before_formats.clone(),
-            before_links: positions::pending(before, &before_rewritten, &first.before_links),
+            before_links: positions::pending(before, &before_rewritten, &first.before_links)?,
             after_selection: positions::selection(
                 after,
                 &after_rewritten,
@@ -129,7 +141,7 @@ fn transform_groups(
             ),
             after_affinity: last.after_affinity,
             after_formats: last.after_formats.clone(),
-            after_links: positions::pending(after, &after_rewritten, &last.after_links),
+            after_links: positions::pending(after, &after_rewritten, &last.after_links)?,
             removed: before_rewritten[range.start.0..range.end.0].to_owned(),
             inserted,
             range,

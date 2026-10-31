@@ -11,6 +11,7 @@ pub(in crate::inline) enum PieceOrigin {
 pub(in crate::inline) struct Piece {
     /// Complete hidden source segment inside a canonical physical line prefix.
     /// A word boundary only: the original raw bytes and origin remain intact.
+    pub guard: Option<crate::inline::guarded_words::GuardPart>,
     pub physical_prefix: bool,
     pub literal_url: Option<usize>,
     pub raw: String,
@@ -22,6 +23,7 @@ pub(in crate::inline) struct Piece {
     pub definition: Option<std::sync::Arc<str>>,
 }
 pub(in crate::inline) struct Marker {
+    pub source: Option<(Range<usize>, Range<usize>)>,
     pub literal_url: bool,
     pub pending: bool,
     pub activate: bool,

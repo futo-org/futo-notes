@@ -363,7 +363,16 @@ impl super::Projection {
         let old = self.display.to_string();
         let old_source_len = source.len_bytes() - edit.inserted.len() + edit.removed.len();
         let mut pending = self.pending_links(0..old_source_len);
-        let pending_work = pending.work + pending.ranges.len();
+        let mut pending_work = pending.work + pending.ranges.len();
+        pending.guarded_words = pending
+            .guarded_words
+            .iter()
+            .filter_map(|word| {
+                let (word, work) = word.raw_edit(edit);
+                pending_work += work;
+                word
+            })
+            .collect();
         pending.ranges.retain_mut(|range| {
             if range.end <= edit.range.start.0 {
             } else if edit.range.end.0 <= range.start {

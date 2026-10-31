@@ -29,6 +29,7 @@ impl Projection {
         revision: Revision,
     ) -> Result<BodySource, EditorError> {
         let Context {
+            guard_state,
             raw,
             source_start,
             source_end,
@@ -36,7 +37,7 @@ impl Projection {
             markers,
             link_metadata_items,
             ..
-        } = self.edit_context(source, range);
+        } = self.edit_context(source, range)?;
         let base = self.display_at(source_start);
         let mut at = base;
         let mut body = Vec::new();
@@ -59,7 +60,7 @@ impl Projection {
             at = end;
         }
         let end = body.len();
-        let result = spell(body, markers, end..end, true, &self.references)?;
+        let result = spell(body, guard_state, markers, end..end, true, &self.references)?;
         let mut retained = Vec::new();
         let mut measured = result.link_metadata_items;
         for (origin, after) in result.origins {
@@ -184,6 +185,7 @@ impl Projection {
             return Ok(None);
         }
         let Context {
+            guard_state,
             raw,
             source_start,
             source_end,
@@ -191,7 +193,7 @@ impl Projection {
             markers,
             link_metadata_items,
             ..
-        } = self.edit_context(source, range);
+        } = self.edit_context(source, range)?;
         let display_start = self.display_at(source_start);
         let boundaries: Vec<_> = boundaries
             .iter()
@@ -217,7 +219,14 @@ impl Projection {
             at += piece.display.len();
         }
         let end = pieces.len();
-        let mut rendered = spell(pieces, markers, end..end, true, &self.references)?;
+        let mut rendered = spell(
+            pieces,
+            guard_state,
+            markers,
+            end..end,
+            true,
+            &self.references,
+        )?;
         if rendered.text == raw {
             return Ok(None);
         }

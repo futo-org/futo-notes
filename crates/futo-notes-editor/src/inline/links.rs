@@ -114,6 +114,7 @@ impl super::Projection {
             spelling::{spell_with_anchors, Marker},
         };
         let Context {
+            guard_state,
             raw,
             source_start,
             source_end,
@@ -123,7 +124,7 @@ impl super::Projection {
             pieces,
             mut link_metadata_items,
             ..
-        } = self.edit_context(source, range);
+        } = self.edit_context(source, range)?;
         let selected = [
             a + selection.start.0 - range.start.0,
             a + selection.end.0 - range.start.0,
@@ -205,6 +206,7 @@ impl super::Projection {
         } else {
             let id = markers.len();
             markers.push(Marker {
+                source: None,
                 literal_url: false,
                 pending: false,
                 activate: true,
@@ -227,8 +229,15 @@ impl super::Projection {
             }
         }
         let end = pieces.len();
-        let mut rendered =
-            spell_with_anchors(pieces, markers, end..end, true, &self.references, &selected)?;
+        let mut rendered = spell_with_anchors(
+            pieces,
+            guard_state,
+            markers,
+            end..end,
+            true,
+            &self.references,
+            &selected,
+        )?;
         let selection = crate::SourceRange {
             start: crate::SourceOffset(source_start + rendered.anchors[0]),
             end: crate::SourceOffset(source_start + rendered.anchors[1]),
@@ -423,6 +432,7 @@ impl super::Projection {
             spelling::{spell, Marker, Piece},
         };
         let Context {
+            guard_state,
             raw,
             source_start,
             source_end,
@@ -432,7 +442,7 @@ impl super::Projection {
             pieces,
             link_metadata_items,
             ..
-        } = self.edit_context(source, range);
+        } = self.edit_context(source, range)?;
         let Cut {
             mut before,
             after,
@@ -458,6 +468,7 @@ impl super::Projection {
             && matches!(&links[0].kind, SpanKind::Link(target) if target.destination == destination && target.title.is_none() && target.reference.is_none());
         let id = markers.len();
         markers.push(Marker {
+            source: None,
             literal_url: false,
             pending: false,
             activate: true,
@@ -472,6 +483,7 @@ impl super::Projection {
         active.push(id);
         let insertion = before.len();
         before.push(Piece {
+            guard: None,
             physical_prefix: false,
             literal_url: None,
             raw: destination.into(),
@@ -485,6 +497,7 @@ impl super::Projection {
         before.extend(after);
         let mut rendered = spell(
             before,
+            guard_state,
             markers,
             insertion..insertion + 1,
             true,
