@@ -203,3 +203,49 @@ fn mutate_scope(case: &ScopeCase) {
 fn text_promotes_fence_after_preceding_list_without_reabsorbing_parent_prose() {
     mutate_scope(&PRECEDED);
 }
+
+#[test]
+fn existing_blank_before_promoted_fence_is_retained_without_duplication() {
+    let case = ScopeCase {
+        source: "- before\n\n- parent\n  ```lang\n  opaque\n- outside",
+        before: "before\n\nparent\nopaque\noutside",
+        expected: PRECEDED.expected,
+        shown: PRECEDED.shown,
+        command: BlockCommand::Heading(0),
+        depth: 1,
+        codes: PRECEDED.codes,
+    };
+    literal_scope(&case);
+    mutate_scope(&case);
+}
+
+#[test]
+fn opaque_html_before_promoted_fence_keeps_its_bytes_and_gets_no_new_blank() {
+    let case = ScopeCase {
+        source: "- <script>x</script>\n- parent\n  ```lang\n  opaque\n- outside",
+        before: "<script>x</script>\nparent\nopaque\noutside",
+        expected: "- <script>x</script>\nparent\n```lang\nopaque\n```\n- outside",
+        shown: "<script>x</script>\nparent\nopaque\noutside",
+        command: BlockCommand::Heading(0),
+        depth: 1,
+        codes: PRECEDED.codes,
+    };
+    // A source-preservation control, not HTML rendering or interpretation work.
+    literal_scope(&case);
+    mutate_scope(&case);
+}
+
+#[test]
+fn empty_list_header_before_promoted_fence_keeps_authored_padding_without_a_blank() {
+    let case = ScopeCase {
+        source: "-      \n- parent\n  ```lang\n  opaque\n- outside",
+        before: "     \nparent\nopaque\noutside",
+        expected: "-      \nparent\n```lang\nopaque\n```\n- outside",
+        shown: "     \nparent\nopaque\noutside",
+        command: BlockCommand::Heading(0),
+        depth: 1,
+        codes: PRECEDED.codes,
+    };
+    literal_scope(&case);
+    mutate_scope(&case);
+}

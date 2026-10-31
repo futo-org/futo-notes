@@ -136,8 +136,14 @@ impl EditorSession {
             .byte_slice(start..first.content.start)
             .to_string();
         let retained = list.marker.start - start;
-        let mut edits = vec![(0..prefix.len(), prefix[..retained].to_owned())];
-        let mut copied = raw.len() + prefix.len() + retained;
+        let leading = self.fence_leading_separator(first)?;
+        let mut head = prefix[..retained].to_owned();
+        if !leading.is_empty() {
+            head.push_str(leading);
+            head.push_str(&prefix[..retained]);
+        }
+        let mut copied = raw.len() + prefix.len() + head.len();
+        let mut edits = vec![(0..prefix.len(), head)];
         let shifts = BTreeMap::from([(
             list.quote_depth,
             list.marker_column as isize - list.content_column as isize,
@@ -244,7 +250,8 @@ impl EditorSession {
         {
             return Err(EditorError::UnrepresentableFormat);
         }
-        let added = exposed.len_bytes() + if quote_separator { eol.len() } else { 0 };
+        let tail_added = exposed.len_bytes() + if quote_separator { eol.len() } else { 0 };
+        let added = leading.len() + tail_added;
         if original_display_len + added != preview.projection.display.len_bytes() {
             return Err(EditorError::UnrepresentableFormat);
         }
@@ -257,13 +264,20 @@ impl EditorSession {
             .display_at(end)
             .checked_sub(display)
             .ok_or(EditorError::UnrepresentableFormat)?;
-        if separator_at > before.len_bytes() {
+        let head_at = self
+            .projection
+            .display_at(first.content.start)
+            .checked_sub(display)
+            .ok_or(EditorError::UnrepresentableFormat)?;
+        if head_at > separator_at || separator_at > before.len_bytes() {
             return Err(EditorError::UnrepresentableFormat);
         }
         let inserted = if quote_separator { eol.as_bytes() } else { b"" };
         if !before
-            .byte_slice(..separator_at)
+            .byte_slice(..head_at)
             .bytes()
+            .chain(leading.bytes())
+            .chain(before.byte_slice(head_at..separator_at).bytes())
             .chain(exposed.bytes())
             .chain(inserted.iter().copied())
             .chain(before.byte_slice(separator_at..).bytes())
@@ -272,6 +286,25 @@ impl EditorSession {
                 crate::inline::visit_container();
                 a == b
             })
+        {
+            return Err(EditorError::UnrepresentableFormat);
+        }
+        let parent_at = mapped(first.content.start)?
+            .checked_sub(window.start)
+            .ok_or(EditorError::UnrepresentableFormat)?;
+        let parent = preview
+            .projection
+            .list_command_line_at_source(parent_at)
+            .ok_or(EditorError::UnrepresentableFormat)?;
+        crate::inline::visit_container();
+        if parent.content.start != parent_at
+            || parent.content.end <= parent_at
+            || parent.source.end <= parent_at
+            || parent.code
+            || parent.divider
+            || parent.heading != 0
+            || parent.list.is_some()
+            || parent.quote_depth != list.quote_depth
         {
             return Err(EditorError::UnrepresentableFormat);
         }
@@ -371,9 +404,13 @@ impl EditorSession {
             let shifted = point.through_edits(start, &edits)?.relative(window.start)?;
             point.verify_raw(&self.source, shifted, &preview.source)?;
             let mapped_display = display + preview.projection.project_retained_point(shifted)?;
-            let expected_display = at
-                + if at >= display + separator_at {
-                    added
+            let expected_display =
+                at + if at >= display + head_at {
+                    leading.len()
+                } else {
+                    0
+                } + if at >= display + separator_at {
+                    tail_added
                 } else {
                     0
                 };
