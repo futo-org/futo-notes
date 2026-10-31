@@ -97,7 +97,7 @@ ordered child lifting copies that start into each newly independent following ow
 Same-line quote/list controls retain empty lifted paragraphs, physical CRLF and quote
 prefixes, raw nonidentity entity atoms and native UTF-16 interior carets. Task-body
 quote/heading punctuation stays literal. Together with the unchanged original seventy-four
-list cases, all six source consumers load 175 cases, including twenty-five
+list cases, all six source consumers load 185 cases, including twenty-five
 `prefix-frame-commands.json` literals. These distinguish nearest Outdent and
 registered Backspace from full Text lifting. Unchanged implicit empty parents
 keep compact source; an action-created parallel paragraph gets a physical frame.
@@ -109,3 +109,10 @@ These are hand-worked source/display/native UTF-16/history literals, not native 
 or latency evidence. Store consumers retain rejection, paused retry, rejected Undo,
 one protected record, flush, modeled power loss, recovery and checkpoint/reopen checks.
 Source fixture registration does not establish that current native binaries ran.
+
+Ten `fence-container-commands.json` literals preserve canonical fence containment
+while a root list item is promoted. A necessary closer retains delimiter width,
+language and line endings; existing closers, real EOF and a surviving inner
+quote boundary stay distinct. Code leaf indentation and opaque blank spaces/tabs
+survive container-column retirement. Wide tabbed task retargets use the content
+column before the checkbox for continuations, code and nested child lists.

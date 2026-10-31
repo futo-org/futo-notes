@@ -30,6 +30,9 @@ internal fun sharedListActions() {
     val frames = JSONArray(context.assets.open("prefix-frame-commands.json").bufferedReader().use { it.readText() })
     assertEquals(25, frames.length())
     for (at in 0 until frames.length()) cases.put(frames.getJSONObject(at))
+    val fences = JSONArray(context.assets.open("fence-container-commands.json").bufferedReader().use { it.readText() })
+    assertEquals(10, fences.length())
+    for (at in 0 until fences.length()) cases.put(fences.getJSONObject(at))
     fun native(values: JSONArray) = EditorUtf16Range(values.getLong(0).toULong(), values.getLong(1).toULong())
     for (at in 0 until cases.length()) {
         val item = cases.getJSONObject(at)

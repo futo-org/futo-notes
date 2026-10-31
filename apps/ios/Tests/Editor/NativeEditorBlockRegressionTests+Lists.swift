@@ -59,7 +59,10 @@ extension NativeEditorBlockRegressionTests {
             #expect(headers.count == 14)
             let frames = try load("prefix-frame-commands")
             #expect(frames.count == 25)
-            let cases = original + shortcuts + staging + nested + commands + headers + frames
+            let fences = try load("fence-container-commands")
+            #expect(fences.count == 10)
+            let cases =
+                original + shortcuts + staging + nested + commands + headers + frames + fences
             for item in cases {
                 let root = FileManager.default.temporaryDirectory.appendingPathComponent(
                     "editor-lists-\(UUID().uuidString)")

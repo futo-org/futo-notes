@@ -56,6 +56,11 @@ fn shared_list_actions_forward_native_coordinates_history_and_exact_recovery() {
     ))
     .unwrap();
     assert_eq!(frames.len(), 25);
+    let fences: Vec<Value> = serde_json::from_str(include_str!(
+        "../../futo-notes-editor/tests/fixtures/fence-container-commands.json"
+    ))
+    .unwrap();
+    assert_eq!(fences.len(), 10);
     let cases: Vec<_> = original
         .into_iter()
         .chain(shortcuts)
@@ -64,6 +69,7 @@ fn shared_list_actions_forward_native_coordinates_history_and_exact_recovery() {
         .chain(commands)
         .chain(headers)
         .chain(frames)
+        .chain(fences)
         .collect();
     for case in &cases {
         let text = |key: &str| case[key].as_str().unwrap();

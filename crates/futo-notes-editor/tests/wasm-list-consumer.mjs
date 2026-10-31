@@ -36,6 +36,10 @@ const frames = JSON.parse(
   readFileSync(new URL('fixtures/prefix-frame-commands.json', import.meta.url)),
 );
 assert.equal(frames.length, 25);
+const fences = JSON.parse(
+  readFileSync(new URL('fixtures/fence-container-commands.json', import.meta.url)),
+);
+assert.equal(fences.length, 10);
 const cases = [
   ...original,
   ...shortcuts,
@@ -44,6 +48,7 @@ const cases = [
   ...commands,
   ...headers,
   ...frames,
+  ...fences,
 ];
 const units = (text) => Uint16Array.from({ length: text.length }, (_, at) => text.charCodeAt(at));
 function host(vault, source) {

@@ -1,0 +1,123 @@
+[
+  {
+    "name": "text-promotes-unmatched-list-fence-before-foreign-item",
+    "source": "- parent\n  ```\n  opaque\n- outside",
+    "display": "parent\nopaque\noutside",
+    "action": "Text",
+    "range": [0, 0],
+    "expected": "parent\n```\nopaque\n```\n- outside",
+    "shown": "parent\nopaque\noutside",
+    "resultRange": [0, 0],
+    "finalItems": [[null, null]]
+  },
+  {
+    "name": "text-promotes-unmatched-tilde-fence-with-crlf",
+    "source": "- parent\r\n  ~~~~lang\r\n  opaque\r\n- outside",
+    "display": "parent\r\nopaque\r\noutside",
+    "action": "Text",
+    "range": [0, 0],
+    "expected": "parent\r\n~~~~lang\r\nopaque\r\n~~~~\r\n- outside",
+    "shown": "parent\r\nopaque\r\noutside",
+    "resultRange": [0, 0],
+    "finalItems": [[null, null]]
+  },
+  {
+    "name": "text-retains-inner-quote-boundary-around-promoted-fence",
+    "source": "- parent\n  > ```\n  > opaque\n- outside",
+    "display": "parent\nopaque\noutside",
+    "action": "Text",
+    "range": [0, 0],
+    "expected": "parent\n> ```\n> opaque\n- outside",
+    "shown": "parent\nopaque\noutside",
+    "resultRange": [0, 0],
+    "finalItems": [[null, null]]
+  },
+  {
+    "name": "text-retains-existing-closer-and-its-ending",
+    "source": "- parent\n  ```\n  opaque\n  ```\n- outside",
+    "display": "parent\nopaque\noutside",
+    "action": "Text",
+    "range": [0, 0],
+    "expected": "parent\n```\nopaque\n```\n- outside",
+    "shown": "parent\nopaque\noutside",
+    "resultRange": [0, 0],
+    "finalItems": [[null, null]]
+  },
+  {
+    "name": "text-retains-unmatched-promoted-fence-at-real-eof",
+    "source": "- parent\n  ```\n  opaque",
+    "display": "parent\nopaque",
+    "action": "Text",
+    "range": [0, 0],
+    "expected": "parent\n```\nopaque",
+    "shown": "parent\nopaque",
+    "resultRange": [0, 0],
+    "finalItems": []
+  },
+  {
+    "name": "text-closes-promoted-fence-within-retained-outer-quote",
+    "source": "> - parent\n>   ```\n>   opaque\n> - outside",
+    "display": "parent\nopaque\noutside",
+    "action": "Text",
+    "range": [0, 0],
+    "expected": "> parent\n> ```\n> opaque\n> ```\n> - outside",
+    "shown": "parent\nopaque\noutside",
+    "resultRange": [0, 0],
+    "finalItems": [[null, null]],
+    "itemQuoteDepths": [1]
+  },
+  {
+    "name": "text-retains-code-leaf-indent-and-opaque-crlf-blank",
+    "source": "- parent\r\n   ```Rust\r\n   a\r\n    \r\n   b\r\n- outside",
+    "display": "parent\r\na\r\n \r\nb\r\noutside",
+    "action": "Text",
+    "range": [0, 0],
+    "expected": "parent\r\n ```Rust\r\n a\r\n  \r\n b\r\n ```\r\n- outside",
+    "shown": "parent\r\na\r\n \r\nb\r\noutside",
+    "resultRange": [0, 0],
+    "finalItems": [[null, null]]
+  },
+  {
+    "name": "text-retains-authored-opaque-blank-tab",
+    "source": "- parent\n  ```\n  a\n  \t\n  b\n- outside",
+    "display": "parent\na\n\t\nb\noutside",
+    "action": "Text",
+    "range": [0, 0],
+    "expected": "parent\n```\na\n\t\nb\n```\n- outside",
+    "shown": "parent\na\n\t\nb\noutside",
+    "resultRange": [0, 0],
+    "finalItems": [[null, null]]
+  },
+  {
+    "name": "ordered-task-retarget-retains-wide-tabbed-content-columns",
+    "source": "1000.\t[x] parent\n\n        continuation\n\n        ```js\n        opaque\n        ```\n\n        - child\n1001.\toutside",
+    "display": "parent\n\ncontinuation\n\nopaque\n\nchild\noutside",
+    "action": "OrderedList",
+    "range": [0, 0],
+    "expected": "1000.\tparent\n\n        continuation\n\n        ```js\n        opaque\n        ```\n\n        - child\n1001.\toutside",
+    "shown": "parent\n\ncontinuation\n\nopaque\n\nchild\noutside",
+    "resultRange": [0, 0],
+    "finalItems": [
+      [1000, null],
+      [null, null],
+      [1001, null]
+    ],
+    "itemDepths": [1, 2, 1]
+  },
+  {
+    "name": "bullet-task-retarget-shifts-wide-code-and-nested-child",
+    "source": "1000.\t[x] parent\n\n        continuation\n\n        ```js\n        opaque\n        ```\n\n        - child\n1001.\toutside",
+    "display": "parent\n\ncontinuation\n\nopaque\n\nchild\noutside",
+    "action": "BulletList",
+    "range": [0, 0],
+    "expected": "- parent\n\n  continuation\n\n  ```js\n  opaque\n  ```\n\n  - child\n- outside",
+    "shown": "parent\n\ncontinuation\n\nopaque\n\nchild\noutside",
+    "resultRange": [0, 0],
+    "finalItems": [
+      [null, null],
+      [null, null],
+      [null, null]
+    ],
+    "itemDepths": [1, 2, 1]
+  }
+]

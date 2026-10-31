@@ -179,6 +179,8 @@ targets:
         buildPhase: resources
       - path: ../../crates/futo-notes-editor/tests/fixtures/prefix-frame-commands.json
         buildPhase: resources
+      - path: ../../crates/futo-notes-editor/tests/fixtures/fence-container-commands.json
+        buildPhase: resources
       - path: ../../crates/futo-notes-editor/tests/fixtures/list-staging.json
         buildPhase: resources
       - path: ../../crates/futo-notes-editor/tests/fixtures/list-shortcuts.json
