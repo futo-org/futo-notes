@@ -11,7 +11,7 @@ fn nested_os_runs_consume_all_targets_across_remote_visibility_and_an_entity_ato
             "preamble\n\nbuffer\n\n[one][id]\n\nteh &acE; wrod\n\ntail\n\n[id]: /target 'T'"
         };
         let marked_source = original.replace("[one][id]", "");
-        let changed_source = marked_source.replace("teh &acE; wrod", "the ∾X word");
+        let changed_source = marked_source.replace("teh &acE; wrod", "the &#8766;X word");
         let canonical = EditorSession::open(&changed_source);
         let expected_display = if definition_before {
             "[id]: /target 'T'\n\npreamble\n\nbuffer\n\n\n\nthe ∾X word\n\ntail"
