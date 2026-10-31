@@ -177,3 +177,127 @@ fn derived_reference_body_split_preserves_interior_atom_history_on_append_reject
         }
     }
 }
+
+#[test]
+fn live_url_word_end_split_preserves_pending_history_across_append_undo_redo_faults() {
+    use futo_notes_editor::{Affinity, DisplayUtf16Offset, DisplayUtf16Range, ParagraphKey};
+    let native = DisplayUtf16Range {
+        start: DisplayUtf16Offset(22),
+        end: DisplayUtf16Offset(22),
+    };
+    let initial = "# x&#32;";
+    let pending = "# x&#32;\\*b https://x.test/a*";
+    let committed = "# x&#32;*b https://x.test/a*\n";
+    for fault in [storage::Fault::Append, storage::Fault::ShortWrite] {
+        let root = TestRoot::new();
+        let store = store(&root);
+        store.create("", "live-url-split", initial).unwrap();
+        let disk = Arc::new(Mutex::new(storage::Disk::default()));
+        let mut editor = store
+            .open_editor_with_recovery("live-url-split", storage::options(&disk))
+            .unwrap();
+        editor
+            .replace(Revision(0), range(2, 2), "*b https://x.test/a*")
+            .unwrap();
+        editor
+            .select_with_affinity(Revision(1), range(22, 22), Affinity::Backward)
+            .unwrap();
+        let before = editor.project(Revision(1), range(0, 22)).unwrap();
+        let formats = editor.active_formats();
+        disk.lock().unwrap().fault = Some(fault);
+        assert!(matches!(
+            editor.paragraph_key_utf16(Revision(1), native, ParagraphKey::Enter),
+            Err(EditorStoreError::RecoveryAppend(_))
+        ));
+        assert_eq!(editor.source_text(), pending);
+        assert_eq!(editor.revision(), Revision(1));
+        assert_eq!(editor.selection(), range(22, 22));
+        assert_eq!(editor.active_formats(), formats);
+        assert_eq!(editor.project(Revision(1), range(0, 22)).unwrap(), before);
+        assert!(editor.composition().is_none());
+        assert!(editor.recovery_status().paused);
+        assert_eq!(store.read("live-url-split").unwrap(), initial);
+        disk.lock().unwrap().fault = None;
+        editor.resume_recovery().unwrap();
+        editor
+            .paragraph_key_utf16(Revision(1), native, ParagraphKey::Enter)
+            .unwrap()
+            .unwrap();
+        assert_eq!(editor.source_text(), committed);
+        assert_eq!(editor.display_text(), "x b https://x.test/a\n");
+        assert_eq!(editor.selection(), range(21, 21));
+        assert_eq!(
+            editor
+                .inspect_link(Revision(2), range(4, 5))
+                .unwrap()
+                .unwrap()
+                .destination,
+            "https://x.test/a"
+        );
+        disk.lock().unwrap().fault = Some(fault);
+        assert!(matches!(
+            editor.undo(Revision(2)),
+            Err(EditorStoreError::RecoveryAppend(_))
+        ));
+        assert_eq!(editor.source_text(), committed);
+        assert_eq!(editor.selection(), range(21, 21));
+        disk.lock().unwrap().fault = None;
+        editor.resume_recovery().unwrap();
+        let restored = editor.undo(Revision(2)).unwrap().unwrap();
+        assert_eq!(editor.source_text(), pending);
+        assert_eq!(editor.selection(), range(22, 22));
+        assert_eq!(restored.affinity, Affinity::Backward);
+        assert_eq!(editor.active_formats(), formats);
+        assert!(editor
+            .inspect_link(Revision(3), range(5, 6))
+            .unwrap()
+            .is_none());
+        disk.lock().unwrap().fault = Some(fault);
+        assert!(matches!(
+            editor.redo(Revision(3)),
+            Err(EditorStoreError::RecoveryAppend(_))
+        ));
+        assert_eq!(editor.source_text(), pending);
+        assert!(editor
+            .inspect_link(Revision(3), range(5, 6))
+            .unwrap()
+            .is_none());
+        disk.lock().unwrap().fault = None;
+        editor.resume_recovery().unwrap();
+        editor.redo(Revision(3)).unwrap().unwrap();
+        assert_eq!(editor.source_text(), committed);
+        editor.undo(Revision(4)).unwrap().unwrap();
+        assert_eq!(editor.source_text(), pending);
+        editor
+            .paragraph_key_utf16(Revision(5), native, ParagraphKey::Enter)
+            .unwrap()
+            .unwrap();
+        assert_eq!(editor.source_text(), committed);
+        editor.undo(Revision(6)).unwrap().unwrap();
+        assert_eq!(editor.source_text(), pending);
+        editor.undo(Revision(7)).unwrap().unwrap();
+        assert_eq!(editor.source_text(), initial);
+        editor.redo(Revision(8)).unwrap().unwrap();
+        assert_eq!(editor.source_text(), pending);
+        editor.redo(Revision(9)).unwrap().unwrap();
+        assert_eq!(editor.source_text(), committed);
+        editor.flush_recovery().unwrap();
+        drop(editor);
+        let mut reopened = store
+            .open_editor_with_recovery("live-url-split", storage::options(&disk))
+            .unwrap();
+        assert_eq!(reopened.source_text(), committed);
+        assert_eq!(reopened.display_text(), "x b https://x.test/a\n");
+        assert_eq!(
+            reopened
+                .inspect_link(Revision(10), range(4, 5))
+                .unwrap()
+                .unwrap()
+                .destination,
+            "https://x.test/a"
+        );
+        assert!(reopened.undo(Revision(10)).unwrap().is_none());
+        reopened.checkpoint().unwrap();
+        assert_eq!(store.read("live-url-split").unwrap(), committed);
+    }
+}
