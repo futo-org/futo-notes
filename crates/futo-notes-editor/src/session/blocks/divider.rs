@@ -196,20 +196,23 @@ impl EditorSession {
         }
         let intended_bytes = intended.len();
         let regions = [right_start..output.len()];
-        let (reference_work, reference_bytes) = self.projection.protect_body_definitions(
-            &self.source,
-            self.context.origin.as_ref(),
-            start..end,
-            &mut output,
-            &retained,
-            Some(crate::inline::references::BodyIntent {
-                display: &intended,
-                regions: &regions,
-                caret: caret - start,
-                display_caret,
-            }),
-            pending.as_mut(),
-        )?;
+        let (reference_work, reference_bytes, prepared_caret) =
+            self.projection.protect_body_definitions(
+                &self.source,
+                self.context.origin.as_ref(),
+                start..end,
+                &mut output,
+                &retained,
+                Some(crate::inline::references::BodyIntent {
+                    display: &intended,
+                    regions: &regions,
+                    caret: caret - start,
+                    display_caret,
+                }),
+                pending.as_mut(),
+            )?;
+        layout_work += 1;
+        let caret = start + prepared_caret.ok_or(EditorError::UnrepresentableFormat)?;
         if let Some(pending) = &mut pending {
             pending.work += pending.relocate_source(start);
         }

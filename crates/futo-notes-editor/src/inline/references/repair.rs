@@ -41,6 +41,7 @@ impl super::super::Projection {
         bodies: &[RetainedBody],
     ) -> Result<(ReferenceWork, usize), EditorError> {
         self.protect_body_definitions(source, origin, range, output, bodies, None, None)
+            .map(|(work, copied, _)| (work, copied))
     }
 
     pub(crate) fn protect_body_definitions(
@@ -52,15 +53,20 @@ impl super::super::Projection {
         bodies: &[RetainedBody],
         intent: Option<BodyIntent<'_>>,
         mut pending: Option<&mut crate::inline::PendingLinks>,
-    ) -> Result<(ReferenceWork, usize), EditorError> {
+    ) -> Result<(ReferenceWork, usize, Option<usize>), EditorError> {
         let mut work = ReferenceWork::default();
         let mut copied = 0;
+        // This plain command-owned point belongs to the physical output, not
+        // a decoded atom or a prior display generation. Preserve it on every
+        // no-repair path and return only the exact final validated point.
+        let mut caret = intent.as_ref().map(|intent| intent.caret);
         if bodies.is_empty() && intent.is_none() {
-            return Ok((work, copied));
+            return Ok((work, copied, caret));
         }
         // This is the final physical replacement, including retained wrappers.
         let (local, parsed) = declarations(output, &[]);
         work = parsed;
+        work.items += usize::from(caret.is_some());
         let mut repairs = Vec::new();
         for definition in local {
             let mut witnessed = false;
@@ -151,7 +157,7 @@ impl super::super::Projection {
             }
         }
         if repairs.is_empty() {
-            return Ok((work, copied));
+            return Ok((work, copied, caret));
         }
         // Escalation follows a structurally changed declaration witness. Build
         // its real parent candidate from the persistent exact source generation.
@@ -183,7 +189,7 @@ impl super::super::Projection {
             })
         });
         if repairs.is_empty() {
-            return Ok((work, copied));
+            return Ok((work, copied, caret));
         }
         // Canonical declaration traversal is source ordered. Earlier insertions
         // cannot move the remaining offsets when repairs run in reverse.
@@ -193,18 +199,10 @@ impl super::super::Projection {
                 return Err(EditorError::UnrepresentableFormat);
             }
         }
-        if let Some(intent) = &intent {
-            for repair in &repairs {
-                work.items += 1;
-                // The split caret is before the new body's opener. An escape
-                // inserted exactly there has Left bias: keep that raw boundary.
-                if repair.range.start < intent.caret {
-                    eprintln!(
-                        "301-before-caret-trace repair={:?} caret={} display_caret={}",
-                        repair.range, intent.caret, intent.display_caret
-                    );
-                    return Err(EditorError::UnrepresentableFormat);
-                }
+        if let Some(at) = caret {
+            work.items += 2;
+            if at > output.len() || !output.is_char_boundary(at) {
+                return Err(EditorError::UnrepresentableFormat);
             }
         }
         if let Some(pending) = &pending {
@@ -213,11 +211,34 @@ impl super::super::Projection {
             }
         }
         for repair in repairs.into_iter().rev() {
+            if let Some(at) = &mut caret {
+                work.items += 2;
+                // Left at the start, including insertion exactly at the
+                // caret. A nonempty replacement's end remains after it.
+                if *at <= repair.range.start {
+                } else if repair.range.end <= *at {
+                    *at = at
+                        .checked_sub(repair.range.len())
+                        .and_then(|at| at.checked_add(repair.inserted.len()))
+                        .ok_or(EditorError::UnrepresentableFormat)?;
+                    work.items += 2;
+                } else {
+                    // No retained atom/point is inferred inside overwritten
+                    // syntax. Its owning correspondence must prove that case.
+                    return Err(EditorError::UnrepresentableFormat);
+                }
+            }
             if let Some(pending) = pending.as_deref_mut() {
                 pending.source_step(repair.range.clone(), repair.inserted.len())?;
             }
             copied += output.len() - repair.range.end + repair.inserted.len();
             output.replace_range(repair.range, &repair.inserted);
+            if let Some(at) = caret {
+                work.items += 2;
+                if at > output.len() || !output.is_char_boundary(at) {
+                    return Err(EditorError::UnrepresentableFormat);
+                }
+            }
         }
         let repaired = candidate(output);
         copied += repaired.len() + output.len();
@@ -263,7 +284,7 @@ impl super::super::Projection {
         }
         if let Some(intent) = intent {
             let (caret, visits) = checked.try_project_source_point(crate::history::SourcePoint {
-                source: crate::SourceOffset(intent.caret),
+                source: crate::SourceOffset(caret.ok_or(EditorError::UnrepresentableFormat)?),
                 within: 0,
                 atom: None,
             });
@@ -274,7 +295,7 @@ impl super::super::Projection {
         }
         // The unchanged visible body also preserves this slice's returned
         // display endpoints; source history is captured from the final edit.
-        Ok((work, copied))
+        Ok((work, copied, caret))
     }
 }
 

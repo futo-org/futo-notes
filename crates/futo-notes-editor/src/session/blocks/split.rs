@@ -81,7 +81,7 @@ impl EditorSession {
         let right = &right_layout.text;
         let mut output =
             format!("{prefix}{left}{suffix}{retained_break}\n{separator}{continuation}{right}");
-        let caret = line.source.start
+        let mut caret = line.source.start
             + prefix.len()
             + left.len()
             + suffix.len()
@@ -140,7 +140,7 @@ impl EditorSession {
             reference_bytes += expected_display.len();
             let regions = [right_start..output.len()];
             (reference_work, reference_bytes) = {
-                let (mut work, bytes) = self.projection.protect_body_definitions(
+                let (mut work, bytes, prepared_caret) = self.projection.protect_body_definitions(
                     &self.source,
                     self.context.origin.as_ref(),
                     line.source.start..suffix_end,
@@ -154,7 +154,9 @@ impl EditorSession {
                     }),
                     pending.as_mut(),
                 )?;
-                work.items += visits;
+                caret =
+                    line.source.start + prepared_caret.ok_or(EditorError::UnrepresentableFormat)?;
+                work.items += visits + 1;
                 (work, reference_bytes + bytes)
             };
         }
