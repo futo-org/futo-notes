@@ -101,6 +101,7 @@ export async function inputLifecycleConsumer({ start, stop, getSession, createRo
   assert.deepEqual(await exchange(JSON.stringify({ checkpoint: true })), { id: 'plain' });
   await stop();
   await completedHttpConsumer({ start, stop, getSession, createRoot, parseSource });
+  await paragraphEndingConsumer({ start, stop, getSession, createRoot, parseSource });
 }
 
 // A completed committed capsule never needs an unfinished Typing origin.
@@ -167,6 +168,69 @@ async function completedHttpConsumer({ start, stop, getSession, createRoot, pars
   assert.equal(recovered.text, text);
   assert.deepEqual(recovered.links, expected);
   assert.equal(JSON.parse(page.composition()), null);
+  assert.equal(JSON.parse(page.undo(view.revision)), null);
+  assert.deepEqual(await exchange(JSON.stringify({ checkpoint: true })), { id: 'plain' });
+  await stop();
+}
+
+// ParagraphKey is the real isolated-LF facade, not a Typing newline surrogate.
+async function paragraphEndingConsumer({ start, stop, getSession, createRoot, parseSource }) {
+  const foreign = '<[www.x.test/path](<http://www.x.test/path>)>\n\n';
+  const foreignView = '<www.x.test/path>\n\n';
+  const word = '<www.x.test/path';
+  const text = foreignView + word + '\n';
+  const standard = parseSource(foreign + '<[www.x.test/path](<http://www.x.test/path>)\n');
+  let expected;
+  try {
+    const projected = JSON.parse(standard.project(0n, 0, text.length));
+    assert.equal(projected.text, text);
+    expected = projected.links;
+    assert.equal(expected.length, 2);
+    assert.equal(expected[0].destination, expected[1].destination);
+  } finally {
+    standard.free();
+  }
+  const root = createRoot('futo-editor-wasm-paragraph-ending-');
+  let exchange = await start(foreign, root);
+  let page = getSession();
+  const view = protocolView(page, exchange, foreignView, 'paragraph URL ending');
+  await view.apply(page.replace(view.revision, foreignView.length, foreignView.length, word));
+  const original = page.draft_text();
+  assert.equal(
+    JSON.parse(page.inspect_link(view.revision, foreignView.length + 1, foreignView.length + 2)),
+    null,
+  );
+  const at = foreignView.length + word.length;
+  page.select_with_affinity(view.revision, 0, 0, '"Backward"');
+  page.select_with_affinity(view.revision, at, at, '"Backward"');
+  await view.apply(page.paragraph_key_utf16(view.revision, at, at, '"Enter"'), true);
+  assert.equal(view.text, text);
+  assert.deepEqual(JSON.parse(page.project(view.revision, 0, text.length)).links, expected);
+  const saved = page.draft_text();
+  const fresh = parseSource(saved);
+  try {
+    assert.equal(JSON.parse(fresh.project(0n, 0, text.length)).text, text);
+    assert.deepEqual(JSON.parse(fresh.project(0n, 0, text.length)).links, expected);
+  } finally {
+    fresh.free();
+  }
+  await view.apply(page.undo(view.revision), true);
+  assert.equal(page.draft_text(), original);
+  assert.equal(
+    JSON.parse(page.inspect_link(view.revision, foreignView.length + 1, foreignView.length + 2)),
+    null,
+  );
+  await view.apply(page.redo(view.revision), true);
+  assert.equal(page.draft_text(), saved);
+  assert.equal(JSON.parse(page.redo(view.revision)), null);
+  page.acknowledge(JSON.stringify(await exchange(page.flush())));
+  await stop();
+  exchange = await start('--reopen:plain', root);
+  page = getSession();
+  assert.equal(page.draft_text(), saved);
+  const recovered = JSON.parse(page.project(view.revision, 0, text.length));
+  assert.equal(recovered.text, text);
+  assert.deepEqual(recovered.links, expected);
   assert.equal(JSON.parse(page.undo(view.revision)), null);
   assert.deepEqual(await exchange(JSON.stringify({ checkpoint: true })), { id: 'plain' });
   await stop();
