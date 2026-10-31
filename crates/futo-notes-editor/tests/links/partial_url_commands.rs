@@ -238,3 +238,75 @@ fn live_code_removal_releases_its_literal_url_guard_at_word_end() {
         .iter()
         .any(|run| run.range == range(15, 20) && run.formats.contains(&InlineFormat::Code)));
 }
+
+#[test]
+fn an_identical_foreign_authored_uri_never_shares_the_live_code_colon_witness() {
+    let prefix = "\\<https\\://x.test/path> / ";
+    let mut session = EditorSession::open(prefix);
+    let mut view = ReferenceView::new("<https://x.test/path> / ");
+    assert_eq!(view.text.len(), 24);
+    view.apply(
+        session
+            .replace(
+                Revision(0),
+                range(24, 24),
+                "<https://x.test/path",
+                &mut |_| Ok(()),
+            )
+            .unwrap(),
+    );
+    view.apply(
+        session
+            .replace(Revision(1), range(44, 44), ">", &mut |_| Ok(()))
+            .unwrap(),
+    );
+    session.select(Revision(2), range(39, 44)).unwrap();
+    view.apply(
+        session
+            .toggle_format(Revision(2), InlineFormat::Code, &mut |_| Ok(()))
+            .unwrap()
+            .unwrap(),
+    );
+    view.apply(
+        session
+            .toggle_format(Revision(3), InlineFormat::Code, &mut |_| Ok(()))
+            .unwrap()
+            .unwrap(),
+    );
+    session.select(Revision(4), range(45, 45)).unwrap();
+    view.apply(
+        session
+            .replace(Revision(4), range(45, 45), " ", &mut |_| Ok(()))
+            .unwrap(),
+    );
+    assert_eq!(view.text, "<https://x.test/path> / <https://x.test/path> ");
+    let links = session.project(Revision(5), range(0, 46)).unwrap().links;
+    assert_eq!(links.len(), 1);
+    assert_eq!(links[0].range, range(25, 44));
+    assert_eq!(links[0].destination, "https://x.test/path");
+    assert!(session.source_text().starts_with(prefix));
+    let before = session.source_text();
+    session.select(Revision(5), range(21, 21)).unwrap();
+    view.apply(
+        session
+            .replace(Revision(5), range(21, 21), " ", &mut |_| Ok(()))
+            .unwrap(),
+    );
+    assert_eq!(view.text, "<https://x.test/path>  / <https://x.test/path> ");
+    let links = session.project(Revision(6), range(0, 47)).unwrap().links;
+    assert_eq!(links.len(), 1);
+    assert_eq!(links[0].range, range(26, 45));
+    assert_eq!(links[0].destination, "https://x.test/path");
+    let reopened = EditorSession::open(&session.source_text());
+    assert_eq!(reopened.display_text(), view.text);
+    assert_eq!(
+        reopened.project(Revision(0), range(0, 47)).unwrap().links,
+        links
+    );
+    view.apply(session.undo(Revision(6), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(session.source_text(), before);
+    assert_eq!(
+        session.project(Revision(7), range(0, 46)).unwrap().links[0].range,
+        range(25, 44)
+    );
+}
