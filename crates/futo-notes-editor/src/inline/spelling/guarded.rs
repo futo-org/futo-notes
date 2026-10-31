@@ -92,7 +92,6 @@ impl GuardState {
             *work += 1;
             let Some(part) = part else {
                 if current.is_some() {
-                    eprintln!("301 partial physical guard FIRST GAP current={current:?} unowned={range:?} rendered={:?}", rendered.text);
                     return Err(EditorError::UnrepresentableFormat);
                 }
                 continue;

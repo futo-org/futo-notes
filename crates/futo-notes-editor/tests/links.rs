@@ -86,3 +86,6 @@ mod case_actions;
 
 #[path = "links/partial_guard_scopes.rs"]
 mod partial_guard_scopes;
+
+#[path = "links/before_repair_fields.rs"]
+mod before_repair_fields;
