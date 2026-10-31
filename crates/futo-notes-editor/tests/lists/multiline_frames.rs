@@ -319,7 +319,7 @@ fn outdent_crlf_outer_quote_maps_both_entity_endpoints_before_acceptance() {
 }
 
 #[test]
-fn backspace_crlf_outer_quote_maps_both_entity_endpoints_before_acceptance() {
+fn backspace_crlf_outer_quote_retains_the_complete_entity_at_its_start_caret() {
     // Backspace requires a caret at its registered paragraph start. Probe its
     // complete atom's strict interior separately through toolbar Outdent/Text.
     multiline_transition(

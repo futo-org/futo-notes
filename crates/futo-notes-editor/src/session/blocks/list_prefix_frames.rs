@@ -120,11 +120,6 @@ impl EditorSession {
         } else {
             "\n"
         };
-        // This first multiline transition has a proven LF display insertion.
-        // Other endings retain the existing flow until their literal plan is pinned.
-        if multiline && newline != "\n" {
-            return Ok(None);
-        }
         let parallel = action == FrameAction::Outdent && line.quote_depth == list.quote_depth + 1;
         let mut output = String::new();
         let mut copied = planning + prefix.len() + ending.len();
@@ -311,14 +306,29 @@ impl EditorSession {
             .byte_slice(line.source.start..line.content.start)
             .to_string();
         let ending = self.source.byte_slice(line.content.end..line.source.end);
-        if !ending.bytes().eq(b"\n".iter().copied()) {
+        let newline = if ending
+            .bytes()
+            .inspect(|_| crate::inline::visit_container())
+            .eq(b"\r\n".iter().copied())
+        {
+            "\r\n"
+        } else if ending
+            .bytes()
+            .inspect(|_| crate::inline::visit_container())
+            .eq(b"\n".iter().copied())
+        {
+            "\n"
+        } else {
             return Ok(None);
-        }
+        };
         let mut shifts = std::collections::BTreeMap::new();
         let mut output = if same_quote {
-            format!("{}\n\n", &prefix[..list.marker.start - line.source.start])
+            format!(
+                "{}{newline}{newline}",
+                &prefix[..list.marker.start - line.source.start]
+            )
         } else {
-            "\n".to_owned()
+            newline.to_owned()
         };
         let mut at = 0;
         let mut root = None;
@@ -362,7 +372,15 @@ impl EditorSession {
             return Ok(None);
         };
         output.push_str(&prefix[at..]);
-        let added = if same_quote { "\n\n" } else { "\n" };
+        let added = if same_quote {
+            if newline == "\r\n" {
+                "\r\n\r\n"
+            } else {
+                "\n\n"
+            }
+        } else {
+            newline
+        };
         let footprint = line.source.start..paragraph.end;
         let mut copied = planning + prefix.len() + output.len();
         let mut edits = vec![(0..prefix.len(), output)];
