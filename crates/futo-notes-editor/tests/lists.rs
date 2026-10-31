@@ -52,3 +52,6 @@ mod quote_owner_boundaries;
 
 #[path = "lists/multiline_frames.rs"]
 mod multiline_frames;
+
+#[path = "lists/fence_scope.rs"]
+mod fence_scope;
