@@ -8,7 +8,7 @@ pub(super) fn body_end(
 ) -> Option<usize> {
     *work += 2;
     let end = insertion.end.checked_sub(1)?;
-    // Exactly one current ASCII separator bounds this word. It is not a
+    // Exactly one current whitespace scalar bounds this word. It is not a
     // whitespace-run trim or authority for a new origin/capsule by itself.
     (!insertion.is_empty() && known_word_end(&pieces[end].display, work)).then_some(end)
 }

@@ -42,12 +42,19 @@ fn safe(pieces: &[Piece], markers: &[Marker], work: &mut usize) -> bool {
             })
     })
 }
-/// Exact ASCII ending bound, never origin or capsule authority by itself.
+/// Exact whitespace-scalar ending bound, never origin or capsule authority by itself.
 /// Both proof roles still validate their own retained or Inserted ownership.
 pub(super) fn known_word_end(inserted: &str, work: &mut usize) -> bool {
     *work += 1;
     if inserted.len() != 1 {
-        return false;
+        *work += 1;
+        if !inserted
+            .chars()
+            .next_back()
+            .is_some_and(|ch| ch.len_utf8() == inserted.len())
+        {
+            return false;
+        }
     }
     terminal_word_end(inserted, work)
 }
@@ -55,7 +62,15 @@ fn terminal_word_end(inserted: &str, work: &mut usize) -> bool {
     *work += 1;
     inserted.as_bytes().last().is_some_and(|byte| {
         *work += 1;
-        matches!(byte, b' ' | b'\n')
+        if byte.is_ascii() {
+            char::from(*byte).is_whitespace()
+        } else {
+            *work += 1;
+            inserted
+                .chars()
+                .next_back()
+                .is_some_and(char::is_whitespace)
+        }
     })
 }
 fn literal_prefix(word: &str, work: &mut usize) -> bool {
