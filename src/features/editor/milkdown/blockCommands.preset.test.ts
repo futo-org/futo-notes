@@ -317,6 +317,22 @@ const cases = [
     head: 'c1',
     headOffset: 2,
   },
+  {
+    name: 'interleaved task retarget keeps both foreign bullet owners',
+    source: '- before\n\n1. p0\n   - c0\n1. p1\n   - c1\n\n+ after',
+    command: 'task-list',
+    anchor: 'p0',
+    head: 'c1',
+    headOffset: 2,
+  },
+  {
+    name: 'interleaved ordered retarget keeps foreign starts and owner cuts',
+    source: '7) before\n\n- p0\n  - c0\n- p1\n  - c1\n\n9. after',
+    command: 'ordered-list',
+    anchor: 'p0',
+    head: 'c1',
+    headOffset: 2,
+  },
 ] as const;
 
 describe('pinned shipping toolbar container transactions (#299)', () => {
