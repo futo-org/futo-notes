@@ -56,3 +56,6 @@ mod guarded_word_lifetime;
 
 #[path = "links/literal_retirement.rs"]
 mod literal_retirement;
+
+#[path = "links/compact_timing.rs"]
+mod compact_timing;
