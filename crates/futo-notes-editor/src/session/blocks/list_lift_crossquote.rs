@@ -44,6 +44,63 @@ impl EditorSession {
                 }
             }
         }
+        let first = &lines[0];
+        if groups.len() == 2
+            && lines.len() == 1
+            && selected.depth == 2
+            && selected.quote_depth == 1
+            && first.quote_depth == 1
+            && groups[0].root.depth == 1
+            && groups[0].root.quote_depth == 0
+            && groups[0].root.marker.start == first.source.start
+            && groups[0].root.item.end <= first.source.end
+            && selected.item.end <= first.source.end
+            && !first.code
+            && first.heading == 0
+            && first.task.is_none()
+        {
+            let prefix = self
+                .source
+                .byte_slice(first.source.start..first.content.start)
+                .to_string();
+            let ending = self
+                .source
+                .byte_slice(first.content.end..first.source.end)
+                .to_string();
+            let newline = if ending.ends_with("\r\n") {
+                "\r\n"
+            } else {
+                "\n"
+            };
+            let mut output = newline.to_owned();
+            let mut at = 0;
+            for group in &groups {
+                crate::inline::visit_container();
+                let item = &group.removed;
+                let marker = item.marker.start - first.source.start;
+                if marker < at || item.indent > prefix.len() {
+                    return Err(EditorError::UnrepresentableFormat);
+                }
+                output.push_str(&prefix[at..marker]);
+                at = item.indent;
+            }
+            output.push_str(&prefix[at..]);
+            let mut change = self.commit_planned_prefix(
+                expected,
+                range,
+                first.source.start..first.content.start,
+                &output,
+                HeaderShape::Plain {
+                    quotes: 1,
+                    earlier: None,
+                },
+                accept,
+            )?;
+            change.work.parsed_source_bytes += planning_bytes;
+            change.work.materialized_source_bytes +=
+                planning_bytes + prefix.len() + ending.len() + output.len();
+            return Ok(Some(change));
+        }
         let mut spans = Vec::new();
         let mut heads: BTreeMap<usize, SourcePrefix> = BTreeMap::new();
         let mut changes: BTreeMap<usize, Vec<(Range<usize>, String)>> = BTreeMap::new();

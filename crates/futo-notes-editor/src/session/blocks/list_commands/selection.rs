@@ -3,13 +3,43 @@ use super::*;
 use std::ops::Range;
 
 impl EditorSession {
+    pub(in crate::session::blocks) fn commit_planned_prefix(
+        &mut self,
+        expected: Revision,
+        range: DisplayRange,
+        footprint: Range<usize>,
+        output: &str,
+        shape: HeaderShape<'_>,
+        accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
+    ) -> Result<ViewChange, EditorError> {
+        let edits = [(0..footprint.len(), output.to_owned())];
+        let (selection, parsed, copied) =
+            self.preview_header_selection(range, footprint.clone(), &edits, output, Some(shape))?;
+        let formats = (range == self.selection)
+            .then(|| self.pending_formats.clone())
+            .flatten();
+        let affinity = self.input_affinity(range);
+        let mut change = self.commit_block_edit(
+            expected,
+            footprint,
+            output,
+            BlockSelection::Display(selection),
+            None,
+            accept,
+        )?;
+        self.carry_block_state(&mut change, formats, affinity);
+        change.work.parsed_source_bytes += parsed;
+        change.work.materialized_source_bytes += copied + output.len();
+        Ok(change)
+    }
+
     pub(in crate::session::blocks) fn preview_header_selection(
         &self,
         range: DisplayRange,
         footprint: Range<usize>,
         edits: &[(Range<usize>, String)],
         output: &str,
-        list: Option<(&crate::inline::ListLine, usize, bool)>,
+        shape: Option<HeaderShape<'_>>,
     ) -> Result<(DisplayRange, usize, usize), EditorError> {
         let points = [
             self.projection.retained_point(range.start.0)?,
@@ -35,46 +65,87 @@ impl EditorSession {
         )?;
         // This private apply calls no host, clock or history operation.
         let work = preview.apply(&edit).work;
-        if let Some((original, quotes, first)) = list {
+        if let Some(shape) = shape {
             let body = footprint.start - window.start + output.len();
             let actual = preview
                 .projection
                 .list_command_line_at_source(body)
                 .ok_or(EditorError::UnrepresentableFormat)?;
             crate::inline::visit_container();
-            let owned = actual
-                .list
-                .as_ref()
-                .ok_or(EditorError::UnrepresentableFormat)?;
+            let quotes = match shape {
+                HeaderShape::List { quotes, .. } | HeaderShape::Plain { quotes, .. } => quotes,
+            };
             if actual.code
                 || actual.divider
                 || actual.heading != 0
                 || actual.quote_depth != quotes
                 || actual.content.start != body
-                || owned.depth != original.depth
-                || owned.ordinal != original.ordinal
-                || owned.checked != original.checked
-                || owned.first != first
-                || owned.marker.start
-                    != original
-                        .marker
-                        .start
-                        .checked_sub(window.start)
-                        .ok_or(EditorError::UnrepresentableFormat)?
-                || owned.owner.start
-                    != original
-                        .owner
-                        .start
-                        .checked_sub(window.start)
-                        .ok_or(EditorError::UnrepresentableFormat)?
-                || owned.item.start
-                    != original
-                        .item
-                        .start
-                        .checked_sub(window.start)
-                        .ok_or(EditorError::UnrepresentableFormat)?
             {
                 return Err(EditorError::UnrepresentableFormat);
+            }
+            match shape {
+                HeaderShape::List {
+                    original, first, ..
+                } => {
+                    let owned = actual
+                        .list
+                        .as_ref()
+                        .ok_or(EditorError::UnrepresentableFormat)?;
+                    if owned.depth != original.depth
+                        || owned.ordinal != original.ordinal
+                        || owned.checked != original.checked
+                        || owned.first != first
+                        || owned.marker.start
+                            != original
+                                .marker
+                                .start
+                                .checked_sub(window.start)
+                                .ok_or(EditorError::UnrepresentableFormat)?
+                        || owned.owner.start
+                            != original
+                                .owner
+                                .start
+                                .checked_sub(window.start)
+                                .ok_or(EditorError::UnrepresentableFormat)?
+                        || owned.item.start
+                            != original
+                                .item
+                                .start
+                                .checked_sub(window.start)
+                                .ok_or(EditorError::UnrepresentableFormat)?
+                    {
+                        return Err(EditorError::UnrepresentableFormat);
+                    }
+                }
+                HeaderShape::Plain { earlier, .. } => {
+                    if actual.list.is_some() {
+                        return Err(EditorError::UnrepresentableFormat);
+                    }
+                    if let Some((at, number)) = earlier {
+                        let at = at
+                            .checked_sub(window.start)
+                            .ok_or(EditorError::UnrepresentableFormat)?;
+                        let parent = preview
+                            .projection
+                            .list_command_line_at_source(at)
+                            .ok_or(EditorError::UnrepresentableFormat)?;
+                        crate::inline::visit_container();
+                        if parent.code
+                            || parent.divider
+                            || parent.heading != 0
+                            || parent.quote_depth != 0
+                            || !parent.content.is_empty()
+                            || !parent.list.as_ref().is_some_and(|list| {
+                                list.first
+                                    && list.depth == 1
+                                    && list.ordinal == number
+                                    && list.marker.start == at
+                            })
+                        {
+                            return Err(EditorError::UnrepresentableFormat);
+                        }
+                    }
+                }
             }
         }
         let mut mapped = [0; 2];

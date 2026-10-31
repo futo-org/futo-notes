@@ -45,6 +45,47 @@ impl EditorSession {
         } else {
             "\n"
         };
+        if shared_line
+            && selected.depth == 2
+            && selected.quote_depth == 0
+            && selected
+                .parent_marker
+                .as_ref()
+                .is_some_and(|parent| parent.start == start)
+            && first.quote_depth == 1
+            && lines.len() == 1
+            && end <= first.source.end
+            && !first.code
+            && first.heading == 0
+            && first.task.is_none()
+        {
+            // The earlier same-quote empty list item survives; retiring the
+            // selected item also preserves its empty paragraph and child quote.
+            let inner = &quote[selected.indent..];
+            let cut = super::indent_source::canonical_quote_end(inner, 1)
+                .ok_or(EditorError::UnrepresentableFormat)?;
+            let output = format!(
+                "{}{newline}{newline}{}",
+                &quote[..selected.marker.start - start],
+                &inner[..cut]
+            );
+            let mut change = self.commit_planned_prefix(
+                expected,
+                range,
+                start..first.content.start,
+                &output,
+                HeaderShape::Plain {
+                    quotes: 1,
+                    earlier: Some((
+                        selected.parent_marker.as_ref().unwrap().start,
+                        selected.parent_number,
+                    )),
+                },
+                accept,
+            )?;
+            change.work.materialized_source_bytes += quote.len() + ending.len() + output.len();
+            return Ok(Some(change));
+        }
         let separator = selected.parent_marker.is_some() || {
             let line = self.source.byte_to_line(start);
             if line == 0 {

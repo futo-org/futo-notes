@@ -142,39 +142,24 @@ impl EditorSession {
         }
         output.push_str(&prefix[quote_end..]);
         copied += prefix.len() - quote_end;
-        let footprint = line.source.start..line.content.start;
-        let edits = [(0..prefix.len(), output.clone())];
-        copied += output.len();
-        let (selection, parsed, materialized) = self.preview_header_selection(
+        let mut change = self.commit_planned_prefix(
+            expected,
             range,
-            footprint.clone(),
-            &edits,
+            line.source.start..line.content.start,
             &output,
-            Some((
-                list,
-                if action == FrameAction::Backspace {
+            HeaderShape::List {
+                original: list,
+                quotes: if action == FrameAction::Backspace {
                     list.quote_depth
                 } else {
                     line.quote_depth - 1
                 },
-                !parallel,
-            )),
-        )?;
-        let formats = (range == self.selection)
-            .then(|| self.pending_formats.clone())
-            .flatten();
-        let affinity = self.input_affinity(range);
-        let mut change = self.commit_block_edit(
-            expected,
-            footprint,
-            &output,
-            BlockSelection::Display(selection),
-            None,
+                first: !parallel,
+            },
             accept,
         )?;
-        self.carry_block_state(&mut change, formats, affinity);
-        change.work.parsed_source_bytes += planning + parsed;
-        change.work.materialized_source_bytes += copied + materialized;
+        change.work.parsed_source_bytes += planning;
+        change.work.materialized_source_bytes += copied;
         Ok(Some(change))
     }
 }
