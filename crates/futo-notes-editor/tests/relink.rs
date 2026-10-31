@@ -160,3 +160,6 @@ fn own_relink_maps_hidden_unicode_boundaries_by_affinity_without_changing_other_
         assert_eq!(editor.source_text(), "__日__ [[new name]]");
     }
 }
+
+#[path = "relink/guarded.rs"]
+mod guarded;
