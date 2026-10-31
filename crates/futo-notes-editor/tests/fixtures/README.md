@@ -97,7 +97,7 @@ ordered child lifting copies that start into each newly independent following ow
 Same-line quote/list controls retain empty lifted paragraphs, physical CRLF and quote
 prefixes, raw nonidentity entity atoms and native UTF-16 interior carets. Task-body
 quote/heading punctuation stays literal. Together with the unchanged original seventy-four
-list cases, all six source consumers load 216 cases, including thirty-eight
+list cases, all six source consumers load 217 cases, including thirty-nine
 `prefix-frame-commands.json` literals. These distinguish nearest Outdent and
 registered Backspace from full Text lifting. Unchanged implicit empty parents
 keep compact source; an action-created parallel paragraph gets a physical frame.
@@ -142,3 +142,11 @@ nonempty bullet/ordered-one item interrupts a quote itself; ordered-seven needs
 a real quote-scope blank and retains its exact marker/start. Two quoted Quote
 no-op cases remain separate public session tests: no fake append/history is used
 to force them through this mutation/recovery harness.
+
+One additional shared-frame literal retains the representable root empty paragraph
+when full Text retires a shared physical list/quote header chain. The surviving
+quote ancestry and body reopen from ordinary Markdown; transient leading empty
+paragraphs inside quotes are not written, as required by the existing paragraph
+rules. The public shared-head work probe varies actual canonical groups8/64 and
+body4096/32768, checks source/caret/UndoRedo first, and retains the existing parser,
+source-copy and metadata budgets. It does not claim allocation or native latency.

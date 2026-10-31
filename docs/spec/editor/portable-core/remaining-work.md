@@ -18,7 +18,7 @@ preserves opaque code and original containment through certified physical edge f
 new source queries and canonical code-body overlap queries have measured work controls.
 The pinned multiline quoted-body Outdent, Backspace and full Text observations,
 representative CRLF/entity cases and separate inner/foreign quote ownership now
-have exact-source/history and measured-work controls. The 216 shared list literals
+have exact-source/history and measured-work controls. The 217 shared list literals
 are registered in all six source consumers; current native execution remains
 separate from registration.
 
@@ -27,9 +27,11 @@ blank/continuation and multiple fenced blocks, existing nested authored code bla
 the quoted CRLF task pair and the final established Heading/Quote contexts.
 The multiple-fence path has 64/512 parser, copy and metadata growth controls;
 original mixed, reversed and endpoint controls remain in the owner chain.
-Complete current owner chains for the 216 registered mutation literals, readability
-cleanup of the command planning/proof owners and the full Rust/WASM/static gates
-before freezing the exact entire source candidate for fresh independent review.
+The command planning/proof owners have completed bounded readability cleanup.
+The shared-head path has measured source/caret/history and parser/copy/metadata
+controls, with an independent pre-cursor constructor field differential. Complete
+current owner chains for all 217 registered mutation literals and the full
+Rust/WASM/static gates before freezing the exact entire source candidate for fresh independent review.
 Native execution follows that review and coordination; source registration and
 parser/copy counters do not prove native input, complete allocation or latency.
 Fence/table/link interpretation, note-id-dependent composition arbitration and

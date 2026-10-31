@@ -648,5 +648,22 @@
       3
     ],
     "finalItems": []
+  },
+  {
+    "name": "text-three-shared-quote-heads-keeps-durable-root-frame",
+    "source": "- > - > - > body",
+    "display": "body",
+    "action": "Text",
+    "range": [
+      0,
+      0
+    ],
+    "expected": "\n> > > body",
+    "shown": "\nbody",
+    "resultRange": [
+      1,
+      1
+    ],
+    "finalItems": []
   }
 ]
