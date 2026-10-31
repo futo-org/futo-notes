@@ -49,8 +49,14 @@ pub(super) fn known_word_end(inserted: &str, work: &mut usize) -> bool {
     if inserted.len() != 1 {
         return false;
     }
+    terminal_word_end(inserted, work)
+}
+fn terminal_word_end(inserted: &str, work: &mut usize) -> bool {
     *work += 1;
-    matches!(inserted.as_bytes()[0], b' ' | b'\n')
+    inserted.as_bytes().last().is_some_and(|byte| {
+        *work += 1;
+        matches!(byte, b' ' | b'\n')
+    })
 }
 fn literal_prefix(word: &str, work: &mut usize) -> bool {
     *work += 1;
@@ -167,10 +173,7 @@ impl TypedState {
         );
         let typing = matches!(input.intent, EditIntent::Input(InputAction::Typing));
         work.items += 1;
-        if !typing
-            && !known_word_end(input.inserted, &mut work.items)
-            && !input.inserted.ends_with(' ')
-        {
+        if !typing && !terminal_word_end(input.inserted, &mut work.items) {
             return Ok(work);
         }
         if input.inserted.is_empty() {
