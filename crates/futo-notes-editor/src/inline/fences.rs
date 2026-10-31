@@ -186,25 +186,7 @@ pub(super) fn describe(
                     line.code = true;
                     line.code_language.clone_from(&language);
                     line.fence.clone_from(&fence);
-                    let start = bodies
-                        .iter()
-                        .filter(|body| {
-                            super::visit_container();
-                            if body.start < line.source.end {
-                                super::visit_container();
-                                line.source.start < body.end
-                            } else {
-                                false
-                            }
-                        })
-                        .map(|body| {
-                            super::visit_container();
-                            body.start.max(line.source.start)
-                        })
-                        .min_by(|a, b| {
-                            super::visit_container();
-                            a.cmp(b)
-                        });
+                    let start = body_start(&bodies, &line.source);
                     // Only a closer with following source supplies an inter-block
                     // break; its delimiter and the body frame ending stay hidden.
                     line.content = match start {
@@ -250,6 +232,30 @@ pub(super) fn describe(
             _ => {}
         }
     }
+}
+
+/// The minimum source start among body ranges with the original strict overlap
+/// predicate. Empty physical query rows retain that same predicate.
+fn body_start(bodies: &[Range<usize>], line: &Range<usize>) -> Option<usize> {
+    bodies
+        .iter()
+        .filter(|body| {
+            super::visit_container();
+            if body.start < line.end {
+                super::visit_container();
+                line.start < body.end
+            } else {
+                false
+            }
+        })
+        .map(|body| {
+            super::visit_container();
+            body.start.max(line.start)
+        })
+        .min_by(|a, b| {
+            super::visit_container();
+            a.cmp(b)
+        })
 }
 
 #[cfg(test)]

@@ -259,3 +259,43 @@ fn canonical_fence_ranges_and_every_block_field_match_the_frozen_visitor() {
         }
     }
 }
+
+#[test]
+fn source_body_query_preserves_empty_duplicate_overlap_and_gap_boundaries() {
+    // Source axes are monotonic, but overlaps and duplicates are permitted.
+    for bodies in [
+        vec![],
+        vec![0..0],
+        vec![0..3],
+        vec![1..1],
+        vec![1..4, 2..6],
+        vec![1..4, 1..4, 2..4, 3..8],
+        vec![0..0, 0..2, 2..2, 4..7],
+        vec![0..1, 3..4, 7..7, 9..10],
+    ] {
+        assert!(bodies
+            .windows(2)
+            .all(|w| w[0].start <= w[1].start && w[0].end <= w[1].end));
+        for start in 0..=12 {
+            for end in start..=12 {
+                let line = start..end;
+                let old = bodies
+                    .iter()
+                    .filter(|b| b.start < line.end && line.start < b.end)
+                    .map(|b| b.start.max(line.start))
+                    .min();
+                assert_eq!(body_start(&bodies, &line), old, "{bodies:?} {line:?}");
+                for origin in [0, 61] {
+                    let shifted = bodies
+                        .iter()
+                        .map(|b| b.start + origin..b.end + origin)
+                        .collect::<Vec<_>>();
+                    assert_eq!(
+                        body_start(&shifted, &(start + origin..end + origin)),
+                        old.map(|at| at + origin)
+                    );
+                }
+            }
+        }
+    }
+}
