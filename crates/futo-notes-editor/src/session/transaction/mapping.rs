@@ -165,11 +165,11 @@ impl InputMapping {
                 if let Some(display) = display {
                     return Ok((display, work));
                 }
-                if self.requires_source_identity {
+                if self.requires_source_identity || self.protected.is_some() {
                     return Err(EditorError::UnrepresentableFormat);
                 }
             }
-            if self.requires_source_identity {
+            if self.requires_source_identity || self.protected.is_some() {
                 return Err(EditorError::UnrepresentableFormat);
             }
             if let Some(display) = self.inserted_display.filter(|_| self.protected.is_none()) {
@@ -180,7 +180,7 @@ impl InputMapping {
             }
             return Err(EditorError::UnrepresentableFormat);
         }
-        if self.requires_source_identity {
+        if self.requires_source_identity || self.protected.is_some() {
             return Err(EditorError::UnrepresentableFormat);
         }
         staged
@@ -212,6 +212,7 @@ impl InputMapping {
         steps: [Option<SourceStep>; 2],
         count: usize,
         window: std::ops::Range<usize>,
+        display_window: std::ops::Range<usize>,
     ) -> Result<Self, EditorError> {
         if let Some(source) = &self.source {
             if count != 2 {
@@ -230,11 +231,19 @@ impl InputMapping {
                 outer: SourceStep::read(outer),
                 boundary,
                 window,
+                display_window,
             });
-            // A missing inserted witness is an explicit error on this path.
-            self.requires_source_identity = true;
         }
         Ok(self)
+    }
+
+    pub(super) fn requires_source_at_display(&self, display: usize, origin: usize) -> bool {
+        self.requires_source_identity
+            || self.protected.as_ref().is_some_and(|path| {
+                display.checked_sub(origin).is_some_and(|display| {
+                    path.display_window.start <= display && display <= path.display_window.end
+                })
+            })
     }
 
     pub(in crate::session) fn with_source_boundary(mut self, change: &ViewChange) -> Self {

@@ -50,7 +50,7 @@ impl SourceAnchor {
             let (display, visits) = staged.projection.try_project_source_point(point);
             work += visits;
             origin + display.ok_or(EditorError::UnrepresentableFormat)?
-        } else if references_changed || mapping.requires_source_identity {
+        } else if references_changed || mapping.requires_source_at_display(self.display, origin) {
             return Err(EditorError::UnrepresentableFormat);
         } else {
             let display = mapping.map(self.display, origin)?;

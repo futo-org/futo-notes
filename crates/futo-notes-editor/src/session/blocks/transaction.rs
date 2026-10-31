@@ -70,6 +70,7 @@ impl EditorSession {
         let (window, display_start) = self.projection.edit_window(range);
         let raw = self.source.byte_slice(window.clone()).to_string();
         let mut staged = self.stage_source(&raw, window.clone());
+        let display_window = display_start..display_start + staged.projection.display.len_bytes();
         let local = DisplayRange {
             start: DisplayOffset(range.start.0 - display_start),
             end: DisplayOffset(range.end.0 - display_start),
@@ -100,7 +101,7 @@ impl EditorSession {
         let mapping = if let Some(mut mapping) = mapping {
             let edit = self.prepare_source(expected, footprint, &inserted)?;
             mapping.relocate_display(display_start);
-            Some(mapping.protect(&edit, steps, count, window.clone())?)
+            Some(mapping.protect(&edit, steps, count, window.clone(), display_window)?)
         } else {
             None
         };

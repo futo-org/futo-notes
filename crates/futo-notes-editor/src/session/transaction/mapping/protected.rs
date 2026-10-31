@@ -25,6 +25,7 @@ pub(super) struct Protected {
     pub outer: SourceStep,
     pub boundary: SourceStep,
     pub window: Range<usize>,
+    pub display_window: Range<usize>,
 }
 impl Protected {
     pub fn retained(
