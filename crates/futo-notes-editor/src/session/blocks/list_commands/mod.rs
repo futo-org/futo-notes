@@ -33,10 +33,7 @@ impl EditorSession {
             accept,
         )
     }
-
-
 }
-
 
 #[cfg(test)]
 #[path = "work.rs"]

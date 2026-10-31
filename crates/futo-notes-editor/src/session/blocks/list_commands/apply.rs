@@ -111,6 +111,11 @@ impl EditorSession {
             return self.lift_nested_list(expected, range, &lines, accept);
         }
         let styles = (!remove).then(|| self.list_styles(&lines, command, &targets));
+        let lift_plan = if !remove && scope == LiftScope::AllAncestors {
+            self.mixed_lift_plan(&lines, command, &targets, styles.as_ref().unwrap())?
+        } else {
+            super::super::list_lift_plan::MixedLiftPlan::default()
+        };
         let start = lines.first().unwrap().source.start;
         let owned_end = if remove {
             0
@@ -140,8 +145,8 @@ impl EditorSession {
                     .collect()
             })
             .unwrap_or_default();
-        let mut parsed = 0;
-        let mut materialized = output.len();
+        let mut parsed = lift_plan.parsed;
+        let mut materialized = output.len() + lift_plan.materialized;
         let mut head_prefixes = HashMap::new();
         let mut owned_shifts = Vec::new();
         let mut selection = range;
@@ -202,7 +207,9 @@ impl EditorSession {
                 match command {
                     BlockCommand::OrderedList => format!(
                         "{}{} ",
-                        super::super::lists::physical_number(styles.as_ref().unwrap().ordinals[index]),
+                        super::super::lists::physical_number(
+                            styles.as_ref().unwrap().ordinals[index]
+                        ),
                         styles.as_ref().unwrap().markers[index] as char
                     ),
                     BlockCommand::TaskList => {
@@ -244,7 +251,14 @@ impl EditorSession {
                                             || mixed
                                                 && previous.quote_depth == list.quote_depth
                                                 && targets.output_depth(&previous)
-                                                    == targets.output_depth(list))
+                                                    == if lift_plan
+                                                        .paragraph_heads
+                                                        .contains(&line.source.start)
+                                                    {
+                                                        1
+                                                    } else {
+                                                        targets.output_depth(list)
+                                                    })
                                 },
                             )
                         {
@@ -286,6 +300,7 @@ impl EditorSession {
                         start: line.source.end,
                         item: list.item.clone(),
                         quote: list.quote_depth,
+                        owner_depth: list.depth,
                         delta,
                     });
                 }
@@ -300,6 +315,7 @@ impl EditorSession {
                             start: line.source.end,
                             item: list.item.clone(),
                             quote: list.quote_depth,
+                            owner_depth: list.depth,
                             delta,
                         });
                     }
@@ -311,7 +327,7 @@ impl EditorSession {
                 replacement,
             ));
         }
-        let shifted_prefixes = self.owned_prefix_shifts(owned_shifts)?;
+        let shifted_prefixes = self.owned_prefix_shifts(owned_shifts, lift_plan.overrides)?;
         for super::super::indent_source::PhysicalPrefixShift {
             prefix,
             deltas: mut shifts,
@@ -358,6 +374,25 @@ impl EditorSession {
                     false,
                 )?;
                 materialized += value.len();
+            }
+            if let Some(&marker) = lift_plan.markers.get(&at) {
+                crate::inline::visit_container();
+                let cut =
+                    super::super::indent_source::canonical_quote_end(&value, prefix.quote_depth)
+                        .ok_or(EditorError::UnrepresentableFormat)?;
+                let marker_end = cut
+                    + value[cut..]
+                        .bytes()
+                        .position(|byte| {
+                            crate::inline::visit_container();
+                            matches!(byte, b' ' | b'\t')
+                        })
+                        .unwrap_or(value.len() - cut);
+                if marker_end <= cut {
+                    return Err(EditorError::UnrepresentableFormat);
+                }
+                value.replace_range(marker_end - 1..marker_end, &(marker as char).to_string());
+                materialized += 1;
             }
             if let Some(index) = existing {
                 replacements[index].1 = value;

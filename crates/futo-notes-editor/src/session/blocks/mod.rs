@@ -30,6 +30,7 @@ mod list_indent;
 mod list_join;
 mod list_lift;
 mod list_lift_crossquote;
+mod list_lift_plan;
 mod list_styles;
 mod list_targets;
 mod list_typing;

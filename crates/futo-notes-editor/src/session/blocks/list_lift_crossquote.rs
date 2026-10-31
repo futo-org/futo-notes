@@ -24,7 +24,7 @@ impl EditorSession {
             .list
             .as_ref()
             .ok_or(EditorError::UnrepresentableFormat)?;
-        let (items, planning_bytes) = self
+        let (items, planning_bytes, _) = self
             .projection
             .list_items_at(&self.source, selected.marker.start);
         let mut groups: Vec<Group> = Vec::new();
@@ -91,6 +91,7 @@ impl EditorSession {
                     start: head,
                     item: prefix.source.clone(),
                     quote: item.quote_depth,
+                    owner_depth: item.depth,
                     delta,
                 });
             }
@@ -100,6 +101,7 @@ impl EditorSession {
                     start: prefix.source.end,
                     item: item.item.clone(),
                     quote: item.quote_depth,
+                    owner_depth: item.depth,
                     delta,
                 });
             }
@@ -177,6 +179,7 @@ impl EditorSession {
                         start: child_head,
                         item: child.item.clone(),
                         quote: child.quote_depth,
+                        owner_depth: child.depth,
                         delta: column as isize - child.marker_column as isize,
                     });
                     tail_end = child.item.end;
@@ -203,7 +206,7 @@ impl EditorSession {
             heads.entry(head).or_insert(prefix);
         }
         let mut physical: BTreeMap<usize, PhysicalPrefixShift> = self
-            .owned_prefix_shifts(spans)?
+            .owned_prefix_shifts(spans, Vec::new())?
             .into_iter()
             .map(|plan| (plan.prefix.source.start, plan))
             .collect();

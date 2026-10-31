@@ -167,7 +167,11 @@ impl Projection {
 
     /// Command-local canonical metadata from the original retained row. The
     /// returned byte count charges both source materialization and parser input.
-    pub(crate) fn list_items_at(&self, source: &Rope, at: usize) -> (Vec<ListLine>, usize) {
+    pub(crate) fn list_items_at(
+        &self,
+        source: &Rope,
+        at: usize,
+    ) -> (Vec<ListLine>, usize, std::ops::Range<usize>) {
         let (row, base, _) = self.rows.at(self.rows.locate(at, false));
         let raw = source.byte_slice(base..base + row.source_len).to_string();
         let events = row::source_events(&raw);
@@ -176,7 +180,7 @@ impl Projection {
             visit_container();
             item.shift(base);
         }
-        (items, raw.len())
+        (items, raw.len(), base..base + row.source_len)
     }
 
     fn block_ref_at_source(&self, at: usize) -> Option<(&blocks::BlockLine, usize)> {

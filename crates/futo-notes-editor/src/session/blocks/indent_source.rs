@@ -7,7 +7,31 @@ pub(super) struct OwnedPrefixShift {
     pub start: usize,
     pub item: Range<usize>,
     pub quote: usize,
+    pub owner_depth: usize,
     pub delta: isize,
+}
+
+/// One full-lift fragment replaces the enclosing lists' original indentation.
+/// Retargeted descendants deeper than this cut still contribute their widths.
+pub(super) struct OwnedPrefixOverride {
+    pub start: usize,
+    pub item: Range<usize>,
+    pub quote: usize,
+    pub through_depth: usize,
+    pub delta: isize,
+    pub rank: usize,
+}
+
+enum PrefixEffect {
+    Width {
+        quote: usize,
+        depth: usize,
+        delta: isize,
+    },
+    Lift {
+        index: usize,
+        active: bool,
+    },
 }
 
 pub(super) struct PhysicalPrefixShift {
@@ -21,20 +45,13 @@ impl EditorSession {
     pub(super) fn owned_prefix_shifts(
         &self,
         spans: Vec<OwnedPrefixShift>,
+        overrides: Vec<OwnedPrefixOverride>,
     ) -> Result<Vec<PhysicalPrefixShift>, EditorError> {
         let mut plan = Vec::new();
         let mut events = Vec::new();
-        for OwnedPrefixShift {
-            start: at,
-            item,
-            quote,
-            delta,
-        } in spans
-        {
-            crate::inline::visit_container();
-            // A parser item may end in the following line's quote prefix.
-            // Normalize its end with canonical ownership, not byte indentation.
-            let end = if item.end >= self.source.len_bytes() {
+        let item_end = |item: &Range<usize>| {
+            // Parser endpoints may include the following physical quote prefix.
+            if item.end >= self.source.len_bytes() {
                 self.source.len_bytes()
             } else {
                 let line = self.source.line_to_byte(self.source.byte_to_line(item.end));
@@ -53,10 +70,55 @@ impl EditorSession {
                             }
                         })
                 }
-            };
-            if at < end {
-                events.push((at, quote, delta));
-                events.push((end, quote, -delta));
+            }
+        };
+        for OwnedPrefixShift {
+            start,
+            item,
+            quote,
+            owner_depth,
+            delta,
+        } in spans
+        {
+            crate::inline::visit_container();
+            let end = item_end(&item);
+            if start < end {
+                events.push((
+                    start,
+                    PrefixEffect::Width {
+                        quote,
+                        depth: owner_depth,
+                        delta,
+                    },
+                ));
+                events.push((
+                    end,
+                    PrefixEffect::Width {
+                        quote,
+                        depth: owner_depth,
+                        delta: -delta,
+                    },
+                ));
+            }
+        }
+        for (index, fragment) in overrides.iter().enumerate() {
+            crate::inline::visit_container();
+            let end = item_end(&fragment.item);
+            if fragment.start < end {
+                events.push((
+                    fragment.start,
+                    PrefixEffect::Lift {
+                        index,
+                        active: true,
+                    },
+                ));
+                events.push((
+                    end,
+                    PrefixEffect::Lift {
+                        index,
+                        active: false,
+                    },
+                ));
             }
         }
         events.sort_by_key(|event| {
@@ -65,18 +127,36 @@ impl EditorSession {
         });
         let mut next = 0;
         let mut at = events.first().map_or(0, |event| event.0);
-        let mut active: BTreeMap<usize, isize> = BTreeMap::new();
-        while next < events.len() || !active.is_empty() {
-            while let Some(&(_, quote, delta)) = events.get(next).filter(|event| event.0 <= at) {
+        let mut widths: BTreeMap<(usize, usize), isize> = BTreeMap::new();
+        let mut lifts: BTreeMap<(usize, usize, usize), (usize, isize)> = BTreeMap::new();
+        while next < events.len() || !widths.is_empty() || !lifts.is_empty() {
+            while let Some((_, effect)) = events.get(next).filter(|event| event.0 <= at) {
                 crate::inline::visit_container();
-                let value = active.entry(quote).or_default();
-                *value += delta;
-                if *value == 0 {
-                    active.remove(&quote);
+                match *effect {
+                    PrefixEffect::Width {
+                        quote,
+                        depth,
+                        delta,
+                    } => {
+                        let value = widths.entry((quote, depth)).or_default();
+                        *value += delta;
+                        if *value == 0 {
+                            widths.remove(&(quote, depth));
+                        }
+                    }
+                    PrefixEffect::Lift { index, active } => {
+                        let fragment = &overrides[index];
+                        let key = (fragment.quote, fragment.rank, index);
+                        if active {
+                            lifts.insert(key, (fragment.through_depth, fragment.delta));
+                        } else {
+                            lifts.remove(&key);
+                        }
+                    }
                 }
                 next += 1;
             }
-            if active.is_empty() {
+            if widths.is_empty() && lifts.is_empty() {
                 if let Some(event) = events.get(next) {
                     at = event.0;
                     continue;
@@ -93,17 +173,27 @@ impl EditorSession {
                 return Err(EditorError::UnrepresentableFormat);
             }
             if prefix.list.is_some() {
-                let shifts = active
-                    .iter()
-                    .map(|(&quote, &delta)| {
-                        crate::inline::visit_container();
-                        (quote, delta)
-                    })
-                    .collect();
-                plan.push(PhysicalPrefixShift {
-                    prefix,
-                    deltas: shifts,
+                let mut cuts = BTreeMap::new();
+                for (&(quote, _, _), &cut) in &lifts {
+                    crate::inline::visit_container();
+                    cuts.insert(quote, cut);
+                }
+                let mut deltas = BTreeMap::new();
+                for (&quote, &(_, delta)) in &cuts {
+                    crate::inline::visit_container();
+                    deltas.insert(quote, delta);
+                }
+                for (&(quote, depth), &delta) in &widths {
+                    crate::inline::visit_container();
+                    if cuts.get(&quote).is_none_or(|&(through, _)| depth > through) {
+                        *deltas.entry(quote).or_default() += delta;
+                    }
+                }
+                deltas.retain(|_, value| {
+                    crate::inline::visit_container();
+                    *value != 0
                 });
+                plan.push(PhysicalPrefixShift { prefix, deltas });
             }
             at = following;
         }
