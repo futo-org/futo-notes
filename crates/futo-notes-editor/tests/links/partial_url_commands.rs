@@ -207,7 +207,9 @@ fn live_code_removal_releases_its_literal_url_guard_at_word_end() {
     let link = session.inspect_link(Revision(5), range(1, 2)).unwrap();
     assert_eq!(
         link.as_ref().map(|link| link.destination.as_str()),
-        Some("https://x.test/path")
+        Some("https://x.test/path"),
+        "live guarded={guarded:?}; released={released:?}; word-end source={:?}",
+        session.source_text()
     );
     assert_eq!(link.unwrap().range, range(1, 20));
     let reopened = EditorSession::open(&session.source_text());
