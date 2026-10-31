@@ -230,3 +230,6 @@ mod literal_retirement;
 mod partial_ending;
 
 mod input_lifecycle;
+
+#[path = "links/partial_guard_scopes.rs"]
+mod partial_guard_scopes;
