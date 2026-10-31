@@ -107,6 +107,8 @@ impl Rows {
         let mut node = self.root.as_deref().unwrap();
         let (mut source, mut display) = (0, 0);
         loop {
+            #[cfg(test)]
+            super::coordinate_work_tests::visit();
             let n = count(&node.left);
             if index < n {
                 node = node.left.as_deref().unwrap();
@@ -128,6 +130,8 @@ impl Rows {
         let mut node = self.root.as_deref().unwrap();
         let (mut source, mut display, mut work) = (0, 0, 0);
         loop {
+            #[cfg(test)]
+            super::coordinate_work_tests::visit();
             work += 1;
             let left = length(&node.left, false);
             if offset < left {
@@ -153,6 +157,8 @@ impl Rows {
         let mut node = self.root.as_deref_mut().unwrap();
         let (mut source, mut work) = (0, 0);
         loop {
+            #[cfg(test)]
+            super::coordinate_work_tests::visit();
             work += 1;
             let left = length(&node.left, false);
             if offset < left {
@@ -170,6 +176,8 @@ impl Rows {
     pub fn metadata_mut(&mut self, mut index: usize) -> &mut Row {
         let mut node = self.root.as_deref_mut().unwrap();
         loop {
+            #[cfg(test)]
+            super::coordinate_work_tests::visit();
             let left = count(&node.left);
             if index < left {
                 node = node.left.as_deref_mut().unwrap();
@@ -185,6 +193,8 @@ impl Rows {
         let mut node = self.root.as_deref().unwrap();
         let mut index = 0;
         loop {
+            #[cfg(test)]
+            super::coordinate_work_tests::visit();
             let left = length(&node.left, display);
             let own = if display {
                 node.row.display.len()

@@ -12,6 +12,8 @@ mod pending_links;
 pub(crate) mod references;
 pub(crate) mod typed_angle;
 pub(crate) use pending_links::{PendingLinkWitness, PendingLinks};
+#[cfg(test)]
+mod coordinate_work_tests;
 mod row;
 mod source_points;
 mod spelling;
@@ -136,8 +138,12 @@ impl Projection {
     }
 
     pub(crate) fn display_at_with_work(&self, offset: usize) -> (usize, usize) {
+        #[cfg(test)]
+        let visits = coordinate_work_tests::visits();
         let (row, source, display) = self.rows.at(self.rows.locate(offset, false));
         let (local, work) = row.display_at_with_work(offset - source);
+        #[cfg(test)]
+        coordinate_work_tests::query("display", visits, work);
         (display + local, work)
     }
 

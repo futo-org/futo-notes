@@ -8,9 +8,13 @@ impl Projection {
         affinity: crate::Affinity,
     ) -> (crate::history::ExactSelection, usize) {
         let endpoint = |offset: usize| {
+            #[cfg(test)]
+            let visits = super::coordinate_work_tests::visits();
             let (row, source, display) = self.rows.at(self.rows.locate(offset, true));
             let (mut point, work) = row.source_point_with_work(offset - display, affinity);
             point.source.0 += source;
+            #[cfg(test)]
+            super::coordinate_work_tests::query("capture", visits, work);
             (point, work)
         };
         let (start, a) = endpoint(range.start.0);
@@ -26,9 +30,13 @@ impl Projection {
         &self,
         mut point: crate::history::SourcePoint,
     ) -> (usize, usize) {
+        #[cfg(test)]
+        let visits = super::coordinate_work_tests::visits();
         let (row, source, display) = self.rows.at(self.rows.locate(point.source.0, false));
         point.source.0 -= source;
         let (local, work) = row.project_source_point(point);
+        #[cfg(test)]
+        super::coordinate_work_tests::query("project", visits, work);
         (display + local, work)
     }
 
