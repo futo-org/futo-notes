@@ -220,19 +220,7 @@ impl EditorSession {
         entry: HistoryEntry,
         input: Option<HistoryInput<'_>>,
     ) {
-        let now = self.clock.now();
-        let kind = input
-            .as_ref()
-            .filter(|input| input.action == crate::InputAction::Typing)
-            .and_then(|input| {
-                crate::history::typing_kind(input.range, input.inserted, entry.before_selection)
-            });
-        let join = kind.is_some_and(|kind| {
-            self.typing
-                .as_ref()
-                .is_some_and(|run| run.continues(kind, input.as_ref().unwrap().range, now))
-        });
-        self.typing = kind.map(|kind| TypingRun::new(kind, self.selection, now));
+        let join = self.input_joins_history(input.as_ref(), entry.before_selection);
         if join {
             self.undo.last_mut().unwrap().entries.push(entry);
         } else {
@@ -241,5 +229,27 @@ impl EditorSession {
             });
         }
         self.redo.clear();
+    }
+
+    /// Shared grouping decision; bounded input retains the entry in its owning
+    /// session without reallocating or dropping a growing history vector.
+    pub(super) fn input_joins_history(
+        &mut self,
+        input: Option<&HistoryInput<'_>>,
+        before_selection: DisplayRange,
+    ) -> bool {
+        let now = self.clock.now();
+        let kind = input
+            .filter(|input| input.action == crate::InputAction::Typing)
+            .and_then(|input| {
+                crate::history::typing_kind(input.range, input.inserted, before_selection)
+            });
+        let join = kind.is_some_and(|kind| {
+            self.typing
+                .as_ref()
+                .is_some_and(|run| run.continues(kind, input.as_ref().unwrap().range, now))
+        });
+        self.typing = kind.map(|kind| TypingRun::new(kind, self.selection, now));
+        join
     }
 }

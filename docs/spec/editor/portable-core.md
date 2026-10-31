@@ -19,6 +19,7 @@ reintroduce them or wait for them at final acceptance. → docs/plan/text-first-
 - [Link editing and source ownership](portable-core/links.md)
 - [List interpretation and editing](portable-core/lists.md)
 - [Fenced code and key intent](portable-core/fenced-code.md)
+- [Opt-in bounded code preparation](portable-core/bounded-code.md)
 - [Persistence, recovery and outside writers](portable-core/recovery.md)
 - [Portable and native transports](portable-core/transports.md)
 - [Remaining work and performance limits](portable-core/remaining-work.md)

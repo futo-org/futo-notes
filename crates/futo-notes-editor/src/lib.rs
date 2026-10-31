@@ -9,7 +9,11 @@ mod portable;
 mod session;
 mod types;
 
-pub use session::{BlockCommand, Composition, EditorSession, OwnActionRelink, ParagraphKey};
+pub use session::{
+    BlockCommand, BoundedChange, BoundedCodeProjection, BoundedCursor, BoundedEditorSession,
+    BoundedEntryError, BoundedError, BoundedWork, CodeFragment, CodeIdentity, Composition,
+    EditorSession, OwnActionRelink, ParagraphKey,
+};
 pub use types::{
     Affinity, BlockDescription, CaretDirection, Correspondence, DisplayOffset, DisplayRange,
     DisplayUtf16Offset, DisplayUtf16Range, EditWork, EditorError, InlineFormat, LinkDescription,
