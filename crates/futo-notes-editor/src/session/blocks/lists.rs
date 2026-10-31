@@ -129,6 +129,16 @@ impl EditorSession {
         if lines.len() != 1 || lines[0].list.is_none() || lines[0].code {
             return Ok(None);
         }
+        if key == ParagraphKey::Backspace {
+            if let Some(change) = self.shared_prefix_frames(
+                expected,
+                range,
+                super::list_prefix_frames::FrameAction::Backspace,
+                accept,
+            )? {
+                return Ok(Some(change));
+            }
+        }
         if key == ParagraphKey::Backspace && range.start == range.end {
             let line = &lines[0];
             let list = line.list.as_ref().unwrap();

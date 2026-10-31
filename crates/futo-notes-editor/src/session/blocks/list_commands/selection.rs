@@ -3,7 +3,7 @@ use super::*;
 use std::ops::Range;
 
 impl EditorSession {
-    pub(super) fn preview_header_selection(
+    pub(in crate::session::blocks) fn preview_header_selection(
         &self,
         range: DisplayRange,
         footprint: Range<usize>,

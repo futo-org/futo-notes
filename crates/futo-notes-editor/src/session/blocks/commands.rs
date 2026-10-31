@@ -51,6 +51,16 @@ impl EditorSession {
         {
             return self.list_command(expected, range, command, accept);
         }
+        if command == BlockCommand::Outdent {
+            if let Some(change) = self.shared_prefix_frames(
+                expected,
+                range,
+                super::list_prefix_frames::FrameAction::Outdent,
+                accept,
+            )? {
+                return Ok(Some(change));
+            }
+        }
         if matches!(command, BlockCommand::Indent | BlockCommand::Outdent) {
             if self
                 .selected_block_lines(range)
