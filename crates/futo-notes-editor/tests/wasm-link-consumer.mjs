@@ -409,7 +409,8 @@ try {
     const angleVault = mkdtempSync(join(tmpdir(), 'futo-editor-wasm-angle-'));
     const codeVault = mkdtempSync(join(tmpdir(), 'futo-editor-wasm-angle-code-'));
     const partialCodeVault = mkdtempSync(join(tmpdir(), 'futo-editor-wasm-partial-code-'));
-    timingVaults.push(angleVault, codeVault, partialCodeVault);
+    const codeReleaseVault = mkdtempSync(join(tmpdir(), 'futo-editor-wasm-code-release-'));
+    timingVaults.push(angleVault, codeVault, partialCodeVault, codeReleaseVault);
     await anglePendingConsumer({
       start,
       stop,
@@ -417,6 +418,7 @@ try {
       root: angleVault,
       codeRoot: codeVault,
       partialRoot: partialCodeVault,
+      releaseRoot: codeReleaseVault,
     });
   }
   {

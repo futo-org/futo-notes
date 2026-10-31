@@ -9,6 +9,7 @@ export async function anglePendingConsumer({
   root,
   codeRoot,
   partialRoot,
+  releaseRoot,
 }) {
   let exchange = await start('', root);
   let page = getSession();
@@ -142,5 +143,46 @@ export async function anglePendingConsumer({
   assert.equal(loadedPartial.text, '<https://x.test/path> ');
   assert.deepEqual(loadedPartial.links, []);
   assert.deepEqual(await partialReopened(JSON.stringify({ checkpoint: true })), { id: 'plain' });
+  await stop();
+
+  exchange = await start('', releaseRoot);
+  page = getSession();
+  shown = '';
+  revision = 0n;
+  await apply(page.replace(0n, 0, 0, '<https://x.test/path'));
+  await apply(page.replace(1n, 20, 20, '>'));
+  page.select_with_affinity(revision, 15, 20, '"Backward"');
+  await apply(page.toggle_format(revision, '"Code"'));
+  const guarded = page.draft_text();
+  await apply(page.toggle_format(revision, '"Code"'));
+  const released = page.draft_text();
+  assert.deepEqual(JSON.parse(page.project(revision, 0, 21)).links, []);
+  page.select_with_affinity(revision, 21, 21, '"Forward"');
+  await apply(page.replace_utf16_action(revision, 21, 21, [32], '"Isolated"'));
+  assert.equal(JSON.parse(page.inspect_link(revision, 1, 2)).destination, 'https://x.test/path');
+  const linkedSource = page.draft_text();
+  await apply(page.undo(revision));
+  assert.equal(page.draft_text(), released);
+  assert.deepEqual(JSON.parse(page.project(revision, 0, 21)).links, []);
+  await apply(page.undo(revision));
+  assert.equal(page.draft_text(), guarded);
+  await apply(page.redo(revision));
+  assert.equal(page.draft_text(), released);
+  page.select_with_affinity(revision, 21, 21, '"Forward"');
+  await apply(page.replace_utf16_action(revision, 21, 21, [32], '"Isolated"'));
+  assert.equal(page.draft_text(), linkedSource);
+  assert.equal(JSON.parse(page.inspect_link(revision, 1, 2)).destination, 'https://x.test/path');
+  await apply(page.undo(revision));
+  assert.equal(page.draft_text(), released);
+  page.acknowledge(JSON.stringify(await exchange(page.flush())));
+  await stop();
+  exchange = await start('--reopen', releaseRoot);
+  page = getSession();
+  assert.equal(page.draft_text(), released);
+  assert.deepEqual(JSON.parse(page.project(revision, 0, 21)).links, []);
+  await apply(page.replace_utf16_action(revision, 21, 21, [32], '"Isolated"'));
+  assert.equal(shown, '<https://x.test/path> ');
+  assert.deepEqual(JSON.parse(page.project(revision, 0, 22)).links, []);
+  assert.deepEqual(await exchange(JSON.stringify({ checkpoint: true })), { id: 'plain' });
   await stop();
 }
