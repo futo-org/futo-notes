@@ -327,44 +327,46 @@ for (const [delimiter, format] of [
   });
 }
 
-for (const closing of [false, true]) {
-  it(`the shipping partial WWW word ends with literal period and closing=${closing}`, () => {
-    const view = editor.ctx.get(editorViewCtx);
-    view.updateState(
-      EditorState.create({ schema: view.state.schema, plugins: view.state.plugins }),
-    );
-    const type = (text: string) => {
-      for (const ch of text) {
-        const { from, to } = view.state.selection;
-        const handled = view.someProp('handleTextInput', (handler) =>
-          handler(view, from, to, ch, () => view.state.tr.insertText(ch)),
-        );
-        if (!handled) view.dispatch(view.state.tr.insertText(ch));
-      }
-    };
-    const snapshot = () => {
-      const links: { text: string; href: string }[] = [];
-      view.state.doc.descendants((node) => {
-        const mark = node.marks.find((mark) => mark.type.name === 'link');
-        if (mark) links.push({ text: node.text ?? '', href: String(mark.attrs.href) });
+for (const [inner, href] of [
+  ['www.x.test/[[Old]]/path', 'http://www.x.test/[[Old]]/path'],
+  ['https://x.test/a', 'https://x.test/a'],
+] as const) {
+  for (const closing of [false, true]) {
+    it(`the shipping partial ${inner} word ends with literal period and closing=${closing}`, () => {
+      const view = editor.ctx.get(editorViewCtx);
+      view.updateState(
+        EditorState.create({ schema: view.state.schema, plugins: view.state.plugins }),
+      );
+      const type = (text: string) => {
+        for (const ch of text) {
+          const { from, to } = view.state.selection;
+          const handled = view.someProp('handleTextInput', (handler) =>
+            handler(view, from, to, ch, () => view.state.tr.insertText(ch)),
+          );
+          if (!handled) view.dispatch(view.state.tr.insertText(ch));
+        }
+      };
+      const snapshot = () => {
+        const links: { text: string; href: string }[] = [];
+        view.state.doc.descendants((node) => {
+          const mark = node.marks.find((mark) => mark.type.name === 'link');
+          if (mark) links.push({ text: node.text ?? '', href: String(mark.attrs.href) });
+        });
+        return { text: view.state.doc.textContent, links };
+      };
+      type(`<${inner}.`);
+      const opening = snapshot();
+      if (closing) type('>');
+      const before = snapshot();
+      type(' ');
+      const ended = snapshot();
+      const evidence = JSON.stringify({ opening, before, ended });
+      expect(opening, evidence).toEqual({ text: `<${inner}.`, links: [] });
+      expect(before, evidence).toEqual({ text: `<${inner}.${closing ? '>' : ''}`, links: [] });
+      expect(ended, evidence).toEqual({
+        text: `<${inner}.${closing ? '>' : ''} `,
+        links: [{ text: inner, href }],
       });
-      return { text: view.state.doc.textContent, links };
-    };
-    type('<www.x.test/[[Old]]/path.');
-    const opening = snapshot();
-    if (closing) type('>');
-    const before = snapshot();
-    type(' ');
-    const ended = snapshot();
-    const evidence = JSON.stringify({ opening, before, ended });
-    expect(opening, evidence).toEqual({ text: '<www.x.test/[[Old]]/path.', links: [] });
-    expect(before, evidence).toEqual({
-      text: `<www.x.test/[[Old]]/path.${closing ? '>' : ''}`,
-      links: [],
     });
-    expect(ended, evidence).toEqual({
-      text: `<www.x.test/[[Old]]/path.${closing ? '>' : ''} `,
-      links: [{ text: 'www.x.test/[[Old]]/path', href: 'http://www.x.test/[[Old]]/path' }],
-    });
-  });
+  }
 }

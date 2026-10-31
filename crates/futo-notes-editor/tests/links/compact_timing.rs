@@ -326,3 +326,90 @@ fn a_typed_closer_preserves_partial_uri_punctuation_and_waits_for_word_end() {
         loaded_link.destination
     );
 }
+
+#[test]
+fn a_typed_http_partial_closer_saves_a_clean_prefix_href_before_word_end() {
+    let candidate = "<<https://x.test/a>.>";
+    let canonical = EditorSession::open(candidate);
+    assert_eq!(canonical.display_text(), "<https://x.test/a.>");
+    let expected = canonical
+        .inspect_link(Revision(0), range(1, 2))
+        .unwrap()
+        .unwrap();
+    assert_eq!(expected.range, range(1, 17));
+    assert_eq!(expected.destination, "https://x.test/a");
+    let mut editor = EditorSession::open("");
+    let mut view = ReferenceView::new("");
+    view.apply(
+        editor
+            .replace(Revision(0), range(0, 0), "<https://x.test/a.", &mut |_| {
+                Ok(())
+            })
+            .unwrap(),
+    );
+    assert_eq!(view.text, "<https://x.test/a.");
+    assert!(editor
+        .project(Revision(1), range(0, 18))
+        .unwrap()
+        .links
+        .is_empty());
+    editor.select(Revision(1), range(0, 0)).unwrap();
+    editor.select(Revision(1), range(18, 18)).unwrap();
+    view.apply(
+        editor
+            .replace(Revision(1), range(18, 18), ">", &mut |_| Ok(()))
+            .unwrap(),
+    );
+    assert_eq!(view.text, "<https://x.test/a.>");
+    assert!(editor
+        .project(Revision(2), range(0, 19))
+        .unwrap()
+        .links
+        .is_empty());
+    let pending_source = editor.source_text();
+    let reopened = EditorSession::open(&pending_source);
+    assert_eq!(reopened.display_text(), view.text);
+    let loaded = reopened
+        .inspect_link(Revision(0), range(1, 2))
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        loaded.range, expected.range,
+        "pending source={pending_source:?}"
+    );
+    assert_eq!(
+        loaded.destination, expected.destination,
+        "pending source={pending_source:?}"
+    );
+    editor.select(Revision(2), range(0, 0)).unwrap();
+    editor.select(Revision(2), range(19, 19)).unwrap();
+    view.apply(
+        editor
+            .replace(Revision(2), range(19, 19), " ", &mut |_| Ok(()))
+            .unwrap(),
+    );
+    assert_eq!(view.text, "<https://x.test/a.> ");
+    let active = editor
+        .inspect_link(Revision(3), range(1, 2))
+        .unwrap()
+        .unwrap();
+    assert_eq!(active.range, expected.range);
+    assert_eq!(active.destination, expected.destination);
+    view.apply(editor.undo(Revision(3), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(editor.source_text(), pending_source);
+    assert!(editor
+        .project(Revision(4), range(0, 19))
+        .unwrap()
+        .links
+        .is_empty());
+    view.apply(editor.redo(Revision(4), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(view.text, "<https://x.test/a.> ");
+    assert_eq!(
+        editor
+            .inspect_link(Revision(5), range(1, 2))
+            .unwrap()
+            .unwrap()
+            .destination,
+        expected.destination
+    );
+}
