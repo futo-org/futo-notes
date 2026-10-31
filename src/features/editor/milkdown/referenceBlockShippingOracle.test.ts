@@ -142,3 +142,19 @@ it('Text preserves reference label marks and decoded entity spelling intent', ()
     expect(candidate.content?.[0]?.content).toEqual(after.content?.[0]?.content);
   }
 });
+
+it('canonical heading candidates retain a loaded space entity and the clean URL around timing markers', () => {
+  const parse = editor.ctx.get(parserCtx);
+  const before = parse('# x&#32;\\*b https://x.test/a*').toJSON() as NodeJson;
+  const after = parse('# x&#32;*b https://x.test/a*\n').toJSON() as NodeJson;
+  expect(rows(before)).toEqual([{ type: 'heading', text: 'x *b https://x.test/a*' }]);
+  expect(rows(after)).toEqual([{ type: 'heading', text: 'x b https://x.test/a' }]);
+  const target = [{ type: 'link', attrs: { href: 'https://x.test/a', title: null } }];
+  expect(links(before)).toEqual(target);
+  expect(links(after)).toEqual(target);
+  expect(
+    after.content?.[0]?.content?.some((part) =>
+      part.marks?.some((mark) => mark.type === 'emphasis'),
+    ),
+  ).toBe(true);
+});
