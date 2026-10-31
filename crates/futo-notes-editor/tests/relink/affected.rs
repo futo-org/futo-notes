@@ -231,8 +231,8 @@ fn own_rename_of_loaded_code_never_creates_a_typed_uri_owner() {
 
 #[test]
 fn a_canonical_rewrite_of_only_the_code_wikilink_keeps_the_surrounding_owned_uri() {
-    let before = r"\<https\://x.test/`[[Old]]`/path>";
-    let after = r"\<https\://x.test/`[[New]]`/path>";
+    let before = r"<https\://x.test/`[[Old]]`/path>";
+    let after = r"<https\://x.test/`[[New]]`/path>";
     for (source, literal) in [
         (before, "<https://x.test/[[Old]]/path>"),
         (after, "<https://x.test/[[New]]/path>"),
