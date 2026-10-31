@@ -50,6 +50,10 @@ test-rust:
   cargo test -p futo-notes-license
   node --experimental-strip-types tests/conformance/title-rules-differential.mjs
 
+# Run a selected Cargo test target/filter; complete owner gates remain test-rust/test-rust-full.
+test-rust-focused +args:
+  cargo test "$@"
+
 # Compile and execute the portable WASM editor against a real background Rust store.
 test-editor-wasm:
   node scripts/test-editor-wasm.mjs
