@@ -403,6 +403,18 @@ const cases = [
     head: 'c1',
     headOffset: 2,
   },
+  {
+    name: 'Text lifts same line list marker before quote',
+    source: '- > b',
+    command: 'paragraph',
+    anchor: 'b',
+  },
+  {
+    name: 'Text lifts wide ordered marker before quote',
+    source: '1000. > b',
+    command: 'paragraph',
+    anchor: 'b',
+  },
 ] as const;
 
 describe('pinned shipping toolbar container transactions (#299)', () => {
