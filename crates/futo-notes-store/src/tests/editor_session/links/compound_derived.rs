@@ -25,7 +25,9 @@ fn marked_derived_reference_retry_keeps_both_stacks_and_the_live_foreign_seed() 
         let original = format!("{ORIGINAL}{TYPED}");
         let committed = original.replacen("__head__", &format!("__{marked_head}__"), 1);
         let entered = format!("> __{marked_head}__\n> pre&acE;fix\n> ===\n> \n> \\[id]: /target 'T'\n\n[one][id]\n\n{TYPED}");
-        let changed = entered.replace("[one][id]", "[ONE](</next>)");
+        // Only the three selected label letters gain a link. The surrounding
+        // unresolved brackets and suffix remain literal user text.
+        let changed = entered.replace("[one][id]", "[[one](</next>)][id]");
         let canonical = EditorSession::open(&entered);
         let expected_display = format!(
             "{marked_head}\npre\u{223e}\u{333}fix\n\n[id]: /target 'T'\n\n[one][id]\n\n{TYPED}"
@@ -36,6 +38,17 @@ fn marked_derived_reference_retry_keeps_both_stacks_and_the_live_foreign_seed() 
             .unwrap()
             .links
             .is_empty());
+        let linked = EditorSession::open(&changed);
+        assert_eq!(linked.display_text(), expected_display);
+        let selected = expected_display.find("[one][id]").unwrap() + 1;
+        assert_eq!(
+            linked
+                .inspect_link(Revision(0), range(selected, selected + 3))
+                .unwrap()
+                .unwrap()
+                .destination,
+            "/next"
+        );
         let root = TestRoot::new();
         let store = store(&root);
         store.create("", "compound-derived", ORIGINAL).unwrap();
