@@ -67,6 +67,15 @@ fn existing_closer_and_true_eof_have_distinct_canonical_ownership() {
         if raw.ends_with("outside") {
             let marker = raw.rfind("```").unwrap();
             assert_eq!(fence.closer, Some(marker..marker + 3));
+            let physical = raw.find("- outside").unwrap();
+            assert_eq!(fence.whole.end, marker + 3);
+            let block = blocks.iter().find(|b| b.fence.is_some()).unwrap();
+            assert_eq!(block.list.as_ref().unwrap().item.end, physical);
+            let closer = p
+                .source_prefix_at(raw[..marker].rfind('\n').unwrap() + 1)
+                .unwrap();
+            assert_eq!(closer.source.end, physical);
+            assert_eq!(physical, marker + 4);
         } else {
             assert!(fence.closer.is_none());
             assert_eq!(fence.whole.end, raw.len());
