@@ -94,7 +94,13 @@ fn public_link_command_reports_its_final_selection_queries() {
         change.work
     );
     assert_eq!(selected.iter().map(|(_, _, work)| work).sum::<usize>(), 16);
-    assert_eq!(change.work.link_metadata_items, 288 + 16);
+    let reference_nodes: usize = queries
+        .iter()
+        .filter(|(name, _, _)| *name == "reference-comparison")
+        .map(|(_, nodes, _)| nodes)
+        .sum();
+    assert_eq!(reference_nodes, 1);
+    assert_eq!(change.work.link_metadata_items, 288 + 16 + reference_nodes);
     assert_eq!(change.work.materialized_source_bytes, 73);
     assert_eq!(change.work.parsed_source_bytes, 75);
     assert_eq!(change.work.inserted_bytes, 20);

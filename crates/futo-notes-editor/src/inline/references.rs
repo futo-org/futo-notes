@@ -257,16 +257,19 @@ impl super::Projection {
     pub(crate) fn reference_winners(&self, window: Range<usize>) -> (Vec<Winner>, ReferenceWork) {
         #[cfg(test)]
         let visits = super::coordinate_work_tests::visits();
-        let first = self.rows.locate(window.start, false);
-        let last = self.rows.locate(
+        let (first, first_work) = self.rows.locate_with_work(window.start, false);
+        let (last, last_work) = self.rows.locate_with_work(
             window.end.saturating_sub(usize::from(!window.is_empty())),
             false,
         );
         let mut winners = Vec::new();
-        let mut work = ReferenceWork::default();
+        let mut work = ReferenceWork {
+            items: first_work + last_work,
+            ..ReferenceWork::default()
+        };
         for index in first..=last {
-            let (row, origin, _) = self.rows.at(index);
-            work.items += row.definitions.len();
+            let (row, origin, _, nodes) = self.rows.at_with_work(index);
+            work.items += nodes + row.definitions.len();
             for definition in row
                 .definitions
                 .iter()
@@ -307,8 +310,8 @@ impl super::Projection {
         let mut old_uses = Vec::new();
         let mut work = 0;
         for index in first..=last {
-            let (row, origin, _) = self.rows.at(index);
-            work += row.definitions.len() + row.reference_uses.len();
+            let (row, origin, _, nodes) = self.rows.at_with_work(index);
+            work += nodes + row.definitions.len() + row.reference_uses.len();
             for definition in &row.definitions {
                 let mut range = origin + definition.range.start..origin + definition.range.end;
                 if edit.range.end.0 <= range.start {
