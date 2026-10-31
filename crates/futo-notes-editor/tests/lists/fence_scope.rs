@@ -122,3 +122,84 @@ fn existing_nested_authored_code_blank_text_plan_retains_both_opaque_spaces() {
 fn existing_nested_authored_code_blank_heading_plan_retains_both_opaque_spaces() {
     literal_scope(&NESTED_HEADING);
 }
+
+fn mutate_scope(case: &ScopeCase) {
+    let old_start = case.before.find("parent").unwrap();
+    let new_start = case.shown.find("parent").unwrap();
+    let selected = range(old_start, old_start + 3);
+    let mapped = range(new_start, new_start + 3);
+    for affinity in [Affinity::Backward, Affinity::Forward] {
+        let mut s = EditorSession::open(case.source);
+        let mut view = ReferenceView::new(case.before);
+        s.select_with_affinity(Revision(0), selected, affinity)
+            .unwrap();
+        let mut refused = 0;
+        let rejection = s.block_command(Revision(0), selected, case.command, &mut |_| {
+            refused += 1;
+            Err("append rejected".into())
+        });
+        assert!(
+            matches!(rejection, Err(EditorError::Persistence(_))),
+            "{rejection:?}"
+        );
+        assert_eq!(refused, 1);
+        assert_eq!(s.source_text(), case.source);
+        assert_eq!(s.display_text(), case.before);
+        assert_eq!(s.revision(), Revision(0));
+        assert_eq!(s.selection(), selected);
+        assert_eq!(s.affinity(), affinity);
+        assert!(s
+            .undo(Revision(0), &mut |_| panic!("rejected source made history"))
+            .unwrap()
+            .is_none());
+        let mut accepted = 0;
+        let change = s
+            .block_command(Revision(0), selected, case.command, &mut |edit| {
+                accepted += 1;
+                assert_eq!(edit.previous_revision, Revision(0));
+                assert_eq!(edit.revision, Revision(1));
+                assert_eq!(
+                    edit.removed,
+                    case.source[edit.range.start.0..edit.range.end.0]
+                );
+                Ok(())
+            })
+            .unwrap()
+            .unwrap();
+        view.apply(change);
+        assert_eq!(accepted, 1);
+        assert_eq!(s.source_text(), case.expected);
+        assert_eq!(view.text, case.shown);
+        assert_eq!(s.display_text(), case.shown);
+        assert_eq!(s.selection(), mapped);
+        assert_eq!(s.affinity(), affinity);
+        let level = match case.command {
+            BlockCommand::Heading(level) => level,
+            _ => 0,
+        };
+        body(&s, "parent", level, None, false, None);
+        for &(text, language) in case.codes {
+            body(&s, text, 0, None, true, language);
+        }
+        if case.before.contains("before") {
+            body(&s, "before", 0, Some(1), false, None);
+        }
+        if case.before.contains("outside") {
+            body(&s, "outside", 0, Some(1), false, None);
+        }
+        view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+        assert_eq!(s.source_text(), case.source);
+        assert_eq!(view.text, case.before);
+        assert_eq!(s.selection(), selected);
+        assert_eq!(s.affinity(), affinity);
+        view.apply(s.redo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+        assert_eq!(s.source_text(), case.expected);
+        assert_eq!(view.text, case.shown);
+        assert_eq!(s.selection(), mapped);
+    }
+}
+
+#[test]
+fn text_promotes_fence_after_preceding_list_without_reabsorbing_parent_prose() {
+    mutate_scope(&PRECEDED);
+}
