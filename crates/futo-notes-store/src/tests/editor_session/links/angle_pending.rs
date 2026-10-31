@@ -144,10 +144,20 @@ fn pending_angle_format_and_link_commands_reject_atomically_and_recover_canonica
                 }
             };
             disk.lock().unwrap().fault = Some(fault);
-            assert!(matches!(
-                apply_command(&mut editor),
-                Err(EditorStoreError::RecoveryAppend(_))
-            ));
+            let failure = apply_command(&mut editor);
+            // Preserve the existing public adapter distinction: formatting
+            // wraps engine Persistence, while SetLink projects RecoveryAppend.
+            let expected_error = if command < 2 {
+                matches!(
+                    &failure,
+                    Err(EditorStoreError::Editor(
+                        futo_notes_editor::EditorError::Persistence(_)
+                    ))
+                )
+            } else {
+                matches!(&failure, Err(EditorStoreError::RecoveryAppend(_)))
+            };
+            assert!(expected_error, "command={command}; failure={failure:?}");
             assert_eq!(editor.source_text(), "<<https://x.test>>");
             assert_eq!(editor.display_text(), "<https://x.test>");
             assert_eq!(editor.revision(), Revision(2));
