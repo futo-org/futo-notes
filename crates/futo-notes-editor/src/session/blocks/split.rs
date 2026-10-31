@@ -1,50 +1,7 @@
 //! Spell a split structural body in its actual final physical layout.
+use super::physical_layout::SplitLayout;
 use super::*;
 use crate::inline::blocks::BlockLine;
-
-struct SplitLayout<'a> {
-    left: &'a super::content::PhysicalBody,
-    right: &'a super::content::PhysicalBody,
-    prefix: usize,
-    right_start: usize,
-    break_start: usize,
-    heading_end: usize,
-    split: usize,
-    unchanged_left: bool,
-    unchanged_right: bool,
-    setext: bool,
-}
-impl SplitLayout<'_> {
-    fn retained_range(
-        &self,
-        range: std::ops::Range<usize>,
-    ) -> (Option<std::ops::Range<usize>>, usize) {
-        if self.unchanged_left && range.end <= self.heading_end {
-            let (mapped, work) = self.left.retained_range(range);
-            (
-                mapped.map(|r| self.prefix + r.start..self.prefix + r.end),
-                work + 1,
-            )
-        } else if self.setext && range.start >= self.heading_end && range.end <= self.split {
-            (
-                Some(
-                    self.break_start + range.start - self.heading_end
-                        ..self.break_start + range.end - self.heading_end,
-                ),
-                1,
-            )
-        } else if self.unchanged_right && range.start >= self.split + 2 {
-            let local = range.start - self.split - 2..range.end - self.split - 2;
-            let (mapped, work) = self.right.retained_range(local);
-            (
-                mapped.map(|r| self.right_start + r.start..self.right_start + r.end),
-                work + 1,
-            )
-        } else {
-            (None, 1)
-        }
-    }
-}
 
 impl EditorSession {
     pub(super) fn split_structural_body(
