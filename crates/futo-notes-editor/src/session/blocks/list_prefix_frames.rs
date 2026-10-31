@@ -38,7 +38,7 @@ impl EditorSession {
             return Ok(None);
         }
         let multiline = list.item.end > line.source.end;
-        if multiline && (action != FrameAction::Outdent || list.depth != 1) {
+        if multiline && list.depth != 1 {
             return Ok(None);
         }
         let (items, planning, _, paragraph) = self.projection.list_items_and_paragraph_at(
@@ -163,7 +163,7 @@ impl EditorSession {
         output.push_str(&prefix[quote_end..]);
         copied += prefix.len() - quote_end;
         if let Some(paragraph) = paragraph {
-            if !parallel {
+            if action == FrameAction::Outdent && !parallel {
                 return Ok(None);
             }
             let footprint = line.source.start..paragraph.end;
@@ -199,12 +199,16 @@ impl EditorSession {
                 if physical_quotes > line.quote_depth {
                     return Err(EditorError::UnrepresentableFormat);
                 }
-                if physical_quotes == line.quote_depth {
-                    let end = super::indent_source::canonical_quote_end(&raw, line.quote_depth)
+                let removed = if action == FrameAction::Backspace {
+                    list.quote_depth + 1
+                } else {
+                    line.quote_depth
+                };
+                if physical_quotes >= removed {
+                    let end = super::indent_source::canonical_quote_end(&raw, physical_quotes)
                         .ok_or(EditorError::UnrepresentableFormat)?;
-                    let previous =
-                        super::indent_source::canonical_quote_end(&raw, line.quote_depth - 1)
-                            .ok_or(EditorError::UnrepresentableFormat)?;
+                    let previous = super::indent_source::canonical_quote_end(&raw, removed - 1)
+                        .ok_or(EditorError::UnrepresentableFormat)?;
                     let mut start = previous;
                     while raw.as_bytes().get(start) != Some(&b'>') {
                         crate::inline::visit_container();
@@ -231,10 +235,15 @@ impl EditorSession {
                 &output,
                 HeaderShape::ParagraphList {
                     original: list,
-                    quotes: line.quote_depth - 1,
+                    quotes: if action == FrameAction::Backspace {
+                        list.quote_depth
+                    } else {
+                        line.quote_depth - 1
+                    },
+                    first: !parallel,
                     body: line.content.start,
                     inserted_at: self.projection.display_at(line.content.start),
-                    newline,
+                    newline: if parallel { newline } else { "" },
                 },
                 accept,
             )?;

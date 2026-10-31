@@ -50,6 +50,7 @@ enum HeaderShape<'a> {
     ParagraphList {
         original: &'a crate::inline::ListLine,
         quotes: usize,
+        first: bool,
         body: usize,
         inserted_at: usize,
         newline: &'a str,

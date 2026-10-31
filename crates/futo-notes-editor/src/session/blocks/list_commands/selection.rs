@@ -142,8 +142,9 @@ impl EditorSession {
                 HeaderShape::List { original, .. }
                 | HeaderShape::ParagraphList { original, .. } => {
                     let first = match shape {
-                        HeaderShape::List { first, .. } => first,
-                        _ => false,
+                        HeaderShape::List { first, .. }
+                        | HeaderShape::ParagraphList { first, .. } => first,
+                        _ => unreachable!(),
                     };
                     let owned = actual
                         .list
