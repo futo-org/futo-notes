@@ -370,3 +370,56 @@ for (const [inner, href] of [
     });
   }
 }
+
+for (const mode of [
+  'paste-space',
+  'composition-transaction-space',
+  'bulk-seed',
+  'bulk-continuation',
+]) {
+  it(`the shipping autolink plugin owns WWW word end through ${mode}`, () => {
+    const view = editor.ctx.get(editorViewCtx);
+    view.updateState(
+      EditorState.create({ schema: view.state.schema, plugins: view.state.plugins }),
+    );
+    const input = (text: string) => {
+      const { from, to } = view.state.selection;
+      const handled = view.someProp('handleTextInput', (handler) =>
+        handler(view, from, to, text, () => view.state.tr.insertText(text)),
+      );
+      if (!handled) view.dispatch(view.state.tr.insertText(text));
+    };
+    const snapshot = () => {
+      const links: { text: string; href: string }[] = [];
+      view.state.doc.descendants((node) => {
+        const mark = node.marks.find((mark) => mark.type.name === 'link');
+        if (mark) links.push({ text: node.text ?? '', href: String(mark.attrs.href) });
+      });
+      return { text: view.state.doc.textContent, links };
+    };
+    if (mode !== 'bulk-seed') {
+      const opening = mode === 'bulk-continuation' ? '<www.x.test/' : '<www.x.test/path';
+      for (const ch of opening) input(ch);
+      expect(snapshot()).toEqual({ text: opening, links: [] });
+    }
+    if (mode === 'paste-space') {
+      // ProseMirror's actual plain-text paste path; no native clipboard claim.
+      const event = new Event('paste', { bubbles: true, cancelable: true });
+      Object.defineProperty(event, 'clipboardData', {
+        value: { getData: (type: string) => (type === 'text/plain' ? ' ' : '') },
+      });
+      expect(view.pasteText(' ', event as ClipboardEvent)).toBe(true);
+    } else if (mode === 'composition-transaction-space') {
+      // This pins the tagged commit transaction/plugin result, independently of
+      // OS delivery or the separately tested owned compositionend input rule.
+      view.dispatch(view.state.tr.insertText(' ').setMeta('composition', 1));
+    } else {
+      // One actual text-input event, distinct from character-by-character input.
+      input(mode === 'bulk-seed' ? '<www.x.test/path ' : 'path ');
+    }
+    expect(snapshot()).toEqual({
+      text: '<www.x.test/path ',
+      links: [{ text: 'www.x.test/path', href: 'http://www.x.test/path' }],
+    });
+  });
+}

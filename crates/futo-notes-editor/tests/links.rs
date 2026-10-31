@@ -68,3 +68,6 @@ mod typed_origin_actions;
 
 #[path = "links/typed_origin_mutations.rs"]
 mod typed_origin_mutations;
+
+#[path = "links/typed_word_endings.rs"]
+mod typed_word_endings;
