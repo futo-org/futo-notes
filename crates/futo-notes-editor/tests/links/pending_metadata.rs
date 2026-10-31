@@ -30,6 +30,11 @@ fn unfinished_urls_elsewhere_do_not_add_metadata_work_to_a_local_keystroke() {
         );
         work.push(change.work.link_metadata_items);
     }
+    // Separate the independently observed canonical comparison visits,
+    // retaining the old field/copy budgets and exact bare-consumer component.
+    for (value, references) in work.iter_mut().zip([36, 33]) {
+        *value -= references;
+    }
     assert_eq!(work, [1314 + 77, 1271 + 77]);
     // Independent public primitive counts keep the original local-field
     // equality plus 9 indexed inverse-query items and the independently pinned

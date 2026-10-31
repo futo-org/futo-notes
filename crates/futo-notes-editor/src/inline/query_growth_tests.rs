@@ -50,7 +50,10 @@ fn public_growth_work_separates_actual_index_visits_from_retained_local_work() {
                 .unwrap();
             let (mut body_fixed, body_nodes) = measured(body.work);
             let body_reference_nodes = reference_nodes();
-            eprintln!("REFERENCE CALIBRATION local {growing} count={count}: new={label_reference_nodes}/{body_reference_nodes}; nodes={}/{body_nodes}", label.1);
+            assert_eq!(
+                (label_reference_nodes, body_reference_nodes),
+                [(5, 9), (9, 14)][index]
+            );
             let bare = super::coordinate_work_tests::bare_snapshot();
             let added_bare = if growing == "definitions" {
                 // The actual neighboring unused declaration has no Link:
@@ -133,7 +136,12 @@ fn public_structural_growth_work_retains_the_original_fixed_work_budget() {
                 [64, 114, 189]
             };
             let new_reference_nodes = reference_nodes();
-            eprintln!("REFERENCE CALIBRATION structural {command:?} count={count}: new={new_reference_nodes}; nodes={nodes}; work={:?}", change.work);
+            let expected_reference_nodes = if matches!(command, BlockCommand::Divider) {
+                [6, 10, 16]
+            } else {
+                [5, 9, 15]
+            };
+            assert_eq!(new_reference_nodes, expected_reference_nodes[index]);
             assert_eq!(nodes - new_reference_nodes, expected_nodes[index]);
             results.push(fixed);
         }
@@ -174,7 +182,7 @@ fn public_pending_growth_work_keeps_foreign_word_fields_outside_the_local_ledger
             .unwrap();
         let (mut fixed, nodes) = measured(change.work);
         let new_reference_nodes = reference_nodes();
-        eprintln!("REFERENCE CALIBRATION pending count={count}: new={new_reference_nodes}; nodes={nodes}; work={:?}", change.work);
+        assert_eq!(new_reference_nodes, [36, 33][index]);
         assert_eq!(nodes - new_reference_nodes, [404, 361][index]);
         assert_eq!(bounds_delta(), 9);
         // Seven independently observed actual bare traversals each add

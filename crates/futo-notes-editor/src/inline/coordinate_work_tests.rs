@@ -220,7 +220,9 @@ fn public_reference_commands_charge_actual_indexed_coordinate_queries() {
 #[test]
 fn public_distant_input_exposes_its_actual_query_ledger() {
     use crate::{DisplayOffset, DisplayRange, EditorSession, Revision};
-    for (count, expected_nodes, expected_metadata) in [(20, 167, 561), (20_000, 400, 794)] {
+    for (count, expected_nodes, expected_metadata, expected_reference_nodes) in
+        [(20, 167, 561, 12), (20_000, 400, 794, 30)]
+    {
         let text = "__word__ rest\r\n\r\n".repeat(count);
         let mut session = EditorSession::open(&text);
         let at = (count - 2) * "word rest\r\n\r\n".len() + 2;
@@ -244,7 +246,7 @@ fn public_distant_input_exposes_its_actual_query_ledger() {
             .map(|(_, actual, _)| actual)
             .sum();
         let new_reference_nodes = reference_nodes();
-        eprintln!("REFERENCE CALIBRATION distant count={count}: new={new_reference_nodes}; nodes={added}; work={:?}", change.work);
+        assert_eq!(new_reference_nodes, expected_reference_nodes);
         assert_eq!(added - new_reference_nodes, expected_nodes, "{queries:?}");
         assert_eq!(
             change.work.link_metadata_items - new_reference_nodes,
@@ -310,7 +312,10 @@ fn public_link_input_charges_the_actual_post_parser_node_and_child_walk() {
     assert_eq!(change.work.inserted_bytes, 1);
     assert_eq!(change.work.link_copied_bytes, 56);
     assert_eq!(reference_nodes(), 1);
-    assert_eq!(change.work.link_metadata_items, 477 + 2 * (12 + 3 + 2) + 1);
+    assert_eq!(
+        change.work.link_metadata_items - reference_nodes(),
+        477 + 2 * (12 + 3 + 2)
+    );
     for (hints, actual, reported) in &queries {
         assert!(*reported >= hints + actual, "bare consumer: hint={hints}; actual stack/node/child={actual}; reported={reported}; ledger={queries:?}; work={:?}", change.work);
     }

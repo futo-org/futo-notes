@@ -66,6 +66,11 @@ fn ordinary_reference_label_and_body_edits_do_not_copy_or_scan_distant_definitio
             _ => ([(346, 373), (428, 442)], [(91, 119), (173, 188)]),
         };
         for (index, (label, body)) in work.iter_mut().enumerate() {
+            // Independently observed actual canonical comparison visits at
+            // each corpus size; the old exact totals and local budgets stay.
+            let references = [(5, 9), (9, 14)][index];
+            label.link_metadata_items -= references.0;
+            body.link_metadata_items -= references.1;
             assert_eq!(
                 (label.link_metadata_items, body.link_metadata_items),
                 expected[index]

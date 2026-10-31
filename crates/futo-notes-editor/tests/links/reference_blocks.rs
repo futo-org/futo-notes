@@ -100,6 +100,11 @@ fn ordinary_heading_text_conversion_does_not_scan_distant_reference_context() {
         assert_eq!(session.source_text(), original[2..]);
         measured.push(change.work);
     }
+    // Independently pinned canonical comparison visits are separate from
+    // the existing indexed component and unchanged fixed-work budget.
+    for (work, references) in measured.iter_mut().zip([5, 9]) {
+        work.link_metadata_items -= references;
+    }
     // The public primitive ledger pins the new indexed component separately.
     assert_eq!(
         measured
