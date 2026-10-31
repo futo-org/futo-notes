@@ -144,14 +144,14 @@ impl TypedState {
         markers: &mut Vec<Marker>,
     ) -> Result<ReferenceWork, EditorError> {
         let mut work = ReferenceWork::default();
+        work.items += self.prepare_input_mutations(
+            input.projection,
+            input.source_start,
+            input.range,
+            input.inserted,
+            input.intent,
+        )?;
         if !matches!(input.intent, EditIntent::Input(InputAction::Typing)) {
-            work.items += self.prepare_other_input(
-                input.projection,
-                input.source_start,
-                input.range,
-                input.inserted,
-                input.intent,
-            )?;
             return Ok(work);
         }
         if input.inserted.is_empty() {

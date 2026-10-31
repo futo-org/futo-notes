@@ -24,9 +24,9 @@ impl TypedState {
     pub fn has_update(&self) -> bool {
         self.retained.is_some() || !self.emitted.is_empty()
     }
-    /// A committed correction or nonending end insertion retires its supplied
-    /// owner. Other touched input still needs its own lifecycle proof.
-    pub fn prepare_other_input(
+    /// Explicit input mutation retires the supplied identity. Ordered Typing
+    /// at word.end instead belongs to the continuation/ending owner.
+    pub fn prepare_input_mutations(
         &mut self,
         projection: &Projection,
         source_start: usize,
@@ -34,9 +34,10 @@ impl TypedState {
         inserted: &str,
         intent: EditIntent,
     ) -> Result<usize, EditorError> {
-        if !matches!(intent, EditIntent::Input(_))
-            || range.start == range.end && inserted.is_empty()
-        {
+        let EditIntent::Input(action) = intent else {
+            return Ok(0);
+        };
+        if range.start == range.end && inserted.is_empty() {
             return Ok(0);
         }
         let mut work = 0;
@@ -50,38 +51,21 @@ impl TypedState {
                 let touched = range.start.0 < z && a < range.end.0
                     || range.start == range.end && a < range.start.0 && range.start.0 <= z;
                 if touched {
-                    let committed = matches!(
-                        intent,
-                        EditIntent::Input(
-                            crate::InputAction::Isolated | crate::InputAction::CompositionCommit
-                        )
-                    );
-                    let selected = range.start != range.end;
-                    let end_insertion = !selected
-                        && range.start.0 == z
-                        && inserted.chars().all(|ch| {
-                            work += 1;
-                            !ch.is_whitespace() && !matches!(ch, '<' | '>')
-                        });
-                    if committed && !inserted.is_empty() && (selected || end_insertion) {
-                        let (start, visits) =
-                            projection.display_at_with_work(source_start + origin.word.start);
-                        work += visits + 2;
-                        if start <= range.start.0 && range.end.0 <= z {
-                            let old = projection.display.byte_slice(range.start.0..range.end.0);
-                            work += 1;
-                            let same = old.len_bytes() == inserted.len()
-                                && old.bytes().zip(inserted.bytes()).all(|(a, b)| {
-                                    work += 1;
-                                    a == b
-                                });
-                            if !same {
-                                compacting = true;
-                                return false;
-                            }
+                    let at_end = range.start == range.end && range.start.0 == z;
+                    if !(at_end && action == crate::InputAction::Typing) {
+                        // Non-Typing word-end punctuation/whitespace needs its
+                        // own established timing intent, not shape activation.
+                        let supported = !at_end
+                            || inserted.chars().all(|ch| {
+                                work += 1;
+                                !ch.is_whitespace() && !matches!(ch, '<' | '>')
+                            });
+                        if supported {
+                            compacting = true;
+                            return false;
                         }
+                        unsupported = true;
                     }
-                    unsupported = true;
                 }
                 // retain moves each surviving fixed field after a removed one.
                 work += 5 * usize::from(compacting);
