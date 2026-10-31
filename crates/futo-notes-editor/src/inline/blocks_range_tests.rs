@@ -53,7 +53,7 @@ fn sources() -> Vec<String> {
             }
         }
     }
-    assert_eq!(sources.len(), 460);
+    assert_eq!(sources.len(), 470);
     sources
 }
 

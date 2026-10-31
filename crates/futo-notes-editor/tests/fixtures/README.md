@@ -88,7 +88,7 @@ checks. Native fixture source is not proof that its current native binaries ran.
 
 Thirty-five `nested-containers.json` literals cover explicit nesting/lifting, same-line
 empty parents, physical columns/tabs, nested Backspace/Enter, ancestor-preserving
-retargets and full Text/Heading transitions. Twenty-seven `container-commands.json` literals and nine `list-header-commands.json` literals
+retargets and full Text/Heading transitions. Twenty-seven `container-commands.json` literals and fourteen `list-header-commands.json` literals
 add full list lifting across one/two quotes and selection beginning in an ancestor
 while keeping its descendant listed, bare-quote versus heading/list quote ancestry,
 and independent mixed-format run transitions. Ordered task retargets preserve their
@@ -97,7 +97,7 @@ ordered child lifting copies that start into each newly independent following ow
 Same-line quote/list controls retain empty lifted paragraphs, physical CRLF and quote
 prefixes, raw nonidentity entity atoms and native UTF-16 interior carets. Task-body
 quote/heading punctuation stays literal. Together with the unchanged original seventy-four
-list cases, all six source consumers load 145 cases. Original seventy-two structural
+list cases, all six source consumers load 150 cases. Original seventy-two structural
 seams remain separate and unchanged. `itemDepths` overrides each first item's default
 list depth of one; `itemQuoteDepths` overrides that item's global `quoteDepth` default.
 These are hand-worked source/display/native UTF-16/history literals, not native OS input

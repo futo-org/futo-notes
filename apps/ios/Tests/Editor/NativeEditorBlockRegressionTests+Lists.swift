@@ -56,7 +56,7 @@ extension NativeEditorBlockRegressionTests {
             let commands = try load("container-commands")
             #expect(commands.count == 27)
             let headers = try load("list-header-commands")
-            #expect(headers.count == 9)
+            #expect(headers.count == 14)
             let cases = original + shortcuts + staging + nested + commands + headers
             for item in cases {
                 let root = FileManager.default.temporaryDirectory.appendingPathComponent(

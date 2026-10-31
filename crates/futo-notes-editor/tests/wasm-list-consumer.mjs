@@ -31,7 +31,7 @@ assert.equal(commands.length, 27);
 const headers = JSON.parse(
   readFileSync(new URL('fixtures/list-header-commands.json', import.meta.url)),
 );
-assert.equal(headers.length, 9);
+assert.equal(headers.length, 14);
 const cases = [...original, ...shortcuts, ...staging, ...nested, ...commands, ...headers];
 const units = (text) => Uint16Array.from({ length: text.length }, (_, at) => text.charCodeAt(at));
 function host(vault, source) {

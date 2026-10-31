@@ -25,7 +25,7 @@ internal fun sharedListActions() {
     assertEquals(27, commands.length())
     for (at in 0 until commands.length()) cases.put(commands.getJSONObject(at))
     val headers = JSONArray(context.assets.open("list-header-commands.json").bufferedReader().use { it.readText() })
-    assertEquals(9, headers.length())
+    assertEquals(14, headers.length())
     for (at in 0 until headers.length()) cases.put(headers.getJSONObject(at))
     fun native(values: JSONArray) = EditorUtf16Range(values.getLong(0).toULong(), values.getLong(1).toULong())
     for (at in 0 until cases.length()) {
