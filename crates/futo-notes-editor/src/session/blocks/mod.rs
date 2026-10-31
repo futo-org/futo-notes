@@ -47,6 +47,13 @@ enum HeaderShape<'a> {
         quotes: usize,
         first: bool,
     },
+    ParagraphList {
+        original: &'a crate::inline::ListLine,
+        quotes: usize,
+        body: usize,
+        inserted_at: usize,
+        newline: &'a str,
+    },
     Plain {
         quotes: usize,
         earlier: Option<(usize, Option<u64>)>,
