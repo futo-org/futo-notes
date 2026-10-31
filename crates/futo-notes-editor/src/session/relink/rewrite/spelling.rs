@@ -1,6 +1,6 @@
 //! The actual final Spelling step is distinct from canonical wiki emission.
 use super::*;
-use crate::inline::{RetainedFormat, RetiredLinkText};
+use crate::inline::{PendingLinkWitness, RetainedFormat, RetiredLinkText};
 use std::ops::Range;
 
 struct Region {

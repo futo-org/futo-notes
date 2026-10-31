@@ -182,7 +182,7 @@ impl Rewrite {
         Ok(result)
     }
 }
-fn copied(
+pub(super) fn copied(
     step: &WikiStep,
     field: Range<usize>,
     work: &mut usize,
