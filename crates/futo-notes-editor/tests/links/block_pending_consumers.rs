@@ -297,3 +297,84 @@ fn divider_keeps_both_identical_code_words_and_interior_entity_history_independe
             .is_empty());
     }
 }
+
+#[test]
+fn a_divider_preserves_live_scalar_lineage_through_quoted_setext_physical_prefixes() {
+    let expected = "> head\n> ===\n\n> ***\n> \n> <https\\://x.test`/path`>\n> ===";
+    let shown = "head\n\n\u{fffc}\n\n<https://x.test/path>";
+    let candidate = EditorSession::open(expected);
+    assert_eq!(candidate.display_text(), shown);
+    let query = candidate.project(Revision(0), range(0, 32)).unwrap();
+    assert!(query.links.is_empty());
+    assert!(query
+        .runs
+        .iter()
+        .any(|run| run.range == range(26, 31) && run.formats.contains(&InlineFormat::Code)));
+    let mut session = EditorSession::open("> head\n> seed\n> ===");
+    let mut view = ReferenceView::new("head\nseed");
+    view.apply(
+        session
+            .replace(
+                Revision(0),
+                range(5, 9),
+                "<https://x.test/path",
+                &mut |_| Ok(()),
+            )
+            .unwrap(),
+    );
+    view.apply(
+        session
+            .replace(Revision(1), range(25, 25), ">", &mut |_| Ok(()))
+            .unwrap(),
+    );
+    session.select(Revision(2), range(20, 25)).unwrap();
+    view.apply(
+        session
+            .toggle_format(Revision(2), InlineFormat::Code, &mut |_| Ok(()))
+            .unwrap()
+            .unwrap(),
+    );
+    let guarded = session.source_text();
+    let fresh = EditorSession::open(&guarded);
+    assert_eq!(fresh.display_text(), view.text);
+    assert!(fresh
+        .project(Revision(0), range(0, 26))
+        .unwrap()
+        .links
+        .is_empty());
+    view.apply(
+        session
+            .block_command(Revision(3), range(5, 5), BlockCommand::Divider, &mut |_| {
+                Ok(())
+            })
+            .unwrap()
+            .unwrap(),
+    );
+    assert_eq!(session.source_text(), expected);
+    assert_eq!(view.text, shown);
+    session.select(Revision(4), range(26, 31)).unwrap();
+    view.apply(
+        session
+            .toggle_format(Revision(4), InlineFormat::Code, &mut |_| Ok(()))
+            .unwrap()
+            .unwrap(),
+    );
+    let released = session.source_text();
+    session.select(Revision(5), range(32, 32)).unwrap();
+    view.apply(
+        session
+            .replace(Revision(5), range(32, 32), " ", &mut |_| Ok(()))
+            .unwrap(),
+    );
+    let links = session.project(Revision(6), range(0, 33)).unwrap().links;
+    assert_eq!(links.len(), 1);
+    assert_eq!(links[0].range, range(12, 31));
+    assert_eq!(links[0].destination, "https://x.test/path");
+    view.apply(session.undo(Revision(6), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(session.source_text(), released);
+    view.apply(session.undo(Revision(7), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(session.source_text(), expected);
+    view.apply(session.undo(Revision(8), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(session.source_text(), guarded);
+    assert_eq!(view.text, "head\n<https://x.test/path>");
+}
