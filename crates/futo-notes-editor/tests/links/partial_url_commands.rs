@@ -1,5 +1,5 @@
 use super::*;
-use futo_notes_editor::InlineFormat;
+use futo_notes_editor::{InlineFormat, SourceEdit, SourceOffset, SourceRange};
 
 #[test]
 fn partial_code_keeps_an_unselected_uri_prefix_literal_through_word_end_and_reopen() {
