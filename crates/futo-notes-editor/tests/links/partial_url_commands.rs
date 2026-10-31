@@ -417,6 +417,17 @@ fn a_live_code_colon_keeps_its_origin_through_a_multiline_quoted_heading_split()
         .runs
         .iter()
         .any(|run| run.range == range(20, 25) && run.formats.contains(&InlineFormat::Code)));
+    let canonical_split = EditorSession::open("> head\n> ===\n\n> <https\\://x.test`/path`>");
+    assert_eq!(
+        canonical_split.display_text(),
+        "head\n\n<https://x.test/path>"
+    );
+    let split_query = canonical_split.project(Revision(0), range(0, 27)).unwrap();
+    assert!(split_query.links.is_empty());
+    assert!(split_query
+        .runs
+        .iter()
+        .any(|run| run.range == range(21, 26) && run.formats.contains(&InlineFormat::Code)));
     let mut session = EditorSession::open("> head\n> seed\n> ===");
     let mut view = ReferenceView::new("head\nseed");
     view.apply(
@@ -491,7 +502,7 @@ fn a_live_code_colon_keeps_its_origin_through_a_multiline_quoted_heading_split()
     assert_eq!(loaded_view.text, "head\n\n<https://x.test/path>");
     assert_eq!(
         loaded_control.source_text(),
-        "> head\n> ===\n> \n> <https\\://x.test`/path`>"
+        "> head\n> ===\n\n> <https\\://x.test`/path`>"
     );
     let mut calls = 0;
     view.apply(
@@ -506,7 +517,7 @@ fn a_live_code_colon_keeps_its_origin_through_a_multiline_quoted_heading_split()
     assert_eq!(calls, 1);
     assert_eq!(view.text, "head\n\n<https://x.test/path>");
     let split = session.source_text();
-    assert_eq!(split, "> head\n> ===\n> \n> <https\\://x.test`/path`>");
+    assert_eq!(split, "> head\n> ===\n\n> <https\\://x.test`/path`>");
     let loaded = EditorSession::open(&split);
     assert_eq!(loaded.display_text(), view.text);
     assert!(loaded
