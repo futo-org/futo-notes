@@ -3,7 +3,7 @@
 mod repair;
 use super::row::LinkMeaning;
 use pulldown_cmark::{BrokenLink, CowStr, Event, LinkType, Options, Parser, Tag};
-pub(crate) use repair::RetainedBody;
+pub(crate) use repair::{BodyIntent, RetainedBody};
 use std::{collections::HashMap, ops::Range, sync::Arc};
 use unicase::UniCase;
 

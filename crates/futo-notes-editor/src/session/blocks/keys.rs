@@ -319,7 +319,7 @@ impl EditorSession {
             &right,
             body.prefixes.iter().skip(body.right_line + 1),
         );
-        let output =
+        let mut output =
             format!("{prefix}{left}{suffix}{retained_break}\n{separator}{continuation}{right}");
         let caret = line.source.start
             + prefix.len()
@@ -329,6 +329,64 @@ impl EditorSession {
             + 1
             + separator.len()
             + continuation.len();
+        let mut reference_work = crate::inline::references::ReferenceWork::default();
+        let mut reference_bytes = 0;
+        if line.heading > 0 {
+            let right_start = caret - line.source.start;
+            let mut retained = Vec::new();
+            let mut visits = 0;
+            // The first slice has one physical line and unchanged spelling on
+            // each side. Multiline prefix or marker transformations need their
+            // own layout correspondence; never guess it from equal display.
+            if body.prefixes.len() == 1 && left == body.left && right == body.right {
+                for witness in body.retained {
+                    visits += 1;
+                    let after = if witness.after.end <= body.split {
+                        Some(prefix.len() + witness.after.start..prefix.len() + witness.after.end)
+                    } else if witness.after.start >= body.split + 2 {
+                        Some(
+                            right_start + witness.after.start - body.split - 2
+                                ..right_start + witness.after.end - body.split - 2,
+                        )
+                    } else {
+                        None
+                    };
+                    if let Some(after) = after {
+                        retained.push(crate::inline::references::RetainedBody {
+                            before: witness.before,
+                            after,
+                        });
+                    }
+                }
+            }
+            let body_end = self.projection.display_at(line.content.end);
+            let expected_display = format!(
+                "{}\n{}",
+                self.projection
+                    .display
+                    .byte_slice(start_display..range.start.0),
+                self.projection.display.byte_slice(range.end.0..body_end)
+            );
+            reference_bytes += expected_display.len();
+            let regions = [right_start..output.len()];
+            (reference_work, reference_bytes) = {
+                let (mut work, bytes) = self.projection.protect_body_definitions(
+                    &self.source,
+                    self.context.origin.as_ref(),
+                    line.source.start..suffix_end,
+                    &mut output,
+                    &retained,
+                    Some(crate::inline::references::BodyIntent {
+                        display: &expected_display,
+                        regions: &regions,
+                        caret: right_start,
+                        display_caret: range.start.0 + 1 - start_display,
+                    }),
+                )?;
+                work.items += visits;
+                (work, reference_bytes + bytes)
+            };
+        }
         let mut change = self.commit_block_edit(
             expected,
             line.source.start..suffix_end,
@@ -338,10 +396,11 @@ impl EditorSession {
             accept,
         )?;
         self.carry_block_state(&mut change, body.formats, body.affinity);
-        change.work.materialized_source_bytes += body.materialized;
-        change.work.parsed_source_bytes += body.parsed + left_work + right_work;
-        change.work.link_metadata_items += body.link_metadata_items;
-        change.work.link_copied_bytes += body.link_copied_bytes;
+        change.work.materialized_source_bytes += body.materialized + reference_bytes;
+        change.work.parsed_source_bytes +=
+            body.parsed + left_work + right_work + reference_work.parsed;
+        change.work.link_metadata_items += body.link_metadata_items + reference_work.items;
+        change.work.link_copied_bytes += body.link_copied_bytes + reference_work.copied;
         Ok(Some(change))
     }
 

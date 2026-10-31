@@ -195,13 +195,20 @@ impl EditorSession {
                     .display
                     .byte_slice(body_start..body_end)
                     .to_string();
-                let (body, body_bytes, work, link_work) = self.projection.body_source(
+                let crate::inline::BodySource {
+                    text: body,
+                    materialized: body_bytes,
+                    parsed: work,
+                    work: link_work,
+                    ..
+                } = self.projection.body_source(
                     &self.source,
                     DisplayRange {
                         start: DisplayOffset(body_start),
                         end: DisplayOffset(body_end),
                     },
                     true,
+                    self.revision,
                 )?;
                 materialized += body_bytes + shown.len();
                 link_metadata_items += link_work.items;

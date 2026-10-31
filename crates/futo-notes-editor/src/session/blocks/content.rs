@@ -4,6 +4,8 @@ use crate::inline::blocks::BlockLine;
 use pulldown_cmark::{Event, Parser, Tag};
 
 pub(super) struct BodySplit {
+    pub retained: Vec<crate::inline::references::RetainedBody>,
+    pub split: usize,
     pub left: String,
     pub right: String,
     pub prefixes: Vec<String>,
@@ -71,9 +73,26 @@ impl EditorSession {
             start: DisplayOffset(start),
             end: DisplayOffset(end),
         };
-        let (raw, materialized, parsed, link_work) =
-            self.projection
-                .body_source(&self.source, body_range, false)?;
+        let crate::inline::BodySource {
+            text: raw,
+            revision,
+            window,
+            retained,
+            materialized,
+            parsed,
+            work: mut link_work,
+        } = self
+            .projection
+            .body_source(&self.source, body_range, false, self.revision)?;
+        if revision != self.revision
+            || window.end > self.source.len_bytes()
+            || retained.iter().any(|body| {
+                link_work.items += 1;
+                body.before.start < window.start || body.before.end > window.end
+            })
+        {
+            return Err(EditorError::UnrepresentableFormat);
+        }
         let shown = self.projection.display.byte_slice(start..end).to_string();
         let mut staged = self.stage_body_source(&raw, first.content.start..last.content.end);
         if staged.display_text() != shown {
@@ -87,13 +106,20 @@ impl EditorSession {
         if range == self.selection {
             staged.pending_formats = self.pending_formats.clone();
         }
-        let change = staged.replace_action(
+        let mut step = None;
+        let (change, mapping) = staged.replace_action_mapped(
             staged.revision(),
             local,
             "\n\n",
             crate::InputAction::Isolated,
-            &mut |_| Ok(()),
+            &mut |edit| {
+                step = Some((edit.previous_revision, edit.range, edit.inserted.len()));
+                Ok(())
+            },
         )?;
+        let (revision, step_range, inserted) = step.ok_or(EditorError::UnrepresentableFormat)?;
+        let (retained, witness_work) =
+            mapping.transfer_body(revision, step_range, inserted, retained)?;
         let body = staged.source_text();
         let split = staged.projection.source_bounds(local.start.0 + 1).0 - 1;
         if body.get(split..split + 2) != Some("\n\n") {
@@ -113,6 +139,8 @@ impl EditorSession {
         }
         let prefix_bytes = prefixes.iter().map(String::len).sum::<usize>();
         Ok(BodySplit {
+            retained,
+            split,
             left: body[..split].into(),
             right: body[split + 2..].into(),
             prefixes,
@@ -126,6 +154,7 @@ impl EditorSession {
                 + change.work.materialized_source_bytes,
             parsed: parsed + staged.projection.initial_parse_work + change.work.parsed_source_bytes,
             link_metadata_items: link_work.items
+                + witness_work
                 + staged.projection.initial_link_metadata_items
                 + change.work.link_metadata_items,
             link_copied_bytes: link_work.copied

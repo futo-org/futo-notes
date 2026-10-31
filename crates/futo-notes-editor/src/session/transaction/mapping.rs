@@ -70,6 +70,42 @@ impl InputMapping {
         }
     }
 
+    pub(in crate::session) fn transfer_body(
+        &self,
+        revision: Revision,
+        range: SourceRange,
+        inserted: usize,
+        bodies: Vec<crate::inline::references::RetainedBody>,
+    ) -> Result<(Vec<crate::inline::references::RetainedBody>, usize), EditorError> {
+        let source = self
+            .source
+            .as_ref()
+            .filter(|source| {
+                source.revision == revision && source.range == range && source.inserted == inserted
+            })
+            .ok_or(EditorError::UnrepresentableFormat)?;
+        let mut result = Vec::new();
+        let mut work = 1;
+        for body in bodies {
+            work += 1;
+            let (after, visits) = source.retained.retained_range(body.after);
+            work += visits;
+            if let Some(after) = after {
+                // The whole parser-owned atom survived this exact source step.
+                result.push(crate::inline::references::RetainedBody {
+                    before: body.before,
+                    after,
+                });
+            }
+        }
+        let (ordered, visits) = crate::inline::references::RetainedBody::ordered(&result);
+        work += visits;
+        if !ordered {
+            return Err(EditorError::UnrepresentableFormat);
+        }
+        Ok((result, work))
+    }
+
     pub(super) fn inserted_target(
         &self,
         within: usize,

@@ -5,8 +5,18 @@ use super::{
     spelling::spell,
     Projection,
 };
-use crate::{DisplayRange, EditorError, InlineFormat};
+use crate::{DisplayRange, EditorError, InlineFormat, Revision};
 use ropey::Rope;
+
+pub(crate) struct BodySource {
+    pub text: String,
+    pub revision: Revision,
+    pub window: std::ops::Range<usize>,
+    pub retained: Vec<super::references::RetainedBody>,
+    pub materialized: usize,
+    pub parsed: usize,
+    pub work: super::references::ReferenceWork,
+}
 
 impl Projection {
     /// Spell only the visible body, retaining existing inline identities while
@@ -16,10 +26,12 @@ impl Projection {
         source: &Rope,
         range: DisplayRange,
         fold_breaks: bool,
-    ) -> Result<(String, usize, usize, super::references::ReferenceWork), EditorError> {
+        revision: Revision,
+    ) -> Result<BodySource, EditorError> {
         let Context {
             raw,
             source_start,
+            source_end,
             pieces,
             markers,
             link_metadata_items,
@@ -48,17 +60,52 @@ impl Projection {
         }
         let end = body.len();
         let result = spell(body, markers, end..end, true, &self.references)?;
+        let mut retained = Vec::new();
+        let mut measured = result.link_metadata_items;
+        for (origin, after) in result.origins {
+            measured += 1;
+            if let super::spelling::PieceOrigin::Source(before) = origin {
+                let Some(original) = raw.get(before.clone()) else {
+                    continue;
+                };
+                let Some(rendered) = result.text.get(after.clone()) else {
+                    continue;
+                };
+                if original.len() == rendered.len()
+                    && original.bytes().zip(rendered.bytes()).all(|(a, b)| {
+                        measured += 1;
+                        a == b
+                    })
+                {
+                    // Keep complete original parser-piece extents, including
+                    // nonidentity atoms. Never split them to manufacture lineage.
+                    measured += 2;
+                    retained.push(super::references::RetainedBody {
+                        before: source_start + before.start..source_start + before.end,
+                        after,
+                    });
+                }
+            }
+        }
+        let (ordered, visits) = super::references::RetainedBody::ordered(&retained);
+        measured += visits;
+        if !ordered {
+            return Err(EditorError::UnrepresentableFormat);
+        }
         let materialized = raw.len() + result.text.len();
-        Ok((
-            result.text,
+        Ok(BodySource {
+            text: result.text,
+            revision,
+            window: source_start..source_end,
+            retained,
             materialized,
-            result.parsed,
-            super::references::ReferenceWork {
+            parsed: result.parsed,
+            work: super::references::ReferenceWork {
                 parsed: 0,
-                items: link_metadata_items + result.link_metadata_items,
+                items: link_metadata_items + measured,
                 copied: result.link_copied_bytes,
             },
-        ))
+        })
     }
 
     pub(crate) fn has_multiline_block_code(&self, source: &Rope, range: DisplayRange) -> bool {

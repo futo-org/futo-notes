@@ -80,6 +80,10 @@ impl SourceCorrespondence {
             (None, work)
         }
     }
+    pub(crate) fn retained_range(&self, range: Range<usize>) -> (Option<Range<usize>>, usize) {
+        let (start, work) = map(&self.retained, range.start, range.len());
+        (start.map(|start| start..start + range.len()), work)
+    }
     pub(crate) fn map_inserted(&self, offset: usize) -> (Option<usize>, usize) {
         map(&self.inserted, offset, 0)
     }

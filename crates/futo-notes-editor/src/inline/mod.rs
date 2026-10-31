@@ -1,4 +1,5 @@
 mod block_edit;
+pub(crate) use block_edit::BodySource;
 pub(crate) mod blocks;
 mod edit;
 pub(crate) use edit::{EditIntent, SourceCorrespondence};

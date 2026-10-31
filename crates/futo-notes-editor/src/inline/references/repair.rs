@@ -7,6 +7,24 @@ pub(crate) struct RetainedBody {
     pub after: Range<usize>,
 }
 
+impl RetainedBody {
+    pub(crate) fn ordered(bodies: &[Self]) -> (bool, usize) {
+        let mut work = 0;
+        let valid = bodies.windows(2).all(|pair| {
+            work += 1;
+            pair[0].before.end <= pair[1].before.start && pair[0].after.end <= pair[1].after.start
+        });
+        (valid, work)
+    }
+}
+
+pub(crate) struct BodyIntent<'a> {
+    pub display: &'a str,
+    pub regions: &'a [Range<usize>],
+    pub caret: usize,
+    pub display_caret: usize,
+}
+
 struct Repair {
     opener: usize,
     range: Range<usize>,
@@ -22,9 +40,21 @@ impl super::super::Projection {
         output: &mut String,
         bodies: &[RetainedBody],
     ) -> Result<(ReferenceWork, usize), EditorError> {
+        self.protect_body_definitions(source, origin, range, output, bodies, None)
+    }
+
+    pub(crate) fn protect_body_definitions(
+        &self,
+        source: &ropey::Rope,
+        origin: Option<&SourceOrigin>,
+        range: Range<usize>,
+        output: &mut String,
+        bodies: &[RetainedBody],
+        intent: Option<BodyIntent<'_>>,
+    ) -> Result<(ReferenceWork, usize), EditorError> {
         let mut work = ReferenceWork::default();
         let mut copied = 0;
-        if bodies.is_empty() {
+        if bodies.is_empty() && intent.is_none() {
             return Ok((work, copied));
         }
         // This is the final physical replacement, including retained wrappers.
@@ -32,11 +62,13 @@ impl super::super::Projection {
         work = parsed;
         let mut repairs = Vec::new();
         for definition in local {
+            let mut witnessed = false;
             for body in bodies {
                 work.items += 1;
                 if !body.after.contains(&definition.range.start) {
                     continue;
                 }
+                witnessed = true;
                 let before = source.byte_slice(body.before.clone()).to_string();
                 copied += before.len();
                 let after = output
@@ -106,6 +138,16 @@ impl super::super::Projection {
                 }
                 break;
             }
+            if !witnessed {
+                if let Some(intent) = &intent {
+                    for region in intent.regions {
+                        work.items += 1;
+                        if region.contains(&definition.range.start) {
+                            return Err(EditorError::UnrepresentableFormat);
+                        }
+                    }
+                }
+            }
         }
         if repairs.is_empty() {
             return Ok((work, copied));
@@ -150,6 +192,16 @@ impl super::super::Projection {
                 return Err(EditorError::UnrepresentableFormat);
             }
         }
+        if let Some(intent) = &intent {
+            for repair in &repairs {
+                work.items += 1;
+                // The split caret is before the new body's opener. An escape
+                // inserted exactly there has Left bias: keep that raw boundary.
+                if repair.range.start < intent.caret {
+                    return Err(EditorError::UnrepresentableFormat);
+                }
+            }
+        }
         for repair in repairs.into_iter().rev() {
             copied += output.len() - repair.range.end + repair.inserted.len();
             output.replace_range(repair.range, &repair.inserted);
@@ -187,11 +239,25 @@ impl super::super::Projection {
         };
         let old_start = display_at(range.start);
         let old_end = display_at(range.end);
-        let old = self.display.byte_slice(old_start..old_end).to_string();
+        let old = intent.as_ref().map_or_else(
+            || self.display.byte_slice(old_start..old_end).to_string(),
+            |intent| intent.display.to_owned(),
+        );
         let new = checked.display.to_string();
         copied += old.len() + new.len();
         if !same_bytes(&old, &new, &mut work.items) {
             return Err(EditorError::UnrepresentableFormat);
+        }
+        if let Some(intent) = intent {
+            let (caret, visits) = checked.try_project_source_point(crate::history::SourcePoint {
+                source: crate::SourceOffset(intent.caret),
+                within: 0,
+                atom: None,
+            });
+            work.items += visits;
+            if caret != Some(intent.display_caret) {
+                return Err(EditorError::UnrepresentableFormat);
+            }
         }
         // The unchanged visible body also preserves this slice's returned
         // display endpoints; source history is captured from the final edit.
