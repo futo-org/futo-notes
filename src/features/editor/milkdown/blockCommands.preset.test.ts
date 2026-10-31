@@ -603,3 +603,27 @@ describe('pinned shipping configured container keymaps (#299)', () => {
     );
   });
 });
+
+// Compare compact spelling with explicit physical empty frames. These are
+// opening observations, not mutation or untouched-source retention proofs.
+const frameSources = [
+  '- > b',
+  '- \n  > b',
+  '- - b',
+  '- \n  - b',
+  '- - \n    b',
+  '- \n  - \n    b',
+  '> - - b',
+  '> - - \n>     b',
+  '- > - b',
+  '- > - \n  >   b',
+  '- - - b',
+  '- - - \n      b',
+];
+it.each(frameSources)('opens frame candidate %s', async (source) => {
+  const parsed = editor.ctx.get(parserCtx)(source);
+  view.dispatch(view.state.tr.replaceWith(0, view.state.doc.content.size, parsed.content));
+  await expect({ input: source, opened: observation() }).toMatchFileSnapshot(
+    `./__snapshots__/blockCommands/frame-open-${frameSources.indexOf(source)}.snap`,
+  );
+});
