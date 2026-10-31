@@ -48,7 +48,13 @@ export async function liveSourceConsumers({ start, stop, getSession, createRoot,
       prefixRoot: prefixVault,
     });
   }
-  await typedOriginConsumer({ start, stop, getSession: checked('WWW typed origin'), createRoot });
+  await typedOriginConsumer({
+    start,
+    stop,
+    getSession: checked('WWW typed origin'),
+    createRoot,
+    parseSource,
+  });
   await dividerPendingConsumer({
     start,
     stop,
