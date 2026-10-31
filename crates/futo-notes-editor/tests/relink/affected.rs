@@ -449,3 +449,77 @@ fn equal_uri_owners_keep_distinct_lifetimes_after_the_same_canonical_rewrite() {
         2
     );
 }
+
+#[test]
+fn a_valid_rename_can_make_a_live_code_word_literal_without_a_complete_uri() {
+    let uri = "https://x.test/[[Old]]/path";
+    let next = "https://x.test/[[New Name]]/path";
+    let standard = EditorSession::open(&format!("<`{next}`>"));
+    let expected_text = format!("<{next}>");
+    assert_eq!(standard.display_text(), expected_text);
+    let canonical = standard
+        .project(Revision(0), range(0, expected_text.len()))
+        .unwrap();
+    assert!(canonical.links.is_empty());
+    assert_eq!(
+        canonical
+            .runs
+            .iter()
+            .filter(|run| run.formats.contains(&InlineFormat::Code))
+            .map(|run| run.range)
+            .collect::<Vec<_>>(),
+        vec![range(1, next.len() + 1)]
+    );
+    let mut editor = EditorSession::open("");
+    editor
+        .replace(
+            Revision(0),
+            range(0, 0),
+            &format!("<{uri}"),
+            &mut |_| Ok(()),
+        )
+        .unwrap();
+    let end = uri.len() + 1;
+    editor
+        .replace(Revision(1), range(end, end), ">", &mut |_| Ok(()))
+        .unwrap();
+    editor.select(Revision(2), range(1, end)).unwrap();
+    editor
+        .toggle_format(Revision(2), InlineFormat::Code, &mut |_| Ok(()))
+        .unwrap()
+        .unwrap();
+    let original = editor.source_text();
+    assert_eq!(original, format!("<`{uri}`>"));
+    let action = OwnActionRelink {
+        mappings: vec![("Old".into(), "New Name".into())],
+        note_ids: vec!["Old".into()],
+    };
+    let mut accepted = 0;
+    editor
+        .apply_own_relink(Revision(3), &action, &mut |_| {
+            accepted += 1;
+            Ok(())
+        })
+        .unwrap_or_else(|error| {
+            panic!("valid changed Code text must accept; accepted={accepted}; error={error:?}")
+        })
+        .unwrap();
+    assert_eq!(accepted, 1);
+    assert_eq!(editor.source_text(), format!("<`{next}`>"));
+    assert_eq!(editor.display_text(), expected_text);
+    let actual = editor
+        .project(Revision(4), range(0, expected_text.len()))
+        .unwrap();
+    assert_eq!(actual.links, canonical.links);
+    assert_eq!(actual.runs, canonical.runs);
+    editor.undo(Revision(4), &mut |_| Ok(())).unwrap().unwrap();
+    editor.redo(Revision(5), &mut |_| Ok(())).unwrap().unwrap();
+    assert_eq!(editor.source_text(), format!("<`{next}`>"));
+    let fresh = EditorSession::open(&editor.source_text());
+    assert_eq!(fresh.display_text(), editor.display_text());
+    assert!(fresh
+        .project(Revision(0), range(0, expected_text.len()))
+        .unwrap()
+        .links
+        .is_empty());
+}
