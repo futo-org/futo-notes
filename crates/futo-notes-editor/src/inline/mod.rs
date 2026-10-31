@@ -15,7 +15,10 @@ use crate::{
 };
 pub(crate) use lists::{columns, visit_container, ListLine};
 #[cfg(test)]
-pub(crate) use lists::{CONTAINER_METADATA_VISITS, CONTAINER_PREFIX_QUERIES};
+pub(crate) use lists::{
+    CONTAINER_LIFT_ITEM_SCANS, CONTAINER_METADATA_VISITS, CONTAINER_PREFIX_QUERIES,
+    CONTAINER_STYLE_OWNER_SCANS,
+};
 use ropey::Rope;
 use row::{paragraphs, Row};
 pub(crate) use tree::ContextWitness;

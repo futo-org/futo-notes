@@ -119,6 +119,9 @@ impl EditorSession {
             if let Some(owner) = &owner {
                 let mut scan = after_line;
                 while scan < self.source.len_lines() {
+                    #[cfg(test)]
+                    crate::inline::CONTAINER_STYLE_OWNER_SCANS
+                        .with(|count| count.set(count.get() + 1));
                     let at = self.source.line_to_byte(scan);
                     let Some(line) = self.projection.list_command_line_at_source(at) else {
                         break;

@@ -166,6 +166,9 @@ impl EditorSession {
             if selected.outer_depth > 1 {
                 let mut crossed = BTreeMap::new();
                 for item in &items {
+                    #[cfg(test)]
+                    crate::inline::CONTAINER_LIFT_ITEM_SCANS
+                        .with(|count| count.set(count.get() + 1));
                     crate::inline::visit_container();
                     if item.quote_depth != selected.quote_depth
                         && item.item.start <= selected.marker.start
@@ -207,6 +210,8 @@ impl EditorSession {
             let after = self.semantic_neighbor(selected.outer_item.end, true, selected.quote_depth);
             let mut tail_end = selected.item.end;
             for child in &items {
+                #[cfg(test)]
+                crate::inline::CONTAINER_LIFT_ITEM_SCANS.with(|count| count.set(count.get() + 1));
                 crate::inline::visit_container();
                 if child.quote_depth != selected.quote_depth {
                     continue;
