@@ -10,7 +10,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // The lifecycle fixture, captured literal sources and reopen mode all
     // use the same public store open/recovery workflow.
     let fixture = std::env::args().nth(2);
-    if fixture.as_deref() != Some("--reopen") {
+    let reopen_id = fixture
+        .as_deref()
+        .and_then(|fixture| fixture.strip_prefix("--reopen:"));
+    if fixture.as_deref() != Some("--reopen") && reopen_id.is_none() {
         let source = match fixture.as_deref() {
             Some("lifecycle") => "[[plain]]",
             Some(source) => source,
@@ -18,7 +21,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         };
         store.create("", "plain", source)?;
     }
-    let session = store.open_editor("plain")?;
+    let session = store.open_editor(reopen_id.unwrap_or("plain"))?;
     let mut output = io::stdout().lock();
     let mut host = session.into_portable_host(SessionToken(17))?;
     serde_json::to_writer(&mut output, &host.snapshot())?;

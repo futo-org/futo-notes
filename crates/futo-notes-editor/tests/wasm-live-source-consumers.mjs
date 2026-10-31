@@ -4,6 +4,7 @@ import { anglePendingConsumer } from './wasm-angle-consumer.mjs';
 import { typedOriginConsumer } from './wasm-typed-origin-consumer.mjs';
 import { literalRetirementConsumer } from './wasm-literal-retirement-consumer.mjs';
 import { sourceGenerationsConsumer } from './wasm-source-generations-consumer.mjs';
+import { relinkGuardConsumer } from './wasm-relink-guard-consumer.mjs';
 
 export async function liveSourceConsumers({ start, stop, getSession, createRoot, parseSource }) {
   const checked = (story) => () =>
@@ -53,6 +54,13 @@ export async function liveSourceConsumers({ start, stop, getSession, createRoot,
     start,
     stop,
     getSession: checked('WWW typed origin'),
+    createRoot,
+    parseSource,
+  });
+  await relinkGuardConsumer({
+    start,
+    stop,
+    getSession: checked('affected URI relink'),
     createRoot,
     parseSource,
   });
