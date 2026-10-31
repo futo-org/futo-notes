@@ -726,5 +726,57 @@
       2,
       1
     ]
+  },
+  {
+    "name": "task-owner-ordered-child-lift-copies-start-one",
+    "source": "- [ ] parent\n  1. child\n- [x] following",
+    "display": "parent\nchild\nfollowing",
+    "action": "OrderedList",
+    "range": [
+      0,
+      12
+    ],
+    "expected": "1. parent\n\nchild\n1. following",
+    "shown": "parent\n\nchild\nfollowing",
+    "resultRange": [
+      0,
+      13
+    ],
+    "finalItems": [
+      [
+        1,
+        null
+      ],
+      [
+        1,
+        null
+      ]
+    ]
+  },
+  {
+    "name": "ordered-task-child-lift-copies-start-seven",
+    "source": "7) [ ] parent\n   1. child\n8) [x] following",
+    "display": "parent\nchild\nfollowing",
+    "action": "OrderedList",
+    "range": [
+      0,
+      12
+    ],
+    "expected": "7) parent\n\nchild\n\n7) following",
+    "shown": "parent\n\nchild\n\nfollowing",
+    "resultRange": [
+      0,
+      13
+    ],
+    "finalItems": [
+      [
+        7,
+        null
+      ],
+      [
+        7,
+        null
+      ]
+    ]
   }
 ]

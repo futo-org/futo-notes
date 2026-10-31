@@ -27,7 +27,7 @@ assert.equal(nested.length, 35);
 const commands = JSON.parse(
   readFileSync(new URL('fixtures/container-commands.json', import.meta.url)),
 );
-assert.equal(commands.length, 20);
+assert.equal(commands.length, 22);
 const cases = [...original, ...shortcuts, ...staging, ...nested, ...commands];
 const units = (text) => Uint16Array.from({ length: text.length }, (_, at) => text.charCodeAt(at));
 function host(vault, source) {
