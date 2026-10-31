@@ -301,6 +301,22 @@ const cases = [
     head: 'child😀',
     headOffset: 7,
   },
+  {
+    name: 'flat mixed parent child runs keep separate paragraph cuts',
+    source: '1. p0\n   - c0\n1. p1\n   - c1',
+    command: 'bullet-list',
+    anchor: 'p0',
+    head: 'c1',
+    headOffset: 2,
+  },
+  {
+    name: 'flat mixed parent child owners retarget to tasks in place',
+    source: '1. p0\n   - c0\n1. p1\n   - c1',
+    command: 'task-list',
+    anchor: 'p0',
+    head: 'c1',
+    headOffset: 2,
+  },
 ] as const;
 
 describe('pinned shipping toolbar container transactions (#299)', () => {
