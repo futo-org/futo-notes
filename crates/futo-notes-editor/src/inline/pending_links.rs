@@ -268,6 +268,8 @@ impl Projection {
     }
 
     pub(super) fn link_is_pending_with_work(&self, range: DisplayRange) -> (bool, usize) {
+        #[cfg(test)]
+        let visits = super::coordinate_work_tests::visits();
         let (row, _, display, mut work) = self.rows.display_row_with_work(range.start.0);
         let pending = row.literal_links.iter().any(|link| {
             work += 1;
@@ -280,6 +282,8 @@ impl Projection {
             work += visits;
             display + end == range.end.0
         });
+        #[cfg(test)]
+        super::coordinate_work_tests::query("link-pending", visits, work);
         (pending, work)
     }
 

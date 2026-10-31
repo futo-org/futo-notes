@@ -14,6 +14,8 @@ pub(crate) mod typed_angle;
 pub(crate) use pending_links::{PendingLinkWitness, PendingLinks};
 #[cfg(test)]
 mod coordinate_work_tests;
+#[cfg(test)]
+mod query_growth_tests;
 mod row;
 mod source_points;
 mod spelling;

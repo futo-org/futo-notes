@@ -14,6 +14,20 @@ pub(super) fn query(name: &'static str, before: usize, reported: usize) {
     QUERIES.with(|rows| rows.borrow_mut().push((name, visits() - before, reported)));
 }
 
+pub(super) fn reset() {
+    QUERIES.with(|rows| rows.borrow_mut().clear());
+}
+pub(super) fn snapshot() -> Vec<(&'static str, usize, usize)> {
+    QUERIES.with(|rows| rows.borrow().clone())
+}
+pub(super) fn added_nodes() -> usize {
+    snapshot()
+        .iter()
+        .filter(|(name, _, _)| !name.ends_with("source_points.rs"))
+        .map(|(_, actual, _)| actual)
+        .sum()
+}
+
 #[test]
 fn public_reference_commands_charge_actual_indexed_coordinate_queries() {
     use crate::{BlockCommand, DisplayOffset, DisplayRange, EditorSession, Revision};
