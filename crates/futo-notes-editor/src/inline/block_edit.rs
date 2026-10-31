@@ -30,16 +30,17 @@ impl Projection {
         revision: Revision,
     ) -> Result<BodySource, EditorError> {
         let Context {
-            guard_state,
+            mut guard_state,
             raw,
             source_start,
             source_end,
             pieces,
             markers,
-            link_metadata_items,
+            mut link_metadata_items,
             ..
         } = self.edit_context(source, range)?;
         let base = self.display_at(source_start);
+        link_metadata_items += guard_state.scope_body(&pieces, base, range.start.0..range.end.0)?;
         let mut at = base;
         let mut body = Vec::new();
         let mut cr = false;

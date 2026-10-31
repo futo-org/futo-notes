@@ -68,3 +68,51 @@ impl GuardState {
         Ok(result)
     }
 }
+
+impl GuardState {
+    /// Project the validated current row's owners into a real selected body.
+    /// All original pieces of a field must be kept or all excluded. A partial
+    /// envelope remains an error; foreign fields stay with the parent snapshot.
+    pub(in crate::inline) fn scope_body(
+        &mut self,
+        pieces: &[Piece],
+        start: usize,
+        selected: Range<usize>,
+    ) -> Result<usize, EditorError> {
+        if self.owners.is_empty() {
+            return Ok(0);
+        }
+        let mut kept = vec![false; self.owners.len()];
+        let mut excluded = vec![false; self.owners.len()];
+        let mut work = 2 + kept.len() + excluded.len();
+        let mut at = start;
+        for piece in pieces {
+            work += 1;
+            let end = at + piece.display.len();
+            if let Some(part) = piece.guard {
+                work += 2;
+                if !piece.display.is_empty() && selected.start <= at && end <= selected.end {
+                    kept[part.id] = true;
+                } else {
+                    excluded[part.id] = true;
+                }
+            }
+            at = end;
+        }
+        let mut any = false;
+        for (id, owner) in self.owners.iter_mut().enumerate() {
+            work += 2;
+            if kept[id] && excluded[id] || owner.is_some() && !kept[id] && !excluded[id] {
+                return Err(EditorError::UnrepresentableFormat);
+            }
+            if excluded[id] {
+                *owner = None;
+            }
+            any |= owner.is_some();
+        }
+        if !any {
+            self.owners.clear();
+        }
+        Ok(work)
+    }
+}
