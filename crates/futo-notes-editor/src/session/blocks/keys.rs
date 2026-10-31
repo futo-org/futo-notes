@@ -316,15 +316,15 @@ impl EditorSession {
             end: DisplayOffset(display_start + staged.selection.end.0),
         };
         let pending = staged.prepare_pending_for_parent(window.start);
-        let mut change = self.commit_block_edit(
+        let mut change = self.commit_block_with_pending(
             expected,
             footprint.start.0..footprint.end.0,
             &inserted,
             BlockSelection::Display(selection),
             None,
+            Some(pending),
             accept,
         )?;
-        self.adopt_stage_pending(&pending, &mut change, staging::PendingHistory::Recorded);
         self.carry_block_state(&mut change, staged.pending_formats, staged.affinity);
         change.work.materialized_source_bytes += raw.len()
             + deleted.work.materialized_source_bytes

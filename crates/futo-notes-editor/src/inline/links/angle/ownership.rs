@@ -28,7 +28,7 @@ pub(super) fn word_start(pieces: &[Piece], insertion: usize, work: &mut usize) -
 
 pub(super) struct OwnedWord {
     pub source: Range<usize>,
-    pub code_colon: bool,
+    pub guard: Option<usize>,
 }
 
 pub(super) fn authorize(
@@ -36,10 +36,10 @@ pub(super) fn authorize(
     markers: &[Marker],
     word: Range<usize>,
     displayed: usize,
+    guards: &crate::inline::guarded_words::GuardState,
     work: &mut usize,
 ) -> Option<OwnedWord> {
     let mut source: Option<Range<usize>> = None;
-    let mut colon = None;
     let mut pending = None;
     let mut at = 0;
     for piece in &pieces[word.clone()] {
@@ -67,9 +67,6 @@ pub(super) fn authorize(
         } else {
             source = Some(range.clone());
         }
-        if let Some(owned) = CodeLiteralColon::read(piece, work) {
-            colon = Some(owned.source);
-        }
         let end = at + piece.display.len();
         if at == 1 && end <= displayed - 1 {
             pending = piece.spans.iter().copied().find(|id| {
@@ -80,14 +77,37 @@ pub(super) fn authorize(
         at = end;
     }
     let source = source?;
-    if let Some(colon) = colon {
+    // The whole envelope and every inner piece must belong to this exact
+    // supplied owner. A trusted scalar or equal URI never grants lifetime.
+    if let Some(first) = pieces[word.start].guard {
+        use crate::inline::guarded_words::GuardRole;
         *work += 2;
-        if source.start <= colon.start && colon.end <= source.end {
-            return Some(OwnedWord {
-                source,
-                code_colon: true,
-            });
+        if first.role != GuardRole::Open || guards.owners.get(first.id)?.is_none() {
+            return None;
         }
+        let mut at = 0;
+        for piece in &pieces[word.clone()] {
+            *work += 2;
+            let part = piece.guard?;
+            let end = at + piece.display.len();
+            let role = if at == 0 && end == 1 {
+                GuardRole::Open
+            } else if at == displayed - 1 && end == displayed {
+                GuardRole::Close
+            } else if 1 <= at && end <= displayed - 1 {
+                GuardRole::Inner
+            } else {
+                return None;
+            };
+            if part.id != first.id || part.role != role {
+                return None;
+            }
+            at = end;
+        }
+        return Some(OwnedWord {
+            source,
+            guard: Some(first.id),
+        });
     }
     let pending = pending?;
     // One actual context-unique pending marker must own the complete inner
@@ -116,7 +136,7 @@ pub(super) fn authorize(
     }
     Some(OwnedWord {
         source,
-        code_colon: false,
+        guard: None,
     })
 }
 

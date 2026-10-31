@@ -104,36 +104,60 @@ impl EditorSession {
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<ViewChange, EditorError> {
         let before_links = self.projection.pending_for_source_edit(edit.range);
-        let (validation, validated_selection) = if let BlockSelection::Exact { selection, window } =
-            &selection
-        {
-            if pending.as_ref().is_some_and(|pending| {
-                pending.window
-                    != (window.start..window.end - edit.removed.len() + edit.inserted.len())
-            }) {
-                return Err(EditorError::UnrepresentableFormat);
-            }
-            let (preview, selected) = self.preview_exact_edit(
-                &edit,
-                window.clone(),
-                pending.as_ref(),
-                true,
-                &[],
-                Some(*selection),
-            )?;
-            (preview.work, selected)
-        } else if let Some(pending) = &pending {
-            if pending.window != (edit.range.start.0..edit.range.start.0 + edit.inserted.len()) {
-                return Err(EditorError::UnrepresentableFormat);
-            }
-            (
-                self.preview_pending_edit(&edit, before_links.window.clone(), pending, true, &[])?
-                    .work,
-                None,
-            )
-        } else {
-            (EditWork::default(), None)
-        };
+        let (validation, validated_selection) =
+            if let BlockSelection::Exact { selection, window } = &selection {
+                if pending.as_ref().is_some_and(|pending| {
+                    pending.window
+                        != (window.start..window.end - edit.removed.len() + edit.inserted.len())
+                }) {
+                    return Err(EditorError::UnrepresentableFormat);
+                }
+                let (preview, selected) = self.preview_exact_edit(
+                    &edit,
+                    window.clone(),
+                    pending.as_ref(),
+                    true,
+                    &[],
+                    Some(*selection),
+                )?;
+                (preview.work, selected)
+            } else if let Some(pending) = &pending {
+                if pending.window.start < before_links.window.start
+                    || pending.window.end > before_links.after_window(&edit).end
+                {
+                    return Err(EditorError::UnrepresentableFormat);
+                }
+                if pending.has_fields() || !before_links.guarded_words.is_empty() {
+                    (
+                        self.preview_pending_edit(
+                            &edit,
+                            before_links.window.clone(),
+                            pending,
+                            true,
+                            &[],
+                        )?
+                        .work,
+                        None,
+                    )
+                } else {
+                    (EditWork::default(), None)
+                }
+            } else if !before_links.guarded_words.is_empty() {
+                let mut retained = crate::inline::PendingLinks {
+                    window: before_links.after_window(&edit),
+                    ranges: Vec::new(),
+                    delimiters: Vec::new(),
+                    guarded_words: Vec::new(),
+                    work: 0,
+                };
+                retained.prepare_guards(&before_links, &edit, None)?;
+                let mut work =
+                    self.validate_stage_guards(&edit, before_links.window.clone(), &retained)?;
+                work.link_metadata_items += retained.work;
+                (work, None)
+            } else {
+                (EditWork::default(), None)
+            };
         accept(&edit).map_err(EditorError::Persistence)?;
         let before_selection = self.selection;
         let (before_source, before_source_work) = self.capture_history_selection();
@@ -152,7 +176,7 @@ impl EditorSession {
         change.work.link_metadata_items += link_metadata_items;
         change.work.link_copied_bytes += link_copied_bytes;
         if let Some(pending) = &pending {
-            self.adopt_stage_pending(pending, &mut change, staging::PendingHistory::Prepared);
+            self.adopt_stage_pending(pending, &mut change);
         }
         self.selection = match selection {
             BlockSelection::Display(selection) => selection,

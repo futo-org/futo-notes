@@ -26,8 +26,10 @@ impl EditorSession {
             work: EditWork::default(),
         };
         let activate = !before.ranges.is_empty() && !plan.activated_links.is_empty();
+        let guards = plan.guarded_words.is_some() || !before.guarded_words.is_empty();
         if plan.pending_links.is_empty()
             && !activate
+            && !guards
             && (input.is_none() || before.ranges.is_empty())
         {
             return Ok(empty());
@@ -44,6 +46,7 @@ impl EditorSession {
                 work: 0,
             }
         };
+        retained.prepare_guards(before, edit, plan.guarded_words.as_ref())?;
         retained.work += 2 * plan.pending_links.len();
         retained.ranges.extend(plan.pending_links.iter().cloned());
         let mut required = plan.pending_links.clone();
@@ -53,7 +56,7 @@ impl EditorSession {
             required.extend(plan.activated_links.iter().cloned());
             retained.ranges.extend(plan.activated_links.iter().cloned());
         }
-        let mut prepared = if retained.has_fields() {
+        let mut prepared = if retained.has_fields() || guards {
             self.preview_pending_edit(edit, before.window.clone(), &retained, false, &required)?
         } else {
             empty()
@@ -105,10 +108,7 @@ impl EditorSession {
         change.work.link_metadata_items += self
             .projection
             .install_delimiters(std::mem::take(&mut plan.delimiters));
-        let fields = prepared
-            .supported
-            .as_ref()
-            .filter(|fields| fields.has_fields());
+        let fields = prepared.supported.as_ref();
         if let Some(fields) = fields {
             change.work.link_metadata_items += self.projection.merge_input_pending(fields);
         }
@@ -211,6 +211,13 @@ impl EditorSession {
         work.link_metadata_items += local.work + staged.projection.restore_pending(&local);
         let mut actual = staged.projection.pending_body(local.window.clone())?;
         work.link_metadata_items += actual.work;
+        if !local.guarded_words.is_empty() || !actual.guarded_words.is_empty() {
+            let (same_guards, guard_visits) = local.same_guards(&actual);
+            work.link_metadata_items += guard_visits;
+            if !same_guards {
+                return Err(EditorError::UnrepresentableFormat);
+            }
+        }
         if !required.is_empty() {
             actual.ranges.sort_unstable_by(|a, b| {
                 work.link_metadata_items += 1;

@@ -5,6 +5,7 @@ mod pieces;
 use boundaries::{repair_boundaries, repair_literal_boundaries};
 mod render;
 pub(super) use pieces::{full_reference_close, Marker, Piece, PieceOrigin, Spelling};
+mod guarded;
 mod literal_urls;
 pub(in crate::inline) use literal_urls::CodeLiteralColon;
 mod url_timing;
@@ -35,9 +36,6 @@ pub(super) fn spell_with_anchors(
     references: &std::sync::Arc<super::references::References>,
     anchors: &[usize],
 ) -> Result<Spelling, EditorError> {
-    if !guards.owners.is_empty() {
-        return Err(EditorError::UnrepresentableFormat);
-    }
     split_paragraph_spans(&mut pieces);
     trim_emphasis_edges(&mut pieces, &markers);
     repair_code_delimiters(&pieces, &mut markers);
@@ -267,9 +265,25 @@ pub(super) fn spell_with_anchors(
         }
         mapped.push(found.ok_or(EditorError::UnrepresentableFormat)?);
     }
+    let guarded_words = if guards.owners.is_empty() {
+        None
+    } else {
+        let candidate = Row::parse_with_references(&rendered.text, references, &rendered.winners);
+        parsed += candidate.parsed_source_bytes;
+        link_metadata_items += candidate.reference_work.items;
+        link_copied_bytes += candidate.reference_work.copied;
+        Some(guards.collect(
+            &pieces,
+            &markers,
+            &rendered,
+            &candidate,
+            &mut link_metadata_items,
+        )?)
+    };
     let (pending_links, activated_links) =
         url_timing::collect_link_timing(&markers, &rendered, &mut link_metadata_items);
     Ok(Spelling {
+        guarded_words,
         materialized,
         pending_links,
         activated_links,

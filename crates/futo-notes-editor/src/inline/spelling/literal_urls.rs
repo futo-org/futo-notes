@@ -9,9 +9,7 @@ use std::ops::Range;
 /// timing producer is restricted to canonical emphasis openers (*, _, ~).
 /// Loaded rows have no fields, and copied-source transport preserves the
 /// complete atom before Context can reconstruct this view in a new generation.
-pub(in crate::inline) struct CodeLiteralColon {
-    pub source: Range<usize>,
-}
+pub(in crate::inline) struct CodeLiteralColon;
 impl CodeLiteralColon {
     pub fn read(piece: &Piece, work: &mut usize) -> Option<Self> {
         *work += 1;
@@ -27,9 +25,7 @@ impl CodeLiteralColon {
             return None;
         };
         *work += 1;
-        (source.len() == 2).then(|| Self {
-            source: source.clone(),
-        })
+        (source.len() == 2).then_some(Self)
     }
 
     fn produce(piece: &mut Piece) {

@@ -115,7 +115,6 @@ impl Projection {
                 }
             }
         }
-        result.retain_guards(before, edit, correspondence)?;
         Ok(result)
     }
 

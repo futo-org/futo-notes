@@ -123,30 +123,59 @@ impl PendingLinks {
         Ok(())
     }
 
-    pub(crate) fn retain_guards(
+    /// The complete actual emitter replaces only its proven opening scope.
+    /// Outside fields follow the actual compact source edit unchanged.
+    pub(crate) fn prepare_guards(
         &mut self,
         before: &Self,
         edit: &crate::SourceEdit,
-        correspondence: &crate::inline::SourceCorrespondence,
+        update: Option<&GuardUpdate>,
     ) -> Result<(), EditorError> {
         for word in &before.guarded_words {
-            let (raw, work) = word.raw_edit(edit);
-            self.work += work;
-            if let Some(word) = raw {
-                self.guarded_words.push(word);
-            } else {
-                let (retired, work) = correspondence.word_was_retired(&word.envelope);
-                self.work += work;
-                if retired {
+            self.work += 2;
+            if let Some(update) = update {
+                if update.before.start <= word.envelope.start
+                    && word.envelope.end <= update.before.end
+                {
                     continue;
                 }
-                let (word, work) = word.map(&self.window, &mut |range| {
-                    correspondence.retained_range(range)
-                })?;
-                self.work += work;
-                self.guarded_words.push(word);
+                if word.envelope.start < update.before.end
+                    && update.before.start < word.envelope.end
+                {
+                    return Err(EditorError::UnrepresentableFormat);
+                }
             }
+            let (mapped, work) = word.raw_edit(edit);
+            self.work += work;
+            self.guarded_words
+                .push(mapped.ok_or(EditorError::UnrepresentableFormat)?);
+        }
+        if let Some(update) = update {
+            if update.after.start < self.window.start || update.after.end > self.window.end {
+                return Err(EditorError::UnrepresentableFormat);
+            }
+            self.work += 5 * update.words.len();
+            self.guarded_words.extend(update.words.iter().cloned());
+            self.guarded_words.sort_unstable_by(|a, b| {
+                self.work += 1;
+                (a.envelope.start, a.envelope.end).cmp(&(b.envelope.start, b.envelope.end))
+            });
         }
         Ok(())
+    }
+
+    pub(crate) fn same_guards(&self, other: &Self) -> (bool, usize) {
+        let mut work = 1;
+        if self.guarded_words.len() != other.guarded_words.len() {
+            return (false, work);
+        }
+        for (a, b) in self.guarded_words.iter().zip(&other.guarded_words) {
+            let (same, visits) = a.same(b);
+            work += visits;
+            if !same {
+                return (false, work);
+            }
+        }
+        (true, work)
     }
 }

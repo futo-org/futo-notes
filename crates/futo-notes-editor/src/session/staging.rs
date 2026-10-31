@@ -45,11 +45,6 @@ pub(super) struct BodyStage {
     pub had_pending: bool,
 }
 
-pub(super) enum PendingHistory {
-    Prepared,
-    Recorded,
-}
-
 impl EditorSession {
     /// Only an unchanged exact source output may use this physical relocation.
     /// A derived renderer must supply its own correspondence instead.
@@ -62,11 +57,24 @@ impl EditorSession {
         pending
     }
 
+    pub(super) fn validate_stage_guards(
+        &self,
+        edit: &SourceEdit,
+        window: Range<usize>,
+        pending: &crate::inline::PendingLinks,
+    ) -> Result<EditWork, EditorError> {
+        if pending.guarded_words.is_empty() {
+            return Ok(EditWork::default());
+        }
+        Ok(self
+            .preview_pending_edit(edit, window, pending, true, &[])?
+            .work)
+    }
+
     pub(super) fn adopt_stage_pending(
         &mut self,
         pending: &crate::inline::PendingLinks,
         change: &mut ViewChange,
-        history: PendingHistory,
     ) {
         change.work.link_metadata_items += pending.work + self.projection.restore_pending(pending);
         let (projection, work) = self
@@ -75,27 +83,6 @@ impl EditorSession {
         change.projection = projection;
         change.work.link_metadata_items += work.items;
         change.work.link_copied_bytes += work.copied;
-        if let PendingHistory::Recorded = history {
-            let window = self
-                .undo
-                .last()
-                .unwrap()
-                .entries
-                .last()
-                .unwrap()
-                .after_links
-                .window
-                .clone();
-            let after = self.projection.pending_links(window);
-            change.work.link_metadata_items += after.work;
-            self.undo
-                .last_mut()
-                .unwrap()
-                .entries
-                .last_mut()
-                .unwrap()
-                .after_links = after;
-        }
     }
 
     pub(super) fn semantic_neighbor(
@@ -170,16 +157,28 @@ impl EditorSession {
         {
             return Err(EditorError::UnrepresentableFormat);
         }
-        let original = self.projection.pending_body(window.clone())?;
+        let mut original = self.projection.pending_body(window.clone())?;
         let had_pending = original.has_fields();
         let mut staged = self.stage_with_context(&body.text, window, false)?;
         staged.projection.initial_link_metadata_items += original.work;
         if had_pending {
+            if body.guarded_words.is_some() {
+                original.guarded_words.clear();
+            }
             let (index, work) = crate::inline::SourceCorrespondence::from_bodies(&body.retained)?;
             let mut pending =
                 original.map_copied(0..body.text.len(), |range| index.retained_range(range))?;
             // The original collection has already been charged above.
             pending.work -= original.work;
+            if let Some(words) = &body.guarded_words {
+                pending.work += 5 * words.len();
+                pending.guarded_words = words.clone();
+            }
+            let guard_work = staged
+                .projection
+                .validate_guard_words(&staged.source, &pending)?;
+            staged.projection.initial_link_metadata_items += guard_work.link_metadata_items;
+            staged.projection.initial_link_copied_bytes += guard_work.materialized_source_bytes;
             staged.projection.initial_link_metadata_items +=
                 work + pending.work + staged.projection.restore_pending(&pending);
         }

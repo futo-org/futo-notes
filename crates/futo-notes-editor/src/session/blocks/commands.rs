@@ -196,6 +196,7 @@ impl EditorSession {
                     .byte_slice(body_start..body_end)
                     .to_string();
                 let crate::inline::BodySource {
+                    guarded_words,
                     text: body,
                     materialized: body_bytes,
                     parsed: work,
@@ -210,6 +211,9 @@ impl EditorSession {
                     true,
                     self.revision,
                 )?;
+                if guarded_words.is_some() {
+                    return Err(EditorError::UnrepresentableFormat);
+                }
                 materialized += body_bytes + shown.len();
                 link_metadata_items += link_work.items;
                 link_copied_bytes += link_work.copied;

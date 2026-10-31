@@ -15,7 +15,7 @@ pub(in crate::inline) struct GuardPart {
 }
 #[derive(Default)]
 pub(in crate::inline) struct GuardState {
-    pub owners: Vec<Arc<CodeWordIdentity>>,
+    pub owners: Vec<Option<Arc<CodeWordIdentity>>>,
 }
 impl GuardState {
     pub fn bind(
@@ -28,7 +28,7 @@ impl GuardState {
         }
         let mut result = Self::default();
         for word in &words {
-            result.owners.push(word.identity.clone());
+            result.owners.push(Some(word.identity.clone()));
             *work += 1;
         }
         for piece in pieces {

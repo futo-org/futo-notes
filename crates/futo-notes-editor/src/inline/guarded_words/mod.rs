@@ -1,6 +1,7 @@
 //! Transient ownership of a typed URI whose automatic link was retired by Code.
 //! Standard Markdown owns saved meaning; these fields never survive recovery.
 mod context;
+mod producer;
 mod snapshots;
 pub(in crate::inline) use context::{GuardPart, GuardRole, GuardState};
 mod validate;
@@ -87,5 +88,26 @@ impl GuardedWord {
             );
         }
         (None, 2)
+    }
+}
+
+/// Explicit replacement scope from one actual final emitter. Empty words retire
+/// the opening scope; None at a consumer means no ownership update.
+pub(crate) struct GuardUpdate {
+    pub before: Range<usize>,
+    pub after: Range<usize>,
+    pub words: Vec<GuardedWord>,
+}
+impl crate::inline::spelling::Spelling {
+    pub(in crate::inline) fn take_guards(
+        &mut self,
+        start: usize,
+        end: usize,
+    ) -> Option<GuardUpdate> {
+        self.guarded_words.take().map(|words| GuardUpdate {
+            before: start..end,
+            after: start..start + self.text.len(),
+            words,
+        })
     }
 }

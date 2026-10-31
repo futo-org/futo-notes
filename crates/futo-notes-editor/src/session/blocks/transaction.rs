@@ -110,7 +110,7 @@ impl EditorSession {
         } else {
             None
         };
-        let pending = mapped.then(|| staged.prepare_pending_for_parent(window.start));
+        let pending = Some(staged.prepare_pending_for_parent(window.start));
         let selection = if mapped {
             let (mut exact, work) = staged
                 .projection
@@ -141,10 +141,6 @@ impl EditorSession {
                 accept,
             )?
         };
-        if !mapped {
-            let pending = staged.prepare_pending_for_parent(window.start);
-            self.adopt_stage_pending(&pending, &mut change, staging::PendingHistory::Recorded);
-        }
         change.work.link_metadata_items += selection_work + if mapped { count * 4 + 9 } else { 0 };
         self.carry_block_state(&mut change, staged.pending_formats, staged.affinity);
         change.work.materialized_source_bytes += raw.len() + step.work.materialized_source_bytes;

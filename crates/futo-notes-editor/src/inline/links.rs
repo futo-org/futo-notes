@@ -255,6 +255,7 @@ impl super::Projection {
             Plan {
                 retained: Default::default(),
                 requires_source_identity: false,
+                guarded_words: rendered.take_guards(source_start, source_end),
                 pending_links: rendered.pending_links,
                 activated_links: rendered.activated_links,
                 delimiters: rendered.delimiters,
@@ -515,6 +516,7 @@ impl super::Projection {
         Ok(Plan {
             retained: Default::default(),
             requires_source_identity: false,
+            guarded_words: rendered.take_guards(source_start, source_end),
             pending_links: rendered.pending_links,
             activated_links: rendered.activated_links,
             delimiters: rendered.delimiters,

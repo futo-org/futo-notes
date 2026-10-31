@@ -72,14 +72,17 @@ pub(crate) fn validate_row(
                 && segment.source.end <= word.inner.end
             {
                 if text.is_empty() {
-                    if markers
-                        .binary_search_by(|range| {
-                            work += 1;
-                            (range.start, range.end)
-                                .cmp(&(segment.source.start, segment.source.end))
-                        })
-                        .is_err()
-                    {
+                    let marker = markers.partition_point(|range| {
+                        work += 1;
+                        range.end <= segment.source.start
+                    });
+                    if !markers.get(marker).is_some_and(|range| {
+                        work += 4;
+                        word.inner.start <= range.start
+                            && range.end <= word.inner.end
+                            && range.start <= segment.source.start
+                            && segment.source.end <= range.end
+                    }) {
                         return Err(EditorError::UnrepresentableFormat);
                     }
                 } else {

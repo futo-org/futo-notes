@@ -26,6 +26,7 @@ pub(crate) enum EditIntent {
 }
 
 pub(crate) struct Plan {
+    pub guarded_words: Option<super::guarded_words::GuardUpdate>,
     pub retained: SourceCorrespondence,
     pub requires_source_identity: bool,
     pub range: Range<usize>,
@@ -64,7 +65,7 @@ impl Projection {
             _ => None,
         };
         let Context {
-            guard_state,
+            mut guard_state,
             raw,
             source_start,
             source_end,
@@ -160,6 +161,7 @@ impl Projection {
             }
         }
         let mut toggle_work = 0;
+        let mut guard_work = super::references::ReferenceWork::default();
         if let Some(format) = toggle {
             let opaque: Vec<_> = self
                 .block_lines(range)
@@ -171,6 +173,9 @@ impl Projection {
                 })
                 .collect();
             toggle_work = super::toggle::pieces(&mut changed, &mut markers, a..z, format, &opaque);
+            if format == InlineFormat::Code {
+                guard_work = guard_state.enroll(&mut changed, &markers)?;
+            }
         }
         let speculative_block = inserted
             .chars()
@@ -211,8 +216,13 @@ impl Projection {
             intent,
             &pending_links,
         );
-        let angle =
-            super::links::finish_angle_word(&mut changed, &mut markers, insertion_index, inserted);
+        let angle = super::links::finish_angle_word(
+            &mut changed,
+            &mut markers,
+            &mut guard_state,
+            insertion_index,
+            inserted,
+        );
         let timing = if let EditIntent::Input(action) = intent {
             super::spelling::prepare_url_input(
                 &mut changed,
@@ -238,6 +248,7 @@ impl Projection {
         )?;
         let delimiter_work = rendered.relocate_delimiters(source_start);
         let parsed = rendered.parsed + angle.work.parsed + completion.work.parsed;
+        let guarded_words = rendered.take_guards(source_start, source_end);
         let output = rendered.text;
         let caret = rendered.caret;
         let (mut retained, mut correspondence_work) =
@@ -255,6 +266,7 @@ impl Projection {
             .map(|(c, _)| c.len_utf8())
             .sum();
         Ok(Plan {
+            guarded_words,
             retained,
             requires_source_identity: !literal,
             pending_links: rendered.pending_links,
@@ -271,8 +283,9 @@ impl Projection {
                 + angle.materialized
                 + completion.materialized
                 + rendered.materialized,
-            parsed: parsed + timing.work.parsed,
-            link_metadata_items: link_metadata_items
+            parsed: parsed + timing.work.parsed + guard_work.parsed,
+            link_metadata_items: guard_work.items
+                + link_metadata_items
                 + delimiter_work
                 + correspondence_work
                 + timing.work.items
@@ -280,7 +293,8 @@ impl Projection {
                 + angle.work.items
                 + completion.work.items
                 + toggle_work,
-            link_copied_bytes: rendered.link_copied_bytes
+            link_copied_bytes: guard_work.copied
+                + rendered.link_copied_bytes
                 + angle.work.copied
                 + completion.work.copied
                 + timing.work.copied,

@@ -33,6 +33,7 @@ pub(in crate::inline) struct Marker {
 }
 
 pub(in crate::inline) struct Spelling {
+    pub guarded_words: Option<Vec<crate::inline::guarded_words::GuardedWord>>,
     pub materialized: usize,
     pub text: String,
     pub origins: Vec<(PieceOrigin, Range<usize>)>,

@@ -276,7 +276,13 @@ impl super::Spelling {
             range.start += source;
             range.end += source;
         }
-        2 * (self.delimiters.len() + self.pending_links.len() + self.activated_links.len())
+        let mut guards = 0;
+        if let Some(words) = &mut self.guarded_words {
+            for word in words {
+                guards += word.relocate(source);
+            }
+        }
+        guards + 2 * (self.delimiters.len() + self.pending_links.len() + self.activated_links.len())
     }
 }
 

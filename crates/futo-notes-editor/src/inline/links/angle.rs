@@ -15,6 +15,7 @@ pub(in crate::inline) struct AngleFinish {
 pub(in crate::inline) fn finish_angle_word(
     pieces: &mut [super::super::spelling::Piece],
     markers: &mut Vec<super::super::spelling::Marker>,
+    guards: &mut crate::inline::guarded_words::GuardState,
     insertion: usize,
     inserted: &str,
 ) -> AngleFinish {
@@ -40,12 +41,13 @@ pub(in crate::inline) fn finish_angle_word(
         markers,
         start..insertion,
         word.len(),
+        guards,
         &mut result.work.items,
     ) else {
         return result;
     };
     result.work.items += 1;
-    if pieces[start].raw != "\\<" && !(owned.code_colon && pieces[start].raw == "<") {
+    if pieces[start].raw != "\\<" && !(owned.guard.is_some() && pieces[start].raw == "<") {
         return result;
     }
     let inner = &word[1..word.len() - 1];
@@ -68,10 +70,33 @@ pub(in crate::inline) fn finish_angle_word(
         return result;
     };
     result.work.items += 1;
+    if let Some(id) = owned.guard {
+        let Some(owner) = guards.owners.get(id).and_then(Option::as_ref) else {
+            return result;
+        };
+        result.work.items += inner.len() + owner.displayed.len();
+        if inner != owner.displayed.as_ref() {
+            return result;
+        }
+        let super::super::row::SpanKind::Link(meaning) = &link.kind else {
+            return result;
+        };
+        result.work.items += meaning.destination.len() + owner.meaning.destination.len() + 2;
+        if meaning != &owner.meaning {
+            return result;
+        }
+        // Only this successful current word consumes its prepared owner. The
+        // live accepted snapshot is unchanged until the host accepts the plan.
+        guards.owners[id] = None;
+        for piece in &mut pieces[start..insertion] {
+            result.work.items += 1;
+            piece.guard = None;
+        }
+    }
     // The exact old word envelope was established before canonical parsing.
     // Retirement is not target correspondence and never maps a raw interior.
     result.source = Some(owned.source);
-    if owned.code_colon {
+    if owned.guard.is_some() {
         ownership::consume_colons(&mut pieces[start..insertion], &mut result.work.items);
     }
     result.materialized += 4; // Two canonical marker bytes and both literal angles.

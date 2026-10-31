@@ -9,6 +9,7 @@ use crate::{DisplayRange, EditorError, InlineFormat, Revision};
 use ropey::Rope;
 
 pub(crate) struct BodySource {
+    pub guarded_words: Option<Vec<super::guarded_words::GuardedWord>>,
     pub text: String,
     pub revision: Revision,
     pub window: std::ops::Range<usize>,
@@ -95,6 +96,7 @@ impl Projection {
         }
         let materialized = raw.len() + result.text.len() + result.materialized;
         Ok(BodySource {
+            guarded_words: result.guarded_words,
             text: result.text,
             revision,
             window: source_start..source_end,
@@ -242,6 +244,7 @@ impl Projection {
         Ok(Some(Plan {
             retained: Default::default(),
             requires_source_identity: false,
+            guarded_words: rendered.take_guards(source_start, source_end),
             pending_links: rendered.pending_links,
             activated_links: rendered.activated_links,
             delimiters: rendered.delimiters,

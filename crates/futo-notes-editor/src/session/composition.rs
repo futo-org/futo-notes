@@ -288,10 +288,16 @@ impl EditorSession {
                 opening.before_affinity = self.affinity;
                 opening.before_formats = self.pending_formats.clone();
                 let pending = staged.prepare_pending_for_parent(window.start);
+                let guard_validation =
+                    self.validate_stage_guards(&edit, window.clone(), &pending)?;
                 accept(&edit).map_err(EditorError::Persistence)?;
                 let mut delta = self.apply(&edit);
                 delta.work.link_metadata_items += pending_work;
-                self.adopt_stage_pending(&pending, &mut delta, staging::PendingHistory::Prepared);
+                self.adopt_stage_pending(&pending, &mut delta);
+                delta.work.materialized_source_bytes += guard_validation.materialized_source_bytes;
+                delta.work.parsed_source_bytes += guard_validation.parsed_source_bytes;
+                delta.work.link_metadata_items += guard_validation.link_metadata_items;
+                delta.work.link_copied_bytes += guard_validation.link_copied_bytes;
                 delta.work.materialized_source_bytes += raw.len() + edit.inserted.len();
                 delta.work.parsed_source_bytes += staged.projection.initial_parse_work;
                 delta.work.link_metadata_items += staged.projection.initial_link_metadata_items;

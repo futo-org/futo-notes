@@ -286,6 +286,7 @@ impl EditorSession {
         range.end.0 += window.start;
         let edit = self.prepare_source(expected, range, &inserted)?;
         let pending = staged.prepare_pending_for_parent(window.start);
+        let guard_validation = self.validate_stage_guards(&edit, window.clone(), &pending)?;
         // No host-visible changes, history or clock boundaries before acceptance.
         accept(&edit).map_err(EditorError::Persistence)?;
         let before_selection = self.selection;
@@ -294,7 +295,11 @@ impl EditorSession {
         let before_formats = self.pending_formats.clone();
         let before_links = self.projection.pending_for_source_edit(edit.range);
         let mut change = self.apply(&edit);
-        self.adopt_stage_pending(&pending, &mut change, staging::PendingHistory::Prepared);
+        self.adopt_stage_pending(&pending, &mut change);
+        change.work.materialized_source_bytes += guard_validation.materialized_source_bytes;
+        change.work.parsed_source_bytes += guard_validation.parsed_source_bytes;
+        change.work.link_metadata_items += guard_validation.link_metadata_items;
+        change.work.link_copied_bytes += guard_validation.link_copied_bytes;
         let (start, a) = self.projection.project_source_point(selected_source.start);
         let (end, z) = self.projection.project_source_point(selected_source.end);
         link_metadata_items += a + z;
