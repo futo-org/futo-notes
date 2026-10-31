@@ -13,9 +13,13 @@ fn exact_edge_provenance_survives_nested_windows_but_never_derived_ancestry() {
             match session.physical_tail() {
                 PhysicalTail::Eof => assert!(tail.is_empty()),
                 PhysicalTail::Row {
-                    code, first_item, ..
+                    code,
+                    first_item,
+                    empty_comment,
+                    ..
                 } => {
                     assert!(!tail.is_empty());
+                    assert_eq!(empty_comment, tail == "<!-- -->\n");
                     if tail == "- outside" {
                         assert!(!code);
                         assert_eq!(first_item, Some(true));

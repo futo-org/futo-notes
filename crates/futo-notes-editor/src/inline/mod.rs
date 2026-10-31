@@ -295,8 +295,21 @@ impl Projection {
         range: &std::ops::Range<usize>,
     ) -> Vec<blocks::ListCommandLine> {
         let mut result = Vec::new();
+        self.visit_source_blocks(range, |block, base| {
+            result.push(blocks::ListCommandLine::from_block(block, base));
+        });
+        result
+    }
+
+    /// Borrow original canonical metadata once in a bounded source window.
+    /// Bodies and language strings remain in their retained row.
+    pub(crate) fn visit_source_blocks<'a>(
+        &'a self,
+        range: &std::ops::Range<usize>,
+        mut visit: impl FnMut(&'a blocks::BlockLine, usize),
+    ) {
         if range.is_empty() {
-            return result;
+            return;
         }
         let first = self.rows.locate(range.start, false);
         let last = self.rows.locate(range.end - 1, false);
@@ -323,11 +336,10 @@ impl Projection {
                 CONTAINER_BLOCK_QUERY_VISITS.with(|count| count.set(count.get() + 1));
                 visit_container();
                 if !block.empty_comment && begin < block.source.end && block.source.start < end {
-                    result.push(blocks::ListCommandLine::from_block(block, source));
+                    visit(block, source);
                 }
             }
         }
-        result
     }
 
     fn visit_block_lines(

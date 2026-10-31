@@ -43,6 +43,7 @@ pub(super) enum PhysicalTail {
         code: bool,
         quote_depth: usize,
         first_item: Option<bool>,
+        empty_comment: bool,
     },
     Unknown,
 }
@@ -146,6 +147,10 @@ impl EditorSession {
                     code: prefix.code,
                     quote_depth: prefix.quote_depth,
                     first_item: prefix.list.as_ref().map(|list| list.first),
+                    empty_comment: self
+                        .projection
+                        .list_command_line_at_source(window.end)
+                        .is_some_and(|line| line.empty_comment),
                 })
         } else {
             PhysicalTail::Unknown
