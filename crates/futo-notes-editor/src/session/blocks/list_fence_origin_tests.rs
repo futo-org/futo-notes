@@ -95,3 +95,45 @@ fn an_exact_grandchild_of_derived_body_cannot_claim_eof_after_hidden_tail_is_omi
     assert_eq!(staged.affinity(), Affinity::Backward);
     assert_eq!(original.source_text(), full);
 }
+
+#[test]
+fn a_derived_local_foreign_tail_cannot_recertify_original_fence_termination() {
+    let raw = "- parent\n  ```\n  opaque\n- outside";
+    let original = EditorSession::open(raw);
+    let derived = original.stage_body_source(raw, 0..raw.len());
+    for exact_grandchild in [false, true] {
+        let mut staged = if exact_grandchild {
+            derived.stage_source(raw, 0..raw.len())
+        } else {
+            original.stage_body_source(raw, 0..raw.len())
+        };
+        let selected = DisplayRange {
+            start: DisplayOffset(0),
+            end: DisplayOffset(0),
+        };
+        staged
+            .select_with_affinity(staged.revision(), selected, Affinity::Backward)
+            .unwrap();
+        let mut accepted = 0;
+        let result = staged.block_command(
+            staged.revision(),
+            selected,
+            BlockCommand::Heading(0),
+            &mut |_| {
+                accepted += 1;
+                Ok(())
+            },
+        );
+        assert!(
+            matches!(result, Err(EditorError::UnrepresentableFormat)),
+            "exactGrandchild{exact_grandchild}"
+        );
+        assert_eq!(accepted, 0);
+        assert_eq!(staged.source_text(), raw);
+        assert_eq!(staged.display_text(), "parent\nopaque\noutside");
+        assert_eq!(staged.revision(), Revision(0));
+        assert_eq!(staged.selection(), selected);
+        assert_eq!(staged.affinity(), Affinity::Backward);
+    }
+    assert_eq!(original.source_text(), raw);
+}
