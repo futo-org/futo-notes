@@ -96,6 +96,10 @@ export async function relinkTypedConsumer({ start, stop, getSession, createRoot,
   assert.equal(shown, `${renamed}>`);
   assert.deepEqual(JSON.parse(page.project(5n, 0, 26)).links, []);
   const closed = page.draft_text();
+  // An actual caret excursion separates these two Typing actions. Consecutive
+  // closer+Space may otherwise form one timed history group, as specified.
+  page.select_with_affinity(5n, 0, 0, '"Forward"');
+  page.select_with_affinity(5n, 26, 26, '"Forward"');
   await apply(page.replace(5n, 26, 26, ' '));
   assert.equal(shown, `${renamed}> `);
   const destination = 'http://www.x.test/[[next]]/path';
