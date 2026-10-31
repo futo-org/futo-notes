@@ -516,5 +516,145 @@
       1,
       0
     ]
+  },
+  {
+    "name": "foreign-before-mixed-quote-promotion-stays-independent",
+    "source": "- before\n\n1. parent\n   > - child😀\n   >   - grandchild\n   > - sibling\n2. following",
+    "display": "before\n\nparent\nchild😀\ngrandchild\nsibling\nfollowing",
+    "action": "BulletList",
+    "range": [
+      8,
+      22
+    ],
+    "expected": "- before\n\nparent\n> child😀\n> + grandchild\n> - sibling\n- following",
+    "shown": "before\n\nparent\nchild😀\ngrandchild\nsibling\nfollowing",
+    "resultRange": [
+      8,
+      22
+    ],
+    "finalItems": [
+      [
+        null,
+        null
+      ],
+      [
+        null,
+        null
+      ],
+      [
+        null,
+        null
+      ],
+      [
+        null,
+        null
+      ]
+    ],
+    "itemQuoteDepths": [
+      0,
+      1,
+      1,
+      0
+    ]
+  },
+  {
+    "name": "interleaved-task-owner-between-foreign-bullet-families",
+    "source": "- before\n\n1. p0\n   - c0\n1. p1\n   - c1\n\n+ after",
+    "display": "before\n\np0\nc0\np1\nc1\n\nafter",
+    "action": "TaskList",
+    "range": [
+      8,
+      19
+    ],
+    "expected": "- before\n\n* [ ] p0\n  - [ ] c0\n* [ ] p1\n  - [ ] c1\n\n+ after",
+    "shown": "before\n\np0\nc0\np1\nc1\n\nafter",
+    "resultRange": [
+      8,
+      19
+    ],
+    "finalItems": [
+      [
+        null,
+        null
+      ],
+      [
+        null,
+        false
+      ],
+      [
+        null,
+        false
+      ],
+      [
+        null,
+        false
+      ],
+      [
+        null,
+        false
+      ],
+      [
+        null,
+        null
+      ]
+    ],
+    "itemDepths": [
+      1,
+      1,
+      2,
+      1,
+      2,
+      1
+    ]
+  },
+  {
+    "name": "interleaved-ordered-owner-one-comment-keeps-foreign-starts",
+    "source": "7) before\n\n- p0\n  - c0\n- p1\n  - c1\n\n9. after",
+    "display": "before\n\np0\nc0\np1\nc1\n\nafter",
+    "action": "OrderedList",
+    "range": [
+      8,
+      19
+    ],
+    "expected": "7) before\n\n1. p0\n   1. c0\n2. p1\n   1. c1\n<!-- -->\n\n9. after",
+    "shown": "before\n\np0\nc0\np1\nc1\n\nafter",
+    "resultRange": [
+      8,
+      19
+    ],
+    "finalItems": [
+      [
+        7,
+        null
+      ],
+      [
+        1,
+        null
+      ],
+      [
+        1,
+        null
+      ],
+      [
+        2,
+        null
+      ],
+      [
+        1,
+        null
+      ],
+      [
+        9,
+        null
+      ]
+    ],
+    "itemDepths": [
+      1,
+      1,
+      2,
+      1,
+      2,
+      1
+    ]
   }
 ]

@@ -45,7 +45,7 @@ fn shared_list_actions_forward_native_coordinates_history_and_exact_recovery() {
         "../../futo-notes-editor/tests/fixtures/container-commands.json"
     ))
     .unwrap();
-    assert_eq!(commands.len(), 15);
+    assert_eq!(commands.len(), 18);
     let cases: Vec<_> = original
         .into_iter()
         .chain(shortcuts)
