@@ -196,7 +196,7 @@ pub(in crate::inline) fn complete_typed_angle(
     let inner_source = first.start..source.unwrap().end;
     if !pending.iter().any(|range| {
         result.work.items += 1;
-        *range == inner_source
+        range.start == inner_source.start && range.end <= inner_source.end
     }) {
         return result;
     }
@@ -220,12 +220,53 @@ pub(in crate::inline) fn complete_typed_angle(
             _ => None,
         })
         .sum::<usize>();
-    let Some(link) = links
-        .first()
-        .filter(|link| links.len() == 1 && link.open.start == 0 && link.close.end == inner.len())
-    else {
+    let Some(link) = links.first().filter(|link| {
+        links.len() == 1
+            && link.open.start == 0
+            && 0 < link.close.end
+            && link.close.end <= inner.len()
+    }) else {
         return result;
     };
+    let SpanKind::Link(target) = &link.kind else {
+        return result;
+    };
+    if target.title.is_some() || target.reference.is_some() {
+        return result;
+    }
+    // Canonical display coordinates select complete current source atoms.
+    // Punctuation outside this prefix never becomes part of its pending owner.
+    let mut shown = 0;
+    let mut end = start + 1;
+    let mut source_end = inner_source.start;
+    for (index, piece) in pieces
+        .iter()
+        .enumerate()
+        .take(insertion.start)
+        .skip(start + 1)
+    {
+        result.work.items += 2;
+        if shown == link.close.end {
+            break;
+        }
+        shown += piece.display.len();
+        if shown > link.close.end {
+            return result; // Never clip a nonidentity source atom.
+        }
+        let Some(PieceOrigin::Source(range)) = &piece.origin else {
+            return result;
+        };
+        source_end = range.end;
+        end = index + 1;
+    }
+    if shown != link.close.end
+        || !pending.iter().any(|range| {
+            result.work.items += 1;
+            *range == (inner_source.start..source_end)
+        })
+    {
+        return result;
+    }
     let id = markers.len();
     markers.push(super::super::spelling::Marker {
         source: None,
@@ -238,7 +279,7 @@ pub(in crate::inline) fn complete_typed_angle(
     });
     pieces[start].raw = "<".into();
     result.materialized += 3; // New literal opener plus canonical marker pair.
-    for piece in &mut pieces[start + 1..insertion.start] {
+    for piece in &mut pieces[start + 1..end] {
         result.work.items += 1;
         piece.spans.push(id);
     }
