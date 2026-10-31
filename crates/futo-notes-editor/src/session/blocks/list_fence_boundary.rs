@@ -24,24 +24,32 @@ impl EditorSession {
         {
             return Ok("");
         }
-        // This slice cannot dereference an inherited outside source coordinate.
-        // A valid unproved context remains required rather than unsafe acceptance.
-        if !before.local {
-            return Err(EditorError::UnrepresentableFormat);
-        }
         if list.quote_depth != 0
             || witness.quote_depth != 0
             || !witness.list.as_ref().is_some_and(|l| l.depth == 1)
-            || witness.source.end != first.source.start
         {
             return Ok("");
         }
-        let (prior, base) = self
-            .projection
-            .block_ref_at_source(witness.source.start)
-            .ok_or(EditorError::UnrepresentableFormat)?;
-        crate::inline::visit_container();
-        if !prior.paragraph_text || base + prior.source.end != first.source.start {
+        let prose = if before.local {
+            if witness.source.end != first.source.start {
+                return Ok("");
+            }
+            let (prior, base) = self
+                .projection
+                .block_ref_at_source(witness.source.start)
+                .ok_or(EditorError::UnrepresentableFormat)?;
+            crate::inline::visit_container();
+            prior.paragraph_text && base + prior.source.end == first.source.start
+        } else {
+            if first.source.start != 0 {
+                return Err(EditorError::UnrepresentableFormat);
+            }
+            // Only an original opening-edge fact may cross the stage boundary.
+            // Never dereference the inherited witness against the child Rope.
+            self.inherited_leading_list_prose()
+                .ok_or(EditorError::UnrepresentableFormat)?
+        };
+        if !prose {
             return Ok("");
         }
         let ending = self.source.byte_slice(first.content.end..first.source.end);

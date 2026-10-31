@@ -66,6 +66,7 @@ pub(super) struct StageContext {
     physical_tail: PhysicalTail,
     original_canonical: bool,
     fence_edge: Option<FenceBoundary>,
+    leading_list_prose: Option<bool>,
 }
 
 impl Default for StageContext {
@@ -76,6 +77,7 @@ impl Default for StageContext {
             physical_tail: PhysicalTail::Unknown,
             original_canonical: false,
             fence_edge: None,
+            leading_list_prose: None,
         }
     }
 }
@@ -151,6 +153,40 @@ impl EditorSession {
     /// they must never be copied by an arithmetic window offset.
     pub(super) fn stage_body_source(&self, raw: &str, window: Range<usize>) -> Self {
         self.stage_with_context(raw, window, false)
+    }
+
+    /// Original outside prose authority, without a foreign source coordinate.
+    pub(super) fn inherited_leading_list_prose(&self) -> Option<bool> {
+        self.context.leading_list_prose
+    }
+
+    fn capture_leading_list_prose(&self, at: usize) -> Option<bool> {
+        if !self.context.original_canonical {
+            return (at == 0)
+                .then_some(self.context.leading_list_prose)
+                .flatten();
+        }
+        if at == 0 {
+            return Some(false);
+        }
+        // Both sides must be complete physical rows in the original parser's
+        // context. A cut inside a container/body cannot certify an outside.
+        let current = self.projection.source_prefix_at(at)?;
+        crate::inline::visit_container();
+        if current.source.start != at {
+            return None;
+        }
+        let previous = self.source.line_to_byte(self.source.byte_to_line(at - 1));
+        let (block, base) = self.projection.block_ref_at_source(previous)?;
+        crate::inline::visit_container();
+        if base + block.source.start != previous || base + block.source.end != at {
+            return None;
+        }
+        Some(
+            block.paragraph_text
+                && block.quote_depth == 0
+                && block.list.as_ref().is_some_and(|list| list.depth == 1),
+        )
     }
 
     pub(super) fn physical_tail(&self) -> PhysicalTail {
@@ -338,6 +374,11 @@ impl EditorSession {
             after: self.stage_boundary(window.end, true),
             physical_tail,
             original_canonical: false,
+            leading_list_prose: if exact {
+                self.capture_leading_list_prose(window.start)
+            } else {
+                None
+            },
             fence_edge: if exact {
                 self.capture_fence_edge(&window)
             } else {
