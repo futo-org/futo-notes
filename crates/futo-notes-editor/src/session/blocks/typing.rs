@@ -191,6 +191,7 @@ impl EditorSession {
         range: DisplayRange,
         inserted: &str,
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
+        query_work: &mut crate::inline::references::ReferenceWork,
     ) -> Result<Option<ViewChange>, EditorError> {
         if let Some(change) = self.fence_conversion(expected, range, inserted, accept)? {
             return Ok(Some(change));
@@ -215,9 +216,13 @@ impl EditorSession {
             start: DisplayOffset(start_display),
             end: range.start,
         };
-        if self
+        let (prefix_projection, measured) = self
             .projection
-            .query(self.revision(), prefix_range)
+            .query_with_work(self.revision(), prefix_range);
+        query_work.parsed += measured.parsed;
+        query_work.items += measured.items;
+        query_work.copied += measured.copied;
+        if prefix_projection
             .runs
             .iter()
             .any(|run| run.formats.contains(&InlineFormat::Code))

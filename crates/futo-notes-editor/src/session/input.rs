@@ -52,6 +52,30 @@ impl EditorSession {
         action: crate::InputAction,
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<(ViewChange, InputMapping), EditorError> {
+        let mut query_work = crate::inline::references::ReferenceWork::default();
+        let (mut change, mapping) = self.replace_action_planned(
+            expected,
+            range,
+            inserted,
+            action,
+            accept,
+            &mut query_work,
+        )?;
+        change.work.parsed_source_bytes += query_work.parsed;
+        change.work.link_metadata_items += query_work.items;
+        change.work.link_copied_bytes += query_work.copied;
+        Ok((change, mapping))
+    }
+
+    fn replace_action_planned(
+        &mut self,
+        expected: Revision,
+        range: DisplayRange,
+        inserted: &str,
+        action: crate::InputAction,
+        accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
+        query_work: &mut crate::inline::references::ReferenceWork,
+    ) -> Result<(ViewChange, InputMapping), EditorError> {
         self.check_revision(expected)?;
         if self.composition.is_some() {
             if action == crate::InputAction::CompositionCommit {
@@ -70,7 +94,9 @@ impl EditorSession {
             return Ok((change, mapping));
         }
         if action == crate::InputAction::Typing {
-            if let Some(change) = self.line_start_conversion(expected, range, inserted, accept)? {
+            if let Some(change) =
+                self.line_start_conversion(expected, range, inserted, accept, query_work)?
+            {
                 let mapping = InputMapping::new(change.range, change.inserted.len());
                 return Ok((change, mapping));
             }
