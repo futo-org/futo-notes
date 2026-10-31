@@ -1,9 +1,19 @@
 use super::*;
 
 fn quote_boundary_case(raw: &str, before: &str) {
-    let expected = "parent\n> ```\n> opaque\n\n> - outside";
-    let shown = "parent\nopaque\n\noutside";
-    let opening = EditorSession::open(expected);
+    for ending in ["\n", "\r\n"] {
+        quote_boundary_ending(
+            &raw.replace('\n', ending),
+            &before.replace('\n', ending),
+            ending,
+        );
+    }
+}
+
+fn quote_boundary_ending(raw: &str, before: &str, ending: &str) {
+    let expected = "parent\n> ```\n> opaque\n\n> - outside".replace('\n', ending);
+    let shown = "parent\nopaque\n\noutside".replace('\n', ending);
+    let opening = EditorSession::open(&expected);
     assert_eq!(opening.source_text(), expected);
     assert_eq!(opening.display_text(), shown);
     let p = opening
@@ -67,7 +77,12 @@ fn quote_boundary_case(raw: &str, before: &str) {
             assert_eq!(view.text, shown);
             assert_eq!(s.selection(), selected);
             assert_eq!(s.affinity(), affinity);
-            let outside = s.project(s.revision(), range(15, 22)).unwrap();
+            let outside = s
+                .project(
+                    s.revision(),
+                    range(shown.find("outside").unwrap(), shown.len()),
+                )
+                .unwrap();
             assert!(outside.blocks.iter().all(|b| !b.code
                 && b.quote_depth == 1
                 && b.list.as_ref().is_some_and(|l| l.first && l.depth == 1)));
