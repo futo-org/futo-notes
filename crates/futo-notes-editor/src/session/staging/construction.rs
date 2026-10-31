@@ -2,7 +2,7 @@
 use super::*;
 
 impl EditorSession {
-    pub(super) fn stage_with_context(
+    pub(in crate::session) fn stage_with_context(
         &self,
         raw: &str,
         window: Range<usize>,
