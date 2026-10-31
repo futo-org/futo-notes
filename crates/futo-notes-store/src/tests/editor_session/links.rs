@@ -228,3 +228,5 @@ mod typed_origin;
 mod literal_retirement;
 
 mod partial_ending;
+
+mod input_lifecycle;
