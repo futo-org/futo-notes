@@ -1,34 +1,24 @@
-//! Selections follow unchanged scalar runs. Inside replaced bytes, affinity
-//! chooses the corresponding edge; endpoints of a replacement retain their side.
+//! Semantic plain-caret policy inside one certified rewritten target.
+//! These runs never certify source lineage or transport a nonidentity atom.
 use super::*;
 use similar::{ChangeTag, TextDiff};
 
-pub(super) fn selection(
-    before: &str,
-    after: &str,
-    range: DisplayRange,
-    affinity: Affinity,
-) -> DisplayRange {
-    if before == after {
-        return range;
+/// Semantic caret policy for ONE already certified emitted target. This is
+/// never copied-source evidence and cannot map fields or nonidentity atoms.
+pub(super) struct TargetCaret {
+    runs: Vec<Run>,
+}
+impl TargetCaret {
+    pub fn new(before: &str, after: &str) -> (Self, usize) {
+        let runs = changed_runs(before, after);
+        let work = before.len() + after.len() + 3 * runs.len();
+        (Self { runs }, work)
     }
-    let old = crate::inline::Projection::new(before);
-    let new = crate::inline::Projection::new(after);
-    let runs = changed_runs(before, after);
-    let map = |offset: DisplayOffset| {
-        let (low, high) = old.source_bounds(offset.0);
-        let source = if affinity == Affinity::Forward {
-            high
-        } else {
-            low
-        };
-        DisplayOffset(new.display_at(source_position(source, affinity, &runs)))
-    };
-    DisplayRange {
-        start: map(range.start),
-        end: map(range.end),
+    pub fn map(&self, offset: usize, affinity: Affinity) -> (usize, usize) {
+        source_position_work(offset, affinity, &self.runs)
     }
 }
+
 struct Run {
     start: usize,
     end: usize,
@@ -67,97 +57,38 @@ fn changed_runs(before: &str, after: &str) -> Vec<Run> {
     }
     runs
 }
-fn source_position(offset: usize, affinity: Affinity, runs: &[Run]) -> usize {
+fn source_position_work(offset: usize, affinity: Affinity, runs: &[Run]) -> (usize, usize) {
+    let mut work = 0;
     let mut before = 0;
     let mut after = 0;
     for run in runs {
+        work += 1;
         if offset < run.start {
-            return after + offset - before;
+            return (after + offset - before, work);
         }
         after += run.start - before;
         if offset == run.start && run.start < run.end {
-            return after;
+            return (after, work);
         }
         if offset < run.end {
-            return after
-                + if affinity == Affinity::Forward {
-                    run.inserted
-                } else {
-                    0
-                };
+            return (
+                after
+                    + if affinity == Affinity::Forward {
+                        run.inserted
+                    } else {
+                        0
+                    },
+                work,
+            );
         }
         if offset == run.start && affinity == Affinity::Backward {
-            return after;
+            return (after, work);
         }
         after += run.inserted;
         if offset == run.end {
-            return after;
+            return (after, work);
         }
         before = run.end;
     }
-    after + offset - before
-}
-
-pub(super) fn pending(
-    before: &str,
-    after: &str,
-    snapshot: &crate::inline::PendingLinks,
-) -> Result<crate::inline::PendingLinks, EditorError> {
-    if snapshot.has_words() {
-        // This historical source is rewritten by the canonical relinker, but
-        // that owner currently returns no retained-source witnesses. TextDiff
-        // equality cannot prove guard lineage through a changed generation.
-        if before != after {
-            return Err(EditorError::UnrepresentableFormat);
-        }
-        let mut same = snapshot.clone();
-        same.work += 5 * (snapshot.guarded_words.len() + snapshot.typed_inputs.len());
-        return Ok(same);
-    }
-    let runs = changed_runs(before, after);
-    let map = |range: &std::ops::Range<usize>| {
-        source_position(range.start, Affinity::Backward, &runs)
-            ..source_position(range.end, Affinity::Forward, &runs)
-    };
-    Ok(crate::inline::PendingLinks {
-        window: map(&snapshot.window),
-        ranges: snapshot.ranges.iter().map(map).collect(),
-        delimiters: snapshot.delimiters.iter().map(map).collect(),
-        guarded_words: Vec::new(),
-        typed_inputs: Vec::new(),
-        work: snapshot.work,
-    })
-}
-
-pub(super) fn source_anchor(
-    before: &str,
-    after: &str,
-    anchor: crate::history::SourceSelection,
-    affinity: Affinity,
-) -> Result<crate::history::SourceSelection, EditorError> {
-    match anchor {
-        crate::history::SourceSelection::Exact(range) => {
-            let runs = changed_runs(before, after);
-            let map = |mut point: crate::history::SourcePoint| {
-                if let Some(atom) = point.atom {
-                    let end = point.source.0 + atom.source_len;
-                    if runs.iter().any(|run| {
-                        point.source.0 < run.end && run.start < end
-                            || run.start == run.end && point.source.0 < run.start && run.start < end
-                    }) {
-                        return Err(EditorError::UnrepresentableFormat);
-                    }
-                }
-                point.source.0 = source_position(point.source.0, affinity, &runs);
-                Ok(point)
-            };
-            Ok(crate::history::SourceSelection::Exact(
-                crate::history::ExactSelection {
-                    start: map(range.start)?,
-                    end: map(range.end)?,
-                },
-            ))
-        }
-        crate::history::SourceSelection::Derived => Ok(crate::history::SourceSelection::Derived),
-    }
+    (after + offset - before, work)
 }

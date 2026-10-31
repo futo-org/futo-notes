@@ -13,6 +13,7 @@ pub(super) struct PendingPreview {
 /// result collection; ordinary single-selection previews allocate no table.
 pub(super) struct SelectionTargets<'a> {
     pub selections: &'a [crate::history::ExactSelection],
+    pub links: &'a [crate::inline::PendingLinkWitness],
     pub emit: &'a mut dyn FnMut(DisplayRange),
 }
 
@@ -164,6 +165,7 @@ impl EditorSession {
             required,
             SelectionTargets {
                 selections: selection.as_slice(),
+                links: &[],
                 emit: &mut |range| selected = Some(range),
             },
         )?;
@@ -200,6 +202,9 @@ impl EditorSession {
         work.parsed_source_bytes += staged.projection.initial_parse_work;
         work.link_metadata_items += staged.projection.initial_link_metadata_items;
         work.link_copied_bytes += staged.projection.initial_link_copied_bytes;
+        work.link_metadata_items += staged
+            .projection
+            .verify_pending_link_witnesses(targets.links, window.start)?;
         self.preview_exact_selections(&staged, window.clone(), targets, &mut work)?;
         let Some(pending) = pending else {
             return Ok(PendingPreview {

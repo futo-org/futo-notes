@@ -12,7 +12,7 @@
 //! fixtures `tests/conformance/wikilinks-*.json` lock both sides together.
 
 mod rewrite;
-pub use rewrite::{observe_wikilink_rewrite, RewriteRange, WikilinkRewrite};
+pub use rewrite::{observe_wikilink_rewrite, RewriteRange, RewriteWork, WikilinkRewrite};
 
 /// Extract wikilink targets from `content`. An empty target (`[[]]` or
 /// `[[ |x]]`) is skipped. Matches the resolution the TS `wikilinks.ts` uses
@@ -97,11 +97,28 @@ pub struct WikilinkOccurrence {
 /// later, exactly like `exec` does. All delimiters are ASCII, so the
 /// byte-wise walk can't false-match inside a multi-byte UTF-8 char.
 pub fn find_wikilinks(text: &str) -> Vec<WikilinkOccurrence> {
+    find_wikilinks_with_work(text, None)
+}
+fn items(work: &mut Option<&mut RewriteWork>, count: usize) {
+    if let Some(work) = work.as_deref_mut() {
+        work.metadata_items += count;
+    }
+}
+fn copied(work: &mut Option<&mut RewriteWork>, bytes: usize) {
+    if let Some(work) = work.as_deref_mut() {
+        work.copied_bytes += bytes;
+    }
+}
+fn find_wikilinks_with_work(
+    text: &str,
+    mut work: Option<&mut RewriteWork>,
+) -> Vec<WikilinkOccurrence> {
     let bytes = text.as_bytes();
     let n = bytes.len();
     let mut out = Vec::new();
     let mut i = 0usize;
     while i + 1 < n {
+        items(&mut work, 1);
         if bytes[i] == b'[' && bytes[i + 1] == b'[' {
             // Greedily consume `(?:(?!\]\])[^\n])` chars.
             let mut j = i + 2;
@@ -109,10 +126,13 @@ pub fn find_wikilinks(text: &str) -> Vec<WikilinkOccurrence> {
                 && bytes[j] != b'\n'
                 && !(bytes[j] == b']' && j + 1 < n && bytes[j + 1] == b']')
             {
+                items(&mut work, 1);
                 j += 1;
             }
             // Match iff the inner is non-empty and we stopped at a `]]`.
             if j > i + 2 && j + 1 < n && bytes[j] == b']' && bytes[j + 1] == b']' {
+                items(&mut work, 3 + usize::from(out.len() == out.capacity()));
+                copied(&mut work, j - i - 2);
                 out.push(WikilinkOccurrence {
                     start: i,
                     end: j + 2,
@@ -168,18 +188,34 @@ pub fn shortest_unique_suffix(target_id: &str, all_ids: &[String]) -> String {
 ///   the path-suffix of exactly one ID.
 /// - Otherwise `None` (broken link — never silently pick a winner).
 pub fn resolve_wikilink(target: &str, all_ids: &[String]) -> Option<String> {
+    resolve_wikilink_with_work(target, all_ids, None)
+}
+fn resolve_wikilink_with_work(
+    target: &str,
+    all_ids: &[String],
+    mut work: Option<&mut RewriteWork>,
+) -> Option<String> {
+    items(&mut work, 1);
     if target.is_empty() {
         return None;
     }
     // Exact ID match — covers full paths and root-level bare filenames.
-    if all_ids.iter().any(|id| id == target) {
+    if all_ids.iter().any(|id| {
+        items(&mut work, 1);
+        id == target
+    }) {
+        copied(&mut work, target.len());
         return Some(target.to_string());
     }
     // Bare filename: target has no `/`. Find candidates whose leaf matches.
     if !target.contains('/') {
-        let mut candidates = all_ids.iter().filter(|id| note_id_leaf(id) == target);
+        let mut candidates = all_ids.iter().filter(|id| {
+            items(&mut work, 1);
+            note_id_leaf(id) == target
+        });
         let first = candidates.next()?;
         if candidates.next().is_none() {
+            copied(&mut work, first.len());
             return Some(first.clone());
         }
         return None; // ambiguous — broken
@@ -187,19 +223,30 @@ pub fn resolve_wikilink(target: &str, all_ids: &[String]) -> Option<String> {
     // Multi-component target that didn't match exactly. Try as a unique
     // path-suffix: if exactly one ID ends in the same components, accept.
     let target_parts: Vec<&str> = target.split('/').collect();
+    items(&mut work, 1 + 2 * target_parts.len());
     let mut found: Option<&String> = None;
     let mut count = 0usize;
     for id in all_ids {
+        items(&mut work, 1);
         let id_parts: Vec<&str> = id.split('/').collect();
+        items(&mut work, 1 + 2 * id_parts.len());
         if id_parts.len() < target_parts.len() {
             continue;
         }
-        if id_parts[id_parts.len() - target_parts.len()..] == *target_parts.as_slice() {
+        if id_parts[id_parts.len() - target_parts.len()..]
+            .iter()
+            .zip(&target_parts)
+            .all(|(a, b)| {
+                items(&mut work, 1);
+                a == b
+            })
+        {
             found = Some(id);
             count += 1;
         }
     }
     if count == 1 {
+        copied(&mut work, found.unwrap().len());
         return found.cloned();
     }
     None
@@ -232,7 +279,7 @@ pub fn rewrite_wikilinks(
     new_id: &str,
     all_ids: &[String],
 ) -> (String, u32) {
-    rewrite::rewrite(text, old_id, new_id, all_ids, None)
+    rewrite::rewrite(text, old_id, new_id, all_ids, None, None)
 }
 
 #[cfg(test)]

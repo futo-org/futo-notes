@@ -1,11 +1,21 @@
 //! One canonical rewrite emitter, optionally reporting the source it actually copies.
-use super::{find_wikilinks, link_targets_naming, resolve_wikilink};
+use super::{
+    copied, find_wikilinks_with_work, items, link_targets_naming, resolve_wikilink_with_work,
+};
 use std::ops::Range;
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct RewriteRange {
     pub before: Range<usize>,
     pub after: Range<usize>,
+}
+
+/// Visits and owned target/context copies at the actual rewrite owner. These
+/// are not markdown-parser input or a complete CPU/allocation measurement.
+#[derive(Default)]
+pub struct RewriteWork {
+    pub metadata_items: usize,
+    pub copied_bytes: usize,
 }
 
 /// Ranges belong to this one actual input/output generation. Replacements
@@ -16,6 +26,7 @@ pub struct WikilinkRewrite {
     pub input_len: usize,
     pub copied: Vec<RewriteRange>,
     pub replaced: Vec<RewriteRange>,
+    pub work: RewriteWork,
 }
 
 /// Observe the existing canonical rewrite without changing its resolution or
@@ -28,34 +39,44 @@ pub fn observe_wikilink_rewrite(
 ) -> WikilinkRewrite {
     let mut copied: Vec<RewriteRange> = Vec::new();
     let mut replaced = Vec::new();
+    let mut work = RewriteWork::default();
+    let mut event_items = 0;
     let (source, rewrites) = rewrite(
         text,
         old_id,
         new_id,
         all_ids,
         Some(&mut |changed, before, after| {
+            event_items += 2;
             if before.is_empty() && after.is_empty() {
                 return;
             }
+            event_items += 1;
             if changed {
+                event_items += 4 + usize::from(replaced.len() == replaced.capacity());
                 replaced.push(RewriteRange { before, after });
-            } else if let Some(last) = copied
-                .last_mut()
-                .filter(|last| last.before.end == before.start && last.after.end == after.start)
-            {
+            } else if let Some(last) = copied.last_mut().filter(|last| {
+                event_items += 2;
+                last.before.end == before.start && last.after.end == after.start
+            }) {
+                event_items += 2;
                 last.before.end = before.end;
                 last.after.end = after.end;
             } else {
+                event_items += 4 + usize::from(copied.len() == copied.capacity());
                 copied.push(RewriteRange { before, after });
             }
         }),
+        Some(&mut work),
     );
+    work.metadata_items += event_items;
     WikilinkRewrite {
         source,
         rewrites,
         input_len: text.len(),
         copied,
         replaced,
+        work,
     }
 }
 
@@ -74,11 +95,13 @@ pub(super) fn rewrite(
     new_id: &str,
     all_ids: &[String],
     mut observer: Observer<'_>,
+    mut work: Option<&mut RewriteWork>,
 ) -> (String, u32) {
-    let could_name_old_id =
-        |target: &str| link_targets_naming(old_id).any(|naming| naming == target);
-    let occurrences = find_wikilinks(text);
-    if !occurrences.iter().any(|occ| could_name_old_id(&occ.target)) {
+    let occurrences = find_wikilinks_with_work(text, work.as_deref_mut());
+    if !occurrences
+        .iter()
+        .any(|occ| could_name(&occ.target, old_id, &mut work))
+    {
         if let Some(observer) = observer.as_deref_mut() {
             observer(false, 0..text.len(), 0..text.len());
         }
@@ -87,11 +110,27 @@ pub(super) fn rewrite(
     // The id-resolution context must include `old_id` so legacy bare-filename
     // links targeting it still resolve. Replace `new_id` with `old_id` so
     // resolution sees the pre-rename universe.
-    let mut ctx = all_ids.to_vec();
-    if !ctx.iter().any(|id| id == old_id) {
-        if let Some(position) = ctx.iter().position(|id| id == new_id) {
+    items(&mut work, usize::from(!all_ids.is_empty()));
+    let mut ctx: Vec<String> = all_ids
+        .iter()
+        .map(|id| {
+            items(&mut work, 1);
+            copied(&mut work, id.len());
+            id.clone()
+        })
+        .collect();
+    if !ctx.iter().any(|id| {
+        items(&mut work, 1);
+        id == old_id
+    }) {
+        copied(&mut work, old_id.len());
+        if let Some(position) = ctx.iter().position(|id| {
+            items(&mut work, 1);
+            id == new_id
+        }) {
             ctx[position] = old_id.to_owned();
         } else {
+            items(&mut work, 1 + usize::from(ctx.len() == ctx.capacity()));
             ctx.push(old_id.to_owned());
         }
     }
@@ -99,9 +138,11 @@ pub(super) fn rewrite(
     let mut cursor = 0usize;
     let mut out = String::with_capacity(text.len());
     for occ in &occurrences {
+        items(&mut work, 1);
         copy(&mut out, text, cursor..occ.start, &mut observer);
-        if could_name_old_id(&occ.target)
-            && resolve_wikilink(&occ.target, &ctx).as_deref() == Some(old_id)
+        if could_name(&occ.target, old_id, &mut work)
+            && resolve_wikilink_with_work(&occ.target, &ctx, work.as_deref_mut()).as_deref()
+                == Some(old_id)
         {
             let start = out.len();
             out.push_str("[[");
@@ -118,4 +159,11 @@ pub(super) fn rewrite(
     }
     copy(&mut out, text, cursor..text.len(), &mut observer);
     (out, rewrites)
+}
+
+fn could_name(target: &str, old_id: &str, work: &mut Option<&mut RewriteWork>) -> bool {
+    link_targets_naming(old_id).any(|naming| {
+        items(work, 1);
+        naming == target
+    })
 }

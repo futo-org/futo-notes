@@ -3,26 +3,17 @@
 //! This explicit lifecycle operation may visit history; it is never a typing path.
 use super::*;
 use serde::{Deserialize, Serialize};
+mod boundary;
+mod plan;
 mod positions;
+mod replay;
+mod rewrite;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OwnActionRelink {
     pub mappings: Vec<(String, String)>,
     /// Note identities immediately before the committed rename/move.
     pub note_ids: Vec<String>,
-}
-impl OwnActionRelink {
-    fn rewrite(&self, source: &str) -> String {
-        let mut ids = self.note_ids.clone();
-        let mut source = source.to_owned();
-        for (from, to) in &self.mappings {
-            source = futo_notes_wikilinks::rewrite_wikilinks(&source, from, to, &ids).0;
-            if let Some(id) = ids.iter_mut().find(|id| *id == from) {
-                *id = to.clone();
-            }
-        }
-        source
-    }
 }
 impl EditorSession {
     /// Apply only a successful own-action disk relink whose exact pre-relink
@@ -39,34 +30,23 @@ impl EditorSession {
         if self.composition.is_some() {
             return Err(EditorError::CompositionActive);
         }
-        let source = self.source_text();
-        let rewritten = relink.rewrite(&source);
-        if source == rewritten {
+        let Some(prepared) = self.prepare_own_relink(relink)? else {
             return Ok(None);
-        }
-        let undo = transform_groups(&source, &self.undo, false, relink)?;
-        let redo = transform_groups(&source, &self.redo, true, relink)?;
-        let selection = positions::selection(&source, &rewritten, self.selection, self.affinity);
-        let (range, inserted) = difference(&source, &rewritten);
-        let edit = self.prepare_source(expected, range, &inserted)?;
-        let pending = self.projection.pending_for_source_edit(edit.range);
-        if pending.guarded_words.iter().any(|word| {
-            word.envelope.start < edit.range.end.0 && edit.range.start.0 < word.envelope.end
-                || edit.range.start == edit.range.end
-                    && word.envelope.start < edit.range.start.0
-                    && edit.range.start.0 < word.envelope.end
-        }) || pending.typed_inputs.iter().any(|origin| {
-            origin.opener.start < edit.range.end.0 && edit.range.start.0 <= origin.word.end
-        }) {
-            // Relink's existing TextDiff endpoints are not guard lineage. A
-            // real source transformation owner must close this required path.
-            return Err(EditorError::UnrepresentableFormat);
-        }
+        };
+        let plan::Prepared {
+            edit,
+            pending,
+            selection,
+            undo,
+            redo,
+            work,
+        } = prepared;
         // Stage all history and selection work before acceptance. A failed
         // persistence callback changes neither history nor the visible draft.
         accept(&edit).map_err(EditorError::Persistence)?;
         let mut change = self.apply(&edit);
-        change.work.link_metadata_items += pending.work;
+        charge(&mut change.work, work);
+        self.adopt_stage_pending(&pending, &mut change);
         self.undo = undo;
         self.redo = redo;
         self.selection = selection;
@@ -76,104 +56,32 @@ impl EditorSession {
         Ok(Some(change))
     }
 }
-fn transform_groups(
-    source: &str,
-    groups: &[HistoryGroup],
-    redo: bool,
-    relink: &OwnActionRelink,
-) -> Result<Vec<HistoryGroup>, EditorError> {
-    let mut current = source.to_owned();
-    let mut transformed = Vec::with_capacity(groups.len());
-    for group in groups.iter().rev() {
-        let first = group.entries.first().ok_or(EditorError::RecoveryMismatch)?;
-        let last = group.entries.last().unwrap();
-        let mut other = current.clone();
-        let entries: Box<dyn Iterator<Item = &HistoryEntry>> = if redo {
-            Box::new(group.entries.iter())
-        } else {
-            Box::new(group.entries.iter().rev())
-        };
-        for step in entries {
-            let (expected, inserted) = if redo {
-                (&step.removed, &step.inserted)
-            } else {
-                (&step.inserted, &step.removed)
-            };
-            let range = step.range.start.0..step.range.start.0 + expected.len();
-            if other.get(range.clone()) != Some(expected.as_str()) {
-                return Err(EditorError::RecoveryMismatch);
-            }
-            other.replace_range(range, inserted);
-        }
-        let (before, after) = if redo {
-            (&current, &other)
-        } else {
-            (&other, &current)
-        };
-        let before_rewritten = relink.rewrite(before);
-        let after_rewritten = relink.rewrite(after);
-        let (range, inserted) = difference(&before_rewritten, &after_rewritten);
-        let entry = HistoryEntry {
-            before_source: positions::source_anchor(
-                before,
-                &before_rewritten,
-                first.before_source,
-                first.before_affinity,
-            )?,
-            after_source: positions::source_anchor(
-                after,
-                &after_rewritten,
-                last.after_source,
-                last.after_affinity,
-            )?,
-            before_selection: positions::selection(
-                before,
-                &before_rewritten,
-                first.before_selection,
-                first.before_affinity,
-            ),
-            before_affinity: first.before_affinity,
-            before_formats: first.before_formats.clone(),
-            before_links: positions::pending(before, &before_rewritten, &first.before_links)?,
-            after_selection: positions::selection(
-                after,
-                &after_rewritten,
-                last.after_selection,
-                last.after_affinity,
-            ),
-            after_affinity: last.after_affinity,
-            after_formats: last.after_formats.clone(),
-            after_links: positions::pending(after, &after_rewritten, &last.after_links)?,
-            removed: before_rewritten[range.start.0..range.end.0].to_owned(),
-            inserted,
-            range,
-        };
-        transformed.push(HistoryGroup {
-            entries: vec![entry],
-        });
-        current = other;
-    }
-    transformed.reverse();
-    Ok(transformed)
-}
-fn difference(before: &str, after: &str) -> (SourceRange, String) {
+fn difference(before: &str, after: &str, work: &mut EditWork) -> (SourceRange, String) {
     let mut prefix = before
         .bytes()
         .zip(after.bytes())
-        .take_while(|(a, b)| a == b)
+        .take_while(|(a, b)| {
+            work.link_metadata_items += 1;
+            a == b
+        })
         .count();
     while !before.is_char_boundary(prefix) || !after.is_char_boundary(prefix) {
+        work.link_metadata_items += 1;
         prefix -= 1;
     }
     let mut suffix = before[prefix..]
         .bytes()
         .rev()
         .zip(after[prefix..].bytes().rev())
-        .take_while(|(a, b)| a == b)
+        .take_while(|(a, b)| {
+            work.link_metadata_items += 1;
+            a == b
+        })
         .count();
     while !before.is_char_boundary(before.len() - suffix)
         || !after.is_char_boundary(after.len() - suffix)
     {
+        work.link_metadata_items += 1;
         suffix -= 1;
     }
     (
@@ -183,4 +91,12 @@ fn difference(before: &str, after: &str) -> (SourceRange, String) {
         },
         after[prefix..after.len() - suffix].to_owned(),
     )
+}
+
+// Planning work never represents an extra accepted insertion.
+fn charge(total: &mut EditWork, part: EditWork) {
+    total.materialized_source_bytes += part.materialized_source_bytes;
+    total.parsed_source_bytes += part.parsed_source_bytes;
+    total.link_metadata_items += part.link_metadata_items;
+    total.link_copied_bytes += part.link_copied_bytes;
 }

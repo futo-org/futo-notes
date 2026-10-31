@@ -10,7 +10,9 @@ use std::ops::Range;
 mod capture;
 pub(super) use capture::retain_row_fields;
 mod snapshot;
+mod witness;
 pub(crate) use snapshot::PendingLinks;
+pub(crate) use witness::PendingLinkWitness;
 
 impl Projection {
     /// A derived body owns only fields wholly inside its physical input window.

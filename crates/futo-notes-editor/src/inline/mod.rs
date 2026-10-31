@@ -11,7 +11,7 @@ mod lists;
 mod pending_links;
 pub(crate) mod references;
 pub(crate) mod typed_angle;
-pub(crate) use pending_links::PendingLinks;
+pub(crate) use pending_links::{PendingLinkWitness, PendingLinks};
 mod row;
 mod source_points;
 mod spelling;
