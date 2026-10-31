@@ -97,3 +97,64 @@ fn a_command_retains_both_entity_interiors_after_a_nonlinear_protected_input() {
         assert_eq!(session.selection(), range(8, 16));
     }
 }
+
+#[test]
+fn both_inserted_command_endpoints_map_across_the_boundary_and_hidden_markers() {
+    let raw = "> > \n> ab\n> ===";
+    let typed = "> > *ab* \n>\n> ab\n> ===";
+    let changed = "> > ### *ab* \n>\n> ab\n> ===";
+    let mut session = EditorSession::open(raw);
+    let mut view = ReferenceView::new("\nab");
+    session.compose(Revision(0), range(0, 0), "*ab* ").unwrap();
+    let mut calls = 0;
+    view.apply(
+        session
+            .block_command(
+                Revision(0),
+                range(0, 5),
+                BlockCommand::Heading(3),
+                &mut |_| {
+                    calls += 1;
+                    Ok(())
+                },
+            )
+            .unwrap()
+            .unwrap(),
+    );
+    assert_eq!(calls, 1);
+    assert_eq!(session.source_text(), changed);
+    assert_eq!(view.text, "ab \n\nab");
+    assert_eq!(session.selection(), range(0, 3));
+    view.apply(
+        session
+            .undo(session.revision(), &mut |_| Ok(()))
+            .unwrap()
+            .unwrap(),
+    );
+    assert_eq!(session.source_text(), typed);
+    assert_eq!(session.selection(), range(3, 3));
+    view.apply(
+        session
+            .undo(session.revision(), &mut |_| Ok(()))
+            .unwrap()
+            .unwrap(),
+    );
+    assert_eq!(session.source_text(), raw);
+    assert_eq!(view.text, "\nab");
+    assert_eq!(session.selection(), range(0, 0));
+    view.apply(
+        session
+            .redo(session.revision(), &mut |_| Ok(()))
+            .unwrap()
+            .unwrap(),
+    );
+    assert_eq!(session.source_text(), typed);
+    view.apply(
+        session
+            .redo(session.revision(), &mut |_| Ok(()))
+            .unwrap()
+            .unwrap(),
+    );
+    assert_eq!(session.source_text(), changed);
+    assert_eq!(session.selection(), range(0, 3));
+}
