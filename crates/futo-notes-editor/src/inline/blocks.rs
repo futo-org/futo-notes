@@ -112,6 +112,14 @@ pub(super) fn describe(
     source: &str,
     events: &[(Event<'_>, Range<usize>)],
 ) -> (Vec<BlockLine>, Vec<Range<usize>>) {
+    describe_with_items(source, events, mark_item_lines)
+}
+
+fn describe_with_items(
+    source: &str,
+    events: &[(Event<'_>, Range<usize>)],
+    mark_items: impl Fn(&mut [BlockLine], &Range<usize>),
+) -> (Vec<BlockLine>, Vec<Range<usize>>) {
     let mut at = 0;
     let mut lines: Vec<_> = source
         .split_inclusive('\n')
@@ -201,14 +209,7 @@ pub(super) fn describe(
                     .saturating_sub(1);
                 lines[at].divider = true;
             }
-            Event::Start(Tag::Item) => {
-                for line in lines
-                    .iter_mut()
-                    .filter(|line| line.source.start < range.end && range.start < line.source.end)
-                {
-                    line.in_list = true;
-                }
-            }
+            Event::Start(Tag::Item) => mark_items(&mut lines, &range),
             Event::Start(Tag::CodeBlock(_)) => {
                 let first = lines.partition_point(|line| line.source.end <= range.start);
                 let last = lines.partition_point(|line| line.source.start < range.end);
@@ -400,3 +401,20 @@ fn container_indent(source: &[u8], start: usize, end: usize, column: usize) -> (
     }
     (at, at_column)
 }
+
+fn mark_item_lines(lines: &mut [BlockLine], range: &Range<usize>) {
+    for line in lines.iter_mut().filter(|line| {
+        super::visit_container();
+        line.source.start < range.end && {
+            super::visit_container();
+            range.start < line.source.end
+        }
+    }) {
+        super::visit_container();
+        line.in_list = true;
+    }
+}
+
+#[cfg(test)]
+#[path = "blocks_range_tests.rs"]
+mod range_tests;
