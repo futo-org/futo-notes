@@ -130,7 +130,12 @@ impl rewrite::Fields {
                     Some(identities.prepare(original, request.program, uri, &mut work)?)
                 }
                 (None, None, Role::Typed(_)) => None,
-                _ => return Err(EditorError::UnrepresentableFormat),
+                _ => {
+                    eprintln!("301-uri-class FIRST candidate class rejected role={} original={} range={:?}",
+                        match request.role { Role::Guard(_) => "Guard", Role::Typed(_) => "Typed" },
+                        request.original.is_some(), request.range);
+                    return Err(EditorError::UnrepresentableFormat);
+                }
             };
             prepared.push((request.role, identity));
             work.link_metadata_items += 2;
@@ -165,7 +170,16 @@ impl rewrite::Fields {
                 ranges.push(a..z);
                 work.link_metadata_items += 2;
             }
-            let (actual, visits) = staged.projection.pending_link_witnesses(&ranges)?;
+            let (actual, visits) =
+                staged
+                    .projection
+                    .pending_link_witnesses(&ranges)
+                    .map_err(|error| {
+                        eprintln!(
+                            "301-uri-class FIRST pending-Link witness rejected ranges={ranges:?}"
+                        );
+                        error
+                    })?;
             work.link_metadata_items += visits;
             if actual.len() != self.witnesses.len() {
                 return Err(EditorError::UnrepresentableFormat);
