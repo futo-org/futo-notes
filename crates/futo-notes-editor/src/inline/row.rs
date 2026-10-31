@@ -101,6 +101,8 @@ impl Row {
             examined += 1;
             segment.display.end < at
         });
+        #[cfg(test)]
+        let first_work = examined;
         let last = self.segments.partition_point(|segment| {
             examined += 1;
             segment.display.start <= at
@@ -138,6 +140,11 @@ impl Row {
         } else {
             None
         };
+        #[cfg(test)]
+        super::coordinate_work_tests::bounds(
+            examined,
+            first_work + last.saturating_sub(first) + usize::from(last < self.segments.len()),
+        );
         super::visit_correspondence(examined);
         (result.unwrap_or((self.source_len, 0)), examined)
     }

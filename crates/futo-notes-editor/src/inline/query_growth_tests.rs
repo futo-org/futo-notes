@@ -1,5 +1,5 @@
 //! Public growth fixtures with independent primitive-node attribution.
-use super::coordinate_work_tests::{added_nodes, reset, snapshot};
+use super::coordinate_work_tests::{added_nodes, bounds_delta, reset, snapshot};
 use crate::{BlockCommand, DisplayOffset, DisplayRange, EditWork, EditorSession, Revision};
 fn range(start: usize, end: usize) -> DisplayRange {
     DisplayRange {
@@ -129,8 +129,12 @@ fn public_pending_growth_work_keeps_foreign_word_fields_outside_the_local_ledger
             .unwrap();
         let (fixed, nodes) = measured(change.work);
         assert_eq!(nodes, [404, 361][index]);
-        assert_eq!(fixed.link_metadata_items, 901);
-        results.push(fixed);
+        assert_eq!(bounds_delta(), 9);
+        assert_eq!(fixed.link_metadata_items, 910);
+        let mut previous = fixed;
+        previous.link_metadata_items -= bounds_delta();
+        assert_eq!(previous.link_metadata_items, 901);
+        results.push(previous);
     }
     assert_eq!(results[0], results[1]);
 }

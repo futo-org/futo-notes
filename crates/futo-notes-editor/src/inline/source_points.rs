@@ -10,12 +10,17 @@ impl Projection {
         let endpoint = |offset: usize| {
             #[cfg(test)]
             let visits = super::coordinate_work_tests::visits();
+            #[cfg(test)]
+            let bounds_before = super::coordinate_work_tests::bounds_before();
             let (row, source, display, nodes) = self.rows.display_row_with_work(offset);
             let (mut point, segments) = row.source_point_with_work(offset - display, affinity);
             let work = nodes + segments;
             point.source.0 += source;
             #[cfg(test)]
-            super::coordinate_work_tests::query("capture", visits, work);
+            {
+                super::coordinate_work_tests::query("capture", visits, work);
+                super::coordinate_work_tests::capture_bounds(bounds_before);
+            }
             (point, work)
         };
         let (start, a) = endpoint(range.start.0);
