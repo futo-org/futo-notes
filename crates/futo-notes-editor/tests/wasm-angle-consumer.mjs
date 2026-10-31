@@ -2,7 +2,14 @@
 import assert from 'node:assert/strict';
 import { Buffer } from 'node:buffer';
 
-export async function anglePendingConsumer({ start, stop, getSession, root, codeRoot }) {
+export async function anglePendingConsumer({
+  start,
+  stop,
+  getSession,
+  root,
+  codeRoot,
+  partialRoot,
+}) {
   let exchange = await start('', root);
   let page = getSession();
   let shown = '';
@@ -104,5 +111,36 @@ export async function anglePendingConsumer({ start, stop, getSession, root, code
   assert.equal(reopenedCode.text, '<https://x.test>');
   assert.deepEqual(reopenedCode.links, []);
   assert.deepEqual(await codeReopened(JSON.stringify({ checkpoint: true })), { id: 'plain' });
+  await stop();
+
+  exchange = await start('', partialRoot);
+  page = getSession();
+  shown = '';
+  revision = 0n;
+  await apply(page.replace(0n, 0, 0, '<https://x.test/path'));
+  await apply(page.replace(1n, 20, 20, '>'));
+  page.select_with_affinity(revision, 15, 20, '"Forward"');
+  await apply(page.toggle_format(revision, '"Code"'));
+  assert.equal(shown, '<https://x.test/path>');
+  const literal = JSON.parse(page.project(revision, 0, 21));
+  assert.deepEqual(literal.links, []);
+  assert.deepEqual(
+    literal.runs.filter((run) => run.formats.includes('Code')).map((run) => run.range),
+    [{ start: 15, end: 20 }],
+  );
+  assert.ok(page.draft_text().includes('\\:'));
+  page.select_with_affinity(revision, 21, 21, '"Forward"');
+  await apply(page.replace_utf16_action(revision, 21, 21, [32], '"Isolated"'));
+  assert.deepEqual(JSON.parse(page.project(revision, 0, 22)).links, []);
+  const partialSource = page.draft_text();
+  page.acknowledge(JSON.stringify(await exchange(page.flush())));
+  await stop();
+  const partialReopened = await start('--reopen', partialRoot);
+  page = getSession();
+  assert.equal(page.draft_text(), partialSource);
+  const loadedPartial = JSON.parse(page.project(revision, 0, 22));
+  assert.equal(loadedPartial.text, '<https://x.test/path> ');
+  assert.deepEqual(loadedPartial.links, []);
+  assert.deepEqual(await partialReopened(JSON.stringify({ checkpoint: true })), { id: 'plain' });
   await stop();
 }
