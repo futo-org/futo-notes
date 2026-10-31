@@ -147,28 +147,35 @@ impl EditorSession {
         self.context.physical_tail
     }
 
-    fn stage_with_context(&self, raw: &str, window: Range<usize>, exact: bool) -> Self {
-        let physical_tail = if !exact || matches!(self.physical_tail(), PhysicalTail::Unknown) {
+    /// Original physical proof is queried only through its authority owner.
+    /// A locally present tail in derived/truncated source cannot recertify it.
+    pub(super) fn physical_tail_at(&self, at: usize) -> PhysicalTail {
+        if matches!(self.physical_tail(), PhysicalTail::Unknown) {
             PhysicalTail::Unknown
-        } else if window.end == self.source.len_bytes() {
+        } else if at == self.source.len_bytes() {
             self.physical_tail()
-        } else if window.end < self.source.len_bytes() && self.context.original_canonical {
-            // source_prefix_at succeeds only at an actual physical row start.
-            // No visible-neighbor query or global source coordinate is evidence
-            // for this untouched outside row's identity.
+        } else if at < self.source.len_bytes() && self.context.original_canonical {
             self.projection
-                .source_prefix_at(window.end)
+                .source_prefix_at(at)
                 .map_or(PhysicalTail::Unknown, |prefix| PhysicalTail::Row {
                     code: prefix.code,
                     quote_depth: prefix.quote_depth,
                     first_item: prefix.list.as_ref().map(|list| list.first),
                     item_depth: prefix.list.as_ref().map(|list| list.depth),
-                    fence_item_end: self.projection.fence_item_end_at(window.end),
+                    fence_item_end: self.projection.fence_item_end_at(at),
                     empty_comment: self
                         .projection
-                        .list_command_line_at_source(window.end)
+                        .list_command_line_at_source(at)
                         .is_some_and(|line| line.empty_comment),
                 })
+        } else {
+            PhysicalTail::Unknown
+        }
+    }
+
+    fn stage_with_context(&self, raw: &str, window: Range<usize>, exact: bool) -> Self {
+        let physical_tail = if exact {
+            self.physical_tail_at(window.end)
         } else {
             PhysicalTail::Unknown
         };

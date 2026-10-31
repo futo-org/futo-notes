@@ -67,26 +67,7 @@ impl EditorSession {
         if opener_line != first.source.end || end != list.item.end {
             return Ok(None);
         }
-        let outside = if end < self.source.len_bytes() {
-            let prefix = self
-                .projection
-                .source_prefix_at(end)
-                .ok_or(EditorError::UnrepresentableFormat)?;
-            let block = self
-                .projection
-                .list_command_line_at_source(end)
-                .ok_or(EditorError::UnrepresentableFormat)?;
-            PhysicalTail::Row {
-                code: prefix.code,
-                quote_depth: prefix.quote_depth,
-                first_item: prefix.list.as_ref().map(|l| l.first),
-                item_depth: prefix.list.as_ref().map(|l| l.depth),
-                empty_comment: block.empty_comment,
-                fence_item_end: self.projection.fence_item_end_at(end),
-            }
-        } else {
-            self.physical_tail()
-        };
+        let outside = self.physical_tail_at(end);
         let needs_close = if fence.closer.is_some() {
             false
         } else {
