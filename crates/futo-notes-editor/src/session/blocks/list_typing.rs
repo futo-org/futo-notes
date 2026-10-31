@@ -96,6 +96,8 @@ impl EditorSession {
                 },
             )?;
             let line = staged.projection.block_lines(staged.selection()).remove(0);
+            #[cfg(test)]
+            crate::inline::coordinate_work_tests::child("shortcut-remove", removed.work);
             let marker = if let Some(styles) = &styles {
                 if let Some(number) = marker.strip_suffix(". ") {
                     format!("{number}{} ", styles.markers[0] as char)

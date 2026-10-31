@@ -103,6 +103,8 @@ impl EditorSession {
                         return Ok(None);
                     };
                     let local = staged.selection();
+                    #[cfg(test)]
+                    crate::inline::coordinate_work_tests::child("lift-list", lifted.work);
                     if staged
                         .projection
                         .block_lines(local)

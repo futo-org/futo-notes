@@ -16,7 +16,7 @@ pub(crate) mod references;
 pub(crate) mod typed_angle;
 pub(crate) use pending_links::{PendingLinkWitness, PendingLinks};
 #[cfg(test)]
-mod coordinate_work_tests;
+pub(crate) mod coordinate_work_tests;
 #[cfg(test)]
 mod query_growth_tests;
 mod retained_points;
@@ -346,6 +346,14 @@ impl Projection {
                         .iter()
                         .map(|row| row.reference_work.copied)
                         .sum::<usize>();
+                #[cfg(test)]
+                coordinate_work_tests::child(
+                    "semantic-delimiters",
+                    crate::EditWork {
+                        link_metadata_items: delimiter_work,
+                        ..Default::default()
+                    },
+                );
                 return self.rebuild_references(
                     source,
                     edit,

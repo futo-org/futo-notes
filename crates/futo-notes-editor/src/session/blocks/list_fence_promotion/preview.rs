@@ -111,6 +111,15 @@ impl EditorSession {
         let (window, display) = self.projection.retained_point_window(bounds);
         let preview_raw = self.source.byte_slice(window.clone()).to_string();
         let mut preview = self.stage_source(&preview_raw, window.clone())?;
+        #[cfg(test)]
+        crate::inline::coordinate_work_tests::child(
+            "fence-initial",
+            EditWork {
+                link_metadata_items: preview.projection.initial_link_metadata_items,
+                link_copied_bytes: preview.projection.initial_link_copied_bytes,
+                ..Default::default()
+            },
+        );
         let prepared = preview.prepare_source(
             preview.revision(),
             SourceRange {
@@ -121,6 +130,8 @@ impl EditorSession {
         )?;
         let original_display_len = preview.projection.display.len_bytes();
         let work = preview.apply(&prepared).work;
+        #[cfg(test)]
+        crate::inline::coordinate_work_tests::child("fence-apply", work);
         Ok(FencePreview {
             session: preview,
             window,

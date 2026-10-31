@@ -1,6 +1,7 @@
 //! Primitive indexed-node ledger reached only through public session actions.
 use std::cell::{Cell, RefCell};
 thread_local! {
+    static CHILDREN: RefCell<Vec<(&'static str, crate::EditWork)>> = const { RefCell::new(Vec::new()) };
     static BARE_VISITS: Cell<usize> = const { Cell::new(0) };
     static BARE_QUERIES: RefCell<Vec<(usize, usize, usize)>> = const { RefCell::new(Vec::new()) };
     static BOUNDS: Cell<(usize, usize)> = const { Cell::new((0, 0)) };
@@ -8,6 +9,14 @@ thread_local! {
     static VISITS: Cell<usize> = const { Cell::new(0) };
     static QUERIES: RefCell<Vec<(&'static str, usize, usize)>> = const { RefCell::new(Vec::new()) };
 }
+pub(crate) fn child(name: &'static str, work: crate::EditWork) {
+    CHILDREN.with(|rows| rows.borrow_mut().push((name, work)));
+}
+fn children() -> Vec<(&'static str, crate::EditWork)> {
+    CHILDREN.with(|rows| rows.borrow().clone())
+}
+#[path = "coordinate_work_tests/consumed.rs"]
+mod consumed;
 // Actual indexed comparisons/endpoints versus the previous inclusive run cost.
 // Only source-selection capture owns this work in the link metric.
 pub(super) fn bounds(actual: usize, previous: usize) {
@@ -92,6 +101,7 @@ fn public_reference_label_edit_charges_hidden_definition_segment_queries() {
 }
 
 pub(super) fn reset() {
+    CHILDREN.with(|rows| rows.borrow_mut().clear());
     BARE_QUERIES.with(|rows| rows.borrow_mut().clear());
     CAPTURE_BOUNDS.with(|rows| rows.borrow_mut().clear());
     QUERIES.with(|rows| rows.borrow_mut().clear());
