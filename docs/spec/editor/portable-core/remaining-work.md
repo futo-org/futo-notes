@@ -16,12 +16,14 @@ mixed original-format runs, exact owner fragments, copied ordered starts and sam
 empty prefix frames with distinct nearest/full intents. Root fenced-tail promotion
 preserves opaque code and original containment through certified physical edge facts;
 new source queries and canonical code-body overlap queries have measured work controls.
-These controls do not establish general multiline quote/list behavior.
+The pinned multiline quoted-body Outdent, Backspace and full Text observations,
+representative CRLF/entity cases and separate inner/foreign quote ownership now
+have exact-source/history and measured-work controls. The202 shared list literals
+are registered in all six source consumers; current native execution remains
+separate from registration.
 
-The remaining source frontier is the already-pinned multiline quoted-body Outdent,
-Backspace and full Text observations; preservation of separate inner/foreign quote
-owners after list removal; promoted code after preceding list neighbors and within
-items containing blank/continuation or multiple code blocks; the pertinent quoted
+The remaining source frontier is promoted code after preceding list neighbors and
+within items containing blank/continuation or multiple code blocks; the pertinent quoted
 CRLF task continuation/fence retarget controls; and final checks of the already-pinned
 nested Heading/Quote, mixed run and endpoint contexts. Newly completed literals must
 reach all six source consumers with current owner chains. Finish these concrete cases,

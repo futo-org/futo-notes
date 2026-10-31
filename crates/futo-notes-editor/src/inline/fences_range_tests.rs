@@ -177,7 +177,7 @@ fn sources() -> Vec<String> {
             }
         }
     }
-    assert_eq!(sources.len(), 534);
+    assert_eq!(sources.len(), 560);
     for eol in ["\n", "\r\n"] {
         for outer in ["", "> ", "> > "] {
             for list in ["", "- ", "1000.\t"] {

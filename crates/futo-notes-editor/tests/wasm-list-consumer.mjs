@@ -35,7 +35,7 @@ assert.equal(headers.length, 14);
 const frames = JSON.parse(
   readFileSync(new URL('fixtures/prefix-frame-commands.json', import.meta.url)),
 );
-assert.equal(frames.length, 25);
+assert.equal(frames.length, 38);
 const fences = JSON.parse(
   readFileSync(new URL('fixtures/fence-container-commands.json', import.meta.url)),
 );

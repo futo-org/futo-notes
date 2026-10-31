@@ -97,7 +97,7 @@ ordered child lifting copies that start into each newly independent following ow
 Same-line quote/list controls retain empty lifted paragraphs, physical CRLF and quote
 prefixes, raw nonidentity entity atoms and native UTF-16 interior carets. Task-body
 quote/heading punctuation stays literal. Together with the unchanged original seventy-four
-list cases, all six source consumers load 189 cases, including twenty-five
+list cases, all six source consumers load 202 cases, including thirty-eight
 `prefix-frame-commands.json` literals. These distinguish nearest Outdent and
 registered Backspace from full Text lifting. Unchanged implicit empty parents
 keep compact source; an action-created parallel paragraph gets a physical frame.
@@ -121,3 +121,11 @@ The four quote-owner boundary literals preserve separate inner-code and foreign
 quote owners in LF and CRLF source. A missing physical blank gains one matching
 line ending; an authored gap is retained without duplication. Exact staged
 windows need original complete-item authority independently of physical EOF.
+
+Thirteen multiline paragraph literals extend the prefix-frame family with the
+already-observed Outdent, registered Backspace and full Text transitions.
+Explicit and lazy body prefixes, outer quotes, wide tabbed headers and CRLF
+remain exact; the action-created empty paragraphs differ by intent. The three
+CRLF entity controls hand-map native UTF-16 ranges: a selected endpoint after
+the first decoded scalar is unit one (byte three), and its new CRLF frame
+moves it to unit three (byte five). Backspace retains its start caret.

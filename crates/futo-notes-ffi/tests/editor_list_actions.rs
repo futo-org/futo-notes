@@ -55,7 +55,7 @@ fn shared_list_actions_forward_native_coordinates_history_and_exact_recovery() {
         "../../futo-notes-editor/tests/fixtures/prefix-frame-commands.json"
     ))
     .unwrap();
-    assert_eq!(frames.len(), 25);
+    assert_eq!(frames.len(), 38);
     let fences: Vec<Value> = serde_json::from_str(include_str!(
         "../../futo-notes-editor/tests/fixtures/fence-container-commands.json"
     ))
