@@ -321,3 +321,112 @@ fn completed_marked_https_refusal_preserves_overlay_redo_foreign_link_and_clean_
         assert_eq!(store.read("completed-input").unwrap(), saved);
     }
 }
+
+#[test]
+fn paragraph_lf_refusal_preserves_the_actual_unfinished_word_for_retry_and_history() {
+    const TYPED: &str = "<www.x.test/path";
+    for fault in [storage::Fault::Append, storage::Fault::ShortWrite] {
+        let shown = format!("{FOREIGN_VIEW}{TYPED}\n");
+        let standard = EditorSession::open(&format!(
+            "{FOREIGN}<[www.x.test/path](<http://www.x.test/path>)\n"
+        ));
+        assert_eq!(standard.display_text(), shown);
+        let expected = standard
+            .project(Revision(0), range(0, shown.len()))
+            .unwrap()
+            .links;
+        assert_eq!(expected.len(), 2);
+        let root = TestRoot::new();
+        let store = store(&root);
+        store.create("", "paragraph-ending", FOREIGN).unwrap();
+        let disk = Arc::new(Mutex::new(storage::Disk::default()));
+        let mut editor = store
+            .open_editor_with_recovery("paragraph-ending", storage::options(&disk))
+            .unwrap();
+        let start = FOREIGN_VIEW.len();
+        let at = start + TYPED.len();
+        editor
+            .replace(Revision(0), range(start, start), TYPED)
+            .unwrap();
+        let original = editor.source_text();
+        editor
+            .replace_action(
+                Revision(1),
+                range(at, at),
+                "z",
+                futo_notes_editor::InputAction::Isolated,
+            )
+            .unwrap();
+        editor.undo(Revision(2)).unwrap().unwrap();
+        editor
+            .select_with_affinity(editor.revision(), range(at, at), Affinity::Backward)
+            .unwrap();
+        refuse(&mut editor, &disk, fault, |editor| {
+            editor
+                .paragraph_key(
+                    editor.revision(),
+                    range(at, at),
+                    futo_notes_editor::ParagraphKey::Enter,
+                )
+                .map(|change| assert!(change.is_some()))
+        });
+        assert_eq!(store.read("paragraph-ending").unwrap(), FOREIGN);
+        // The failed key did not consume the preexisting Redo or its old word.
+        editor.redo(editor.revision()).unwrap().unwrap();
+        assert_eq!(editor.display_text(), format!("{FOREIGN_VIEW}{TYPED}z"));
+        editor.undo(editor.revision()).unwrap().unwrap();
+        editor
+            .paragraph_key(
+                editor.revision(),
+                range(at, at),
+                futo_notes_editor::ParagraphKey::Enter,
+            )
+            .unwrap()
+            .unwrap();
+        assert_eq!(editor.display_text(), shown);
+        assert_eq!(editor.selection(), range(shown.len(), shown.len()));
+        assert_eq!(
+            editor
+                .project(editor.revision(), range(0, shown.len()))
+                .unwrap()
+                .links,
+            expected
+        );
+        let saved = editor.source_text();
+        refuse(&mut editor, &disk, fault, |editor| {
+            editor
+                .undo(editor.revision())
+                .map(|change| assert!(change.is_some()))
+        });
+        editor.undo(editor.revision()).unwrap().unwrap();
+        assert_eq!(editor.source_text(), original);
+        assert!(editor
+            .inspect_link(editor.revision(), range(start + 1, start + 2))
+            .unwrap()
+            .is_none());
+        refuse(&mut editor, &disk, fault, |editor| {
+            editor
+                .redo(editor.revision())
+                .map(|change| assert!(change.is_some()))
+        });
+        editor.redo(editor.revision()).unwrap().unwrap();
+        assert_eq!(editor.source_text(), saved);
+        editor.flush_recovery().unwrap();
+        drop(editor);
+        let mut recovered = store
+            .open_editor_with_recovery("paragraph-ending", storage::options(&disk))
+            .unwrap();
+        assert_eq!(recovered.source_text(), saved);
+        assert_eq!(recovered.display_text(), shown);
+        assert_eq!(
+            recovered
+                .project(recovered.revision(), range(0, shown.len()))
+                .unwrap()
+                .links,
+            expected
+        );
+        assert!(recovered.undo(recovered.revision()).unwrap().is_none());
+        recovered.checkpoint().unwrap();
+        assert_eq!(store.read("paragraph-ending").unwrap(), saved);
+    }
+}
