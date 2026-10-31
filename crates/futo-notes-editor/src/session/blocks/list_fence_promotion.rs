@@ -44,7 +44,7 @@ impl EditorSession {
             return Ok(None);
         };
         let (fence, base, code) = (*fence, *base, *code);
-        let end = if let Some(closer) = &fence.closer {
+        let fence_end = if let Some(closer) = &fence.closer {
             // A closed event ends at its delimiter; prefix retirement owns the
             // actual closer row including its unchanged physical ending.
             let physical = self
@@ -64,10 +64,18 @@ impl EditorSession {
         let opener_line = self
             .source
             .line_to_byte(self.source.byte_to_line(base + fence.opener.start));
-        if opener_line != first.source.end || end != list.item.end {
+        if opener_line != first.source.end || fence_end > list.item.end {
             return Ok(None);
         }
-        let outside = self.physical_tail_at(end);
+        let end = list.item.end;
+        let outside = if fence.closer.is_none() {
+            self.physical_fence_tail_at(base + fence.opener.start, fence_end, end)
+        } else if fence_end == end {
+            self.physical_tail_at(end)
+        } else {
+            return Ok(None);
+        };
+        let mut quote_separator = false;
         let needs_close = if fence.closer.is_some() {
             false
         } else {
@@ -88,6 +96,23 @@ impl EditorSession {
                         true
                     } else if code.quote_depth > list.quote_depth && quote_depth < code.quote_depth
                     {
+                        false
+                    } else if list.quote_depth == 0
+                        && code.quote_depth == 1
+                        && quote_depth == 1
+                        && first_item == Some(true)
+                        && item_depth == Some(1)
+                        && end < self.source.len_bytes()
+                    {
+                        let (foreign, origin) = self
+                            .projection
+                            .block_ref_at_source(end)
+                            .ok_or(EditorError::UnrepresentableFormat)?;
+                        crate::inline::visit_container();
+                        if !foreign.quote_start || origin + foreign.source.start != end {
+                            return Err(EditorError::UnrepresentableFormat);
+                        }
+                        quote_separator = fence_end == end;
                         false
                     } else {
                         return Err(EditorError::UnrepresentableFormat);
@@ -112,13 +137,13 @@ impl EditorSession {
         )]);
         let mut at = first.source.end;
         let mut closing_prefix = None;
-        while at < end {
+        while at < fence_end {
             crate::inline::visit_container();
             let physical = self
                 .projection
                 .source_prefix_at(at)
                 .ok_or(EditorError::UnrepresentableFormat)?;
-            if physical.source.end <= at || physical.source.end > end || !physical.code {
+            if physical.source.end <= at || physical.source.end > fence_end || !physical.code {
                 return Err(EditorError::UnrepresentableFormat);
             }
             let old = self.source.byte_slice(physical.prefix.clone()).to_string();
@@ -135,18 +160,29 @@ impl EditorSession {
             ));
             at = physical.source.end;
         }
+        let eol = if fence_end >= 2 && self.source.byte(fence_end - 2) == b'\r' {
+            "\r\n"
+        } else {
+            "\n"
+        };
+        if quote_separator {
+            edits.push((end - start..end - start, eol.to_owned()));
+            copied += eol.len();
+        }
         if needs_close {
-            let eol = if end >= 2 && self.source.byte(end - 2) == b'\r' {
-                "\r\n"
-            } else {
-                "\n"
-            };
             let mut close = closing_prefix.ok_or(EditorError::UnrepresentableFormat)?;
             close.extend(std::iter::repeat_n(fence.marker as char, fence.width));
             close.push_str(eol);
             copied += fence.width + eol.len();
             edits.push((end - start..end - start, close));
         }
+        let boundary_inserted = edits
+            .last()
+            .filter(|(range, _)| {
+                crate::inline::visit_container();
+                range.is_empty() && range.start == end - start
+            })
+            .map_or(0, |(_, text)| text.len());
         let output = super::transaction::spell_edits(&raw, &edits)?;
         copied += output.len();
         // One delta index maps every original canonical source anchor. Prefix
@@ -184,21 +220,33 @@ impl EditorSession {
         )?;
         let original_display_len = preview.projection.display.len_bytes();
         let work = preview.apply(&prepared).work;
-        if original_display_len != preview.projection.display.len_bytes() {
+        let added = if quote_separator { eol.len() } else { 0 };
+        if original_display_len + added != preview.projection.display.len_bytes() {
             return Err(EditorError::UnrepresentableFormat);
         }
         let before = self
             .projection
             .display
-            .byte_slice(display..display + preview.projection.display.len_bytes());
+            .byte_slice(display..display + original_display_len);
+        let separator_at = self
+            .projection
+            .display_at(end)
+            .checked_sub(display)
+            .ok_or(EditorError::UnrepresentableFormat)?;
+        if separator_at > before.len_bytes() {
+            return Err(EditorError::UnrepresentableFormat);
+        }
+        let inserted = if quote_separator { eol.as_bytes() } else { b"" };
         if !before
+            .byte_slice(..separator_at)
             .bytes()
+            .chain(inserted.iter().copied())
+            .chain(before.byte_slice(separator_at..).bytes())
             .zip(preview.projection.display.bytes())
             .all(|(a, b)| {
                 crate::inline::visit_container();
                 a == b
             })
-            || before.len_bytes() != preview.projection.display.len_bytes()
         {
             return Err(EditorError::UnrepresentableFormat);
         }
@@ -211,12 +259,21 @@ impl EditorSession {
             .as_ref()
             .ok_or(EditorError::UnrepresentableFormat)?;
         crate::inline::visit_container();
+        let body_at = |at: usize| -> Result<usize, EditorError> {
+            mapped(at)?
+                .checked_sub(if at == end { boundary_inserted } else { 0 })
+                .and_then(|at| at.checked_sub(window.start))
+                .ok_or(EditorError::UnrepresentableFormat)
+        };
         if !actual.code
+            || actual.quote_start != code.quote_start
             || actual.quote_depth != code.quote_depth
             || actual.list.is_some()
             || actual.code_language != code.code_language
             || actual_fence.marker != fence.marker
             || actual_fence.width != fence.width
+            || actual_base + actual_fence.body.start != body_at(base + fence.body.start)?
+            || actual_base + actual_fence.body.end != body_at(base + fence.body.end)?
             || actual_base + actual_fence.opener.start
                 != mapped(base + fence.opener.start)? - window.start
             || needs_close && actual_fence.closer.is_none()
@@ -243,18 +300,40 @@ impl EditorSession {
                     line.empty_comment,
                 )
             };
-            if meaning(&old) != meaning(&new) {
+            let (old_block, old_base) = self
+                .projection
+                .block_ref_at_source(end)
+                .ok_or(EditorError::UnrepresentableFormat)?;
+            let (new_block, new_base) = preview
+                .projection
+                .block_ref_at_source(mapped(end)? - window.start)
+                .ok_or(EditorError::UnrepresentableFormat)?;
+            if meaning(&old) != meaning(&new)
+                || old_block.quote_start != new_block.quote_start
+                || old_base + old_block.source.start != end
+                || new_base + new_block.source.start != mapped(end)? - window.start
+            {
                 return Err(EditorError::UnrepresentableFormat);
             }
         }
         // Original complete atoms must survive every fine-grained prefix edit.
-        for at in [range.start.0, range.end.0] {
+        let mut selection = range;
+        for endpoint in [&mut selection.start.0, &mut selection.end.0] {
+            let at = *endpoint;
             let point = self.projection.retained_point(at)?;
             let shifted = point.through_edits(start, &edits)?.relative(window.start)?;
             point.verify_raw(&self.source, shifted, &preview.source)?;
-            if display + preview.projection.project_retained_point(shifted)? != at {
+            let mapped_display = display + preview.projection.project_retained_point(shifted)?;
+            let expected_display = at
+                + if at >= display + separator_at {
+                    added
+                } else {
+                    0
+                };
+            if mapped_display != expected_display {
                 return Err(EditorError::UnrepresentableFormat);
             }
+            *endpoint = mapped_display;
         }
         let parsed = 2 * preview_raw.len() + work.parsed_source_bytes;
         copied += preview_raw.len() + output.len() + work.materialized_source_bytes;
@@ -266,7 +345,7 @@ impl EditorSession {
             expected,
             footprint,
             &output,
-            BlockSelection::Display(range),
+            BlockSelection::Display(selection),
             None,
             accept,
         )?;

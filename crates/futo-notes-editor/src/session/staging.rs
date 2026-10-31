@@ -173,6 +173,70 @@ impl EditorSession {
         }
     }
 
+    /// Normalize only original item-owned unquoted blank rows after a fence.
+    /// Temporary parses cannot create this original relationship certificate.
+    pub(super) fn physical_fence_tail_at(
+        &self,
+        opener: usize,
+        fence_end: usize,
+        end: usize,
+    ) -> PhysicalTail {
+        let mut tail = self.physical_tail_at(end);
+        if !self.context.original_canonical {
+            return if fence_end == end {
+                tail
+            } else {
+                PhysicalTail::Unknown
+            };
+        }
+        let Some((block, base)) = self.projection.block_ref_at_source(opener) else {
+            return PhysicalTail::Unknown;
+        };
+        let (Some(fence), Some(item)) = (&block.fence, &block.list) else {
+            return PhysicalTail::Unknown;
+        };
+        crate::inline::visit_container();
+        if fence.closer.is_some()
+            || base + fence.opener.start != opener
+            || base + fence.whole.end != fence_end
+            || base + item.item.end != end
+            || fence_end > end
+        {
+            return PhysicalTail::Unknown;
+        }
+        let mut at = fence_end;
+        while at < end {
+            crate::inline::visit_container();
+            let Some(row) = self.projection.source_prefix_at(at) else {
+                return PhysicalTail::Unknown;
+            };
+            if row.source.end <= at
+                || row.source.end > end
+                || row.code
+                || row.quote_depth != 0
+                || !row.list.as_ref().is_some_and(|list| {
+                    !list.first && list.item.start == base + item.item.start && list.item.end == end
+                })
+                || self.source.byte(row.source.end - 1) != b'\n'
+                || !self
+                    .source
+                    .byte_slice(row.source.clone())
+                    .bytes()
+                    .all(|byte| {
+                        crate::inline::visit_container();
+                        matches!(byte, b' ' | b'\t' | b'\r' | b'\n')
+                    })
+            {
+                return PhysicalTail::Unknown;
+            }
+            at = row.source.end;
+        }
+        if let PhysicalTail::Row { fence_item_end, .. } = &mut tail {
+            *fence_item_end = Some((item.depth, item.quote_depth, block.quote_depth));
+        }
+        tail
+    }
+
     fn stage_with_context(&self, raw: &str, window: Range<usize>, exact: bool) -> Self {
         let physical_tail = if exact {
             self.physical_tail_at(window.end)
