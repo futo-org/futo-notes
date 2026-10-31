@@ -147,3 +147,97 @@ fn ordinary_divider_does_not_scan_distant_reference_definitions_or_uses() {
         );
     }
 }
+
+#[test]
+fn a_definition_repair_shifts_only_the_current_live_scalar_after_the_divider() {
+    use futo_notes_editor::{Affinity, InlineFormat};
+    let original = "prefix [id]: /target 'T'\n";
+    let mut session = EditorSession::open(original);
+    let mut view = ReferenceView::new(original);
+    view.apply(
+        session
+            .replace(
+                Revision(0),
+                range(23, 23),
+                "<https://x.test/path",
+                &mut |_| Ok(()),
+            )
+            .unwrap(),
+    );
+    view.apply(
+        session
+            .replace(Revision(1), range(43, 43), ">", &mut |_| Ok(()))
+            .unwrap(),
+    );
+    session.select(Revision(2), range(38, 43)).unwrap();
+    view.apply(
+        session
+            .toggle_format(Revision(2), InlineFormat::Code, &mut |_| Ok(()))
+            .unwrap()
+            .unwrap(),
+    );
+    let guarded = session.source_text();
+    let opening = "prefix [id]: /target 'T'\n<https://x.test/path>";
+    assert_eq!(view.text, opening);
+    let expected = "prefix \n***\n\n\\[id]: /target 'T'\n<https\\://x.test`/path`>";
+    let shown = "prefix \n\u{fffc}\n\n[id]: /target 'T'\n<https://x.test/path>";
+    let candidate = EditorSession::open(expected);
+    assert_eq!(candidate.display_text(), shown);
+    assert!(candidate
+        .project(Revision(0), range(0, 50))
+        .unwrap()
+        .links
+        .is_empty());
+    session
+        .select_with_affinity(Revision(3), range(2, 2), Affinity::Forward)
+        .unwrap();
+    let mut accepts = 0;
+    view.apply(
+        session
+            .block_command(Revision(3), range(7, 7), BlockCommand::Divider, &mut |_| {
+                accepts += 1;
+                Ok(())
+            })
+            .unwrap()
+            .unwrap(),
+    );
+    assert_eq!(accepts, 1);
+    assert_eq!(session.source_text(), expected);
+    assert_eq!(view.text, shown);
+    assert!(session
+        .project(Revision(4), range(0, 50))
+        .unwrap()
+        .links
+        .is_empty());
+    session.select(Revision(4), range(44, 49)).unwrap();
+    view.apply(
+        session
+            .toggle_format(Revision(4), InlineFormat::Code, &mut |_| Ok(()))
+            .unwrap()
+            .unwrap(),
+    );
+    let released = session.source_text();
+    session.select(Revision(5), range(50, 50)).unwrap();
+    view.apply(
+        session
+            .replace(Revision(5), range(50, 50), " ", &mut |_| Ok(()))
+            .unwrap(),
+    );
+    assert_eq!(
+        view.text,
+        "prefix \n\u{fffc}\n\n[id]: /target 'T'\n<https://x.test/path> "
+    );
+    let links = session.project(Revision(6), range(0, 51)).unwrap().links;
+    assert_eq!(links.len(), 1);
+    assert_eq!(links[0].range, range(30, 49));
+    assert_eq!(links[0].destination, "https://x.test/path");
+    view.apply(session.undo(Revision(6), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(session.source_text(), released);
+    view.apply(session.undo(Revision(7), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(session.source_text(), expected);
+    view.apply(session.undo(Revision(8), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(session.source_text(), guarded);
+    assert_eq!(view.text, opening);
+    assert_eq!(session.selection(), range(2, 2));
+    assert_eq!(session.affinity(), Affinity::Forward);
+}
