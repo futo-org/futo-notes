@@ -1,4 +1,6 @@
 // Literal toolbar inputs for the pinned shipping command oracle.
+const nested = '- parent\n  - child😀\n    - grandchild\n  - sibling\n- following';
+
 export const cases = [
   {
     name: 'nested bullet toggle clears all list ancestors',

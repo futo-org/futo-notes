@@ -101,8 +101,6 @@ function observation() {
   };
 }
 
-const nested = '- parent\n  - child😀\n    - grandchild\n  - sibling\n- following';
-
 describe('pinned shipping toolbar container transactions (#299)', () => {
   it.each(cases)('$name', async (example) => {
     const parsed = editor.ctx.get(parserCtx)(example.source);
