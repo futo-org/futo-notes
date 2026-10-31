@@ -28,10 +28,10 @@ impl TypedState {
         if start == end {
             // Preserve the non-conversion decision with ordinary literal
             // source, without trimming separators into activation authority.
-            // A closed capsule plus two separators needs at least five
-            // scalar pieces. Separator-only structural input has no candidate
-            // and must not inspect a URI body or separator run.
-            if input.insertion.len() >= 5 {
+            // Opener + nonempty body + closer + two whitespace scalars
+            // require at least five UTF-8 bytes, regardless of piece layout.
+            // Separator-only structural input cannot contain this capsule.
+            if input.inserted.len() >= 5 {
                 return self.literal_ending(input, pieces, markers, work);
             }
             return Ok(());
