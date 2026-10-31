@@ -121,7 +121,7 @@ impl super::Projection {
             z,
             mut markers,
             pieces,
-            link_metadata_items,
+            mut link_metadata_items,
             ..
         } = self.edit_context(source, range);
         let selected = [
@@ -133,21 +133,51 @@ impl super::Projection {
         let mut at = 0;
         let mut existing = Vec::new();
         for piece in &pieces {
+            link_metadata_items += 1;
             let end = at + piece.display.len();
             if at < z && a < end {
-                existing.extend(
-                    piece
-                        .spans
-                        .iter()
-                        .copied()
-                        .filter(|id| matches!(markers[*id].kind, SpanKind::Link(_))),
-                );
+                existing.extend(piece.spans.iter().copied().filter(|id| {
+                    link_metadata_items += 1;
+                    matches!(markers[*id].kind, SpanKind::Link(_))
+                }));
             }
             at = end;
         }
         let mut target_copied = destination.len();
-        existing.sort_unstable();
-        existing.dedup();
+        existing.sort_unstable_by(|a, b| {
+            link_metadata_items += 1;
+            a.cmp(b)
+        });
+        existing.dedup_by(|a, b| {
+            link_metadata_items += 1;
+            a == b
+        });
+        // A source-owned unfinished autolink is literal text for command
+        // extent. Retire only touched pending IDs, globally unique in this
+        // bounded context; an untouched source stack keeps its own identity.
+        let pending: Vec<_> = existing
+            .iter()
+            .copied()
+            .filter(|id| {
+                link_metadata_items += 1;
+                markers[*id].pending
+            })
+            .collect();
+        link_metadata_items += pending.len();
+        if !pending.is_empty() {
+            let mut retained = |id: &usize| {
+                pending
+                    .binary_search_by(|candidate| {
+                        link_metadata_items += 1;
+                        candidate.cmp(id)
+                    })
+                    .is_err()
+            };
+            existing.retain(&mut retained);
+            for piece in &mut pieces {
+                piece.spans.retain(&mut retained);
+            }
+        }
         if existing.len() == 1 && !destination.is_empty() {
             let marker = &mut markers[existing[0]];
             marker.pending = false;
