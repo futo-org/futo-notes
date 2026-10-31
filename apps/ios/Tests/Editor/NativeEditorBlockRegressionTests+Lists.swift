@@ -64,7 +64,8 @@ extension NativeEditorBlockRegressionTests {
             let headings = try load("heading-quote-commands")
             #expect(headings.count == 5)
             let cases =
-                original + shortcuts + staging + nested + commands + headers + frames + fences + headings
+                original + shortcuts + staging + nested + commands + headers + frames + fences
+                + headings
             for item in cases {
                 let root = FileManager.default.temporaryDirectory.appendingPathComponent(
                     "editor-lists-\(UUID().uuidString)")
