@@ -198,6 +198,10 @@ const frameSources = [
   '- - - b',
   '- - - \n      b',
   '- - + \n      b',
+  'parent\n> ```\n> opaque\n> - outside',
+  'parent\n> ```\n> opaque\n> ```\n> - outside',
+  'parent\n> ```\n> opaque\n\n> - outside',
+  'parent\n> ```\n> opaque\n> ```\n\n> - outside',
 ];
 it.each(frameSources)('opens frame candidate %s', async (source) => {
   const parsed = editor.ctx.get(parserCtx)(source);

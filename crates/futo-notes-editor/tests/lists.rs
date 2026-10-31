@@ -46,3 +46,6 @@ mod shared_prefix_frames;
 mod fence_promotion;
 #[path = "lists/task_containers.rs"]
 mod task_containers;
+
+#[path = "lists/quote_owner_boundaries.rs"]
+mod quote_owner_boundaries;

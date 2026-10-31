@@ -110,3 +110,54 @@ fn a_shared_outer_quote_ends_its_list_item_at_the_foreign_physical_line() {
     assert_eq!(outside.quote_depth, 1);
     assert_eq!(outside.list.as_ref().unwrap().marker.start, outside_marker);
 }
+
+#[test]
+fn quote_owner_join_candidates_require_one_physical_unquoted_boundary() {
+    use pulldown_cmark::{Event, Tag, TagEnd};
+    for (raw, owners, outside_code) in [
+        ("parent\n> ```\n> opaque\n> - outside", 1, true),
+        ("parent\n> ```\n> opaque\n> ```\n> - outside", 1, false),
+        ("parent\n> ```\n> opaque\n\n> - outside", 2, false),
+        ("parent\n> ```\n> opaque\n> ```\n\n> - outside", 2, false),
+    ] {
+        let events = crate::inline::row::source_events(raw);
+        let quotes: Vec<_> = events
+            .iter()
+            .filter_map(|(event, range)| {
+                matches!(event, Event::Start(Tag::BlockQuote(_))).then_some(range.clone())
+            })
+            .collect();
+        assert_eq!(quotes.len(), owners, "{raw:?}");
+        assert!(quotes.windows(2).all(|pair| pair[0].end <= pair[1].start));
+        let p = crate::inline::Projection::new(raw);
+        let outside = p
+            .source_prefix_at(raw.rfind("> - outside").unwrap())
+            .unwrap();
+        assert_eq!(outside.code, outside_code);
+        if !outside_code {
+            assert!(outside
+                .list
+                .as_ref()
+                .is_some_and(|l| l.first && l.depth == 1));
+        }
+        let mut code = false;
+        let mut value = String::new();
+        for (event, _) in &events {
+            match event {
+                Event::Start(Tag::CodeBlock(_)) => code = true,
+                Event::Text(text) if code => value.push_str(text),
+                Event::End(TagEnd::CodeBlock) => code = false,
+                _ => {}
+            }
+        }
+        assert_eq!(
+            value,
+            if outside_code {
+                "opaque\n- outside"
+            } else {
+                "opaque\n"
+            },
+            "{raw:?}"
+        );
+    }
+}
