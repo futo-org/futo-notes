@@ -242,3 +242,93 @@ fn a_definition_repair_shifts_only_the_current_live_scalar_after_the_divider() {
     assert_eq!(session.selection(), range(2, 2));
     assert_eq!(session.affinity(), Affinity::Forward);
 }
+
+#[test]
+fn divider_preserves_literal_left_definition_exposure_before_its_returned_caret() {
+    let original = "[id]: /target extra\n\n[one][id]";
+    let expected = "\\[id]: /target\n***\n\n extra\n\n[one][id]";
+    let shown = "[id]: /target\n\u{fffc}\n\n extra\n\n[one][id]";
+    let edited = "\\[id]: /target\n***\nx\n extra\n\n[one][id]";
+    let edited_view = "[id]: /target\n\u{fffc}\nx\n extra\n\n[one][id]";
+    for (source, display) in [
+        (original, original),
+        (expected, shown),
+        (edited, edited_view),
+    ] {
+        let candidate = EditorSession::open(source);
+        assert_eq!(candidate.display_text(), display);
+        assert!(candidate
+            .project(Revision(0), range(0, display.len()))
+            .unwrap()
+            .links
+            .is_empty());
+    }
+    let mut session = EditorSession::open(original);
+    let mut view = ReferenceView::new(original);
+    session.select(Revision(0), range(2, 2)).unwrap();
+    let mut accepted = 0;
+    let change = session
+        .block_command(
+            Revision(0),
+            range(13, 13),
+            BlockCommand::Divider,
+            &mut |_| {
+                accepted += 1;
+                Ok(())
+            },
+        )
+        .unwrap_or_else(|error| {
+            panic!("valid left exposure failed; accepted={accepted}; {error:?}")
+        })
+        .unwrap();
+    assert_eq!(accepted, 1);
+    assert_eq!(change.selection, range(18, 18));
+    view.apply(change);
+    assert_eq!(session.source_text(), expected);
+    assert_eq!(view.text, shown);
+    assert!(session
+        .project(Revision(1), range(0, shown.len()))
+        .unwrap()
+        .links
+        .is_empty());
+    let caret = session.selection();
+    session.select(Revision(1), range(0, 0)).unwrap();
+    session.select(Revision(1), caret).unwrap();
+    view.apply(
+        session
+            .replace(Revision(1), caret, "x", &mut |_| {
+                accepted += 1;
+                Ok(())
+            })
+            .unwrap(),
+    );
+    assert_eq!(accepted, 2);
+    assert_eq!(session.source_text(), edited);
+    assert_eq!(view.text, edited_view);
+    assert_eq!(session.selection(), range(19, 19));
+    assert!(session
+        .project(Revision(2), range(0, edited_view.len()))
+        .unwrap()
+        .links
+        .is_empty());
+    view.apply(session.undo(Revision(2), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(session.source_text(), expected);
+    assert_eq!(view.text, shown);
+    assert_eq!(session.selection(), range(18, 18));
+    view.apply(session.undo(Revision(3), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(session.source_text(), original);
+    assert_eq!(view.text, original);
+    assert_eq!(session.selection(), range(2, 2));
+    view.apply(session.redo(Revision(4), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(session.source_text(), expected);
+    view.apply(session.redo(Revision(5), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(session.source_text(), edited);
+    assert_eq!(view.text, edited_view);
+    let fresh = EditorSession::open(&edited);
+    assert_eq!(fresh.display_text(), edited_view);
+    assert!(fresh
+        .project(Revision(0), range(0, edited_view.len()))
+        .unwrap()
+        .links
+        .is_empty());
+}
