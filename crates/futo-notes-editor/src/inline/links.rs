@@ -17,9 +17,9 @@ impl super::Projection {
         let (runs, mut items) = self.row_link_runs(range);
         let mut active: Vec<(crate::DisplayRange, std::sync::Arc<LinkMeaning>)> = Vec::new();
         for (range, target) in runs {
-            let (row, _, _) = self.rows.at(self.rows.locate(range.start.0, true));
-            items += row.literal_links.len();
-            if self.link_is_pending(range) {
+            let (pending, visits) = self.link_is_pending_with_work(range);
+            items += visits;
+            if pending {
                 continue;
             }
             if let Some((previous, meaning)) = active.last_mut() {
@@ -78,20 +78,23 @@ impl super::Projection {
         Vec<(crate::DisplayRange, std::sync::Arc<LinkMeaning>)>,
         usize,
     ) {
-        let first = self.rows.locate(range.start.0, true);
-        let last = self.rows.locate(range.end.0, true);
+        let (first, a) = self.rows.locate_with_work(range.start.0, true);
+        let (last, z) = self.rows.locate_with_work(range.end.0, true);
         let mut links = Vec::new();
-        let mut work = 0;
+        let mut work = a + z;
         for index in first..=last {
-            let (row, _, display) = self.rows.at(index);
+            let (row, _, display, nodes) = self.rows.at_with_work(index);
+            work += nodes;
             for span in &row.spans {
                 work += 1;
                 if let super::row::SpanKind::Link(target) = &span.kind {
-                    work += 1;
+                    let (start, a) = row.display_at_with_work(span.open.end);
+                    let (end, z) = row.display_at_with_work(span.close.start);
+                    work += 1 + a + z;
                     links.push((
                         crate::DisplayRange {
-                            start: crate::DisplayOffset(display + row.display_at(span.open.end)),
-                            end: crate::DisplayOffset(display + row.display_at(span.close.start)),
+                            start: crate::DisplayOffset(display + start),
+                            end: crate::DisplayOffset(display + end),
                         },
                         target.clone(),
                     ));

@@ -140,8 +140,9 @@ impl Projection {
     pub(crate) fn display_at_with_work(&self, offset: usize) -> (usize, usize) {
         #[cfg(test)]
         let visits = coordinate_work_tests::visits();
-        let (row, source, display) = self.rows.at(self.rows.locate(offset, false));
-        let (local, work) = row.display_at_with_work(offset - source);
+        let (row, source, display, nodes) = self.rows.source_row_with_work(offset);
+        let (local, segments) = row.display_at_with_work(offset - source);
+        let work = nodes + segments;
         #[cfg(test)]
         coordinate_work_tests::query("display", visits, work);
         (display + local, work)

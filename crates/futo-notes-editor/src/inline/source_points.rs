@@ -10,8 +10,9 @@ impl Projection {
         let endpoint = |offset: usize| {
             #[cfg(test)]
             let visits = super::coordinate_work_tests::visits();
-            let (row, source, display) = self.rows.at(self.rows.locate(offset, true));
-            let (mut point, work) = row.source_point_with_work(offset - display, affinity);
+            let (row, source, display, nodes) = self.rows.display_row_with_work(offset);
+            let (mut point, segments) = row.source_point_with_work(offset - display, affinity);
+            let work = nodes + segments;
             point.source.0 += source;
             #[cfg(test)]
             super::coordinate_work_tests::query("capture", visits, work);
@@ -32,9 +33,10 @@ impl Projection {
     ) -> (usize, usize) {
         #[cfg(test)]
         let visits = super::coordinate_work_tests::visits();
-        let (row, source, display) = self.rows.at(self.rows.locate(point.source.0, false));
+        let (row, source, display, nodes) = self.rows.source_row_with_work(point.source.0);
         point.source.0 -= source;
-        let (local, work) = row.project_source_point(point);
+        let (local, segments) = row.project_source_point(point);
+        let work = nodes + segments;
         #[cfg(test)]
         super::coordinate_work_tests::query("project", visits, work);
         (display + local, work)

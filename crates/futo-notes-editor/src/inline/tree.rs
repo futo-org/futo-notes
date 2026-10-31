@@ -103,10 +103,15 @@ impl Rows {
         }
         self.root = merge(merge(a, middle), b);
     }
-    pub fn at(&self, mut index: usize) -> (&Row, usize, usize) {
+    pub fn at(&self, index: usize) -> (&Row, usize, usize) {
+        let (row, source, display, _) = self.at_with_work(index);
+        (row, source, display)
+    }
+    pub fn at_with_work(&self, mut index: usize) -> (&Row, usize, usize, usize) {
         let mut node = self.root.as_deref().unwrap();
-        let (mut source, mut display) = (0, 0);
+        let (mut source, mut display, mut work) = (0, 0, 0);
         loop {
+            work += 1;
             #[cfg(test)]
             super::coordinate_work_tests::visit();
             let n = count(&node.left);
@@ -116,7 +121,7 @@ impl Rows {
                 source += length(&node.left, false);
                 display += length(&node.left, true);
                 if index == n {
-                    return (&node.row, source, display);
+                    return (&node.row, source, display, work);
                 }
                 index -= n + 1;
                 source += node.row.source_len;
@@ -126,26 +131,37 @@ impl Rows {
         }
     }
     /// One indexed physical-source query with its actual node visits.
-    pub fn source_row_with_work(&self, mut offset: usize) -> (&Row, usize, usize, usize) {
+    pub fn source_row_with_work(&self, offset: usize) -> (&Row, usize, usize, usize) {
+        self.row_with_work(offset, false)
+    }
+    pub fn display_row_with_work(&self, offset: usize) -> (&Row, usize, usize, usize) {
+        self.row_with_work(offset, true)
+    }
+    fn row_with_work(&self, mut offset: usize, displayed: bool) -> (&Row, usize, usize, usize) {
         let mut node = self.root.as_deref().unwrap();
         let (mut source, mut display, mut work) = (0, 0, 0);
         loop {
             #[cfg(test)]
             super::coordinate_work_tests::visit();
             work += 1;
-            let left = length(&node.left, false);
+            let left = length(&node.left, displayed);
+            let own = if displayed {
+                node.row.display.len()
+            } else {
+                node.row.source_len
+            };
             if offset < left {
                 node = node.left.as_deref().unwrap();
-            } else if offset < left + node.row.source_len || node.right.is_none() {
+            } else if offset < left + own || node.right.is_none() {
                 return (
                     &node.row,
-                    source + left,
+                    source + length(&node.left, false),
                     display + length(&node.left, true),
                     work,
                 );
             } else {
-                offset -= left + node.row.source_len;
-                source += left + node.row.source_len;
+                offset -= left + own;
+                source += length(&node.left, false) + node.row.source_len;
                 display += length(&node.left, true) + node.row.display.len();
                 node = node.right.as_deref().unwrap();
             }
@@ -173,26 +189,35 @@ impl Rows {
         }
     }
     /// Mutating transient metadata never changes indexed source/display lengths.
-    pub fn metadata_mut(&mut self, mut index: usize) -> &mut Row {
+    pub fn metadata_mut(&mut self, index: usize) -> &mut Row {
+        self.metadata_mut_with_work(index).0
+    }
+    pub fn metadata_mut_with_work(&mut self, mut index: usize) -> (&mut Row, usize) {
         let mut node = self.root.as_deref_mut().unwrap();
+        let mut work = 0;
         loop {
+            work += 1;
             #[cfg(test)]
             super::coordinate_work_tests::visit();
             let left = count(&node.left);
             if index < left {
                 node = node.left.as_deref_mut().unwrap();
             } else if index == left {
-                return &mut node.row;
+                return (&mut node.row, work);
             } else {
                 index -= left + 1;
                 node = node.right.as_deref_mut().unwrap();
             }
         }
     }
-    pub fn locate(&self, mut offset: usize, display: bool) -> usize {
+    pub fn locate(&self, offset: usize, display: bool) -> usize {
+        self.locate_with_work(offset, display).0
+    }
+    pub fn locate_with_work(&self, mut offset: usize, display: bool) -> (usize, usize) {
         let mut node = self.root.as_deref().unwrap();
-        let mut index = 0;
+        let (mut index, mut work) = (0, 0);
         loop {
+            work += 1;
             #[cfg(test)]
             super::coordinate_work_tests::visit();
             let left = length(&node.left, display);
@@ -204,7 +229,7 @@ impl Rows {
             if offset < left {
                 node = node.left.as_deref().unwrap();
             } else if offset < left + own || node.right.is_none() {
-                return index + count(&node.left);
+                return (index + count(&node.left), work);
             } else {
                 offset -= left + own;
                 index += count(&node.left) + 1;

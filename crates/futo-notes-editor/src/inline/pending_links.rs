@@ -182,23 +182,32 @@ impl Projection {
     }
 
     pub(crate) fn pending_for_source_edit(&self, edit: SourceRange) -> PendingLinks {
-        let first = self.rows.locate(edit.start.0, false).saturating_sub(1);
-        let last = (self.rows.locate(edit.end.0, false) + 1).min(self.rows.len() - 1);
-        let (_, start, _) = self.rows.at(first);
-        let (row, end, _) = self.rows.at(last);
-        self.pending_links(start..end + row.source_len)
+        let (first, a) = self.rows.locate_with_work(edit.start.0, false);
+        let (last, z) = self.rows.locate_with_work(edit.end.0, false);
+        let first = first.saturating_sub(1);
+        let last = (last + 1).min(self.rows.len() - 1);
+        let (_, start, _, b) = self.rows.at_with_work(first);
+        let (row, end, _, c) = self.rows.at_with_work(last);
+        let mut pending = self.pending_links(start..end + row.source_len);
+        pending.work += a + z + b + c;
+        pending
     }
 
     pub(super) fn pending_display(&self, first: usize, last: usize) -> (Vec<DisplayRange>, usize) {
         let mut ranges = Vec::new();
         let mut work = 0;
         for index in first..=last {
-            let (row, _, display) = self.rows.at(index);
-            work += 2 * row.literal_links.len();
-            ranges.extend(row.literal_links.iter().map(|range| DisplayRange {
-                start: DisplayOffset(display + row.display_at(range.start)),
-                end: DisplayOffset(display + row.display_at(range.end)),
-            }));
+            let (row, _, display, nodes) = self.rows.at_with_work(index);
+            work += nodes;
+            for range in &row.literal_links {
+                let (start, a) = row.display_at_with_work(range.start);
+                let (end, z) = row.display_at_with_work(range.end);
+                work += 2 + a + z;
+                ranges.push(DisplayRange {
+                    start: DisplayOffset(display + start),
+                    end: DisplayOffset(display + end),
+                });
+            }
         }
         (ranges, work)
     }
@@ -250,12 +259,20 @@ impl Projection {
                 .contains(&(span.open.end..span.close.start))
     }
 
-    pub(super) fn link_is_pending(&self, range: DisplayRange) -> bool {
-        let (row, _, display) = self.rows.at(self.rows.locate(range.start.0, true));
-        row.literal_links.iter().any(|link| {
-            display + row.display_at(link.start) == range.start.0
-                && display + row.display_at(link.end) == range.end.0
-        })
+    pub(super) fn link_is_pending_with_work(&self, range: DisplayRange) -> (bool, usize) {
+        let (row, _, display, mut work) = self.rows.display_row_with_work(range.start.0);
+        let pending = row.literal_links.iter().any(|link| {
+            work += 1;
+            let (start, visits) = row.display_at_with_work(link.start);
+            work += visits;
+            if display + start != range.start.0 {
+                return false;
+            }
+            let (end, visits) = row.display_at_with_work(link.end);
+            work += visits;
+            display + end == range.end.0
+        });
+        (pending, work)
     }
 
     pub(crate) fn finish_link_input(

@@ -5,8 +5,8 @@ impl Projection {
     /// Source-coordinate snapshot for one original source window. Staging must
     /// relocate these source positions only when its raw window is exact.
     pub(crate) fn pending_links(&self, window: Range<usize>) -> PendingLinks {
-        let first = self.rows.locate(window.start, false);
-        let last = self.rows.locate(
+        let (first, first_work) = self.rows.locate_with_work(window.start, false);
+        let (last, last_work) = self.rows.locate_with_work(
             window
                 .end
                 .saturating_sub(usize::from(window.end > window.start)),
@@ -16,9 +16,10 @@ impl Projection {
         let mut delimiters = Vec::new();
         let mut guarded_words = Vec::new();
         let mut typed_inputs = Vec::new();
-        let mut work = 0;
+        let mut work = first_work + last_work;
         for index in first..=last {
-            let (row, source, _) = self.rows.at(index);
+            let (row, source, _, nodes) = self.rows.at_with_work(index);
+            work += nodes;
             work += 2 * (row.literal_links.len() + row.literal_delimiters.len());
             delimiters.extend(
                 row.literal_delimiters
@@ -52,18 +53,19 @@ impl Projection {
     }
 
     pub(crate) fn restore_pending(&mut self, snapshot: &PendingLinks) -> usize {
-        let first = self.rows.locate(snapshot.window.start, false);
-        let last = self.rows.locate(
+        let (first, first_work) = self.rows.locate_with_work(snapshot.window.start, false);
+        let (last, last_work) = self.rows.locate_with_work(
             snapshot
                 .window
                 .end
                 .saturating_sub(usize::from(snapshot.window.end > snapshot.window.start)),
             false,
         );
-        let mut work = 0;
+        let mut work = first_work + last_work;
         for index in first..=last {
-            let (_, source, _) = self.rows.at(index);
-            let row = self.rows.metadata_mut(index);
+            let (_, source, _, nodes) = self.rows.at_with_work(index);
+            let (row, mutation) = self.rows.metadata_mut_with_work(index);
+            work += nodes + mutation;
             // A final parent paragraph can also own source outside the exact
             // child output. Never clear that foreign pending metadata.
             let inside = |range: &Range<usize>| {
@@ -91,16 +93,14 @@ impl Projection {
         work += self.restore_typed_origins(snapshot);
         work += self.install_delimiters(snapshot.delimiters.iter().cloned());
         for range in &snapshot.ranges {
-            let index = self.rows.locate(range.start, false);
-            let (_, source, _) = self.rows.at(index);
+            let (row, source, nodes) = self.rows.source_metadata_mut_with_work(range.start);
             let local = range.start - source..range.end - source;
-            let row = self.rows.metadata_mut(index);
-            work += 1 + row.spans.len();
-            if row
-                .spans
-                .iter()
-                .any(|span| pending_span(span) && (span.open.end..span.close.start) == local)
-            {
+            work += nodes;
+            work += 1;
+            if row.spans.iter().any(|span| {
+                work += 1;
+                pending_span(span) && (span.open.end..span.close.start) == local
+            }) {
                 row.literal_links.push(local);
             }
         }
