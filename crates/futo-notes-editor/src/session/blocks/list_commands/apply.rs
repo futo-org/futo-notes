@@ -250,7 +250,7 @@ impl EditorSession {
                                         && (previous.owner == list.owner
                                             || mixed
                                                 && previous.quote_depth == list.quote_depth
-                                                && targets.output_depth(&previous)
+                                                && lift_plan.depth_for(&previous, &targets)
                                                     == if lift_plan
                                                         .paragraph_heads
                                                         .contains(&line.source.start)

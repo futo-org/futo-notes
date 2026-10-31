@@ -3,8 +3,8 @@ use super::indent_source::OwnedPrefixOverride;
 use super::list_styles::ListStylePlan;
 use super::list_targets::ListTargets;
 use super::*;
-use crate::inline::blocks::ListCommandLine;
-use std::collections::{HashMap, HashSet};
+use crate::inline::{blocks::ListCommandLine, ListLine};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 #[derive(Default)]
 pub(super) struct MixedLiftPlan {
@@ -13,6 +13,58 @@ pub(super) struct MixedLiftPlan {
     pub paragraph_heads: HashSet<usize>,
     pub parsed: usize,
     pub materialized: usize,
+    depths: HashMap<usize, Vec<(usize, Option<usize>)>>,
+}
+
+impl MixedLiftPlan {
+    pub fn depth_for(&self, list: &ListLine, targets: &ListTargets) -> usize {
+        crate::inline::visit_container();
+        let cut = self.depths.get(&list.quote_depth).and_then(|events| {
+            let end = events.partition_point(|&(at, _)| {
+                crate::inline::visit_container();
+                at <= list.marker.start
+            });
+            end.checked_sub(1).and_then(|index| events[index].1)
+        });
+        cut.map_or_else(
+            || targets.output_depth(list),
+            |cut| list.depth.saturating_sub(cut).max(1),
+        )
+    }
+
+    fn index_depths(&mut self) {
+        let mut events = Vec::new();
+        for (index, fragment) in self.overrides.iter().enumerate() {
+            crate::inline::visit_container();
+            if fragment.start < fragment.item.end {
+                events.push((fragment.start, index, true));
+                events.push((fragment.item.end, index, false));
+            }
+        }
+        events.sort_by_key(|event| {
+            crate::inline::visit_container();
+            event.0
+        });
+        let mut active = BTreeMap::new();
+        for (at, index, begins) in events {
+            crate::inline::visit_container();
+            let fragment = &self.overrides[index];
+            let key = (fragment.quote, fragment.rank, index);
+            if begins {
+                active.insert(key, fragment.through_depth);
+            } else {
+                active.remove(&key);
+            }
+            let cut = active
+                .range((fragment.quote, 0, 0)..=(fragment.quote, usize::MAX, usize::MAX))
+                .next_back()
+                .map(|(_, &depth)| depth);
+            self.depths
+                .entry(fragment.quote)
+                .or_default()
+                .push((at, cut));
+        }
+    }
 }
 
 impl EditorSession {
@@ -32,6 +84,20 @@ impl EditorSession {
                 (line.source.start, index)
             })
             .collect();
+        let mut retired_heads: HashMap<usize, Vec<usize>> = HashMap::new();
+        for line in lines {
+            crate::inline::visit_container();
+            if let Some(list) = line
+                .list
+                .as_ref()
+                .filter(|list| list.first && targets.retires_item(list))
+            {
+                retired_heads
+                    .entry(list.quote_depth)
+                    .or_default()
+                    .push(list.marker.start);
+            }
+        }
         let mut row_range = 0..0;
         let mut items = Vec::new();
         for (rank, line) in lines.iter().enumerate() {
@@ -103,7 +169,16 @@ impl EditorSession {
                 if targets.retires_item(child) {
                     continue;
                 }
-                let after_marker = after.as_ref().and_then(|neighbor| {
+                let barrier = retired_heads.get(&child.quote_depth).is_some_and(|heads| {
+                    let next = heads.partition_point(|&marker| {
+                        crate::inline::visit_container();
+                        marker <= child.marker.start
+                    });
+                    heads
+                        .get(next)
+                        .is_some_and(|&marker| marker < selected.outer_item.end)
+                });
+                let after_marker = after.as_ref().filter(|_| !barrier).and_then(|neighbor| {
                     let foreign = neighbor.witness.list.as_ref()?;
                     crate::inline::visit_container();
                     if let Some(&index) = styled.get(&neighbor.witness.source.start) {
@@ -129,6 +204,7 @@ impl EditorSession {
                 );
             }
         }
+        plan.index_depths();
         Ok(plan)
     }
 }
