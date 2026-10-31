@@ -295,3 +295,7 @@ impl EditorSession {
         Ok(Some(change))
     }
 }
+
+#[cfg(test)]
+#[path = "list_fence_promotion_work.rs"]
+mod work_tests;

@@ -173,3 +173,52 @@ fn fence_promotion_preserves_authored_blank_tabs() {
         0,
     );
 }
+
+#[test]
+fn code_enter_after_list_promotion_is_opaque_with_two_exact_undo_groups() {
+    let raw = "- parent\n  ```\n  opaque\n- outside";
+    let promoted = "parent\n```\nopaque\n```\n- outside";
+    let expected = "parent\n```\n- opaque\n```\n- outside";
+    let mut s = EditorSession::open(raw);
+    let mut view = ReferenceView::new("parent\nopaque\noutside");
+    view.apply(
+        s.block_command(
+            s.revision(),
+            range(0, 0),
+            BlockCommand::Heading(0),
+            &mut |_| Ok(()),
+        )
+        .unwrap()
+        .unwrap(),
+    );
+    assert_eq!(s.source_text(), promoted);
+    s.select_with_affinity(s.revision(), range(7, 7), Affinity::Backward)
+        .unwrap();
+    view.apply(
+        s.replace(s.revision(), range(7, 7), "- ", &mut |_| Ok(()))
+            .unwrap(),
+    );
+    assert_eq!(s.source_text(), expected);
+    let before_enter = range(9, 9);
+    s.select_with_affinity(s.revision(), before_enter, Affinity::Backward)
+        .unwrap();
+    view.apply(
+        s.paragraph_key(s.revision(), before_enter, ParagraphKey::Enter, &mut |_| {
+            Ok(())
+        })
+        .unwrap()
+        .unwrap(),
+    );
+    assert_eq!(s.source_text(), "parent\n```\n- \nopaque\n```\n- outside");
+    assert_eq!(view.text, "parent\n- \nopaque\noutside");
+    let code = s.project(s.revision(), range(7, 16)).unwrap();
+    assert!(code.blocks.iter().all(|b| b.code && b.list.is_none()));
+    view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(s.source_text(), expected);
+    assert_eq!(s.selection(), before_enter);
+    assert_eq!(s.affinity(), Affinity::Backward);
+    view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(s.source_text(), promoted);
+    view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(s.source_text(), raw);
+}
