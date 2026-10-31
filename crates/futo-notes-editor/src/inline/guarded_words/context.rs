@@ -13,10 +13,14 @@ pub(in crate::inline) struct GuardPart {
     pub id: usize,
     pub role: GuardRole,
 }
+pub(in crate::inline) enum AfterDeletion {
+    Continue(usize),
+    RetireLiteral { owner: usize, displayed: String },
+}
 #[derive(Default)]
 pub(in crate::inline) struct GuardState {
     pub owners: Vec<Option<Arc<CodeWordIdentity>>>,
-    pub no_code: Option<usize>,
+    pub after_deletion: Option<AfterDeletion>,
 }
 impl GuardState {
     pub fn bind(

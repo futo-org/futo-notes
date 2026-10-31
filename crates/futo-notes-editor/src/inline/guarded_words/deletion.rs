@@ -127,6 +127,14 @@ impl GuardState {
                     target.destination.len() + target.title.as_ref().map_or(0, String::len);
             }
         }
+        if canonical.is_empty() {
+            // Only this proven user deletion may retire the actual owner. The
+            // final emitter still owes complete membership and canonical literal
+            // NoCode/NoLink proof before the owner is omitted from its output.
+            work.items += 2;
+            self.after_deletion = Some(AfterDeletion::RetireLiteral { owner, displayed });
+            return Ok(work);
+        }
         let Some(span) = canonical.first().filter(|span| {
             canonical.len() == 1 && span.open.start == 0 && span.close.end == displayed.len()
         }) else {
@@ -144,7 +152,7 @@ impl GuardState {
             meaning: meaning.clone(),
             displayed: Arc::from(displayed),
         }));
-        self.no_code = Some(owner);
+        self.after_deletion = Some(AfterDeletion::Continue(owner));
         Ok(work)
     }
 }

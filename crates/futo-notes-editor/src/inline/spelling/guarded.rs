@@ -87,6 +87,7 @@ impl GuardState {
         let mut seen = vec![false; self.owners.len()];
         *work += 1 + seen.len();
         let mut current: Option<(usize, Range<usize>, Range<usize>)> = None;
+        let mut retired_range = None;
         for (range, part) in intervals {
             *work += 1;
             let Some(part) = part else {
@@ -108,19 +109,30 @@ impl GuardState {
                     inner.end = range.end;
                 }
                 (GuardRole::Close, Some((id, envelope, inner)))
-                    if *id == part.id && envelope.end == range.start && inner.start < inner.end =>
+                    if *id == part.id && envelope.end == range.start =>
                 {
-                    *work += 6;
-                    let word = GuardedWord {
-                        envelope: envelope.start..range.end,
-                        inner: inner.clone(),
-                        identity: self.owners[*id]
-                            .as_ref()
-                            .ok_or(EditorError::UnrepresentableFormat)?
-                            .clone(),
-                    };
+                    *work += 7;
+                    let identity = self.owners[*id]
+                        .as_ref()
+                        .ok_or(EditorError::UnrepresentableFormat)?;
+                    let retire = matches!(&self.after_deletion,
+                        Some(AfterDeletion::RetireLiteral { owner, .. }) if owner == id);
+                    if retire {
+                        if retired_range.is_some() {
+                            return Err(EditorError::UnrepresentableFormat);
+                        }
+                        retired_range = Some((envelope.start..range.end, inner.clone()));
+                    } else {
+                        if inner.is_empty() {
+                            return Err(EditorError::UnrepresentableFormat);
+                        }
+                        result.push(GuardedWord {
+                            envelope: envelope.start..range.end,
+                            inner: inner.clone(),
+                            identity: identity.clone(),
+                        });
+                    }
                     seen[*id] = true;
-                    result.push(word);
                     current = None;
                 }
                 _ => return Err(EditorError::UnrepresentableFormat),
@@ -134,8 +146,8 @@ impl GuardState {
         {
             return Err(EditorError::UnrepresentableFormat);
         }
-        if let Some(id) = self.no_code {
-            let identity = self.owners[id]
+        if let Some(AfterDeletion::Continue(id)) = &self.after_deletion {
+            let identity = self.owners[*id]
                 .as_ref()
                 .ok_or(EditorError::UnrepresentableFormat)?;
             let word = result
@@ -155,7 +167,19 @@ impl GuardState {
                 }
             }
         }
-        *work += crate::inline::guarded_words::validate_row(&rendered.text, candidate, &result)?;
+        let retired =
+            if let Some(AfterDeletion::RetireLiteral { displayed, .. }) = &self.after_deletion {
+                let (envelope, inner) = retired_range.ok_or(EditorError::UnrepresentableFormat)?;
+                *work += 3;
+                Some(LiteralRetirement {
+                    envelope,
+                    inner,
+                    displayed,
+                })
+            } else {
+                None
+            };
+        *work += validate_with_retirement(&rendered.text, candidate, &result, retired.as_ref())?;
         Ok(result)
     }
 }

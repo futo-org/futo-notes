@@ -4,12 +4,13 @@ mod context;
 mod deletion;
 mod producer;
 mod snapshots;
-pub(in crate::inline) use context::{GuardPart, GuardRole, GuardState};
+pub(in crate::inline) use context::{AfterDeletion, GuardPart, GuardRole, GuardState};
 mod validate;
 use super::row::LinkMeaning;
 use crate::EditorError;
 use std::{ops::Range, sync::Arc};
 pub(crate) use validate::validate_row;
+pub(in crate::inline) use validate::{validate_with_retirement, LiteralRetirement};
 
 pub(crate) struct CodeWordIdentity {
     pub meaning: Arc<LinkMeaning>,
