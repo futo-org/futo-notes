@@ -214,12 +214,12 @@ impl EditorSession {
                     ),
                 )
             };
-            let mut replacement =
+            let (mut replacement, empty_quote) =
                 if let Some(quote) = self.lift_same_line_quote_prefix(line, &prefix, remove)? {
                     preview_header = true;
-                    quote
+                    (quote, true)
                 } else {
-                    format!("{}{marker}", &prefix[..retained])
+                    (format!("{}{marker}", &prefix[..retained]), false)
                 };
             if ordered_head && ordered_number != 1 {
                 let physical = self.source.byte_to_line(line.source.start);
@@ -243,7 +243,7 @@ impl EditorSession {
             if remove {
                 if let Some(list) = &line.list {
                     let index = self.source.byte_to_line(line.source.start);
-                    if index > 0 {
+                    if index > 0 && !empty_quote {
                         let previous = self.source.line_to_byte(index - 1);
                         if self
                             .source
