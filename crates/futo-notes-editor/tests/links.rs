@@ -62,3 +62,6 @@ mod compact_timing;
 
 #[path = "links/typed_origin_edits.rs"]
 mod typed_origin_edits;
+
+#[path = "links/typed_origin_actions.rs"]
+mod typed_origin_actions;
