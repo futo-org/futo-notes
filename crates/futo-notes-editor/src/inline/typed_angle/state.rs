@@ -24,10 +24,10 @@ impl TypedState {
     pub fn has_update(&self) -> bool {
         self.retained.is_some() || !self.emitted.is_empty()
     }
-    /// Until the input producer supplies a real continuation/handoff, a touched
-    /// supplied origin must fail before acceptance rather than survive stale.
-    pub fn require_unchanged_input(
-        &self,
+    /// A selected isolated correction retires its supplied owner. Other touched
+    /// input paths still require their own continuation or retirement proof.
+    pub fn prepare_other_input(
+        &mut self,
         projection: &Projection,
         source_start: usize,
         range: DisplayRange,
@@ -40,15 +40,46 @@ impl TypedState {
             return Ok(0);
         }
         let mut work = 0;
-        for origin in self.retained.iter().flatten() {
-            let (a, x) = projection.display_at_with_work(source_start + origin.opener.start);
-            let (z, y) = projection.display_at_with_work(source_start + origin.word.end);
-            work += x + y + 4;
-            if range.start.0 < z && a < range.end.0
-                || range.start == range.end && a < range.start.0 && range.start.0 <= z
-            {
-                return Err(EditorError::UnrepresentableFormat);
-            }
+        let mut unsupported = false;
+        let mut compacting = false;
+        if let Some(origins) = &mut self.retained {
+            origins.retain(|origin| {
+                let (a, x) = projection.display_at_with_work(source_start + origin.opener.start);
+                let (z, y) = projection.display_at_with_work(source_start + origin.word.end);
+                work += x + y + 4;
+                let touched = range.start.0 < z && a < range.end.0
+                    || range.start == range.end && a < range.start.0 && range.start.0 <= z;
+                if touched {
+                    if matches!(intent, EditIntent::Input(crate::InputAction::Isolated))
+                        && range.start != range.end
+                        && !inserted.is_empty()
+                    {
+                        let (start, visits) =
+                            projection.display_at_with_work(source_start + origin.word.start);
+                        work += visits + 2;
+                        if start <= range.start.0 && range.end.0 <= z {
+                            let old = projection.display.byte_slice(range.start.0..range.end.0);
+                            work += 1;
+                            let same = old.len_bytes() == inserted.len()
+                                && old.bytes().zip(inserted.bytes()).all(|(a, b)| {
+                                    work += 1;
+                                    a == b
+                                });
+                            if !same {
+                                compacting = true;
+                                return false;
+                            }
+                        }
+                    }
+                    unsupported = true;
+                }
+                // retain moves each surviving fixed field after a removed one.
+                work += 5 * usize::from(compacting);
+                true
+            });
+        }
+        if unsupported {
+            return Err(EditorError::UnrepresentableFormat);
         }
         Ok(work)
     }

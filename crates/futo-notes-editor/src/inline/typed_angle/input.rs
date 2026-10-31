@@ -145,7 +145,7 @@ impl TypedState {
     ) -> Result<ReferenceWork, EditorError> {
         let mut work = ReferenceWork::default();
         if !matches!(input.intent, EditIntent::Input(InputAction::Typing)) {
-            work.items += self.require_unchanged_input(
+            work.items += self.prepare_other_input(
                 input.projection,
                 input.source_start,
                 input.range,
