@@ -314,3 +314,81 @@ fn reversed_mixed_lift_overrides_do_not_repeat_ancestor_width_work() {
         }
     }
 }
+
+#[test]
+fn flat_mixed_owner_forests_do_not_repeat_full_owner_or_item_scans() {
+    let mut measured = Vec::new();
+    for count in [64, 512] {
+        let raw = (0..count)
+            .map(|at| format!("1. p{at}\n   - c{at}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let expected = (0..count)
+            .map(|at| format!("- p{at}\n\nc{at}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let before = (0..count)
+            .map(|at| format!("p{at}\nc{at}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let shown = (0..count)
+            .map(|at| format!("p{at}\n\nc{at}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert_eq!(EditorSession::open(&expected).display_text(), shown);
+        let mut s = EditorSession::open(&raw);
+        assert_eq!(s.display_text(), before);
+        let selected = DisplayRange {
+            start: DisplayOffset(0),
+            end: DisplayOffset(before.len()),
+        };
+        s.select_with_affinity(Revision(0), selected, Affinity::Backward)
+            .unwrap();
+        crate::inline::CONTAINER_METADATA_VISITS.with(|counter| counter.set(0));
+        crate::inline::CONTAINER_PREFIX_QUERIES.with(|counter| counter.set(0));
+        let mut accepts = 0;
+        let change = s
+            .block_command(Revision(0), selected, BlockCommand::BulletList, &mut |_| {
+                accepts += 1;
+                Ok(())
+            })
+            .unwrap()
+            .unwrap();
+        let visits = crate::inline::CONTAINER_METADATA_VISITS.with(|counter| counter.get());
+        let queries = crate::inline::CONTAINER_PREFIX_QUERIES.with(|counter| counter.get());
+        assert_eq!(accepts, 1);
+        let mut view = before.clone();
+        view.replace_range(change.range.start.0..change.range.end.0, &change.inserted);
+        assert_eq!(view, shown);
+        assert_eq!(s.source_text(), expected);
+        assert_eq!(s.selection().start, selected.start);
+        assert_eq!(s.selection().end, DisplayOffset(shown.len()));
+        assert!(
+            queries > 0 && queries <= 8 * count + 8,
+            "count={count} queries={queries}"
+        );
+        assert!(
+            change.work.parsed_source_bytes < 32 * raw.len(),
+            "count={count} parsed={}",
+            change.work.parsed_source_bytes
+        );
+        assert!(
+            change.work.materialized_source_bytes < 32 * raw.len(),
+            "count={count} materialized={}",
+            change.work.materialized_source_bytes
+        );
+        measured.push((raw.len(), visits));
+        s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap();
+        assert_eq!(s.source_text(), raw);
+        assert_eq!(s.selection(), selected);
+        assert_eq!(s.affinity(), Affinity::Backward);
+    }
+    let (small_bytes, small_visits) = measured[0];
+    let (large_bytes, large_visits) = measured[1];
+    assert!(
+        small_visits > 0
+            && (large_visits as u128) * (small_bytes as u128)
+                < 2 * (small_visits as u128) * (large_bytes as u128),
+        "flat forest input={small_bytes}..{large_bytes} metadata={small_visits}..{large_visits}"
+    );
+}
