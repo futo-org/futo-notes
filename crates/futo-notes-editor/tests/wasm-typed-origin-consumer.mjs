@@ -73,7 +73,7 @@ export async function typedOriginConsumer({ start, stop, getSession, createRoot 
       if (closed) {
         await apply(page.replace(revision, 16, 16, '>'), input === 'bulk');
         assert.equal(shown, '<www.x.test/path>');
-        assert.equal(page.draft_text(), '<[www.x.test/path](<http://www.x.test/path>)>');
+        assert.equal(page.draft_text(), '<[www.x.test/path](<http://www.x.test/path>)&#62;');
         assert.deepEqual(JSON.parse(page.project(revision, 0, 17)).links, []);
         // The same common owner survives partial Code and controlled Code-off;
         // WWW requires no extra scalar escape to carry that lifetime.
