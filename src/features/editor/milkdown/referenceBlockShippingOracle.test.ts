@@ -167,3 +167,14 @@ it('canonical inner autolink preserves the literal outer angle pair and clean UR
     { type: 'link', attrs: { href: 'https://x.test', title: null } },
   ]);
 });
+
+it('standard explicit link spelling supports Bold inside a literal angle pair', () => {
+  const parse = editor.ctx.get(parserCtx);
+  const candidate = parse('\\<[**https://x.test**](<https://x.test>)>').toJSON() as NodeJson;
+  expect(rows(candidate)).toEqual([{ type: 'paragraph', text: '<https://x.test>' }]);
+  expect(links(candidate)).toEqual([
+    { type: 'link', attrs: { href: 'https://x.test', title: null } },
+  ]);
+  const uri = candidate.content?.[0]?.content?.find((part) => part.text === 'https://x.test');
+  expect(uri?.marks?.map((mark) => mark.type)).toContain('strong');
+});
