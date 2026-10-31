@@ -189,6 +189,7 @@ impl EditorSession {
                 .next()
         };
         let mut separators = Vec::new();
+        let mixed = !remove;
         for (index, line) in lines.iter().enumerate() {
             let remove = targets.removes(line);
             if line.heading > 0 {
@@ -301,7 +302,7 @@ impl EditorSession {
                     }
                 }
             }
-            if remove {
+            if remove && mixed {
                 if let Some(list) = line.list.as_ref().filter(|list| list.first) {
                     // Removing the item also removes its owned indentation
                     // contribution from every continuation/descendant prefix.
@@ -314,7 +315,7 @@ impl EditorSession {
                         delta,
                     });
                 }
-            } else {
+            } else if !remove {
                 if let Some(list) = &line.list {
                     let logical_end =
                         replacement.len() - usize::from(command == BlockCommand::TaskList) * 4;
@@ -330,7 +331,7 @@ impl EditorSession {
                     }
                 }
             }
-            head_prefixes.insert(line.source.start, replacements.len());
+            head_prefixes.insert(line.source.start, (replacements.len(), remove));
             replacements.push((
                 line.source.start - start..line.content.start - start,
                 replacement,
@@ -344,6 +345,12 @@ impl EditorSession {
         {
             let at = prefix.source.start;
             let existing = head_prefixes.get(&at).copied();
+            // Direct removal already replaces the entire list-owned prefix.
+            // Ancestor shifts must not remove the same columns a second time.
+            if existing.is_some_and(|(_, removed)| removed) {
+                continue;
+            }
+            let existing = existing.map(|(index, _)| index);
             let mut value = if let Some(index) = existing {
                 std::mem::take(&mut replacements[index].1)
             } else {
