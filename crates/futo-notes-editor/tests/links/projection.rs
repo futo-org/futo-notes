@@ -171,6 +171,7 @@ fn scalar_spelling_candidates_keep_partial_code_and_literal_prefix_in_the_rust_p
     // These are current canonical-parser feasibility controls. The shipping
     // remark decoded-text transform disagrees: none is a cross-parser plan.
     for source in [
+        "\\<https\\://x.test`/path`>",
         "\\<&#104;ttps://x.test`/path`>",
         "\\<https&#58;//x.test`/path`>",
         "\\<https&colon;//x.test`/path`>",

@@ -35,3 +35,6 @@ mod angle_pending;
 
 #[path = "links/angle_authored.rs"]
 mod angle_authored;
+
+#[path = "links/partial_url_commands.rs"]
+mod partial_url_commands;
