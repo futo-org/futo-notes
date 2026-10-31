@@ -86,6 +86,11 @@ pub(super) fn render(
             .iter()
             .filter(|(_, span)| matches!(span.kind, SpanKind::Link(_)))
             .count();
+    #[cfg(test)]
+    crate::inline::materialization_tests::allocated(
+        crate::inline::materialization_tests::Buffer::Render,
+        output.len(),
+    );
     Rendered {
         link_metadata_items,
         winners,

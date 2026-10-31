@@ -22,6 +22,11 @@ impl Projection {
         let (end_row, source_end, _) = self.rows.at(last);
         let source_end = source_end + end_row.source_len;
         let raw = source.byte_slice(source_start..source_end).to_string();
+        #[cfg(test)]
+        super::super::materialization_tests::allocated(
+            super::super::materialization_tests::Buffer::Context,
+            raw.len(),
+        );
         let mut markers = Vec::new();
         let mut guarded_words = Vec::new();
         let mut typed_inputs = Vec::new();

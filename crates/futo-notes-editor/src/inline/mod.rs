@@ -335,6 +335,8 @@ impl Projection {
         let source_end = old_end + row.source_len - edit.removed.len() + edit.inserted.len();
         let display_end = display_end + row.display.len();
         let text = source.byte_slice(source_start..source_end).to_string();
+        #[cfg(test)]
+        materialization_tests::allocated(materialization_tests::Buffer::Apply, text.len());
         let mut winners = Vec::new();
         let mut reference_work = references::ReferenceWork::default();
         for index in first..=last {
@@ -489,3 +491,6 @@ impl Projection {
         }
     }
 }
+
+#[cfg(test)]
+mod materialization_tests;
