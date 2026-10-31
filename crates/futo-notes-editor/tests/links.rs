@@ -95,3 +95,6 @@ mod canonical_positions;
 
 #[path = "links/reference_generations.rs"]
 mod reference_generations;
+
+#[path = "links/target_generations.rs"]
+mod target_generations;
