@@ -231,8 +231,13 @@ fn canonical_fence_ranges_and_every_block_field_match_the_frozen_visitor() {
         }
         // The actual canonical block constructor supplies untouched initial
         // physical ranges, prefixes, lists, quotes and heading attribution.
-        let (old, old_prefix) = blocks::describe_with_fences(raw, &events, old_describe);
-        let (new, new_prefix) = blocks::describe(raw, &events);
+        let (mut old, old_prefix) = blocks::describe_with_fences(raw, &events, old_describe);
+        let (mut new, new_prefix) = blocks::describe(raw, &events);
+        // New prose attribution has its independent literal producer proof.
+        // Keep this frozen comparison over every pre-existing field.
+        for block in old.iter_mut().chain(new.iter_mut()) {
+            block.paragraph_text = false;
+        }
         assert_eq!(format!("{old:?}"), format!("{new:?}"), "{raw:?}");
         assert_eq!(old_prefix, new_prefix, "{raw:?}");
         for origin in [0, 61] {

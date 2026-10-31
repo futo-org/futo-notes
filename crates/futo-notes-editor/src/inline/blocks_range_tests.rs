@@ -63,8 +63,13 @@ fn sources() -> Vec<String> {
 fn canonical_item_visitor_preserves_every_output_field_and_hidden_prefix() {
     for source in sources() {
         let events = super::super::row::source_events(&source);
-        let (old, old_prefixes) = describe_with_items(&source, &events, old_item_lines);
-        let (new, new_prefixes) = describe(&source, &events);
+        let (mut old, old_prefixes) = describe_with_items(&source, &events, old_item_lines);
+        let (mut new, new_prefixes) = describe(&source, &events);
+        // This fact did not exist in the frozen producer. Independent literal
+        // tests prove it; all pre-existing fields remain in this differential.
+        for block in old.iter_mut().chain(new.iter_mut()) {
+            block.paragraph_text = false;
+        }
         assert_eq!(format!("{new:?}"), format!("{old:?}"), "source={source:?}");
         assert_eq!(new_prefixes, old_prefixes, "source={source:?}");
     }
@@ -183,4 +188,56 @@ fn tight_inline_textblocks_stop_before_child_blocks_and_keep_inline_containers()
         let (_, _, _, paragraph) = projection.list_items_and_paragraph_at(&source, 4, Some(6));
         assert_eq!(paragraph, None);
     }
+}
+
+#[test]
+fn canonical_prose_fact_distinguishes_inline_flow_from_opaque_and_empty_blocks() {
+    for raw in [
+        "- before",
+        "- > - before\n  >   c",
+        "- [x] before",
+        "- `before`",
+        "- *<b>*",
+        "- [before](dest)",
+        "- []()",
+        "- **[before](dest)**\n  c",
+        "- before\n  - child",
+        "- `a\n  b`",
+    ] {
+        let events = super::super::row::source_events(raw);
+        let (blocks, _) = describe(raw, &events);
+        assert!(!blocks.is_empty());
+        assert!(
+            blocks.iter().all(|b| b.paragraph_text),
+            "prose {raw:?}: {blocks:?}"
+        );
+        for mut shifted in blocks.clone() {
+            let fact = shifted.paragraph_text;
+            shifted.shift(61);
+            assert_eq!(shifted.paragraph_text, fact);
+        }
+    }
+    for raw in [
+        "- # before",
+        "- before\n  ---",
+        "- ```\n  before\n  ```",
+        "- <script>x</script>",
+        "-      ",
+        "- ",
+        "- <!-- -->\n",
+    ] {
+        let events = super::super::row::source_events(raw);
+        let (blocks, _) = describe(raw, &events);
+        assert!(
+            blocks.iter().all(|b| !b.paragraph_text),
+            "opaque/empty {raw:?}: {blocks:?}"
+        );
+    }
+    let raw = "- before\n\n  continuation";
+    let events = super::super::row::source_events(raw);
+    let (blocks, _) = describe(raw, &events);
+    assert_eq!(
+        blocks.iter().map(|b| b.paragraph_text).collect::<Vec<_>>(),
+        vec![true, false, true]
+    );
 }
