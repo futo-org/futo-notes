@@ -51,8 +51,14 @@ impl Projection {
                 if matches!(span.kind, SpanKind::Link(_)) {
                     link_metadata_items += 1;
                 }
+                let pending = !span.open.is_empty()
+                    && matches!(span.kind, SpanKind::Link(_))
+                    && row.literal_links.iter().any(|range| {
+                        link_metadata_items += 1;
+                        *range == (span.open.end..span.close.start)
+                    });
                 Marker {
-                    pending: !span.open.is_empty() && self.suppressed_link(row, span, row_display),
+                    pending,
                     kind: span.kind.clone(),
                     open: raw[base + span.open.start..base + span.open.end].into(),
                     close: raw[base + span.close.start..base + span.close.end].into(),

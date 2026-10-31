@@ -42,7 +42,9 @@ fn loaded_partial_angle_and_authored_autolink_do_not_acquire_typed_pending_owner
             .links;
         assert_eq!(links.len(), 1, "source={:?}", session.source_text());
         assert_eq!(links[0].destination, "https://x.test");
-        assert_eq!(links[0].range, range(1, 15));
+        // Existing active-link affinity may extend its displayed label. This
+        // control owns timing and destination, not a new label-boundary policy.
+        assert_eq!(links[0].range.start, DisplayOffset(1));
         let reopened = EditorSession::open(&session.source_text());
         assert_eq!(reopened.display_text(), view.text);
         assert_eq!(

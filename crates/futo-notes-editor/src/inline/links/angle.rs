@@ -213,6 +213,7 @@ pub(in crate::inline) fn complete_typed_angle(
         close: ">".into(),
     });
     pieces[start].raw = "<".into();
+    result.materialized += 3; // New literal opener plus canonical marker pair.
     for piece in &mut pieces[start + 1..insertion.start] {
         result.work.items += 1;
         piece.spans.push(id);
