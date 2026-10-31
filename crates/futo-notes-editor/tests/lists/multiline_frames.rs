@@ -52,11 +52,30 @@ enum Action {
 }
 
 fn multiline_action(raw: &str, expected: &str, shown: &str, action: Action, mapped: usize) {
+    multiline_transition(
+        raw,
+        "b\nc",
+        expected,
+        shown,
+        action,
+        range(0, 0),
+        range(mapped, mapped),
+    );
+}
+
+fn multiline_transition(
+    raw: &str,
+    before: &str,
+    expected: &str,
+    shown: &str,
+    action: Action,
+    selected: DisplayRange,
+    mapped: DisplayRange,
+) {
     for affinity in [Affinity::Backward, Affinity::Forward] {
         let mut s = EditorSession::open(raw);
-        assert_eq!(s.display_text(), "b\nc");
-        let mut view = ReferenceView::new("b\nc");
-        let selected = range(0, 0);
+        assert_eq!(s.display_text(), before);
+        let mut view = ReferenceView::new(before);
         s.select_with_affinity(s.revision(), selected, affinity)
             .unwrap();
         let apply =
@@ -99,17 +118,17 @@ fn multiline_action(raw: &str, expected: &str, shown: &str, action: Action, mapp
         assert_eq!(accepted, 1);
         assert_eq!(s.source_text(), expected, "{raw:?}");
         assert_eq!(view.text, shown);
-        assert_eq!(s.selection(), range(mapped, mapped));
+        assert_eq!(s.selection(), mapped);
         assert_eq!(s.affinity(), affinity);
         view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
         assert_eq!(s.source_text(), raw);
-        assert_eq!(view.text, "b\nc");
+        assert_eq!(view.text, before);
         assert_eq!(s.selection(), selected);
         assert_eq!(s.affinity(), affinity);
         view.apply(s.redo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
         assert_eq!(s.source_text(), expected);
         assert_eq!(view.text, shown);
-        assert_eq!(s.selection(), range(mapped, mapped));
+        assert_eq!(s.selection(), mapped);
     }
 }
 
@@ -274,4 +293,53 @@ fn literal_crlf_entity_frames_preserve_both_body_owners_and_raw_atoms() {
         );
         assert!(raw.contains("&acE;"));
     }
+}
+
+fn crlf_atom_transition(raw: &str, expected: &str, shown: &str, action: Action, added: usize) {
+    multiline_transition(
+        raw,
+        "\u{223e}\u{0333}\r\nc",
+        expected,
+        shown,
+        action,
+        range(0, 3),
+        range(added, added + 3),
+    );
+}
+
+#[test]
+fn outdent_crlf_outer_quote_maps_both_entity_endpoints_before_acceptance() {
+    crlf_atom_transition(
+        "> - > &acE;\r\n>   > c",
+        "> - \r\n>   &acE;\r\n>   c",
+        "\r\n\u{223e}\u{0333}\r\nc",
+        Action::Outdent,
+        2,
+    );
+}
+
+#[test]
+fn backspace_crlf_outer_quote_maps_both_entity_endpoints_before_acceptance() {
+    // Backspace requires a caret at its registered paragraph start. Probe its
+    // complete atom's strict interior separately through toolbar Outdent/Text.
+    multiline_transition(
+        "> - > &acE;\r\n>   > c",
+        "\u{223e}\u{0333}\r\nc",
+        "> - &acE;\r\n>   c",
+        "\u{223e}\u{0333}\r\nc",
+        Action::Backspace,
+        range(0, 0),
+        range(0, 0),
+    );
+}
+
+#[test]
+fn text_crlf_crossquote_maps_both_entity_endpoints_before_acceptance() {
+    crlf_atom_transition(
+        "- > - &acE;\r\n  >   c",
+        "\r\n> &acE;\r\n> c",
+        "\r\n\u{223e}\u{0333}\r\nc",
+        Action::Text,
+        2,
+    );
 }
