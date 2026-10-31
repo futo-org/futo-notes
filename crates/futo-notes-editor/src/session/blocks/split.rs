@@ -52,8 +52,11 @@ impl EditorSession {
             setext,
         );
         let (right, right_work) = super::content::protect_content(&body.right, false, true);
-        let unchanged_left = left == body.left[..heading_end];
-        let unchanged_right = right == body.right;
+        let mut layout_work = 0;
+        let unchanged_left =
+            super::physical_layout::same_source(&body.left[..heading_end], &left, &mut layout_work);
+        let unchanged_right =
+            super::physical_layout::same_source(&body.right, &right, &mut layout_work);
         let retain_layout = line.heading > 0
             || body
                 .pending
@@ -164,8 +167,11 @@ impl EditorSession {
             body.materialized + reference_bytes + left_layout.copied + right_layout.copied;
         change.work.parsed_source_bytes +=
             body.parsed + left_work + right_work + reference_work.parsed;
-        change.work.link_metadata_items +=
-            body.link_metadata_items + reference_work.items + left_layout.work + right_layout.work;
+        change.work.link_metadata_items += body.link_metadata_items
+            + reference_work.items
+            + left_layout.work
+            + right_layout.work
+            + layout_work;
         change.work.link_copied_bytes += body.link_copied_bytes + reference_work.copied;
         Ok(Some(change))
     }

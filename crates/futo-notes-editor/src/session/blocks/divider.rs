@@ -1,3 +1,4 @@
+use super::physical_layout::SplitLayout;
 use super::*;
 use crate::inline::blocks::BlockLine;
 
@@ -44,11 +45,25 @@ impl EditorSession {
             last.heading > 0 && last.underline.is_none(),
             last.underline.is_some() || last.heading == 0,
         );
-        let left = super::content::restore_body_prefixes(&left, body.prefixes.iter().skip(1));
-        let right = super::content::restore_body_prefixes(
+        let mut layout_work = 0;
+        let unchanged_left =
+            super::physical_layout::same_source(&body.left[..heading_end], &left, &mut layout_work);
+        let unchanged_right =
+            super::physical_layout::same_source(&body.right, &right, &mut layout_work);
+        let protected_bytes = left.len() + right.len();
+        let retain_fields = body
+            .pending
+            .as_ref()
+            .is_some_and(|pending| pending.has_fields());
+        let left_layout =
+            super::content::physical_body(&left, body.prefixes.iter().skip(1), retain_fields);
+        let right_layout = super::content::physical_body(
             &right,
             body.prefixes.iter().skip(body.right_line + 1),
+            retain_fields,
         );
+        let left = &left_layout.text;
+        let right = &right_layout.text;
         let quote = "> ".repeat(first.quote_depth);
         let first_prefix = self
             .source
@@ -63,9 +78,17 @@ impl EditorSession {
         let last_prefix = &body.prefixes[body.right_line];
         // A lazy continuation needs an explicit container when it becomes the
         // first body after the new divider boundary.
-        let last_prefix = if last_prefix.bytes().filter(|ch| *ch == b'>').count() < last.quote_depth
-        {
-            format!("{}{last_prefix}", "> ".repeat(last.quote_depth))
+        let markers = last_prefix
+            .bytes()
+            .filter(|ch| {
+                layout_work += 1;
+                *ch == b'>'
+            })
+            .count();
+        let last_prefix = if markers < last.quote_depth {
+            let mut prefix = "> ".repeat(last.quote_depth);
+            prefix.push_str(last_prefix);
+            prefix
         } else {
             last_prefix.clone()
         };
@@ -76,8 +99,11 @@ impl EditorSession {
             format!("{first_prefix}{left}{first_suffix}{retained_break}\n")
         };
         let index = self.source.byte_to_line(start);
-        let previous_nonempty =
-            index > 0 && !self.source.line(index - 1).to_string().trim().is_empty();
+        let previous_nonempty = index > 0
+            && self.source.line(index - 1).chars().any(|ch| {
+                layout_work += 1;
+                !ch.is_whitespace()
+            });
         let marker = if left.is_empty() && !previous_nonempty {
             "---"
         } else {
@@ -85,20 +111,68 @@ impl EditorSession {
         };
         let mut output = format!("{lead}{quote}{marker}\n{quote}");
         let caret = start + output.len();
-        if !right.is_empty() {
-            output.push_str(&format!("\n{last_prefix}{right}{last_suffix}"));
+        let right_start = if !right.is_empty() {
+            output.push('\n');
+            output.push_str(&last_prefix);
+            let at = output.len();
+            output.push_str(right);
+            output.push_str(&last_suffix);
+            at
+        } else {
+            output.len()
+        };
+        let layout = SplitLayout {
+            left: &left_layout,
+            right: &right_layout,
+            prefix: if left.is_empty() {
+                0
+            } else {
+                first_prefix.len()
+            },
+            right_start,
+            break_start: first_prefix.len() + left.len() + first_suffix.len(),
+            heading_end,
+            split: body.split,
+            unchanged_left,
+            unchanged_right,
+            setext,
+        };
+        // This is the CURRENT staged snapshot, including Some(empty) after a
+        // legitimate word-end retirement. Never restore opening fields here.
+        let mut pending = body
+            .pending
+            .map(|pending| {
+                pending.map_copied(0..output.len(), |range| layout.retained_range(range))
+            })
+            .transpose()?;
+        if let Some(pending) = &mut pending {
+            pending.work += pending.relocate_source(start);
         }
-        let mut change = self.commit_block_edit(
+        let mut change = self.commit_block_with_pending(
             expected,
             start..end,
             &output,
             BlockSelection::Source(caret),
             None,
+            pending,
             accept,
         )?;
-        change.work.materialized_source_bytes += body.materialized;
+        change.work.materialized_source_bytes += body.materialized
+            + protected_bytes
+            + left_layout.copied
+            + right_layout.copied
+            + quote.len()
+            + first_prefix.len()
+            + first_raw.len()
+            + last_raw.len()
+            + first_suffix.len()
+            + last_prefix.len()
+            + last_suffix.len()
+            + lead.len()
+            + output.len();
         change.work.parsed_source_bytes += body.parsed + left_work + right_work;
-        change.work.link_metadata_items += body.link_metadata_items;
+        change.work.link_metadata_items +=
+            body.link_metadata_items + layout_work + left_layout.work + right_layout.work;
         change.work.link_copied_bytes += body.link_copied_bytes;
         Ok(Some(change))
     }

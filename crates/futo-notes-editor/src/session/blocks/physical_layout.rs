@@ -42,3 +42,14 @@ impl SplitLayout<'_> {
         }
     }
 }
+
+/// Validate an already-owned current body against its protected output. Byte
+/// equality verifies that copied part; it never discovers source identity.
+pub(super) fn same_source(before: &str, after: &str, work: &mut usize) -> bool {
+    *work += 1;
+    before.len() == after.len()
+        && before.bytes().zip(after.bytes()).all(|(a, b)| {
+            *work += 1;
+            a == b
+        })
+}
