@@ -326,7 +326,7 @@ impl EditorSession {
                 replacement,
             ));
         }
-        let shifted_prefixes = self.owned_prefix_shifts(owned_shifts, lift_plan.overrides)?;
+        let shifted_prefixes = self.owned_prefix_shifts(owned_shifts, &lift_plan.overrides)?;
         for super::super::indent_source::PhysicalPrefixShift {
             prefix,
             deltas: mut shifts,

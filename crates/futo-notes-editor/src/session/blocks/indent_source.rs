@@ -45,7 +45,7 @@ impl EditorSession {
     pub(super) fn owned_prefix_shifts(
         &self,
         spans: Vec<OwnedPrefixShift>,
-        overrides: Vec<OwnedPrefixOverride>,
+        overrides: &[OwnedPrefixOverride],
     ) -> Result<Vec<PhysicalPrefixShift>, EditorError> {
         let mut plan = Vec::new();
         let mut events = Vec::new();

@@ -206,7 +206,7 @@ impl EditorSession {
             heads.entry(head).or_insert(prefix);
         }
         let mut physical: BTreeMap<usize, PhysicalPrefixShift> = self
-            .owned_prefix_shifts(spans, Vec::new())?
+            .owned_prefix_shifts(spans, &[])?
             .into_iter()
             .map(|plan| (plan.prefix.source.start, plan))
             .collect();
