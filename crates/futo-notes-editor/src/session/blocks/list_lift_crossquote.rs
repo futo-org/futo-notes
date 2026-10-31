@@ -65,6 +65,7 @@ impl EditorSession {
             parsed,
             mut materialized,
         } = self.emit_crossquote_cuts(cuts)?;
+        materialized += self.add_shared_root_frame(lines, &groups, &mut edits)?;
         let parsed = planning_bytes + parsed;
         materialized += planning_bytes;
         edits.sort_by_key(|(range, _)| range.start);
@@ -117,6 +118,60 @@ impl EditorSession {
         change.work.parsed_source_bytes += parsed;
         change.work.materialized_source_bytes += materialized;
         Ok(Some(change))
+    }
+
+    /// A complete shared physical header chain has one representable root
+    /// empty paragraph. Leading empty paragraphs inside quotes are not written.
+    fn add_shared_root_frame(
+        &self,
+        lines: &[ListCommandLine],
+        groups: &[Group],
+        edits: &mut [(Range<usize>, String)],
+    ) -> Result<usize, EditorError> {
+        let first = &lines[0];
+        if lines.len() != 1
+            || groups.len() < 2
+            || first.quote_depth != groups.len()
+            || first.code
+            || first.heading > 0
+            || first.task.is_some()
+        {
+            return Ok(0);
+        }
+        for (index, group) in groups.iter().enumerate() {
+            crate::inline::visit_container();
+            let item = &group.root;
+            if item.depth != index + 1
+                || item.checked.is_some()
+                || item.quote_depth != index
+                || item.marker != group.removed.marker
+                || item.marker.start < first.source.start
+                || item.marker.end > first.content.start
+                || item.item.end > first.source.end
+                || index == 0 && item.marker.start != first.source.start
+            {
+                return Ok(0);
+            }
+        }
+        let ending = self
+            .source
+            .byte_slice(first.content.end..first.source.end)
+            .to_string();
+        let newline = if ending.ends_with("\r\n") {
+            "\r\n"
+        } else {
+            "\n"
+        };
+        let (_, value) = edits
+            .iter_mut()
+            .find(|(range, _)| {
+                crate::inline::visit_container();
+                *range == (first.source.start..first.content.start)
+            })
+            .ok_or(EditorError::UnrepresentableFormat)?;
+        value.insert_str(0, newline);
+        // insert_str moves the retained prefix and copies this one new EOL.
+        Ok(ending.len() + value.len())
     }
 
     fn try_lift_crossquote_header(
