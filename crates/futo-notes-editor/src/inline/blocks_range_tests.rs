@@ -190,49 +190,69 @@ fn tight_inline_textblocks_stop_before_child_blocks_and_keep_inline_containers()
     }
 }
 
-#[test]
-fn canonical_prose_fact_distinguishes_inline_flow_from_opaque_and_empty_blocks() {
-    for raw in [
-        "- before",
-        "- > - before\n  >   c",
-        "- [x] before",
-        "- `before`",
-        "- *<b>*",
-        "- [before](dest)",
-        "- []()",
-        "- **[before](dest)**\n  c",
-        "- before\n  - child",
-        "- `a\n  b`",
-    ] {
-        let events = super::super::row::source_events(raw);
-        let (blocks, _) = describe(raw, &events);
-        assert!(!blocks.is_empty());
-        assert!(
-            blocks.iter().all(|b| b.paragraph_text),
-            "prose {raw:?}: {blocks:?}"
-        );
-        for mut shifted in blocks.clone() {
-            let fact = shifted.paragraph_text;
-            shifted.shift(61);
-            assert_eq!(shifted.paragraph_text, fact);
+fn prose_fact(raw: &str, expected: bool) {
+    let events = super::super::row::source_events(raw);
+    let (blocks, _) = describe(raw, &events);
+    assert!(!blocks.is_empty());
+    assert!(
+        blocks.iter().all(|b| b.paragraph_text == expected),
+        "{raw:?}: {blocks:?}"
+    );
+    for mut shifted in blocks {
+        let fact = shifted.paragraph_text;
+        shifted.shift(61);
+        assert_eq!(shifted.paragraph_text, fact);
+    }
+}
+macro_rules! prose {
+    ($name:ident, $raw:expr, $expected:expr) => {
+        #[test]
+        fn $name() {
+            prose_fact($raw, $expected);
         }
-    }
-    for raw in [
-        "- # before",
-        "- before\n  ---",
-        "- ```\n  before\n  ```",
-        "- <script>x</script>",
-        "-      ",
-        "- ",
-        "- <!-- -->\n",
-    ] {
-        let events = super::super::row::source_events(raw);
-        let (blocks, _) = describe(raw, &events);
-        assert!(
-            blocks.iter().all(|b| !b.paragraph_text),
-            "opaque/empty {raw:?}: {blocks:?}"
-        );
-    }
+    };
+}
+
+prose!(real_list_prose, "- before", true);
+
+prose!(tight_crossquote_prose, "- > - before\n  >   c", true);
+
+prose!(task_body_prose, "- [x] before", true);
+
+prose!(inline_code_prose, "- `before`", true);
+
+prose!(inline_html_inside_emphasis_is_prose, "- *<b>*", true);
+
+prose!(link_body_prose, "- [before](dest)", true);
+
+prose!(empty_link_is_still_inline_prose, "- []()", true);
+
+prose!(
+    nested_inline_containers_are_prose,
+    "- **[before](dest)**\n  c",
+    true
+);
+
+prose!(parent_and_child_tight_prose, "- before\n  - child", true);
+
+prose!(multiline_inline_code_is_prose, "- `a\n  b`", true);
+
+prose!(heading_is_not_prose, "- # before", false);
+
+prose!(setext_is_not_prose, "- before\n  ---", false);
+
+prose!(fence_is_not_prose, "- ```\n  before\n  ```", false);
+
+prose!(html_block_is_not_prose, "- <script>x</script>", false);
+
+prose!(padded_empty_item_is_not_prose, "-      ", false);
+
+prose!(empty_item_is_not_prose, "- ", false);
+
+prose!(comment_is_not_prose, "- <!-- -->\n", false);
+
+#[test]
+fn authored_blank_between_prose_blocks_has_no_prose_fact() {
     let raw = "- before\n\n  continuation";
     let events = super::super::row::source_events(raw);
     let (blocks, _) = describe(raw, &events);
