@@ -235,12 +235,8 @@ impl Projection {
                     }) {
                         continue;
                     }
-                    let trailing = row.blocks.iter().any(|block| {
-                        super::super::visit_container();
-                        !block.empty_comment
-                            && block.content.end <= segment.source.start
-                            && segment.source.end <= block.source.end
-                    });
+                    let trailing =
+                        super::super::blocks::trailing_syntax(&row.blocks, &segment.source);
                     pieces.push(Piece {
                         guard: None,
                         physical_prefix: prefixes
