@@ -9,6 +9,7 @@ use crate::inline::{
     Projection,
 };
 use crate::{DisplayRange, InlineFormat, InputAction};
+mod ending;
 
 pub(in crate::inline) struct Input<'a> {
     pub projection: &'a Projection,
@@ -45,10 +46,10 @@ fn literal_prefix(word: &str) -> bool {
 fn candidate(word: &str) -> bool {
     literal_prefix(word) || word.starts_with("www.")
 }
-fn meaning(word: &str, work: &mut ReferenceWork) -> (Option<Arc<LinkMeaning>>, bool) {
+fn canonical_links(word: &str, work: &mut ReferenceWork) -> Vec<crate::inline::row::Span> {
     if literal_prefix(word) {
         work.items += 1;
-        return (None, false);
+        return Vec::new();
     }
     let (links, parsed) = crate::inline::links::bare_links(word);
     work.parsed += parsed;
@@ -58,6 +59,10 @@ fn meaning(word: &str, work: &mut ReferenceWork) -> (Option<Arc<LinkMeaning>>, b
             work.copied += target.destination.len() + target.title.as_ref().map_or(0, String::len);
         }
     }
+    links
+}
+fn meaning(word: &str, work: &mut ReferenceWork) -> (Option<Arc<LinkMeaning>>, bool) {
+    let links = canonical_links(word, work);
     let recognized = !links.is_empty();
     let Some(span) = links
         .first()
@@ -240,44 +245,7 @@ impl TypedState {
                     .next()
                     .is_some_and(char::is_whitespace);
             if input.inserted == ">" || ending {
-                let text = displayed(&pieces[body.clone()], &mut work);
-                let (target, recognized) = meaning(&text, &mut work);
-                let Some(target) = target else {
-                    if recognized {
-                        return Err(EditorError::UnrepresentableFormat);
-                    }
-                    return Ok(work); // An invalid/incomplete candidate simply ends.
-                };
-                let saved = origin
-                    .uri
-                    .as_ref()
-                    .ok_or(EditorError::UnrepresentableFormat)?;
-                work.items += saved.displayed.len()
-                    + text.len()
-                    + saved.meaning.destination.len()
-                    + target.destination.len()
-                    + 2;
-                if saved.displayed.as_ref() != text || saved.meaning != target {
-                    return Err(EditorError::UnrepresentableFormat);
-                }
-                let id = markers.len();
-                markers.push(Marker {
-                    source: None,
-                    literal_url: false,
-                    pending: true,
-                    activate: false,
-                    kind: SpanKind::Link(target),
-                    open: "<".into(),
-                    close: ">".into(),
-                });
-                work.items += 1;
-                work.copied += 2;
-                for piece in &mut pieces[body] {
-                    work.items += 1;
-                    piece.spans.push(id);
-                }
-                // Existing spelling's final canonical verifier chooses explicit
-                // syntax for WWW. Space retires pending in the ordinary input owner.
+                ending::finish(pieces, markers, body, &origin, ending, &mut work)?;
                 return Ok(work);
             }
             if input.inserted.contains(char::is_whitespace) || input.inserted.contains(['<', '>']) {
