@@ -4,9 +4,9 @@ use super::*;
 #[test]
 fn extended_word_prefix_retains_escape_atoms_literal_suffix_and_exact_old_lifetime() {
     let opening = "<www.x.test/a*b*c";
-    let opening_source = r"<www.x.test/a\*b\*c";
+    let opening_source = r"<www.x.test/a&#42;b&#42;c";
     let shown = "<www.x.test/a*b*cz. ";
-    let candidate = r"<[www.x.test/a\*b\*cz](<http://www.x.test/a*b*cz>). ";
+    let candidate = r"<[www.x.test/a&#42;b&#42;cz](<http://www.x.test/a*b*cz>). ";
     let old = EditorSession::open(opening_source);
     assert_eq!(old.display_text(), opening);
     let before = old.project(Revision(0), range(0, opening.len())).unwrap();
