@@ -41,3 +41,6 @@ mod partial_url_commands;
 
 #[path = "links/physical_prefixes.rs"]
 mod physical_prefixes;
+
+#[path = "links/code_literal_edits.rs"]
+mod code_literal_edits;
