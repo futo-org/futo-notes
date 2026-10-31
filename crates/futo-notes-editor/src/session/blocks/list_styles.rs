@@ -109,7 +109,9 @@ impl EditorSession {
             let head = &lines[first];
             let quote_depth = result.quotes[first];
             let tail = &lines[last - 1];
-            let depth = head.list.as_ref().map_or(1, |list| list.depth);
+            let depth = head.list.as_ref().map_or(1, |list| {
+                targets.map_or(list.depth, |targets| targets.output_depth(list))
+            });
             let before_line = self.source.byte_to_line(head.source.start);
             // Container event endpoints can include a following quote prefix.
             // Walk actual physical item ownership instead of skipping that line.
@@ -184,9 +186,6 @@ impl EditorSession {
                     return None;
                 }
                 if let Some(list) = &line.list {
-                    if list.depth != depth {
-                        return None;
-                    }
                     if let Some(&(marker, quote, nested)) = resolved_owners
                         .get(&list.owner.start)
                         .filter(|_| neighbor.local)
@@ -194,6 +193,9 @@ impl EditorSession {
                         return (quote == quote_depth && nested == depth).then_some((marker, None));
                     }
                     if neighbor.local && planned_owners.contains(&list.owner.start) {
+                        return None;
+                    }
+                    if list.depth != depth {
                         return None;
                     }
                     if list.ordinal.is_some() == ordered {

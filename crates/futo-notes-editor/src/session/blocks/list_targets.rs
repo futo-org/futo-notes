@@ -52,6 +52,7 @@ pub(super) struct ListTargets {
     retired: HashMap<usize, (Range<usize>, usize)>,
     owners: HashMap<usize, (Range<usize>, usize)>,
     pub covered_descendants: bool,
+    retired_depths: Vec<(usize, usize)>,
 }
 
 impl ListTargets {
@@ -61,6 +62,7 @@ impl ListTargets {
             retired: HashMap::new(),
             owners: HashMap::new(),
             covered_descendants: false,
+            retired_depths: Vec::new(),
         };
         let written = lines.iter().any(|line| {
             crate::inline::visit_container();
@@ -125,7 +127,36 @@ impl ListTargets {
             crate::inline::visit_container();
             result.selected.insert(line.source.start, (run, remove));
         }
+        // A source-position index describes only the command's retired item
+        // intervals. It is not retained ancestry or a second parser model.
+        let mut events = Vec::new();
+        for (&marker, (item, _)) in &result.retired {
+            crate::inline::visit_container();
+            events.push((marker + 1, 1isize));
+            events.push((item.end, -1));
+        }
+        events.sort_by_key(|event| {
+            crate::inline::visit_container();
+            event.0
+        });
+        let mut active = 0isize;
+        for (at, delta) in events {
+            crate::inline::visit_container();
+            active += delta;
+            result.retired_depths.push((at, active as usize));
+        }
         result
+    }
+
+    pub fn output_depth(&self, list: &ListLine) -> usize {
+        let end = self.retired_depths.partition_point(|&(at, _)| {
+            crate::inline::visit_container();
+            at <= list.marker.start
+        });
+        let retired = end
+            .checked_sub(1)
+            .map_or(0, |index| self.retired_depths[index].1);
+        list.depth.saturating_sub(retired).max(1)
     }
 
     pub fn retired_items(&self) -> impl Iterator<Item = &Range<usize>> {

@@ -301,7 +301,20 @@ impl EditorSession {
                     }
                 }
             }
-            if !remove {
+            if remove {
+                if let Some(list) = line.list.as_ref().filter(|list| list.first) {
+                    // Removing the item also removes its owned indentation
+                    // contribution from every continuation/descendant prefix.
+                    // Retargeted descendant markers join this same sweep.
+                    let delta = list.marker_column as isize - list.content_column as isize;
+                    owned_shifts.push(super::indent_source::OwnedPrefixShift {
+                        start: line.source.end,
+                        item: list.item.clone(),
+                        quote: list.quote_depth,
+                        delta,
+                    });
+                }
+            } else {
                 if let Some(list) = &line.list {
                     let logical_end =
                         replacement.len() - usize::from(command == BlockCommand::TaskList) * 4;
