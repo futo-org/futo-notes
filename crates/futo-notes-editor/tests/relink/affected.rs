@@ -490,13 +490,45 @@ fn a_valid_rename_can_make_a_live_code_word_literal_without_a_complete_uri() {
         .unwrap();
     let original = editor.source_text();
     assert_eq!(original, format!("<`{uri}`>"));
+    // Capture the actual public pre-Code history source before deciding what
+    // its former hidden autolink markers mean after the canonical rewrite.
+    editor
+        .undo(editor.revision(), &mut |_| Ok(()))
+        .unwrap()
+        .unwrap();
+    let before_code = editor.source_text();
+    assert_eq!(before_code, format!("<<{uri}>>"));
+    editor
+        .redo(editor.revision(), &mut |_| Ok(()))
+        .unwrap()
+        .unwrap();
+    assert_eq!(editor.source_text(), original);
+    let historical = futo_notes_wikilinks::observe_wikilink_rewrite(
+        &before_code,
+        "Old",
+        "New Name",
+        &["Old".into()],
+    );
+    assert_eq!(historical.source, format!("<<{next}>>"));
+    assert_eq!(
+        EditorSession::open(&historical.source).display_text(),
+        format!("<<{next}>>")
+    );
+    let literal_source = "\\<https\\://x.test/[[New Name]]/path\\>";
+    let literal = EditorSession::open(literal_source);
+    assert_eq!(literal.display_text(), expected_text);
+    assert!(literal
+        .project(Revision(0), range(0, expected_text.len()))
+        .unwrap()
+        .links
+        .is_empty());
     let action = OwnActionRelink {
         mappings: vec![("Old".into(), "New Name".into())],
         note_ids: vec!["Old".into()],
     };
     let mut accepted = 0;
     editor
-        .apply_own_relink(Revision(3), &action, &mut |_| {
+        .apply_own_relink(editor.revision(), &action, &mut |_| {
             accepted += 1;
             Ok(())
         })
@@ -508,12 +540,18 @@ fn a_valid_rename_can_make_a_live_code_word_literal_without_a_complete_uri() {
     assert_eq!(editor.source_text(), format!("<`{next}`>"));
     assert_eq!(editor.display_text(), expected_text);
     let actual = editor
-        .project(Revision(4), range(0, expected_text.len()))
+        .project(editor.revision(), range(0, expected_text.len()))
         .unwrap();
     assert_eq!(actual.links, canonical.links);
     assert_eq!(actual.runs, canonical.runs);
-    editor.undo(Revision(4), &mut |_| Ok(())).unwrap().unwrap();
-    editor.redo(Revision(5), &mut |_| Ok(())).unwrap().unwrap();
+    editor
+        .undo(editor.revision(), &mut |_| Ok(()))
+        .unwrap()
+        .unwrap();
+    editor
+        .redo(editor.revision(), &mut |_| Ok(()))
+        .unwrap()
+        .unwrap();
     assert_eq!(editor.source_text(), format!("<`{next}`>"));
     let fresh = EditorSession::open(&editor.source_text());
     assert_eq!(fresh.display_text(), editor.display_text());
