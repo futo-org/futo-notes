@@ -379,6 +379,22 @@ const cases = [
     head: 'c1',
     headOffset: 2,
   },
+  {
+    name: 'quoted task owner copies starts after ordered child lift',
+    source: '> - [ ] parent\n>   1. child\n> - [x] following',
+    command: 'ordered-list',
+    anchor: 'parent',
+    head: 'child',
+    headOffset: 5,
+  },
+  {
+    name: 'task owner mixed ancestor descendant selection keeps listed grandchild',
+    source: '- [ ] parent\n  1. child\n     1. grandchild\n- [x] following',
+    command: 'ordered-list',
+    anchor: 'parent',
+    head: 'grandchild',
+    headOffset: 10,
+  },
 ] as const;
 
 describe('pinned shipping toolbar container transactions (#299)', () => {
