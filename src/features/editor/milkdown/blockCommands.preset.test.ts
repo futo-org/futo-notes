@@ -333,6 +333,20 @@ const cases = [
     head: 'c1',
     headOffset: 2,
   },
+  {
+    name: 'ordered task retarget preserves existing start',
+    source: '7) [x] parent\n   - child\n8) [ ] following',
+    command: 'ordered-list',
+    anchor: 'parent',
+    offset: 3,
+  },
+  {
+    name: 'tab padded ordered task retarget preserves existing start',
+    source: '7)\t[x] parent\n\t- child\n8)\t[ ] following',
+    command: 'ordered-list',
+    anchor: 'parent',
+    offset: 3,
+  },
 ] as const;
 
 describe('pinned shipping toolbar container transactions (#299)', () => {
