@@ -115,6 +115,18 @@ describe('pinned shipping toolbar container transactions (#299)', () => {
     view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, anchor, head)));
     const before = observation();
     createToolbarExec(() => editor)[example.command]();
+    // Hand-worked source candidates must reopen as the actual command tree;
+    // the owned serializer is diagnostic rather than a byte-preservation oracle.
+    if ('sourcePlan' in example) {
+      expect(editor.ctx.get(parserCtx)(example.sourcePlan).toJSON()).toEqual(
+        view.state.doc.toJSON(),
+      );
+    }
+    if ('noSeparatorPlan' in example) {
+      expect(editor.ctx.get(parserCtx)(example.noSeparatorPlan).toJSON()).not.toEqual(
+        view.state.doc.toJSON(),
+      );
+    }
     await expect({
       input: example.source,
       command: example.command,

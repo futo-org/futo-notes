@@ -544,4 +544,34 @@ export const cases = [
     command: 'paragraph',
     anchor: 'parent',
   },
+  {
+    name: 'Text promotes root fence after an unselected listed sibling',
+    source: '- before\n- parent\n  ```lang\n  opaque\n- outside',
+    command: 'paragraph',
+    anchor: 'parent',
+    sourcePlan: '- before\n\nparent\n```lang\nopaque\n```\n- outside',
+    noSeparatorPlan: '- before\nparent\n```lang\nopaque\n```\n- outside',
+  },
+  {
+    name: 'Text promotes continuation and two fenced blocks from one root item',
+    source:
+      '- parent\n\n  continuation\n\n  ```one\n  first\n  ```\n\n  ~~~two\n  second\n- outside',
+    command: 'paragraph',
+    anchor: 'parent',
+    sourcePlan: 'parent\n\ncontinuation\n\n```one\nfirst\n```\n\n~~~two\nsecond\n~~~\n- outside',
+  },
+  {
+    name: 'Text lifts existing nested authored code blank specimen',
+    source: '- before\n  - parent\n    ```\n      \n    ```',
+    command: 'paragraph',
+    anchor: 'parent',
+    sourcePlan: '- before\n\nparent\n```\n  \n```',
+  },
+  {
+    name: 'Heading lifts existing nested authored code blank specimen',
+    source: '- before\n  - parent\n    ```\n      \n    ```',
+    command: 'heading-2',
+    anchor: 'parent',
+    sourcePlan: '- before\n\n## parent\n```\n  \n```',
+  },
 ] as const;
