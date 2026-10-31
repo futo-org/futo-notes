@@ -332,3 +332,122 @@ fn divider_preserves_literal_left_definition_exposure_before_its_returned_caret(
         .links
         .is_empty());
 }
+
+#[test]
+fn a_nonempty_semantic_reference_close_repair_preserves_the_divider_caret() {
+    let original = "[id]: /target extra\n\n[one][id]\n\n[id]: /first 'F'";
+    let opening = "id: /target extra\n\none";
+    let expected = "[id][id]: /target\n***\n\n extra\n\n[one][id]\n\n[id]: /first 'F'";
+    let shown = "id: /target\n\u{fffc}\n\n extra\n\none";
+    let before = EditorSession::open(original);
+    assert_eq!(before.display_text(), opening);
+    let canonical = EditorSession::open(expected);
+    assert_eq!(canonical.display_text(), shown);
+    let expected_links = canonical
+        .project(Revision(0), range(0, shown.len()))
+        .unwrap()
+        .links;
+    assert_eq!(expected_links.len(), 2);
+    assert!(expected_links
+        .iter()
+        .all(|link| link.destination == "/first" && link.title.as_deref() == Some("F")));
+    let mut editor = before;
+    let mut view = ReferenceView::new(opening);
+    let mut accepted = 0;
+    view.apply(
+        editor
+            .block_command(
+                Revision(0),
+                range(11, 11),
+                BlockCommand::Divider,
+                &mut |_| {
+                    accepted += 1;
+                    Ok(())
+                },
+            )
+            .unwrap()
+            .unwrap(),
+    );
+    assert_eq!(accepted, 1);
+    assert_eq!(editor.source_text(), expected);
+    assert_eq!(view.text, shown);
+    assert_eq!(editor.selection(), range(16, 16));
+    assert_eq!(
+        editor
+            .project(Revision(1), range(0, shown.len()))
+            .unwrap()
+            .links,
+        expected_links
+    );
+    view.apply(editor.undo(Revision(1), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(editor.source_text(), original);
+    assert_eq!(view.text, opening);
+    view.apply(editor.redo(Revision(2), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(editor.source_text(), expected);
+    assert_eq!(editor.selection(), range(16, 16));
+    let fresh = EditorSession::open(&editor.source_text());
+    assert_eq!(fresh.display_text(), shown);
+    assert_eq!(
+        fresh
+            .project(Revision(0), range(0, shown.len()))
+            .unwrap()
+            .links,
+        expected_links
+    );
+}
+
+#[test]
+fn before_caret_repair_adds_a_nonzero_unicode_window_base_exactly_once() {
+    let prefix = "\u{3b1}\u{3b2}\n\n";
+    assert_eq!(prefix.len(), 6);
+    let original = format!("{prefix}[id]: /target extra\n\n[one][id]");
+    let expected = format!("{prefix}\\[id]: /target\n***\n\n extra\n\n[one][id]");
+    let shown = format!("{prefix}[id]: /target\n\u{fffc}\n\n extra\n\n[one][id]");
+    let edited = format!("{prefix}\\[id]: /target\n***\nx\n extra\n\n[one][id]");
+    let edited_view = format!("{prefix}[id]: /target\n\u{fffc}\nx\n extra\n\n[one][id]");
+    for (source, display) in [
+        (&original, &original),
+        (&expected, &shown),
+        (&edited, &edited_view),
+    ] {
+        let candidate = EditorSession::open(source);
+        assert_eq!(candidate.display_text(), *display);
+        assert!(candidate
+            .project(Revision(0), range(0, display.len()))
+            .unwrap()
+            .links
+            .is_empty());
+    }
+    let mut editor = EditorSession::open(&original);
+    editor.select(Revision(0), range(2, 2)).unwrap();
+    editor
+        .block_command(
+            Revision(0),
+            range(19, 19),
+            BlockCommand::Divider,
+            &mut |_| Ok(()),
+        )
+        .unwrap()
+        .unwrap();
+    assert_eq!(editor.source_text(), expected);
+    assert_eq!(editor.display_text(), shown);
+    assert_eq!(editor.selection(), range(24, 24));
+    let caret = editor.selection();
+    editor.select(Revision(1), range(0, 0)).unwrap();
+    editor.select(Revision(1), caret).unwrap();
+    editor
+        .replace(Revision(1), caret, "x", &mut |_| Ok(()))
+        .unwrap();
+    assert_eq!(editor.source_text(), edited);
+    assert_eq!(editor.display_text(), edited_view);
+    editor.undo(Revision(2), &mut |_| Ok(())).unwrap().unwrap();
+    assert_eq!(editor.source_text(), expected);
+    assert_eq!(editor.selection(), range(24, 24));
+    editor.undo(Revision(3), &mut |_| Ok(())).unwrap().unwrap();
+    assert_eq!(editor.source_text(), original);
+    assert_eq!(editor.selection(), range(2, 2));
+    editor.redo(Revision(4), &mut |_| Ok(())).unwrap().unwrap();
+    editor.redo(Revision(5), &mut |_| Ok(())).unwrap().unwrap();
+    assert_eq!(editor.source_text(), edited);
+    assert_eq!(editor.display_text(), edited_view);
+}

@@ -60,13 +60,20 @@ impl super::super::Projection {
         // a decoded atom or a prior display generation. Preserve it on every
         // no-repair path and return only the exact final validated point.
         let mut caret = intent.as_ref().map(|intent| intent.caret);
+        let mut caret_work = usize::from(caret.is_some());
+        if let Some(at) = caret {
+            caret_work += 2;
+            if at > output.len() || !output.is_char_boundary(at) {
+                return Err(EditorError::UnrepresentableFormat);
+            }
+        }
         if bodies.is_empty() && intent.is_none() {
             return Ok((work, copied, caret));
         }
         // This is the final physical replacement, including retained wrappers.
         let (local, parsed) = declarations(output, &[]);
         work = parsed;
-        work.items += usize::from(caret.is_some());
+        work.items += caret_work;
         let mut repairs = Vec::new();
         for definition in local {
             let mut witnessed = false;
@@ -199,18 +206,20 @@ impl super::super::Projection {
                 return Err(EditorError::UnrepresentableFormat);
             }
         }
-        if let Some(at) = caret {
-            work.items += 2;
-            if at > output.len() || !output.is_char_boundary(at) {
-                return Err(EditorError::UnrepresentableFormat);
-            }
-        }
         if let Some(pending) = &pending {
             if pending.window != (0..output.len()) {
                 return Err(EditorError::UnrepresentableFormat);
             }
         }
         for repair in repairs.into_iter().rev() {
+            work.items += 4;
+            if repair.range.start > repair.range.end
+                || repair.range.end > output.len()
+                || !output.is_char_boundary(repair.range.start)
+                || !output.is_char_boundary(repair.range.end)
+            {
+                return Err(EditorError::UnrepresentableFormat);
+            }
             if let Some(at) = &mut caret {
                 work.items += 2;
                 // Left at the start, including insertion exactly at the
