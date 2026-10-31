@@ -24,13 +24,17 @@ fn shared_literal_list_actions_cover_native_coordinates_and_exact_history() {
     assert_eq!(nested.len(), 35);
     let commands: Vec<Value> =
         serde_json::from_str(include_str!("../fixtures/container-commands.json")).unwrap();
-    assert_eq!(commands.len(), 26);
+    assert_eq!(commands.len(), 27);
+    let headers: Vec<Value> =
+        serde_json::from_str(include_str!("../fixtures/list-header-commands.json")).unwrap();
+    assert_eq!(headers.len(), 9);
     let cases: Vec<_> = original
         .into_iter()
         .chain(shortcuts)
         .chain(staging)
         .chain(nested)
         .chain(commands)
+        .chain(headers)
         .collect();
     for case in &cases {
         let text = |key: &str| case[key].as_str().unwrap();

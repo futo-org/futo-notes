@@ -911,5 +911,31 @@
         null
       ]
     ]
+  },
+  {
+    "name": "mixed-task-parent-retarget-and-child-lift",
+    "source": "- p0\n  - [x] c0\n- p1\n  - [ ] c1",
+    "display": "p0\nc0\np1\nc1",
+    "action": "TaskList",
+    "range": [
+      0,
+      11
+    ],
+    "expected": "- [ ] p0\n\nc0\n- [ ] p1\n\nc1",
+    "shown": "p0\n\nc0\np1\n\nc1",
+    "resultRange": [
+      0,
+      13
+    ],
+    "finalItems": [
+      [
+        null,
+        false
+      ],
+      [
+        null,
+        false
+      ]
+    ]
   }
 ]

@@ -54,8 +54,10 @@ extension NativeEditorBlockRegressionTests {
             let nested = try load("nested-containers")
             #expect(nested.count == 35)
             let commands = try load("container-commands")
-            #expect(commands.count == 26)
-            let cases = original + shortcuts + staging + nested + commands
+            #expect(commands.count == 27)
+            let headers = try load("list-header-commands")
+            #expect(headers.count == 9)
+            let cases = original + shortcuts + staging + nested + commands + headers
             for item in cases {
                 let root = FileManager.default.temporaryDirectory.appendingPathComponent(
                     "editor-lists-\(UUID().uuidString)")

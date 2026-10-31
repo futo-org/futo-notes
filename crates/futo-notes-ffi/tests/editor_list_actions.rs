@@ -45,13 +45,19 @@ fn shared_list_actions_forward_native_coordinates_history_and_exact_recovery() {
         "../../futo-notes-editor/tests/fixtures/container-commands.json"
     ))
     .unwrap();
-    assert_eq!(commands.len(), 26);
+    assert_eq!(commands.len(), 27);
+    let headers: Vec<Value> = serde_json::from_str(include_str!(
+        "../../futo-notes-editor/tests/fixtures/list-header-commands.json"
+    ))
+    .unwrap();
+    assert_eq!(headers.len(), 9);
     let cases: Vec<_> = original
         .into_iter()
         .chain(shortcuts)
         .chain(staging)
         .chain(nested)
         .chain(commands)
+        .chain(headers)
         .collect();
     for case in &cases {
         let text = |key: &str| case[key].as_str().unwrap();
