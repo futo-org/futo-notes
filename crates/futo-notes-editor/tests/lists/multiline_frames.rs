@@ -1,6 +1,6 @@
 use super::*;
 
-// The ten shipping oracle101 observations share these seven original sources.
+// The ten shipping oracle101 observations share these six original sources.
 // Outdent retains a parallel empty paragraph, Backspace merges it, and full
 // Text retires all list ancestry. Serializer blank normalization is not gold.
 #[test]
