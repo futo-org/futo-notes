@@ -1,7 +1,6 @@
 // Link semantics and exact recovery through compiled WASM and the real store.
 import assert from 'node:assert/strict';
-import { anglePendingConsumer } from './wasm-angle-consumer.mjs';
-import { sourceGenerationsConsumer } from './wasm-source-generations-consumer.mjs';
+import { liveSourceConsumers } from './wasm-live-source-consumers.mjs';
 import { spawn } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -405,34 +404,16 @@ try {
     assert.deepEqual(await blockReopened(JSON.stringify({ checkpoint: true })), { id: 'plain' });
     await stop();
   }
-  {
-    const angleVault = mkdtempSync(join(tmpdir(), 'futo-editor-wasm-angle-'));
-    const codeVault = mkdtempSync(join(tmpdir(), 'futo-editor-wasm-angle-code-'));
-    const partialCodeVault = mkdtempSync(join(tmpdir(), 'futo-editor-wasm-partial-code-'));
-    const codeReleaseVault = mkdtempSync(join(tmpdir(), 'futo-editor-wasm-code-release-'));
-    timingVaults.push(angleVault, codeVault, partialCodeVault, codeReleaseVault);
-    await anglePendingConsumer({
-      start,
-      stop,
-      getSession: () => session,
-      root: angleVault,
-      codeRoot: codeVault,
-      partialRoot: partialCodeVault,
-      releaseRoot: codeReleaseVault,
-    });
-  }
-  {
-    const sourceVault = mkdtempSync(join(tmpdir(), 'futo-editor-wasm-source-generations-'));
-    const prefixVault = mkdtempSync(join(tmpdir(), 'futo-editor-wasm-prefix-'));
-    timingVaults.push(sourceVault, prefixVault);
-    await sourceGenerationsConsumer({
-      start,
-      stop,
-      getSession: () => session,
-      root: sourceVault,
-      prefixRoot: prefixVault,
-    });
-  }
+  await liveSourceConsumers({
+    start,
+    stop,
+    getSession: () => session,
+    createRoot: (prefix) => {
+      const root = mkdtempSync(join(tmpdir(), prefix));
+      timingVaults.push(root);
+      return root;
+    },
+  });
   console.log(
     'Compiled WASM links: canonical inspection, actual-parent reference blocks, URL timing, retained/inserted targets, ordered acceptance, exact history and real recovery passed.',
   );
