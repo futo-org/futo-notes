@@ -97,7 +97,7 @@ ordered child lifting copies that start into each newly independent following ow
 Same-line quote/list controls retain empty lifted paragraphs, physical CRLF and quote
 prefixes, raw nonidentity entity atoms and native UTF-16 interior carets. Task-body
 quote/heading punctuation stays literal. Together with the unchanged original seventy-four
-list cases, all six source consumers load 217 cases, including thirty-nine
+list cases, all six source consumers load 218 cases, including forty
 `prefix-frame-commands.json` literals. These distinguish nearest Outdent and
 registered Backspace from full Text lifting. Unchanged implicit empty parents
 keep compact source; an action-created parallel paragraph gets a physical frame.
@@ -150,3 +150,9 @@ paragraphs inside quotes are not written, as required by the existing paragraph
 rules. The public shared-head work probe varies actual canonical groups8/64 and
 body4096/32768, checks source/caret/UndoRedo first, and retains the existing parser,
 source-copy and metadata budgets. It does not claim allocation or native latency.
+
+The three-group crossquote Text atom literal retains `&acE;` unchanged and maps
+native UTF-16 unit1 to unit2 after the root newline. Its strict interior position
+is valid between the decoded scalars, including when they form one grapheme.
+The public session regression also checks both affinities, rejected acceptance
+and exact Undo/Redo; all six consumers use the same literal mutation.
