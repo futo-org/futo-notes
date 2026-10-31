@@ -101,6 +101,7 @@ struct NativeEditorSessionTests {
             let store = NoteStore(notesRoot: root.path)
             _ = try store.createNote(title: "plain", folder: "", content: "a😀\0z\r\n")
             let session = try store.openEditor(id: "plain")
+            #expect(try session.recoveryFlushDelay() == nil)
             #expect(try session.sourceText() == "a😀\0z\r\n")
             let selected = try session.selectUtf16(
                 expected: 0, range: EditorUtf16Range(start: 1, end: 3))
@@ -121,6 +122,8 @@ struct NativeEditorSessionTests {
             let change = try session.replaceUtf16(
                 expected: 0, range: EditorUtf16Range(start: 1, end: 3), inserted: Array("🇯🇵\0".utf16)
             )
+            let delay = try #require(try session.recoveryFlushDelay())
+            #expect(delay >= 0 && delay <= 0.1)
             #expect(change.previousRevision == 0)
             #expect(change.revision == 1)
             #expect(change.range == EditorByteRange(start: 1, end: 5))
@@ -142,6 +145,7 @@ struct NativeEditorSessionTests {
             #expect(try session.sourceText() == "a😀\0z\r\n")
             _ = try session.redo(expected: 2)
             #expect(try session.flushRecovery().durable == 3)
+            #expect(try session.recoveryFlushDelay() == nil)
             try session.detach()
             let recovered = try store.openEditor(id: "plain")
             #expect(try recovered.sourceText() == "a🇯🇵\0\0z\r\n")

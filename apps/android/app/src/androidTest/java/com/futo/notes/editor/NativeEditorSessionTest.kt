@@ -145,6 +145,7 @@ class NativeEditorSessionTest {
             NoteStore(root.absolutePath).use { store ->
                 store.createNote("plain", "", "a😀\u0000z\r\n")
                 val session = store.openEditor("plain")
+                assertNull(session.recoveryFlushDelay())
                 assertEquals("a😀\u0000z\r\n", session.sourceText())
                 val selected = session.selectUtf16(0uL, EditorUtf16Range(1uL, 3uL))
                 assertEquals(EditorByteRange(1uL, 5uL), selected.selection)
@@ -160,6 +161,9 @@ class NativeEditorSessionTest {
                     } catch (_: EditorSessionException.InvalidRange) {}
                 }
                 val change = session.replaceUtf16(0uL, EditorUtf16Range(1uL, 3uL), "🇯🇵\u0000".map { it.code.toUShort() })
+                val delay = checkNotNull(session.recoveryFlushDelay())
+                assertFalse(delay.isNegative)
+                assertTrue(delay <= java.time.Duration.ofMillis(100))
                 assertEquals(0uL, change.previousRevision)
                 assertEquals(1uL, change.revision)
                 assertEquals(EditorByteRange(1uL, 5uL), change.range)
@@ -180,6 +184,7 @@ class NativeEditorSessionTest {
                 assertEquals("a😀\u0000z\r\n", session.sourceText())
                 session.redo(2uL)
                 assertEquals(3uL, session.flushRecovery().durable)
+                assertNull(session.recoveryFlushDelay())
                 session.detach()
                 session.destroy()
                 store.openEditor("plain").use { recovered ->

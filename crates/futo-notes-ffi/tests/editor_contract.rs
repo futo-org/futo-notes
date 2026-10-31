@@ -3,6 +3,26 @@ use futo_notes_ffi::{EditorUtf16Range, NoteStore};
 use support::{path_string, TempTree};
 
 #[test]
+fn native_recovery_flush_delay_tracks_unflushed_edits_without_a_host_clock_origin() {
+    let tree = TempTree::new();
+    std::fs::create_dir_all(tree.path("vault")).unwrap();
+    let store = NoteStore::new(path_string(&tree.path("vault")));
+    store
+        .create_note("plain".into(), "".into(), "before".into())
+        .unwrap();
+    let session = store.open_editor("plain".into()).unwrap();
+    assert_eq!(session.recovery_flush_delay().unwrap(), None);
+    session
+        .replace_utf16(0, EditorUtf16Range { start: 6, end: 6 }, vec![33])
+        .unwrap();
+    let delay = session.recovery_flush_delay().unwrap().unwrap();
+    // Zero is valid when the worker is already due; do not depend on host load.
+    assert!(delay <= std::time::Duration::from_millis(100));
+    assert_eq!(session.flush_recovery().unwrap().durable, 1);
+    assert_eq!(session.recovery_flush_delay().unwrap(), None);
+}
+
+#[test]
 fn native_relink_deltas_keep_history_and_delete_fences_the_same_attachment() {
     let tree = TempTree::new();
     std::fs::create_dir_all(tree.path("vault")).unwrap();
