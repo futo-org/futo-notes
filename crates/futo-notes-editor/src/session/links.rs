@@ -120,23 +120,30 @@ impl EditorSession {
         let before_formats = self.pending_formats.clone();
         let mut change = self.apply(&edit);
         self.install_plan_pending(&mut plan, prepared, &mut change, true);
-        self.selection = if inserting {
-            let at = DisplayOffset(self.projection.display_at(plan.caret));
-            DisplayRange { start: at, end: at }
+        let (selection, selection_work) = if inserting {
+            let (at, work) = self.projection.display_at_with_work(plan.caret);
+            let at = DisplayOffset(at);
+            (DisplayRange { start: at, end: at }, work)
         } else {
             let source = selected_source.unwrap();
-            DisplayRange {
-                start: DisplayOffset(self.projection.display_at(source.start.0)),
-                end: DisplayOffset(self.projection.display_at(source.end.0)),
-            }
+            let (start, a) = self.projection.display_at_with_work(source.start.0);
+            let (end, z) = self.projection.display_at_with_work(source.end.0);
+            (
+                DisplayRange {
+                    start: DisplayOffset(start),
+                    end: DisplayOffset(end),
+                },
+                a + z,
+            )
         };
+        self.selection = selection;
         self.pending_formats = None;
         change.selection = self.selection;
         change.work.materialized_source_bytes += plan.materialized;
         change.work.parsed_source_bytes += plan.parsed;
         change.work.link_metadata_items += plan.link_metadata_items;
         change.work.link_copied_bytes += plan.link_copied_bytes + inspection_work.copied;
-        change.work.link_metadata_items += inspection_work.items;
+        change.work.link_metadata_items += inspection_work.items + selection_work;
         let (after_source, after_source_work) = self.capture_history_selection();
         change.work.link_metadata_items += before_source_work + after_source_work;
         let after_links = self
