@@ -113,11 +113,13 @@ impl EditorSession {
             },
         )?;
         let (revision, step_range, inserted) = step.ok_or(EditorError::UnrepresentableFormat)?;
+        let (separator, separator_work) =
+            mapping.inserted_source_range(revision, step_range, inserted, 0..2)?;
         let (retained, witness_work) =
             mapping.transfer_body(revision, step_range, inserted, retained)?;
         let body = staged.source_text();
-        let split = staged.projection.source_bounds(local.start.0 + 1).0 - 1;
-        if body.get(split..split + 2) != Some("\n\n") {
+        let split = separator.start;
+        if body.get(separator) != Some("\n\n") {
             return Err(EditorError::UnrepresentableFormat);
         }
         let mut prefixes = Vec::new();
@@ -160,6 +162,8 @@ impl EditorSession {
             parsed: parsed + staged.projection.initial_parse_work + change.work.parsed_source_bytes,
             link_metadata_items: link_work.items
                 + witness_work
+                + separator_work
+                + 2
                 + staged.projection.initial_link_metadata_items
                 + change.work.link_metadata_items,
             link_copied_bytes: link_work.copied

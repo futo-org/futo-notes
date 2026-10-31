@@ -70,6 +70,27 @@ impl InputMapping {
         }
     }
 
+    pub(in crate::session) fn inserted_source_range(
+        &self,
+        revision: Revision,
+        range: SourceRange,
+        inserted: usize,
+        input: std::ops::Range<usize>,
+    ) -> Result<(std::ops::Range<usize>, usize), EditorError> {
+        if input.start > input.end || input.end > self.input.1 {
+            return Err(EditorError::UnrepresentableFormat);
+        }
+        let source = self
+            .source
+            .as_ref()
+            .filter(|source| {
+                source.revision == revision && source.range == range && source.inserted == inserted
+            })
+            .ok_or(EditorError::UnrepresentableFormat)?;
+        let (mapped, work) = source.retained.inserted_range(input);
+        Ok((mapped.ok_or(EditorError::UnrepresentableFormat)?, work + 1))
+    }
+
     pub(in crate::session) fn transfer_body(
         &self,
         revision: Revision,

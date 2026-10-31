@@ -118,6 +118,13 @@ impl SourceCorrespondence {
         let (start, work) = map(&self.retained, range.start, range.len());
         (start.map(|start| start..start + range.len()), work)
     }
+    pub(crate) fn inserted_range(&self, range: Range<usize>) -> (Option<Range<usize>>, usize) {
+        if range.is_empty() {
+            return (None, 1);
+        }
+        let (start, work) = map(&self.inserted, range.start, range.len());
+        (start.map(|start| start..start + range.len()), work + 1)
+    }
     pub(crate) fn map_inserted(&self, offset: usize) -> (Option<usize>, usize) {
         map(&self.inserted, offset, 0)
     }
