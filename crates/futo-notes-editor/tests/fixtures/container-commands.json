@@ -656,5 +656,75 @@
       2,
       1
     ]
+  },
+  {
+    "name": "ordered-task-retarget-retains-start-and-delimiter",
+    "source": "7) [x] parent\n   - child\n8) [ ] following",
+    "display": "parent\nchild\nfollowing",
+    "action": "OrderedList",
+    "range": [
+      3,
+      3
+    ],
+    "expected": "7) parent\n   - child\n8) following",
+    "shown": "parent\nchild\nfollowing",
+    "resultRange": [
+      3,
+      3
+    ],
+    "finalItems": [
+      [
+        7,
+        null
+      ],
+      [
+        null,
+        null
+      ],
+      [
+        8,
+        null
+      ]
+    ],
+    "itemDepths": [
+      1,
+      2,
+      1
+    ]
+  },
+  {
+    "name": "ordered-task-retarget-retains-tab-padding",
+    "source": "7)\t[x] parent\n\t- child\n8)\t[ ] following",
+    "display": "parent\nchild\nfollowing",
+    "action": "OrderedList",
+    "range": [
+      3,
+      3
+    ],
+    "expected": "7)\tparent\n\t- child\n8)\tfollowing",
+    "shown": "parent\nchild\nfollowing",
+    "resultRange": [
+      3,
+      3
+    ],
+    "finalItems": [
+      [
+        7,
+        null
+      ],
+      [
+        null,
+        null
+      ],
+      [
+        8,
+        null
+      ]
+    ],
+    "itemDepths": [
+      1,
+      2,
+      1
+    ]
   }
 ]
