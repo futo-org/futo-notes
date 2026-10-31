@@ -344,5 +344,78 @@
         null
       ]
     ]
+  },
+  {
+    "name": "mixed-parent-retirement-keeps-descendant-quote-scope",
+    "source": "- parent\n  > 1. child😀\n  >    - grandchild\n  > 2. sibling\n- following",
+    "display": "parent\nchild😀\ngrandchild\nsibling\nfollowing",
+    "action": "BulletList",
+    "range": [
+      0,
+      14
+    ],
+    "expected": "parent\n> - child😀\n>   - grandchild\n> - sibling\n- following",
+    "shown": "parent\nchild😀\ngrandchild\nsibling\nfollowing",
+    "resultRange": [
+      0,
+      14
+    ],
+    "finalItems": [
+      [
+        null,
+        null
+      ],
+      [
+        null,
+        null
+      ],
+      [
+        null,
+        null
+      ],
+      [
+        null,
+        null
+      ]
+    ],
+    "itemDepths": [
+      1,
+      2,
+      1,
+      1
+    ],
+    "itemQuoteDepths": [
+      1,
+      1,
+      1,
+      0
+    ]
+  },
+  {
+    "name": "mixed-quoted-endpoint-retains-enclosing-quote-paragraph",
+    "source": "> - parent\n>   1. child\n>   2. sibling\n> - following",
+    "display": "parent\nchild\nsibling\nfollowing",
+    "action": "BulletList",
+    "range": [
+      0,
+      21
+    ],
+    "expected": "> parent\n> - child\n> - sibling\n>\n> following",
+    "shown": "parent\nchild\nsibling\n\nfollowing",
+    "resultRange": [
+      0,
+      22
+    ],
+    "finalItems": [
+      [
+        null,
+        null
+      ],
+      [
+        null,
+        null
+      ]
+    ],
+    "quoteDepth": 1
   }
 ]
