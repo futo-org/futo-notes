@@ -1,6 +1,13 @@
 use super::*;
 
-fn prove_fence_plan(raw: &str, expected: &str, shown: &str, quotes: usize, language: Option<&str>) {
+fn prove_fence_plan(
+    raw: &str,
+    expected: &str,
+    shown: &str,
+    quotes: usize,
+    language: Option<&str>,
+    outside_quotes: usize,
+) {
     let candidate = EditorSession::open(expected);
     assert_eq!(candidate.source_text(), expected);
     assert_eq!(candidate.display_text(), shown, "literal plan {expected:?}");
@@ -18,7 +25,7 @@ fn prove_fence_plan(raw: &str, expected: &str, shown: &str, quotes: usize, langu
             .project(candidate.revision(), range(at, at + 7))
             .unwrap();
         assert!(outside.blocks.iter().all(|b| !b.code
-            && b.quote_depth == 0
+            && b.quote_depth == outside_quotes
             && b.list.as_ref().is_some_and(|l| l.first && l.depth == 1)));
     }
     for affinity in [Affinity::Backward, Affinity::Forward] {
@@ -83,6 +90,7 @@ fn lifting_a_list_item_closes_its_unmatched_fence_before_the_untouched_outside_i
         "parent\nopaque\noutside",
         0,
         None,
+        0,
     );
 }
 
@@ -94,6 +102,7 @@ fn promoted_unmatched_fences_retain_raw_tilde_width_info_and_crlf() {
         "parent\r\nopaque\r\noutside",
         0,
         Some("lang"),
+        0,
     );
 }
 
@@ -105,6 +114,7 @@ fn a_retained_quote_boundary_still_closes_its_promoted_unmatched_fence() {
         "parent\nopaque\noutside",
         1,
         None,
+        0,
     );
 }
 
@@ -116,6 +126,7 @@ fn existing_closers_and_true_eof_remain_exact_during_list_fence_promotion() {
         "parent\nopaque\noutside",
         0,
         None,
+        0,
     );
     prove_fence_plan(
         "- parent\n  ```\n  opaque",
@@ -123,5 +134,42 @@ fn existing_closers_and_true_eof_remain_exact_during_list_fence_promotion() {
         "parent\nopaque",
         0,
         None,
+        0,
+    );
+}
+
+#[test]
+fn an_outer_quote_retained_at_the_same_scope_still_needs_a_fence_closer() {
+    prove_fence_plan(
+        "> - parent\n>   ```\n>   opaque\n> - outside",
+        "> parent\n> ```\n> opaque\n> ```\n> - outside",
+        "parent\nopaque\noutside",
+        1,
+        None,
+        1,
+    );
+}
+
+#[test]
+fn fence_promotion_preserves_relative_leaf_indent_and_opaque_crlf_blank_spaces() {
+    prove_fence_plan(
+        "- parent\r\n   ```Rust\r\n   a\r\n    \r\n   b\r\n- outside",
+        "parent\r\n ```Rust\r\n a\r\n  \r\n b\r\n ```\r\n- outside",
+        "parent\r\na\r\n \r\nb\r\noutside",
+        0,
+        Some("Rust"),
+        0,
+    );
+}
+
+#[test]
+fn fence_promotion_preserves_authored_blank_tabs() {
+    prove_fence_plan(
+        "- parent\n  ```\n  a\n  \t\n  b\n- outside",
+        "parent\n```\na\n\t\nb\n```\n- outside",
+        "parent\na\n\t\nb\noutside",
+        0,
+        None,
+        0,
     );
 }

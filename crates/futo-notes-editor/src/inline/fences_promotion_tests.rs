@@ -75,3 +75,29 @@ fn existing_closer_and_true_eof_have_distinct_canonical_ownership() {
         }
     }
 }
+
+#[test]
+fn a_shared_outer_quote_can_extend_list_item_end_into_the_foreign_quote_prefix() {
+    let raw = "> - parent\n>   ```\n>   opaque\n> - outside";
+    let p = crate::inline::Projection::new(raw);
+    let blocks = p.block_lines(DisplayRange {
+        start: DisplayOffset(0),
+        end: DisplayOffset(p.display.len_bytes()),
+    });
+    let code = blocks.iter().find(|b| b.code).unwrap();
+    let fence = code.fence.as_ref().unwrap();
+    let physical = raw.rfind("\n> - outside").unwrap() + 1;
+    let outside_marker = physical + 2;
+    assert_eq!(fence.whole.end, physical);
+    assert_eq!(fence.separator, physical - 1..physical);
+    let list = code.list.as_ref().unwrap();
+    assert_eq!(list.marker, 2..3);
+    assert_eq!(list.item, 2..outside_marker);
+    assert_eq!(list.content_column, 4);
+    assert_eq!(list.quote_depth, 1);
+    assert_eq!(code.quote_depth, 1);
+    let outside = p.source_prefix_at(physical).unwrap();
+    assert!(!outside.code);
+    assert_eq!(outside.quote_depth, 1);
+    assert_eq!(outside.list.as_ref().unwrap().marker.start, outside_marker);
+}

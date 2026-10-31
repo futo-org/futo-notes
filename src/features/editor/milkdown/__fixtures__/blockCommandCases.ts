@@ -520,4 +520,28 @@ export const cases = [
     command: 'paragraph',
     anchor: 'parent',
   },
+  {
+    name: 'Text promotes unmatched fence within retained outer quote',
+    source: '> - parent\n>   ```\n>   opaque\n> - outside',
+    command: 'paragraph',
+    anchor: 'parent',
+  },
+  {
+    name: 'Text retains separate inner and foreign quote fence owners',
+    source: '- parent\n  > ```\n  > opaque\n> - outside',
+    command: 'paragraph',
+    anchor: 'parent',
+  },
+  {
+    name: 'Text promotes list fence retaining leaf indent and opaque CRLF blank',
+    source: '- parent\r\n   ```Rust\r\n   a\r\n    \r\n   b\r\n- outside',
+    command: 'paragraph',
+    anchor: 'parent',
+  },
+  {
+    name: 'Text promotes list fence retaining authored blank tab',
+    source: '- parent\n  ```\n  a\n  \t\n  b\n- outside',
+    command: 'paragraph',
+    anchor: 'parent',
+  },
 ] as const;

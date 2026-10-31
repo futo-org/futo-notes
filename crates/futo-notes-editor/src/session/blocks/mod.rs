@@ -139,3 +139,7 @@ impl EditorSession {
         Ok(change)
     }
 }
+
+#[cfg(test)]
+#[path = "list_fence_origin_tests.rs"]
+mod list_fence_origin_tests;
