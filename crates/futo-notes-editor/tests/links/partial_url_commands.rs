@@ -310,3 +310,85 @@ fn an_identical_foreign_authored_uri_never_shares_the_live_code_colon_witness() 
         range(25, 44)
     );
 }
+
+#[test]
+fn transformed_and_restored_source_atom_does_not_recover_old_live_colon_identity() {
+    let mut session = EditorSession::open("");
+    let mut view = ReferenceView::new("");
+    view.apply(
+        session
+            .replace(
+                Revision(0),
+                range(0, 0),
+                "<https://x.test/path",
+                &mut |_| Ok(()),
+            )
+            .unwrap(),
+    );
+    view.apply(
+        session
+            .replace(Revision(1), range(20, 20), ">", &mut |_| Ok(()))
+            .unwrap(),
+    );
+    session.select(Revision(2), range(15, 20)).unwrap();
+    view.apply(
+        session
+            .toggle_format(Revision(2), InlineFormat::Code, &mut |_| Ok(()))
+            .unwrap()
+            .unwrap(),
+    );
+    let guarded = "<https\\://x.test`/path`>";
+    assert_eq!(session.source_text(), guarded);
+    // These public accepted source records overwrite the complete atom. Equal
+    // final bytes cannot restore the retired original source-field identity.
+    for (previous, end, removed, inserted) in [(3, 8, "\\:", "&#58;"), (4, 11, "&#58;", "\\:")] {
+        view.apply(
+            session
+                .replay(&SourceEdit {
+                    previous_revision: Revision(previous),
+                    revision: Revision(previous + 1),
+                    range: SourceRange {
+                        start: SourceOffset(6),
+                        end: SourceOffset(end),
+                    },
+                    removed: removed.into(),
+                    inserted: inserted.into(),
+                })
+                .unwrap(),
+        );
+        assert_eq!(view.text, "<https://x.test/path>");
+        let current = session.project(session.revision(), range(0, 21)).unwrap();
+        assert!(current.links.is_empty());
+        assert!(current
+            .runs
+            .iter()
+            .any(|run| run.range == range(15, 20) && run.formats.contains(&InlineFormat::Code)));
+    }
+    assert_eq!(session.source_text(), guarded);
+    session.select(Revision(5), range(15, 20)).unwrap();
+    view.apply(
+        session
+            .toggle_format(Revision(5), InlineFormat::Code, &mut |_| Ok(()))
+            .unwrap()
+            .unwrap(),
+    );
+    session.select(Revision(6), range(21, 21)).unwrap();
+    view.apply(
+        session
+            .replace(Revision(6), range(21, 21), " ", &mut |_| Ok(()))
+            .unwrap(),
+    );
+    assert_eq!(view.text, "<https://x.test/path> ");
+    assert!(session
+        .project(Revision(7), range(0, 22))
+        .unwrap()
+        .links
+        .is_empty());
+    let reopened = EditorSession::open(&session.source_text());
+    assert_eq!(reopened.display_text(), view.text);
+    assert!(reopened
+        .project(Revision(0), range(0, 22))
+        .unwrap()
+        .links
+        .is_empty());
+}
