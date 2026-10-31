@@ -431,7 +431,7 @@ impl EditorSession {
         let output = super::super::transaction::spell_edits(&output, &replacements)?;
         if preview_header {
             let (mapped, work, copied) =
-                self.preview_header_selection(range, start..end, &replacements, &output)?;
+                self.preview_header_selection(range, start..end, &replacements, &output, None)?;
             selection = mapped;
             parsed += work;
             materialized += copied;

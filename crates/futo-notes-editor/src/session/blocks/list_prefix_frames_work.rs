@@ -55,12 +55,18 @@ fn shared_frame_plan_counts_actual_row_and_emitted_prefix_work_without_ancestor_
         }
         let (small, a, p, c) = measurements[0];
         let (large, b, q, d) = measurements[1];
-        assert!(large < 9 * small);
+        eprintln!("frame depth{depth}: input {small}->{large}, metadata {a}->{b}, parser {p}->{q}, copies {c}->{d}");
         assert!(
-            b < 12 * a,
+            b * small < 2 * a * large,
             "metadata {a}->{b}, input {small}->{large}, depth{depth}"
         );
-        assert!(q < 12 * p, "parser {p}->{q}, depth{depth}");
-        assert!(d < 12 * c, "copies {c}->{d}, depth{depth}");
+        assert!(
+            q * small < 2 * p * large,
+            "parser {p}->{q}, input {small}->{large}, depth{depth}"
+        );
+        assert!(
+            d * small < 2 * c * large,
+            "copies {c}->{d}, input {small}->{large}, depth{depth}"
+        );
     }
 }

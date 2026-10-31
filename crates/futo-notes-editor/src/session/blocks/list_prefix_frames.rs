@@ -24,7 +24,8 @@ impl EditorSession {
         };
         // This slice owns a complete single physical body. Multi-line quoted
         // paragraphs use their existing path until their whole scope is planned.
-        if line.code
+        if line.content.is_empty()
+            || line.code
             || line.heading != 0
             || list.checked.is_some()
             || !list.first
@@ -144,8 +145,21 @@ impl EditorSession {
         let footprint = line.source.start..line.content.start;
         let edits = [(0..prefix.len(), output.clone())];
         copied += output.len();
-        let (selection, parsed, materialized) =
-            self.preview_header_selection(range, footprint.clone(), &edits, &output)?;
+        let (selection, parsed, materialized) = self.preview_header_selection(
+            range,
+            footprint.clone(),
+            &edits,
+            &output,
+            Some((
+                list,
+                if action == FrameAction::Backspace {
+                    list.quote_depth
+                } else {
+                    line.quote_depth - 1
+                },
+                !parallel,
+            )),
+        )?;
         let formats = (range == self.selection)
             .then(|| self.pending_formats.clone())
             .flatten();

@@ -9,6 +9,7 @@ impl EditorSession {
         footprint: Range<usize>,
         edits: &[(Range<usize>, String)],
         output: &str,
+        list: Option<(&crate::inline::ListLine, usize, bool)>,
     ) -> Result<(DisplayRange, usize, usize), EditorError> {
         let points = [
             self.projection.retained_point(range.start.0)?,
@@ -34,6 +35,48 @@ impl EditorSession {
         )?;
         // This private apply calls no host, clock or history operation.
         let work = preview.apply(&edit).work;
+        if let Some((original, quotes, first)) = list {
+            let body = footprint.start - window.start + output.len();
+            let actual = preview
+                .projection
+                .list_command_line_at_source(body)
+                .ok_or(EditorError::UnrepresentableFormat)?;
+            crate::inline::visit_container();
+            let owned = actual
+                .list
+                .as_ref()
+                .ok_or(EditorError::UnrepresentableFormat)?;
+            if actual.code
+                || actual.divider
+                || actual.heading != 0
+                || actual.quote_depth != quotes
+                || actual.content.start != body
+                || owned.depth != original.depth
+                || owned.ordinal != original.ordinal
+                || owned.checked != original.checked
+                || owned.first != first
+                || owned.marker.start
+                    != original
+                        .marker
+                        .start
+                        .checked_sub(window.start)
+                        .ok_or(EditorError::UnrepresentableFormat)?
+                || owned.owner.start
+                    != original
+                        .owner
+                        .start
+                        .checked_sub(window.start)
+                        .ok_or(EditorError::UnrepresentableFormat)?
+                || owned.item.start
+                    != original
+                        .item
+                        .start
+                        .checked_sub(window.start)
+                        .ok_or(EditorError::UnrepresentableFormat)?
+            {
+                return Err(EditorError::UnrepresentableFormat);
+            }
+        }
         let mut mapped = [0; 2];
         for (index, point) in points.into_iter().enumerate() {
             let shifted = point
