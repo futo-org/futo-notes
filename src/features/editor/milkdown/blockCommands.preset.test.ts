@@ -510,6 +510,30 @@ const cases = [
     command: 'outdent',
     anchor: '> b',
   },
+  {
+    name: 'Outdent at two nested same line quotes',
+    source: '- > > b',
+    command: 'outdent',
+    anchor: 'b',
+  },
+  {
+    name: 'Outdent at outer quote and two list parents',
+    source: '> - - > b',
+    command: 'outdent',
+    anchor: 'b',
+  },
+  {
+    name: 'Outdent at two lists crossing quotes',
+    source: '- > - > b',
+    command: 'outdent',
+    anchor: 'b',
+  },
+  {
+    name: 'Outdent at three same line list parents',
+    source: '- - - > b',
+    command: 'outdent',
+    anchor: 'b',
+  },
 ] as const;
 
 describe('pinned shipping toolbar container transactions (#299)', () => {
@@ -553,6 +577,10 @@ const keyCases = [
     source: '- [x] > b',
     anchor: '> b',
   },
+  { name: 'Backspace at two nested same line quotes', source: '- > > b', anchor: 'b' },
+  { name: 'Backspace at outer quote and two list parents', source: '> - - > b', anchor: 'b' },
+  { name: 'Backspace at two lists crossing quotes', source: '- > - > b', anchor: 'b' },
+  { name: 'Backspace at three same line list parents', source: '- - - > b', anchor: 'b' },
 ] as const;
 
 describe('pinned shipping configured container keymaps (#299)', () => {
