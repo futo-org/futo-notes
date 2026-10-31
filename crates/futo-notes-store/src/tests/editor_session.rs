@@ -18,6 +18,7 @@ mod portable;
 mod portable_attachment;
 mod portable_readiness;
 mod recovery;
+mod relink_guarded;
 mod seams;
 mod selected_source;
 mod storage;
