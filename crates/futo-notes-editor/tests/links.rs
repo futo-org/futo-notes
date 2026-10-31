@@ -53,3 +53,6 @@ mod divider_references;
 
 #[path = "links/guarded_word_lifetime.rs"]
 mod guarded_word_lifetime;
+
+#[path = "links/literal_retirement.rs"]
+mod literal_retirement;

@@ -123,7 +123,7 @@ impl GuardState {
                         }
                         retired_range = Some((envelope.start..range.end, inner.clone()));
                     } else {
-                        if inner.is_empty() {
+                        if inner.start == inner.end {
                             return Err(EditorError::UnrepresentableFormat);
                         }
                         result.push(GuardedWord {
