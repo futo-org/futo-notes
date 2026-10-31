@@ -33,15 +33,14 @@ impl TypedState {
         range: DisplayRange,
         inserted: &str,
         intent: EditIntent,
-    ) -> Result<usize, EditorError> {
+    ) -> usize {
         let EditIntent::Input(action) = intent else {
-            return Ok(0);
+            return 0;
         };
         if range.start == range.end && inserted.is_empty() {
-            return Ok(0);
+            return 0;
         }
         let mut work = 0;
-        let mut unsupported = false;
         let mut compacting = false;
         if let Some(origins) = &mut self.retained {
             origins.retain(|origin| {
@@ -53,18 +52,8 @@ impl TypedState {
                 if touched {
                     let at_end = range.start == range.end && range.start.0 == z;
                     if !(at_end && (action == crate::InputAction::Typing || inserted == " ")) {
-                        // Non-Typing word-end punctuation/whitespace needs its
-                        // own established timing intent, not shape activation.
-                        let supported = !at_end
-                            || inserted.chars().all(|ch| {
-                                work += 1;
-                                !ch.is_whitespace() && !matches!(ch, '<' | '>')
-                            });
-                        if supported {
-                            compacting = true;
-                            return false;
-                        }
-                        unsupported = true;
+                        compacting = true;
+                        return false;
                     }
                 }
                 // retain moves each surviving fixed field after a removed one.
@@ -72,10 +61,7 @@ impl TypedState {
                 true
             });
         }
-        if unsupported {
-            return Err(EditorError::UnrepresentableFormat);
-        }
-        Ok(work)
+        work
     }
 }
 impl Projection {

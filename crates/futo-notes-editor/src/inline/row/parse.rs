@@ -173,7 +173,8 @@ impl Row {
                 });
             }
         }
-        let (bare, additional_parse) = crate::inline::links::bare_links(source);
+        let (bare, additional_parse, hint_items) = crate::inline::links::bare_links(source);
+        reference_work.items += hint_items;
         // GFM literal URLs own punctuation inside their parser-reported body.
         // CommonMark's independent emphasis pass must not consume that same
         // punctuation as an opener or closer outside the URL interpretation.

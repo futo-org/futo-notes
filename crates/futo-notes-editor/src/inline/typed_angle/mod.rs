@@ -3,6 +3,7 @@ use crate::inline::guarded_words::CodeWordIdentity;
 use crate::{EditorError, SourceEdit};
 use std::{ops::Range, sync::Arc};
 mod input;
+mod phase;
 mod snapshots;
 pub(in crate::inline) use input::Input;
 mod state;

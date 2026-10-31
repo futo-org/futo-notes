@@ -42,18 +42,20 @@ fn safe(pieces: &[Piece], markers: &[Marker], work: &mut usize) -> bool {
             })
     })
 }
-fn literal_prefix(word: &str) -> bool {
-    matches!(word, "w" | "ww" | "www" | "www.")
+fn literal_prefix(word: &str, work: &mut usize) -> bool {
+    *work += 1;
+    word.len() <= 4 && phase::matches(word.as_bytes(), word.len(), work)
 }
-fn candidate(word: &str) -> bool {
-    literal_prefix(word) || word.starts_with("www.")
+fn candidate(word: &str, work: &mut usize) -> bool {
+    phase::matches(word.as_bytes(), word.len(), work)
 }
 fn canonical_links(word: &str, work: &mut ReferenceWork) -> Vec<crate::inline::row::Span> {
-    if literal_prefix(word) {
+    if literal_prefix(word, &mut work.items) {
         work.items += 1;
         return Vec::new();
     }
-    let (links, parsed) = crate::inline::links::bare_links(word);
+    let (links, parsed, hint_items) = crate::inline::links::bare_links(word);
+    work.items += hint_items;
     work.parsed += parsed;
     work.items += 1 + links.len();
     for span in &links {
@@ -152,9 +154,10 @@ impl TypedState {
             input.range,
             input.inserted,
             input.intent,
-        )?;
+        );
         let typing = matches!(input.intent, EditIntent::Input(InputAction::Typing));
-        if !typing && input.inserted != " " {
+        work.items += 1;
+        if !typing && !input.inserted.ends_with(' ') {
             return Ok(work);
         }
         if input.inserted.is_empty() {
@@ -278,7 +281,7 @@ impl TypedState {
             }
             let body = body.start..input.insertion.end;
             let text = displayed(&pieces[body.clone()], &mut work);
-            if !candidate(&text) {
+            if !candidate(&text, &mut work.items) {
                 return Ok(work);
             }
             let (target, _) = meaning(&text, &mut work);
@@ -298,7 +301,7 @@ impl TypedState {
             });
             return Ok(work);
         }
-        if !typing || input.range.start != input.range.end || input.insertion.is_empty() {
+        if input.insertion.is_empty() {
             return Ok(work);
         }
         self.seed_last_word(&input, pieces, markers, &mut work)?;

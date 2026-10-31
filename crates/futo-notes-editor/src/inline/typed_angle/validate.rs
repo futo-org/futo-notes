@@ -88,8 +88,7 @@ pub(in crate::inline) fn validate_row(
             return Err(EditorError::UnrepresentableFormat);
         }
         work += 1;
-        if !(shown <= 3 && &prefix[..shown] == &b"www"[..shown] || shown >= 4 && prefix == *b"www.")
-        {
+        if !phase::matches(&prefix, shown, &mut work) {
             return Err(EditorError::UnrepresentableFormat);
         }
     }

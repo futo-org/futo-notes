@@ -2,7 +2,9 @@
 //! the Markdown parser. Consumers receive destination semantics, never syntax.
 use super::row::LinkMeaning;
 mod angle;
+mod bare;
 pub(super) use angle::{complete_typed_angle, finish_angle_word};
+pub(super) use bare::bare_links;
 
 impl super::Projection {
     pub(crate) fn link_descriptions_with_work(
@@ -317,63 +319,6 @@ pub(super) fn destination_source(destination: &str) -> String {
     source
 }
 
-/// GFM's parser decides link extent and destination. The cheap trigger only
-/// avoids a second parser for paragraphs that cannot contain a URL or email.
-pub(super) fn bare_links(source: &str) -> (Vec<super::row::Span>, usize) {
-    if !source.contains(':') && !source.contains("www.") && !source.contains('@') {
-        return (Vec::new(), 0);
-    }
-    let options = markdown::ParseOptions {
-        constructs: markdown::Constructs {
-            gfm_autolink_literal: true,
-            ..Default::default()
-        },
-        ..Default::default()
-    };
-    let tree =
-        markdown::to_mdast(source, &options).expect("CommonMark with GFM literals is infallible");
-    let mut spans = Vec::new();
-    let mut pending = vec![&tree];
-    let mut cursor = 0;
-    while let Some(node) = pending.pop() {
-        if let markdown::mdast::Node::Link(link) = node {
-            // GFM's post-parse text transform can leave a literal after a
-            // bracket without positions, just as the shipping remark parser
-            // does. Its parsed visible text is the literal source to locate.
-            let shown: String = link.children.iter().map(ToString::to_string).collect();
-            let bounds = link
-                .position
-                .as_ref()
-                .map(|position| (position.start.offset, position.end.offset))
-                .or_else(|| {
-                    source[cursor..]
-                        .find(&shown)
-                        .map(|at| (cursor + at, cursor + at + shown.len()))
-                });
-            if let Some((start, end)) = bounds {
-                cursor = end;
-                if !source[start..end].starts_with(['[', '<']) {
-                    spans.push(super::row::Span {
-                        kind: super::row::SpanKind::Link(std::sync::Arc::new(LinkMeaning {
-                            destination: link.url.clone(),
-                            title: link.title.clone(),
-                            reference: None,
-                        })),
-                        open: start..start,
-                        close: end..end,
-                    });
-                }
-            }
-            // Existing link labels cannot contain independent nested links.
-            continue;
-        }
-        if let Some(children) = node.children() {
-            pending.extend(children.iter().rev());
-        }
-    }
-    (spans, source.len())
-}
-
 /// Preserve the existing wrapper and title bytes while replacing only its
 /// destination token. Reference and autolink spellings use explicit syntax
 /// when the command changes their destination.
@@ -466,7 +411,8 @@ impl super::Projection {
             .iter()
             .filter_map(|id| markers[*id].kind.format())
             .collect();
-        let (links, work) = bare_links(destination);
+        let (links, work, hint_items) = bare_links(destination);
+        let link_metadata_items = link_metadata_items + hint_items;
         let bare = links.len() == 1
             && links[0].open.start == 0
             && links[0].close.end == destination.len()

@@ -38,18 +38,13 @@ impl TypedState {
         } else {
             return Ok(());
         };
-        if body.is_empty() || !safe(&pieces[opener..end], markers, &mut work.items) {
+        let typing = matches!(input.intent, EditIntent::Input(InputAction::Typing));
+        // Committed completion owns a whole newly Inserted closed capsule. It
+        // never adopts an authored opener or creates an unfinished live seed.
+        if !typing && (ending.is_none() || !closed || opener < input.insertion.start) {
             return Ok(());
         }
-        let prefix: [&str; 4] = std::array::from_fn(|index| {
-            work.items += 1;
-            pieces
-                .get(body.start + index)
-                .filter(|_| body.start + index < body.end)
-                .map_or("", |piece| piece.display.as_str())
-        });
-        let small = body.len() <= 3 && prefix[..body.len()].iter().all(|part| *part == "w");
-        if !(small || prefix == ["w", "w", "w", "."]) {
+        if body.is_empty() || !safe(&pieces[opener..end], markers, &mut work.items) {
             return Ok(());
         }
         // An unfinished insertion cannot adopt retained inner suffix text.
@@ -73,8 +68,19 @@ impl TypedState {
             ending::finish_typed(pieces, markers, body, work)?;
             return Ok(());
         }
+        let mut prefix = [0u8; 4];
+        for (index, piece) in pieces[body.clone()].iter().take(4).enumerate() {
+            work.items += 1;
+            if piece.display.len() != 1 {
+                return Ok(());
+            }
+            prefix[index] = piece.display.as_bytes()[0];
+        }
+        if !phase::matches(&prefix, body.len(), &mut work.items) {
+            return Ok(());
+        }
         let text = displayed(&pieces[body.clone()], work);
-        if !candidate(&text) {
+        if !candidate(&text, &mut work.items) {
             return Ok(());
         }
         let (target, _) = meaning(&text, work);

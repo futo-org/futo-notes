@@ -85,7 +85,8 @@ impl GuardState {
             {
                 return Err(EditorError::UnrepresentableFormat);
             }
-            let (canonical, parsed) = crate::inline::links::bare_links(&body.displayed);
+            let (canonical, parsed, hint_items) = crate::inline::links::bare_links(&body.displayed);
+            work.items += hint_items;
             work.parsed += parsed;
             work.items += 1 + canonical.len();
             for span in &canonical {

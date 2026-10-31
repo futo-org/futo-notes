@@ -51,7 +51,8 @@ pub(in crate::inline) fn finish_angle_word(
         return result;
     }
     let inner = &word[1..word.len() - 1];
-    let (links, parsed) = bare_links(inner);
+    let (links, parsed, hint_items) = bare_links(inner);
+    result.work.items += hint_items;
     result.work.parsed += parsed;
     result.work.items += links.len();
     result.work.copied += links
@@ -208,7 +209,8 @@ pub(in crate::inline) fn complete_typed_angle(
         })
         .collect();
     result.materialized += inner.len();
-    let (links, parsed) = bare_links(&inner);
+    let (links, parsed, hint_items) = bare_links(&inner);
+    result.work.items += hint_items;
     result.work.parsed += parsed;
     result.work.items += links.len() + 1;
     result.work.copied += links

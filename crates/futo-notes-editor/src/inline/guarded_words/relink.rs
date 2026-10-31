@@ -145,7 +145,8 @@ impl Projection {
                 if at != z {
                     return Err(EditorError::UnrepresentableFormat);
                 }
-                let (canonical, parsed) = crate::inline::links::bare_links(&displayed);
+                let (canonical, parsed, hint_items) = crate::inline::links::bare_links(&displayed);
+                work.link_metadata_items += hint_items;
                 work.parsed_source_bytes += parsed;
                 work.link_metadata_items += 1 + canonical.len();
                 for span in &canonical {
