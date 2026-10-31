@@ -155,3 +155,145 @@ fn divider_uses_the_current_empty_snapshot_after_its_actual_word_end_retires_pen
         "https://x.test"
     );
 }
+
+#[test]
+fn divider_keeps_both_identical_code_words_and_interior_entity_history_independent() {
+    use futo_notes_editor::Affinity;
+    for affinity in [Affinity::Forward, Affinity::Backward] {
+        let mut session = EditorSession::open("&acE; ");
+        let mut view = ReferenceView::new("\u{223e}\u{333} ");
+        view.apply(
+            session
+                .replace(
+                    Revision(0),
+                    range(6, 6),
+                    "<https://x.test/path",
+                    &mut |_| Ok(()),
+                )
+                .unwrap(),
+        );
+        view.apply(
+            session
+                .replace(Revision(1), range(26, 26), ">", &mut |_| Ok(()))
+                .unwrap(),
+        );
+        session.select(Revision(2), range(21, 26)).unwrap();
+        view.apply(
+            session
+                .toggle_format(Revision(2), InlineFormat::Code, &mut |_| Ok(()))
+                .unwrap()
+                .unwrap(),
+        );
+        session.select(Revision(3), range(27, 27)).unwrap();
+        view.apply(
+            session
+                .replace(
+                    Revision(3),
+                    range(27, 27),
+                    " / <https://x.test/path",
+                    &mut |_| Ok(()),
+                )
+                .unwrap(),
+        );
+        view.apply(
+            session
+                .replace(Revision(4), range(50, 50), ">", &mut |_| Ok(()))
+                .unwrap(),
+        );
+        session.select(Revision(5), range(45, 50)).unwrap();
+        view.apply(
+            session
+                .toggle_format(Revision(5), InlineFormat::Code, &mut |_| Ok(()))
+                .unwrap()
+                .unwrap(),
+        );
+        let guarded = session.source_text();
+        let opening = "\u{223e}\u{333} <https://x.test/path> / <https://x.test/path>";
+        assert_eq!(view.text, opening);
+        session
+            .select_with_affinity(Revision(6), range(3, 3), affinity)
+            .unwrap();
+        view.apply(
+            session
+                .block_command(
+                    Revision(6),
+                    range(27, 30),
+                    BlockCommand::Divider,
+                    &mut |_| Ok(()),
+                )
+                .unwrap()
+                .unwrap(),
+        );
+        assert_eq!(
+            view.text,
+            "\u{223e}\u{333} <https://x.test/path>\n\u{fffc}\n\n<https://x.test/path>"
+        );
+        assert!(session
+            .project(Revision(7), range(0, 54))
+            .unwrap()
+            .links
+            .is_empty());
+        session.select(Revision(7), range(21, 26)).unwrap();
+        view.apply(
+            session
+                .toggle_format(Revision(7), InlineFormat::Code, &mut |_| Ok(()))
+                .unwrap()
+                .unwrap(),
+        );
+        session.select(Revision(8), range(27, 27)).unwrap();
+        view.apply(
+            session
+                .replace(Revision(8), range(27, 27), " ", &mut |_| Ok(()))
+                .unwrap(),
+        );
+        let first = session.project(Revision(9), range(0, 55)).unwrap().links;
+        assert_eq!(first.len(), 1);
+        assert_eq!(first[0].range, range(7, 26));
+        assert_eq!(first[0].destination, "https://x.test/path");
+        session.select(Revision(9), range(49, 54)).unwrap();
+        view.apply(
+            session
+                .toggle_format(Revision(9), InlineFormat::Code, &mut |_| Ok(()))
+                .unwrap()
+                .unwrap(),
+        );
+        session.select(Revision(10), range(55, 55)).unwrap();
+        view.apply(
+            session
+                .replace(Revision(10), range(55, 55), " ", &mut |_| Ok(()))
+                .unwrap(),
+        );
+        let both = session.project(Revision(11), range(0, 56)).unwrap().links;
+        assert_eq!(
+            both.iter().map(|link| link.range).collect::<Vec<_>>(),
+            vec![range(7, 26), range(35, 54)]
+        );
+        assert!(both
+            .iter()
+            .all(|link| link.destination == "https://x.test/path"));
+        assert!(session.source_text().starts_with("&acE; "));
+        let loaded = EditorSession::open(&session.source_text());
+        assert_eq!(loaded.display_text(), view.text);
+        assert_eq!(
+            loaded.project(Revision(0), range(0, 56)).unwrap().links,
+            both
+        );
+        for _ in 0..5 {
+            view.apply(
+                session
+                    .undo(session.revision(), &mut |_| Ok(()))
+                    .unwrap()
+                    .unwrap(),
+            );
+        }
+        assert_eq!(session.source_text(), guarded);
+        assert_eq!(view.text, opening);
+        assert_eq!(session.selection(), range(3, 3));
+        assert_eq!(session.affinity(), affinity);
+        assert!(session
+            .project(session.revision(), range(0, 51))
+            .unwrap()
+            .links
+            .is_empty());
+    }
+}
