@@ -1,7 +1,14 @@
 // @vitest-environment jsdom
 // Real shipping toolbar/parser/serializer seam; no native input or core imports.
 import { afterAll, beforeAll, expect, it, vi } from 'vitest';
-import { Editor, defaultValueCtx, editorViewCtx, parserCtx, rootCtx } from '@milkdown/kit/core';
+import {
+  Editor,
+  defaultValueCtx,
+  editorViewCtx,
+  parserCtx,
+  remarkCtx,
+  rootCtx,
+} from '@milkdown/kit/core';
 import { TextSelection } from '@milkdown/kit/prose/state';
 import { commonmarkWithCompat, gfmWithCompat } from '@futo-notes/editor/milkdown-compat';
 import { createMarkdownSerializer, type NodeJson } from '@futo-notes/editor/markdown';
@@ -10,6 +17,7 @@ import { tableCellLineBreakRemark } from './table/tableLineBreak';
 import { wikilink } from './wikilink';
 import { createToolbarExec } from './toolbarExec';
 import { dismissLinkPrompt } from './linkPrompt';
+import { autolinkTransaction } from './autolink';
 import { withoutLeakedCtxTimers } from './__fixtures__/noLeakedCtxTimers';
 
 let editor: Editor;
@@ -243,3 +251,67 @@ it('Code over a literal angle URI makes that selected URL opaque without linking
   expect(rows(candidate)).toEqual(rows(after));
   expect(links(candidate)).toEqual([]);
 });
+
+function partialCodeDocument() {
+  const view = editor.ctx.get(editorViewCtx);
+  const text = '<https://x.test/path>';
+  const paragraph = view.state.schema.nodes.paragraph.create(null, view.state.schema.text(text));
+  view.dispatch(view.state.tr.replaceWith(0, view.state.doc.content.size, paragraph));
+  view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, 16, 21)));
+  createToolbarExec(() => editor).code();
+  const after = view.state.doc.toJSON() as NodeJson;
+  const parse = editor.ctx.get(parserCtx);
+  const serializer = createMarkdownSerializer({
+    parse: (source) => parse(source).toJSON() as NodeJson,
+  });
+  return { view, text, after, parse, serializer };
+}
+
+it('partial Code command keeps the valid URI prefix literal and word-end owner declines the marked word', () => {
+  const { view, text, after, parse, serializer } = partialCodeDocument();
+  expect(rows(after)).toEqual([{ type: 'paragraph', text }]);
+  expect(links(after)).toEqual([]);
+  const code = after.content?.[0]?.content?.find((part) => part.text === '/path');
+  expect(code?.marks?.map((mark) => mark.type)).toContain('inlineCode');
+  expect(
+    autolinkTransaction(
+      view.state,
+      22,
+      (source) => editor.ctx.get(remarkCtx).parse(source),
+      (doc) => parse(serializer.serialize(doc.toJSON() as NodeJson)),
+    ),
+  ).toBeNull();
+});
+
+it('characterizes the current serializer losing partial Code after an unlinked URI prefix', () => {
+  const { after, parse, serializer } = partialCodeDocument();
+  // Observed source-spelling discrepancy, not a portable behavioral golden.
+  // The failed intended roundtrip and raw logs remain in the transfer evidence.
+  const saved = serializer.serialize(after);
+  expect(saved).toBe('\\<https://x.test`/path`>\n');
+  const reopened = parse(saved).toJSON() as NodeJson;
+  expect(rows(reopened)).toEqual([{ type: 'paragraph', text: '<https://x.test`/path`>' }]);
+  expect(
+    reopened.content?.[0]?.content?.some((part) =>
+      part.marks?.some((mark) => mark.type === 'inlineCode'),
+    ),
+  ).toBe(false);
+});
+
+for (const source of [
+  '\\<&#104;ttps://x.test`/path`>',
+  '\\<https&#58;//x.test`/path`>',
+  '\\<https&colon;//x.test`/path`>',
+  '\\<https\\:\\/\\/x\\.test`/path`>',
+]) {
+  it(`characterizes scalar escaping retaining the prefix autolink: ${source}`, () => {
+    const candidate = editor.ctx.get(parserCtx)(source).toJSON() as NodeJson;
+    expect(rows(candidate)).toEqual([{ type: 'paragraph', text: '<https://x.test/path>' }]);
+    expect(links(candidate)).toEqual([
+      { type: 'link', attrs: { href: 'https://x.test', title: null } },
+    ]);
+    const code = candidate.content?.[0]?.content?.find((part) => part.text === '/path');
+    expect(code?.marks?.map((mark) => mark.type)).toContain('inlineCode');
+    expect(candidate.content?.[0]?.content?.every((part) => part.type === 'text')).toBe(true);
+  });
+}
