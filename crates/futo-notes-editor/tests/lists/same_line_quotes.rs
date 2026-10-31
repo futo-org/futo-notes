@@ -321,3 +321,53 @@ fn canonical_heading_indent_uses_tab_columns_after_its_quote_and_list_origins() 
         .iter()
         .all(|b| b.heading == 0));
 }
+
+#[test]
+fn a_same_line_quoted_item_keeps_one_empty_paragraph_after_a_listed_sibling() {
+    for (expected, shown) in [
+        ("- p\n\n> &acE;", "p\n\n\u{223e}\u{0333}"),
+        ("\n> &acE;\n- p", "\n\u{223e}\u{0333}\np"),
+    ] {
+        let mut plan = EditorSession::open(expected);
+        assert_eq!(plan.display_text(), shown);
+        let p = plan
+            .project(plan.revision(), range(0, shown.len()))
+            .unwrap();
+        assert_eq!(
+            p.blocks
+                .iter()
+                .filter_map(|b| b.list.as_ref().filter(|l| l.first).map(|l| (
+                    l.depth,
+                    l.number,
+                    l.checked,
+                    b.quote_depth
+                )))
+                .collect::<Vec<_>>(),
+            vec![(1, None, None, 0)]
+        );
+        assert!(p
+            .blocks
+            .iter()
+            .any(|b| b.quote_depth == 1 && b.list.is_none()));
+    }
+    assert_text_source(
+        "- p\n- > &acE;",
+        "- p\n\n> &acE;",
+        "p\n\u{223e}\u{0333}",
+        "p\n\n\u{223e}\u{0333}",
+        5,
+        6,
+    );
+}
+
+#[test]
+fn a_same_line_quoted_item_keeps_its_following_list_independent() {
+    assert_text_source(
+        "- > &acE;\n- p",
+        "\n> &acE;\n- p",
+        "\u{223e}\u{0333}\np",
+        "\n\u{223e}\u{0333}\np",
+        3,
+        4,
+    );
+}
