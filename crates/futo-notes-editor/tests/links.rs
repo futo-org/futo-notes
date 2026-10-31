@@ -77,3 +77,6 @@ mod typed_ending_atoms;
 
 #[path = "links/typed_mixed_word.rs"]
 mod typed_mixed_word;
+
+#[path = "links/typed_mixed_boundaries.rs"]
+mod typed_mixed_boundaries;

@@ -424,8 +424,15 @@ for (const mode of [
   });
 }
 
-for (const prefix of ['', '<www.x.test/']) {
-  it(`the shipping bulk input ends only its last angle word after prefix ${JSON.stringify(prefix)}`, () => {
+for (const [prefix, inserted, later, linked, laterLinked, uriSuffix] of [
+  ['', 'prefix <www.x.test/path> ', '', true, true, ''],
+  ['<www.x.test/', 'prefix <www.x.test/path> ', '', true, true, ''],
+  ['<www.x.test/', 'prefix <www.x.test/path', ' ', false, true, ''],
+  ['<www.x.test/', 'prefix ordinary ', '', false, false, ''],
+  ['<www.x.test/', 'prefix <www.x.test/path>  ', ' ', false, false, ''],
+  ['<www.x.test/', 'prefix <www.x.test/path>x', ' ', false, true, '>x'],
+] as const) {
+  it(`the shipping bulk last-word boundary is ${JSON.stringify([prefix, inserted])}`, () => {
     const view = editor.ctx.get(editorViewCtx);
     view.updateState(
       EditorState.create({ schema: view.state.schema, plugins: view.state.plugins }),
@@ -437,18 +444,26 @@ for (const prefix of ['', '<www.x.test/']) {
       );
       if (!handled) view.dispatch(view.state.tr.insertText(text));
     };
+    const snapshot = () => {
+      const links: { text: string; href: string }[] = [];
+      view.state.doc.descendants((node) => {
+        const mark = node.marks.find((mark) => mark.type.name === 'link');
+        if (mark) links.push({ text: node.text ?? '', href: String(mark.attrs.href) });
+      });
+      return { text: view.state.doc.textContent, links };
+    };
+    const found = [
+      { text: 'www.x.test/path' + uriSuffix, href: 'http://www.x.test/path' + uriSuffix },
+    ];
     for (const ch of prefix) input(ch);
-    const inserted = 'prefix <www.x.test/path> ';
     input(inserted);
-    const links: { text: string; href: string }[] = [];
-    view.state.doc.descendants((node) => {
-      const mark = node.marks.find((mark) => mark.type.name === 'link');
-      if (mark) links.push({ text: node.text ?? '', href: String(mark.attrs.href) });
-    });
-    const actual = { text: view.state.doc.textContent, links };
-    expect(actual, JSON.stringify(actual)).toEqual({
-      text: prefix + inserted,
-      links: [{ text: 'www.x.test/path', href: 'http://www.x.test/path' }],
-    });
+    expect(snapshot()).toEqual({ text: prefix + inserted, links: linked ? found : [] });
+    if (later) {
+      input(later);
+      expect(snapshot()).toEqual({
+        text: prefix + inserted + later,
+        links: laterLinked ? found : [],
+      });
+    }
   });
 }
