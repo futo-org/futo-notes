@@ -3,7 +3,8 @@ use crate::*;
 #[test]
 fn flat_task_retarget_chooses_each_retained_owner_style_without_repeated_scans() {
     let mut measured = Vec::new();
-    for count in [64, 512] {
+    let counts = [32, 64, 512];
+    for count in counts {
         let raw = (0..count)
             .map(|at| format!("1. p{at}\n   - c{at}"))
             .collect::<Vec<_>>()
@@ -95,11 +96,100 @@ fn flat_task_retarget_chooses_each_retained_owner_style_without_repeated_scans()
         assert_eq!(s.selection(), selected);
         assert_eq!(s.affinity(), Affinity::Backward);
     }
-    let (a_bytes, a_visits, a_owners, a_items, a_blocks, a_correspondence) = measured[0];
-    let (b_bytes, b_visits, b_owners, b_items, b_blocks, b_correspondence) = measured[1];
-    assert!(a_visits > 0 && b_owners <= 4 * 512 + 8 && b_items <= 8 * 512 + 8
-        && b_blocks <= 16 * 512 + 32 && a_correspondence > 0
-        && (b_visits as u128) * (a_bytes as u128) < 2 * (a_visits as u128) * (b_bytes as u128)
-        && (b_correspondence as u128) * (a_bytes as u128) < 2 * (a_correspondence as u128) * (b_bytes as u128),
-        "task forest input={a_bytes}..{b_bytes} metadata={a_visits}..{b_visits} owner_scans={a_owners}..{b_owners} item_scans={a_items}..{b_items} block_visits={a_blocks}..{b_blocks} correspondence={a_correspondence}..{b_correspondence}");
+    for (index, pair) in measured.windows(2).enumerate() {
+        let (a_bytes, a_visits, a_owners, a_items, a_blocks, a_correspondence) = pair[0];
+        let (b_bytes, b_visits, b_owners, b_items, b_blocks, b_correspondence) = pair[1];
+        let count = counts[index + 1];
+        assert!(a_visits > 0 && b_owners <= 4 * count + 8 && b_items <= 8 * count + 8
+            && b_blocks <= 16 * count + 32 && a_correspondence > 0
+            && (b_visits as u128) * (a_bytes as u128) < 2 * (a_visits as u128) * (b_bytes as u128)
+            && (b_correspondence as u128) * (a_bytes as u128) < 2 * (a_correspondence as u128) * (b_bytes as u128),
+            "task forest input={a_bytes}..{b_bytes} metadata={a_visits}..{b_visits} owner_scans={a_owners}..{b_owners} item_scans={a_items}..{b_items} block_visits={a_blocks}..{b_blocks} correspondence={a_correspondence}..{b_correspondence}");
+    }
+}
+
+fn assert_protected_fragment(
+    raw: &str,
+    expected: &str,
+    shown: &str,
+    selected: DisplayRange,
+    command: BlockCommand,
+) {
+    assert_eq!(EditorSession::open(expected).display_text(), shown);
+    let mut s = EditorSession::open(raw);
+    let mut view = shown.to_owned();
+    assert_eq!(s.display_text(), shown);
+    s.select_with_affinity(Revision(0), selected, Affinity::Backward)
+        .unwrap();
+    assert!(matches!(
+        s.block_command(Revision(0), selected, command, &mut |_| Err(
+            "append rejected".into()
+        )),
+        Err(EditorError::Persistence(_))
+    ));
+    assert_eq!(s.source_text(), raw);
+    assert_eq!(s.revision(), Revision(0));
+    let mut accepts = 0;
+    let change = s
+        .block_command(Revision(0), selected, command, &mut |_| {
+            accepts += 1;
+            Ok(())
+        })
+        .unwrap()
+        .unwrap();
+    assert_eq!(accepts, 1);
+    view.replace_range(change.range.start.0..change.range.end.0, &change.inserted);
+    assert_eq!(view, shown);
+    assert_eq!(s.source_text(), expected);
+    assert_eq!(s.selection(), selected);
+    let undo = s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap();
+    view.replace_range(undo.range.start.0..undo.range.end.0, &undo.inserted);
+    assert_eq!(s.source_text(), raw);
+    assert_eq!(view, shown);
+    assert_eq!(s.selection(), selected);
+    assert_eq!(s.affinity(), Affinity::Backward);
+    let redo = s.redo(s.revision(), &mut |_| Ok(())).unwrap().unwrap();
+    view.replace_range(redo.range.start.0..redo.range.end.0, &redo.inserted);
+    assert_eq!(s.source_text(), expected);
+    assert_eq!(view, shown);
+    assert_eq!(s.selection(), selected);
+}
+
+#[test]
+fn promoted_quote_fragments_do_not_use_a_foreign_preceding_owner_style() {
+    assert_protected_fragment(
+        "- before\n\n1. parent\n   > - child\u{1f600}\n   >   - grandchild\n   > - sibling\n2. following",
+        "- before\n\nparent\n> child\u{1f600}\n> + grandchild\n> - sibling\n- following",
+        "before\n\nparent\nchild\u{1f600}\ngrandchild\nsibling\nfollowing",
+        DisplayRange { start: DisplayOffset(8), end: DisplayOffset(24) },
+        BlockCommand::BulletList,
+    );
+}
+
+#[test]
+fn retained_task_owner_keeps_one_marker_between_two_foreign_bullet_styles() {
+    assert_protected_fragment(
+        "- before\n\n1. p0\n   - c0\n1. p1\n   - c1\n\n+ after",
+        "- before\n\n* [ ] p0\n  - [ ] c0\n* [ ] p1\n  - [ ] c1\n\n+ after",
+        "before\n\np0\nc0\np1\nc1\n\nafter",
+        DisplayRange {
+            start: DisplayOffset(8),
+            end: DisplayOffset(19),
+        },
+        BlockCommand::TaskList,
+    );
+}
+
+#[test]
+fn retained_ordered_owner_keeps_its_sequence_and_one_foreign_boundary_comment() {
+    assert_protected_fragment(
+        "7) before\n\n- p0\n  - c0\n- p1\n  - c1\n\n9. after",
+        "7) before\n\n1. p0\n   1. c0\n2. p1\n   1. c1\n<!-- -->\n\n9. after",
+        "before\n\np0\nc0\np1\nc1\n\nafter",
+        DisplayRange {
+            start: DisplayOffset(8),
+            end: DisplayOffset(19),
+        },
+        BlockCommand::OrderedList,
+    );
 }
