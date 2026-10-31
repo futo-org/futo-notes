@@ -66,6 +66,16 @@ fn partial_code_keeps_an_unselected_uri_prefix_literal_through_word_end_and_reop
             .unwrap(),
     );
     assert_eq!(view.text, "<https://x.test/path> ");
+    assert!(
+        session.source_text().contains("\\:"),
+        "word-end must retain the owned literal scalar while Code remains"
+    );
+    let loaded_after_word = EditorSession::open(&session.source_text());
+    assert!(loaded_after_word
+        .project(Revision(0), range(0, 22))
+        .unwrap()
+        .links
+        .is_empty());
     assert!(session
         .project(session.revision(), range(0, 22))
         .unwrap()

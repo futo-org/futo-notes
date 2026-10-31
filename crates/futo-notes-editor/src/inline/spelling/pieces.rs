@@ -9,6 +9,7 @@ pub(in crate::inline) enum PieceOrigin {
 }
 
 pub(in crate::inline) struct Piece {
+    pub literal_url: Option<usize>,
     pub raw: String,
     pub origin: Option<PieceOrigin>,
     pub timing: bool,
@@ -18,6 +19,7 @@ pub(in crate::inline) struct Piece {
     pub definition: Option<std::sync::Arc<str>>,
 }
 pub(in crate::inline) struct Marker {
+    pub literal_url: bool,
     pub pending: bool,
     pub activate: bool,
     pub kind: SpanKind,
@@ -26,6 +28,7 @@ pub(in crate::inline) struct Marker {
 }
 
 pub(in crate::inline) struct Spelling {
+    pub materialized: usize,
     pub text: String,
     pub origins: Vec<(PieceOrigin, Range<usize>)>,
     pub delimiters: Vec<Range<usize>>,

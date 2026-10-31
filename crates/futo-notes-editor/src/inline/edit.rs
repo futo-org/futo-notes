@@ -122,6 +122,7 @@ impl Projection {
         let mut changed = before;
         let insertion_index = changed.len();
         changed.extend(inserted.char_indices().map(|(offset, ch)| Piece {
+            literal_url: None,
             raw: ch.to_string(),
             display: ch.to_string(),
             spans: active.clone(),
@@ -263,7 +264,8 @@ impl Projection {
                 + output.len()
                 + timing.materialized
                 + angle.materialized
-                + completion.materialized,
+                + completion.materialized
+                + rendered.materialized,
             parsed: parsed + timing.work.parsed,
             link_metadata_items: link_metadata_items
                 + delimiter_work

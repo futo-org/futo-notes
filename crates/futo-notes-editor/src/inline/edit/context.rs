@@ -58,6 +58,7 @@ impl Projection {
                         *range == (span.open.end..span.close.start)
                     });
                 Marker {
+                    literal_url: false,
                     pending,
                     activate: false,
                     kind: span.kind.clone(),
@@ -118,6 +119,7 @@ impl Projection {
                     link_metadata_items += 1;
                     if segment.source.start == range.start {
                         pieces.push(Piece {
+                            literal_url: None,
                             raw: raw[base + range.start..base + range.end].into(),
                             display: String::new(),
                             spans: Vec::new(),
@@ -135,6 +137,7 @@ impl Projection {
                         // the heading/container intent using the existing empty
                         // ATX form, retiring only the owned underline below.
                         pieces.push(Piece {
+                            literal_url: None,
                             raw: format!(
                                 "{}{} ",
                                 &raw[base + block.source.start..base + block.content.start],
@@ -187,6 +190,7 @@ impl Projection {
                             && segment.source.end <= block.source.end
                     });
                     pieces.push(Piece {
+                        literal_url: None,
                         raw: raw[base + segment.source.start..base + segment.source.end].to_owned(),
                         display: String::new(),
                         spans: active,
@@ -200,6 +204,7 @@ impl Projection {
                     continue;
                 }
                 pieces.push(Piece {
+                    literal_url: None,
                     raw: raw[base + segment.source.start..base + segment.source.end].to_owned(),
                     display: row.display[segment.display.clone()].to_owned(),
                     spans: active,

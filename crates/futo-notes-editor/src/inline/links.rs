@@ -205,6 +205,7 @@ impl super::Projection {
         } else {
             let id = markers.len();
             markers.push(Marker {
+                literal_url: false,
                 pending: false,
                 activate: true,
                 kind: SpanKind::Link(LinkMeaning::bare(destination.into())),
@@ -253,7 +254,7 @@ impl super::Projection {
                 inserted: rendered.text[prefix..rendered.text.len() - suffix].into(),
                 caret: 0,
                 formats: Vec::new(),
-                materialized: raw.len() + rendered.text.len(),
+                materialized: raw.len() + rendered.text.len() + rendered.materialized,
                 parsed: rendered.parsed,
                 link_metadata_items: link_metadata_items
                     + delimiter_work
@@ -457,6 +458,7 @@ impl super::Projection {
             && matches!(&links[0].kind, SpanKind::Link(target) if target.destination == destination && target.title.is_none() && target.reference.is_none());
         let id = markers.len();
         markers.push(Marker {
+            literal_url: false,
             pending: false,
             activate: true,
             kind: SpanKind::Link(LinkMeaning::bare(destination.into())),
@@ -470,6 +472,7 @@ impl super::Projection {
         active.push(id);
         let insertion = before.len();
         before.push(Piece {
+            literal_url: None,
             raw: destination.into(),
             display: destination.into(),
             spans: active,
@@ -506,7 +509,7 @@ impl super::Projection {
             inserted: rendered.text[prefix..rendered.text.len() - suffix].into(),
             caret: source_start + rendered.caret,
             formats,
-            materialized: raw.len() + rendered.text.len(),
+            materialized: raw.len() + rendered.text.len() + rendered.materialized,
             parsed: work + rendered.parsed,
             link_metadata_items: link_metadata_items
                 + delimiter_work

@@ -92,7 +92,7 @@ impl Projection {
         if !ordered {
             return Err(EditorError::UnrepresentableFormat);
         }
-        let materialized = raw.len() + result.text.len();
+        let materialized = raw.len() + result.text.len() + result.materialized;
         Ok(BodySource {
             text: result.text,
             revision,
@@ -241,7 +241,7 @@ impl Projection {
             inserted: rendered.text[prefix..rendered.text.len() - suffix].to_owned(),
             caret: source_start,
             formats: Vec::new(),
-            materialized: raw.len() + rendered.text.len(),
+            materialized: raw.len() + rendered.text.len() + rendered.materialized,
             parsed: rendered.parsed,
             link_metadata_items: link_metadata_items
                 + delimiter_work

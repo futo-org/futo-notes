@@ -5,6 +5,7 @@ mod pieces;
 use boundaries::{repair_boundaries, repair_literal_boundaries};
 mod render;
 pub(super) use pieces::{full_reference_close, Marker, Piece, PieceOrigin, Spelling};
+mod literal_urls;
 mod url_timing;
 use super::row::SpanKind;
 use super::row::{Row, Span};
@@ -37,11 +38,12 @@ pub(super) fn spell_with_anchors(
     let expected: String = pieces.iter().map(|piece| piece.display.as_str()).collect();
     let mut rendered = render(&pieces, &markers, insertion.start, insertion.end);
     let mut parsed = 0;
+    let mut materialized = 0;
     let mut link_metadata_items = rendered.link_metadata_items;
     let mut link_copied_bytes = 0;
     let verify_pending = markers.iter().any(|marker| {
         link_metadata_items += 1;
-        marker.pending || marker.activate
+        marker.pending || marker.activate || marker.literal_url
     });
     if literal || verify_pending {
         let mut candidate =
@@ -49,6 +51,27 @@ pub(super) fn spell_with_anchors(
         parsed += candidate.parsed_source_bytes;
         link_metadata_items += candidate.reference_work.items;
         link_copied_bytes += candidate.reference_work.copied;
+        let mut literal_work = super::references::ReferenceWork::default();
+        let mut words = literal_urls::Words::read(&pieces, &markers, &rendered, &mut literal_work)?;
+        let mut rendered_changed = false;
+        if words.repair(
+            &mut pieces,
+            &markers,
+            &rendered,
+            &candidate,
+            &mut literal_work,
+        )? {
+            // The discarded first render is an additional source buffer; the
+            // final output buffer is counted by the owning plan as before.
+            materialized += rendered.text.len();
+            rendered = render(&pieces, &markers, insertion.start, insertion.end);
+            rendered_changed = true;
+            link_metadata_items += rendered.link_metadata_items;
+            candidate = Row::parse_with_references(&rendered.text, references, &rendered.winners);
+            parsed += candidate.parsed_source_bytes;
+            link_metadata_items += candidate.reference_work.items;
+            link_copied_bytes += candidate.reference_work.copied;
+        }
         if candidate.display != expected {
             repair_literal_boundaries(&mut pieces, &rendered, &candidate, &insertion);
             // A speculative line-start marker must reopen as the literal text
@@ -67,6 +90,10 @@ pub(super) fn spell_with_anchors(
                         .map(|ch| format!("&#{};", ch as u32))
                         .collect();
                 }
+            }
+            if words.has_owners() {
+                materialized += rendered.text.len();
+                rendered_changed = true;
             }
             rendered = render(&pieces, &markers, insertion.start, insertion.end);
             link_metadata_items += rendered.link_metadata_items;
@@ -116,6 +143,10 @@ pub(super) fn spell_with_anchors(
             }
         }
         if repaired_link {
+            if words.has_owners() {
+                materialized += rendered.text.len();
+                rendered_changed = true;
+            }
             rendered = render(&pieces, &markers, insertion.start, insertion.end);
             link_metadata_items += rendered.link_metadata_items;
             candidate = Row::parse_with_references(&rendered.text, references, &rendered.winners);
@@ -140,10 +171,13 @@ pub(super) fn spell_with_anchors(
             // decoding to the same visible scalar. Repair only the exact
             // neighbor of a marker that the library could no longer pair.
             repair_boundaries(&mut pieces, &missing);
+            if words.has_owners() {
+                materialized += rendered.text.len();
+                rendered_changed = true;
+            }
             rendered = render(&pieces, &markers, insertion.start, insertion.end);
             link_metadata_items += rendered.link_metadata_items;
-            let candidate =
-                Row::parse_with_references(&rendered.text, references, &rendered.winners);
+            candidate = Row::parse_with_references(&rendered.text, references, &rendered.winners);
             parsed += candidate.parsed_source_bytes;
             link_metadata_items += candidate.reference_work.items;
             link_copied_bytes += candidate.reference_work.copied;
@@ -179,10 +213,13 @@ pub(super) fn spell_with_anchors(
                     marker.close.clone_from(&marker.open);
                 }
             }
+            if words.has_owners() {
+                materialized += rendered.text.len();
+                rendered_changed = true;
+            }
             rendered = render(&pieces, &markers, insertion.start, insertion.end);
             link_metadata_items += rendered.link_metadata_items;
-            let candidate =
-                Row::parse_with_references(&rendered.text, references, &rendered.winners);
+            candidate = Row::parse_with_references(&rendered.text, references, &rendered.winners);
             parsed += candidate.parsed_source_bytes;
             link_metadata_items += candidate.reference_work.items;
             link_copied_bytes += candidate.reference_work.copied;
@@ -198,6 +235,12 @@ pub(super) fn spell_with_anchors(
                 return Err(EditorError::UnrepresentableFormat);
             }
         }
+        if rendered_changed {
+            words = literal_urls::Words::read(&pieces, &markers, &rendered, &mut literal_work)?;
+        }
+        words.verify(&pieces, &rendered, &candidate, &mut literal_work)?;
+        link_metadata_items += literal_work.items;
+        link_copied_bytes += literal_work.copied;
     }
     let mut mapped = Vec::with_capacity(anchors.len());
     for &anchor in anchors {
@@ -221,6 +264,7 @@ pub(super) fn spell_with_anchors(
     let (pending_links, activated_links) =
         url_timing::collect_link_timing(&markers, &rendered, &mut link_metadata_items);
     Ok(Spelling {
+        materialized,
         pending_links,
         activated_links,
         origins: url_timing::collect_origins(&pieces, &rendered, &mut link_metadata_items),

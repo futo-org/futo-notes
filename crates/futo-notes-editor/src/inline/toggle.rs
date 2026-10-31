@@ -39,42 +39,50 @@ pub(super) fn pieces(
             })
         });
     work += active_work;
-    // Only adding Code over a complete owned automatic link may retire that
-    // source stack. Active/authored links and partially covered pending bodies
-    // retain their existing identities until their separate intent is proved.
-    let complete_pending = if format == InlineFormat::Code
+    if format == InlineFormat::Code
         && !all_active
         && markers.iter().any(|marker| {
             work += 1;
             marker.pending
-        }) {
-        work += 1; // One ephemeral coverage allocation, no retained graph.
-        let mut complete: Vec<_> = markers
-            .iter()
-            .map(|marker| {
-                work += 2; // Visit and initialize one coverage slot.
-                marker.pending && matches!(marker.kind, SpanKind::Link(_))
-            })
-            .collect();
+        })
+    {
+        work += 1;
+        let mut retired = vec![false; markers.len()];
+        work += retired.len();
         let mut start = 0;
         for piece in changed.iter() {
             work += 1;
             let end = start + piece.display.len();
-            if start < a || end > z {
+            if start < z && a < end {
                 for id in &piece.spans {
                     work += 2;
-                    complete[*id] = false;
+                    if markers[*id].pending && matches!(markers[*id].kind, SpanKind::Link(_)) {
+                        retired[*id] = true;
+                        markers[*id].literal_url = true;
+                    }
                 }
             }
             start = end;
         }
-        Some(complete)
-    } else {
-        None
-    };
+        // IDs are unique in this exact bounded context. Retiring a source
+        // stack does not extend Code into its unselected literal body pieces.
+        for piece in changed.iter_mut() {
+            work += 1;
+            piece.spans.retain(|id| {
+                work += 1;
+                if retired[*id] {
+                    piece.literal_url = Some(*id);
+                    false
+                } else {
+                    true
+                }
+            });
+        }
+    }
     let id = markers.len();
     let delimiter = delimiter(format);
     markers.push(Marker {
+        literal_url: false,
         pending: false,
         activate: false,
         kind: SpanKind::Format(format),
@@ -108,12 +116,6 @@ pub(super) fn pieces(
                         })
                         .collect();
                 } else if !piece.display.contains(['\r', '\n']) {
-                    if let Some(complete) = &complete_pending {
-                        piece.spans.retain(|id| {
-                            work += 1;
-                            !complete[*id]
-                        });
-                    }
                     piece.spans.push(id);
                     piece.raw.clone_from(&piece.display);
                 }

@@ -40,6 +40,7 @@ pub(in crate::inline) fn split_entities(pieces: Vec<Piece>, a: usize, z: usize) 
                         .collect()
                 };
                 expanded.push(Piece {
+                    literal_url: piece.literal_url,
                     origin: if piece.raw == piece.display {
                         piece.origin.as_ref().map(|origin| match origin {
                             PieceOrigin::Source(source) => {
