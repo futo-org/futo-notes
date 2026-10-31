@@ -166,3 +166,6 @@ mod guarded;
 
 #[path = "relink/canonical_emitter.rs"]
 mod canonical_emitter;
+
+#[path = "relink/affected.rs"]
+mod affected;
