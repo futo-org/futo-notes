@@ -47,3 +47,6 @@ mod code_literal_edits;
 
 #[path = "links/block_pending_consumers.rs"]
 mod block_pending_consumers;
+
+#[path = "links/divider_references.rs"]
+mod divider_references;
