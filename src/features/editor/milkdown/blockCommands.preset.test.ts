@@ -1,11 +1,19 @@
 // @vitest-environment jsdom
 /** Shipping command/transaction oracles for #299, pinned at 6dab1335.
  * These use the real preset schema/plugin state and toolbar entry point.
- * They prove neither native input nor keyboard dispatch. Snapshots record the
+ * Key cases invoke the actual direct parity handler and configured preset
+ * keymaps; they do not prove native input or OS keyboard dispatch. Snapshots record the
  * owned serializer's whole-document spelling, not untouched-source retention.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { Editor, defaultValueCtx, editorViewCtx, parserCtx, rootCtx } from '@milkdown/kit/core';
+import {
+  Editor,
+  defaultValueCtx,
+  editorViewCtx,
+  editorViewOptionsCtx,
+  parserCtx,
+  rootCtx,
+} from '@milkdown/kit/core';
 import { TextSelection } from '@milkdown/kit/prose/state';
 import type { EditorView } from '@milkdown/kit/prose/view';
 import { commonmarkWithCompat, gfmWithCompat } from '@futo-notes/editor/milkdown-compat';
@@ -14,6 +22,7 @@ import { softBreakView } from './paragraphLines';
 import { tableCellLineBreakRemark } from './table/tableLineBreak';
 import { wikilink } from './wikilink';
 import { createToolbarExec } from './toolbarExec';
+import { handleParityKeyDown, keepDeleteForward } from './keyboardParity';
 import { withoutLeakedCtxTimers } from './__fixtures__/noLeakedCtxTimers';
 
 let editor: Editor;
@@ -29,6 +38,11 @@ beforeAll(async () => {
       .config((ctx) => {
         ctx.set(rootCtx, root);
         ctx.set(defaultValueCtx, '');
+        keepDeleteForward(ctx);
+        ctx.update(editorViewOptionsCtx, (previous) => ({
+          ...previous,
+          handleKeyDown: (view, event) => handleParityKeyDown(view, event),
+        }));
       })
       .use(commonmarkWithCompat())
       .use(softBreakView)
@@ -429,6 +443,73 @@ const cases = [
     anchor: '\u223e\u0333',
     offset: 1,
   },
+  {
+    name: 'Outdent removes nearest same line quote keeping bullet list',
+    source: '- > b',
+    command: 'outdent',
+    anchor: 'b',
+  },
+  {
+    name: 'Outdent removes nearest same line quote keeping wide ordered list',
+    source: '1000. > b',
+    command: 'outdent',
+    anchor: 'b',
+  },
+  {
+    name: 'Outdent retains empty list parent between two same line quotes',
+    source: '> - > b',
+    command: 'outdent',
+    anchor: 'b',
+  },
+  {
+    name: 'Outdent retains shared line nested empty list parents before quote body',
+    source: '- - > b',
+    command: 'outdent',
+    anchor: 'b',
+  },
+  {
+    name: 'Outdent removes nearest inner list after same line quote',
+    source: '- > - b',
+    command: 'outdent',
+    anchor: 'b',
+  },
+  {
+    name: 'Text lifts both list ancestors around a same line quote',
+    source: '- > - b',
+    command: 'paragraph',
+    anchor: 'b',
+  },
+  {
+    name: 'Text lifts shared line nested lists before quote body',
+    source: '- - > b',
+    command: 'paragraph',
+    anchor: 'b',
+  },
+  {
+    name: 'Outdent preserves wide tabbed empty parent and entity position',
+    source: '1000.\t> &acE;',
+    command: 'outdent',
+    anchor: '\u223e\u0333',
+    offset: 1,
+  },
+  {
+    name: 'Outdent keeps quoted inline code opaque inside list parent',
+    source: '- > `> b`',
+    command: 'outdent',
+    anchor: '> b',
+  },
+  {
+    name: 'Outdent keeps task body quote punctuation literal',
+    source: '- [x] > b',
+    command: 'outdent',
+    anchor: '> b',
+  },
+  {
+    name: 'Outdent keeps inline code quote punctuation literal',
+    source: '- `> b`',
+    command: 'outdent',
+    anchor: '> b',
+  },
 ] as const;
 
 describe('pinned shipping toolbar container transactions (#299)', () => {
@@ -447,6 +528,47 @@ describe('pinned shipping toolbar container transactions (#299)', () => {
       input: example.source,
       command: example.command,
       before,
+      after: observation(),
+    }).toMatchFileSnapshot(
+      `./__snapshots__/blockCommands/${example.name.replaceAll(' ', '-')}.snap`,
+    );
+  });
+});
+
+// A declined key records registered-handler behavior only, not browser/OS fallback.
+const keyCases = [
+  { name: 'Backspace at same line bullet quote', source: '- > b', anchor: 'b' },
+  { name: 'Backspace at same line wide ordered quote', source: '1000. > b', anchor: 'b' },
+  { name: 'Backspace at bare quote canary', source: '> b', anchor: 'b' },
+  { name: 'Backspace between two same line quotes', source: '> - > b', anchor: 'b' },
+  { name: 'Backspace at shared line nested list quote', source: '- - > b', anchor: 'b' },
+  { name: 'Backspace at nearest inner list after same line quote', source: '- > - b', anchor: 'b' },
+  {
+    name: 'Backspace keeps quoted inline code opaque inside list parent',
+    source: '- > `> b`',
+    anchor: '> b',
+  },
+  {
+    name: 'Backspace keeps task body quote punctuation literal',
+    source: '- [x] > b',
+    anchor: '> b',
+  },
+] as const;
+
+describe('pinned shipping configured container keymaps (#299)', () => {
+  it.each(keyCases)('$name', async (example) => {
+    const parsed = editor.ctx.get(parserCtx)(example.source);
+    view.dispatch(view.state.tr.replaceWith(0, view.state.doc.content.size, parsed.content));
+    const at = position(example.anchor);
+    view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, at)));
+    const before = observation();
+    const event = new KeyboardEvent('keydown', { key: 'Backspace', code: 'Backspace' });
+    const handled = view.someProp('handleKeyDown', (handle) => handle(view, event)) ?? false;
+    await expect({
+      input: example.source,
+      key: 'Backspace',
+      before,
+      handled,
       after: observation(),
     }).toMatchFileSnapshot(
       `./__snapshots__/blockCommands/${example.name.replaceAll(' ', '-')}.snap`,
