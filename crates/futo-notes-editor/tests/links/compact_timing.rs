@@ -3,6 +3,89 @@ use super::*;
 use futo_notes_editor::{InlineFormat, InputAction};
 
 #[test]
+fn uppercase_www_delimiter_waits_for_the_actual_word_ending() {
+    let pending = "x \\*b WWW.x.test/a*";
+    let complete = "x *b WWW.x.test/a* ";
+    let canonical = EditorSession::open(complete);
+    assert_eq!(canonical.display_text(), "x b WWW.x.test/a ");
+    let linked = canonical
+        .inspect_link(Revision(0), range(4, 5))
+        .unwrap()
+        .unwrap();
+    assert_eq!(linked.range, range(4, 16));
+    assert_eq!(linked.destination, "http://WWW.x.test/a");
+    assert_eq!(
+        EditorSession::open(pending).display_text(),
+        "x *b WWW.x.test/a*"
+    );
+
+    let mut editor = EditorSession::open("");
+    let mut view = ReferenceView::new("");
+    let mut typed = String::new();
+    for ch in "x *b WWW.x.test/a*".chars() {
+        let at = view.text.len();
+        typed.push(ch);
+        view.apply(
+            editor
+                .replace(
+                    editor.revision(),
+                    range(at, at),
+                    &ch.to_string(),
+                    &mut |_| Ok(()),
+                )
+                .unwrap(),
+        );
+        assert_eq!(view.text, typed, "source={:?}", editor.source_text());
+        let projected = editor
+            .project(editor.revision(), range(0, typed.len()))
+            .unwrap();
+        assert!(projected.links.is_empty());
+        assert!(projected.runs.iter().all(|run| run.formats.is_empty()));
+    }
+    assert_eq!(editor.source_text(), pending);
+    let at = view.text.len();
+    editor.select(editor.revision(), range(0, 0)).unwrap();
+    editor.select(editor.revision(), range(at, at)).unwrap();
+    view.apply(
+        editor
+            .replace(editor.revision(), range(at, at), " ", &mut |_| Ok(()))
+            .unwrap(),
+    );
+    assert_eq!(editor.source_text(), complete);
+    assert_eq!(view.text, canonical.display_text());
+    assert_eq!(
+        editor.inspect_link(editor.revision(), range(4, 5)).unwrap(),
+        Some(linked.clone())
+    );
+    view.apply(
+        editor
+            .undo(editor.revision(), &mut |_| Ok(()))
+            .unwrap()
+            .unwrap(),
+    );
+    assert_eq!(editor.source_text(), pending);
+    assert_eq!(view.text, "x *b WWW.x.test/a*");
+    assert!(editor
+        .inspect_link(editor.revision(), range(5, 6))
+        .unwrap()
+        .is_none());
+    view.apply(
+        editor
+            .redo(editor.revision(), &mut |_| Ok(()))
+            .unwrap()
+            .unwrap(),
+    );
+    assert_eq!(editor.source_text(), complete);
+    assert_eq!(view.text, "x b WWW.x.test/a ");
+    assert_eq!(
+        EditorSession::open(&editor.source_text())
+            .inspect_link(Revision(0), range(4, 5))
+            .unwrap(),
+        Some(linked)
+    );
+}
+
+#[test]
 fn underscore_ownership_survives_a_source_shift_and_uri_continuation_before_word_end() {
     let final_source = "p x _b https://x.test/a_b_ ";
     let fresh = EditorSession::open(final_source);
