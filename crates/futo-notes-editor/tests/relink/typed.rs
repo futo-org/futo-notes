@@ -225,4 +225,5 @@ fn canonical_www_candidate_extent_diagnostic() {
         };
         eprintln!("WWW_CANDIDATE word={word:?} bare={bare_links:?} unclosed={unclosed_links:?} loaded_relink={loaded_result:?} calls={calls} loaded_after={:?} input={input:?} typed_relink={typed_relink:?} typed_after={:?}", loaded.source_text(), typed.source_text());
     }
+    panic!("diagnostic-only stop: preserve all public WWW candidate observations before policy");
 }
