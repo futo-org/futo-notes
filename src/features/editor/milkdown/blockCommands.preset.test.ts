@@ -269,6 +269,14 @@ const cases = [
     anchor: 'parent',
     head: 'following',
   },
+  {
+    name: 'mixed retargeted ancestor remains listed before a descendant lift',
+    source: '1. parent\n   - child😀\n     - grandchild\n   - sibling\n2. following',
+    command: 'bullet-list',
+    anchor: 'parent',
+    head: 'child😀',
+    headOffset: 7,
+  },
 ] as const;
 
 describe('pinned shipping toolbar container transactions (#299)', () => {
