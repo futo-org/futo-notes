@@ -40,10 +40,9 @@ impl EditorSession {
                     }
                 }
             });
-        let [(fence, base, code)] = fences.as_slice() else {
+        let Some(&(fence, base, code)) = fences.last() else {
             return Ok(None);
         };
-        let (fence, base, code) = (*fence, *base, *code);
         let fence_end = if let Some(closer) = &fence.closer {
             // A closed event ends at its delimiter; prefix retirement owns the
             // actual closer row including its unchanged physical ending.
@@ -64,7 +63,7 @@ impl EditorSession {
         let opener_line = self
             .source
             .line_to_byte(self.source.byte_to_line(base + fence.opener.start));
-        if opener_line != first.source.end || fence_end > list.item.end {
+        if opener_line < first.source.end || fence_end > list.item.end {
             return Ok(None);
         }
         let end = list.item.end;
@@ -156,8 +155,24 @@ impl EditorSession {
                 .projection
                 .source_prefix_at(at)
                 .ok_or(EditorError::UnrepresentableFormat)?;
-            if physical.source.end <= at || physical.source.end > fence_end || !physical.code {
+            if physical.source.end <= at || physical.source.end > fence_end {
                 return Err(EditorError::UnrepresentableFormat);
+            }
+            if let Some(owner) = &physical.list {
+                if owner.depth != list.depth
+                    || owner.item != list.item
+                    || owner.quote_depth != list.quote_depth
+                {
+                    return Ok(None);
+                }
+            } else if physical.code || !physical.content.is_empty() {
+                return Ok(None);
+            }
+            // An actual prose blank or lazy continuation has no physical
+            // retired container contribution. Preserve its authored bytes.
+            if !physical.code && (physical.content.is_empty() || physical.prefix.is_empty()) {
+                at = physical.source.end;
+                continue;
             }
             let old = self.source.byte_slice(physical.prefix.clone()).to_string();
             let moved =
@@ -308,37 +323,50 @@ impl EditorSession {
         {
             return Err(EditorError::UnrepresentableFormat);
         }
-        let (actual, actual_base) = preview
-            .projection
-            .block_ref_at_source(mapped(base + fence.opener.start)? - window.start)
-            .ok_or(EditorError::UnrepresentableFormat)?;
-        let actual_fence = actual
-            .fence
-            .as_ref()
-            .ok_or(EditorError::UnrepresentableFormat)?;
-        crate::inline::visit_container();
-        let body_at = |at: usize| -> Result<usize, EditorError> {
-            mapped(at)?
-                .checked_sub(if at == end { boundary_inserted } else { 0 })
-                .and_then(|at| at.checked_sub(window.start))
-                .ok_or(EditorError::UnrepresentableFormat)
-        };
-        if !actual.code
-            || actual.quote_start != code.quote_start
-            || actual.quote_depth != code.quote_depth
-            || actual.list.is_some()
-            || actual.code_language != code.code_language
-            || actual_fence.marker != fence.marker
-            || actual_fence.width != fence.width
-            || actual_base + actual_fence.body.start != body_at(base + fence.body.start)?
-            || actual_base + actual_fence.body.end != body_at(base + fence.body.end)?
-            || actual_base + actual_fence.opener.start
-                != mapped(base + fence.opener.start)? - window.start
-            || needs_close && actual_fence.closer.is_none()
-        {
-            return Err(EditorError::UnrepresentableFormat);
+        let last_opener = base + fence.opener.start;
+        for &(fence, base, code) in &fences {
+            let (actual, actual_base) = preview
+                .projection
+                .block_ref_at_source(mapped(base + fence.opener.start)? - window.start)
+                .ok_or(EditorError::UnrepresentableFormat)?;
+            let actual_fence = actual
+                .fence
+                .as_ref()
+                .ok_or(EditorError::UnrepresentableFormat)?;
+            crate::inline::visit_container();
+            let body_at = |at: usize| -> Result<usize, EditorError> {
+                mapped(at)?
+                    .checked_sub(if at == end { boundary_inserted } else { 0 })
+                    .and_then(|at| at.checked_sub(window.start))
+                    .ok_or(EditorError::UnrepresentableFormat)
+            };
+            if !actual.code
+                || actual.quote_start != code.quote_start
+                || actual.quote_depth != code.quote_depth
+                || actual.list.is_some()
+                || actual.code_language != code.code_language
+                || actual_fence.marker != fence.marker
+                || actual_fence.width != fence.width
+                || actual_base + actual_fence.body.start != body_at(base + fence.body.start)?
+                || actual_base + actual_fence.body.end != body_at(base + fence.body.end)?
+                || actual_base + actual_fence.opener.start
+                    != mapped(base + fence.opener.start)? - window.start
+                || needs_close
+                    && base + fence.opener.start == last_opener
+                    && actual_fence.closer.is_none()
+            {
+                return Err(EditorError::UnrepresentableFormat);
+            }
         }
         if edge_quote_boundary {
+            let (actual, actual_base) = preview
+                .projection
+                .block_ref_at_source(mapped(last_opener)? - window.start)
+                .ok_or(EditorError::UnrepresentableFormat)?;
+            let actual_fence = actual
+                .fence
+                .as_ref()
+                .ok_or(EditorError::UnrepresentableFormat)?;
             let physical_end = preview.source.len_bytes();
             let physical = preview
                 .source
@@ -360,41 +388,13 @@ impl EditorSession {
                 return Err(EditorError::UnrepresentableFormat);
             }
         }
+        self.verify_promoted_prose(&preview, &footprint, |at| {
+            mapped(at)?
+                .checked_sub(window.start)
+                .ok_or(EditorError::UnrepresentableFormat)
+        })?;
         if end < self.source.len_bytes() {
-            let old = self
-                .projection
-                .list_command_line_at_source(end)
-                .ok_or(EditorError::UnrepresentableFormat)?;
-            let new = preview
-                .projection
-                .list_command_line_at_source(mapped(end)? - window.start)
-                .ok_or(EditorError::UnrepresentableFormat)?;
-            crate::inline::visit_container();
-            let meaning = |line: &ListCommandLine| {
-                (
-                    line.code,
-                    line.quote_depth,
-                    line.list
-                        .as_ref()
-                        .map(|l| (l.depth, l.ordinal, l.checked, l.first)),
-                    line.empty_comment,
-                )
-            };
-            let (old_block, old_base) = self
-                .projection
-                .block_ref_at_source(end)
-                .ok_or(EditorError::UnrepresentableFormat)?;
-            let (new_block, new_base) = preview
-                .projection
-                .block_ref_at_source(mapped(end)? - window.start)
-                .ok_or(EditorError::UnrepresentableFormat)?;
-            if meaning(&old) != meaning(&new)
-                || old_block.quote_start != new_block.quote_start
-                || old_base + old_block.source.start != end
-                || new_base + new_block.source.start != mapped(end)? - window.start
-            {
-                return Err(EditorError::UnrepresentableFormat);
-            }
+            self.verify_promoted_fence_outside(&preview, end, mapped(end)? - window.start)?;
         }
         // Original complete atoms must survive every fine-grained prefix edit.
         let mut selection = range;

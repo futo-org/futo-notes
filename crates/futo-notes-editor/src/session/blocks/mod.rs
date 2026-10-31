@@ -27,6 +27,7 @@ mod indent_source;
 mod keys;
 mod list_commands;
 mod list_fence_boundary;
+mod list_fence_preview;
 mod list_fence_promotion;
 mod list_indent;
 mod list_join;
