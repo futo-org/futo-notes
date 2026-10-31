@@ -143,11 +143,15 @@ export function buildRunScript({
   sha,
   recipe,
   recipeArgs = [],
+  androidEnv = {},
   nonce,
   ndkVersion,
 }) {
   const lockDir = `${remoteDir}.lock`;
   const justArgs = [recipe, ...recipeArgs].map(shQuote).join(' ');
+  const recipeEnv = Object.entries(androidEnv)
+    .map(([key, value]) => shQuote(`${key}=${value}`))
+    .join(' ');
   return `
 set -uo pipefail
 ${remoteEnvPreamble({ ndkVersion })}
@@ -261,7 +265,7 @@ set +e
 # own process group whose pgid equals the job leader's pid, using nothing
 # external.
 set -m
-just ${justArgs} &
+${recipeEnv ? `env ${recipeEnv} ` : ''}just ${justArgs} &
 RECIPE_PID=$!
 set +m
 echo "$RECIPE_PID" > "$LOCK_DIR/pgid" 2>/dev/null || true

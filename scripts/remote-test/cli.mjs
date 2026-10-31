@@ -23,6 +23,7 @@ export function parseCliArgs(argv) {
     help: false,
     recipe: null,
     recipeArgs: [],
+    androidEnv: {},
   };
 
   let i = 0;
@@ -61,6 +62,25 @@ export function parseCliArgs(argv) {
         } else {
           opts.waitSeconds = 1800;
         }
+        break;
+      }
+      case '--android-env': {
+        const [key, ...parts] = (argv[++i] ?? '').split('=');
+        const value = parts.join('=');
+        const patterns = {
+          ABIS: /^(?:arm64-v8a|armeabi-v7a|x86_64|x86)(?:,(?:arm64-v8a|armeabi-v7a|x86_64|x86))*$/,
+          FUTO_ANDROID_FFI_PROFILE: /^release-ffi$/,
+          GRADLE_OPTS:
+            /^-Dorg\.gradle\.project\.android\.testInstrumentationRunnerArguments\.editorRequire32Bit=true$/,
+          ANDROID_SERIAL: /^[A-Za-z0-9][A-Za-z0-9_.:-]*$/,
+          ANDROID_AVD_NAME: /^(?:futo-qa-\d+|futo-api(?:28|29|30))$/,
+        };
+        if (!Object.hasOwn(patterns, key) || !patterns[key].test(value))
+          throw new Error(
+            '--android-env requires a valid ABIS, FUTO_ANDROID_FFI_PROFILE, ANDROID_SERIAL, ANDROID_AVD_NAME or fixed editorRequire32Bit GRADLE_OPTS setting',
+          );
+        if (Object.hasOwn(opts.androidEnv, key)) throw new Error(`duplicate --android-env ${key}`);
+        opts.androidEnv[key] = value;
         break;
       }
       case '--host':
@@ -131,11 +151,18 @@ Options (must precede the recipe name):
   --user U           default $FUTO_REMOTE_USER or '${DEFAULT_USER}'
   --dir PATH         remote worktree, default $FUTO_REMOTE_DIR or '${DEFAULT_REMOTE_DIR}'
   --wait[=SECONDS]   queue behind a run in progress instead of failing (default 1800s)
+  --android-env K=V  pass an explicit ABIS, release-ffi profile, claimed serial or QA AVD
+                     to the recipe; fixed GRADLE_OPTS editorRequire32Bit assertion also supported
+                     (repeatable; no general shell/environment overrides)
   --force-lock       break a stale remote worktree lock
 
 Exit status is the remote command's own. ${EXIT_REFUSED} = refused before running,
 ${EXIT_LOCKED} = the remote worktree was locked by another run, ${EXIT_MOVED} = the remote
 checkout moved mid-run, so the result is void rather than a real failure.
+
+FUTO_REMOTE_LOCAL_ROOT selects an existing local source worktree; defaults to the tool checkout.
+Normal recipe source metadata and Git identity use that selected tree; doctor helper
+versions still come from the transport checkout.
 
 The remote worktree is the runner's OWN working area. Do not cd into it and run
 suites by hand: that bypasses the lock and produces phantom failures.

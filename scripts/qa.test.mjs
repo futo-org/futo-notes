@@ -330,3 +330,125 @@ describe('qa.mjs device', () => {
     expect(fs.readFileSync(calls, 'utf8')).toContain('shell rm -rf');
   });
 });
+
+// Explicit reference-phone ownership must not boot, reset or install anything.
+describe('physical Android QA claims', () => {
+  let scratch, root, peer, env;
+  const run = (cwd, ...args) =>
+    spawnSync(process.execPath, [QA, ...args], { cwd, env, encoding: 'utf8' });
+  beforeEach(() => {
+    scratch = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'qa-physical-')));
+    root = path.join(scratch, 'root');
+    peer = path.join(scratch, 'peer');
+    for (const dir of [root, peer]) {
+      fs.mkdirSync(dir);
+      execFileSync('git', ['init', '-q', dir]);
+    }
+    const bin = path.join(scratch, 'bin');
+    fs.mkdirSync(bin);
+    fs.writeFileSync(
+      path.join(bin, 'adb'),
+      `#!/bin/sh
+printf '%s\\n' "$*" >> "$QA_TOOL_LOG"
+case "$*" in
+ '-s PHONE123 get-state') echo device ;;
+ '-s PHONE123 shell getprop ro.product.model') echo 'moto g play 2023' ;;
+ '-s PHONE123 shell getprop ro.product.cpu.abilist') echo 'arm64-v8a,armeabi-v7a' ;;
+ '-s PHONE123 shell pm list packages com.futo.notes.dev') echo 'package:com.futo.notes.dev' ;;
+ *) echo 'unexpected device command' >&2; exit 1 ;;
+esac
+`,
+      { mode: 0o755 },
+    );
+    env = {
+      ...process.env,
+      HOME: scratch,
+      PATH: bin + path.delimiter + process.env.PATH,
+      QA_TOOL_LOG: path.join(scratch, 'tools.log'),
+    };
+  });
+  afterEach(() => fs.rmSync(scratch, { recursive: true, force: true }));
+  it('claims an exact connected phone, refuses a peer and resolves/releases without device mutation', () => {
+    const claim = run(root, 'claim', 'android', '--serial', 'PHONE123');
+    expect(claim.status, claim.stderr).toBe(0);
+    expect(claim.stdout).toContain('export ANDROID_SERIAL=PHONE123');
+    const file = path.join(scratch, '.futo-notes-qa/devices/android-physical-PHONE123.json');
+    expect(JSON.parse(fs.readFileSync(file, 'utf8'))).toMatchObject({
+      worktree: root,
+      id: 'PHONE123',
+      physical: true,
+      model: 'moto g play 2023',
+      abiList: 'arm64-v8a,armeabi-v7a',
+    });
+    expect(run(peer, 'claim', 'android', '--serial', 'PHONE123').status).not.toBe(0);
+    const selected = { ...env, ANDROID_SERIAL: 'PHONE123' };
+    expect(
+      spawnSync(process.execPath, [QA, 'android-target'], { cwd: root, env: selected }).status,
+    ).toBe(0);
+    expect(
+      spawnSync(process.execPath, [QA, 'android-target'], { cwd: peer, env: selected }).status,
+    ).not.toBe(0);
+    const device = run(root, 'device', 'android');
+    expect(device.status, device.stderr).toBe(0);
+    expect(JSON.parse(device.stdout)).toEqual({ name: 'physical-PHONE123', id: 'PHONE123' });
+    expect(run(root, 'release', 'android', '--shutdown').status).toBe(0);
+    expect(fs.existsSync(file)).toBe(false);
+    expect(fs.readFileSync(env.QA_TOOL_LOG, 'utf8')).not.toMatch(/emu|clear|install|reboot/);
+  });
+  it('uses the selected adb transport for physical identity and the package probe', () => {
+    expect(run(root, 'claim', 'android', '--serial', 'PHONE123').status).toBe(0);
+    const adb = path.join(scratch, 'bin/adb');
+    const custom = path.join(scratch, 'bin/custom-adb');
+    fs.renameSync(adb, custom);
+    fs.writeFileSync(adb, '#!/bin/sh\necho UNEXPECTED_DEFAULT_ADB >&2; exit 1\n', { mode: 0o755 });
+    const result = spawnSync(
+      process.execPath,
+      [
+        path.join(path.dirname(QA), 'qa/android-package-probe.mjs'),
+        '--serial',
+        'PHONE123',
+        '--adb',
+        custom,
+        '--installed',
+        'com.futo.notes.dev',
+      ],
+      { cwd: root, env, encoding: 'utf8' },
+    );
+    expect(result.status, result.stderr).toBe(0);
+  });
+  it('refuses a physical claim if branch lookup replaces the allocation lock', () => {
+    const realGit = execFileSync('which', ['git'], { encoding: 'utf8' }).trim();
+    fs.writeFileSync(
+      path.join(scratch, 'bin/git'),
+      `#!/bin/sh
+if [ "$3" = branch ]; then
+  printf '%s' FOREIGN_LOCK > "$HOME/.futo-notes-qa/android-allocation.lock"
+fi
+exec "$QA_REAL_GIT" "$@"
+`,
+      { mode: 0o755 },
+    );
+    env.QA_REAL_GIT = realGit;
+    const result = run(root, 'claim', 'android', '--serial', 'PHONE123');
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain('lock identity changed');
+    expect(
+      fs.existsSync(path.join(scratch, '.futo-notes-qa/devices/android-physical-PHONE123.json')),
+    ).toBe(false);
+    expect(
+      fs.readFileSync(path.join(scratch, '.futo-notes-qa/android-allocation.lock'), 'utf8'),
+    ).toBe('FOREIGN_LOCK');
+  });
+  it('refuses stale physical ownership rather than reclaiming or garbage collecting the phone', () => {
+    expect(run(root, 'claim', 'android', '--serial', 'PHONE123').status).toBe(0);
+    const file = path.join(scratch, '.futo-notes-qa/devices/android-physical-PHONE123.json');
+    fs.writeFileSync(
+      file,
+      JSON.stringify({ worktree: path.join(scratch, 'gone'), id: 'PHONE123', physical: true }),
+    );
+    expect(run(peer, 'claim', 'android', '--serial', 'PHONE123').status).not.toBe(0);
+    expect(run(peer, 'gc').status).toBe(0);
+    expect(fs.existsSync(file)).toBe(true);
+    expect(fs.readFileSync(env.QA_TOOL_LOG, 'utf8')).not.toMatch(/emu|delete|clear|install|reboot/);
+  });
+});

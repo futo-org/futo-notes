@@ -5,6 +5,8 @@ import path from 'node:path';
 import { afterEach, expect, it } from 'vitest';
 
 import { RSYNC_EXCLUDES, buildRsyncArgs } from './remote-test.mjs';
+import { parseCliArgs } from './remote-test/cli.mjs';
+import { buildRunScript } from './remote-test/remote-scripts.mjs';
 
 const scratchpads = [];
 afterEach(() => {
@@ -127,4 +129,48 @@ it.each([
   expect(result.status).toBe(1);
   expect(result.stderr).toContain(hint);
   expect(result.stderr).toContain('justin@fixture');
+});
+
+// Native acceptance needs an explicit ABI set and claimed target across SSH;
+// local process environment is not inherited by the remote shell.
+it('carries explicit Android build and target settings into the locked recipe only', () => {
+  const opts = parseCliArgs([
+    '--android-env',
+    'ABIS=arm64-v8a,armeabi-v7a,x86_64,x86',
+    '--android-env',
+    'ANDROID_SERIAL=emulator-5554',
+    'test-android-native',
+  ]);
+  expect(
+    parseCliArgs([
+      '--android-env',
+      'GRADLE_OPTS=-Dorg.gradle.project.android.testInstrumentationRunnerArguments.editorRequire32Bit=true',
+      'test-android-native-ui',
+    ]).androidEnv.GRADLE_OPTS,
+  ).toBe('-Dorg.gradle.project.android.testInstrumentationRunnerArguments.editorRequire32Bit=true');
+  expect(opts.androidEnv).toEqual({
+    ABIS: 'arm64-v8a,armeabi-v7a,x86_64,x86',
+    ANDROID_SERIAL: 'emulator-5554',
+  });
+  const script = buildRunScript({
+    remoteDir: '/owned',
+    sourceRepo: 'origin',
+    mode: 'git',
+    sha: '123',
+    nonce: 'owned',
+    recipe: opts.recipe,
+    androidEnv: opts.androidEnv,
+  });
+  expect(script).toContain(
+    "env 'ABIS=arm64-v8a,armeabi-v7a,x86_64,x86' 'ANDROID_SERIAL=emulator-5554' just 'test-android-native' &",
+  );
+  for (const value of [
+    'HOME=/foreign',
+    'ABIS=x86;touch /tmp/injected',
+    'ANDROID_SERIAL=../foreign',
+    'FUTO_ANDROID_FFI_PROFILE=release',
+    'GRADLE_OPTS=-Danything=true',
+  ]) {
+    expect(() => parseCliArgs(['--android-env', value, 'test-android-native'])).toThrow();
+  }
 });

@@ -3,7 +3,12 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
+// A newer local transport can validate an existing frozen source worktree without
+// modifying that candidate's tools. All source reads and Git identity use this root.
+export const ROOT = path.resolve(
+  process.env.FUTO_REMOTE_LOCAL_ROOT ||
+    path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..'),
+);
 
 // Tailscale hostname first; the tailnet IP is only a fallback for when MagicDNS
 // is not answering (this is a laptop-adjacent tailnet, so that happens).
