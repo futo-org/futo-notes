@@ -42,8 +42,8 @@ fn safe(pieces: &[Piece], markers: &[Marker], work: &mut usize) -> bool {
             })
     })
 }
-/// Existing owned words end at the exact Space or paragraph LF intent.
-/// This does not authorize a new committed-input seed.
+/// Exact ASCII ending bound, never origin or capsule authority by itself.
+/// Both proof roles still validate their own retained or Inserted ownership.
 pub(super) fn known_word_end(inserted: &str, work: &mut usize) -> bool {
     *work += 1;
     if inserted.len() != 1 {

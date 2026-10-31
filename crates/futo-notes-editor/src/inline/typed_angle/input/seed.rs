@@ -39,8 +39,9 @@ impl TypedState {
             return Ok(());
         };
         let typing = matches!(input.intent, EditIntent::Input(InputAction::Typing));
-        // Committed completion owns a whole newly Inserted closed capsule. It
-        // never adopts an authored opener or creates an unfinished live seed.
+        // Committed completion owns a whole newly Inserted closed capsule
+        // with an actual terminal separator. It never adopts an authored
+        // opener or creates an unfinished live seed.
         if !typing && (ending.is_none() || !closed || opener < input.insertion.start) {
             return Ok(());
         }

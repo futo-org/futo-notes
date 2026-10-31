@@ -8,9 +8,9 @@ pub(super) fn body_end(
 ) -> Option<usize> {
     *work += 2;
     let end = insertion.end.checked_sub(1)?;
-    // New bulk completion is deliberately one terminal ASCII Space. Existing
-    // single-scalar Typing whitespace retains its separate established path.
-    (!insertion.is_empty() && pieces[end].display == " ").then_some(end)
+    // Exactly one current ASCII separator bounds this word. It is not a
+    // whitespace-run trim or authority for a new origin/capsule by itself.
+    (!insertion.is_empty() && known_word_end(&pieces[end].display, work)).then_some(end)
 }
 
 pub(super) fn word(pieces: &[Piece], body: Range<usize>, work: &mut usize) -> bool {
