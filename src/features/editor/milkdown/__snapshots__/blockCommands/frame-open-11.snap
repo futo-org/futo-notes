@@ -1,0 +1,31 @@
+{
+  "input": "- - - 
+      b",
+  "opened": {
+    "documentJson": "{"type":"doc","content":[{"type":"hr"},{"type":"code_block","attrs":{"language":""},"content":[{"type":"text","text":"  b"}]}]}",
+    "selection": {
+      "anchor": {
+        "ancestry": [
+          "code_block",
+        ],
+        "pm": 5,
+        "textblockUtf16": 3,
+      },
+      "head": {
+        "ancestry": [
+          "code_block",
+        ],
+        "pm": 5,
+        "textblockUtf16": 3,
+      },
+    },
+    "source": "---
+
+```
+  b
+```
+",
+    "storedMarks": null,
+    "textblockRows": "  b",
+  },
+}

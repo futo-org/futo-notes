@@ -111,3 +111,52 @@ fn a_long_lazy_list_keeps_distant_marker_bytes_and_continuation_semantics() {
     view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
     assert_eq!(s.source_text(), raw);
 }
+
+#[test]
+fn tab_expanded_content_columns_hide_the_complete_owned_continuation_prefix() {
+    let raw = "-\tparent\n    tail\n-\tchild";
+    let mut s = EditorSession::open(raw);
+    let mut view = ReferenceView::new("parent\ntail\nchild");
+    assert_eq!(s.display_text(), view.text);
+    s.select(s.revision(), range(8, 8)).unwrap();
+    view.apply(
+        s.replace_action(
+            s.revision(),
+            range(8, 8),
+            "!",
+            InputAction::Isolated,
+            &mut |_| Ok(()),
+        )
+        .unwrap(),
+    );
+    assert_eq!(s.source_text(), "-\tparent\n    t!ail\n-\tchild");
+    assert_eq!(view.text, "parent\nt!ail\nchild");
+    view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(s.source_text(), raw);
+}
+
+#[test]
+fn nested_navigation_stops_at_visible_graphemes_and_tab_leaves_source_history_untouched() {
+    let raw = "> - 🦊a\r\n>   - e\u{301}b";
+    let mut s = EditorSession::open(raw);
+    assert_eq!(s.display_text(), "🦊a\r\ne\u{301}b");
+    for at in [4, 5, 7, 10, 11, 11] {
+        let change = s.move_caret(Revision(0), CaretDirection::Forward).unwrap();
+        assert_eq!(change.selection, range(at, at));
+        assert_eq!(change.revision, Revision(0));
+    }
+    for key in [ParagraphKey::Tab, ParagraphKey::ShiftTab] {
+        assert!(s
+            .paragraph_key(Revision(0), range(10, 11), key, &mut |_| panic!(
+                "non-code Tab accepted"
+            ))
+            .unwrap()
+            .is_none());
+    }
+    assert_eq!(s.source_text(), raw);
+    assert_eq!(s.revision(), Revision(0));
+    assert!(s
+        .undo(Revision(0), &mut |_| panic!("selection wrote history"))
+        .unwrap()
+        .is_none());
+}

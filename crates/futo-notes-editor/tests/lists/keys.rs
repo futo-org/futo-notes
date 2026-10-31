@@ -387,3 +387,120 @@ fn middle_empty_exit_keeps_the_two_lists_independent_after_fresh_open() {
     view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
     assert_eq!(s.source_text(), raw);
 }
+
+#[test]
+fn nested_backspace_retires_the_item_into_the_immediate_preceding_container() {
+    for (raw, shown, caret, expected) in [
+        ("- a\n  - b", "a\nb", 2, "- a\n  b"),
+        ("- a\n  - b\n  - c", "a\nb\nc", 2, "- a\n  b\n  - c"),
+        ("- a\n  - x\n  - b", "a\nx\nb", 4, "- a\n  - x\n    b"),
+    ] {
+        let mut s = EditorSession::open(raw);
+        let mut view = ReferenceView::new(shown);
+        s.select(s.revision(), range(caret, caret)).unwrap();
+        view.apply(
+            s.paragraph_key(
+                s.revision(),
+                range(caret, caret),
+                ParagraphKey::Backspace,
+                &mut |_| Ok(()),
+            )
+            .unwrap()
+            .unwrap(),
+        );
+        assert_eq!(s.source_text(), expected);
+        assert_eq!(view.text, shown);
+        assert_eq!(s.selection(), range(caret, caret));
+        view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+        assert_eq!(s.source_text(), raw);
+        assert_eq!(s.selection(), range(caret, caret));
+        view.apply(s.redo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+        assert_eq!(s.source_text(), expected);
+    }
+}
+
+#[test]
+fn enter_on_an_empty_nested_item_lifts_exactly_one_level() {
+    let raw = "- a\n\n  - ";
+    let mut s = EditorSession::open(raw);
+    let mut view = ReferenceView::new("a\n\n");
+    assert_eq!(s.display_text(), "a\n\n");
+    s.select(s.revision(), range(3, 3)).unwrap();
+    view.apply(
+        s.paragraph_key(s.revision(), range(3, 3), ParagraphKey::Enter, &mut |_| {
+            Ok(())
+        })
+        .unwrap()
+        .unwrap(),
+    );
+    assert_eq!(s.source_text(), "- a\n\n- ");
+    assert_eq!(view.text, "a\n\n");
+    assert_eq!(s.selection(), range(3, 3));
+    view.apply(
+        s.paragraph_key(s.revision(), range(3, 3), ParagraphKey::Enter, &mut |_| {
+            Ok(())
+        })
+        .unwrap()
+        .unwrap(),
+    );
+    assert_eq!(s.source_text(), "- a\n\n");
+    view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(s.source_text(), "- a\n\n- ");
+    view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(s.source_text(), raw);
+    assert_eq!(s.selection(), range(3, 3));
+}
+
+#[test]
+fn ambiguous_empty_nested_marker_remains_a_setext_heading() {
+    let s = EditorSession::open("- a\n  - ");
+    assert_eq!(s.display_text(), "a");
+    let p = s.project(s.revision(), range(0, 1)).unwrap();
+    assert_eq!(p.blocks[0].heading, 2);
+}
+
+#[test]
+fn nested_backspace_preserves_outer_quotes_and_a_second_key_joins_the_continuation() {
+    for (raw, shown, at, expected, final_source, final_display) in [
+        ("- a\n  - b", "a\nb", 2, "- a\n  b", "- ab", "ab"),
+        (
+            "> - a\r\n>   - 🦊b",
+            "a\r\n🦊b",
+            3,
+            "> - a\r\n>   🦊b",
+            "> - a🦊b",
+            "a🦊b",
+        ),
+    ] {
+        let mut s = EditorSession::open(raw);
+        let mut view = ReferenceView::new(shown);
+        let selected = range(at, at);
+        s.select(s.revision(), selected).unwrap();
+        view.apply(
+            s.paragraph_key(s.revision(), selected, ParagraphKey::Backspace, &mut |_| {
+                Ok(())
+            })
+            .unwrap()
+            .unwrap(),
+        );
+        assert_eq!(s.source_text(), expected);
+        assert_eq!(view.text, shown);
+        view.apply(
+            s.paragraph_key(
+                s.revision(),
+                s.selection(),
+                ParagraphKey::Backspace,
+                &mut |_| Ok(()),
+            )
+            .unwrap()
+            .unwrap(),
+        );
+        assert_eq!(s.source_text(), final_source);
+        assert_eq!(view.text, final_display);
+        view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+        assert_eq!(s.source_text(), expected);
+        view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+        assert_eq!(s.source_text(), raw);
+        assert_eq!(s.selection(), selected);
+    }
+}

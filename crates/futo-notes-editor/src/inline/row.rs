@@ -37,14 +37,18 @@ pub(crate) struct Row {
     pub(super) transparent_quote: Option<usize>,
 }
 
+pub(super) fn source_events(source: &str) -> Vec<(Event<'_>, Range<usize>)> {
+    Parser::new_ext(
+        source,
+        Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS,
+    )
+    .into_offset_iter()
+    .collect()
+}
+
 impl Row {
     pub fn parse(source: &str) -> Self {
-        let events: Vec<_> = Parser::new_ext(
-            source,
-            Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS,
-        )
-        .into_offset_iter()
-        .collect();
+        let events = source_events(source);
         let (blocks, prefixes) = super::blocks::describe(source, &events);
         let mut hidden = vec![false; source.len()];
         for prefix in prefixes {
@@ -119,7 +123,12 @@ impl Row {
                 continue;
             }
             if let Some(fence) = &block.fence {
-                hidden[fence.separator.clone()].fill(true);
+                // A container can end an unmatched fence before the note
+                // ends. Its terminal ending then separates the next block;
+                // there is no closing-frame line to supply that boundary.
+                if fence.closer.is_some() || fence.whole.end == source.len() {
+                    hidden[fence.separator.clone()].fill(true);
+                }
             }
             hidden[block.source.start..block.content.start].fill(true);
             let end = source[block.source.clone()]
@@ -208,49 +217,76 @@ impl Row {
     }
 
     pub fn source_bounds(&self, at: usize) -> (usize, usize) {
-        let mut low = self.source_len;
-        let mut high = 0;
-        for segment in &self.segments {
-            if segment.display.start <= at && at <= segment.display.end {
-                let (a, b) = if segment.display.is_empty() {
-                    (segment.source.start, segment.source.end)
-                } else if at == segment.display.start {
-                    (segment.source.start, segment.source.start)
-                } else if at == segment.display.end {
-                    (segment.source.end, segment.source.end)
-                } else {
-                    if segment.identity {
+        if self.segments.is_empty() {
+            return (0, 0);
+        }
+        let mut examined = 0;
+        let first = self.segments.partition_point(|segment| {
+            examined += 1;
+            segment.display.end < at
+        });
+        let last = self.segments.partition_point(|segment| {
+            examined += 1;
+            segment.display.start <= at
+        });
+        // Row construction advances both cursors monotonically without overlap.
+        // Thus the first/last inclusive matches own the complete union extrema,
+        // including every intervening hidden zero-display segment.
+        let result = if first < last {
+            let begin = &self.segments[first];
+            let end = &self.segments[last - 1];
+            examined += 2;
+            if begin.display.start <= at
+                && at <= begin.display.end
+                && end.display.start <= at
+                && at <= end.display.end
+            {
+                let bounds = |segment: &Segment| {
+                    if segment.display.is_empty() {
+                        (segment.source.start, segment.source.end)
+                    } else if at == segment.display.start {
+                        (segment.source.start, segment.source.start)
+                    } else if at == segment.display.end {
+                        (segment.source.end, segment.source.end)
+                    } else if segment.identity {
                         let position = segment.source.start + at - segment.display.start;
                         (position, position)
                     } else {
                         (segment.source.start, segment.source.end)
                     }
                 };
-                low = low.min(a);
-                high = high.max(b);
+                Some((bounds(begin).0, bounds(end).1))
+            } else {
+                None
             }
-        }
-        if self.segments.is_empty() {
-            (0, 0)
         } else {
-            (low, high)
-        }
+            None
+        };
+        super::visit_correspondence(examined);
+        result.unwrap_or((self.source_len, 0))
     }
 
     pub fn display_at(&self, source: usize) -> usize {
-        for segment in &self.segments {
-            if segment.source.start <= source && source <= segment.source.end {
-                if segment.identity {
-                    return segment.display.start + source - segment.source.start;
-                }
-                return if source == segment.source.end {
-                    segment.display.end
-                } else {
-                    segment.display.start
-                };
+        let mut examined = 0;
+        // Seek the FIRST inclusive end; equal ends must retain the old bias.
+        let index = self.segments.partition_point(|segment| {
+            examined += 1;
+            segment.source.end < source
+        });
+        let segment = self.segments.get(index).filter(|segment| {
+            examined += 1;
+            segment.source.start <= source && source <= segment.source.end
+        });
+        super::visit_correspondence(examined);
+        segment.map_or(self.display.len(), |segment| {
+            if segment.identity {
+                segment.display.start + source - segment.source.start
+            } else if source == segment.source.end {
+                segment.display.end
+            } else {
+                segment.display.start
             }
-        }
-        self.display.len()
+        })
     }
 
     pub fn formats_at(&self, source: usize) -> Vec<InlineFormat> {
@@ -342,3 +378,7 @@ fn code_span(source: &str, range: Range<usize>) -> (Span, Vec<(Range<usize>, Str
     }
     (span, replacements)
 }
+
+#[cfg(test)]
+#[path = "row_coordinates_tests.rs"]
+mod coordinates_tests;

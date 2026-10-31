@@ -1,0 +1,74 @@
+{
+  "after": {
+    "documentJson": "{"type":"doc","content":[{"type":"bullet_list","attrs":{"spread":false},"content":[{"type":"list_item","attrs":{"label":"•","listType":"bullet","spread":false,"checked":null},"content":[{"type":"paragraph"}]}]},{"type":"paragraph","content":[{"type":"text","text":"child"}]},{"type":"bullet_list","attrs":{"spread":false},"content":[{"type":"list_item","attrs":{"label":"•","listType":"bullet","spread":false,"checked":null},"content":[{"type":"paragraph","content":[{"type":"text","text":"sibling"}]}]}]},{"type":"bullet_list","attrs":{"spread":false},"content":[{"type":"list_item","attrs":{"label":"•","listType":"bullet","spread":false,"checked":null},"content":[{"type":"paragraph","content":[{"type":"text","text":"following"}]}]}]}]}",
+    "selection": {
+      "anchor": {
+        "ancestry": [
+          "paragraph",
+        ],
+        "pm": 7,
+        "textblockUtf16": 0,
+      },
+      "head": {
+        "ancestry": [
+          "paragraph",
+        ],
+        "pm": 7,
+        "textblockUtf16": 0,
+      },
+    },
+    "source": "-
+
+child
+
+- sibling
+
+* following
+",
+    "storedMarks": null,
+    "textblockRows": "
+child
+sibling
+following",
+  },
+  "before": {
+    "documentJson": "{"type":"doc","content":[{"type":"bullet_list","attrs":{"spread":false},"content":[{"type":"list_item","attrs":{"label":"•","listType":"bullet","spread":false,"checked":null},"content":[{"type":"paragraph"},{"type":"bullet_list","attrs":{"spread":false},"content":[{"type":"list_item","attrs":{"label":"•","listType":"bullet","spread":false,"checked":null},"content":[{"type":"paragraph","content":[{"type":"text","text":"child"}]}]},{"type":"list_item","attrs":{"label":"•","listType":"bullet","spread":false,"checked":null},"content":[{"type":"paragraph","content":[{"type":"text","text":"sibling"}]}]}]}]},{"type":"list_item","attrs":{"label":"•","listType":"bullet","spread":false,"checked":null},"content":[{"type":"paragraph","content":[{"type":"text","text":"following"}]}]}]}]}",
+    "selection": {
+      "anchor": {
+        "ancestry": [
+          "bullet_list",
+          "list_item",
+          "bullet_list",
+          "list_item",
+          "paragraph",
+        ],
+        "pm": 7,
+        "textblockUtf16": 0,
+      },
+      "head": {
+        "ancestry": [
+          "bullet_list",
+          "list_item",
+          "bullet_list",
+          "list_item",
+          "paragraph",
+        ],
+        "pm": 7,
+        "textblockUtf16": 0,
+      },
+    },
+    "source": "- - child
+  - sibling
+- following
+",
+    "storedMarks": null,
+    "textblockRows": "
+child
+sibling
+following",
+  },
+  "command": "paragraph",
+  "input": "- - child
+  - sibling
+- following",
+}

@@ -19,10 +19,34 @@ fn shared_literal_list_actions_cover_native_coordinates_and_exact_history() {
     let staging: Vec<Value> =
         serde_json::from_str(include_str!("../fixtures/list-staging.json")).unwrap();
     assert_eq!(staging.len(), 12);
+    let nested: Vec<Value> =
+        serde_json::from_str(include_str!("../fixtures/nested-containers.json")).unwrap();
+    assert_eq!(nested.len(), 35);
+    let commands: Vec<Value> =
+        serde_json::from_str(include_str!("../fixtures/container-commands.json")).unwrap();
+    assert_eq!(commands.len(), 27);
+    let headers: Vec<Value> =
+        serde_json::from_str(include_str!("../fixtures/list-header-commands.json")).unwrap();
+    assert_eq!(headers.len(), 14);
+    let frames: Vec<Value> =
+        serde_json::from_str(include_str!("../fixtures/prefix-frame-commands.json")).unwrap();
+    assert_eq!(frames.len(), 40);
+    let fences: Vec<Value> =
+        serde_json::from_str(include_str!("../fixtures/fence-container-commands.json")).unwrap();
+    assert_eq!(fences.len(), 23);
+    let headings: Vec<Value> =
+        serde_json::from_str(include_str!("../fixtures/heading-quote-commands.json")).unwrap();
+    assert_eq!(headings.len(), 5);
     let cases: Vec<_> = original
         .into_iter()
         .chain(shortcuts)
         .chain(staging)
+        .chain(nested)
+        .chain(commands)
+        .chain(headers)
+        .chain(frames)
+        .chain(fences)
+        .chain(headings)
         .collect();
     for case in &cases {
         let text = |key: &str| case[key].as_str().unwrap();
@@ -62,12 +86,14 @@ fn shared_literal_list_actions_cover_native_coordinates_and_exact_history() {
                     &mut accept,
                 )
                 .unwrap(),
-            "Enter" | "Backspace" => s
+            "Enter" | "Backspace" | "Delete" => s
                 .paragraph_key_utf16(
                     s.revision(),
                     selected,
                     if action == "Enter" {
                         ParagraphKey::Enter
+                    } else if action == "Delete" {
+                        ParagraphKey::Delete
                     } else {
                         ParagraphKey::Backspace
                     },
@@ -80,6 +106,11 @@ fn shared_literal_list_actions_cover_native_coordinates_and_exact_history() {
                     s.revision(),
                     selected,
                     match command {
+                        "Text" => BlockCommand::Heading(0),
+                        "Heading2" => BlockCommand::Heading(2),
+                        "Quote" => BlockCommand::Quote,
+                        "Indent" => BlockCommand::Indent,
+                        "Outdent" => BlockCommand::Outdent,
                         "BulletList" => BlockCommand::BulletList,
                         "OrderedList" => BlockCommand::OrderedList,
                         "TaskList" => BlockCommand::TaskList,
@@ -119,15 +150,23 @@ fn shared_literal_list_actions_cover_native_coordinates_and_exact_history() {
                     blocks.push(block);
                 }
             }
+            let mut item_index = 0;
             let items: Vec<_> = blocks
                 .into_iter()
                 .filter_map(|block| {
                     block.list.filter(|list| list.first).map(|list| {
-                        assert_eq!(list.depth, 1);
+                        assert_eq!(
+                            list.depth,
+                            case["itemDepths"][item_index].as_u64().unwrap_or(1) as usize
+                        );
                         assert_eq!(
                             block.quote_depth,
-                            case["quoteDepth"].as_u64().unwrap_or(0) as usize
+                            case["itemQuoteDepths"][item_index]
+                                .as_u64()
+                                .unwrap_or_else(|| case["quoteDepth"].as_u64().unwrap_or(0))
+                                as usize
                         );
+                        item_index += 1;
                         serde_json::json!([list.number, list.checked])
                     })
                 })

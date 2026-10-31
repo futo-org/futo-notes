@@ -1,0 +1,62 @@
+{
+  "after": {
+    "documentJson": "{"type":"doc","content":[{"type":"ordered_list","attrs":{"order":1000,"spread":false},"content":[{"type":"list_item","attrs":{"label":"1000.","listType":"ordered","spread":false,"checked":null},"content":[{"type":"paragraph"},{"type":"paragraph","content":[{"type":"text","text":"∾̳"}]}]}]}]}",
+    "selection": {
+      "anchor": {
+        "ancestry": [
+          "ordered_list",
+          "list_item",
+          "paragraph",
+        ],
+        "pm": 6,
+        "textblockUtf16": 1,
+      },
+      "head": {
+        "ancestry": [
+          "ordered_list",
+          "list_item",
+          "paragraph",
+        ],
+        "pm": 6,
+        "textblockUtf16": 1,
+      },
+    },
+    "source": "1000. ∾̳
+",
+    "storedMarks": null,
+    "textblockRows": "
+∾̳",
+  },
+  "before": {
+    "documentJson": "{"type":"doc","content":[{"type":"ordered_list","attrs":{"order":1000,"spread":false},"content":[{"type":"list_item","attrs":{"label":"1000.","listType":"ordered","spread":false,"checked":null},"content":[{"type":"paragraph"},{"type":"blockquote","content":[{"type":"paragraph","content":[{"type":"text","text":"∾̳"}]}]}]}]}]}",
+    "selection": {
+      "anchor": {
+        "ancestry": [
+          "ordered_list",
+          "list_item",
+          "blockquote",
+          "paragraph",
+        ],
+        "pm": 7,
+        "textblockUtf16": 1,
+      },
+      "head": {
+        "ancestry": [
+          "ordered_list",
+          "list_item",
+          "blockquote",
+          "paragraph",
+        ],
+        "pm": 7,
+        "textblockUtf16": 1,
+      },
+    },
+    "source": "1000. > ∾̳
+",
+    "storedMarks": null,
+    "textblockRows": "
+∾̳",
+  },
+  "command": "outdent",
+  "input": "1000.	> &acE;",
+}

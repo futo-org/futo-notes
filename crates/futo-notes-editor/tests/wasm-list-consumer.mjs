@@ -20,7 +20,41 @@ assert.equal(original.length, 24);
 assert.equal(shortcuts.length, 38);
 const staging = JSON.parse(readFileSync(new URL('fixtures/list-staging.json', import.meta.url)));
 assert.equal(staging.length, 12);
-const cases = [...original, ...shortcuts, ...staging];
+const nested = JSON.parse(
+  readFileSync(new URL('fixtures/nested-containers.json', import.meta.url)),
+);
+assert.equal(nested.length, 35);
+const commands = JSON.parse(
+  readFileSync(new URL('fixtures/container-commands.json', import.meta.url)),
+);
+assert.equal(commands.length, 27);
+const headers = JSON.parse(
+  readFileSync(new URL('fixtures/list-header-commands.json', import.meta.url)),
+);
+assert.equal(headers.length, 14);
+const frames = JSON.parse(
+  readFileSync(new URL('fixtures/prefix-frame-commands.json', import.meta.url)),
+);
+assert.equal(frames.length, 40);
+const fences = JSON.parse(
+  readFileSync(new URL('fixtures/fence-container-commands.json', import.meta.url)),
+);
+assert.equal(fences.length, 23);
+const headings = JSON.parse(
+  readFileSync(new URL('fixtures/heading-quote-commands.json', import.meta.url)),
+);
+assert.equal(headings.length, 5);
+const cases = [
+  ...original,
+  ...shortcuts,
+  ...staging,
+  ...nested,
+  ...commands,
+  ...headers,
+  ...frames,
+  ...fences,
+  ...headings,
+];
 const units = (text) => Uint16Array.from({ length: text.length }, (_, at) => text.charCodeAt(at));
 function host(vault, source) {
   const worker = spawn(process.argv[3], [vault, source], { stdio: ['pipe', 'pipe', 'inherit'] });
@@ -54,9 +88,9 @@ function assertItems(page, revision, display, item) {
     if (!blocks.some((old) => JSON.stringify(old) === JSON.stringify(block))) blocks.push(block);
   const items = blocks
     .filter((block) => block.list?.first)
-    .map((block) => {
-      assert.equal(block.list.depth, 1);
-      assert.equal(block.quote_depth, item.quoteDepth ?? 0);
+    .map((block, index) => {
+      assert.equal(block.list.depth, item.itemDepths?.[index] ?? 1);
+      assert.equal(block.quote_depth, item.itemQuoteDepths?.[index] ?? item.quoteDepth ?? 0);
       return [block.list.number, block.list.checked];
     });
   assert.deepEqual(items, item.finalItems, item.name);
@@ -102,14 +136,22 @@ for (const item of cases) {
     }
     if (item.action === 'Typing')
       await apply(page.replace_utf16_action(revision, ...item.range, units(item.text), '"Typing"'));
-    else if (['Enter', 'Backspace'].includes(item.action))
+    else if (['Enter', 'Backspace', 'Delete'].includes(item.action))
       await apply(page.paragraph_key_utf16(revision, ...item.range, JSON.stringify(item.action)));
     else
       await apply(
         page.block_command_utf16(
           revision,
           ...item.range,
-          JSON.stringify(item.action === 'ComposeToggleTask' ? 'ToggleTask' : item.action),
+          JSON.stringify(
+            item.action === 'Text'
+              ? { Heading: 0 }
+              : item.action === 'Heading2'
+                ? { Heading: 2 }
+                : item.action === 'ComposeToggleTask'
+                  ? 'ToggleTask'
+                  : item.action,
+          ),
         ),
       );
     assert.equal(revision, 1n, 'one protected append');

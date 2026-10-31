@@ -30,6 +30,8 @@ private struct ListActionCase: Decodable {
     let undoRanges: [[UInt64]]?
     let finalItems: [ListItemExpectation]
     let quoteDepth: UInt64?
+    let itemDepths: [UInt64]?
+    let itemQuoteDepths: [UInt64]?
 }
 private final class ListActionBundle {}
 
@@ -49,7 +51,21 @@ extension NativeEditorBlockRegressionTests {
             #expect(shortcuts.count == 38)
             let staging = try load("list-staging")
             #expect(staging.count == 12)
-            let cases = original + shortcuts + staging
+            let nested = try load("nested-containers")
+            #expect(nested.count == 35)
+            let commands = try load("container-commands")
+            #expect(commands.count == 27)
+            let headers = try load("list-header-commands")
+            #expect(headers.count == 14)
+            let frames = try load("prefix-frame-commands")
+            #expect(frames.count == 40)
+            let fences = try load("fence-container-commands")
+            #expect(fences.count == 23)
+            let headings = try load("heading-quote-commands")
+            #expect(headings.count == 5)
+            let cases =
+                original + shortcuts + staging + nested + commands + headers + frames + fences
+                + headings
             for item in cases {
                 let root = FileManager.default.temporaryDirectory.appendingPathComponent(
                     "editor-lists-\(UUID().uuidString)")
@@ -84,12 +100,15 @@ extension NativeEditorBlockRegressionTests {
                     }
                     let items = blocks.filter { $0.list?.first == true }
                     #expect(items.count == item.finalItems.count)
-                    for (block, expected) in zip(items, item.finalItems) {
+                    for (index, pair) in zip(items, item.finalItems).enumerated() {
+                        let (block, expected) = pair
                         let list = try #require(block.list)
-                        #expect(list.depth == 1)
+                        #expect(list.depth == (item.itemDepths?[index] ?? 1))
                         #expect(list.number == expected.number)
                         #expect(list.checked == expected.checked)
-                        #expect(block.quoteDepth == (item.quoteDepth ?? 0))
+                        #expect(
+                            block.quoteDepth
+                                == (item.itemQuoteDepths?[index] ?? item.quoteDepth ?? 0))
                     }
                 }
                 #expect(try s.displayText() == item.display)
@@ -107,13 +126,19 @@ extension NativeEditorBlockRegressionTests {
                     change = try s.replaceUtf16Action(
                         expected: 0, range: native(item.range),
                         inserted: Array(#require(item.text).utf16), action: .typing)
-                case "Enter", "Backspace":
+                case "Enter", "Backspace", "Delete":
                     change = try s.paragraphKeyUtf16(
                         expected: 0, range: native(item.range),
-                        key: item.action == "Enter" ? .enter : .backspace)
+                        key: item.action == "Enter"
+                            ? .enter : item.action == "Delete" ? .delete : .backspace)
                 default:
                     let command: EditorBlockCommand
                     switch item.action {
+                    case "Text": command = .heading(level: 0)
+                    case "Heading2": command = .heading(level: 2)
+                    case "Quote": command = .quote
+                    case "Indent": command = .indent
+                    case "Outdent": command = .outdent
                     case "BulletList": command = .bulletList
                     case "OrderedList": command = .orderedList
                     case "TaskList": command = .taskList

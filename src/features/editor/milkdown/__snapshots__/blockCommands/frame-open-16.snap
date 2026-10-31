@@ -1,0 +1,45 @@
+{
+  "input": "parent
+> ```
+> opaque
+> ```
+
+> - outside",
+  "opened": {
+    "documentJson": "{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"parent"}]},{"type":"blockquote","content":[{"type":"code_block","attrs":{"language":""},"content":[{"type":"text","text":"opaque"}]}]},{"type":"blockquote","content":[{"type":"bullet_list","attrs":{"spread":false},"content":[{"type":"list_item","attrs":{"label":"•","listType":"bullet","spread":false,"checked":null},"content":[{"type":"paragraph","content":[{"type":"text","text":"outside"}]}]}]}]}]}",
+    "selection": {
+      "anchor": {
+        "ancestry": [
+          "blockquote",
+          "bullet_list",
+          "list_item",
+          "paragraph",
+        ],
+        "pm": 29,
+        "textblockUtf16": 7,
+      },
+      "head": {
+        "ancestry": [
+          "blockquote",
+          "bullet_list",
+          "list_item",
+          "paragraph",
+        ],
+        "pm": 29,
+        "textblockUtf16": 7,
+      },
+    },
+    "source": "parent
+
+> ```
+> opaque
+> ```
+
+> - outside
+",
+    "storedMarks": null,
+    "textblockRows": "parent
+opaque
+outside",
+  },
+}

@@ -89,3 +89,28 @@ impl EditorSession {
         Ok(Some(change))
     }
 }
+
+/// Emit nonoverlapping source edits once, retaining every untouched slice.
+pub(super) fn spell_edits(
+    raw: &str,
+    edits: &[(std::ops::Range<usize>, String)],
+) -> Result<String, EditorError> {
+    let mut output = String::new();
+    let mut at = 0;
+    for (range, text) in edits {
+        crate::inline::visit_container();
+        if range.start < at
+            || range.start > range.end
+            || range.end > raw.len()
+            || !raw.is_char_boundary(range.start)
+            || !raw.is_char_boundary(range.end)
+        {
+            return Err(EditorError::UnrepresentableFormat);
+        }
+        output.push_str(&raw[at..range.start]);
+        output.push_str(text);
+        at = range.end;
+    }
+    output.push_str(&raw[at..]);
+    Ok(output)
+}

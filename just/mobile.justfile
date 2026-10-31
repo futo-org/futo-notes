@@ -217,6 +217,14 @@ test-android-native-ui *classes: qa-android-target _preflight-android android-en
   cd apps/android
   ./gradlew :app:connectedDirectDebugAndroidTest ${TEST_ARGS[@]+"${TEST_ARGS[@]}"}
 
+# Existing portable-editor consumers in a real x86 process on a claimed QA emulator; keeps all four ABIs packaged.
+test-android-native-ui32 *classes: qa-android-target
+  #!/usr/bin/env bash
+  set -euo pipefail
+  ABIS=arm64-v8a,armeabi-v7a,x86_64,x86 FUTO_ANDROID_FFI_PROFILE=release-ffi just build-android-native
+  apps/android/gradlew --project-dir apps/android :app:assembleDirectDebugAndroidTest
+  node scripts/android-native32.mjs "$@"
+
 # Editor performance stories against the REAL native Android app on an
 # explicitly claimed device — written for the low-end reference phone, where
 # the budgets are hardest (issue #106, docs/plan/milkdown-transition.md §5):

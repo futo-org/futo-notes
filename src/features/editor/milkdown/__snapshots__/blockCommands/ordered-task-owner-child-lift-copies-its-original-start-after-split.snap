@@ -1,0 +1,70 @@
+{
+  "after": {
+    "documentJson": "{"type":"doc","content":[{"type":"ordered_list","attrs":{"order":7,"spread":false},"content":[{"type":"list_item","attrs":{"label":"7.","listType":"ordered","spread":false,"checked":null},"content":[{"type":"paragraph","content":[{"type":"text","text":"parent"}]}]}]},{"type":"paragraph","content":[{"type":"text","text":"child"}]},{"type":"ordered_list","attrs":{"order":7,"spread":false},"content":[{"type":"list_item","attrs":{"label":"7.","listType":"ordered","spread":false,"checked":null},"content":[{"type":"paragraph","content":[{"type":"text","text":"following"}]}]}]}]}",
+    "selection": {
+      "anchor": {
+        "ancestry": [
+          "ordered_list",
+          "list_item",
+          "paragraph",
+        ],
+        "pm": 3,
+        "textblockUtf16": 0,
+      },
+      "head": {
+        "ancestry": [
+          "paragraph",
+        ],
+        "pm": 18,
+        "textblockUtf16": 5,
+      },
+    },
+    "source": "7. parent
+
+child
+
+7. following
+",
+    "storedMarks": null,
+    "textblockRows": "parent
+child
+following",
+  },
+  "before": {
+    "documentJson": "{"type":"doc","content":[{"type":"ordered_list","attrs":{"order":7,"spread":false},"content":[{"type":"list_item","attrs":{"label":"7.","listType":"ordered","spread":false,"checked":false},"content":[{"type":"paragraph","content":[{"type":"text","text":"parent"}]},{"type":"ordered_list","attrs":{"order":1,"spread":false},"content":[{"type":"list_item","attrs":{"label":"1.","listType":"ordered","spread":false,"checked":null},"content":[{"type":"paragraph","content":[{"type":"text","text":"child"}]}]}]}]},{"type":"list_item","attrs":{"label":"8.","listType":"ordered","spread":false,"checked":true},"content":[{"type":"paragraph","content":[{"type":"text","text":"following"}]}]}]}]}",
+    "selection": {
+      "anchor": {
+        "ancestry": [
+          "ordered_list",
+          "list_item",
+          "paragraph",
+        ],
+        "pm": 3,
+        "textblockUtf16": 0,
+      },
+      "head": {
+        "ancestry": [
+          "ordered_list",
+          "list_item",
+          "ordered_list",
+          "list_item",
+          "paragraph",
+        ],
+        "pm": 18,
+        "textblockUtf16": 5,
+      },
+    },
+    "source": "7. [ ] parent
+   1. child
+8. [x] following
+",
+    "storedMarks": null,
+    "textblockRows": "parent
+child
+following",
+  },
+  "command": "ordered-list",
+  "input": "7) [ ] parent
+   1. child
+8) [x] following",
+}

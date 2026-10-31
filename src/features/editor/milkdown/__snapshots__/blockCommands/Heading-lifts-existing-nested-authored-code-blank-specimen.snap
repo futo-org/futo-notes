@@ -1,0 +1,76 @@
+{
+  "after": {
+    "documentJson": "{"type":"doc","content":[{"type":"bullet_list","attrs":{"spread":false},"content":[{"type":"list_item","attrs":{"label":"•","listType":"bullet","spread":false,"checked":null},"content":[{"type":"paragraph","content":[{"type":"text","text":"before"}]}]}]},{"type":"heading","attrs":{"id":"","level":2},"content":[{"type":"text","text":"parent"}]},{"type":"code_block","attrs":{"language":""},"content":[{"type":"text","text":"  "}]}]}",
+    "selection": {
+      "anchor": {
+        "ancestry": [
+          "heading",
+        ],
+        "pm": 13,
+        "textblockUtf16": 0,
+      },
+      "head": {
+        "ancestry": [
+          "heading",
+        ],
+        "pm": 13,
+        "textblockUtf16": 0,
+      },
+    },
+    "source": "- before
+
+## parent
+
+```
+  
+```
+",
+    "storedMarks": null,
+    "textblockRows": "before
+parent
+  ",
+  },
+  "before": {
+    "documentJson": "{"type":"doc","content":[{"type":"bullet_list","attrs":{"spread":false},"content":[{"type":"list_item","attrs":{"label":"•","listType":"bullet","spread":false,"checked":null},"content":[{"type":"paragraph","content":[{"type":"text","text":"before"}]},{"type":"bullet_list","attrs":{"spread":false},"content":[{"type":"list_item","attrs":{"label":"•","listType":"bullet","spread":false,"checked":null},"content":[{"type":"paragraph","content":[{"type":"text","text":"parent"}]},{"type":"code_block","attrs":{"language":""},"content":[{"type":"text","text":"  "}]}]}]}]}]}]}",
+    "selection": {
+      "anchor": {
+        "ancestry": [
+          "bullet_list",
+          "list_item",
+          "bullet_list",
+          "list_item",
+          "paragraph",
+        ],
+        "pm": 13,
+        "textblockUtf16": 0,
+      },
+      "head": {
+        "ancestry": [
+          "bullet_list",
+          "list_item",
+          "bullet_list",
+          "list_item",
+          "paragraph",
+        ],
+        "pm": 13,
+        "textblockUtf16": 0,
+      },
+    },
+    "source": "- before
+  - parent
+    ```
+      
+    ```
+",
+    "storedMarks": null,
+    "textblockRows": "before
+parent
+  ",
+  },
+  "command": "heading-2",
+  "input": "- before
+  - parent
+    ```
+      
+    ```",
+}

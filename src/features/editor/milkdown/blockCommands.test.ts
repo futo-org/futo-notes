@@ -328,3 +328,53 @@ describe('inIndentableContainer', () => {
     );
   });
 });
+
+it('reference outdent retains an empty parent item when lifting a same-line nested list', () => {
+  const empty = s.nodes.paragraph.create();
+  const parent = s.nodes.list_item.create(null, [empty, ordered(item('text'))]);
+  const root = doc(bullets(parent));
+  const state = stateAtText(root, 'text');
+  let after = state;
+  expect(
+    changeBlockIndent(-1)(state, (tr) => {
+      after = state.apply(tr);
+    }),
+  ).toBe(true);
+  expect(shapes(after.doc)).toEqual([
+    { bullet_list: [{ list_item: ['paragraph:'] }, { list_item: ['paragraph:text'] }] },
+  ]);
+});
+
+it('reference sink creates a new ordered child list starting at one', () => {
+  const list = s.nodes.ordered_list.create({ order: 9 }, [item('parent'), item('child')]);
+  const root = doc(list);
+  const state = stateAtText(root, 'child');
+  let after = state;
+  expect(
+    changeBlockIndent(1)(state, (tr) => {
+      after = state.apply(tr);
+    }),
+  ).toBe(true);
+  const nested = after.doc.firstChild!.firstChild!.lastChild!;
+  expect(nested.type.name).toBe('ordered_list');
+  expect(nested.attrs.order).toBe(1);
+});
+
+it('reference retarget changes the outer list kind and retains its child list', () => {
+  const parent = s.nodes.list_item.create(null, [p('a'), bullets(item('b'))]);
+  const root = doc(bullets(parent));
+  const state = stateAtText(root, 'a');
+  let after = state;
+  expect(
+    blockCommand('ordered')(state, (tr) => {
+      after = state.apply(tr);
+    }),
+  ).toBe(true);
+  expect(shapes(after.doc)).toEqual([
+    {
+      ordered_list: [
+        { list_item: ['paragraph:a', { bullet_list: [{ list_item: ['paragraph:b'] }] }] },
+      ],
+    },
+  ]);
+});
