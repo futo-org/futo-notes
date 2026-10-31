@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { Buffer } from 'node:buffer';
 
-export async function dividerPendingConsumer({ start, stop, getSession, root }) {
+export async function dividerPendingConsumer({ start, stop, getSession, root, referenceRoot }) {
   let exchange = await start('pre ', root);
   let page = getSession();
   let shown = 'pre ';
@@ -61,6 +61,38 @@ export async function dividerPendingConsumer({ start, stop, getSession, root }) 
   await apply(page.toggle_format(revision, '"Code"'));
   await apply(page.replace_utf16_action(revision, 29, 29, [32], '"Isolated"'));
   assert.deepEqual(JSON.parse(page.project(revision, 0, 32)).links, []);
+  assert.deepEqual(await exchange(JSON.stringify({ checkpoint: true })), { id: 'plain' });
+  await stop();
+
+  const original = "prefix [id]: /target 'T'\n\n[one][id]";
+  const repaired = "prefix \n***\n\n\\[id]: /target 'T'\n\n[one][id]";
+  exchange = await start(original, referenceRoot);
+  page = getSession();
+  shown = original;
+  revision = 0n;
+  page.select_with_affinity(0n, 2, 2, '"Forward"');
+  const repairRequest = page.block_command_utf16(0n, 7, 7, '"Divider"');
+  assert.equal(page.draft_text(), repaired);
+  assert.equal(JSON.parse(page.status()).accepted, 0);
+  assert.equal(shown, original);
+  assert.throws(() => page.project(1n, 0, 40));
+  const repairChange = await apply(repairRequest);
+  assert.deepEqual(repairChange.selection, { start: 12, end: 12 });
+  assert.equal(shown, "prefix \n\ufffc\n\n[id]: /target 'T'\n\n[one][id]");
+  assert.deepEqual(JSON.parse(page.project(revision, 0, Buffer.byteLength(shown))).links, []);
+  await apply(page.undo(revision));
+  assert.equal(page.draft_text(), original);
+  assert.equal(shown, original);
+  await apply(page.redo(revision));
+  assert.equal(page.draft_text(), repaired);
+  page.acknowledge(JSON.stringify(await exchange(page.flush())));
+  await stop();
+  exchange = await start('--reopen', referenceRoot);
+  page = getSession();
+  assert.equal(page.draft_text(), repaired);
+  const reopened = JSON.parse(page.project(revision, 0, Buffer.byteLength(shown)));
+  assert.equal(reopened.text, shown);
+  assert.deepEqual(reopened.links, []);
   assert.deepEqual(await exchange(JSON.stringify({ checkpoint: true })), { id: 'plain' });
   await stop();
 }

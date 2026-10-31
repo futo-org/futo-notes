@@ -35,5 +35,6 @@ export async function liveSourceConsumers({ start, stop, getSession, createRoot 
     stop,
     getSession,
     root: createRoot('futo-editor-wasm-divider-pending-'),
+    referenceRoot: createRoot('futo-editor-wasm-divider-reference-'),
   });
 }
