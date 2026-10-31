@@ -35,3 +35,6 @@ mod semantic_context;
 
 #[path = "lists/ordered_tasks.rs"]
 mod ordered_tasks;
+
+#[path = "lists/same_line_quotes.rs"]
+mod same_line_quotes;
