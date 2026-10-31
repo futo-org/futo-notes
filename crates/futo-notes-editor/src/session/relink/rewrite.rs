@@ -202,9 +202,9 @@ impl Step {
                 // source lineage, but its known target role owns plain-caret
                 // edge policy. Nonidentity atoms never enter this branch.
                 work += 4;
-                if offset <= range.before.start + 2 {
+                if offset < range.before.start + 2 {
                     Some(range.after.start + offset - range.before.start)
-                } else if offset >= range.before.end - 2 {
+                } else if offset > range.before.end - 2 {
                     Some(range.after.end - (range.before.end - offset))
                 } else {
                     let (at, visits) = part.caret.map(offset - range.before.start - 2, affinity);
