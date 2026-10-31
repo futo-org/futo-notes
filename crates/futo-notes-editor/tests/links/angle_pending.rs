@@ -349,3 +349,88 @@ fn selected_partial_bold_retains_angle_pending_when_canonical_link_envelope_chan
         "https://x.test"
     );
 }
+
+#[test]
+fn explicit_set_link_supersedes_pending_timing_while_unlink_noop_preserves_it() {
+    let mut session = EditorSession::open("");
+    let mut view = ReferenceView::new("");
+    view.apply(
+        session
+            .replace(Revision(0), range(0, 0), "<https://x.test", &mut |_| Ok(()))
+            .unwrap(),
+    );
+    view.apply(
+        session
+            .replace(Revision(1), range(15, 15), ">", &mut |_| Ok(()))
+            .unwrap(),
+    );
+    let pending = session.source_text();
+    assert!(session
+        .set_link(Revision(2), range(1, 15), "", &mut |_| panic!(
+            "unlink without an active link must not accept"
+        ))
+        .unwrap()
+        .is_none());
+    assert_eq!(session.source_text(), pending);
+    assert_eq!(session.revision(), Revision(2));
+    assert!(session
+        .inspect_link(Revision(2), range(1, 2))
+        .unwrap()
+        .is_none());
+    session.select(Revision(2), range(1, 15)).unwrap();
+    view.apply(
+        session
+            .set_link(Revision(2), range(1, 15), "https://new.test", &mut |_| {
+                Ok(())
+            })
+            .unwrap()
+            .unwrap(),
+    );
+    assert_eq!(view.text, "<https://x.test>");
+    let link = session
+        .inspect_link(session.revision(), range(1, 2))
+        .unwrap();
+    assert_eq!(
+        link.as_ref().map(|link| link.destination.as_str()),
+        Some("https://new.test"),
+        "explicit command must activate its selected link; source={:?}",
+        session.source_text()
+    );
+    let changed = session.source_text();
+    let loaded = EditorSession::open(&changed);
+    assert_eq!(loaded.display_text(), view.text);
+    assert_eq!(loaded.inspect_link(Revision(0), range(1, 2)).unwrap(), link);
+    assert!(session
+        .set_link(
+            session.revision(),
+            range(1, 15),
+            "https://new.test",
+            &mut |_| panic!("same active destination must not accept")
+        )
+        .unwrap()
+        .is_none());
+    view.apply(
+        session
+            .undo(session.revision(), &mut |_| Ok(()))
+            .unwrap()
+            .unwrap(),
+    );
+    assert_eq!(session.source_text(), pending);
+    assert!(session
+        .inspect_link(session.revision(), range(1, 2))
+        .unwrap()
+        .is_none());
+    view.apply(
+        session
+            .redo(session.revision(), &mut |_| Ok(()))
+            .unwrap()
+            .unwrap(),
+    );
+    assert_eq!(session.source_text(), changed);
+    assert_eq!(
+        session
+            .inspect_link(session.revision(), range(1, 2))
+            .unwrap(),
+        link
+    );
+}
