@@ -28,9 +28,8 @@ impl EditorSession {
         let mut by_quote: Vec<_> = items
             .iter()
             .enumerate()
-            .map(|item| {
+            .inspect(|_| {
                 crate::inline::visit_container();
-                item
             })
             .collect();
         by_quote.sort_by(|(left_at, left), (right_at, right)| {
