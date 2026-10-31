@@ -3,6 +3,74 @@ use super::*;
 use futo_notes_editor::{InlineFormat, InputAction};
 
 #[test]
+fn complete_code_deletion_keeps_a_canonical_trimmed_uri_literal() {
+    let inner = "https://x.test/a)b";
+    let original = format!("<{inner}>");
+    let bare = EditorSession::open(inner);
+    let meaning = bare
+        .inspect_link(Revision(0), range(0, 1))
+        .unwrap()
+        .unwrap();
+    assert_eq!(meaning.range, range(0, inner.len()));
+    assert_eq!(meaning.destination, inner);
+    let remaining = "https://x.test/a)";
+    let trimmed = EditorSession::open(remaining)
+        .inspect_link(Revision(0), range(0, 1))
+        .unwrap()
+        .unwrap();
+    assert_eq!(trimmed.range, range(0, remaining.len() - 1));
+    assert_eq!(trimmed.destination, "https://x.test/a");
+    let literal = EditorSession::open("\\<https\\://x.test/a\\)>");
+    assert_eq!(literal.display_text(), "<https://x.test/a)>");
+    assert!(literal
+        .project(Revision(0), range(0, literal.display_text().len()))
+        .unwrap()
+        .links
+        .is_empty());
+
+    let mut session = EditorSession::open("");
+    session
+        .replace(Revision(0), range(0, 0), &format!("<{inner}"), &mut |_| {
+            Ok(())
+        })
+        .unwrap();
+    let at = session.display_text().len();
+    session
+        .replace(session.revision(), range(at, at), ">", &mut |_| Ok(()))
+        .unwrap();
+    assert_eq!(session.display_text(), original);
+    let selected = range(original.len() - 2, original.len() - 1);
+    session.select(session.revision(), selected).unwrap();
+    session
+        .toggle_format(session.revision(), InlineFormat::Code, &mut |_| Ok(()))
+        .expect("actual public Code producer premise")
+        .unwrap();
+    let guarded = session.source_text();
+    let canonical = EditorSession::open(&guarded);
+    let projection = canonical
+        .project(Revision(0), range(0, original.len()))
+        .unwrap();
+    assert_eq!(canonical.display_text(), original);
+    assert!(projection.links.is_empty());
+    assert!(projection
+        .runs
+        .iter()
+        .any(|run| run.range == selected && run.formats.contains(&InlineFormat::Code)));
+    let mut accepts = 0;
+    session.replace_action(session.revision(), selected, "", InputAction::Isolated, &mut |_| { accepts += 1; Ok(()) }).unwrap_or_else(|error| panic!("complete actual Code deletion; accepts={accepts}; guarded={guarded:?}; error={error:?}"));
+    assert_eq!(accepts, 1);
+    assert_eq!(session.display_text(), literal.display_text());
+    let query = session
+        .project(session.revision(), range(0, session.display_text().len()))
+        .unwrap();
+    assert!(query.links.is_empty());
+    assert!(query
+        .runs
+        .iter()
+        .all(|run| !run.formats.contains(&InlineFormat::Code)));
+}
+
+#[test]
 fn deleting_the_last_code_content_releases_only_the_live_word_end_guard() {
     let mut session = EditorSession::open("");
     let mut view = ReferenceView::new("");

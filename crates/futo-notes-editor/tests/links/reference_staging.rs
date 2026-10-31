@@ -1,6 +1,89 @@
 use super::*;
 
 #[test]
+fn selected_heading_enter_uses_the_final_root_caret_after_a_definition_reappears() {
+    use futo_notes_editor::{InputAction, ParagraphKey};
+    let source = "[id]: /target\n\npreamble\n\nbuffer\n\n# [one][id]\n\ntail";
+    let before = "preamble\n\nbuffer\n\none\n\ntail";
+    let selected = range(18, 21);
+    // Ordinary root actions provide the generation-aware control: deletion
+    // reveals the actual distant declaration before the subsequent Enter.
+    let mut control = EditorSession::open(source);
+    assert_eq!(control.display_text(), before);
+    control.select(Revision(0), selected).unwrap();
+    control
+        .replace_action(
+            Revision(0),
+            selected,
+            "",
+            InputAction::Isolated,
+            &mut |_| Ok(()),
+        )
+        .unwrap();
+    assert!(control
+        .display_text()
+        .starts_with("[id]: /target\n\npreamble"));
+    control
+        .paragraph_key(
+            control.revision(),
+            control.selection(),
+            ParagraphKey::Enter,
+            &mut |_| Ok(()),
+        )
+        .unwrap()
+        .unwrap();
+    let expected = control.source_text();
+    let canonical = EditorSession::open(&expected);
+    assert_eq!(canonical.display_text(), control.display_text());
+
+    let mut session = EditorSession::open(source);
+    session.select(Revision(0), selected).unwrap();
+    let mut accepts = 0;
+    let change = session
+        .paragraph_key(Revision(0), selected, ParagraphKey::Enter, &mut |_| {
+            accepts += 1;
+            Ok(())
+        })
+        .unwrap()
+        .unwrap();
+    assert_eq!(accepts, 1);
+    assert_eq!(session.source_text(), expected);
+    assert_eq!(session.display_text(), canonical.display_text());
+    assert_eq!(change.selection, control.selection(), "source={expected:?}");
+    assert_eq!(session.selection(), control.selection());
+    let caret = session.selection();
+    session
+        .replace(session.revision(), caret, "!", &mut |_| Ok(()))
+        .unwrap();
+    control
+        .replace(
+            control.revision(),
+            control.selection(),
+            "!",
+            &mut |_| Ok(()),
+        )
+        .unwrap();
+    assert_eq!(session.source_text(), control.source_text());
+    session
+        .undo(session.revision(), &mut |_| Ok(()))
+        .unwrap()
+        .unwrap();
+    assert_eq!(session.source_text(), expected);
+    session
+        .undo(session.revision(), &mut |_| Ok(()))
+        .unwrap()
+        .unwrap();
+    assert_eq!(session.source_text(), source);
+    assert_eq!(session.selection(), selected);
+    session
+        .redo(session.revision(), &mut |_| Ok(()))
+        .unwrap()
+        .unwrap();
+    assert_eq!(session.source_text(), expected);
+    assert_eq!(session.selection(), caret);
+}
+
+#[test]
 fn a_partial_compound_draft_escalates_before_mapping_targets_past_a_remote_definition() {
     use futo_notes_editor::DisplayReplacement;
     let original = "[id]: /target 'T'\n\npreamble\n\nbuffer\n\n[one][id]\n\nbody\n\ntail";
