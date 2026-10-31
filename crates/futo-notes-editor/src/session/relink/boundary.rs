@@ -170,7 +170,9 @@ impl Boundary {
                                 links: &prepared.witnesses,
                                 emit: &mut |range| projected.push(range),
                             },
-                        )?;
+                        ).map_err(|error| {
+                            eprintln!("301-uri-retire FIRST final exact-candidate validation failed side={index}"); error
+                        })?;
                         charge(&mut work, checked.work);
                     }
                     Ok(())

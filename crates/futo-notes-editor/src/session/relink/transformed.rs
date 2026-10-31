@@ -168,6 +168,7 @@ impl rewrite::Fields {
                 }
             }
         }
+        eprintln!("301-uri-retire original whole-Code proofs={whole_code_guards:?}");
         self.whole_code_guards = whole_code_guards;
         self.codes = codes;
         Ok(work)
@@ -223,14 +224,33 @@ impl rewrite::Fields {
                     if !same_text(&displayed, expected, &mut work) {
                         return Err(EditorError::UnrepresentableFormat);
                     }
-                    identities.retire(original, request.program, expected, &mut work)?;
+                    identities
+                        .retire(original, request.program, expected, &mut work)
+                        .map_err(|error| {
+                            eprintln!(
+                                "301-uri-retire FIRST attempt outcome mismatch program={:?}",
+                                request.program
+                            );
+                            error
+                        })?;
+                    eprintln!("301-uri-retire prepared Guard envelope={:?}", word.envelope);
                     retired_guards.push(index);
                     retired_requests.push(request_index);
                     retired_envelopes.push(word.envelope.clone());
                     work.link_metadata_items += 5;
                     continue;
                 }
-                _ => return Err(EditorError::UnrepresentableFormat),
+                _ => {
+                    eprintln!(
+                        "301-uri-retire FIRST candidate class rejected role={} wholeCode={:?}",
+                        match request.role {
+                            Role::Guard(_) => "Guard",
+                            Role::Typed(_) => "Typed",
+                        },
+                        self.whole_code_guards
+                    );
+                    return Err(EditorError::UnrepresentableFormat);
+                }
             };
             prepared.push((request.role, identity));
             work.link_metadata_items += 2;
@@ -265,7 +285,9 @@ impl rewrite::Fields {
                 ranges.push(a..z);
                 work.link_metadata_items += 2;
             }
-            let (actual, visits) = staged.projection.pending_link_witnesses(&ranges)?;
+            let (actual, visits) = staged.projection.pending_link_witnesses(&ranges).map_err(|error| {
+                eprintln!("301-uri-retire FIRST historical pending-Link witness rejected ranges={ranges:?}"); error
+            })?;
             work.link_metadata_items += visits;
             if actual.len() != self.witnesses.len() {
                 return Err(EditorError::UnrepresentableFormat);
