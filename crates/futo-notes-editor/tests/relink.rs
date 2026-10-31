@@ -177,3 +177,6 @@ mod typed;
 
 #[path = "relink/typed_class.rs"]
 mod typed_class;
+
+#[path = "relink/typed_atoms.rs"]
+mod typed_atoms;
