@@ -65,3 +65,6 @@ mod typed_origin_edits;
 
 #[path = "links/typed_origin_actions.rs"]
 mod typed_origin_actions;
+
+#[path = "links/typed_origin_mutations.rs"]
+mod typed_origin_mutations;
