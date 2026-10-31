@@ -73,6 +73,12 @@ fn item_visitor_preserves_empty_and_inclusive_physical_boundary_predicates() {
     for source in sources() {
         let events = super::super::row::source_events(&source);
         let (mut template, _) = describe(&source, &events);
+        assert!(template
+            .iter()
+            .all(|line| line.source.start <= line.source.end));
+        assert!(template
+            .windows(2)
+            .all(|pair| pair[0].source.end <= pair[1].source.start));
         for line in &mut template {
             line.in_list = false;
         }
@@ -87,16 +93,23 @@ fn item_visitor_preserves_empty_and_inclusive_physical_boundary_predicates() {
                 ranges.push(line.source.start + 1..line.source.start + 1);
             }
         }
-        for range in ranges {
-            let mut old = template.clone();
-            let mut new = template.clone();
-            old_item_lines(&mut old, &range);
-            mark_item_lines(&mut new, &range);
-            assert_eq!(
-                format!("{new:?}"),
-                format!("{old:?}"),
-                "range={range:?} source={source:?}"
-            );
+        for origin in [0, 61] {
+            let mut shifted = template.clone();
+            for line in &mut shifted {
+                line.shift(origin);
+            }
+            for range in &ranges {
+                let range = range.start + origin..range.end + origin;
+                let mut old = shifted.clone();
+                let mut new = shifted.clone();
+                old_item_lines(&mut old, &range);
+                mark_item_lines(&mut new, &range);
+                assert_eq!(
+                    format!("{new:?}"),
+                    format!("{old:?}"),
+                    "origin={origin} range={range:?} source={source:?}"
+                );
+            }
         }
     }
 }

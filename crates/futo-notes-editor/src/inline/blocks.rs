@@ -403,15 +403,21 @@ fn container_indent(source: &[u8], start: usize, end: usize, column: usize) -> (
 }
 
 fn mark_item_lines(lines: &mut [BlockLine], range: &Range<usize>) {
-    for line in lines.iter_mut().filter(|line| {
+    // Physical rows are ordered and nonoverlapping. Keep the old strict
+    // overlap predicate, including an empty query inside a nonempty row.
+    let first = lines.partition_point(|line| {
         super::visit_container();
-        line.source.start < range.end && {
+        line.source.end <= range.start
+    });
+    let last = lines.partition_point(|line| {
+        super::visit_container();
+        line.source.start < range.end
+    });
+    if first < last {
+        for line in &mut lines[first..last] {
             super::visit_container();
-            range.start < line.source.end
+            line.in_list = true;
         }
-    }) {
-        super::visit_container();
-        line.in_list = true;
     }
 }
 
