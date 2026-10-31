@@ -402,3 +402,39 @@ fn multiline_quote_heading_split_reconciles_a_definition_after_a_retained_physic
     assert_eq!(session.selection(), range(12, 12));
     assert_eq!(view.text, shown);
 }
+
+#[test]
+fn multiline_physical_prefix_composition_retains_interior_entity_history_and_affinity() {
+    use futo_notes_editor::{Affinity, ParagraphKey};
+    let original = "> head\n> pre&acE;fix\n> [id]: /target 'T'\n> ===\n\n[one][id]";
+    let entered = "> head\n> pre&acE;fix\n> ===\n> \n> \\[id]: /target 'T'\n\n[one][id]";
+    let opening = "head\npre\u{223e}\u{333}fix\n[id]: /target 'T'\n\n[one][id]";
+    let shown = "head\npre\u{223e}\u{333}fix\n\n[id]: /target 'T'\n\n[one][id]";
+    for affinity in [Affinity::Forward, Affinity::Backward] {
+        let mut session = EditorSession::open(original);
+        let mut view = ReferenceView::new(opening);
+        assert_eq!(session.display_text(), opening);
+        session
+            .select_with_affinity(Revision(0), range(11, 11), affinity)
+            .unwrap();
+        view.apply(
+            session
+                .paragraph_key(Revision(0), range(16, 16), ParagraphKey::Enter, &mut |_| {
+                    Ok(())
+                })
+                .unwrap()
+                .unwrap(),
+        );
+        assert_eq!(session.source_text(), entered);
+        assert_eq!(view.text, shown);
+        assert_eq!(session.selection(), range(17, 17));
+        view.apply(session.undo(Revision(1), &mut |_| Ok(())).unwrap().unwrap());
+        assert_eq!(session.source_text(), original);
+        assert_eq!(session.selection(), range(11, 11));
+        assert_eq!(session.affinity(), affinity);
+        view.apply(session.redo(Revision(2), &mut |_| Ok(())).unwrap().unwrap());
+        assert_eq!(session.source_text(), entered);
+        assert_eq!(session.selection(), range(17, 17));
+        assert_eq!(view.text, shown);
+    }
+}
