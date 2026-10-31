@@ -237,13 +237,28 @@ impl InputMapping {
         Ok(self)
     }
 
-    pub(super) fn requires_source_at_display(&self, display: usize, origin: usize) -> bool {
-        self.requires_source_identity
-            || self.protected.as_ref().is_some_and(|path| {
-                display.checked_sub(origin).is_some_and(|display| {
-                    path.display_window.start <= display && display <= path.display_window.end
-                })
-            })
+    pub(super) fn requires_source_at_display(
+        &self,
+        display: usize,
+        origin: usize,
+    ) -> (bool, usize) {
+        let mut work = 1;
+        if self.requires_source_identity {
+            return (true, work);
+        }
+        work += 1;
+        let Some(path) = &self.protected else {
+            return (false, work);
+        };
+        work += 1;
+        let Some(display) = display.checked_sub(origin) else {
+            return (false, work);
+        };
+        work += 1;
+        if display < path.display_window.start {
+            return (false, work);
+        }
+        (display <= path.display_window.end, work + 1)
     }
 
     pub(in crate::session) fn with_source_boundary(mut self, change: &ViewChange) -> Self {

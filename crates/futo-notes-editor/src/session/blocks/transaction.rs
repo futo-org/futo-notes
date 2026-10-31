@@ -98,8 +98,13 @@ impl EditorSession {
         footprint.end.0 += window.start;
         let mut selection_work = 0;
         let mapped = mapping.is_some();
+        let prepared = if mapped {
+            Some(self.prepare_source(expected, footprint, &inserted)?)
+        } else {
+            None
+        };
         let mapping = if let Some(mut mapping) = mapping {
-            let edit = self.prepare_source(expected, footprint, &inserted)?;
+            let edit = prepared.as_ref().unwrap();
             mapping.relocate_display(display_start);
             Some(mapping.protect(&edit, steps, count, window.clone(), display_window)?)
         } else {
@@ -123,15 +128,19 @@ impl EditorSession {
                 end: DisplayOffset(display_start + staged.selection.end.0),
             })
         };
-        let mut change = self.commit_block_with_pending(
-            expected,
-            footprint.start.0..footprint.end.0,
-            &inserted,
-            selection,
-            input,
-            pending,
-            accept,
-        )?;
+        let mut change = if let Some(edit) = prepared {
+            self.commit_prepared_block_with_pending(edit, selection, input, pending, accept)?
+        } else {
+            self.commit_block_with_pending(
+                expected,
+                footprint.start.0..footprint.end.0,
+                &inserted,
+                selection,
+                input,
+                pending,
+                accept,
+            )?
+        };
         if !mapped {
             let pending = staged.prepare_pending_for_parent(window.start);
             self.adopt_stage_pending(&pending, &mut change, staging::PendingHistory::Recorded);

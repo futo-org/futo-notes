@@ -91,6 +91,17 @@ impl EditorSession {
             },
             inserted,
         )?;
+        self.commit_prepared_block_with_pending(edit, selection, input, pending, accept)
+    }
+
+    fn commit_prepared_block_with_pending(
+        &mut self,
+        edit: SourceEdit,
+        selection: BlockSelection,
+        input: Option<HistoryInput<'_>>,
+        pending: Option<crate::inline::PendingLinks>,
+        accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
+    ) -> Result<ViewChange, EditorError> {
         let before_links = self.projection.pending_for_source_edit(edit.range);
         let (validation, validated_selection) = if let BlockSelection::Exact { selection, window } =
             &selection
@@ -158,7 +169,7 @@ impl EditorSession {
         };
         self.pending_formats = None;
         change.selection = self.selection;
-        change.work.materialized_source_bytes += inserted.len();
+        change.work.materialized_source_bytes += edit.inserted.len();
         let (after_source, after_source_work) = self.capture_history_selection();
         change.work.link_metadata_items += before_source_work + after_source_work;
         let after_links = self
