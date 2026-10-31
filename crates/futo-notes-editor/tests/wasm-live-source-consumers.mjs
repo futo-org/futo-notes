@@ -1,6 +1,7 @@
 // Live source families share the existing worker and registered vault owner.
 import { dividerPendingConsumer } from './wasm-divider-pending-consumer.mjs';
 import { anglePendingConsumer } from './wasm-angle-consumer.mjs';
+import { typedOriginConsumer } from './wasm-typed-origin-consumer.mjs';
 import { sourceGenerationsConsumer } from './wasm-source-generations-consumer.mjs';
 
 export async function liveSourceConsumers({ start, stop, getSession, createRoot }) {
@@ -30,6 +31,7 @@ export async function liveSourceConsumers({ start, stop, getSession, createRoot 
       prefixRoot: prefixVault,
     });
   }
+  await typedOriginConsumer({ start, stop, getSession, createRoot });
   await dividerPendingConsumer({
     start,
     stop,
