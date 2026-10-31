@@ -42,3 +42,7 @@ mod work_tests;
 mod apply;
 mod body;
 pub(super) use body::protect_list_body;
+
+#[cfg(test)]
+#[path = "task_forest_work.rs"]
+mod task_forest_work_tests;
