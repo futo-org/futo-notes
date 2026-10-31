@@ -143,11 +143,12 @@ impl Projection {
                     }
                     #[cfg(test)]
                     let before = super::super::CONTAINER_CORRESPONDENCE_SCANS.with(|n| n.get());
-                    let hidden = row.display_at(definition.range.start)
-                        == row.display_at(definition.range.end);
+                    let (start, a) = row.display_at_with_work(definition.range.start);
+                    let (end, z) = row.display_at_with_work(definition.range.end);
+                    link_metadata_items += a + z;
                     #[cfg(test)]
-                    super::super::coordinate_work_tests::hidden_definition_query(before, 0);
-                    hidden
+                    super::super::coordinate_work_tests::hidden_definition_query(before, a + z);
+                    start == end
                 })
                 .map(|definition| {
                     (

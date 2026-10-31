@@ -83,6 +83,12 @@ fn public_reference_label_edit_charges_hidden_definition_segment_queries() {
         "work={:?}; primitive={queries:?}",
         change.work
     );
+    assert_eq!(queries, vec![("hidden-definition", 14, 14)]);
+    assert_eq!(change.work.link_metadata_items, 393 + 14);
+    assert_eq!(change.work.materialized_source_bytes, 98);
+    assert_eq!(change.work.parsed_source_bytes, 224);
+    assert_eq!(change.work.inserted_bytes, 2);
+    assert_eq!(change.work.link_copied_bytes, 44);
 }
 
 pub(super) fn reset() {
