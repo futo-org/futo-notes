@@ -100,6 +100,8 @@ impl Projection {
         work += self.restore_guard_words(snapshot);
         work += self.restore_typed_origins(snapshot);
         work += self.install_delimiters(snapshot.delimiters.iter().cloned());
+        #[cfg(test)]
+        let restored = super::super::coordinate_work_tests::visits();
         for range in &snapshot.ranges {
             let (row, source, nodes) = self.rows.source_metadata_mut_with_work(range.start);
             let local = range.start - source..range.end - source;
@@ -112,6 +114,8 @@ impl Projection {
                 row.literal_links.push(local);
             }
         }
+        #[cfg(test)]
+        super::super::coordinate_work_tests::query("pending-restore-link", restored, work);
         work
     }
 }
