@@ -64,6 +64,37 @@ pub(super) fn added_nodes() -> usize {
 }
 
 #[test]
+fn public_link_command_reports_its_final_selection_queries() {
+    use crate::{DisplayOffset, DisplayRange, EditorSession, Revision};
+    let mut session = EditorSession::open("__label__ rest");
+    reset();
+    let change = session
+        .set_link(
+            Revision(0),
+            DisplayRange {
+                start: DisplayOffset(0),
+                end: DisplayOffset(5),
+            },
+            "/next",
+            &mut |_| Ok(()),
+        )
+        .unwrap()
+        .unwrap();
+    assert_eq!(session.source_text(), "[__label__](</next>) rest");
+    assert_eq!(session.display_text(), "label rest");
+    let queries = snapshot();
+    let discarded: Vec<_> = queries
+        .iter()
+        .filter(|(name, _, _)| name.ends_with("source_points.rs"))
+        .collect();
+    assert!(
+        discarded.is_empty(),
+        "unowned final coordinate queries={discarded:?}; work={:?}; all={queries:?}",
+        change.work
+    );
+}
+
+#[test]
 fn public_reference_commands_charge_actual_indexed_coordinate_queries() {
     use crate::{BlockCommand, DisplayOffset, DisplayRange, EditorSession, Revision};
     for paragraphs in [20, 200, 2000] {
