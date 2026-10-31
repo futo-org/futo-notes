@@ -254,6 +254,21 @@ const cases = [
     anchor: 'parent',
     head: 'following',
   },
+  {
+    name: 'mixed ancestor selection retargets through a retained quote',
+    source: '- parent\n  > 1. child😀\n  >    - grandchild\n  > 2. sibling\n- following',
+    command: 'bullet-list',
+    anchor: 'parent',
+    head: 'child😀',
+    headOffset: 7,
+  },
+  {
+    name: 'mixed quoted ancestor endpoint retains the paragraph barrier',
+    source: '> - parent\n>   1. child\n>   2. sibling\n> - following',
+    command: 'bullet-list',
+    anchor: 'parent',
+    head: 'following',
+  },
 ] as const;
 
 describe('pinned shipping toolbar container transactions (#299)', () => {
