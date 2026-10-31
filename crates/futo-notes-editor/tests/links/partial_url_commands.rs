@@ -396,6 +396,27 @@ fn transformed_and_restored_source_atom_does_not_recover_old_live_colon_identity
 #[test]
 fn a_live_code_colon_keeps_its_origin_through_a_multiline_quoted_heading_split() {
     use futo_notes_editor::ParagraphKey;
+    let canonical_angle = EditorSession::open("> head\n> <<https://x.test/path>>\n> ===");
+    assert_eq!(
+        canonical_angle.display_text(),
+        "head\n<https://x.test/path>"
+    );
+    assert_eq!(
+        canonical_angle
+            .inspect_link(Revision(0), range(6, 7))
+            .unwrap()
+            .unwrap()
+            .destination,
+        "https://x.test/path"
+    );
+    let canonical_code = EditorSession::open("> head\n> <https\\://x.test`/path`>\n> ===");
+    assert_eq!(canonical_code.display_text(), "head\n<https://x.test/path>");
+    let canonical_code_query = canonical_code.project(Revision(0), range(0, 26)).unwrap();
+    assert!(canonical_code_query.links.is_empty());
+    assert!(canonical_code_query
+        .runs
+        .iter()
+        .any(|run| run.range == range(20, 25) && run.formats.contains(&InlineFormat::Code)));
     let mut session = EditorSession::open("> head\n> seed\n> ===");
     let mut view = ReferenceView::new("head\nseed");
     view.apply(
@@ -412,6 +433,18 @@ fn a_live_code_colon_keeps_its_origin_through_a_multiline_quoted_heading_split()
         session
             .replace(Revision(1), range(25, 25), ">", &mut |_| Ok(()))
             .unwrap(),
+    );
+    let completed_source = session.source_text();
+    let completed_loaded = EditorSession::open(&completed_source);
+    assert_eq!(completed_loaded.display_text(), view.text);
+    assert_eq!(
+        completed_loaded
+            .inspect_link(Revision(0), range(6, 7))
+            .unwrap()
+            .unwrap()
+            .destination,
+        "https://x.test/path",
+        "post-closer actual parent source={completed_source:?}"
     );
     session.select(Revision(2), range(20, 25)).unwrap();
     view.apply(
