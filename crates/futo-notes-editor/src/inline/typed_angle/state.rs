@@ -24,8 +24,8 @@ impl TypedState {
     pub fn has_update(&self) -> bool {
         self.retained.is_some() || !self.emitted.is_empty()
     }
-    /// A selected isolated correction retires its supplied owner. Other touched
-    /// input paths still require their own continuation or retirement proof.
+    /// A committed correction or nonending end insertion retires its supplied
+    /// owner. Other touched input still needs its own lifecycle proof.
     pub fn prepare_other_input(
         &mut self,
         projection: &Projection,
@@ -50,10 +50,20 @@ impl TypedState {
                 let touched = range.start.0 < z && a < range.end.0
                     || range.start == range.end && a < range.start.0 && range.start.0 <= z;
                 if touched {
-                    if matches!(intent, EditIntent::Input(crate::InputAction::Isolated))
-                        && range.start != range.end
-                        && !inserted.is_empty()
-                    {
+                    let committed = matches!(
+                        intent,
+                        EditIntent::Input(
+                            crate::InputAction::Isolated | crate::InputAction::CompositionCommit
+                        )
+                    );
+                    let selected = range.start != range.end;
+                    let end_insertion = !selected
+                        && range.start.0 == z
+                        && inserted.chars().all(|ch| {
+                            work += 1;
+                            !ch.is_whitespace() && !matches!(ch, '<' | '>')
+                        });
+                    if committed && !inserted.is_empty() && (selected || end_insertion) {
                         let (start, visits) =
                             projection.display_at_with_work(source_start + origin.word.start);
                         work += visits + 2;
