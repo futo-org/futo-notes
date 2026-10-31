@@ -242,3 +242,87 @@ fn a_partial_www_word_end_links_its_canonical_prefix_and_keeps_the_period_litera
     view.apply(editor.redo(Revision(3), &mut |_| Ok(())).unwrap().unwrap());
     assert_eq!(view.text, "<www.x.test/[[Old]]/path. ");
 }
+
+#[test]
+fn a_typed_closer_preserves_partial_uri_punctuation_and_waits_for_word_end() {
+    let candidate = "<[www.x.test/[[Old]]/path](<http://www.x.test/[[Old]]/path>).>";
+    let fresh = EditorSession::open(candidate);
+    assert_eq!(fresh.display_text(), "<www.x.test/[[Old]]/path.>");
+    let loaded_link = fresh
+        .inspect_link(Revision(0), range(1, 2))
+        .unwrap()
+        .unwrap();
+    assert_eq!(loaded_link.range, range(1, 24));
+    assert_eq!(loaded_link.destination, "http://www.x.test/[[Old]]/path");
+    let mut editor = EditorSession::open("");
+    let mut view = ReferenceView::new("");
+    view.apply(
+        editor
+            .replace(
+                Revision(0),
+                range(0, 0),
+                "<www.x.test/[[Old]]/path.",
+                &mut |_| Ok(()),
+            )
+            .unwrap(),
+    );
+    view.apply(editor.replace(Revision(1), range(25,25), ">", &mut |_| Ok(())).expect("a real typed closer must hand off only the canonical URI prefix and preserve the period"));
+    assert_eq!(view.text, "<www.x.test/[[Old]]/path.>");
+    let pending = editor.source_text();
+    assert!(editor
+        .project(Revision(2), range(0, 26))
+        .unwrap()
+        .links
+        .is_empty());
+    let before_reopen = EditorSession::open(&pending);
+    assert_eq!(before_reopen.display_text(), view.text);
+    assert_eq!(
+        before_reopen
+            .inspect_link(Revision(0), range(1, 2))
+            .unwrap()
+            .unwrap()
+            .destination,
+        loaded_link.destination
+    );
+    editor.select(Revision(2), range(0, 0)).unwrap();
+    editor.select(Revision(2), range(26, 26)).unwrap();
+    view.apply(
+        editor
+            .replace(Revision(2), range(26, 26), " ", &mut |_| Ok(()))
+            .unwrap(),
+    );
+    assert_eq!(view.text, "<www.x.test/[[Old]]/path.> ");
+    let linked = editor
+        .inspect_link(Revision(3), range(1, 2))
+        .unwrap()
+        .unwrap();
+    assert_eq!(linked.range, loaded_link.range);
+    assert_eq!(linked.destination, loaded_link.destination);
+    view.apply(editor.undo(Revision(3), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(editor.source_text(), pending);
+    assert!(editor
+        .project(Revision(4), range(0, 26))
+        .unwrap()
+        .links
+        .is_empty());
+    view.apply(editor.undo(Revision(4), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(editor.source_text(), "<www.x.test/[[Old]]/path.");
+    assert_eq!(view.text, "<www.x.test/[[Old]]/path.");
+    view.apply(editor.redo(Revision(5), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(editor.source_text(), pending);
+    assert!(editor
+        .project(Revision(6), range(0, 26))
+        .unwrap()
+        .links
+        .is_empty());
+    view.apply(editor.redo(Revision(6), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(view.text, "<www.x.test/[[Old]]/path.> ");
+    assert_eq!(
+        editor
+            .inspect_link(Revision(7), range(1, 2))
+            .unwrap()
+            .unwrap()
+            .destination,
+        loaded_link.destination
+    );
+}
