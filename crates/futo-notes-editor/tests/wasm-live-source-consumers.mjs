@@ -1,4 +1,5 @@
 // Live source families share the existing worker and registered vault owner.
+import { dividerPendingConsumer } from './wasm-divider-pending-consumer.mjs';
 import { anglePendingConsumer } from './wasm-angle-consumer.mjs';
 import { sourceGenerationsConsumer } from './wasm-source-generations-consumer.mjs';
 
@@ -29,4 +30,10 @@ export async function liveSourceConsumers({ start, stop, getSession, createRoot 
       prefixRoot: prefixVault,
     });
   }
+  await dividerPendingConsumer({
+    start,
+    stop,
+    getSession,
+    root: createRoot('futo-editor-wasm-divider-pending-'),
+  });
 }
