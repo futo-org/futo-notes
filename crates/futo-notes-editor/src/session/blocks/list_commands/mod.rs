@@ -1,5 +1,6 @@
 //! List commands touch their selected bodies and retain unrelated source bytes.
 use super::*;
+mod emission;
 mod header_shape;
 mod marker;
 mod selection;
