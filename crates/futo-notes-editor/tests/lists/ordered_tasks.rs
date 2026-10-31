@@ -254,3 +254,93 @@ fn repeated_ordered_child_lifts_keep_new_owner_starts_between_foreign_lists() {
         assert_eq!(view.text, shown);
     }
 }
+
+#[test]
+fn quoted_and_ancestor_selected_ordered_fragments_keep_their_canonical_owners() {
+    for (raw, expected, before, shown, selected_end, mapped_end, quotes, items) in [
+        (
+            "> - [ ] parent\n>   1. child\n> - [x] following",
+            "> 1. parent\n>\n> child\n> 1. following",
+            "parent\nchild\nfollowing",
+            "parent\n\nchild\nfollowing",
+            12,
+            13,
+            1,
+            2,
+        ),
+        (
+            "- [ ] parent\n  1. child\n     1. grandchild\n- [x] following",
+            "1. parent\n\nchild\n1) grandchild\n1. following",
+            "parent\nchild\ngrandchild\nfollowing",
+            "parent\n\nchild\ngrandchild\nfollowing",
+            23,
+            24,
+            0,
+            3,
+        ),
+    ] {
+        let mut plan = EditorSession::open(expected);
+        assert_eq!(plan.display_text(), shown);
+        let projected = plan
+            .project(plan.revision(), range(0, shown.len()))
+            .unwrap();
+        assert_eq!(
+            projected
+                .blocks
+                .iter()
+                .filter_map(
+                    |block| block.list.as_ref().filter(|list| list.first).map(|list| (
+                        list.depth,
+                        list.number,
+                        list.checked,
+                        block.quote_depth
+                    ))
+                )
+                .collect::<Vec<_>>(),
+            vec![(1, Some(1), None, quotes); items]
+        );
+        let mut s = EditorSession::open(raw);
+        let mut view = ReferenceView::new(before);
+        assert_eq!(s.display_text(), before);
+        let selected = range(0, selected_end);
+        s.select_with_affinity(s.revision(), selected, Affinity::Backward)
+            .unwrap();
+        assert!(matches!(
+            s.block_command(
+                s.revision(),
+                selected,
+                BlockCommand::OrderedList,
+                &mut |_| Err("append rejected".into())
+            ),
+            Err(EditorError::Persistence(_))
+        ));
+        assert_eq!(s.source_text(), raw);
+        assert_eq!(s.revision(), Revision(0));
+        assert_eq!(s.selection(), selected);
+        let mut accepted = 0;
+        view.apply(
+            s.block_command(
+                s.revision(),
+                selected,
+                BlockCommand::OrderedList,
+                &mut |_| {
+                    accepted += 1;
+                    Ok(())
+                },
+            )
+            .unwrap()
+            .unwrap(),
+        );
+        assert_eq!(accepted, 1);
+        assert_eq!(s.source_text(), expected);
+        assert_eq!(view.text, shown);
+        assert_eq!(s.selection(), range(0, mapped_end));
+        view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+        assert_eq!(s.source_text(), raw);
+        assert_eq!(s.selection(), selected);
+        assert_eq!(s.affinity(), Affinity::Backward);
+        view.apply(s.redo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+        assert_eq!(s.source_text(), expected);
+        assert_eq!(view.text, shown);
+    }
+}
