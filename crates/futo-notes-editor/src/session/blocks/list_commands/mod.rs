@@ -1,6 +1,7 @@
 //! List commands touch their selected bodies and retain unrelated source bytes.
 use super::*;
 mod marker;
+mod selection;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum LiftScope {

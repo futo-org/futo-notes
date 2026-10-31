@@ -160,6 +160,7 @@ impl EditorSession {
                 .filter(|line| !line.empty_comment)
         };
         let mut separators = Vec::new();
+        let mut preview_header = false;
         let mixed = !remove;
         for (index, line) in lines.iter().enumerate() {
             let remove = targets.removes(line) || lift_plan.promotes_ancestor(line.source.start);
@@ -171,35 +172,24 @@ impl EditorSession {
                 replacements.push((line.content.end - start..end - start, String::new()));
                 materialized += raw.len();
             }
-            let body = self.source.byte_slice(line.content.clone()).to_string();
-            let (body, work) = if remove {
-                super::super::content::protect_content(&body, false, true)
-            } else {
-                protect_list_body(&body, command == BlockCommand::TaskList)
-            };
+            let (body, work, copied) =
+                self.list_command_body(line.content.clone(), command, remove);
             parsed += work;
-            materialized += line.content.len() + body.len();
-            replacements.push((line.content.start - start..line.content.end - start, body));
+            materialized += copied;
+            if let Some(body) = body {
+                replacements.push((line.content.start - start..line.content.end - start, body));
+            }
             let prefix = self
                 .source
                 .byte_slice(line.source.start..line.content.start)
                 .to_string();
             materialized += prefix.len();
-            let retained = if !remove && line.list.is_some() {
-                let list = line.list.as_ref().unwrap();
-                list.marker.start - line.source.start
-            } else if !remove {
-                super::super::indent_source::canonical_quote_end(
-                    &prefix,
-                    styles.as_ref().unwrap().quotes[index],
-                )
-                .unwrap_or(0)
-            } else {
-                prefix.rfind('>').map_or(0, |at| {
-                    at + 1
-                        + usize::from(matches!(prefix.as_bytes().get(at + 1), Some(b' ' | b'\t')))
-                })
-            };
+            let retained = self.list_retained_prefix(
+                line,
+                &prefix,
+                remove,
+                styles.as_ref().map_or(0, |styles| styles.quotes[index]),
+            );
             let default_number = styles.as_ref().map_or(1, |styles| styles.ordinals[index]);
             let (ordered_number, ordered_head) =
                 line.list.as_ref().map_or((default_number, false), |list| {
@@ -224,7 +214,13 @@ impl EditorSession {
                     ),
                 )
             };
-            let mut replacement = format!("{}{marker}", &prefix[..retained]);
+            let mut replacement =
+                if let Some(quote) = self.lift_same_line_quote_prefix(line, &prefix, remove)? {
+                    preview_header = true;
+                    quote
+                } else {
+                    format!("{}{marker}", &prefix[..retained])
+                };
             if ordered_head && ordered_number != 1 {
                 let physical = self.source.byte_to_line(line.source.start);
                 let separated = physical > 0
@@ -333,6 +329,7 @@ impl EditorSession {
                     }
                 }
             }
+            materialized += replacement.len();
             head_prefixes.insert(line.source.start, (replacements.len(), remove));
             replacements.push((
                 line.source.start - start..line.content.start - start,
@@ -432,6 +429,13 @@ impl EditorSession {
         }
         replacements.sort_by_key(|(range, _)| (range.start, range.end));
         let output = super::super::transaction::spell_edits(&output, &replacements)?;
+        if preview_header {
+            let (mapped, work, copied) =
+                self.preview_header_selection(range, start..end, &replacements, &output)?;
+            selection = mapped;
+            parsed += work;
+            materialized += copied;
+        }
         let formats = (range == self.selection)
             .then(|| self.pending_formats.clone())
             .flatten();

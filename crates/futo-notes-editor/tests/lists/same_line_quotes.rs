@@ -148,3 +148,98 @@ fn task_body_markers_remain_literal_and_wide_continuations_keep_quote_ownership(
             .as_ref()
             .is_some_and(|l| !l.first && l.depth == 1 && l.number == Some(1000))));
 }
+
+#[test]
+fn same_line_quote_lifting_preserves_physical_quotes_crlf_and_entity_interior_carets() {
+    for (raw, expected, before, shown, selected, mapped) in [
+        ("> - > b", "> \n> > b", "b", "\nb", 0, 1),
+        ("- > b\r\n", "\r\n> b\r\n", "b\r\n", "\r\nb\r\n", 0, 2),
+        (
+            "\r\n- > b\r\n",
+            "\r\n\r\n> b\r\n",
+            "\r\nb\r\n",
+            "\r\n\r\nb\r\n",
+            2,
+            4,
+        ),
+        (
+            "- > &acE;",
+            "\n> &acE;",
+            "\u{223e}\u{0333}",
+            "\n\u{223e}\u{0333}",
+            3,
+            4,
+        ),
+    ] {
+        assert_text_source(raw, expected, before, shown, selected, mapped);
+    }
+}
+
+#[test]
+fn clearing_task_list_state_keeps_literal_quote_and_heading_body_text() {
+    for (raw, expected, shown) in [
+        ("- [x] > b", "\\> b", "> b"),
+        ("- [x] # b", "\\# b", "# b"),
+        ("> - [x] > b", "> \\> b", "> b"),
+    ] {
+        assert_text_source(raw, expected, shown, shown, 0, 0);
+    }
+}
+
+fn assert_text_source(
+    raw: &str,
+    expected: &str,
+    before: &str,
+    shown: &str,
+    at: usize,
+    after: usize,
+) {
+    let plan = EditorSession::open(expected);
+    assert_eq!(plan.display_text(), shown);
+    for affinity in [Affinity::Backward, Affinity::Forward] {
+        let mut s = EditorSession::open(raw);
+        assert_eq!(s.display_text(), before);
+        let mut view = ReferenceView::new(before);
+        let selected = range(at, at);
+        s.select_with_affinity(s.revision(), selected, affinity)
+            .unwrap();
+        assert!(matches!(
+            s.block_command(
+                s.revision(),
+                selected,
+                BlockCommand::Heading(0),
+                &mut |_| Err("append rejected".into())
+            ),
+            Err(EditorError::Persistence(_))
+        ));
+        assert_eq!(s.source_text(), raw);
+        assert_eq!(s.revision(), Revision(0));
+        assert_eq!(s.selection(), selected);
+        let mut accepted = 0;
+        view.apply(
+            s.block_command(
+                s.revision(),
+                selected,
+                BlockCommand::Heading(0),
+                &mut |_| {
+                    accepted += 1;
+                    Ok(())
+                },
+            )
+            .unwrap()
+            .unwrap(),
+        );
+        assert_eq!(accepted, 1);
+        assert_eq!(s.source_text(), expected);
+        assert_eq!(view.text, shown);
+        assert_eq!(s.selection(), range(after, after));
+        view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+        assert_eq!(s.source_text(), raw);
+        assert_eq!(s.selection(), selected);
+        assert_eq!(s.affinity(), affinity);
+        view.apply(s.redo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+        assert_eq!(s.source_text(), expected);
+        assert_eq!(view.text, shown);
+        assert_eq!(s.selection(), range(after, after));
+    }
+}

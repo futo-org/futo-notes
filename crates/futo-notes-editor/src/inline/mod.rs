@@ -4,6 +4,7 @@ mod edit;
 mod empty_comments;
 pub(crate) mod fences;
 mod lists;
+mod retained_points;
 mod row;
 mod spelling;
 mod toggle;
