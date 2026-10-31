@@ -172,3 +172,59 @@ fn a_canonical_rewrite_inside_a_whole_code_uri_reaches_acceptance() {
         next_uri
     );
 }
+
+#[test]
+fn own_rename_of_loaded_code_never_creates_a_typed_uri_owner() {
+    let old = "<`https://x.test/[[Old]]/path`>";
+    let renamed = "<`https://x.test/[[New]]/path`>";
+    let literal = "<https://x.test/[[New]]/path>";
+    let mut editor = EditorSession::open(old);
+    let mut view = common::ReferenceView::new("<https://x.test/[[Old]]/path>");
+    let action = OwnActionRelink {
+        mappings: vec![("Old".into(), "New".into())],
+        note_ids: vec!["Old".into()],
+    };
+    view.apply(
+        editor
+            .apply_own_relink(Revision(0), &action, &mut |_| Ok(()))
+            .unwrap()
+            .unwrap(),
+    );
+    assert_eq!(editor.source_text(), renamed);
+    assert_eq!(view.text, literal);
+    editor
+        .select(Revision(1), range(1, literal.len() - 1))
+        .unwrap();
+    view.apply(
+        editor
+            .toggle_format(Revision(1), InlineFormat::Code, &mut |_| Ok(()))
+            .unwrap()
+            .unwrap(),
+    );
+    assert_eq!(view.text, literal);
+    editor
+        .select(Revision(2), range(literal.len(), literal.len()))
+        .unwrap();
+    view.apply(
+        editor
+            .replace(
+                Revision(2),
+                range(literal.len(), literal.len()),
+                " ",
+                &mut |_| Ok(()),
+            )
+            .unwrap(),
+    );
+    assert_eq!(view.text, format!("{literal} "));
+    let current = editor
+        .project(Revision(3), range(0, view.text.len()))
+        .unwrap();
+    assert!(current.links.is_empty());
+    let fresh = EditorSession::open(&editor.source_text());
+    assert_eq!(fresh.display_text(), view.text);
+    assert!(fresh
+        .project(Revision(0), range(0, view.text.len()))
+        .unwrap()
+        .links
+        .is_empty());
+}
