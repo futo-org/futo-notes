@@ -3,6 +3,8 @@ use super::*;
 use crate::history::{SourcePoint, SourceSelection};
 use crate::inline::{references::RetainedBody, PendingLinks, SourceCorrespondence};
 use futo_notes_wikilinks::RewriteRange;
+mod fields;
+pub(super) use fields::Fields;
 
 struct Replacement {
     range: RewriteRange,
@@ -13,6 +15,7 @@ struct Step {
     output_len: usize,
     copied: SourceCorrespondence,
     replaced: Vec<Replacement>,
+    coverage: Vec<fields::Part>,
 }
 pub(super) struct Rewrite {
     pub source: String,
@@ -78,11 +81,14 @@ impl Rewrite {
                 replaced.push(Replacement { range, caret });
             }
             if from != to {
+                let (coverage, visits) = fields::coverage(bodies, &replaced);
+                work.link_metadata_items += visits;
                 steps.push(Step {
                     input_len: observed.input_len,
                     output_len: observed.source.len(),
                     copied,
                     replaced,
+                    coverage,
                 });
             }
             output = Some(observed.source);
@@ -103,40 +109,6 @@ impl Rewrite {
             steps,
             work,
         })
-    }
-
-    pub fn pending(&self, pending: &PendingLinks) -> Result<PendingLinks, EditorError> {
-        let mut mapped = pending.clone();
-        mapped.work = 2 * (1 + pending.ranges.len() + pending.delimiters.len())
-            + 5 * (pending.guarded_words.len() + pending.typed_inputs.len());
-        for step in &self.steps {
-            let (a, x) = step.position(mapped.window.start, Affinity::Backward)?;
-            let (z, y) = step.position(mapped.window.end, Affinity::Forward)?;
-            mapped.work += x + y;
-            mapped = mapped.map_copied(a..z, |range| step.copied.retained_range(range))?;
-        }
-        Ok(mapped)
-    }
-
-    pub fn witnesses(
-        &self,
-        fields: &mut [crate::inline::PendingLinkWitness],
-    ) -> Result<usize, EditorError> {
-        let mut work = 0;
-        for step in &self.steps {
-            for field in fields.iter_mut() {
-                let old = field.open.start..field.close.end;
-                let (new, visits) = step.copied.retained_range(old.clone());
-                work += visits;
-                let new = new.ok_or(EditorError::UnrepresentableFormat)?;
-                for range in [&mut field.body, &mut field.open, &mut field.close] {
-                    range.start = new.start + range.start - old.start;
-                    range.end = new.start + range.end - old.start;
-                    work += 2;
-                }
-            }
-        }
-        Ok(work)
     }
 
     pub fn selection(

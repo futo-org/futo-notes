@@ -45,6 +45,7 @@ impl Boundary {
         original: &str,
         rewrite: rewrite::Rewrite,
         sides: &[Side<'_>],
+        identities: &mut transformed::Identities,
     ) -> Result<Self, EditorError> {
         let mut work = rewrite.work;
         let (range, inserted) = difference(original, &rewrite.source, &mut work);
@@ -55,8 +56,9 @@ impl Boundary {
         work.materialized_source_bytes += edit.removed.len() + edit.inserted.len();
         let (mut start, mut end) = (range.start.0, range.end.0);
         let mut exact = Vec::with_capacity(sides.len());
-        let mut mapped = Vec::with_capacity(sides.len());
-        work.link_metadata_items += 2 * usize::from(!sides.is_empty());
+        let mut mapped_sources = Vec::with_capacity(sides.len());
+        let mut fields = Vec::with_capacity(sides.len() + 1);
+        work.link_metadata_items += 2 * usize::from(!sides.is_empty()) + 1;
         for side in sides {
             replay.restore(side.pending)?;
             start = start.min(side.pending.window.start);
@@ -91,16 +93,22 @@ impl Boundary {
                 return Err(EditorError::UnrepresentableFormat);
             };
             exact.push(target);
-            let mut pending = rewrite.pending(side.pending)?;
-            work.link_metadata_items += pending.work;
-            pending.work = 0;
-            mapped.push(MappedSide {
-                source: match side.source {
-                    SourceSelection::Exact(_) => transported,
-                    SourceSelection::Derived => SourceSelection::Derived,
-                },
-                selection: DisplayRange::default(),
-                pending,
+            let (witnesses, visits) = replay
+                .session
+                .projection
+                .pending_link_witnesses(&side.pending.ranges)?;
+            work.link_metadata_items += visits;
+            let mut prepared = rewrite.fields(side.pending, witnesses)?;
+            charge(
+                &mut work,
+                prepared.validate_original(&replay.session, side.pending)?,
+            );
+            work.link_metadata_items += prepared.pending.work;
+            prepared.pending.work = 0;
+            fields.push(prepared);
+            mapped_sources.push(match side.source {
+                SourceSelection::Exact(_) => transported,
+                SourceSelection::Derived => SourceSelection::Derived,
             });
         }
         let before = replay
@@ -111,35 +119,73 @@ impl Boundary {
                 end: SourceOffset(end),
             });
         work.link_metadata_items += before.work;
-        let (mut witnesses, visits) = replay
+        let (witnesses, visits) = replay
             .session
             .projection
             .pending_link_witnesses(&before.ranges)?;
-        work.link_metadata_items += visits + rewrite.witnesses(&mut witnesses)?;
-        let mut pending = rewrite.pending(&before)?;
-        work.link_metadata_items += pending.work;
-        pending.work = 0;
+        work.link_metadata_items += visits;
+        let mut aggregate = rewrite.fields(&before, witnesses)?;
+        charge(
+            &mut work,
+            aggregate.validate_original(&replay.session, &before)?,
+        );
+        work.link_metadata_items += aggregate.pending.work;
+        aggregate.pending.work = 0;
+        fields.push(aggregate);
         let mut projected = Vec::with_capacity(exact.len());
         work.link_metadata_items += usize::from(!exact.is_empty());
-        let prepared = replay.session.preview_exact_targets(
-            &edit,
-            before.window,
-            Some(&pending),
-            true,
-            &[],
-            super::super::pending::SelectionTargets {
-                selections: &exact,
-                links: &witnesses,
-                emit: &mut |range| projected.push(range),
-            },
-        )?;
-        charge(&mut work, prepared.work);
-        if projected.len() != mapped.len() {
+        let (_, initial) =
+            replay
+                .session
+                .with_exact_candidate(&edit, before.window.clone(), |staged| {
+                    // Resolve EVERY payload against this candidate before restoring any
+                    // transient suppression. The canonical spans/Code coverage own proof.
+                    for prepared in &mut fields {
+                        charge(
+                            &mut work,
+                            prepared.prepare_candidate(staged, before.window.start, identities)?,
+                        );
+                    }
+                    for (index, prepared) in fields.iter().enumerate() {
+                        let targets = if index < exact.len() {
+                            &exact[index..index + 1]
+                        } else {
+                            &[]
+                        };
+                        let checked = replay.session.validate_exact_candidate(
+                            staged,
+                            before.window.clone(),
+                            Some(&prepared.pending),
+                            true,
+                            &[],
+                            super::super::pending::SelectionTargets {
+                                selections: targets,
+                                links: &prepared.witnesses,
+                                emit: &mut |range| projected.push(range),
+                            },
+                        )?;
+                        charge(&mut work, checked.work);
+                    }
+                    Ok(())
+                })?;
+        charge(&mut work, initial);
+        if projected.len() != mapped_sources.len() {
             return Err(EditorError::UnrepresentableFormat);
         }
-        for (side, selection) in mapped.iter_mut().zip(projected) {
-            work.link_metadata_items += 2;
-            side.selection = selection;
+        let pending = fields
+            .pop()
+            .ok_or(EditorError::UnrepresentableFormat)?
+            .pending;
+        let mut mapped = Vec::with_capacity(fields.len());
+        work.link_metadata_items += usize::from(!fields.is_empty());
+        for ((source, selection), prepared) in mapped_sources.into_iter().zip(projected).zip(fields)
+        {
+            work.link_metadata_items += 3;
+            mapped.push(MappedSide {
+                source,
+                selection,
+                pending: prepared.pending,
+            });
         }
         Ok(Self {
             source: rewrite.source,

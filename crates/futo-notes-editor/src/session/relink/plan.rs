@@ -59,7 +59,14 @@ impl EditorSession {
             0
         };
         let mut replay = replay::Replay::new(self, &original)?;
-        let live = Arc::new(Boundary::prepare(&mut replay, &original, rewrite, &sides)?);
+        let mut identities = transformed::Identities::default();
+        let live = Arc::new(Boundary::prepare(
+            &mut replay,
+            &original,
+            rewrite,
+            &sides,
+            &mut identities,
+        )?);
         charge(&mut work, live.work);
         work.link_metadata_items += 1;
         let mut current = live.clone();
@@ -86,7 +93,13 @@ impl EditorSession {
                 sides.push(Side::after(older));
                 work.link_metadata_items += 1;
             }
-            let before = Arc::new(Boundary::prepare(&mut replay, &source, rewrite, &sides)?);
+            let before = Arc::new(Boundary::prepare(
+                &mut replay,
+                &source,
+                rewrite,
+                &sides,
+                &mut identities,
+            )?);
             charge(&mut work, before.work);
             work.link_metadata_items += 1;
             undo.push(boundary::entry(
@@ -134,7 +147,13 @@ impl EditorSession {
                 sides.push(Side::before(next));
                 work.link_metadata_items += 1;
             }
-            let after = Arc::new(Boundary::prepare(&mut replay, &source, rewrite, &sides)?);
+            let after = Arc::new(Boundary::prepare(
+                &mut replay,
+                &source,
+                rewrite,
+                &sides,
+                &mut identities,
+            )?);
             charge(&mut work, after.work);
             work.link_metadata_items += 1;
             redo.push(boundary::entry(
