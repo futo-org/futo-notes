@@ -291,3 +291,33 @@ fn header_selection_preview_calls_the_host_and_history_clock_only_for_the_real_a
     assert_eq!(s.source_text(), raw);
     assert_eq!(s.selection(), selected);
 }
+
+#[test]
+fn canonical_heading_indent_uses_tab_columns_after_its_quote_and_list_origins() {
+    for (raw, quotes, list) in [
+        ("> \t# b", 1, false),
+        ("- \t> \t# b", 1, true),
+        ("> \t> # b", 2, false),
+    ] {
+        let mut s = EditorSession::open(raw);
+        assert_eq!(s.source_text(), raw);
+        assert_eq!(s.display_text(), "b", "{raw}");
+        let p = s.project(s.revision(), range(0, 1)).unwrap();
+        assert!(
+            p.blocks
+                .iter()
+                .any(|b| b.heading == 1 && b.quote_depth == quotes && b.list.is_some() == list),
+            "{raw}"
+        );
+    }
+    let raw = "> \t#b";
+    let mut s = EditorSession::open(raw);
+    assert_eq!(s.display_text(), "\t#b");
+    assert_eq!(s.source_text(), raw);
+    assert!(s
+        .project(s.revision(), range(0, 3))
+        .unwrap()
+        .blocks
+        .iter()
+        .all(|b| b.heading == 0));
+}
