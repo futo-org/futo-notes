@@ -81,10 +81,7 @@ pub(super) fn spell_with_anchors(
             &candidate,
             &mut literal_work,
         )? {
-            // The discarded first render is an additional source buffer; the
-            // final output buffer is counted by the owning plan as before.
-            materialized += rendered.text.len();
-            rendered = render(&pieces, &markers, insertion.start, insertion.end);
+            materialized += render::replace(&mut rendered, &pieces, &markers, insertion.clone());
             rendered_changed = true;
             link_metadata_items += rendered.link_metadata_items;
             candidate = Row::parse_with_references(&rendered.text, references, &rendered.winners);
@@ -112,10 +109,9 @@ pub(super) fn spell_with_anchors(
                 }
             }
             if words.has_owners() {
-                materialized += rendered.text.len();
                 rendered_changed = true;
             }
-            rendered = render(&pieces, &markers, insertion.start, insertion.end);
+            materialized += render::replace(&mut rendered, &pieces, &markers, insertion.clone());
             link_metadata_items += rendered.link_metadata_items;
             candidate = Row::parse_with_references(&rendered.text, references, &rendered.winners);
             parsed += candidate.parsed_source_bytes;
@@ -164,10 +160,9 @@ pub(super) fn spell_with_anchors(
         }
         if repaired_link {
             if words.has_owners() {
-                materialized += rendered.text.len();
                 rendered_changed = true;
             }
-            rendered = render(&pieces, &markers, insertion.start, insertion.end);
+            materialized += render::replace(&mut rendered, &pieces, &markers, insertion.clone());
             link_metadata_items += rendered.link_metadata_items;
             candidate = Row::parse_with_references(&rendered.text, references, &rendered.winners);
             parsed += candidate.parsed_source_bytes;
@@ -192,10 +187,9 @@ pub(super) fn spell_with_anchors(
             // neighbor of a marker that the library could no longer pair.
             repair_boundaries(&mut pieces, &missing);
             if words.has_owners() {
-                materialized += rendered.text.len();
                 rendered_changed = true;
             }
-            rendered = render(&pieces, &markers, insertion.start, insertion.end);
+            materialized += render::replace(&mut rendered, &pieces, &markers, insertion.clone());
             link_metadata_items += rendered.link_metadata_items;
             candidate = Row::parse_with_references(&rendered.text, references, &rendered.winners);
             parsed += candidate.parsed_source_bytes;
@@ -234,10 +228,9 @@ pub(super) fn spell_with_anchors(
                 }
             }
             if words.has_owners() {
-                materialized += rendered.text.len();
                 rendered_changed = true;
             }
-            rendered = render(&pieces, &markers, insertion.start, insertion.end);
+            materialized += render::replace(&mut rendered, &pieces, &markers, insertion.clone());
             link_metadata_items += rendered.link_metadata_items;
             candidate = Row::parse_with_references(&rendered.text, references, &rendered.winners);
             parsed += candidate.parsed_source_bytes;

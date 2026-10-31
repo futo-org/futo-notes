@@ -100,3 +100,16 @@ pub(super) fn render(
         pieces: piece_ranges,
     }
 }
+
+// Every successful replacement discards one real completed source allocation.
+// The final buffer moves to Spelling and is counted by its owning plan.
+pub(super) fn replace(
+    current: &mut Rendered,
+    pieces: &[Piece],
+    markers: &[Marker],
+    insertion: Range<usize>,
+) -> usize {
+    let discarded = current.text.len();
+    *current = render(pieces, markers, insertion.start, insertion.end);
+    discarded
+}
