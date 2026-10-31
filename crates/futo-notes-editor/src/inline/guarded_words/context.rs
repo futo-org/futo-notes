@@ -21,6 +21,7 @@ pub(in crate::inline) enum AfterDeletion {
 pub(in crate::inline) struct GuardState {
     pub owners: Vec<Option<Arc<CodeWordIdentity>>>,
     pub after_deletion: Option<AfterDeletion>,
+    pub after_split: Option<usize>,
 }
 impl GuardState {
     pub fn bind(

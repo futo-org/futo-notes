@@ -309,7 +309,12 @@ pub(super) fn spell_with_anchors(
     }
     let (pending_links, activated_links) =
         url_timing::collect_link_timing(&markers, &rendered, &mut link_metadata_items);
+    let split_retirement = guards
+        .after_split
+        .map(|id| guards.owners[id].as_ref().unwrap().clone());
+    link_metadata_items += usize::from(split_retirement.is_some());
     Ok(Spelling {
+        split_retirement,
         typed_inputs,
         guarded_words,
         materialized,

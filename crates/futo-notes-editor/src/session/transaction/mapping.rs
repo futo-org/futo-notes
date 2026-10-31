@@ -17,6 +17,7 @@ pub(in crate::session) struct InputMapping {
     protected: Option<Protected>,
     pub(super) requires_source_identity: bool,
     inserted_display: Option<DisplayRange>,
+    retired_guard: Option<std::sync::Arc<crate::inline::guarded_words::CodeWordIdentity>>,
 }
 struct InputSource {
     revision: Revision,
@@ -34,6 +35,7 @@ impl InputMapping {
             source: None,
             requires_source_identity: false,
             inserted_display: None,
+            retired_guard: None,
         }
     }
 
@@ -44,6 +46,7 @@ impl InputMapping {
         retained: crate::inline::SourceCorrespondence,
         requires_source_identity: bool,
         inserted_display: DisplayRange,
+        retired_guard: Option<std::sync::Arc<crate::inline::guarded_words::CodeWordIdentity>>,
     ) -> Self {
         Self {
             input: (range, inserted),
@@ -57,7 +60,44 @@ impl InputMapping {
             }),
             requires_source_identity,
             inserted_display: Some(inserted_display),
+            retired_guard,
         }
+    }
+
+    pub(in crate::session) fn transfer_guard_retirement(
+        &self,
+        revision: Revision,
+        range: SourceRange,
+        inserted: usize,
+        inventories: Vec<crate::inline::guarded_words::SplitInventory>,
+    ) -> Result<(Vec<crate::inline::guarded_words::ValidationAtom>, usize), EditorError> {
+        let Some(identity) = &self.retired_guard else {
+            return Ok((Vec::new(), 0));
+        };
+        let source = self
+            .source_at(revision, range, inserted)
+            .ok_or(EditorError::UnrepresentableFormat)?;
+        if self.protected.is_some() {
+            return Err(EditorError::UnrepresentableFormat);
+        }
+        let mut work = 0;
+        let mut found = None;
+        for inventory in inventories {
+            work += 1;
+            if std::sync::Arc::ptr_eq(identity, &inventory.identity) {
+                if found.is_some() {
+                    return Err(EditorError::UnrepresentableFormat);
+                }
+                found = Some(inventory.atoms);
+            }
+        }
+        let mut atoms = found.ok_or(EditorError::UnrepresentableFormat)?;
+        for atom in &mut atoms {
+            let (after, visits) = source.retained.retained_range(atom.source.clone());
+            work += visits + 2;
+            atom.source = after.ok_or(EditorError::UnrepresentableFormat)?;
+        }
+        Ok((atoms, work))
     }
 
     pub(super) fn retained_source(

@@ -167,6 +167,8 @@ impl EditorSession {
                 });
             }
         }
+        let (retired_atoms, retirement_work) = layout.guard_atoms(body.retired_atoms, start)?;
+        layout_work += retirement_work;
         let (ordered, visits) = crate::inline::references::RetainedBody::ordered(&retained);
         layout_work += visits;
         if !ordered {
@@ -220,7 +222,14 @@ impl EditorSession {
             expected,
             start..end,
             &output,
-            BlockSelection::Source(caret),
+            if retired_atoms.is_empty() {
+                BlockSelection::Source(caret)
+            } else {
+                BlockSelection::SourceWithRetiredAtoms {
+                    source: caret,
+                    atoms: retired_atoms,
+                }
+            },
             None,
             pending,
             accept,

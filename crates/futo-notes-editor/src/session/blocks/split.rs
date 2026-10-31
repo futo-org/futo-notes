@@ -101,6 +101,9 @@ impl EditorSession {
             unchanged_right,
             setext,
         };
+        let (retired_atoms, retirement_work) =
+            layout.guard_atoms(body.retired_atoms, line.source.start)?;
+        layout_work += retirement_work;
         let mut pending = body
             .pending
             .map(|pending| {
@@ -167,7 +170,14 @@ impl EditorSession {
             expected,
             line.source.start..suffix_end,
             &output,
-            BlockSelection::Source(caret),
+            if retired_atoms.is_empty() {
+                BlockSelection::Source(caret)
+            } else {
+                BlockSelection::SourceWithRetiredAtoms {
+                    source: caret,
+                    atoms: retired_atoms,
+                }
+            },
             None,
             pending,
             accept,

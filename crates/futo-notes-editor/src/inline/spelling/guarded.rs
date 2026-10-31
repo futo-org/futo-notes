@@ -88,6 +88,7 @@ impl GuardState {
         *work += 1 + seen.len();
         let mut current: Option<(usize, Range<usize>, Range<usize>)> = None;
         let mut retired_range = None;
+        let mut split_range = None;
         for (range, part) in intervals {
             *work += 1;
             let Some(part) = part else {
@@ -117,7 +118,9 @@ impl GuardState {
                         .ok_or(EditorError::UnrepresentableFormat)?;
                     let retire = matches!(&self.after_deletion,
                         Some(AfterDeletion::RetireLiteral { owner, .. }) if owner == id);
-                    if retire {
+                    if self.after_split == Some(*id) {
+                        split_range = Some(envelope.start..range.end);
+                    } else if retire {
                         if retired_range.is_some() {
                             return Err(EditorError::UnrepresentableFormat);
                         }
@@ -162,6 +165,17 @@ impl GuardState {
                 if span.kind == SpanKind::Format(crate::InlineFormat::Code)
                     && span.open.start < word.envelope.end
                     && word.envelope.start < span.close.end
+                {
+                    return Err(EditorError::UnrepresentableFormat);
+                }
+            }
+        }
+        if let Some(range) = split_range {
+            for span in &candidate.spans {
+                *work += 1;
+                if matches!(span.kind, SpanKind::Link(_))
+                    && span.open.start < range.end
+                    && range.start < span.close.end
                 {
                     return Err(EditorError::UnrepresentableFormat);
                 }

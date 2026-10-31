@@ -156,6 +156,7 @@ impl EditorSession {
                 start: DisplayOffset(input_start),
                 end: caret,
             },
+            plan.split_retirement,
         );
         self.selection = DisplayRange {
             start: caret,

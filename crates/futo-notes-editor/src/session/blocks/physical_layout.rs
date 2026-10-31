@@ -12,6 +12,22 @@ pub(super) struct SplitLayout<'a> {
     pub(super) setext: bool,
 }
 impl SplitLayout<'_> {
+    pub(super) fn guard_atoms(
+        &self,
+        mut atoms: Vec<crate::inline::guarded_words::ValidationAtom>,
+        base: usize,
+    ) -> Result<(Vec<crate::inline::guarded_words::ValidationAtom>, usize), crate::EditorError>
+    {
+        let mut work = 0;
+        for atom in &mut atoms {
+            let (after, visits) = self.retained_range(atom.source.clone());
+            let after = after.ok_or(crate::EditorError::UnrepresentableFormat)?;
+            work += visits + 2;
+            atom.source = base + after.start..base + after.end;
+        }
+        Ok((atoms, work))
+    }
+
     pub(super) fn retained_range(
         &self,
         range: std::ops::Range<usize>,

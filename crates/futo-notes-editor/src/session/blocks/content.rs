@@ -4,6 +4,7 @@ use crate::inline::blocks::BlockLine;
 use pulldown_cmark::{Event, Parser, Tag};
 
 pub(super) struct BodySplit {
+    pub retired_atoms: Vec<crate::inline::guarded_words::ValidationAtom>,
     pub retained: Vec<crate::inline::references::RetainedBody>,
     pub pending: Option<crate::inline::PendingLinks>,
     pub split: usize,
@@ -81,6 +82,15 @@ impl EditorSession {
             session: mut staged,
             had_pending,
         } = self.stage_body_source(&rendered, first.content.start..last.content.end)?;
+        let (inventories, inventory_work) = if rendered
+            .guarded_words
+            .as_ref()
+            .is_some_and(|words| !words.is_empty())
+        {
+            staged.projection.split_guard_inventory()?
+        } else {
+            (Vec::new(), Default::default())
+        };
         let crate::inline::BodySource {
             text: raw,
             retained,
@@ -117,6 +127,8 @@ impl EditorSession {
             mapping.inserted_source_range(revision, step_range, inserted, 0..2)?;
         let (retained, witness_work) =
             mapping.transfer_body(revision, step_range, inserted, retained)?;
+        let (retired_atoms, retirement_work) =
+            mapping.transfer_guard_retirement(revision, step_range, inserted, inventories)?;
         let body = staged.source_text();
         let split = separator.start;
         if body.get(separator) != Some("\n\n") {
@@ -145,6 +157,7 @@ impl EditorSession {
             None
         };
         Ok(BodySplit {
+            retired_atoms,
             pending,
             retained,
             split,
@@ -160,13 +173,16 @@ impl EditorSession {
                 + shown.len()
                 + change.work.materialized_source_bytes,
             parsed: parsed + staged.projection.initial_parse_work + change.work.parsed_source_bytes,
-            link_metadata_items: link_work.items
+            link_metadata_items: inventory_work.items
+                + retirement_work
+                + link_work.items
                 + witness_work
                 + separator_work
                 + 2
                 + staged.projection.initial_link_metadata_items
                 + change.work.link_metadata_items,
-            link_copied_bytes: link_work.copied
+            link_copied_bytes: inventory_work.copied
+                + link_work.copied
                 + staged.projection.initial_link_copied_bytes
                 + change.work.link_copied_bytes,
         })

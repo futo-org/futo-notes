@@ -27,6 +27,7 @@ pub(crate) enum EditIntent {
 
 pub(crate) struct Plan {
     pub guarded_words: Option<super::guarded_words::GuardUpdate>,
+    pub split_retirement: Option<std::sync::Arc<super::guarded_words::CodeWordIdentity>>,
     pub retained: SourceCorrespondence,
     pub requires_source_identity: bool,
     pub range: Range<usize>,
@@ -80,10 +81,12 @@ impl Projection {
         } = self.edit_context_for_change(source, range, toggle.is_none().then_some(inserted))?;
         let mut typed = super::typed_angle::TypedState::current(typed_inputs);
         let expanded = split_entities(pieces, a, z);
+        let (split_guard, split_work) =
+            guard_state.prepare_split(&expanded, a..z, inserted, intent)?;
         let (deleting_guard, deletion_proof_work) =
             guard_state.prove_deletion(&expanded, &markers, a..z, inserted, intent)?;
         let mut guard_work = super::references::ReferenceWork::default();
-        guard_work.items += deletion_proof_work;
+        guard_work.items += deletion_proof_work + split_work;
         let Cut {
             mut before,
             mut after,
@@ -131,7 +134,10 @@ impl Projection {
         let mut changed = before;
         let insertion_index = changed.len();
         changed.extend(inserted.char_indices().map(|(offset, ch)| Piece {
-            guard: None,
+            guard: split_guard.map(|id| super::guarded_words::GuardPart {
+                id,
+                role: super::guarded_words::GuardRole::Inner,
+            }),
             physical_prefix: false,
             literal_url: None,
             raw: ch.to_string(),
@@ -295,6 +301,7 @@ impl Projection {
             .sum();
         Ok(Plan {
             guarded_words,
+            split_retirement: rendered.split_retirement,
             retained,
             requires_source_identity: !literal,
             pending_links: rendered.pending_links,

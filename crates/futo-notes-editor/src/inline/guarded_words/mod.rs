@@ -4,6 +4,8 @@ mod context;
 mod relink;
 pub(crate) use relink::{CanonicalUri, CodeWitness};
 mod deletion;
+mod split;
+pub(crate) use split::{SplitInventory, ValidationAtom};
 mod producer;
 mod snapshots;
 pub(in crate::inline) use context::{AfterDeletion, GuardPart, GuardRole, GuardState};

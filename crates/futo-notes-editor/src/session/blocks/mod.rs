@@ -37,6 +37,10 @@ mod typing;
 enum BlockSelection {
     Display(DisplayRange),
     Source(usize),
+    SourceWithRetiredAtoms {
+        source: usize,
+        atoms: Vec<crate::inline::guarded_words::ValidationAtom>,
+    },
     SourceRange(std::ops::Range<usize>),
     Exact {
         selection: crate::history::ExactSelection,
@@ -105,7 +109,30 @@ impl EditorSession {
     ) -> Result<ViewChange, EditorError> {
         let before_links = self.projection.pending_for_source_edit(edit.range);
         let (validation, validated_selection) =
-            if let BlockSelection::Exact { selection, window } = &selection {
+            if let BlockSelection::SourceWithRetiredAtoms { atoms, .. } = &selection {
+                let window = before_links.window.clone();
+                let (mut preview, initial) =
+                    self.with_exact_candidate(&edit, window.clone(), |staged| {
+                        let mut preview = self.validate_exact_candidate(
+                            staged,
+                            window.clone(),
+                            pending.as_ref(),
+                            true,
+                            &[],
+                            super::pending::SelectionTargets {
+                                selections: &[],
+                                links: &[],
+                                emit: &mut |_| {},
+                            },
+                        )?;
+                        preview.work.link_metadata_items += staged
+                            .projection
+                            .validate_split_atoms(atoms, window.start)?;
+                        Ok(preview)
+                    })?;
+                super::relink::charge(&mut preview.work, initial);
+                (preview.work, None)
+            } else if let BlockSelection::Exact { selection, window } = &selection {
                 if pending.as_ref().is_some_and(|pending| {
                     pending.window
                         != (window.start..window.end - edit.removed.len() + edit.inserted.len())
@@ -189,7 +216,8 @@ impl EditorSession {
                 start: DisplayOffset(self.projection.display_at(range.start)),
                 end: DisplayOffset(self.projection.display_at(range.end)),
             },
-            BlockSelection::Source(source) => {
+            BlockSelection::Source(source)
+            | BlockSelection::SourceWithRetiredAtoms { source, .. } => {
                 let at = DisplayOffset(self.projection.display_at(source));
                 DisplayRange { start: at, end: at }
             }
