@@ -83,3 +83,6 @@ mod typed_mixed_boundaries;
 
 #[path = "links/case_actions.rs"]
 mod case_actions;
+
+#[path = "links/partial_guard_scopes.rs"]
+mod partial_guard_scopes;
