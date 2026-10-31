@@ -395,6 +395,14 @@ const cases = [
     head: 'grandchild',
     headOffset: 10,
   },
+  {
+    name: 'mixed bullet parents become tasks while task children lift',
+    source: '- p0\n  - [x] c0\n- p1\n  - [ ] c1',
+    command: 'task-list',
+    anchor: 'p0',
+    head: 'c1',
+    headOffset: 2,
+  },
 ] as const;
 
 describe('pinned shipping toolbar container transactions (#299)', () => {
