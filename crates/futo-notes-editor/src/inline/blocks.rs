@@ -189,7 +189,9 @@ fn describe_with_parts(
         });
     }
     let mut setext = Vec::new();
+    let mut prose = super::blocks_paragraph::ProseAttribution::default();
     for (event, range) in events.iter().cloned() {
+        prose.observe(&event, &range);
         match event {
             Event::Start(Tag::BlockQuote(_)) => {
                 let first = lines.partition_point(|line| line.source.end <= range.start);
@@ -242,6 +244,7 @@ fn describe_with_parts(
             _ => {}
         }
     }
+    prose.flush();
     let mut lists = super::lists::describe(source, events);
     let comments = super::empty_comments::ranges(events);
     let mut comment = 0;
@@ -349,6 +352,8 @@ fn describe_with_parts(
             });
         prefixes.push(line.source.start..start);
         line.content.start = start;
+        line.paragraph_text =
+            line.heading == 0 && !line.code && !line.divider && prose.owns(&line.content);
         line.bodies.push(PhysicalLine {
             source: line.source.clone(),
             content: line.content.clone(),

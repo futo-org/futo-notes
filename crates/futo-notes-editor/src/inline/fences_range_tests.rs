@@ -208,6 +208,15 @@ fn canonical_fence_ranges_and_every_block_field_match_the_frozen_visitor() {
     let sources = sources();
     for raw in &sources {
         let events = crate::inline::row::source_events(raw);
+        let mut prose = crate::inline::blocks_paragraph::ProseAttribution::default();
+        for (event, span) in &events {
+            prose.observe(event, span);
+        }
+        prose.flush();
+        assert!(
+            prose.ranges().windows(2).all(|p| p[0].end <= p[1].start),
+            "{raw:?}"
+        );
         let mut bodies: Vec<Range<usize>> = Vec::new();
         let mut code = false;
         for (event, at) in &events {

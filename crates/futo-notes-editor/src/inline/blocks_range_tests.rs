@@ -63,6 +63,15 @@ fn sources() -> Vec<String> {
 fn canonical_item_visitor_preserves_every_output_field_and_hidden_prefix() {
     for source in sources() {
         let events = super::super::row::source_events(&source);
+        let mut prose = super::super::blocks_paragraph::ProseAttribution::default();
+        for (event, span) in &events {
+            prose.observe(event, span);
+        }
+        prose.flush();
+        assert!(
+            prose.ranges().windows(2).all(|p| p[0].end <= p[1].start),
+            "{source:?}"
+        );
         let (mut old, old_prefixes) = describe_with_items(&source, &events, old_item_lines);
         let (mut new, new_prefixes) = describe(&source, &events);
         // This fact did not exist in the frozen producer. Independent literal
