@@ -59,6 +59,7 @@ impl Projection {
 }
 
 impl Projection {
+    #[cfg_attr(test, track_caller)]
     pub fn display_at(&self, offset: usize) -> usize {
         self.display_at_with_work(offset).0
     }

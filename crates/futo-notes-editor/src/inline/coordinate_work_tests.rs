@@ -83,15 +83,22 @@ fn public_link_command_reports_its_final_selection_queries() {
     assert_eq!(session.source_text(), "[__label__](</next>) rest");
     assert_eq!(session.display_text(), "label rest");
     let queries = snapshot();
-    let discarded: Vec<_> = queries
+    let selected: Vec<_> = queries
         .iter()
-        .filter(|(name, _, _)| name.ends_with("source_points.rs"))
+        .filter(|(name, _, _)| name.ends_with("session/links.rs"))
         .collect();
-    assert!(
-        discarded.is_empty(),
-        "unowned final coordinate queries={discarded:?}; work={:?}; all={queries:?}",
+    assert_eq!(
+        selected.len(),
+        2,
+        "work={:?}; queries={queries:?}",
         change.work
     );
+    assert_eq!(selected.iter().map(|(_, _, work)| work).sum::<usize>(), 16);
+    assert_eq!(change.work.link_metadata_items, 288 + 16);
+    assert_eq!(change.work.materialized_source_bytes, 73);
+    assert_eq!(change.work.parsed_source_bytes, 75);
+    assert_eq!(change.work.inserted_bytes, 20);
+    assert_eq!(change.work.link_copied_bytes, 20);
 }
 
 #[test]
