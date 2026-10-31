@@ -48,6 +48,10 @@ fn public_growth_work_separates_actual_index_visits_from_retained_local_work() {
                 .replace(Revision(1), range(5, 9), "BODY", &mut |_| Ok(()))
                 .unwrap();
             let (mut body_fixed, body_nodes) = measured(body.work);
+            eprintln!(
+                "reference growing={growing} count={count} bare primitive={:?}",
+                super::coordinate_work_tests::bare_snapshot()
+            );
             assert_eq!(bounds_delta(), -1);
             body_fixed.link_metadata_items += 1;
             let body = (body_fixed, body_nodes);
