@@ -119,3 +119,88 @@ fn alternating_quote_retarget_does_not_copy_each_prefix_for_every_container() {
         assert_eq!(session.source_text(), raw);
     }
 }
+
+#[test]
+fn mixed_parent_retirement_uses_one_prefix_sweep_and_skips_unrelated_paragraphs() {
+    for depth in [8, 64] {
+        let touched = format!(
+            "- parent\n{}",
+            (0..depth)
+                .map(|at| format!("{}1. n{at}\n", " ".repeat(2 + 3 * at)))
+                .collect::<String>()
+        );
+        let promoted = format!(
+            "parent\n{}",
+            (0..depth)
+                .map(|at| format!("{}- n{at}\n", "  ".repeat(at)))
+                .collect::<String>()
+        );
+        let shown = format!(
+            "parent\n{}",
+            (0..depth).map(|at| format!("n{at}\n")).collect::<String>()
+        );
+        let mut measurements = Vec::new();
+        for paragraphs in [1, 20_000] {
+            let prefix = "foreign\n\n".repeat(paragraphs);
+            let raw = format!("{prefix}{touched}");
+            let expected = format!("{prefix}{promoted}");
+            let display = format!("{prefix}{shown}");
+            let selected = DisplayRange {
+                start: DisplayOffset(prefix.len()),
+                end: DisplayOffset(prefix.len() + shown.len() - 1),
+            };
+            let mut s = EditorSession::open(&raw);
+            assert_eq!(s.display_text(), display);
+            s.select_with_affinity(Revision(0), selected, Affinity::Backward)
+                .unwrap();
+            crate::inline::CONTAINER_METADATA_VISITS.with(|count| count.set(0));
+            crate::inline::CONTAINER_PREFIX_QUERIES.with(|count| count.set(0));
+            let mut accepts = 0;
+            let change = s
+                .block_command(Revision(0), selected, BlockCommand::BulletList, &mut |_| {
+                    accepts += 1;
+                    Ok(())
+                })
+                .unwrap()
+                .unwrap();
+            let visits = crate::inline::CONTAINER_METADATA_VISITS.with(|count| count.get());
+            let queries = crate::inline::CONTAINER_PREFIX_QUERIES.with(|count| count.get());
+            assert_eq!(accepts, 1);
+            let mut view = display.clone();
+            view.replace_range(change.range.start.0..change.range.end.0, &change.inserted);
+            assert_eq!(view, display);
+            assert_eq!(s.source_text(), expected);
+            assert_eq!(s.selection(), selected);
+            assert!(
+                queries > 0 && queries <= 4 * (depth + 1),
+                "depth={depth} queries={queries}"
+            );
+            assert!(
+                visits > 0 && visits < 128 * touched.len(),
+                "depth={depth} metadata={visits}"
+            );
+            assert!(
+                change.work.parsed_source_bytes < 32 * touched.len(),
+                "depth={depth} parsed={}",
+                change.work.parsed_source_bytes
+            );
+            assert!(
+                change.work.materialized_source_bytes < 32 * touched.len(),
+                "depth={depth} materialized={}",
+                change.work.materialized_source_bytes
+            );
+            measurements.push((
+                change.work.parsed_source_bytes,
+                change.work.materialized_source_bytes,
+            ));
+            s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap();
+            assert_eq!(s.source_text(), raw);
+            assert_eq!(s.selection(), selected);
+            assert_eq!(s.affinity(), Affinity::Backward);
+        }
+        assert_eq!(
+            measurements[0], measurements[1],
+            "unrelated paragraphs entered mixed command parser/copy work"
+        );
+    }
+}
