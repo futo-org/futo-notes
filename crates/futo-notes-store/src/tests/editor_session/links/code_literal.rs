@@ -307,3 +307,105 @@ fn divider_scalar_transport_rejects_atomically_and_recovery_never_persists_live_
         assert_eq!(store.read("divider-literal").unwrap(), literal);
     }
 }
+
+#[test]
+fn failed_last_code_body_deletion_preserves_the_old_owner_and_retries_a_fresh_uri_payload() {
+    for fault in [storage::Fault::Append, storage::Fault::ShortWrite] {
+        let root = TestRoot::new();
+        let store = store(&root);
+        store.create("", "code-delete", "").unwrap();
+        let disk = Arc::new(Mutex::new(storage::Disk::default()));
+        let mut editor = store
+            .open_editor_with_recovery("code-delete", storage::options(&disk))
+            .unwrap();
+        editor
+            .replace(Revision(0), range(0, 0), "<https://x.test/path")
+            .unwrap();
+        editor.replace(Revision(1), range(20, 20), ">").unwrap();
+        editor.select(Revision(2), range(15, 20)).unwrap();
+        editor
+            .toggle_format(Revision(2), InlineFormat::Code)
+            .unwrap()
+            .unwrap();
+        let guarded = editor.source_text();
+        let before = editor.project(Revision(3), range(0, 21)).unwrap();
+        let selected = editor.selection();
+        disk.lock().unwrap().fault = Some(fault);
+        assert!(matches!(
+            editor.replace_action(
+                Revision(3),
+                range(15, 20),
+                "",
+                futo_notes_editor::InputAction::Isolated
+            ),
+            Err(EditorStoreError::RecoveryAppend(_))
+        ));
+        assert_eq!(editor.source_text(), guarded);
+        assert_eq!(editor.revision(), Revision(3));
+        assert_eq!(editor.selection(), selected);
+        assert_eq!(editor.project(Revision(3), range(0, 21)).unwrap(), before);
+        disk.lock().unwrap().fault = None;
+        editor.resume_recovery().unwrap();
+        editor
+            .replace_action(
+                Revision(3),
+                range(15, 20),
+                "",
+                futo_notes_editor::InputAction::Isolated,
+            )
+            .unwrap();
+        let deleted = editor.source_text();
+        let literal = editor.project(Revision(4), range(0, 16)).unwrap();
+        assert_eq!(literal.text, "<https://x.test>");
+        assert!(literal.links.is_empty());
+        assert!(literal
+            .runs
+            .iter()
+            .all(|run| !run.formats.contains(&InlineFormat::Code)));
+        disk.lock().unwrap().fault = Some(fault);
+        assert!(matches!(
+            editor.undo(Revision(4)),
+            Err(EditorStoreError::RecoveryAppend(_))
+        ));
+        assert_eq!(editor.source_text(), deleted);
+        assert_eq!(editor.project(Revision(4), range(0, 16)).unwrap(), literal);
+        disk.lock().unwrap().fault = None;
+        editor.resume_recovery().unwrap();
+        editor.undo(Revision(4)).unwrap().unwrap();
+        assert_eq!(editor.source_text(), guarded);
+        disk.lock().unwrap().fault = Some(fault);
+        assert!(matches!(
+            editor.redo(Revision(5)),
+            Err(EditorStoreError::RecoveryAppend(_))
+        ));
+        assert_eq!(editor.source_text(), guarded);
+        disk.lock().unwrap().fault = None;
+        editor.resume_recovery().unwrap();
+        editor.redo(Revision(5)).unwrap().unwrap();
+        assert_eq!(editor.source_text(), deleted);
+        editor.select(Revision(6), range(16, 16)).unwrap();
+        editor.replace(Revision(6), range(16, 16), " ").unwrap();
+        let active = editor
+            .inspect_link(Revision(7), range(1, 2))
+            .unwrap()
+            .unwrap();
+        assert_eq!(active.destination, "https://x.test");
+        assert_eq!(active.range, range(1, 15));
+        editor.undo(Revision(7)).unwrap().unwrap();
+        assert_eq!(editor.source_text(), deleted);
+        editor.flush_recovery().unwrap();
+        drop(editor);
+        let mut recovered = store
+            .open_editor_with_recovery("code-delete", storage::options(&disk))
+            .unwrap();
+        assert_eq!(recovered.source_text(), deleted);
+        recovered
+            .replace(recovered.revision(), range(16, 16), " ")
+            .unwrap();
+        assert!(recovered
+            .project(recovered.revision(), range(0, 17))
+            .unwrap()
+            .links
+            .is_empty());
+    }
+}
