@@ -114,31 +114,51 @@ fn partial_code_keeps_an_unselected_uri_prefix_literal_through_word_end_and_reop
 }
 
 #[test]
-fn live_code_removal_releases_its_literal_url_guard_but_loaded_escape_keeps_authored_intent() {
-    let authored = "\\<https\\://x.test`/path`>";
-    let mut loaded = EditorSession::open(authored);
+fn loaded_authored_colon_does_not_gain_typed_ownership_from_code_removal_or_word_end() {
+    let record = |session: &EditorSession, stage| {
+        let source = session.source_text();
+        let display = session.display_text();
+        let current = session
+            .project(session.revision(), range(0, display.len()))
+            .unwrap()
+            .links;
+        let reopened = EditorSession::open(&source);
+        let fresh = reopened
+            .project(Revision(0), range(0, display.len()))
+            .unwrap()
+            .links;
+        (stage, source, display, current, fresh)
+    };
+    let mut records = Vec::new();
+    let mut loaded = EditorSession::open("\\<https\\://x.test`/path`>");
+    records.push(record(&loaded, "loaded Code"));
     loaded.select(Revision(0), range(15, 20)).unwrap();
     loaded
         .toggle_format(Revision(0), InlineFormat::Code, &mut |_| Ok(()))
         .unwrap()
         .unwrap();
+    records.push(record(&loaded, "Code off"));
     loaded.select(loaded.revision(), range(21, 21)).unwrap();
     loaded
         .replace(loaded.revision(), range(21, 21), " ", &mut |_| Ok(()))
         .unwrap();
-    assert_eq!(loaded.display_text(), "<https://x.test/path> ");
-    assert!(loaded.source_text().contains("\\:"));
+    records.push(record(&loaded, "Space after Code off"));
+    let mut plain = EditorSession::open("\\<https\\://x.test/path>");
+    records.push(record(&plain, "loaded plain"));
+    plain
+        .replace(Revision(0), range(21, 21), " ", &mut |_| Ok(()))
+        .unwrap();
+    records.push(record(&plain, "Space after loaded plain"));
     assert!(
-        loaded
-            .project(loaded.revision(), range(0, 22))
-            .unwrap()
-            .links
-            .is_empty(),
-        "loaded word-end: source={:?}, query={:?}",
-        loaded.source_text(),
-        loaded.project(loaded.revision(), range(0, 22))
+        records
+            .iter()
+            .all(|(_, _, _, current, fresh)| current.is_empty() && fresh.is_empty()),
+        "public canonical stage discriminator: {records:#?}"
     );
+}
 
+#[test]
+fn live_code_removal_releases_its_literal_url_guard_at_word_end() {
     let mut session = EditorSession::open("");
     let mut view = ReferenceView::new("");
     view.apply(
