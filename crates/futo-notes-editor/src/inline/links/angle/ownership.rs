@@ -6,6 +6,26 @@ use crate::inline::{
 use crate::InlineFormat;
 use std::ops::Range;
 
+/// Stop before a canonical physical prefix without dropping its bytes. Empty
+/// carriers and inline markers never become physical boundaries by shape.
+pub(super) fn word_start(pieces: &[Piece], insertion: usize, work: &mut usize) -> usize {
+    let mut start = insertion;
+    while start > 0 {
+        *work += 1;
+        let previous = &pieces[start - 1];
+        if previous.physical_prefix
+            || previous.display.chars().any(|ch| {
+                *work += 1;
+                ch.is_whitespace()
+            })
+        {
+            break;
+        }
+        start -= 1;
+    }
+    start
+}
+
 pub(super) struct OwnedWord {
     pub source: Range<usize>,
     pub code_colon: bool,

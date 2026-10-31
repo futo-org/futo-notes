@@ -3,6 +3,7 @@
 //! move. The parser remains the authority for interpreting candidate source.
 mod carry;
 mod context;
+mod prefixes;
 pub(super) use context::Context;
 mod selection;
 mod source;
@@ -122,6 +123,7 @@ impl Projection {
         let mut changed = before;
         let insertion_index = changed.len();
         changed.extend(inserted.char_indices().map(|(offset, ch)| Piece {
+            physical_prefix: false,
             literal_url: None,
             raw: ch.to_string(),
             display: ch.to_string(),

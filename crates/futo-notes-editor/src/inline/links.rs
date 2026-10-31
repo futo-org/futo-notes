@@ -472,6 +472,7 @@ impl super::Projection {
         active.push(id);
         let insertion = before.len();
         before.push(Piece {
+            physical_prefix: false,
             literal_url: None,
             raw: destination.into(),
             display: destination.into(),

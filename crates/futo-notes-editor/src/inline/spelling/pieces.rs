@@ -9,6 +9,9 @@ pub(in crate::inline) enum PieceOrigin {
 }
 
 pub(in crate::inline) struct Piece {
+    /// Complete hidden source segment inside a canonical physical line prefix.
+    /// A word boundary only: the original raw bytes and origin remain intact.
+    pub physical_prefix: bool,
     pub literal_url: Option<usize>,
     pub raw: String,
     pub origin: Option<PieceOrigin>,

@@ -22,17 +22,7 @@ pub(in crate::inline) fn finish_angle_word(
         return AngleFinish::default();
     }
     let mut work = 0;
-    let mut start = insertion;
-    while start > 0 {
-        work += 1;
-        if pieces[start - 1].display.chars().any(|ch| {
-            work += 1;
-            ch.is_whitespace()
-        }) {
-            break;
-        }
-        start -= 1;
-    }
+    let start = ownership::word_start(pieces, insertion, &mut work);
     let word: String = pieces[start..insertion]
         .iter()
         .map(|piece| piece.display.as_str())
@@ -141,14 +131,7 @@ pub(in crate::inline) fn complete_typed_angle(
     {
         return result;
     }
-    let mut start = insertion.start;
-    while start > 0 {
-        result.work.items += 1;
-        if pieces[start - 1].display.contains(char::is_whitespace) {
-            break;
-        }
-        start -= 1;
-    }
+    let start = ownership::word_start(pieces, insertion.start, &mut result.work.items);
     if start + 1 >= insertion.start
         || pieces[start].display != "<"
         || !matches!(pieces[start].raw.as_str(), "<" | "\\<")

@@ -26,6 +26,11 @@ impl Projection {
         let mut display_len = 0;
         let mut block_boundaries = Vec::new();
         let mut pending_links = Vec::new();
+        // Only the two angle word readers need prefix eligibility. Formatting,
+        // body rendering and ordinary non-triggering inputs keep the empty path.
+        let needs_word_prefixes = replacement.is_some_and(|text| {
+            text == ">" || text.chars().next().is_some_and(char::is_whitespace)
+        });
         let may_empty_heading = replacement.is_some_and(|text| {
             text.split('\n')
                 .any(|line| line.trim_matches([' ', '\t', '\r']).is_empty())
@@ -34,6 +39,11 @@ impl Projection {
         for index in first..=last {
             let (row, row_source, row_display) = self.rows.at(index);
             let base = row_source - source_start;
+            let prefixes = super::prefixes::PhysicalPrefixes::read(
+                row,
+                needs_word_prefixes,
+                &mut link_metadata_items,
+            );
             let span_base = markers.len();
             pending_links.extend(row.literal_links.iter().map(|range| {
                 link_metadata_items += 3;
@@ -119,6 +129,7 @@ impl Projection {
                     link_metadata_items += 1;
                     if segment.source.start == range.start {
                         pieces.push(Piece {
+                            physical_prefix: false,
                             literal_url: None,
                             raw: raw[base + range.start..base + range.end].into(),
                             display: String::new(),
@@ -137,6 +148,7 @@ impl Projection {
                         // the heading/container intent using the existing empty
                         // ATX form, retiring only the owned underline below.
                         pieces.push(Piece {
+                            physical_prefix: false,
                             literal_url: None,
                             raw: format!(
                                 "{}{} ",
@@ -190,6 +202,8 @@ impl Projection {
                             && segment.source.end <= block.source.end
                     });
                     pieces.push(Piece {
+                        physical_prefix: prefixes
+                            .contains(&segment.source, &mut link_metadata_items),
                         literal_url: None,
                         raw: raw[base + segment.source.start..base + segment.source.end].to_owned(),
                         display: String::new(),
@@ -204,6 +218,7 @@ impl Projection {
                     continue;
                 }
                 pieces.push(Piece {
+                    physical_prefix: false,
                     literal_url: None,
                     raw: raw[base + segment.source.start..base + segment.source.end].to_owned(),
                     display: row.display[segment.display.clone()].to_owned(),
