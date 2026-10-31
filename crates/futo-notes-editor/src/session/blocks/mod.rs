@@ -160,3 +160,6 @@ impl EditorSession {
 #[cfg(test)]
 #[path = "list_fence_origin_tests.rs"]
 mod list_fence_origin_tests;
+
+#[cfg(test)]
+mod list_fence_leading_tests;
