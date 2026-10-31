@@ -1,27 +1,28 @@
 //! Exact staged actions preserve the untouched preceding list owner.
 use super::*;
 
-#[test]
-fn exact_stage_promotes_fence_after_inherited_list_prose() {
-    let full = "- before\n- parent\n  ```lang\n  opaque\n- outside";
-    let prefix = "- parent\n  ```lang\n  opaque\n";
-    let expected = "\nparent\n```lang\nopaque\n```\n";
-    let start = "- before\n".len();
+fn exact_stage_case(ending: &str) {
+    let full = "- before\n- parent\n  ```lang\n  opaque\n- outside".replace('\n', ending);
+    let prefix = "- parent\n  ```lang\n  opaque\n".replace('\n', ending);
+    let expected = "\nparent\n```lang\nopaque\n```\n".replace('\n', ending);
+    let start = 8 + ending.len();
+    let before = "parent\nopaque".replace('\n', ending);
+    let after = "\nparent\nopaque".replace('\n', ending);
     for depth in [1, 2] {
         for affinity in [Affinity::Backward, Affinity::Forward] {
-            let mut whole = EditorSession::open(full);
-            let mut staged = whole.stage_source(prefix, start..start + prefix.len());
+            let mut whole = EditorSession::open(&full);
+            let mut staged = whole.stage_source(&prefix, start..start + prefix.len());
             for _ in 1..depth {
-                staged = staged.stage_source(prefix, 0..prefix.len());
+                staged = staged.stage_source(&prefix, 0..prefix.len());
             }
-            assert_eq!(staged.display_text(), "parent\nopaque");
+            assert_eq!(staged.display_text(), before);
             let selected = DisplayRange {
                 start: DisplayOffset(0),
                 end: DisplayOffset(3),
             };
             let mapped = DisplayRange {
-                start: DisplayOffset(1),
-                end: DisplayOffset(4),
+                start: DisplayOffset(ending.len()),
+                end: DisplayOffset(ending.len() + 3),
             };
             staged
                 .select_with_affinity(Revision(0), selected, affinity)
@@ -67,9 +68,9 @@ fn exact_stage_promotes_fence_after_inherited_list_prose() {
                 edit.removed,
                 full[start + edit.range.start.0..start + edit.range.end.0]
             );
-            let mut local_view = "parent\nopaque".to_owned();
+            let mut local_view = before.clone();
             local_view.replace_range(change.range.start.0..change.range.end.0, &change.inserted);
-            assert_eq!(local_view, "\nparent\nopaque");
+            assert_eq!(local_view, after);
             assert_eq!(staged.source_text(), expected);
             assert_eq!(staged.selection(), mapped);
             staged
@@ -86,12 +87,12 @@ fn exact_stage_promotes_fence_after_inherited_list_prose() {
             // Synthetic outer transaction using the actual staged callback edit.
             // This is not Store or native execution.
             let old_selection = DisplayRange {
-                start: DisplayOffset(7),
-                end: DisplayOffset(10),
+                start: DisplayOffset(6 + ending.len()),
+                end: DisplayOffset(9 + ending.len()),
             };
             let final_selection = DisplayRange {
-                start: DisplayOffset(8),
-                end: DisplayOffset(11),
+                start: DisplayOffset(6 + 2 * ending.len()),
+                end: DisplayOffset(9 + 2 * ending.len()),
             };
             whole
                 .select_with_affinity(Revision(0), old_selection, affinity)
@@ -106,16 +107,19 @@ fn exact_stage_promotes_fence_after_inherited_list_prose() {
                     &mut |_| Ok(()),
                 )
                 .unwrap();
-            let mut view = "before\nparent\nopaque\noutside".to_owned();
+            let mut view = "before\nparent\nopaque\noutside".replace('\n', ending);
             view.replace_range(
                 final_change.range.start.0..final_change.range.end.0,
                 &final_change.inserted,
             );
             assert_eq!(
                 whole.source_text(),
-                "- before\n\nparent\n```lang\nopaque\n```\n- outside"
+                "- before\n\nparent\n```lang\nopaque\n```\n- outside".replace('\n', ending)
             );
-            assert_eq!(view, "before\n\nparent\nopaque\noutside");
+            assert_eq!(
+                view,
+                "before\n\nparent\nopaque\noutside".replace('\n', ending)
+            );
             assert_eq!(whole.display_text(), view);
             assert_eq!(whole.selection(), final_selection);
             let p = whole.project(whole.revision(), final_selection).unwrap();
@@ -137,4 +141,67 @@ fn exact_stage_promotes_fence_after_inherited_list_prose() {
             assert_eq!(whole.display_text(), view);
         }
     }
+}
+
+#[test]
+fn exact_stage_promotes_fence_after_inherited_list_prose() {
+    exact_stage_case("\n");
+}
+
+#[test]
+fn exact_stage_crlf_leading_boundary_maps_both_endpoints_and_full_composition() {
+    exact_stage_case("\r\n");
+}
+
+#[test]
+fn newly_inserted_local_opaque_predecessor_overrides_inherited_prose() {
+    let full = "- before\n- parent\n  ```lang\n  opaque\n- outside";
+    let prefix = "- parent\n  ```lang\n  opaque\n";
+    let original = EditorSession::open(full);
+    let mut staged = original.stage_source(prefix, 9..9 + prefix.len());
+    let zero = DisplayRange {
+        start: DisplayOffset(0),
+        end: DisplayOffset(0),
+    };
+    staged
+        .commit_block_edit(
+            Revision(0),
+            0..0,
+            "- <script>x</script>\n",
+            BlockSelection::Display(zero),
+            None,
+            &mut |_| Ok(()),
+        )
+        .unwrap();
+    assert_eq!(
+        staged.source_text(),
+        "- <script>x</script>\n- parent\n  ```lang\n  opaque\n"
+    );
+    let selected = DisplayRange {
+        start: DisplayOffset(19),
+        end: DisplayOffset(22),
+    };
+    assert_eq!(staged.display_text(), "<script>x</script>\nparent\nopaque");
+    let _change = staged
+        .block_command(
+            staged.revision(),
+            selected,
+            BlockCommand::Heading(0),
+            &mut |_| Ok(()),
+        )
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        staged.source_text(),
+        "- <script>x</script>\nparent\n```lang\nopaque\n```\n"
+    );
+    assert_eq!(staged.selection(), selected);
+    staged
+        .undo(staged.revision(), &mut |_| Ok(()))
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        staged.source_text(),
+        "- <script>x</script>\n- parent\n  ```lang\n  opaque\n"
+    );
 }

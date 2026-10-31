@@ -106,3 +106,34 @@ fn physical_eof_and_original_item_authority_are_orthogonal_in_trimmed_exact_wind
     assert!(matches!(derived.physical_tail(), PhysicalTail::Unknown));
     assert_eq!(derived.context.fence_edge, None);
 }
+
+#[test]
+fn leading_prose_authority_is_original_physical_and_never_derived_or_interior() {
+    let prefix = "- parent\n  ```lang\n  opaque\n";
+    for (before, expected) in [
+        ("- before\n", true),
+        ("- <script>x</script>\n", false),
+        ("-      \n", false),
+        ("- before\n\n", false),
+    ] {
+        let full = format!("{before}{prefix}- outside");
+        let real = EditorSession::open(&full);
+        let exact = real.stage_source(prefix, before.len()..before.len() + prefix.len());
+        assert_eq!(
+            exact.context.leading_list_prose,
+            Some(expected),
+            "{before:?}"
+        );
+        let nested = exact.stage_source(prefix, 0..prefix.len());
+        assert_eq!(nested.context.leading_list_prose, Some(expected));
+        let trimmed = exact.stage_source(&prefix[1..], 1..prefix.len());
+        assert_eq!(trimmed.context.leading_list_prose, None);
+        let derived = real.stage_body_source(prefix, before.len()..before.len() + prefix.len());
+        assert_eq!(derived.context.leading_list_prose, None);
+        let grandchild = derived.stage_source(prefix, 0..prefix.len());
+        assert_eq!(grandchild.context.leading_list_prose, None);
+        let clipped =
+            real.stage_source(&prefix[1..], before.len() + 1..before.len() + prefix.len());
+        assert_eq!(clipped.context.leading_list_prose, None);
+    }
+}
