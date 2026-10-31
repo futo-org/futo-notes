@@ -31,7 +31,6 @@ impl EditorSession {
             || line.quote_depth == 0
             || list.item.end > line.source.end
             || line.quote_depth <= list.quote_depth
-            || list.depth > 2
             || (action == FrameAction::Backspace
                 && (range.start != range.end
                     || range.start.0 != self.projection.display_at(line.content.start)))
@@ -96,6 +95,34 @@ impl EditorSession {
         output.push_str(&prefix[..quote_start]);
         copied += quote_start;
         if parallel {
+            // A compact empty header made only of three or more identical
+            // bullets would become a thematic break. Change only this newly
+            // explicit empty frame's marker through the established policy.
+            let marker = self.source.byte(list.marker.start);
+            crate::inline::visit_container();
+            if matches!(marker, b'-' | b'*') && list.ordinal.is_none() {
+                let scope = super::indent_source::canonical_quote_end(&prefix, list.quote_depth)
+                    .ok_or(EditorError::UnrepresentableFormat)?;
+                let mut count = 0;
+                let mut thematic = true;
+                for byte in prefix[scope..quote_start].bytes() {
+                    crate::inline::visit_container();
+                    if byte == marker {
+                        count += 1;
+                    } else if !matches!(byte, b' ' | b'\t') {
+                        thematic = false;
+                        break;
+                    }
+                }
+                if thematic && count >= 3 {
+                    let alternate =
+                        super::list_styles::independent_marker(false, Some(marker), None);
+                    let replacement = (alternate as char).to_string();
+                    let at = list.marker.start - line.source.start;
+                    output.replace_range(at..at + 1, &replacement);
+                    copied += replacement.len() + 1;
+                }
+            }
             // Only the paragraph newly lifted beside the list's empty first
             // paragraph needs a physical frame. Existing implicit ancestors
             // keep their exact compact header spelling.
