@@ -406,8 +406,15 @@ try {
   }
   {
     const angleVault = mkdtempSync(join(tmpdir(), 'futo-editor-wasm-angle-'));
-    timingVaults.push(angleVault);
-    await anglePendingConsumer({ start, stop, getSession: () => session, root: angleVault });
+    const codeVault = mkdtempSync(join(tmpdir(), 'futo-editor-wasm-angle-code-'));
+    timingVaults.push(angleVault, codeVault);
+    await anglePendingConsumer({
+      start,
+      stop,
+      getSession: () => session,
+      root: angleVault,
+      codeRoot: codeVault,
+    });
   }
   console.log(
     'Compiled WASM links: canonical inspection, actual-parent reference blocks, URL timing, retained/inserted targets, ordered acceptance, exact history and real recovery passed.',
