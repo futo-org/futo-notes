@@ -220,11 +220,13 @@ it('the shipping compositionend rule keeps an unfinished URL closer literal and 
   }
 });
 
-for (const [inner, href] of [
-  ['https://x.test/path', 'https://x.test/path'],
-  ['www.x.test/path', 'http://www.x.test/path'],
-]) {
-  it(`the shipping character input owns angle URI word end for ${inner}`, () => {
+for (const [inner, href, closing] of [
+  ['https://x.test/path', 'https://x.test/path', true],
+  ['www.x.test/path', 'http://www.x.test/path', true],
+  ['https://x.test/path', 'https://x.test/path', false],
+  ['www.x.test/path', 'http://www.x.test/path', false],
+] as const) {
+  it(`the shipping character input owns angle URI word end for ${inner}, closing=${closing}`, () => {
     const view = editor.ctx.get(editorViewCtx);
     view.updateState(
       EditorState.create({ schema: view.state.schema, plugins: view.state.plugins }),
@@ -265,16 +267,16 @@ for (const [inner, href] of [
     // plugin authority, not OS input or native composition evidence.
     type(`<${inner}`);
     const opening = snapshot();
-    type('>');
+    if (closing) type('>');
     const closed = snapshot();
     type(' ');
     const ended = snapshot();
     const evidence = JSON.stringify({ inner, opening, closed, ended });
     expect(opening.text, evidence).toBe(`<${inner}`);
     expect(opening.links, evidence).toEqual([]);
-    expect(closed.text, evidence).toBe(`<${inner}>`);
+    expect(closed.text, evidence).toBe(`<${inner}${closing ? '>' : ''}`);
     expect(closed.links, evidence).toEqual([]);
-    expect(ended.text, evidence).toBe(`<${inner}> `);
+    expect(ended.text, evidence).toBe(`<${inner}${closing ? '>' : ''} `);
     expect(ended.links, evidence).toEqual([{ text: inner, href }]);
   });
 }

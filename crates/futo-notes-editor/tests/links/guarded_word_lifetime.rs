@@ -199,16 +199,17 @@ fn typed_angle_word_end_has_a_pending_owner_before_any_code_command() {
 }
 
 #[test]
-fn standard_literal_opener_and_explicit_inner_www_link_have_canonical_raw_owners() {
+fn the_raw_parser_requires_explicit_inner_www_source_after_a_literal_angle() {
     let observed: Vec<_> = [
-        ("\\<www.x.test/path", "<www.x.test/path"),
+        ("\\<www.x.test/path", "<www.x.test/path", None),
         (
             "<[www.x.test/path](<http://www.x.test/path>)>",
             "<www.x.test/path>",
+            Some("http://www.x.test/path"),
         ),
     ]
     .into_iter()
-    .map(|(source, display)| {
+    .map(|(source, display, expected)| {
         let loaded = EditorSession::open(source);
         let link = loaded.inspect_link(Revision(0), range(1, 2)).unwrap();
         (
@@ -216,17 +217,186 @@ fn standard_literal_opener_and_explicit_inner_www_link_have_canonical_raw_owners
             display,
             loaded.display_text(),
             link.map(|link| link.destination),
+            expected,
         )
     })
     .collect();
     // Evaluate both independent standard-source candidates before asserting;
     // neither candidate discovers ownership in an existing live session.
-    for (source, display, actual, destination) in &observed {
+    for (source, display, actual, destination, expected) in &observed {
         assert_eq!(actual, display, "source={source:?}; observed={observed:?}");
         assert_eq!(
             destination.as_deref(),
-            Some("http://www.x.test/path"),
+            *expected,
             "source={source:?}; observed={observed:?}"
+        );
+    }
+}
+
+fn assert_new_www_typing(character_by_character: bool, closing: bool, loaded_opener: bool) {
+    let initial = if loaded_opener { "<" } else { "" };
+    let mut session = EditorSession::open(initial);
+    let mut view = ReferenceView::new(initial);
+    let input = if loaded_opener {
+        "www.x.test/path"
+    } else {
+        "<www.x.test/path"
+    };
+    if character_by_character {
+        for ch in input.chars() {
+            let at = view.text.len();
+            view.apply(
+                session
+                    .replace(
+                        session.revision(),
+                        range(at, at),
+                        &ch.to_string(),
+                        &mut |_| Ok(()),
+                    )
+                    .unwrap(),
+            );
+        }
+    } else {
+        let at = view.text.len();
+        view.apply(
+            session
+                .replace(session.revision(), range(at, at), input, &mut |_| Ok(()))
+                .unwrap(),
+        );
+    }
+    let opening_revision = session.revision();
+    assert_eq!(session.source_text(), "<www.x.test/path");
+    assert_eq!(view.text, "<www.x.test/path");
+    let fresh = EditorSession::open(&session.source_text());
+    assert!(fresh
+        .inspect_link(Revision(0), range(1, 2))
+        .unwrap()
+        .is_none());
+    if closing {
+        let at = view.text.len();
+        view.apply(
+            session
+                .replace(session.revision(), range(at, at), ">", &mut |_| Ok(()))
+                .unwrap(),
+        );
+        assert_eq!(view.text, "<www.x.test/path>");
+        assert!(session
+            .inspect_link(session.revision(), range(1, 2))
+            .unwrap()
+            .is_none());
+        let fresh = EditorSession::open(&session.source_text());
+        assert_eq!(
+            fresh
+                .inspect_link(Revision(0), range(1, 2))
+                .unwrap()
+                .map(|link| link.destination),
+            Some("http://www.x.test/path".into()),
+            "new canonical pending source after closer: {:?}",
+            session.source_text()
+        );
+        view.apply(
+            session
+                .undo(session.revision(), &mut |_| Ok(()))
+                .unwrap()
+                .unwrap(),
+        );
+        assert_eq!(session.source_text(), "<www.x.test/path");
+        assert!(session.revision().0 > opening_revision.0);
+        view.apply(
+            session
+                .redo(session.revision(), &mut |_| Ok(()))
+                .unwrap()
+                .unwrap(),
+        );
+    }
+    let before_space = session.source_text();
+    let at = view.text.len();
+    view.apply(
+        session
+            .replace(session.revision(), range(at, at), " ", &mut |_| Ok(()))
+            .unwrap(),
+    );
+    assert_eq!(
+        view.text,
+        if closing {
+            "<www.x.test/path> "
+        } else {
+            "<www.x.test/path "
+        }
+    );
+    assert_eq!(session.inspect_link(session.revision(), range(1, 2)).unwrap().map(|link| link.destination),
+        Some("http://www.x.test/path".into()),
+        "character_by_character={character_by_character}; closing={closing}; before={before_space:?}; source={:?}", session.source_text());
+    view.apply(
+        session
+            .undo(session.revision(), &mut |_| Ok(()))
+            .unwrap()
+            .unwrap(),
+    );
+    assert_eq!(session.source_text(), before_space);
+    view.apply(
+        session
+            .redo(session.revision(), &mut |_| Ok(()))
+            .unwrap()
+            .unwrap(),
+    );
+    let reopened = EditorSession::open(&session.source_text());
+    assert_eq!(reopened.display_text(), view.text);
+    assert_eq!(
+        reopened
+            .inspect_link(Revision(0), range(1, 2))
+            .unwrap()
+            .map(|link| link.destination),
+        Some("http://www.x.test/path".into())
+    );
+}
+
+#[test]
+fn a_bulk_typed_www_word_hands_off_to_canonical_pending_at_its_new_closer() {
+    assert_new_www_typing(false, true, false);
+}
+#[test]
+fn character_typing_retains_www_origin_through_eligibility_closer_and_history() {
+    assert_new_www_typing(true, true, false);
+}
+#[test]
+fn an_unclosed_character_typed_www_word_links_at_space_without_inventing_a_closer() {
+    assert_new_www_typing(true, false, false);
+}
+#[test]
+fn a_loaded_lone_angle_can_precede_a_genuinely_new_typed_www_word() {
+    assert_new_www_typing(true, true, true);
+}
+#[test]
+fn loaded_partial_or_complete_www_angles_never_adopt_typing_origin_from_a_suffix() {
+    for (source, suffix) in [
+        ("<w", "ww.x.test/path> "),
+        ("<www.", "x.test/path> "),
+        ("<www.x.test/path", "> "),
+        ("<www.x.test/path>", " "),
+    ] {
+        let mut session = EditorSession::open(source);
+        let mut view = ReferenceView::new(source);
+        for ch in suffix.chars() {
+            let at = view.text.len();
+            view.apply(
+                session
+                    .replace(
+                        session.revision(),
+                        range(at, at),
+                        &ch.to_string(),
+                        &mut |_| Ok(()),
+                    )
+                    .unwrap(),
+            );
+        }
+        assert_eq!(view.text, "<www.x.test/path> ");
+        assert!(
+            session
+                .inspect_link(session.revision(), range(1, 2))
+                .unwrap()
+                .is_none(),
+            "source={source:?}; suffix={suffix:?}"
         );
     }
 }
