@@ -178,6 +178,15 @@ fn public_link_input_charges_the_actual_post_parser_node_and_child_walk() {
     assert_eq!(session.display_text(), "Babel https://x.test");
     let queries = BARE_QUERIES.with(|q| q.borrow().clone());
     assert!(!queries.is_empty());
+    // Independently observed old work was 73/120/1/477/56. Two calls each
+    // add root/node/child12 + bounds/prefix3 + emitted records2; byte budgets
+    // remain exact. This pins attribution, not parser CPU or allocations.
+    assert_eq!(queries, vec![(16, 12, 33), (16, 12, 33)]);
+    assert_eq!(change.work.materialized_source_bytes, 73);
+    assert_eq!(change.work.parsed_source_bytes, 120);
+    assert_eq!(change.work.inserted_bytes, 1);
+    assert_eq!(change.work.link_copied_bytes, 56);
+    assert_eq!(change.work.link_metadata_items, 477 + 2 * (12 + 3 + 2));
     for (hints, actual, reported) in &queries {
         assert!(*reported >= hints + actual, "bare consumer: hint={hints}; actual stack/node/child={actual}; reported={reported}; ledger={queries:?}; work={:?}", change.work);
     }
