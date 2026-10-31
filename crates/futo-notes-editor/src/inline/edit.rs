@@ -194,7 +194,7 @@ impl Projection {
             || active
                 .iter()
                 .any(|id| markers[*id].kind == SpanKind::Format(InlineFormat::Code));
-        let link_work =
+        let angle =
             super::links::finish_angle_word(&mut changed, &mut markers, insertion_index, inserted);
         let timing = if let EditIntent::Input(action) = intent {
             super::spelling::prepare_url_input(
@@ -219,11 +219,15 @@ impl Projection {
             &self.references,
         )?;
         let delimiter_work = rendered.relocate_delimiters(source_start);
-        let parsed = rendered.parsed + link_work.parsed;
+        let parsed = rendered.parsed + angle.work.parsed;
         let output = rendered.text;
         let caret = rendered.caret;
-        let (retained, correspondence_work) =
+        let (mut retained, mut correspondence_work) =
             SourceCorrespondence::verify(&raw, inserted, &output, rendered.origins, source_start);
+        if let Some(word) = angle.source {
+            correspondence_work +=
+                retained.retire_word(source_start + word.start..source_start + word.end);
+        }
         let prefix = common_prefix(&raw, &output);
         let suffix: usize = raw[prefix..]
             .chars()
@@ -241,15 +245,15 @@ impl Projection {
             caret: source_start + caret,
             input_start: source_start + rendered.input_start,
             formats,
-            materialized: raw.len() + output.len() + timing.materialized,
+            materialized: raw.len() + output.len() + timing.materialized + angle.materialized,
             parsed: parsed + timing.work.parsed,
             link_metadata_items: link_metadata_items
                 + delimiter_work
                 + correspondence_work
                 + timing.work.items
                 + rendered.link_metadata_items
-                + link_work.items,
-            link_copied_bytes: rendered.link_copied_bytes + link_work.copied + timing.work.copied,
+                + angle.work.items,
+            link_copied_bytes: rendered.link_copied_bytes + angle.work.copied + timing.work.copied,
         })
     }
 }
@@ -262,4 +266,3 @@ pub(crate) fn delimiter(format: InlineFormat) -> &'static str {
         InlineFormat::Code => "`",
     }
 }
-

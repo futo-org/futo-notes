@@ -83,6 +83,20 @@ impl Projection {
             if let Some(mapped) = mapped {
                 result.ranges.push(mapped);
             } else {
+                let (retired, work) = correspondence.word_was_retired(field);
+                result.work += work;
+                if retired {
+                    continue;
+                }
+                // A changed source step wholly inside this URL changes its
+                // identity directly; no note-global display lookup is needed.
+                result.work += 1;
+                if field.start <= edit.range.start.0
+                    && edit.range.end.0 <= field.end
+                    && (!edit.removed.is_empty() || !edit.inserted.is_empty())
+                {
+                    continue;
+                }
                 let mut display_at = |at| {
                     let (row, base, display, visits) = self.rows.source_row_with_work(at);
                     let (local, segments) = row.display_at_with_work(at - base);

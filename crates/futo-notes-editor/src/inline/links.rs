@@ -368,7 +368,6 @@ fn replace_destination(close: &str, destination: &str) -> String {
     }
 }
 
-
 impl super::Projection {
     pub(crate) fn insert_link(
         &self,

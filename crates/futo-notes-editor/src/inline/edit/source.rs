@@ -9,6 +9,7 @@ type Ranges = Vec<(Range<usize>, Range<usize>)>;
 pub(crate) struct SourceCorrespondence {
     retained: Ranges,
     inserted: Ranges,
+    retired_word: Option<Range<usize>>,
 }
 fn append(ranges: &mut Ranges, old: Range<usize>, new: Range<usize>, work: &mut usize) {
     *work += 1;
@@ -65,6 +66,19 @@ impl SourceCorrespondence {
             }
         }
         (result, work)
+    }
+
+    pub(crate) fn retire_word(&mut self, range: Range<usize>) -> usize {
+        self.retired_word = Some(range);
+        3
+    }
+    pub(crate) fn word_was_retired(&self, range: &Range<usize>) -> (bool, usize) {
+        (
+            self.retired_word
+                .as_ref()
+                .is_some_and(|word| word.start <= range.start && range.end <= word.end),
+            1,
+        )
     }
 
     pub(crate) fn map(&self, mut point: SourcePoint) -> (Option<SourcePoint>, usize) {
