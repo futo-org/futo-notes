@@ -128,11 +128,16 @@ fn live_code_removal_releases_its_literal_url_guard_but_loaded_escape_keeps_auth
         .unwrap();
     assert_eq!(loaded.display_text(), "<https://x.test/path> ");
     assert!(loaded.source_text().contains("\\:"));
-    assert!(loaded
-        .project(loaded.revision(), range(0, 22))
-        .unwrap()
-        .links
-        .is_empty());
+    assert!(
+        loaded
+            .project(loaded.revision(), range(0, 22))
+            .unwrap()
+            .links
+            .is_empty(),
+        "loaded word-end: source={:?}, query={:?}",
+        loaded.source_text(),
+        loaded.project(loaded.revision(), range(0, 22))
+    );
 
     let mut session = EditorSession::open("");
     let mut view = ReferenceView::new("");
