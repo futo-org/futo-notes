@@ -32,3 +32,6 @@ mod derived_pending;
 
 #[path = "links/angle_pending.rs"]
 mod angle_pending;
+
+#[path = "links/angle_authored.rs"]
+mod angle_authored;
