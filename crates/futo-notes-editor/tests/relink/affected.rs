@@ -228,3 +228,96 @@ fn own_rename_of_loaded_code_never_creates_a_typed_uri_owner() {
         .links
         .is_empty());
 }
+
+#[test]
+fn a_canonical_rewrite_of_only_the_code_wikilink_keeps_the_surrounding_owned_uri() {
+    let before = r"\<https\://x.test/`[[Old]]`/path>";
+    let after = r"\<https\://x.test/`[[New]]`/path>";
+    for (source, literal) in [
+        (before, "<https://x.test/[[Old]]/path>"),
+        (after, "<https://x.test/[[New]]/path>"),
+    ] {
+        let canonical = EditorSession::open(source);
+        assert_eq!(canonical.display_text(), literal);
+        let query = canonical.project(Revision(0), range(0, 29)).unwrap();
+        assert!(query.links.is_empty());
+        assert_eq!(
+            query
+                .runs
+                .iter()
+                .filter(|run| run.formats.contains(&InlineFormat::Code))
+                .map(|run| run.range)
+                .collect::<Vec<_>>(),
+            vec![range(16, 23)]
+        );
+    }
+    let mut editor = EditorSession::open("");
+    let mut view = common::ReferenceView::new("");
+    view.apply(
+        editor
+            .replace(
+                Revision(0),
+                range(0, 0),
+                "<https://x.test/[[Old]]/path",
+                &mut |_| Ok(()),
+            )
+            .unwrap(),
+    );
+    view.apply(
+        editor
+            .replace(Revision(1), range(28, 28), ">", &mut |_| Ok(()))
+            .unwrap(),
+    );
+    editor.select(Revision(2), range(16, 23)).unwrap();
+    view.apply(
+        editor
+            .toggle_format(Revision(2), InlineFormat::Code, &mut |_| Ok(()))
+            .unwrap()
+            .unwrap(),
+    );
+    assert_eq!(view.text, "<https://x.test/[[Old]]/path>");
+    assert_eq!(editor.source_text(), before);
+    let action = OwnActionRelink {
+        mappings: vec![("Old".into(), "New".into())],
+        note_ids: vec!["Old".into()],
+    };
+    view.apply(
+        editor
+            .apply_own_relink(Revision(3), &action, &mut |_| Ok(()))
+            .expect("the actual partial Code URI has a proven standard-source rename")
+            .unwrap(),
+    );
+    assert_eq!(view.text, "<https://x.test/[[New]]/path>");
+    assert_eq!(editor.source_text(), after);
+    let query = editor.project(Revision(4), range(0, 29)).unwrap();
+    assert!(query.links.is_empty());
+    assert_eq!(
+        query
+            .runs
+            .iter()
+            .filter(|run| run.formats.contains(&InlineFormat::Code))
+            .map(|run| run.range)
+            .collect::<Vec<_>>(),
+        vec![range(16, 23)]
+    );
+    editor.select(Revision(4), range(16, 23)).unwrap();
+    view.apply(
+        editor
+            .toggle_format(Revision(4), InlineFormat::Code, &mut |_| Ok(()))
+            .unwrap()
+            .unwrap(),
+    );
+    editor.select(Revision(5), range(29, 29)).unwrap();
+    view.apply(
+        editor
+            .replace(Revision(5), range(29, 29), " ", &mut |_| Ok(()))
+            .unwrap(),
+    );
+    assert_eq!(view.text, "<https://x.test/[[New]]/path> ");
+    let link = editor
+        .inspect_link(Revision(6), range(1, 2))
+        .unwrap()
+        .unwrap();
+    assert_eq!(link.range, range(1, 28));
+    assert_eq!(link.destination, "https://x.test/[[New]]/path");
+}
