@@ -1,5 +1,6 @@
 // Link semantics and exact recovery through compiled WASM and the real store.
 import assert from 'node:assert/strict';
+import { anglePendingConsumer } from './wasm-angle-consumer.mjs';
 import { spawn } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -402,6 +403,11 @@ try {
     );
     assert.deepEqual(await blockReopened(JSON.stringify({ checkpoint: true })), { id: 'plain' });
     await stop();
+  }
+  {
+    const angleVault = mkdtempSync(join(tmpdir(), 'futo-editor-wasm-angle-'));
+    timingVaults.push(angleVault);
+    await anglePendingConsumer({ start, stop, getSession: () => session, root: angleVault });
   }
   console.log(
     'Compiled WASM links: canonical inspection, actual-parent reference blocks, URL timing, retained/inserted targets, ordered acceptance, exact history and real recovery passed.',
