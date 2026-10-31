@@ -296,9 +296,10 @@ impl EditorSession {
             || command == BlockCommand::Quote && first.quote_depth == 0)
             && end < self.source.len_bytes()
         {
-            if let Some(separator) =
+            if let Some((separator, copied)) =
                 self.quote_neighbor_separator(end, first.quote_depth + 1, !first.content.is_empty())
             {
+                materialized += copied + separator.len();
                 output.push_str(&separator);
             }
         }
