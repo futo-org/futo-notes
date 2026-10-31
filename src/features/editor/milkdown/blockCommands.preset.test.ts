@@ -619,6 +619,7 @@ const frameSources = [
   '- > - \n  >   b',
   '- - - b',
   '- - - \n      b',
+  '- - + \n      b',
 ];
 it.each(frameSources)('opens frame candidate %s', async (source) => {
   const parsed = editor.ctx.get(parserCtx)(source);

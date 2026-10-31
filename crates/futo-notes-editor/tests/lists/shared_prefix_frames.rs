@@ -201,10 +201,10 @@ frame!(
 frame!(
     outdent_retains_both_same_line_list_parents,
     "- - > b",
-    "- \n  - \n    b",
-    "\n\nb",
+    "- - \n    b",
+    "\nb",
     Outdent,
-    2
+    1
 );
 frame!(
     backspace_merges_nearest_empty_paragraph,
@@ -225,26 +225,26 @@ frame!(
 frame!(
     backspace_keeps_outer_empty_list_parent,
     "- - > b",
-    "- \n  - b",
-    "\nb",
+    "- - b",
+    "b",
     Backspace,
-    1
+    0
 );
 frame!(
     outdent_inner_list_retains_outer_empty_frame,
     "- > - b",
-    "- \n  > b",
-    "\nb",
+    "- > b",
+    "b",
     Outdent,
-    1
+    0
 );
 frame!(
     backspace_inner_list_retains_outer_empty_frame,
     "- > - b",
-    "- \n  > b",
-    "\nb",
+    "- > b",
+    "b",
     Backspace,
-    1
+    0
 );
 frame!(
     text_keeps_same_quote_outer_empty_list,
@@ -292,10 +292,10 @@ fn outdent_retains_frame_around_opaque_inline_code() {
 frame!(
     outdent_keeps_outer_of_two_shared_quotes,
     "- > > b",
-    "- \n  > b",
-    "\nb",
+    "- > b",
+    "b",
     Outdent,
-    1
+    0
 );
 frame!(
     backspace_merges_all_shared_quotes_to_nearest_list,
@@ -308,48 +308,48 @@ frame!(
 frame!(
     outdent_keeps_quoted_nested_parent_frames,
     "> - - > b",
-    "> - \n>   - \n>     b",
-    "\n\nb",
+    "> - - \n>     b",
+    "\nb",
     Outdent,
-    2
+    1
 );
 frame!(
     backspace_keeps_quoted_outer_parent_frame,
     "> - - > b",
-    "> - \n>   - b",
-    "\nb",
+    "> - - b",
+    "b",
     Backspace,
-    1
+    0
 );
 frame!(
     outdent_keeps_parent_frames_across_quote,
     "- > - > b",
-    "- \n  > - \n  >   b",
-    "\n\nb",
+    "- > - \n  >   b",
+    "\nb",
     Outdent,
-    2
+    1
 );
 frame!(
     backspace_keeps_parent_frame_and_intervening_quote,
     "- > - > b",
-    "- \n  > - b",
-    "\nb",
+    "- > - b",
+    "b",
     Backspace,
-    1
+    0
 );
 frame!(
     outdent_keeps_three_shared_empty_parent_frames,
     "- - - > b",
-    "- \n  - \n    - \n      b",
-    "\n\n\nb",
+    "- - + \n      b",
+    "\nb",
     Outdent,
-    3
+    1
 );
 frame!(
     backspace_keeps_two_shared_empty_parent_frames,
     "- - - > b",
-    "- \n  - \n    - b",
-    "\n\nb",
+    "- - - b",
+    "b",
     Backspace,
-    2
+    0
 );
