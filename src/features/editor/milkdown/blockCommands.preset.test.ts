@@ -415,6 +415,20 @@ const cases = [
     command: 'paragraph',
     anchor: 'b',
   },
+  {
+    name: 'Text lifts same line quoted item after a listed sibling',
+    source: '- p\n- > &acE;',
+    command: 'paragraph',
+    anchor: '\u223e\u0333',
+    offset: 1,
+  },
+  {
+    name: 'Text lifts same line quoted first item keeping following list',
+    source: '- > &acE;\n- p',
+    command: 'paragraph',
+    anchor: '\u223e\u0333',
+    offset: 1,
+  },
 ] as const;
 
 describe('pinned shipping toolbar container transactions (#299)', () => {
