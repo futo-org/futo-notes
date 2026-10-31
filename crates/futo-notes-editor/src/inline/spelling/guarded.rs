@@ -134,6 +134,27 @@ impl GuardState {
         {
             return Err(EditorError::UnrepresentableFormat);
         }
+        if let Some(id) = self.no_code {
+            let identity = self.owners[id]
+                .as_ref()
+                .ok_or(EditorError::UnrepresentableFormat)?;
+            let word = result
+                .iter()
+                .find(|word| {
+                    *work += 1;
+                    std::sync::Arc::ptr_eq(&word.identity, identity)
+                })
+                .ok_or(EditorError::UnrepresentableFormat)?;
+            for span in &candidate.spans {
+                *work += 1;
+                if span.kind == SpanKind::Format(crate::InlineFormat::Code)
+                    && span.open.start < word.envelope.end
+                    && word.envelope.start < span.close.end
+                {
+                    return Err(EditorError::UnrepresentableFormat);
+                }
+            }
+        }
         *work += crate::inline::guarded_words::validate_row(&rendered.text, candidate, &result)?;
         Ok(result)
     }

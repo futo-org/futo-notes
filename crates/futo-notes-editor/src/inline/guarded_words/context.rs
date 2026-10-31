@@ -16,6 +16,7 @@ pub(in crate::inline) struct GuardPart {
 #[derive(Default)]
 pub(in crate::inline) struct GuardState {
     pub owners: Vec<Option<Arc<CodeWordIdentity>>>,
+    pub no_code: Option<usize>,
 }
 impl GuardState {
     pub fn bind(

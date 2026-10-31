@@ -78,6 +78,10 @@ impl Projection {
             link_metadata_items,
         } = self.edit_context_for_change(source, range, toggle.is_none().then_some(inserted))?;
         let expanded = split_entities(pieces, a, z);
+        let (deleting_guard, deletion_proof_work) =
+            guard_state.prove_deletion(&expanded, &markers, a..z, inserted, intent)?;
+        let mut guard_work = super::references::ReferenceWork::default();
+        guard_work.items += deletion_proof_work;
         let Cut {
             mut before,
             mut after,
@@ -138,6 +142,12 @@ impl Projection {
         }));
         let insertion_end = changed.len();
         changed.extend(after);
+        if let Some(owner) = deleting_guard {
+            let work = guard_state.finish_deletion(&changed, owner)?;
+            guard_work.items += work.items;
+            guard_work.copied += work.copied;
+            guard_work.parsed += work.parsed;
+        }
         let boundaries: Vec<_> = block_boundaries
             .into_iter()
             .filter_map(|boundary| {
@@ -161,7 +171,6 @@ impl Projection {
             }
         }
         let mut toggle_work = 0;
-        let mut guard_work = super::references::ReferenceWork::default();
         if let Some(format) = toggle {
             let opaque: Vec<_> = self
                 .block_lines(range)
@@ -174,7 +183,10 @@ impl Projection {
                 .collect();
             toggle_work = super::toggle::pieces(&mut changed, &mut markers, a..z, format, &opaque);
             if format == InlineFormat::Code {
-                guard_work = guard_state.enroll(&mut changed, &markers)?;
+                let work = guard_state.enroll(&mut changed, &markers)?;
+                guard_work.items += work.items;
+                guard_work.copied += work.copied;
+                guard_work.parsed += work.parsed;
             }
         }
         let speculative_block = inserted
