@@ -5,6 +5,8 @@ impl Projection {
     /// Source-coordinate snapshot for one original source window. Staging must
     /// relocate these source positions only when its raw window is exact.
     pub(crate) fn pending_links(&self, window: Range<usize>) -> PendingLinks {
+        #[cfg(test)]
+        let visits = super::super::coordinate_work_tests::visits();
         let (first, first_work) = self.rows.locate_with_work(window.start, false);
         let (last, last_work) = self.rows.locate_with_work(
             window
@@ -42,6 +44,8 @@ impl Projection {
                     .map(|range| source + range.start..source + range.end),
             );
         }
+        #[cfg(test)]
+        super::super::coordinate_work_tests::query("pending-capture", visits, work);
         PendingLinks {
             window,
             delimiters,
@@ -53,6 +57,8 @@ impl Projection {
     }
 
     pub(crate) fn restore_pending(&mut self, snapshot: &PendingLinks) -> usize {
+        #[cfg(test)]
+        let visits = super::super::coordinate_work_tests::visits();
         let (first, first_work) = self.rows.locate_with_work(snapshot.window.start, false);
         let (last, last_work) = self.rows.locate_with_work(
             snapshot
@@ -89,6 +95,8 @@ impl Projection {
                 !inside(range)
             });
         }
+        #[cfg(test)]
+        super::super::coordinate_work_tests::query("pending-clear", visits, work);
         work += self.restore_guard_words(snapshot);
         work += self.restore_typed_origins(snapshot);
         work += self.install_delimiters(snapshot.delimiters.iter().cloned());

@@ -72,8 +72,10 @@ fn public_distant_input_exposes_its_actual_query_ledger() {
             .replace(Revision(0), range, "x", &mut |_| Ok(()))
             .unwrap();
         let queries = QUERIES.with(|rows| rows.borrow().clone());
+        let added: usize = queries.iter().map(|(_, actual, _)| actual).sum();
         eprintln!(
-            "COUNT={count}; metadata={}; allnodes={}; coordinate_queries={queries:?}",
+            "COUNT={count}; added={added}; old_nonindex={}; metadata={}; allnodes={}; coordinate_queries={queries:?}",
+            change.work.link_metadata_items - added,
             change.work.link_metadata_items,
             visits()
         );

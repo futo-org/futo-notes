@@ -78,6 +78,8 @@ impl super::Projection {
         Vec<(crate::DisplayRange, std::sync::Arc<LinkMeaning>)>,
         usize,
     ) {
+        #[cfg(test)]
+        let visits = super::coordinate_work_tests::visits();
         let (first, a) = self.rows.locate_with_work(range.start.0, true);
         let (last, z) = self.rows.locate_with_work(range.end.0, true);
         let mut links = Vec::new();
@@ -101,6 +103,8 @@ impl super::Projection {
                 }
             }
         }
+        #[cfg(test)]
+        super::coordinate_work_tests::query("link-runs", visits, work);
         (links, work)
     }
 }

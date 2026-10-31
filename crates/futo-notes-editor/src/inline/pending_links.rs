@@ -182,18 +182,24 @@ impl Projection {
     }
 
     pub(crate) fn pending_for_source_edit(&self, edit: SourceRange) -> PendingLinks {
+        #[cfg(test)]
+        let visits = super::coordinate_work_tests::visits();
         let (first, a) = self.rows.locate_with_work(edit.start.0, false);
         let (last, z) = self.rows.locate_with_work(edit.end.0, false);
         let first = first.saturating_sub(1);
         let last = (last + 1).min(self.rows.len() - 1);
         let (_, start, _, b) = self.rows.at_with_work(first);
         let (row, end, _, c) = self.rows.at_with_work(last);
+        #[cfg(test)]
+        super::coordinate_work_tests::query("pending-neighbors", visits, a + z + b + c);
         let mut pending = self.pending_links(start..end + row.source_len);
         pending.work += a + z + b + c;
         pending
     }
 
     pub(super) fn pending_display(&self, first: usize, last: usize) -> (Vec<DisplayRange>, usize) {
+        #[cfg(test)]
+        let visits = super::coordinate_work_tests::visits();
         let mut ranges = Vec::new();
         let mut work = 0;
         for index in first..=last {
@@ -209,6 +215,8 @@ impl Projection {
                 });
             }
         }
+        #[cfg(test)]
+        super::coordinate_work_tests::query("pending-display", visits, work);
         (ranges, work)
     }
 
