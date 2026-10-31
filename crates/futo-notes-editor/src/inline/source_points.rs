@@ -52,3 +52,21 @@ impl Projection {
         (local.map(|local| display + local), work + visits)
     }
 }
+
+impl Projection {
+    pub fn display_at(&self, offset: usize) -> usize {
+        self.display_at_with_work(offset).0
+    }
+
+    pub(crate) fn display_at_with_work(&self, offset: usize) -> (usize, usize) {
+        #[cfg(test)]
+        let visits = coordinate_work_tests::visits();
+        let (row, source, display, nodes) = self.rows.source_row_with_work(offset);
+        let (local, segments) = row.display_at_with_work(offset - source);
+        let work = nodes + segments;
+        #[cfg(test)]
+        coordinate_work_tests::query("display", visits, work);
+        (display + local, work)
+    }
+
+}

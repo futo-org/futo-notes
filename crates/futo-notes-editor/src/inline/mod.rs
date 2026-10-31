@@ -133,21 +133,6 @@ impl Projection {
         (source + low, source + high)
     }
 
-    pub fn display_at(&self, offset: usize) -> usize {
-        self.display_at_with_work(offset).0
-    }
-
-    pub(crate) fn display_at_with_work(&self, offset: usize) -> (usize, usize) {
-        #[cfg(test)]
-        let visits = coordinate_work_tests::visits();
-        let (row, source, display, nodes) = self.rows.source_row_with_work(offset);
-        let (local, segments) = row.display_at_with_work(offset - source);
-        let work = nodes + segments;
-        #[cfg(test)]
-        coordinate_work_tests::query("display", visits, work);
-        (display + local, work)
-    }
-
     pub fn formats_at(&self, offset: usize) -> Vec<InlineFormat> {
         let (row, source, _) = self.rows.at(self.rows.locate(offset, false));
         row.formats_at(offset - source)
