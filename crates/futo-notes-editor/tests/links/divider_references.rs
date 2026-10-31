@@ -336,9 +336,9 @@ fn divider_preserves_literal_left_definition_exposure_before_its_returned_caret(
 #[test]
 fn a_nonempty_semantic_reference_close_repair_preserves_the_divider_caret() {
     let original = "[id]: /target extra\n\n[one][id]\n\n[id]: /first 'F'";
-    let opening = "id: /target extra\n\none";
+    let opening = "id: /target extra\n\none\n\n";
     let expected = "[id][id]: /target\n***\n\n extra\n\n[one][id]\n\n[id]: /first 'F'";
-    let shown = "id: /target\n\u{fffc}\n\n extra\n\none";
+    let shown = "id: /target\n\u{fffc}\n\n extra\n\none\n\n";
     let before = EditorSession::open(original);
     assert_eq!(before.display_text(), opening);
     let canonical = EditorSession::open(expected);
