@@ -45,11 +45,15 @@ pub(super) fn query(name: &'static str, before: usize, reported: usize) {
 }
 
 pub(super) fn reset() {
+    BARE_QUERIES.with(|rows| rows.borrow_mut().clear());
     CAPTURE_BOUNDS.with(|rows| rows.borrow_mut().clear());
     QUERIES.with(|rows| rows.borrow_mut().clear());
 }
 pub(super) fn snapshot() -> Vec<(&'static str, usize, usize)> {
     QUERIES.with(|rows| rows.borrow().clone())
+}
+pub(super) fn bare_snapshot() -> Vec<(usize, usize, usize)> {
+    BARE_QUERIES.with(|rows| rows.borrow().clone())
 }
 pub(super) fn added_nodes() -> usize {
     snapshot()

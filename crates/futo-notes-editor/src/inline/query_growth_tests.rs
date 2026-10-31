@@ -144,6 +144,10 @@ fn public_pending_growth_work_keeps_foreign_word_fields_outside_the_local_ledger
         let (fixed, nodes) = measured(change.work);
         assert_eq!(nodes, [404, 361][index]);
         assert_eq!(bounds_delta(), 9);
+        eprintln!(
+            "pending count={count} bare primitive={:?}",
+            super::coordinate_work_tests::bare_snapshot()
+        );
         assert_eq!(fixed.link_metadata_items, 910);
         let mut previous = fixed;
         previous.link_metadata_items = previous
