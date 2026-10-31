@@ -120,9 +120,13 @@ struct NativeEditorLinkTests {
             let old = "https://x.test/[[Old]]/path"
             let new = "https://x.test/[[New Name]]/path"
             let end = UInt64(old.utf8.count + 1)
-            _ = try session.replaceUtf16(expected: 0, range: EditorUtf16Range(start: 0, end: 0), inserted: Array("<\(old)".utf16))
-            _ = try session.replaceUtf16(expected: 1, range: EditorUtf16Range(start: end, end: end), inserted: [62])
-            _ = try session.selectWithAffinity(expected: 2, range: EditorByteRange(start: 1, end: end), affinity: .backward)
+            _ = try session.replaceUtf16(
+                expected: 0, range: EditorUtf16Range(start: 0, end: 0),
+                inserted: Array("<\(old)".utf16))
+            _ = try session.replaceUtf16(
+                expected: 1, range: EditorUtf16Range(start: end, end: end), inserted: [62])
+            _ = try session.selectWithAffinity(
+                expected: 2, range: EditorByteRange(start: 1, end: end), affinity: .backward)
             _ = try #require(try session.toggleFormat(expected: 2, format: .code))
             _ = try session.checkpoint()
             _ = try store.rename(oldId: "Old", newId: "New Name")
@@ -136,7 +140,10 @@ struct NativeEditorLinkTests {
             #expect(try session.sourceText() == saved)
             let projected = try session.project(expected: 4, range: range)
             #expect(projected.text == shown && projected.links.isEmpty)
-            #expect(projected.runs.filter { $0.formats.contains(.code) }.map(\.range) == [EditorByteRange(start: 1, end: UInt64(new.utf8.count + 1))])
+            #expect(
+                projected.runs.filter { $0.formats.contains(.code) }.map(\.range) == [
+                    EditorByteRange(start: 1, end: UInt64(new.utf8.count + 1))
+                ])
             _ = try #require(try session.undo(expected: 4))
             let literal = try session.project(expected: 5, range: range)
             #expect(literal.text == shown && literal.links.isEmpty)
