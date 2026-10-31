@@ -283,6 +283,30 @@ it('partial Code command keeps the valid URI prefix literal and word-end owner d
   ).toBeNull();
 });
 
+it('the real Code-off command removes the word guard before the word-end owner links', () => {
+  const { view, text, parse, serializer } = partialCodeDocument();
+  createToolbarExec(() => editor).code();
+  const after = view.state.doc.toJSON() as NodeJson;
+  expect(rows(after)).toEqual([{ type: 'paragraph', text }]);
+  expect(links(after)).toEqual([]);
+  expect(
+    after.content?.[0]?.content?.some((part) =>
+      part.marks?.some((mark) => mark.type === 'inlineCode'),
+    ),
+  ).toBe(false);
+  const linked = autolinkTransaction(
+    view.state,
+    22,
+    (source) => editor.ctx.get(remarkCtx).parse(source),
+    (doc) => parse(serializer.serialize(doc.toJSON() as NodeJson)),
+  );
+  expect(linked).not.toBeNull();
+  expect(rows(linked!.doc.toJSON() as NodeJson)).toEqual([{ type: 'paragraph', text }]);
+  expect(links(linked!.doc.toJSON() as NodeJson)).toEqual([
+    { type: 'link', attrs: { href: 'https://x.test/path', title: null } },
+  ]);
+});
+
 it('characterizes the current serializer losing partial Code after an unlinked URI prefix', () => {
   const { after, parse, serializer } = partialCodeDocument();
   // Observed source-spelling discrepancy, not a portable behavioral golden.
