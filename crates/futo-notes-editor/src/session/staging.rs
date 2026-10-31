@@ -43,7 +43,11 @@ pub(super) enum PhysicalTail {
         code: bool,
         quote_depth: usize,
         first_item: Option<bool>,
+        item_depth: Option<usize>,
         empty_comment: bool,
+        // Original canonical fence and item end at this exact physical edge.
+        // Tuple is list depth, list quote depth, fence quote depth; no offsets.
+        fence_item_end: Option<(usize, usize, usize)>,
     },
     Unknown,
 }
@@ -60,8 +64,19 @@ impl Default for StageContext {
         Self {
             before: Boundary::default(),
             after: Boundary::default(),
+            physical_tail: PhysicalTail::Unknown,
+            original_canonical: false,
+        }
+    }
+}
+
+impl StageContext {
+    /// Only the constructor for a complete real source may certify its edge.
+    pub(super) fn complete_source() -> Self {
+        Self {
             physical_tail: PhysicalTail::Eof,
             original_canonical: true,
+            ..Self::default()
         }
     }
 }
@@ -147,6 +162,8 @@ impl EditorSession {
                     code: prefix.code,
                     quote_depth: prefix.quote_depth,
                     first_item: prefix.list.as_ref().map(|list| list.first),
+                    item_depth: prefix.list.as_ref().map(|list| list.depth),
+                    fence_item_end: self.projection.fence_item_end_at(window.end),
                     empty_comment: self
                         .projection
                         .list_command_line_at_source(window.end)

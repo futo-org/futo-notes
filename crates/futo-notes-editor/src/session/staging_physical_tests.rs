@@ -16,17 +16,25 @@ fn exact_edge_provenance_survives_nested_windows_but_never_derived_ancestry() {
                     code,
                     first_item,
                     empty_comment,
+                    item_depth,
+                    fence_item_end,
                     ..
                 } => {
                     assert!(!tail.is_empty());
                     assert_eq!(empty_comment, tail == "<!-- -->\n");
+                    if empty_comment {
+                        assert_eq!(fence_item_end, Some((1, 0, 0)));
+                    }
                     if tail == "- outside" {
                         assert!(!code);
                         assert_eq!(first_item, Some(true));
+                        assert_eq!(item_depth, Some(1));
+                        assert_eq!(fence_item_end, Some((1, 0, 0)));
                     }
                     if tail == "  continuation\n" {
                         assert!(code);
                         assert_eq!(first_item, Some(false));
+                        assert_eq!(fence_item_end, None);
                     }
                 }
                 other => panic!("unexpected exact physical edge: {other:?}"),
