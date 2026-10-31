@@ -78,6 +78,7 @@ pub(in crate::inline) fn finish_angle_word(
     result.source = complete.then_some(source).flatten();
     let id = markers.len();
     markers.push(super::super::spelling::Marker {
+        pending: false,
         kind: link.kind.clone(),
         open: "<".into(),
         close: ">".into(),
@@ -97,6 +98,124 @@ pub(in crate::inline) fn finish_angle_word(
             piece.spans.push(id);
         }
         at = end;
+    }
+    result
+}
+
+/// A newly typed closer can make standard source use the same canonical inner
+/// autolink as word end. Only an already pending original URI grants ownership;
+/// loaded literal angle text and authored autolinks cannot acquire it by shape.
+pub(in crate::inline) fn complete_typed_angle(
+    pieces: &mut [super::super::spelling::Piece],
+    markers: &mut Vec<super::super::spelling::Marker>,
+    insertion: Range<usize>,
+    inserted: &str,
+    intent: super::super::edit::EditIntent,
+    pending: &[Range<usize>],
+) -> AngleFinish {
+    use super::super::{row::SpanKind, spelling::PieceOrigin};
+    let mut result = AngleFinish::default();
+    if !matches!(
+        intent,
+        super::super::edit::EditIntent::Input(crate::InputAction::Typing)
+    ) || inserted != ">"
+        || insertion.len() != 1
+        || pending.is_empty()
+    {
+        return result;
+    }
+    result.work.items += 1;
+    if !matches!(&pieces[insertion.start].origin, Some(PieceOrigin::Inserted(range)) if *range == (0..1))
+    {
+        return result;
+    }
+    let mut start = insertion.start;
+    while start > 0 {
+        result.work.items += 1;
+        if pieces[start - 1].display.contains(char::is_whitespace) {
+            break;
+        }
+        start -= 1;
+    }
+    if start + 1 >= insertion.start
+        || pieces[start].display != "<"
+        || !matches!(pieces[start].raw.as_str(), "<" | "\\<")
+        || !matches!(pieces[start].origin, Some(PieceOrigin::Source(_)))
+    {
+        return result;
+    }
+    let mut source: Option<Range<usize>> = None;
+    for piece in &pieces[start..insertion.start] {
+        result.work.items += 1;
+        for id in &piece.spans {
+            result.work.items += 1;
+            if matches!(
+                markers[*id].kind,
+                SpanKind::Link(_) | SpanKind::Format(crate::InlineFormat::Code)
+            ) {
+                return result;
+            }
+        }
+        let Some(PieceOrigin::Source(range)) = &piece.origin else {
+            return result;
+        };
+        if let Some(previous) = &mut source {
+            result.work.items += 1;
+            if previous.end != range.start {
+                return result;
+            }
+            previous.end = range.end;
+        } else {
+            source = Some(range.clone());
+        }
+    }
+    let Some(PieceOrigin::Source(first)) = &pieces[start + 1].origin else {
+        return result;
+    };
+    let inner_source = first.start..source.unwrap().end;
+    if !pending.iter().any(|range| {
+        result.work.items += 1;
+        *range == inner_source
+    }) {
+        return result;
+    }
+    let inner: String = pieces[start + 1..insertion.start]
+        .iter()
+        .map(|piece| {
+            result.work.items += 1;
+            piece.display.as_str()
+        })
+        .collect();
+    result.materialized += inner.len();
+    let (links, parsed) = bare_links(&inner);
+    result.work.parsed += parsed;
+    result.work.items += links.len() + 1;
+    result.work.copied += links
+        .iter()
+        .filter_map(|link| match &link.kind {
+            SpanKind::Link(target) => {
+                Some(target.destination.len() + target.title.as_ref().map_or(0, String::len))
+            }
+            _ => None,
+        })
+        .sum::<usize>();
+    let Some(link) = links
+        .first()
+        .filter(|link| links.len() == 1 && link.open.start == 0 && link.close.end == inner.len())
+    else {
+        return result;
+    };
+    let id = markers.len();
+    markers.push(super::super::spelling::Marker {
+        pending: true,
+        kind: link.kind.clone(),
+        open: "<".into(),
+        close: ">".into(),
+    });
+    pieces[start].raw = "<".into();
+    for piece in &mut pieces[start + 1..insertion.start] {
+        result.work.items += 1;
+        piece.spans.push(id);
     }
     result
 }

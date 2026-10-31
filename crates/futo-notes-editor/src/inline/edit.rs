@@ -29,6 +29,7 @@ pub(crate) struct Plan {
     pub requires_source_identity: bool,
     pub range: Range<usize>,
     pub delimiters: Vec<Range<usize>>,
+    pub pending_links: Vec<Range<usize>>,
     pub inserted: String,
     pub caret: usize,
     pub input_start: usize,
@@ -69,6 +70,7 @@ impl Projection {
             mut markers,
             pieces,
             block_boundaries,
+            pending_links,
             link_metadata_items,
         } = self.edit_context_for_change(source, range, toggle.is_none().then_some(inserted));
         let expanded = split_entities(pieces, a, z);
@@ -194,6 +196,14 @@ impl Projection {
             || active
                 .iter()
                 .any(|id| markers[*id].kind == SpanKind::Format(InlineFormat::Code));
+        let completion = super::links::complete_typed_angle(
+            &mut changed,
+            &mut markers,
+            insertion_index..insertion_end,
+            inserted,
+            intent,
+            &pending_links,
+        );
         let angle =
             super::links::finish_angle_word(&mut changed, &mut markers, insertion_index, inserted);
         let timing = if let EditIntent::Input(action) = intent {
@@ -219,7 +229,7 @@ impl Projection {
             &self.references,
         )?;
         let delimiter_work = rendered.relocate_delimiters(source_start);
-        let parsed = rendered.parsed + angle.work.parsed;
+        let parsed = rendered.parsed + angle.work.parsed + completion.work.parsed;
         let output = rendered.text;
         let caret = rendered.caret;
         let (mut retained, mut correspondence_work) =
@@ -239,21 +249,30 @@ impl Projection {
         Ok(Plan {
             retained,
             requires_source_identity: !literal,
+            pending_links: rendered.pending_links,
             delimiters: rendered.delimiters,
             range: source_start + prefix..source_end - suffix,
             inserted: output[prefix..output.len() - suffix].to_owned(),
             caret: source_start + caret,
             input_start: source_start + rendered.input_start,
             formats,
-            materialized: raw.len() + output.len() + timing.materialized + angle.materialized,
+            materialized: raw.len()
+                + output.len()
+                + timing.materialized
+                + angle.materialized
+                + completion.materialized,
             parsed: parsed + timing.work.parsed,
             link_metadata_items: link_metadata_items
                 + delimiter_work
                 + correspondence_work
                 + timing.work.items
                 + rendered.link_metadata_items
-                + angle.work.items,
-            link_copied_bytes: rendered.link_copied_bytes + angle.work.copied + timing.work.copied,
+                + angle.work.items
+                + completion.work.items,
+            link_copied_bytes: rendered.link_copied_bytes
+                + angle.work.copied
+                + completion.work.copied
+                + timing.work.copied,
         })
     }
 }

@@ -107,20 +107,28 @@ impl EditorSession {
             &plan.inserted,
         )?;
         let before_links = self.projection.pending_for_source_edit(edit.range);
-        let prepared = if before_links.ranges.is_empty() {
+        let prepared = if before_links.ranges.is_empty() && plan.pending_links.is_empty() {
             pending::PendingPreview {
                 supported: None,
                 work: EditWork::default(),
             }
         } else {
-            let retained = self.projection.retained_input_pending(
+            let mut retained = self.projection.retained_input_pending(
                 &before_links,
                 &edit,
                 &plan.retained,
                 range,
             )?;
+            retained.work += 2 * plan.pending_links.len();
+            retained.ranges.extend(plan.pending_links.iter().cloned());
+            let require_all = !plan.pending_links.is_empty();
             let mut prepared = if retained.has_fields() {
-                self.preview_pending_edit(&edit, before_links.window.clone(), &retained, false)?
+                self.preview_pending_edit(
+                    &edit,
+                    before_links.window.clone(),
+                    &retained,
+                    require_all,
+                )?
             } else {
                 pending::PendingPreview {
                     supported: None,
@@ -128,6 +136,9 @@ impl EditorSession {
                 }
             };
             prepared.work.link_metadata_items += retained.work;
+            if require_all {
+                prepared.supported = Some(retained);
+            }
             prepared
         };
         accept(&edit).map_err(EditorError::Persistence)?;

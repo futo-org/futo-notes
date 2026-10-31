@@ -216,11 +216,11 @@ impl Projection {
             let local = range.start - source..range.end - source;
             let row = self.rows.metadata_mut(index);
             work += 1 + row.spans.len();
-            if row.spans.iter().any(|span| {
-                span.open.is_empty()
-                    && span.close.is_empty()
-                    && (span.open.end..span.close.start) == local
-            }) {
+            if row
+                .spans
+                .iter()
+                .any(|span| pending_span(span) && (span.open.end..span.close.start) == local)
+            {
                 row.literal_links.push(local);
             }
         }
@@ -269,8 +269,7 @@ impl Projection {
                 .spans
                 .iter()
                 .find(|span| {
-                    span.open.is_empty()
-                        && span.close.is_empty()
+                    pending_span(span)
                         && display + row.display_at(span.open.end) == range.start.0
                         && display + row.display_at(span.close.start) <= range.end.0
                 })
@@ -283,8 +282,7 @@ impl Projection {
     }
 
     pub(super) fn suppressed_link(&self, row: &Row, span: &Span, _display: usize) -> bool {
-        span.open.is_empty()
-            && span.close.is_empty()
+        matches!(span.kind, SpanKind::Link(_))
             && row
                 .literal_links
                 .contains(&(span.open.end..span.close.start))
@@ -448,4 +446,13 @@ impl Projection {
         }
         (ranges, work)
     }
+}
+
+// Only a supplied transient identity may use this predicate. It never enrolls
+// an authored autolink: canonical bare fields and angle autolinks have no
+// reference identity/title and have either zero-width or one-byte delimiters.
+fn pending_span(span: &Span) -> bool {
+    matches!(&span.kind, SpanKind::Link(target) if target.reference.is_none() && target.title.is_none())
+        && ((span.open.is_empty() && span.close.is_empty())
+            || (span.open.len() == 1 && span.close.len() == 1))
 }

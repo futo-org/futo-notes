@@ -18,6 +18,7 @@ pub(in crate::inline) struct Piece {
     pub definition: Option<std::sync::Arc<str>>,
 }
 pub(in crate::inline) struct Marker {
+    pub pending: bool,
     pub kind: SpanKind,
     pub open: String,
     pub close: String,
@@ -27,6 +28,7 @@ pub(in crate::inline) struct Spelling {
     pub text: String,
     pub origins: Vec<(PieceOrigin, Range<usize>)>,
     pub delimiters: Vec<Range<usize>>,
+    pub pending_links: Vec<Range<usize>>,
     pub caret: usize,
     pub input_start: usize,
     pub anchors: Vec<usize>,

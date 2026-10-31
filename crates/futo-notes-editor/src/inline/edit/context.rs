@@ -25,6 +25,7 @@ impl Projection {
         let mut z = range.end.0 - display_start;
         let mut display_len = 0;
         let mut block_boundaries = Vec::new();
+        let mut pending_links = Vec::new();
         let may_empty_heading = replacement.is_some_and(|text| {
             text.split('\n')
                 .any(|line| line.trim_matches([' ', '\t', '\r']).is_empty())
@@ -34,6 +35,10 @@ impl Projection {
             let (row, row_source, row_display) = self.rows.at(index);
             let base = row_source - source_start;
             let span_base = markers.len();
+            pending_links.extend(row.literal_links.iter().map(|range| {
+                link_metadata_items += 3;
+                base + range.start..base + range.end
+            }));
             for pair in row.blocks.windows(2) {
                 if pair[0].heading > 0
                     || pair[1].heading > 0
@@ -47,6 +52,7 @@ impl Projection {
                     link_metadata_items += 1;
                 }
                 Marker {
+                    pending: !span.open.is_empty() && self.suppressed_link(row, span, row_display),
                     kind: span.kind.clone(),
                     open: raw[base + span.open.start..base + span.open.end].into(),
                     close: raw[base + span.close.start..base + span.close.end].into(),
@@ -151,7 +157,7 @@ impl Projection {
                     .iter()
                     .enumerate()
                     .filter(|(_, span)| {
-                        !self.suppressed_link(row, span, row_display)
+                        (!self.suppressed_link(row, span, row_display) || !span.open.is_empty())
                             && span.open.end <= segment.source.start
                             && segment.source.end <= span.close.start
                     })
@@ -220,6 +226,7 @@ impl Projection {
             markers,
             pieces,
             block_boundaries,
+            pending_links,
             link_metadata_items,
         }
     }
@@ -234,5 +241,6 @@ pub(in crate::inline) struct Context {
     pub(in crate::inline) markers: Vec<Marker>,
     pub(in crate::inline) pieces: Vec<Piece>,
     pub(in crate::inline) block_boundaries: Vec<usize>,
+    pub(in crate::inline) pending_links: Vec<Range<usize>>,
     pub(in crate::inline) link_metadata_items: usize,
 }

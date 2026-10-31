@@ -212,7 +212,19 @@ pub(super) fn spell_with_anchors(
         }
         mapped.push(found.ok_or(EditorError::UnrepresentableFormat)?);
     }
+    let pending_links = rendered
+        .spans
+        .iter()
+        .filter_map(|(id, span)| {
+            link_metadata_items += 1;
+            markers[*id].pending.then(|| {
+                link_metadata_items += 2;
+                span.open.end..span.close.start
+            })
+        })
+        .collect();
     Ok(Spelling {
+        pending_links,
         origins: url_timing::collect_origins(&pieces, &rendered, &mut link_metadata_items),
         input_start: rendered
             .pieces

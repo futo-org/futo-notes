@@ -267,11 +267,11 @@ pub(super) fn collect_delimiters(
 
 impl super::Spelling {
     pub(in crate::inline) fn relocate_delimiters(&mut self, source: usize) -> usize {
-        for range in &mut self.delimiters {
+        for range in self.delimiters.iter_mut().chain(&mut self.pending_links) {
             range.start += source;
             range.end += source;
         }
-        2 * self.delimiters.len()
+        2 * (self.delimiters.len() + self.pending_links.len())
     }
 }
 

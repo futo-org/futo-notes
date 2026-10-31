@@ -2,7 +2,7 @@
 //! the Markdown parser. Consumers receive destination semantics, never syntax.
 use super::row::LinkMeaning;
 mod angle;
-pub(super) use angle::finish_angle_word;
+pub(super) use angle::{complete_typed_angle, finish_angle_word};
 
 impl super::Projection {
     pub(crate) fn link_descriptions_with_work(
@@ -170,6 +170,7 @@ impl super::Projection {
         } else {
             let id = markers.len();
             markers.push(Marker {
+                pending: false,
                 kind: SpanKind::Link(LinkMeaning::bare(destination.into())),
                 open: "[".into(),
                 close: format!("](<{}>)", destination_source(destination)),
@@ -208,6 +209,7 @@ impl super::Projection {
             Plan {
                 retained: Default::default(),
                 requires_source_identity: false,
+                pending_links: rendered.pending_links,
                 delimiters: rendered.delimiters,
                 input_start: 0,
                 range: source_start + prefix..source_end - suffix,
@@ -418,6 +420,7 @@ impl super::Projection {
             && matches!(&links[0].kind, SpanKind::Link(target) if target.destination == destination && target.title.is_none() && target.reference.is_none());
         let id = markers.len();
         markers.push(Marker {
+            pending: false,
             kind: SpanKind::Link(LinkMeaning::bare(destination.into())),
             open: if bare { "".into() } else { "[".into() },
             close: if bare {
@@ -457,6 +460,7 @@ impl super::Projection {
         Ok(Plan {
             retained: Default::default(),
             requires_source_identity: false,
+            pending_links: rendered.pending_links,
             delimiters: rendered.delimiters,
             input_start: 0,
             range: source_start + prefix..source_end - suffix,
