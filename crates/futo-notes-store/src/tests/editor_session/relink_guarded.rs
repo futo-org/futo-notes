@@ -294,3 +294,5 @@ fn typed_word_relink_and_history_retry_real_store_appends_before_closer() {
         }
     }
 }
+
+mod literal;
