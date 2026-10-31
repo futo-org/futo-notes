@@ -17,6 +17,7 @@ mod paragraphs;
 mod portable;
 mod portable_attachment;
 mod portable_readiness;
+mod portable_waiting;
 mod recovery;
 mod relink_guarded;
 mod seams;

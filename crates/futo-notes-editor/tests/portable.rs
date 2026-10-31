@@ -1,6 +1,8 @@
 mod common;
 
-use futo_notes_editor::{DisplayOffset, DisplayRange, PortableSession, Revision, SessionToken};
+use futo_notes_editor::{
+    Affinity, DisplayOffset, DisplayRange, PortableError, PortableSession, Revision, SessionToken,
+};
 
 #[test]
 fn page_local_edit_waits_for_host_acceptance_before_displaying_or_accepting_more_input() {
@@ -19,15 +21,34 @@ fn page_local_edit_waits_for_host_acceptance_before_displaying_or_accepting_more
     assert_eq!(session.draft_text(), "plain!");
     assert_eq!(view.text, "plain");
     assert_eq!(session.status().accepted, Revision(0));
-    assert!(session
-        .replace(Revision(1), DisplayRange::default(), "?")
-        .is_err());
+    assert_eq!(
+        session.replace(Revision(0), DisplayRange::default(), "?"),
+        Err(PortableError::Busy)
+    );
+    assert_eq!(
+        session.select_with_affinity(Revision(0), DisplayRange::default(), Affinity::Forward),
+        Err(PortableError::Busy)
+    );
+    assert_eq!(
+        session.project(Revision(0), DisplayRange::default()),
+        Err(PortableError::Busy)
+    );
+    assert_eq!(session.draft_text(), "plain!");
     let ack = request.accepted(Revision(1), Revision(0));
     view.apply(session.acknowledge(ack.clone()).unwrap().unwrap());
     assert_eq!(view.text, "plain!");
     assert_eq!(session.status().accepted, Revision(1));
     assert_eq!(session.status().durable, Revision(0));
     assert!(session.acknowledge(ack).unwrap().is_none());
+    session
+        .select_with_affinity(Revision(1), DisplayRange::default(), Affinity::Forward)
+        .unwrap();
+    assert!(session
+        .project(Revision(1), DisplayRange::default())
+        .is_ok());
+    assert!(session
+        .replace(Revision(1), DisplayRange::default(), "?")
+        .is_ok());
 }
 
 #[test]
