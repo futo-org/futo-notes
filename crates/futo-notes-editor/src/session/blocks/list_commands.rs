@@ -262,15 +262,22 @@ impl EditorSession {
                     let index = self.source.byte_to_line(line.source.start);
                     if index > 0 {
                         let previous = self.source.line_to_byte(index - 1);
-                        if !self
+                        if self
                             .source
                             .byte_slice(previous..line.source.start)
-                            .to_string()
-                            .trim()
-                            .is_empty()
+                            .chars()
+                            .any(|ch| {
+                                crate::inline::visit_container();
+                                !ch.is_whitespace()
+                            })
                             && at_source(previous).and_then(|line| line.list).is_some_and(
                                 |previous| {
-                                    previous.owner == list.owner && !targets.retires_item(&previous)
+                                    !targets.retires_item(&previous)
+                                        && (previous.owner == list.owner
+                                            || mixed
+                                                && previous.quote_depth == list.quote_depth
+                                                && targets.output_depth(&previous)
+                                                    == targets.output_depth(list))
                                 },
                             )
                         {
