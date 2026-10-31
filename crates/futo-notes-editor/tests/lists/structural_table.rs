@@ -234,3 +234,40 @@ fn final_cross_quote_heading_preserves_owners_source_selection_and_history() {
 fn final_cross_quote_quote_declines_without_source_host_or_history() {
     execute(&CASES[5]);
 }
+
+#[test]
+fn an_extra_after_quote_marker_creates_an_empty_list_item_not_a_retained_parent() {
+    let compact = EditorSession::open(CASES[1].expected);
+    let extra =
+        EditorSession::open("- parent\n\n> child😀\n+\n+ grandchild\n+ sibling\n- following");
+    let empties = |s: &EditorSession| {
+        let shown = s.display_text();
+        let p = s.project(s.revision(), range(0, shown.len())).unwrap();
+        p.blocks
+            .iter()
+            .filter(|b| {
+                b.list.as_ref().is_some_and(|l| l.first)
+                    && shown[b.range.start.0..b.range.end.0]
+                        .trim_end_matches(['\r', '\n'])
+                        .is_empty()
+            })
+            .count()
+    };
+    assert_eq!(empties(&compact), 0);
+    assert_eq!(empties(&extra), 1);
+    assert_ne!(compact.display_text(), extra.display_text());
+}
+
+#[test]
+fn quoting_the_already_lifted_child_must_not_insert_a_new_empty_list_item() {
+    execute(&StructuralCase {
+        source: "- parent\n\nchild😀\n+ grandchild\n+ sibling\n- following",
+        before: UNICODE_SEPARATED,
+        expected: CASES[1].expected,
+        shown: UNICODE_SEPARATED,
+        command: BlockCommand::Quote,
+        heading: 0,
+        quote: 1,
+        list: None,
+    });
+}
