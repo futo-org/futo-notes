@@ -237,25 +237,24 @@ pub(super) fn describe(
 /// The minimum source start among body ranges with the original strict overlap
 /// predicate. Empty physical query rows retain that same predicate.
 fn body_start(bodies: &[Range<usize>], line: &Range<usize>) -> Option<usize> {
-    bodies
-        .iter()
-        .filter(|body| {
-            super::visit_container();
-            if body.start < line.end {
-                super::visit_container();
-                line.start < body.end
-            } else {
-                false
-            }
-        })
-        .map(|body| {
-            super::visit_container();
-            body.start.max(line.start)
-        })
-        .min_by(|a, b| {
-            super::visit_container();
-            a.cmp(b)
-        })
+    // Canonical Text ranges have monotonic starts and ends. Earlier endings
+    // cannot overlap; among the remaining ranges the first overlapping start
+    // supplies the old minimum, even for duplicates or overlapping bodies.
+    let first = bodies.partition_point(|body| {
+        super::visit_container();
+        body.end <= line.start
+    });
+    let body = bodies.get(first)?;
+    super::visit_container();
+    if body.start >= line.end {
+        return None;
+    }
+    super::visit_container();
+    if line.start >= body.end {
+        return None;
+    }
+    super::visit_container();
+    Some(body.start.max(line.start))
 }
 
 #[cfg(test)]
