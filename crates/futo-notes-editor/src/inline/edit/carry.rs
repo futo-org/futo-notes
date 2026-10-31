@@ -61,6 +61,7 @@ pub(in crate::inline) fn carry_formats(
                     spelling.unwrap_or_else(|| (delimiter.into(), delimiter.into()));
                 markers.push(Marker {
                     pending: false,
+                    activate: false,
                     kind: SpanKind::Format(format),
                     open,
                     close,

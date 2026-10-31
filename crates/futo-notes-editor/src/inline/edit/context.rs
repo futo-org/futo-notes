@@ -59,6 +59,7 @@ impl Projection {
                     });
                 Marker {
                     pending,
+                    activate: false,
                     kind: span.kind.clone(),
                     open: raw[base + span.open.start..base + span.open.end].into(),
                     close: raw[base + span.close.start..base + span.close.end].into(),

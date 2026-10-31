@@ -267,11 +267,16 @@ pub(super) fn collect_delimiters(
 
 impl super::Spelling {
     pub(in crate::inline) fn relocate_delimiters(&mut self, source: usize) -> usize {
-        for range in self.delimiters.iter_mut().chain(&mut self.pending_links) {
+        for range in self
+            .delimiters
+            .iter_mut()
+            .chain(&mut self.pending_links)
+            .chain(&mut self.activated_links)
+        {
             range.start += source;
             range.end += source;
         }
-        2 * (self.delimiters.len() + self.pending_links.len())
+        2 * (self.delimiters.len() + self.pending_links.len() + self.activated_links.len())
     }
 }
 
@@ -291,4 +296,27 @@ pub(super) fn collect_origins(
             })
         })
         .collect()
+}
+
+/// Output identities come only from the same verifier-proven marker instance.
+/// Activation is command retirement, never correspondence or timing enrollment.
+pub(super) fn collect_link_timing(
+    markers: &[Marker],
+    rendered: &Rendered,
+    work: &mut usize,
+) -> (Vec<Range<usize>>, Vec<Range<usize>>) {
+    let (mut pending, mut activated) = (Vec::new(), Vec::new());
+    for (id, span) in &rendered.spans {
+        *work += 1;
+        let marker = &markers[*id];
+        debug_assert!(!(marker.pending && marker.activate));
+        if marker.pending {
+            *work += 2;
+            pending.push(span.open.end..span.close.start);
+        } else if marker.activate {
+            *work += 2;
+            activated.push(span.open.end..span.close.start);
+        }
+    }
+    (pending, activated)
 }

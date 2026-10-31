@@ -5,6 +5,7 @@ use std::ops::Range;
 
 pub(super) struct PendingPreview {
     pub supported: Option<PendingLinks>,
+    pub retired: Vec<Range<usize>>,
     pub work: EditWork,
 }
 
@@ -21,9 +22,14 @@ impl EditorSession {
     ) -> Result<PendingPreview, EditorError> {
         let empty = || PendingPreview {
             supported: None,
+            retired: Vec::new(),
             work: EditWork::default(),
         };
-        if plan.pending_links.is_empty() && (input.is_none() || before.ranges.is_empty()) {
+        let activate = !before.ranges.is_empty() && !plan.activated_links.is_empty();
+        if plan.pending_links.is_empty()
+            && !activate
+            && (input.is_none() || before.ranges.is_empty())
+        {
             return Ok(empty());
         }
         let mut retained = if let Some(input) = input {
@@ -39,18 +45,39 @@ impl EditorSession {
         };
         retained.work += 2 * plan.pending_links.len();
         retained.ranges.extend(plan.pending_links.iter().cloned());
+        let mut required = plan.pending_links.clone();
+        retained.work += 2 * required.len();
+        if activate {
+            retained.work += 4 * plan.activated_links.len();
+            required.extend(plan.activated_links.iter().cloned());
+            retained.ranges.extend(plan.activated_links.iter().cloned());
+        }
         let mut prepared = if retained.has_fields() {
-            self.preview_pending_edit(
-                edit,
-                before.window.clone(),
-                &retained,
-                false,
-                &plan.pending_links,
-            )?
+            self.preview_pending_edit(edit, before.window.clone(), &retained, false, &required)?
         } else {
             empty()
         };
         prepared.work.link_metadata_items += retained.work;
+        if activate {
+            prepared.work.link_metadata_items += 2 * plan.activated_links.len();
+            prepared.retired = plan.activated_links.clone();
+            prepared.retired.sort_unstable_by(|a, b| {
+                prepared.work.link_metadata_items += 1;
+                (a.start, a.end).cmp(&(b.start, b.end))
+            });
+            if let Some(fields) = &mut prepared.supported {
+                fields.ranges.retain(|field| {
+                    prepared.work.link_metadata_items += 1;
+                    prepared
+                        .retired
+                        .binary_search_by(|range| {
+                            prepared.work.link_metadata_items += 1;
+                            (range.start, range.end).cmp(&(field.start, field.end))
+                        })
+                        .is_err()
+                });
+            }
+        }
         Ok(prepared)
     }
 
@@ -77,20 +104,21 @@ impl EditorSession {
         change.work.link_metadata_items += self
             .projection
             .install_delimiters(std::mem::take(&mut plan.delimiters));
-        if let Some(fields) = prepared
+        let fields = prepared
             .supported
             .as_ref()
-            .filter(|fields| fields.has_fields())
-        {
+            .filter(|fields| fields.has_fields());
+        if let Some(fields) = fields {
             change.work.link_metadata_items += self.projection.merge_input_pending(fields);
-            if refresh_query {
-                let (projection, work) = self
-                    .projection
-                    .query_with_work(self.revision, change.projection.range);
-                change.projection = projection;
-                change.work.link_metadata_items += work.items;
-                change.work.link_copied_bytes += work.copied;
-            }
+        }
+        change.work.link_metadata_items += self.projection.retire_pending_links(&prepared.retired);
+        if refresh_query && (fields.is_some() || !prepared.retired.is_empty()) {
+            let (projection, work) = self
+                .projection
+                .query_with_work(self.revision, change.projection.range);
+            change.projection = projection;
+            change.work.link_metadata_items += work.items;
+            change.work.link_copied_bytes += work.copied;
         }
     }
 
@@ -201,6 +229,7 @@ impl EditorSession {
             }
             Ok(PendingPreview {
                 supported: None,
+                retired: Vec::new(),
                 work,
             })
         } else {
@@ -210,6 +239,7 @@ impl EditorSession {
             work.link_metadata_items += actual.relocate_source(window.start);
             Ok(PendingPreview {
                 supported: Some(actual),
+                retired: Vec::new(),
                 work,
             })
         }

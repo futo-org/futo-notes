@@ -39,6 +39,7 @@ pub(super) fn pieces(
     let delimiter = delimiter(format);
     markers.push(Marker {
         pending: false,
+        activate: false,
         kind: SpanKind::Format(format),
         open: delimiter.into(),
         close: delimiter.into(),

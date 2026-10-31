@@ -39,7 +39,7 @@ pub(super) fn spell_with_anchors(
     let mut link_copied_bytes = 0;
     let verify_pending = markers.iter().any(|marker| {
         link_metadata_items += 1;
-        marker.pending
+        marker.pending || marker.activate
     });
     if literal || verify_pending {
         let mut candidate =
@@ -216,19 +216,11 @@ pub(super) fn spell_with_anchors(
         }
         mapped.push(found.ok_or(EditorError::UnrepresentableFormat)?);
     }
-    let pending_links = rendered
-        .spans
-        .iter()
-        .filter_map(|(id, span)| {
-            link_metadata_items += 1;
-            markers[*id].pending.then(|| {
-                link_metadata_items += 2;
-                span.open.end..span.close.start
-            })
-        })
-        .collect();
+    let (pending_links, activated_links) =
+        url_timing::collect_link_timing(&markers, &rendered, &mut link_metadata_items);
     Ok(Spelling {
         pending_links,
+        activated_links,
         origins: url_timing::collect_origins(&pieces, &rendered, &mut link_metadata_items),
         input_start: rendered
             .pieces

@@ -150,6 +150,8 @@ impl super::Projection {
         existing.dedup();
         if existing.len() == 1 && !destination.is_empty() {
             let marker = &mut markers[existing[0]];
+            marker.pending = false;
+            marker.activate = true;
             let title = match &marker.kind {
                 SpanKind::Link(value) => value.title.clone(),
                 _ => None,
@@ -171,6 +173,7 @@ impl super::Projection {
             let id = markers.len();
             markers.push(Marker {
                 pending: false,
+                activate: true,
                 kind: SpanKind::Link(LinkMeaning::bare(destination.into())),
                 open: "[".into(),
                 close: format!("](<{}>)", destination_source(destination)),
@@ -210,6 +213,7 @@ impl super::Projection {
                 retained: Default::default(),
                 requires_source_identity: false,
                 pending_links: rendered.pending_links,
+                activated_links: rendered.activated_links,
                 delimiters: rendered.delimiters,
                 input_start: 0,
                 range: source_start + prefix..source_end - suffix,
@@ -421,6 +425,7 @@ impl super::Projection {
         let id = markers.len();
         markers.push(Marker {
             pending: false,
+            activate: true,
             kind: SpanKind::Link(LinkMeaning::bare(destination.into())),
             open: if bare { "".into() } else { "[".into() },
             close: if bare {
@@ -461,6 +466,7 @@ impl super::Projection {
             retained: Default::default(),
             requires_source_identity: false,
             pending_links: rendered.pending_links,
+            activated_links: rendered.activated_links,
             delimiters: rendered.delimiters,
             input_start: 0,
             range: source_start + prefix..source_end - suffix,

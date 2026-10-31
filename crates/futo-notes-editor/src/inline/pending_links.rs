@@ -138,6 +138,35 @@ impl Projection {
         work + self.restore_pending(&current)
     }
 
+    /// Exact canonical command-owned bodies were validated before acceptance.
+    /// Group by owning row and visit each field once, preserving every foreign
+    /// identity. These ranges are retirement evidence, never target mappings.
+    pub(crate) fn retire_pending_links(&mut self, ranges: &[Range<usize>]) -> usize {
+        let mut work = 0;
+        let mut index = 0;
+        while index < ranges.len() {
+            let (row, base, visits) = self.rows.source_metadata_mut_with_work(ranges[index].start);
+            work += visits;
+            let first = index;
+            let end = base + row.source_len;
+            while index < ranges.len() && ranges[index].start < end {
+                work += 1;
+                index += 1;
+            }
+            row.literal_links.retain(|field| {
+                work += 3;
+                let key = (base + field.start, base + field.end);
+                ranges[first..index]
+                    .binary_search_by(|range| {
+                        work += 1;
+                        (range.start, range.end).cmp(&key)
+                    })
+                    .is_err()
+            });
+        }
+        work
+    }
+
     pub(crate) fn pending_for_source_edit(&self, edit: SourceRange) -> PendingLinks {
         let first = self.rows.locate(edit.start.0, false).saturating_sub(1);
         let last = (self.rows.locate(edit.end.0, false) + 1).min(self.rows.len() - 1);

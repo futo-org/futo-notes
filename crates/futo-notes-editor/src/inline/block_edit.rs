@@ -234,6 +234,7 @@ impl Projection {
             retained: Default::default(),
             requires_source_identity: false,
             pending_links: rendered.pending_links,
+            activated_links: rendered.activated_links,
             delimiters: rendered.delimiters,
             input_start: 0,
             range: source_start + prefix..source_end - suffix,

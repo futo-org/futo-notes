@@ -147,6 +147,25 @@ impl Rows {
             }
         }
     }
+    /// Same physical-source lookup policy, mutating metadata only; lengths and
+    /// tree sums remain unchanged. Report each actually visited indexed node.
+    pub fn source_metadata_mut_with_work(&mut self, mut offset: usize) -> (&mut Row, usize, usize) {
+        let mut node = self.root.as_deref_mut().unwrap();
+        let (mut source, mut work) = (0, 0);
+        loop {
+            work += 1;
+            let left = length(&node.left, false);
+            if offset < left {
+                node = node.left.as_deref_mut().unwrap();
+            } else if offset < left + node.row.source_len || node.right.is_none() {
+                return (&mut node.row, source + left, work);
+            } else {
+                offset -= left + node.row.source_len;
+                source += left + node.row.source_len;
+                node = node.right.as_deref_mut().unwrap();
+            }
+        }
+    }
     /// Mutating transient metadata never changes indexed source/display lengths.
     pub fn metadata_mut(&mut self, mut index: usize) -> &mut Row {
         let mut node = self.root.as_deref_mut().unwrap();
