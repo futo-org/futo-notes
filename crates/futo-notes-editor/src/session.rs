@@ -352,7 +352,7 @@ impl EditorSession {
         let (before_source, before_source_work) = self.capture_history_selection();
         let before_affinity = self.affinity;
         let before_formats = self.pending_formats.clone();
-        let plan = self.projection.edit(
+        let mut plan = self.projection.edit(
             &self.source,
             self.selection,
             "",
@@ -368,10 +368,11 @@ impl EditorSession {
             },
             &plan.inserted,
         )?;
-        accept(&edit).map_err(EditorError::Persistence)?;
         let before_links = self.projection.pending_for_source_edit(edit.range);
+        let prepared = self.prepare_plan_pending(&edit, &plan, &before_links, None)?;
+        accept(&edit).map_err(EditorError::Persistence)?;
         let mut change = self.apply(&edit);
-        change.work.link_metadata_items += self.projection.install_delimiters(plan.delimiters);
+        self.install_plan_pending(&mut plan, prepared, &mut change, true);
         self.selection = before_selection;
         self.pending_formats = None;
         change.selection = self.selection;

@@ -86,7 +86,7 @@ impl EditorSession {
             return Ok(None);
         }
         let inserting = target.start == target.end;
-        let (plan, selected_source) = if inserting {
+        let (mut plan, selected_source) = if inserting {
             (
                 self.projection.insert_link(
                     &self.source,
@@ -111,14 +111,15 @@ impl EditorSession {
             },
             &plan.inserted,
         )?;
+        let before_links = self.projection.pending_for_source_edit(edit.range);
+        let prepared = self.prepare_plan_pending(&edit, &plan, &before_links, None)?;
         accept(&edit).map_err(EditorError::Persistence)?;
         let before_selection = self.selection;
         let (before_source, before_source_work) = self.capture_history_selection();
         let before_affinity = self.affinity;
         let before_formats = self.pending_formats.clone();
-        let before_links = self.projection.pending_for_source_edit(edit.range);
         let mut change = self.apply(&edit);
-        change.work.link_metadata_items += self.projection.install_delimiters(plan.delimiters);
+        self.install_plan_pending(&mut plan, prepared, &mut change, true);
         self.selection = if inserting {
             let at = DisplayOffset(self.projection.display_at(plan.caret));
             DisplayRange { start: at, end: at }

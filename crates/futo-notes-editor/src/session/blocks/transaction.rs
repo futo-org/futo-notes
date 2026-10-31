@@ -76,7 +76,7 @@ impl EditorSession {
         boundaries: &[usize],
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<Option<ViewChange>, EditorError> {
-        let Some(plan) = self
+        let Some(mut plan) = self
             .projection
             .split_block_lines(&self.source, range, boundaries)?
         else {
@@ -90,8 +90,10 @@ impl EditorSession {
             },
             &plan.inserted,
         )?;
+        let before_links = self.projection.pending_for_source_edit(edit.range);
+        let prepared = self.prepare_plan_pending(&edit, &plan, &before_links, None)?;
         let mut change = self.replay_with_accept(&edit, accept)?;
-        change.work.link_metadata_items += self.projection.install_delimiters(plan.delimiters);
+        self.install_plan_pending(&mut plan, prepared, &mut change, true);
         change.work.materialized_source_bytes += plan.materialized;
         change.work.parsed_source_bytes += plan.parsed;
         change.work.link_metadata_items += plan.link_metadata_items;

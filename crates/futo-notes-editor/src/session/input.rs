@@ -90,7 +90,7 @@ impl EditorSession {
         } else {
             None
         };
-        let plan = self.projection.edit(
+        let mut plan = self.projection.edit(
             &self.source,
             range,
             inserted,
@@ -107,40 +107,7 @@ impl EditorSession {
             &plan.inserted,
         )?;
         let before_links = self.projection.pending_for_source_edit(edit.range);
-        let prepared = if before_links.ranges.is_empty() && plan.pending_links.is_empty() {
-            pending::PendingPreview {
-                supported: None,
-                work: EditWork::default(),
-            }
-        } else {
-            let mut retained = self.projection.retained_input_pending(
-                &before_links,
-                &edit,
-                &plan.retained,
-                range,
-            )?;
-            retained.work += 2 * plan.pending_links.len();
-            retained.ranges.extend(plan.pending_links.iter().cloned());
-            let require_all = !plan.pending_links.is_empty();
-            let mut prepared = if retained.has_fields() {
-                self.preview_pending_edit(
-                    &edit,
-                    before_links.window.clone(),
-                    &retained,
-                    require_all,
-                )?
-            } else {
-                pending::PendingPreview {
-                    supported: None,
-                    work: EditWork::default(),
-                }
-            };
-            prepared.work.link_metadata_items += retained.work;
-            if require_all {
-                prepared.supported = Some(retained);
-            }
-            prepared
-        };
+        let prepared = self.prepare_plan_pending(&edit, &plan, &before_links, Some(range))?;
         accept(&edit).map_err(EditorError::Persistence)?;
         let before_selection = self.selection;
         let (before_source, before_source_work) = self.capture_history_selection();
@@ -148,25 +115,7 @@ impl EditorSession {
         let before_formats = self.pending_formats.clone();
         self.affinity = affinity;
         let mut change = self.apply(&edit);
-        let EditWork {
-            materialized_source_bytes,
-            inserted_bytes: _,
-            parsed_source_bytes,
-            link_metadata_items,
-            link_copied_bytes,
-        } = prepared.work;
-        change.work.materialized_source_bytes += materialized_source_bytes;
-        change.work.parsed_source_bytes += parsed_source_bytes;
-        change.work.link_metadata_items += link_metadata_items;
-        change.work.link_copied_bytes += link_copied_bytes;
-        change.work.link_metadata_items += self.projection.install_delimiters(plan.delimiters);
-        if let Some(retained) = prepared
-            .supported
-            .as_ref()
-            .filter(|retained| retained.has_fields())
-        {
-            change.work.link_metadata_items += self.projection.merge_input_pending(retained);
-        }
+        self.install_plan_pending(&mut plan, prepared, &mut change, false);
         let (caret, caret_work) = self.projection.display_at_with_work(plan.caret);
         let caret = DisplayOffset(caret);
         let (input_start, input_work) = self.projection.display_at_with_work(plan.input_start);

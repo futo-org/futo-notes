@@ -448,11 +448,9 @@ impl Projection {
     }
 }
 
-// Only a supplied transient identity may use this predicate. It never enrolls
-// an authored autolink: canonical bare fields and angle autolinks have no
-// reference identity/title and have either zero-width or one-byte delimiters.
+// Only explicitly supplied transient identities use this predicate. Loaded
+// links never enroll here. A surviving verified marker may render a formatted
+// label as several canonical explicit spans, each owning its complete body.
 fn pending_span(span: &Span) -> bool {
     matches!(&span.kind, SpanKind::Link(target) if target.reference.is_none() && target.title.is_none())
-        && ((span.open.is_empty() && span.close.is_empty())
-            || (span.open.len() == 1 && span.close.len() == 1))
 }

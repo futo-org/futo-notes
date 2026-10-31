@@ -92,7 +92,7 @@ impl EditorSession {
             if pending.window != (edit.range.start.0..edit.range.start.0 + edit.inserted.len()) {
                 return Err(EditorError::UnrepresentableFormat);
             }
-            self.preview_pending_edit(&edit, before_links.window.clone(), pending, true)?
+            self.preview_pending_edit(&edit, before_links.window.clone(), pending, true, &[])?
                 .work
         } else {
             EditWork::default()

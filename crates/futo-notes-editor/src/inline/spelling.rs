@@ -37,7 +37,11 @@ pub(super) fn spell_with_anchors(
     let mut parsed = 0;
     let mut link_metadata_items = rendered.link_metadata_items;
     let mut link_copied_bytes = 0;
-    if literal {
+    let verify_pending = markers.iter().any(|marker| {
+        link_metadata_items += 1;
+        marker.pending
+    });
+    if literal || verify_pending {
         let mut candidate =
             Row::parse_with_references(&rendered.text, references, &rendered.winners);
         parsed += candidate.parsed_source_bytes;

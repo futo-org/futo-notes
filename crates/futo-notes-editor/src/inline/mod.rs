@@ -2,7 +2,7 @@ mod block_edit;
 pub(crate) use block_edit::BodySource;
 pub(crate) mod blocks;
 mod edit;
-pub(crate) use edit::{EditIntent, SourceCorrespondence};
+pub(crate) use edit::{EditIntent, Plan, SourceCorrespondence};
 mod empty_comments;
 pub(crate) mod fences;
 mod links;
