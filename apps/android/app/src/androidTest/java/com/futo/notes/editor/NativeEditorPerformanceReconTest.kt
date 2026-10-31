@@ -232,9 +232,9 @@ class NativeEditorPerformanceReconTest {
                         // A new recovery stream writes the full base header on its FIRST append.
                         phase = "${fixture.name}/cold-first-append"
                         persist()
-                        val coldAppend = edit(0uL)
+                        metric.put("coldFirstAppendNs", edit(0uL))
                         val coldFlush = flush()
-                        metric.put("coldFirstAppendNs", coldAppend).put("coldImmediateExplicitFlushNs", coldFlush)
+                        metric.put("coldImmediateExplicitFlushNs", coldFlush)
                         recordFlush("cold", true, coldFlush)
                         recordWork()
                         recordProjection("cold")
@@ -278,10 +278,9 @@ class NativeEditorPerformanceReconTest {
                             .put("appendThroughExplicitFlushNs", pairTotal)
                         repeat(flushPairs) { pair ->
                             val started = System.nanoTime()
-                            val appendNs = edit(0uL)
+                            pairAppend.put(edit(0uL))
                             val flushNs = flush()
                             pairTotal.put(System.nanoTime() - started)
-                            pairAppend.put(appendNs)
                             pairFlush.put(flushNs)
                             recordFlush("pair-$pair", true, flushNs)
                             recordWork()
