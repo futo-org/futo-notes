@@ -53,3 +53,36 @@ fn public_reference_commands_charge_actual_indexed_coordinate_queries() {
         );
     }
 }
+
+#[test]
+fn public_distant_input_exposes_its_actual_query_ledger() {
+    use crate::{DisplayOffset, DisplayRange, EditorSession, Revision};
+    for count in [20, 20_000] {
+        let text = "__word__ rest\r\n\r\n".repeat(count);
+        let mut session = EditorSession::open(&text);
+        let at = (count - 2) * "word rest\r\n\r\n".len() + 2;
+        let range = DisplayRange {
+            start: DisplayOffset(at),
+            end: DisplayOffset(at),
+        };
+        session.select(Revision(0), range).unwrap();
+        QUERIES.with(|rows| rows.borrow_mut().clear());
+        VISITS.with(|n| n.set(0));
+        let change = session
+            .replace(Revision(0), range, "x", &mut |_| Ok(()))
+            .unwrap();
+        let queries = QUERIES.with(|rows| rows.borrow().clone());
+        eprintln!(
+            "COUNT={count}; metadata={}; allnodes={}; coordinate_queries={queries:?}",
+            change.work.link_metadata_items,
+            visits()
+        );
+        assert_eq!(change.work.materialized_source_bytes, 87);
+        assert_eq!(change.work.parsed_source_bytes, 122);
+        assert_eq!(change.work.inserted_bytes, 1);
+        assert_eq!(change.work.link_copied_bytes, 0);
+        for (_, actual, reported) in queries {
+            assert!(reported >= actual);
+        }
+    }
+}
