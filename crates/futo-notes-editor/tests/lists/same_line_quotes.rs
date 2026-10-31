@@ -378,3 +378,85 @@ fn text_retires_only_canonical_tab_indented_heading_syntax() {
     assert_text_source("- \t> \t# b", "\n> b", "b", "\nb", 0, 1);
     assert_text_source("> \t> # b", "> \t> b", "b", "b", 0, 0);
 }
+
+#[test]
+fn full_text_on_three_shared_quote_heads_keeps_the_representable_root_frame() {
+    // Shipping Text retains a root empty paragraph. Nested leading quote
+    // paragraphs are not written by the supported Markdown dialect.
+    let raw = "- > - > - > body";
+    let expected = "\n> > > body";
+    let reopened = EditorSession::open(expected);
+    assert_eq!(reopened.source_text(), expected);
+    assert_eq!(reopened.display_text(), "\nbody");
+    let plan = reopened.project(Revision(0), range(0, 5)).unwrap();
+    assert!(plan.blocks.iter().all(|block| block.list.is_none()));
+    assert!(plan
+        .blocks
+        .iter()
+        .any(|block| block.quote_depth == 0 && block.range.start.0 == 0));
+    assert!(plan
+        .blocks
+        .iter()
+        .any(|block| block.quote_depth == 3 && block.range.start.0 == 1));
+    for affinity in [Affinity::Forward, Affinity::Backward] {
+        let mut session = EditorSession::open(raw);
+        assert_eq!(session.display_text(), "body");
+        let original = session.project(Revision(0), range(0, 4)).unwrap();
+        assert!(original.blocks.iter().any(|block| block.quote_depth == 3
+            && block.list.as_ref().is_some_and(|list| list.depth == 3)));
+        session
+            .select_with_affinity(Revision(0), range(0, 0), affinity)
+            .unwrap();
+        assert!(matches!(
+            session.block_command(
+                Revision(0),
+                range(0, 0),
+                BlockCommand::Heading(0),
+                &mut |_| Err("append rejected".into())
+            ),
+            Err(EditorError::Persistence(_))
+        ));
+        assert_eq!(session.source_text(), raw);
+        assert_eq!(session.selection(), range(0, 0));
+        assert_eq!(session.affinity(), affinity);
+        assert_eq!(session.revision(), Revision(0));
+        let mut accepts = 0;
+        let mut view = ReferenceView::new("body");
+        view.apply(
+            session
+                .block_command(
+                    Revision(0),
+                    range(0, 0),
+                    BlockCommand::Heading(0),
+                    &mut |_| {
+                        accepts += 1;
+                        Ok(())
+                    },
+                )
+                .unwrap()
+                .unwrap(),
+        );
+        assert_eq!(accepts, 1);
+        assert_eq!(session.source_text(), expected);
+        assert_eq!(view.text, "\nbody");
+        assert_eq!(session.selection(), range(1, 1));
+        view.apply(
+            session
+                .undo(session.revision(), &mut |_| Ok(()))
+                .unwrap()
+                .unwrap(),
+        );
+        assert_eq!(session.source_text(), raw);
+        assert_eq!(session.selection(), range(0, 0));
+        assert_eq!(session.affinity(), affinity);
+        view.apply(
+            session
+                .redo(session.revision(), &mut |_| Ok(()))
+                .unwrap()
+                .unwrap(),
+        );
+        assert_eq!(session.source_text(), expected);
+        assert_eq!(view.text, "\nbody");
+        assert_eq!(session.selection(), range(1, 1));
+    }
+}

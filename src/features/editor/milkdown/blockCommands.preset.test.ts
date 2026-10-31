@@ -222,3 +222,41 @@ it.each(frameSources)('opens frame candidate %s', async (source) => {
     `./__snapshots__/blockCommands/frame-open-${frameSources.indexOf(source)}.snap`,
   );
 });
+
+// One literal semantic discriminator for the bounded shared-head work probe.
+it('shared physical header cost meaning discriminator', () => {
+  const source = '- > - > - > body';
+  const parsed = editor.ctx.get(parserCtx)(source);
+  view.dispatch(view.state.tr.replaceWith(0, view.state.doc.content.size, parsed.content));
+  const anchor = position('body');
+  view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, anchor)));
+  const before = observation();
+  createToolbarExec(() => editor).paragraph();
+  const after = observation();
+  // Leading empty paragraphs inside a quote are intentionally not written
+  // (editor/paragraphs-and-lines.md). Preserve the representable root frame;
+  // the command's extra nested empty PM paragraphs remain diagnostic only.
+  expect(after.textblockRows).toBe('\n\n\nbody');
+  expect(after.selection.anchor.textblockUtf16).toBe(0);
+  expect(after.selection.anchor.ancestry).toEqual([
+    'blockquote',
+    'blockquote',
+    'blockquote',
+    'paragraph',
+  ]);
+  const sourcePlan = '\n> > > body';
+  const reopened = editor.ctx.get(parserCtx)(sourcePlan);
+  expect(reopened.childCount).toBe(2);
+  expect(reopened.child(0).type.name).toBe('paragraph');
+  expect(reopened.child(0).textContent).toBe('');
+  let body = reopened.child(1);
+  for (let depth = 0; depth < 3; depth += 1) {
+    expect(body.type.name).toBe('blockquote');
+    expect(body.childCount).toBe(1);
+    body = body.child(0);
+  }
+  expect(body.type.name).toBe('paragraph');
+  expect(body.textContent).toBe('body');
+  expect(JSON.stringify(reopened.toJSON())).not.toBe(after.documentJson);
+  expect(before.textblockRows).toBe('\n\n\nbody');
+});
