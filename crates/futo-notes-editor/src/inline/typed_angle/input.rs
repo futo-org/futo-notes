@@ -42,6 +42,16 @@ fn safe(pieces: &[Piece], markers: &[Marker], work: &mut usize) -> bool {
             })
     })
 }
+/// Existing owned words end at the exact Space or paragraph LF intent.
+/// This does not authorize a new committed-input seed.
+pub(super) fn known_word_end(inserted: &str, work: &mut usize) -> bool {
+    *work += 1;
+    if inserted.len() != 1 {
+        return false;
+    }
+    *work += 1;
+    matches!(inserted.as_bytes()[0], b' ' | b'\n')
+}
 fn literal_prefix(word: &str, work: &mut usize) -> bool {
     *work += 1;
     word.len() <= 4 && phase::matches(word.as_bytes(), word.len(), work)
@@ -157,7 +167,10 @@ impl TypedState {
         );
         let typing = matches!(input.intent, EditIntent::Input(InputAction::Typing));
         work.items += 1;
-        if !typing && !input.inserted.ends_with(' ') {
+        if !typing
+            && !known_word_end(input.inserted, &mut work.items)
+            && !input.inserted.ends_with(' ')
+        {
             return Ok(work);
         }
         if input.inserted.is_empty() {
