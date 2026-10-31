@@ -97,7 +97,7 @@ impl Boundary {
             let mut prepared = rewrite.fields(side.pending, witnesses)?;
             charge(
                 &mut work,
-                prepared.validate_original(&replay.session, side.pending)?,
+                prepared.validate_original(&replay.session, side.pending, &rewrite.source)?,
             );
             work.link_metadata_items += rewrite.code_witnesses(&mut prepared.codes)?;
             work.link_metadata_items += prepared.pending.work;
@@ -124,7 +124,7 @@ impl Boundary {
         let mut aggregate = rewrite.fields(&before, witnesses)?;
         charge(
             &mut work,
-            aggregate.validate_original(&replay.session, &before)?,
+            aggregate.validate_original(&replay.session, &before, &rewrite.source)?,
         );
         work.link_metadata_items += rewrite.code_witnesses(&mut aggregate.codes)?;
         work.link_metadata_items += aggregate.pending.work;
@@ -159,6 +159,7 @@ impl Boundary {
             .session
             .prepare_source(replay.session.revision(), range, &inserted)?;
         work.materialized_source_bytes += edit.removed.len() + edit.inserted.len();
+        let mut seeds = transformed::Seeds::default();
         let mut projected = Vec::with_capacity(exact.len());
         work.link_metadata_items += usize::from(!exact.is_empty());
         let (_, initial) =
@@ -176,6 +177,7 @@ impl Boundary {
                                 staged,
                                 before.window.start,
                                 identities,
+                                &mut seeds,
                                 &rewrite.source,
                             )?,
                         );

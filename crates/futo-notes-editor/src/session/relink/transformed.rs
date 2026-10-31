@@ -1,9 +1,11 @@
 //! Known original identities share one prepared transformation within this attempt.
 use super::*;
 mod requests;
+mod typed;
 use crate::inline::guarded_words::{CanonicalUri, CodeWordIdentity, RelinkWord};
 use requests::Role;
 use std::{collections::HashMap, sync::Arc};
+pub(super) use typed::{PlainTyped, Seeds};
 
 #[derive(Default)]
 pub(super) struct Identities {
@@ -127,6 +129,7 @@ impl rewrite::Fields {
         &mut self,
         session: &EditorSession,
         original: &crate::inline::PendingLinks,
+        rewritten: &str,
     ) -> Result<EditWork, EditorError> {
         let mut work = EditWork::default();
         let requests = self.requests(original, &mut work)?;
@@ -168,6 +171,7 @@ impl rewrite::Fields {
                 }
             }
         }
+        self.capture_plain_typed(session, original, rewritten, &mut work)?;
         self.whole_code_guards = whole_code_guards;
         self.codes = codes;
         Ok(work)
@@ -178,6 +182,7 @@ impl rewrite::Fields {
         staged: &EditorSession,
         origin: usize,
         identities: &mut Identities,
+        seeds: &mut Seeds,
         rewritten: &str,
     ) -> Result<EditWork, EditorError> {
         let mut work = EditWork::default();
@@ -197,6 +202,7 @@ impl rewrite::Fields {
         let mut retired_guards = Vec::new();
         let mut retired_requests = Vec::new();
         let mut retired_envelopes = Vec::new();
+        let mut retired_origins = Vec::new();
         for (request_index, (request, uri)) in requests.into_iter().zip(uris).enumerate() {
             work.link_metadata_items += 1;
             let identity = match (request.original, uri, request.role) {
@@ -204,6 +210,20 @@ impl rewrite::Fields {
                     Some(identities.prepare(original, request.program, uri, &mut work)?)
                 }
                 (None, RelinkWord::Literal(_), Role::Typed(_)) => None,
+                (None, RelinkWord::Uri(uri), Role::Typed(index)) => {
+                    let proof =
+                        self.require_plain_typed(staged, origin, index, &uri.displayed, &mut work)?;
+                    Some(seeds.prepare(proof, request.program, uri, &mut work)?)
+                }
+                (Some(original), RelinkWord::Literal(displayed), Role::Typed(index)) => {
+                    let proof =
+                        self.require_plain_typed(staged, origin, index, &displayed, &mut work)?;
+                    identities.retire(original, request.program, &proof.expected, &mut work)?;
+                    retired_origins.push(index);
+                    retired_requests.push(request_index);
+                    work.link_metadata_items += 2;
+                    continue;
+                }
                 (Some(original), RelinkWord::Literal(displayed), Role::Guard(index))
                     if self.whole_code_guards[index] =>
                 {
@@ -300,6 +320,13 @@ impl rewrite::Fields {
             self.changed_guards.remove(index);
             self.programs.remove(index);
             self.whole_code_guards.remove(index);
+        }
+        for index in retired_origins.into_iter().rev() {
+            work.link_metadata_items += 20 * (self.pending.typed_inputs.len() - index);
+            self.pending.typed_inputs.remove(index);
+            self.changed_origins.remove(index);
+            self.origin_programs.remove(index);
+            self.plain_typed.remove(index);
         }
         for index in retired_requests.into_iter().rev() {
             work.link_metadata_items += 3 * (self.codes.len() - index);
