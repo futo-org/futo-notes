@@ -137,3 +137,48 @@ fn a_derived_local_foreign_tail_cannot_recertify_original_fence_termination() {
     }
     assert_eq!(original.source_text(), raw);
 }
+
+#[test]
+fn exact_local_interior_and_ongoing_code_windows_reject_without_acceptance() {
+    let root = "- parent\n  ```\n  opaque\n- outside";
+    let full = format!("before\n\n{root}\n\n<!-- -->\n");
+    let original = EditorSession::open(&full);
+    let interior = original.stage_source(root, 8..8 + root.len());
+    let ongoing = "- parent\n  ```\n  opaque\n";
+    let original_code = EditorSession::open(&format!("{ongoing}  still code\n- outside"));
+    let inside_code = original_code.stage_source(ongoing, 0..ongoing.len());
+    for mut staged in [interior, inside_code] {
+        let raw = staged.source_text();
+        let shown = staged.display_text();
+        let selected = DisplayRange {
+            start: DisplayOffset(0),
+            end: DisplayOffset(0),
+        };
+        staged
+            .select_with_affinity(staged.revision(), selected, Affinity::Forward)
+            .unwrap();
+        let mut accepts = 0;
+        assert!(matches!(
+            staged.block_command(
+                staged.revision(),
+                selected,
+                BlockCommand::Heading(0),
+                &mut |_| {
+                    accepts += 1;
+                    Ok(())
+                }
+            ),
+            Err(EditorError::UnrepresentableFormat)
+        ));
+        assert_eq!(accepts, 0);
+        assert_eq!(staged.source_text(), raw);
+        assert_eq!(staged.display_text(), shown);
+        assert_eq!(staged.selection(), selected);
+        assert_eq!(staged.affinity(), Affinity::Forward);
+        assert_eq!(staged.revision(), Revision(0));
+        assert!(staged
+            .undo(staged.revision(), &mut |_| Ok(()))
+            .unwrap()
+            .is_none());
+    }
+}
