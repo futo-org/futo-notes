@@ -11,12 +11,21 @@ thread_local! {
     pub(crate) static CONTAINER_PREFIX_QUERIES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
     pub(crate) static CONTAINER_STYLE_OWNER_SCANS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
     pub(crate) static CONTAINER_LIFT_ITEM_SCANS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    pub(crate) static CONTAINER_BLOCK_QUERY_VISITS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    pub(crate) static CONTAINER_CORRESPONDENCE_SCANS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
 }
 
 #[inline]
 pub(crate) fn visit_container() {
     #[cfg(test)]
     CONTAINER_METADATA_VISITS.with(|count| count.set(count.get() + 1));
+}
+
+/// Aggregate the actual examined segments once per coordinate query.
+#[inline]
+pub(crate) fn visit_correspondence(_segments: usize) {
+    #[cfg(test)]
+    CONTAINER_CORRESPONDENCE_SCANS.with(|count| count.set(count.get() + _segments as u64));
 }
 
 #[derive(Clone, Debug)]

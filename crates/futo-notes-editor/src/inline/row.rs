@@ -217,6 +217,7 @@ impl Row {
     }
 
     pub fn source_bounds(&self, at: usize) -> (usize, usize) {
+        super::visit_correspondence(self.segments.len());
         let mut low = self.source_len;
         let mut high = 0;
         for segment in &self.segments {
@@ -247,8 +248,9 @@ impl Row {
     }
 
     pub fn display_at(&self, source: usize) -> usize {
-        for segment in &self.segments {
+        for (index, segment) in self.segments.iter().enumerate() {
             if segment.source.start <= source && source <= segment.source.end {
+                super::visit_correspondence(index + 1);
                 if segment.identity {
                     return segment.display.start + source - segment.source.start;
                 }
@@ -259,6 +261,7 @@ impl Row {
                 };
             }
         }
+        super::visit_correspondence(self.segments.len());
         self.display.len()
     }
 
@@ -351,3 +354,7 @@ fn code_span(source: &str, range: Range<usize>) -> (Span, Vec<(Range<usize>, Str
     }
     (span, replacements)
 }
+
+#[cfg(test)]
+#[path = "row_coordinates_tests.rs"]
+mod coordinates_tests;

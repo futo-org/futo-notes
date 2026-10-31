@@ -13,11 +13,11 @@ use crate::{
     Correspondence, DisplayOffset, DisplayRange, InlineFormat, ProjectionSlice, Revision,
     SemanticRun, SourceEdit, SourceOffset, SourceRange,
 };
-pub(crate) use lists::{columns, visit_container, ListLine};
+pub(crate) use lists::{columns, visit_container, visit_correspondence, ListLine};
 #[cfg(test)]
 pub(crate) use lists::{
-    CONTAINER_LIFT_ITEM_SCANS, CONTAINER_METADATA_VISITS, CONTAINER_PREFIX_QUERIES,
-    CONTAINER_STYLE_OWNER_SCANS,
+    CONTAINER_BLOCK_QUERY_VISITS, CONTAINER_CORRESPONDENCE_SCANS, CONTAINER_LIFT_ITEM_SCANS,
+    CONTAINER_METADATA_VISITS, CONTAINER_PREFIX_QUERIES, CONTAINER_STYLE_OWNER_SCANS,
 };
 use ropey::Rope;
 use row::{paragraphs, Row};
@@ -298,6 +298,8 @@ impl Projection {
         for index in first..=last {
             let (row, source, display) = self.rows.at(index);
             for block in &row.blocks {
+                #[cfg(test)]
+                CONTAINER_BLOCK_QUERY_VISITS.with(|count| count.set(count.get() + 1));
                 visit_container();
                 if block.empty_comment {
                     continue;

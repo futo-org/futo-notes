@@ -348,6 +348,8 @@ fn flat_mixed_owner_forests_do_not_repeat_full_owner_or_item_scans() {
         crate::inline::CONTAINER_PREFIX_QUERIES.with(|counter| counter.set(0));
         crate::inline::CONTAINER_STYLE_OWNER_SCANS.with(|counter| counter.set(0));
         crate::inline::CONTAINER_LIFT_ITEM_SCANS.with(|counter| counter.set(0));
+        crate::inline::CONTAINER_BLOCK_QUERY_VISITS.with(|counter| counter.set(0));
+        crate::inline::CONTAINER_CORRESPONDENCE_SCANS.with(|counter| counter.set(0));
         let mut accepts = 0;
         let change = s
             .block_command(Revision(0), selected, BlockCommand::BulletList, &mut |_| {
@@ -381,18 +383,31 @@ fn flat_mixed_owner_forests_do_not_repeat_full_owner_or_item_scans() {
         );
         let owner_scans = crate::inline::CONTAINER_STYLE_OWNER_SCANS.with(|counter| counter.get());
         let item_scans = crate::inline::CONTAINER_LIFT_ITEM_SCANS.with(|counter| counter.get());
-        measured.push((raw.len(), visits, owner_scans, item_scans));
+        let block_visits =
+            crate::inline::CONTAINER_BLOCK_QUERY_VISITS.with(|counter| counter.get());
+        let correspondence =
+            crate::inline::CONTAINER_CORRESPONDENCE_SCANS.with(|counter| counter.get());
+        measured.push((
+            raw.len(),
+            visits,
+            owner_scans,
+            item_scans,
+            block_visits,
+            correspondence,
+        ));
         s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap();
         assert_eq!(s.source_text(), raw);
         assert_eq!(s.selection(), selected);
         assert_eq!(s.affinity(), Affinity::Backward);
     }
-    let (small_bytes, small_visits, small_owners, small_items) = measured[0];
-    let (large_bytes, large_visits, large_owners, large_items) = measured[1];
+    let (small_bytes, small_visits, small_owners, small_items, small_blocks, small_correspondence) =
+        measured[0];
+    let (large_bytes, large_visits, large_owners, large_items, large_blocks, large_correspondence) =
+        measured[1];
     assert!(
         small_visits > 0 && large_owners <= 4 * 512 + 8 && large_items <= 8 * 512 + 8
             && (large_visits as u128) * (small_bytes as u128)
                 < 2 * (small_visits as u128) * (large_bytes as u128),
-        "flat forest input={small_bytes}..{large_bytes} metadata={small_visits}..{large_visits} owner_scans={small_owners}..{large_owners} item_scans={small_items}..{large_items}"
+        "flat forest input={small_bytes}..{large_bytes} metadata={small_visits}..{large_visits} owner_scans={small_owners}..{large_owners} item_scans={small_items}..{large_items} block_visits={small_blocks}..{large_blocks} correspondence={small_correspondence}..{large_correspondence}"
     );
 }
