@@ -53,3 +53,12 @@ paragraph, list or fence still depends on that region; progressive interpretatio
 a preceding list row retaining a long run of trailing blanks, complete allocation/work
 bounds and native device latency measurements remain
 in their dependent tickets.
+
+Early physical ARM32 reconnaissance confirms that large-region calls and returned
+semantic payloads still scale with that region. Immediate explicit flushes also
+showed post-append completion overruns; timer scheduling and healthy-storage
+durability remain unaccepted. The full materializing projection contract remains
+available; bounded input/results and revision-aware progressive work remain
+required on the same engine and Store. The renderer/host walkthrough challenges
+input ordering, failure copying, coordinate mapping and worker scheduling before
+renderer reliance. → docs/architecture/text-first-editor-host.md
