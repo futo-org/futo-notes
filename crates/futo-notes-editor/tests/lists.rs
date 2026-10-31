@@ -49,3 +49,6 @@ mod task_containers;
 
 #[path = "lists/quote_owner_boundaries.rs"]
 mod quote_owner_boundaries;
+
+#[path = "lists/multiline_frames.rs"]
+mod multiline_frames;
