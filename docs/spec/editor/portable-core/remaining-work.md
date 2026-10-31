@@ -11,8 +11,13 @@ work. Plain-text/Markdown paste, including ordinary single-cell table paste, rem
 required. Tables, shared find, wikilink completion and the 20,000-line/native durability
 acceptance targets have not been deferred. → docs/plan/text-first-editor-rebuild-tickets.md
 
-Deeper container commands (#299), fence/table/link interpretation,
-note-id-dependent composition arbitration and renderer integration follow in their dependent tickets.
+Fenced-code interpretation and key intent (#297) are accepted on the integration branch;
+large-fence work bounds, progressive reinterpretation and physical device validation remain
+required. → docs/spec/editor/portable-core/fenced-code.md
+
+Deeper container commands (#299) and links (#301) remain unmerged WIP. Tables and
+note-id-dependent composition arbitration remain in their dependent tickets. Full renderer
+integration follows the engine/store phase. → docs/plan/text-first-editor-rebuild-tickets.md
 
 Paragraph projections use a length-indexed tree and display Rope, so an ordinary
 edit after a distant jump reparses only its paragraph window without rewriting
