@@ -392,3 +392,50 @@ fn completed_http_marked_input_ending_in_lf_keeps_clean_canonical_meaning() {
     editor.redo(Revision(2), &mut |_| Ok(())).unwrap().unwrap();
     assert_eq!(editor.source_text(), saved);
 }
+
+#[test]
+fn completed_committed_word_uses_the_actual_single_tab_or_unicode_separator() {
+    let inner = "HTTPS://x.test/PaTh";
+    raw_library_link(inner, inner);
+    for separator in ["\t", "\u{a0}"] {
+        let text = format!("<{inner}>{separator}");
+        let standard = EditorSession::open(&format!("<<{inner}>>{separator}"));
+        assert_eq!(standard.display_text(), text);
+        let expected = standard
+            .inspect_link(Revision(0), range(1, 2))
+            .unwrap()
+            .unwrap();
+        assert_eq!(expected.destination, inner);
+        assert_eq!(expected.range, range(1, inner.len() + 1));
+        let mut editor = EditorSession::open("");
+        editor.compose(Revision(0), range(0, 0), &text).unwrap();
+        let mut accepted = 0;
+        let change = editor
+            .commit_composition(Revision(0), None, &mut |_| {
+                accepted += 1;
+                Ok(())
+            })
+            .unwrap()
+            .unwrap();
+        assert_eq!(accepted, 1);
+        assert_eq!(change.selection, range(text.len(), text.len()));
+        assert_eq!(editor.display_text(), text);
+        assert_eq!(
+            editor.inspect_link(Revision(1), range(1, 2)).unwrap(),
+            Some(expected.clone()),
+            "separator={separator:?}; source={:?}",
+            editor.source_text()
+        );
+        let saved = editor.source_text();
+        let fresh = EditorSession::open(&saved);
+        assert_eq!(fresh.display_text(), text);
+        assert_eq!(
+            fresh.inspect_link(Revision(0), range(1, 2)).unwrap(),
+            Some(expected)
+        );
+        editor.undo(Revision(1), &mut |_| Ok(())).unwrap().unwrap();
+        assert_eq!(editor.source_text(), "");
+        editor.redo(Revision(2), &mut |_| Ok(())).unwrap().unwrap();
+        assert_eq!(editor.source_text(), saved);
+    }
+}
