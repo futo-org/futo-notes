@@ -136,7 +136,14 @@ fn hand_typed_angle_link_saves_literal_brackets_around_the_inner_autolink() {
     view.apply(
         session
             .replace(session.revision(), range(at, at), " ok", &mut |_| Ok(()))
-            .unwrap(),
+            .unwrap_or_else(|error| {
+                let source = session.source_text();
+                let loaded = EditorSession::open(&source);
+                panic!(
+                    "angle word end rejected: {error:?}; source={source:?}; loaded-link={:?}",
+                    loaded.inspect_link(loaded.revision(), range(1, 2))
+                );
+            }),
     );
     assert_eq!(view.text, "<https://x.test> ok");
     assert_eq!(session.source_text(), "<<https://x.test>> ok");
