@@ -141,7 +141,7 @@ impl rewrite::Fields {
         work.link_metadata_items += self.whole_code_guards.len();
         for (request_index, (request, uri)) in requests.iter().zip(&uris).enumerate() {
             work.link_metadata_items += 1;
-            match (request.original, uri.as_ref(), request.role) {
+            match (request.original, uri, request.role) {
                 (Some(original), RelinkWord::Uri(uri), _) if same(original, uri, &mut work) => {}
                 (None, RelinkWord::Literal(_), Role::Typed(_)) => {}
                 _ => return Err(EditorError::UnrepresentableFormat),
