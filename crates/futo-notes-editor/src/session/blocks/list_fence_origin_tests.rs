@@ -249,6 +249,12 @@ fn exact_quote_owner_boundary_case(ending: &str, existing_gap: bool) {
                 .unwrap()
                 .unwrap();
             let edit = protected.unwrap();
+            assert_eq!(edit.previous_revision, Revision(0));
+            assert_eq!(edit.revision, Revision(1));
+            assert!(edit.range.end.0 <= prefix.len());
+            assert_eq!(edit.removed, prefix[edit.range.start.0..edit.range.end.0]);
+            assert_eq!(edit.removed, full[edit.range.start.0..edit.range.end.0]);
+            assert_eq!(whole.source_text(), full);
             let mut local_view = local_before.clone();
             local_view.replace_range(change.range.start.0..change.range.end.0, &change.inserted);
             assert_eq!(staged.source_text(), expected_prefix);
@@ -343,33 +349,42 @@ fn opaque_literal_root_item_must_not_gain_authority(outside: &str) {
     let start = full.find("- parent").unwrap();
     let end = full.len() - outside.len();
     let prefix = &full[start..end];
-    let mut staged = original.stage_source(prefix, start..end);
-    assert_eq!(staged.display_text(), "parent\nopaque");
-    let selected = DisplayRange {
-        start: DisplayOffset(0),
-        end: DisplayOffset(0),
-    };
-    staged
-        .select_with_affinity(staged.revision(), selected, Affinity::Backward)
-        .unwrap();
-    let mut accepts = 0;
-    assert!(matches!(
-        staged.block_command(
-            staged.revision(),
-            selected,
-            BlockCommand::Heading(0),
-            &mut |_| {
-                accepts += 1;
-                Ok(())
-            }
-        ),
-        Err(EditorError::UnrepresentableFormat)
-    ));
-    assert_eq!(accepts, 0);
-    assert_eq!(staged.source_text(), prefix);
-    assert_eq!(staged.revision(), Revision(0));
-    assert_eq!(staged.selection(), selected);
-    assert_eq!(staged.affinity(), Affinity::Backward);
+    let whole = original.stage_source(&full[..end], 0..end);
+    for mut staged in [
+        original.stage_source(prefix, start..end),
+        whole.stage_source(prefix, start..end),
+    ] {
+        assert_eq!(staged.display_text(), "parent\nopaque");
+        let selected = DisplayRange {
+            start: DisplayOffset(0),
+            end: DisplayOffset(0),
+        };
+        staged
+            .select_with_affinity(staged.revision(), selected, Affinity::Backward)
+            .unwrap();
+        let mut accepts = 0;
+        assert!(matches!(
+            staged.block_command(
+                staged.revision(),
+                selected,
+                BlockCommand::Heading(0),
+                &mut |_| {
+                    accepts += 1;
+                    Ok(())
+                }
+            ),
+            Err(EditorError::UnrepresentableFormat)
+        ));
+        assert_eq!(accepts, 0);
+        assert_eq!(staged.source_text(), prefix);
+        assert_eq!(staged.revision(), Revision(0));
+        assert_eq!(staged.selection(), selected);
+        assert_eq!(staged.affinity(), Affinity::Backward);
+        assert!(staged
+            .undo(staged.revision(), &mut |_| Ok(()))
+            .unwrap()
+            .is_none());
+    }
     assert_eq!(original.source_text(), full);
     let code_at = original.display_text().find("- parent").unwrap();
     assert!(original

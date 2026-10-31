@@ -210,17 +210,6 @@ impl Projection {
         Some(blocks::ListCommandLine::from_block(block, base))
     }
 
-    /// Fixed original boundary relationship; an artificial staged EOF is not
-    /// allowed to manufacture this proof for an inherited tail.
-    pub(crate) fn fence_item_end_at(&self, at: usize) -> Option<(usize, usize, usize)> {
-        let (block, base) = self.block_ref_at_source(at.checked_sub(1)?)?;
-        let fence = block.fence.as_ref()?;
-        let list = block.list.as_ref()?;
-        visit_container();
-        (fence.closer.is_none() && base + fence.whole.end == at && base + list.item.end == at)
-            .then_some((list.depth, list.quote_depth, block.quote_depth))
-    }
-
     pub(crate) fn block_at_source(&self, at: usize) -> Option<blocks::BlockLine> {
         let (block, base) = self.block_ref_at_source(at)?;
         let mut block = block.clone();

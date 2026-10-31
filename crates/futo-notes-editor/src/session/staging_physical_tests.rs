@@ -17,24 +17,39 @@ fn exact_edge_provenance_survives_nested_windows_but_never_derived_ancestry() {
                     first_item,
                     empty_comment,
                     item_depth,
-                    fence_item_end,
                     ..
                 } => {
                     assert!(!tail.is_empty());
                     assert_eq!(empty_comment, tail == "<!-- -->\n");
                     if empty_comment {
-                        assert_eq!(fence_item_end, Some((1, 0, 0)));
+                        assert_eq!(
+                            session.context.fence_edge.map(|f| (
+                                f.depth,
+                                f.list_quote,
+                                f.code_quote,
+                                f.gap_bytes
+                            )),
+                            Some((1, 0, 0, 0))
+                        );
                     }
                     if tail == "- outside" {
                         assert!(!code);
                         assert_eq!(first_item, Some(true));
                         assert_eq!(item_depth, Some(1));
-                        assert_eq!(fence_item_end, Some((1, 0, 0)));
+                        assert_eq!(
+                            session.context.fence_edge.map(|f| (
+                                f.depth,
+                                f.list_quote,
+                                f.code_quote,
+                                f.gap_bytes
+                            )),
+                            Some((1, 0, 0, 0))
+                        );
                     }
                     if tail == "  continuation\n" {
                         assert!(code);
                         assert_eq!(first_item, Some(false));
-                        assert_eq!(fence_item_end, None);
+                        assert_eq!(session.context.fence_edge, None);
                     }
                 }
                 other => panic!("unexpected exact physical edge: {other:?}"),
@@ -65,4 +80,29 @@ fn an_interior_cut_of_a_staged_window_does_not_recertify_flattened_attribution()
     let end = staged.source_text().find("- outside").unwrap();
     let nested = staged.stage_source(&staged.source_text()[..end], 0..end);
     assert!(matches!(nested.physical_tail(), PhysicalTail::Unknown));
+}
+
+#[test]
+fn physical_eof_and_original_item_authority_are_orthogonal_in_trimmed_exact_windows() {
+    let raw = "- owner\n  > ~~~\n  > - parent\n  > ```\n  > opaque\n";
+    let real = EditorSession::open(raw);
+    let whole = real.stage_source(raw, 0..raw.len());
+    assert!(matches!(whole.physical_tail(), PhysicalTail::Eof));
+    assert_eq!(
+        whole
+            .context
+            .fence_edge
+            .map(|f| (f.depth, f.list_quote, f.code_quote)),
+        Some((1, 0, 1))
+    );
+    let start = raw.find("- parent").unwrap();
+    let trimmed = whole.stage_source(&raw[start..], start..raw.len());
+    assert!(matches!(trimmed.physical_tail(), PhysicalTail::Eof));
+    assert_eq!(trimmed.context.fence_edge, None);
+    let direct = real.stage_source(&raw[start..], start..raw.len());
+    assert!(matches!(direct.physical_tail(), PhysicalTail::Eof));
+    assert_eq!(direct.context.fence_edge, None);
+    let derived = real.stage_body_source(raw, 0..raw.len());
+    assert!(matches!(derived.physical_tail(), PhysicalTail::Unknown));
+    assert_eq!(derived.context.fence_edge, None);
 }

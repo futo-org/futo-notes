@@ -37,7 +37,6 @@ impl Boundary {
 /// Edits within a staged window do not move or change its untouched outside.
 #[derive(Clone, Copy, Debug, Default)]
 pub(super) enum PhysicalTail {
-    #[default]
     Eof,
     Row {
         code: bool,
@@ -45,11 +44,20 @@ pub(super) enum PhysicalTail {
         first_item: Option<bool>,
         item_depth: Option<usize>,
         empty_comment: bool,
-        // Original canonical fence and item end at this exact physical edge.
-        // Tuple is list depth, list quote depth, fence quote depth; no offsets.
-        fence_item_end: Option<(usize, usize, usize)>,
+        quote_start: bool,
     },
+    #[default]
     Unknown,
+}
+
+/// Original complete-item ownership, separate from physical EOF/tail facts.
+/// It has no source offsets, body references or cross-generation identity.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct FenceBoundary {
+    pub depth: usize,
+    pub list_quote: usize,
+    pub code_quote: usize,
+    pub gap_bytes: usize,
 }
 
 pub(super) struct StageContext {
@@ -57,6 +65,7 @@ pub(super) struct StageContext {
     after: Boundary,
     physical_tail: PhysicalTail,
     original_canonical: bool,
+    fence_edge: Option<FenceBoundary>,
 }
 
 impl Default for StageContext {
@@ -66,6 +75,7 @@ impl Default for StageContext {
             after: Boundary::default(),
             physical_tail: PhysicalTail::Unknown,
             original_canonical: false,
+            fence_edge: None,
         }
     }
 }
@@ -147,75 +157,84 @@ impl EditorSession {
         self.context.physical_tail
     }
 
-    /// Original physical proof is queried only through its authority owner.
-    /// A locally present tail in derived/truncated source cannot recertify it.
     pub(super) fn physical_tail_at(&self, at: usize) -> PhysicalTail {
         if matches!(self.physical_tail(), PhysicalTail::Unknown) {
             PhysicalTail::Unknown
         } else if at == self.source.len_bytes() {
             self.physical_tail()
         } else if at < self.source.len_bytes() && self.context.original_canonical {
-            self.projection
-                .source_prefix_at(at)
-                .map_or(PhysicalTail::Unknown, |prefix| PhysicalTail::Row {
-                    code: prefix.code,
-                    quote_depth: prefix.quote_depth,
-                    first_item: prefix.list.as_ref().map(|list| list.first),
-                    item_depth: prefix.list.as_ref().map(|list| list.depth),
-                    fence_item_end: self.projection.fence_item_end_at(at),
-                    empty_comment: self
-                        .projection
-                        .list_command_line_at_source(at)
-                        .is_some_and(|line| line.empty_comment),
-                })
+            let Some(prefix) = self.projection.source_prefix_at(at) else {
+                return PhysicalTail::Unknown;
+            };
+            let Some((block, base)) = self.projection.block_ref_at_source(at) else {
+                return PhysicalTail::Unknown;
+            };
+            PhysicalTail::Row {
+                code: prefix.code,
+                quote_depth: prefix.quote_depth,
+                first_item: prefix.list.as_ref().map(|list| list.first),
+                item_depth: prefix.list.as_ref().map(|list| list.depth),
+                empty_comment: block.empty_comment,
+                quote_start: block.quote_start && base + block.source.start == at,
+            }
         } else {
             PhysicalTail::Unknown
         }
     }
 
-    /// Normalize only original item-owned unquoted blank rows after a fence.
-    /// Temporary parses cannot create this original relationship certificate.
-    pub(super) fn physical_fence_tail_at(
-        &self,
-        opener: usize,
-        fence_end: usize,
-        end: usize,
-    ) -> PhysicalTail {
-        let mut tail = self.physical_tail_at(end);
+    /// Only the complete canonical source may construct original ownership.
+    /// Gap rows are actual item-owned physical blanks, never omitted content.
+    fn original_fence_boundary(&self, at: usize, end: usize) -> Option<FenceBoundary> {
         if !self.context.original_canonical {
-            return if fence_end == end {
-                tail
-            } else {
-                PhysicalTail::Unknown
-            };
+            return None;
         }
-        let Some((block, base)) = self.projection.block_ref_at_source(opener) else {
-            return PhysicalTail::Unknown;
-        };
-        let (Some(fence), Some(item)) = (&block.fence, &block.list) else {
-            return PhysicalTail::Unknown;
-        };
+        let (block, base) = self.projection.block_ref_at_source(at)?;
+        let (fence, item) = (block.fence.as_ref()?, block.list.as_ref()?);
         crate::inline::visit_container();
-        if fence.closer.is_some()
-            || base + fence.opener.start != opener
-            || base + fence.whole.end != fence_end
-            || base + item.item.end != end
-            || fence_end > end
-        {
-            return PhysicalTail::Unknown;
+        if base + item.item.end != end {
+            return None;
         }
-        let mut at = fence_end;
-        while at < end {
+        let physical_end = if let Some(close) = &fence.closer {
+            let physical = self
+                .source
+                .line_to_byte(self.source.byte_to_line(base + close.start));
+            let row = self.projection.source_prefix_at(physical)?;
+            if !row.code {
+                return None;
+            }
+            row.source.end
+        } else {
+            base + fence.whole.end
+        };
+        if physical_end > end {
+            return None;
+        }
+        if !self.blank_item_gap(physical_end, end, base + item.item.start) {
+            return None;
+        }
+        Some(FenceBoundary {
+            depth: item.depth,
+            list_quote: item.quote_depth,
+            code_quote: block.quote_depth,
+            gap_bytes: end - physical_end,
+        })
+    }
+
+    /// Current blank syntax is checked separately from original authority;
+    /// matching extents alone never establish retained content or ownership.
+    fn blank_item_gap(&self, start: usize, end: usize, item_start: usize) -> bool {
+        let mut next = start;
+        while next < end {
             crate::inline::visit_container();
-            let Some(row) = self.projection.source_prefix_at(at) else {
-                return PhysicalTail::Unknown;
+            let Some(row) = self.projection.source_prefix_at(next) else {
+                return false;
             };
-            if row.source.end <= at
+            if row.source.end <= next
                 || row.source.end > end
                 || row.code
                 || row.quote_depth != 0
                 || !row.list.as_ref().is_some_and(|list| {
-                    !list.first && list.item.start == base + item.item.start && list.item.end == end
+                    !list.first && list.item.start == item_start && list.item.end == end
                 })
                 || self.source.byte(row.source.end - 1) != b'\n'
                 || !self
@@ -227,14 +246,84 @@ impl EditorSession {
                         matches!(byte, b' ' | b'\t' | b'\r' | b'\n')
                     })
             {
-                return PhysicalTail::Unknown;
+                return false;
             }
-            at = row.source.end;
+            next = row.source.end;
         }
-        if let PhysicalTail::Row { fence_item_end, .. } = &mut tail {
-            *fence_item_end = Some((item.depth, item.quote_depth, block.quote_depth));
+        next == end
+    }
+
+    /// Original facts can be inherited only with the whole opening item kept.
+    /// Trimming a staged start retains physical EOF but loses item authority.
+    fn capture_fence_edge(&self, window: &Range<usize>) -> Option<FenceBoundary> {
+        if !self.context.original_canonical {
+            return (window.start == 0 && window.end == self.source.len_bytes())
+                .then_some(self.context.fence_edge)
+                .flatten();
         }
-        tail
+        let mut at = window.end;
+        while at > window.start {
+            crate::inline::visit_container();
+            let previous = self.source.line_to_byte(self.source.byte_to_line(at - 1));
+            if previous < window.start {
+                return None;
+            }
+            let row = self.projection.source_prefix_at(previous)?;
+            let item = row.list.as_ref()?;
+            if item.depth != 1 || item.item.start < window.start || item.item.end != window.end {
+                return None;
+            }
+            if row.code {
+                return self.original_fence_boundary(previous, window.end);
+            }
+            if row.source.end != at
+                || row.quote_depth != 0
+                || !self
+                    .source
+                    .byte_slice(row.source.clone())
+                    .bytes()
+                    .all(|byte| {
+                        crate::inline::visit_container();
+                        matches!(byte, b' ' | b'\t' | b'\r' | b'\n')
+                    })
+            {
+                return None;
+            }
+            at = previous;
+        }
+        None
+    }
+
+    pub(super) fn physical_fence_tail_at(
+        &self,
+        opener: usize,
+        fence_end: usize,
+        end: usize,
+    ) -> (PhysicalTail, Option<FenceBoundary>) {
+        let outside = self.physical_tail_at(end);
+        let boundary = if self.context.original_canonical {
+            self.original_fence_boundary(opener, end)
+        } else if end == self.source.len_bytes() {
+            self.context.fence_edge
+        } else {
+            None
+        };
+        let boundary = boundary
+            .filter(|proof| end.checked_sub(fence_end) == Some(proof.gap_bytes))
+            .filter(|proof| {
+                if self.context.original_canonical || proof.gap_bytes == 0 {
+                    return true;
+                }
+                let Some((block, base)) = self.projection.block_ref_at_source(opener) else {
+                    return false;
+                };
+                let Some(item) = block.list.as_ref() else {
+                    return false;
+                };
+                crate::inline::visit_container();
+                self.blank_item_gap(fence_end, end, base + item.item.start)
+            });
+        (outside, boundary)
     }
 
     fn stage_with_context(&self, raw: &str, window: Range<usize>, exact: bool) -> Self {
@@ -249,6 +338,11 @@ impl EditorSession {
             after: self.stage_boundary(window.end, true),
             physical_tail,
             original_canonical: false,
+            fence_edge: if exact {
+                self.capture_fence_edge(&window)
+            } else {
+                None
+            },
         };
         staged
     }

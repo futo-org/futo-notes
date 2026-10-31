@@ -68,14 +68,20 @@ impl EditorSession {
             return Ok(None);
         }
         let end = list.item.end;
-        let outside = if fence.closer.is_none() {
-            self.physical_fence_tail_at(base + fence.opener.start, fence_end, end)
-        } else if fence_end == end {
-            self.physical_tail_at(end)
-        } else {
-            return Ok(None);
+        let (outside, boundary) =
+            self.physical_fence_tail_at(base + fence.opener.start, fence_end, end);
+        let Some(boundary) = boundary else {
+            return Err(EditorError::UnrepresentableFormat);
         };
+        if boundary.depth != list.depth
+            || boundary.list_quote != list.quote_depth
+            || boundary.code_quote != code.quote_depth
+            || matches!(outside, PhysicalTail::Unknown)
+        {
+            return Err(EditorError::UnrepresentableFormat);
+        }
         let mut quote_separator = false;
+        let mut edge_quote_boundary = false;
         let needs_close = if fence.closer.is_some() {
             false
         } else {
@@ -87,11 +93,8 @@ impl EditorSession {
                     first_item,
                     item_depth,
                     empty_comment,
-                    fence_item_end: Some((1, list_quote, fence_quote)),
-                } if list_quote == list.quote_depth
-                    && fence_quote == code.quote_depth
-                    && (first_item == Some(true) && item_depth == Some(1) || empty_comment) =>
-                {
+                    quote_start,
+                } if first_item == Some(true) && item_depth == Some(1) || empty_comment => {
                     if code.quote_depth == list.quote_depth && quote_depth == list.quote_depth {
                         true
                     } else if code.quote_depth > list.quote_depth && quote_depth < code.quote_depth
@@ -102,15 +105,19 @@ impl EditorSession {
                         && quote_depth == 1
                         && first_item == Some(true)
                         && item_depth == Some(1)
-                        && end < self.source.len_bytes()
+                        && quote_start
                     {
-                        let (foreign, origin) = self
-                            .projection
-                            .block_ref_at_source(end)
-                            .ok_or(EditorError::UnrepresentableFormat)?;
-                        crate::inline::visit_container();
-                        if !foreign.quote_start || origin + foreign.source.start != end {
-                            return Err(EditorError::UnrepresentableFormat);
+                        if end < self.source.len_bytes() {
+                            let (foreign, origin) = self
+                                .projection
+                                .block_ref_at_source(end)
+                                .ok_or(EditorError::UnrepresentableFormat)?;
+                            crate::inline::visit_container();
+                            if !foreign.quote_start || origin + foreign.source.start != end {
+                                return Err(EditorError::UnrepresentableFormat);
+                            }
+                        } else {
+                            edge_quote_boundary = true;
                         }
                         quote_separator = fence_end == end;
                         false
@@ -220,7 +227,24 @@ impl EditorSession {
         )?;
         let original_display_len = preview.projection.display.len_bytes();
         let work = preview.apply(&prepared).work;
-        let added = if quote_separator { eol.len() } else { 0 };
+        let exposed = self
+            .source
+            .byte_slice(if edge_quote_boundary && quote_separator {
+                base + fence.separator.start..base + fence.separator.end
+            } else {
+                0..0
+            });
+        if edge_quote_boundary
+            && quote_separator
+            && (exposed.len_bytes() != eol.len()
+                || !exposed.bytes().zip(eol.bytes()).all(|(a, b)| {
+                    crate::inline::visit_container();
+                    a == b
+                }))
+        {
+            return Err(EditorError::UnrepresentableFormat);
+        }
+        let added = exposed.len_bytes() + if quote_separator { eol.len() } else { 0 };
         if original_display_len + added != preview.projection.display.len_bytes() {
             return Err(EditorError::UnrepresentableFormat);
         }
@@ -240,6 +264,7 @@ impl EditorSession {
         if !before
             .byte_slice(..separator_at)
             .bytes()
+            .chain(exposed.bytes())
             .chain(inserted.iter().copied())
             .chain(before.byte_slice(separator_at..).bytes())
             .zip(preview.projection.display.bytes())
@@ -279,6 +304,28 @@ impl EditorSession {
             || needs_close && actual_fence.closer.is_none()
         {
             return Err(EditorError::UnrepresentableFormat);
+        }
+        if edge_quote_boundary {
+            let physical_end = preview.source.len_bytes();
+            let physical = preview
+                .source
+                .line_to_byte(preview.source.byte_to_line(physical_end - 1));
+            let closed = preview
+                .projection
+                .source_prefix_at(physical)
+                .ok_or(EditorError::UnrepresentableFormat)?;
+            crate::inline::visit_container();
+            if closed.code
+                || closed.quote_depth != 0
+                || closed.list.is_some()
+                || closed.source.end != physical_end
+                || !closed.content.is_empty()
+                || preview.source.byte(physical_end - 1) != b'\n'
+                || actual_fence.closer.is_some()
+                || actual_base + actual_fence.whole.end > physical
+            {
+                return Err(EditorError::UnrepresentableFormat);
+            }
         }
         if end < self.source.len_bytes() {
             let old = self
