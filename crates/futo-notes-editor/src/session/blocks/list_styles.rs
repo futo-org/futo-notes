@@ -62,6 +62,7 @@ impl EditorSession {
             .collect();
         let mut resolved_owners = HashMap::new();
         let mut resolved_lines = HashMap::new();
+        let mut owner_ordinals: HashMap<usize, u64> = HashMap::new();
         let mut result = ListStylePlan {
             markers: vec![candidates[0]; lines.len()],
             ordinals: vec![1; lines.len()],
@@ -84,6 +85,12 @@ impl EditorSession {
         let mut first = 0;
         while first < lines.len() {
             if targets.is_some_and(|targets| targets.removes(&lines[first])) {
+                // A retired item is a paragraph barrier. A later fragment of
+                // this original owner starts its own ordered sequence.
+                if let Some(list) = &lines[first].list {
+                    crate::inline::visit_container();
+                    owner_ordinals.remove(&list.owner.start);
+                }
                 first += 1;
                 continue;
             }
@@ -218,7 +225,16 @@ impl EditorSession {
             for index in first..last {
                 crate::inline::visit_container();
                 result.markers[index] = marker;
-                result.ordinals[index] = (index - first) as u64 + 1;
+                result.ordinals[index] = if let Some(owner) = &owner {
+                    // Nested owners can intervene in physical source order;
+                    // they must not restart their enclosing owner's sequence.
+                    crate::inline::visit_container();
+                    let ordinal = owner_ordinals.entry(owner.start).or_default();
+                    *ordinal += 1;
+                    *ordinal
+                } else {
+                    (index - first) as u64 + 1
+                };
                 resolved_lines.insert(
                     lines[index].source.start,
                     (marker, result.quotes[index], depth),
