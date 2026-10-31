@@ -99,7 +99,12 @@ export async function typedOriginConsumer({ start, stop, getSession, createRoot 
       const end = Buffer.byteLength(shown);
       page.select_with_affinity(revision, 0, 0, '"Forward"');
       page.select_with_affinity(revision, end, end, '"Forward"');
-      await apply(page.replace_utf16_action(revision, end, end, [32], '"Isolated"'), !closed);
+      // Unclosed origin completion is the frozen ordered-Typing action;
+      // isolated Code-release completion is a separate existing policy.
+      await apply(
+        page.replace_utf16_action(revision, end, end, [32], closed ? '"Isolated"' : '"Typing"'),
+        !closed,
+      );
       const active = JSON.parse(page.inspect_link(revision, 1, 2));
       assert.equal(active.destination, 'http://www.x.test/path');
       assert.deepEqual(active.range, { start: 1, end: 16 });
