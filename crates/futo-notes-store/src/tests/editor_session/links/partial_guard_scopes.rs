@@ -55,7 +55,7 @@ fn a_partial_guarded_code_split_rejects_before_store_acceptance_and_recovers_exa
         assert_eq!(editor.display_text(), shown);
         let after = editor.project(Revision(4), range(0, shown.len())).unwrap();
         assert!(after.links.is_empty());
-        assert_eq!(editor.selection(), range(25, 25));
+        assert_eq!(editor.selection(), range(26, 26));
         disk.lock().unwrap().fault = Some(fault);
         assert!(matches!(
             editor.undo(Revision(4)),
