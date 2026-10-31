@@ -43,3 +43,14 @@ fn exact_window_inside_a_physical_code_row_has_no_boundary_proof() {
     let staged = real.stage_source(&raw[..end], 0..end);
     assert!(matches!(staged.physical_tail(), PhysicalTail::Unknown));
 }
+
+#[test]
+fn an_interior_cut_of_a_staged_window_does_not_recertify_flattened_attribution() {
+    let raw = "- parent\n  > b\n  > c\n- outside";
+    let real = EditorSession::open(raw);
+    let start = raw.find("> b").unwrap();
+    let staged = real.stage_source(&raw[start..], start..raw.len());
+    let end = staged.source_text().find("- outside").unwrap();
+    let nested = staged.stage_source(&staged.source_text()[..end], 0..end);
+    assert!(matches!(nested.physical_tail(), PhysicalTail::Unknown));
+}
