@@ -6,6 +6,7 @@ import { literalRetirementConsumer } from './wasm-literal-retirement-consumer.mj
 import { sourceGenerationsConsumer } from './wasm-source-generations-consumer.mjs';
 import { relinkGuardConsumer } from './wasm-relink-guard-consumer.mjs';
 import { relinkTypedConsumer } from './wasm-relink-typed-consumer.mjs';
+import { partialEndingConsumer } from './wasm-partial-ending-consumer.mjs';
 
 export async function liveSourceConsumers({ start, stop, getSession, createRoot, parseSource }) {
   const checked = (story) => () =>
@@ -69,6 +70,13 @@ export async function liveSourceConsumers({ start, stop, getSession, createRoot,
     start,
     stop,
     getSession: checked('eligible typed URI relink'),
+    createRoot,
+    parseSource,
+  });
+  await partialEndingConsumer({
+    start,
+    stop,
+    getSession: checked('partial URL ending'),
     createRoot,
     parseSource,
   });
