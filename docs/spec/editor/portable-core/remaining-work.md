@@ -12,8 +12,9 @@ required. Tables, shared find, wikilink completion and the 20,000-line/native du
 acceptance targets have not been deferred. → docs/plan/text-first-editor-rebuild-tickets.md
 
 Container command work (#299) now includes canonical nested and cross-quote list lifting,
-mixed-format run transitions, exact owner fragments and copied ordered starts in source-level
-controls. Completion still requires the remaining nested Heading/Quote and mixed endpoint
+mixed-format run transitions, exact owner fragments, copied ordered starts and same-line empty
+prefix frames with distinct nearest/full intents in source-level controls. Complete single-line
+body controls do not establish multiline quote/list behavior or general prefix/frame coverage. Completion still requires the remaining nested Heading/Quote and mixed endpoint
 matrix, task continuation and quoted/tabbed/fenced content, malformed or unmatched fences,
 foreign marker/comment/line-ending controls, complete new-work bounds, and current independent
 source review plus native execution. Source fixtures and parser/copy counters do not close
