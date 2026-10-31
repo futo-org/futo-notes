@@ -1,4 +1,4 @@
-//! Public actions calibrate actual consumed work before aggregation is repaired.
+//! Public actions retain exact prior work plus independently observed child totals.
 use super::{children as child_snapshot, reset};
 use crate::*;
 fn range(a: usize, z: usize) -> DisplayRange {
@@ -10,6 +10,29 @@ fn range(a: usize, z: usize) -> DisplayRange {
 
 #[test]
 fn public_actions_report_each_consumed_planning_contribution() {
+    let mut missing = Vec::new();
+    let mut check =
+        |name: &'static str, actual: EditWork, baseline: EditWork, addition: (usize, usize)| {
+            let observed = child_snapshot();
+            let measured = observed.iter().fold((0, 0), |(items, copied), (_, part)| {
+                (
+                    items + part.link_metadata_items,
+                    copied + part.link_copied_bytes,
+                )
+            });
+            assert_eq!(
+                measured, addition,
+                "{name}: independently observed child totals={observed:?}"
+            );
+            let expected = EditWork {
+                link_metadata_items: baseline.link_metadata_items + addition.0,
+                link_copied_bytes: baseline.link_copied_bytes + addition.1,
+                ..baseline
+            };
+            if actual != expected {
+                missing.push((name, actual, expected));
+            }
+        };
     for (name, source, expected, command, at) in [
         (
             "lift-list",
@@ -34,7 +57,6 @@ fn public_actions_report_each_consumed_planning_contribution() {
         ),
     ] {
         let mut session = EditorSession::open(source);
-        let before = session.display_text();
         let canonical = EditorSession::open(expected);
         reset();
         let change = session
@@ -50,10 +72,40 @@ fn public_actions_report_each_consumed_planning_contribution() {
                 .any(|(owner, part)| *owner == name && part.link_metadata_items > 0),
             "{name}: {children:?}"
         );
-        eprintln!(
-            "CALIBRATION {name}: before={before:?}; public={:?}; children={children:?}",
-            change.work
-        );
+        let (baseline, addition) = match name {
+            "lift-list" => (
+                EditWork {
+                    materialized_source_bytes: 320,
+                    inserted_bytes: 22,
+                    parsed_source_bytes: 278,
+                    link_metadata_items: 396,
+                    link_copied_bytes: 84,
+                },
+                (147, 28),
+            ),
+            "header-apply" => (
+                EditWork {
+                    materialized_source_bytes: 93,
+                    inserted_bytes: 8,
+                    parsed_source_bytes: 55,
+                    link_metadata_items: 66,
+                    link_copied_bytes: 0,
+                },
+                (55, 0),
+            ),
+            "fence-apply" => (
+                EditWork {
+                    materialized_source_bytes: 458,
+                    inserted_bytes: 41,
+                    parsed_source_bytes: 412,
+                    link_metadata_items: 199,
+                    link_copied_bytes: 28,
+                },
+                (222, 42),
+            ),
+            _ => unreachable!(),
+        };
+        check(name, change.work, baseline, addition);
     }
     let mut session = EditorSession::open("-https://x.test");
     reset();
@@ -66,9 +118,17 @@ fn public_actions_report_each_consumed_planning_contribution() {
     assert!(children
         .iter()
         .any(|(name, part)| *name == "shortcut-remove" && part.link_metadata_items > 0));
-    eprintln!(
-        "CALIBRATION shortcut-remove: public={:?}; children={children:?}",
-        change.work
+    check(
+        "shortcut-remove",
+        change.work,
+        EditWork {
+            materialized_source_bytes: 196,
+            inserted_bytes: 16,
+            parsed_source_bytes: 225,
+            link_metadata_items: 353,
+            link_copied_bytes: 98,
+        },
+        (343, 56),
     );
 
     let source = "[id]: /target\n\n[one][id]\n\nbody";
@@ -87,8 +147,20 @@ fn public_actions_report_each_consumed_planning_contribution() {
     assert!(children
         .iter()
         .any(|(name, part)| *name == "semantic-delimiters" && part.link_metadata_items > 0));
-    eprintln!(
-        "CALIBRATION semantic-delimiters: public={:?}; children={children:?}",
-        change.work
+    check(
+        "semantic-delimiters",
+        change.work,
+        EditWork {
+            materialized_source_bytes: 94,
+            inserted_bytes: 0,
+            parsed_source_bytes: 167,
+            link_metadata_items: 271,
+            link_copied_bytes: 33,
+        },
+        (6, 0),
+    );
+    assert!(
+        missing.is_empty(),
+        "consumed planning work was dropped: {missing:?}"
     );
 }
