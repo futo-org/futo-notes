@@ -71,3 +71,6 @@ mod typed_origin_mutations;
 
 #[path = "links/typed_word_endings.rs"]
 mod typed_word_endings;
+
+#[path = "links/typed_ending_atoms.rs"]
+mod typed_ending_atoms;

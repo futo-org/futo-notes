@@ -84,6 +84,8 @@ fn story(ending: Ending) {
         expected_link
     );
     let source = editor.source_text();
+    assert_eq!(source, "<[www.x.test/path](<http://www.x.test/path>) ");
+    assert!(source.ends_with(" "));
     let fresh = EditorSession::open(&source);
     assert_eq!(fresh.display_text(), expected);
     assert_eq!(
