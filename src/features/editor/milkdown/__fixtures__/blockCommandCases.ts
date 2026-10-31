@@ -496,4 +496,28 @@ export const cases = [
     command: 'bullet-list',
     anchor: 'parent',
   },
+  {
+    name: 'Text promotes unmatched wide tilde list fence with CRLF',
+    source: '- parent\r\n  ~~~~lang\r\n  opaque\r\n- outside',
+    command: 'paragraph',
+    anchor: 'parent',
+  },
+  {
+    name: 'Text retains quote boundary around unmatched promoted list fence',
+    source: '- parent\n  > ```\n  > opaque\n- outside',
+    command: 'paragraph',
+    anchor: 'parent',
+  },
+  {
+    name: 'Text preserves existing closer while promoting list fence',
+    source: '- parent\n  ```\n  opaque\n  ```\n- outside',
+    command: 'paragraph',
+    anchor: 'parent',
+  },
+  {
+    name: 'Text promotes unmatched list fence at true EOF',
+    source: '- parent\n  ```\n  opaque',
+    command: 'paragraph',
+    anchor: 'parent',
+  },
 ] as const;

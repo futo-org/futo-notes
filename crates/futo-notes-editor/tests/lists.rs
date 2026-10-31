@@ -41,3 +41,8 @@ mod same_line_quotes;
 
 #[path = "lists/shared_prefix_frames.rs"]
 mod shared_prefix_frames;
+
+#[path = "lists/fence_promotion.rs"]
+mod fence_promotion;
+#[path = "lists/task_containers.rs"]
+mod task_containers;
