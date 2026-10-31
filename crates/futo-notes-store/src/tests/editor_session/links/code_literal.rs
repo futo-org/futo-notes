@@ -151,3 +151,159 @@ fn code_literal_release_rejects_atomically_restores_history_and_reopens_without_
         assert_eq!(store.read("code-literal").unwrap(), literal_source);
     }
 }
+
+#[test]
+fn divider_scalar_transport_rejects_atomically_and_recovery_never_persists_live_ownership() {
+    use futo_notes_editor::{BlockCommand, DisplayUtf16Offset, DisplayUtf16Range};
+    for fault in [storage::Fault::Append, storage::Fault::ShortWrite] {
+        let root = TestRoot::new();
+        let store = store(&root);
+        store.create("", "divider-literal", "pre ").unwrap();
+        let disk = Arc::new(Mutex::new(storage::Disk::default()));
+        let mut editor = store
+            .open_editor_with_recovery("divider-literal", storage::options(&disk))
+            .unwrap();
+        editor
+            .replace(Revision(0), range(4, 4), "<https://x.test/path")
+            .unwrap();
+        editor.replace(Revision(1), range(24, 24), ">").unwrap();
+        editor
+            .select_with_affinity(
+                Revision(2),
+                range(19, 24),
+                futo_notes_editor::Affinity::Backward,
+            )
+            .unwrap();
+        editor
+            .toggle_format(Revision(2), InlineFormat::Code)
+            .unwrap()
+            .unwrap();
+        let guarded = editor.source_text();
+        let before = editor.project(Revision(3), range(0, 25)).unwrap();
+        let formats = editor.active_formats();
+        let at = DisplayUtf16Range {
+            start: DisplayUtf16Offset(4),
+            end: DisplayUtf16Offset(4),
+        };
+        disk.lock().unwrap().fault = Some(fault);
+        assert!(matches!(
+            editor.block_command_utf16(Revision(3), at, BlockCommand::Divider),
+            Err(EditorStoreError::RecoveryAppend(_))
+        ));
+        assert_eq!(editor.source_text(), guarded);
+        assert_eq!(editor.revision(), Revision(3));
+        assert_eq!(editor.selection(), range(19, 24));
+        assert_eq!(editor.active_formats(), formats);
+        assert_eq!(editor.project(Revision(3), range(0, 25)).unwrap(), before);
+        assert_eq!(store.read("divider-literal").unwrap(), "pre ");
+        disk.lock().unwrap().fault = None;
+        editor.resume_recovery().unwrap();
+        editor
+            .block_command_utf16(Revision(3), at, BlockCommand::Divider)
+            .unwrap()
+            .unwrap();
+        let divided = editor.source_text();
+        assert_eq!(
+            editor.display_text(),
+            "pre \n\u{fffc}\n\n<https://x.test/path>"
+        );
+        editor
+            .select_with_affinity(
+                Revision(4),
+                range(25, 30),
+                futo_notes_editor::Affinity::Backward,
+            )
+            .unwrap();
+        editor
+            .toggle_format(Revision(4), InlineFormat::Code)
+            .unwrap()
+            .unwrap();
+        let released = editor.source_text();
+        editor
+            .select_with_affinity(
+                Revision(5),
+                range(31, 31),
+                futo_notes_editor::Affinity::Forward,
+            )
+            .unwrap();
+        editor.replace(Revision(5), range(31, 31), " ").unwrap();
+        let linked = editor.source_text();
+        let active = editor.project(Revision(6), range(0, 32)).unwrap();
+        assert_eq!(active.links.len(), 1);
+        assert_eq!(active.links[0].range, range(11, 30));
+        assert_eq!(active.links[0].destination, "https://x.test/path");
+        disk.lock().unwrap().fault = Some(fault);
+        assert!(matches!(
+            editor.undo(Revision(6)),
+            Err(EditorStoreError::RecoveryAppend(_))
+        ));
+        assert_eq!(editor.source_text(), linked);
+        assert_eq!(editor.project(Revision(6), range(0, 32)).unwrap(), active);
+        disk.lock().unwrap().fault = None;
+        editor.resume_recovery().unwrap();
+        editor.undo(Revision(6)).unwrap().unwrap();
+        assert_eq!(editor.source_text(), released);
+        assert!(editor
+            .project(Revision(7), range(0, 31))
+            .unwrap()
+            .links
+            .is_empty());
+        disk.lock().unwrap().fault = Some(fault);
+        assert!(matches!(
+            editor.redo(Revision(7)),
+            Err(EditorStoreError::RecoveryAppend(_))
+        ));
+        assert_eq!(editor.source_text(), released);
+        assert!(editor
+            .project(Revision(7), range(0, 31))
+            .unwrap()
+            .links
+            .is_empty());
+        disk.lock().unwrap().fault = None;
+        editor.resume_recovery().unwrap();
+        editor.redo(Revision(7)).unwrap().unwrap();
+        assert_eq!(editor.source_text(), linked);
+        editor.undo(Revision(8)).unwrap().unwrap();
+        editor.undo(Revision(9)).unwrap().unwrap();
+        assert_eq!(editor.source_text(), divided);
+        editor.undo(Revision(10)).unwrap().unwrap();
+        assert_eq!(editor.source_text(), guarded);
+        editor.redo(Revision(11)).unwrap().unwrap();
+        assert_eq!(editor.source_text(), divided);
+        editor.flush_recovery().unwrap();
+        drop(editor);
+        let mut recovered = store
+            .open_editor_with_recovery("divider-literal", storage::options(&disk))
+            .unwrap();
+        assert_eq!(recovered.source_text(), divided);
+        recovered
+            .select_with_affinity(
+                recovered.revision(),
+                range(25, 30),
+                futo_notes_editor::Affinity::Backward,
+            )
+            .unwrap();
+        recovered
+            .toggle_format(recovered.revision(), InlineFormat::Code)
+            .unwrap()
+            .unwrap();
+        recovered
+            .select_with_affinity(
+                recovered.revision(),
+                range(31, 31),
+                futo_notes_editor::Affinity::Forward,
+            )
+            .unwrap();
+        recovered
+            .replace(recovered.revision(), range(31, 31), " ")
+            .unwrap();
+        assert!(recovered
+            .project(recovered.revision(), range(0, 32))
+            .unwrap()
+            .links
+            .is_empty());
+        let literal = recovered.source_text();
+        recovered.checkpoint().unwrap();
+        assert_eq!(store.read("divider-literal").unwrap(), literal);
+    }
+}
