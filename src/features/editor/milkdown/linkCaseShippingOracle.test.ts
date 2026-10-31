@@ -13,6 +13,8 @@ import { EditorState } from '@milkdown/kit/prose/state';
 import { commonmarkWithCompat, gfmWithCompat } from '@futo-notes/editor/milkdown-compat';
 import { createMarkdownSerializer, type NodeJson } from '@futo-notes/editor/markdown';
 import { autolink } from './autolink';
+import { softBreakView } from './paragraphLines';
+import { handleParityKeyDown } from './keyboardParity';
 import { withoutLeakedCtxTimers } from './__fixtures__/noLeakedCtxTimers';
 let editor: Editor;
 let root: HTMLDivElement;
@@ -26,10 +28,15 @@ beforeAll(async () => {
         ctx.set(defaultValueCtx, '');
       })
       .use(commonmarkWithCompat())
+      .use(softBreakView)
       .use(gfmWithCompat())
       .use(autolink)
       .create(),
   );
+  editor.ctx.get(editorViewCtx).setProps({
+    handleKeyDown: handleParityKeyDown,
+    handleScrollToSelection: () => true,
+  });
   const parse = editor.ctx.get(parserCtx);
   const serializer = createMarkdownSerializer({
     parse: (text) => parse(text).toJSON() as NodeJson,
@@ -87,5 +94,47 @@ for (const [inner, href, action] of [
     }
     expect(view.state.doc.textContent).toBe(`<${inner}> `);
     expect(links()).toEqual(expected);
+  });
+}
+
+for (const [text, inner, href, shiftKey] of [
+  ['<www.x.test/path', 'www.x.test/path', 'http://www.x.test/path', false],
+  ['<https://x.test/path>', 'https://x.test/path', 'https://x.test/path', true],
+] as const) {
+  it(`the actual ${shiftKey ? 'Shift+Enter' : 'Enter'} dispatcher ends ${text} with one newline`, () => {
+    const view = editor.ctx.get(editorViewCtx);
+    view.updateState(
+      EditorState.create({ schema: view.state.schema, plugins: view.state.plugins }),
+    );
+    for (const ch of text) {
+      const { from, to } = view.state.selection;
+      const handled = view.someProp('handleTextInput', (handler) =>
+        handler(view, from, to, ch, () => view.state.tr.insertText(ch)),
+      );
+      if (!handled) view.dispatch(view.state.tr.insertText(ch));
+    }
+    const links = () => {
+      const found: { text: string; href: string }[] = [];
+      view.state.doc.descendants((node) => {
+        const mark = node.marks.find((mark) => mark.type.name === 'link');
+        if (mark && node.isText)
+          found.push({ text: node.text ?? '', href: String(mark.attrs.href) });
+      });
+      return found;
+    };
+    expect(links()).toEqual([]);
+    const event = new KeyboardEvent('keydown', {
+      key: 'Enter',
+      code: 'Enter',
+      shiftKey,
+      bubbles: true,
+      cancelable: true,
+    });
+    expect(view.someProp('handleKeyDown', (handler) => handler(view, event))).toBe(true);
+    expect(view.state.doc.textBetween(0, view.state.doc.content.size, '\n', () => '\n')).toBe(
+      `${text}\n`,
+    );
+    expect(links()).toEqual([{ text: inner, href }]);
+    expect(view.state.doc.firstChild?.lastChild?.attrs.isInline).toBe(true);
   });
 }

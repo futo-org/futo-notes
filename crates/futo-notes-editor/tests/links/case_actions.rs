@@ -242,3 +242,107 @@ fn completed_marked_https_input_uses_the_same_clean_committed_capsule() {
     editor.redo(Revision(2), &mut |_| Ok(())).unwrap().unwrap();
     assert_eq!(editor.source_text(), saved);
 }
+
+fn paragraph_word_end(
+    text: &str,
+    inner: &str,
+    destination: &str,
+    source: &str,
+    key: futo_notes_editor::ParagraphKey,
+) {
+    raw_library_link(inner, destination);
+    let standard = EditorSession::open(source);
+    let shown = format!("{text}\n");
+    assert_eq!(standard.display_text(), shown);
+    let expected = standard
+        .inspect_link(Revision(0), range(1, 2))
+        .unwrap()
+        .unwrap();
+    assert_eq!(expected.range, range(1, inner.len() + 1));
+    assert_eq!(expected.destination, destination);
+    let mut editor = EditorSession::open("");
+    for ch in text.chars() {
+        let at = editor.display_text().len();
+        editor
+            .replace(
+                editor.revision(),
+                range(at, at),
+                &ch.to_string(),
+                &mut |_| Ok(()),
+            )
+            .unwrap();
+    }
+    assert!(editor
+        .inspect_link(editor.revision(), range(1, 2))
+        .unwrap()
+        .is_none());
+    let original = editor.source_text();
+    editor.select(editor.revision(), range(0, 0)).unwrap();
+    editor
+        .select(editor.revision(), range(text.len(), text.len()))
+        .unwrap();
+    let mut accepted = 0;
+    let change = editor
+        .paragraph_key(
+            editor.revision(),
+            range(text.len(), text.len()),
+            key,
+            &mut |_| {
+                accepted += 1;
+                Ok(())
+            },
+        )
+        .unwrap()
+        .unwrap();
+    assert_eq!(accepted, 1);
+    assert_eq!(change.selection, range(shown.len(), shown.len()));
+    assert_eq!(editor.display_text(), shown);
+    assert_eq!(
+        editor.inspect_link(editor.revision(), range(1, 2)).unwrap(),
+        Some(expected.clone()),
+        "actualsource={:?}",
+        editor.source_text()
+    );
+    let saved = editor.source_text();
+    let fresh = EditorSession::open(&saved);
+    assert_eq!(fresh.display_text(), shown);
+    assert_eq!(
+        fresh.inspect_link(Revision(0), range(1, 2)).unwrap(),
+        Some(expected)
+    );
+    editor
+        .undo(editor.revision(), &mut |_| Ok(()))
+        .unwrap()
+        .unwrap();
+    assert_eq!(editor.source_text(), original);
+    assert!(editor
+        .inspect_link(editor.revision(), range(1, 2))
+        .unwrap()
+        .is_none());
+    editor
+        .redo(editor.revision(), &mut |_| Ok(()))
+        .unwrap()
+        .unwrap();
+    assert_eq!(editor.source_text(), saved);
+}
+
+#[test]
+fn actual_enter_ends_an_unclosed_www_word_without_inventing_a_closer() {
+    paragraph_word_end(
+        "<www.x.test/path",
+        "www.x.test/path",
+        "http://www.x.test/path",
+        "<[www.x.test/path](<http://www.x.test/path>)\n",
+        futo_notes_editor::ParagraphKey::Enter,
+    );
+}
+#[test]
+fn actual_shift_enter_ends_a_closed_http_word_as_one_lf() {
+    paragraph_word_end(
+        "<https://x.test/path>",
+        "https://x.test/path",
+        "https://x.test/path",
+        "<<https://x.test/path>>\n",
+        futo_notes_editor::ParagraphKey::ShiftEnter,
+    );
+}
