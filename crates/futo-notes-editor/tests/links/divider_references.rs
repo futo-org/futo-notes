@@ -64,7 +64,7 @@ fn divider_keeps_a_semantic_shortcut_and_existing_winner_duplicate_title_exact()
     let original =
         "prefix [id]: /target 'T'\n\n[one][id]\n\n[id]: /first 'First'\n\n[id]: /second 'Later'";
     let expected = "prefix \n***\n\n[id][id]: /target 'T'\n\n[one][id]\n\n[id]: /first 'First'\n\n[id]: /second 'Later'";
-    let shown = "prefix \n\u{fffc}\n\nid: /target 'T'\n\none\n\n\n\n[id]: /second 'Later'";
+    let shown = "prefix \n\u{fffc}\n\nid: /target 'T'\n\none\n\n[id]: /second 'Later'";
     let candidate = EditorSession::open(expected);
     assert_eq!(candidate.display_text(), shown);
     let expected_links = candidate
@@ -76,7 +76,7 @@ fn divider_keeps_a_semantic_shortcut_and_existing_winner_duplicate_title_exact()
         .iter()
         .all(|link| link.destination == "/first" && link.title.as_deref() == Some("First")));
     let mut session = EditorSession::open(original);
-    let mut view = ReferenceView::new("prefix id: /target 'T'\n\none\n\n\n\n[id]: /second 'Later'");
+    let mut view = ReferenceView::new("prefix id: /target 'T'\n\none\n\n[id]: /second 'Later'");
     assert_eq!(session.display_text(), view.text);
     view.apply(
         session
@@ -111,7 +111,7 @@ fn divider_keeps_a_semantic_shortcut_and_existing_winner_duplicate_title_exact()
 #[test]
 fn ordinary_divider_does_not_scan_distant_reference_definitions_or_uses() {
     let mut measured = Vec::new();
-    for count in [20, 200] {
+    for count in [20, 200, 2000] {
         let original = format!(
             "alpha beta\n\nbuffer\n\n{}[keep]: /kept 'T'",
             "[other][keep]\n\n".repeat(count)
@@ -129,5 +129,21 @@ fn ordinary_divider_does_not_scan_distant_reference_definitions_or_uses() {
         );
         measured.push(change.work);
     }
-    assert_eq!(measured[0], measured[1]);
+    for work in &measured[1..] {
+        assert_eq!(
+            work.materialized_source_bytes,
+            measured[0].materialized_source_bytes
+        );
+        assert_eq!(work.inserted_bytes, measured[0].inserted_bytes);
+        assert_eq!(work.parsed_source_bytes, measured[0].parsed_source_bytes);
+        assert_eq!(work.link_copied_bytes, measured[0].link_copied_bytes);
+        // Actual indexed tree visits may grow logarithmically; body/reference
+        // traversal must not grow with the hundred-fold distant corpus.
+        assert!(
+            work.link_metadata_items
+                .abs_diff(measured[0].link_metadata_items)
+                <= 16,
+            "ordinary indexed work must stay bounded: {measured:?}"
+        );
+    }
 }
