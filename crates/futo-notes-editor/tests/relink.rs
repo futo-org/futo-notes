@@ -174,3 +174,6 @@ mod affected_literal;
 
 #[path = "relink/typed.rs"]
 mod typed;
+
+#[path = "relink/typed_class.rs"]
+mod typed_class;
