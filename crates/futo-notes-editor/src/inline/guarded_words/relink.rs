@@ -16,7 +16,7 @@ impl Projection {
     /// One ordered owner index assigns each real canonical Code span once.
     fn relink_code_witnesses(
         &self,
-        words: &[GuardedWord],
+        words: &[Range<usize>],
         origin: usize,
     ) -> Result<(Vec<Vec<CodeWitness>>, usize), EditorError> {
         let mut result = vec![Vec::new(); words.len()];
@@ -24,7 +24,6 @@ impl Projection {
         let mut first = 0;
         while first < words.len() {
             let at = words[first]
-                .inner
                 .start
                 .checked_sub(origin)
                 .ok_or(EditorError::UnrepresentableFormat)?;
@@ -33,9 +32,9 @@ impl Projection {
             let base = origin + base;
             let last = words.partition_point(|word| {
                 work += 1;
-                word.inner.start < base + row.source_len
+                word.start < base + row.source_len
             });
-            if last <= first || words[last - 1].inner.end > base + row.source_len {
+            if last <= first || words[last - 1].end > base + row.source_len {
                 return Err(EditorError::UnrepresentableFormat);
             }
             for span in &row.spans {
@@ -47,17 +46,17 @@ impl Projection {
                 let end = base + span.close.end;
                 let local = words[first..last].partition_point(|word| {
                     work += 1;
-                    word.inner.end <= start
+                    word.end <= start
                 });
                 let index = first + local;
                 let Some(word) = words.get(index).filter(|_| index < last) else {
                     continue;
                 };
                 work += 3;
-                if end <= word.inner.start {
+                if end <= word.start {
                     continue;
                 }
-                if start < word.inner.start || word.inner.end < end {
+                if start < word.start || word.end < end {
                     return Err(EditorError::UnrepresentableFormat);
                 }
                 result[index].push(CodeWitness {
@@ -73,9 +72,9 @@ impl Projection {
 
     /// Requests are source-ordered and refer to this exact staged generation.
     /// One row span index serves every owned word; no final text search.
-    pub(crate) fn relink_code_uris(
+    pub(crate) fn relink_owned_uris(
         &self,
-        words: &[GuardedWord],
+        words: &[Range<usize>],
         origin: usize,
         expected: Option<&[Vec<CodeWitness>]>,
     ) -> Result<(Vec<CanonicalUri>, Vec<Vec<CodeWitness>>, EditWork), EditorError> {
@@ -98,7 +97,6 @@ impl Projection {
         let mut first = 0;
         while first < words.len() {
             let start = words[first]
-                .inner
                 .start
                 .checked_sub(origin)
                 .ok_or(EditorError::UnrepresentableFormat)?;
@@ -107,7 +105,6 @@ impl Projection {
             while let Some(word) = words.get(first) {
                 work.link_metadata_items += 1;
                 let a = word
-                    .inner
                     .start
                     .checked_sub(origin + base)
                     .ok_or(EditorError::UnrepresentableFormat)?;
@@ -115,7 +112,6 @@ impl Projection {
                     break;
                 }
                 let z = word
-                    .inner
                     .end
                     .checked_sub(origin + base)
                     .ok_or(EditorError::UnrepresentableFormat)?;

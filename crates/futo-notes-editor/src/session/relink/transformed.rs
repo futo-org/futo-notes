@@ -1,6 +1,8 @@
 //! Known original identities share one prepared transformation within this attempt.
 use super::*;
+mod requests;
 use crate::inline::guarded_words::{CanonicalUri, CodeWordIdentity};
+use requests::Role;
 use std::{collections::HashMap, sync::Arc};
 
 #[derive(Default)]
@@ -80,23 +82,21 @@ impl rewrite::Fields {
         session: &EditorSession,
         original: &crate::inline::PendingLinks,
     ) -> Result<EditWork, EditorError> {
-        let mut words = Vec::new();
         let mut work = EditWork::default();
-        for (word, changed) in original.guarded_words.iter().zip(&self.changed_guards) {
-            work.link_metadata_items += 1;
-            if *changed {
-                words.push(word.clone());
-                work.link_metadata_items += 5;
-            }
-        }
-        let (uris, codes, parsed) = session.projection.relink_code_uris(&words, 0, None)?;
-        self.codes = codes;
+        let requests = self.requests(original, &mut work)?;
+        let ranges: Vec<_> = requests
+            .iter()
+            .map(|request| request.range.clone())
+            .collect();
+        work.link_metadata_items += 2 * ranges.len() + usize::from(!ranges.is_empty());
+        let (uris, codes, parsed) = session.projection.relink_owned_uris(&ranges, 0, None)?;
         charge(&mut work, parsed);
-        for (word, uri) in words.iter().zip(&uris) {
-            if !same(&word.identity, uri, &mut work) {
+        for (request, uri) in requests.iter().zip(&uris) {
+            if !same(request.original, uri, &mut work) {
                 return Err(EditorError::UnrepresentableFormat);
             }
         }
+        self.codes = codes;
         Ok(work)
     }
     /// This runs before any affected witness check or pending metadata restore.
@@ -107,29 +107,29 @@ impl rewrite::Fields {
         identities: &mut Identities,
     ) -> Result<EditWork, EditorError> {
         let mut work = EditWork::default();
-        let mut words = Vec::new();
-        for (word, changed) in self.pending.guarded_words.iter().zip(&self.changed_guards) {
-            work.link_metadata_items += 1;
-            if *changed {
-                words.push(word.clone());
-                work.link_metadata_items += 5;
-            }
-        }
+        let requests = self.requests(&self.pending, &mut work)?;
+        let ranges: Vec<_> = requests
+            .iter()
+            .map(|request| request.range.clone())
+            .collect();
+        work.link_metadata_items += 2 * ranges.len() + usize::from(!ranges.is_empty());
         let (uris, _, parsed) =
             staged
                 .projection
-                .relink_code_uris(&words, origin, Some(&self.codes))?;
+                .relink_owned_uris(&ranges, origin, Some(&self.codes))?;
         charge(&mut work, parsed);
-        let mut uris = uris.into_iter();
-        for (index, word) in self.pending.guarded_words.iter_mut().enumerate() {
+        let mut prepared = Vec::with_capacity(requests.len());
+        work.link_metadata_items += usize::from(!requests.is_empty());
+        for (request, uri) in requests.into_iter().zip(uris) {
+            let identity = identities.prepare(request.original, request.program, uri, &mut work)?;
+            prepared.push((request.role, identity));
+            work.link_metadata_items += 2;
+        }
+        for (role, identity) in prepared {
             work.link_metadata_items += 1;
-            if self.changed_guards[index] {
-                word.identity = identities.prepare(
-                    &word.identity,
-                    &self.programs[index],
-                    uris.next().ok_or(EditorError::UnrepresentableFormat)?,
-                    &mut work,
-                )?;
+            match role {
+                Role::Guard(index) => self.pending.guarded_words[index].identity = identity,
+                Role::Typed(index) => self.pending.typed_inputs[index].uri = Some(identity),
             }
         }
         if self.changed_links.iter().any(|changed| {

@@ -50,14 +50,20 @@ pub(in crate::session::relink) struct Fields {
     pub programs: Vec<Vec<(usize, usize)>>,
     pub codes: Vec<Vec<crate::inline::guarded_words::CodeWitness>>,
     pub changed_links: Vec<bool>,
+    pub changed_origins: Vec<bool>,
+    pub origin_programs: Vec<Vec<(usize, usize)>>,
 }
 impl Rewrite {
     pub fn code_witnesses(
         &self,
         codes: &mut [Vec<crate::inline::guarded_words::CodeWitness>],
     ) -> Result<usize, EditorError> {
+        if codes.is_empty() {
+            return Ok(0);
+        }
         let mut work = 0;
         for step in &self.steps {
+            work += 1;
             for owner in codes.iter_mut() {
                 work += 1;
                 for witness in owner {
@@ -80,6 +86,8 @@ impl Rewrite {
             programs: vec![Vec::new(); pending.guarded_words.len()],
             codes: Vec::new(),
             changed_links: vec![false; witnesses.len()],
+            changed_origins: vec![false; pending.typed_inputs.len()],
+            origin_programs: vec![Vec::new(); pending.typed_inputs.len()],
             witnesses,
         };
         result.pending.work = 2 * (1 + pending.ranges.len() + pending.delimiters.len())
@@ -87,7 +95,9 @@ impl Rewrite {
             + 3
             + result.programs.len()
             + result.changed_guards.len()
-            + result.changed_links.len();
+            + result.changed_links.len()
+            + 2
+            + 2 * result.changed_origins.len();
         for (generation, step) in self.steps.iter().enumerate() {
             let (a, x) = step.position(result.pending.window.start, Affinity::Backward)?;
             let (z, y) = step.position(result.pending.window.end, Affinity::Forward)?;
@@ -131,14 +141,22 @@ impl Rewrite {
                     result.pending.work += 3;
                 }
             }
-            // Incomplete typed origins keep their strict complete-source proof;
-            // this first controlled transformer does not invent URI eligibility.
-            for origin in &mut result.pending.typed_inputs {
-                let (mapped, work) = origin.map(&result.pending.window, &mut |range| {
-                    step.copied.retained_range(range)
-                })?;
-                *origin = mapped;
-                result.pending.work += work;
+            for (index, origin) in result.pending.typed_inputs.iter_mut().enumerate() {
+                origin.opener = copied(step, origin.opener.clone(), &mut result.pending.work)?;
+                let (word, emitted, work) = step.field(origin.word.clone())?;
+                result.pending.work += work + 2;
+                if origin.opener.end != word.start {
+                    return Err(EditorError::UnrepresentableFormat);
+                }
+                origin.word = word;
+                if emitted > 0 {
+                    if origin.uri.is_none() {
+                        return Err(EditorError::UnrepresentableFormat);
+                    }
+                    result.changed_origins[index] = true;
+                    result.origin_programs[index].push((generation, emitted));
+                    result.pending.work += 4;
+                }
             }
             for (witness, changed) in result.witnesses.iter_mut().zip(&mut result.changed_links) {
                 witness.open = copied(step, witness.open.clone(), &mut result.pending.work)?;
