@@ -243,5 +243,106 @@
         null
       ]
     ]
+  },
+  {
+    "name": "ordered-nested-to-outer-first-text-keeps-outer-sequence",
+    "source": "- parent\n  - child\n- following",
+    "display": "parent\nchild\nfollowing",
+    "action": "OrderedList",
+    "range": [
+      7,
+      13
+    ],
+    "expected": "1. parent\n   1. child\n2. following",
+    "shown": "parent\nchild\nfollowing",
+    "resultRange": [
+      7,
+      13
+    ],
+    "finalItems": [
+      [
+        1,
+        null
+      ],
+      [
+        1,
+        null
+      ],
+      [
+        2,
+        null
+      ]
+    ],
+    "itemDepths": [
+      1,
+      2,
+      1
+    ]
+  },
+  {
+    "name": "mixed-parent-retirement-promotes-retargeted-child-owner",
+    "source": "- parent\n  1. child😀\n     - grandchild\n  2. sibling\n- following",
+    "display": "parent\nchild😀\ngrandchild\nsibling\nfollowing",
+    "action": "BulletList",
+    "range": [
+      0,
+      14
+    ],
+    "expected": "parent\n+ child😀\n  - grandchild\n+ sibling\n- following",
+    "shown": "parent\nchild😀\ngrandchild\nsibling\nfollowing",
+    "resultRange": [
+      0,
+      14
+    ],
+    "finalItems": [
+      [
+        null,
+        null
+      ],
+      [
+        null,
+        null
+      ],
+      [
+        null,
+        null
+      ],
+      [
+        null,
+        null
+      ]
+    ],
+    "itemDepths": [
+      1,
+      2,
+      1,
+      1
+    ]
+  },
+  {
+    "name": "mixed-nested-outer-endpoint-keeps-retired-paragraph-barrier",
+    "source": "- parent\n  1. child\n  2. sibling\n- following",
+    "display": "parent\nchild\nsibling\nfollowing",
+    "action": "BulletList",
+    "range": [
+      0,
+      21
+    ],
+    "expected": "parent\n- child\n- sibling\n\nfollowing",
+    "shown": "parent\nchild\nsibling\n\nfollowing",
+    "resultRange": [
+      0,
+      22
+    ],
+    "finalItems": [
+      [
+        null,
+        null
+      ],
+      [
+        null,
+        null
+      ]
+    ]
   }
 ]

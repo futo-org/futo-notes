@@ -88,11 +88,11 @@ checks. Native fixture source is not proof that its current native binaries ran.
 
 Thirty-five `nested-containers.json` literals cover explicit nesting/lifting, same-line
 empty parents, physical columns/tabs, nested Backspace/Enter, ancestor-preserving
-retargets and full Text/Heading transitions. Seven `container-commands.json` literals
+retargets and full Text/Heading transitions. Ten `container-commands.json` literals
 add full list lifting across one/two quotes and selection beginning in an ancestor
 while keeping its descendant listed, bare-quote versus heading/list quote ancestry,
 and independent mixed-format run transitions. Together with the unchanged original seventy-four
-list cases, all six source consumers load 116 cases. Original seventy-two structural
+list cases, all six source consumers load 119 cases. Original seventy-two structural
 seams remain separate and unchanged. `itemDepths` overrides each first item's default
 list depth of one; `itemQuoteDepths` overrides that item's global `quoteDepth` default.
 These are hand-worked source/display/native UTF-16/history literals, not native OS input
