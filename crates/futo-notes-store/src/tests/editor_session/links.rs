@@ -218,3 +218,5 @@ fn nested_reference_composition_and_source_anchored_history_survive_append_and_h
 mod derived;
 
 mod angle_pending;
+
+mod code_literal;
