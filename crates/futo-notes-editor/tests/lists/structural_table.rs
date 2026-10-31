@@ -271,3 +271,29 @@ fn quoting_the_already_lifted_child_must_not_insert_a_new_empty_list_item() {
         list: None,
     });
 }
+
+#[test]
+fn quoting_heading_before_foreign_ordered_seven_requires_a_real_blank() {
+    let case = StructuralCase {
+        source: "# child\n7. outside",
+        before: "child\noutside",
+        expected: "> child\n\n7. outside",
+        shown: "child\n\noutside",
+        command: BlockCommand::Quote,
+        heading: 0,
+        quote: 1,
+        list: None,
+    };
+    literal(&case);
+    for raw in [case.source, case.expected] {
+        let s = EditorSession::open(raw);
+        let shown = s.display_text();
+        let at = shown.find("outside").unwrap();
+        let p = s.project(Revision(0), range(at, at + 7)).unwrap();
+        assert!(p.blocks.iter().all(|b| b.quote_depth == 0
+            && b.list
+                .as_ref()
+                .is_some_and(|l| l.first && l.depth == 1 && l.number == Some(7))));
+    }
+    execute(&case);
+}
