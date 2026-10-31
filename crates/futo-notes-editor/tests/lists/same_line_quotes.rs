@@ -100,6 +100,10 @@ fn canonical_same_line_prefix_order_hides_only_owned_quote_and_heading_markers()
             "{raw}"
         );
     }
+}
+
+#[test]
+fn escaped_and_code_quote_markers_remain_opaque_to_container_prefixes() {
     for (raw, quotes, code) in [
         ("- \\> b", 0, false),
         ("- `> b`", 0, false),
