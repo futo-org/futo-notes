@@ -83,7 +83,7 @@ impl Projection {
                 })
                 .map(|definition| {
                     (
-                        super::references::hidden_definition(
+                        super::super::references::hidden_definition(
                             &raw[base..base + row.source_len],
                             definition,
                         ),
