@@ -137,8 +137,8 @@ impl rewrite::Fields {
         work.link_metadata_items += 2 * ranges.len() + usize::from(!ranges.is_empty());
         let (uris, codes, parsed) = session.projection.relink_owned_uris(&ranges, 0, None)?;
         charge(&mut work, parsed);
-        self.whole_code_guards = vec![false; original.guarded_words.len()];
-        work.link_metadata_items += self.whole_code_guards.len();
+        let mut whole_code_guards = vec![false; original.guarded_words.len()];
+        work.link_metadata_items += whole_code_guards.len();
         for (request_index, (request, uri)) in requests.iter().zip(&uris).enumerate() {
             work.link_metadata_items += 1;
             match (request.original, uri, request.role) {
@@ -156,18 +156,19 @@ impl rewrite::Fields {
                         // original content cannot be dropped by retirement.
                         let raw = session.source.byte_slice(code.open.end..code.close.start);
                         work.link_metadata_items += 1;
-                        self.whole_code_guards[index] =
-                            raw.len_bytes() == word.identity.displayed.len()
-                                && raw.bytes().zip(word.identity.displayed.bytes()).all(
-                                    |(a, b)| {
-                                        work.link_metadata_items += 1;
-                                        a == b
-                                    },
-                                );
+                        whole_code_guards[index] = raw.len_bytes() == word.identity.displayed.len()
+                            && raw
+                                .bytes()
+                                .zip(word.identity.displayed.bytes())
+                                .all(|(a, b)| {
+                                    work.link_metadata_items += 1;
+                                    a == b
+                                });
                     }
                 }
             }
         }
+        self.whole_code_guards = whole_code_guards;
         self.codes = codes;
         Ok(work)
     }
