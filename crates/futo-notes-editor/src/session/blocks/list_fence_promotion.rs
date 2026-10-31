@@ -44,7 +44,23 @@ impl EditorSession {
             return Ok(None);
         };
         let (fence, base, code) = (*fence, *base, *code);
-        let end = base + fence.whole.end;
+        let end = if let Some(closer) = &fence.closer {
+            // A closed event ends at its delimiter; prefix retirement owns the
+            // actual closer row including its unchanged physical ending.
+            let physical = self
+                .source
+                .line_to_byte(self.source.byte_to_line(base + closer.start));
+            let row = self
+                .projection
+                .source_prefix_at(physical)
+                .ok_or(EditorError::UnrepresentableFormat)?;
+            if !row.code {
+                return Err(EditorError::UnrepresentableFormat);
+            }
+            row.source.end
+        } else {
+            base + fence.whole.end
+        };
         let opener_line = self
             .source
             .line_to_byte(self.source.byte_to_line(base + fence.opener.start));
