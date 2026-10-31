@@ -254,3 +254,13 @@ fn empty_list_header_before_promoted_fence_keeps_authored_padding_without_a_blan
     literal_scope(&case);
     mutate_scope(&case);
 }
+
+#[test]
+fn text_promotes_existing_nested_fence_without_losing_authored_code_blank_spaces() {
+    mutate_scope(&NESTED_TEXT);
+}
+
+#[test]
+fn heading_promotes_existing_nested_fence_without_losing_authored_code_blank_spaces() {
+    mutate_scope(&NESTED_HEADING);
+}
