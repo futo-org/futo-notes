@@ -55,7 +55,7 @@ const QUOTED_CRLF_SHOWN: &str = "parent\r\n\r\ncontinuation\r\n\r\nopaque\r\n\r\
 const QUOTED_CRLF_ORDERED: &str = "> 1000.\tparent\r\n>\r\n>       continuation\r\n>\r\n>       ```js\r\n>       opaque\r\n>       ```\r\n>\r\n>       - child\r\n> 1001.\toutside";
 const QUOTED_CRLF_BULLET: &str = "> - parent\r\n>\r\n>   continuation\r\n>\r\n>   ```js\r\n>   opaque\r\n>   ```\r\n>\r\n>   - child\r\n> - outside";
 
-fn quoted_crlf_open(expected: &str, numbers: &[Option<usize>]) {
+fn quoted_crlf_open(expected: &str, numbers: &[Option<u64>]) {
     for (raw, expected_numbers, checked) in [
         (
             QUOTED_CRLF_TASK,
