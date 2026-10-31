@@ -35,6 +35,7 @@ fn text_lifts_the_outer_same_line_list_and_retains_its_empty_paragraph_before_th
     assert_eq!(projected.blocks.last().unwrap().quote_depth, 1);
     for raw in ["- > b", "1000. > b"] {
         let mut s = EditorSession::open(raw);
+        assert_eq!(s.display_text(), "b");
         let mut view = ReferenceView::new("b");
         let selected = range(0, 0);
         s.select_with_affinity(s.revision(), selected, Affinity::Backward)
@@ -77,4 +78,69 @@ fn text_lifts_the_outer_same_line_list_and_retains_its_empty_paragraph_before_th
         assert_eq!(s.source_text(), expected);
         assert_eq!(view.text, "\nb");
     }
+}
+
+#[test]
+fn canonical_same_line_prefix_order_hides_only_owned_quote_and_heading_markers() {
+    for (raw, depth, quotes, heading) in [
+        ("- > - > b", 2, 2, 0),
+        ("> - > b", 1, 2, 0),
+        ("- # b", 1, 0, 1),
+        ("- > # b", 1, 1, 1),
+        ("> - > # b", 1, 2, 1),
+    ] {
+        let mut s = EditorSession::open(raw);
+        assert_eq!(s.source_text(), raw);
+        assert_eq!(s.display_text(), "b", "{raw}");
+        let p = s.project(s.revision(), range(0, 1)).unwrap();
+        assert!(
+            p.blocks.iter().any(|b| b.quote_depth == quotes
+                && b.heading == heading
+                && b.list.as_ref().is_some_and(|l| l.first && l.depth == depth)),
+            "{raw}"
+        );
+    }
+    for (raw, quotes, code) in [
+        ("- \\> b", 0, false),
+        ("- `> b`", 0, false),
+        ("> \\> b", 1, false),
+        ("> ```\n> > b\n> ```", 1, true),
+    ] {
+        let mut s = EditorSession::open(raw);
+        assert_eq!(s.source_text(), raw);
+        assert_eq!(s.display_text(), "> b", "{raw}");
+        let p = s.project(s.revision(), range(0, 3)).unwrap();
+        assert!(
+            p.blocks
+                .iter()
+                .all(|b| b.quote_depth == quotes && b.code == code),
+            "{raw}"
+        );
+    }
+}
+
+#[test]
+fn task_body_markers_remain_literal_and_wide_continuations_keep_quote_ownership() {
+    for (raw, shown, quotes) in [
+        ("- [x] > b", "> b", 0),
+        ("- [x] # b", "# b", 0),
+        ("> - [x] > b", "> b", 1),
+    ] {
+        let mut s = EditorSession::open(raw);
+        assert_eq!(s.display_text(), shown);
+        assert_eq!(s.source_text(), raw);
+        let p = s.project(s.revision(), range(0, shown.len())).unwrap();
+        assert!(p.blocks.iter().all(|b| b.quote_depth == quotes
+            && b.heading == 0
+            && b.list.as_ref().is_some_and(|l| l.checked == Some(true))));
+    }
+    let raw = "1000. parent\n      > b";
+    let mut s = EditorSession::open(raw);
+    assert_eq!(s.display_text(), "parent\nb");
+    assert_eq!(s.source_text(), raw);
+    let p = s.project(s.revision(), range(7, 8)).unwrap();
+    assert!(p.blocks.iter().any(|b| b.quote_depth == 1
+        && b.list
+            .as_ref()
+            .is_some_and(|l| !l.first && l.depth == 1 && l.number == Some(1000))));
 }
