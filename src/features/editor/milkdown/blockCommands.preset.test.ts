@@ -292,6 +292,15 @@ const cases = [
     anchor: 'parent',
     head: 'following',
   },
+  {
+    name: 'reversed mixed quote promotion leaves a foreign preceding list separate',
+    source:
+      '- before\n\n1. parent\n   > - child😀\n   >   - grandchild\n   > - sibling\n2. following',
+    command: 'bullet-list',
+    anchor: 'parent',
+    head: 'child😀',
+    headOffset: 7,
+  },
 ] as const;
 
 describe('pinned shipping toolbar container transactions (#299)', () => {
