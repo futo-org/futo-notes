@@ -10,6 +10,7 @@ use crate::inline::{
 };
 use crate::{DisplayRange, InlineFormat, InputAction};
 mod ending;
+mod separator;
 
 pub(in crate::inline) struct Input<'a> {
     pub projection: &'a Projection,
@@ -151,7 +152,8 @@ impl TypedState {
             input.inserted,
             input.intent,
         )?;
-        if !matches!(input.intent, EditIntent::Input(InputAction::Typing)) {
+        let typing = matches!(input.intent, EditIntent::Input(InputAction::Typing));
+        if !typing && !single_separator(input.inserted, &mut work.items) {
             return Ok(work);
         }
         if input.inserted.is_empty() {
@@ -238,13 +240,20 @@ impl TypedState {
             {
                 return Err(EditorError::UnrepresentableFormat);
             }
-            let ending = input.inserted.chars().count() == 1
-                && input
-                    .inserted
-                    .chars()
-                    .next()
-                    .is_some_and(char::is_whitespace);
-            if input.inserted == ">" || ending {
+            if let Some(end) = separator::body_end(pieces, &input.insertion, &mut work.items) {
+                let completed = body.start..end;
+                if separator::word(pieces, completed.clone(), &mut work.items) {
+                    if end == input.insertion.start {
+                        ending::finish(pieces, markers, body, &origin, &mut work)?;
+                    } else if typing {
+                        ending::finish_typed(pieces, markers, completed, &mut work)?;
+                    } else {
+                        return Err(EditorError::UnrepresentableFormat);
+                    }
+                    return Ok(work);
+                }
+            }
+            if input.inserted == ">" {
                 ending::finish(pieces, markers, body, &origin, &mut work)?;
                 return Ok(work);
             }
@@ -273,11 +282,11 @@ impl TypedState {
             });
             return Ok(work);
         }
-        if input.range.start != input.range.end || input.insertion.is_empty() {
+        if !typing || input.range.start != input.range.end || input.insertion.is_empty() {
             return Ok(work);
         }
         let inserted = &pieces[input.insertion.clone()];
-        let (opener, body) = if inserted.first().is_some_and(|piece| piece.display == "<") {
+        let (opener, mut body) = if inserted.first().is_some_and(|piece| piece.display == "<") {
             (
                 input.insertion.start,
                 input.insertion.start + 1..input.insertion.end,
@@ -287,6 +296,8 @@ impl TypedState {
         } else {
             return Ok(work);
         };
+        let ending = separator::body_end(pieces, &input.insertion, &mut work.items);
+        body.end = ending.unwrap_or(input.insertion.end);
         if body.is_empty()
             || !inserted_run(inserted, input.inserted, &mut work.items)
             || !safe(&pieces[opener..body.end], markers, &mut work.items)
@@ -320,6 +331,10 @@ impl TypedState {
             return Ok(work);
         }
         if opaque(&input, pieces, &mut work.items) {
+            return Ok(work);
+        }
+        if ending.is_some() {
+            ending::finish_typed(pieces, markers, body, &mut work)?;
             return Ok(work);
         }
         let (target, _) = meaning(&text, &mut work);

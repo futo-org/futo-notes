@@ -8,6 +8,28 @@ pub(super) fn finish(
     origin: &TypedAngleOrigin,
     work: &mut ReferenceWork,
 ) -> Result<(), EditorError> {
+    finish_word(pieces, markers, body, Some(origin), work)
+}
+
+/// The input owner has proved a whole current word from retained old pieces
+/// plus the same Inserted step, or a whole newly Inserted opener/word seed.
+/// No obsolete immutable URI payload is manufactured for this completed word.
+pub(super) fn finish_typed(
+    pieces: &mut [Piece],
+    markers: &mut Vec<Marker>,
+    body: Range<usize>,
+    work: &mut ReferenceWork,
+) -> Result<(), EditorError> {
+    finish_word(pieces, markers, body, None, work)
+}
+
+fn finish_word(
+    pieces: &mut [Piece],
+    markers: &mut Vec<Marker>,
+    body: Range<usize>,
+    unchanged: Option<&TypedAngleOrigin>,
+    work: &mut ReferenceWork,
+) -> Result<(), EditorError> {
     let text = displayed(&pieces[body.clone()], work);
     let links = canonical_links(&text, work);
     if links.is_empty() {
@@ -30,23 +52,25 @@ pub(super) fn finish(
     }
     work.items += 1;
     let prefix = if span.close.end == text.len() {
-        let saved = origin
-            .uri
-            .as_ref()
-            .ok_or(EditorError::UnrepresentableFormat)?;
-        work.items += saved.displayed.len()
-            + text.len()
-            + saved.meaning.destination.len()
-            + target.destination.len()
-            + 2;
-        if saved.displayed.as_ref() != text || saved.meaning != *target {
-            return Err(EditorError::UnrepresentableFormat);
+        if let Some(origin) = unchanged {
+            let saved = origin
+                .uri
+                .as_ref()
+                .ok_or(EditorError::UnrepresentableFormat)?;
+            work.items += saved.displayed.len()
+                + text.len()
+                + saved.meaning.destination.len()
+                + target.destination.len()
+                + 2;
+            if saved.displayed.as_ref() != text || saved.meaning != *target {
+                return Err(EditorError::UnrepresentableFormat);
+            }
         }
         body
     } else {
         // A partial canonical prefix is a word-end conversion of the actual
         // seeded candidate. It is never stored as a complete URI payload.
-        if origin.uri.is_some() {
+        if unchanged.is_some_and(|origin| origin.uri.is_some()) {
             return Err(EditorError::UnrepresentableFormat);
         }
         let mut shown = 0;

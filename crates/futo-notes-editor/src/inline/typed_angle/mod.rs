@@ -91,3 +91,11 @@ impl TypedAngleOrigin {
         )
     }
 }
+
+/// A committed single separator has the same proved word-ending intent; it
+/// never supplies a new Typing seed.
+pub(super) fn single_separator(text: &str, work: &mut usize) -> bool {
+    let mut chars = text.chars();
+    *work += 2;
+    chars.next().is_some_and(char::is_whitespace) && chars.next().is_none()
+}
