@@ -177,3 +177,80 @@ fn assert_split_owner(raw: &str, expected: &str, shown: &str, start: u64) {
     assert_eq!(view.text, shown);
     assert_eq!(s.selection(), mapped);
 }
+
+#[test]
+fn repeated_ordered_child_lifts_keep_new_owner_starts_between_foreign_lists() {
+    for (raw, expected, shown, end, start) in [
+        (
+            "9) before\n\n- [ ] p0\n  1. c0\n- [x] p1\n  1. c1\n- [ ] tail\n\n3. after",
+            "9) before\n\n1. p0\n\nc0\n1. p1\n\nc1\n1) tail\n\n3. after",
+            "before\n\np0\n\nc0\np1\n\nc1\ntail\n\nafter",
+            21,
+            1,
+        ),
+        (
+            "9. before\n\n7) [ ] p0\n   1. c0\n8) [x] p1\n   1. c1\n9) [ ] tail\n\n3. after",
+            "9. before\n\n7) p0\n\nc0\n\n7) p1\n\nc1\n\n7) tail\n\n3. after",
+            "before\n\np0\n\nc0\n\np1\n\nc1\n\ntail\n\nafter",
+            22,
+            7,
+        ),
+    ] {
+        let mut plan = EditorSession::open(expected);
+        assert_eq!(plan.display_text(), shown);
+        let projected = plan
+            .project(plan.revision(), range(0, shown.len()))
+            .unwrap();
+        assert_eq!(
+            projected
+                .blocks
+                .iter()
+                .filter_map(
+                    |block| block.list.as_ref().filter(|list| list.first).map(|list| (
+                        list.depth,
+                        list.number,
+                        list.checked
+                    ))
+                )
+                .collect::<Vec<_>>(),
+            vec![
+                (1, Some(9), None),
+                (1, Some(start), None),
+                (1, Some(start), None),
+                (1, Some(start), None),
+                (1, Some(3), None)
+            ]
+        );
+        let mut s = EditorSession::open(raw);
+        let mut view = ReferenceView::new("before\n\np0\nc0\np1\nc1\ntail\n\nafter");
+        assert_eq!(s.display_text(), view.text);
+        let selected = range(8, 19);
+        s.select_with_affinity(s.revision(), selected, Affinity::Backward)
+            .unwrap();
+        let mut accepted = 0;
+        view.apply(
+            s.block_command(
+                s.revision(),
+                selected,
+                BlockCommand::OrderedList,
+                &mut |_| {
+                    accepted += 1;
+                    Ok(())
+                },
+            )
+            .unwrap()
+            .unwrap(),
+        );
+        assert_eq!(accepted, 1);
+        assert_eq!(s.source_text(), expected);
+        assert_eq!(view.text, shown);
+        assert_eq!(s.selection(), range(8, end));
+        view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+        assert_eq!(s.source_text(), raw);
+        assert_eq!(s.selection(), selected);
+        assert_eq!(s.affinity(), Affinity::Backward);
+        view.apply(s.redo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+        assert_eq!(s.source_text(), expected);
+        assert_eq!(view.text, shown);
+    }
+}
