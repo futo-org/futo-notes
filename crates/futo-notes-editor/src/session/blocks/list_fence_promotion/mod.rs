@@ -33,8 +33,7 @@ impl EditorSession {
         preview.verify_quote_end(&item, &plan)?;
         preview.verify_surrounding(self, &plan)?;
         let selection = preview.project_selection(self, &plan, range, delta)?;
-        let parsed = preview.parsed;
-        let copied = plan.copied + preview.copied;
+        let work = preview.work;
         let formats = (range == self.selection)
             .then(|| self.pending_formats.clone())
             .flatten();
@@ -48,8 +47,8 @@ impl EditorSession {
             accept,
         )?;
         self.carry_block_state(&mut change, formats, affinity);
-        change.work.parsed_source_bytes += parsed;
-        change.work.materialized_source_bytes += copied;
+        accumulate_planning_work(&mut change.work, work);
+        change.work.materialized_source_bytes += plan.copied;
         Ok(Some(change))
     }
 }

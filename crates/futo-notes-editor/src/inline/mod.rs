@@ -359,7 +359,7 @@ impl Projection {
                     edit,
                     text.len(),
                     local_parsed,
-                    local_items + metadata_work,
+                    local_items + metadata_work + delimiter_work,
                     local_copied,
                     canonical_origin,
                 );

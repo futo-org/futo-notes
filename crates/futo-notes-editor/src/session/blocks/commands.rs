@@ -118,8 +118,7 @@ impl EditorSession {
                     else {
                         return Ok(Some(lifted));
                     };
-                    change.work.parsed_source_bytes += lifted.work.parsed_source_bytes;
-                    change.work.materialized_source_bytes += lifted.work.materialized_source_bytes;
+                    accumulate_planning_work(&mut change.work, lifted.work);
                     Ok(Some(change))
                 },
             );

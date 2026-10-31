@@ -88,8 +88,7 @@ pub(super) struct FencePreview {
     window: std::ops::Range<usize>,
     display: usize,
     old_display_len: usize,
-    pub parsed: usize,
-    pub copied: usize,
+    pub work: EditWork,
 }
 pub(super) struct FenceDisplayDelta {
     head_at: usize,
@@ -129,16 +128,21 @@ impl EditorSession {
             &plan.output,
         )?;
         let original_display_len = preview.projection.display.len_bytes();
-        let work = preview.apply(&prepared).work;
+        let initial_items = preview.projection.initial_link_metadata_items;
+        let initial_copied = preview.projection.initial_link_copied_bytes;
+        let mut work = preview.apply(&prepared).work;
         #[cfg(test)]
         crate::inline::coordinate_work_tests::child("fence-apply", work);
+        work.parsed_source_bytes += 2 * preview_raw.len();
+        work.materialized_source_bytes += preview_raw.len() + plan.output.len();
+        work.link_metadata_items += initial_items;
+        work.link_copied_bytes += initial_copied;
         Ok(FencePreview {
             session: preview,
             window,
             display,
             old_display_len: original_display_len,
-            parsed: 2 * preview_raw.len() + work.parsed_source_bytes,
-            copied: preview_raw.len() + plan.output.len() + work.materialized_source_bytes,
+            work,
         })
     }
 }

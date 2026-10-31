@@ -85,8 +85,7 @@ impl EditorSession {
             accept,
         )?;
         self.carry_block_state(&mut change, formats, affinity);
-        change.work.parsed_source_bytes += plan.parsed;
-        change.work.materialized_source_bytes += plan.materialized;
+        accumulate_planning_work(&mut change.work, plan.work);
         Ok(Some(change))
     }
     fn expand_list_scope(

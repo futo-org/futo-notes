@@ -192,9 +192,9 @@ impl EditorSession {
                 accept,
             )?;
             staged.carry_block_state(&mut change, formats, affinity);
-            change.work.materialized_source_bytes +=
-                removed.work.materialized_source_bytes + body_bytes + separator_bytes + style_bytes;
-            change.work.parsed_source_bytes += removed.work.parsed_source_bytes + body_work;
+            accumulate_planning_work(&mut change.work, removed.work);
+            change.work.materialized_source_bytes += body_bytes + separator_bytes + style_bytes;
+            change.work.parsed_source_bytes += body_work;
             Ok(Some(change))
         })
     }
