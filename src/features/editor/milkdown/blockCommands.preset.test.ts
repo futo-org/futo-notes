@@ -277,6 +277,21 @@ const cases = [
     head: 'child😀',
     headOffset: 7,
   },
+  {
+    name: 'reversed mixed ancestor selection through a retained quote',
+    source: '1. parent\n   > - child😀\n   >   - grandchild\n   > - sibling\n2. following',
+    command: 'bullet-list',
+    anchor: 'parent',
+    head: 'child😀',
+    headOffset: 7,
+  },
+  {
+    name: 'reversed mixed selection ending at outer first text position',
+    source: '1. parent\n   - child😀\n     - grandchild\n   - sibling\n2. following',
+    command: 'bullet-list',
+    anchor: 'parent',
+    head: 'following',
+  },
 ] as const;
 
 describe('pinned shipping toolbar container transactions (#299)', () => {
