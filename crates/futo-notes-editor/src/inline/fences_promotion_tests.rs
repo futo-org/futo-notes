@@ -161,3 +161,39 @@ fn quote_owner_join_candidates_require_one_physical_unquoted_boundary() {
         );
     }
 }
+
+#[test]
+fn original_inner_and_foreign_quotes_are_distinct_at_the_retired_root_item_end() {
+    use pulldown_cmark::{Event, Tag};
+    for blank in ["", "\n"] {
+        let raw = format!("- parent\n  > ```\n  > opaque\n{blank}> - outside");
+        let p = crate::inline::Projection::new(&raw);
+        let all = p.block_lines(DisplayRange {
+            start: DisplayOffset(0),
+            end: DisplayOffset(p.display.len_bytes()),
+        });
+        let code = all.iter().find(|b| b.code).unwrap();
+        let fence = code.fence.as_ref().unwrap();
+        let item = code.list.as_ref().unwrap();
+        let outside = raw.rfind("> - outside").unwrap();
+        assert_eq!(item.item.end, outside);
+        assert_eq!(&raw[fence.whole.end..item.item.end], blank);
+        assert_eq!((item.depth, item.quote_depth, code.quote_depth), (1, 0, 1));
+        let events = crate::inline::row::source_events(&raw);
+        let quotes: Vec<_> = events
+            .iter()
+            .filter_map(|(event, range)| {
+                matches!(event, Event::Start(Tag::BlockQuote(_))).then_some(range.clone())
+            })
+            .collect();
+        assert_eq!(quotes.len(), 2);
+        assert!(quotes[0].start >= item.item.start && quotes[0].end <= item.item.end);
+        assert_eq!(quotes[1].start, outside);
+        let foreign = p.source_prefix_at(outside).unwrap();
+        assert!(!foreign.code && foreign.quote_depth == 1);
+        assert!(foreign
+            .list
+            .as_ref()
+            .is_some_and(|l| l.first && l.depth == 1 && l.item.start >= item.item.end));
+    }
+}
