@@ -8,6 +8,7 @@ pub(crate) struct PendingLinks {
     pub ranges: Vec<Range<usize>>,
     pub delimiters: Vec<Range<usize>>,
     pub guarded_words: Vec<crate::inline::guarded_words::GuardedWord>,
+    pub typed_inputs: Vec<crate::inline::typed_angle::TypedAngleOrigin>,
     pub work: usize,
 }
 impl PendingLinks {
@@ -23,11 +24,21 @@ impl PendingLinks {
         for word in &mut self.guarded_words {
             work += word.relocate(origin);
         }
+        for field in &mut self.typed_inputs {
+            work += field.relocate(origin);
+        }
         work
     }
 
     pub(crate) fn has_fields(&self) -> bool {
-        !self.ranges.is_empty() || !self.delimiters.is_empty() || !self.guarded_words.is_empty()
+        !self.ranges.is_empty()
+            || !self.delimiters.is_empty()
+            || !self.guarded_words.is_empty()
+            || !self.typed_inputs.is_empty()
+    }
+
+    pub(crate) fn has_words(&self) -> bool {
+        !self.guarded_words.is_empty() || !self.typed_inputs.is_empty()
     }
 
     /// A logical emitted window is owned by the planner. Every payload field
@@ -42,6 +53,7 @@ impl PendingLinks {
             ranges: Vec::new(),
             delimiters: Vec::new(),
             guarded_words: Vec::new(),
+            typed_inputs: Vec::new(),
             work: self.work + 2,
         };
         for (before, after) in [
@@ -65,6 +77,11 @@ impl PendingLinks {
             let (word, work) = word.map(&mapped.window, &mut map)?;
             mapped.work += work;
             mapped.guarded_words.push(word);
+        }
+        for origin in &self.typed_inputs {
+            let (origin, work) = origin.map(&mapped.window, &mut map)?;
+            mapped.work += work;
+            mapped.typed_inputs.push(origin);
         }
         Ok(mapped)
     }
@@ -103,6 +120,22 @@ impl PendingLinks {
                 } else {
                     return Err(crate::EditorError::UnrepresentableFormat);
                 }
+            }
+        }
+        for origin in &mut self.typed_inputs {
+            for field in [&mut origin.opener, &mut origin.word] {
+                self.work += 1;
+                if range.end <= field.start {
+                    field.start = field.start - removed + inserted;
+                    field.end = field.end - removed + inserted;
+                    self.work += 2;
+                } else if field.end <= range.start {
+                } else {
+                    return Err(crate::EditorError::UnrepresentableFormat);
+                }
+            }
+            if origin.opener.end != origin.word.start {
+                return Err(crate::EditorError::UnrepresentableFormat);
             }
         }
         self.window.end = self.window.end - removed + inserted;

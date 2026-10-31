@@ -127,7 +127,7 @@ impl EditorSession {
                 {
                     return Err(EditorError::UnrepresentableFormat);
                 }
-                if pending.has_fields() || !before_links.guarded_words.is_empty() {
+                if pending.has_fields() || before_links.has_words() {
                     (
                         self.preview_pending_edit(
                             &edit,
@@ -142,15 +142,17 @@ impl EditorSession {
                 } else {
                     (EditWork::default(), None)
                 }
-            } else if !before_links.guarded_words.is_empty() {
+            } else if before_links.has_words() {
                 let mut retained = crate::inline::PendingLinks {
                     window: before_links.after_window(&edit),
                     ranges: Vec::new(),
                     delimiters: Vec::new(),
                     guarded_words: Vec::new(),
+                    typed_inputs: Vec::new(),
                     work: 0,
                 };
                 retained.prepare_guards(&before_links, &edit, None)?;
+                retained.prepare_typed_inputs(&before_links, &edit, None)?;
                 let mut work =
                     self.validate_stage_guards(&edit, before_links.window.clone(), &retained)?;
                 work.link_metadata_items += retained.work;

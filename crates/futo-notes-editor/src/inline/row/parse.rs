@@ -298,6 +298,7 @@ impl Row {
             .flatten();
         Self {
             guarded_words: Vec::new(),
+            typed_inputs: Vec::new(),
             context,
             transparent_quote,
             source_len: source.len(),

@@ -78,29 +78,6 @@ impl Projection {
         }
         work
     }
-
-    pub(crate) fn retained_raw_guard_words(
-        &self,
-        first: usize,
-        last: usize,
-        edit: &crate::SourceEdit,
-    ) -> (Vec<GuardedWord>, usize) {
-        let mut result = Vec::new();
-        let mut work = 0;
-        for index in first..=last {
-            let (row, base, _) = self.rows.at(index);
-            for word in &row.guarded_words {
-                let mut word = word.clone();
-                work += 5 + word.relocate(base);
-                let (mapped, visits) = word.raw_edit(edit);
-                work += visits;
-                if let Some(word) = mapped {
-                    result.push(word);
-                }
-            }
-        }
-        (result, work)
-    }
 }
 
 impl PendingLinks {

@@ -26,7 +26,7 @@ impl EditorSession {
             work: EditWork::default(),
         };
         let activate = !before.ranges.is_empty() && !plan.activated_links.is_empty();
-        let guards = plan.guarded_words.is_some() || !before.guarded_words.is_empty();
+        let guards = plan.guarded_words.is_some() || before.has_words();
         if plan.pending_links.is_empty()
             && !activate
             && !guards
@@ -43,10 +43,12 @@ impl EditorSession {
                 ranges: Vec::new(),
                 delimiters: Vec::new(),
                 guarded_words: Vec::new(),
+                typed_inputs: Vec::new(),
                 work: 0,
             }
         };
         retained.prepare_guards(before, edit, plan.guarded_words.as_ref())?;
+        retained.prepare_typed_inputs(before, edit, plan.guarded_words.as_ref())?;
         retained.work += 2 * plan.pending_links.len();
         retained.ranges.extend(plan.pending_links.iter().cloned());
         let mut required = plan.pending_links.clone();
@@ -205,7 +207,7 @@ impl EditorSession {
         local.work -= pending.work;
         let guard_work = staged
             .projection
-            .validate_guard_words(&staged.source, &local)?;
+            .validate_word_origins(&staged.source, &local)?;
         work.materialized_source_bytes += guard_work.materialized_source_bytes;
         work.link_metadata_items += guard_work.link_metadata_items;
         work.link_metadata_items += local.work + staged.projection.restore_pending(&local);
@@ -215,6 +217,13 @@ impl EditorSession {
             let (same_guards, guard_visits) = local.same_guards(&actual);
             work.link_metadata_items += guard_visits;
             if !same_guards {
+                return Err(EditorError::UnrepresentableFormat);
+            }
+        }
+        if !local.typed_inputs.is_empty() || !actual.typed_inputs.is_empty() {
+            let (same, visits) = local.same_typed_inputs(&actual);
+            work.link_metadata_items += visits;
+            if !same {
                 return Err(EditorError::UnrepresentableFormat);
             }
         }

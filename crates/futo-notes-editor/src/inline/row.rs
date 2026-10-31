@@ -65,6 +65,7 @@ pub(crate) struct Row {
     pub source_len: usize,
     pub parsed_source_bytes: usize,
     pub guarded_words: Vec<super::guarded_words::GuardedWord>,
+    pub typed_inputs: Vec<super::typed_angle::TypedAngleOrigin>,
     pub literal_delimiters: Vec<Range<usize>>,
     pub literal_links: Vec<Range<usize>>,
     pub definitions: Vec<super::references::Definition>,

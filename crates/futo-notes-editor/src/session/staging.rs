@@ -63,7 +63,7 @@ impl EditorSession {
         window: Range<usize>,
         pending: &crate::inline::PendingLinks,
     ) -> Result<EditWork, EditorError> {
-        if pending.guarded_words.is_empty() {
+        if !pending.has_words() {
             return Ok(EditWork::default());
         }
         Ok(self
@@ -165,6 +165,9 @@ impl EditorSession {
             if body.guarded_words.is_some() {
                 original.guarded_words.clear();
             }
+            if body.typed_inputs.is_some() {
+                original.typed_inputs.clear();
+            }
             let (index, work) = crate::inline::SourceCorrespondence::from_bodies(&body.retained)?;
             let mut pending =
                 original.map_copied(0..body.text.len(), |range| index.retained_range(range))?;
@@ -174,9 +177,13 @@ impl EditorSession {
                 pending.work += 5 * words.len();
                 pending.guarded_words = words.clone();
             }
+            if let Some(origins) = &body.typed_inputs {
+                pending.work += 5 * origins.len();
+                pending.typed_inputs = origins.clone();
+            }
             let guard_work = staged
                 .projection
-                .validate_guard_words(&staged.source, &pending)?;
+                .validate_word_origins(&staged.source, &pending)?;
             staged.projection.initial_link_metadata_items += guard_work.link_metadata_items;
             staged.projection.initial_link_copied_bytes += guard_work.materialized_source_bytes;
             staged.projection.initial_link_metadata_items +=
@@ -251,12 +258,33 @@ impl EditorSession {
                 }
             }
             pending.guarded_words = guards;
+            let mut origins = Vec::new();
+            for origin in &pending.typed_inputs {
+                projection.initial_link_metadata_items += 2;
+                if window.start <= origin.opener.start && origin.word.end <= window.end {
+                    let (origin, work) = origin.map(&(0..raw.len()), &mut |range| {
+                        (
+                            range
+                                .start
+                                .checked_sub(window.start)
+                                .zip(range.end.checked_sub(window.start))
+                                .map(|(a, z)| a..z),
+                            2,
+                        )
+                    })?;
+                    projection.initial_link_metadata_items += work;
+                    origins.push(origin);
+                } else if origin.opener.start < window.end && window.start < origin.word.end {
+                    return Err(EditorError::UnrepresentableFormat);
+                }
+            }
+            pending.typed_inputs = origins;
             pending.window = 0..raw.len();
-            let guard_work = if pending.guarded_words.is_empty() {
+            let guard_work = if !pending.has_words() {
                 EditWork::default()
             } else {
                 let source = ropey::Rope::from_str(raw);
-                let mut work = projection.validate_guard_words(&source, &pending)?;
+                let mut work = projection.validate_word_origins(&source, &pending)?;
                 work.materialized_source_bytes += raw.len();
                 work
             };

@@ -10,6 +10,7 @@ mod links;
 mod lists;
 mod pending_links;
 pub(crate) mod references;
+pub(crate) mod typed_angle;
 pub(crate) use pending_links::PendingLinks;
 mod row;
 mod source_points;
@@ -327,7 +328,8 @@ impl Projection {
         let last = (self.rows.locate(edit.range.end.0, false) + 1).min(self.rows.len() - 1);
         let (pending, metadata_work) = self.pending_display(first, last);
         let (delimiters, delimiter_work) = self.retained_delimiters(first, last, edit);
-        let (guards, guard_work) = self.retained_raw_guard_words(first, last, edit);
+        let mut guards = Vec::new();
+        let mut typed_inputs = Vec::new();
         let (_, source_start, display_start) = self.rows.at(first);
         let (row, old_end, display_end) = self.rows.at(last);
         let source_end = old_end + row.source_len - edit.removed.len() + edit.inserted.len();
@@ -335,9 +337,16 @@ impl Projection {
         let text = source.byte_slice(source_start..source_end).to_string();
         let mut winners = Vec::new();
         let mut reference_work = references::ReferenceWork::default();
-        reference_work.items += guard_work;
         for index in first..=last {
             let (row, base, _) = self.rows.at(index);
+            pending_links::retain_row_fields(
+                row,
+                base,
+                edit,
+                &mut guards,
+                &mut typed_inputs,
+                &mut reference_work.items,
+            );
             for definition in row
                 .definitions
                 .iter()
@@ -430,14 +439,17 @@ impl Projection {
         self.display.remove(start..end);
         self.display.insert(start, &inserted);
         self.rows.replace(first, last + 1, parsed);
-        if !guards.is_empty() {
-            reference_items += self.restore_guard_words(&PendingLinks {
+        if !guards.is_empty() || !typed_inputs.is_empty() {
+            let retained = PendingLinks {
                 window: source_start..source_end,
                 ranges: Vec::new(),
                 delimiters: Vec::new(),
                 guarded_words: guards,
+                typed_inputs,
                 work: 0,
-            });
+            };
+            reference_items +=
+                self.restore_guard_words(&retained) + self.restore_typed_origins(&retained);
         }
         let prefix: usize = old
             .chars()

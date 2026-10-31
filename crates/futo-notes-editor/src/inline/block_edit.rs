@@ -9,6 +9,7 @@ use crate::{DisplayRange, EditorError, InlineFormat, Revision};
 use ropey::Rope;
 
 pub(crate) struct BodySource {
+    pub typed_inputs: Option<Vec<super::typed_angle::TypedAngleOrigin>>,
     pub guarded_words: Option<Vec<super::guarded_words::GuardedWord>>,
     pub text: String,
     pub revision: Revision,
@@ -30,6 +31,7 @@ impl Projection {
         revision: Revision,
     ) -> Result<BodySource, EditorError> {
         let Context {
+            typed_inputs,
             mut guard_state,
             raw,
             source_start,
@@ -39,6 +41,9 @@ impl Projection {
             mut link_metadata_items,
             ..
         } = self.edit_context(source, range)?;
+        let (typed_inputs, typed_work) =
+            self.scope_typed_origins(typed_inputs, source_start, range)?;
+        link_metadata_items += typed_work;
         let base = self.display_at(source_start);
         link_metadata_items += guard_state.scope_body(&pieces, base, range.start.0..range.end.0)?;
         let mut at = base;
@@ -62,7 +67,16 @@ impl Projection {
             at = end;
         }
         let end = body.len();
-        let result = spell(body, guard_state, markers, end..end, true, &self.references)?;
+        let result = spell(
+            body,
+            guard_state,
+            super::typed_angle::TypedState::current(typed_inputs),
+            &raw,
+            markers,
+            end..end,
+            true,
+            &self.references,
+        )?;
         let mut retained = Vec::new();
         let mut measured = result.link_metadata_items;
         for (origin, after) in result.origins {
@@ -97,6 +111,7 @@ impl Projection {
         }
         let materialized = raw.len() + result.text.len() + result.materialized;
         Ok(BodySource {
+            typed_inputs: result.typed_inputs,
             guarded_words: result.guarded_words,
             text: result.text,
             revision,
@@ -188,6 +203,7 @@ impl Projection {
             return Ok(None);
         }
         let Context {
+            typed_inputs,
             guard_state,
             raw,
             source_start,
@@ -225,6 +241,8 @@ impl Projection {
         let mut rendered = spell(
             pieces,
             guard_state,
+            super::typed_angle::TypedState::current(typed_inputs),
+            &raw,
             markers,
             end..end,
             true,

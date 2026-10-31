@@ -98,6 +98,7 @@ pub(crate) struct GuardUpdate {
     pub before: Range<usize>,
     pub after: Range<usize>,
     pub words: Vec<GuardedWord>,
+    pub typed_inputs: Vec<crate::inline::typed_angle::TypedAngleOrigin>,
 }
 impl crate::inline::spelling::Spelling {
     pub(in crate::inline) fn take_guards(
@@ -105,10 +106,14 @@ impl crate::inline::spelling::Spelling {
         start: usize,
         end: usize,
     ) -> Option<GuardUpdate> {
-        self.guarded_words.take().map(|words| GuardUpdate {
+        if self.guarded_words.is_none() && self.typed_inputs.is_none() {
+            return None;
+        }
+        Some(GuardUpdate {
             before: start..end,
             after: start..start + self.text.len(),
-            words,
+            words: self.guarded_words.take().unwrap_or_default(),
+            typed_inputs: self.typed_inputs.take().unwrap_or_default(),
         })
     }
 }

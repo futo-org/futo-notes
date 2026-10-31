@@ -7,6 +7,7 @@ mod render;
 pub(super) use pieces::{full_reference_close, Marker, Piece, PieceOrigin, Spelling};
 mod guarded;
 mod literal_urls;
+mod typed_origins;
 pub(in crate::inline) use literal_urls::CodeLiteralColon;
 mod url_timing;
 use super::row::SpanKind;
@@ -19,17 +20,31 @@ pub(super) use url_timing::prepare_url_input;
 pub(super) fn spell(
     pieces: Vec<Piece>,
     guards: super::guarded_words::GuardState,
+    typed: super::typed_angle::TypedState,
+    raw: &str,
     markers: Vec<Marker>,
     insertion: Range<usize>,
     literal: bool,
     references: &std::sync::Arc<super::references::References>,
 ) -> Result<Spelling, EditorError> {
-    spell_with_anchors(pieces, guards, markers, insertion, literal, references, &[])
+    spell_with_anchors(
+        pieces,
+        guards,
+        typed,
+        raw,
+        markers,
+        insertion,
+        literal,
+        references,
+        &[],
+    )
 }
 
 pub(super) fn spell_with_anchors(
     mut pieces: Vec<Piece>,
     guards: super::guarded_words::GuardState,
+    typed: super::typed_angle::TypedState,
+    raw: &str,
     mut markers: Vec<Marker>,
     insertion: Range<usize>,
     literal: bool,
@@ -45,6 +60,7 @@ pub(super) fn spell_with_anchors(
     let mut materialized = 0;
     let mut link_metadata_items = rendered.link_metadata_items;
     let mut link_copied_bytes = 0;
+    let mut verified = None;
     let verify_pending = markers.iter().any(|marker| {
         link_metadata_items += 1;
         marker.pending || marker.activate || marker.literal_url
@@ -245,6 +261,7 @@ pub(super) fn spell_with_anchors(
         words.verify(&pieces, &rendered, &candidate, &mut literal_work)?;
         link_metadata_items += literal_work.items;
         link_copied_bytes += literal_work.copied;
+        verified = Some(candidate);
     }
     let mut mapped = Vec::with_capacity(anchors.len());
     for &anchor in anchors {
@@ -265,24 +282,42 @@ pub(super) fn spell_with_anchors(
         }
         mapped.push(found.ok_or(EditorError::UnrepresentableFormat)?);
     }
-    let guarded_words = if guards.owners.is_empty() {
-        None
-    } else {
+    if verified.is_none() && (!guards.owners.is_empty() || typed.has_update()) {
         let candidate = Row::parse_with_references(&rendered.text, references, &rendered.winners);
         parsed += candidate.parsed_source_bytes;
         link_metadata_items += candidate.reference_work.items;
         link_copied_bytes += candidate.reference_work.copied;
-        Some(guards.collect(
-            &pieces,
-            &markers,
-            &rendered,
-            &candidate,
-            &mut link_metadata_items,
-        )?)
+        verified = Some(candidate);
+    }
+    let guarded_words = if guards.owners.is_empty() {
+        None
+    } else {
+        Some(
+            guards.collect(
+                &pieces,
+                &markers,
+                &rendered,
+                verified
+                    .as_ref()
+                    .ok_or(EditorError::UnrepresentableFormat)?,
+                &mut link_metadata_items,
+            )?,
+        )
     };
+    let typed_inputs = typed.emit(&pieces, &rendered, raw, &mut link_metadata_items)?;
+    if let Some(origins) = &typed_inputs {
+        link_metadata_items += super::typed_angle::validate_row(
+            rendered.text.len(),
+            verified
+                .as_ref()
+                .ok_or(EditorError::UnrepresentableFormat)?,
+            origins,
+        )?;
+    }
     let (pending_links, activated_links) =
         url_timing::collect_link_timing(&markers, &rendered, &mut link_metadata_items);
     Ok(Spelling {
+        typed_inputs,
         guarded_words,
         materialized,
         pending_links,

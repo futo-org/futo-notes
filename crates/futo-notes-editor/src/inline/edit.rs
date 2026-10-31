@@ -65,6 +65,7 @@ impl Projection {
             _ => None,
         };
         let Context {
+            typed_inputs,
             mut guard_state,
             raw,
             source_start,
@@ -77,6 +78,9 @@ impl Projection {
             pending_links,
             link_metadata_items,
         } = self.edit_context_for_change(source, range, toggle.is_none().then_some(inserted))?;
+        let typed = super::typed_angle::TypedState::current(typed_inputs);
+        let typed_work =
+            typed.require_unchanged_input(self, source_start, range, inserted, intent)?;
         let expanded = split_entities(pieces, a, z);
         let (deleting_guard, deletion_proof_work) =
             guard_state.prove_deletion(&expanded, &markers, a..z, inserted, intent)?;
@@ -253,6 +257,8 @@ impl Projection {
         let mut rendered = spell(
             changed,
             guard_state,
+            typed,
+            &raw,
             markers,
             insertion_index..insertion_end,
             literal,
@@ -296,7 +302,8 @@ impl Projection {
                 + completion.materialized
                 + rendered.materialized,
             parsed: parsed + timing.work.parsed + guard_work.parsed,
-            link_metadata_items: guard_work.items
+            link_metadata_items: typed_work
+                + guard_work.items
                 + link_metadata_items
                 + delimiter_work
                 + correspondence_work

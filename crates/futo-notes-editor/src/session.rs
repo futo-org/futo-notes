@@ -486,7 +486,7 @@ impl EditorSession {
         } else {
             &entry.entries.first().unwrap().before_links
         };
-        let guarded_preview = if target.guarded_words.is_empty() {
+        let guarded_preview = if !target.has_words() {
             None
         } else {
             let opening = self.projection.pending_for_source_edit(edit.range);

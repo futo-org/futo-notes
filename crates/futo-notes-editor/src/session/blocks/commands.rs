@@ -197,6 +197,7 @@ impl EditorSession {
                     .to_string();
                 let crate::inline::BodySource {
                     guarded_words,
+                    typed_inputs,
                     text: body,
                     materialized: body_bytes,
                     parsed: work,
@@ -211,7 +212,7 @@ impl EditorSession {
                     true,
                     self.revision,
                 )?;
-                if guarded_words.is_some() {
+                if guarded_words.is_some() || typed_inputs.is_some() {
                     return Err(EditorError::UnrepresentableFormat);
                 }
                 materialized += body_bytes + shown.len();

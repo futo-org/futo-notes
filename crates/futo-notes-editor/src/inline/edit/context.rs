@@ -24,6 +24,7 @@ impl Projection {
         let raw = source.byte_slice(source_start..source_end).to_string();
         let mut markers = Vec::new();
         let mut guarded_words = Vec::new();
+        let mut typed_inputs = Vec::new();
         let mut link_metadata_items = 0;
         let mut pieces = Vec::<Piece>::new();
         let mut a = range.start.0 - display_start;
@@ -49,6 +50,13 @@ impl Projection {
                 row,
                 &row.guarded_words,
             )?;
+            link_metadata_items +=
+                super::super::typed_angle::validate_row(row.source_len, row, &row.typed_inputs)?;
+            for origin in &row.typed_inputs {
+                let mut origin = origin.clone();
+                link_metadata_items += 5 + origin.relocate(base);
+                typed_inputs.push(origin);
+            }
             for word in &row.guarded_words {
                 let mut word = word.clone();
                 link_metadata_items += 5 + word.relocate(base);
@@ -278,6 +286,7 @@ impl Projection {
             &mut link_metadata_items,
         )?;
         Ok(Context {
+            typed_inputs,
             guard_state,
             raw,
             source_start,
@@ -294,6 +303,7 @@ impl Projection {
 }
 
 pub(in crate::inline) struct Context {
+    pub(in crate::inline) typed_inputs: Vec<super::super::typed_angle::TypedAngleOrigin>,
     pub(in crate::inline) guard_state: super::super::guarded_words::GuardState,
     pub(in crate::inline) raw: String,
     pub(in crate::inline) source_start: usize,

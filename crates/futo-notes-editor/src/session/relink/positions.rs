@@ -103,7 +103,7 @@ pub(super) fn pending(
     after: &str,
     snapshot: &crate::inline::PendingLinks,
 ) -> Result<crate::inline::PendingLinks, EditorError> {
-    if !snapshot.guarded_words.is_empty() {
+    if snapshot.has_words() {
         // This historical source is rewritten by the canonical relinker, but
         // that owner currently returns no retained-source witnesses. TextDiff
         // equality cannot prove guard lineage through a changed generation.
@@ -111,7 +111,7 @@ pub(super) fn pending(
             return Err(EditorError::UnrepresentableFormat);
         }
         let mut same = snapshot.clone();
-        same.work += 5 * snapshot.guarded_words.len();
+        same.work += 5 * (snapshot.guarded_words.len() + snapshot.typed_inputs.len());
         return Ok(same);
     }
     let runs = changed_runs(before, after);
@@ -124,6 +124,7 @@ pub(super) fn pending(
         ranges: snapshot.ranges.iter().map(map).collect(),
         delimiters: snapshot.delimiters.iter().map(map).collect(),
         guarded_words: Vec::new(),
+        typed_inputs: Vec::new(),
         work: snapshot.work,
     })
 }

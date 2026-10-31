@@ -15,6 +15,7 @@ impl Projection {
         let mut ranges = Vec::new();
         let mut delimiters = Vec::new();
         let mut guarded_words = Vec::new();
+        let mut typed_inputs = Vec::new();
         let mut work = 0;
         for index in first..=last {
             let (row, source, _) = self.rows.at(index);
@@ -29,6 +30,11 @@ impl Projection {
                 work += 5 + word.relocate(source);
                 guarded_words.push(word);
             }
+            for origin in &row.typed_inputs {
+                let mut origin = origin.clone();
+                work += 5 + origin.relocate(source);
+                typed_inputs.push(origin);
+            }
             ranges.extend(
                 row.literal_links
                     .iter()
@@ -39,6 +45,7 @@ impl Projection {
             window,
             delimiters,
             guarded_words,
+            typed_inputs,
             ranges,
             work,
         }
@@ -71,12 +78,17 @@ impl Projection {
                 work += 3;
                 !inside(&word.envelope)
             });
+            row.typed_inputs.retain(|origin| {
+                work += 3;
+                !inside(&origin.envelope())
+            });
             row.literal_delimiters.retain(|range| {
                 work += 1;
                 !inside(range)
             });
         }
         work += self.restore_guard_words(snapshot);
+        work += self.restore_typed_origins(snapshot);
         work += self.install_delimiters(snapshot.delimiters.iter().cloned());
         for range in &snapshot.ranges {
             let index = self.rows.locate(range.start, false);
@@ -93,5 +105,51 @@ impl Projection {
             }
         }
         work
+    }
+}
+
+/// Capture during the canonical affected-row walk: empty words add no second
+/// row traversal, index query or copy just because their private types exist.
+pub(in crate::inline) fn retain_row_fields(
+    row: &Row,
+    base: usize,
+    edit: &SourceEdit,
+    guards: &mut Vec<crate::inline::guarded_words::GuardedWord>,
+    origins: &mut Vec<crate::inline::typed_angle::TypedAngleOrigin>,
+    work: &mut usize,
+) {
+    for word in &row.guarded_words {
+        let mut word = word.clone();
+        *work += 5 + word.relocate(base);
+        let (mapped, visits) = word.raw_edit(edit);
+        *work += visits;
+        if let Some(word) = mapped {
+            guards.push(word);
+        }
+    }
+    for origin in &row.typed_inputs {
+        let mut origin = origin.clone();
+        *work += 5 + origin.relocate(base);
+        let (mapped, visits) = origin.raw_edit(edit);
+        *work += visits;
+        if let Some(origin) = mapped {
+            origins.push(origin);
+        }
+    }
+}
+
+impl Projection {
+    pub(crate) fn validate_word_origins(
+        &self,
+        source: &ropey::Rope,
+        snapshot: &PendingLinks,
+    ) -> Result<crate::EditWork, crate::EditorError> {
+        let mut work = self.validate_guard_words(source, snapshot)?;
+        let typed = self.validate_typed_origins(source, snapshot)?;
+        work.materialized_source_bytes += typed.materialized_source_bytes;
+        work.parsed_source_bytes += typed.parsed_source_bytes;
+        work.link_metadata_items += typed.link_metadata_items;
+        work.link_copied_bytes += typed.link_copied_bytes;
+        Ok(work)
     }
 }

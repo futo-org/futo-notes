@@ -8,6 +8,7 @@ use crate::{DisplayOffset, DisplayRange, SourceEdit, SourceRange};
 use std::ops::Range;
 
 mod capture;
+pub(super) use capture::retain_row_fields;
 mod snapshot;
 pub(crate) use snapshot::PendingLinks;
 
@@ -23,6 +24,7 @@ impl Projection {
             ranges: Vec::new(),
             delimiters: Vec::new(),
             guarded_words: Vec::new(),
+            typed_inputs: Vec::new(),
             work: 0,
         };
         let mut at = window.start;
@@ -44,6 +46,7 @@ impl Projection {
                 }
             }
             result.capture_body_guards(row, base)?;
+            result.capture_body_origins(row, base)?;
             let end = base + row.source_len;
             if end >= window.end || end <= at {
                 break;
@@ -67,6 +70,7 @@ impl Projection {
             ranges: Vec::new(),
             delimiters: Vec::new(),
             guarded_words: Vec::new(),
+            typed_inputs: Vec::new(),
             work: 0,
         };
         for field in &before.ranges {
@@ -141,6 +145,8 @@ impl Projection {
         }
         work += 5 * retained.guarded_words.len();
         current.guarded_words = retained.guarded_words.clone();
+        work += 5 * retained.typed_inputs.len();
+        current.typed_inputs = retained.typed_inputs.clone();
         work + self.restore_pending(&current)
     }
 

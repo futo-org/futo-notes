@@ -33,6 +33,7 @@ pub(in crate::inline) struct Marker {
 }
 
 pub(in crate::inline) struct Spelling {
+    pub typed_inputs: Option<Vec<crate::inline::typed_angle::TypedAngleOrigin>>,
     pub guarded_words: Option<Vec<crate::inline::guarded_words::GuardedWord>>,
     pub materialized: usize,
     pub text: String,

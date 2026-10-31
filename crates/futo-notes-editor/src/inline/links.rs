@@ -114,6 +114,7 @@ impl super::Projection {
             spelling::{spell_with_anchors, Marker},
         };
         let Context {
+            typed_inputs,
             guard_state,
             raw,
             source_start,
@@ -232,6 +233,8 @@ impl super::Projection {
         let mut rendered = spell_with_anchors(
             pieces,
             guard_state,
+            super::typed_angle::TypedState::current(typed_inputs),
+            &raw,
             markers,
             end..end,
             true,
@@ -433,6 +436,7 @@ impl super::Projection {
             spelling::{spell, Marker, Piece},
         };
         let Context {
+            typed_inputs,
             guard_state,
             raw,
             source_start,
@@ -499,6 +503,8 @@ impl super::Projection {
         let mut rendered = spell(
             before,
             guard_state,
+            super::typed_angle::TypedState::current(typed_inputs),
+            &raw,
             markers,
             insertion..insertion + 1,
             true,

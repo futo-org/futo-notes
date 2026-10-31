@@ -23,7 +23,7 @@ fn append(ranges: &mut Ranges, old: Range<usize>, new: Range<usize>, work: &mut 
     ranges.push((old, new));
 }
 impl SourceCorrespondence {
-    pub(super) fn verify(
+    pub(in crate::inline) fn verify(
         raw: &str,
         inserted: &str,
         output: &str,

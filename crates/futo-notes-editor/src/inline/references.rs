@@ -373,6 +373,15 @@ impl super::Projection {
                 word
             })
             .collect();
+        pending.typed_inputs = pending
+            .typed_inputs
+            .iter()
+            .filter_map(|origin| {
+                let (origin, work) = origin.raw_edit(edit);
+                pending_work += work;
+                origin
+            })
+            .collect();
         pending.ranges.retain_mut(|range| {
             if range.end <= edit.range.start.0 {
             } else if edit.range.end.0 <= range.start {

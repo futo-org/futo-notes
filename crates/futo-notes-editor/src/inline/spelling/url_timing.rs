@@ -282,6 +282,11 @@ impl super::Spelling {
                 guards += word.relocate(source);
             }
         }
+        if let Some(origins) = &mut self.typed_inputs {
+            for origin in origins {
+                guards += origin.relocate(source);
+            }
+        }
         guards + 2 * (self.delimiters.len() + self.pending_links.len() + self.activated_links.len())
     }
 }

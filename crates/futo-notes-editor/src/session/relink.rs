@@ -55,6 +55,8 @@ impl EditorSession {
                 || edit.range.start == edit.range.end
                     && word.envelope.start < edit.range.start.0
                     && edit.range.start.0 < word.envelope.end
+        }) || pending.typed_inputs.iter().any(|origin| {
+            origin.opener.start < edit.range.end.0 && edit.range.start.0 <= origin.word.end
         }) {
             // Relink's existing TextDiff endpoints are not guard lineage. A
             // real source transformation owner must close this required path.
