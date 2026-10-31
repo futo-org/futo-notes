@@ -11,8 +11,14 @@ work. Plain-text/Markdown paste, including ordinary single-cell table paste, rem
 required. Tables, shared find, wikilink completion and the 20,000-line/native durability
 acceptance targets have not been deferred. → docs/plan/text-first-editor-rebuild-tickets.md
 
-Deeper container commands (#299), fence/table/link interpretation,
-note-id-dependent composition arbitration and renderer integration follow in their dependent tickets.
+Container command work (#299) now includes canonical nested and cross-quote list lifting,
+mixed-format run transitions, exact owner fragments and copied ordered starts in source-level
+controls. Completion still requires the remaining nested Heading/Quote and mixed endpoint
+matrix, task continuation and quoted/tabbed/fenced content, malformed or unmatched fences,
+foreign marker/comment/line-ending controls, complete new-work bounds, and current independent
+source review plus native execution. Source fixtures and parser/copy counters do not close
+those requirements. Fence/table/link interpretation, note-id-dependent composition arbitration
+and renderer integration remain in their dependent tickets.
 
 Paragraph projections use a length-indexed tree and display Rope, so an ordinary
 edit after a distant jump reparses only its paragraph window without rewriting
