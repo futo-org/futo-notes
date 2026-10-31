@@ -244,20 +244,31 @@ impl Projection {
                 range.start.0 = range.start.0.min(change.start.0);
                 range.end.0 = range.end.0.max(change.end.0) - removed + inserted;
             }
-            let index = self.rows.locate(range.start.0, true);
-            let (row, _, display) = self.rows.at(index);
-            work += row.spans.len();
+            let (index, a) = self.rows.locate_with_work(range.start.0, true);
+            let (row, _, display, b) = self.rows.at_with_work(index);
+            work += a + b;
             let local = row
                 .spans
                 .iter()
                 .find(|span| {
-                    pending_span(span)
-                        && display + row.display_at(span.open.end) == range.start.0
-                        && display + row.display_at(span.close.start) <= range.end.0
+                    work += 1;
+                    if !pending_span(span) {
+                        return false;
+                    }
+                    let (start, a) = row.display_at_with_work(span.open.end);
+                    work += a;
+                    if display + start != range.start.0 {
+                        return false;
+                    }
+                    let (end, z) = row.display_at_with_work(span.close.start);
+                    work += z;
+                    display + end <= range.end.0
                 })
                 .map(|span| span.open.end..span.close.start);
             if let Some(local) = local {
-                self.rows.metadata_mut(index).literal_links.push(local);
+                let (row, nodes) = self.rows.metadata_mut_with_work(index);
+                work += nodes;
+                row.literal_links.push(local);
             }
         }
         #[cfg(test)]
@@ -298,12 +309,13 @@ impl Projection {
         &mut self,
         ranges: impl IntoIterator<Item = Range<usize>>,
     ) -> usize {
+        #[cfg(test)]
+        let visits = super::coordinate_work_tests::visits();
         let mut work = 0;
         for range in ranges {
             work += 1;
-            let index = self.rows.locate(range.start, false);
-            let (_, source, _) = self.rows.at(index);
-            let row = self.rows.metadata_mut(index);
+            let (row, source, nodes) = self.rows.source_metadata_mut_with_work(range.start);
+            work += nodes;
             let local = range.start - source..range.end - source;
             let segment = row.segments.partition_point(|segment| {
                 work += 1;
@@ -327,6 +339,8 @@ impl Projection {
                 row.literal_delimiters.insert(position, local);
             }
         }
+        #[cfg(test)]
+        super::coordinate_work_tests::query("delimiter-install", visits, work);
         work
     }
 
@@ -336,10 +350,13 @@ impl Projection {
         last: usize,
         edit: &SourceEdit,
     ) -> (Vec<Range<usize>>, usize) {
+        #[cfg(test)]
+        let visits = super::coordinate_work_tests::visits();
         let mut ranges = Vec::new();
         let mut work = 0;
         for index in first..=last {
-            let (row, base, _) = self.rows.at(index);
+            let (row, base, _, nodes) = self.rows.at_with_work(index);
+            work += nodes;
             for local in &row.literal_delimiters {
                 work += 2;
                 let mut range = base + local.start..base + local.end;
@@ -353,6 +370,8 @@ impl Projection {
                 ranges.push(range);
             }
         }
+        #[cfg(test)]
+        super::coordinate_work_tests::query("delimiter-retain", visits, work);
         (ranges, work)
     }
 }

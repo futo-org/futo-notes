@@ -30,28 +30,53 @@ impl Projection {
             let (links, query_work) = self.all_link_ranges(word);
             work += links.len() + query_work;
             for link in links {
-                let index = self.rows.locate(link.start.0, true);
-                let (row, _, display) = self.rows.at(index);
-                work += row.spans.len() + row.literal_links.len();
+                #[cfg(test)]
+                let visits = super::super::coordinate_work_tests::visits();
+                let (index, a) = self.rows.locate_with_work(link.start.0, true);
+                let (row, _, display, b) = self.rows.at_with_work(index);
+                #[cfg(test)]
+                let previous_work = work;
+                work += a + b;
                 let bare = row
                     .spans
                     .iter()
                     .find(|span| {
-                        matches!(span.kind, SpanKind::Link(_))
-                            && span.open.is_empty()
-                            && span.close.is_empty()
-                            && display + row.display_at(span.open.end) == link.start.0
-                            && display + row.display_at(span.close.start) == link.end.0
+                        work += 1;
+                        if !matches!(span.kind, SpanKind::Link(_))
+                            || !span.open.is_empty()
+                            || !span.close.is_empty()
+                        {
+                            return false;
+                        }
+                        let (start, a) = row.display_at_with_work(span.open.end);
+                        work += a;
+                        if display + start != link.start.0 {
+                            return false;
+                        }
+                        let (end, z) = row.display_at_with_work(span.close.start);
+                        work += z;
+                        display + end == link.end.0
                     })
                     .map(|span| span.open.end..span.close.start);
                 if let Some(bare) = bare {
                     if link.end.0 <= caret
                         && link.start.0 < input.start.0 + inserted.len()
-                        && !row.literal_links.contains(&bare)
+                        && !row.literal_links.iter().any(|range| {
+                            work += 1;
+                            *range == bare
+                        })
                     {
-                        self.rows.metadata_mut(index).literal_links.push(bare);
+                        let (row, nodes) = self.rows.metadata_mut_with_work(index);
+                        work += nodes;
+                        row.literal_links.push(bare);
                     }
                 }
+                #[cfg(test)]
+                super::super::coordinate_work_tests::query(
+                    "pending-input-run",
+                    visits,
+                    work - previous_work,
+                );
             }
         }
         if inserted.contains(char::is_whitespace) {
@@ -69,21 +94,31 @@ impl Projection {
                 .map(char::len_utf8)
                 .sum();
             let start = input.start.0 - preceding;
-            let first = self.rows.locate(start, true);
-            let last = self.rows.locate(ended, true);
+            let (first, a) = self.rows.locate_with_work(start, true);
+            let (last, z) = self.rows.locate_with_work(ended, true);
+            work += a + z;
             for index in first..=last {
-                let (row, _, display) = self.rows.at(index);
-                work += 2 * row.literal_links.len();
+                let (row, _, display, nodes) = self.rows.at_with_work(index);
+                work += nodes;
                 let keep = row
                     .literal_links
                     .iter()
                     .filter(|range| {
-                        !(start <= display + row.display_at(range.start)
-                            && display + row.display_at(range.end) <= ended)
+                        work += 2;
+                        let (a, x) = row.display_at_with_work(range.start);
+                        work += x;
+                        if start > display + a {
+                            return true;
+                        }
+                        let (z, y) = row.display_at_with_work(range.end);
+                        work += y;
+                        display + z > ended
                     })
                     .cloned()
                     .collect();
-                self.rows.metadata_mut(index).literal_links = keep;
+                let (row, nodes) = self.rows.metadata_mut_with_work(index);
+                work += nodes;
+                row.literal_links = keep;
             }
         }
         work
