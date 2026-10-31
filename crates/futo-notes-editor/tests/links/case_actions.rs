@@ -186,9 +186,10 @@ fn mixed_case_www_has_live_timing_only_from_actual_input_not_loaded_explicit_sou
             )
             .unwrap();
         assert!(typed
-            .inspect_link(typed.revision(), range(1, 2))
+            .project(typed.revision(), range(0, at + ch.len_utf8()))
             .unwrap()
-            .is_none());
+            .links
+            .is_empty());
     }
     let fresh = EditorSession::open(&typed.source_text());
     assert_eq!(
