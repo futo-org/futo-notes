@@ -343,3 +343,39 @@ fn text_crlf_crossquote_maps_both_entity_endpoints_before_acceptance() {
         2,
     );
 }
+
+#[test]
+fn outdent_paragraph_keeps_later_mixed_ending_quote_fence_and_foreign_item_exact() {
+    let tail = "  >\r\n  > tail\r\n  > ```lang\r\n  > opaque\r\n  > ```\r\n- outside";
+    let raw = format!("- > &acE;\n  > c\n{tail}");
+    let expected = format!("- \n  &acE;\n  c\n{tail}");
+    let before = "\u{223e}\u{0333}\nc\n\r\ntail\r\nopaque\r\noutside";
+    let shown = format!("\n{before}");
+    let reopened = EditorSession::open(&expected);
+    assert_eq!(reopened.source_text(), expected);
+    assert_eq!(reopened.display_text(), shown);
+    let code_at = shown.find("opaque").unwrap();
+    let code = reopened
+        .project(reopened.revision(), range(code_at, code_at + 6))
+        .unwrap();
+    assert!(code.blocks.iter().any(|b| b.code
+        && b.quote_depth == 1
+        && b.language.as_deref() == Some("lang")
+        && b.list.as_ref().is_some_and(|l| l.depth == 1)));
+    let outside_at = shown.find("outside").unwrap();
+    let outside = reopened
+        .project(reopened.revision(), range(outside_at, shown.len()))
+        .unwrap();
+    assert!(outside.blocks.iter().all(|b| !b.code
+        && b.quote_depth == 0
+        && b.list.as_ref().is_some_and(|l| l.depth == 1 && l.first)));
+    multiline_transition(
+        &raw,
+        before,
+        &expected,
+        &shown,
+        Action::Outdent,
+        range(0, 3),
+        range(1, 4),
+    );
+}
