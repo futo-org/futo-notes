@@ -240,6 +240,25 @@ fn a_valid_rename_can_retire_the_uri_around_a_retained_partial_code_span() {
         mappings: vec![("Old".into(), "New Name".into())],
         note_ids: vec!["Old".into()],
     };
+    let original = editor.source_text();
+    let selection = editor.selection();
+    let before = editor.project(Revision(3), range(0, end + 1)).unwrap();
+    let mut refused = 0;
+    assert!(matches!(
+        editor.apply_own_relink(Revision(3), &action, &mut |_| {
+            refused += 1;
+            Err("injected partial Code retirement refusal".into())
+        }),
+        Err(EditorError::Persistence(_))
+    ));
+    assert_eq!(refused, 1);
+    assert_eq!(editor.revision(), Revision(3));
+    assert_eq!(editor.source_text(), original);
+    assert_eq!(editor.selection(), selection);
+    assert_eq!(
+        editor.project(Revision(3), range(0, end + 1)).unwrap(),
+        before
+    );
     let mut accepted = 0;
     editor.apply_own_relink(Revision(3), &action, &mut |_| { accepted += 1; Ok(()) })
         .unwrap_or_else(|error| panic!("representable partial Code URI retirement must accept; accepted={accepted}; error={error:?}")).unwrap();
@@ -251,4 +270,49 @@ fn a_valid_rename_can_retire_the_uri_around_a_retained_partial_code_span() {
         .unwrap();
     assert_eq!(actual.runs, expected.runs);
     assert_eq!(actual.links, expected.links);
+    editor
+        .undo(editor.revision(), &mut |_| Ok(()))
+        .unwrap()
+        .unwrap();
+    assert_eq!(editor.display_text(), shown);
+    assert!(editor
+        .project(editor.revision(), range(0, shown.len()))
+        .unwrap()
+        .links
+        .is_empty());
+    let historical = EditorSession::open(&editor.source_text());
+    assert_eq!(historical.display_text(), shown);
+    assert!(historical
+        .project(Revision(0), range(0, shown.len()))
+        .unwrap()
+        .links
+        .is_empty());
+    editor
+        .redo(editor.revision(), &mut |_| Ok(()))
+        .unwrap()
+        .unwrap();
+    assert_eq!(editor.source_text(), candidate);
+    let mut loaded = EditorSession::open(candidate);
+    for target in [&mut editor, &mut loaded] {
+        target.select(target.revision(), range(16, 28)).unwrap();
+        target
+            .toggle_format(target.revision(), InlineFormat::Code, &mut |_| Ok(()))
+            .unwrap()
+            .unwrap();
+        target
+            .replace(
+                target.revision(),
+                range(shown.len(), shown.len()),
+                " ",
+                &mut |_| Ok(()),
+            )
+            .unwrap();
+        assert_eq!(target.display_text(), format!("{shown} "));
+        assert!(target
+            .project(target.revision(), range(0, shown.len() + 1))
+            .unwrap()
+            .links
+            .is_empty());
+    }
+    assert_eq!(editor.source_text(), loaded.source_text());
 }
