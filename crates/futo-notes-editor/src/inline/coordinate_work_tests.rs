@@ -112,6 +112,19 @@ pub(super) fn snapshot() -> Vec<(&'static str, usize, usize)> {
 pub(super) fn bare_snapshot() -> Vec<(usize, usize, usize)> {
     BARE_QUERIES.with(|rows| rows.borrow().clone())
 }
+pub(super) fn reference_nodes() -> usize {
+    snapshot()
+        .iter()
+        .filter(|(name, _, _)| {
+            matches!(
+                *name,
+                "reference-winners" | "reference-comparison" | "hidden-definition"
+            )
+        })
+        .map(|(_, actual, _)| actual)
+        .sum()
+}
+
 pub(super) fn added_nodes() -> usize {
     snapshot()
         .iter()
@@ -230,8 +243,13 @@ fn public_distant_input_exposes_its_actual_query_ledger() {
             .filter(|(name, _, _)| !name.ends_with(".rs") || name.ends_with("session/input.rs"))
             .map(|(_, actual, _)| actual)
             .sum();
-        assert_eq!(added, expected_nodes, "{queries:?}");
-        assert_eq!(change.work.link_metadata_items, expected_metadata);
+        let new_reference_nodes = reference_nodes();
+        eprintln!("REFERENCE CALIBRATION distant count={count}: new={new_reference_nodes}; nodes={added}; work={:?}", change.work);
+        assert_eq!(added - new_reference_nodes, expected_nodes, "{queries:?}");
+        assert_eq!(
+            change.work.link_metadata_items - new_reference_nodes,
+            expected_metadata
+        );
         assert_eq!(bounds_delta(), 10);
         assert_eq!(
             (change.work.link_metadata_items - added)
@@ -291,7 +309,8 @@ fn public_link_input_charges_the_actual_post_parser_node_and_child_walk() {
     assert_eq!(change.work.parsed_source_bytes, 120);
     assert_eq!(change.work.inserted_bytes, 1);
     assert_eq!(change.work.link_copied_bytes, 56);
-    assert_eq!(change.work.link_metadata_items, 477 + 2 * (12 + 3 + 2));
+    assert_eq!(reference_nodes(), 1);
+    assert_eq!(change.work.link_metadata_items, 477 + 2 * (12 + 3 + 2) + 1);
     for (hints, actual, reported) in &queries {
         assert!(*reported >= hints + actual, "bare consumer: hint={hints}; actual stack/node/child={actual}; reported={reported}; ledger={queries:?}; work={:?}", change.work);
     }

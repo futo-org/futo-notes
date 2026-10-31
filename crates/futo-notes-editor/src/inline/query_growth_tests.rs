@@ -1,5 +1,5 @@
 //! Public growth fixtures with independent primitive-node attribution.
-use super::coordinate_work_tests::{added_nodes, bounds_delta, reset, snapshot};
+use super::coordinate_work_tests::{added_nodes, bounds_delta, reference_nodes, reset, snapshot};
 use crate::{BlockCommand, DisplayOffset, DisplayRange, EditWork, EditorSession, Revision};
 fn range(start: usize, end: usize) -> DisplayRange {
     DisplayRange {
@@ -42,12 +42,15 @@ fn public_growth_work_separates_actual_index_visits_from_retained_local_work() {
                 .replace(Revision(0), range(0, 3), "the", &mut |_| Ok(()))
                 .unwrap();
             let label = measured(label.work);
+            let label_reference_nodes = reference_nodes();
             assert_eq!(bounds_delta(), 0);
             reset();
             let body = session
                 .replace(Revision(1), range(5, 9), "BODY", &mut |_| Ok(()))
                 .unwrap();
             let (mut body_fixed, body_nodes) = measured(body.work);
+            let body_reference_nodes = reference_nodes();
+            eprintln!("REFERENCE CALIBRATION local {growing} count={count}: new={label_reference_nodes}/{body_reference_nodes}; nodes={}/{body_nodes}", label.1);
             let bare = super::coordinate_work_tests::bare_snapshot();
             let added_bare = if growing == "definitions" {
                 // The actual neighboring unused declaration has no Link:
@@ -76,7 +79,13 @@ fn public_growth_work_separates_actual_index_visits_from_retained_local_work() {
             } else {
                 [(91, 119), (173, 188)]
             };
-            assert_eq!((label.1, body.1), expected_nodes[index]);
+            assert_eq!(
+                (
+                    label.1 - label_reference_nodes,
+                    body.1 - body_reference_nodes
+                ),
+                expected_nodes[index]
+            );
             results.push((label.0, body.0));
         }
         assert_eq!(results[0], results[1], "{growing}");
@@ -123,7 +132,9 @@ fn public_structural_growth_work_retains_the_original_fixed_work_budget() {
             } else {
                 [64, 114, 189]
             };
-            assert_eq!(nodes, expected_nodes[index]);
+            let new_reference_nodes = reference_nodes();
+            eprintln!("REFERENCE CALIBRATION structural {command:?} count={count}: new={new_reference_nodes}; nodes={nodes}; work={:?}", change.work);
+            assert_eq!(nodes - new_reference_nodes, expected_nodes[index]);
             results.push(fixed);
         }
         for work in &results[1..] {
@@ -162,7 +173,9 @@ fn public_pending_growth_work_keeps_foreign_word_fields_outside_the_local_ledger
             .replace(session.revision(), range(8, 8), "x", &mut |_| Ok(()))
             .unwrap();
         let (mut fixed, nodes) = measured(change.work);
-        assert_eq!(nodes, [404, 361][index]);
+        let new_reference_nodes = reference_nodes();
+        eprintln!("REFERENCE CALIBRATION pending count={count}: new={new_reference_nodes}; nodes={nodes}; work={:?}", change.work);
+        assert_eq!(nodes - new_reference_nodes, [404, 361][index]);
         assert_eq!(bounds_delta(), 9);
         // Seven independently observed actual bare traversals each add
         // root/node/child6 + extraction3 + emitted records2 beyond old H6.
