@@ -434,3 +434,72 @@ fn explicit_set_link_supersedes_pending_timing_while_unlink_noop_preserves_it() 
         link
     );
 }
+
+#[test]
+fn explicit_partial_set_link_respects_selection_in_pending_literal_angle_text() {
+    let mut session = EditorSession::open("");
+    let mut view = ReferenceView::new("");
+    view.apply(
+        session
+            .replace(Revision(0), range(0, 0), "<https://x.test", &mut |_| Ok(()))
+            .unwrap(),
+    );
+    view.apply(
+        session
+            .replace(Revision(1), range(15, 15), ">", &mut |_| Ok(()))
+            .unwrap(),
+    );
+    session.select(Revision(2), range(1, 4)).unwrap();
+    view.apply(
+        session
+            .set_link(
+                Revision(2),
+                range(1, 4),
+                "https://new.test",
+                &mut |_| Ok(()),
+            )
+            .unwrap()
+            .unwrap(),
+    );
+    assert_eq!(view.text, "<https://x.test>");
+    assert_eq!(session.selection(), range(1, 4));
+    let links = session
+        .project(session.revision(), range(0, 16))
+        .unwrap()
+        .links;
+    assert_eq!(links.len(), 1);
+    assert_eq!(links[0].destination, "https://new.test");
+    assert_eq!(links[0].range, range(1, 4), "a pending URI is semantically unlinked text, so SetLink must wrap only its selected text; source={:?}", session.source_text());
+    let changed = session.source_text();
+    let loaded = EditorSession::open(&changed);
+    assert_eq!(loaded.display_text(), view.text);
+    assert_eq!(
+        loaded.project(Revision(0), range(0, 16)).unwrap().links,
+        links
+    );
+    view.apply(
+        session
+            .undo(session.revision(), &mut |_| Ok(()))
+            .unwrap()
+            .unwrap(),
+    );
+    assert_eq!(session.source_text(), "<<https://x.test>>");
+    assert!(session
+        .inspect_link(session.revision(), range(1, 2))
+        .unwrap()
+        .is_none());
+    view.apply(
+        session
+            .redo(session.revision(), &mut |_| Ok(()))
+            .unwrap()
+            .unwrap(),
+    );
+    assert_eq!(session.source_text(), changed);
+    assert_eq!(
+        session
+            .project(session.revision(), range(0, 16))
+            .unwrap()
+            .links,
+        links
+    );
+}

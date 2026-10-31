@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 // Real shipping toolbar/parser/serializer seam; no native input or core imports.
-import { afterAll, beforeAll, expect, it } from 'vitest';
+import { afterAll, beforeAll, expect, it, vi } from 'vitest';
 import { Editor, defaultValueCtx, editorViewCtx, parserCtx, rootCtx } from '@milkdown/kit/core';
 import { TextSelection } from '@milkdown/kit/prose/state';
 import { commonmarkWithCompat, gfmWithCompat } from '@futo-notes/editor/milkdown-compat';
@@ -9,6 +9,7 @@ import { softBreakView } from './paragraphLines';
 import { tableCellLineBreakRemark } from './table/tableLineBreak';
 import { wikilink } from './wikilink';
 import { createToolbarExec } from './toolbarExec';
+import { dismissLinkPrompt } from './linkPrompt';
 import { withoutLeakedCtxTimers } from './__fixtures__/noLeakedCtxTimers';
 
 let editor: Editor;
@@ -32,6 +33,7 @@ beforeAll(async () => {
   editor.ctx.get(editorViewCtx).setProps({ handleScrollToSelection: () => true });
 });
 afterAll(async () => {
+  dismissLinkPrompt();
   await editor.destroy();
   root.remove();
 });
@@ -184,4 +186,41 @@ it('standard explicit link spelling supports whole and partial Bold inside a lit
     const uri = candidate.content?.[0]?.content?.find((part) => part.text === styledText);
     expect(uri?.marks?.map((mark) => mark.type)).toContain('strong');
   }
+});
+
+it('the real Link prompt wraps only the selected partial URI in unlinked literal angle text', async () => {
+  const view = editor.ctx.get(editorViewCtx);
+  const paragraph = view.state.schema.nodes.paragraph.create(
+    null,
+    view.state.schema.text('<https://x.test>'),
+  );
+  view.dispatch(view.state.tr.replaceWith(0, view.state.doc.content.size, paragraph));
+  view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, 2, 5)));
+  expect(links(view.state.doc.toJSON() as NodeJson)).toEqual([]);
+  createToolbarExec(() => editor).link();
+  let input: HTMLInputElement | null = null;
+  await vi.waitFor(() => {
+    input = document.body.querySelector('input.futo-selection-toolbar-url');
+    expect(input).not.toBeNull();
+  });
+  input!.value = 'https://new.test';
+  input!.dispatchEvent(new Event('input', { bubbles: true }));
+  input!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+  await vi.waitFor(() =>
+    expect(document.body.querySelector('input.futo-selection-toolbar-url')).toBeNull(),
+  );
+  const after = view.state.doc.toJSON() as NodeJson;
+  expect(rows(after)).toEqual([{ type: 'paragraph', text: '<https://x.test>' }]);
+  expect(links(after)).toEqual([
+    { type: 'link', attrs: { href: 'https://new.test', title: null } },
+  ]);
+  expect(
+    after.content?.[0]?.content
+      ?.filter((part) => part.marks?.some((mark) => mark.type === 'link'))
+      .map((part) => part.text),
+  ).toEqual(['htt']);
+  const parse = editor.ctx.get(parserCtx);
+  const candidate = parse('\\<[htt](<https://new.test>)ps://x.test>').toJSON() as NodeJson;
+  expect(rows(candidate)).toEqual(rows(after));
+  expect(links(candidate)).toEqual(links(after));
 });
