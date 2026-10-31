@@ -39,7 +39,7 @@ assert.equal(frames.length, 25);
 const fences = JSON.parse(
   readFileSync(new URL('fixtures/fence-container-commands.json', import.meta.url)),
 );
-assert.equal(fences.length, 10);
+assert.equal(fences.length, 14);
 const cases = [
   ...original,
   ...shortcuts,

@@ -60,7 +60,7 @@ extension NativeEditorBlockRegressionTests {
             let frames = try load("prefix-frame-commands")
             #expect(frames.count == 25)
             let fences = try load("fence-container-commands")
-            #expect(fences.count == 10)
+            #expect(fences.count == 14)
             let cases =
                 original + shortcuts + staging + nested + commands + headers + frames + fences
             for item in cases {

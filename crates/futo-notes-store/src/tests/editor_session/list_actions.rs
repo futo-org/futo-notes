@@ -163,7 +163,7 @@ fn shared_list_actions_survive_failed_append_undo_flush_power_loss_and_checkpoin
         "../../../../futo-notes-editor/tests/fixtures/fence-container-commands.json"
     ))
     .unwrap();
-    assert_eq!(fences.len(), 10);
+    assert_eq!(fences.len(), 14);
     let cases: Vec<_> = original
         .into_iter()
         .chain(shortcuts)

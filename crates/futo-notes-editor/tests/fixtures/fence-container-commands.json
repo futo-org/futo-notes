@@ -119,5 +119,105 @@
       [null, null]
     ],
     "itemDepths": [1, 2, 1]
+  },
+  {
+    "name": "text-keeps-separate-code-and-foreign-quote-owners-lf-minimum-gap",
+    "source": "- parent\n  > ```\n  > opaque\n> - outside",
+    "display": "parent\nopaque\noutside",
+    "action": "Text",
+    "range": [
+      0,
+      0
+    ],
+    "expected": "parent\n> ```\n> opaque\n\n> - outside",
+    "shown": "parent\nopaque\n\noutside",
+    "resultRange": [
+      0,
+      0
+    ],
+    "finalItems": [
+      [
+        null,
+        null
+      ]
+    ],
+    "itemQuoteDepths": [
+      1
+    ]
+  },
+  {
+    "name": "text-keeps-separate-code-and-foreign-quote-owners-lf-existing-gap",
+    "source": "- parent\n  > ```\n  > opaque\n\n> - outside",
+    "display": "parent\nopaque\n\noutside",
+    "action": "Text",
+    "range": [
+      0,
+      0
+    ],
+    "expected": "parent\n> ```\n> opaque\n\n> - outside",
+    "shown": "parent\nopaque\n\noutside",
+    "resultRange": [
+      0,
+      0
+    ],
+    "finalItems": [
+      [
+        null,
+        null
+      ]
+    ],
+    "itemQuoteDepths": [
+      1
+    ]
+  },
+  {
+    "name": "text-keeps-separate-code-and-foreign-quote-owners-crlf-minimum-gap",
+    "source": "- parent\r\n  > ```\r\n  > opaque\r\n> - outside",
+    "display": "parent\r\nopaque\r\noutside",
+    "action": "Text",
+    "range": [
+      0,
+      0
+    ],
+    "expected": "parent\r\n> ```\r\n> opaque\r\n\r\n> - outside",
+    "shown": "parent\r\nopaque\r\n\r\noutside",
+    "resultRange": [
+      0,
+      0
+    ],
+    "finalItems": [
+      [
+        null,
+        null
+      ]
+    ],
+    "itemQuoteDepths": [
+      1
+    ]
+  },
+  {
+    "name": "text-keeps-separate-code-and-foreign-quote-owners-crlf-existing-gap",
+    "source": "- parent\r\n  > ```\r\n  > opaque\r\n\r\n> - outside",
+    "display": "parent\r\nopaque\r\n\r\noutside",
+    "action": "Text",
+    "range": [
+      0,
+      0
+    ],
+    "expected": "parent\r\n> ```\r\n> opaque\r\n\r\n> - outside",
+    "shown": "parent\r\nopaque\r\n\r\noutside",
+    "resultRange": [
+      0,
+      0
+    ],
+    "finalItems": [
+      [
+        null,
+        null
+      ]
+    ],
+    "itemQuoteDepths": [
+      1
+    ]
   }
 ]
