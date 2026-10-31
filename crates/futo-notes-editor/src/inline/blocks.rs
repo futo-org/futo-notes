@@ -120,6 +120,24 @@ fn describe_with_items(
     events: &[(Event<'_>, Range<usize>)],
     mark_items: impl Fn(&mut [BlockLine], &Range<usize>),
 ) -> (Vec<BlockLine>, Vec<Range<usize>>) {
+    describe_with_parts(source, events, mark_items, super::fences::describe)
+}
+
+#[cfg(test)]
+pub(super) fn describe_with_fences(
+    source: &str,
+    events: &[(Event<'_>, Range<usize>)],
+    fences: impl Fn(&str, &[(Event<'_>, Range<usize>)], &mut [BlockLine]),
+) -> (Vec<BlockLine>, Vec<Range<usize>>) {
+    describe_with_parts(source, events, mark_item_lines, fences)
+}
+
+fn describe_with_parts(
+    source: &str,
+    events: &[(Event<'_>, Range<usize>)],
+    mark_items: impl Fn(&mut [BlockLine], &Range<usize>),
+    fences: impl Fn(&str, &[(Event<'_>, Range<usize>)], &mut [BlockLine]),
+) -> (Vec<BlockLine>, Vec<Range<usize>>) {
     let mut at = 0;
     let mut lines: Vec<_> = source
         .split_inclusive('\n')
@@ -343,7 +361,7 @@ fn describe_with_items(
         lines[first].source.end = lines[last].source.end;
         lines.drain(first + 1..=last);
     }
-    super::fences::describe(source, events, &mut lines);
+    fences(source, events, &mut lines);
     (lines, prefixes)
 }
 

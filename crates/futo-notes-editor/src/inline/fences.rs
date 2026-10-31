@@ -255,3 +255,7 @@ pub(super) fn describe(
 #[cfg(test)]
 #[path = "fences_promotion_tests.rs"]
 mod promotion_tests;
+
+#[cfg(test)]
+#[path = "fences_range_tests.rs"]
+mod range_tests;
