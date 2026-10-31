@@ -106,6 +106,7 @@ pub(super) fn describe(
 ) {
     let mut code: Option<(Range<usize>, Option<String>, bool, Vec<Range<usize>>)> = None;
     for (event, range) in events {
+        super::visit_container();
         match event {
             Event::Start(Tag::CodeBlock(kind)) => {
                 let (language, fenced) = match kind {
@@ -119,8 +120,14 @@ pub(super) fn describe(
             Event::Text(_) if code.is_some() => code.as_mut().unwrap().3.push(range.clone()),
             Event::End(TagEnd::CodeBlock) => {
                 let (whole, language, fenced, bodies) = code.take().unwrap();
-                let first = lines.partition_point(|line| line.source.end <= whole.start);
-                let last = lines.partition_point(|line| line.source.start < whole.end);
+                let first = lines.partition_point(|line| {
+                    super::visit_container();
+                    line.source.end <= whole.start
+                });
+                let last = lines.partition_point(|line| {
+                    super::visit_container();
+                    line.source.start < whole.end
+                });
                 let fence = if fenced {
                     let marker = source.as_bytes()[whole.start];
                     let width = source[whole.clone()]
@@ -135,7 +142,13 @@ pub(super) fn describe(
                     let close_width = tail.bytes().take_while(|&ch| ch == marker).count();
                     let closed = last > first + 1
                         && !bodies.iter().any(|body| {
-                            body.start < final_line.source.end && final_line.source.start < body.end
+                            super::visit_container();
+                            if body.start < final_line.source.end {
+                                super::visit_container();
+                                final_line.source.start < body.end
+                            } else {
+                                false
+                            }
                         })
                         && close_width >= width
                         && tail[close_width..].trim().is_empty();
@@ -169,14 +182,29 @@ pub(super) fn describe(
                     None
                 };
                 for line in &mut lines[first..last] {
+                    super::visit_container();
                     line.code = true;
                     line.code_language.clone_from(&language);
                     line.fence.clone_from(&fence);
                     let start = bodies
                         .iter()
-                        .filter(|body| body.start < line.source.end && line.source.start < body.end)
-                        .map(|body| body.start.max(line.source.start))
-                        .min();
+                        .filter(|body| {
+                            super::visit_container();
+                            if body.start < line.source.end {
+                                super::visit_container();
+                                line.source.start < body.end
+                            } else {
+                                false
+                            }
+                        })
+                        .map(|body| {
+                            super::visit_container();
+                            body.start.max(line.source.start)
+                        })
+                        .min_by(|a, b| {
+                            super::visit_container();
+                            a.cmp(b)
+                        });
                     // Only a closer with following source supplies an inter-block
                     // break; its delimiter and the body frame ending stay hidden.
                     line.content = match start {
