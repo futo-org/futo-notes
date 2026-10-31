@@ -223,6 +223,89 @@ try {
     assert.deepEqual(await timingReopened(JSON.stringify({ checkpoint: true })), { id: 'plain' });
     await stop();
   }
+  {
+    const liveVault = mkdtempSync(join(tmpdir(), 'futo-editor-wasm-live-split-'));
+    timingVaults.push(liveVault);
+    const liveExchange = await start('# x&#32;', liveVault);
+    let liveDisplay = 'x ';
+    let revision = 0n;
+    const applyLive = async (request) => {
+      const ack = await liveExchange(request);
+      const change = JSON.parse(session.acknowledge(JSON.stringify(ack)));
+      assert.ok(change);
+      const bytes = Buffer.from(liveDisplay);
+      liveDisplay = Buffer.concat([
+        bytes.subarray(0, change.range.start),
+        Buffer.from(change.inserted),
+        bytes.subarray(change.range.end),
+      ]).toString();
+      revision = BigInt(change.revision);
+      assert.equal(JSON.parse(session.acknowledge(JSON.stringify(ack))), null);
+      return change;
+    };
+    const pendingSource = '# x&#32;\\*b https://x.test/a*';
+    const committed = '# x&#32;*b https://x.test/a*\n';
+    await applyLive(session.replace(0n, 2, 2, '*b https://x.test/a*'));
+    assert.equal(session.draft_text(), pendingSource);
+    assert.equal(liveDisplay, 'x *b https://x.test/a*');
+    assert.equal(JSON.parse(session.inspect_link(1n, 5, 6)), null);
+    let request = session.paragraph_key_utf16(1n, 22, 22, JSON.stringify('Enter'));
+    const before = JSON.parse(session.status());
+    assert.equal(before.accepted, 1);
+    assert.equal(before.displayed, 1);
+    assert.equal(session.draft_text(), committed);
+    assert.throws(() => session.project(2n, 0, 21));
+    const body = JSON.parse(request);
+    const failed = JSON.stringify({
+      token: body.token,
+      sequence: body.sequence,
+      accepted: 1,
+      durable: before.durable,
+      paused: true,
+      error: 'injected transport rejection',
+    });
+    assert.equal(JSON.parse(session.acknowledge(failed)), null);
+    assert.equal(JSON.parse(session.status()).accepted, 1);
+    assert.equal(liveDisplay, 'x *b https://x.test/a*');
+    assert.equal(
+      JSON.parse(session.acknowledge(JSON.stringify(await liveExchange(session.resume())))),
+      null,
+    );
+    request = session.retry_pending();
+    const entered = await applyLive(request);
+    assert.equal(JSON.parse(session.acknowledge(failed)), null);
+    assert.deepEqual(entered.selection, { start: 21, end: 21 });
+    assert.equal(liveDisplay, 'x b https://x.test/a\n');
+    assert.equal(JSON.parse(session.inspect_link(revision, 4, 5)).destination, 'https://x.test/a');
+    await applyLive(session.undo(revision));
+    assert.equal(session.draft_text(), pendingSource);
+    assert.equal(liveDisplay, 'x *b https://x.test/a*');
+    assert.equal(JSON.parse(session.inspect_link(revision, 5, 6)), null);
+    const redone = await applyLive(session.redo(revision));
+    await applyLive(session.replace(revision, redone.selection.end, redone.selection.end, '!'));
+    assert.equal(session.draft_text(), committed + '!');
+    assert.equal(liveDisplay, 'x b https://x.test/a\n!');
+    await applyLive(session.undo(revision));
+    await applyLive(session.undo(revision));
+    assert.equal(session.draft_text(), pendingSource);
+    await applyLive(session.undo(revision));
+    assert.equal(session.draft_text(), '# x&#32;');
+    assert.equal(liveDisplay, 'x ');
+    await applyLive(session.redo(revision));
+    await applyLive(session.redo(revision));
+    await applyLive(session.redo(revision));
+    assert.equal(session.draft_text(), committed + '!');
+    session.acknowledge(JSON.stringify(await liveExchange(session.flush())));
+    assert.equal(JSON.parse(session.status()).durable, Number(revision));
+    await stop();
+    const liveReopened = await start('--reopen', liveVault);
+    assert.equal(session.draft_text(), committed + '!');
+    assert.equal(JSON.parse(session.project(revision, 0, 22)).text, 'x b https://x.test/a\n!');
+    assert.equal(JSON.parse(session.inspect_link(revision, 4, 5)).destination, 'https://x.test/a');
+    assert.equal(JSON.parse(session.undo(revision)), null);
+    assert.deepEqual(await liveReopened(JSON.stringify({ checkpoint: true })), { id: 'plain' });
+    await stop();
+  }
   for (const [
     original,
     finalSource,
