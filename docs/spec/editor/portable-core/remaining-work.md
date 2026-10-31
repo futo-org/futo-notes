@@ -11,15 +11,25 @@ work. Plain-text/Markdown paste, including ordinary single-cell table paste, rem
 required. Tables, shared find, wikilink completion and the 20,000-line/native durability
 acceptance targets have not been deferred. → docs/plan/text-first-editor-rebuild-tickets.md
 
-Container command work (#299) now includes canonical nested and cross-quote list lifting,
-mixed-format run transitions, exact owner fragments, copied ordered starts and same-line empty
-prefix frames with distinct nearest/full intents in source-level controls. Complete single-line
-body controls do not establish multiline quote/list behavior or general prefix/frame coverage. Completion still requires the remaining nested Heading/Quote and mixed endpoint
-matrix, task continuation and quoted/tabbed/fenced content, malformed or unmatched fences,
-foreign marker/comment/line-ending controls, complete new-work bounds, and current independent
-source review plus native execution. Source fixtures and parser/copy counters do not close
-those requirements. Fence/table/link interpretation, note-id-dependent composition arbitration
-and renderer integration remain in their dependent tickets.
+Container command work (#299) includes canonical nested and cross-quote lifting,
+mixed original-format runs, exact owner fragments, copied ordered starts and same-line
+empty prefix frames with distinct nearest/full intents. Root fenced-tail promotion
+preserves opaque code and original containment through certified physical edge facts;
+new source queries and canonical code-body overlap queries have measured work controls.
+These controls do not establish general multiline quote/list behavior.
+
+The remaining source frontier is the already-pinned multiline quoted-body Outdent,
+Backspace and full Text observations; preservation of separate inner/foreign quote
+owners after list removal; promoted code after preceding list neighbors and within
+items containing blank/continuation or multiple code blocks; the pertinent quoted
+CRLF task continuation/fence retarget controls; and final checks of the already-pinned
+nested Heading/Quote, mixed run and endpoint contexts. Newly completed literals must
+reach all six source consumers with current owner chains. Finish these concrete cases,
+then freeze the exact entire source candidate for fresh independent review before
+native execution; do not treat source fixture registration or parser/copy counters as
+native input, complete allocation or latency evidence. Fence/table/link interpretation,
+note-id-dependent composition arbitration and renderer integration retain their own
+owners and dependent tickets.
 
 Paragraph projections use a length-indexed tree and display Rope, so an ordinary
 edit after a distant jump reparses only its paragraph window without rewriting
