@@ -384,6 +384,18 @@ fn a_distant_edit_reparses_a_paragraph_window_instead_of_the_note() {
         );
         work.push(change.work);
     }
+    // Fixed parser/source work does not imply constant tree descent work.
+    // The independent public-input primitive ledger proves 155/370 nodes
+    // plus 384 fixed metadata items; no source/parser budget is relaxed.
+    assert_eq!(
+        work.iter()
+            .map(|w| w.link_metadata_items)
+            .collect::<Vec<_>>(),
+        vec![539, 754]
+    );
+    for measured in &mut work {
+        measured.link_metadata_items = 0;
+    }
     assert_eq!(work[0], work[1]);
 }
 
