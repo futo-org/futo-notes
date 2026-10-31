@@ -152,13 +152,14 @@ fn ordinary_divider_does_not_scan_distant_reference_definitions_or_uses() {
 fn a_definition_repair_shifts_only_the_current_live_scalar_after_the_divider() {
     use futo_notes_editor::{Affinity, InlineFormat};
     let original = "prefix [id]: /target 'T'\n";
+    assert_eq!(original.len(), 25); // Complete first line, including LF.
     let mut session = EditorSession::open(original);
     let mut view = ReferenceView::new(original);
     view.apply(
         session
             .replace(
                 Revision(0),
-                range(23, 23),
+                range(25, 25),
                 "<https://x.test/path",
                 &mut |_| Ok(()),
             )
@@ -166,10 +167,10 @@ fn a_definition_repair_shifts_only_the_current_live_scalar_after_the_divider() {
     );
     view.apply(
         session
-            .replace(Revision(1), range(43, 43), ">", &mut |_| Ok(()))
+            .replace(Revision(1), range(45, 45), ">", &mut |_| Ok(()))
             .unwrap(),
     );
-    session.select(Revision(2), range(38, 43)).unwrap();
+    session.select(Revision(2), range(40, 45)).unwrap();
     view.apply(
         session
             .toggle_format(Revision(2), InlineFormat::Code, &mut |_| Ok(()))
@@ -184,7 +185,7 @@ fn a_definition_repair_shifts_only_the_current_live_scalar_after_the_divider() {
     let candidate = EditorSession::open(expected);
     assert_eq!(candidate.display_text(), shown);
     assert!(candidate
-        .project(Revision(0), range(0, 50))
+        .project(Revision(0), range(0, 52))
         .unwrap()
         .links
         .is_empty());
@@ -205,11 +206,11 @@ fn a_definition_repair_shifts_only_the_current_live_scalar_after_the_divider() {
     assert_eq!(session.source_text(), expected);
     assert_eq!(view.text, shown);
     assert!(session
-        .project(Revision(4), range(0, 50))
+        .project(Revision(4), range(0, 52))
         .unwrap()
         .links
         .is_empty());
-    session.select(Revision(4), range(44, 49)).unwrap();
+    session.select(Revision(4), range(46, 51)).unwrap();
     view.apply(
         session
             .toggle_format(Revision(4), InlineFormat::Code, &mut |_| Ok(()))
@@ -217,19 +218,19 @@ fn a_definition_repair_shifts_only_the_current_live_scalar_after_the_divider() {
             .unwrap(),
     );
     let released = session.source_text();
-    session.select(Revision(5), range(50, 50)).unwrap();
+    session.select(Revision(5), range(52, 52)).unwrap();
     view.apply(
         session
-            .replace(Revision(5), range(50, 50), " ", &mut |_| Ok(()))
+            .replace(Revision(5), range(52, 52), " ", &mut |_| Ok(()))
             .unwrap(),
     );
     assert_eq!(
         view.text,
         "prefix \n\u{fffc}\n\n[id]: /target 'T'\n<https://x.test/path> "
     );
-    let links = session.project(Revision(6), range(0, 51)).unwrap().links;
+    let links = session.project(Revision(6), range(0, 53)).unwrap().links;
     assert_eq!(links.len(), 1);
-    assert_eq!(links[0].range, range(30, 49));
+    assert_eq!(links[0].range, range(32, 51));
     assert_eq!(links[0].destination, "https://x.test/path");
     view.apply(session.undo(Revision(6), &mut |_| Ok(())).unwrap().unwrap());
     assert_eq!(session.source_text(), released);
