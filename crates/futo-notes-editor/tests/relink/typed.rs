@@ -178,3 +178,51 @@ fn an_actual_ineligible_www_candidate_accepts_the_same_literal_rename_as_loaded_
         .links
         .is_empty());
 }
+
+// Temporary public-seam diagnosis: preserve 4e190's failed premise while
+// measuring whole-vs-partial canonical recognition before any policy change.
+#[test]
+fn canonical_www_candidate_extent_diagnostic() {
+    for word in [
+        "www.[[Old]]",
+        "www.x.test/[[Old]]/path.",
+        "www.",
+        "www.([[Old]])",
+    ] {
+        let bare = EditorSession::open(word);
+        let bare_links = bare
+            .project(Revision(0), range(0, word.len()))
+            .unwrap()
+            .links;
+        let source = format!("<{word}");
+        let mut loaded = EditorSession::open(&source);
+        let unclosed_links = loaded
+            .project(Revision(0), range(0, source.len()))
+            .unwrap()
+            .links;
+        let action = OwnActionRelink {
+            mappings: vec![("Old".into(), "New".into())],
+            note_ids: vec!["Old".into()],
+        };
+        let mut calls = 0;
+        let loaded_result = loaded.apply_own_relink(Revision(0), &action, &mut |_| {
+            calls += 1;
+            Ok(())
+        });
+        let loaded_result = loaded_result.map(|change| change.is_some());
+        let mut typed = EditorSession::open("");
+        let input = typed
+            .replace(Revision(0), range(0, 0), &source, &mut |_| Ok(()))
+            .map(|_| ());
+        let typed_relink = if input.is_ok() {
+            Some(
+                typed
+                    .apply_own_relink(Revision(1), &action, &mut |_| Ok(()))
+                    .map(|change| change.is_some()),
+            )
+        } else {
+            None
+        };
+        eprintln!("WWW_CANDIDATE word={word:?} bare={bare_links:?} unclosed={unclosed_links:?} loaded_relink={loaded_result:?} calls={calls} loaded_after={:?} input={input:?} typed_relink={typed_relink:?} typed_after={:?}", loaded.source_text(), typed.source_text());
+    }
+}
