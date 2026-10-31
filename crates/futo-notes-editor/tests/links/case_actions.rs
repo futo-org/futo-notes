@@ -439,3 +439,47 @@ fn completed_committed_word_uses_the_actual_single_tab_or_unicode_separator() {
         assert_eq!(editor.source_text(), saved);
     }
 }
+
+#[test]
+fn committed_multiple_separators_do_not_trim_back_into_a_completed_capsule() {
+    let inner = "HTTPS://x.test/PaTh";
+    for separator in ["\r\n", "  "] {
+        let text = format!("<{inner}>{separator}");
+        let literal = format!("\\<HTTPS\\://x.test/PaTh\\>{separator}");
+        let standard = EditorSession::open(&literal);
+        assert_eq!(standard.display_text(), text);
+        assert!(standard
+            .project(Revision(0), range(0, text.len()))
+            .unwrap()
+            .links
+            .is_empty());
+        let mut editor = EditorSession::open("");
+        editor.compose(Revision(0), range(0, 0), &text).unwrap();
+        editor
+            .commit_composition(Revision(0), None, &mut |_| Ok(()))
+            .unwrap()
+            .unwrap();
+        assert_eq!(editor.display_text(), text);
+        assert!(
+            editor
+                .project(Revision(1), range(0, text.len()))
+                .unwrap()
+                .links
+                .is_empty(),
+            "multiple ending={separator:?}; source={:?}",
+            editor.source_text()
+        );
+        let saved = editor.source_text();
+        let fresh = EditorSession::open(&saved);
+        assert_eq!(fresh.display_text(), text);
+        assert!(fresh
+            .project(Revision(0), range(0, text.len()))
+            .unwrap()
+            .links
+            .is_empty());
+        editor.undo(Revision(1), &mut |_| Ok(())).unwrap().unwrap();
+        assert_eq!(editor.source_text(), "");
+        editor.redo(Revision(2), &mut |_| Ok(())).unwrap().unwrap();
+        assert_eq!(editor.source_text(), saved);
+    }
+}
