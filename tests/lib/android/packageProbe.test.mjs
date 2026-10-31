@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AndroidDevice } from '../android-device.mjs';
 import { createAdbClient } from './adbClient.mjs';
 
@@ -44,13 +44,17 @@ describe('bounded Android package presence probes', () => {
   let record;
   let finished;
   beforeEach(() => {
+    vi.stubEnv('ANDROID_AVD_NAME', 'ci');
     scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'android-package-probe-'));
     fake = path.join(scratch, 'fake-adb.cjs');
     record = path.join(scratch, 'calls.jsonl');
     finished = path.join(scratch, 'pm-finished');
     fs.writeFileSync(fake, FAKE_ADB);
   });
-  afterEach(() => fs.rmSync(scratch, { recursive: true, force: true }));
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    fs.rmSync(scratch, { recursive: true, force: true });
+  });
 
   function client(kind, mode = 'stall', state = 'device') {
     const execFile = (_command, args, options) =>

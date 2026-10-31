@@ -1,6 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { isAndroidPackageInstalled, runPackageProbe } from './android-package-probe.mjs';
 
 // The fake CI emulator answers identity; package probes retain their original assertions.
@@ -10,6 +10,9 @@ const probeAdb = (execute) =>
   );
 
 describe('Package Manager probe boundary', () => {
+  beforeEach(() => vi.stubEnv('ANDROID_AVD_NAME', 'ci'));
+  afterEach(() => vi.unstubAllEnvs());
+
   it('matches the exact package rather than a filtered prefix', () => {
     const execFile = probeAdb(() => 'package:com.futo.notes.dev.extra\r\n');
     expect(
