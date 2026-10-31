@@ -38,8 +38,12 @@ The shared-head path has measured source/caret/history and parser/copy/metadata
 controls, with an independent pre-cursor constructor field differential. These
 finite controls and synthetic consumers do not prove real keyboard/IME input,
 renderer parity, complete allocation bounds, physical latency or durability.
-Links (#301) remain unmerged WIP. Tables, note-id-dependent composition arbitration
-and renderer integration retain their own owners and dependent tickets.
+Links (#301) are integrated from reviewed source `4f5fdeb89` and fixture-only
+repair `ff442e23d` after current source gates, regenerated native consumers and a
+fresh 51-scenario desktop/Android aggregate. Native execution remains attributed
+to `4f5fdeb89` through unchanged runtime inputs; merged-head checks and CI complete
+integration acceptance. Tables, note-id-dependent composition arbitration and
+renderer integration retain their own owners and dependent tickets.
 
 Paragraph projections use a length-indexed tree and display Rope, so an ordinary
 edit after a distant jump reparses only its paragraph window without rewriting
