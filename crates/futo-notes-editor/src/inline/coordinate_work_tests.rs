@@ -44,6 +44,47 @@ pub(super) fn query(name: &'static str, before: usize, reported: usize) {
     QUERIES.with(|rows| rows.borrow_mut().push((name, visits() - before, reported)));
 }
 
+pub(super) fn hidden_definition_query(before: u64, reported: usize) {
+    let actual = super::CONTAINER_CORRESPONDENCE_SCANS.with(|n| n.get() - before) as usize;
+    QUERIES.with(|rows| {
+        rows.borrow_mut()
+            .push(("hidden-definition", actual, reported))
+    });
+}
+
+#[test]
+fn public_reference_label_edit_charges_hidden_definition_segment_queries() {
+    use crate::{DisplayOffset, DisplayRange, EditorSession, Revision};
+    let mut session = EditorSession::open("[id]: /target 'T'\n[teh][id] tail");
+    assert_eq!(session.display_text(), "teh tail");
+    reset();
+    let change = session
+        .replace(
+            Revision(0),
+            DisplayRange {
+                start: DisplayOffset(0),
+                end: DisplayOffset(3),
+            },
+            "the",
+            &mut |_| Ok(()),
+        )
+        .unwrap();
+    assert_eq!(session.source_text(), "[id]: /target 'T'\n[the][id] tail");
+    assert_eq!(session.display_text(), "the tail");
+    let queries: Vec<_> = snapshot()
+        .into_iter()
+        .filter(|(name, _, _)| *name == "hidden-definition")
+        .collect();
+    assert!(!queries.is_empty());
+    assert!(
+        queries
+            .iter()
+            .all(|(_, actual, reported)| reported >= actual),
+        "work={:?}; primitive={queries:?}",
+        change.work
+    );
+}
+
 pub(super) fn reset() {
     BARE_QUERIES.with(|rows| rows.borrow_mut().clear());
     CAPTURE_BOUNDS.with(|rows| rows.borrow_mut().clear());

@@ -138,9 +138,16 @@ impl Projection {
                 .definitions
                 .iter()
                 .filter(|definition| {
-                    definition.winner
-                        && row.display_at(definition.range.start)
-                            == row.display_at(definition.range.end)
+                    if !definition.winner {
+                        return false;
+                    }
+                    #[cfg(test)]
+                    let before = super::super::CONTAINER_CORRESPONDENCE_SCANS.with(|n| n.get());
+                    let hidden = row.display_at(definition.range.start)
+                        == row.display_at(definition.range.end);
+                    #[cfg(test)]
+                    super::super::coordinate_work_tests::hidden_definition_query(before, 0);
+                    hidden
                 })
                 .map(|definition| {
                     (
