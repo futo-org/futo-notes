@@ -52,10 +52,7 @@ impl TypedState {
                     || range.start == range.end && a < range.start.0 && range.start.0 <= z;
                 if touched {
                     let at_end = range.start == range.end && range.start.0 == z;
-                    if !(at_end
-                        && (action == crate::InputAction::Typing
-                            || single_separator(inserted, &mut work)))
-                    {
+                    if !(at_end && (action == crate::InputAction::Typing || inserted == " ")) {
                         // Non-Typing word-end punctuation/whitespace needs its
                         // own established timing intent, not shape activation.
                         let supported = !at_end

@@ -153,7 +153,7 @@ impl TypedState {
             input.intent,
         )?;
         let typing = matches!(input.intent, EditIntent::Input(InputAction::Typing));
-        if !typing && !single_separator(input.inserted, &mut work.items) {
+        if !typing && input.inserted != " " {
             return Ok(work);
         }
         if input.inserted.is_empty() {
@@ -240,6 +240,10 @@ impl TypedState {
             {
                 return Err(EditorError::UnrepresentableFormat);
             }
+            if single_whitespace(input.inserted, &mut work.items) {
+                ending::finish(pieces, markers, body, &origin, &mut work)?;
+                return Ok(work);
+            }
             if let Some(end) = separator::body_end(pieces, &input.insertion, &mut work.items) {
                 let completed = body.start..end;
                 if separator::word(pieces, completed.clone(), &mut work.items) {
@@ -296,12 +300,12 @@ impl TypedState {
         } else {
             return Ok(work);
         };
+        if !inserted_run(inserted, input.inserted, &mut work.items) {
+            return Ok(work);
+        }
         let ending = separator::body_end(pieces, &input.insertion, &mut work.items);
         body.end = ending.unwrap_or(input.insertion.end);
-        if body.is_empty()
-            || !inserted_run(inserted, input.inserted, &mut work.items)
-            || !safe(&pieces[opener..body.end], markers, &mut work.items)
-        {
+        if body.is_empty() || !safe(&pieces[opener..body.end], markers, &mut work.items) {
             return Ok(work);
         }
         let prefix: [&str; 4] = std::array::from_fn(|index| {
