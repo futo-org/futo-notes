@@ -38,3 +38,6 @@ mod ordered_tasks;
 
 #[path = "lists/same_line_quotes.rs"]
 mod same_line_quotes;
+
+#[path = "lists/shared_prefix_frames.rs"]
+mod shared_prefix_frames;
