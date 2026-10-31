@@ -288,3 +288,68 @@ fn outdent_retains_frame_around_opaque_inline_code() {
         1,
     );
 }
+
+frame!(
+    outdent_keeps_outer_of_two_shared_quotes,
+    "- > > b",
+    "- \n  > b",
+    "\nb",
+    Outdent,
+    1
+);
+frame!(
+    backspace_merges_all_shared_quotes_to_nearest_list,
+    "- > > b",
+    "- b",
+    "b",
+    Backspace,
+    0
+);
+frame!(
+    outdent_keeps_quoted_nested_parent_frames,
+    "> - - > b",
+    "> - \n>   - \n>     b",
+    "\n\nb",
+    Outdent,
+    2
+);
+frame!(
+    backspace_keeps_quoted_outer_parent_frame,
+    "> - - > b",
+    "> - \n>   - b",
+    "\nb",
+    Backspace,
+    1
+);
+frame!(
+    outdent_keeps_parent_frames_across_quote,
+    "- > - > b",
+    "- \n  > - \n  >   b",
+    "\n\nb",
+    Outdent,
+    2
+);
+frame!(
+    backspace_keeps_parent_frame_and_intervening_quote,
+    "- > - > b",
+    "- \n  > - b",
+    "\nb",
+    Backspace,
+    1
+);
+frame!(
+    outdent_keeps_three_shared_empty_parent_frames,
+    "- - - > b",
+    "- \n  - \n    - \n      b",
+    "\n\n\nb",
+    Outdent,
+    3
+);
+frame!(
+    backspace_keeps_two_shared_empty_parent_frames,
+    "- - - > b",
+    "- \n  - \n    - b",
+    "\n\nb",
+    Backspace,
+    2
+);
