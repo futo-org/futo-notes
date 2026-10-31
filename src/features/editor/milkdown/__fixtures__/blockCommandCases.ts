@@ -434,4 +434,66 @@ export const cases = [
     command: 'outdent',
     anchor: 'b',
   },
+  {
+    name: 'Outdent explicit multiline quote inside list',
+    source: '- > b\n  > c',
+    command: 'outdent',
+    anchor: 'b\nc',
+  },
+  {
+    name: 'Outdent lazy multiline quote inside list',
+    source: '- > b\n  c',
+    command: 'outdent',
+    anchor: 'b\nc',
+  },
+  {
+    name: 'Outdent multiline inner quote retains outer quote',
+    source: '> - > b\n>   > c',
+    command: 'outdent',
+    anchor: 'b\nc',
+  },
+  {
+    name: 'Outdent multiline quote after wide tabbed marker',
+    source: '1000.\t> b\n        > c',
+    command: 'outdent',
+    anchor: 'b\nc',
+  },
+  {
+    name: 'Text at first line of multiline quote inside list',
+    source: '- > b\n  > c',
+    command: 'paragraph',
+    anchor: 'b\nc',
+  },
+  {
+    name: 'Text at first line of shared nested list multiline quote',
+    source: '- - > b\n    > c',
+    command: 'paragraph',
+    anchor: 'b\nc',
+  },
+  {
+    name: 'Text at first line of multiline inner list across quote',
+    source: '- > - b\n  >   c',
+    command: 'paragraph',
+    anchor: 'b\nc',
+  },
+  {
+    name: 'Text promotes unmatched list fence before outside item',
+    source: '- parent\n  ```\n  opaque\n- outside',
+    command: 'paragraph',
+    anchor: 'parent',
+  },
+  {
+    name: 'Ordered retarget clears wide tabbed task preserving continuation and fence',
+    source:
+      '1000.\t[x] parent\n\n        continuation\n\n        ```js\n        opaque\n        ```\n\n        - child\n1001.\toutside',
+    command: 'ordered-list',
+    anchor: 'parent',
+  },
+  {
+    name: 'Bullet retarget moves wide tabbed task continuation and fence',
+    source:
+      '1000.\t[x] parent\n\n        continuation\n\n        ```js\n        opaque\n        ```\n\n        - child\n1001.\toutside',
+    command: 'bullet-list',
+    anchor: 'parent',
+  },
 ] as const;

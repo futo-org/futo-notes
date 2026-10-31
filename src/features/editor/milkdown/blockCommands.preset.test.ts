@@ -67,12 +67,14 @@ afterAll(async () => {
 
 function position(text: string, offset = 0): number {
   let found = -1;
+  const observed: string[] = [];
   view.state.doc.descendants((node, pos) => {
+    if (node.isTextblock) observed.push(node.textContent);
     if (found < 0 && node.isTextblock && node.textContent === text) found = pos + 1 + offset;
   });
   if (found < 0)
     throw new Error(
-      `Missing textblock ${JSON.stringify(text)}: ${JSON.stringify(view.state.doc.toJSON())}`,
+      `Missing textblock ${JSON.stringify(text)} among ${JSON.stringify(observed)}: ${JSON.stringify(view.state.doc.toJSON())}`,
     );
   return found;
 }
@@ -146,6 +148,17 @@ const keyCases = [
   { name: 'Backspace at outer quote and two list parents', source: '> - - > b', anchor: 'b' },
   { name: 'Backspace at two lists crossing quotes', source: '- > - > b', anchor: 'b' },
   { name: 'Backspace at three same line list parents', source: '- - - > b', anchor: 'b' },
+  {
+    name: 'Backspace at explicit multiline quote inside list',
+    source: '- > b\n  > c',
+    anchor: 'b\nc',
+  },
+  { name: 'Backspace at lazy multiline quote inside list', source: '- > b\n  c', anchor: 'b\nc' },
+  {
+    name: 'Backspace at multiline inner quote with retained outer quote',
+    source: '> - > b\n>   > c',
+    anchor: 'b\nc',
+  },
 ] as const;
 
 describe('pinned shipping configured container keymaps (#299)', () => {

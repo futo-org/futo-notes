@@ -1,0 +1,67 @@
+{
+  "after": {
+    "documentJson": "{"type":"doc","content":[{"type":"ordered_list","attrs":{"order":1000,"spread":false},"content":[{"type":"list_item","attrs":{"label":"1000.","listType":"ordered","spread":false,"checked":null},"content":[{"type":"paragraph"},{"type":"paragraph","content":[{"type":"text","text":"b"},{"type":"hardbreak","attrs":{"isInline":true}},{"type":"text","text":"c"}]}]}]}]}",
+    "selection": {
+      "anchor": {
+        "ancestry": [
+          "ordered_list",
+          "list_item",
+          "paragraph",
+        ],
+        "pm": 5,
+        "textblockUtf16": 0,
+      },
+      "head": {
+        "ancestry": [
+          "ordered_list",
+          "list_item",
+          "paragraph",
+        ],
+        "pm": 5,
+        "textblockUtf16": 0,
+      },
+    },
+    "source": "1000. b
+      c
+",
+    "storedMarks": null,
+    "textblockRows": "
+b
+c",
+  },
+  "before": {
+    "documentJson": "{"type":"doc","content":[{"type":"ordered_list","attrs":{"order":1000,"spread":false},"content":[{"type":"list_item","attrs":{"label":"1000.","listType":"ordered","spread":false,"checked":null},"content":[{"type":"paragraph"},{"type":"blockquote","content":[{"type":"paragraph","content":[{"type":"text","text":"b"},{"type":"hardbreak","attrs":{"isInline":true}},{"type":"text","text":"c"}]}]}]}]}]}",
+    "selection": {
+      "anchor": {
+        "ancestry": [
+          "ordered_list",
+          "list_item",
+          "blockquote",
+          "paragraph",
+        ],
+        "pm": 6,
+        "textblockUtf16": 0,
+      },
+      "head": {
+        "ancestry": [
+          "ordered_list",
+          "list_item",
+          "blockquote",
+          "paragraph",
+        ],
+        "pm": 6,
+        "textblockUtf16": 0,
+      },
+    },
+    "source": "1000. > b
+      > c
+",
+    "storedMarks": null,
+    "textblockRows": "
+b
+c",
+  },
+  "command": "outdent",
+  "input": "1000.	> b
+        > c",
+}
