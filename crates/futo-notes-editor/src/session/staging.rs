@@ -47,11 +47,22 @@ pub(super) enum PhysicalTail {
     Unknown,
 }
 
-#[derive(Default)]
 pub(super) struct StageContext {
     before: Boundary,
     after: Boundary,
     physical_tail: PhysicalTail,
+    original_canonical: bool,
+}
+
+impl Default for StageContext {
+    fn default() -> Self {
+        Self {
+            before: Boundary::default(),
+            after: Boundary::default(),
+            physical_tail: PhysicalTail::Eof,
+            original_canonical: true,
+        }
+    }
 }
 
 impl EditorSession {
@@ -125,7 +136,7 @@ impl EditorSession {
             PhysicalTail::Unknown
         } else if window.end == self.source.len_bytes() {
             self.physical_tail()
-        } else if window.end < self.source.len_bytes() {
+        } else if window.end < self.source.len_bytes() && self.context.original_canonical {
             // source_prefix_at succeeds only at an actual physical row start.
             // No visible-neighbor query or global source coordinate is evidence
             // for this untouched outside row's identity.
@@ -144,6 +155,7 @@ impl EditorSession {
             before: self.stage_boundary(window.start, false),
             after: self.stage_boundary(window.end, true),
             physical_tail,
+            original_canonical: false,
         };
         staged
     }
