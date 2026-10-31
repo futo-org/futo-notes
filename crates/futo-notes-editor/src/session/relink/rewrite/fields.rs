@@ -46,6 +46,7 @@ pub(super) fn coverage(bodies: Vec<RetainedBody>, replaced: &[Replacement]) -> (
 pub(in crate::session::relink) struct Fields {
     pub pending: PendingLinks,
     pub witnesses: Vec<PendingLinkWitness>,
+    pub original_witnesses: Vec<PendingLinkWitness>,
     pub changed_guards: Vec<bool>,
     pub programs: Vec<Vec<(usize, usize)>>,
     pub codes: Vec<Vec<crate::inline::guarded_words::CodeWitness>>,
@@ -90,6 +91,7 @@ impl Rewrite {
             changed_links: vec![false; witnesses.len()],
             changed_origins: vec![false; pending.typed_inputs.len()],
             origin_programs: vec![Vec::new(); pending.typed_inputs.len()],
+            original_witnesses: witnesses.clone(),
             witnesses,
         };
         result.pending.work = 2 * (1 + pending.ranges.len() + pending.delimiters.len())
@@ -99,7 +101,8 @@ impl Rewrite {
             + result.changed_guards.len()
             + result.changed_links.len()
             + 2
-            + 2 * result.changed_origins.len();
+            + 2 * result.changed_origins.len()
+            + 7 * result.original_witnesses.len();
         for (generation, step) in self.steps.iter().enumerate() {
             let (a, x) = step.position(result.pending.window.start, Affinity::Backward)?;
             let (z, y) = step.position(result.pending.window.end, Affinity::Forward)?;
@@ -159,7 +162,14 @@ impl Rewrite {
             }
             for (witness, changed) in result.witnesses.iter_mut().zip(&mut result.changed_links) {
                 witness.open = copied(step, witness.open.clone(), &mut result.pending.work)?;
-                witness.close = copied(step, witness.close.clone(), &mut result.pending.work)?;
+                witness.close = if witness.close.is_empty() {
+                    copied(step, witness.close.clone(), &mut result.pending.work)?
+                } else {
+                    let (close, emitted, visits) = step.field(witness.close.clone())?;
+                    *changed |= emitted > 0;
+                    result.pending.work += visits;
+                    close
+                };
                 let (body, emitted, work) = step.field(witness.body.clone())?;
                 result.pending.work += work + 2;
                 if witness.open.end != body.start || body.end != witness.close.start {
@@ -172,7 +182,11 @@ impl Rewrite {
         Ok(result)
     }
 }
-fn copied(step: &Step, field: Range<usize>, work: &mut usize) -> Result<Range<usize>, EditorError> {
+fn copied(
+    step: &WikiStep,
+    field: Range<usize>,
+    work: &mut usize,
+) -> Result<Range<usize>, EditorError> {
     // Bare canonical spans have empty open/close at their actual body edges.
     if field.is_empty() {
         let (at, visits) = step.position(field.start, Affinity::Backward)?;
@@ -183,8 +197,11 @@ fn copied(step: &Step, field: Range<usize>, work: &mut usize) -> Result<Range<us
     *work += visits;
     mapped.ok_or(EditorError::UnrepresentableFormat)
 }
-impl Step {
-    fn field(&self, field: Range<usize>) -> Result<(Range<usize>, usize, usize), EditorError> {
+impl WikiStep {
+    pub(super) fn field(
+        &self,
+        field: Range<usize>,
+    ) -> Result<(Range<usize>, usize, usize), EditorError> {
         let mut work = 1;
         let first = self.coverage.partition_point(|part| {
             work += 1;

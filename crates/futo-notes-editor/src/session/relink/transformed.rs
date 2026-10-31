@@ -295,14 +295,14 @@ impl rewrite::Fields {
         // vectors coherent, while concrete scoped pending output remains even
         // when the last word is removed.
         for index in retired_guards.into_iter().rev() {
-            work.link_metadata_items += 9 * (self.pending.guarded_words.len() - index);
+            work.link_metadata_items += 10 * (self.pending.guarded_words.len() - index);
             self.pending.guarded_words.remove(index);
             self.changed_guards.remove(index);
             self.programs.remove(index);
             self.whole_code_guards.remove(index);
         }
         for index in retired_requests.into_iter().rev() {
-            work.link_metadata_items += self.codes.len() - index;
+            work.link_metadata_items += 3 * (self.codes.len() - index);
             self.codes.remove(index);
         }
         Ok(work)

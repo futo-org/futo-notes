@@ -4,6 +4,7 @@ use crate::inline::row::LinkMeaning;
 use crate::EditorError;
 use std::sync::Arc;
 
+#[derive(Clone)]
 pub(crate) struct PendingLinkWitness {
     pub body: Range<usize>,
     pub open: Range<usize>,

@@ -4,13 +4,15 @@ use crate::history::{SourcePoint, SourceSelection};
 use crate::inline::{references::RetainedBody, PendingLinks, SourceCorrespondence};
 use futo_notes_wikilinks::RewriteRange;
 mod fields;
+mod spelling;
 pub(super) use fields::Fields;
+use spelling::SpellingStep;
 
 struct Replacement {
     range: RewriteRange,
     caret: super::positions::TargetCaret,
 }
-struct Step {
+struct WikiStep {
     input_len: usize,
     output_len: usize,
     copied: SourceCorrespondence,
@@ -19,8 +21,9 @@ struct Step {
 }
 pub(super) struct Rewrite {
     pub source: String,
-    steps: Vec<Step>,
+    steps: Vec<WikiStep>,
     pub work: EditWork,
+    spelling: Option<SpellingStep>,
 }
 impl Rewrite {
     pub fn prepare(source: &str, relink: &OwnActionRelink) -> Result<Self, EditorError> {
@@ -83,7 +86,7 @@ impl Rewrite {
             if from != to {
                 let (coverage, visits) = fields::coverage(bodies, &replaced);
                 work.link_metadata_items += visits;
-                steps.push(Step {
+                steps.push(WikiStep {
                     input_len: observed.input_len,
                     output_len: observed.source.len(),
                     copied,
@@ -108,6 +111,7 @@ impl Rewrite {
             source,
             steps,
             work,
+            spelling: None,
         })
     }
 
@@ -127,10 +131,17 @@ impl Rewrite {
             range.start = start;
             range.end = end;
         }
+        if let Some(step) = &self.spelling {
+            let (start, a) = step.point(range.start)?;
+            let (end, z) = step.point(range.end)?;
+            work += a + z;
+            range.start = start;
+            range.end = end;
+        }
         Ok((SourceSelection::Exact(range), work))
     }
 }
-impl Step {
+impl WikiStep {
     fn point(
         &self,
         mut point: SourcePoint,

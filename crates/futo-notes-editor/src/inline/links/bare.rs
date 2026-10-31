@@ -78,3 +78,20 @@ pub(in crate::inline) fn bare_links(source: &str) -> (Vec<Span>, usize, usize) {
     }
     (spans, source.len(), hint_items)
 }
+
+/// Read only canonical complete-word extent; no origin or phase authority.
+pub(crate) fn complete_bare_uri(source: &str) -> (bool, crate::EditWork) {
+    let (links, parsed, hints) = bare_links(source);
+    let mut work = crate::EditWork::default();
+    work.parsed_source_bytes = parsed;
+    work.link_metadata_items = hints + links.len() + 1;
+    for span in &links {
+        if let SpanKind::Link(meaning) = &span.kind {
+            work.link_copied_bytes +=
+                meaning.destination.len() + meaning.title.as_ref().map_or(0, String::len);
+        }
+    }
+    let complete =
+        links.len() == 1 && links[0].open.start == 0 && links[0].close.end == source.len();
+    (complete, work)
+}

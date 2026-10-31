@@ -43,17 +43,13 @@ impl Boundary {
     pub fn prepare(
         replay: &mut replay::Replay,
         original: &str,
-        rewrite: rewrite::Rewrite,
+        mut rewrite: rewrite::Rewrite,
         sides: &[Side<'_>],
         identities: &mut transformed::Identities,
     ) -> Result<Self, EditorError> {
         let mut work = rewrite.work;
         let (range, inserted) = difference(original, &rewrite.source, &mut work);
         work.materialized_source_bytes += inserted.len();
-        let edit = replay
-            .session
-            .prepare_source(replay.session.revision(), range, &inserted)?;
-        work.materialized_source_bytes += edit.removed.len() + edit.inserted.len();
         let (mut start, mut end) = (range.start.0, range.end.0);
         let mut exact = Vec::with_capacity(sides.len());
         let mut mapped_sources = Vec::with_capacity(sides.len());
@@ -134,6 +130,35 @@ impl Boundary {
         work.link_metadata_items += aggregate.pending.work;
         aggregate.pending.work = 0;
         fields.push(aggregate);
+        let points: Vec<_> = exact
+            .iter()
+            .flat_map(|selection| [selection.start, selection.end])
+            .collect();
+        charge(
+            &mut work,
+            rewrite.spell_pending_literals(&replay.session, &mut fields, &points)?,
+        );
+        for (index, selected) in exact.iter_mut().enumerate() {
+            let (start, a) = rewrite.spelling_point(selected.start)?;
+            let (end, z) = rewrite.spelling_point(selected.end)?;
+            selected.start = start;
+            selected.end = end;
+            work.link_metadata_items += a + z;
+            if matches!(mapped_sources[index], SourceSelection::Exact(_)) {
+                mapped_sources[index] = SourceSelection::Exact(*selected);
+            }
+        }
+        let (range, inserted) = if rewrite.has_spelling() {
+            let pair = difference(original, &rewrite.source, &mut work);
+            work.materialized_source_bytes += pair.1.len();
+            pair
+        } else {
+            (range, inserted)
+        };
+        let edit = replay
+            .session
+            .prepare_source(replay.session.revision(), range, &inserted)?;
+        work.materialized_source_bytes += edit.removed.len() + edit.inserted.len();
         let mut projected = Vec::with_capacity(exact.len());
         work.link_metadata_items += usize::from(!exact.is_empty());
         let (_, initial) =
@@ -142,6 +167,8 @@ impl Boundary {
                 .with_exact_candidate(&edit, before.window.clone(), |staged| {
                     // Resolve EVERY payload against this candidate before restoring any
                     // transient suppression. The canonical spans/Code coverage own proof.
+                    work.link_metadata_items +=
+                        rewrite.validate_spelling(staged, before.window.start)?;
                     for prepared in &mut fields {
                         charge(
                             &mut work,

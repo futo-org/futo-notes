@@ -9,6 +9,7 @@ mod empty_comments;
 pub(crate) mod fences;
 pub(crate) mod guarded_words;
 mod links;
+pub(crate) use links::complete_bare_uri;
 mod lists;
 mod pending_links;
 pub(crate) mod references;
@@ -22,6 +23,7 @@ mod retained_points;
 mod row;
 mod source_points;
 mod spelling;
+pub(crate) use spelling::relink::{RetainedFormat, RetiredLinkText};
 mod toggle;
 mod tree;
 
