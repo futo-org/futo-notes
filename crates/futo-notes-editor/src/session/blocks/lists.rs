@@ -2,14 +2,18 @@
 use super::*;
 
 impl EditorSession {
-    pub(super) fn list_neighbor_separator(&self, end: usize, depth: usize) -> Option<String> {
+    pub(super) fn list_neighbor_separator(
+        &self,
+        end: usize,
+        depth: usize,
+    ) -> Option<(String, usize)> {
         if end >= self.source.len_bytes() {
             return None;
         }
         let point = DisplayOffset(self.projection.display_at(end));
         let next = self
             .projection
-            .block_lines(DisplayRange {
+            .list_command_lines(DisplayRange {
                 start: point,
                 end: point,
             })
@@ -24,11 +28,31 @@ impl EditorSession {
         {
             return None;
         }
+        let next_line = self.source.byte_to_line(next.source.start);
+        if next_line > 0 {
+            let previous = self.source.line_to_byte(next_line - 1);
+            if self
+                .projection
+                .source_prefix_at(previous)
+                .is_some_and(|prefix| {
+                    !prefix.code
+                        && prefix.quote_depth == next.quote_depth
+                        && self.source.byte_slice(prefix.content).chars().all(|ch| {
+                            crate::inline::visit_container();
+                            ch.is_whitespace()
+                        })
+                })
+            {
+                return None;
+            }
+        }
         let prefix = self
             .source
             .byte_slice(next.source.start..next.content.start)
             .to_string();
-        Some(format!("{}\n", prefix.trim_end_matches([' ', '\t'])))
+        let separator = format!("{}\n", prefix.trim_end_matches([' ', '\t']));
+        let materialized = prefix.len() + separator.len();
+        Some((separator, materialized))
     }
 
     pub(super) fn toggle_task(

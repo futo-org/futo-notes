@@ -402,9 +402,10 @@ impl EditorSession {
             }
         }
         if !remove {
-            if let Some(separator) =
+            if let Some((separator, work)) =
                 self.list_neighbor_separator(end, styles.as_ref().unwrap().quotes[lines.len() - 1])
             {
+                materialized += work;
                 replacements.push((end - start..end - start, separator));
                 separators.push(self.projection.display_at(end));
             }
