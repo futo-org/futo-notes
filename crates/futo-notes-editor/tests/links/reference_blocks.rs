@@ -362,3 +362,43 @@ fn heading_split_transports_quote_layout_and_whole_nonidentity_atoms_without_len
         }
     }
 }
+
+#[test]
+fn multiline_quote_heading_split_reconciles_a_definition_after_a_retained_physical_prefix() {
+    use futo_notes_editor::ParagraphKey;
+    let original = "> head\n> prefix\n> [id]: /target 'T'\n> ===\n\n[one][id]";
+    let entered = "> head\n> prefix\n> ===\n> \n> \\[id]: /target 'T'\n\n[one][id]";
+    let opening = "head\nprefix\n[id]: /target 'T'\n\n[one][id]";
+    let shown = "head\nprefix\n\n[id]: /target 'T'\n\n[one][id]";
+    assert_eq!(EditorSession::open(entered).display_text(), shown);
+    let mut session = EditorSession::open(original);
+    let mut view = ReferenceView::new(opening);
+    assert_eq!(session.display_text(), opening);
+    session.select(Revision(0), range(11, 11)).unwrap();
+    let mut accepted = 0;
+    view.apply(
+        session
+            .paragraph_key(Revision(0), range(11, 11), ParagraphKey::Enter, &mut |_| {
+                accepted += 1;
+                Ok(())
+            })
+            .unwrap()
+            .unwrap(),
+    );
+    assert_eq!(accepted, 1);
+    assert_eq!(session.source_text(), entered);
+    assert_eq!(view.text, shown);
+    assert_eq!(session.selection(), range(12, 12));
+    assert!(session
+        .project(Revision(1), range(0, shown.len()))
+        .unwrap()
+        .links
+        .is_empty());
+    view.apply(session.undo(Revision(1), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(session.source_text(), original);
+    assert_eq!(session.selection(), range(11, 11));
+    view.apply(session.redo(Revision(2), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(session.source_text(), entered);
+    assert_eq!(session.selection(), range(12, 12));
+    assert_eq!(view.text, shown);
+}
