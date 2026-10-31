@@ -61,8 +61,9 @@ pub struct EditWork {
     pub inserted_bytes: usize,
     /// Bytes supplied to the markdown parser, including verification parses.
     pub parsed_source_bytes: usize,
-    /// Conservative charged visits/copies of pending-link metadata slots in
-    /// the affected rows. Excludes parser/AST work, counted above in bytes.
+    /// Charged metadata visits and fixed-size copies during link/reference
+    /// interpretation, source correspondence and pending-field planning.
+    /// Parser input is counted separately above; this is not total CPU work.
     pub link_metadata_items: usize,
     /// Bytes copied into retained link/reference meaning and returned targets;
     /// parser temporary allocations are represented by parser input above.
