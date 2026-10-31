@@ -243,3 +243,51 @@ fn assert_text_source(
         assert_eq!(s.selection(), range(after, after));
     }
 }
+
+#[test]
+fn header_selection_preview_calls_the_host_and_history_clock_only_for_the_real_action() {
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    };
+    struct Clock(AtomicUsize);
+    impl HistoryClock for Clock {
+        fn now(&self) -> std::time::Duration {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            std::time::Duration::ZERO
+        }
+    }
+    let clock = Arc::new(Clock(AtomicUsize::new(0)));
+    let raw = "- > &acE;";
+    let mut s = EditorSession::open_with_clock(raw, clock.clone());
+    let selected = range(3, 3);
+    s.select_with_affinity(Revision(0), selected, Affinity::Backward)
+        .unwrap();
+    let mut rejected = 0;
+    assert!(matches!(
+        s.block_command(Revision(0), selected, BlockCommand::Heading(0), &mut |_| {
+            rejected += 1;
+            Err("append rejected".into())
+        }),
+        Err(EditorError::Persistence(_))
+    ));
+    assert_eq!(rejected, 1);
+    assert_eq!(clock.0.load(Ordering::SeqCst), 0);
+    assert_eq!(s.source_text(), raw);
+    assert_eq!(s.revision(), Revision(0));
+    assert_eq!(s.selection(), selected);
+    let mut accepted = 0;
+    s.block_command(Revision(0), selected, BlockCommand::Heading(0), &mut |_| {
+        accepted += 1;
+        Ok(())
+    })
+    .unwrap()
+    .unwrap();
+    assert_eq!(accepted, 1);
+    assert_eq!(clock.0.load(Ordering::SeqCst), 1);
+    assert_eq!(s.revision(), Revision(1));
+    assert_eq!(s.selection(), range(4, 4));
+    s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap();
+    assert_eq!(s.source_text(), raw);
+    assert_eq!(s.selection(), selected);
+}
