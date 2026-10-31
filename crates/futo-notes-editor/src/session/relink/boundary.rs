@@ -95,11 +95,11 @@ impl Boundary {
                 .pending_link_witnesses(&side.pending.ranges)?;
             work.link_metadata_items += visits;
             let mut prepared = rewrite.fields(side.pending, witnesses)?;
-            charge(
+            accumulate_planning_work(
                 &mut work,
                 prepared.validate_original(&replay.session, side.pending)?,
             );
-            charge(&mut work, rewrite.retirement_atoms(&mut prepared)?);
+            accumulate_planning_work(&mut work, rewrite.retirement_atoms(&mut prepared)?);
             work.link_metadata_items += rewrite.code_witnesses(&mut prepared.codes)?;
             work.link_metadata_items += prepared.pending.work;
             prepared.pending.work = 0;
@@ -123,11 +123,11 @@ impl Boundary {
             .pending_link_witnesses(&before.ranges)?;
         work.link_metadata_items += visits;
         let mut aggregate = rewrite.fields(&before, witnesses)?;
-        charge(
+        accumulate_planning_work(
             &mut work,
             aggregate.validate_original(&replay.session, &before)?,
         );
-        charge(&mut work, rewrite.retirement_atoms(&mut aggregate)?);
+        accumulate_planning_work(&mut work, rewrite.retirement_atoms(&mut aggregate)?);
         work.link_metadata_items += rewrite.code_witnesses(&mut aggregate.codes)?;
         work.link_metadata_items += aggregate.pending.work;
         aggregate.pending.work = 0;
@@ -136,7 +136,7 @@ impl Boundary {
             .iter()
             .flat_map(|selection| [selection.start, selection.end])
             .collect();
-        charge(
+        accumulate_planning_work(
             &mut work,
             rewrite.spell_pending_literals(&replay.session, &mut fields, &points)?,
         );
@@ -173,7 +173,7 @@ impl Boundary {
                     work.link_metadata_items +=
                         rewrite.validate_spelling(staged, before.window.start)?;
                     for prepared in &mut fields {
-                        charge(
+                        accumulate_planning_work(
                             &mut work,
                             prepared.prepare_candidate(
                                 staged,
@@ -201,11 +201,11 @@ impl Boundary {
                                 emit: &mut |range| projected.push(range),
                             },
                         )?;
-                        charge(&mut work, checked.work);
+                        accumulate_planning_work(&mut work, checked.work);
                     }
                     Ok(())
                 })?;
-        charge(&mut work, initial);
+        accumulate_planning_work(&mut work, initial);
         if projected.len() != mapped_sources.len() {
             return Err(EditorError::UnrepresentableFormat);
         }

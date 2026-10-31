@@ -179,7 +179,7 @@ impl EditorSession {
                             .validate_split_atoms(atoms, window.start)?;
                         Ok(preview)
                     })?;
-                super::relink::charge(&mut preview.work, initial);
+                super::accumulate_planning_work(&mut preview.work, initial);
                 (preview.work, None)
             } else if let BlockSelection::Exact { selection, window } = &selection {
                 if pending.as_ref().is_some_and(|pending| {

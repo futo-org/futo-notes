@@ -46,7 +46,7 @@ impl EditorSession {
         // persistence callback changes neither history nor the visible draft.
         accept(&edit).map_err(EditorError::Persistence)?;
         let mut change = self.apply(&edit);
-        charge(&mut change.work, work);
+        accumulate_planning_work(&mut change.work, work);
         self.adopt_stage_pending(&pending, &mut change);
         self.undo = undo;
         self.redo = redo;
@@ -92,12 +92,4 @@ fn difference(before: &str, after: &str, work: &mut EditWork) -> (SourceRange, S
         },
         after[prefix..after.len() - suffix].to_owned(),
     )
-}
-
-// Planning work never represents an extra accepted insertion.
-pub(super) fn charge(total: &mut EditWork, part: EditWork) {
-    total.materialized_source_bytes += part.materialized_source_bytes;
-    total.parsed_source_bytes += part.parsed_source_bytes;
-    total.link_metadata_items += part.link_metadata_items;
-    total.link_copied_bytes += part.link_copied_bytes;
 }

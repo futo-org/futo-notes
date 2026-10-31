@@ -185,7 +185,7 @@ impl EditorSession {
             self.validate_exact_candidate(staged, window, pending, require_all, required, targets)
         })?;
         let mut preview = preview;
-        super::relink::charge(&mut preview.work, initial);
+        super::accumulate_planning_work(&mut preview.work, initial);
         Ok(preview)
     }
 

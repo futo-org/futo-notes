@@ -25,6 +25,14 @@ use crate::{
     Revision, SelectionChange, SourceEdit, SourceOffset, SourceRange, ViewChange,
 };
 
+// Planning work never represents an extra accepted insertion.
+fn accumulate_planning_work(total: &mut EditWork, part: EditWork) {
+    total.materialized_source_bytes += part.materialized_source_bytes;
+    total.parsed_source_bytes += part.parsed_source_bytes;
+    total.link_metadata_items += part.link_metadata_items;
+    total.link_copied_bytes += part.link_copied_bytes;
+}
+
 /// Exact-source editor session. Hosts must not use this development surface as
 /// a replacement shipping renderer until renderer integration is complete.
 pub struct EditorSession {

@@ -67,7 +67,7 @@ impl EditorSession {
             &sides,
             &mut identities,
         )?);
-        charge(&mut work, live.work);
+        accumulate_planning_work(&mut work, live.work);
         work.link_metadata_items += 1;
         let mut current = live.clone();
         work.link_metadata_items += 1;
@@ -100,7 +100,7 @@ impl EditorSession {
                 &sides,
                 &mut identities,
             )?);
-            charge(&mut work, before.work);
+            accumulate_planning_work(&mut work, before.work);
             work.link_metadata_items += 1;
             undo.push(boundary::entry(
                 &before,
@@ -154,7 +154,7 @@ impl EditorSession {
                 &sides,
                 &mut identities,
             )?);
-            charge(&mut work, after.work);
+            accumulate_planning_work(&mut work, after.work);
             work.link_metadata_items += 1;
             redo.push(boundary::entry(
                 &current,
@@ -170,7 +170,7 @@ impl EditorSession {
         }
         redo.reverse();
         work.link_metadata_items += 2 * (redo.len() / 2);
-        charge(&mut work, replay.work);
+        accumulate_planning_work(&mut work, replay.work);
         let MappedSide { selection, .. } = live.side(0, &mut work)?;
         let edit = self.prepare_source(self.revision(), live.edit.range, &live.edit.inserted)?;
         work.materialized_source_bytes += edit.inserted.len();

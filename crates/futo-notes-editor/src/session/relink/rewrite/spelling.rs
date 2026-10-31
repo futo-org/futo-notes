@@ -188,7 +188,7 @@ impl Rewrite {
                 .get(after.body.clone())
                 .ok_or(EditorError::UnrepresentableFormat)?;
             let (complete, read) = crate::inline::complete_bare_uri(label);
-            charge(&mut work, read);
+            accumulate_planning_work(&mut work, read);
             if complete {
                 continue;
             }
@@ -294,7 +294,7 @@ impl Rewrite {
                 label,
                 &semantic,
             )?;
-            charge(&mut work, spelling_work);
+            accumulate_planning_work(&mut work, spelling_work);
             let start = output.len();
             output.push_str(&text);
             for body in copied {

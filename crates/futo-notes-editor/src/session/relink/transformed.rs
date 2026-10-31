@@ -138,7 +138,7 @@ impl rewrite::Fields {
             .collect();
         work.link_metadata_items += 2 * ranges.len() + usize::from(!ranges.is_empty());
         let (uris, codes, parsed) = session.projection.relink_owned_uris(&ranges, 0, None)?;
-        charge(&mut work, parsed);
+        accumulate_planning_work(&mut work, parsed);
         let mut guard_atoms: Vec<Option<Vec<crate::inline::guarded_words::ValidationAtom>>> =
             std::iter::repeat_with(|| None)
                 .take(original.guarded_words.len())
@@ -158,7 +158,7 @@ impl rewrite::Fields {
                     &codes[request_index],
                     0,
                 )?;
-                charge(&mut work, captured);
+                accumulate_planning_work(&mut work, captured);
                 let mut offset = 0;
                 for atom in atoms.iter().flatten() {
                     work.link_metadata_items += 1;
@@ -202,7 +202,7 @@ impl rewrite::Fields {
             staged
                 .projection
                 .relink_owned_uris(&ranges, origin, Some(&self.codes))?;
-        charge(&mut work, parsed);
+        accumulate_planning_work(&mut work, parsed);
         let mut prepared = Vec::with_capacity(requests.len());
         work.link_metadata_items += usize::from(!requests.is_empty());
         let mut retired_guards = Vec::new();

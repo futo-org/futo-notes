@@ -322,8 +322,12 @@ impl Projection {
                 row
             })
             .collect();
+        #[cfg(test)]
+        let comparison_visits = coordinate_work_tests::visits();
         let (meaning_changed, comparison_work) =
             self.reference_meaning_changed(first, last, source_start, &parsed, edit);
+        #[cfg(test)]
+        coordinate_work_tests::query("reference-comparison", comparison_visits, comparison_work);
         reference_work.items += comparison_work;
         if meaning_changed {
             if self.references_complete || canonical_origin.is_some() {

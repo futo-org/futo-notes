@@ -84,7 +84,7 @@ impl rewrite::Fields {
                 session
                     .projection
                     .capture_relink_guard_atoms(input.word.clone(), &[], 0)?;
-            charge(work, captured);
+            accumulate_planning_work(work, captured);
             let Some(atoms) = atoms else {
                 self.plain_typed.push(None);
                 continue;

@@ -35,7 +35,7 @@ impl Replay {
             return Err(EditorError::RecoveryMismatch);
         }
         let change = self.session.apply(&edit);
-        charge(&mut self.work, change.work);
+        accumulate_planning_work(&mut self.work, change.work);
         // Temporary source records are not additional accepted user insertions.
         self.work.materialized_source_bytes += edit.inserted.len();
         self.restore(pending)
@@ -50,7 +50,7 @@ impl Replay {
             .session
             .projection
             .validate_word_origins(&self.session.source, pending)?;
-        charge(&mut self.work, checked);
+        accumulate_planning_work(&mut self.work, checked);
         self.work.link_metadata_items += self.session.projection.restore_pending(pending);
         let actual = self
             .session
