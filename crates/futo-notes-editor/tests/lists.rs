@@ -25,6 +25,8 @@ mod keys;
 mod lifting;
 #[path = "lists/mixed_commands.rs"]
 mod mixed_commands;
+#[path = "lists/mixed_lifting.rs"]
+mod mixed_lifting;
 #[path = "lists/projection.rs"]
 mod projection;
 
