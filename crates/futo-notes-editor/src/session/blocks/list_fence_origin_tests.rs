@@ -336,3 +336,62 @@ fn exact_quote_boundary_at_foreign_edge_keeps_existing_lf_gap() {
 fn exact_quote_boundary_at_foreign_edge_keeps_existing_crlf_gap() {
     exact_quote_owner_boundary_case("\r\n", true);
 }
+
+fn opaque_literal_root_item_must_not_gain_authority(outside: &str) {
+    let full = format!("- owner\n  > ~~~\n  > - parent\n  > ```\n  > opaque\n{outside}");
+    let original = EditorSession::open(&full);
+    let start = full.find("- parent").unwrap();
+    let end = full.len() - outside.len();
+    let prefix = &full[start..end];
+    let mut staged = original.stage_source(prefix, start..end);
+    assert_eq!(staged.display_text(), "parent\nopaque");
+    let selected = DisplayRange {
+        start: DisplayOffset(0),
+        end: DisplayOffset(0),
+    };
+    staged
+        .select_with_affinity(staged.revision(), selected, Affinity::Backward)
+        .unwrap();
+    let mut accepts = 0;
+    assert!(matches!(
+        staged.block_command(
+            staged.revision(),
+            selected,
+            BlockCommand::Heading(0),
+            &mut |_| {
+                accepts += 1;
+                Ok(())
+            }
+        ),
+        Err(EditorError::UnrepresentableFormat)
+    ));
+    assert_eq!(accepts, 0);
+    assert_eq!(staged.source_text(), prefix);
+    assert_eq!(staged.revision(), Revision(0));
+    assert_eq!(staged.selection(), selected);
+    assert_eq!(staged.affinity(), Affinity::Backward);
+    assert_eq!(original.source_text(), full);
+    let code_at = original.display_text().find("- parent").unwrap();
+    assert!(original
+        .project(
+            original.revision(),
+            DisplayRange {
+                start: DisplayOffset(code_at),
+                end: DisplayOffset(code_at + 8)
+            }
+        )
+        .unwrap()
+        .blocks
+        .iter()
+        .all(|b| b.code));
+}
+
+#[test]
+fn a_literal_root_item_inside_original_opaque_code_has_no_authority_at_real_eof() {
+    opaque_literal_root_item_must_not_gain_authority("");
+}
+
+#[test]
+fn a_literal_root_item_inside_original_opaque_code_has_no_foreign_edge_authority() {
+    opaque_literal_root_item_must_not_gain_authority("> - outside");
+}
