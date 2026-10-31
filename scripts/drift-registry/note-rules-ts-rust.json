@@ -41,7 +41,7 @@
     },
     {
       "location": "crates/futo-notes-wikilinks/src/rewrite.rs",
-      "pattern": "pub(super) fn rewrite"
+      "pattern": "pub\\(super\\) fn rewrite"
     }
   ],
   "locks": [
