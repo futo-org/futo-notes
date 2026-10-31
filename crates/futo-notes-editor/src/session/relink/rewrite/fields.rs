@@ -150,9 +150,6 @@ impl Rewrite {
                 }
                 origin.word = word;
                 if emitted > 0 {
-                    if origin.uri.is_none() {
-                        return Err(EditorError::UnrepresentableFormat);
-                    }
                     result.changed_origins[index] = true;
                     result.origin_programs[index].push((generation, emitted));
                     result.pending.work += 4;

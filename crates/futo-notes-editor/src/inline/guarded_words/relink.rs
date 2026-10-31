@@ -77,7 +77,7 @@ impl Projection {
         words: &[Range<usize>],
         origin: usize,
         expected: Option<&[Vec<CodeWitness>]>,
-    ) -> Result<(Vec<CanonicalUri>, Vec<Vec<CodeWitness>>, EditWork), EditorError> {
+    ) -> Result<(Vec<Option<CanonicalUri>>, Vec<Vec<CodeWitness>>, EditWork), EditorError> {
         let mut work = EditWork::default();
         let (codes, visits) = self.relink_code_witnesses(words, origin)?;
         work.link_metadata_items += visits;
@@ -148,12 +148,24 @@ impl Projection {
                 let (canonical, parsed) = crate::inline::links::bare_links(&displayed);
                 work.parsed_source_bytes += parsed;
                 work.link_metadata_items += 1 + canonical.len();
+                for span in &canonical {
+                    work.link_metadata_items += 1;
+                    if let SpanKind::Link(target) = &span.kind {
+                        work.link_copied_bytes +=
+                            target.destination.len() + target.title.as_ref().map_or(0, String::len);
+                    }
+                }
                 let Some(span) = canonical.first().filter(|span| {
                     canonical.len() == 1
                         && span.open.start == 0
                         && span.close.end == displayed.len()
                 }) else {
-                    return Err(EditorError::UnrepresentableFormat);
+                    // None is no COMPLETE URI, and may contain a partial
+                    // canonical link. It is not a word-end retirement policy.
+                    result.push(None);
+                    work.link_metadata_items += 1;
+                    first += 1;
+                    continue;
                 };
                 let SpanKind::Link(meaning) = &span.kind else {
                     return Err(EditorError::UnrepresentableFormat);
@@ -161,11 +173,10 @@ impl Projection {
                 if meaning.title.is_some() || meaning.reference.is_some() {
                     return Err(EditorError::UnrepresentableFormat);
                 }
-                work.link_copied_bytes += meaning.destination.len();
-                result.push(CanonicalUri {
+                result.push(Some(CanonicalUri {
                     displayed,
                     meaning: meaning.clone(),
-                });
+                }));
                 work.link_metadata_items += 4;
                 first += 1;
             }

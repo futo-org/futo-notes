@@ -92,8 +92,11 @@ impl rewrite::Fields {
         let (uris, codes, parsed) = session.projection.relink_owned_uris(&ranges, 0, None)?;
         charge(&mut work, parsed);
         for (request, uri) in requests.iter().zip(&uris) {
-            if !same(request.original, uri, &mut work) {
-                return Err(EditorError::UnrepresentableFormat);
+            work.link_metadata_items += 1;
+            match (request.original, uri.as_ref(), request.role) {
+                (Some(original), Some(uri), _) if same(original, uri, &mut work) => {}
+                (None, None, Role::Typed(_)) => {}
+                _ => return Err(EditorError::UnrepresentableFormat),
             }
         }
         self.codes = codes;
@@ -121,15 +124,25 @@ impl rewrite::Fields {
         let mut prepared = Vec::with_capacity(requests.len());
         work.link_metadata_items += usize::from(!requests.is_empty());
         for (request, uri) in requests.into_iter().zip(uris) {
-            let identity = identities.prepare(request.original, request.program, uri, &mut work)?;
+            work.link_metadata_items += 1;
+            let identity = match (request.original, uri, request.role) {
+                (Some(original), Some(uri), _) => {
+                    Some(identities.prepare(original, request.program, uri, &mut work)?)
+                }
+                (None, None, Role::Typed(_)) => None,
+                _ => return Err(EditorError::UnrepresentableFormat),
+            };
             prepared.push((request.role, identity));
             work.link_metadata_items += 2;
         }
         for (role, identity) in prepared {
             work.link_metadata_items += 1;
             match role {
-                Role::Guard(index) => self.pending.guarded_words[index].identity = identity,
-                Role::Typed(index) => self.pending.typed_inputs[index].uri = Some(identity),
+                Role::Guard(index) => {
+                    self.pending.guarded_words[index].identity =
+                        identity.ok_or(EditorError::UnrepresentableFormat)?
+                }
+                Role::Typed(index) => self.pending.typed_inputs[index].uri = identity,
             }
         }
         if self.changed_links.iter().any(|changed| {

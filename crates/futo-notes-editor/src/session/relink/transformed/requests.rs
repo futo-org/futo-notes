@@ -10,7 +10,7 @@ pub(super) enum Role {
 pub(super) struct Request<'a> {
     pub role: Role,
     pub range: Range<usize>,
-    pub original: &'a Arc<CodeWordIdentity>,
+    pub original: Option<&'a Arc<CodeWordIdentity>>,
     pub program: &'a [(usize, usize)],
 }
 impl rewrite::Fields {
@@ -51,17 +51,14 @@ impl rewrite::Fields {
                 result.push(Request {
                     role: Role::Guard(index),
                     range: word.inner.clone(),
-                    original: &word.identity,
+                    original: Some(&word.identity),
                     program: &self.programs[index],
                 });
             } else if let Some((index, origin)) = next_origin.take() {
                 result.push(Request {
                     role: Role::Typed(index),
                     range: origin.word.clone(),
-                    original: origin
-                        .uri
-                        .as_ref()
-                        .ok_or(EditorError::UnrepresentableFormat)?,
+                    original: origin.uri.as_ref(),
                     program: &self.origin_programs[index],
                 });
                 next_origin = origins.next();
