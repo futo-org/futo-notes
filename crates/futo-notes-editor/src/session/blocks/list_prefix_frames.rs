@@ -234,15 +234,11 @@ impl EditorSession {
                 }
                 at = physical.source.end;
             }
-            let raw = self.source.byte_slice(footprint.clone()).to_string();
-            let output = super::transaction::spell_edits(&raw, &edits)?;
-            copied += raw.len() + output.len();
             let mut change = self.commit_planned_header(
                 expected,
                 range,
                 footprint,
                 &edits,
-                &output,
                 HeaderShape::ParagraphList {
                     original: list,
                     quotes: if action == FrameAction::Backspace {
@@ -412,15 +408,11 @@ impl EditorSession {
             ));
             at = physical.source.end;
         }
-        let raw = self.source.byte_slice(footprint.clone()).to_string();
-        let output = super::transaction::spell_edits(&raw, &edits)?;
-        copied += raw.len() + output.len();
         let mut change = self.commit_planned_header(
             expected,
             range,
             footprint,
             &edits,
-            &output,
             HeaderShape::ParagraphPlain {
                 quotes: 1,
                 earlier: same_quote.then_some((root.marker.start, root.ordinal)),

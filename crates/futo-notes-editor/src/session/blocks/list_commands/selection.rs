@@ -1,6 +1,6 @@
 //! Validate header-lift endpoints in one actual-row preview before acceptance.
 use super::*;
-use std::ops::Range;
+use std::{borrow::Cow, ops::Range};
 
 impl EditorSession {
     pub(in crate::session::blocks) fn commit_planned_prefix(
@@ -13,7 +13,7 @@ impl EditorSession {
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<ViewChange, EditorError> {
         let edits = [(0..footprint.len(), output.to_owned())];
-        self.commit_planned_header(expected, range, footprint, &edits, output, shape, accept)
+        self.commit_planned_header(expected, range, footprint, &edits, shape, accept)
     }
 
     pub(in crate::session::blocks) fn commit_planned_header(
@@ -22,12 +22,25 @@ impl EditorSession {
         range: DisplayRange,
         footprint: Range<usize>,
         edits: &[(Range<usize>, String)],
-        output: &str,
         shape: HeaderShape<'_>,
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<ViewChange, EditorError> {
+        // One owner emits the spelling used by both atom mapping and apply.
+        // A complete single-prefix replacement already owns its exact text.
+        let mut spelled = 0;
+        let complete = edits
+            .first()
+            .filter(|(cut, _)| edits.len() == 1 && cut.start == 0 && cut.end == footprint.len());
+        let output = if let Some((_, text)) = complete {
+            Cow::Borrowed(text.as_str())
+        } else {
+            let raw = self.source.byte_slice(footprint.clone()).to_string();
+            let output = super::super::transaction::spell_edits(&raw, edits)?;
+            spelled += raw.len() + output.len();
+            Cow::Owned(output)
+        };
         let (selection, parsed, copied) =
-            self.preview_header_selection(range, footprint.clone(), edits, output, Some(shape))?;
+            self.preview_header_selection(range, footprint.clone(), edits, &output, Some(shape))?;
         let formats = (range == self.selection)
             .then(|| self.pending_formats.clone())
             .flatten();
@@ -35,14 +48,14 @@ impl EditorSession {
         let mut change = self.commit_block_edit(
             expected,
             footprint,
-            output,
+            &output,
             BlockSelection::Display(selection),
             None,
             accept,
         )?;
         self.carry_block_state(&mut change, formats, affinity);
         change.work.parsed_source_bytes += parsed;
-        change.work.materialized_source_bytes += copied + output.len();
+        change.work.materialized_source_bytes += copied + spelled + output.len();
         Ok(change)
     }
 
@@ -80,192 +93,19 @@ impl EditorSession {
         let old_display_len = preview.projection.display.len_bytes();
         let work = preview.apply(&edit).work;
         if let Some(shape) = shape {
-            let body = if let HeaderShape::ParagraphList {
-                body,
-                inserted_at,
-                newline,
-                ..
-            }
-            | HeaderShape::ParagraphPlain {
-                body,
-                inserted_at,
-                newline,
-                ..
-            } = shape
-            {
-                let (cut, text) = edits.first().ok_or(EditorError::UnrepresentableFormat)?;
-                if cut.start != 0 || footprint.start + cut.end != body {
-                    return Err(EditorError::UnrepresentableFormat);
-                }
-                if preview.projection.display.len_bytes() != old_display_len + newline.len() {
-                    return Err(EditorError::UnrepresentableFormat);
-                }
-                let at = inserted_at
-                    .checked_sub(display)
-                    .filter(|at| *at <= old_display_len)
-                    .ok_or(EditorError::UnrepresentableFormat)?;
-                let before = self
-                    .projection
-                    .display
-                    .byte_slice(display..display + old_display_len);
-                if at > before.len_bytes()
-                    || !before
-                        .byte_slice(..at)
-                        .bytes()
-                        .chain(newline.bytes())
-                        .chain(before.byte_slice(at..).bytes())
-                        .zip(preview.projection.display.bytes())
-                        .all(|(a, b)| {
-                            crate::inline::visit_container();
-                            a == b
-                        })
-                {
-                    return Err(EditorError::UnrepresentableFormat);
-                }
-                footprint.start - window.start + text.len()
-            } else {
-                footprint.start - window.start + output.len()
-            };
-            let actual = preview
-                .projection
-                .list_command_line_at_source(body)
-                .ok_or(EditorError::UnrepresentableFormat)?;
-            crate::inline::visit_container();
-            let quotes = match shape {
-                HeaderShape::List { quotes, .. }
-                | HeaderShape::ParagraphList { quotes, .. }
-                | HeaderShape::ParagraphPlain { quotes, .. }
-                | HeaderShape::Plain { quotes, .. } => quotes,
-            };
-            if actual.code
-                || actual.divider
-                || actual.heading != 0
-                || actual.quote_depth != quotes
-                || actual.content.start != body
-            {
-                return Err(EditorError::UnrepresentableFormat);
-            }
-            match shape {
-                HeaderShape::List { original, .. }
-                | HeaderShape::ParagraphList { original, .. } => {
-                    let first = match shape {
-                        HeaderShape::List { first, .. }
-                        | HeaderShape::ParagraphList { first, .. } => first,
-                        _ => unreachable!(),
-                    };
-                    let owned = actual
-                        .list
-                        .as_ref()
-                        .ok_or(EditorError::UnrepresentableFormat)?;
-                    if owned.depth != original.depth
-                        || owned.ordinal != original.ordinal
-                        || owned.checked != original.checked
-                        || owned.first != first
-                        || owned.marker.start
-                            != original
-                                .marker
-                                .start
-                                .checked_sub(window.start)
-                                .ok_or(EditorError::UnrepresentableFormat)?
-                        || owned.owner.start
-                            != original
-                                .owner
-                                .start
-                                .checked_sub(window.start)
-                                .ok_or(EditorError::UnrepresentableFormat)?
-                        || owned.item.start
-                            != original
-                                .item
-                                .start
-                                .checked_sub(window.start)
-                                .ok_or(EditorError::UnrepresentableFormat)?
-                    {
-                        return Err(EditorError::UnrepresentableFormat);
-                    }
-                }
-                HeaderShape::Plain { earlier, .. }
-                | HeaderShape::ParagraphPlain { earlier, .. } => {
-                    if actual.list.is_some() {
-                        return Err(EditorError::UnrepresentableFormat);
-                    }
-                    if let Some((at, number)) = earlier {
-                        let at = at
-                            .checked_sub(window.start)
-                            .ok_or(EditorError::UnrepresentableFormat)?;
-                        let parent = preview
-                            .projection
-                            .list_command_line_at_source(at)
-                            .ok_or(EditorError::UnrepresentableFormat)?;
-                        crate::inline::visit_container();
-                        if parent.code
-                            || parent.divider
-                            || parent.heading != 0
-                            || parent.quote_depth != 0
-                            || !parent.content.is_empty()
-                            || !parent.list.as_ref().is_some_and(|list| {
-                                list.first
-                                    && list.depth == 1
-                                    && list.ordinal == number
-                                    && list.marker.start == at
-                            })
-                        {
-                            return Err(EditorError::UnrepresentableFormat);
-                        }
-                    }
-                }
-            }
-        }
-        let paragraph = match shape {
-            Some(HeaderShape::ParagraphList {
-                original, quotes, ..
-            }) => Some((Some(original), quotes)),
-            Some(HeaderShape::ParagraphPlain { quotes, .. }) => Some((None, quotes)),
-            _ => None,
-        };
-        if let Some((original, quotes)) = paragraph {
-            let (cut, text) = edits.first().ok_or(EditorError::UnrepresentableFormat)?;
-            if cut.start != 0 {
-                return Err(EditorError::UnrepresentableFormat);
-            }
-            let first = preview
-                .projection
-                .list_command_line_at_source(footprint.start - window.start + text.len())
-                .ok_or(EditorError::UnrepresentableFormat)?;
-            let mut at = first.source.end;
-            let end = footprint.start - window.start + output.len();
-            while at < end {
-                let actual = preview
-                    .projection
-                    .list_command_line_at_source(at)
-                    .ok_or(EditorError::UnrepresentableFormat)?;
-                crate::inline::visit_container();
-                if actual.source.start != at
-                    || actual.source.end <= at
-                    || actual.source.end > end
-                    || actual.code
-                    || actual.divider
-                    || actual.heading != 0
-                    || actual.quote_depth != quotes
-                    || !match original {
-                        None => actual.list.is_none(),
-                        Some(original) => actual.list.as_ref().is_some_and(|list| {
-                            !list.first
-                                && list.depth == original.depth
-                                && list.ordinal == original.ordinal
-                                && list.checked == original.checked
-                                && list.marker.start + window.start == original.marker.start
-                                && list.owner.start + window.start == original.owner.start
-                                && list.item.start + window.start == original.item.start
-                        }),
-                    }
-                {
-                    return Err(EditorError::UnrepresentableFormat);
-                }
-                at = actual.source.end;
-            }
-            if at != end {
-                return Err(EditorError::UnrepresentableFormat);
-            }
+            let body = shape.preview_body(&footprint, edits, output.len(), window.start)?;
+            shape.verify_display(
+                &self.projection,
+                &preview.projection,
+                display,
+                old_display_len,
+            )?;
+            shape.verify_body(&preview.projection, body, window.start)?;
+            shape.verify_continuations(
+                &preview.projection,
+                body..footprint.start - window.start + output.len(),
+                window.start,
+            )?;
         }
         let mut mapped = [0; 2];
         for (index, point) in points.into_iter().enumerate() {
