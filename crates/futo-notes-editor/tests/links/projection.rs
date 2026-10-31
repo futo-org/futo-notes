@@ -148,3 +148,49 @@ fn canonical_inner_autolink_loads_literal_outer_pair_with_clean_url() {
     assert_eq!(links[0].range, range(1, 15));
     assert_eq!(links[0].destination, "https://x.test");
 }
+
+#[test]
+fn bracket_adjacent_gfm_link_keeps_its_own_extent_after_identical_code_text() {
+    let source = "`https://x.test` [https://x.test";
+    let session = EditorSession::open(source);
+    assert_eq!(session.source_text(), source);
+    assert_eq!(session.display_text(), "https://x.test [https://x.test");
+    let links = session.project(Revision(0), range(0, 30)).unwrap().links;
+    assert_eq!(links.len(), 1);
+    assert_eq!(links[0].range, range(16, 30));
+    assert_eq!(links[0].destination, "https://x.test");
+    assert!(session
+        .inspect_link(Revision(0), range(1, 2))
+        .unwrap()
+        .is_none());
+}
+
+#[test]
+fn scalar_spelling_candidates_keep_partial_code_and_literal_prefix_in_the_rust_parser() {
+    use futo_notes_editor::InlineFormat;
+    // These are current canonical-parser feasibility controls. The shipping
+    // remark decoded-text transform disagrees: none is a cross-parser plan.
+    for source in [
+        "\\<&#104;ttps://x.test`/path`>",
+        "\\<https&#58;//x.test`/path`>",
+        "\\<https&colon;//x.test`/path`>",
+        "\\<https\\:\\/\\/x\\.test`/path`>",
+    ] {
+        let session = EditorSession::open(source);
+        assert_eq!(session.source_text(), source);
+        assert_eq!(session.display_text(), "<https://x.test/path>");
+        let query = session.project(Revision(0), range(0, 21)).unwrap();
+        assert!(
+            query.links.is_empty(),
+            "source={source:?}; links={:?}",
+            query.links
+        );
+        let code: Vec<_> = query
+            .runs
+            .iter()
+            .filter(|run| run.formats.contains(&InlineFormat::Code))
+            .map(|run| run.range)
+            .collect();
+        assert_eq!(code, vec![range(15, 20)]);
+    }
+}
