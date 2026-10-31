@@ -251,6 +251,11 @@ impl EditorSession {
                     let foreign = neighbor.witness.list.as_ref()?;
                     crate::inline::visit_container();
                     if let Some(&index) = styled.get(&neighbor.witness.source.start) {
+                        if styles.quotes[index] != child.quote_depth
+                            || foreign.depth != selected.outer_depth
+                        {
+                            return None;
+                        }
                         if targets.removes(&lines[index]) {
                             return None;
                         }

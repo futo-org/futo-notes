@@ -245,6 +245,7 @@ fn reversed_mixed_lift_overrides_do_not_repeat_ancestor_width_work() {
             } else {
                 format!("parent\n\nchild\n{rows}following")
             };
+            assert_eq!(EditorSession::open(&changed).display_text(), after);
             let mut measurements = Vec::new();
             for paragraphs in [1, 20_000] {
                 let prefix = "foreign\n\n".repeat(paragraphs);
