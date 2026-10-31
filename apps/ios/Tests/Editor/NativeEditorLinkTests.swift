@@ -106,4 +106,53 @@ struct NativeEditorLinkTests {
         }.value
     }
 
+    @Test("URI class retirement retains Code and literal pre-Code history")
+    func uriClassRetirement() async throws {
+        try await Task.detached {
+            let root = FileManager.default.temporaryDirectory.appendingPathComponent(
+                "editor-link-class-\(UUID().uuidString)", isDirectory: true)
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: root) }
+            let store = NoteStore(notesRoot: root.path)
+            _ = try store.createNote(title: "Old", folder: "", content: "target")
+            _ = try store.createNote(title: "plain", folder: "", content: "")
+            let session = try store.openEditor(id: "plain")
+            let old = "https://x.test/[[Old]]/path"
+            let new = "https://x.test/[[New Name]]/path"
+            let end = UInt64(old.utf8.count + 1)
+            _ = try session.replaceUtf16(expected: 0, range: EditorUtf16Range(start: 0, end: 0), inserted: Array("<\(old)".utf16))
+            _ = try session.replaceUtf16(expected: 1, range: EditorUtf16Range(start: end, end: end), inserted: [62])
+            _ = try session.selectWithAffinity(expected: 2, range: EditorByteRange(start: 1, end: end), affinity: .backward)
+            _ = try #require(try session.toggleFormat(expected: 2, format: .code))
+            _ = try session.checkpoint()
+            _ = try store.rename(oldId: "Old", newId: "New Name")
+            let changes = try session.takeCoordinatedChanges()
+            #expect(changes.count == 1)
+            #expect(changes.first?.previousRevision == 3 && changes.first?.revision == 4)
+            #expect(try session.takeCoordinatedChanges().isEmpty)
+            let saved = "<`\(new)`>"
+            let shown = "<\(new)>"
+            let range = EditorByteRange(start: 0, end: UInt64(shown.utf8.count))
+            #expect(try session.sourceText() == saved)
+            let projected = try session.project(expected: 4, range: range)
+            #expect(projected.text == shown && projected.links.isEmpty)
+            #expect(projected.runs.filter { $0.formats.contains(.code) }.map(\.range) == [EditorByteRange(start: 1, end: UInt64(new.utf8.count + 1))])
+            _ = try #require(try session.undo(expected: 4))
+            let literal = try session.project(expected: 5, range: range)
+            #expect(literal.text == shown && literal.links.isEmpty)
+            #expect(literal.runs.allSatisfy { !$0.formats.contains(.code) })
+            _ = try #require(try session.redo(expected: 5))
+            #expect(try session.sourceText() == saved)
+            _ = try session.flushRecovery()
+            try session.detach()
+            let recovered = try store.openEditor(id: "plain")
+            #expect(try recovered.sourceText() == saved)
+            #expect(try recovered.project(expected: 6, range: range).links.isEmpty)
+            #expect(try recovered.undo(expected: 6) == nil)
+            _ = try recovered.checkpoint()
+            #expect(try store.read(id: "plain") == saved)
+            try recovered.detach()
+        }.value
+    }
+
 }

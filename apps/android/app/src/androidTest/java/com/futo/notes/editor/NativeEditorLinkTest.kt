@@ -87,4 +87,57 @@ class NativeEditorLinkTest {
         } finally { root.deleteRecursively() }
     }
 
+    @Test
+    fun uriClassRetirementRetainsCodeAndLiteralPreCodeHistory() {
+        val root = File(InstrumentationRegistry.getInstrumentation().targetContext.cacheDir, "editor-link-class-${UUID.randomUUID()}")
+        check(root.mkdirs())
+        try {
+            NoteStore(root.absolutePath).use { store ->
+                store.createNote("Old", "", "target")
+                store.createNote("plain", "", "")
+                val old = "https://x.test/[[Old]]/path"
+                val new = "https://x.test/[[New Name]]/path"
+                val saved = "<`$new`>"
+                val shown = "<$new>"
+                val all = EditorByteRange(0uL, shown.length.toULong())
+                store.openEditor("plain").use { session ->
+                    val end = (old.length + 1).toULong()
+                    session.replaceUtf16(0uL, EditorUtf16Range(0uL, 0uL), "<$old".map { it.code.toUShort() })
+                    session.replaceUtf16(1uL, EditorUtf16Range(end, end), listOf(62u.toUShort()))
+                    session.selectWithAffinity(2uL, EditorByteRange(1uL, end), EditorAffinity.BACKWARD)
+                    checkNotNull(session.toggleFormat(2uL, EditorInlineFormat.CODE))
+                    session.checkpoint()
+                    store.rename("Old", "New Name")
+                    val changes = session.takeCoordinatedChanges()
+                    assertEquals(1, changes.size)
+                    assertEquals(3uL, changes.single().previousRevision)
+                    assertEquals(4uL, changes.single().revision)
+                    assertTrue(session.takeCoordinatedChanges().isEmpty())
+                    assertEquals(saved, session.sourceText())
+                    val projected = session.project(4uL, all)
+                    assertEquals(shown, projected.text)
+                    assertTrue(projected.links.isEmpty())
+                    assertEquals(listOf(EditorByteRange(1uL, (new.length + 1).toULong())), projected.runs.filter { it.formats.contains(EditorInlineFormat.CODE) }.map { it.range })
+                    checkNotNull(session.undo(4uL))
+                    val literal = session.project(5uL, all)
+                    assertEquals(shown, literal.text)
+                    assertTrue(literal.links.isEmpty())
+                    assertTrue(literal.runs.all { !it.formats.contains(EditorInlineFormat.CODE) })
+                    checkNotNull(session.redo(5uL))
+                    assertEquals(saved, session.sourceText())
+                    session.flushRecovery()
+                    session.detach()
+                }
+                store.openEditor("plain").use { recovered ->
+                    assertEquals(saved, recovered.sourceText())
+                    assertTrue(recovered.project(6uL, all).links.isEmpty())
+                    assertNull(recovered.undo(6uL))
+                    recovered.checkpoint()
+                    assertEquals(saved, store.read("plain"))
+                    recovered.detach()
+                }
+            }
+        } finally { root.deleteRecursively() }
+    }
+
 }

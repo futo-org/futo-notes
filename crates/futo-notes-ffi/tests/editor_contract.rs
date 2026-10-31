@@ -319,3 +319,111 @@ fn native_entity_point_mapping_retains_source_boundary_affinity() {
         5
     );
 }
+
+#[test]
+fn native_uri_class_retirement_preserves_code_and_pre_code_history() {
+    use futo_notes_ffi::{EditorAffinity, EditorByteRange, EditorInlineFormat};
+    let tree = TempTree::new();
+    std::fs::create_dir_all(tree.path("vault")).unwrap();
+    let store = NoteStore::new(path_string(&tree.path("vault")));
+    store
+        .create_note("Old".into(), "".into(), "target".into())
+        .unwrap();
+    store
+        .create_note("plain".into(), "".into(), "".into())
+        .unwrap();
+    let session = store.open_editor("plain".into()).unwrap();
+    let old = "https://x.test/[[Old]]/path";
+    let new = "https://x.test/[[New Name]]/path";
+    let end = old.len() as u64 + 1;
+    session
+        .replace_utf16(
+            0,
+            EditorUtf16Range { start: 0, end: 0 },
+            format!("<{old}").encode_utf16().collect(),
+        )
+        .unwrap();
+    session
+        .replace_utf16(1, EditorUtf16Range { start: end, end }, vec![62])
+        .unwrap();
+    session
+        .select_with_affinity(
+            2,
+            EditorByteRange { start: 1, end },
+            EditorAffinity::Backward,
+        )
+        .unwrap();
+    session
+        .toggle_format(2, EditorInlineFormat::Code)
+        .unwrap()
+        .unwrap();
+    session.checkpoint().unwrap();
+    store.rename("Old".into(), "New Name".into()).unwrap();
+    let changes = session.take_coordinated_changes().unwrap();
+    assert_eq!(changes.len(), 1);
+    assert_eq!(changes[0].previous_revision, 3);
+    assert_eq!(changes[0].revision, 4);
+    assert!(session.take_coordinated_changes().unwrap().is_empty());
+    let saved = format!("<`{new}`>");
+    let shown = format!("<{new}>");
+    assert_eq!(session.source_text().unwrap(), saved);
+    let projection = session
+        .project(
+            4,
+            EditorByteRange {
+                start: 0,
+                end: shown.len() as u64,
+            },
+        )
+        .unwrap();
+    assert_eq!(projection.text, shown);
+    assert!(projection.links.is_empty());
+    assert_eq!(
+        projection
+            .runs
+            .iter()
+            .filter(|run| run.formats.contains(&EditorInlineFormat::Code))
+            .map(|run| run.range.clone())
+            .collect::<Vec<_>>(),
+        vec![EditorByteRange {
+            start: 1,
+            end: new.len() as u64 + 1
+        }]
+    );
+    session.undo(4).unwrap().unwrap();
+    let literal = session
+        .project(
+            5,
+            EditorByteRange {
+                start: 0,
+                end: shown.len() as u64,
+            },
+        )
+        .unwrap();
+    assert_eq!(literal.text, shown);
+    assert!(literal.links.is_empty());
+    assert!(literal
+        .runs
+        .iter()
+        .all(|run| !run.formats.contains(&EditorInlineFormat::Code)));
+    session.redo(5).unwrap().unwrap();
+    assert_eq!(session.source_text().unwrap(), saved);
+    session.flush_recovery().unwrap();
+    session.detach().unwrap();
+    let recovered = store.open_editor("plain".into()).unwrap();
+    assert_eq!(recovered.source_text().unwrap(), saved);
+    assert!(recovered
+        .project(
+            6,
+            EditorByteRange {
+                start: 0,
+                end: shown.len() as u64
+            }
+        )
+        .unwrap()
+        .links
+        .is_empty());
+    assert!(recovered.undo(6).unwrap().is_none());
+    recovered.checkpoint().unwrap();
+    assert_eq!(store.read("plain".into()).unwrap(), saved);
+}
