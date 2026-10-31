@@ -7,29 +7,8 @@ use super::{
 use crate::{DisplayOffset, DisplayRange, SourceEdit, SourceRange};
 use std::ops::Range;
 
-#[derive(Clone)]
-pub(crate) struct PendingLinks {
-    pub window: Range<usize>,
-    pub ranges: Vec<Range<usize>>,
-    pub delimiters: Vec<Range<usize>>,
-    pub work: usize,
-}
-impl PendingLinks {
-    /// Translate exact source windows, including every transient witness.
-    pub(crate) fn relocate_source(&mut self, origin: usize) -> usize {
-        self.window.start += origin;
-        self.window.end += origin;
-        for range in self.ranges.iter_mut().chain(&mut self.delimiters) {
-            range.start += origin;
-            range.end += origin;
-        }
-        2 * (1 + self.ranges.len() + self.delimiters.len())
-    }
-
-    pub fn after_window(&self, edit: &SourceEdit) -> Range<usize> {
-        self.window.start..self.window.end - edit.removed.len() + edit.inserted.len()
-    }
-}
+mod snapshot;
+pub(crate) use snapshot::PendingLinks;
 
 impl Projection {
     pub(crate) fn pending_for_source_edit(&self, edit: SourceRange) -> PendingLinks {
