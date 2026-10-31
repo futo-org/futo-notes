@@ -99,3 +99,96 @@ fn quoted_crlf_tabbed_task_ordered_plan_opens_with_exact_columns_and_fence_owner
 fn quoted_crlf_tabbed_task_bullet_plan_opens_with_exact_columns_and_fence_owners() {
     quoted_crlf_open(QUOTED_CRLF_BULLET, &[None, None, None]);
 }
+
+fn retarget_quoted_crlf_task(command: BlockCommand, expected: &str, numbers: &[Option<u64>]) {
+    for affinity in [Affinity::Backward, Affinity::Forward] {
+        let mut s = EditorSession::open(QUOTED_CRLF_TASK);
+        let mut view = ReferenceView::new(QUOTED_CRLF_SHOWN);
+        let selected = range(0, 3);
+        s.select_with_affinity(Revision(0), selected, affinity)
+            .unwrap();
+        let mut refused = 0;
+        assert!(matches!(
+            s.block_command(Revision(0), selected, command, &mut |_| {
+                refused += 1;
+                Err("refused".into())
+            }),
+            Err(EditorError::Persistence(_))
+        ));
+        assert_eq!(refused, 1);
+        assert_eq!(s.source_text(), QUOTED_CRLF_TASK);
+        assert_eq!(s.display_text(), QUOTED_CRLF_SHOWN);
+        assert_eq!(s.revision(), Revision(0));
+        assert_eq!(s.selection(), selected);
+        assert_eq!(s.affinity(), affinity);
+        assert!(s
+            .undo(Revision(0), &mut |_| panic!("rejected history"))
+            .unwrap()
+            .is_none());
+        let mut accepted = 0;
+        view.apply(
+            s.block_command(Revision(0), selected, command, &mut |edit| {
+                accepted += 1;
+                assert_eq!(edit.previous_revision, Revision(0));
+                assert_eq!(edit.revision, Revision(1));
+                assert_eq!(
+                    edit.removed,
+                    QUOTED_CRLF_TASK[edit.range.start.0..edit.range.end.0]
+                );
+                Ok(())
+            })
+            .unwrap()
+            .unwrap(),
+        );
+        assert_eq!(accepted, 1);
+        assert_eq!(s.source_text(), expected);
+        assert_eq!(view.text, QUOTED_CRLF_SHOWN);
+        assert_eq!(s.display_text(), QUOTED_CRLF_SHOWN);
+        assert_eq!(s.selection(), selected);
+        assert_eq!(s.affinity(), affinity);
+        let p = s
+            .project(s.revision(), range(0, QUOTED_CRLF_SHOWN.len()))
+            .unwrap();
+        let items: Vec<_> = p
+            .blocks
+            .iter()
+            .filter_map(|b| b.list.as_ref().filter(|l| l.first))
+            .collect();
+        assert_eq!(
+            items.iter().map(|l| l.depth).collect::<Vec<_>>(),
+            vec![1, 2, 1]
+        );
+        assert_eq!(items.iter().map(|l| l.number).collect::<Vec<_>>(), numbers);
+        assert!(items.iter().all(|l| l.checked.is_none()));
+        assert!(p.blocks.iter().all(|b| b.quote_depth == 1));
+        assert!(p
+            .blocks
+            .iter()
+            .any(|b| b.code && b.language.as_deref() == Some("js")));
+        view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+        assert_eq!(s.source_text(), QUOTED_CRLF_TASK);
+        assert_eq!(view.text, QUOTED_CRLF_SHOWN);
+        assert_eq!(s.selection(), selected);
+        assert_eq!(s.affinity(), affinity);
+        view.apply(s.redo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+        assert_eq!(s.source_text(), expected);
+        assert_eq!(view.text, QUOTED_CRLF_SHOWN);
+    }
+}
+
+#[test]
+fn quoted_crlf_task_ordered_retarget_preserves_tab_columns_and_nested_fence() {
+    retarget_quoted_crlf_task(
+        BlockCommand::OrderedList,
+        QUOTED_CRLF_ORDERED,
+        &[Some(1000), None, Some(1001)],
+    );
+}
+#[test]
+fn quoted_crlf_task_bullet_retarget_preserves_continuation_and_nested_fence() {
+    retarget_quoted_crlf_task(
+        BlockCommand::BulletList,
+        QUOTED_CRLF_BULLET,
+        &[None, None, None],
+    );
+}
