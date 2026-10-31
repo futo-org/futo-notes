@@ -173,8 +173,10 @@ impl Row {
                 });
             }
         }
-        let (bare, additional_parse, hint_items) = crate::inline::links::bare_links(source);
-        reference_work.items += hint_items;
+        let (bare, read) = crate::inline::links::bare_links(source);
+        let additional_parse = read.parsed;
+        reference_work.items += read.items;
+        reference_work.copied += read.copied;
         // GFM literal URLs own punctuation inside their parser-reported body.
         // CommonMark's independent emphasis pass must not consume that same
         // punctuation as an opener or closer outside the URL interpretation.
@@ -196,15 +198,6 @@ impl Row {
             }
         });
         reference_work.items += bare.len();
-        reference_work.copied += bare
-            .iter()
-            .filter_map(|span| match &span.kind {
-                SpanKind::Link(target) => {
-                    Some(target.destination.len() + target.title.as_ref().map_or(0, String::len))
-                }
-                _ => None,
-            })
-            .sum::<usize>();
         spans.extend(bare);
         for definition in definitions.iter().filter(|definition| definition.winner) {
             reference_work.items += 1;

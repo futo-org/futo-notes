@@ -149,17 +149,11 @@ impl Projection {
                 if at != z {
                     return Err(EditorError::UnrepresentableFormat);
                 }
-                let (canonical, parsed, hint_items) = crate::inline::links::bare_links(&displayed);
-                work.link_metadata_items += hint_items;
-                work.parsed_source_bytes += parsed;
+                let (canonical, read) = crate::inline::links::bare_links(&displayed);
+                work.link_metadata_items += read.items;
+                work.parsed_source_bytes += read.parsed;
+                work.link_copied_bytes += read.copied;
                 work.link_metadata_items += 1 + canonical.len();
-                for span in &canonical {
-                    work.link_metadata_items += 1;
-                    if let SpanKind::Link(target) = &span.kind {
-                        work.link_copied_bytes +=
-                            target.destination.len() + target.title.as_ref().map_or(0, String::len);
-                    }
-                }
                 let Some(span) = canonical.first().filter(|span| {
                     canonical.len() == 1
                         && span.open.start == 0

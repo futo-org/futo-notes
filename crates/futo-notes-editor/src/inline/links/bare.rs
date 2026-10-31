@@ -23,15 +23,22 @@ fn possible_uri(source: &str) -> (bool, usize) {
     (false, visits)
 }
 
-pub(in crate::inline) fn bare_links(source: &str) -> (Vec<Span>, usize, usize) {
+pub(in crate::inline) fn bare_links(
+    source: &str,
+) -> (Vec<Span>, crate::inline::references::ReferenceWork) {
+    use crate::inline::references::ReferenceWork;
     let (possible, hint_items) = possible_uri(source);
+    let mut work = ReferenceWork {
+        items: hint_items,
+        ..ReferenceWork::default()
+    };
     if !possible {
-        return (Vec::new(), 0, hint_items);
+        return (Vec::new(), work);
     }
     #[cfg(test)]
     let primitive = crate::inline::coordinate_work_tests::bare_before();
     #[cfg(test)]
-    crate::inline::coordinate_work_tests::bare_visit(); // initial root stack copy
+    crate::inline::coordinate_work_tests::bare_visit();
     let options = markdown::ParseOptions {
         constructs: markdown::Constructs {
             gfm_autolink_literal: true,
@@ -41,67 +48,64 @@ pub(in crate::inline) fn bare_links(source: &str) -> (Vec<Span>, usize, usize) {
     };
     let tree =
         markdown::to_mdast(source, &options).expect("CommonMark with GFM literals is infallible");
+    work.parsed = source.len();
     let mut spans = Vec::new();
     let mut pending = vec![&tree];
-    let mut cursor = 0;
+    work.items += 1; // initial root reference stack copy
     while let Some(node) = pending.pop() {
         #[cfg(test)]
         crate::inline::coordinate_work_tests::bare_visit();
+        work.items += 1;
         if let markdown::mdast::Node::Link(link) = node {
-            // GFM's post-parse text transform can leave a literal after a
-            // bracket without positions, just as the shipping remark parser
-            // does. Its parsed visible text is the literal source to locate.
-            let shown: String = link.children.iter().map(ToString::to_string).collect();
-            let bounds = link
+            // markdown 1.0.0's to_mdast inserts BOTH Link constructors through
+            // tail_push, which supplies positions; GFM uses that same path.
+            // This is the pinned Rust factory invariant, not JS remark behavior
+            // or a claim about arbitrary mdast values. Recheck on pin changes.
+            let position = link
                 .position
                 .as_ref()
-                .map(|position| (position.start.offset, position.end.offset))
-                .or_else(|| {
-                    source[cursor..]
-                        .find(&shown)
-                        .map(|at| (cursor + at, cursor + at + shown.len()))
+                .expect("pinned markdown factory positions every Link");
+            let (start, end) = (position.start.offset, position.end.offset);
+            work.items += 3; // two source bounds and the source-prefix check
+            if !source[start..end].starts_with(['[', '<']) {
+                work.copied += link.url.len() + link.title.as_ref().map_or(0, String::len);
+                work.items += 2; // emitted Span and retained meaning records
+                spans.push(Span {
+                    kind: SpanKind::Link(std::sync::Arc::new(LinkMeaning {
+                        destination: link.url.clone(),
+                        title: link.title.clone(),
+                        reference: None,
+                    })),
+                    open: start..start,
+                    close: end..end,
                 });
-            if let Some((start, end)) = bounds {
-                cursor = end;
-                if !source[start..end].starts_with(['[', '<']) {
-                    spans.push(Span {
-                        kind: SpanKind::Link(std::sync::Arc::new(LinkMeaning {
-                            destination: link.url.clone(),
-                            title: link.title.clone(),
-                            reference: None,
-                        })),
-                        open: start..start,
-                        close: end..end,
-                    });
-                }
             }
             // Existing link labels cannot contain independent nested links.
             continue;
         }
         if let Some(children) = node.children() {
-            pending.extend(children.iter().rev().inspect(|_| {
+            for child in children.iter().rev() {
                 #[cfg(test)]
                 crate::inline::coordinate_work_tests::bare_visit();
-            }));
+                work.items += 1;
+                pending.push(child);
+            }
         }
     }
     #[cfg(test)]
-    crate::inline::coordinate_work_tests::bare_query(primitive, hint_items, hint_items);
-    (spans, source.len(), hint_items)
+    crate::inline::coordinate_work_tests::bare_query(primitive, hint_items, work.items);
+    (spans, work)
 }
 
 /// Read only canonical complete-word extent; no origin or phase authority.
 pub(crate) fn complete_bare_uri(source: &str) -> (bool, crate::EditWork) {
-    let (links, parsed, hints) = bare_links(source);
-    let mut work = crate::EditWork::default();
-    work.parsed_source_bytes = parsed;
-    work.link_metadata_items = hints + links.len() + 1;
-    for span in &links {
-        if let SpanKind::Link(meaning) = &span.kind {
-            work.link_copied_bytes +=
-                meaning.destination.len() + meaning.title.as_ref().map_or(0, String::len);
-        }
-    }
+    let (links, read) = bare_links(source);
+    let work = crate::EditWork {
+        parsed_source_bytes: read.parsed,
+        link_metadata_items: read.items + links.len() + 1,
+        link_copied_bytes: read.copied,
+        ..crate::EditWork::default()
+    };
     let complete =
         links.len() == 1 && links[0].open.start == 0 && links[0].close.end == source.len();
     (complete, work)

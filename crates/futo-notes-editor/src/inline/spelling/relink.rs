@@ -76,15 +76,10 @@ impl Projection {
         }
         let old = source.byte_slice(original.body.clone()).to_string();
         work.materialized_source_bytes += old.len();
-        let (links, parsed, hints) = crate::inline::links::bare_links(&old);
-        work.parsed_source_bytes += parsed;
-        work.link_metadata_items += hints + links.len() + 1;
-        for span in &links {
-            if let SpanKind::Link(meaning) = &span.kind {
-                work.link_copied_bytes +=
-                    meaning.destination.len() + meaning.title.as_ref().map_or(0, String::len);
-            }
-        }
+        let (links, read) = crate::inline::links::bare_links(&old);
+        work.parsed_source_bytes += read.parsed;
+        work.link_metadata_items += read.items + links.len() + 1;
+        work.link_copied_bytes += read.copied;
         let valid = links.first().is_some_and(|span| {
             span.open.start == 0 && span.close.end == old.len() && links.len() == 1
                 && matches!(&span.kind, SpanKind::Link(meaning) if {

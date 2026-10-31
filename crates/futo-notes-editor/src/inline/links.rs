@@ -420,8 +420,8 @@ impl super::Projection {
             .iter()
             .filter_map(|id| markers[*id].kind.format())
             .collect();
-        let (links, work, hint_items) = bare_links(destination);
-        let link_metadata_items = link_metadata_items + hint_items;
+        let (links, read) = bare_links(destination);
+        let link_metadata_items = link_metadata_items + read.items;
         let bare = links.len() == 1
             && links[0].open.start == 0
             && links[0].close.end == destination.len()
@@ -488,23 +488,13 @@ impl super::Projection {
             caret: source_start + rendered.caret,
             formats,
             materialized: raw.len() + rendered.text.len() + rendered.materialized,
-            parsed: work + rendered.parsed,
+            parsed: read.parsed + rendered.parsed,
             link_metadata_items: link_metadata_items
                 + delimiter_work
                 + rendered.link_metadata_items
                 + links.len()
                 + 1,
-            link_copied_bytes: rendered.link_copied_bytes
-                + destination.len()
-                + links
-                    .iter()
-                    .filter_map(|span| match &span.kind {
-                        SpanKind::Link(target) => Some(
-                            target.destination.len() + target.title.as_ref().map_or(0, String::len),
-                        ),
-                        _ => None,
-                    })
-                    .sum::<usize>(),
+            link_copied_bytes: rendered.link_copied_bytes + destination.len() + read.copied,
         })
     }
 }

@@ -85,16 +85,11 @@ impl GuardState {
             {
                 return Err(EditorError::UnrepresentableFormat);
             }
-            let (canonical, parsed, hint_items) = crate::inline::links::bare_links(&body.displayed);
-            work.items += hint_items;
-            work.parsed += parsed;
+            let (canonical, read) = crate::inline::links::bare_links(&body.displayed);
+            work.items += read.items;
+            work.parsed += read.parsed;
+            work.copied += read.copied;
             work.items += 1 + canonical.len();
-            for span in &canonical {
-                if let SpanKind::Link(target) = &span.kind {
-                    work.copied +=
-                        target.destination.len() + target.title.as_ref().map_or(0, String::len);
-                }
-            }
             let valid = canonical.len() == 1
                 && canonical[0].open.start == 0
                 && canonical[0].close.end == body.displayed.len()

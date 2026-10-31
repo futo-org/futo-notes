@@ -118,16 +118,11 @@ impl GuardState {
         if open != 1 || close != 1 {
             return Err(EditorError::UnrepresentableFormat);
         }
-        let (canonical, parsed, hint_items) = crate::inline::links::bare_links(&displayed);
-        work.items += hint_items;
-        work.parsed += parsed;
+        let (canonical, read) = crate::inline::links::bare_links(&displayed);
+        work.items += read.items;
+        work.parsed += read.parsed;
+        work.copied += read.copied;
         work.items += 1 + canonical.len();
-        for span in &canonical {
-            if let SpanKind::Link(target) = &span.kind {
-                work.copied +=
-                    target.destination.len() + target.title.as_ref().map_or(0, String::len);
-            }
-        }
         if canonical.is_empty() {
             // Only this proven user deletion may retire the actual owner. The
             // final emitter still owes complete membership and canonical literal

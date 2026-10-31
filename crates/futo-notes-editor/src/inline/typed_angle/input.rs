@@ -86,15 +86,11 @@ fn canonical_links(word: &str, work: &mut ReferenceWork) -> Vec<crate::inline::r
         work.items += 1;
         return Vec::new();
     }
-    let (links, parsed, hint_items) = crate::inline::links::bare_links(word);
-    work.items += hint_items;
-    work.parsed += parsed;
+    let (links, read) = crate::inline::links::bare_links(word);
+    work.items += read.items;
+    work.parsed += read.parsed;
+    work.copied += read.copied;
     work.items += 1 + links.len();
-    for span in &links {
-        if let SpanKind::Link(target) = &span.kind {
-            work.copied += target.destination.len() + target.title.as_ref().map_or(0, String::len);
-        }
-    }
     links
 }
 fn meaning(word: &str, work: &mut ReferenceWork) -> (Option<Arc<LinkMeaning>>, bool) {

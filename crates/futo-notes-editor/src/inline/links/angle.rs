@@ -51,19 +51,11 @@ pub(in crate::inline) fn finish_angle_word(
         return result;
     }
     let inner = &word[1..word.len() - 1];
-    let (links, parsed, hint_items) = bare_links(inner);
-    result.work.items += hint_items;
-    result.work.parsed += parsed;
+    let (links, read) = bare_links(inner);
+    result.work.items += read.items;
+    result.work.parsed += read.parsed;
+    result.work.copied += read.copied;
     result.work.items += links.len();
-    result.work.copied += links
-        .iter()
-        .filter_map(|span| match &span.kind {
-            super::super::row::SpanKind::Link(target) => {
-                Some(target.destination.len() + target.title.as_ref().map_or(0, String::len))
-            }
-            _ => None,
-        })
-        .sum::<usize>();
     let Some(link) = links
         .first()
         .filter(|link| links.len() == 1 && link.open.start == 0 && link.close.end == inner.len())
@@ -209,19 +201,11 @@ pub(in crate::inline) fn complete_typed_angle(
         })
         .collect();
     result.materialized += inner.len();
-    let (links, parsed, hint_items) = bare_links(&inner);
-    result.work.items += hint_items;
-    result.work.parsed += parsed;
+    let (links, read) = bare_links(&inner);
+    result.work.items += read.items;
+    result.work.parsed += read.parsed;
+    result.work.copied += read.copied;
     result.work.items += links.len() + 1;
-    result.work.copied += links
-        .iter()
-        .filter_map(|link| match &link.kind {
-            SpanKind::Link(target) => {
-                Some(target.destination.len() + target.title.as_ref().map_or(0, String::len))
-            }
-            _ => None,
-        })
-        .sum::<usize>();
     let Some(link) = links.first().filter(|link| {
         links.len() == 1
             && link.open.start == 0
