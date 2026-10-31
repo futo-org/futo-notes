@@ -18,6 +18,7 @@ fn a_command_retains_both_entity_interiors_after_a_nonlinear_protected_input() {
         .unwrap();
     assert_eq!(control.source_text(), typed);
     assert_eq!(control.display_text(), shown);
+    assert_eq!(control.selection(), range(3, 3));
     for affinity in [Affinity::Forward, Affinity::Backward] {
         let mut session = EditorSession::open(raw);
         let mut view = ReferenceView::new(opening);
@@ -65,7 +66,9 @@ fn a_command_retains_both_entity_interiors_after_a_nonlinear_protected_input() {
                 .unwrap(),
         );
         assert_eq!(session.source_text(), typed);
-        assert_eq!(session.selection(), range(8, 16));
+        // Explicit command range is distinct from the actual pre-command
+        // selection, independently established by the composition control.
+        assert_eq!(session.selection(), range(3, 3));
         view.apply(
             session
                 .undo(session.revision(), &mut |_| Ok(()))
@@ -83,6 +86,7 @@ fn a_command_retains_both_entity_interiors_after_a_nonlinear_protected_input() {
                 .unwrap(),
         );
         assert_eq!(session.source_text(), typed);
+        assert_eq!(session.selection(), range(3, 3));
         view.apply(
             session
                 .redo(session.revision(), &mut |_| Ok(()))
