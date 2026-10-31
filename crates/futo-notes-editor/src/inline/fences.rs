@@ -223,3 +223,7 @@ pub(super) fn describe(
         }
     }
 }
+
+#[cfg(test)]
+#[path = "fences_promotion_tests.rs"]
+mod promotion_tests;
