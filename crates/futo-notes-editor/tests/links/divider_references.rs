@@ -134,12 +134,12 @@ fn ordinary_divider_does_not_scan_distant_reference_definitions_or_uses() {
             .iter()
             .map(|w| w.link_metadata_items)
             .collect::<Vec<_>>(),
-        vec![782, 841, 915]
+        vec![792, 851, 925]
     );
     // Primitive-node contributions are independent of the unchanged original
     // local metadata budget (<=16), source bytes, parser bytes and copies.
     for (work, nodes) in measured.iter_mut().zip([105, 162, 233]) {
-        work.link_metadata_items -= nodes;
+        work.link_metadata_items -= nodes + 10;
     }
     for work in &measured[1..] {
         assert_eq!(

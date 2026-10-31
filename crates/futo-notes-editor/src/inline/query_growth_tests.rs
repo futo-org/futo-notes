@@ -20,12 +20,6 @@ fn measured(work: EditWork) -> (EditWork, usize) {
         .link_metadata_items
         .checked_sub(nodes)
         .unwrap_or_else(|| panic!("work={work:?}; nodes={nodes}; ledger={:?}", snapshot()));
-    eprintln!(
-        "query-ledger total={} nodes={} bounds_delta={}",
-        work.link_metadata_items,
-        nodes,
-        bounds_delta()
-    );
     (fixed, nodes)
 }
 #[test]
@@ -48,11 +42,15 @@ fn public_growth_work_separates_actual_index_visits_from_retained_local_work() {
                 .replace(Revision(0), range(0, 3), "the", &mut |_| Ok(()))
                 .unwrap();
             let label = measured(label.work);
+            assert_eq!(bounds_delta(), 0);
             reset();
             let body = session
                 .replace(Revision(1), range(5, 9), "BODY", &mut |_| Ok(()))
                 .unwrap();
-            let body = measured(body.work);
+            let (mut body_fixed, body_nodes) = measured(body.work);
+            assert_eq!(bounds_delta(), -1);
+            body_fixed.link_metadata_items += 1;
+            let body = (body_fixed, body_nodes);
             let expected_nodes = if growing == "uses" {
                 [(99, 125), (183, 206)]
             } else {
@@ -89,7 +87,17 @@ fn public_structural_growth_work_retains_the_original_fixed_work_budget() {
                 .block_command(Revision(0), range(at, at), command, &mut |_| Ok(()))
                 .unwrap()
                 .unwrap();
-            let (fixed, nodes) = measured(change.work);
+            let (mut fixed, nodes) = measured(change.work);
+            let query_delta = if matches!(command, BlockCommand::Divider) {
+                10
+            } else {
+                8
+            };
+            assert_eq!(bounds_delta(), query_delta);
+            fixed.link_metadata_items = fixed
+                .link_metadata_items
+                .checked_add_signed(-query_delta)
+                .unwrap();
             let expected_nodes = if matches!(command, BlockCommand::Divider) {
                 [105, 162, 233]
             } else {

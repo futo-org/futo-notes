@@ -32,9 +32,9 @@ fn unfinished_urls_elsewhere_do_not_add_metadata_work_to_a_local_keystroke() {
     }
     assert_eq!(work, [1314, 1271]);
     // Independent public primitive counts keep the original local-field
-    // equality while exposing actual index shape rather than hiding it.
+    // equality plus 9 indexed inverse-query items; actual index shape stays visible.
     for (value, nodes) in work.iter_mut().zip([404, 361]) {
-        *value -= nodes;
+        *value -= nodes + 9;
     }
     assert_eq!(
         work[0], work[1],

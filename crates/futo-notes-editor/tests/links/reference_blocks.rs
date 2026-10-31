@@ -106,10 +106,10 @@ fn ordinary_heading_text_conversion_does_not_scan_distant_reference_context() {
             .iter()
             .map(|w| w.link_metadata_items)
             .collect::<Vec<_>>(),
-        vec![149, 199]
+        vec![157, 207]
     );
     for (work, nodes) in measured.iter_mut().zip([64, 114]) {
-        work.link_metadata_items -= nodes;
+        work.link_metadata_items -= nodes + 8;
     }
     assert_eq!(measured[0], measured[1]);
 }
