@@ -175,21 +175,23 @@ pub(super) fn declarations(source: &str, winners: &[Winner]) -> (Vec<Definition>
         if let markdown::mdast::Node::Definition(definition) = node {
             if let Some(position) = &definition.position {
                 let range = position.start.offset..position.end.offset;
-                let key = UniCase::new(definition.identifier.clone());
                 work.items += 1;
-                work.copied += definition.identifier.len()
-                    + definition.url.len()
-                    + definition.title.as_ref().map_or(0, String::len);
                 let witness = winners
                     .iter()
                     .find(|winner| {
                         work.items += 1;
-                        UniCase::new(winner.key.as_ref())
-                            == UniCase::new(definition.identifier.as_str())
-                            && winner.range.start <= range.start
-                            && range.start < winner.range.end
+                        winner.range.start <= range.start && range.end <= winner.range.end
                     })
                     .map(|winner| winner.key.clone());
+                // Parser identifiers are not a cross-library representation:
+                // mdast can remove whitespace that pulldown collapses. The
+                // actual canonical source occurrence joins their ownership;
+                // only its resolver key may query the canonical use table.
+                let resolved_key = witness.as_deref().unwrap_or(&definition.identifier);
+                work.copied += resolved_key.len()
+                    + definition.url.len()
+                    + definition.title.as_ref().map_or(0, String::len);
+                let key = UniCase::new(resolved_key.to_owned());
                 result.push(Definition {
                     range,
                     key,

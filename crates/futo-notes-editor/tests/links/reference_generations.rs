@@ -32,14 +32,32 @@ fn prior_delete_and_nested_winner_use_changes_keep_the_current_normalized_refere
         vec![("/first".into(), "First".into(), "É ID".into())],
         "independent canonical parser must establish the normalized winner"
     );
-    let parsed = pulldown_cmark::Parser::new(CHANGED);
-    eprintln!(
-        "raw reference definitions: {:?}",
-        parsed.reference_definitions()
-    );
-    eprintln!(
-        "raw mdast definitions: {:?}",
-        markdown::to_mdast(CHANGED, &Default::default()).unwrap()
+    let tree = markdown::to_mdast(CHANGED, &Default::default()).unwrap();
+    let nodes = tree.children().unwrap();
+    let markdown::mdast::Node::Definition(first) = &nodes[0] else {
+        panic!("expected canonical declaration")
+    };
+    let usage = nodes[1]
+        .children()
+        .unwrap()
+        .iter()
+        .find_map(|node| {
+            if let markdown::mdast::Node::LinkReference(usage) = node {
+                Some(usage)
+            } else {
+                None
+            }
+        })
+        .unwrap();
+    assert_eq!(first.identifier, usage.identifier);
+    assert_eq!(first.url, "/first");
+    assert_eq!(first.title.as_deref(), Some("First"));
+    assert_eq!(
+        first
+            .position
+            .as_ref()
+            .map(|p| p.start.offset..p.end.offset),
+        Some(0..24)
     );
     let canonical = EditorSession::open(CHANGED);
     assert_eq!(
