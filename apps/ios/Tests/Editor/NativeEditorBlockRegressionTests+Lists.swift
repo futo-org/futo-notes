@@ -54,7 +54,7 @@ extension NativeEditorBlockRegressionTests {
             let nested = try load("nested-containers")
             #expect(nested.count == 35)
             let commands = try load("container-commands")
-            #expect(commands.count == 7)
+            #expect(commands.count == 10)
             let cases = original + shortcuts + staging + nested + commands
             for item in cases {
                 let root = FileManager.default.temporaryDirectory.appendingPathComponent(
