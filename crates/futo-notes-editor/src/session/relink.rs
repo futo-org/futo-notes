@@ -94,7 +94,7 @@ fn difference(before: &str, after: &str, work: &mut EditWork) -> (SourceRange, S
 }
 
 // Planning work never represents an extra accepted insertion.
-fn charge(total: &mut EditWork, part: EditWork) {
+pub(super) fn charge(total: &mut EditWork, part: EditWork) {
     total.materialized_source_bytes += part.materialized_source_bytes;
     total.parsed_source_bytes += part.parsed_source_bytes;
     total.link_metadata_items += part.link_metadata_items;
