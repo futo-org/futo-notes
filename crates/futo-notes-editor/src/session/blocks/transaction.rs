@@ -111,7 +111,9 @@ impl EditorSession {
             None
         };
         let pending = Some(staged.prepare_pending_for_parent(window.start));
-        let selection = if mapped {
+        // Only a genuine resolver mutation can change display before this
+        // exact source window. Preserve actual atoms, not its opening base.
+        let selection = if mapped || staged.projection.has_rebuilt_references {
             let (mut exact, work) = staged
                 .projection
                 .source_selection(staged.selection, staged.affinity);

@@ -311,16 +311,34 @@ impl EditorSession {
         let (mut footprint, inserted) = transaction.finish();
         footprint.start.0 += window.start;
         footprint.end.0 += window.start;
-        let selection = DisplayRange {
-            start: DisplayOffset(display_start + staged.selection.start.0),
-            end: DisplayOffset(display_start + staged.selection.end.0),
+        let (selection, selection_work) = if staged.projection.has_rebuilt_references {
+            let (mut selection, work) = staged
+                .projection
+                .source_selection(staged.selection, staged.affinity);
+            selection.start.source.0 += window.start;
+            selection.end.source.0 += window.start;
+            (
+                BlockSelection::Exact {
+                    selection,
+                    window: window.clone(),
+                },
+                work + 2,
+            )
+        } else {
+            (
+                BlockSelection::Display(DisplayRange {
+                    start: DisplayOffset(display_start + staged.selection.start.0),
+                    end: DisplayOffset(display_start + staged.selection.end.0),
+                }),
+                0,
+            )
         };
         let pending = staged.prepare_pending_for_parent(window.start);
         let mut change = self.commit_block_with_pending(
             expected,
             footprint.start.0..footprint.end.0,
             &inserted,
-            BlockSelection::Display(selection),
+            selection,
             None,
             Some(pending),
             accept,
@@ -332,7 +350,8 @@ impl EditorSession {
         change.work.parsed_source_bytes += staged.projection.initial_parse_work
             + deleted.work.parsed_source_bytes
             + entered.work.parsed_source_bytes;
-        change.work.link_metadata_items += staged.projection.initial_link_metadata_items
+        change.work.link_metadata_items += selection_work
+            + staged.projection.initial_link_metadata_items
             + deleted.work.link_metadata_items
             + entered.work.link_metadata_items;
         change.work.link_copied_bytes += staged.projection.initial_link_copied_bytes
