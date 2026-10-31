@@ -2,7 +2,24 @@
 import assert from 'node:assert/strict';
 import { Buffer } from 'node:buffer';
 
-export async function typedOriginConsumer({ start, stop, getSession, createRoot }) {
+export async function typedOriginConsumer({ start, stop, getSession, createRoot, parseSource }) {
+  // Prove each independent standard-source spelling before any typed action.
+  for (const source of [
+    '<[www.x.test/path](<http://www.x.test/path>)>',
+    '<[www.x.test/path](<http://www.x.test/path>)&#62;',
+  ]) {
+    const fresh = parseSource(source);
+    try {
+      const view = JSON.parse(fresh.project(0n, 0, 17));
+      assert.equal(view.text, '<www.x.test/path>');
+      assert.deepEqual(
+        view.links.map((link) => ({ range: link.range, destination: link.destination })),
+        [{ range: { start: 1, end: 16 }, destination: 'http://www.x.test/path' }],
+      );
+    } finally {
+      fresh.free();
+    }
+  }
   for (const input of ['bulk', 'characters']) {
     for (const closed of [false, true]) {
       const root = createRoot(`futo-editor-wasm-www-${input}-${closed}-`);

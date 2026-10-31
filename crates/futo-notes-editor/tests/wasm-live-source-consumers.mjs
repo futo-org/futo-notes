@@ -4,7 +4,7 @@ import { anglePendingConsumer } from './wasm-angle-consumer.mjs';
 import { typedOriginConsumer } from './wasm-typed-origin-consumer.mjs';
 import { sourceGenerationsConsumer } from './wasm-source-generations-consumer.mjs';
 
-export async function liveSourceConsumers({ start, stop, getSession, createRoot }) {
+export async function liveSourceConsumers({ start, stop, getSession, createRoot, parseSource }) {
   const checked = (story) => () =>
     new Proxy(getSession(), {
       get(session, key) {

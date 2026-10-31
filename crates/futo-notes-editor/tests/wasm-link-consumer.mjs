@@ -408,6 +408,7 @@ try {
     start,
     stop,
     getSession: () => session,
+    parseSource: (source) => new WasmSession(0n, source, 0n, 0n),
     createRoot: (prefix) => {
       const root = mkdtempSync(join(tmpdir(), prefix));
       timingVaults.push(root);
