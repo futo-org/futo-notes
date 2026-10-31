@@ -57,7 +57,7 @@ fn public_reference_commands_charge_actual_indexed_coordinate_queries() {
 #[test]
 fn public_distant_input_exposes_its_actual_query_ledger() {
     use crate::{DisplayOffset, DisplayRange, EditorSession, Revision};
-    for count in [20, 20_000] {
+    for (count, expected_nodes, expected_metadata) in [(20, 155, 539), (20_000, 370, 754)] {
         let text = "__word__ rest\r\n\r\n".repeat(count);
         let mut session = EditorSession::open(&text);
         let at = (count - 2) * "word rest\r\n\r\n".len() + 2;
@@ -72,13 +72,17 @@ fn public_distant_input_exposes_its_actual_query_ledger() {
             .replace(Revision(0), range, "x", &mut |_| Ok(()))
             .unwrap();
         let queries = QUERIES.with(|rows| rows.borrow().clone());
-        let added: usize = queries.iter().map(|(_, actual, _)| actual).sum();
-        eprintln!(
-            "COUNT={count}; added={added}; old_nonindex={}; metadata={}; allnodes={}; coordinate_queries={queries:?}",
-            change.work.link_metadata_items - added,
-            change.work.link_metadata_items,
-            visits()
-        );
+        // General block display observations are outside this narrow link
+        // metric. Every actual link query, including line-start eligibility,
+        // and direct input target query belongs to the successful input ledger.
+        let added: usize = queries
+            .iter()
+            .filter(|(name, _, _)| !name.ends_with(".rs") || name.ends_with("session/input.rs"))
+            .map(|(_, actual, _)| actual)
+            .sum();
+        assert_eq!(added, expected_nodes, "{queries:?}");
+        assert_eq!(change.work.link_metadata_items, expected_metadata);
+        assert_eq!(change.work.link_metadata_items - added, 384);
         assert_eq!(change.work.materialized_source_bytes, 87);
         assert_eq!(change.work.parsed_source_bytes, 122);
         assert_eq!(change.work.inserted_bytes, 1);
