@@ -10,7 +10,7 @@ mod url_timing;
 use super::row::SpanKind;
 use super::row::{Row, Span};
 use crate::{EditorError, InlineFormat};
-use render::{render, Rendered};
+use render::render;
 use std::ops::Range;
 pub(super) use url_timing::prepare_url_input;
 
