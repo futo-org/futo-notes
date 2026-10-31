@@ -219,3 +219,62 @@ it('the shipping compositionend rule keeps an unfinished URL closer literal and 
     vi.useRealTimers();
   }
 });
+
+for (const [inner, href] of [
+  ['https://x.test/path', 'https://x.test/path'],
+  ['www.x.test/path', 'http://www.x.test/path'],
+]) {
+  it(`the shipping character input owns angle URI word end for ${inner}`, () => {
+    const view = editor.ctx.get(editorViewCtx);
+    view.updateState(
+      EditorState.create({ schema: view.state.schema, plugins: view.state.plugins }),
+    );
+    const parse = editor.ctx.get(parserCtx);
+    const serializer = createMarkdownSerializer({
+      parse: (text) => parse(text).toJSON() as NodeJson,
+    });
+    editor.ctx.set(serializerCtx, (doc) => serializer.serialize(doc.toJSON() as NodeJson));
+    const linkRuns = (doc = view.state.doc) => {
+      const result: { text: string; href: string }[] = [];
+      doc.descendants((node) => {
+        const mark = node.marks.find((mark) => mark.type.name === 'link');
+        if (mark) result.push({ text: node.text ?? '', href: String(mark.attrs.href) });
+      });
+      return result;
+    };
+    const type = (text: string) => {
+      for (const ch of text) {
+        const { from, to } = view.state.selection;
+        const handled = view.someProp('handleTextInput', (handler) =>
+          handler(view, from, to, ch, () => view.state.tr.insertText(ch)),
+        );
+        if (!handled) view.dispatch(view.state.tr.insertText(ch));
+      }
+    };
+    const snapshot = () => {
+      const source = serializer.serialize(view.state.doc.toJSON() as NodeJson);
+      const reopened = parse(source);
+      return {
+        text: view.state.doc.textContent,
+        links: linkRuns(),
+        source,
+        reopened: { text: reopened.textContent, links: linkRuns(reopened) },
+      };
+    };
+    // Actual shipping character-input and appendTransaction paths. This is
+    // plugin authority, not OS input or native composition evidence.
+    type(`<${inner}`);
+    const opening = snapshot();
+    type('>');
+    const closed = snapshot();
+    type(' ');
+    const ended = snapshot();
+    const evidence = JSON.stringify({ inner, opening, closed, ended });
+    expect(opening.text, evidence).toBe(`<${inner}`);
+    expect(opening.links, evidence).toEqual([]);
+    expect(closed.text, evidence).toBe(`<${inner}>`);
+    expect(closed.links, evidence).toEqual([]);
+    expect(ended.text, evidence).toBe(`<${inner}> `);
+    expect(ended.links, evidence).toEqual([{ text: inner, href }]);
+  });
+}
