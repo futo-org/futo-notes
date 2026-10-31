@@ -199,6 +199,10 @@ impl super::super::Projection {
                 // The split caret is before the new body's opener. An escape
                 // inserted exactly there has Left bias: keep that raw boundary.
                 if repair.range.start < intent.caret {
+                    eprintln!(
+                        "301-before-caret-trace repair={:?} caret={} display_caret={}",
+                        repair.range, intent.caret, intent.display_caret
+                    );
                     return Err(EditorError::UnrepresentableFormat);
                 }
             }
