@@ -226,3 +226,5 @@ mod divider_references;
 mod typed_origin;
 
 mod literal_retirement;
+
+mod partial_ending;
