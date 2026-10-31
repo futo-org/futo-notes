@@ -16,7 +16,13 @@ fn code_literal_release_rejects_atomically_restores_history_and_reopens_without_
             .replace(Revision(0), range(0, 0), "<https://x.test/path")
             .unwrap();
         editor.replace(Revision(1), range(20, 20), ">").unwrap();
-        editor.select(Revision(2), range(15, 20)).unwrap();
+        editor
+            .select_with_affinity(
+                Revision(2),
+                range(15, 20),
+                futo_notes_editor::Affinity::Backward,
+            )
+            .unwrap();
         editor
             .toggle_format(Revision(2), InlineFormat::Code)
             .unwrap()
@@ -43,7 +49,13 @@ fn code_literal_release_rejects_atomically_restores_history_and_reopens_without_
             .unwrap()
             .unwrap();
         let released = editor.source_text();
-        editor.select(Revision(4), range(21, 21)).unwrap();
+        editor
+            .select_with_affinity(
+                Revision(4),
+                range(21, 21),
+                futo_notes_editor::Affinity::Forward,
+            )
+            .unwrap();
         let literal = editor.project(Revision(4), range(0, 21)).unwrap();
         assert!(literal.links.is_empty());
         disk.lock().unwrap().fault = Some(fault);
