@@ -115,3 +115,38 @@ fn item_visitor_preserves_empty_and_inclusive_physical_boundary_predicates() {
         }
     }
 }
+
+#[test]
+fn crossquote_tight_item_owns_an_inline_run_without_a_paragraph_event() {
+    let raw = "- > - b\n  >   c";
+    let events = super::super::row::source_events(raw);
+    let items: Vec<_> = events
+        .iter()
+        .filter_map(|(event, span)| {
+            matches!(event, Event::Start(Tag::Item)).then_some(span.clone())
+        })
+        .collect();
+    assert_eq!(items, vec![0..15, 4..15]);
+    assert!(!events
+        .iter()
+        .any(|(event, _)| matches!(event, Event::Start(Tag::Paragraph))));
+    let inner = events
+        .iter()
+        .position(|(event, span)| matches!(event, Event::Start(Tag::Item)) && *span == (4..15))
+        .unwrap();
+    assert!(
+        matches!(&events[inner + 1], (Event::Text(text), span) if text.as_ref() == "b" && *span == (6..7))
+    );
+    assert!(matches!(&events[inner + 2], (Event::SoftBreak, span) if *span == (7..8)));
+    assert!(
+        matches!(&events[inner + 3], (Event::Text(text), span) if text.as_ref() == "c" && *span == (14..15))
+    );
+    assert!(matches!(
+        &events[inner + 4],
+        (Event::End(pulldown_cmark::TagEnd::Item), _)
+    ));
+    let projection = super::super::Projection::new(raw);
+    let source = ropey::Rope::from_str(raw);
+    let (_, _, _, paragraph) = projection.list_items_and_paragraph_at(&source, 4, Some(6));
+    assert_eq!(paragraph, None);
+}
