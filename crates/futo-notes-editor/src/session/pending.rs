@@ -9,6 +9,13 @@ pub(super) struct PendingPreview {
     pub work: EditWork,
 }
 
+/// All selections belong to one prepared output source. The caller owns any
+/// result collection; ordinary single-selection previews allocate no table.
+pub(super) struct SelectionTargets<'a> {
+    pub selections: &'a [crate::history::ExactSelection],
+    pub emit: &'a mut dyn FnMut(DisplayRange),
+}
+
 impl EditorSession {
     /// Every spelling-plan consumer prepares flagged output fields through the
     /// same canonical bounded preview. Input additionally transports surviving
@@ -148,6 +155,30 @@ impl EditorSession {
         required: &[Range<usize>],
         selection: Option<crate::history::ExactSelection>,
     ) -> Result<(PendingPreview, Option<DisplayRange>), EditorError> {
+        let mut selected = None;
+        let prepared = self.preview_exact_targets(
+            edit,
+            window,
+            pending,
+            require_all,
+            required,
+            SelectionTargets {
+                selections: selection.as_slice(),
+                emit: &mut |range| selected = Some(range),
+            },
+        )?;
+        Ok((prepared, selected))
+    }
+
+    pub(super) fn preview_exact_targets(
+        &self,
+        edit: &SourceEdit,
+        window: Range<usize>,
+        pending: Option<&PendingLinks>,
+        require_all: bool,
+        required: &[Range<usize>],
+        targets: SelectionTargets<'_>,
+    ) -> Result<PendingPreview, EditorError> {
         if edit.range.start.0 < window.start || edit.range.end.0 > window.end {
             return Err(EditorError::UnrepresentableFormat);
         }
@@ -169,17 +200,13 @@ impl EditorSession {
         work.parsed_source_bytes += staged.projection.initial_parse_work;
         work.link_metadata_items += staged.projection.initial_link_metadata_items;
         work.link_copied_bytes += staged.projection.initial_link_copied_bytes;
-        let selected =
-            self.preview_exact_selection(&staged, window.clone(), selection, &mut work)?;
+        self.preview_exact_selections(&staged, window.clone(), targets, &mut work)?;
         let Some(pending) = pending else {
-            return Ok((
-                PendingPreview {
-                    supported: None,
-                    retired: Vec::new(),
-                    work,
-                },
-                selected,
-            ));
+            return Ok(PendingPreview {
+                supported: None,
+                retired: Vec::new(),
+                work,
+            });
         };
         let start = pending
             .window
@@ -276,41 +303,34 @@ impl EditorSession {
                     return Err(EditorError::UnrepresentableFormat);
                 }
             }
-            Ok((
-                PendingPreview {
-                    supported: None,
-                    retired: Vec::new(),
-                    work,
-                },
-                selected,
-            ))
+            Ok(PendingPreview {
+                supported: None,
+                retired: Vec::new(),
+                work,
+            })
         } else {
             // Only canonical whole bare spans supported by the actual candidate
             // survive. Changed URL extents are new fields, not old identities.
             actual.work = 0;
             work.link_metadata_items += actual.relocate_source(window.start);
-            Ok((
-                PendingPreview {
-                    supported: Some(actual),
-                    retired: Vec::new(),
-                    work,
-                },
-                selected,
-            ))
+            Ok(PendingPreview {
+                supported: Some(actual),
+                retired: Vec::new(),
+                work,
+            })
         }
     }
 
-    fn preview_exact_selection(
+    fn preview_exact_selections(
         &self,
         staged: &Self,
         window: Range<usize>,
-        selection: Option<crate::history::ExactSelection>,
+        targets: SelectionTargets<'_>,
         work: &mut EditWork,
-    ) -> Result<Option<DisplayRange>, EditorError> {
-        let Some(selection) = selection else {
-            return Ok(None);
-        };
-        work.link_metadata_items += 1;
+    ) -> Result<(), EditorError> {
+        if targets.selections.is_empty() {
+            return Ok(());
+        }
         if staged.projection.needs_global_references {
             return Err(EditorError::UnrepresentableFormat);
         }
@@ -370,14 +390,18 @@ impl EditorSession {
             work.link_metadata_items += visits;
             offset.ok_or(EditorError::UnrepresentableFormat)
         };
-        let start = project(selection.start, work)?;
-        let end = project(selection.end, work)?;
-        if start > end {
-            return Err(EditorError::UnrepresentableFormat);
+        for selection in targets.selections {
+            work.link_metadata_items += 1;
+            let start = project(selection.start, work)?;
+            let end = project(selection.end, work)?;
+            if start > end {
+                return Err(EditorError::UnrepresentableFormat);
+            }
+            (targets.emit)(DisplayRange {
+                start: DisplayOffset(start),
+                end: DisplayOffset(end),
+            });
         }
-        Ok(Some(DisplayRange {
-            start: DisplayOffset(start),
-            end: DisplayOffset(end),
-        }))
+        Ok(())
     }
 }
