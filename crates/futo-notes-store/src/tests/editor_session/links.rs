@@ -233,3 +233,5 @@ mod input_lifecycle;
 
 #[path = "links/partial_guard_scopes.rs"]
 mod partial_guard_scopes;
+
+mod compound_derived;
