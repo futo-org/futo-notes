@@ -430,6 +430,19 @@ fn a_live_code_colon_keeps_its_origin_through_a_multiline_quoted_heading_split()
     // Same exact canonical source and selection, freshly loaded without the
     // live scalar field, distinguish source/layout from transient transport.
     let mut loaded_control = EditorSession::open(&guarded);
+    assert_eq!(loaded_control.display_text(), view.text);
+    let loaded_before = loaded_control.project(Revision(0), range(0, 26)).unwrap();
+    assert!(
+        loaded_before.links.is_empty(),
+        "guarded source before split={guarded:?}; query={loaded_before:?}"
+    );
+    assert!(
+        loaded_before
+            .runs
+            .iter()
+            .any(|run| run.range == range(20, 25) && run.formats.contains(&InlineFormat::Code)),
+        "guarded source before split={guarded:?}; query={loaded_before:?}"
+    );
     loaded_control.select(Revision(0), range(20, 25)).unwrap();
     let mut loaded_view = ReferenceView::new("head\n<https://x.test/path>");
     loaded_view.apply(
