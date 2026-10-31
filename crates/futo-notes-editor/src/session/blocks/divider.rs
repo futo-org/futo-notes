@@ -50,7 +50,8 @@ impl EditorSession {
             .pending
             .as_ref()
             .is_some_and(|pending| pending.has_fields());
-        let (unchanged_left, unchanged_right) = if retain_fields {
+        let retain_layout = retain_fields || !body.retained.is_empty();
+        let (unchanged_left, unchanged_right) = if retain_layout {
             (
                 super::physical_layout::same_source(
                     &body.left[..heading_end],
@@ -64,11 +65,11 @@ impl EditorSession {
         };
         let protected_bytes = left.len() + right.len();
         let left_layout =
-            super::content::physical_body(&left, body.prefixes.iter().skip(1), retain_fields);
+            super::content::physical_body(&left, body.prefixes.iter().skip(1), retain_layout);
         let right_layout = super::content::physical_body(
             &right,
             body.prefixes.iter().skip(body.right_line + 1),
-            retain_fields,
+            retain_layout,
         );
         let left = &left_layout.text;
         let right = &right_layout.text;
@@ -153,6 +154,62 @@ impl EditorSession {
                 pending.map_copied(0..output.len(), |range| layout.retained_range(range))
             })
             .transpose()?;
+        let mut retained = Vec::new();
+        for witness in body.retained {
+            layout_work += 1;
+            let (mapped, visits) = layout.retained_range(witness.after);
+            layout_work += visits;
+            if let Some(after) = mapped {
+                layout_work += 2;
+                retained.push(crate::inline::references::RetainedBody {
+                    before: witness.before,
+                    after,
+                });
+            }
+        }
+        let (ordered, visits) = crate::inline::references::RetainedBody::ordered(&retained);
+        layout_work += visits;
+        if !ordered {
+            return Err(EditorError::UnrepresentableFormat);
+        }
+        // The command owns the divider atom and editable paragraph. The old
+        // visible side slices retain their intent in this exact physical scope.
+        let (display_start, a) = self.projection.display_at_with_work(start);
+        let (display_end, z) = self.projection.display_at_with_work(end);
+        layout_work += a + z;
+        let left_shown = self
+            .projection
+            .display
+            .byte_slice(display_start..range.start.0);
+        let right_shown = self.projection.display.byte_slice(range.end.0..display_end);
+        let mut intended = String::new();
+        if !left.is_empty() {
+            intended.extend(left_shown.chars());
+            intended.push('\n');
+        }
+        intended.push('\u{fffc}');
+        intended.push('\n');
+        let display_caret = intended.len();
+        if !right.is_empty() {
+            intended.push('\n');
+            intended.extend(right_shown.chars());
+        }
+        let intended_bytes = intended.len();
+        let regions = [right_start..output.len()];
+        let (reference_work, reference_bytes) = self.projection.protect_body_definitions(
+            &self.source,
+            self.context.origin.as_ref(),
+            start..end,
+            &mut output,
+            &retained,
+            Some(crate::inline::references::BodyIntent {
+                display: &intended,
+                regions: &regions,
+                caret: caret - start,
+                display_caret,
+            }),
+            pending.as_mut(),
+        )?;
         if let Some(pending) = &mut pending {
             pending.work += pending.relocate_source(start);
         }
@@ -177,11 +234,17 @@ impl EditorSession {
             + last_prefix.len()
             + last_suffix.len()
             + lead.len()
-            + output.len();
-        change.work.parsed_source_bytes += body.parsed + left_work + right_work;
-        change.work.link_metadata_items +=
-            body.link_metadata_items + layout_work + left_layout.work + right_layout.work;
-        change.work.link_copied_bytes += body.link_copied_bytes;
+            + output.len()
+            + intended_bytes
+            + reference_bytes;
+        change.work.parsed_source_bytes +=
+            body.parsed + left_work + right_work + reference_work.parsed;
+        change.work.link_metadata_items += body.link_metadata_items
+            + layout_work
+            + left_layout.work
+            + right_layout.work
+            + reference_work.items;
+        change.work.link_copied_bytes += body.link_copied_bytes + reference_work.copied;
         Ok(Some(change))
     }
 }
