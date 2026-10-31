@@ -279,3 +279,7 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "staging_physical_tests.rs"]
+mod physical_tests;

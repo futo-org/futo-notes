@@ -1,0 +1,45 @@
+//! Physical-end provenance must remain independent of visible neighbors.
+use super::*;
+
+#[test]
+fn exact_edge_provenance_survives_nested_windows_but_never_derived_ancestry() {
+    let prefix = "- parent\n  ```\n  opaque\n";
+    for tail in ["", "- outside", "<!-- -->\n", "  continuation\n"] {
+        let full = format!("{prefix}{tail}");
+        let real = EditorSession::open(&full);
+        let exact = real.stage_source(prefix, 0..prefix.len());
+        let nested = exact.stage_source(prefix, 0..prefix.len());
+        for session in [&exact, &nested] {
+            match session.physical_tail() {
+                PhysicalTail::Eof => assert!(tail.is_empty()),
+                PhysicalTail::Row {
+                    code, first_item, ..
+                } => {
+                    assert!(!tail.is_empty());
+                    if tail == "- outside" {
+                        assert!(!code);
+                        assert_eq!(first_item, Some(true));
+                    }
+                    if tail == "  continuation\n" {
+                        assert!(code);
+                        assert_eq!(first_item, Some(false));
+                    }
+                }
+                other => panic!("unexpected exact physical edge: {other:?}"),
+            }
+        }
+        let derived = real.stage_body_source(prefix, 0..full.len());
+        let grandchild = derived.stage_source(prefix, 0..prefix.len());
+        assert!(matches!(derived.physical_tail(), PhysicalTail::Unknown));
+        assert!(matches!(grandchild.physical_tail(), PhysicalTail::Unknown));
+    }
+}
+
+#[test]
+fn exact_window_inside_a_physical_code_row_has_no_boundary_proof() {
+    let raw = "- parent\n  ```\n  opaque\n- outside";
+    let real = EditorSession::open(raw);
+    let end = raw.find("opaque").unwrap() + 2;
+    let staged = real.stage_source(&raw[..end], 0..end);
+    assert!(matches!(staged.physical_tail(), PhysicalTail::Unknown));
+}
