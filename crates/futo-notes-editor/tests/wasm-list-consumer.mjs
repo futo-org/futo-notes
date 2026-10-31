@@ -32,7 +32,19 @@ const headers = JSON.parse(
   readFileSync(new URL('fixtures/list-header-commands.json', import.meta.url)),
 );
 assert.equal(headers.length, 14);
-const cases = [...original, ...shortcuts, ...staging, ...nested, ...commands, ...headers];
+const frames = JSON.parse(
+  readFileSync(new URL('fixtures/prefix-frame-commands.json', import.meta.url)),
+);
+assert.equal(frames.length, 25);
+const cases = [
+  ...original,
+  ...shortcuts,
+  ...staging,
+  ...nested,
+  ...commands,
+  ...headers,
+  ...frames,
+];
 const units = (text) => Uint16Array.from({ length: text.length }, (_, at) => text.charCodeAt(at));
 function host(vault, source) {
   const worker = spawn(process.argv[3], [vault, source], { stdio: ['pipe', 'pipe', 'inherit'] });

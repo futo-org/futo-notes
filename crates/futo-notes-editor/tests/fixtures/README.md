@@ -97,7 +97,12 @@ ordered child lifting copies that start into each newly independent following ow
 Same-line quote/list controls retain empty lifted paragraphs, physical CRLF and quote
 prefixes, raw nonidentity entity atoms and native UTF-16 interior carets. Task-body
 quote/heading punctuation stays literal. Together with the unchanged original seventy-four
-list cases, all six source consumers load 150 cases. Original seventy-two structural
+list cases, all six source consumers load 175 cases, including twenty-five
+`prefix-frame-commands.json` literals. These distinguish nearest Outdent and
+registered Backspace from full Text lifting. Unchanged implicit empty parents
+keep compact source; an action-created parallel paragraph gets a physical frame.
+A newly empty shared bullet header uses the existing alternate-marker policy
+only when its old spelling would become a thematic break. Original seventy-two structural
 seams remain separate and unchanged. `itemDepths` overrides each first item's default
 list depth of one; `itemQuoteDepths` overrides that item's global `quoteDepth` default.
 These are hand-worked source/display/native UTF-16/history literals, not native OS input

@@ -154,6 +154,11 @@ fn shared_list_actions_survive_failed_append_undo_flush_power_loss_and_checkpoin
     ))
     .unwrap();
     assert_eq!(headers.len(), 14);
+    let frames: Vec<Value> = serde_json::from_str(include_str!(
+        "../../../../futo-notes-editor/tests/fixtures/prefix-frame-commands.json"
+    ))
+    .unwrap();
+    assert_eq!(frames.len(), 25);
     let cases: Vec<_> = original
         .into_iter()
         .chain(shortcuts)
@@ -161,6 +166,7 @@ fn shared_list_actions_survive_failed_append_undo_flush_power_loss_and_checkpoin
         .chain(nested)
         .chain(commands)
         .chain(headers)
+        .chain(frames)
         .collect();
     for case in &cases {
         let text = |key: &str| case[key].as_str().unwrap();

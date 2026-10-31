@@ -4,22 +4,22 @@ options:
   preGenCommand: node ../../scripts/generate-native-language-resources.mjs --ios
   postGenCommand: node ../../scripts/ios-scheme-test-storekit.mjs
   deploymentTarget:
-    iOS: "18.0"
+    iOS: '18.0'
   createIntermediateGroups: true
 
 settings:
   base:
-    CODE_SIGNING_ALLOWED: "NO"
-    CODE_SIGNING_REQUIRED: "NO"
-    CODE_SIGN_IDENTITY: ""
-    SWIFT_VERSION: "5.0"
+    CODE_SIGNING_ALLOWED: 'NO'
+    CODE_SIGNING_REQUIRED: 'NO'
+    CODE_SIGN_IDENTITY: ''
+    SWIFT_VERSION: '5.0'
     SWIFT_STRICT_CONCURRENCY: minimal
 
 targets:
   FutoNotesNative:
     type: application
     platform: iOS
-    deploymentTarget: "18.0"
+    deploymentTarget: '18.0'
     # The app's generated scheme runs the FutoNotesNativeTests bundle in its
     # Test action (so `xcodebuild test -scheme FutoNotesNative` finds it).
     scheme:
@@ -74,8 +74,8 @@ targets:
         # see .cirrus.yml). Without these a local Release archive ships no
         # CFBundleShortVersionString/CFBundleVersion, which App Store Connect
         # rejects. Keep MARKETING_VERSION in step with the latest release tag.
-        MARKETING_VERSION: "1.9.0"
-        CURRENT_PROJECT_VERSION: "1"
+        MARKETING_VERSION: '1.9.0'
+        CURRENT_PROJECT_VERSION: '1'
         # Export compliance (App Store upload). The app uses only standard
         # cryptography (AES-256-GCM + PBKDF2 for E2EE, TLS for transport) and
         # claims the exemption, so the upload skips the manual encryption
@@ -83,21 +83,21 @@ targets:
         # FUTO's compliance posture (a self-classification / ERN report to BIS
         # may be required for non-exempt strong crypto) before the first
         # production submission.
-        INFOPLIST_KEY_ITSAppUsesNonExemptEncryption: "NO"
+        INFOPLIST_KEY_ITSAppUsesNonExemptEncryption: 'NO'
         # App icon shared with the Tauri build (Assets.xcassets/AppIcon.appiconset).
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
-        ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES: "AppIconLightReversed AppIconDarkStandard AppIconDarkReversed AppIconFuto AppIconWebsite"
-        INFOPLIST_KEY_CFBundleDisplayName: "FUTO Notes"
-        INFOPLIST_KEY_UILaunchScreen_Generation: "YES"
-        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: "YES"
+        ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES: 'AppIconLightReversed AppIconDarkStandard AppIconDarkReversed AppIconFuto AppIconWebsite'
+        INFOPLIST_KEY_CFBundleDisplayName: 'FUTO Notes'
+        INFOPLIST_KEY_UILaunchScreen_Generation: 'YES'
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: 'YES'
         # Editor image insertion (bridge 'pickImage'). The library path uses
         # PHPicker (out-of-process, no prompt) but the description is required
         # for App Store review hygiene; the camera path genuinely prompts.
-        INFOPLIST_KEY_NSPhotoLibraryUsageDescription: "Attach photos from your library to notes."
-        INFOPLIST_KEY_NSCameraUsageDescription: "Take a photo to attach to a note, and scan a pairing code when you set up sync on another device."
-        INFOPLIST_KEY_UISupportedInterfaceOrientations: "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
-        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
-        GENERATE_INFOPLIST_FILE: "YES"
+        INFOPLIST_KEY_NSPhotoLibraryUsageDescription: 'Attach photos from your library to notes.'
+        INFOPLIST_KEY_NSCameraUsageDescription: 'Take a photo to attach to a note, and scan a pairing code when you set up sync on another device.'
+        INFOPLIST_KEY_UISupportedInterfaceOrientations: 'UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight'
+        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: 'UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight'
+        GENERATE_INFOPLIST_FILE: 'YES'
         # Base Info.plist supplies what the flat INFOPLIST_KEY_* form can't express:
         # the nested NSAppTransportSecurity dict (cleartext http:// for self-hosted
         # sync servers) + the Files-app exposure keys (UIFileSharingEnabled,
@@ -109,8 +109,8 @@ targets:
         # uses ad-hoc signing (run.sh passes CODE_SIGN_IDENTITY=-); device builds
         # sign with a real team (run-device.sh).
         CODE_SIGN_ENTITLEMENTS: FutoNotesNative.entitlements
-        CODE_SIGNING_REQUIRED: "NO"
-        TARGETED_DEVICE_FAMILY: "1,2"
+        CODE_SIGNING_REQUIRED: 'NO'
+        TARGETED_DEVICE_FAMILY: '1,2'
         # Hosted sync ("Log in with FUTO") is a build-time flag: on for debug
         # and for the internal TestFlight build, off for the store until launch
         # (ADR 0003 decision 13). Debug hard-codes the condition below; Release
@@ -119,7 +119,7 @@ targets:
         # rather than overriding SWIFT_ACTIVE_COMPILATION_CONDITIONS on the
         # xcodebuild line, because a command-line override of that replaces the
         # project's value instead of adding to it.
-        FUTO_HOSTED_SYNC_CONDITION: ""
+        FUTO_HOSTED_SYNC_CONDITION: ''
       # ── Dev/prod separation (mirrors the Tauri debug guard) ──
       # Debug builds get a SEPARATE bundle id + data root + keychain service so a
       # dev/debug install can never overwrite the production app or touch the
@@ -134,16 +134,16 @@ targets:
       configs:
         Debug:
           PRODUCT_BUNDLE_IDENTIFIER: com.futo.notes.dev
-          INFOPLIST_KEY_CFBundleDisplayName: "FUTO Notes Dev"
+          INFOPLIST_KEY_CFBundleDisplayName: 'FUTO Notes Dev'
           # Dev keychain group must match the dev bundle id.
           CODE_SIGN_ENTITLEMENTS: FutoNotesNative.dev.entitlements
           # DEBUG already defined by Xcode's default Swift flags; FUTO_DEBUG_BUILD
           # is our own compile-time marker so the dev/prod split is explicit and
           # testable independent of the DEBUG macro.
-          SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) DEBUG FUTO_DEBUG_BUILD FUTO_HOSTED_SYNC"
+          SWIFT_ACTIVE_COMPILATION_CONDITIONS: '$(inherited) DEBUG FUTO_DEBUG_BUILD FUTO_HOSTED_SYNC'
         Release:
           PRODUCT_BUNDLE_IDENTIFIER: com.futo.notes
-          SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) $(FUTO_HOSTED_SYNC_CONDITION)"
+          SWIFT_ACTIVE_COMPILATION_CONDITIONS: '$(inherited) $(FUTO_HOSTED_SYNC_CONDITION)'
 
   # Swift Testing unit-test bundle. Hosted by FutoNotesNative (the app
   # dependency below) so `@testable import FutoNotesNative` reaches the app's
@@ -152,7 +152,7 @@ targets:
   FutoNotesNativeTests:
     type: bundle.unit-test
     platform: iOS
-    deploymentTarget: "18.0"
+    deploymentTarget: '18.0'
     sources:
       - path: Tests
       # Shared cross-shell fixture, referenced in place (never copied): the
@@ -177,6 +177,8 @@ targets:
         buildPhase: resources
       - path: ../../crates/futo-notes-editor/tests/fixtures/list-header-commands.json
         buildPhase: resources
+      - path: ../../crates/futo-notes-editor/tests/fixtures/prefix-frame-commands.json
+        buildPhase: resources
       - path: ../../crates/futo-notes-editor/tests/fixtures/list-staging.json
         buildPhase: resources
       - path: ../../crates/futo-notes-editor/tests/fixtures/list-shortcuts.json
@@ -192,7 +194,7 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.futo.notes.tests
-        GENERATE_INFOPLIST_FILE: "YES"
+        GENERATE_INFOPLIST_FILE: 'YES'
     # The bridge call-surface guard scans EditorWebView.swift and the
     # EditorHost*.swift files it is split across at runtime, so their text must
     # ride along in the test bundle. Xcode's resource phase refuses to copy
@@ -217,7 +219,7 @@ targets:
   FutoNotesNativeUITests:
     type: bundle.ui-testing
     platform: iOS
-    deploymentTarget: "18.0"
+    deploymentTarget: '18.0'
     sources:
       - path: UITests
       # The staging license pair, compiled in rather than copied: the UI test
@@ -233,7 +235,7 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.futo.notes.ui-tests
-        GENERATE_INFOPLIST_FILE: "YES"
-        CODE_SIGNING_ALLOWED: "YES"
-        CODE_SIGNING_REQUIRED: "NO"
-        CODE_SIGN_IDENTITY: "-"
+        GENERATE_INFOPLIST_FILE: 'YES'
+        CODE_SIGNING_ALLOWED: 'YES'
+        CODE_SIGNING_REQUIRED: 'NO'
+        CODE_SIGN_IDENTITY: '-'
