@@ -92,3 +92,6 @@ mod before_repair_fields;
 
 #[path = "links/canonical_positions.rs"]
 mod canonical_positions;
+
+#[path = "links/reference_generations.rs"]
+mod reference_generations;
