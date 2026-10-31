@@ -189,9 +189,6 @@ impl Rows {
         }
     }
     /// Mutating transient metadata never changes indexed source/display lengths.
-    pub fn metadata_mut(&mut self, index: usize) -> &mut Row {
-        self.metadata_mut_with_work(index).0
-    }
     pub fn metadata_mut_with_work(&mut self, mut index: usize) -> (&mut Row, usize) {
         let mut node = self.root.as_deref_mut().unwrap();
         let mut work = 0;

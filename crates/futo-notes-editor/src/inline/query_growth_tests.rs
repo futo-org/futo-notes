@@ -20,17 +20,13 @@ fn measured(work: EditWork) -> (EditWork, usize) {
         .link_metadata_items
         .checked_sub(nodes)
         .unwrap_or_else(|| panic!("work={work:?}; nodes={nodes}; ledger={:?}", snapshot()));
-    eprintln!(
-        "WORK={work:?}; NODES={nodes}; FIXED={fixed:?}; LEDGER={:?}",
-        snapshot()
-    );
     (fixed, nodes)
 }
 #[test]
 fn public_growth_work_separates_actual_index_visits_from_retained_local_work() {
     for growing in ["definitions", "uses", "tail"] {
         let mut results = Vec::new();
-        for count in [20, 200] {
+        for (index, count) in [20, 200].into_iter().enumerate() {
             let tail = match growing {
                 "definitions" => (0..count)
                     .map(|i| format!("[unused{i}]: https://unused.test/{i}\n\n"))
@@ -51,7 +47,12 @@ fn public_growth_work_separates_actual_index_visits_from_retained_local_work() {
                 .replace(Revision(1), range(5, 9), "BODY", &mut |_| Ok(()))
                 .unwrap();
             let body = measured(body.work);
-            eprintln!("KIND={growing}; COUNT={count}; LABEL={label:?}; BODY={body:?}");
+            let expected_nodes = if growing == "uses" {
+                [(99, 125), (183, 206)]
+            } else {
+                [(91, 119), (173, 188)]
+            };
+            assert_eq!((label.1, body.1), expected_nodes[index]);
             results.push((label.0, body.0));
         }
         assert_eq!(results[0], results[1], "{growing}");
@@ -61,7 +62,7 @@ fn public_growth_work_separates_actual_index_visits_from_retained_local_work() {
 fn public_structural_growth_work_retains_the_original_fixed_work_budget() {
     for command in [BlockCommand::Heading(0), BlockCommand::Divider] {
         let mut results = Vec::new();
-        for count in [20, 200, 2000] {
+        for (index, count) in [20, 200, 2000].into_iter().enumerate() {
             let head = if matches!(command, BlockCommand::Divider) {
                 "alpha beta"
             } else {
@@ -83,7 +84,12 @@ fn public_structural_growth_work_retains_the_original_fixed_work_budget() {
                 .unwrap()
                 .unwrap();
             let (fixed, nodes) = measured(change.work);
-            eprintln!("COMMAND={command:?}; COUNT={count}; NODES={nodes}; FIXED={fixed:?}");
+            let expected_nodes = if matches!(command, BlockCommand::Divider) {
+                [105, 162, 233]
+            } else {
+                [64, 114, 189]
+            };
+            assert_eq!(nodes, expected_nodes[index]);
             results.push(fixed);
         }
         for work in &results[1..] {
@@ -105,7 +111,7 @@ fn public_structural_growth_work_retains_the_original_fixed_work_budget() {
 #[test]
 fn public_pending_growth_work_keeps_foreign_word_fields_outside_the_local_ledger() {
     let mut results = Vec::new();
-    for count in [20, 200] {
+    for (index, count) in [20, 200].into_iter().enumerate() {
         let mut session = EditorSession::open(&"x\n\n".repeat(count));
         for index in (0..count).rev() {
             session
@@ -122,7 +128,8 @@ fn public_pending_growth_work_keeps_foreign_word_fields_outside_the_local_ledger
             .replace(session.revision(), range(8, 8), "x", &mut |_| Ok(()))
             .unwrap();
         let (fixed, nodes) = measured(change.work);
-        eprintln!("PENDING COUNT={count}; NODES={nodes}; FIXED={fixed:?}");
+        assert_eq!(nodes, [404, 361][index]);
+        assert_eq!(fixed.link_metadata_items, 901);
         results.push(fixed);
     }
     assert_eq!(results[0], results[1]);

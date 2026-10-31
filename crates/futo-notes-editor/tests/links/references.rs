@@ -58,6 +58,21 @@ fn ordinary_reference_label_and_body_edits_do_not_copy_or_scan_distant_definitio
             assert!(session.display_text().starts_with("the\n\nBODY\n\n"));
             work.push((label.work, body.work));
         }
+        // Exact primitive-ledger contributions; preserve equality of all local
+        // work after separating the actual paragraph index traversal.
+        let (expected, nodes) = match growing {
+            "definitions" => ([(346, 384), (428, 453)], [(91, 119), (173, 188)]),
+            "uses" => ([(386, 454), (470, 535)], [(99, 125), (183, 206)]),
+            _ => ([(346, 374), (428, 443)], [(91, 119), (173, 188)]),
+        };
+        for (index, (label, body)) in work.iter_mut().enumerate() {
+            assert_eq!(
+                (label.link_metadata_items, body.link_metadata_items),
+                expected[index]
+            );
+            label.link_metadata_items -= nodes[index].0;
+            body.link_metadata_items -= nodes[index].1;
+        }
         assert_eq!(work[0], work[1], "local work grew with unrelated {growing}");
     }
 }

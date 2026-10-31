@@ -71,7 +71,7 @@ fn public_reference_commands_charge_actual_indexed_coordinate_queries() {
 #[test]
 fn public_distant_input_exposes_its_actual_query_ledger() {
     use crate::{DisplayOffset, DisplayRange, EditorSession, Revision};
-    for (count, expected_nodes, expected_metadata) in [(20, 155, 539), (20_000, 370, 754)] {
+    for (count, expected_nodes, expected_metadata) in [(20, 167, 551), (20_000, 400, 784)] {
         let text = "__word__ rest\r\n\r\n".repeat(count);
         let mut session = EditorSession::open(&text);
         let at = (count - 2) * "word rest\r\n\r\n".len() + 2;

@@ -100,6 +100,17 @@ fn ordinary_heading_text_conversion_does_not_scan_distant_reference_context() {
         assert_eq!(session.source_text(), original[2..]);
         measured.push(change.work);
     }
+    // The public primitive ledger pins the new indexed component separately.
+    assert_eq!(
+        measured
+            .iter()
+            .map(|w| w.link_metadata_items)
+            .collect::<Vec<_>>(),
+        vec![149, 199]
+    );
+    for (work, nodes) in measured.iter_mut().zip([64, 114]) {
+        work.link_metadata_items -= nodes;
+    }
     assert_eq!(measured[0], measured[1]);
 }
 

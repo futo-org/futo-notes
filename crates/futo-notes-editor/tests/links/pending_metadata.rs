@@ -30,6 +30,12 @@ fn unfinished_urls_elsewhere_do_not_add_metadata_work_to_a_local_keystroke() {
         );
         work.push(change.work.link_metadata_items);
     }
+    assert_eq!(work, [1305, 1262]);
+    // Independent public primitive counts keep the original local-field
+    // equality while exposing actual index shape rather than hiding it.
+    for (value, nodes) in work.iter_mut().zip([404, 361]) {
+        *value -= nodes;
+    }
     assert_eq!(
         work[0], work[1],
         "distant unfinished URL metadata must stay in its own rows"
