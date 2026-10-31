@@ -38,3 +38,6 @@ mod angle_authored;
 
 #[path = "links/partial_url_commands.rs"]
 mod partial_url_commands;
+
+#[path = "links/physical_prefixes.rs"]
+mod physical_prefixes;
