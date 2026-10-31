@@ -14,6 +14,38 @@ pub(crate) struct ValidationAtom {
     pub identity: bool,
     pub code: bool,
 }
+impl ValidationAtom {
+    pub(crate) fn source_step(
+        &mut self,
+        base: usize,
+        edit: &Range<usize>,
+        inserted: usize,
+    ) -> Result<usize, EditorError> {
+        let start = base
+            .checked_add(edit.start)
+            .ok_or(EditorError::UnrepresentableFormat)?;
+        let end = base
+            .checked_add(edit.end)
+            .ok_or(EditorError::UnrepresentableFormat)?;
+        if end <= self.source.start {
+            self.source.start = self
+                .source
+                .start
+                .checked_sub(edit.len())
+                .and_then(|at| at.checked_add(inserted))
+                .ok_or(EditorError::UnrepresentableFormat)?;
+            self.source.end = self
+                .source
+                .end
+                .checked_sub(edit.len())
+                .and_then(|at| at.checked_add(inserted))
+                .ok_or(EditorError::UnrepresentableFormat)?;
+        } else if self.source.end > start {
+            return Err(EditorError::UnrepresentableFormat);
+        }
+        Ok(4)
+    }
+}
 pub(crate) struct SplitInventory {
     pub identity: Arc<CodeWordIdentity>,
     pub atoms: Vec<ValidationAtom>,

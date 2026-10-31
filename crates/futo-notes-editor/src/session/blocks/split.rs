@@ -101,7 +101,7 @@ impl EditorSession {
             unchanged_right,
             setext,
         };
-        let (retired_atoms, retirement_work) =
+        let (mut retired_atoms, retirement_work) =
             layout.guard_atoms(body.retired_atoms, line.source.start)?;
         layout_work += retirement_work;
         let mut pending = body
@@ -150,6 +150,7 @@ impl EditorSession {
                     &mut output,
                     &retained,
                     Some(crate::inline::references::BodyIntent {
+                        retired_atoms: &mut retired_atoms,
                         display: &expected_display,
                         regions: &regions,
                         caret: right_start,

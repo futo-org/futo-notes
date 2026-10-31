@@ -167,7 +167,7 @@ impl EditorSession {
                 });
             }
         }
-        let (retired_atoms, retirement_work) = layout.guard_atoms(body.retired_atoms, start)?;
+        let (mut retired_atoms, retirement_work) = layout.guard_atoms(body.retired_atoms, start)?;
         layout_work += retirement_work;
         let (ordered, visits) = crate::inline::references::RetainedBody::ordered(&retained);
         layout_work += visits;
@@ -206,6 +206,7 @@ impl EditorSession {
                 &mut output,
                 &retained,
                 Some(crate::inline::references::BodyIntent {
+                    retired_atoms: &mut retired_atoms,
                     display: &intended,
                     regions: &regions,
                     caret: caret - start,

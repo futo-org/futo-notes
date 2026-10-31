@@ -20,6 +20,7 @@ impl RetainedBody {
 
 pub(crate) struct BodyIntent<'a> {
     pub display: &'a str,
+    pub retired_atoms: &'a mut [crate::inline::guarded_words::ValidationAtom],
     pub regions: &'a [Range<usize>],
     pub caret: usize,
     pub display_caret: usize,
@@ -51,7 +52,7 @@ impl super::super::Projection {
         range: Range<usize>,
         output: &mut String,
         bodies: &[RetainedBody],
-        intent: Option<BodyIntent<'_>>,
+        mut intent: Option<BodyIntent<'_>>,
         mut pending: Option<&mut crate::inline::PendingLinks>,
     ) -> Result<(ReferenceWork, usize, Option<usize>), EditorError> {
         let mut work = ReferenceWork::default();
@@ -235,6 +236,12 @@ impl super::super::Projection {
                     // No retained atom/point is inferred inside overwritten
                     // syntax. Its owning correspondence must prove that case.
                     return Err(EditorError::UnrepresentableFormat);
+                }
+            }
+            if let Some(intent) = intent.as_mut() {
+                for atom in intent.retired_atoms.iter_mut() {
+                    work.items +=
+                        atom.source_step(range.start, &repair.range, repair.inserted.len())?;
                 }
             }
             if let Some(pending) = pending.as_deref_mut() {
