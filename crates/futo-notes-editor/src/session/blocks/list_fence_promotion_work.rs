@@ -135,7 +135,17 @@ fn multiple_fence_planning_preview_and_commit_have_bounded_actual_work_growth() 
                 },
             )
             .unwrap();
-        assert_eq!(projection.blocks.iter().filter(|b| b.code).count(), count);
+        // Public blocks describe physical code rows, including hidden frame
+        // rows. Unique authored info strings witness the distinct fences.
+        let languages: std::collections::BTreeSet<_> = projection
+            .blocks
+            .iter()
+            .filter(|b| b.code)
+            .map(|b| b.language.clone().unwrap())
+            .collect();
+        let expected_languages: std::collections::BTreeSet<_> =
+            (0..count).map(|index| format!("lang{index}")).collect();
+        assert_eq!(languages, expected_languages);
         assert!(projection
             .blocks
             .iter()
