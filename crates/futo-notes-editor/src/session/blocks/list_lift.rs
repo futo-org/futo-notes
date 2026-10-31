@@ -45,45 +45,19 @@ impl EditorSession {
         } else {
             "\n"
         };
-        if shared_line
-            && selected.depth == 2
-            && selected.quote_depth == 0
-            && selected
-                .parent_marker
-                .as_ref()
-                .is_some_and(|parent| parent.start == start)
-            && first.quote_depth == 1
-            && lines.len() == 1
-            && end <= first.source.end
-            && !first.code
-            && first.heading == 0
-            && first.task.is_none()
-        {
-            // The earlier same-quote empty list item survives; retiring the
-            // selected item also preserves its empty paragraph and child quote.
-            let inner = &quote[selected.indent..];
-            let cut = super::indent_source::canonical_quote_end(inner, 1)
-                .ok_or(EditorError::UnrepresentableFormat)?;
-            let output = format!(
-                "{}{newline}{newline}{}",
-                &quote[..selected.marker.start - start],
-                &inner[..cut]
-            );
+        if let Some(plan) = same_quote_header_plan(lines, &quote, newline)? {
             let mut change = self.commit_planned_prefix(
                 expected,
                 range,
                 start..first.content.start,
-                &output,
+                &plan.output,
                 HeaderShape::Plain {
                     quotes: 1,
-                    earlier: Some((
-                        selected.parent_marker.as_ref().unwrap().start,
-                        selected.parent_number,
-                    )),
+                    earlier: Some(plan.earlier),
                 },
                 accept,
             )?;
-            change.work.materialized_source_bytes += quote.len() + ending.len() + output.len();
+            change.work.materialized_source_bytes += quote.len() + ending.len() + plan.output.len();
             return Ok(Some(change));
         }
         let separator = selected.parent_marker.is_some() || {
@@ -233,4 +207,60 @@ impl EditorSession {
         change.work.materialized_source_bytes += materialized;
         Ok(Some(change))
     }
+}
+
+struct SameQuoteHeaderPlan {
+    output: String,
+    earlier: (usize, Option<u64>),
+}
+
+fn same_quote_header_plan(
+    lines: &[ListCommandLine],
+    quote: &str,
+    newline: &str,
+) -> Result<Option<SameQuoteHeaderPlan>, EditorError> {
+    let first = &lines[0];
+    let selected = first
+        .list
+        .as_ref()
+        .ok_or(EditorError::UnrepresentableFormat)?;
+    let start = first.source.start;
+    let end = selected.outer_item.end;
+    let shared_line = selected
+        .parent_marker
+        .as_ref()
+        .is_some_and(|parent| parent.start >= start);
+    if shared_line
+        && selected.depth == 2
+        && selected.quote_depth == 0
+        && selected
+            .parent_marker
+            .as_ref()
+            .is_some_and(|parent| parent.start == start)
+        && first.quote_depth == 1
+        && lines.len() == 1
+        && end <= first.source.end
+        && !first.code
+        && first.heading == 0
+        && first.task.is_none()
+    {
+        // The earlier same-quote empty list item survives; retiring the
+        // selected item also preserves its empty paragraph and child quote.
+        let inner = &quote[selected.indent..];
+        let cut = super::indent_source::canonical_quote_end(inner, 1)
+            .ok_or(EditorError::UnrepresentableFormat)?;
+        let output = format!(
+            "{}{newline}{newline}{}",
+            &quote[..selected.marker.start - start],
+            &inner[..cut]
+        );
+        return Ok(Some(SameQuoteHeaderPlan {
+            output,
+            earlier: (
+                selected.parent_marker.as_ref().unwrap().start,
+                selected.parent_number,
+            ),
+        }));
+    }
+    Ok(None)
 }
