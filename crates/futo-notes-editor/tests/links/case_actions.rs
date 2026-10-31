@@ -163,3 +163,81 @@ fn completed_https_paste_keeps_literal_angles_and_clean_case_preserving_href() {
     editor.redo(Revision(2), &mut |_| Ok(())).unwrap().unwrap();
     assert_eq!(editor.source_text(), saved);
 }
+
+#[test]
+fn mixed_case_www_has_live_timing_only_from_actual_input_not_loaded_explicit_source() {
+    let inner = "WwW.x.test/PaTh";
+    let source = "<[WwW.x.test/PaTh](<http://WwW.x.test/PaTh>)> ";
+    let target = expected(inner, "http://WwW.x.test/PaTh", source);
+    let loaded = EditorSession::open(source.trim_end());
+    assert_eq!(
+        loaded.inspect_link(Revision(0), range(1, 2)).unwrap(),
+        Some(target.clone())
+    );
+    let mut typed = EditorSession::open("");
+    for ch in format!("<{inner}>").chars() {
+        let at = typed.display_text().len();
+        typed
+            .replace(
+                typed.revision(),
+                range(at, at),
+                &ch.to_string(),
+                &mut |_| Ok(()),
+            )
+            .unwrap();
+        assert!(typed
+            .inspect_link(typed.revision(), range(1, 2))
+            .unwrap()
+            .is_none());
+    }
+    let fresh = EditorSession::open(&typed.source_text());
+    assert_eq!(
+        fresh.inspect_link(Revision(0), range(1, 2)).unwrap(),
+        Some(target.clone())
+    );
+    let at = typed.display_text().len();
+    typed
+        .replace(typed.revision(), range(at, at), " ", &mut |_| Ok(()))
+        .unwrap();
+    assert_eq!(
+        typed.inspect_link(typed.revision(), range(1, 2)).unwrap(),
+        Some(target)
+    );
+}
+
+#[test]
+fn completed_marked_https_input_uses_the_same_clean_committed_capsule() {
+    let inner = "HTTPS://x.test/PaTh";
+    let target = expected(inner, inner, "<<HTTPS://x.test/PaTh>> ");
+    let text = "<HTTPS://x.test/PaTh> ";
+    let mut editor = EditorSession::open("");
+    editor.compose(Revision(0), range(0, 0), text).unwrap();
+    assert_eq!(editor.source_text(), "");
+    let mut accepted = 0;
+    let change = editor
+        .commit_composition(Revision(0), None, &mut |_| {
+            accepted += 1;
+            Ok(())
+        })
+        .unwrap()
+        .unwrap();
+    assert_eq!(accepted, 1);
+    assert_eq!(change.selection, range(text.len(), text.len()));
+    assert!(editor.composition().is_none());
+    assert_eq!(editor.display_text(), text);
+    assert_eq!(
+        editor.inspect_link(Revision(1), range(1, 2)).unwrap(),
+        Some(target.clone())
+    );
+    let saved = editor.source_text();
+    let fresh = EditorSession::open(&saved);
+    assert_eq!(fresh.display_text(), text);
+    assert_eq!(
+        fresh.inspect_link(Revision(0), range(1, 2)).unwrap(),
+        Some(target)
+    );
+    editor.undo(Revision(1), &mut |_| Ok(())).unwrap().unwrap();
+    assert_eq!(editor.source_text(), "");
+    editor.redo(Revision(2), &mut |_| Ok(())).unwrap().unwrap();
+    assert_eq!(editor.source_text(), saved);
+}
