@@ -204,6 +204,20 @@ impl EditorSession {
                 String::new()
             } else {
                 match command {
+                    BlockCommand::OrderedList
+                        if line
+                            .list
+                            .as_ref()
+                            .is_some_and(|list| list.ordinal.is_some()) =>
+                    {
+                        // Task state is independent of the existing ordered
+                        // marker. Retain lazy physical numbers and tab padding.
+                        let end = line
+                            .task
+                            .as_ref()
+                            .map_or(prefix.len(), |task| task.start - line.source.start);
+                        prefix[retained..end].to_owned()
+                    }
                     BlockCommand::OrderedList => format!(
                         "{}{} ",
                         super::super::lists::physical_number(

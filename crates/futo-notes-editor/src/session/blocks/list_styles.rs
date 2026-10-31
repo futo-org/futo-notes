@@ -299,14 +299,31 @@ impl EditorSession {
                     .map(|(marker, _)| marker),
                 ListIntent::Independent => None,
             };
+            // Removing task state from an already ordered owner preserves
+            // that owner's start and delimiter; it does not wrap a new list.
+            let retained_ordered = ordered
+                && matches!(intent, ListIntent::Independent)
+                && head
+                    .list
+                    .as_ref()
+                    .is_some_and(|list| list.ordinal.is_some());
             let marker = cached.map_or_else(
-                || join.unwrap_or_else(|| independent_marker(ordered, before, after)),
+                || {
+                    if retained_ordered {
+                        crate::inline::visit_container();
+                        self.source.byte(head.list.as_ref().unwrap().marker.end - 1)
+                    } else {
+                        join.unwrap_or_else(|| independent_marker(ordered, before, after))
+                    }
+                },
                 |style| style.marker,
             );
             for index in first..last {
                 crate::inline::visit_container();
                 result.markers[index] = marker;
-                result.ordinals[index] = if let Some(owner) = &owner {
+                result.ordinals[index] = if retained_ordered {
+                    lines[index].list.as_ref().unwrap().ordinal.unwrap()
+                } else if let Some(owner) = &owner {
                     // Nested owners can intervene in physical source order;
                     // they must not restart their enclosing owner's sequence.
                     crate::inline::visit_container();
