@@ -245,7 +245,7 @@ impl TypedState {
                     .next()
                     .is_some_and(char::is_whitespace);
             if input.inserted == ">" || ending {
-                ending::finish(pieces, markers, body, &origin, ending, &mut work)?;
+                ending::finish(pieces, markers, body, &origin, &mut work)?;
                 return Ok(work);
             }
             if input.inserted.contains(char::is_whitespace) || input.inserted.contains(['<', '>']) {

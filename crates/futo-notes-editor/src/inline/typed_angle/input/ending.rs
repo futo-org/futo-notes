@@ -6,7 +6,6 @@ pub(super) fn finish(
     markers: &mut Vec<Marker>,
     body: Range<usize>,
     origin: &TypedAngleOrigin,
-    whitespace: bool,
     work: &mut ReferenceWork,
 ) -> Result<(), EditorError> {
     let text = displayed(&pieces[body.clone()], work);
@@ -47,7 +46,7 @@ pub(super) fn finish(
     } else {
         // A partial canonical prefix is a word-end conversion of the actual
         // seeded candidate. It is never stored as a complete URI payload.
-        if !whitespace || origin.uri.is_some() {
+        if origin.uri.is_some() {
             return Err(EditorError::UnrepresentableFormat);
         }
         let mut shown = 0;
