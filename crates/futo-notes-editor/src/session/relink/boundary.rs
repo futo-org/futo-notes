@@ -103,6 +103,7 @@ impl Boundary {
                 &mut work,
                 prepared.validate_original(&replay.session, side.pending)?,
             );
+            work.link_metadata_items += rewrite.code_witnesses(&mut prepared.codes)?;
             work.link_metadata_items += prepared.pending.work;
             prepared.pending.work = 0;
             fields.push(prepared);
@@ -129,6 +130,7 @@ impl Boundary {
             &mut work,
             aggregate.validate_original(&replay.session, &before)?,
         );
+        work.link_metadata_items += rewrite.code_witnesses(&mut aggregate.codes)?;
         work.link_metadata_items += aggregate.pending.work;
         aggregate.pending.work = 0;
         fields.push(aggregate);

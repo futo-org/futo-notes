@@ -74,9 +74,9 @@ fn same(original: &CodeWordIdentity, candidate: &CanonicalUri, work: &mut EditWo
         && original.meaning.reference == candidate.meaning.reference
 }
 impl rewrite::Fields {
-    /// Original Code coverage is required independently of the final candidate.
+    /// Original canonical Code markers are captured independently of the final candidate.
     pub fn validate_original(
-        &self,
+        &mut self,
         session: &EditorSession,
         original: &crate::inline::PendingLinks,
     ) -> Result<EditWork, EditorError> {
@@ -89,7 +89,8 @@ impl rewrite::Fields {
                 work.link_metadata_items += 5;
             }
         }
-        let (uris, parsed) = session.projection.relink_code_uris(&words, 0)?;
+        let (uris, codes, parsed) = session.projection.relink_code_uris(&words, 0, None)?;
+        self.codes = codes;
         charge(&mut work, parsed);
         for (word, uri) in words.iter().zip(&uris) {
             if !same(&word.identity, uri, &mut work) {
@@ -114,7 +115,10 @@ impl rewrite::Fields {
                 work.link_metadata_items += 5;
             }
         }
-        let (uris, parsed) = staged.projection.relink_code_uris(&words, origin)?;
+        let (uris, _, parsed) =
+            staged
+                .projection
+                .relink_code_uris(&words, origin, Some(&self.codes))?;
         charge(&mut work, parsed);
         let mut uris = uris.into_iter();
         for (index, word) in self.pending.guarded_words.iter_mut().enumerate() {

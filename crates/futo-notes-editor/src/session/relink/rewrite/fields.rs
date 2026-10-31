@@ -48,9 +48,27 @@ pub(in crate::session::relink) struct Fields {
     pub witnesses: Vec<PendingLinkWitness>,
     pub changed_guards: Vec<bool>,
     pub programs: Vec<Vec<(usize, usize)>>,
+    pub codes: Vec<Vec<crate::inline::guarded_words::CodeWitness>>,
     pub changed_links: Vec<bool>,
 }
 impl Rewrite {
+    pub fn code_witnesses(
+        &self,
+        codes: &mut [Vec<crate::inline::guarded_words::CodeWitness>],
+    ) -> Result<usize, EditorError> {
+        let mut work = 0;
+        for step in &self.steps {
+            for owner in codes.iter_mut() {
+                work += 1;
+                for witness in owner {
+                    witness.open = copied(step, witness.open.clone(), &mut work)?;
+                    witness.close = copied(step, witness.close.clone(), &mut work)?;
+                    work += 2;
+                }
+            }
+        }
+        Ok(work)
+    }
     pub fn fields(
         &self,
         pending: &PendingLinks,
@@ -60,6 +78,7 @@ impl Rewrite {
             pending: pending.clone(),
             changed_guards: vec![false; pending.guarded_words.len()],
             programs: vec![Vec::new(); pending.guarded_words.len()],
+            codes: Vec::new(),
             changed_links: vec![false; witnesses.len()],
             witnesses,
         };
