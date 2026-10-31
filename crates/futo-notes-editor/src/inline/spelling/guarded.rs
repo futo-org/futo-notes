@@ -108,7 +108,7 @@ impl GuardState {
                     inner.end = range.end;
                 }
                 (GuardRole::Close, Some((id, envelope, inner)))
-                    if *id == part.id && envelope.end == range.start && !inner.is_empty() =>
+                    if *id == part.id && envelope.end == range.start && inner.start < inner.end =>
                 {
                     *work += 6;
                     let word = GuardedWord {

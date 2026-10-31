@@ -144,3 +144,51 @@ fn typed_http_and_www_words_share_code_guard_lifetime_without_loaded_enrollment(
         );
     }
 }
+
+#[test]
+fn typed_angle_word_end_has_a_pending_owner_before_any_code_command() {
+    for (inner, destination) in [
+        ("https://x.test/path", "https://x.test/path"),
+        ("www.x.test/path", "http://www.x.test/path"),
+    ] {
+        let mut session = EditorSession::open("");
+        let mut view = ReferenceView::new("");
+        let unfinished = format!("<{inner}");
+        let end = unfinished.len();
+        view.apply(
+            session
+                .replace(Revision(0), range(0, 0), &unfinished, &mut |_| Ok(()))
+                .unwrap(),
+        );
+        view.apply(
+            session
+                .replace(Revision(1), range(end, end), ">", &mut |_| Ok(()))
+                .unwrap(),
+        );
+        let before = session.source_text();
+        let fresh = EditorSession::open(&before);
+        let canonical = fresh.inspect_link(Revision(0), range(1, 2)).unwrap();
+        assert_eq!(view.text, format!("<{inner}>"));
+        assert!(
+            session
+                .project(Revision(2), range(0, end + 1))
+                .unwrap()
+                .links
+                .is_empty(),
+            "inner={inner:?}; source={before:?}; canonical={canonical:?}"
+        );
+        view.apply(
+            session
+                .replace(Revision(2), range(end + 1, end + 1), " ", &mut |_| Ok(()))
+                .unwrap(),
+        );
+        let link = session.inspect_link(Revision(3), range(1, 2)).unwrap();
+        assert_eq!(
+            link.as_ref().map(|link| link.destination.as_str()),
+            Some(destination),
+            "inner={inner:?}; before={before:?}; canonical={canonical:?}; after={:?}",
+            session.source_text()
+        );
+        assert_eq!(view.text, format!("<{inner}> "));
+    }
+}
