@@ -211,3 +211,67 @@ multiline!(
     Text,
     1
 );
+
+#[test]
+fn literal_crlf_entity_frames_preserve_both_body_owners_and_raw_atoms() {
+    for (raw, shown, depth, quotes, first) in [
+        (
+            "> - > &acE;\r\n>   > c",
+            "\u{223e}\u{0333}\r\nc",
+            Some(1),
+            2,
+            true,
+        ),
+        (
+            "> - \r\n>   &acE;\r\n>   c",
+            "\r\n\u{223e}\u{0333}\r\nc",
+            Some(1),
+            1,
+            false,
+        ),
+        (
+            "> - &acE;\r\n>   c",
+            "\u{223e}\u{0333}\r\nc",
+            Some(1),
+            1,
+            true,
+        ),
+        (
+            "- > - &acE;\r\n  >   c",
+            "\u{223e}\u{0333}\r\nc",
+            Some(2),
+            1,
+            true,
+        ),
+        (
+            "\r\n> &acE;\r\n> c",
+            "\r\n\u{223e}\u{0333}\r\nc",
+            None,
+            1,
+            false,
+        ),
+    ] {
+        let s = EditorSession::open(raw);
+        assert_eq!(s.source_text(), raw);
+        assert_eq!(s.display_text(), shown, "{raw:?}");
+        let body = shown.find('\u{223e}').unwrap();
+        let p = s.project(s.revision(), range(body, body + 5)).unwrap();
+        assert!(
+            p.blocks.iter().any(|b| !b.code
+                && b.heading == 0
+                && b.quote_depth == quotes
+                && b.list.as_ref().map(|l| (l.depth, l.first)) == depth.map(|d| (d, first))),
+            "{raw:?}"
+        );
+        let c = shown.find('c').unwrap();
+        let p = s.project(s.revision(), range(c, c + 1)).unwrap();
+        assert!(
+            p.blocks.iter().any(|b| !b.code
+                && b.heading == 0
+                && b.quote_depth == quotes
+                && b.list.as_ref().map(|l| l.depth) == depth),
+            "{raw:?}"
+        );
+        assert!(raw.contains("&acE;"));
+    }
+}
