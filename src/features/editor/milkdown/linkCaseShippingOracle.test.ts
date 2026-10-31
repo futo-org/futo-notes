@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
-// Canonical case and actual input-kind controls; no native clipboard/IME claim.
+// Canonical case and input transaction controls. The raw paste fixture omits
+// app plainTextPaste Markdown interpretation; no native clipboard/IME claim.
 import { afterAll, beforeAll, expect, it } from 'vitest';
 import {
   Editor,
@@ -52,7 +53,7 @@ for (const [inner, href, action] of [
   ['WWW.x.test/path', 'http://WWW.x.test/path', 'characters'],
   ['HTTPS://x.test/path', 'HTTPS://x.test/path', 'paste'],
 ] as const) {
-  it(`the shipping canonical parser and ${action} preserve ${inner}`, () => {
+  it(`the canonical parser and raw ${action} transaction preserve ${inner}`, () => {
     const view = editor.ctx.get(editorViewCtx);
     view.updateState(
       EditorState.create({ schema: view.state.schema, plugins: view.state.plugins }),
@@ -138,3 +139,17 @@ for (const [text, inner, href, shiftKey] of [
     expect(view.state.doc.firstChild?.lastChild?.attrs.isInline).toBe(true);
   });
 }
+
+it('an actual committed text transaction ending in LF ends its HTTP word', () => {
+  const view = editor.ctx.get(editorViewCtx);
+  view.updateState(EditorState.create({ schema: view.state.schema, plugins: view.state.plugins }));
+  const text = '<HTTPS://x.test/PaTh>\n';
+  view.dispatch(view.state.tr.insertText(text).setMeta('composition', 301));
+  const found: { text: string; href: string }[] = [];
+  view.state.doc.descendants((node) => {
+    const mark = node.marks.find((mark) => mark.type.name === 'link');
+    if (mark && node.isText) found.push({ text: node.text ?? '', href: String(mark.attrs.href) });
+  });
+  expect(view.state.doc.textContent).toBe(text);
+  expect(found).toEqual([{ text: 'HTTPS://x.test/PaTh', href: 'HTTPS://x.test/PaTh' }]);
+});
