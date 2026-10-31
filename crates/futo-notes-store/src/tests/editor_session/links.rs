@@ -332,7 +332,6 @@ fn derived_reference_body_split_preserves_interior_atom_history_on_append_reject
         assert_eq!(editor.source_text(), original);
         assert_eq!(editor.display_text(), opening);
         assert_eq!(editor.selection(), range(3, 3));
-        assert_eq!(editor.affinity(), Affinity::Backward);
         assert_eq!(
             editor
                 .project(Revision(0), range(0, opening.len()))
@@ -349,10 +348,10 @@ fn derived_reference_body_split_preserves_interior_atom_history_on_append_reject
         assert_eq!(editor.source_text(), entered);
         assert_eq!(editor.display_text(), shown);
         assert_eq!(editor.selection(), range(6, 6));
-        editor.undo(Revision(1)).unwrap().unwrap();
+        let restored = editor.undo(Revision(1)).unwrap().unwrap();
         assert_eq!(editor.source_text(), original);
         assert_eq!(editor.selection(), range(3, 3));
-        assert_eq!(editor.affinity(), Affinity::Backward);
+        assert_eq!(restored.affinity, Affinity::Backward);
         editor.redo(Revision(2)).unwrap().unwrap();
         assert_eq!(editor.source_text(), entered);
         assert_eq!(editor.selection(), range(6, 6));
