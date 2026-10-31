@@ -59,3 +59,6 @@ mod literal_retirement;
 
 #[path = "links/compact_timing.rs"]
 mod compact_timing;
+
+#[path = "links/typed_origin_edits.rs"]
+mod typed_origin_edits;
