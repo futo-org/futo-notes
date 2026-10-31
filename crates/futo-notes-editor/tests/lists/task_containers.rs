@@ -49,3 +49,53 @@ fn wide_tabbed_task_retargets_use_content_columns_before_the_checkbox() {
         }
     }
 }
+
+const QUOTED_CRLF_TASK: &str = "> 1000.\t[x] parent\r\n>\r\n>       continuation\r\n>\r\n>       ```js\r\n>       opaque\r\n>       ```\r\n>\r\n>       - child\r\n> 1001.\toutside";
+const QUOTED_CRLF_SHOWN: &str = "parent\r\n\r\ncontinuation\r\n\r\nopaque\r\n\r\nchild\r\noutside";
+const QUOTED_CRLF_ORDERED: &str = "> 1000.\tparent\r\n>\r\n>       continuation\r\n>\r\n>       ```js\r\n>       opaque\r\n>       ```\r\n>\r\n>       - child\r\n> 1001.\toutside";
+const QUOTED_CRLF_BULLET: &str = "> - parent\r\n>\r\n>   continuation\r\n>\r\n>   ```js\r\n>   opaque\r\n>   ```\r\n>\r\n>   - child\r\n> - outside";
+
+fn quoted_crlf_open(expected: &str, numbers: &[Option<usize>]) {
+    for (raw, expected_numbers, checked) in [
+        (
+            QUOTED_CRLF_TASK,
+            &[Some(1000), None, Some(1001)][..],
+            Some(true),
+        ),
+        (expected, numbers, None),
+    ] {
+        let s = EditorSession::open(raw);
+        assert_eq!(s.source_text(), raw);
+        assert_eq!(s.display_text(), QUOTED_CRLF_SHOWN);
+        let p = s
+            .project(s.revision(), range(0, QUOTED_CRLF_SHOWN.len()))
+            .unwrap();
+        let items: Vec<_> = p
+            .blocks
+            .iter()
+            .filter_map(|b| b.list.as_ref().filter(|l| l.first))
+            .collect();
+        assert_eq!(
+            items.iter().map(|l| l.depth).collect::<Vec<_>>(),
+            vec![1, 2, 1]
+        );
+        assert_eq!(
+            items.iter().map(|l| l.number).collect::<Vec<_>>(),
+            expected_numbers
+        );
+        assert_eq!(items[0].checked, checked);
+        assert!(p.blocks.iter().all(|b| b.quote_depth == 1));
+        assert!(p.blocks.iter().any(|b| b.code
+            && b.language.as_deref() == Some("js")
+            && b.list.as_ref().is_some_and(|l| l.depth == 1)));
+    }
+}
+
+#[test]
+fn quoted_crlf_tabbed_task_ordered_plan_opens_with_exact_columns_and_fence_owners() {
+    quoted_crlf_open(QUOTED_CRLF_ORDERED, &[Some(1000), None, Some(1001)]);
+}
+#[test]
+fn quoted_crlf_tabbed_task_bullet_plan_opens_with_exact_columns_and_fence_owners() {
+    quoted_crlf_open(QUOTED_CRLF_BULLET, &[None, None, None]);
+}
