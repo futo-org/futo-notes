@@ -52,16 +52,24 @@ impl EditorSession {
             setext,
         );
         let (right, right_work) = super::content::protect_content(&body.right, false, true);
-        let mut layout_work = 0;
-        let unchanged_left =
-            super::physical_layout::same_source(&body.left[..heading_end], &left, &mut layout_work);
-        let unchanged_right =
-            super::physical_layout::same_source(&body.right, &right, &mut layout_work);
         let retain_layout = line.heading > 0
             || body
                 .pending
                 .as_ref()
                 .is_some_and(|pending| pending.has_fields());
+        let mut layout_work = 0;
+        let (unchanged_left, unchanged_right) = if retain_layout {
+            (
+                super::physical_layout::same_source(
+                    &body.left[..heading_end],
+                    &left,
+                    &mut layout_work,
+                ),
+                super::physical_layout::same_source(&body.right, &right, &mut layout_work),
+            )
+        } else {
+            (false, false)
+        };
         let left_layout =
             super::content::physical_body(&left, body.prefixes.iter().skip(1), retain_layout);
         let right_layout = super::content::physical_body(

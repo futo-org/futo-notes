@@ -46,15 +46,23 @@ impl EditorSession {
             last.underline.is_some() || last.heading == 0,
         );
         let mut layout_work = 0;
-        let unchanged_left =
-            super::physical_layout::same_source(&body.left[..heading_end], &left, &mut layout_work);
-        let unchanged_right =
-            super::physical_layout::same_source(&body.right, &right, &mut layout_work);
-        let protected_bytes = left.len() + right.len();
         let retain_fields = body
             .pending
             .as_ref()
             .is_some_and(|pending| pending.has_fields());
+        let (unchanged_left, unchanged_right) = if retain_fields {
+            (
+                super::physical_layout::same_source(
+                    &body.left[..heading_end],
+                    &left,
+                    &mut layout_work,
+                ),
+                super::physical_layout::same_source(&body.right, &right, &mut layout_work),
+            )
+        } else {
+            (false, false)
+        };
+        let protected_bytes = left.len() + right.len();
         let left_layout =
             super::content::physical_body(&left, body.prefixes.iter().skip(1), retain_fields);
         let right_layout = super::content::physical_body(
