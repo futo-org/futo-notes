@@ -1,5 +1,5 @@
 //! Public actions calibrate actual consumed work before aggregation is repaired.
-use super::{children, reset};
+use super::{children as child_snapshot, reset};
 use crate::*;
 fn range(a: usize, z: usize) -> DisplayRange {
     DisplayRange {
@@ -43,7 +43,7 @@ fn public_actions_report_each_consumed_planning_contribution() {
             .unwrap();
         assert_eq!(session.source_text(), expected, "{name}");
         assert_eq!(session.display_text(), canonical.display_text());
-        let children = children();
+        let children = child_snapshot();
         assert!(
             children
                 .iter()
@@ -62,7 +62,7 @@ fn public_actions_report_each_consumed_planning_contribution() {
         .unwrap();
     assert_eq!(session.source_text(), "- https://x.test");
     assert_eq!(session.display_text(), "https://x.test");
-    let children = children();
+    let children = child_snapshot();
     assert!(children
         .iter()
         .any(|(name, part)| *name == "shortcut-remove" && part.link_metadata_items > 0));
@@ -83,7 +83,7 @@ fn public_actions_report_each_consumed_planning_contribution() {
         .unwrap();
     assert_eq!(session.source_text(), expected);
     assert_eq!(session.display_text(), expected);
-    let children = children();
+    let children = child_snapshot();
     assert!(children
         .iter()
         .any(|(name, part)| *name == "semantic-delimiters" && part.link_metadata_items > 0));
