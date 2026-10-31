@@ -165,18 +165,21 @@ impl super::Projection {
             .collect();
         link_metadata_items += pending.len();
         if !pending.is_empty() {
+            let mut membership_work = 0;
             let mut retained = |id: &usize| {
                 pending
                     .binary_search_by(|candidate| {
-                        link_metadata_items += 1;
+                        membership_work += 1;
                         candidate.cmp(id)
                     })
                     .is_err()
             };
             existing.retain(&mut retained);
             for piece in &mut pieces {
+                link_metadata_items += 1;
                 piece.spans.retain(&mut retained);
             }
+            link_metadata_items += membership_work;
         }
         if existing.len() == 1 && !destination.is_empty() {
             let marker = &mut markers[existing[0]];
