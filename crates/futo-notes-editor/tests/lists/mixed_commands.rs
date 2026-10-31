@@ -176,3 +176,63 @@ fn mixed_selected_kinds_toggle_independently_in_one_protected_action() {
     assert_eq!(s.source_text(), expected);
     assert_eq!(s.selection(), selected);
 }
+
+#[test]
+fn ordered_outer_items_keep_their_sequence_across_a_selected_nested_item() {
+    let raw = "- parent\n  - child\n- following";
+    let expected = "1. parent\n   1. child\n2. following";
+    let shown = "parent\nchild\nfollowing";
+    let selected = range(7, 13);
+    let mut s = EditorSession::open(raw);
+    let mut view = ReferenceView::new(shown);
+    s.select_with_affinity(s.revision(), selected, Affinity::Backward)
+        .unwrap();
+    assert!(matches!(
+        s.block_command(
+            s.revision(),
+            selected,
+            BlockCommand::OrderedList,
+            &mut |_| Err("append rejected".into())
+        ),
+        Err(EditorError::Persistence(_))
+    ));
+    assert_eq!(s.source_text(), raw);
+    assert_eq!(s.revision(), Revision(0));
+    let mut accepted = 0;
+    view.apply(
+        s.block_command(
+            s.revision(),
+            selected,
+            BlockCommand::OrderedList,
+            &mut |_| {
+                accepted += 1;
+                Ok(())
+            },
+        )
+        .unwrap()
+        .unwrap(),
+    );
+    assert_eq!(accepted, 1);
+    assert_eq!(s.source_text(), expected);
+    assert_eq!(view.text, shown);
+    assert_eq!(s.selection(), selected);
+    let p = s.project(s.revision(), range(0, shown.len())).unwrap();
+    assert_eq!(
+        p.blocks
+            .iter()
+            .filter_map(|block| block
+                .list
+                .as_ref()
+                .filter(|list| list.first)
+                .map(|list| (list.depth, list.number)))
+            .collect::<Vec<_>>(),
+        vec![(1, Some(1)), (2, Some(1)), (1, Some(2))]
+    );
+    view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(s.source_text(), raw);
+    assert_eq!(s.selection(), selected);
+    assert_eq!(s.affinity(), Affinity::Backward);
+    view.apply(s.redo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(s.source_text(), expected);
+    assert_eq!(s.selection(), selected);
+}
