@@ -70,3 +70,42 @@ fn shared_frame_plan_counts_actual_row_and_emitted_prefix_work_without_ancestor_
         );
     }
 }
+
+#[test]
+fn multiline_frame_paragraph_range_excludes_later_item_blocks_and_foreign_items() {
+    for (raw, end) in [
+        ("- > b\n  > c\n\n  tail\n- outside", 12),
+        ("- > b\r\n  > c\r\n\r\n  tail\r\n- outside", 14),
+        ("- > b  \n  > c\n\n  tail\n- outside", 14),
+    ] {
+        let s = EditorSession::open(raw);
+        let (items, parsed, window, paragraph) =
+            s.projection
+                .list_items_and_paragraph_at(&s.source, 0, Some(4));
+        assert_eq!(parsed, raw.len());
+        assert_eq!(window, 0..raw.len());
+        assert_eq!(paragraph, Some(4..end));
+        let owner = items.iter().find(|item| item.marker.start == 0).unwrap();
+        assert!(owner.item.end > end);
+        let mut at = 0;
+        let mut physical = Vec::new();
+        while at < end {
+            let row = s.projection.source_prefix_at(at).unwrap();
+            assert!(!row.code);
+            assert_eq!(row.quote_depth, 1);
+            assert_eq!(row.list.as_ref().unwrap().item, owner.item);
+            assert!(row.source.end <= end);
+            physical.push(s.source.byte_slice(row.content.clone()).to_string());
+            at = row.source.end;
+        }
+        assert_eq!(at, end);
+        assert_eq!(
+            physical,
+            if raw.contains("b  ") {
+                vec!["b  ", "c"]
+            } else {
+                vec!["b", "c"]
+            }
+        );
+    }
+}
