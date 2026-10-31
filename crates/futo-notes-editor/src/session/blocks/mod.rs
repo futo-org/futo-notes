@@ -37,6 +37,8 @@ mod list_styles;
 mod list_targets;
 mod list_typing;
 mod lists;
+mod physical_layout;
+mod split;
 mod transaction;
 mod typing;
 
@@ -71,7 +73,15 @@ enum HeaderShape<'a> {
 enum BlockSelection {
     Display(DisplayRange),
     Source(usize),
+    SourceWithRetiredAtoms {
+        source: usize,
+        atoms: Vec<crate::inline::guarded_words::ValidationAtom>,
+    },
     SourceRange(std::ops::Range<usize>),
+    Exact {
+        selection: crate::history::ExactSelection,
+        window: std::ops::Range<usize>,
+    },
 }
 
 impl EditorSession {
@@ -97,9 +107,12 @@ impl EditorSession {
         self.pending_formats = formats;
         self.affinity = affinity;
         change.affinity = affinity;
+        let (source, work) = self.capture_history_selection();
+        change.work.link_metadata_items += work;
         let after = self.undo.last_mut().unwrap().entries.last_mut().unwrap();
         after.after_formats = self.pending_formats.clone();
         after.after_affinity = affinity;
+        after.after_source = source;
     }
 
     fn commit_block_edit(
@@ -111,6 +124,19 @@ impl EditorSession {
         input: Option<HistoryInput<'_>>,
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<ViewChange, EditorError> {
+        self.commit_block_with_pending(expected, range, inserted, selection, input, None, accept)
+    }
+
+    fn commit_block_with_pending(
+        &mut self,
+        expected: Revision,
+        range: std::ops::Range<usize>,
+        inserted: &str,
+        selection: BlockSelection,
+        input: Option<HistoryInput<'_>>,
+        pending: Option<crate::inline::PendingLinks>,
+        accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
+    ) -> Result<ViewChange, EditorError> {
         let edit = self.prepare_source(
             expected,
             SourceRange {
@@ -119,33 +145,153 @@ impl EditorSession {
             },
             inserted,
         )?;
+        self.commit_prepared_block_with_pending(edit, selection, input, pending, accept)
+    }
+
+    fn commit_prepared_block_with_pending(
+        &mut self,
+        edit: SourceEdit,
+        selection: BlockSelection,
+        input: Option<HistoryInput<'_>>,
+        pending: Option<crate::inline::PendingLinks>,
+        accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
+    ) -> Result<ViewChange, EditorError> {
+        let before_links = self.projection.pending_for_source_edit(edit.range);
+        let (validation, validated_selection) =
+            if let BlockSelection::SourceWithRetiredAtoms { atoms, .. } = &selection {
+                let window = before_links.window.clone();
+                let (mut preview, initial) =
+                    self.with_exact_candidate(&edit, window.clone(), |staged| {
+                        let mut preview = self.validate_exact_candidate(
+                            staged,
+                            window.clone(),
+                            pending.as_ref(),
+                            true,
+                            &[],
+                            super::pending::SelectionTargets {
+                                selections: &[],
+                                links: &[],
+                                emit: &mut |_| {},
+                            },
+                        )?;
+                        preview.work.link_metadata_items += staged
+                            .projection
+                            .validate_split_atoms(atoms, window.start)?;
+                        Ok(preview)
+                    })?;
+                super::accumulate_planning_work(&mut preview.work, initial);
+                (preview.work, None)
+            } else if let BlockSelection::Exact { selection, window } = &selection {
+                if pending.as_ref().is_some_and(|pending| {
+                    pending.window
+                        != (window.start..window.end - edit.removed.len() + edit.inserted.len())
+                }) {
+                    return Err(EditorError::UnrepresentableFormat);
+                }
+                let (preview, selected) = self.preview_exact_edit(
+                    &edit,
+                    window.clone(),
+                    pending.as_ref(),
+                    true,
+                    &[],
+                    Some(*selection),
+                )?;
+                (preview.work, selected)
+            } else if let Some(pending) = &pending {
+                if pending.window.start < before_links.window.start
+                    || pending.window.end > before_links.after_window(&edit).end
+                {
+                    return Err(EditorError::UnrepresentableFormat);
+                }
+                if pending.has_fields() || before_links.has_words() {
+                    (
+                        self.preview_pending_edit(
+                            &edit,
+                            before_links.window.clone(),
+                            pending,
+                            true,
+                            &[],
+                        )?
+                        .work,
+                        None,
+                    )
+                } else {
+                    (EditWork::default(), None)
+                }
+            } else if before_links.has_words() {
+                let mut retained = crate::inline::PendingLinks {
+                    window: before_links.after_window(&edit),
+                    ranges: Vec::new(),
+                    delimiters: Vec::new(),
+                    guarded_words: Vec::new(),
+                    typed_inputs: Vec::new(),
+                    work: 0,
+                };
+                retained.prepare_guards(&before_links, &edit, None)?;
+                retained.prepare_typed_inputs(&before_links, &edit, None)?;
+                let mut work =
+                    self.validate_stage_guards(&edit, before_links.window.clone(), &retained)?;
+                work.link_metadata_items += retained.work;
+                (work, None)
+            } else {
+                (EditWork::default(), None)
+            };
         accept(&edit).map_err(EditorError::Persistence)?;
         let before_selection = self.selection;
+        let (before_source, before_source_work) = self.capture_history_selection();
         let before_affinity = self.affinity;
         let before_formats = self.pending_formats.clone();
         let mut change = self.apply(&edit);
+        let EditWork {
+            materialized_source_bytes,
+            inserted_bytes: _,
+            parsed_source_bytes,
+            link_metadata_items,
+            link_copied_bytes,
+        } = validation;
+        change.work.materialized_source_bytes += materialized_source_bytes;
+        change.work.parsed_source_bytes += parsed_source_bytes;
+        change.work.link_metadata_items += link_metadata_items;
+        change.work.link_copied_bytes += link_copied_bytes;
+        if let Some(pending) = &pending {
+            self.adopt_stage_pending(pending, &mut change);
+        }
         self.selection = match selection {
             BlockSelection::Display(selection) => selection,
+            BlockSelection::Exact { .. } => {
+                validated_selection.expect("selection was validated before acceptance")
+            }
             BlockSelection::SourceRange(range) => DisplayRange {
                 start: DisplayOffset(self.projection.display_at(range.start)),
                 end: DisplayOffset(self.projection.display_at(range.end)),
             },
-            BlockSelection::Source(source) => {
+            BlockSelection::Source(source)
+            | BlockSelection::SourceWithRetiredAtoms { source, .. } => {
                 let at = DisplayOffset(self.projection.display_at(source));
                 DisplayRange { start: at, end: at }
             }
         };
         self.pending_formats = None;
         change.selection = self.selection;
-        change.work.materialized_source_bytes += inserted.len();
+        change.work.materialized_source_bytes += edit.inserted.len();
+        let (after_source, after_source_work) = self.capture_history_selection();
+        change.work.link_metadata_items += before_source_work + after_source_work;
+        let after_links = self
+            .projection
+            .pending_links(before_links.after_window(&edit));
+        change.work.link_metadata_items += before_links.work + after_links.work;
         self.record_input_history(
             HistoryEntry {
+                before_source,
+                after_source,
                 before_selection,
                 before_affinity,
                 before_formats,
+                before_links,
                 after_selection: self.selection,
                 after_affinity: self.affinity,
                 after_formats: None,
+                after_links,
                 range: edit.range,
                 removed: edit.removed,
                 inserted: edit.inserted,

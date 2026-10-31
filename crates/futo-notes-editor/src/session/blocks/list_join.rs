@@ -86,6 +86,10 @@ impl EditorSession {
             if let Some(normalized) = staged.normalize_list_numbers(accept)? {
                 change.work.materialized_source_bytes += normalized.work.materialized_source_bytes;
                 change.work.parsed_source_bytes += normalized.work.parsed_source_bytes;
+
+                change.work.link_metadata_items += normalized.work.link_metadata_items;
+
+                change.work.link_copied_bytes += normalized.work.link_copied_bytes;
             }
             Ok(Some(change))
         })

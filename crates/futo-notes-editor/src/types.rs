@@ -61,6 +61,13 @@ pub struct EditWork {
     pub inserted_bytes: usize,
     /// Bytes supplied to the markdown parser, including verification parses.
     pub parsed_source_bytes: usize,
+    /// Charged metadata visits and fixed-size copies during link/reference
+    /// interpretation, source correspondence and pending-field planning.
+    /// Parser input is counted separately above; this is not total CPU work.
+    pub link_metadata_items: usize,
+    /// Bytes copied into retained link/reference meaning and returned targets;
+    /// parser temporary allocations are represented by parser input above.
+    pub link_copied_bytes: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -137,6 +144,15 @@ pub struct SemanticRun {
     pub formats: Vec<InlineFormat>,
 }
 
+/// One contiguous link identity, independent of nested formatting or other
+/// links with the same destination. The range covers only visible link glyphs.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LinkDescription {
+    pub range: DisplayRange,
+    pub destination: String,
+    pub title: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Correspondence {
     pub source: SourceRange,
@@ -171,4 +187,5 @@ pub struct ProjectionSlice {
     pub runs: Vec<SemanticRun>,
     pub correspondence: Vec<Correspondence>,
     pub blocks: Vec<BlockDescription>,
+    pub links: Vec<LinkDescription>,
 }

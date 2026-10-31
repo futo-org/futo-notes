@@ -43,16 +43,70 @@ impl HistoryClock for MonotonicClock {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) struct SourceAtom {
+    pub source_len: usize,
+    pub display_len: usize,
+}
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) struct SourcePoint {
+    pub source: SourceOffset,
+    /// An interior boundary of one decoded source atom, in visible UTF-8 bytes.
+    pub within: usize,
+    pub atom: Option<SourceAtom>,
+}
+#[derive(Clone, Copy)]
+pub(crate) struct ExactSelection {
+    pub start: SourcePoint,
+    pub end: SourcePoint,
+}
+#[derive(Clone, Copy)]
+pub(crate) enum SourceSelection {
+    Exact(ExactSelection),
+    Derived,
+}
+
 pub(crate) struct HistoryEntry {
+    pub(crate) before_source: SourceSelection,
+    pub(crate) after_source: SourceSelection,
     pub(crate) before_selection: DisplayRange,
     pub(crate) before_affinity: Affinity,
+    pub(crate) before_links: crate::inline::PendingLinks,
     pub(crate) before_formats: Option<Vec<InlineFormat>>,
     pub(crate) after_selection: DisplayRange,
     pub(crate) after_affinity: Affinity,
+    pub(crate) after_links: crate::inline::PendingLinks,
     pub(crate) after_formats: Option<Vec<InlineFormat>>,
     pub(crate) range: SourceRange,
     pub(crate) removed: String,
     pub(crate) inserted: String,
+}
+
+impl HistoryEntry {
+    pub(crate) fn relocate_exact(
+        &mut self,
+        source: usize,
+        display: usize,
+    ) -> Result<usize, crate::EditorError> {
+        let (SourceSelection::Exact(before), SourceSelection::Exact(after)) =
+            (&mut self.before_source, &mut self.after_source)
+        else {
+            return Err(crate::EditorError::UnrepresentableFormat);
+        };
+        before.start.source.0 += source;
+        before.end.source.0 += source;
+        after.start.source.0 += source;
+        after.end.source.0 += source;
+        self.range.start.0 += source;
+        self.range.end.0 += source;
+        self.before_selection.start.0 += display;
+        self.before_selection.end.0 += display;
+        self.after_selection.start.0 += display;
+        self.after_selection.end.0 += display;
+        Ok(10
+            + self.before_links.relocate_source(source)
+            + self.after_links.relocate_source(source))
+    }
 }
 
 pub(crate) struct HistoryGroup {

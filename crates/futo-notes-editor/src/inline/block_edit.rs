@@ -1,11 +1,24 @@
 //! Plan local marker repairs before changing visible block lines.
+use super::row::SpanKind;
 use super::{
     edit::{common_prefix, Context, Plan},
     spelling::spell,
     Projection,
 };
-use crate::{DisplayRange, EditorError, InlineFormat};
+use crate::{DisplayRange, EditorError, InlineFormat, Revision};
 use ropey::Rope;
+
+pub(crate) struct BodySource {
+    pub typed_inputs: Option<Vec<super::typed_angle::TypedAngleOrigin>>,
+    pub guarded_words: Option<Vec<super::guarded_words::GuardedWord>>,
+    pub text: String,
+    pub revision: Revision,
+    pub window: std::ops::Range<usize>,
+    pub retained: Vec<super::references::RetainedBody>,
+    pub materialized: usize,
+    pub parsed: usize,
+    pub work: super::references::ReferenceWork,
+}
 
 impl Projection {
     /// Spell only the visible body, retaining existing inline identities while
@@ -15,15 +28,24 @@ impl Projection {
         source: &Rope,
         range: DisplayRange,
         fold_breaks: bool,
-    ) -> Result<(String, usize, usize), EditorError> {
+        revision: Revision,
+    ) -> Result<BodySource, EditorError> {
         let Context {
+            typed_inputs,
+            mut guard_state,
             raw,
             source_start,
+            source_end,
             pieces,
             markers,
+            mut link_metadata_items,
             ..
-        } = self.edit_context(source, range);
+        } = self.edit_context(source, range)?;
+        let (typed_inputs, typed_work) =
+            self.scope_typed_origins(typed_inputs, source_start, range)?;
+        link_metadata_items += typed_work;
         let base = self.display_at(source_start);
+        link_metadata_items += guard_state.scope_body(&pieces, base, range.start.0..range.end.0)?;
         let mut at = base;
         let mut body = Vec::new();
         let mut cr = false;
@@ -45,9 +67,64 @@ impl Projection {
             at = end;
         }
         let end = body.len();
-        let result = spell(body, markers, end..end, true)?;
-        let materialized = raw.len() + result.text.len();
-        Ok((result.text, materialized, result.parsed))
+        let result = spell(
+            body,
+            guard_state,
+            super::typed_angle::TypedState::current(typed_inputs),
+            &raw,
+            markers,
+            end..end,
+            true,
+            &self.references,
+        )?;
+        let mut retained = Vec::new();
+        let mut measured = result.link_metadata_items;
+        for (origin, after) in result.origins {
+            measured += 1;
+            if let super::spelling::PieceOrigin::Source(before) = origin {
+                let Some(original) = raw.get(before.clone()) else {
+                    continue;
+                };
+                let Some(rendered) = result.text.get(after.clone()) else {
+                    continue;
+                };
+                if original.len() == rendered.len()
+                    && original.bytes().zip(rendered.bytes()).all(|(a, b)| {
+                        measured += 1;
+                        a == b
+                    })
+                {
+                    // Keep complete original parser-piece extents, including
+                    // nonidentity atoms. Never split them to manufacture lineage.
+                    measured += 2;
+                    retained.push(super::references::RetainedBody {
+                        before: source_start + before.start..source_start + before.end,
+                        after,
+                    });
+                }
+            }
+        }
+        let (ordered, visits) = super::references::RetainedBody::ordered(&retained);
+        measured += visits;
+        if !ordered {
+            return Err(EditorError::UnrepresentableFormat);
+        }
+        let materialized = raw.len() + result.text.len() + result.materialized;
+        Ok(BodySource {
+            typed_inputs: result.typed_inputs,
+            guarded_words: result.guarded_words,
+            text: result.text,
+            revision,
+            window: source_start..source_end,
+            retained,
+            materialized,
+            parsed: result.parsed,
+            work: super::references::ReferenceWork {
+                parsed: 0,
+                items: link_metadata_items + measured,
+                copied: result.link_copied_bytes,
+            },
+        })
     }
 
     pub(crate) fn has_multiline_block_code(&self, source: &Rope, range: DisplayRange) -> bool {
@@ -60,7 +137,7 @@ impl Projection {
                 let line = self
                     .display
                     .byte_to_line(display + row.display_at(span.open.end));
-                span.format == InlineFormat::Code
+                span.kind == SpanKind::Format(InlineFormat::Code)
                     && first_line <= line
                     && line <= last_line
                     && source.byte_to_line(base + span.open.end)
@@ -134,13 +211,16 @@ impl Projection {
             return Ok(None);
         }
         let Context {
+            typed_inputs,
+            guard_state,
             raw,
             source_start,
             source_end,
             mut pieces,
             markers,
+            link_metadata_items,
             ..
-        } = self.edit_context(source, range);
+        } = self.edit_context(source, range)?;
         let display_start = self.display_at(source_start);
         let boundaries: Vec<_> = boundaries
             .iter()
@@ -156,7 +236,7 @@ impl Projection {
                 && piece
                     .spans
                     .iter()
-                    .any(|id| markers[*id].format == InlineFormat::Code)
+                    .any(|id| markers[*id].kind == SpanKind::Format(InlineFormat::Code))
                 && (piece.raw.contains(['\r', '\n']) || piece.display.is_empty() && !piece.trailing)
             {
                 // Inline code normalizes a physical source break to one visible
@@ -166,10 +246,20 @@ impl Projection {
             at += piece.display.len();
         }
         let end = pieces.len();
-        let rendered = spell(pieces, markers, end..end, true)?;
+        let mut rendered = spell(
+            pieces,
+            guard_state,
+            super::typed_angle::TypedState::current(typed_inputs),
+            &raw,
+            markers,
+            end..end,
+            true,
+            &self.references,
+        )?;
         if rendered.text == raw {
             return Ok(None);
         }
+        let delimiter_work = rendered.relocate_delimiters(source_start);
         let prefix = common_prefix(&raw, &rendered.text);
         let suffix: usize = raw[prefix..]
             .chars()
@@ -179,12 +269,24 @@ impl Projection {
             .map(|(ch, _)| ch.len_utf8())
             .sum();
         Ok(Some(Plan {
+            retained: Default::default(),
+            requires_source_identity: false,
+            guarded_words: rendered.take_guards(source_start, source_end),
+            split_retirement: None,
+            pending_links: rendered.pending_links,
+            activated_links: rendered.activated_links,
+            delimiters: rendered.delimiters,
+            input_start: 0,
             range: source_start + prefix..source_end - suffix,
             inserted: rendered.text[prefix..rendered.text.len() - suffix].to_owned(),
             caret: source_start,
             formats: Vec::new(),
-            materialized: raw.len() + rendered.text.len(),
+            materialized: raw.len() + rendered.text.len() + rendered.materialized,
             parsed: rendered.parsed,
+            link_metadata_items: link_metadata_items
+                + delimiter_work
+                + rendered.link_metadata_items,
+            link_copied_bytes: rendered.link_copied_bytes,
         }))
     }
 }

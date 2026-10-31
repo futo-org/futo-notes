@@ -11,9 +11,11 @@ fn exact_stage_case(ending: &str) {
     for depth in [1, 2] {
         for affinity in [Affinity::Backward, Affinity::Forward] {
             let mut whole = EditorSession::open(&full);
-            let mut staged = whole.stage_source(&prefix, start..start + prefix.len());
+            let mut staged = whole
+                .stage_source(&prefix, start..start + prefix.len())
+                .unwrap();
             for _ in 1..depth {
-                staged = staged.stage_source(&prefix, 0..prefix.len());
+                staged = staged.stage_source(&prefix, 0..prefix.len()).unwrap();
             }
             assert_eq!(staged.display_text(), before);
             let selected = DisplayRange {
@@ -158,7 +160,7 @@ fn newly_inserted_local_opaque_predecessor_overrides_inherited_prose() {
     let full = "- before\n- parent\n  ```lang\n  opaque\n- outside";
     let prefix = "- parent\n  ```lang\n  opaque\n";
     let original = EditorSession::open(full);
-    let mut staged = original.stage_source(prefix, 9..9 + prefix.len());
+    let mut staged = original.stage_source(prefix, 9..9 + prefix.len()).unwrap();
     let zero = DisplayRange {
         start: DisplayOffset(0),
         end: DisplayOffset(0),

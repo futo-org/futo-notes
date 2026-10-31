@@ -5,7 +5,10 @@ mod paragraphs;
 mod relink;
 pub use blocks::BlockCommand;
 pub use relink::OwnActionRelink;
+mod history_selection;
 mod input;
+mod links;
+mod pending;
 mod staging;
 mod transaction;
 use crate::history::{
@@ -21,6 +24,14 @@ use crate::{
     Affinity, DisplayOffset, DisplayRange, EditWork, EditorError, InlineFormat, ProjectionSlice,
     Revision, SelectionChange, SourceEdit, SourceOffset, SourceRange, ViewChange,
 };
+
+// Planning work never represents an extra accepted insertion.
+fn accumulate_planning_work(total: &mut EditWork, part: EditWork) {
+    total.materialized_source_bytes += part.materialized_source_bytes;
+    total.parsed_source_bytes += part.parsed_source_bytes;
+    total.link_metadata_items += part.link_metadata_items;
+    total.link_copied_bytes += part.link_copied_bytes;
+}
 
 /// Exact-source editor session. Hosts must not use this development surface as
 /// a replacement shipping renderer until renderer integration is complete.
@@ -58,9 +69,23 @@ impl EditorSession {
         revision: Revision,
         clock: Arc<dyn HistoryClock>,
     ) -> Self {
+        Self::with_projection(
+            source,
+            revision,
+            clock,
+            crate::inline::Projection::new(source),
+        )
+    }
+
+    fn with_projection(
+        source: &str,
+        revision: Revision,
+        clock: Arc<dyn HistoryClock>,
+        projection: crate::inline::Projection,
+    ) -> Self {
         Self {
             source: Rope::from_str(source),
-            projection: crate::inline::Projection::new(source),
+            projection,
             revision,
             selection: DisplayRange::default(),
             affinity: Affinity::Forward,
@@ -255,11 +280,18 @@ impl EditorSession {
     }
 
     fn apply(&mut self, edit: &SourceEdit) -> ViewChange {
+        let mirror_bytes = self
+            .context
+            .origin
+            .as_mut()
+            .map_or(0, |origin| origin.mirror(edit));
         let start = self.source.byte_to_char(edit.range.start.0);
         let end = self.source.byte_to_char(edit.range.end.0);
         self.source.remove(start..end);
         self.source.insert(start, &edit.inserted);
-        let update = self.projection.apply(&self.source, edit);
+        let update = self
+            .projection
+            .apply(&self.source, edit, self.context.origin.as_ref());
         self.revision = edit.revision;
         let caret = DisplayOffset(
             self.projection
@@ -269,6 +301,9 @@ impl EditorSession {
             start: caret,
             end: caret,
         };
+        let (projection, link_work) = self
+            .projection
+            .query_with_work(self.revision, update.semantic_range);
         ViewChange {
             previous_revision: edit.previous_revision,
             revision: edit.revision,
@@ -276,11 +311,17 @@ impl EditorSession {
             inserted: update.inserted,
             selection: self.selection,
             affinity: self.affinity,
-            projection: self.projection.query(self.revision, update.semantic_range),
+            projection,
             work: EditWork {
-                materialized_source_bytes: edit.removed.len() + update.materialized_source_bytes,
+                materialized_source_bytes: edit.removed.len()
+                    + update.materialized_source_bytes
+                    + mirror_bytes,
                 inserted_bytes: edit.inserted.len(),
                 parsed_source_bytes: update.parsed_source_bytes,
+                link_metadata_items: update.link_metadata_items
+                    + link_work.items
+                    + usize::from(self.context.origin.is_some()),
+                link_copied_bytes: update.link_copied_bytes + link_work.copied,
             },
         }
     }
@@ -316,15 +357,16 @@ impl EditorSession {
             return Ok(committed);
         }
         let before_selection = self.selection;
+        let (before_source, before_source_work) = self.capture_history_selection();
         let before_affinity = self.affinity;
         let before_formats = self.pending_formats.clone();
-        let plan = self.projection.edit(
+        let mut plan = self.projection.edit(
             &self.source,
             self.selection,
             "",
             self.affinity,
             None,
-            Some(format),
+            crate::inline::EditIntent::Toggle(format),
         )?;
         let edit = self.prepare_source(
             expected,
@@ -334,21 +376,36 @@ impl EditorSession {
             },
             &plan.inserted,
         )?;
+        let before_links = self.projection.pending_for_source_edit(edit.range);
+        let prepared = self.prepare_plan_pending(&edit, &plan, &before_links, None)?;
         accept(&edit).map_err(EditorError::Persistence)?;
         let mut change = self.apply(&edit);
+        self.install_plan_pending(&mut plan, prepared, &mut change, true);
         self.selection = before_selection;
         self.pending_formats = None;
         change.selection = self.selection;
         change.work.materialized_source_bytes += plan.materialized;
         change.work.parsed_source_bytes += plan.parsed;
+        change.work.link_metadata_items += plan.link_metadata_items;
+        change.work.link_copied_bytes += plan.link_copied_bytes;
+        let (after_source, after_source_work) = self.capture_history_selection();
+        change.work.link_metadata_items += before_source_work + after_source_work;
+        let after_links = self
+            .projection
+            .pending_links(before_links.after_window(&edit));
+        change.work.link_metadata_items += before_links.work + after_links.work;
         self.undo.push(HistoryGroup {
             entries: vec![HistoryEntry {
+                before_source,
+                after_source,
                 before_selection,
                 before_affinity,
                 before_formats,
+                before_links,
                 after_selection: self.selection,
                 after_affinity: self.affinity,
                 after_formats: None,
+                after_links,
                 range: edit.range,
                 removed: edit.removed,
                 inserted: edit.inserted,
@@ -432,19 +489,53 @@ impl EditorSession {
         }
         let (range, inserted) = transaction.finish();
         let edit = self.prepare_source(expected, range, &inserted)?;
+        let target = if redo {
+            &entry.entries.last().unwrap().after_links
+        } else {
+            &entry.entries.first().unwrap().before_links
+        };
+        let guarded_preview = if !target.has_words() {
+            None
+        } else {
+            let opening = self.projection.pending_for_source_edit(edit.range);
+            let mut preview =
+                self.preview_pending_edit(&edit, opening.window, target, true, &[])?;
+            preview.work.link_metadata_items += opening.work;
+            Some(preview)
+        };
         accept(&edit).map_err(EditorError::Persistence)?;
         let mut change = self.apply(&edit);
         change.work.materialized_source_bytes += edit.inserted.len();
+        if let Some(preview) = guarded_preview {
+            change.work.materialized_source_bytes += preview.work.materialized_source_bytes;
+            change.work.parsed_source_bytes += preview.work.parsed_source_bytes;
+            change.work.link_metadata_items += preview.work.link_metadata_items;
+            change.work.link_copied_bytes += preview.work.link_copied_bytes;
+        }
         let entry = if redo {
             self.redo.pop().unwrap()
         } else {
             self.undo.pop().unwrap()
         };
-        self.selection = if redo {
-            entry.entries.last().unwrap().after_selection
+        let step = if redo {
+            entry.entries.last().unwrap()
         } else {
-            entry.entries.first().unwrap().before_selection
+            entry.entries.first().unwrap()
         };
+        let (selection, selection_work) = self.project_history_selection(
+            if redo {
+                step.after_source
+            } else {
+                step.before_source
+            },
+            if redo {
+                step.after_selection
+            } else {
+                step.before_selection
+            },
+        );
+        self.selection = selection;
+        change.work.link_metadata_items += selection_work;
         self.affinity = if redo {
             entry.entries.last().unwrap().after_affinity
         } else {
@@ -457,6 +548,18 @@ impl EditorSession {
         } else {
             entry.entries.first().unwrap().before_formats.clone()
         };
+        let pending = if redo {
+            &entry.entries.last().unwrap().after_links
+        } else {
+            &entry.entries.first().unwrap().before_links
+        };
+        change.work.link_metadata_items += self.projection.restore_pending(pending);
+        let (projection, link_work) = self
+            .projection
+            .query_with_work(self.revision, change.projection.range);
+        change.projection = projection;
+        change.work.link_metadata_items += link_work.items;
+        change.work.link_copied_bytes += link_work.copied;
         self.typing = None;
         if redo {
             self.undo.push(entry);

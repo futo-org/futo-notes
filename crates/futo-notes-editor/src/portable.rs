@@ -1,5 +1,6 @@
 //! Asynchronous page/worker contract. No callback here performs storage I/O.
 mod composition;
+mod links;
 use serde::{Deserialize, Serialize};
 
 use crate::{

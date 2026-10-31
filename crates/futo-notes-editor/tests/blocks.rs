@@ -28,3 +28,6 @@ mod selected_source;
 
 #[path = "blocks/mapping.rs"]
 mod mapping;
+
+#[path = "blocks/source_generations.rs"]
+mod source_generations;

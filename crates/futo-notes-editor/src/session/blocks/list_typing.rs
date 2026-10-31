@@ -96,6 +96,8 @@ impl EditorSession {
                 },
             )?;
             let line = staged.projection.block_lines(staged.selection()).remove(0);
+            #[cfg(test)]
+            crate::inline::coordinate_work_tests::child("shortcut-remove", removed.work);
             let marker = if let Some(styles) = &styles {
                 if let Some(number) = marker.strip_suffix(". ") {
                     format!("{number}{} ", styles.markers[0] as char)
@@ -190,9 +192,9 @@ impl EditorSession {
                 accept,
             )?;
             staged.carry_block_state(&mut change, formats, affinity);
-            change.work.materialized_source_bytes +=
-                removed.work.materialized_source_bytes + body_bytes + separator_bytes + style_bytes;
-            change.work.parsed_source_bytes += removed.work.parsed_source_bytes + body_work;
+            accumulate_planning_work(&mut change.work, removed.work);
+            change.work.materialized_source_bytes += body_bytes + separator_bytes + style_bytes;
+            change.work.parsed_source_bytes += body_work;
             Ok(Some(change))
         })
     }

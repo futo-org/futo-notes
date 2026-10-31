@@ -1,21 +1,47 @@
 //! Local marker surgery. Visible pieces retain their original source spelling
 //! and span identity; only spans that lose content or cross the edited range
 //! move. The parser remains the authority for interpreting candidate source.
+mod carry;
+mod context;
+mod prefixes;
+pub(super) use context::Context;
+mod selection;
+mod source;
+use super::row::SpanKind;
 use super::{
-    spelling::{spell, Marker, Piece},
+    spelling::{spell, Marker, Piece, PieceOrigin},
     Projection,
 };
 use crate::{Affinity, DisplayRange, EditorError, InlineFormat};
+pub(super) use carry::carry_formats;
 use ropey::Rope;
+pub(super) use selection::{cut, split_entities, Cut};
+pub(crate) use source::SourceCorrespondence;
 use std::ops::Range;
 
+#[derive(Clone, Copy)]
+pub(crate) enum EditIntent {
+    Input(crate::InputAction),
+    Toggle(InlineFormat),
+}
+
 pub(crate) struct Plan {
+    pub guarded_words: Option<super::guarded_words::GuardUpdate>,
+    pub split_retirement: Option<std::sync::Arc<super::guarded_words::CodeWordIdentity>>,
+    pub retained: SourceCorrespondence,
+    pub requires_source_identity: bool,
     pub range: Range<usize>,
+    pub delimiters: Vec<Range<usize>>,
+    pub pending_links: Vec<Range<usize>>,
+    pub activated_links: Vec<Range<usize>>,
     pub inserted: String,
     pub caret: usize,
+    pub input_start: usize,
     pub formats: Vec<InlineFormat>,
     pub materialized: usize,
     pub parsed: usize,
+    pub link_metadata_items: usize,
+    pub link_copied_bytes: usize,
 }
 pub(super) fn common_prefix(a: &str, b: &str) -> usize {
     a.chars()
@@ -33,9 +59,15 @@ impl Projection {
         inserted: &str,
         affinity: Affinity,
         pending: Option<&[InlineFormat]>,
-        toggle: Option<InlineFormat>,
+        intent: EditIntent,
     ) -> Result<Plan, EditorError> {
+        let toggle = match intent {
+            EditIntent::Toggle(format) => Some(format),
+            _ => None,
+        };
         let Context {
+            typed_inputs,
+            mut guard_state,
             raw,
             source_start,
             source_end,
@@ -44,8 +76,17 @@ impl Projection {
             mut markers,
             pieces,
             block_boundaries,
-        } = self.edit_context_for_change(source, range, toggle.is_none().then_some(inserted));
+            pending_links,
+            link_metadata_items,
+        } = self.edit_context_for_change(source, range, toggle.is_none().then_some(inserted))?;
+        let mut typed = super::typed_angle::TypedState::current(typed_inputs);
         let expanded = split_entities(pieces, a, z);
+        let (split_guard, split_work) =
+            guard_state.prepare_split(&expanded, a..z, inserted, intent)?;
+        let (deleting_guard, deletion_proof_work) =
+            guard_state.prove_deletion(&expanded, &markers, a..z, inserted, intent)?;
+        let mut guard_work = super::references::ReferenceWork::default();
+        guard_work.items += deletion_proof_work + split_work;
         let Cut {
             mut before,
             mut after,
@@ -62,7 +103,7 @@ impl Projection {
         }
         let formats = active
             .iter()
-            .map(|id| markers[*id].format)
+            .filter_map(|id| markers[*id].kind.format())
             .collect::<Vec<_>>();
         // Removing a line separator can bring equal-format delimiter runs
         // together. Join their identities at that seam instead of emitting
@@ -73,7 +114,10 @@ impl Projection {
                     .spans
                     .iter()
                     .zip(&right.spans)
-                    .take_while(|(a, b)| markers[**a].format == markers[**b].format)
+                    .take_while(|(a, b)| {
+                        markers[**a].kind == markers[**b].kind
+                            && matches!(markers[**a].kind, SpanKind::Format(_))
+                    })
                     .map(|(&a, &b)| (a, b))
                     .collect();
                 for piece in &mut after {
@@ -89,14 +133,41 @@ impl Projection {
         }
         let mut changed = before;
         let insertion_index = changed.len();
-        changed.extend(inserted.chars().map(|ch| Piece {
+        changed.extend(inserted.char_indices().map(|(offset, ch)| Piece {
+            guard: split_guard.map(|id| super::guarded_words::GuardPart {
+                id,
+                role: super::guarded_words::GuardRole::Inner,
+            }),
+            physical_prefix: false,
+            literal_url: None,
             raw: ch.to_string(),
             display: ch.to_string(),
             spans: active.clone(),
             trailing: false,
+            definition: None,
+            origin: Some(PieceOrigin::Inserted(offset..offset + ch.len_utf8())),
+            timing: false,
         }));
         let insertion_end = changed.len();
         changed.extend(after);
+        if let Some(owner) = deleting_guard {
+            let work = guard_state.finish_deletion(&changed, owner)?;
+            guard_work.items += work.items;
+            guard_work.copied += work.copied;
+            guard_work.parsed += work.parsed;
+        }
+        let typed_work = typed.prepare_input(
+            super::typed_angle::Input {
+                projection: self,
+                source_start,
+                range,
+                inserted,
+                intent,
+                insertion: insertion_index..insertion_end,
+            },
+            &mut changed,
+            &mut markers,
+        )?;
         let boundaries: Vec<_> = block_boundaries
             .into_iter()
             .filter_map(|boundary| {
@@ -116,9 +187,10 @@ impl Projection {
             if piece.display.contains(['\r', '\n']) {
                 piece
                     .spans
-                    .retain(|id| markers[*id].format != InlineFormat::Code);
+                    .retain(|id| markers[*id].kind != SpanKind::Format(InlineFormat::Code));
             }
         }
+        let mut toggle_work = 0;
         if let Some(format) = toggle {
             let opaque: Vec<_> = self
                 .block_lines(range)
@@ -129,7 +201,13 @@ impl Projection {
                         ..self.display_at(line.content.end) - self.display_at(source_start)
                 })
                 .collect();
-            super::toggle::pieces(&mut changed, &mut markers, a..z, format, &opaque);
+            toggle_work = super::toggle::pieces(&mut changed, &mut markers, a..z, format, &opaque);
+            if format == InlineFormat::Code {
+                let work = guard_state.enroll(&mut changed, &markers)?;
+                guard_work.items += work.items;
+                guard_work.copied += work.copied;
+                guard_work.parsed += work.parsed;
+            }
         }
         let speculative_block = inserted
             .chars()
@@ -153,18 +231,66 @@ impl Projection {
         );
         let speculative_fence = (prefix.starts_with("```") || prefix.starts_with("~~~"))
             && !prefix.contains(char::is_whitespace);
-        let literal = speculative_fence
+        let mut literal = inserted.contains(['<', '>'])
+            || speculative_fence
             || speculative_block
             || toggle.is_some()
             || inserted.is_empty()
             || !inserted.contains(['*', '_', '~', '`', '\\', '&', '<', '>'])
             || active
                 .iter()
-                .any(|id| markers[*id].format == InlineFormat::Code);
-        let rendered = spell(changed, markers, insertion_index..insertion_end, literal)?;
-        let parsed = rendered.parsed;
+                .any(|id| markers[*id].kind == SpanKind::Format(InlineFormat::Code));
+        let completion = super::links::complete_typed_angle(
+            &mut changed,
+            &mut markers,
+            insertion_index..insertion_end,
+            inserted,
+            intent,
+            &pending_links,
+        );
+        let angle = super::links::finish_angle_word(
+            &mut changed,
+            &mut markers,
+            &mut guard_state,
+            insertion_index,
+            inserted,
+        );
+        let timing = if let EditIntent::Input(action) = intent {
+            super::spelling::prepare_url_input(
+                &mut changed,
+                &markers,
+                insertion_index..insertion_end,
+                inserted,
+                action,
+                &self.references,
+            )
+        } else {
+            Default::default()
+        };
+        if let Some(value) = timing.literal {
+            literal = value;
+        }
+        let mut rendered = spell(
+            changed,
+            guard_state,
+            typed,
+            &raw,
+            markers,
+            insertion_index..insertion_end,
+            literal,
+            &self.references,
+        )?;
+        let delimiter_work = rendered.relocate_delimiters(source_start);
+        let parsed = rendered.parsed + angle.work.parsed + completion.work.parsed;
+        let guarded_words = rendered.take_guards(source_start, source_end);
         let output = rendered.text;
         let caret = rendered.caret;
+        let (mut retained, mut correspondence_work) =
+            SourceCorrespondence::verify(&raw, inserted, &output, rendered.origins, source_start);
+        if let Some(word) = angle.source {
+            correspondence_work +=
+                retained.retire_word(source_start + word.start..source_start + word.end);
+        }
         let prefix = common_prefix(&raw, &output);
         let suffix: usize = raw[prefix..]
             .chars()
@@ -174,161 +300,42 @@ impl Projection {
             .map(|(c, _)| c.len_utf8())
             .sum();
         Ok(Plan {
+            guarded_words,
+            split_retirement: rendered.split_retirement,
+            retained,
+            requires_source_identity: !literal,
+            pending_links: rendered.pending_links,
+            activated_links: rendered.activated_links,
+            delimiters: rendered.delimiters,
             range: source_start + prefix..source_end - suffix,
             inserted: output[prefix..output.len() - suffix].to_owned(),
             caret: source_start + caret,
+            input_start: source_start + rendered.input_start,
             formats,
-            materialized: raw.len() + output.len(),
-            parsed,
+            materialized: raw.len()
+                + output.len()
+                + timing.materialized
+                + angle.materialized
+                + completion.materialized
+                + rendered.materialized,
+            parsed: parsed + timing.work.parsed + guard_work.parsed + typed_work.parsed,
+            link_metadata_items: typed_work.items
+                + guard_work.items
+                + link_metadata_items
+                + delimiter_work
+                + correspondence_work
+                + timing.work.items
+                + rendered.link_metadata_items
+                + angle.work.items
+                + completion.work.items
+                + toggle_work,
+            link_copied_bytes: typed_work.copied
+                + guard_work.copied
+                + rendered.link_copied_bytes
+                + angle.work.copied
+                + completion.work.copied
+                + timing.work.copied,
         })
-    }
-    pub(super) fn edit_context(&self, source: &Rope, range: DisplayRange) -> Context {
-        self.edit_context_for_change(source, range, None)
-    }
-
-    fn edit_context_for_change(
-        &self,
-        source: &Rope,
-        range: DisplayRange,
-        replacement: Option<&str>,
-    ) -> Context {
-        let first = self.rows.locate(range.start.0, true);
-        let last = self.rows.locate(range.end.0, true);
-        let (_, source_start, display_start) = self.rows.at(first);
-        let (end_row, source_end, _) = self.rows.at(last);
-        let source_end = source_end + end_row.source_len;
-        let raw = source.byte_slice(source_start..source_end).to_string();
-        let mut markers = Vec::new();
-        let mut pieces = Vec::<Piece>::new();
-        let mut a = range.start.0 - display_start;
-        let mut z = range.end.0 - display_start;
-        let mut display_len = 0;
-        let mut block_boundaries = Vec::new();
-        let may_empty_heading = replacement.is_some_and(|text| {
-            text.split('\n')
-                .any(|line| line.trim_matches([' ', '\t', '\r']).is_empty())
-        });
-        let mut selected_body_before = false;
-        for index in first..=last {
-            let (row, row_source, _) = self.rows.at(index);
-            let base = row_source - source_start;
-            let span_base = markers.len();
-            for pair in row.blocks.windows(2) {
-                if pair[0].heading > 0
-                    || pair[1].heading > 0
-                    || pair[0].quote_depth != pair[1].quote_depth
-                {
-                    block_boundaries.push(display_len + row.display_at(pair[1].source.start));
-                }
-            }
-            markers.extend(row.spans.iter().map(|span| Marker {
-                format: span.format,
-                open: raw[base + span.open.start..base + span.open.end].into(),
-                close: raw[base + span.close.start..base + span.close.end].into(),
-            }));
-            let retired_headings: Vec<_> = row
-                .blocks
-                .iter()
-                .filter(|block| {
-                    let body_start = self.display_at(row_source + block.content.start);
-                    let body_end = self.display_at(row_source + block.content.end);
-                    // Replacing body text across blocks owns a complete lower
-                    // heading's dependent syntax. Selecting only its preceding
-                    // separator does not grant that same body ownership.
-                    let retire = replacement.is_some()
-                        && (may_empty_heading || selected_body_before)
-                        && block.underline.is_some()
-                        && range.start.0 <= body_start
-                        && body_end <= range.end.0;
-                    selected_body_before |= body_start < body_end
-                        && range.start.0 < body_end
-                        && body_start < range.end.0;
-                    retire
-                })
-                .collect();
-            for segment in &row.segments {
-                for block in &retired_headings {
-                    if segment.source.start == block.source.start {
-                        // Setext syntax depends on nonempty body text. Preserve
-                        // the heading/container intent using the existing empty
-                        // ATX form, retiring only the owned underline below.
-                        pieces.push(Piece {
-                            raw: format!(
-                                "{}{} ",
-                                &raw[base + block.source.start..base + block.content.start],
-                                "#".repeat(block.heading as usize)
-                            ),
-                            display: String::new(),
-                            spans: Vec::new(),
-                            trailing: false,
-                        });
-                    }
-                }
-                if retired_headings.iter().any(|block| {
-                    segment.display.is_empty()
-                        && (segment.source.end <= block.content.start
-                            && block.source.start <= segment.source.start
-                            || block.content.end <= segment.source.start
-                                && segment.source.end
-                                    <= block.underline.as_ref().unwrap().content.end)
-                }) {
-                    continue;
-                }
-                let active = row
-                    .spans
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, span)| {
-                        span.open.end <= segment.source.start
-                            && segment.source.end <= span.close.start
-                    })
-                    .map(|(i, _)| span_base + i)
-                    .collect();
-                if segment.display.is_empty() {
-                    // Inline markers are reconstructed from spans; block markers
-                    // are exact source pieces outside that inline stack.
-                    if row.spans.iter().any(|span| {
-                        span.open.start <= segment.source.start
-                            && segment.source.end <= span.open.end
-                            || span.close.start <= segment.source.start
-                                && segment.source.end <= span.close.end
-                    }) {
-                        continue;
-                    }
-                    let trailing = row.blocks.iter().any(|block| {
-                        !block.empty_comment
-                            && block.content.end <= segment.source.start
-                            && segment.source.end <= block.source.end
-                    });
-                    pieces.push(Piece {
-                        raw: raw[base + segment.source.start..base + segment.source.end].to_owned(),
-                        display: String::new(),
-                        spans: active,
-                        trailing,
-                    });
-                    continue;
-                }
-                pieces.push(Piece {
-                    raw: raw[base + segment.source.start..base + segment.source.end].to_owned(),
-                    display: row.display[segment.display.clone()].to_owned(),
-                    spans: active,
-                    trailing: false,
-                });
-            }
-            display_len += row.display.len();
-        }
-        a = a.min(display_len);
-        z = z.min(display_len);
-        Context {
-            raw,
-            source_start,
-            source_end,
-            a,
-            z,
-            markers,
-            pieces,
-            block_boundaries,
-        }
     }
 }
 
@@ -338,164 +345,5 @@ pub(crate) fn delimiter(format: InlineFormat) -> &'static str {
         InlineFormat::Italic => "*",
         InlineFormat::Strike => "~~",
         InlineFormat::Code => "`",
-    }
-}
-
-pub(super) struct Context {
-    pub(super) raw: String,
-    pub(super) source_start: usize,
-    pub(super) source_end: usize,
-    pub(super) a: usize,
-    pub(super) z: usize,
-    pub(super) markers: Vec<Marker>,
-    pub(super) pieces: Vec<Piece>,
-    pub(super) block_boundaries: Vec<usize>,
-}
-struct Cut {
-    before: Vec<Piece>,
-    after: Vec<Piece>,
-    left: Vec<usize>,
-    right: Vec<usize>,
-}
-
-fn split_entities(pieces: Vec<Piece>, a: usize, z: usize) -> Vec<Piece> {
-    let mut expanded = Vec::new();
-    let mut position = 0;
-    for piece in pieces {
-        if piece.display.is_empty() {
-            expanded.push(piece);
-            continue;
-        }
-        let end = position + piece.display.len();
-        let mut cuts = vec![0, piece.display.len()];
-        for boundary in [a, z] {
-            if position < boundary && boundary < end {
-                cuts.push(boundary - position);
-            }
-        }
-        cuts.sort_unstable();
-        cuts.dedup();
-        if cuts.len() == 2 {
-            expanded.push(piece);
-        } else {
-            for pair in cuts.windows(2) {
-                let display = piece.display[pair[0]..pair[1]].to_owned();
-                let raw = if piece.raw == piece.display {
-                    display.clone()
-                } else {
-                    display
-                        .chars()
-                        .map(|ch| format!("&#{};", ch as u32))
-                        .collect()
-                };
-                expanded.push(Piece {
-                    raw,
-                    display,
-                    spans: piece.spans.clone(),
-                    trailing: piece.trailing,
-                });
-            }
-        }
-        position = end;
-    }
-    expanded
-}
-
-fn cut(expanded: Vec<Piece>, selected: Range<usize>, keep: bool) -> Cut {
-    let (a, z) = (selected.start, selected.end);
-    let mut offset = 0;
-    let mut before = Vec::new();
-    let mut after = Vec::new();
-    let mut left = Vec::new();
-    let mut right = Vec::new();
-    for piece in expanded {
-        let end = offset + piece.display.len();
-        if offset < a && a <= end {
-            left = piece.spans.clone();
-        }
-        if offset <= a && a < end {
-            right = piece.spans.clone();
-        }
-        if piece.display.is_empty() && !piece.trailing && offset == z && a < z && !keep {
-            // Joining lines retires the following line's block prefix. Its
-            // inline spans still join through their visible pieces below.
-        } else if piece.display.is_empty() && piece.trailing && offset >= z && !keep {
-            after.push(piece);
-        } else if keep || end <= a {
-            before.push(piece);
-        } else if offset >= z {
-            after.push(piece);
-        }
-        // Scalar segments have no internal UTF-8 boundaries. Decoded text
-        // events are split by the parser; preserve their raw atom intact.
-        offset = end;
-    }
-    Cut {
-        before,
-        after,
-        left,
-        right,
-    }
-}
-
-fn carry_formats(
-    before: &mut [Piece],
-    after: &[Piece],
-    markers: &mut Vec<Marker>,
-    active: &mut Vec<usize>,
-    formats: &[InlineFormat],
-) {
-    active.retain(|id| formats.contains(&markers[*id].format));
-    for &format in formats {
-        if !active.iter().any(|id| markers[*id].format == format) {
-            let previous = before
-                .iter()
-                .rev()
-                .take_while(|piece| {
-                    !piece.display.contains(['\r', '\n'])
-                        && !(piece.display.is_empty() && !piece.raw.is_empty())
-                })
-                .find(|piece| !piece.display.chars().all(char::is_whitespace));
-            let neighbor =
-                previous.or_else(|| after.iter().find(|piece| !piece.display.is_empty()));
-            let reusable = neighbor.and_then(|piece| {
-                piece
-                    .spans
-                    .iter()
-                    .copied()
-                    .find(|id| markers[*id].format == format)
-            });
-            let id = if let Some(id) = reusable {
-                for piece in before.iter_mut().rev() {
-                    if piece.display.contains(['\r', '\n'])
-                        || piece.display.is_empty() && !piece.raw.is_empty()
-                        || !piece.display.chars().all(char::is_whitespace)
-                    {
-                        break;
-                    }
-                    piece.spans.push(id);
-                }
-                id
-            } else {
-                let delimiter = delimiter(format);
-                let spelling = before.iter().rev().chain(after.iter()).find_map(|piece| {
-                    piece
-                        .spans
-                        .iter()
-                        .find(|id| markers[**id].format == format)
-                        .map(|id| (markers[*id].open.clone(), markers[*id].close.clone()))
-                });
-                let id = markers.len();
-                let (open, close) =
-                    spelling.unwrap_or_else(|| (delimiter.into(), delimiter.into()));
-                markers.push(Marker {
-                    format,
-                    open,
-                    close,
-                });
-                id
-            };
-            active.push(id);
-        }
     }
 }

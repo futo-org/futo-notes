@@ -74,3 +74,49 @@ uses the same engine for structural heading/quote Enter and exit rules.
 Commands, shortcut conversions and history use the existing protected append
 workflow; native callers receive equivalent descriptions through regenerated
 UniFFI bindings. Renderer integration and shipping defaults are unchanged.
+
+Link interpretation belongs to the canonical parser, while input timing belongs
+only to an actual supplied in-session lifetime. Opening, recovery and equal text
+cannot mint that lifetime. Standard saved spelling preserves visible text and
+canonical destination independently of whether a live link is still pending.
+`PendingLinks` carries explicit scoped replacement, including an empty result;
+missing scope is not a retirement decision. Code-word and Typed lifetimes remain
+separate roles even when they share a canonical URI identity.
+
+Exact source points include complete decoded-atom witnesses. Staged source edits
+transport points in execution order; an exact child of a Derived body cannot
+restore original ancestry. `BodySource` uses actual rendered piece correspondence,
+and structural commands verify the resulting physical parent before acceptance.
+Reference-dependent actions use the current canonical winner and generation,
+including after a declaration becomes visible or a body changes container form.
+Equal text, raw lengths and semantic caret diff runs are not source lineage.
+
+Own-action relink is an explicit history lifecycle operation. It replays actual
+source generations, preserves the canonical wiki emitter's program, and uses a
+separate real Spelling step when old pending Link markers must become literal.
+Complete original atoms, copied markers and controlled emitted identities are
+validated against one final candidate before fields are retired or installed.
+Known URI identities reconcile original identity, exact program and outcome;
+previously incomplete Typed seeds use only a boundary-local witnessed outcome.
+All source, history, targets and fields prepare before the one host acceptance.
+The behavior and public evidence are indexed in
+[link editing and source ownership](../../docs/spec/editor/portable-core/links.md).
+
+`EditWork` separates supplied parser bytes, source materialization, owned meaning
+copies and charged metadata/correspondence work. The bare-link primitive returns
+its existing `ReferenceWork` at the owner, including the explicit post-parser
+node/child walk and emitted meanings; consumers add their own local inspection
+without reconstructing those copies. It consumes positioned bounds from the
+pinned Rust mdast factory rather than searching equal text. Dependency updates
+must recheck that factory invariant. Counters do not measure parser CPU or all
+allocations, Ropey's internal work, semantic caret diff CPU or native latency.
+Genuine reference transitions and own-action history relinks have explicit global
+work; ordinary unrelated local input must retain its bounded paragraph path.
+
+An outstanding Flush blocks new input and selection while queries still expose
+the accepted projection. Retain a refused complete marked-text callback payload
+until the matching reply is acknowledged, then retry that same update once;
+do not replace it with an unaccepted display queue. Native hosts obtain the same
+Store-clock remaining recovery duration through the FFI projection. The public
+withheld-reply examples demonstrate protocol mechanics, not blocked-I/O timing,
+OS callback capture or physical durability.

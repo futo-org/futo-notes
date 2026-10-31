@@ -218,6 +218,14 @@ fn source_coordinate_index_keeps_malformed_entity_reference_and_fence_boundaries
 fn model(source_len: usize, display: &str, segments: Vec<Segment>) -> Row {
     Row {
         source_len,
+        parsed_source_bytes: 0,
+        guarded_words: Vec::new(),
+        typed_inputs: Vec::new(),
+        literal_delimiters: Vec::new(),
+        literal_links: Vec::new(),
+        definitions: Vec::new(),
+        reference_uses: Vec::new(),
+        reference_work: Default::default(),
         display: display.into(),
         segments,
         spans: Vec::new(),
@@ -349,5 +357,5 @@ fn inverse_coordinate_index_keeps_hidden_runs_atom_interiors_and_empty_fallback(
         ],
     );
     assert_eq!(hidden.source_bounds(0), (0, 3));
-    assert_eq!(Row::parse("").source_bounds(0), (0, 0));
+    assert_eq!(Projection::new("").rows.at(0).0.source_bounds(0), (0, 0));
 }

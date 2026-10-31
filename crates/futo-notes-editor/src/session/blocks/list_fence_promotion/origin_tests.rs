@@ -8,7 +8,7 @@ fn exact_nested_stages_distinguish_foreign_source_from_genuine_document_eof() {
         for depth in [1, 2] {
             let mut staged = EditorSession::open(&format!("{prefix}{foreign}"));
             for _ in 0..depth {
-                staged = staged.stage_source(prefix, 0..prefix.len());
+                staged = staged.stage_source(prefix, 0..prefix.len()).unwrap();
             }
             let before = staged.source_text();
             let selected = DisplayRange {
@@ -68,8 +68,10 @@ fn an_exact_grandchild_of_derived_body_cannot_claim_eof_after_hidden_tail_is_omi
     // The body transform intentionally omits a hidden physical tail inside its
     // source envelope. Its semantic after-context is genuine EOF; raw byte
     // lengths in an exact grandchild cannot restore physical correspondence.
-    let derived = original.stage_body_source(prefix, 0..full.len());
-    let mut staged = derived.stage_source(prefix, 0..prefix.len());
+    let derived = original
+        .stage_with_context(prefix, 0..full.len(), false)
+        .unwrap();
+    let mut staged = derived.stage_source(prefix, 0..prefix.len()).unwrap();
     let selected = DisplayRange {
         start: DisplayOffset(0),
         end: DisplayOffset(0),
@@ -100,12 +102,16 @@ fn an_exact_grandchild_of_derived_body_cannot_claim_eof_after_hidden_tail_is_omi
 fn a_derived_local_foreign_tail_cannot_recertify_original_fence_termination() {
     let raw = "- parent\n  ```\n  opaque\n- outside";
     let original = EditorSession::open(raw);
-    let derived = original.stage_body_source(raw, 0..raw.len());
+    let derived = original
+        .stage_with_context(raw, 0..raw.len(), false)
+        .unwrap();
     for exact_grandchild in [false, true] {
         let mut staged = if exact_grandchild {
-            derived.stage_source(raw, 0..raw.len())
+            derived.stage_source(raw, 0..raw.len()).unwrap()
         } else {
-            original.stage_body_source(raw, 0..raw.len())
+            original
+                .stage_with_context(raw, 0..raw.len(), false)
+                .unwrap()
         };
         let selected = DisplayRange {
             start: DisplayOffset(0),
@@ -143,10 +149,12 @@ fn exact_local_interior_and_ongoing_code_windows_reject_without_acceptance() {
     let root = "- parent\n  ```\n  opaque\n- outside";
     let full = format!("before\n\n{root}\n\n<!-- -->\n");
     let original = EditorSession::open(&full);
-    let interior = original.stage_source(root, 8..8 + root.len());
+    let interior = original.stage_source(root, 8..8 + root.len()).unwrap();
     let ongoing = "- parent\n  ```\n  opaque\n";
     let original_code = EditorSession::open(&format!("{ongoing}  still code\n- outside"));
-    let inside_code = original_code.stage_source(ongoing, 0..ongoing.len());
+    let inside_code = original_code
+        .stage_source(ongoing, 0..ongoing.len())
+        .unwrap();
     for mut staged in [interior, inside_code] {
         let raw = staged.source_text();
         let shown = staged.display_text();
@@ -204,9 +212,9 @@ fn exact_quote_owner_boundary_case(ending: &str, existing_gap: bool) {
     for depth in [1, 2] {
         for affinity in [Affinity::Backward, Affinity::Forward] {
             let mut whole = EditorSession::open(&full);
-            let mut staged = whole.stage_source(&prefix, 0..prefix.len());
+            let mut staged = whole.stage_source(&prefix, 0..prefix.len()).unwrap();
             for _ in 1..depth {
-                staged = staged.stage_source(&prefix, 0..prefix.len());
+                staged = staged.stage_source(&prefix, 0..prefix.len()).unwrap();
             }
             assert_eq!(staged.display_text(), local_before);
             let selected = DisplayRange {
@@ -349,10 +357,10 @@ fn opaque_literal_root_item_must_not_gain_authority(outside: &str) {
     let start = full.find("- parent").unwrap();
     let end = full.len() - outside.len();
     let prefix = &full[start..end];
-    let whole = original.stage_source(&full[..end], 0..end);
+    let whole = original.stage_source(&full[..end], 0..end).unwrap();
     for mut staged in [
-        original.stage_source(prefix, start..end),
-        whole.stage_source(prefix, start..end),
+        original.stage_source(prefix, start..end).unwrap(),
+        whole.stage_source(prefix, start..end).unwrap(),
     ] {
         assert_eq!(staged.display_text(), "parent\nopaque");
         let selected = DisplayRange {

@@ -90,12 +90,18 @@ fn item_visitor_preserves_empty_and_inclusive_physical_boundary_predicates() {
     for source in sources() {
         let events = super::super::row::source_events(&source);
         let (mut template, _) = describe(&source, &events);
-        assert!(template
-            .iter()
-            .all(|line| line.source.start <= line.source.end));
+        // Physical construction covers source once; coalesced setext bodies
+        // retain that partition and fence attribution leaves it intact.
+        assert_eq!(template.first().unwrap().source.start, 0);
+        assert_eq!(template.last().unwrap().source.end, source.len());
+        assert!(template.iter().all(|line| {
+            line.source.start <= line.content.start
+                && line.content.start <= line.content.end
+                && line.content.end <= line.source.end
+        }));
         assert!(template
             .windows(2)
-            .all(|pair| pair[0].source.end <= pair[1].source.start));
+            .all(|pair| pair[0].source.end == pair[1].source.start));
         for line in &mut template {
             line.in_list = false;
         }
@@ -121,6 +127,15 @@ fn item_visitor_preserves_empty_and_inclusive_physical_boundary_predicates() {
                 let mut new = shifted.clone();
                 old_item_lines(&mut old, &range);
                 mark_item_lines(&mut new, &range);
+                assert_eq!(
+                    trailing_syntax(&shifted, &range),
+                    shifted.iter().any(|block| {
+                        !block.empty_comment
+                            && block.content.end <= range.start
+                            && range.end <= block.source.end
+                    }),
+                    "trailing origin={origin} range={range:?} source={source:?}"
+                );
                 assert_eq!(
                     format!("{new:?}"),
                     format!("{old:?}"),

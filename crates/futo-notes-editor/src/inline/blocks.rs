@@ -110,6 +110,31 @@ impl BlockLine {
     }
 }
 
+/// Find trailing syntax in the canonical physical source partition. Construction
+/// starts with consecutive physical lines; setext coalesces consecutive entries
+/// and fences change only content/metadata. Thus starts and ends stay ordered,
+/// with content contained in source (including the optional empty EOF entry).
+/// Any match of the original predicate must have source.end >= range.end and
+/// source.start <= range.start. Keep both boundaries inclusive: an empty range
+/// at a shared edge may match either neighbor. The final predicate is unchanged.
+pub(super) fn trailing_syntax(lines: &[BlockLine], range: &Range<usize>) -> bool {
+    let first = lines.partition_point(|line| {
+        super::visit_container();
+        line.source.end < range.end
+    });
+    let last = lines.partition_point(|line| {
+        super::visit_container();
+        line.source.start <= range.start
+    });
+    first < last
+        && lines[first..last].iter().any(|block| {
+            super::visit_container();
+            !block.empty_comment
+                && block.content.end <= range.start
+                && range.end <= block.source.end
+        })
+}
+
 pub(super) fn describe(
     source: &str,
     events: &[(Event<'_>, Range<usize>)],

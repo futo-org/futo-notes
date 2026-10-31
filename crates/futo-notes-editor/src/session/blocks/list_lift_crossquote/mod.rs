@@ -84,7 +84,7 @@ impl EditorSession {
             .collect();
         materialized += relative.iter().map(|(_, text)| text.len()).sum::<usize>();
         let output = super::transaction::spell_edits(&original, &relative)?;
-        let (selected, preview_parsed, preview_copied) =
+        let (selected, preview_work) =
             self.preview_header_selection(range, footprint.clone(), &relative, &output, None)?;
         let formats = (range == self.selection)
             .then(|| self.pending_formats.clone())
@@ -99,8 +99,9 @@ impl EditorSession {
             accept,
         )?;
         self.carry_block_state(&mut change, formats, affinity);
-        change.work.parsed_source_bytes += parsed + preview_parsed;
-        change.work.materialized_source_bytes += materialized + output.len() + preview_copied;
+        change.work.parsed_source_bytes += parsed;
+        change.work.materialized_source_bytes += materialized + output.len();
+        accumulate_planning_work(&mut change.work, preview_work);
         Ok(Some(change))
     }
 

@@ -7,6 +7,7 @@ use crate::FlushDraftResult;
 
 mod composition;
 mod contract;
+mod links;
 pub use contract::*;
 
 /// Blocking store endpoint. Call on the native I/O worker, including append
@@ -273,6 +274,12 @@ impl NativeEditorSession {
 
     pub fn recovery_status(&self) -> Result<EditorRecoveryStatus, EditorSessionError> {
         self.with_session(|session| Ok(session.recovery_status().into()))
+    }
+
+    /// Remaining time until the oldest unflushed edit is due, computed in the
+    /// store's clock domain. None means no pending flush; zero means already due.
+    pub fn recovery_flush_delay(&self) -> Result<Option<std::time::Duration>, EditorSessionError> {
+        self.with_session(|session| Ok(session.recovery_flush_delay()))
     }
 
     pub fn flush_recovery(&self) -> Result<EditorRecoveryStatus, EditorSessionError> {

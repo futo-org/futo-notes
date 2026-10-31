@@ -39,8 +39,7 @@ impl EditorSession {
         else {
             return Ok(None);
         };
-        let mut mapping = None;
-        let change = self.stage_block_action(
+        let change = self.stage_mapped_block_action(
             expected,
             range,
             Some(HistoryInput {
@@ -62,20 +61,26 @@ impl EditorSession {
                     accept,
                 )?;
                 staged.carry_block_state(&mut boundary, formats, affinity);
-                let mut input =
-                    staged.replace_action(staged.revision(), local, inserted, action, accept)?;
-                mapping = Some(
-                    InputMapping::new(local, inserted.len())
-                        .with_boundary(&boundary, range.start.0 - local.start.0),
-                );
+                let (mut input, mapping) = staged.replace_action_mapped(
+                    staged.revision(),
+                    local,
+                    inserted,
+                    action,
+                    accept,
+                )?;
+                let mapping = mapping.with_source_boundary(&boundary);
                 input.work.materialized_source_bytes += boundary.work.materialized_source_bytes;
                 input.work.parsed_source_bytes += boundary.work.parsed_source_bytes;
-                Ok(Some(input))
+
+                input.work.link_metadata_items += boundary.work.link_metadata_items;
+
+                input.work.link_copied_bytes += boundary.work.link_copied_bytes;
+                Ok(Some((input, mapping)))
             },
         )?;
-        Ok(change.map(|mut change| {
+        Ok(change.map(|(mut change, mapping)| {
             change.work.materialized_source_bytes += copied;
-            (change, mapping.unwrap())
+            (change, mapping)
         }))
     }
 
@@ -110,7 +115,7 @@ impl EditorSession {
             } else {
                 line.content.end..line.content.end
             },
-        );
+        )?;
         staged.affinity = self.input_affinity(range);
         if range == self.selection {
             staged.pending_formats = self.pending_formats.clone();
@@ -119,7 +124,7 @@ impl EditorSession {
             staged.revision(),
             DisplayRange::default(),
             inserted,
-            crate::InputAction::Isolated,
+            action,
             &mut |_| Ok(()),
         )?;
         let raw = staged.source_text();
@@ -152,7 +157,16 @@ impl EditorSession {
         } else {
             (at..at, text)
         };
-        let mut change = self.commit_block_edit(
+        // The stage's complete raw output is inserted unchanged after the
+        // explicit separator/quote prefix. This is source-byte correspondence,
+        // not an arithmetic mapping through a derived inline body.
+        let body_start = if before {
+            line.source.start + quote.len()
+        } else {
+            line.content.end + 1 + quote.len()
+        };
+        let pending = staged.prepare_pending_for_parent(body_start);
+        let mut change = self.commit_block_with_pending(
             expected,
             footprint,
             &text,
@@ -162,11 +176,16 @@ impl EditorSession {
                 inserted,
                 action,
             }),
+            Some(pending),
             accept,
         )?;
         self.carry_block_state(&mut change, staged.pending_formats, staged.affinity);
         change.work.materialized_source_bytes += input.work.materialized_source_bytes;
         change.work.parsed_source_bytes += input.work.parsed_source_bytes;
+
+        change.work.link_metadata_items += input.work.link_metadata_items;
+
+        change.work.link_copied_bytes += input.work.link_copied_bytes;
         Ok(Some(change))
     }
 
@@ -176,6 +195,7 @@ impl EditorSession {
         range: DisplayRange,
         inserted: &str,
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
+        query_work: &mut crate::inline::references::ReferenceWork,
     ) -> Result<Option<ViewChange>, EditorError> {
         if let Some(change) = self.fence_conversion(expected, range, inserted, accept)? {
             return Ok(Some(change));
@@ -200,9 +220,13 @@ impl EditorSession {
             start: DisplayOffset(start_display),
             end: range.start,
         };
-        if self
+        let (prefix_projection, measured) = self
             .projection
-            .query(self.revision(), prefix_range)
+            .query_with_work(self.revision(), prefix_range);
+        query_work.parsed += measured.parsed;
+        query_work.items += measured.items;
+        query_work.copied += measured.copied;
+        if prefix_projection
             .runs
             .iter()
             .any(|run| run.formats.contains(&InlineFormat::Code))
@@ -253,6 +277,10 @@ impl EditorSession {
             staged.pending_formats = formats;
             change.work.materialized_source_bytes += removed.work.materialized_source_bytes;
             change.work.parsed_source_bytes += removed.work.parsed_source_bytes;
+
+            change.work.link_metadata_items += removed.work.link_metadata_items;
+
+            change.work.link_copied_bytes += removed.work.link_copied_bytes;
             Ok(Some(change))
         })
     }

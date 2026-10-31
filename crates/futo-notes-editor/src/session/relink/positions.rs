@@ -1,34 +1,24 @@
-//! Selections follow unchanged scalar runs. Inside replaced bytes, affinity
-//! chooses the corresponding edge; endpoints of a replacement retain their side.
+//! Semantic plain-caret policy inside one certified rewritten target.
+//! These runs never certify source lineage or transport a nonidentity atom.
 use super::*;
 use similar::{ChangeTag, TextDiff};
 
-pub(super) fn selection(
-    before: &str,
-    after: &str,
-    range: DisplayRange,
-    affinity: Affinity,
-) -> DisplayRange {
-    if before == after {
-        return range;
+/// Semantic caret policy for ONE already certified emitted target. This is
+/// never copied-source evidence and cannot map fields or nonidentity atoms.
+pub(super) struct TargetCaret {
+    runs: Vec<Run>,
+}
+impl TargetCaret {
+    pub fn new(before: &str, after: &str) -> (Self, usize) {
+        let runs = changed_runs(before, after);
+        let work = before.len() + after.len() + 3 * runs.len();
+        (Self { runs }, work)
     }
-    let old = crate::inline::Projection::new(before);
-    let new = crate::inline::Projection::new(after);
-    let runs = changed_runs(before, after);
-    let map = |offset: DisplayOffset| {
-        let (low, high) = old.source_bounds(offset.0);
-        let source = if affinity == Affinity::Forward {
-            high
-        } else {
-            low
-        };
-        DisplayOffset(new.display_at(source_position(source, affinity, &runs)))
-    };
-    DisplayRange {
-        start: map(range.start),
-        end: map(range.end),
+    pub fn map(&self, offset: usize, affinity: Affinity) -> (usize, usize) {
+        source_position_work(offset, affinity, &self.runs)
     }
 }
+
 struct Run {
     start: usize,
     end: usize,
@@ -67,33 +57,38 @@ fn changed_runs(before: &str, after: &str) -> Vec<Run> {
     }
     runs
 }
-fn source_position(offset: usize, affinity: Affinity, runs: &[Run]) -> usize {
+fn source_position_work(offset: usize, affinity: Affinity, runs: &[Run]) -> (usize, usize) {
+    let mut work = 0;
     let mut before = 0;
     let mut after = 0;
     for run in runs {
+        work += 1;
         if offset < run.start {
-            return after + offset - before;
+            return (after + offset - before, work);
         }
         after += run.start - before;
         if offset == run.start && run.start < run.end {
-            return after;
+            return (after, work);
         }
         if offset < run.end {
-            return after
-                + if affinity == Affinity::Forward {
-                    run.inserted
-                } else {
-                    0
-                };
+            return (
+                after
+                    + if affinity == Affinity::Forward {
+                        run.inserted
+                    } else {
+                        0
+                    },
+                work,
+            );
         }
         if offset == run.start && affinity == Affinity::Backward {
-            return after;
+            return (after, work);
         }
         after += run.inserted;
         if offset == run.end {
-            return after;
+            return (after, work);
         }
         before = run.end;
     }
-    after + offset - before
+    (after + offset - before, work)
 }

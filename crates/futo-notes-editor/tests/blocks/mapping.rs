@@ -462,3 +462,46 @@ fn os_input_during_marking_maps_provisional_targets_after_the_protected_separato
     view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
     assert_eq!(s.source_text(), before);
 }
+
+#[test]
+fn os_inserted_target_survives_nonlinear_input_after_protected_quote_boundary() {
+    let mut control = EditorSession::open("");
+    let change = control
+        .replace_os(Revision(0), range(0, 0), "*ab* ", &[], &mut |_| Ok(()))
+        .unwrap()
+        .unwrap();
+    assert_eq!(control.source_text(), "*ab* ");
+    assert_eq!(control.display_text(), "ab ");
+    assert_eq!(change.selection, range(3, 3));
+    let raw = "> > \n> ab\n> ===";
+    let mut session = EditorSession::open(raw);
+    let mut view = ReferenceView::new("\nab");
+    let mut accepts = 0;
+    view.apply(
+        session
+            .replace_os(Revision(0), range(0, 0), "*ab* ", &[], &mut |_| {
+                accepts += 1;
+                Ok(())
+            })
+            .unwrap()
+            .unwrap(),
+    );
+    assert_eq!(accepts, 1);
+    assert_eq!(session.source_text(), "> > *ab* \n>\n> ab\n> ===");
+    assert_eq!(view.text, "ab \n\nab");
+    assert_eq!(session.selection(), range(3, 3));
+    view.apply(
+        session
+            .undo(session.revision(), &mut |_| Ok(()))
+            .unwrap()
+            .unwrap(),
+    );
+    assert_eq!(session.source_text(), raw);
+    view.apply(
+        session
+            .redo(session.revision(), &mut |_| Ok(()))
+            .unwrap()
+            .unwrap(),
+    );
+    assert_eq!(session.selection(), range(3, 3));
+}

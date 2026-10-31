@@ -22,6 +22,8 @@ fn assert_fresh(session: &EditorSession, view: &ReferenceView) {
 
 #[path = "inline/code.rs"]
 mod code;
+#[path = "inline/work.rs"]
+mod work;
 
 #[test]
 fn nested_inline_marks_render_without_rewriting_the_original_spelling() {
@@ -349,42 +351,6 @@ fn deleting_a_separator_repairs_only_the_flanking_scalar_without_dropping_marks(
     view.apply(session.undo(Revision(3), &mut |_| Ok(())).unwrap().unwrap());
     assert_fresh(&session, &view);
     assert_eq!(session.source_text(), original);
-}
-
-#[test]
-fn a_distant_edit_reparses_a_paragraph_window_instead_of_the_note() {
-    let mut work = Vec::new();
-    for count in [20, 20_000] {
-        let text = "__word__ rest\r\n\r\n".repeat(count);
-        let mut session = EditorSession::open(&text);
-        let display_offset = (count - 2) * "word rest\r\n\r\n".len() + 2;
-        session
-            .select(Revision(0), range(display_offset, display_offset))
-            .unwrap();
-        let change = session
-            .replace(
-                Revision(0),
-                range(display_offset, display_offset),
-                "x",
-                &mut |_| Ok(()),
-            )
-            .unwrap();
-        assert_eq!(
-            change.selection,
-            range(display_offset + 1, display_offset + 1)
-        );
-        assert_eq!(
-            change.projection.text,
-            "word rest\r\n\r\nwoxrd rest\r\n\r\nword rest\r\n\r\n"
-        );
-        assert!(
-            change.work.parsed_source_bytes < 150,
-            "actual parser input: {:?}",
-            change.work
-        );
-        work.push(change.work);
-    }
-    assert_eq!(work[0], work[1]);
 }
 
 #[test]

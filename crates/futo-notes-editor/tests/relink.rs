@@ -160,3 +160,23 @@ fn own_relink_maps_hidden_unicode_boundaries_by_affinity_without_changing_other_
         assert_eq!(editor.source_text(), "__日__ [[new name]]");
     }
 }
+
+#[path = "relink/guarded.rs"]
+mod guarded;
+
+#[path = "relink/canonical_emitter.rs"]
+mod canonical_emitter;
+
+#[path = "relink/affected.rs"]
+mod affected;
+#[path = "relink/affected_literal.rs"]
+mod affected_literal;
+
+#[path = "relink/typed.rs"]
+mod typed;
+
+#[path = "relink/typed_class.rs"]
+mod typed_class;
+
+#[path = "relink/typed_atoms.rs"]
+mod typed_atoms;

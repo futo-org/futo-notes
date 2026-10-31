@@ -4,6 +4,10 @@ use crate::inline::blocks::BlockLine;
 use pulldown_cmark::{Event, Parser, Tag};
 
 pub(super) struct BodySplit {
+    pub retired_atoms: Vec<crate::inline::guarded_words::ValidationAtom>,
+    pub retained: Vec<crate::inline::references::RetainedBody>,
+    pub pending: Option<crate::inline::PendingLinks>,
+    pub split: usize,
     pub left: String,
     pub right: String,
     pub prefixes: Vec<String>,
@@ -12,6 +16,8 @@ pub(super) struct BodySplit {
     pub affinity: Affinity,
     pub materialized: usize,
     pub parsed: usize,
+    pub link_metadata_items: usize,
+    pub link_copied_bytes: usize,
 }
 
 impl EditorSession {
@@ -93,11 +99,31 @@ impl EditorSession {
             start: DisplayOffset(start),
             end: DisplayOffset(end),
         };
-        let (raw, materialized, parsed) =
+        let rendered =
             self.projection
-                .body_source(&self.source, body_range, false)?;
+                .body_source(&self.source, body_range, false, self.revision)?;
+        let staging::BodyStage {
+            session: mut staged,
+            had_pending,
+        } = self.stage_body_source(&rendered, first.content.start..last.content.end)?;
+        let (inventories, inventory_work) = if rendered
+            .guarded_words
+            .as_ref()
+            .is_some_and(|words| !words.is_empty())
+        {
+            staged.projection.split_guard_inventory()?
+        } else {
+            (Vec::new(), Default::default())
+        };
+        let crate::inline::BodySource {
+            text: raw,
+            retained,
+            materialized,
+            parsed,
+            work: link_work,
+            ..
+        } = rendered;
         let shown = self.projection.display.byte_slice(start..end).to_string();
-        let mut staged = self.stage_body_source(&raw, first.content.start..last.content.end);
         if staged.display_text() != shown {
             return Err(EditorError::UnrepresentableFormat);
         }
@@ -109,16 +135,27 @@ impl EditorSession {
         if range == self.selection {
             staged.pending_formats = self.pending_formats.clone();
         }
-        let change = staged.replace_action(
+        let mut step = None;
+        let (change, mapping) = staged.replace_action_mapped(
             staged.revision(),
             local,
             "\n\n",
             crate::InputAction::Isolated,
-            &mut |_| Ok(()),
+            &mut |edit| {
+                step = Some((edit.previous_revision, edit.range, edit.inserted.len()));
+                Ok(())
+            },
         )?;
+        let (revision, step_range, inserted) = step.ok_or(EditorError::UnrepresentableFormat)?;
+        let (separator, separator_work) =
+            mapping.inserted_source_range(revision, step_range, inserted, 0..2)?;
+        let (retained, witness_work) =
+            mapping.transfer_body(revision, step_range, inserted, retained)?;
+        let (retired_atoms, retirement_work) =
+            mapping.transfer_guard_retirement(revision, step_range, inserted, inventories)?;
         let body = staged.source_text();
-        let split = staged.projection.source_bounds(local.start.0 + 1).0 - 1;
-        if body.get(split..split + 2) != Some("\n\n") {
+        let split = separator.start;
+        if body.get(separator) != Some("\n\n") {
             return Err(EditorError::UnrepresentableFormat);
         }
         let mut prefixes = Vec::new();
@@ -134,7 +171,20 @@ impl EditorSession {
             );
         }
         let prefix_bytes = prefixes.iter().map(String::len).sum::<usize>();
+        let pending = if had_pending {
+            Some(
+                staged
+                    .projection
+                    .pending_body(0..staged.source.len_bytes())?,
+            )
+        } else {
+            None
+        };
         Ok(BodySplit {
+            retired_atoms,
+            pending,
+            retained,
+            split,
             left: body[..split].into(),
             right: body[split + 2..].into(),
             prefixes,
@@ -146,27 +196,91 @@ impl EditorSession {
                 + raw.len()
                 + shown.len()
                 + change.work.materialized_source_bytes,
-            parsed: parsed + 2 * raw.len() + change.work.parsed_source_bytes,
+            parsed: parsed + staged.projection.initial_parse_work + change.work.parsed_source_bytes,
+            link_metadata_items: inventory_work.items
+                + retirement_work
+                + link_work.items
+                + witness_work
+                + separator_work
+                + 2
+                + staged.projection.initial_link_metadata_items
+                + change.work.link_metadata_items,
+            link_copied_bytes: inventory_work.copied
+                + link_work.copied
+                + staged.projection.initial_link_copied_bytes
+                + change.work.link_copied_bytes,
         })
     }
 }
 
 /// Existing physical breaks retain exact container spelling. The planner owns
 /// the newly split first line's prefix separately.
-pub(super) fn restore_body_prefixes<'a>(
+pub(super) struct PhysicalBody {
+    pub text: String,
+    copied_parts: Vec<(std::ops::Range<usize>, std::ops::Range<usize>)>,
+    pub work: usize,
+    pub copied: usize,
+}
+impl PhysicalBody {
+    /// Only complete nonempty atom ranges transfer here. A point at an
+    /// inserted prefix needs explicit affinity, not this range-only query.
+    pub fn retained_range(
+        &self,
+        range: std::ops::Range<usize>,
+    ) -> (Option<std::ops::Range<usize>>, usize) {
+        let mut work = 1;
+        if range.is_empty() {
+            return (None, work);
+        }
+        let at = self.copied_parts.partition_point(|(before, _)| {
+            work += 1;
+            before.end <= range.start
+        });
+        let mapped = self.copied_parts.get(at).and_then(|(before, after)| {
+            work += 1;
+            (before.start <= range.start && range.end <= before.end).then(|| {
+                after.start + range.start - before.start..after.start + range.end - before.start
+            })
+        });
+        (mapped, work)
+    }
+}
+
+pub(super) fn physical_body<'a>(
     body: &str,
     mut prefixes: impl Iterator<Item = &'a String>,
-) -> String {
-    let mut output = String::new();
+    retain_origins: bool,
+) -> PhysicalBody {
+    let mut result = PhysicalBody {
+        text: String::new(),
+        copied_parts: Vec::new(),
+        work: body.len(),
+        copied: 0,
+    };
+    let mut source = 0;
     for (index, part) in body.split_inclusive('\n').enumerate() {
+        result.work += 1;
         if index > 0 {
+            result.work += 1;
             if let Some(prefix) = prefixes.next() {
-                output.push_str(prefix);
+                result.text.push_str(prefix);
+                result.copied += prefix.len();
             }
         }
-        output.push_str(part);
+        let start = result.text.len();
+        result.text.push_str(part);
+        result.copied += part.len();
+        if retain_origins {
+            result.work += 3;
+            // These exact input bytes were just pushed. Inserted prefixes
+            // receive no origin, even when their spelling equals body text.
+            result
+                .copied_parts
+                .push((source..source + part.len(), start..result.text.len()));
+        }
+        source += part.len();
     }
-    output
+    result
 }
 
 pub(super) fn protect_content(raw: &str, heading: bool, paragraph: bool) -> (String, usize) {

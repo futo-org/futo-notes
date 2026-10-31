@@ -52,7 +52,15 @@ it.each([
 });
 
 it('selects the existing consumers and refuses duplicate or foreign classes', () => {
-  expect(selectedClasses([])).toHaveLength(4);
+  const link = 'com.futo.notes.editor.NativeEditorLinkTest';
+  expect(selectedClasses([])).toEqual([
+    cls,
+    'com.futo.notes.editor.NativeEditorBlockRegressionTest',
+    'com.futo.notes.editor.NativeEditorCompositionTest',
+    'com.futo.notes.editor.NativeEditorStructuralSeamTest',
+    link,
+  ]);
+  expect(selectedClasses([link])).toEqual([link]);
   expect(selectedClasses([cls])).toEqual([cls]);
   expect(() => selectedClasses([cls, cls])).toThrow();
   expect(() => selectedClasses(['com.other.Test'])).toThrow();

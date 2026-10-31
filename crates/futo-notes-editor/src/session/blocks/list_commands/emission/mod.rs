@@ -10,8 +10,7 @@ pub(super) struct PlannedListSource {
     pub footprint: Range<usize>,
     pub output: String,
     pub selection: DisplayRange,
-    pub parsed: usize,
-    pub materialized: usize,
+    pub work: EditWork,
 }
 
 struct ListEmitter<'a> {
@@ -149,8 +148,13 @@ impl ListEmitter<'_> {
         self.replacements
             .sort_by_key(|(range, _)| (range.start, range.end));
         let output = transaction::spell_edits(&self.raw, &self.replacements)?;
+        let mut work = EditWork {
+            parsed_source_bytes: self.parsed,
+            materialized_source_bytes: self.materialized,
+            ..EditWork::default()
+        };
         if self.preview_header {
-            let (mapped, work, copied) = self.session.preview_header_selection(
+            let (mapped, preview_work) = self.session.preview_header_selection(
                 self.range,
                 self.start..self.end,
                 &self.replacements,
@@ -158,15 +162,13 @@ impl ListEmitter<'_> {
                 None,
             )?;
             self.selection = mapped;
-            self.parsed += work;
-            self.materialized += copied;
+            accumulate_planning_work(&mut work, preview_work);
         }
         Ok(PlannedListSource {
             footprint: self.start..self.end,
             output,
             selection: self.selection,
-            parsed: self.parsed,
-            materialized: self.materialized,
+            work,
         })
     }
 }

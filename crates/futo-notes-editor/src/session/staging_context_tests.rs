@@ -13,8 +13,8 @@ fn capturing_nested_origins_skips_foreign_bodies_and_blank_subtrees() {
             let session = EditorSession::open(&raw);
             let at = raw.find("body").unwrap();
             crate::inline::CONTEXT_VISITS.with(|visits| visits.set(0));
-            let staged = session.stage_source("body\n", at..at + 5);
-            let nested = staged.stage_source("body\n", 0..5);
+            let staged = session.stage_source("body\n", at..at + 5).unwrap();
+            let nested = staged.stage_source("body\n", 0..5).unwrap();
             let before = nested.semantic_neighbor(0, false, 0).unwrap();
             let after = nested.semantic_neighbor(5, true, 0).unwrap();
             assert_eq!(before.witness.list.unwrap().ordinal, Some(1000));
@@ -75,8 +75,8 @@ fn boundary_carriers_equal_canonical_queries_at_every_source_cut_and_quote_depth
                 .filter_map(|(at, ch)| (ch == '\n').then_some(at + 1))
                 .chain([0, raw.len()])
             {
-                let staged = session.stage_source("", at..at);
-                let nested = staged.stage_source("", 0..0);
+                let staged = session.stage_source("", at..at).unwrap();
+                let nested = staged.stage_source("", 0..0).unwrap();
                 for quote in [0, 1, 2, 3, 19, usize::MAX] {
                     for forward in [false, true] {
                         let expected = meaning(session.semantic_neighbor(at, forward, quote));
@@ -109,7 +109,7 @@ fn local_edits_override_external_witnesses_without_reusing_foreign_coordinates()
         "plain\n",
         "3. body\n",
     ] {
-        let mut staged = session.stage_source("body\n", at..at + 5);
+        let mut staged = session.stage_source("body\n", at..at + 5).unwrap();
         staged
             .replace_action(
                 staged.revision(),
@@ -151,7 +151,9 @@ fn local_edits_override_external_witnesses_without_reusing_foreign_coordinates()
                 }
             }
         }
-        let nested = staged.stage_source(&staged.source_text(), 0..staged.source.len_bytes());
+        let nested = staged
+            .stage_source(&staged.source_text(), 0..staged.source.len_bytes())
+            .unwrap();
         assert_eq!(
             meaning(nested.semantic_neighbor(0, false, 0)),
             meaning(staged.semantic_neighbor(0, false, 0))

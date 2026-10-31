@@ -1,10 +1,44 @@
+mod parse;
 use crate::InlineFormat;
 use pulldown_cmark::{Event, Options, Parser, Tag};
 use std::ops::Range;
+use std::sync::Arc;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum SpanKind {
+    Format(InlineFormat),
+    Link(Arc<LinkMeaning>),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct LinkMeaning {
+    pub destination: String,
+    pub title: Option<String>,
+    pub reference: Option<Arc<str>>,
+}
+
+impl LinkMeaning {
+    pub fn bare(destination: String) -> Arc<Self> {
+        Arc::new(Self {
+            destination,
+            title: None,
+            reference: None,
+        })
+    }
+}
+
+impl SpanKind {
+    pub fn format(&self) -> Option<InlineFormat> {
+        match self {
+            Self::Format(format) => Some(*format),
+            Self::Link(_) => None,
+        }
+    }
+}
 
 #[derive(Clone, Debug)]
 pub(crate) struct Span {
-    pub format: InlineFormat,
+    pub kind: SpanKind,
     pub open: Range<usize>,
     pub close: Range<usize>,
 }
@@ -29,6 +63,14 @@ pub(super) struct ContextRun {
 
 pub(crate) struct Row {
     pub source_len: usize,
+    pub parsed_source_bytes: usize,
+    pub guarded_words: Vec<super::guarded_words::GuardedWord>,
+    pub typed_inputs: Vec<super::typed_angle::TypedAngleOrigin>,
+    pub literal_delimiters: Vec<Range<usize>>,
+    pub literal_links: Vec<Range<usize>>,
+    pub definitions: Vec<super::references::Definition>,
+    pub reference_uses: Vec<super::references::ReferenceUse>,
+    pub reference_work: super::references::ReferenceWork,
     pub display: String,
     pub segments: Vec<Segment>,
     pub spans: Vec<Span>,
@@ -37,194 +79,30 @@ pub(crate) struct Row {
     pub(super) transparent_quote: Option<usize>,
 }
 
+pub(super) fn parser_options() -> Options {
+    Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS
+}
 pub(super) fn source_events(source: &str) -> Vec<(Event<'_>, Range<usize>)> {
-    Parser::new_ext(
-        source,
-        Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS,
-    )
-    .into_offset_iter()
-    .collect()
+    Parser::new_ext(source, parser_options())
+        .into_offset_iter()
+        .collect()
 }
 
 impl Row {
-    pub fn parse(source: &str) -> Self {
-        let events = source_events(source);
-        let (blocks, prefixes) = super::blocks::describe(source, &events);
-        let mut hidden = vec![false; source.len()];
-        for prefix in prefixes {
-            hidden[prefix].fill(true);
-        }
-        let mut spans = Vec::new();
-        let mut replacements = Vec::<(Range<usize>, String)>::new();
-        let mut in_code = false;
-        for (event, range) in events {
-            match &event {
-                Event::Start(Tag::CodeBlock(_)) => {
-                    in_code = true;
-                    continue;
-                }
-                Event::End(pulldown_cmark::TagEnd::CodeBlock) => {
-                    in_code = false;
-                    continue;
-                }
-                _ if in_code => continue,
-                _ => {}
-            }
-            let format = match event {
-                Event::Start(Tag::Strong) => Some((InlineFormat::Bold, 2)),
-                Event::Start(Tag::Emphasis) => Some((InlineFormat::Italic, 1)),
-                Event::Start(Tag::Strikethrough) => {
-                    let width = if source[range.clone()].starts_with("~~") {
-                        2
-                    } else {
-                        1
-                    };
-                    Some((InlineFormat::Strike, width))
-                }
-                Event::Code(_) => {
-                    let (span, code_replacements) = code_span(source, range.clone());
-                    hidden[span.open.clone()].fill(true);
-                    hidden[span.close.clone()].fill(true);
-                    spans.push(span);
-                    replacements.extend(code_replacements);
-                    None
-                }
-                Event::Text(text) => {
-                    if text.as_ref() != &source[range.clone()] {
-                        replacements.push((range.clone(), text.into_string()));
-                    } else if range.start > 0 && source.as_bytes()[range.start - 1] == b'\\' {
-                        if let Some(first) = text.chars().next().filter(char::is_ascii_punctuation)
-                        {
-                            replacements.push((
-                                range.start - 1..range.start + first.len_utf8(),
-                                first.to_string(),
-                            ));
-                        }
-                    }
-                    None
-                }
-                _ => None,
-            };
-            if let Some((format, width)) = format {
-                let open = range.start..range.start + width;
-                let close = range.end - width..range.end;
-                hidden[open.clone()].fill(true);
-                hidden[close.clone()].fill(true);
-                spans.push(Span {
-                    format,
-                    open,
-                    close,
-                });
-            }
-        }
-        for block in &blocks {
-            if block.empty_comment {
-                hidden[block.source.clone()].fill(true);
-                continue;
-            }
-            if let Some(fence) = &block.fence {
-                // A container can end an unmatched fence before the note
-                // ends. Its terminal ending then separates the next block;
-                // there is no closing-frame line to supply that boundary.
-                if fence.closer.is_some() || fence.whole.end == source.len() {
-                    hidden[fence.separator.clone()].fill(true);
-                }
-            }
-            hidden[block.source.start..block.content.start].fill(true);
-            let end = source[block.source.clone()]
-                .trim_end_matches(['\r', '\n'])
-                .len()
-                + block.source.start;
-            if block.content.end <= end {
-                hidden[block.content.end..end].fill(true);
-            }
-            if block.divider {
-                replacements.push((block.content.clone(), "\u{fffc}".into()));
-            }
-        }
-        replacements.sort_by_key(|(r, _)| r.start);
-        let mut replacements = replacements.into_iter().peekable();
-        let mut display = String::new();
-        let mut segments = Vec::new();
-        let mut at = 0;
-        while at < source.len() {
-            let start = at;
-            let display_start = display.len();
-            if let Some((range, _)) = replacements.peek() {
-                if range.start == at {
-                    let (range, text) = replacements.next().unwrap();
-                    display.push_str(&text);
-                    at = range.end;
-                    segments.push(Segment {
-                        source: start..at,
-                        display: display_start..display.len(),
-                        identity: false,
-                    });
-                    continue;
-                }
-            }
-            if hidden[at] {
-                at += source[at..].chars().next().unwrap().len_utf8();
-            } else {
-                at += source[at..].chars().next().unwrap().len_utf8();
-                display.push_str(&source[start..at]);
-            }
-            segments.push(Segment {
-                source: start..at,
-                display: display_start..display.len(),
-                identity: !hidden[start],
-            });
-        }
-        let mut context: Vec<ContextRun> = Vec::new();
-        for (index, block) in blocks.iter().enumerate() {
-            // A nonfinal row's synthetic EOF is owned by the next row.
-            if block.source.is_empty() && !source.is_empty() {
-                continue;
-            }
-            let transparent_quote = (!block.code
-                && !block.empty_comment
-                && block.list.as_ref().is_none_or(|list| !list.first)
-                && source[block.content.clone()]
-                    .bytes()
-                    .all(|b| matches!(b, b' ' | b'\t')))
-            .then_some(block.quote_depth);
-            if let Some(previous) = context.last_mut().filter(|previous| {
-                transparent_quote.is_some() && previous.transparent_quote == transparent_quote
-            }) {
-                previous.source.end = block.source.end;
-                previous.last = index;
-            } else {
-                context.push(ContextRun {
-                    source: block.source.clone(),
-                    first: index,
-                    last: index,
-                    transparent_quote,
-                });
-            }
-        }
-        let transparent_quote = (context.len() == 1)
-            .then(|| context[0].transparent_quote)
-            .flatten();
-        Self {
-            context,
-            transparent_quote,
-            source_len: source.len(),
-            display,
-            segments,
-            spans,
-            blocks,
-        }
-    }
-
     pub fn source_bounds(&self, at: usize) -> (usize, usize) {
+        self.source_bounds_with_work(at).0
+    }
+    pub fn source_bounds_with_work(&self, at: usize) -> ((usize, usize), usize) {
         if self.segments.is_empty() {
-            return (0, 0);
+            return ((0, 0), 0);
         }
         let mut examined = 0;
         let first = self.segments.partition_point(|segment| {
             examined += 1;
             segment.display.end < at
         });
+        #[cfg(test)]
+        let first_work = examined;
         let last = self.segments.partition_point(|segment| {
             examined += 1;
             segment.display.start <= at
@@ -262,38 +140,160 @@ impl Row {
         } else {
             None
         };
+        #[cfg(test)]
+        super::coordinate_work_tests::bounds(
+            examined,
+            first_work + last.saturating_sub(first) + usize::from(last < self.segments.len()),
+        );
         super::visit_correspondence(examined);
-        result.unwrap_or((self.source_len, 0))
+        (result.unwrap_or((self.source_len, 0)), examined)
+    }
+
+    pub fn source_point_with_work(
+        &self,
+        at: usize,
+        affinity: crate::Affinity,
+    ) -> (crate::history::SourcePoint, usize) {
+        let mut work = 0;
+        let first = self.segments.partition_point(|segment| {
+            work += 1;
+            segment.display.end < at
+        });
+        if let Some(segment) = self.segments.get(first) {
+            work += 1;
+            if !segment.identity && segment.display.start < at && at < segment.display.end {
+                super::visit_correspondence(work);
+                return (
+                    crate::history::SourcePoint {
+                        source: crate::SourceOffset(segment.source.start),
+                        within: at - segment.display.start,
+                        atom: Some(crate::history::SourceAtom {
+                            source_len: segment.source.len(),
+                            display_len: segment.display.len(),
+                        }),
+                    },
+                    work,
+                );
+            }
+        }
+        super::visit_correspondence(work);
+        let ((low, high), visits) = self.source_bounds_with_work(at);
+        (
+            crate::history::SourcePoint {
+                source: crate::SourceOffset(if affinity == crate::Affinity::Forward {
+                    high
+                } else {
+                    low
+                }),
+                within: 0,
+                atom: None,
+            },
+            work + visits,
+        )
+    }
+
+    pub fn project_source_point(&self, point: crate::history::SourcePoint) -> (usize, usize) {
+        let (display, work) = self.try_project_source_point(point);
+        (
+            display.expect("exact history restores its own parser-owned source atom"),
+            work,
+        )
+    }
+
+    pub fn try_project_source_point(
+        &self,
+        point: crate::history::SourcePoint,
+    ) -> (Option<usize>, usize) {
+        if point.source.0 > self.source_len {
+            super::visit_correspondence(1);
+            return (None, 1);
+        }
+        let Some(atom) = point.atom else {
+            let mut work = 0;
+            let index = self.segments.partition_point(|segment| {
+                work += 1;
+                segment.source.end < point.source.0
+            });
+            let Some(segment) = self.segments.get(index) else {
+                super::visit_correspondence(work);
+                return (Some(self.display.len()), work);
+            };
+            work += 1;
+            if !segment.identity
+                && segment.source.start < point.source.0
+                && point.source.0 < segment.source.end
+            {
+                super::visit_correspondence(work);
+                return (None, work);
+            }
+            let display = if segment.identity {
+                segment.display.start + point.source.0 - segment.source.start
+            } else if point.source.0 == segment.source.end {
+                segment.display.end
+            } else {
+                segment.display.start
+            };
+            work += 1;
+            super::visit_correspondence(work);
+            return (
+                self.display.is_char_boundary(display).then_some(display),
+                work,
+            );
+        };
+        let mut work = 0;
+        let index = self.segments.partition_point(|segment| {
+            work += 1;
+            segment.source.start < point.source.0
+        });
+        let Some(segment) = self.segments.get(index) else {
+            super::visit_correspondence(work);
+            return (None, work);
+        };
+        work += 1;
+        let valid = !segment.identity
+            && segment.source.start == point.source.0
+            && segment.source.len() == atom.source_len
+            && segment.display.len() == atom.display_len
+            && point.within < atom.display_len
+            && self.display[segment.display.clone()].is_char_boundary(point.within);
+        super::visit_correspondence(work);
+        (valid.then_some(segment.display.start + point.within), work)
     }
 
     pub fn display_at(&self, source: usize) -> usize {
-        let mut examined = 0;
-        // Seek the FIRST inclusive end; equal ends must retain the old bias.
+        self.display_at_with_work(source).0
+    }
+
+    pub fn display_at_with_work(&self, source: usize) -> (usize, usize) {
+        let mut work = 0;
         let index = self.segments.partition_point(|segment| {
-            examined += 1;
+            work += 1;
             segment.source.end < source
         });
         let segment = self.segments.get(index).filter(|segment| {
-            examined += 1;
+            work += 1;
             segment.source.start <= source && source <= segment.source.end
         });
-        super::visit_correspondence(examined);
-        segment.map_or(self.display.len(), |segment| {
-            if segment.identity {
+        super::visit_correspondence(work);
+        if let Some(segment) = segment {
+            let display = if segment.identity {
                 segment.display.start + source - segment.source.start
             } else if source == segment.source.end {
                 segment.display.end
             } else {
                 segment.display.start
-            }
-        })
+            };
+            (display, work)
+        } else {
+            (self.display.len(), work)
+        }
     }
 
     pub fn formats_at(&self, source: usize) -> Vec<InlineFormat> {
         self.spans
             .iter()
             .filter(|span| span.open.end <= source && source <= span.close.start)
-            .map(|span| span.format)
+            .filter_map(|span| span.kind.format())
             .collect()
     }
 }
@@ -330,53 +330,6 @@ pub(crate) fn paragraphs(source: &str) -> Vec<&str> {
         result.push(&source[start..]);
     }
     result
-}
-
-fn code_span(source: &str, range: Range<usize>) -> (Span, Vec<(Range<usize>, String)>) {
-    let raw = &source[range.clone()];
-    let width = raw.bytes().take_while(|b| *b == b'`').count();
-    let mut start = range.start + width;
-    let mut end = range.end - width;
-    let normalized = source[start..end]
-        .replace("\r\n", " ")
-        .replace(['\r', '\n'], " ");
-    if normalized.starts_with(' ')
-        && normalized.ends_with(' ')
-        && normalized.chars().any(|c| c != ' ')
-    {
-        start += if source[start..end].starts_with("\r\n") {
-            2
-        } else {
-            1
-        };
-        end -= if source[start..end].ends_with("\r\n") {
-            2
-        } else {
-            1
-        };
-    }
-    let span = Span {
-        format: InlineFormat::Code,
-        open: range.start..start,
-        close: end..range.end,
-    };
-    let mut replacements = Vec::new();
-    let mut at = start;
-    while at < end {
-        let ch = source[at..end].chars().next().unwrap();
-        if ch == '\r' || ch == '\n' {
-            let width = if source[at..end].starts_with("\r\n") {
-                2
-            } else {
-                1
-            };
-            replacements.push((at..at + width, " ".into()));
-            at += width;
-        } else {
-            at += ch.len_utf8();
-        }
-    }
-    (span, replacements)
 }
 
 #[cfg(test)]

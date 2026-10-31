@@ -39,7 +39,7 @@ impl EditorSession {
             spelled += raw.len() + output.len();
             Cow::Owned(output)
         };
-        let (selection, parsed, copied) =
+        let (selection, work) =
             self.preview_header_selection(range, footprint.clone(), edits, &output, Some(shape))?;
         let formats = (range == self.selection)
             .then(|| self.pending_formats.clone())
@@ -54,8 +54,8 @@ impl EditorSession {
             accept,
         )?;
         self.carry_block_state(&mut change, formats, affinity);
-        change.work.parsed_source_bytes += parsed;
-        change.work.materialized_source_bytes += copied + spelled + output.len();
+        accumulate_planning_work(&mut change.work, work);
+        change.work.materialized_source_bytes += spelled + output.len();
         Ok(change)
     }
 
@@ -66,7 +66,7 @@ impl EditorSession {
         edits: &[(Range<usize>, String)],
         output: &str,
         shape: Option<HeaderShape<'_>>,
-    ) -> Result<(DisplayRange, usize, usize), EditorError> {
+    ) -> Result<(DisplayRange, EditWork), EditorError> {
         let points = [
             self.projection.retained_point(range.start.0)?,
             self.projection.retained_point(range.end.0)?,
@@ -80,7 +80,16 @@ impl EditorSession {
         }
         let (window, display) = self.projection.retained_point_window(bounds);
         let raw = self.source.byte_slice(window.clone()).to_string();
-        let mut preview = self.stage_source(&raw, window.clone());
+        let mut preview = self.stage_source(&raw, window.clone())?;
+        #[cfg(test)]
+        crate::inline::coordinate_work_tests::child(
+            "header-initial",
+            EditWork {
+                link_metadata_items: preview.projection.initial_link_metadata_items,
+                link_copied_bytes: preview.projection.initial_link_copied_bytes,
+                ..Default::default()
+            },
+        );
         let edit = preview.prepare_source(
             preview.revision(),
             SourceRange {
@@ -91,7 +100,11 @@ impl EditorSession {
         )?;
         // This private apply calls no host, clock or history operation.
         let old_display_len = preview.projection.display.len_bytes();
-        let work = preview.apply(&edit).work;
+        let initial_items = preview.projection.initial_link_metadata_items;
+        let initial_copied = preview.projection.initial_link_copied_bytes;
+        let mut work = preview.apply(&edit).work;
+        #[cfg(test)]
+        crate::inline::coordinate_work_tests::child("header-apply", work);
         if let Some(shape) = shape {
             let body = shape.preview_body(&footprint, edits, output.len(), window.start)?;
             shape.verify_display(
@@ -115,13 +128,16 @@ impl EditorSession {
             point.verify_raw(&self.source, shifted, &preview.source)?;
             mapped[index] = display + preview.projection.project_retained_point(shifted)?;
         }
+        work.parsed_source_bytes += 2 * raw.len();
+        work.materialized_source_bytes += raw.len() + output.len();
+        work.link_metadata_items += initial_items;
+        work.link_copied_bytes += initial_copied;
         Ok((
             DisplayRange {
                 start: DisplayOffset(mapped[0]),
                 end: DisplayOffset(mapped[1]),
             },
-            2 * raw.len() + work.parsed_source_bytes,
-            raw.len() + output.len() + work.materialized_source_bytes,
+            work,
         ))
     }
 }

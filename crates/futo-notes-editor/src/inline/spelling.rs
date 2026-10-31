@@ -1,32 +1,57 @@
 //! Preserve marker spelling, repair delimiter boundaries and verify candidates
 //! against the CommonMark parser before any source is accepted.
+mod boundaries;
+mod pieces;
+use boundaries::{repair_boundaries, repair_literal_boundaries};
+pub(super) mod relink;
+mod render;
+pub(super) use pieces::{full_reference_close, Marker, Piece, PieceOrigin, Spelling};
+mod guarded;
+mod literal_capsules;
+mod literal_urls;
+mod typed_origins;
+pub(in crate::inline) use literal_urls::CodeLiteralColon;
+mod url_timing;
+use super::row::SpanKind;
 use super::row::{Row, Span};
 use crate::{EditorError, InlineFormat};
+use render::render;
 use std::ops::Range;
-
-pub(super) struct Piece {
-    pub raw: String,
-    pub display: String,
-    pub spans: Vec<usize>,
-    pub trailing: bool,
-}
-pub(super) struct Marker {
-    pub format: InlineFormat,
-    pub open: String,
-    pub close: String,
-}
-
-pub(super) struct Spelling {
-    pub text: String,
-    pub caret: usize,
-    pub parsed: usize,
-}
+pub(super) use url_timing::prepare_url_input;
 
 pub(super) fn spell(
+    pieces: Vec<Piece>,
+    guards: super::guarded_words::GuardState,
+    typed: super::typed_angle::TypedState,
+    raw: &str,
+    markers: Vec<Marker>,
+    insertion: Range<usize>,
+    literal: bool,
+    references: &std::sync::Arc<super::references::References>,
+) -> Result<Spelling, EditorError> {
+    spell_with_anchors(
+        pieces,
+        guards,
+        typed,
+        raw,
+        markers,
+        insertion,
+        literal,
+        references,
+        &[],
+    )
+}
+
+pub(super) fn spell_with_anchors(
     mut pieces: Vec<Piece>,
+    guards: super::guarded_words::GuardState,
+    typed: super::typed_angle::TypedState,
+    raw: &str,
     mut markers: Vec<Marker>,
     insertion: Range<usize>,
     literal: bool,
+    references: &std::sync::Arc<super::references::References>,
+    anchors: &[usize],
 ) -> Result<Spelling, EditorError> {
     split_paragraph_spans(&mut pieces);
     trim_emphasis_edges(&mut pieces, &markers);
@@ -34,9 +59,38 @@ pub(super) fn spell(
     let expected: String = pieces.iter().map(|piece| piece.display.as_str()).collect();
     let mut rendered = render(&pieces, &markers, insertion.start, insertion.end);
     let mut parsed = 0;
-    if literal {
-        let mut candidate = Row::parse(&rendered.text);
-        parsed += rendered.text.len();
+    let mut materialized = 0;
+    let mut link_metadata_items = rendered.link_metadata_items;
+    let mut link_copied_bytes = 0;
+    let mut verified = None;
+    let verify_pending = markers.iter().any(|marker| {
+        link_metadata_items += 1;
+        marker.pending || marker.activate || marker.literal_url
+    });
+    if literal || verify_pending || typed.has_literal_proof() {
+        let mut candidate =
+            Row::parse_with_references(&rendered.text, references, &rendered.winners);
+        parsed += candidate.parsed_source_bytes;
+        link_metadata_items += candidate.reference_work.items;
+        link_copied_bytes += candidate.reference_work.copied;
+        let mut literal_work = super::references::ReferenceWork::default();
+        let mut words = literal_urls::Words::read(&pieces, &markers, &rendered, &mut literal_work)?;
+        let mut rendered_changed = false;
+        if words.repair(
+            &mut pieces,
+            &markers,
+            &rendered,
+            &candidate,
+            &mut literal_work,
+        )? {
+            materialized += render::replace(&mut rendered, &pieces, &markers, insertion.clone());
+            rendered_changed = true;
+            link_metadata_items += rendered.link_metadata_items;
+            candidate = Row::parse_with_references(&rendered.text, references, &rendered.winners);
+            parsed += candidate.parsed_source_bytes;
+            link_metadata_items += candidate.reference_work.items;
+            link_copied_bytes += candidate.reference_work.copied;
+        }
         if candidate.display != expected {
             repair_literal_boundaries(&mut pieces, &rendered, &candidate, &insertion);
             // A speculative line-start marker must reopen as the literal text
@@ -56,36 +110,99 @@ pub(super) fn spell(
                         .collect();
                 }
             }
-            rendered = render(&pieces, &markers, insertion.start, insertion.end);
-            candidate = Row::parse(&rendered.text);
-            parsed += rendered.text.len();
+            if words.has_owners() {
+                rendered_changed = true;
+            }
+            materialized += render::replace(&mut rendered, &pieces, &markers, insertion.clone());
+            link_metadata_items += rendered.link_metadata_items;
+            candidate = Row::parse_with_references(&rendered.text, references, &rendered.winners);
+            parsed += candidate.parsed_source_bytes;
+            link_metadata_items += candidate.reference_work.items;
+            link_copied_bytes += candidate.reference_work.copied;
         }
-        let missing: Vec<_> = rendered
+        let mut missing: Vec<_> = rendered
             .spans
             .iter()
             .filter(|(_, expected)| {
                 !candidate.spans.iter().any(|span| {
-                    span.format == expected.format
+                    span.kind == expected.kind
                         && span.open == expected.open
                         && span.close == expected.close
                 })
             })
             .map(|(id, _)| *id)
             .collect();
+        // A bare/autolink spelling is valid only while it reopens with the
+        // retained destination. Editing its label can require explicit syntax.
+        let mut repaired_link = false;
+        for &id in &missing {
+            let marker = &mut markers[id];
+            if let SpanKind::Link(destination) = &marker.kind {
+                if let Some(close) = full_reference_close(destination, &marker.open, &marker.close)
+                {
+                    // Parser-normalized reference keys preserve their original
+                    // source escapes. A full tail retains identity when the
+                    // shortcut/collapsed label changes, without editing its
+                    // separate definition or making it newly unused.
+                    link_copied_bytes += close.len() - 3;
+                    marker.close = close;
+                    link_metadata_items += 1;
+                    repaired_link = true;
+                } else if marker.open.is_empty() && marker.close.is_empty()
+                    || marker.open == "<" && marker.close == ">"
+                {
+                    marker.open = "[".into();
+                    marker.close = format!(
+                        "](<{}>)",
+                        super::links::destination_source(&destination.destination)
+                    );
+                    repaired_link = true;
+                }
+            }
+        }
+        if repaired_link {
+            if words.has_owners() {
+                rendered_changed = true;
+            }
+            materialized += render::replace(&mut rendered, &pieces, &markers, insertion.clone());
+            link_metadata_items += rendered.link_metadata_items;
+            candidate = Row::parse_with_references(&rendered.text, references, &rendered.winners);
+            parsed += candidate.parsed_source_bytes;
+            link_metadata_items += candidate.reference_work.items;
+            link_copied_bytes += candidate.reference_work.copied;
+            missing = rendered
+                .spans
+                .iter()
+                .filter(|(_, expected)| {
+                    !candidate.spans.iter().any(|span| {
+                        span.kind == expected.kind
+                            && span.open == expected.open
+                            && span.close == expected.close
+                    })
+                })
+                .map(|(id, _)| *id)
+                .collect();
+        }
         if candidate.display != expected || !missing.is_empty() {
             // An entity changes CommonMark's delimiter flanking while
             // decoding to the same visible scalar. Repair only the exact
             // neighbor of a marker that the library could no longer pair.
             repair_boundaries(&mut pieces, &missing);
-            rendered = render(&pieces, &markers, insertion.start, insertion.end);
-            let candidate = Row::parse(&rendered.text);
-            parsed += rendered.text.len();
+            if words.has_owners() {
+                rendered_changed = true;
+            }
+            materialized += render::replace(&mut rendered, &pieces, &markers, insertion.clone());
+            link_metadata_items += rendered.link_metadata_items;
+            candidate = Row::parse_with_references(&rendered.text, references, &rendered.winners);
+            parsed += candidate.parsed_source_bytes;
+            link_metadata_items += candidate.reference_work.items;
+            link_copied_bytes += candidate.reference_work.copied;
             let missing: Vec<_> = rendered
                 .spans
                 .iter()
                 .filter(|(_, expected)| {
                     !candidate.spans.iter().any(|span| {
-                        span.format == expected.format
+                        span.kind == expected.kind
                             && span.open == expected.open
                             && span.close == expected.close
                     })
@@ -94,13 +211,16 @@ pub(super) fn spell(
                 .collect();
             for id in missing {
                 let marker = &mut markers[id];
-                if matches!(marker.format, InlineFormat::Bold | InlineFormat::Italic) {
+                if matches!(
+                    marker.kind,
+                    SpanKind::Format(InlineFormat::Bold | InlineFormat::Italic)
+                ) {
                     let ch = if marker.open.starts_with('*') {
                         '_'
                     } else {
                         '*'
                     };
-                    let width = if marker.format == InlineFormat::Bold {
+                    let width = if marker.kind == SpanKind::Format(InlineFormat::Bold) {
                         2
                     } else {
                         1
@@ -109,13 +229,19 @@ pub(super) fn spell(
                     marker.close.clone_from(&marker.open);
                 }
             }
-            rendered = render(&pieces, &markers, insertion.start, insertion.end);
-            let candidate = Row::parse(&rendered.text);
-            parsed += rendered.text.len();
+            if words.has_owners() {
+                rendered_changed = true;
+            }
+            materialized += render::replace(&mut rendered, &pieces, &markers, insertion.clone());
+            link_metadata_items += rendered.link_metadata_items;
+            candidate = Row::parse_with_references(&rendered.text, references, &rendered.winners);
+            parsed += candidate.parsed_source_bytes;
+            link_metadata_items += candidate.reference_work.items;
+            link_copied_bytes += candidate.reference_work.copied;
             if candidate.display != expected
                 || rendered.spans.iter().any(|(_, expected)| {
                     !candidate.spans.iter().any(|span| {
-                        span.format == expected.format
+                        span.kind == expected.kind
                             && span.open == expected.open
                             && span.close == expected.close
                     })
@@ -124,193 +250,102 @@ pub(super) fn spell(
                 return Err(EditorError::UnrepresentableFormat);
             }
         }
+        if rendered_changed {
+            words = literal_urls::Words::read(&pieces, &markers, &rendered, &mut literal_work)?;
+        }
+        words.verify(&pieces, &rendered, &candidate, &mut literal_work)?;
+        link_metadata_items += literal_work.items;
+        link_copied_bytes += literal_work.copied;
+        verified = Some(candidate);
     }
+    let mut mapped = Vec::with_capacity(anchors.len());
+    for &anchor in anchors {
+        let mut at = 0;
+        let mut found = None;
+        for (piece, source) in pieces.iter().zip(&rendered.pieces) {
+            link_metadata_items += 1;
+            let end = at + piece.display.len();
+            if !piece.display.is_empty() && (anchor == at || anchor == end) {
+                found = Some(if anchor == at {
+                    source.start
+                } else {
+                    source.end
+                });
+                break;
+            }
+            at = end;
+        }
+        mapped.push(found.ok_or(EditorError::UnrepresentableFormat)?);
+    }
+    if verified.is_none() && (!guards.owners.is_empty() || typed.has_update()) {
+        let candidate = Row::parse_with_references(&rendered.text, references, &rendered.winners);
+        parsed += candidate.parsed_source_bytes;
+        link_metadata_items += candidate.reference_work.items;
+        link_copied_bytes += candidate.reference_work.copied;
+        verified = Some(candidate);
+    }
+    let guarded_words = if guards.owners.is_empty() {
+        None
+    } else {
+        Some(
+            guards.collect(
+                &pieces,
+                &markers,
+                &rendered,
+                verified
+                    .as_ref()
+                    .ok_or(EditorError::UnrepresentableFormat)?,
+                &mut link_metadata_items,
+            )?,
+        )
+    };
+    if typed.has_literal_proof() {
+        let work = typed.verify_literal_capsules(
+            &pieces,
+            &rendered,
+            verified
+                .as_ref()
+                .ok_or(EditorError::UnrepresentableFormat)?,
+        )?;
+        link_metadata_items += work.items;
+        link_copied_bytes += work.copied;
+    }
+    let typed_inputs = typed.emit(&pieces, &rendered, raw, &mut link_metadata_items)?;
+    if let Some(origins) = &typed_inputs {
+        link_metadata_items += super::typed_angle::validate_row(
+            rendered.text.len(),
+            verified
+                .as_ref()
+                .ok_or(EditorError::UnrepresentableFormat)?,
+            origins,
+        )?;
+    }
+    let (pending_links, activated_links) =
+        url_timing::collect_link_timing(&markers, &rendered, &mut link_metadata_items);
+    let split_retirement = guards
+        .after_split
+        .map(|id| guards.owners[id].as_ref().unwrap().clone());
+    link_metadata_items += usize::from(split_retirement.is_some());
     Ok(Spelling {
+        split_retirement,
+        typed_inputs,
+        guarded_words,
+        materialized,
+        pending_links,
+        activated_links,
+        origins: url_timing::collect_origins(&pieces, &rendered, &mut link_metadata_items),
+        input_start: rendered
+            .pieces
+            .get(insertion.start)
+            .map_or(rendered.caret, |range| range.start),
+        delimiters: url_timing::collect_delimiters(&pieces, &rendered, &mut link_metadata_items),
+        anchors: mapped,
         text: rendered.text,
         caret: rendered.caret,
         parsed,
+        link_metadata_items,
+        link_copied_bytes,
     })
-}
-
-struct Rendered {
-    text: String,
-    caret: usize,
-    spans: Vec<(usize, Span)>,
-    pieces: Vec<Range<usize>>,
-}
-fn render(
-    pieces: &[Piece],
-    markers: &[Marker],
-    insertion_index: usize,
-    insertion_end: usize,
-) -> Rendered {
-    let mut output = String::new();
-    let mut stack: Vec<usize> = Vec::new();
-    let mut openings: Vec<Range<usize>> = Vec::new();
-    let mut spans = Vec::new();
-    let mut caret = None;
-    let mut piece_ranges = Vec::with_capacity(pieces.len());
-    for (index, piece) in pieces.iter().enumerate() {
-        let common = stack
-            .iter()
-            .zip(&piece.spans)
-            .take_while(|(a, b)| a == b)
-            .count();
-        while stack.len() > common {
-            let id = stack.pop().unwrap();
-            let open = openings.pop().unwrap();
-            let start = output.len();
-            output.push_str(&markers[id].close);
-            spans.push((
-                id,
-                Span {
-                    format: markers[id].format,
-                    open,
-                    close: start..output.len(),
-                },
-            ));
-        }
-        if index == insertion_index && insertion_index == insertion_end {
-            caret = Some(output.len());
-        }
-        for &id in &piece.spans[common..] {
-            let start = output.len();
-            output.push_str(&markers[id].open);
-            openings.push(start..output.len());
-            stack.push(id);
-        }
-        let start = output.len();
-        output.push_str(&piece.raw);
-        piece_ranges.push(start..output.len());
-        if index + 1 == insertion_end {
-            caret = Some(output.len());
-        }
-    }
-    if insertion_index == pieces.len() && insertion_index == insertion_end {
-        caret = Some(output.len());
-    }
-    while let Some(id) = stack.pop() {
-        let open = openings.pop().unwrap();
-        let start = output.len();
-        output.push_str(&markers[id].close);
-        spans.push((
-            id,
-            Span {
-                format: markers[id].format,
-                open,
-                close: start..output.len(),
-            },
-        ));
-    }
-    Rendered {
-        caret: caret.unwrap_or(output.len()),
-        text: output,
-        spans,
-        pieces: piece_ranges,
-    }
-}
-
-fn repair_literal_boundaries(
-    pieces: &mut [Piece],
-    rendered: &Rendered,
-    candidate: &Row,
-    insertion: &Range<usize>,
-) {
-    for (piece, source) in pieces.iter_mut().zip(&rendered.pieces) {
-        if piece.raw == "\\"
-            && piece.display == "\\"
-            && candidate.segments.iter().any(|segment| {
-                !segment.identity
-                    && segment.source.start == source.start
-                    && source.end < segment.source.end
-                    && candidate.display_at(source.start) == candidate.display_at(source.end)
-            })
-        {
-            piece.raw = "&#92;".into();
-        }
-    }
-    let mut closers = Vec::new();
-    for (piece, source) in pieces.iter_mut().zip(&rendered.pieces) {
-        if piece.trailing && piece.display.is_empty() && piece.raw == "#" {
-            if let Some(block) = candidate.blocks.iter().find(|block| {
-                block.heading > 0
-                    && block.heading_syntax == super::blocks::HeadingSyntax::Atx
-                    && block.content.start <= source.start
-                    && source.end <= block.content.end
-            }) {
-                if !closers.contains(&block.source.start) {
-                    piece.raw.insert(0, ' ');
-                    closers.push(block.source.start);
-                }
-            }
-        }
-    }
-    // A deletion can expose a body space as ATX separation, or a
-    // literal hash as an opener/closer. Repair only visible pieces
-    // that the candidate now consumes as hidden block syntax.
-    let mut repaired = Vec::new();
-    for (index, (piece, source)) in pieces.iter_mut().zip(&rendered.pieces).enumerate() {
-        let boundary = candidate.blocks.iter().find_map(|block| {
-            if block.source.start <= source.start && source.end <= block.content.start {
-                Some((block.source.start, false))
-            } else if block.content.end <= source.start && source.end <= block.source.end {
-                Some((block.source.start, true))
-            } else {
-                None
-            }
-        });
-        if piece.raw == piece.display
-            && piece.display.chars().count() == 1
-            && !piece.display.contains(['\r', '\n'])
-            && boundary.is_some_and(|boundary| !repaired.contains(&boundary))
-            && candidate.display_at(source.start) == candidate.display_at(source.end)
-        {
-            let scalar = piece.display.chars().next().unwrap();
-            piece.raw = if scalar.is_ascii_punctuation() && !insertion.contains(&index) {
-                format!("\\{scalar}")
-            } else {
-                format!("&#{};", scalar as u32)
-            };
-            repaired.push(boundary.unwrap());
-        }
-    }
-}
-
-fn repair_boundaries(pieces: &mut [Piece], missing: &[usize]) {
-    let mut encode = Vec::new();
-    for &id in missing {
-        for index in 0..pieces.len() {
-            if !pieces[index].spans.contains(&id) {
-                continue;
-            }
-            if index > 0 && !pieces[index - 1].spans.contains(&id) {
-                encode.push(index - 1);
-            }
-            if index + 1 < pieces.len() && !pieces[index + 1].spans.contains(&id) {
-                encode.push(index + 1);
-            }
-            // A literal backslash immediately before a new closing marker
-            // must not escape that marker, including at the body's end.
-            if (index + 1 == pieces.len() || !pieces[index + 1].spans.contains(&id))
-                && pieces[index].raw == "\\"
-                && pieces[index].display == "\\"
-            {
-                encode.push(index);
-            }
-        }
-    }
-    encode.sort_unstable();
-    encode.dedup();
-    for index in encode {
-        let piece = &mut pieces[index];
-        if piece.raw == piece.display
-            && piece.display.chars().count() == 1
-            && !piece.display.chars().any(char::is_whitespace)
-        {
-            let scalar = piece.display.chars().next().unwrap() as u32;
-            piece.raw = format!("&#{scalar};");
-        }
-    }
 }
 
 // Block commands create a real parser boundary even with one source newline.
@@ -370,7 +405,10 @@ fn trim_emphasis_edges(pieces: &mut [Piece], markers: &[Marker]) {
     // Emphasis cannot begin/end in whitespace. Keep such bytes outside the
     // markers and carry the active formatting separately for the next key.
     for (id, marker) in markers.iter().enumerate() {
-        if marker.format == InlineFormat::Code {
+        if !matches!(
+            marker.kind,
+            SpanKind::Format(InlineFormat::Bold | InlineFormat::Italic | InlineFormat::Strike)
+        ) {
             continue;
         }
         let mut start = 0;
@@ -404,7 +442,7 @@ fn repair_code_delimiters(pieces: &[Piece], markers: &mut [Marker]) {
     // Code is isolated from markdown. Keep sufficient backticks, and
     // distinguish delimiter padding from spaces in the visible content.
     for (id, marker) in markers.iter_mut().enumerate() {
-        if marker.format != InlineFormat::Code {
+        if marker.kind != SpanKind::Format(InlineFormat::Code) {
             continue;
         }
         let content: String = pieces

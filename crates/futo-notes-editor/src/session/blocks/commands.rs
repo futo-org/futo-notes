@@ -103,6 +103,8 @@ impl EditorSession {
                         return Ok(None);
                     };
                     let local = staged.selection();
+                    #[cfg(test)]
+                    crate::inline::coordinate_work_tests::child("lift-list", lifted.work);
                     if staged
                         .projection
                         .block_lines(local)
@@ -116,8 +118,7 @@ impl EditorSession {
                     else {
                         return Ok(Some(lifted));
                     };
-                    change.work.parsed_source_bytes += lifted.work.parsed_source_bytes;
-                    change.work.materialized_source_bytes += lifted.work.materialized_source_bytes;
+                    accumulate_planning_work(&mut change.work, lifted.work);
                     Ok(Some(change))
                 },
             );
@@ -150,6 +151,10 @@ impl EditorSession {
                         change.work.materialized_source_bytes +=
                             seams.work.materialized_source_bytes;
                         change.work.parsed_source_bytes += seams.work.parsed_source_bytes;
+
+                        change.work.link_metadata_items += seams.work.link_metadata_items;
+
+                        change.work.link_copied_bytes += seams.work.link_copied_bytes;
                     }
                     Ok(Some(change))
                 },

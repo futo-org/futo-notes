@@ -52,14 +52,15 @@ impl EditorSession {
             return Ok(None);
         };
         self.composition = None;
-        match self.replace_os(
+        match self.replace_os_with_targets_action(
             expected,
             marked.range,
             text.unwrap_or(&marked.text),
             &[],
+            crate::InputAction::CompositionCommit,
             accept,
         ) {
-            Ok(change) => Ok(change),
+            Ok((change, _)) => Ok(change),
             Err(error) => {
                 self.composition = Some(marked);
                 Err(error)
@@ -147,6 +148,7 @@ impl EditorSession {
                             staged.revision(),
                             &replacements,
                             &[caret],
+                            crate::InputAction::Isolated,
                             accept,
                         )?;
                         caret = targets[0];
@@ -221,7 +223,7 @@ impl EditorSession {
         };
         let (window, display_start) = self.projection.edit_window(full);
         let raw = self.source.byte_slice(window.clone()).to_string();
-        let mut staged = self.stage_source(&raw, window.clone());
+        let mut staged = self.stage_source(&raw, window.clone())?;
         let local = |range: DisplayRange| DisplayRange {
             start: DisplayOffset(range.start.0 - display_start),
             end: DisplayOffset(range.end.0 - display_start),
@@ -244,7 +246,7 @@ impl EditorSession {
             transaction.apply(edit.range, &edit.inserted);
             Ok(())
         };
-        let (first, targets) = staged.replace_os_with_targets(
+        let (first, targets) = staged.replace_os_with_targets_action(
             staged.revision(),
             local(marked.range),
             &marked.text,
@@ -252,6 +254,7 @@ impl EditorSession {
                 .iter()
                 .map(|offset| offset - display_start)
                 .collect::<Vec<_>>(),
+            crate::InputAction::CompositionCommit,
             &mut capture,
         )?;
         let second = operation(&mut staged, &targets, &mut capture)?;
@@ -259,6 +262,13 @@ impl EditorSession {
             start: DisplayOffset(display_start + staged.selection.start.0),
             end: DisplayOffset(display_start + staged.selection.end.0),
         };
+        let (mut selected_source, selected_source_work) = staged.capture_history_selection();
+        let crate::history::SourceSelection::Exact(ref mut selected) = selected_source else {
+            return Err(EditorError::UnrepresentableFormat);
+        };
+        selected.start.source.0 += window.start;
+        selected.end.source.0 += window.start;
+        let (opening_source, opening_source_work) = self.capture_history_selection();
         let mut change = None;
         if recorded {
             let (mut footprint, inserted) = transaction.finish();
@@ -266,27 +276,39 @@ impl EditorSession {
             footprint.end.0 += window.start;
             let edit = self.prepare_source(expected, footprint, &inserted)?;
             if edit.removed != edit.inserted {
-                accept(&edit).map_err(EditorError::Persistence)?;
+                let mut pending_work = selected_source_work + opening_source_work + 2;
                 for group in &mut staged.undo {
                     for entry in &mut group.entries {
-                        entry.range.start.0 += window.start;
-                        entry.range.end.0 += window.start;
-                        entry.before_selection.start.0 += display_start;
-                        entry.before_selection.end.0 += display_start;
-                        entry.after_selection.start.0 += display_start;
-                        entry.after_selection.end.0 += display_start;
+                        pending_work += entry.relocate_exact(window.start, display_start)?;
                     }
                 }
                 let opening = &mut staged.undo.first_mut().unwrap().entries[0];
                 opening.before_selection = self.selection;
+                opening.before_source = opening_source;
                 opening.before_affinity = self.affinity;
                 opening.before_formats = self.pending_formats.clone();
+                let pending = staged.prepare_pending_for_parent(window.start);
+                let guard_validation =
+                    self.validate_stage_guards(&edit, window.clone(), &pending)?;
+                accept(&edit).map_err(EditorError::Persistence)?;
                 let mut delta = self.apply(&edit);
+                delta.work.link_metadata_items += pending_work;
+                self.adopt_stage_pending(&pending, &mut delta);
+                delta.work.materialized_source_bytes += guard_validation.materialized_source_bytes;
+                delta.work.parsed_source_bytes += guard_validation.parsed_source_bytes;
+                delta.work.link_metadata_items += guard_validation.link_metadata_items;
+                delta.work.link_copied_bytes += guard_validation.link_copied_bytes;
                 delta.work.materialized_source_bytes += raw.len() + edit.inserted.len();
-                delta.work.parsed_source_bytes += 2 * raw.len();
+                delta.work.parsed_source_bytes += staged.projection.initial_parse_work;
+                delta.work.link_metadata_items += staged.projection.initial_link_metadata_items;
+                delta.work.link_copied_bytes += staged.projection.initial_link_copied_bytes;
                 for step in [first, second].into_iter().flatten() {
                     delta.work.materialized_source_bytes += step.work.materialized_source_bytes;
                     delta.work.parsed_source_bytes += step.work.parsed_source_bytes;
+
+                    delta.work.link_metadata_items += step.work.link_metadata_items;
+
+                    delta.work.link_copied_bytes += step.work.link_copied_bytes;
                 }
                 self.undo.append(&mut staged.undo);
                 self.redo.clear();
@@ -294,7 +316,12 @@ impl EditorSession {
             }
         }
         self.composition = None;
+        let (selection, selection_work) =
+            self.project_history_selection(selected_source, selection);
         self.selection = selection;
+        if let Some(delta) = &mut change {
+            delta.work.link_metadata_items += selection_work;
+        }
         self.affinity = staged.affinity;
         self.pending_formats = staged.pending_formats;
         self.typing = if change.is_some() {
@@ -381,6 +408,7 @@ impl EditorSession {
                         staged.revision(),
                         &replacements,
                         &[caret],
+                        crate::InputAction::Isolated,
                         accept,
                     )?;
                     caret = targets[0];

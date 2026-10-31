@@ -7,8 +7,8 @@ fn exact_edge_provenance_survives_nested_windows_but_never_derived_ancestry() {
     for tail in ["", "- outside", "<!-- -->\n", "  continuation\n"] {
         let full = format!("{prefix}{tail}");
         let real = EditorSession::open(&full);
-        let exact = real.stage_source(prefix, 0..prefix.len());
-        let nested = exact.stage_source(prefix, 0..prefix.len());
+        let exact = real.stage_source(prefix, 0..prefix.len()).unwrap();
+        let nested = exact.stage_source(prefix, 0..prefix.len()).unwrap();
         for session in [&exact, &nested] {
             match session.physical_tail() {
                 PhysicalTail::Eof => assert!(tail.is_empty()),
@@ -55,8 +55,10 @@ fn exact_edge_provenance_survives_nested_windows_but_never_derived_ancestry() {
                 other => panic!("unexpected exact physical edge: {other:?}"),
             }
         }
-        let derived = real.stage_body_source(prefix, 0..full.len());
-        let grandchild = derived.stage_source(prefix, 0..prefix.len());
+        let derived = real
+            .stage_with_context(prefix, 0..full.len(), false)
+            .unwrap();
+        let grandchild = derived.stage_source(prefix, 0..prefix.len()).unwrap();
         assert!(matches!(derived.physical_tail(), PhysicalTail::Unknown));
         assert!(matches!(grandchild.physical_tail(), PhysicalTail::Unknown));
     }
@@ -67,7 +69,7 @@ fn exact_window_inside_a_physical_code_row_has_no_boundary_proof() {
     let raw = "- parent\n  ```\n  opaque\n- outside";
     let real = EditorSession::open(raw);
     let end = raw.find("opaque").unwrap() + 2;
-    let staged = real.stage_source(&raw[..end], 0..end);
+    let staged = real.stage_source(&raw[..end], 0..end).unwrap();
     assert!(matches!(staged.physical_tail(), PhysicalTail::Unknown));
 }
 
@@ -76,9 +78,11 @@ fn an_interior_cut_of_a_staged_window_does_not_recertify_flattened_attribution()
     let raw = "- parent\n  > b\n  > c\n- outside";
     let real = EditorSession::open(raw);
     let start = raw.find("> b").unwrap();
-    let staged = real.stage_source(&raw[start..], start..raw.len());
+    let staged = real.stage_source(&raw[start..], start..raw.len()).unwrap();
     let end = staged.source_text().find("- outside").unwrap();
-    let nested = staged.stage_source(&staged.source_text()[..end], 0..end);
+    let nested = staged
+        .stage_source(&staged.source_text()[..end], 0..end)
+        .unwrap();
     assert!(matches!(nested.physical_tail(), PhysicalTail::Unknown));
 }
 
@@ -86,7 +90,7 @@ fn an_interior_cut_of_a_staged_window_does_not_recertify_flattened_attribution()
 fn physical_eof_and_original_item_authority_are_orthogonal_in_trimmed_exact_windows() {
     let raw = "- owner\n  > ~~~\n  > - parent\n  > ```\n  > opaque\n";
     let real = EditorSession::open(raw);
-    let whole = real.stage_source(raw, 0..raw.len());
+    let whole = real.stage_source(raw, 0..raw.len()).unwrap();
     assert!(matches!(whole.physical_tail(), PhysicalTail::Eof));
     assert_eq!(
         whole
@@ -96,13 +100,13 @@ fn physical_eof_and_original_item_authority_are_orthogonal_in_trimmed_exact_wind
         Some((1, 0, 1))
     );
     let start = raw.find("- parent").unwrap();
-    let trimmed = whole.stage_source(&raw[start..], start..raw.len());
+    let trimmed = whole.stage_source(&raw[start..], start..raw.len()).unwrap();
     assert!(matches!(trimmed.physical_tail(), PhysicalTail::Eof));
     assert_eq!(trimmed.context.fence_edge, None);
-    let direct = real.stage_source(&raw[start..], start..raw.len());
+    let direct = real.stage_source(&raw[start..], start..raw.len()).unwrap();
     assert!(matches!(direct.physical_tail(), PhysicalTail::Eof));
     assert_eq!(direct.context.fence_edge, None);
-    let derived = real.stage_body_source(raw, 0..raw.len());
+    let derived = real.stage_with_context(raw, 0..raw.len(), false).unwrap();
     assert!(matches!(derived.physical_tail(), PhysicalTail::Unknown));
     assert_eq!(derived.context.fence_edge, None);
 }
@@ -118,22 +122,27 @@ fn leading_prose_authority_is_original_physical_and_never_derived_or_interior() 
     ] {
         let full = format!("{before}{prefix}- outside");
         let real = EditorSession::open(&full);
-        let exact = real.stage_source(prefix, before.len()..before.len() + prefix.len());
+        let exact = real
+            .stage_source(prefix, before.len()..before.len() + prefix.len())
+            .unwrap();
         assert_eq!(
             exact.context.leading_list_prose,
             Some(expected),
             "{before:?}"
         );
-        let nested = exact.stage_source(prefix, 0..prefix.len());
+        let nested = exact.stage_source(prefix, 0..prefix.len()).unwrap();
         assert_eq!(nested.context.leading_list_prose, Some(expected));
-        let trimmed = exact.stage_source(&prefix[1..], 1..prefix.len());
+        let trimmed = exact.stage_source(&prefix[1..], 1..prefix.len()).unwrap();
         assert_eq!(trimmed.context.leading_list_prose, None);
-        let derived = real.stage_body_source(prefix, before.len()..before.len() + prefix.len());
+        let derived = real
+            .stage_with_context(prefix, before.len()..before.len() + prefix.len(), false)
+            .unwrap();
         assert_eq!(derived.context.leading_list_prose, None);
-        let grandchild = derived.stage_source(prefix, 0..prefix.len());
+        let grandchild = derived.stage_source(prefix, 0..prefix.len()).unwrap();
         assert_eq!(grandchild.context.leading_list_prose, None);
-        let clipped =
-            real.stage_source(&prefix[1..], before.len() + 1..before.len() + prefix.len());
+        let clipped = real
+            .stage_source(&prefix[1..], before.len() + 1..before.len() + prefix.len())
+            .unwrap();
         assert_eq!(clipped.context.leading_list_prose, None);
     }
 }

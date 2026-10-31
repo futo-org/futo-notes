@@ -176,6 +176,8 @@ pub struct EditorViewChange {
     pub materialized_source_bytes: u64,
     pub inserted_bytes: u64,
     pub parsed_source_bytes: u64,
+    pub link_metadata_items: u64,
+    pub link_copied_bytes: u64,
     pub affinity: EditorAffinity,
     pub projection: EditorProjection,
 }
@@ -191,6 +193,8 @@ impl From<editor::ViewChange> for EditorViewChange {
             materialized_source_bytes: value.work.materialized_source_bytes as u64,
             inserted_bytes: value.work.inserted_bytes as u64,
             parsed_source_bytes: value.work.parsed_source_bytes as u64,
+            link_metadata_items: value.work.link_metadata_items as u64,
+            link_copied_bytes: value.work.link_copied_bytes as u64,
             affinity: value.affinity.into(),
             projection: value.projection.into(),
         }
@@ -409,6 +413,21 @@ pub struct EditorSemanticRun {
     pub formats: Vec<EditorInlineFormat>,
 }
 #[derive(Debug, PartialEq, Eq, uniffi::Record)]
+pub struct EditorLinkDescription {
+    pub range: EditorByteRange,
+    pub destination: String,
+    pub title: Option<String>,
+}
+impl From<editor::LinkDescription> for EditorLinkDescription {
+    fn from(value: editor::LinkDescription) -> Self {
+        Self {
+            range: value.range.into(),
+            destination: value.destination,
+            title: value.title,
+        }
+    }
+}
+#[derive(Debug, PartialEq, Eq, uniffi::Record)]
 pub struct EditorSourceByteRange {
     pub start: u64,
     pub end: u64,
@@ -426,6 +445,7 @@ pub struct EditorProjection {
     pub runs: Vec<EditorSemanticRun>,
     pub correspondence: Vec<EditorCorrespondence>,
     pub blocks: Vec<EditorBlockDescription>,
+    pub links: Vec<EditorLinkDescription>,
 }
 #[derive(Debug, PartialEq, Eq, uniffi::Record)]
 pub struct EditorListDescription {
@@ -460,6 +480,7 @@ impl From<editor::ProjectionSlice> for EditorProjection {
             revision: value.revision.0,
             range: value.range.into(),
             text: value.text,
+            links: value.links.into_iter().map(Into::into).collect(),
             blocks: value
                 .blocks
                 .into_iter()

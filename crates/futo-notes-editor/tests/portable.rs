@@ -1,6 +1,8 @@
 mod common;
 
-use futo_notes_editor::{DisplayOffset, DisplayRange, PortableSession, Revision, SessionToken};
+use futo_notes_editor::{
+    Affinity, DisplayOffset, DisplayRange, PortableError, PortableSession, Revision, SessionToken,
+};
 
 #[test]
 fn page_local_edit_waits_for_host_acceptance_before_displaying_or_accepting_more_input() {
@@ -19,15 +21,34 @@ fn page_local_edit_waits_for_host_acceptance_before_displaying_or_accepting_more
     assert_eq!(session.draft_text(), "plain!");
     assert_eq!(view.text, "plain");
     assert_eq!(session.status().accepted, Revision(0));
-    assert!(session
-        .replace(Revision(1), DisplayRange::default(), "?")
-        .is_err());
+    assert_eq!(
+        session.replace(Revision(0), DisplayRange::default(), "?"),
+        Err(PortableError::Busy)
+    );
+    assert_eq!(
+        session.select_with_affinity(Revision(0), DisplayRange::default(), Affinity::Forward),
+        Err(PortableError::Busy)
+    );
+    assert_eq!(
+        session.project(Revision(0), DisplayRange::default()),
+        Err(PortableError::Busy)
+    );
+    assert_eq!(session.draft_text(), "plain!");
     let ack = request.accepted(Revision(1), Revision(0));
     view.apply(session.acknowledge(ack.clone()).unwrap().unwrap());
     assert_eq!(view.text, "plain!");
     assert_eq!(session.status().accepted, Revision(1));
     assert_eq!(session.status().durable, Revision(0));
     assert!(session.acknowledge(ack).unwrap().is_none());
+    session
+        .select_with_affinity(Revision(1), DisplayRange::default(), Affinity::Forward)
+        .unwrap();
+    assert!(session
+        .project(Revision(1), DisplayRange::default())
+        .is_ok());
+    assert!(session
+        .replace(Revision(1), DisplayRange::default(), "?")
+        .is_ok());
 }
 
 #[test]
@@ -244,4 +265,38 @@ fn paused_recovered_source_remains_available_as_a_rich_display_projection() {
         vec![futo_notes_editor::InlineFormat::Bold]
     );
     assert!(page.status().paused);
+}
+
+#[test]
+fn link_commands_wait_for_acceptance_and_return_canonical_semantics_with_exact_history() {
+    let mut page = PortableSession::open(SessionToken(101), "__docs__", Revision(0), Revision(0));
+    let mut view = common::ReferenceView::new("docs");
+    let range = DisplayRange {
+        start: DisplayOffset(0),
+        end: DisplayOffset(4),
+    };
+    let request = page
+        .set_link(Revision(0), range, "https://x.test")
+        .unwrap()
+        .unwrap();
+    assert_eq!(page.draft_text(), "[__docs__](<https://x.test>)");
+    assert_eq!(view.text, "docs");
+    assert!(page.inspect_link(Revision(1), range).is_err());
+    view.apply(
+        page.acknowledge(request.accepted(Revision(1), Revision(0)))
+            .unwrap()
+            .unwrap(),
+    );
+    let link = page.inspect_link(Revision(1), range).unwrap().unwrap();
+    assert_eq!(link.destination, "https://x.test");
+    assert_eq!(link.range, range);
+    let undo = page.undo(Revision(1)).unwrap().unwrap();
+    view.apply(
+        page.acknowledge(undo.accepted(Revision(2), Revision(0)))
+            .unwrap()
+            .unwrap(),
+    );
+    assert_eq!(page.draft_text(), "__docs__");
+    assert_eq!(view.text, "docs");
+    assert!(page.inspect_link(Revision(2), range).unwrap().is_none());
 }

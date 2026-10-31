@@ -76,6 +76,10 @@ impl EditorSession {
                         change.work.materialized_source_bytes +=
                             seams.work.materialized_source_bytes;
                         change.work.parsed_source_bytes += seams.work.parsed_source_bytes;
+
+                        change.work.link_metadata_items += seams.work.link_metadata_items;
+
+                        change.work.link_copied_bytes += seams.work.link_copied_bytes;
                     }
                     Ok(Some(change))
                 },
@@ -271,72 +275,7 @@ impl EditorSession {
                 .commit_block_key(expected, range, at..at, "\n", at + 1, accept)
                 .map(Some);
         }
-        let body = self.split_block_body(std::slice::from_ref(&line), range)?;
-        let suffix_end = line.source.start
-            + self
-                .source
-                .byte_slice(line.source.clone())
-                .to_string()
-                .trim_end_matches(['\r', '\n'])
-                .len();
-        let suffix = self
-            .source
-            .byte_slice(line.content.end..suffix_end)
-            .to_string();
-        let continuation = if line.quote_depth > 0 {
-            "> ".repeat(line.quote_depth)
-        } else {
-            String::new()
-        };
-        let separator = if line.quote_depth > 0 && line.heading == 0 {
-            format!("{}\n", continuation.trim_end())
-        } else {
-            String::new()
-        };
-        let setext = line.underline.is_some();
-        let left = body.left.as_str();
-        // A setext underline must immediately follow nonempty body text. Move
-        // the existing terminal body break after that marker, keeping its bytes
-        // and visible position relative to the newly inserted LF.
-        let heading_end = if setext {
-            left.trim_end_matches(['\r', '\n']).len()
-        } else {
-            left.len()
-        };
-        let retained_break = &left[heading_end..];
-        let (left, left_work) = super::content::protect_content(
-            &left[..heading_end],
-            line.heading > 0 && !setext,
-            setext,
-        );
-        let (right, right_work) = super::content::protect_content(&body.right, false, true);
-        let left = super::content::restore_body_prefixes(&left, body.prefixes.iter().skip(1));
-        let right = super::content::restore_body_prefixes(
-            &right,
-            body.prefixes.iter().skip(body.right_line + 1),
-        );
-        let output =
-            format!("{prefix}{left}{suffix}{retained_break}\n{separator}{continuation}{right}");
-        let caret = line.source.start
-            + prefix.len()
-            + left.len()
-            + suffix.len()
-            + retained_break.len()
-            + 1
-            + separator.len()
-            + continuation.len();
-        let mut change = self.commit_block_edit(
-            expected,
-            line.source.start..suffix_end,
-            &output,
-            BlockSelection::Source(caret),
-            None,
-            accept,
-        )?;
-        self.carry_block_state(&mut change, body.formats, body.affinity);
-        change.work.materialized_source_bytes += body.materialized;
-        change.work.parsed_source_bytes += body.parsed + left_work + right_work;
-        Ok(Some(change))
+        self.split_structural_body(expected, range, line, prefix, start_display, accept)
     }
 
     fn structural_selection_enter(
@@ -348,7 +287,7 @@ impl EditorSession {
     ) -> Result<ViewChange, EditorError> {
         let (window, display_start) = self.projection.edit_window(range);
         let raw = self.source.byte_slice(window.clone()).to_string();
-        let mut staged = self.stage_source(&raw, window.clone());
+        let mut staged = self.stage_source(&raw, window.clone())?;
         let local = DisplayRange {
             start: DisplayOffset(range.start.0 - display_start),
             end: DisplayOffset(range.end.0 - display_start),
@@ -372,24 +311,52 @@ impl EditorSession {
         let (mut footprint, inserted) = transaction.finish();
         footprint.start.0 += window.start;
         footprint.end.0 += window.start;
-        let selection = DisplayRange {
-            start: DisplayOffset(display_start + staged.selection.start.0),
-            end: DisplayOffset(display_start + staged.selection.end.0),
+        let (selection, selection_work) = if staged.projection.has_rebuilt_references {
+            let (mut selection, work) = staged
+                .projection
+                .source_selection(staged.selection, staged.affinity);
+            selection.start.source.0 += window.start;
+            selection.end.source.0 += window.start;
+            (
+                BlockSelection::Exact {
+                    selection,
+                    window: window.clone(),
+                },
+                work + 2,
+            )
+        } else {
+            (
+                BlockSelection::Display(DisplayRange {
+                    start: DisplayOffset(display_start + staged.selection.start.0),
+                    end: DisplayOffset(display_start + staged.selection.end.0),
+                }),
+                0,
+            )
         };
-        let mut change = self.commit_block_edit(
+        let pending = staged.prepare_pending_for_parent(window.start);
+        let mut change = self.commit_block_with_pending(
             expected,
             footprint.start.0..footprint.end.0,
             &inserted,
-            BlockSelection::Display(selection),
+            selection,
             None,
+            Some(pending),
             accept,
         )?;
         self.carry_block_state(&mut change, staged.pending_formats, staged.affinity);
         change.work.materialized_source_bytes += raw.len()
             + deleted.work.materialized_source_bytes
             + entered.work.materialized_source_bytes;
-        change.work.parsed_source_bytes +=
-            2 * raw.len() + deleted.work.parsed_source_bytes + entered.work.parsed_source_bytes;
+        change.work.parsed_source_bytes += staged.projection.initial_parse_work
+            + deleted.work.parsed_source_bytes
+            + entered.work.parsed_source_bytes;
+        change.work.link_metadata_items += selection_work
+            + staged.projection.initial_link_metadata_items
+            + deleted.work.link_metadata_items
+            + entered.work.link_metadata_items;
+        change.work.link_copied_bytes += staged.projection.initial_link_copied_bytes
+            + deleted.work.link_copied_bytes
+            + entered.work.link_copied_bytes;
         Ok(change)
     }
 }
