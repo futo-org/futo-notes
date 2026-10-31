@@ -96,7 +96,12 @@ pub(in crate::inline) fn prepare_url_input(
     }
     let mut raw = timing.render(pieces, markers, &insertion);
     let mut changed = false;
-    if !raw.text.contains(':') && !raw.text.contains("www.") {
+    if !raw.text.contains(':')
+        && !raw.text.as_bytes().windows(4).any(|prefix| {
+            timing.work.items += 1;
+            prefix.eq_ignore_ascii_case(b"www.")
+        })
+    {
         return timing;
     }
     if ending {
