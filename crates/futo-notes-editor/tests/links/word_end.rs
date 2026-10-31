@@ -475,3 +475,40 @@ fn selected_format_rewrites_retain_owned_pending_url_delimiters_through_history(
     assert_eq!(view.text, "x b https://x.test/a ");
     assert_eq!(session.source_text(), "__x *b https://x.test/a*__ ");
 }
+
+#[test]
+fn hand_typed_angle_before_word_end_reopens_with_clean_inner_url() {
+    let mut session = EditorSession::open("");
+    let mut view = ReferenceView::new("");
+    for ch in "<https://x.test>".chars() {
+        let at = view.text.len();
+        view.apply(
+            session
+                .replace(
+                    session.revision(),
+                    range(at, at),
+                    &ch.to_string(),
+                    &mut |_| Ok(()),
+                )
+                .unwrap(),
+        );
+    }
+    assert_eq!(view.text, "<https://x.test>");
+    assert!(session
+        .project(session.revision(), range(0, view.text.len()))
+        .unwrap()
+        .links
+        .is_empty());
+    // Transient live timing is deliberately absent on reopen; standard source
+    // must still own the intended literal pair and clean destination.
+    let source = session.source_text();
+    let reopened = EditorSession::open(&source);
+    assert_eq!(reopened.display_text(), view.text);
+    let links = reopened
+        .project(reopened.revision(), range(0, view.text.len()))
+        .unwrap()
+        .links;
+    assert_eq!(links.len(), 1, "source={source:?}");
+    assert_eq!(links[0].destination, "https://x.test", "source={source:?}");
+    assert_eq!(links[0].range, range(1, 15));
+}

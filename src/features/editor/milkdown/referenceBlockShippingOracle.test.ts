@@ -158,3 +158,12 @@ it('canonical heading candidates retain a loaded space entity and the clean URL 
     ),
   ).toBe(true);
 });
+
+it('canonical inner autolink preserves the literal outer angle pair and clean URL on load', () => {
+  const parse = editor.ctx.get(parserCtx);
+  const candidate = parse('<<https://x.test>>').toJSON() as NodeJson;
+  expect(rows(candidate)).toEqual([{ type: 'paragraph', text: '<https://x.test>' }]);
+  expect(links(candidate)).toEqual([
+    { type: 'link', attrs: { href: 'https://x.test', title: null } },
+  ]);
+});

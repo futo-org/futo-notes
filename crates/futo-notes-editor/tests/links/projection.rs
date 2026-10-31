@@ -136,3 +136,15 @@ fn editing_a_loaded_bare_url_label_retains_its_destination_with_explicit_spellin
     view.apply(session.redo(Revision(2), &mut |_| Ok(())).unwrap().unwrap());
     assert_eq!(view.text, "https://x.test/new");
 }
+
+#[test]
+fn canonical_inner_autolink_loads_literal_outer_pair_with_clean_url() {
+    let source = "<<https://x.test>>";
+    let session = EditorSession::open(source);
+    assert_eq!(session.source_text(), source);
+    assert_eq!(session.display_text(), "<https://x.test>");
+    let links = session.project(Revision(0), range(0, 16)).unwrap().links;
+    assert_eq!(links.len(), 1);
+    assert_eq!(links[0].range, range(1, 15));
+    assert_eq!(links[0].destination, "https://x.test");
+}
