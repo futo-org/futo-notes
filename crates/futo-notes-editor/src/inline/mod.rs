@@ -1,5 +1,6 @@
 mod block_edit;
 pub(crate) mod blocks;
+mod blocks_paragraph;
 mod edit;
 mod empty_comments;
 pub(crate) mod fences;
@@ -197,15 +198,16 @@ impl Projection {
         let raw = source.byte_slice(base..base + row.source_len).to_string();
         let events = row::source_events(&raw);
         let paragraph = body.and_then(|body| {
-            events.iter().find_map(|(event, span)| {
-                visit_container();
-                (matches!(
-                    event,
-                    pulldown_cmark::Event::Start(pulldown_cmark::Tag::Paragraph)
-                ) && base + span.start <= body
-                    && body < base + span.end)
-                    .then(|| base + span.start..base + span.end)
-            })
+            let textblock = blocks_paragraph::at(&events, at - base, body.checked_sub(base)?)?;
+            let mut end = base + textblock.source.end;
+            if !textblock.source.is_empty() {
+                let physical = source.line_to_byte(source.byte_to_line(end - 1));
+                let row = self.source_prefix_at(physical)?;
+                if row.source.end <= base + textblock.boundary {
+                    end = row.source.end;
+                }
+            }
+            Some(base + textblock.source.start..end)
         });
         let mut items = lists::describe(&raw, &events).into_items();
         for item in &mut items {

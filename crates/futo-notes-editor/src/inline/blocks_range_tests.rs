@@ -148,5 +148,39 @@ fn crossquote_tight_item_owns_an_inline_run_without_a_paragraph_event() {
     let projection = super::super::Projection::new(raw);
     let source = ropey::Rope::from_str(raw);
     let (_, _, _, paragraph) = projection.list_items_and_paragraph_at(&source, 4, Some(6));
-    assert_eq!(paragraph, None);
+    // The diagnostic query originally returned None at5f8dfb3e2. The fixed
+    // planner now returns these same independently proved inline event bounds.
+    assert_eq!(paragraph, Some(6..15));
+}
+
+#[test]
+fn tight_inline_textblocks_stop_before_child_blocks_and_keep_inline_containers() {
+    for raw in [
+        "- > - b\n  >   c\n  >   - child",
+        "- > - b\n  >   c\n  >   ```\n  >   opaque",
+    ] {
+        let projection = super::super::Projection::new(raw);
+        let source = ropey::Rope::from_str(raw);
+        let (items, _, _, paragraph) = projection.list_items_and_paragraph_at(&source, 4, Some(6));
+        assert_eq!(paragraph, Some(6..16));
+        assert!(items
+            .iter()
+            .any(|item| item.marker.start == 4 && item.item.end > 16));
+    }
+    for raw in [
+        "- > - *b*\n  >   `c`",
+        "- > - [b](dest)\n  >   c",
+        "- > - b  \r\n  >   c",
+    ] {
+        let projection = super::super::Projection::new(raw);
+        let source = ropey::Rope::from_str(raw);
+        let (_, _, _, paragraph) = projection.list_items_and_paragraph_at(&source, 4, Some(6));
+        assert_eq!(paragraph, Some(6..raw.len()));
+    }
+    for raw in ["- > - ```\n  >   opaque", "- > - > ```\n  >   > opaque"] {
+        let projection = super::super::Projection::new(raw);
+        let source = ropey::Rope::from_str(raw);
+        let (_, _, _, paragraph) = projection.list_items_and_paragraph_at(&source, 4, Some(6));
+        assert_eq!(paragraph, None);
+    }
 }
