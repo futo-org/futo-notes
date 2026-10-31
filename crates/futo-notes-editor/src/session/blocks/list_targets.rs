@@ -213,6 +213,13 @@ impl ListTargets {
         }
     }
 
+    /// The first run retargets the entire canonical owner, including headers
+    /// separated by unrelated nested runs. Plain/quote runs remain per-line.
+    pub fn owner_run(&self, list: &ListLine) -> Option<usize> {
+        crate::inline::visit_container();
+        self.owners.get(&list.owner.start).map(|(_, run)| *run)
+    }
+
     pub fn run(&self, line: &ListCommandLine) -> Option<usize> {
         crate::inline::visit_container();
         if let Some((run, _)) = self.selected.get(&line.source.start) {

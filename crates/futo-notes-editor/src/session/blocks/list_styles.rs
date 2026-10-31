@@ -11,6 +11,20 @@ pub(super) struct ListStylePlan {
     pub quotes: Vec<usize>,
     pub ordinals: Vec<u64>,
     pub comments: Vec<(usize, String)>,
+    pub materialized: usize,
+}
+
+/// A command-local resolved fragment, never a retained owner-wide cache.
+#[derive(Clone, Copy)]
+struct OwnerStyle {
+    marker: u8,
+    quote: usize,
+    depth: usize,
+    kind: BlockCommand,
+    run: Option<usize>,
+    start: usize,
+    end: usize,
+    after_line: usize,
 }
 
 enum ListIntent {
@@ -60,7 +74,7 @@ impl EditorSession {
             .filter(|line| targets.is_none_or(|targets| !targets.removes(line)))
             .filter_map(|line| line.list.as_ref().map(|list| list.owner.start))
             .collect();
-        let mut resolved_owners = HashMap::new();
+        let mut resolved_owners: HashMap<usize, Vec<OwnerStyle>> = HashMap::new();
         let mut resolved_lines = HashMap::new();
         let mut owner_ordinals: HashMap<usize, u64> = HashMap::new();
         let mut result = ListStylePlan {
@@ -81,6 +95,7 @@ impl EditorSession {
                 })
                 .collect(),
             comments: Vec::new(),
+            materialized: 0,
         };
         let mut first = 0;
         while first < lines.len() {
@@ -112,11 +127,36 @@ impl EditorSession {
             let depth = head.list.as_ref().map_or(1, |list| {
                 targets.map_or(list.depth, |targets| targets.output_depth(list))
             });
+            let owner_run = targets
+                .and_then(|targets| head.list.as_ref().and_then(|list| targets.owner_run(list)));
+            let cached = owner
+                .as_ref()
+                .and_then(|owner| {
+                    crate::inline::visit_container();
+                    resolved_owners
+                        .get(&owner.start)
+                        .and_then(|fragments| fragments.last())
+                })
+                .filter(|style| {
+                    style.start <= head.source.start
+                        && tail.source.start < style.end
+                        && style.quote == quote_depth
+                        && style.depth == depth
+                        && style.kind == command
+                        && style.run == owner_run
+                        && matches!(intent, ListIntent::Independent)
+                })
+                .map(|style| {
+                    crate::inline::visit_container();
+                    *style
+                });
             let before_line = self.source.byte_to_line(head.source.start);
             // Container event endpoints can include a following quote prefix.
             // Walk actual physical item ownership instead of skipping that line.
             let mut after_line = self.source.byte_to_line(tail.source.end.saturating_sub(1)) + 1;
-            if let Some(owner) = &owner {
+            if let Some(style) = cached {
+                after_line = style.after_line;
+            } else if let Some(owner) = &owner {
                 let mut scan = after_line;
                 while scan < self.source.len_lines() {
                     #[cfg(test)]
@@ -153,7 +193,7 @@ impl EditorSession {
                     }
                 }
             }
-            while after_line > before_line + 1 {
+            while cached.is_none() && after_line > before_line + 1 {
                 let at = self.source.line_to_byte(after_line - 1);
                 let Some(line) = self.projection.list_command_line_at_source(at) else {
                     break;
@@ -196,11 +236,25 @@ impl EditorSession {
                     return None;
                 }
                 if let Some(list) = &line.list {
-                    if let Some(&(marker, quote, nested)) = resolved_owners
+                    crate::inline::visit_container();
+                    let resolved = resolved_owners
                         .get(&list.owner.start)
                         .filter(|_| neighbor.local)
-                    {
-                        return (quote == quote_depth && nested == depth).then_some((marker, None));
+                        .and_then(|fragments| {
+                            let end = fragments.partition_point(|style| {
+                                crate::inline::visit_container();
+                                style.start <= line.source.start
+                            });
+                            end.checked_sub(1).and_then(|index| fragments.get(index))
+                        })
+                        .filter(|style| {
+                            line.source.start < style.end
+                                && style.kind == command
+                                && style.run == targets.and_then(|targets| targets.owner_run(list))
+                        });
+                    if let Some(style) = resolved {
+                        return (style.quote == quote_depth && style.depth == depth)
+                            .then_some((style.marker, None));
                     }
                     if neighbor.local && planned_owners.contains(&list.owner.start) {
                         return None;
@@ -217,14 +271,26 @@ impl EditorSession {
                 }
                 None
             };
-            let preceding = neighbor(head.source.start, false);
+            let preceding = cached
+                .is_none()
+                .then(|| neighbor(head.source.start, false))
+                .flatten();
             let before = preceding.map(|(marker, _)| marker);
-            let after_at = if after_line < self.source.len_lines() {
-                self.source.line_to_byte(after_line)
-            } else {
-                self.source.len_bytes()
-            };
-            let after = neighbor(after_at, true).map(|(marker, _)| marker);
+            let after_at = cached.map_or_else(
+                || {
+                    if after_line < self.source.len_lines() {
+                        self.source.line_to_byte(after_line)
+                    } else {
+                        self.source.len_bytes()
+                    }
+                },
+                |style| style.end,
+            );
+            let after = cached
+                .is_none()
+                .then(|| neighbor(after_at, true))
+                .flatten()
+                .map(|(marker, _)| marker);
             // Shipping wrappingInputRule joins only the preceding list. Ordered
             // input must spell its interpreted next number; bullets always join.
             let join = match intent {
@@ -233,7 +299,10 @@ impl EditorSession {
                     .map(|(marker, _)| marker),
                 ListIntent::Independent => None,
             };
-            let marker = join.unwrap_or_else(|| independent_marker(ordered, before, after));
+            let marker = cached.map_or_else(
+                || join.unwrap_or_else(|| independent_marker(ordered, before, after)),
+                |style| style.marker,
+            );
             for index in first..last {
                 crate::inline::visit_container();
                 result.markers[index] = marker;
@@ -252,28 +321,44 @@ impl EditorSession {
                     (marker, result.quotes[index], depth),
                 );
             }
-            if let Some(owner) = &owner {
-                resolved_owners.insert(owner.start, (marker, quote_depth, depth));
+            if let Some(owner) = owner.as_ref().filter(|_| cached.is_none()) {
+                crate::inline::visit_container();
+                resolved_owners
+                    .entry(owner.start)
+                    .or_default()
+                    .push(OwnerStyle {
+                        marker,
+                        quote: quote_depth,
+                        depth,
+                        kind: command,
+                        run: owner_run,
+                        start: head.source.start,
+                        end: after_at,
+                        after_line,
+                    });
             }
-            let prefix = self
-                .source
-                .byte_slice(head.source.start..head.content.start)
-                .to_string();
-            let retained = if let Some(list) = &head.list {
-                list.marker.start - head.source.start
-            } else {
-                super::indent_source::canonical_quote_end(&prefix, quote_depth).unwrap_or(0)
-            };
-            let comment = format!("{}<!-- -->\n", &prefix[..retained]);
-            if before == Some(marker) && join.is_none() {
-                result.comments.push((head.source.start, comment));
-            } else if after == Some(marker) {
-                let at = if after_line < self.source.len_lines() {
-                    self.source.line_to_byte(after_line)
+            if before == Some(marker) && join.is_none() || after == Some(marker) {
+                let prefix = self
+                    .source
+                    .byte_slice(head.source.start..head.content.start)
+                    .to_string();
+                let retained = if let Some(list) = &head.list {
+                    list.marker.start - head.source.start
                 } else {
-                    self.source.len_bytes()
+                    super::indent_source::canonical_quote_end(&prefix, quote_depth).unwrap_or(0)
                 };
-                result.comments.push((at, comment));
+                let comment = format!("{}<!-- -->\n", &prefix[..retained]);
+                result.materialized += prefix.len() + comment.len();
+                if before == Some(marker) && join.is_none() {
+                    result.comments.push((head.source.start, comment));
+                } else if after == Some(marker) {
+                    let at = if after_line < self.source.len_lines() {
+                        self.source.line_to_byte(after_line)
+                    } else {
+                        self.source.len_bytes()
+                    };
+                    result.comments.push((at, comment));
+                }
             }
             first = last;
         }

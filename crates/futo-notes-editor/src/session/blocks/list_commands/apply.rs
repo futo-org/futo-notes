@@ -138,7 +138,19 @@ impl EditorSession {
             })
             .unwrap_or_default();
         let mut parsed = lift_plan.parsed;
-        let mut materialized = output.len() + lift_plan.materialized;
+        let mut materialized = output.len()
+            + lift_plan.materialized
+            + styles.as_ref().map_or(0, |styles| {
+                styles.materialized
+                    + styles
+                        .comments
+                        .iter()
+                        .map(|(_, comment)| {
+                            crate::inline::visit_container();
+                            comment.len()
+                        })
+                        .sum::<usize>()
+            });
         let mut head_prefixes = HashMap::new();
         let mut owned_shifts = Vec::new();
         let mut selection = range;
