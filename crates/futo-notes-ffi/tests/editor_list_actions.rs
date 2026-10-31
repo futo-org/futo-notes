@@ -60,7 +60,12 @@ fn shared_list_actions_forward_native_coordinates_history_and_exact_recovery() {
         "../../futo-notes-editor/tests/fixtures/fence-container-commands.json"
     ))
     .unwrap();
-    assert_eq!(fences.len(), 14);
+    assert_eq!(fences.len(), 23);
+    let headings: Vec<Value> = serde_json::from_str(include_str!(
+        "../../futo-notes-editor/tests/fixtures/heading-quote-commands.json"
+    ))
+    .unwrap();
+    assert_eq!(headings.len(), 5);
     let cases: Vec<_> = original
         .into_iter()
         .chain(shortcuts)
@@ -70,6 +75,7 @@ fn shared_list_actions_forward_native_coordinates_history_and_exact_recovery() {
         .chain(headers)
         .chain(frames)
         .chain(fences)
+        .chain(headings)
         .collect();
     for case in &cases {
         let text = |key: &str| case[key].as_str().unwrap();
@@ -125,6 +131,7 @@ fn shared_list_actions_forward_native_coordinates_history_and_exact_recovery() {
                     match command {
                         "Text" => EditorBlockCommand::Heading { level: 0 },
                         "Heading2" => EditorBlockCommand::Heading { level: 2 },
+                        "Quote" => EditorBlockCommand::Quote,
                         "Indent" => EditorBlockCommand::Indent,
                         "Outdent" => EditorBlockCommand::Outdent,
                         "BulletList" => EditorBlockCommand::BulletList,

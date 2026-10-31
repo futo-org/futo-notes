@@ -18,20 +18,22 @@ preserves opaque code and original containment through certified physical edge f
 new source queries and canonical code-body overlap queries have measured work controls.
 The pinned multiline quoted-body Outdent, Backspace and full Text observations,
 representative CRLF/entity cases and separate inner/foreign quote ownership now
-have exact-source/history and measured-work controls. The202 shared list literals
+have exact-source/history and measured-work controls. The 216 shared list literals
 are registered in all six source consumers; current native execution remains
 separate from registration.
 
-The remaining source frontier is promoted code after preceding list neighbors and
-within items containing blank/continuation or multiple code blocks; the pertinent quoted
-CRLF task continuation/fence retarget controls; and final checks of the already-pinned
-nested Heading/Quote, mixed run and endpoint contexts. Newly completed literals must
-reach all six source consumers with current owner chains. Finish these concrete cases,
-then freeze the exact entire source candidate for fresh independent review before
-native execution; do not treat source fixture registration or parser/copy counters as
-native input, complete allocation or latency evidence. Fence/table/link interpretation,
-note-id-dependent composition arbitration and renderer integration retain their own
-owners and dependent tickets.
+The bounded source cases now cover promoted code after preceding listed prose,
+blank/continuation and multiple fenced blocks, existing nested authored code blanks,
+the quoted CRLF task pair and the final established Heading/Quote contexts.
+The multiple-fence path has 64/512 parser, copy and metadata growth controls;
+original mixed, reversed and endpoint controls remain in the owner chain.
+Complete current owner chains for the 216 registered mutation literals, readability
+cleanup of the command planning/proof owners and the full Rust/WASM/static gates
+before freezing the exact entire source candidate for fresh independent review.
+Native execution follows that review and coordination; source registration and
+parser/copy counters do not prove native input, complete allocation or latency.
+Fence/table/link interpretation, note-id-dependent composition arbitration and
+renderer integration retain their own owners and dependent tickets.
 
 Paragraph projections use a length-indexed tree and display Rope, so an ordinary
 edit after a distant jump reparses only its paragraph window without rewriting

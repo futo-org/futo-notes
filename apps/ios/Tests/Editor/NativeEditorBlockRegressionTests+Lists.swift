@@ -60,9 +60,11 @@ extension NativeEditorBlockRegressionTests {
             let frames = try load("prefix-frame-commands")
             #expect(frames.count == 38)
             let fences = try load("fence-container-commands")
-            #expect(fences.count == 14)
+            #expect(fences.count == 23)
+            let headings = try load("heading-quote-commands")
+            #expect(headings.count == 5)
             let cases =
-                original + shortcuts + staging + nested + commands + headers + frames + fences
+                original + shortcuts + staging + nested + commands + headers + frames + fences + headings
             for item in cases {
                 let root = FileManager.default.temporaryDirectory.appendingPathComponent(
                     "editor-lists-\(UUID().uuidString)")
@@ -133,6 +135,7 @@ extension NativeEditorBlockRegressionTests {
                     switch item.action {
                     case "Text": command = .heading(level: 0)
                     case "Heading2": command = .heading(level: 2)
+                    case "Quote": command = .quote
                     case "Indent": command = .indent
                     case "Outdent": command = .outdent
                     case "BulletList": command = .bulletList

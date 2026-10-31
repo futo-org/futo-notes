@@ -31,8 +31,11 @@ internal fun sharedListActions() {
     assertEquals(38, frames.length())
     for (at in 0 until frames.length()) cases.put(frames.getJSONObject(at))
     val fences = JSONArray(context.assets.open("fence-container-commands.json").bufferedReader().use { it.readText() })
-    assertEquals(14, fences.length())
+    assertEquals(23, fences.length())
     for (at in 0 until fences.length()) cases.put(fences.getJSONObject(at))
+    val headings = JSONArray(context.assets.open("heading-quote-commands.json").bufferedReader().use { it.readText() })
+    assertEquals(5, headings.length())
+    for (at in 0 until headings.length()) cases.put(headings.getJSONObject(at))
     fun native(values: JSONArray) = EditorUtf16Range(values.getLong(0).toULong(), values.getLong(1).toULong())
     for (at in 0 until cases.length()) {
         val item = cases.getJSONObject(at)
@@ -79,6 +82,7 @@ internal fun sharedListActions() {
                         else -> s.blockCommandUtf16(0uL, selected, when (action) {
                             "Text" -> EditorBlockCommand.Heading(0u)
                             "Heading2" -> EditorBlockCommand.Heading(2u)
+                            "Quote" -> EditorBlockCommand.Quote
                             "Indent" -> EditorBlockCommand.Indent
                             "Outdent" -> EditorBlockCommand.Outdent
                             "BulletList" -> EditorBlockCommand.BulletList

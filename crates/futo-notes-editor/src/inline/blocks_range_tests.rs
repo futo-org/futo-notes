@@ -40,6 +40,7 @@ fn sources() -> Vec<String> {
         include_str!("../../tests/fixtures/list-header-commands.json"),
         include_str!("../../tests/fixtures/prefix-frame-commands.json"),
         include_str!("../../tests/fixtures/fence-container-commands.json"),
+        include_str!("../../tests/fixtures/heading-quote-commands.json"),
         include_str!("../../tests/fixtures/structural-seams.json"),
         include_str!("../../tests/fixtures/fence-physical-rows.json"),
     ] {
@@ -55,7 +56,7 @@ fn sources() -> Vec<String> {
             }
         }
     }
-    assert_eq!(sources.len(), 574);
+    assert_eq!(sources.len(), 602);
     sources
 }
 

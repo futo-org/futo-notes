@@ -49,6 +49,7 @@ fn action(
                 match command {
                     "Text" => BlockCommand::Heading(0),
                     "Heading2" => BlockCommand::Heading(2),
+                    "Quote" => BlockCommand::Quote,
                     "Indent" => BlockCommand::Indent,
                     "Outdent" => BlockCommand::Outdent,
                     "BulletList" => BlockCommand::BulletList,
@@ -163,7 +164,12 @@ fn shared_list_actions_survive_failed_append_undo_flush_power_loss_and_checkpoin
         "../../../../futo-notes-editor/tests/fixtures/fence-container-commands.json"
     ))
     .unwrap();
-    assert_eq!(fences.len(), 14);
+    assert_eq!(fences.len(), 23);
+    let headings: Vec<Value> = serde_json::from_str(include_str!(
+        "../../../../futo-notes-editor/tests/fixtures/heading-quote-commands.json"
+    ))
+    .unwrap();
+    assert_eq!(headings.len(), 5);
     let cases: Vec<_> = original
         .into_iter()
         .chain(shortcuts)
@@ -173,6 +179,7 @@ fn shared_list_actions_survive_failed_append_undo_flush_power_loss_and_checkpoin
         .chain(headers)
         .chain(frames)
         .chain(fences)
+        .chain(headings)
         .collect();
     for case in &cases {
         let text = |key: &str| case[key].as_str().unwrap();

@@ -33,7 +33,10 @@ fn shared_literal_list_actions_cover_native_coordinates_and_exact_history() {
     assert_eq!(frames.len(), 38);
     let fences: Vec<Value> =
         serde_json::from_str(include_str!("../fixtures/fence-container-commands.json")).unwrap();
-    assert_eq!(fences.len(), 14);
+    assert_eq!(fences.len(), 23);
+    let headings: Vec<Value> =
+        serde_json::from_str(include_str!("../fixtures/heading-quote-commands.json")).unwrap();
+    assert_eq!(headings.len(), 5);
     let cases: Vec<_> = original
         .into_iter()
         .chain(shortcuts)
@@ -43,6 +46,7 @@ fn shared_literal_list_actions_cover_native_coordinates_and_exact_history() {
         .chain(headers)
         .chain(frames)
         .chain(fences)
+        .chain(headings)
         .collect();
     for case in &cases {
         let text = |key: &str| case[key].as_str().unwrap();
@@ -104,6 +108,7 @@ fn shared_literal_list_actions_cover_native_coordinates_and_exact_history() {
                     match command {
                         "Text" => BlockCommand::Heading(0),
                         "Heading2" => BlockCommand::Heading(2),
+                        "Quote" => BlockCommand::Quote,
                         "Indent" => BlockCommand::Indent,
                         "Outdent" => BlockCommand::Outdent,
                         "BulletList" => BlockCommand::BulletList,

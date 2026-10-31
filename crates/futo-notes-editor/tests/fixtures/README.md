@@ -97,7 +97,7 @@ ordered child lifting copies that start into each newly independent following ow
 Same-line quote/list controls retain empty lifted paragraphs, physical CRLF and quote
 prefixes, raw nonidentity entity atoms and native UTF-16 interior carets. Task-body
 quote/heading punctuation stays literal. Together with the unchanged original seventy-four
-list cases, all six source consumers load 202 cases, including thirty-eight
+list cases, all six source consumers load 216 cases, including thirty-eight
 `prefix-frame-commands.json` literals. These distinguish nearest Outdent and
 registered Backspace from full Text lifting. Unchanged implicit empty parents
 keep compact source; an action-created parallel paragraph gets a physical frame.
@@ -110,7 +110,7 @@ or latency evidence. Store consumers retain rejection, paused retry, rejected Un
 one protected record, flush, modeled power loss, recovery and checkpoint/reopen checks.
 Source fixture registration does not establish that current native binaries ran.
 
-Fourteen `fence-container-commands.json` literals preserve canonical fence containment
+Twenty-three `fence-container-commands.json` literals preserve canonical fence containment
 while a root list item is promoted. A necessary closer retains delimiter width,
 language and line endings; existing closers, real EOF and a surviving inner
 quote boundary stay distinct. Code leaf indentation and opaque blank spaces/tabs
@@ -129,3 +129,16 @@ remain exact; the action-created empty paragraphs differ by intent. The three
 CRLF entity controls hand-map native UTF-16 ranges: a selected endpoint after
 the first decoded scalar is unit one (byte three), and its new CRLF frame
 moves it to unit three (byte five). Backspace retains its start caret.
+
+Fourteen final mutation literals add nine fence-family cases and five
+`heading-quote-commands.json` cases.
+They preserve a preceding listed paragraph with one necessary blank, authored
+blank/empty/opaque predecessors without new blank normalization, continuation
+and two code fences with only the final necessary closer, and existing nested
+code blank spaces under Text and Heading. The quoted CRLF task pair keeps actual
+tab columns, code language and child/following ownership. The final Heading/Quote
+mutations use the existing plain/same-quote/cross-quote contexts. A following
+nonempty bullet/ordered-one item interrupts a quote itself; ordered-seven needs
+a real quote-scope blank and retains its exact marker/start. Two quoted Quote
+no-op cases remain separate public session tests: no fake append/history is used
+to force them through this mutation/recovery harness.
