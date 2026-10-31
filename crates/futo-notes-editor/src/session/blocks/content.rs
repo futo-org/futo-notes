@@ -166,20 +166,79 @@ impl EditorSession {
 
 /// Existing physical breaks retain exact container spelling. The planner owns
 /// the newly split first line's prefix separately.
-pub(super) fn restore_body_prefixes<'a>(
+pub(super) struct PhysicalBody {
+    pub text: String,
+    copied_parts: Vec<(std::ops::Range<usize>, std::ops::Range<usize>)>,
+    pub work: usize,
+    pub copied: usize,
+}
+impl PhysicalBody {
+    /// Only complete nonempty atom ranges transfer here. A point at an
+    /// inserted prefix needs explicit affinity, not this range-only query.
+    pub fn retained_range(
+        &self,
+        range: std::ops::Range<usize>,
+    ) -> (Option<std::ops::Range<usize>>, usize) {
+        let mut work = 1;
+        if range.is_empty() {
+            return (None, work);
+        }
+        let at = self.copied_parts.partition_point(|(before, _)| {
+            work += 1;
+            before.end <= range.start
+        });
+        let mapped = self.copied_parts.get(at).and_then(|(before, after)| {
+            work += 1;
+            (before.start <= range.start && range.end <= before.end).then(|| {
+                after.start + range.start - before.start..after.start + range.end - before.start
+            })
+        });
+        (mapped, work)
+    }
+}
+
+pub(super) fn physical_body<'a>(
     body: &str,
     mut prefixes: impl Iterator<Item = &'a String>,
-) -> String {
-    let mut output = String::new();
+    retain_origins: bool,
+) -> PhysicalBody {
+    let mut result = PhysicalBody {
+        text: String::new(),
+        copied_parts: Vec::new(),
+        work: body.len(),
+        copied: 0,
+    };
+    let mut source = 0;
     for (index, part) in body.split_inclusive('\n').enumerate() {
+        result.work += 1;
         if index > 0 {
+            result.work += 1;
             if let Some(prefix) = prefixes.next() {
-                output.push_str(prefix);
+                result.text.push_str(prefix);
+                result.copied += prefix.len();
             }
         }
-        output.push_str(part);
+        let start = result.text.len();
+        result.text.push_str(part);
+        result.copied += part.len();
+        if retain_origins {
+            result.work += 3;
+            // These exact input bytes were just pushed. Inserted prefixes
+            // receive no origin, even when their spelling equals body text.
+            result
+                .copied_parts
+                .push((source..source + part.len(), start..result.text.len()));
+        }
+        source += part.len();
     }
-    output
+    result
+}
+
+pub(super) fn restore_body_prefixes<'a>(
+    body: &str,
+    prefixes: impl Iterator<Item = &'a String>,
+) -> String {
+    physical_body(body, prefixes, false).text
 }
 
 pub(super) fn protect_content(raw: &str, heading: bool, paragraph: bool) -> (String, usize) {

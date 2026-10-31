@@ -51,11 +51,17 @@ impl EditorSession {
             setext,
         );
         let (right, right_work) = super::content::protect_content(&body.right, false, true);
-        let left = super::content::restore_body_prefixes(&left, body.prefixes.iter().skip(1));
-        let right = super::content::restore_body_prefixes(
+        let unchanged_left = left == body.left[..heading_end];
+        let unchanged_right = right == body.right;
+        let left_layout =
+            super::content::physical_body(&left, body.prefixes.iter().skip(1), line.heading > 0);
+        let right_layout = super::content::physical_body(
             &right,
             body.prefixes.iter().skip(body.right_line + 1),
+            line.heading > 0,
         );
+        let left = &left_layout.text;
+        let right = &right_layout.text;
         let mut output =
             format!("{prefix}{left}{suffix}{retained_break}\n{separator}{continuation}{right}");
         let caret = line.source.start
@@ -72,29 +78,44 @@ impl EditorSession {
             let right_start = caret - line.source.start;
             let mut retained = Vec::new();
             let mut visits = 0;
-            // The first slice has one physical line and unchanged spelling on
-            // each side. Multiline prefix or marker transformations need their
-            // own layout correspondence; never guess it from equal display.
-            if body.prefixes.len() == 1 && left == body.left && right == body.right {
-                for witness in body.retained {
-                    visits += 1;
-                    let after = if witness.after.end <= body.split {
-                        Some(prefix.len() + witness.after.start..prefix.len() + witness.after.end)
-                    } else if witness.after.start >= body.split + 2 {
-                        Some(
-                            right_start + witness.after.start - body.split - 2
-                                ..right_start + witness.after.end - body.split - 2,
-                        )
-                    } else {
-                        None
-                    };
-                    if let Some(after) = after {
-                        retained.push(crate::inline::references::RetainedBody {
-                            before: witness.before,
-                            after,
-                        });
-                    }
+            for witness in body.retained {
+                visits += 1;
+                let mapped = if unchanged_left && witness.after.end <= heading_end {
+                    let (range, work) = left_layout.retained_range(witness.after.clone());
+                    visits += work;
+                    range.map(|range| prefix.len() + range.start..prefix.len() + range.end)
+                } else if setext
+                    && witness.after.start >= heading_end
+                    && witness.after.end <= body.split
+                {
+                    // This retained terminal break is emitted AFTER the exact
+                    // setext suffix. Its old body identity does not move through
+                    // an inferred visible offset.
+                    let at = prefix.len() + left.len() + suffix.len();
+                    Some(
+                        at + witness.after.start - heading_end
+                            ..at + witness.after.end - heading_end,
+                    )
+                } else if unchanged_right && witness.after.start >= body.split + 2 {
+                    let local =
+                        witness.after.start - body.split - 2..witness.after.end - body.split - 2;
+                    let (range, work) = right_layout.retained_range(local);
+                    visits += work;
+                    range.map(|range| right_start + range.start..right_start + range.end)
+                } else {
+                    None
+                };
+                if let Some(after) = mapped {
+                    retained.push(crate::inline::references::RetainedBody {
+                        before: witness.before,
+                        after,
+                    });
                 }
+            }
+            let (ordered, work) = crate::inline::references::RetainedBody::ordered(&retained);
+            visits += work;
+            if !ordered {
+                return Err(EditorError::UnrepresentableFormat);
             }
             let body_end = self.projection.display_at(line.content.end);
             let expected_display = format!(
@@ -133,10 +154,12 @@ impl EditorSession {
             accept,
         )?;
         self.carry_block_state(&mut change, body.formats, body.affinity);
-        change.work.materialized_source_bytes += body.materialized + reference_bytes;
+        change.work.materialized_source_bytes +=
+            body.materialized + reference_bytes + left_layout.copied + right_layout.copied;
         change.work.parsed_source_bytes +=
             body.parsed + left_work + right_work + reference_work.parsed;
-        change.work.link_metadata_items += body.link_metadata_items + reference_work.items;
+        change.work.link_metadata_items +=
+            body.link_metadata_items + reference_work.items + left_layout.work + right_layout.work;
         change.work.link_copied_bytes += body.link_copied_bytes + reference_work.copied;
         Ok(Some(change))
     }
