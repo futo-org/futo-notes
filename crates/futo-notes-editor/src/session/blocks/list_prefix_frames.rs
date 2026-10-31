@@ -137,3 +137,7 @@ impl EditorSession {
         Ok(Some(change))
     }
 }
+
+#[cfg(test)]
+#[path = "list_prefix_frames_work.rs"]
+mod work_tests;
