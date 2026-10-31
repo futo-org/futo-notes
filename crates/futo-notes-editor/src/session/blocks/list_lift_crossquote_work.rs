@@ -104,6 +104,7 @@ fn full_quote_lifting_does_not_parse_or_materialize_unrelated_paragraphs() {
 
 #[test]
 fn shared_physical_quote_heads_do_not_reprotect_the_same_large_body() {
+    use std::io::Write as _;
     let mut measurements = Vec::new();
     for (depth, body_bytes) in [(8, 4096), (64, 32768)] {
         let body = "x".repeat(body_bytes);
@@ -170,10 +171,12 @@ fn shared_physical_quote_heads_do_not_reprotect_the_same_large_body() {
             .unwrap();
         let metadata = crate::inline::CONTAINER_METADATA_VISITS.with(|count| count.get());
         let queries = crate::inline::CONTAINER_PREFIX_QUERIES.with(|count| count.get());
-        eprintln!(
+        writeln!(
+            std::io::stderr(),
             "shared-head depth={depth} primitive ledger: {:?}",
             super::trace::get()
-        );
+        )
+        .unwrap();
         let work = change.work;
         assert_eq!(accepts, 1);
         let mut view = body.clone();
@@ -213,7 +216,11 @@ fn shared_physical_quote_heads_do_not_reprotect_the_same_large_body() {
         ));
     }
     // Functional and history checks for BOTH sizes precede the measured budgets.
-    eprintln!("shared-head actual (groups,input,parsed,copied,metadata,queries): {measurements:?}");
+    writeln!(
+        std::io::stderr(),
+        "shared-head actual (groups,input,parsed,copied,metadata,queries): {measurements:?}"
+    )
+    .unwrap();
     for (depth, input, parsed, copied, metadata, queries) in measurements {
         assert!(
             parsed < 32 * input,
