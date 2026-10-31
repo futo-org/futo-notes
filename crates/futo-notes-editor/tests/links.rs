@@ -44,3 +44,6 @@ mod physical_prefixes;
 
 #[path = "links/code_literal_edits.rs"]
 mod code_literal_edits;
+
+#[path = "links/block_pending_consumers.rs"]
+mod block_pending_consumers;
