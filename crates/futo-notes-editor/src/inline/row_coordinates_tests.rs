@@ -19,6 +19,35 @@ fn historical_linear_display_at(row: &Row, source: usize) -> usize {
     row.display.len()
 }
 
+// Historical inverse keeps the union over every inclusive display match.
+fn historical_linear_source_bounds(row: &Row, at: usize) -> (usize, usize) {
+    let mut low = row.source_len;
+    let mut high = 0;
+    for segment in &row.segments {
+        if segment.display.start <= at && at <= segment.display.end {
+            let (a, b) = if segment.display.is_empty() {
+                (segment.source.start, segment.source.end)
+            } else if at == segment.display.start {
+                (segment.source.start, segment.source.start)
+            } else if at == segment.display.end {
+                (segment.source.end, segment.source.end)
+            } else if segment.identity {
+                let position = segment.source.start + at - segment.display.start;
+                (position, position)
+            } else {
+                (segment.source.start, segment.source.end)
+            };
+            low = low.min(a);
+            high = high.max(b);
+        }
+    }
+    if row.segments.is_empty() {
+        (0, 0)
+    } else {
+        (low, high)
+    }
+}
+
 fn check_canonical_rows(source: &str) -> usize {
     let projection = Projection::new(source);
     let mut checked = 0;
@@ -29,6 +58,9 @@ fn check_canonical_rows(source: &str) -> usize {
                 pair[0].source.end <= pair[1].source.end
                     && pair[0].source.start <= pair[1].source.start
                     && pair[0].display.end <= pair[1].display.end
+                    && pair[0].display.start <= pair[1].display.start
+                    && pair[0].source.end <= pair[1].source.start
+                    && pair[0].display.end <= pair[1].display.start
             }),
             "nonmonotonic canonical segment ends: source_bytes={} row={index}",
             source.len()
@@ -43,8 +75,28 @@ fn check_canonical_rows(source: &str) -> usize {
             );
             checked += 1;
         }
+        for at in (0..=row.display.len()).filter(|&at| row.display.is_char_boundary(at)) {
+            assert_eq!(
+                row.source_bounds(at),
+                historical_linear_source_bounds(row, at),
+                "inverse mismatch: source_bytes={} row={index} offset={at}",
+                source.len()
+            );
+            let global = display_offset(&projection, at + projection.rows.at(index).2);
+            assert_eq!(
+                projection.source_bounds(at + projection.rows.at(index).2),
+                global
+            );
+            checked += 1;
+        }
     }
     checked
+}
+
+fn display_offset(projection: &Projection, at: usize) -> (usize, usize) {
+    let (row, source, display) = projection.rows.at(projection.rows.locate(at, true));
+    let (low, high) = historical_linear_source_bounds(row, at - display);
+    (source + low, source + high)
 }
 
 fn check_fixture(value: &serde_json::Value) -> usize {
@@ -105,6 +157,7 @@ fn source_coordinate_index_keeps_malformed_entity_reference_and_fence_boundaries
     for prefix in ["", "- ", "> ", "10. ", "- [x] ", "> - "] {
         for body in bodies {
             check_canonical_rows(&format!("{prefix}{body}"));
+            check_canonical_rows(&format!("foreign\n\n{prefix}{body}\n\nfollowing"));
         }
     }
     let projection = Projection::new("&acE;");
@@ -200,5 +253,38 @@ fn source_coordinate_index_keeps_first_inclusive_equal_ends_and_gap_fallback() {
             assert_eq!(historical_linear_display_at(&row, at), position);
             assert_eq!(row.display_at(at), position);
         }
+        for at in (0..=row.display.len()).filter(|&at| row.display.is_char_boundary(at)) {
+            assert_eq!(
+                row.source_bounds(at),
+                historical_linear_source_bounds(&row, at)
+            );
+        }
     }
+}
+
+#[test]
+fn inverse_coordinate_index_keeps_hidden_runs_atom_interiors_and_empty_fallback() {
+    let projection = Projection::new("- **&acE;**");
+    let (row, _, _) = projection.rows.at(0);
+    assert_eq!(row.source_bounds(0), (0, 4));
+    assert_eq!(row.source_bounds(3), (4, 9));
+    assert_eq!(row.source_bounds(5), (9, 11));
+    let hidden = model(
+        3,
+        "",
+        vec![
+            Segment {
+                source: 0..1,
+                display: 0..0,
+                identity: false,
+            },
+            Segment {
+                source: 1..3,
+                display: 0..0,
+                identity: false,
+            },
+        ],
+    );
+    assert_eq!(hidden.source_bounds(0), (0, 3));
+    assert_eq!(Row::parse("").source_bounds(0), (0, 0));
 }
