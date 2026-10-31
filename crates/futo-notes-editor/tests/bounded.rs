@@ -307,3 +307,31 @@ fn a_cursor_from_a_materialized_mode_cannot_edit_a_later_mode_at_the_same_revisi
     assert_eq!(result.unwrap_err(), BoundedError::StaleCursor);
     assert_eq!(bounded.source_text(), "```Rust\nab\n```\n");
 }
+
+#[test]
+fn entry_preparation_seeks_the_selected_fence_without_repeated_prefix_scans() {
+    let mut work = Vec::new();
+    for count in [100, 200] {
+        let source = format!("{}```Rust\nΩ\n```\n", "```\na\n```\n".repeat(count));
+        let session = EditorSession::open(&source);
+        let at = session
+            .display_text()
+            .find('Ω')
+            .expect("unique target glyph");
+        let mut bounded = session
+            .into_bounded(Revision(0), SessionToken(13), DisplayOffset(at))
+            .unwrap();
+        let measured = bounded.preparation_work().metadata_items;
+        println!("adjacent_fences={count} entry_metadata={measured}");
+        work.push(measured);
+        let change = bounded
+            .insert_literal(bounded.cursor(), DisplayOffset(at), "x", &mut |_| Ok(()))
+            .unwrap();
+        assert_eq!(change.projection.block.language.as_deref(), Some("Rust"));
+        assert_eq!(bounded.source_text(), source.replacen('Ω', "xΩ", 1));
+    }
+    assert!(
+        work[1] <= work[0] * 3,
+        "doubling adjacent fences must not quadruple preparation: {work:?}"
+    );
+}

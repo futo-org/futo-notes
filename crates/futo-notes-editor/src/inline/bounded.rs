@@ -17,16 +17,31 @@ impl Projection {
         at: DisplayOffset,
     ) -> Option<(RetainedCode, usize, usize)> {
         let (row, source, display, mut visits) = self.rows.display_row_with_work(at.0);
-        for block in &row.blocks {
+        let ((low, high), mapped) = row.source_bounds_with_work(at.0 - display);
+        visits += mapped;
+        for endpoint in [low, high] {
+            let index = row
+                .blocks
+                .partition_point(|block| {
+                    visits += 1;
+                    block.source.start <= endpoint
+                })
+                .saturating_sub(1);
             visits += 1;
+            let block = row.blocks.get(index)?;
             let Some(fence) = &block.fence else { continue };
             if block.quote_depth != 0 || block.in_list || block.list.is_some() {
                 continue;
             }
-            let opener = row.blocks.iter().find(|line| {
-                visits += 1;
-                line.source.start <= fence.opener.start && fence.opener.end <= line.source.end
-            })?;
+            let opener_index = row
+                .blocks
+                .partition_point(|line| {
+                    visits += 1;
+                    line.source.start <= fence.opener.start
+                })
+                .saturating_sub(1);
+            visits += 1;
+            let opener = row.blocks.get(opener_index)?;
             if opener.source.start != fence.opener.start
                 || fence.body.is_empty()
                 || fence.closer.is_none()
@@ -49,8 +64,15 @@ impl Projection {
             }
             let mut covered_source = fence.body.start;
             let mut covered_display = start.0;
-            for segment in &row.segments {
+            let first = row.segments.partition_point(|segment| {
                 visits += 1;
+                segment.source.end <= fence.body.start
+            });
+            for segment in &row.segments[first..] {
+                visits += 1;
+                if segment.source.start >= fence.body.end {
+                    break;
+                }
                 let begin = segment.source.start.max(fence.body.start);
                 let finish = segment.source.end.min(fence.body.end);
                 if begin >= finish {

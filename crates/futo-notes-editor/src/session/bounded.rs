@@ -5,6 +5,8 @@ use crate::SessionToken;
 use serde::{Deserialize, Serialize};
 use std::collections::LinkedList;
 
+/// Hosts issue a fresh token for each attachment. The engine retains its mode
+/// incarnation across handoffs; generation identifies a frame within that mode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BoundedCursor {
     pub token: SessionToken,
