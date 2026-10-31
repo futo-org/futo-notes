@@ -10,6 +10,7 @@ use crate::inline::{
 };
 use crate::{DisplayRange, InlineFormat, InputAction};
 mod ending;
+mod literal;
 mod seed;
 mod separator;
 

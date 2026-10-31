@@ -6,6 +6,7 @@ use boundaries::{repair_boundaries, repair_literal_boundaries};
 mod render;
 pub(super) use pieces::{full_reference_close, Marker, Piece, PieceOrigin, Spelling};
 mod guarded;
+mod literal_capsules;
 mod literal_urls;
 mod typed_origins;
 pub(in crate::inline) use literal_urls::CodeLiteralColon;
@@ -65,7 +66,7 @@ pub(super) fn spell_with_anchors(
         link_metadata_items += 1;
         marker.pending || marker.activate || marker.literal_url
     });
-    if literal || verify_pending {
+    if literal || verify_pending || typed.has_literal_proof() {
         let mut candidate =
             Row::parse_with_references(&rendered.text, references, &rendered.winners);
         parsed += candidate.parsed_source_bytes;
@@ -297,6 +298,17 @@ pub(super) fn spell_with_anchors(
             )?,
         )
     };
+    if typed.has_literal_proof() {
+        let work = typed.verify_literal_capsules(
+            &pieces,
+            &rendered,
+            verified
+                .as_ref()
+                .ok_or(EditorError::UnrepresentableFormat)?,
+        )?;
+        link_metadata_items += work.items;
+        link_copied_bytes += work.copied;
+    }
     let typed_inputs = typed.emit(&pieces, &rendered, raw, &mut link_metadata_items)?;
     if let Some(origins) = &typed_inputs {
         link_metadata_items += super::typed_angle::validate_row(

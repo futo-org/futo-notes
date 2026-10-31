@@ -13,12 +13,15 @@ pub(in crate::inline) struct TypedState {
     // None records an explicitly retired local owner for Some(empty) output.
     pub retained: Option<Vec<TypedAngleOrigin>>,
     pub emitted: Vec<EmittedOrigin>,
+    // Current operation only: never emitted as a retained input origin.
+    pub literal_capsules: Vec<Range<usize>>,
 }
 impl TypedState {
     pub fn current(origins: Vec<TypedAngleOrigin>) -> Self {
         Self {
             retained: (!origins.is_empty()).then_some(origins),
             emitted: Vec::new(),
+            literal_capsules: Vec::new(),
         }
     }
     pub fn has_update(&self) -> bool {

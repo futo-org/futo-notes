@@ -477,9 +477,45 @@ fn committed_multiple_separators_do_not_trim_back_into_a_completed_capsule() {
             .unwrap()
             .links
             .is_empty());
-        editor.undo(Revision(1), &mut |_| Ok(())).unwrap().unwrap();
+        // The operation-only proof must not enroll a word that can activate
+        // later from equal source. Consume its old boundary against a fresh
+        // loaded control, then undo that ordinary action separately.
+        let mut loaded = EditorSession::open(&saved);
+        let boundary = inner.len() + 2;
+        editor.select(editor.revision(), range(0, 0)).unwrap();
+        for session in [&mut editor, &mut loaded] {
+            session
+                .select(session.revision(), range(boundary, boundary))
+                .unwrap();
+            session
+                .replace(
+                    session.revision(),
+                    range(boundary, boundary),
+                    " ",
+                    &mut |_| Ok(()),
+                )
+                .unwrap();
+        }
+        assert_eq!(editor.source_text(), loaded.source_text());
+        assert!(editor
+            .project(editor.revision(), range(0, editor.display_text().len()))
+            .unwrap()
+            .links
+            .is_empty());
+        editor
+            .undo(editor.revision(), &mut |_| Ok(()))
+            .unwrap()
+            .unwrap();
+        assert_eq!(editor.source_text(), saved);
+        editor
+            .undo(editor.revision(), &mut |_| Ok(()))
+            .unwrap()
+            .unwrap();
         assert_eq!(editor.source_text(), "");
-        editor.redo(Revision(2), &mut |_| Ok(())).unwrap().unwrap();
+        editor
+            .redo(editor.revision(), &mut |_| Ok(()))
+            .unwrap()
+            .unwrap();
         assert_eq!(editor.source_text(), saved);
     }
 }

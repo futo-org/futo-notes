@@ -26,7 +26,9 @@ impl TypedState {
             start -= 1;
         }
         if start == end {
-            return Ok(()); // In particular, do not trim two Spaces into a URI.
+            // Preserve the non-conversion decision with ordinary literal
+            // source, without trimming separators into activation authority.
+            return self.literal_ending(input, pieces, markers, work);
         }
         work.items += 1;
         let closed = pieces[end - 1].display == ">";
