@@ -280,3 +280,81 @@ for (const [inner, href, closing] of [
     expect(ended.links, evidence).toEqual([{ text: inner, href }]);
   });
 }
+
+for (const [delimiter, format] of [
+  ['_', 'emphasis'],
+  ['~~', 'strike_through'],
+] as const) {
+  it(`the shipping ${format} URL closer waits for actual character-input word end`, () => {
+    const view = editor.ctx.get(editorViewCtx);
+    view.updateState(
+      EditorState.create({ schema: view.state.schema, plugins: view.state.plugins }),
+    );
+    const type = (text: string) => {
+      for (const ch of text) {
+        const { from, to } = view.state.selection;
+        const handled = view.someProp('handleTextInput', (handler) =>
+          handler(view, from, to, ch, () => view.state.tr.insertText(ch)),
+        );
+        if (!handled) view.dispatch(view.state.tr.insertText(ch));
+      }
+    };
+    const snapshot = () => {
+      const runs: { text: string; types: string[]; href: unknown }[] = [];
+      view.state.doc.descendants((node) => {
+        if (node.isText && node.marks.length)
+          runs.push({
+            text: node.text ?? '',
+            types: node.marks.map((mark) => mark.type.name).sort(),
+            href: node.marks.find((mark) => mark.type.name === 'link')?.attrs.href,
+          });
+      });
+      return { text: view.state.doc.textContent, runs };
+    };
+    const opening = `x ${delimiter}b https://x.test/a${delimiter}`;
+    type(opening);
+    const before = snapshot();
+    type(' ');
+    const ended = snapshot();
+    const evidence = JSON.stringify({ delimiter, before, ended });
+    expect(before.text, evidence).toBe(opening);
+    expect(before.runs, evidence).toEqual([]);
+    expect(ended.text, evidence).toBe('x b https://x.test/a ');
+    expect(ended.runs, evidence).toEqual([
+      { text: 'b ', types: [format], href: undefined },
+      { text: 'https://x.test/a', types: [format, 'link'].sort(), href: 'https://x.test/a' },
+    ]);
+  });
+}
+
+it('the shipping partial WWW word ends with its trailing period still literal', () => {
+  const view = editor.ctx.get(editorViewCtx);
+  view.updateState(EditorState.create({ schema: view.state.schema, plugins: view.state.plugins }));
+  const type = (text: string) => {
+    for (const ch of text) {
+      const { from, to } = view.state.selection;
+      const handled = view.someProp('handleTextInput', (handler) =>
+        handler(view, from, to, ch, () => view.state.tr.insertText(ch)),
+      );
+      if (!handled) view.dispatch(view.state.tr.insertText(ch));
+    }
+  };
+  const snapshot = () => {
+    const links: { text: string; href: string }[] = [];
+    view.state.doc.descendants((node) => {
+      const mark = node.marks.find((mark) => mark.type.name === 'link');
+      if (mark) links.push({ text: node.text ?? '', href: String(mark.attrs.href) });
+    });
+    return { text: view.state.doc.textContent, links };
+  };
+  type('<www.x.test/[[Old]]/path.');
+  const before = snapshot();
+  type(' ');
+  const ended = snapshot();
+  const evidence = JSON.stringify({ before, ended });
+  expect(before, evidence).toEqual({ text: '<www.x.test/[[Old]]/path.', links: [] });
+  expect(ended, evidence).toEqual({
+    text: '<www.x.test/[[Old]]/path. ',
+    links: [{ text: 'www.x.test/[[Old]]/path', href: 'http://www.x.test/[[Old]]/path' }],
+  });
+});
