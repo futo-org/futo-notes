@@ -29,3 +29,6 @@ mod reference_blocks;
 
 #[path = "links/derived_pending.rs"]
 mod derived_pending;
+
+#[path = "links/angle_pending.rs"]
+mod angle_pending;
