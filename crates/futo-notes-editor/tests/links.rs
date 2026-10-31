@@ -89,3 +89,6 @@ mod partial_guard_scopes;
 
 #[path = "links/before_repair_fields.rs"]
 mod before_repair_fields;
+
+#[path = "links/canonical_positions.rs"]
+mod canonical_positions;
