@@ -223,7 +223,16 @@ try {
     assert.deepEqual(await timingReopened(JSON.stringify({ checkpoint: true })), { id: 'plain' });
     await stop();
   }
-  for (const [original, finalSource, shown, selected, destination] of [
+  for (const [
+    original,
+    finalSource,
+    shown,
+    selected,
+    destination,
+    opening = shown,
+    nativeCaret = 4,
+    command = { Heading: 0 },
+  ] of [
     [
       "# [id]: /target 'T'\n\n[one][id]\n\nbody",
       "\\[id]: /target 'T'\n\n[one][id]\n\nbody",
@@ -238,11 +247,31 @@ try {
       7,
       '/first',
     ],
+    [
+      "# prefix[id]: /target 'T'\n\n[one][id]",
+      "# prefix\n\\[id]: /target 'T'\n\n[one][id]",
+      "prefix\n[id]: /target 'T'\n\n[one][id]",
+      7,
+      null,
+      "prefix[id]: /target 'T'\n\n[one][id]",
+      6,
+      'Enter',
+    ],
+    [
+      "> head\n> pre&acE;fix\n> [id]: /target 'T'\n> ===\n\n[one][id]",
+      "> head\n> pre&acE;fix\n> ===\n> \n> \\[id]: /target 'T'\n\n[one][id]",
+      "head\npre\u223e\u0333fix\n\n[id]: /target 'T'\n\n[one][id]",
+      17,
+      null,
+      "head\npre\u223e\u0333fix\n[id]: /target 'T'\n\n[one][id]",
+      13,
+      'Enter',
+    ],
   ]) {
     const blockVault = mkdtempSync(join(tmpdir(), 'futo-editor-wasm-reference-block-'));
     timingVaults.push(blockVault);
     const blockExchange = await start(original, blockVault);
-    let blockDisplay = shown;
+    let blockDisplay = opening;
     let revision = 0n;
     const applyBlock = async (request) => {
       const ack = await blockExchange(request);
@@ -257,11 +286,14 @@ try {
       assert.equal(JSON.parse(session.acknowledge(JSON.stringify(ack))), null);
       return change;
     };
-    assert.equal(JSON.parse(session.project(0n, 0, Buffer.byteLength(shown))).text, shown);
-    const request = session.block_command_utf16(0n, 4, 4, JSON.stringify({ Heading: 0 }));
+    assert.equal(JSON.parse(session.project(0n, 0, Buffer.byteLength(opening))).text, opening);
+    const request =
+      command === 'Enter'
+        ? session.paragraph_key_utf16(0n, nativeCaret, nativeCaret, JSON.stringify(command))
+        : session.block_command_utf16(0n, nativeCaret, nativeCaret, JSON.stringify(command));
     assert.equal(session.draft_text(), finalSource);
     assert.equal(JSON.parse(session.status()).accepted, 0);
-    assert.equal(blockDisplay, shown);
+    assert.equal(blockDisplay, opening);
     assert.throws(() => session.project(1n, 0, Buffer.byteLength(shown)));
     const change = await applyBlock(request);
     assert.equal(blockDisplay, shown);
@@ -272,7 +304,7 @@ try {
     if (target) assert.equal(target.title, 'First');
     await applyBlock(session.undo(revision));
     assert.equal(session.draft_text(), original);
-    assert.equal(blockDisplay, shown);
+    assert.equal(blockDisplay, opening);
     await applyBlock(session.redo(revision));
     assert.equal(session.draft_text(), finalSource);
     assert.equal(blockDisplay, shown);
