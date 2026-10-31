@@ -101,16 +101,24 @@ export async function inputLifecycleConsumer({ start, stop, getSession, createRo
   assert.deepEqual(await exchange(JSON.stringify({ checkpoint: true })), { id: 'plain' });
   await stop();
   await completedHttpConsumer({ start, stop, getSession, createRoot, parseSource });
+  await completedHttpConsumer({ start, stop, getSession, createRoot, parseSource, ending: '\n' });
   await paragraphEndingConsumer({ start, stop, getSession, createRoot, parseSource });
 }
 
 // A completed committed capsule never needs an unfinished Typing origin.
-async function completedHttpConsumer({ start, stop, getSession, createRoot, parseSource }) {
+async function completedHttpConsumer({
+  start,
+  stop,
+  getSession,
+  createRoot,
+  parseSource,
+  ending = ' ',
+}) {
   const foreign = '<[WwW.x.test/PaTh](<http://WwW.x.test/PaTh>)>\n\n';
   const foreignView = '<WwW.x.test/PaTh>\n\n';
-  const input = '<HTTPS://x.test/PaTh> ';
+  const input = '<HTTPS://x.test/PaTh>' + ending;
   const text = foreignView + input;
-  const standard = parseSource(foreign + '<<HTTPS://x.test/PaTh>> ');
+  const standard = parseSource(foreign + '<<HTTPS://x.test/PaTh>>' + ending);
   let expected;
   try {
     const canonical = JSON.parse(standard.project(0n, 0, text.length));
