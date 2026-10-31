@@ -423,3 +423,32 @@ for (const mode of [
     });
   });
 }
+
+for (const prefix of ['', '<www.x.test/']) {
+  it(`the shipping bulk input ends only its last angle word after prefix ${JSON.stringify(prefix)}`, () => {
+    const view = editor.ctx.get(editorViewCtx);
+    view.updateState(
+      EditorState.create({ schema: view.state.schema, plugins: view.state.plugins }),
+    );
+    const input = (text: string) => {
+      const { from, to } = view.state.selection;
+      const handled = view.someProp('handleTextInput', (handler) =>
+        handler(view, from, to, text, () => view.state.tr.insertText(text)),
+      );
+      if (!handled) view.dispatch(view.state.tr.insertText(text));
+    };
+    for (const ch of prefix) input(ch);
+    const inserted = 'prefix <www.x.test/path> ';
+    input(inserted);
+    const links: { text: string; href: string }[] = [];
+    view.state.doc.descendants((node) => {
+      const mark = node.marks.find((mark) => mark.type.name === 'link');
+      if (mark) links.push({ text: node.text ?? '', href: String(mark.attrs.href) });
+    });
+    const actual = { text: view.state.doc.textContent, links };
+    expect(actual, JSON.stringify(actual)).toEqual({
+      text: prefix + inserted,
+      links: [{ text: 'www.x.test/path', href: 'http://www.x.test/path' }],
+    });
+  });
+}

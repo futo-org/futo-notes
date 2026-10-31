@@ -74,3 +74,6 @@ mod typed_word_endings;
 
 #[path = "links/typed_ending_atoms.rs"]
 mod typed_ending_atoms;
+
+#[path = "links/typed_mixed_word.rs"]
+mod typed_mixed_word;
