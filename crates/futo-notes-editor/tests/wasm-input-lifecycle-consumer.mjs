@@ -100,4 +100,74 @@ export async function inputLifecycleConsumer({ start, stop, getSession, createRo
   assert.equal(JSON.parse(page.undo(view.revision)), null);
   assert.deepEqual(await exchange(JSON.stringify({ checkpoint: true })), { id: 'plain' });
   await stop();
+  await completedHttpConsumer({ start, stop, getSession, createRoot, parseSource });
+}
+
+// A completed committed capsule never needs an unfinished Typing origin.
+async function completedHttpConsumer({ start, stop, getSession, createRoot, parseSource }) {
+  const foreign = '<[WwW.x.test/PaTh](<http://WwW.x.test/PaTh>)>\n\n';
+  const foreignView = '<WwW.x.test/PaTh>\n\n';
+  const input = '<HTTPS://x.test/PaTh> ';
+  const text = foreignView + input;
+  const standard = parseSource(foreign + '<<HTTPS://x.test/PaTh>> ');
+  let expected;
+  try {
+    const canonical = JSON.parse(standard.project(0n, 0, text.length));
+    assert.equal(canonical.text, text);
+    expected = canonical.links;
+    assert.equal(expected.length, 2);
+    assert.equal(expected[0].destination, 'http://WwW.x.test/PaTh');
+    assert.equal(expected[1].destination, 'HTTPS://x.test/PaTh');
+  } finally {
+    standard.free();
+  }
+  const root = createRoot('futo-editor-wasm-completed-http-');
+  let exchange = await start(foreign, root);
+  let page = getSession();
+  const view = protocolView(page, exchange, foreignView, 'completed HTTP composition');
+  const at = foreignView.length;
+  const marked = JSON.parse(
+    page.compose_utf16(
+      view.revision,
+      at,
+      at,
+      new Uint16Array(Array.from(input, (ch) => ch.charCodeAt(0))),
+    ),
+  );
+  assert.equal(marked.text, input);
+  assert.equal(page.draft_text(), foreign);
+  assert.deepEqual(JSON.parse(page.composition()), marked);
+  await view.apply(page.commit_composition_utf16(view.revision, null), true);
+  assert.equal(JSON.parse(page.composition()), null);
+  assert.equal(view.text, text);
+  assert.deepEqual(JSON.parse(page.project(view.revision, 0, text.length)).links, expected);
+  const saved = page.draft_text();
+  assert.ok(saved.startsWith(foreign));
+  const fresh = parseSource(saved);
+  try {
+    const projected = JSON.parse(fresh.project(0n, 0, text.length));
+    assert.equal(projected.text, text);
+    assert.deepEqual(projected.links, expected);
+  } finally {
+    fresh.free();
+  }
+  await view.apply(page.undo(view.revision), true);
+  assert.equal(page.draft_text(), foreign);
+  assert.equal(view.text, foreignView);
+  await view.apply(page.redo(view.revision), true);
+  assert.equal(page.draft_text(), saved);
+  assert.equal(view.text, text);
+  assert.equal(JSON.parse(page.redo(view.revision)), null);
+  page.acknowledge(JSON.stringify(await exchange(page.flush())));
+  await stop();
+  exchange = await start('--reopen:plain', root);
+  page = getSession();
+  assert.equal(page.draft_text(), saved);
+  const recovered = JSON.parse(page.project(view.revision, 0, text.length));
+  assert.equal(recovered.text, text);
+  assert.deepEqual(recovered.links, expected);
+  assert.equal(JSON.parse(page.composition()), null);
+  assert.equal(JSON.parse(page.undo(view.revision)), null);
+  assert.deepEqual(await exchange(JSON.stringify({ checkpoint: true })), { id: 'plain' });
+  await stop();
 }
