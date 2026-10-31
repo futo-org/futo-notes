@@ -96,3 +96,85 @@ fn an_affected_unclosed_www_origin_keeps_its_actual_typing_lifetime() {
         format!("http://{new}")
     );
 }
+
+#[test]
+fn an_actual_ineligible_www_candidate_accepts_the_same_literal_rename_as_loaded_source() {
+    let before = "<www.[[Old]]";
+    let after = "<www.[[New]]";
+    let action = OwnActionRelink {
+        mappings: vec![("Old".into(), "New".into())],
+        note_ids: vec!["Old".into()],
+    };
+    for source in [before, after] {
+        let canonical = EditorSession::open(source);
+        assert_eq!(canonical.display_text(), source);
+        assert!(canonical
+            .project(Revision(0), range(0, source.len()))
+            .unwrap()
+            .links
+            .is_empty());
+        let bare = EditorSession::open(&source[1..]);
+        assert!(bare
+            .project(Revision(0), range(0, source.len() - 1))
+            .unwrap()
+            .links
+            .is_empty());
+    }
+    // The actual canonical command must rewrite this exact literal source;
+    // a pattern that the emitter never touches cannot prove an owner defect.
+    let mut loaded = EditorSession::open(before);
+    let mut calls = 0;
+    loaded
+        .apply_own_relink(Revision(0), &action, &mut |_| {
+            calls += 1;
+            Ok(())
+        })
+        .unwrap()
+        .unwrap();
+    assert_eq!(calls, 1);
+    assert_eq!(loaded.source_text(), after);
+    assert_eq!(loaded.display_text(), after);
+    assert!(loaded
+        .project(Revision(1), range(0, after.len()))
+        .unwrap()
+        .links
+        .is_empty());
+    let mut editor = EditorSession::open("");
+    let mut view = common::ReferenceView::new("");
+    view.apply(
+        editor
+            .replace(Revision(0), range(0, 0), before, &mut |_| Ok(()))
+            .expect("actual bulk Typing must accept this bounded WWW candidate"),
+    );
+    assert_eq!(editor.source_text(), before);
+    assert_eq!(view.text, before);
+    assert!(editor
+        .project(Revision(1), range(0, before.len()))
+        .unwrap()
+        .links
+        .is_empty());
+    view.apply(editor.apply_own_relink(Revision(1), &action, &mut |_| Ok(())).expect("the same canonical literal rename must accept an actual ineligible typed candidate").unwrap());
+    assert_eq!(editor.source_text(), after);
+    assert_eq!(view.text, after);
+    let end = after.len();
+    view.apply(
+        editor
+            .replace(Revision(2), range(end, end), " ", &mut |_| Ok(()))
+            .unwrap(),
+    );
+    assert_eq!(view.text, format!("{after} "));
+    assert!(editor
+        .project(Revision(3), range(0, end + 1))
+        .unwrap()
+        .links
+        .is_empty());
+    view.apply(editor.undo(Revision(3), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(editor.source_text(), after);
+    view.apply(editor.redo(Revision(4), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(view.text, format!("{after} "));
+    assert!(editor
+        .project(Revision(5), range(0, end + 1))
+        .unwrap()
+        .links
+        .is_empty());
+}
