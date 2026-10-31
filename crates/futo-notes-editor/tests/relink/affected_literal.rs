@@ -195,3 +195,60 @@ fn a_valid_rename_can_make_a_live_code_word_literal_without_a_complete_uri() {
     }
     assert_eq!(editor.source_text(), fresh.source_text());
 }
+
+#[test]
+fn a_valid_rename_can_retire_the_uri_around_a_retained_partial_code_span() {
+    let old = "https://x.test/[[Old]]/path";
+    let new = "https://x.test/[[New Name]]/path";
+    let candidate = r"<https\://x.test/`[[New Name]]`/path>";
+    let standard = EditorSession::open(candidate);
+    let shown = format!("<{new}>");
+    assert_eq!(standard.display_text(), shown);
+    let expected = standard
+        .project(Revision(0), range(0, shown.len()))
+        .unwrap();
+    assert!(expected.links.is_empty());
+    assert_eq!(
+        expected
+            .runs
+            .iter()
+            .filter(|run| run.formats.contains(&InlineFormat::Code))
+            .map(|run| run.range)
+            .collect::<Vec<_>>(),
+        vec![range(16, 28)]
+    );
+    let mut editor = EditorSession::open("");
+    editor
+        .replace(
+            Revision(0),
+            range(0, 0),
+            &format!("<{old}"),
+            &mut |_| Ok(()),
+        )
+        .unwrap();
+    let end = old.len() + 1;
+    editor
+        .replace(Revision(1), range(end, end), ">", &mut |_| Ok(()))
+        .unwrap();
+    editor.select(Revision(2), range(16, 23)).unwrap();
+    editor
+        .toggle_format(Revision(2), InlineFormat::Code, &mut |_| Ok(()))
+        .unwrap()
+        .unwrap();
+    assert_eq!(editor.source_text(), r"<https\://x.test/`[[Old]]`/path>");
+    let action = OwnActionRelink {
+        mappings: vec![("Old".into(), "New Name".into())],
+        note_ids: vec!["Old".into()],
+    };
+    let mut accepted = 0;
+    editor.apply_own_relink(Revision(3), &action, &mut |_| { accepted += 1; Ok(()) })
+        .unwrap_or_else(|error| panic!("representable partial Code URI retirement must accept; accepted={accepted}; error={error:?}")).unwrap();
+    assert_eq!(accepted, 1);
+    assert_eq!(editor.source_text(), candidate);
+    assert_eq!(editor.display_text(), shown);
+    let actual = editor
+        .project(editor.revision(), range(0, shown.len()))
+        .unwrap();
+    assert_eq!(actual.runs, expected.runs);
+    assert_eq!(actual.links, expected.links);
+}
