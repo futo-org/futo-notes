@@ -1,4 +1,5 @@
 //! Canonical word-end spelling for visible hand-typed angle pairs.
+mod ownership;
 use super::bare_links;
 use std::ops::Range;
 
@@ -20,8 +21,16 @@ pub(in crate::inline) fn finish_angle_word(
     if !inserted.chars().next().is_some_and(char::is_whitespace) || insertion == 0 {
         return AngleFinish::default();
     }
+    let mut work = 0;
     let mut start = insertion;
-    while start > 0 && !pieces[start - 1].display.contains(char::is_whitespace) {
+    while start > 0 {
+        work += 1;
+        if pieces[start - 1].display.chars().any(|ch| {
+            work += 1;
+            ch.is_whitespace()
+        }) {
+            break;
+        }
         start -= 1;
     }
     let word: String = pieces[start..insertion]
@@ -32,24 +41,36 @@ pub(in crate::inline) fn finish_angle_word(
         materialized: word.len(),
         ..Default::default()
     };
-    if !word.starts_with('<') || !word.ends_with('>') || pieces[start].raw != "\\<" {
+    result.work.items += work + insertion - start + 2;
+    if !word.starts_with('<') || !word.ends_with('>') {
+        return result;
+    }
+    let Some(owned) = ownership::authorize(
+        pieces,
+        markers,
+        start..insertion,
+        word.len(),
+        &mut result.work.items,
+    ) else {
+        return result;
+    };
+    result.work.items += 1;
+    if pieces[start].raw != "\\<" && !(owned.code_colon && pieces[start].raw == "<") {
         return result;
     }
     let inner = &word[1..word.len() - 1];
     let (links, parsed) = bare_links(inner);
-    result.work = super::super::references::ReferenceWork {
-        parsed,
-        items: links.len(),
-        copied: links
-            .iter()
-            .filter_map(|span| match &span.kind {
-                super::super::row::SpanKind::Link(target) => {
-                    Some(target.destination.len() + target.title.as_ref().map_or(0, String::len))
-                }
-                _ => None,
-            })
-            .sum(),
-    };
+    result.work.parsed += parsed;
+    result.work.items += links.len();
+    result.work.copied += links
+        .iter()
+        .filter_map(|span| match &span.kind {
+            super::super::row::SpanKind::Link(target) => {
+                Some(target.destination.len() + target.title.as_ref().map_or(0, String::len))
+            }
+            _ => None,
+        })
+        .sum::<usize>();
     let Some(link) = links
         .first()
         .filter(|link| links.len() == 1 && link.open.start == 0 && link.close.end == inner.len())
@@ -57,25 +78,14 @@ pub(in crate::inline) fn finish_angle_word(
         return result;
     };
     result.work.items += 1;
-    let mut source: Option<Range<usize>> = None;
-    let complete = pieces[start..insertion].iter().all(|piece| {
-        result.work.items += 1;
-        let Some(super::super::spelling::PieceOrigin::Source(range)) = &piece.origin else {
-            return false;
-        };
-        if let Some(previous) = &mut source {
-            if previous.end != range.start {
-                return false;
-            }
-            previous.end = range.end;
-        } else {
-            source = Some(range.clone());
-        }
-        true
-    });
-    // Retirement is not a source mapping. The canonical converter owns this
-    // whole original word, including any closing nonidentity atom it respells.
-    result.source = complete.then_some(source).flatten();
+    // The exact old word envelope was established before canonical parsing.
+    // Retirement is not target correspondence and never maps a raw interior.
+    result.source = Some(owned.source);
+    if owned.code_colon {
+        ownership::consume_colons(&mut pieces[start..insertion], &mut result.work.items);
+    }
+    result.materialized += 4; // Two canonical marker bytes and both literal angles.
+    result.work.items += 1;
     let id = markers.len();
     markers.push(super::super::spelling::Marker {
         literal_url: false,

@@ -6,6 +6,7 @@ use boundaries::{repair_boundaries, repair_literal_boundaries};
 mod render;
 pub(super) use pieces::{full_reference_close, Marker, Piece, PieceOrigin, Spelling};
 mod literal_urls;
+pub(in crate::inline) use literal_urls::CodeLiteralColon;
 mod url_timing;
 use super::row::SpanKind;
 use super::row::{Row, Span};

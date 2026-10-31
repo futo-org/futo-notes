@@ -4,6 +4,42 @@ use super::{render::Rendered, Marker, Piece, PieceOrigin, Row, SpanKind};
 use crate::{inline::references::ReferenceWork, EditorError, InlineFormat};
 use std::ops::Range;
 
+/// A view of an already-owned complete canonical scalar, never enrollment
+/// from spelling. Only this module produces trusted colon fields; the other
+/// timing producer is restricted to canonical emphasis openers (*, _, ~).
+/// Loaded rows have no fields, and copied-source transport preserves the
+/// complete atom before Context can reconstruct this view in a new generation.
+pub(in crate::inline) struct CodeLiteralColon {
+    pub source: Range<usize>,
+}
+impl CodeLiteralColon {
+    pub fn read(piece: &Piece, work: &mut usize) -> Option<Self> {
+        *work += 1;
+        if !piece.timing {
+            return None;
+        }
+        *work += 2;
+        if piece.raw != "\\:" || piece.display != ":" {
+            return None;
+        }
+        *work += 1;
+        let Some(PieceOrigin::Source(source)) = &piece.origin else {
+            return None;
+        };
+        *work += 1;
+        (source.len() == 2).then(|| Self {
+            source: source.clone(),
+        })
+    }
+
+    fn produce(piece: &mut Piece) {
+        // Words::repair already proved an original unselected ASCII colon
+        // inside this same owned URI and the final verifier checks its new atom.
+        piece.raw.insert(0, '\\');
+        piece.timing = true;
+    }
+}
+
 #[derive(Default)]
 pub(super) struct Words {
     by_id: Vec<Option<Range<usize>>>,
@@ -154,8 +190,7 @@ impl Words {
             // The canonical raw-token parser proves this smallest standard
             // escape. Neighboring retained scalar origins own its endpoints;
             // no interior transformed-atom identity is manufactured.
-            piece.raw.insert(0, '\\');
-            piece.timing = true;
+            CodeLiteralColon::produce(piece);
             work.copied += 2;
             changed = true;
             repaired = Some(link);
