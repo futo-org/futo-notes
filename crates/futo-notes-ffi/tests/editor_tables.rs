@@ -1,7 +1,5 @@
 mod support;
-use futo_notes_ffi::{
-    EditorByteRange, EditorTableCommand, EditorTableKey, EditorTableOutcome, NoteStore,
-};
+use futo_notes_ffi::{EditorByteRange, EditorTableCommand, EditorTableKey, NoteStore};
 use support::{path_string, TempTree};
 
 #[test]
@@ -33,12 +31,9 @@ fn native_table_cells_keys_and_commands_recover_exact_source() {
         .unwrap()
         .unwrap();
     let at = EditorByteRange { start: 2, end: 2 };
-    let Some(EditorTableOutcome::Selected { change }) =
-        session.table_key(1, EditorTableKey::Tab).unwrap()
-    else {
-        panic!("Tab moves");
-    };
-    assert_eq!(change.revision, 1);
+    let moved = session.table_key(1, EditorTableKey::Tab).unwrap().unwrap();
+    assert_eq!(moved.selected.unwrap().revision, 1);
+    assert!(moved.edited.is_none());
     session
         .table_command(1, at, EditorTableCommand::InsertColumnRight)
         .unwrap()

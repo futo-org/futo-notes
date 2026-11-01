@@ -65,10 +65,11 @@ pub enum EditorTableCommand {
     DeleteColumn,
 }
 
-#[derive(Debug, uniffi::Enum)]
-pub enum EditorTableOutcome {
-    Selected { change: EditorSelectionChange },
-    Edited { change: EditorViewChange },
+/// Exactly one field is set: a selection move, or one accepted edit.
+#[derive(Debug, uniffi::Record)]
+pub struct EditorTableOutcome {
+    pub selected: Option<EditorSelectionChange>,
+    pub edited: Option<EditorViewChange>,
 }
 
 impl From<editor::TableKey> for EditorTableKey {
@@ -163,11 +164,13 @@ impl From<editor::TableDescription> for EditorTableDescription {
 impl From<editor::TableOutcome> for EditorTableOutcome {
     fn from(value: editor::TableOutcome) -> Self {
         match value {
-            editor::TableOutcome::Selected(change) => Self::Selected {
-                change: change.into(),
+            editor::TableOutcome::Selected(change) => Self {
+                selected: Some(change.into()),
+                edited: None,
             },
-            editor::TableOutcome::Edited(change) => Self::Edited {
-                change: (*change).into(),
+            editor::TableOutcome::Edited(change) => Self {
+                selected: None,
+                edited: Some((*change).into()),
             },
         }
     }
