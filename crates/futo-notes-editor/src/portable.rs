@@ -3,6 +3,7 @@ mod bounded;
 pub use bounded::*;
 mod composition;
 mod links;
+mod tags;
 use serde::{Deserialize, Serialize};
 
 use crate::{
