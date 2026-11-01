@@ -2,7 +2,7 @@
 //! Only the canonical parsers normalize labels and identify declarations/uses.
 mod repair;
 use super::row::LinkMeaning;
-use pulldown_cmark::{BrokenLink, CowStr, Event, LinkType, Options, Parser, Tag};
+use pulldown_cmark::{BrokenLink, CowStr, Event, LinkType, Parser, Tag};
 pub(crate) use repair::{BodyIntent, RetainedBody};
 use std::{collections::HashMap, ops::Range, sync::Arc};
 use unicase::UniCase;
@@ -87,10 +87,9 @@ impl References {
         if !declaration_eligible(source, &mut work) {
             return (Arc::new(Self::default()), Vec::new(), work);
         }
-        let parser = Parser::new_ext(
-            source,
-            Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS,
-        );
+        // Leading front matter is metadata, never a definition or use.
+        let metadata = super::front_matter::len(source.bytes());
+        let parser = Parser::new_ext(&source[metadata..], super::row::parser_options());
         work.parsed = source.len();
         let mut targets = HashMap::new();
         let mut winners = Vec::new();
@@ -109,7 +108,7 @@ impl References {
                 }),
             );
             winners.push(Winner {
-                range: definition.span.clone(),
+                range: metadata + definition.span.start..metadata + definition.span.end,
                 key,
             });
         }
@@ -165,8 +164,16 @@ pub(super) fn declarations(source: &str, winners: &[Winner]) -> (Vec<Definition>
     if !declaration_eligible(source, &mut work) {
         return (Vec::new(), work);
     }
-    let tree = markdown::to_mdast(source, &markdown::ParseOptions::default())
-        .expect("CommonMark declarations are infallible");
+    let options = markdown::ParseOptions {
+        constructs: markdown::Constructs {
+            gfm_footnote_definition: true,
+            gfm_label_start_footnote: true,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let tree =
+        markdown::to_mdast(source, &options).expect("CommonMark declarations are infallible");
     work.parsed = source.len();
     let mut result = Vec::new();
     let mut pending = vec![&tree];
@@ -422,7 +429,7 @@ impl super::Projection {
             let (references, winners, mut work) = References::scan(&canonical);
             let (local, visits) = window_winners(&winners, origin.start, raw.len());
             work.items += visits;
-            Self::with_references(&raw, references, &local, work)
+            Self::with_references(&raw, origin.start == 0, references, &local, work)
         };
         pending.window = 0..raw.len();
         let pending_work = pending_work + fresh.restore_pending(&pending);

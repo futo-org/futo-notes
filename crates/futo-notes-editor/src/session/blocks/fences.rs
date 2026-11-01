@@ -15,7 +15,7 @@ impl EditorSession {
         let Some(line) = self.projection.block_lines(range).into_iter().next() else {
             return Ok(None);
         };
-        if line.code || line.heading > 0 || line.divider {
+        if line.code || line.html || line.heading > 0 || line.divider {
             return Ok(None);
         }
         let (inside, _) = self.projection.source_bounds(range.start.0);

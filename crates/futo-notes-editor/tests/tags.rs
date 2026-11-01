@@ -45,6 +45,10 @@ fn queries_follow_the_canonical_tag_rules() {
     );
     // A tag line must be tags only: prose on the first line is not a header.
     assert!(EditorSession::open("#a text\n#b").header_tags().is_empty());
+    // Front matter is metadata, not a tag source.
+    let fm = EditorSession::open("---\n#yaml\n---\n#h\n\nbody #b");
+    assert_eq!(fm.header_tags(), ["#h"]);
+    assert_eq!(fm.tags(), ["#h", "#b"]);
 }
 
 #[test]
@@ -57,6 +61,12 @@ fn add_spells_canonically_and_touches_only_the_header() {
         ("#a   \n#b  \nbody", "c", "#a   \n#b #c  \nbody"),
         ("#a\n\nbody #c", "c", "#a #c\n\nbody #c"),
         ("#a\n\nbody", "A", "#a\n\nbody"),
+        // Front matter stays untouched; the header block starts the body.
+        (
+            "---\ntags: x\n---\nbody",
+            "a",
+            "---\ntags: x\n---\n#a\n\nbody",
+        ),
     ] {
         assert_eq!(add(source, tag), expected, "{source:?} + {tag:?}");
     }

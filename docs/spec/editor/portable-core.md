@@ -22,6 +22,7 @@ reintroduce them or wait for them at final acceptance. → docs/plan/text-first-
 - [Plain Markdown copy, cut and paste](portable-core/clipboard.md)
 - [List interpretation and editing](portable-core/lists.md)
 - [Fenced code and key intent](portable-core/fenced-code.md)
+- [Front matter, raw HTML and unfamiliar Markdown](portable-core/foreign-content.md)
 - [Opt-in bounded code preparation](portable-core/bounded-code.md)
 - [Persistence, recovery and outside writers](portable-core/recovery.md)
 - [Portable and native transports](portable-core/transports.md)

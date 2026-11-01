@@ -17,12 +17,11 @@ struct Header {
 }
 
 impl EditorSession {
-    /// SEAM for front matter (#300): the first source byte that belongs to the
-    /// note body. Header tags and body tags are scanned from here, so metadata
-    /// before it is neither a tag source nor touched by tag edits. Until front
-    /// matter is recognized the body starts at the beginning of the source.
+    /// The first source byte that belongs to the
+    /// note body. Header tags and body tags are scanned from here, so front
+    /// matter before it is neither a tag source nor touched by tag edits.
     fn tag_body_start(&self) -> usize {
-        0
+        self.projection.metadata_len()
     }
 
     /// Canonical tags (`#name`) of the body, in first-seen order. One on-demand

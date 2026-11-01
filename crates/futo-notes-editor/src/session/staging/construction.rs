@@ -23,6 +23,7 @@ impl EditorSession {
         };
         let mut projection = crate::inline::Projection::with_references(
             raw,
+            window.start == 0 && self.projection.document_start,
             self.projection.references.clone(),
             &winners,
             work,

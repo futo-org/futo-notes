@@ -3,6 +3,7 @@ pub(crate) mod bounded;
 mod composition;
 mod find;
 mod formatting;
+mod front_matter;
 mod os_replacement;
 mod paragraphs;
 mod relink;
@@ -94,11 +95,15 @@ impl EditorSession {
         clock: Arc<dyn HistoryClock>,
         projection: crate::inline::Projection,
     ) -> Self {
+        let body = DisplayOffset(projection.body_start());
         Self {
             source: Rope::from_str(source),
             projection,
             revision,
-            selection: DisplayRange::default(),
+            selection: DisplayRange {
+                start: body,
+                end: body,
+            },
             affinity: Affinity::Forward,
             pending_formats: None,
             undo: Vec::new(),
@@ -169,6 +174,7 @@ impl EditorSession {
     ) -> Result<SelectionChange, EditorError> {
         self.check_revision(expected)?;
         self.validate_range(range)?;
+        let range = self.outside_metadata(range);
         if self.composition.is_some() {
             return Ok(SelectionChange {
                 revision: self.revision,
@@ -257,7 +263,7 @@ impl EditorSession {
         Ok(index)
     }
 
-    fn prepare_source(
+    pub(super) fn prepare_exact_source(
         &self,
         expected: Revision,
         range: SourceRange,
@@ -357,7 +363,7 @@ impl EditorSession {
         if self.composition.is_some() {
             return Err(EditorError::CompositionActive);
         }
-        if self.prepare_source(edit.previous_revision, edit.range, &edit.inserted)? != *edit {
+        if self.prepare_exact_source(edit.previous_revision, edit.range, &edit.inserted)? != *edit {
             return Err(EditorError::RecoveryMismatch);
         }
         accept(edit).map_err(EditorError::Persistence)?;
