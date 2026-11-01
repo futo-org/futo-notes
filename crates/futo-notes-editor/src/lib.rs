@@ -33,7 +33,7 @@ pub use portable::{
     BoundedFrame, BoundedHostAck, BoundedHostOperation, BoundedHostRequest, BoundedModeReady,
     BoundedModeRequest, HostAck, HostOperation, HostRequest, HostSnapshot,
     PortableBoundedEntryError, PortableBoundedExitError, PortableBoundedSession, PortableError,
-    PortableSession, PortableStatus, RelinkOffer, SessionToken,
+    PortableSession, PortableStatus, PortableTableStep, RelinkOffer, SessionToken,
 };
 
 #[cfg(target_arch = "wasm32")]

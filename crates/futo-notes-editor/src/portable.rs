@@ -3,7 +3,9 @@ mod bounded;
 pub use bounded::*;
 mod composition;
 mod links;
+mod tables;
 use serde::{Deserialize, Serialize};
+pub use tables::PortableTableStep;
 
 use crate::{
     DisplayRange, DisplayUtf16Range, EditorError, EditorSession, Revision, SourceEdit, ViewChange,

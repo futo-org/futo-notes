@@ -410,3 +410,36 @@ fn cell_edit_work_follows_the_table_not_the_note() {
     );
     assert!(source.len() > 50_000);
 }
+
+#[test]
+fn portable_table_steps_wait_for_acceptance_but_selection_moves_do_not() {
+    use futo_notes_editor::{PortableSession, PortableTableStep, SessionToken};
+    let mut page = PortableSession::open(SessionToken(7), GRID, Revision(0), Revision(0));
+    let a = page
+        .inspect_table(Revision(0), range(0, 0))
+        .unwrap()
+        .unwrap()
+        .rows[0][0]
+        .content;
+    page.select_with_affinity(Revision(0), a, futo_notes_editor::Affinity::Forward)
+        .unwrap();
+    let Some(PortableTableStep::Selected(_)) = page.table_key(Revision(0), TableKey::Tab).unwrap()
+    else {
+        panic!("Tab selects the next cell");
+    };
+    let request = page
+        .replace_in_cell(Revision(0), range(6, 7), "x|")
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        page.draft_text(),
+        "| a | x\\| |\n| --- | :-: |\n| c | d |\n"
+    );
+    assert!(page.inspect_table(Revision(1), range(0, 0)).is_err());
+    page.acknowledge(request.accepted(Revision(1), Revision(0)))
+        .unwrap();
+    assert!(page
+        .inspect_table(Revision(1), range(0, 0))
+        .unwrap()
+        .is_some());
+}

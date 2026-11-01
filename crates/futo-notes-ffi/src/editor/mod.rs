@@ -9,7 +9,9 @@ pub(crate) mod bounded;
 mod composition;
 mod contract;
 mod links;
+mod tables;
 pub use contract::*;
+pub use tables::*;
 
 /// Blocking store endpoint. Call on the native I/O worker, including append
 /// acceptance before displaying a returned change. No callbacks cross this lock.

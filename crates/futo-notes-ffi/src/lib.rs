@@ -8,6 +8,10 @@ pub use editor::{
     EditorSessionError, EditorSourceByteOffset, EditorSourceByteRange, EditorUtf16Range,
     EditorUtf16Replacement, EditorViewChange, NativeEditorSession,
 };
+pub use editor::{
+    EditorTableAlignment, EditorTableCell, EditorTableCommand, EditorTableControls,
+    EditorTableDescription, EditorTableFocus, EditorTableKey, EditorTableOutcome,
+};
 mod license;
 mod localization;
 mod notes;

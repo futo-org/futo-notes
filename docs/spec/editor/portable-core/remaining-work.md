@@ -5,6 +5,9 @@ also deferred by the maintainer. Preserve existing alignment and exact untouched
 Basic row/column insertion and deletion, cell editing/navigation and ordinary single-cell
 paste remain required; shared find and 20,000-line performance/durability remain required.
 
+Tables (#308, #309, #310) are implemented on the shared engine; see tables.md. Table-in-container
+recognition, `<br>` display projection and renderer integration remain.
+
 Rich HTML paste (#303) and rendered block movement (#311) are deferred by the maintainer's
 2026-10-30 scope decision and do not block this milestone; their issues remain open for later
 work. Plain-text/Markdown paste, including ordinary single-cell table paste, remains
