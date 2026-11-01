@@ -26,6 +26,7 @@ mod seams;
 mod selected_source;
 mod storage;
 mod tags;
+mod wikilinks;
 
 fn range(start: usize, end: usize) -> DisplayRange {
     DisplayRange {

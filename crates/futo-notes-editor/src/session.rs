@@ -10,6 +10,7 @@ pub use relink::OwnActionRelink;
 mod history_selection;
 mod input;
 mod links;
+mod note_ids;
 mod pending;
 mod staging;
 mod tags;

@@ -42,8 +42,9 @@ Links (#301) are integrated from reviewed source `4f5fdeb89` and fixture-only
 repair `ff442e23d` after current source gates, regenerated native consumers and a
 fresh 51-scenario desktop/Android aggregate. Native execution remains attributed
 to `4f5fdeb89` through unchanged runtime inputs; merged-head checks and CI complete
-integration acceptance. Tables, note-id-dependent composition arbitration and
-renderer integration retain their own owners and dependent tickets.
+integration acceptance. Tables and renderer integration retain their own owners and
+dependent tickets; note-id delivery during composition is specified in
+[wikilinks.md](wikilinks.md).
 
 Shared find core (#312) matches visible text with rebased, stale-safe results; renderer
 bars, highlight painting and table-cell boundaries remain with their owners.

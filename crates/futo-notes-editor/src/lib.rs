@@ -23,8 +23,9 @@ pub use session::{
 pub use types::{
     Affinity, BlockDescription, CaretDirection, Correspondence, DisplayOffset, DisplayRange,
     DisplayUtf16Offset, DisplayUtf16Range, EditWork, EditorError, InlineFormat, LinkDescription,
-    ListDescription, ProjectionSlice, Revision, SelectionChange, SemanticRun, SourceEdit,
-    SourceOffset, SourceRange, SourceUtf16Offset, SourceUtf16Range, ViewChange,
+    ListDescription, NoteIdChange, NoteIdWork, ProjectionSlice, Revision, SelectionChange,
+    SemanticRun, SourceEdit, SourceOffset, SourceRange, SourceUtf16Offset, SourceUtf16Range,
+    ViewChange, WikilinkDescription,
 };
 
 pub use portable::{

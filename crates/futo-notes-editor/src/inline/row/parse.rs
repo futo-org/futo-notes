@@ -35,7 +35,17 @@ impl Row {
         let mut replacements = Vec::<(Range<usize>, String)>::new();
         let mut in_code = false;
         let mut link = None;
+        let mut isolated = Vec::new();
         for (event, range) in events {
+            if matches!(
+                event,
+                Event::Start(Tag::CodeBlock(_) | Tag::HtmlBlock)
+                    | Event::Code(_)
+                    | Event::Html(_)
+                    | Event::InlineHtml(_)
+            ) {
+                isolated.push(range.clone());
+            }
             match &event {
                 Event::Start(Tag::CodeBlock(_)) => {
                     in_code = true;
@@ -293,7 +303,11 @@ impl Row {
         let transparent_quote = (context.len() == 1)
             .then(|| context[0].transparent_quote)
             .flatten();
+        let (wikilinks, wikilink_mask) =
+            crate::inline::wikilinks::scan(source, &isolated, &segments);
         Self {
+            wikilinks,
+            wikilink_mask,
             guarded_words: Vec::new(),
             typed_inputs: Vec::new(),
             context,

@@ -205,6 +205,10 @@ impl WasmSession {
     pub fn find_apply_scan(&mut self, result: &str) -> Result<String, JsValue> {
         let result = serde_json::from_str(result).map_err(error)?;
         json(&self.0.find_apply_scan(&result).map_err(error)?)
+    /// `note_ids` is a JSON string array supplied by the store-owned host.
+    pub fn update_note_ids(&mut self, note_ids: &str) -> Result<String, JsValue> {
+        let note_ids: Vec<String> = serde_json::from_str(note_ids).map_err(error)?;
+        json(&self.0.update_note_ids(&note_ids).map_err(error)?)
     }
     pub fn active_formats(&self) -> Result<String, JsValue> {
         json(&self.0.active_formats().map_err(error)?)

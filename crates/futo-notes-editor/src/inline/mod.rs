@@ -28,6 +28,7 @@ mod spelling;
 pub(crate) use spelling::relink::{RetainedFormat, RetiredLinkText};
 mod toggle;
 mod tree;
+pub(crate) mod wikilinks;
 
 use crate::{
     Correspondence, DisplayOffset, DisplayRange, InlineFormat, ProjectionSlice, Revision,
@@ -58,6 +59,8 @@ pub(crate) struct Projection {
     pub(crate) has_rebuilt_references: bool,
     pub initial_link_metadata_items: usize,
     pub initial_link_copied_bytes: usize,
+    /// Note ids delivered by the store; never part of source or history.
+    pub(crate) catalog: std::sync::Arc<futo_notes_wikilinks::WikilinkIndex>,
 }
 
 pub(crate) struct Update {
@@ -129,6 +132,7 @@ impl Projection {
             references_complete: false,
             needs_global_references: false,
             has_rebuilt_references: false,
+            catalog: Default::default(),
         }
     }
 
@@ -239,10 +243,13 @@ impl Projection {
                 language: block.code_language,
             })
             .collect();
-        let (links, work) = self.link_descriptions_with_work(range);
+        let (links, mut work) = self.link_descriptions_with_work(range);
+        let (wikilinks, wikilink_items) = self.wikilink_descriptions(range);
+        work.items += wikilink_items;
         (
             ProjectionSlice {
                 links,
+                wikilinks,
                 blocks,
                 revision,
                 range,

@@ -67,3 +67,29 @@ fn native_link_commands_and_corrections_recover_exact_source_and_destinations() 
     session.checkpoint().unwrap();
     assert_eq!(store.read("links".into()).unwrap(), updated);
 }
+
+#[test]
+fn native_note_id_refresh_reaches_a_composing_session() {
+    let tree = TempTree::new();
+    std::fs::create_dir_all(tree.path("vault")).unwrap();
+    let store = NoteStore::new(path_string(&tree.path("vault")));
+    store
+        .create_note("Roadmap".into(), "Projects".into(), "".into())
+        .unwrap();
+    store
+        .create_note("home".into(), "".into(), "[[Roadmap]] ab".into())
+        .unwrap();
+    let session = store.open_editor("home".into()).unwrap();
+    session
+        .compose_utf16(0, EditorUtf16Range { start: 14, end: 14 }, vec![0x304b])
+        .unwrap();
+    let change = session.refresh_note_ids().unwrap();
+    assert_eq!(change.revision, 0);
+    let link = &change.projections[0].wikilinks[0];
+    assert_eq!(link.range, EditorByteRange { start: 0, end: 11 });
+    assert_eq!(
+        (link.label.as_str(), link.note_id.as_deref()),
+        ("Roadmap", Some("Projects/Roadmap"))
+    );
+    assert_eq!(session.source_text().unwrap(), "[[Roadmap]] ab");
+}

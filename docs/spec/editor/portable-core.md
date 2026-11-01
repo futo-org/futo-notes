@@ -18,6 +18,7 @@ reintroduce them or wait for them at final acceptance. → docs/plan/text-first-
 - [Exact source, interpretation and input](portable-core/interpretation-and-input.md)
 - [Find in note](portable-core/find.md)
 - [Link editing and source ownership](portable-core/links.md)
+- [Wikilink roles and note ids](portable-core/wikilinks.md)
 - [List interpretation and editing](portable-core/lists.md)
 - [Fenced code and key intent](portable-core/fenced-code.md)
 - [Opt-in bounded code preparation](portable-core/bounded-code.md)

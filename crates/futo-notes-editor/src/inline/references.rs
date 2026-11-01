@@ -460,6 +460,7 @@ impl super::Projection {
             link_copied_bytes: local_copied + fresh.initial_link_copied_bytes,
         };
         fresh.has_rebuilt_references = true;
+        fresh.catalog = self.catalog.clone();
         *self = fresh;
         update
     }
