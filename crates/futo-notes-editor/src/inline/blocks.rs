@@ -73,6 +73,10 @@ pub(crate) struct BlockLine {
     pub quote_start: bool,
     pub divider: bool,
     pub code: bool,
+    /// Leading front matter: inert, never Markdown.
+    pub metadata: bool,
+    /// Raw HTML block source; Markdown shortcuts never fire inside it.
+    pub html: bool,
     pub empty_comment: bool,
     /// Nonempty source within an actual paragraph or tight-item inline run.
     pub paragraph_text: bool,
@@ -180,6 +184,8 @@ fn describe_with_parts(
                 quote_start: false,
                 divider: false,
                 code: false,
+                metadata: false,
+                html: false,
                 empty_comment: false,
                 paragraph_text: false,
                 list: None,
@@ -202,6 +208,8 @@ fn describe_with_parts(
             quote_start: false,
             divider: false,
             code: false,
+            metadata: false,
+            html: false,
             empty_comment: false,
             paragraph_text: false,
             list: None,
@@ -264,6 +272,13 @@ fn describe_with_parts(
                 let last = lines.partition_point(|line| line.source.start < range.end);
                 for line in &mut lines[first..last] {
                     line.code = true;
+                }
+            }
+            Event::Start(Tag::HtmlBlock) => {
+                let first = lines.partition_point(|line| line.source.end <= range.start);
+                let last = lines.partition_point(|line| line.source.start < range.end);
+                for line in &mut lines[first..last] {
+                    line.html = true;
                 }
             }
             _ => {}

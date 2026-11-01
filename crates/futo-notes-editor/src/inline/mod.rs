@@ -8,6 +8,7 @@ mod edit;
 pub(crate) use edit::{EditIntent, Plan, SourceCorrespondence};
 mod empty_comments;
 pub(crate) mod fences;
+pub(crate) mod front_matter;
 pub(crate) mod guarded_words;
 mod links;
 pub(crate) use links::complete_bare_uri;
@@ -57,6 +58,8 @@ pub(crate) struct Projection {
     pub(crate) has_rebuilt_references: bool,
     pub initial_link_metadata_items: usize,
     pub initial_link_copied_bytes: usize,
+    /// Whether source offset zero is the note's start (front matter owner).
+    pub(crate) document_start: bool,
 }
 
 pub(crate) struct Update {
@@ -72,28 +75,38 @@ pub(crate) struct Update {
 impl Projection {
     pub fn new(source: &str) -> Self {
         let (references, winners, reference_work) = references::References::scan(source);
-        let mut projection = Self::with_references(source, references, &winners, reference_work);
+        let mut projection =
+            Self::with_references(source, true, references, &winners, reference_work);
         projection.references_complete = true;
         projection
     }
 
+    /// `document_start` says whether `source` begins the note, which alone can
+    /// hold front matter.
     pub(crate) fn with_references(
         source: &str,
+        document_start: bool,
         references: std::sync::Arc<references::References>,
         winners: &[references::Winner],
         reference_work: references::ReferenceWork,
     ) -> Self {
-        let mut origin = 0;
+        let metadata = if document_start {
+            front_matter::len(source.bytes())
+        } else {
+            0
+        };
+        let mut origin = metadata;
         let mut witness_work = 0;
-        let parsed: Vec<_> = paragraphs(source)
+        let parsed: Vec<_> = (metadata > 0)
+            .then(|| Row::metadata(&source[..metadata]))
             .into_iter()
-            .map(|text| {
+            .chain(paragraphs(&source[metadata..]).into_iter().map(|text| {
                 let (local, work) = references::window_winners(winners, origin, text.len());
                 witness_work += work;
                 let row = Row::parse_with_references(text, &references, &local);
                 origin += text.len();
                 row
-            })
+            }))
             .collect();
         let initial_link_metadata_items = reference_work.items
             + witness_work
@@ -128,6 +141,7 @@ impl Projection {
             references_complete: false,
             needs_global_references: false,
             has_rebuilt_references: false,
+            document_start,
         }
     }
 
@@ -236,6 +250,7 @@ impl Projection {
                 }),
                 code: block.code,
                 language: block.code_language,
+                metadata: block.metadata,
             })
             .collect();
         let (links, work) = self.link_descriptions_with_work(range);
@@ -264,20 +279,51 @@ impl Projection {
         edit: &SourceEdit,
         canonical_origin: Option<&references::SourceOrigin>,
     ) -> Update {
-        let first = self
-            .rows
-            .locate(edit.range.start.0, false)
-            .saturating_sub(1);
-        let last = (self.rows.locate(edit.range.end.0, false) + 1).min(self.rows.len() - 1);
+        let old_metadata = self.metadata_len();
+        let (metadata, metadata_scanned) = self.metadata_after(source, edit, old_metadata);
+        let first = if metadata != old_metadata || edit.range.start.0 < old_metadata {
+            0
+        } else {
+            // Unchanged metadata never joins its neighbor; leave it untouched.
+            let first = self
+                .rows
+                .locate(edit.range.start.0, false)
+                .saturating_sub(1);
+            first.max(usize::from(metadata > 0 && self.rows.len() > 1))
+        };
+        let mut last = (self.rows.locate(edit.range.end.0, false) + 1).min(self.rows.len() - 1);
+        let (_, source_start, display_start) = self.rows.at(first);
+        let mut boundary_parsed = metadata_scanned;
+        let (source_end, display_end, text) = loop {
+            let (row, old_end, display_end) = self.rows.at(last);
+            let source_end = old_end + row.source_len - edit.removed.len() + edit.inserted.len();
+            if source_end < metadata && last + 1 < self.rows.len() {
+                last += 1;
+                continue;
+            }
+            let text = source.byte_slice(source_start..source_end).to_string();
+            // A raw HTML block or footnote that still owns the window's final
+            // blank continues into following rows; reinterpret them too.
+            let (open, parsed) = row::open_at_end(&text);
+            boundary_parsed += parsed;
+            match open {
+                Some(_) if last + 1 >= self.rows.len() => {}
+                Some(row::OpenEnd::Html) => {
+                    last = self.rows.len() - 1;
+                    continue;
+                }
+                Some(row::OpenEnd::Footnote) => {
+                    last += 1;
+                    continue;
+                }
+                None => {}
+            }
+            break (source_end, display_end + row.display.len(), text);
+        };
         let (pending, metadata_work) = self.pending_display(first, last);
         let (delimiters, delimiter_work) = self.retained_delimiters(first, last, edit);
         let mut guards = Vec::new();
         let mut typed_inputs = Vec::new();
-        let (_, source_start, display_start) = self.rows.at(first);
-        let (row, old_end, display_end) = self.rows.at(last);
-        let source_end = old_end + row.source_len - edit.removed.len() + edit.inserted.len();
-        let display_end = display_end + row.display.len();
-        let text = source.byte_slice(source_start..source_end).to_string();
         #[cfg(test)]
         materialization_tests::allocated(materialization_tests::Buffer::Apply, text.len());
         let mut winners = Vec::new();
@@ -313,15 +359,18 @@ impl Projection {
             }
         }
         let mut origin = 0;
-        let parsed: Vec<_> = paragraphs(&text)
+        let metadata = if source_start == 0 { metadata } else { 0 };
+        origin += metadata;
+        let parsed: Vec<_> = (metadata > 0)
+            .then(|| Row::metadata(&text[..metadata]))
             .into_iter()
-            .map(|raw| {
+            .chain(paragraphs(&text[metadata..]).into_iter().map(|raw| {
                 let (local, work) = references::window_winners(&winners, origin, raw.len());
                 reference_work.items += work;
                 let row = Row::parse_with_references(raw, &self.references, &local);
                 origin += raw.len();
                 row
-            })
+            }))
             .collect();
         #[cfg(test)]
         let comparison_visits = coordinate_work_tests::visits();
@@ -378,6 +427,7 @@ impl Projection {
                 .map(|row| row.reference_work.items)
                 .sum::<usize>();
         let parsed_source_bytes = text.len()
+            + boundary_parsed
             + parsed
                 .iter()
                 .map(|row| row.parsed_source_bytes)

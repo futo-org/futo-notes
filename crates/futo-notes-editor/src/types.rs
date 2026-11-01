@@ -177,6 +177,10 @@ pub struct BlockDescription {
     pub code: bool,
     /// First info-string word, preserving its case; rendering never rewrites source.
     pub language: Option<String>,
+    /// Leading front matter, shown verbatim as inert metadata (no Markdown,
+    /// no caret, no edits except a selection covering all of it).
+    #[serde(default)]
+    pub metadata: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

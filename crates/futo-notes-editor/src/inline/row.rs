@@ -77,10 +77,14 @@ pub(crate) struct Row {
     pub blocks: Vec<super::blocks::BlockLine>,
     pub(super) context: Vec<ContextRun>,
     pub(super) transparent_quote: Option<usize>,
+    /// The document's leading front matter row (always row zero).
+    pub metadata: bool,
 }
 
 pub(super) fn parser_options() -> Options {
-    Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS
+    // GFM footnotes keep `[^x]` and its definition visible literal source
+    // rather than a hidden CommonMark reference definition.
+    Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS | Options::ENABLE_FOOTNOTES
 }
 pub(super) fn source_events(source: &str) -> Vec<(Event<'_>, Range<usize>)> {
     Parser::new_ext(source, parser_options())
@@ -300,11 +304,14 @@ impl Row {
 
 /// Blank lines bound independent inline parses. Keep each separator with its
 /// preceding paragraph; edits reparse neighboring paragraphs when joining.
+/// Code, lists, raw HTML and footnote definitions own their interior blanks.
 pub(crate) fn paragraphs(source: &str) -> Vec<&str> {
-    let protected: Vec<_> = Parser::new(source)
+    let protected: Vec<_> = Parser::new_ext(source, parser_options())
         .into_offset_iter()
         .filter_map(|(event, range)| match event {
-            Event::Start(Tag::CodeBlock(_) | Tag::List(_)) => Some(range),
+            Event::Start(
+                Tag::CodeBlock(_) | Tag::List(_) | Tag::HtmlBlock | Tag::FootnoteDefinition(_),
+            ) => Some(range),
             _ => None,
         })
         .collect();
@@ -330,6 +337,32 @@ pub(crate) fn paragraphs(source: &str) -> Vec<&str> {
         result.push(&source[start..]);
     }
     result
+}
+
+pub(crate) enum OpenEnd {
+    Html,
+    Footnote,
+}
+
+/// A raw HTML block (CommonMark kinds 1-5 run to their end condition across
+/// blank lines) or footnote definition that owns the window's trailing blank
+/// line may continue past it. Window rows always end after a blank line.
+/// Returns the parsed byte count with the answer.
+pub(crate) fn open_at_end(source: &str) -> (Option<OpenEnd>, usize) {
+    if !source.ends_with('\n') || !(source.contains('<') || source.contains("[^")) {
+        return (None, 0);
+    }
+    let mut open = None;
+    for (event, range) in Parser::new_ext(source, parser_options()).into_offset_iter() {
+        if range.end == source.len() {
+            match event {
+                Event::Start(Tag::HtmlBlock) => open = Some(OpenEnd::Html),
+                Event::Start(Tag::FootnoteDefinition(_)) => open = open.or(Some(OpenEnd::Footnote)),
+                _ => {}
+            }
+        }
+    }
+    (open, source.len())
 }
 
 #[cfg(test)]

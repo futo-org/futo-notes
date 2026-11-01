@@ -55,12 +55,19 @@ impl Projection {
     pub fn edit(
         &self,
         source: &Rope,
-        range: DisplayRange,
+        mut range: DisplayRange,
         inserted: &str,
         affinity: Affinity,
         pending: Option<&[InlineFormat]>,
         intent: EditIntent,
     ) -> Result<Plan, EditorError> {
+        // Front matter is inert: input within it rejects, and input covering
+        // it changes only the body.
+        let body = self.body_start();
+        if range.end.0 < body {
+            return Err(EditorError::InvalidRange);
+        }
+        range.start.0 = range.start.0.max(body);
         let toggle = match intent {
             EditIntent::Toggle(format) => Some(format),
             _ => None,

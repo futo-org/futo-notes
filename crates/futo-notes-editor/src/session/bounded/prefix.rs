@@ -228,6 +228,7 @@ impl BoundedEditorSession {
                         list: None,
                         code: false,
                         language: None,
+                        metadata: false,
                     },
                     source_owner: None,
                     continues_before: true,
