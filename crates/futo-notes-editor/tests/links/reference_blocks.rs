@@ -3,7 +3,6 @@ use super::*;
 #[test]
 fn text_conversion_preserves_a_headings_literal_reference_definition_and_distant_label() {
     use futo_notes_editor::BlockCommand;
-    // Real shipping toolbar oracle: referenceBlockShippingOracle.test.ts.
     let original = "# [id]: /target 'T'\n\n[one][id]\n\nbody";
     let changed = "\\[id]: /target 'T'\n\n[one][id]\n\nbody";
     let shown = "[id]: /target 'T'\n\n[one][id]\n\nbody";
