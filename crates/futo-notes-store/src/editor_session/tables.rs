@@ -38,19 +38,6 @@ impl StoreEditorSession<'_> {
         })
     }
 
-    /// Plain-text paste into one cell; `None` leaves the paste to the general
-    /// clipboard path.
-    pub fn paste_into_table_cell(
-        &mut self,
-        expected: Revision,
-        range: DisplayRange,
-        text: &str,
-    ) -> Result<Option<ViewChange>, EditorStoreError> {
-        self.table_edit(|session, accept| {
-            session.paste_into_table_cell(expected, range, text, accept)
-        })
-    }
-
     pub fn table_command(
         &mut self,
         expected: Revision,

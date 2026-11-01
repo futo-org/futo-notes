@@ -27,7 +27,7 @@ const cell = (row, column) =>
 
 assert.equal(session.inspect_table(revision, 0, 0).startsWith('{'), true);
 const { start, end } = cell(0, 0);
-accept(session.paste_into_table_cell(revision, start, end, 'x\ny'));
+accept(session.paste_markdown(revision, start, end, 'x\ny'));
 assert.equal(session.draft_text().split('\n')[0], '| x y | b |');
 const { start: at } = cell(1, 1);
 accept(session.table_command(revision, at, at, 'InsertRowBelow'));

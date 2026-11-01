@@ -18,6 +18,8 @@ struct TargetLine {
     heading: bool,
     /// List marker start and the item prefix that a split-off tail item reuses.
     list: Option<(usize, String)>,
+    /// The line continues a paragraph from the line before.
+    soft: bool,
 }
 
 impl TargetLine {
@@ -49,11 +51,16 @@ struct PastedShape {
     code: bool,
     blank_line: bool,
     first_block: bool,
+    first_quote: bool,
     last_container: bool,
     last_paragraph: bool,
     only_list: bool,
     interrupts: bool,
     unclosed_fence: Option<String>,
+    /// End of the leading paragraph run that continues the caret's text, and
+    /// start of the trailing run that the caret line's tail continues.
+    lead: usize,
+    trail: usize,
     parsed: usize,
 }
 
@@ -76,6 +83,19 @@ impl PastedShape {
             .iter()
             .filter(|line| block(line) || line.paragraph_text)
             .collect();
+        let paragraph =
+            |line: &&crate::inline::blocks::BlockLine| line.paragraph_text && !block(line);
+        let lead = lines
+            .iter()
+            .take_while(paragraph)
+            .last()
+            .map_or(0, |line| line.content.end);
+        let trail = lines
+            .iter()
+            .rev()
+            .take_while(paragraph)
+            .last()
+            .map_or(text.len(), |line| line.source.start);
         let first = filled.first();
         let last = filled.last();
         let unclosed_fence = last
@@ -87,6 +107,7 @@ impl PastedShape {
             code: filled.iter().any(|line| line.code),
             blank_line: !filled.is_empty() && text.lines().any(|line| line.trim().is_empty()),
             first_block: first.is_some_and(|line| block(line)),
+            first_quote: first.is_some_and(|line| line.quote_depth > 0),
             last_container: last
                 .is_some_and(|line| !line.code && (line.list.is_some() || line.quote_depth > 0)),
             last_paragraph: last.is_some_and(|line| !block(line)),
@@ -106,6 +127,8 @@ impl PastedShape {
                     .is_some_and(|list| list.ordinal.is_some_and(|ordinal| ordinal != 1))
             }),
             unclosed_fence,
+            lead,
+            trail,
             parsed: projection.initial_parse_work,
         }
     }
@@ -135,8 +158,11 @@ impl EditorSession {
             );
         }
         self.validate_range(range)?;
-        // Inside a table the paste is one cell's text; across cells it is refused.
-        if let Some(change) = self.paste_into_table_cell(expected, range, text, accept)? {
+        // Inside a table the paste is one cell's text: edge blank lines go and
+        // inner line breaks become one space. Across cells it is refused.
+        let flatten = crate::table::flatten_for_cell;
+        let isolated = crate::InputAction::Isolated;
+        if let Some(change) = self.cell_replace(expected, range, text, flatten, isolated, accept)? {
             return Ok(Some(change));
         }
         let (low, high) = self.projection.source_bounds(range.start.0);
@@ -170,19 +196,26 @@ impl EditorSession {
         } else {
             PasteTarget::Line
         };
+        let start = self.split_point(range.start).max(line.content);
+        let end = self.split_point(range.end).max(start);
+        if let PasteTarget::Code = target {
+            // Verbatim: each further line repeats the code line's prefix.
+            let prefix = line.continuation();
+            let out = prefixed(&text, newline, &prefix, prefix.trim_end());
+            let caret = BlockSelection::Source(start + out.len());
+            return self
+                .commit_block_edit(expected, start..end, &out, caret, None, accept)
+                .map(Some);
+        }
         let shape = PastedShape::read(&text);
-        let literal = match target {
-            PasteTarget::Code => true,
-            PasteTarget::Line if !text.contains(newline) => {
-                !shape.has_block || shape.code || is_marker(&text)
-            }
-            PasteTarget::Line => !shape.has_block && !shape.blank_line,
+        let literal = if !text.contains(newline) {
+            !shape.has_block || shape.code || is_marker(&text)
+        } else {
+            !shape.has_block && !shape.blank_line
         };
         let mut change = if literal {
             self.replace_action(expected, range, &text, crate::InputAction::Isolated, accept)?
         } else {
-            let start = self.split_point(range.start).max(line.content);
-            let end = self.split_point(range.end).max(start);
             self.place_blocks(expected, start, end, &line, &text, &shape, newline, accept)?
         };
         change.work.parsed_source_bytes += shape.parsed;
@@ -201,7 +234,7 @@ impl EditorSession {
         newline: &str,
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<ViewChange, EditorError> {
-        let end_line_end = self.physical_end(end);
+        let end_line_end = line_end(&self.source, end);
         let before_empty = start <= line.content;
         let after_empty = end >= end_line_end;
         let continuation = line.continuation();
@@ -216,6 +249,14 @@ impl EditorSession {
                 ),
                 if before_empty { *marker } else { start },
             ),
+            // A pasted quote replaces an empty quote line's own marker, as a
+            // list replaces an empty item's and a block an empty heading's.
+            _ if before_empty && after_empty && shape.first_quote && !line.heading => {
+                let outer = line.prefix.trim_end().strip_suffix('>').map(str::len);
+                let outer = outer.unwrap_or(continuation.len());
+                let prefix = continuation[..outer].to_owned();
+                (prefix.clone(), prefix, line.start + outer)
+            }
             _ => {
                 let tail = if line.heading {
                     line.prefix.clone()
@@ -232,37 +273,47 @@ impl EditorSession {
         };
         let blank = lines_prefix.trim_end().to_owned();
         let mut out = String::with_capacity(text.len() * 2);
-        if (shape.first_block || siblings) && !before_empty {
+        // An ordered list that cannot interrupt the paragraph above starts after a blank line.
+        let parted = shape.first_block && !shape.interrupts && !siblings;
+        let (from, after_soft) = if parted && before_empty && line.soft && !line.heading {
+            (line.start, true)
+        } else {
+            (from, false)
+        };
+        if after_soft {
+            out.push_str(&blank);
+            out.push_str(newline);
+            out.push_str(&lines_prefix);
+        } else if (shape.first_block || siblings) && !before_empty {
             out.push_str(&self.straddling(start, false));
             out.push_str(newline);
-            if !shape.interrupts && !siblings {
+            if parted {
                 out.push_str(&blank);
                 out.push_str(newline);
             }
             out.push_str(&lines_prefix);
         }
-        for (index, pasted) in text.split(newline).enumerate() {
-            if index > 0 {
-                out.push_str(newline);
-                out.push_str(if pasted.is_empty() {
-                    &blank
-                } else {
-                    &lines_prefix
-                });
-            }
-            out.push_str(pasted);
+        let tail_needed = if siblings {
+            !after_empty
+        } else {
+            !shape.last_paragraph && !after_empty
+        };
+        // Spans open across the caret close before the first paragraph break
+        // and reopen after the last, as they do around a split-off block.
+        let mut text = text.to_owned();
+        if !tail_needed && text[..shape.trail].contains(newline) {
+            text.insert_str(shape.trail, &self.straddling(end, true));
         }
+        if !shape.first_block && !siblings && text[shape.lead..].contains(newline) {
+            text.insert_str(shape.lead, &self.straddling(start, false));
+        }
+        out.push_str(&prefixed(&text, newline, &lines_prefix, &blank));
         if let Some(fence) = &shape.unclosed_fence {
             out.push_str(newline);
             out.push_str(&lines_prefix);
             out.push_str(fence);
         }
         let caret = from + out.len();
-        let tail_needed = if siblings {
-            !after_empty
-        } else {
-            !shape.last_paragraph && !after_empty
-        };
         if tail_needed {
             if shape.last_container && !siblings {
                 out.push_str(newline);
@@ -283,8 +334,8 @@ impl EditorSession {
     }
 
     fn target_line(&self, at: DisplayOffset, caret: usize) -> TargetLine {
-        let start = self.physical_start(caret);
-        let end = self.physical_end(caret);
+        let start = line_start(&self.source, caret);
+        let end = line_end(&self.source, caret);
         let blocks = self
             .projection
             .block_lines(DisplayRange { start: at, end: at });
@@ -317,11 +368,20 @@ impl EditorSession {
                         .to_string(),
                 )
             });
+        let soft = start > 0
+            && self
+                .projection
+                .block_lines(DisplayRange {
+                    start: DisplayOffset(at.0.saturating_sub(1)),
+                    end: at,
+                })
+                .iter()
+                .any(|line| line.source.end == start && line.paragraph_text);
         TargetLine {
             start,
             content,
-
             prefix,
+            soft,
             heading: block.is_some_and(|block| block.heading > 0 && block.source.start == start)
                 && self
                     .source
@@ -334,7 +394,7 @@ impl EditorSession {
 
     /// The caret line's ending, else the preceding line's, else LF.
     fn line_ending_at(&self, at: usize) -> &'static str {
-        let end = self.physical_end(at);
+        let end = line_end(&self.source, at);
         let len = self.source.len_bytes();
         let crlf = |at: usize| {
             at + 1 < len && self.source.byte(at) == b'\r' && self.source.byte(at + 1) == b'\n'
@@ -342,7 +402,7 @@ impl EditorSession {
         if end < len {
             return if crlf(end) { "\r\n" } else { "\n" };
         }
-        let start = self.physical_start(at);
+        let start = line_start(&self.source, at);
         if start >= 2 && crlf(start - 2) {
             "\r\n"
         } else {
@@ -410,6 +470,19 @@ fn normalize_paste(text: &str, newline: &str) -> String {
             '\n' => out.push_str(newline),
             c => out.push(c),
         }
+    }
+    out
+}
+
+/// Pasted lines after the first take `prefix`, or `blank` when empty.
+fn prefixed(text: &str, newline: &str, prefix: &str, blank: &str) -> String {
+    let mut out = String::with_capacity(text.len() * 2);
+    for (index, pasted) in text.split(newline).enumerate() {
+        if index > 0 {
+            out.push_str(newline);
+            out.push_str(if pasted.is_empty() { blank } else { prefix });
+        }
+        out.push_str(pasted);
     }
     out
 }

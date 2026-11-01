@@ -66,18 +66,31 @@ fn paste_keeps_copied_characters_and_places_blocks() {
             "1986. A great year",
             "ab\n\n1986. A great year\n\ncd",
         ),
+        ("abc\ndef", (4, 4), "2. x", "abc\n\n2. x\n\ndef"),
+        ("> abc\n> def", (4, 4), "2. x", "> abc\n>\n> 2. x\n>\n> def"),
         ("abcd", (2, 2), "```\ncode", "ab\n```\ncode\n```\ncd"),
         // Inside containers: nested under the item, siblings for a list.
         ("- item", (4, 4), "# Title", "- item\n  # Title"),
         ("- item", (4, 4), "- x\n- y", "- item\n- x\n- y"),
         ("- abcd", (2, 2), "- x\n- y", "- ab\n- x\n- y\n- cd"),
         ("> q", (1, 1), "a\n\nb", "> qa\n>\n> b"),
+        ("> \nz", (0, 0), "> a\n> b", "> a\n> b\nz"),
         // Pasted endings follow the note; code takes text verbatim.
         ("ab\r\ncd", (1, 1), "# T\nz", "a\r\n# T\r\nzb\r\ncd"),
         ("```\nab\n```", (1, 1), "x\n# y", "```\nax\n# yb\n```"),
+        ("    code", (2, 2), "x\n# y", "    cox\n    # yde"),
+        (
+            "    co\n    de",
+            (2, 2),
+            "x\n\ny",
+            "    cox\n\n    y\n    de",
+        ),
         // A selection is replaced; inline text carries its first format.
         ("a **bold** c", (2, 6), "*it*", "a ***it*** c"),
         ("**abcd**", (1, 3), "# T", "**a**\n# T\n**d**"),
+        ("**ab**", (1, 1), "x\n\ny", "**ax**\n\n**yb**"),
+        ("[ab](u)", (1, 1), "x\n\ny", "[ax](u)\n\n[yb](u)"),
+        ("**ab** c", (1, 1), "# T\n\nz", "**a**\n# T\n\n**zb** c"),
         ("ab", (1, 1), "\n", "a\nb"),
     ] {
         let s = paste(source, range(a, b), text);
@@ -104,6 +117,8 @@ fn copy_exports_markdown_for_the_selection() {
         ("- a\n  - b\n  - c", (2, 5), "- b\n- c"),
         ("> a\r\n> b", (0, 4), "> a\r\n> b"),
         ("a  b", (1, 3), "  "),
+        ("**a b**", (1, 2), " "),
+        ("`a b`", (1, 2), " "),
     ] {
         let s = EditorSession::open(source);
         assert_eq!(

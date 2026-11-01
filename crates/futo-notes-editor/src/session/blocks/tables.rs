@@ -255,29 +255,18 @@ impl EditorSession {
         inserted: &str,
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<Option<ViewChange>, EditorError> {
-        let flat = flatten_breaks(inserted);
-        self.cell_replace(expected, range, &flat, crate::InputAction::Typing, accept)
+        let typing = crate::InputAction::Typing;
+        self.cell_replace(expected, range, inserted, flatten_breaks, typing, accept)
     }
 
-    /// Plain-text paste at a cell selection, for the clipboard entry to route
-    /// to. Edge blank lines go, inner line breaks become one space, edge
-    /// spaces and tabs stay. One history action. `None`: not in a table.
-    pub fn paste_into_table_cell(
+    /// Replaces display text inside one cell with `flatten(text)`; `None`: the
+    /// range is not in a table.
+    pub(super) fn cell_replace(
         &mut self,
         expected: Revision,
         range: DisplayRange,
         text: &str,
-        accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
-    ) -> Result<Option<ViewChange>, EditorError> {
-        let flat = table::flatten_for_cell(text);
-        self.cell_replace(expected, range, &flat, crate::InputAction::Isolated, accept)
-    }
-
-    fn cell_replace(
-        &mut self,
-        expected: Revision,
-        range: DisplayRange,
-        text: &str,
+        flatten: fn(&str) -> String,
         action: crate::InputAction,
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<Option<ViewChange>, EditorError> {
@@ -290,6 +279,7 @@ impl EditorSession {
             return Ok(None);
         };
         let (row, column) = cell.ok_or(EditorError::InvalidRange)?;
+        let text = &flatten(text);
         let raw = window.absolute(window.layout.row_line(row).cells[column].clone());
         let before = table::pipe_count(&window.text);
         let mut refused = false;

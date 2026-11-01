@@ -6,24 +6,23 @@ use super::*;
 mod copy;
 mod paste;
 
-impl EditorSession {
-    fn physical_start(&self, at: usize) -> usize {
-        let mut at = at;
-        while at > 0 && self.source.byte(at - 1) != b'\n' {
-            at -= 1;
-        }
-        at
+/// Start of the line holding `at`.
+fn line_start(text: &ropey::Rope, at: usize) -> usize {
+    let mut at = at;
+    while at > 0 && text.byte(at - 1) != b'\n' {
+        at -= 1;
     }
+    at
+}
 
-    /// Line end before its CR/LF ending.
-    fn physical_end(&self, at: usize) -> usize {
-        let len = self.source.len_bytes();
-        let mut at = at;
-        while at < len && !matches!(self.source.byte(at), b'\n' | b'\r') {
-            at += 1;
-        }
-        at
+/// Line end before its CR/LF ending.
+fn line_end(text: &ropey::Rope, at: usize) -> usize {
+    let len = text.len_bytes();
+    let mut at = at;
+    while at < len && !matches!(text.byte(at), b'\n' | b'\r') {
+        at += 1;
     }
+    at
 }
 
 fn shift(range: &std::ops::Range<usize>, by: usize) -> std::ops::Range<usize> {

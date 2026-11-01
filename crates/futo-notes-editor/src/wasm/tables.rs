@@ -42,21 +42,6 @@ impl WasmSession {
         )
     }
 
-    pub fn paste_into_table_cell(
-        &mut self,
-        revision: u64,
-        start: usize,
-        end: usize,
-        text: &str,
-    ) -> Result<String, JsValue> {
-        json(
-            &self
-                .0
-                .paste_into_table_cell(Revision(revision), range(start, end), text)
-                .map_err(error)?,
-        )
-    }
-
     /// `command` is a `TableCommand` name such as `"InsertRowBelow"`.
     pub fn table_command(
         &mut self,

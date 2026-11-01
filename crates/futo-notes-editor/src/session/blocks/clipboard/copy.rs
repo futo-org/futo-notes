@@ -17,13 +17,12 @@ impl EditorSession {
             return Ok(String::new());
         }
         let display = &self.projection.display;
-        let line_start = display_line_start(display, range.start.0);
-        let line_end = display_line_end(display, range.start.0);
-        let whole_start = range.start.0 == line_start && range.end.0 >= line_end;
-        let whole_end = range.end.0 == display_line_end(display, range.end.0);
+        let whole_start = range.start.0 == line_start(display, range.start.0)
+            && range.end.0 >= line_end(display, range.start.0);
+        let whole_end = range.end.0 == line_end(display, range.end.0);
         let (_, tight_start) = self.projection.source_bounds(range.start.0);
         let (tight_end, wide_end) = self.projection.source_bounds(range.end.0);
-        let physical = self.physical_start(tight_start);
+        let physical = line_start(&self.source, tight_start);
         let start = if whole_start { physical } else { tight_start };
         let end = if whole_end { wide_end } else { tight_end };
         let indent = self
@@ -32,7 +31,6 @@ impl EditorSession {
             .chars()
             .take_while(|c| matches!(c, ' ' | '\t'))
             .count();
-        let (openers, closers) = self.cut_spans(start, end);
         let mut body = self.source.byte_slice(start..end).to_string();
         if indent > 0 {
             body = dedent(&body, if whole_start { indent } else { 0 }, indent);
@@ -46,6 +44,12 @@ impl EditorSession {
             body.len()
         } else {
             body.trim_end_matches([' ', '\t']).len().max(skip)
+        };
+        // Whitespace alone carries no format, so it gets no delimiters.
+        let (openers, closers) = if skip < keep {
+            self.cut_spans(start, end)
+        } else {
+            Default::default()
         };
         let mut out = String::with_capacity(body.len() + openers.len() + closers.len());
         out.push_str(&body[..skip]);
@@ -107,23 +111,6 @@ impl EditorSession {
             closers.into_iter().map(|(_, text)| text).collect(),
         )
     }
-}
-
-fn display_line_start(display: &ropey::Rope, at: usize) -> usize {
-    let mut at = at;
-    while at > 0 && display.byte(at - 1) != b'\n' {
-        at -= 1;
-    }
-    at
-}
-
-fn display_line_end(display: &ropey::Rope, at: usize) -> usize {
-    let len = display.len_bytes();
-    let mut at = at;
-    while at < len && !matches!(display.byte(at), b'\n' | b'\r') {
-        at += 1;
-    }
-    at
 }
 
 /// Removes up to `later` leading spaces/tabs from each line after the first,

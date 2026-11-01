@@ -28,18 +28,6 @@ impl PortableSession {
         self.stage_table(|engine, accept| engine.replace_in_cell(expected, range, inserted, accept))
     }
 
-    /// Plain-text paste inside one cell; `None` leaves it to general paste.
-    pub fn paste_into_table_cell(
-        &mut self,
-        expected: Revision,
-        range: DisplayRange,
-        text: &str,
-    ) -> Result<Option<HostRequest>, PortableError> {
-        self.stage_table(|engine, accept| {
-            engine.paste_into_table_cell(expected, range, text, accept)
-        })
-    }
-
     pub fn table_command(
         &mut self,
         expected: Revision,
