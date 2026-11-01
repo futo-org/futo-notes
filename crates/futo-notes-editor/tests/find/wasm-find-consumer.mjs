@@ -15,6 +15,7 @@ assert.equal(send(page.find_step(0n, true)).current, 3);
 assert.equal(send(page.find_step(0n, true)).current, 1);
 assert.equal(send(page.find_step(0n, false)).current, 3);
 assert.equal(send(page.find_matches(0n, 0, 6)).length, 1);
+assert.deepEqual(send(page.find_matches_utf16(0n, 0, 6)), send(page.find_matches(0n, 0, 6)));
 
 const request = page.find_scan_request();
 const result = WasmSession.find_scan(request);

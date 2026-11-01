@@ -189,6 +189,12 @@ fn keys_navigate_extend_exit_and_break_with_exact_bytes() {
         middle.source_text(),
         "| a |\r\n| - |\r\n\r\n\r\n\r\nnext\r\n"
     );
+    // A lone `|` body row is filled to the table's width, no cell over.
+    let mut lone = EditorSession::open("| a | b |\n| - | - |\n|\n");
+    caret_in(&mut lone, 0, 1);
+    key(&mut lone, TableKey::Tab);
+    assert_eq!(lone.source_text(), "| a | b |\n| - | - |\n|  |  |\n");
+    assert_eq!(lone.selection().start, cell(&lone, 1, 0).start);
     // Outside a table every key is the paragraph path's.
     let mut prose = EditorSession::open("plain\n");
     assert!(key(&mut prose, TableKey::Tab).is_none());
@@ -242,6 +248,28 @@ fn rows_and_columns_insert_and_delete_preserving_untouched_bytes_and_alignment()
             "|a|  |  b  |\n|:--| --- |--:|\n|x|  |y|\n|z|\n",
         ),
         (wide, 0, 1, DeleteColumn, "|a|\n|:--|\n|x|\n|z|\n"),
+        // A pipeless table keeps pipes once one column remains.
+        (
+            "a | b\n--- | ---\n1 | 2\n",
+            0,
+            0,
+            DeleteColumn,
+            "| b |\n| --- |\n| 2 |\n",
+        ),
+        (
+            "a | b\n--- | ---\n1 | 2\n",
+            1,
+            1,
+            DeleteColumn,
+            "| a |\n| --- |\n| 1 |\n",
+        ),
+        (
+            "a | b\n--|--\n1\n",
+            0,
+            0,
+            DeleteColumn,
+            "| b |\n| -- |\n|  |\n",
+        ),
         (
             wide,
             1,
@@ -458,4 +486,50 @@ fn markdown_paste_inside_a_table_joins_into_the_cell_and_refuses_across_cells() 
             .unwrap_err(),
         EditorError::InvalidRange
     );
+}
+
+#[test]
+fn utf16_variants_address_cells_in_native_units_and_reject_split_surrogates() {
+    use futo_notes_editor::{DisplayUtf16Offset, DisplayUtf16Range};
+    let mut session = EditorSession::open("| \u{1F600}a | b |\n| - | - |\n| c | d |\n");
+    let at = cell(&session, 0, 0);
+    let native = session.display_to_utf16(Revision(0), at).unwrap();
+    assert_eq!(native.end.0 - native.start.0, 3);
+    assert_eq!(
+        session.inspect_table_utf16(Revision(0), native).unwrap(),
+        session.inspect_table(Revision(0), at).unwrap()
+    );
+    let split = DisplayUtf16Range {
+        start: DisplayUtf16Offset(native.start.0 + 1),
+        end: native.end,
+    };
+    assert_eq!(
+        session.inspect_table_utf16(Revision(0), split),
+        Err(EditorError::InvalidRange)
+    );
+    let caret = DisplayUtf16Range {
+        start: native.end,
+        end: native.end,
+    };
+    session
+        .replace_in_cell_utf16(Revision(0), caret, &[0x7c, 0x78], &mut |_| Ok(()))
+        .unwrap()
+        .unwrap();
+    assert!(session.source_text().starts_with("| \u{1F600}a\\|x | b |"));
+    let at = cell(&session, 0, 0);
+    let native = session.display_to_utf16(session.revision(), at).unwrap();
+    session
+        .table_command_utf16(
+            session.revision(),
+            native,
+            TableCommand::InsertRowBelow,
+            &mut |_| Ok(()),
+        )
+        .unwrap()
+        .unwrap();
+    session
+        .replace_in_cell_utf16(session.revision(), native, &[0x79], &mut |_| Ok(()))
+        .unwrap()
+        .unwrap();
+    assert!(session.source_text().starts_with("| y | b |"));
 }

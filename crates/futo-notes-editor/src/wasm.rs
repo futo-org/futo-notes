@@ -19,6 +19,13 @@ fn json(value: &impl serde::Serialize) -> Result<String, JsValue> {
     serde_json::to_string(value).map_err(error)
 }
 
+fn utf16_range(start: usize, end: usize) -> DisplayUtf16Range {
+    DisplayUtf16Range {
+        start: DisplayUtf16Offset(start),
+        end: DisplayUtf16Offset(end),
+    }
+}
+
 fn validate_wire(token: u64, revision: u64, durable: u64) -> Result<(), JsValue> {
     if token > 9_007_199_254_740_991 || revision > 9_007_199_254_740_991 {
         return Err(error(
@@ -242,6 +249,19 @@ impl WasmSession {
                         end: DisplayOffset(end),
                     },
                 )
+                .map_err(error)?,
+        )
+    }
+    pub fn find_matches_utf16(
+        &mut self,
+        revision: u64,
+        start: usize,
+        end: usize,
+    ) -> Result<String, JsValue> {
+        json(
+            &self
+                .0
+                .find_matches_utf16(Revision(revision), utf16_range(start, end))
                 .map_err(error)?,
         )
     }

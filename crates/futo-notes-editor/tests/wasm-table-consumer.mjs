@@ -37,5 +37,14 @@ assert.equal(
   typeof JSON.parse(session.table_key(revision, 'Tab')).selected.selection.start,
   'number',
 );
+// Native-unit variants address the same cells (ASCII: units agree) and refuse a split.
+assert.equal(session.inspect_table_utf16(revision, 0, 0), session.inspect_table(revision, 0, 0));
+const native = cell(0, 0);
+accept(session.replace_in_cell_utf16(revision, native.end, native.end, Uint16Array.of(0x7c)));
+assert.equal(session.draft_text().split('\n')[0], '| x y\\| | b |');
+const below = cell(1, 0);
+accept(session.table_command_utf16(revision, below.start, below.end, 'InsertRowBelow'));
+assert.equal(session.draft_text().split('\n').length, 6);
+assert.throws(() => session.inspect_table_utf16(revision, 0, 10_000));
 session.free();
 console.log('Compiled WASM tables: inspect, cell paste, row command and Tab key passed.');

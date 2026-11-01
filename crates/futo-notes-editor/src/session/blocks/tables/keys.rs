@@ -223,7 +223,7 @@ impl EditorSession {
             TableCommand::DeleteColumn => (
                 controls.delete_column,
                 if controls.delete_column {
-                    layout.delete_column(column)
+                    layout.delete_column(&window.text, column)
                 } else {
                     Vec::new()
                 },

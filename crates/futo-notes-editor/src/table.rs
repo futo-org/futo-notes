@@ -229,6 +229,17 @@ fn interrupts(line: &str) -> bool {
 impl Layout {
     /// The table in `text` (a run of nonblank lines) that contains `target`.
     pub fn find(text: &str, target: usize) -> Option<Self> {
+        Self::scan(text, Some(target)).pop()
+    }
+
+    /// Every table in the run, in order.
+    pub fn all(text: &str) -> Vec<Self> {
+        Self::scan(text, None)
+    }
+
+    /// One pass over the run: the tables in it, or with a target just the one
+    /// containing it (the scan stops there).
+    fn scan(text: &str, target: Option<usize>) -> Vec<Self> {
         let mut spans = Vec::new();
         let mut at = 0;
         for line in text.split_inclusive('\n') {
@@ -236,14 +247,14 @@ impl Layout {
             spans.push((at, end, at + line.len()));
             at += line.len();
         }
-        let line_of = |offset: usize| {
+        let target = target.map(|offset| {
             spans
                 .partition_point(|(_, _, next)| *next <= offset)
                 .min(spans.len().saturating_sub(1))
-        };
-        let target = line_of(target);
+        });
+        let mut tables = Vec::new();
         let mut header = 0;
-        while header <= target && header + 1 < spans.len() {
+        while header + 1 < spans.len() && target.is_none_or(|target| header <= target) {
             let head = parse_line(text, spans[header].0, spans[header].1, spans[header].2);
             let rule = parse_line(
                 text,
@@ -262,19 +273,24 @@ impl Layout {
                     }
                     lines.push(parse_line(text, start, end, next));
                 }
-                if header + lines.len() > target {
-                    return Some(Self {
+                let count = lines.len();
+                let hit = target.is_none_or(|target| header + count > target);
+                if hit {
+                    tables.push(Self {
                         columns: alignments.len(),
                         alignments,
                         lines,
                     });
+                    if target.is_some() {
+                        break;
+                    }
                 }
-                header += lines.len();
+                header += count;
             } else {
                 header += 1;
             }
         }
-        None
+        tables
     }
 
     pub fn rows(&self) -> usize {
@@ -394,6 +410,12 @@ impl Layout {
                 remove: 0,
                 text: cells,
             },
+            // A lone pipe already opens the first cell.
+            None if line.lead.is_some() && line.cells.is_empty() => Splice {
+                at: line.end,
+                remove: 0,
+                text: cells,
+            },
             None => Splice {
                 at: line.end,
                 remove: 0,
@@ -438,7 +460,7 @@ impl Layout {
         splices
     }
 
-    pub fn delete_column(&self, at: usize) -> Vec<Splice> {
+    pub fn delete_column(&self, text: &str, at: usize) -> Vec<Splice> {
         let mut splices = Vec::new();
         for line in &self.lines {
             let count = line.cells.len();
@@ -446,25 +468,41 @@ impl Layout {
                 continue;
             }
             let cell = &line.cells[at];
-            splices.push(if count == 1 {
-                Splice {
-                    at: cell.start,
-                    remove: cell.len(),
-                    text: "  ".into(),
-                }
-            } else if at + 1 < count {
-                Splice {
-                    at: cell.start,
-                    remove: cell.len() + 1,
-                    text: String::new(),
-                }
-            } else {
-                Splice {
-                    at: cell.start - 1,
-                    remove: cell.len() + 1,
-                    text: String::new(),
-                }
-            });
+            splices.push(
+                if line.lead.is_none() && line.trail.is_none() && line.pipes <= 1 {
+                    // The deletion would leave no pipe, and the row would stop
+                    // being a table row: rewrite it with its remaining cell.
+                    let kept = line.cells.get(1 - at.min(1)).filter(|_| count == 2);
+                    let kept = kept.map_or("", |raw| text[raw.clone()].trim_matches([' ', '\t']));
+                    let body = &text[line.start..line.end];
+                    let first =
+                        line.start + body.len() - body.trim_start_matches([' ', '\t']).len();
+                    let last = line.start + body.trim_end_matches([' ', '\t']).len();
+                    Splice {
+                        at: first,
+                        remove: last.saturating_sub(first),
+                        text: format!("| {kept} |"),
+                    }
+                } else if count == 1 {
+                    Splice {
+                        at: cell.start,
+                        remove: cell.len(),
+                        text: "  ".into(),
+                    }
+                } else if at + 1 < count {
+                    Splice {
+                        at: cell.start,
+                        remove: cell.len() + 1,
+                        text: String::new(),
+                    }
+                } else {
+                    Splice {
+                        at: cell.start - 1,
+                        remove: cell.len() + 1,
+                        text: String::new(),
+                    }
+                },
+            );
         }
         splices
     }
@@ -486,15 +524,10 @@ pub(crate) fn combine(text: &str, splices: &[Splice]) -> Option<(Range<usize>, S
 }
 
 pub(crate) fn apply(text: &str, splices: &[Splice]) -> String {
-    let mut result = String::new();
-    let mut at = 0;
-    for splice in splices {
-        result.push_str(&text[at..splice.at]);
-        result.push_str(&splice.text);
-        at = splice.at + splice.remove;
-    }
-    result.push_str(&text[at..]);
-    result
+    combine(text, splices).map_or_else(
+        || text.to_owned(),
+        |(range, inserted)| format!("{}{inserted}{}", &text[..range.start], &text[range.end..]),
+    )
 }
 
 /// Plain text pasted into one cell: edge blank lines go, and every other run

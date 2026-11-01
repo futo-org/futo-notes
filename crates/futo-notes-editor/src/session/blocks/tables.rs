@@ -66,8 +66,9 @@ impl EditorSession {
             .all(|byte| matches!(byte, b' ' | b'\t' | b'\r'))
     }
 
-    /// The run of nonblank lines around `at`; a table lives inside one run.
-    fn table_window(&self, at: usize) -> Option<Window> {
+    /// The run of nonblank lines around `at` (start, text); a table lives
+    /// inside one run.
+    fn table_run(&self, at: usize) -> Option<(usize, String)> {
         let length = self.source.len_bytes();
         let line = self.table_line_start(at.min(length));
         let (end, next) = self.table_line_end(line);
@@ -90,12 +91,14 @@ impl EditorSession {
             }
             stop = next;
         }
-        let text = self.source.byte_slice(start..stop).to_string();
-        let layout = Layout::find(&text, at - start)?;
-        let header = start + layout.lines[0].start;
+        Some((start, self.source.byte_slice(start..stop).to_string()))
+    }
+
+    /// Whether a table headed at source offset `header` sits at the root:
+    /// not in code, a quote, a list or a heading.
+    fn table_at_root(&self, header: usize) -> bool {
         let display = DisplayOffset(self.projection.display_at(header));
-        let root = self
-            .projection
+        self.projection
             .block_lines(DisplayRange {
                 start: display,
                 end: display,
@@ -108,12 +111,14 @@ impl EditorSession {
                     && !line.in_list
                     && line.heading == 0
                     && !line.divider
-            });
-        root.then_some(Window {
-            base: start,
-            text,
-            layout,
-        })
+            })
+    }
+
+    fn table_window(&self, at: usize) -> Option<Window> {
+        let (base, text) = self.table_run(at)?;
+        let layout = Layout::find(&text, at - base)?;
+        self.table_at_root(base + layout.lines[0].start)
+            .then_some(Window { base, text, layout })
     }
 
     /// Source span a display selection stands for, one offset for a caret.
@@ -144,48 +149,47 @@ impl EditorSession {
 
     /// Display ranges outside every table cell's content (pipes, padding,
     /// delimiter rows, row breaks): no find match may touch or span them. One
-    /// pass over the source for an explicit scan, never the input path.
-    pub(crate) fn table_find_barriers(&self) -> Vec<DisplayRange> {
-        let source = self
-            .source
-            .byte_slice(0..self.source.len_bytes())
-            .to_string();
+    /// pass over the source for an explicit scan, never the input path: each
+    /// nonblank run is read once and yields all of its tables.
+    pub(crate) fn table_find_barriers(&self, bytes: &std::cell::Cell<u64>) -> Vec<DisplayRange> {
+        let length = self.source.len_bytes();
         let mut barriers = Vec::new();
         let mut at = 0;
-        while at < source.len() {
-            let next = source[at..].find('\n').map_or(source.len(), |n| at + n + 1);
-            let window = source[at..next]
-                .contains('|')
-                .then(|| self.table_window(at))
-                .flatten();
-            let Some(window) = window else {
-                at = next;
+        while at < length {
+            let Some((base, text)) = self.table_run(at) else {
+                at = self.table_line_end(at).1.max(at + 1);
                 continue;
             };
-            let layout = &window.layout;
-            let first = window.base + layout.lines[0].start;
-            let last = layout.lines.last().unwrap();
-            let mut previous = self.projection.display_at(first);
-            for row in 0..layout.rows() {
-                for column in 0..layout.row_line(row).cells.len().min(layout.columns) {
-                    let cell = self.display_range(window.cell_content(row, column).unwrap());
-                    if previous < cell.start.0 {
-                        barriers.push(DisplayRange {
-                            start: DisplayOffset(previous),
-                            end: cell.start,
-                        });
+            bytes.set(bytes.get() + text.len() as u64);
+            for layout in Layout::all(&text) {
+                if !self.table_at_root(base + layout.lines[0].start) {
+                    continue;
+                }
+                let mut previous = self.projection.display_at(base + layout.lines[0].start);
+                for row in 0..layout.rows() {
+                    for raw in layout.row_line(row).cells.iter().take(layout.columns) {
+                        let content = Layout::content(&text, raw);
+                        let cell = self.display_range(base + content.start..base + content.end);
+                        if previous < cell.start.0 {
+                            barriers.push(DisplayRange {
+                                start: DisplayOffset(previous),
+                                end: cell.start,
+                            });
+                        }
+                        previous = cell.end.0;
                     }
-                    previous = cell.end.0;
+                }
+                let end = self
+                    .projection
+                    .display_at(base + layout.lines.last().unwrap().end);
+                if previous < end {
+                    barriers.push(DisplayRange {
+                        start: DisplayOffset(previous),
+                        end: DisplayOffset(end),
+                    });
                 }
             }
-            let end = self.projection.display_at(window.base + last.end);
-            if previous < end {
-                barriers.push(DisplayRange {
-                    start: DisplayOffset(previous),
-                    end: DisplayOffset(end),
-                });
-            }
-            at = (window.base + last.next).max(next);
+            at = base + text.len();
         }
         barriers
     }

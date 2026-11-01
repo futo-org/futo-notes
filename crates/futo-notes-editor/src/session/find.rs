@@ -14,6 +14,8 @@ const REBASE_LOG_LIMIT: usize = 64;
 pub struct FindWork {
     pub scans: u64,
     pub scanned_bytes: u64,
+    /// Source bytes the table-barrier pass materialized for scan requests.
+    pub barrier_bytes: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -35,9 +37,11 @@ pub struct FindReport {
 }
 
 /// Owned snapshot a host may scan on any thread. A result is accepted only for
-/// the same revision and query generation.
+/// the same session, revision and query generation.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FindScanRequest {
+    /// The session that took the snapshot; another session's result is stale.
+    pub incarnation: u64,
     pub generation: u64,
     pub revision: Revision,
     pub query: String,
@@ -51,6 +55,7 @@ pub struct FindScanRequest {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FindScanResult {
+    pub incarnation: u64,
     pub generation: u64,
     pub revision: Revision,
     pub matches: Vec<DisplayRange>,
@@ -70,6 +75,7 @@ pub(crate) struct FindState {
     /// Input since the last scan; cleared only by a scan or close.
     dirty: bool,
     work: FindWork,
+    barrier_bytes: std::cell::Cell<u64>,
 }
 
 impl FindState {
@@ -153,6 +159,7 @@ impl FindScanRequest {
     /// outside cell contents is a barrier.
     pub fn run(&self) -> FindScanResult {
         let mut result = FindScanResult {
+            incarnation: self.incarnation,
             generation: self.generation,
             revision: self.revision,
             matches: Vec::new(),
@@ -229,7 +236,8 @@ impl EditorSession {
     }
 
     /// Step to the next or previous match, wrapping, and select it. A no-op
-    /// while closed or at zero matches.
+    /// while closed, at zero matches or during composition, like `select`:
+    /// the current match and selection stay together.
     pub fn find_step(
         &mut self,
         expected: Revision,
@@ -238,7 +246,7 @@ impl EditorSession {
         self.check_revision(expected)?;
         self.find.rebase();
         let total = self.find.matches.len();
-        if !self.find.open || total == 0 {
+        if !self.find.open || total == 0 || self.composition.is_some() {
             return Ok(self.find_report_with(None));
         }
         let forward = direction == CaretDirection::Forward;
@@ -309,19 +317,21 @@ impl EditorSession {
     /// call it after input settles, never per keystroke.
     pub fn find_scan_request(&self) -> Option<FindScanRequest> {
         (self.find.open && !self.find.query.is_empty()).then(|| FindScanRequest {
+            incarnation: self.incarnation,
             generation: self.find.generation,
             revision: self.revision,
             query: self.find.query.clone(),
             text: self.display_text(),
             soft_breaks: self.projection.soft_line_breaks(),
-            barriers: self.table_find_barriers(),
+            barriers: self.table_find_barriers(&self.find.barrier_bytes),
         })
     }
 
-    /// Accept a scan only for the exact revision and query it was taken at;
+    /// Accept a scan only for this session, and the exact revision and query it was taken at;
     /// anything else is rejected as stale with no state change.
     pub fn find_apply_scan(&mut self, result: &FindScanResult) -> Option<FindReport> {
         if !self.find.open
+            || result.incarnation != self.incarnation
             || result.generation != self.find.generation
             || result.revision != self.revision
         {
@@ -342,7 +352,10 @@ impl EditorSession {
     }
 
     pub fn find_work(&self) -> FindWork {
-        self.find.work
+        FindWork {
+            barrier_bytes: self.find.barrier_bytes.get(),
+            ..self.find.work
+        }
     }
 
     fn find_report_with(&self, reveal: Option<DisplayRange>) -> FindReport {
