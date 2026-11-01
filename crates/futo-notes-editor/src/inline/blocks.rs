@@ -2,8 +2,9 @@
 use pulldown_cmark::{Event, Tag};
 use std::ops::Range;
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(crate) enum HeadingSyntax {
+    #[default]
     None,
     Atx,
     Setext,
@@ -63,7 +64,7 @@ pub(crate) struct PhysicalLine {
     pub content: Range<usize>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub(crate) struct BlockLine {
     pub source: Range<usize>,
     pub content: Range<usize>,
