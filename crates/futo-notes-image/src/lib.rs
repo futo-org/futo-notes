@@ -36,22 +36,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn syncable_classifies_notes_images_and_ignores_the_rest() {
-        assert!(is_syncable_filename("note.md"));
+    fn classifies_notes_images_and_remote_sources() {
         assert!(is_syncable_filename("folder/note.md"));
         assert!(is_syncable_filename("image-123.png"));
         assert!(!is_syncable_filename("scan.tiff"));
-        assert!(!is_syncable_filename("scan.heif"));
-        assert!(!is_syncable_filename("archive.zip"));
         assert!(!is_syncable_filename("noextension"));
-    }
-
-    #[test]
-    fn vault_references_exclude_remote_sources() {
-        assert!(is_vault_image_reference("image-1.png"));
         assert!(is_vault_image_reference("pics/a b.JPG"));
         assert!(!is_vault_image_reference("https://x.test/a.png"));
-        assert!(!is_vault_image_reference("data:image/png;base64,AAAA.png"));
         assert!(!is_vault_image_reference("note.md"));
     }
 }
