@@ -4,7 +4,12 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
-import { assertReconApks, validateReconReport, reconMode } from './android-performance-recon.mjs';
+import {
+  assertReconApks,
+  validateReconReport,
+  reconMode,
+  reconSelection,
+} from './android-performance-recon.mjs';
 
 it('accepts only the explicit bounded modes and leaves the full default intact', () => {
   expect(reconMode([])).toBe('full');
@@ -12,6 +17,19 @@ it('accepts only the explicit bounded modes and leaves the full default intact',
   expect(reconMode(['--post-fix-checkpoint'])).toBe('post-fix-checkpoint');
   expect(() => reconMode(['--samples=1000'])).toThrow();
   expect(() => reconMode(['--bounded-followup', '--extra'])).toThrow();
+});
+
+it('selects exactly one method for every recon mode, including the finite bounded checkpoint', () => {
+  const old =
+    'com.futo.notes.editor.NativeEditorPerformanceReconTest#recordProtectedNativeCallsAndExplicitFlushes';
+  for (const mode of ['full', 'bounded-followup', 'post-fix-checkpoint'])
+    expect(reconSelection(mode).selector).toBe(old);
+  expect(reconMode(['--finite-bounded-checkpoint'])).toBe('finite-bounded-checkpoint');
+  expect(reconSelection('finite-bounded-checkpoint')).toEqual({
+    selector:
+      'com.futo.notes.editor.NativeEditorPerformanceReconTest#recordFiniteBoundedCallsAndExplicitFlushes',
+    method: 'recordFiniteBoundedCallsAndExplicitFlushes',
+  });
 });
 
 const app = "package: name='com.futo.notes.dev' versionCode='1'\napplication-debuggable\n";
@@ -140,6 +158,78 @@ it('requires the small list-first checkpoint and fresh immediate/batch flush fee
   expect(() => validate(missingClock)).toThrow();
 });
 
+it('validates finite bounded phases separately and retains partial failures', () => {
+  const fixture = (name, suffix) => ({
+    fixture: name,
+    createNs: [1],
+    openNs: [1],
+    entryPreparationNs: [1],
+    coldFirstAppendNs: [2],
+    coldImmediateExplicitFlushNs: [3],
+    warmTypingNs: Array(20).fill(4),
+    warmBatchExplicitFlushNs: [5],
+    jumpSelectionNs: Array(20).fill(6),
+    firstKeyAfterJumpNs: Array(20).fill(7),
+    jumpBatchExplicitFlushNs: [8],
+    pairedAppendNs: Array(10).fill(9),
+    pairedExplicitFlushNs: Array(10).fill(10),
+    appendThroughExplicitFlushNs: Array(10).fill(20),
+    acceptedSourceCopyNs: [11],
+    fullMaterializationNs: [12],
+    acceptedRevisions: Array.from({ length: suffix ? 53 : 51 }, (_, i) => i + 1),
+    flushes: [1, 21, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, ...(suffix ? [53] : [])].map(
+      (revision, i, revisions) => ({
+        previousDurable: revisions[i - 1] ?? 0,
+        accepted: revision,
+        durable: revision,
+        paused: false,
+        lastFlushLatenessNs: 0,
+        remainingDelayNs: i >= 3 && i < 13 ? null : 1,
+        remainingDelayObservation:
+          i >= 3 && i < 13
+            ? 'not queried inside append-through-flush timer'
+            : 'before explicit flush',
+      }),
+    ),
+    ...(suffix
+      ? {
+          removeCloserNs: [13],
+          firstFarUnitSelectionNs: [14],
+          firstFarUnitKeyNs: [15],
+          continuationNs: [16, 17],
+          continuationFrameCount: 2,
+          continuationCompletionNs: [40],
+          frontierBatchExplicitFlushNs: [18],
+        }
+      : {}),
+  });
+  const report = {
+    formatVersion: 1,
+    runId: 'owned-run',
+    probeMode: 'finite-bounded-checkpoint',
+    outcome: 'completed',
+    fixtures: [
+      fixture('20000-code-lines-single-fence', false),
+      fixture('short-fence-20000-lines-independent-paragraphs', true),
+    ],
+  };
+  const validate = (value) => validateReconReport(value, 'owned-run', 'finite-bounded-checkpoint');
+  expect(() => validate(report)).not.toThrow();
+  const missing = structuredClone(report);
+  missing.fixtures[0].warmTypingNs.pop();
+  expect(() => validate(missing)).toThrow();
+  const stale = structuredClone(report);
+  stale.fixtures[1].flushes[13].paused = true;
+  expect(() => validate(stale)).toThrow();
+  const lostRevision = structuredClone(report);
+  lostRevision.fixtures[0].acceptedRevisions[30] = 32;
+  expect(() => validate(lostRevision)).toThrow();
+  const unfinished = structuredClone(report);
+  unfinished.fixtures[1].continuationFrameCount = 3;
+  expect(() => validate(unfinished)).toThrow();
+  expect(() => validate({ ...missing, outcome: 'budget-limited' })).not.toThrow();
+});
+
 it('retains a partial raw report and original command failure when instrumentation exits nonzero', () => {
   const scratch = mkdtempSync(path.join(tmpdir(), 'recon-route-test-'));
   try {
@@ -205,6 +295,9 @@ syncBuiltinESMExports();
       .trim()
       .split('\n')
       .map(JSON.parse);
+    expect(calls.find((call) => call.includes('instrument'))).toContain(
+      'com.futo.notes.editor.NativeEditorPerformanceReconTest#recordProtectedNativeCallsAndExplicitFlushes',
+    );
     for (const [index, call] of calls.entries()) {
       if (call[0] === 'adb') expect(calls[index - 1]).toEqual(['just', 'qa-android-target']);
       if (call.includes('install')) expect(call).not.toContain('-d');
