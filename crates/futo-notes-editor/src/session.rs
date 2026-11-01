@@ -1,8 +1,10 @@
 mod blocks;
 mod bounded;
 pub use bounded::{
-    BoundedChange, BoundedCodeProjection, BoundedCursor, BoundedEditorSession, BoundedEntryError,
-    BoundedError, BoundedWork, CodeFragment, CodeIdentity,
+    BoundedBlock, BoundedChange, BoundedCodeProjection, BoundedCursor, BoundedEditorSession,
+    BoundedEntryError, BoundedError, BoundedMap, BoundedMapKind, BoundedMeaning, BoundedProgress,
+    BoundedProgressChange, BoundedProgressStatus, BoundedSourceChange, BoundedWork, CodeFragment,
+    CodeIdentity, ProjectionContinuation,
 };
 mod composition;
 mod os_replacement;

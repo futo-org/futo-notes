@@ -10,9 +10,11 @@ mod session;
 mod types;
 
 pub use session::{
-    BlockCommand, BoundedChange, BoundedCodeProjection, BoundedCursor, BoundedEditorSession,
-    BoundedEntryError, BoundedError, BoundedWork, CodeFragment, CodeIdentity, Composition,
-    EditorSession, OwnActionRelink, ParagraphKey,
+    BlockCommand, BoundedBlock, BoundedChange, BoundedCodeProjection, BoundedCursor,
+    BoundedEditorSession, BoundedEntryError, BoundedError, BoundedMap, BoundedMapKind,
+    BoundedMeaning, BoundedProgress, BoundedProgressChange, BoundedProgressStatus,
+    BoundedSourceChange, BoundedWork, CodeFragment, CodeIdentity, Composition, EditorSession,
+    OwnActionRelink, ParagraphKey, ProjectionContinuation,
 };
 pub use types::{
     Affinity, BlockDescription, CaretDirection, Correspondence, DisplayOffset, DisplayRange,
