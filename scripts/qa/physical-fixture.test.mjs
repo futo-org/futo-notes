@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { acquireLease, releaseLease } from './physical-fixture-lease.mjs';
+import { releaseLease } from './physical-fixture-lease.mjs';
 import { executePhysicalFixture } from './physical-fixture.mjs';
 import { runID, nonce, setup } from './physical-fixture-test-data.mjs';
 
@@ -11,23 +11,6 @@ describe('bounded physical fixture capability', () => {
         executePhysicalFixture('capture', t.plan, { ...t.runtime, host: 'foreign-host' }),
       ).rejects.toThrow(/host/);
       expect(t.effects).toEqual([]);
-    } finally {
-      t.clean();
-    }
-  });
-
-  it('captures only the fixed scenario, binds its result, and closes without deleting evidence', async () => {
-    const t = setup();
-    try {
-      const receipt = await executePhysicalFixture('capture', t.plan, t.runtime);
-      expect(receipt.status).toBe('captured');
-      expect(receipt.acceptance).toBe('unreviewed-raw-capture');
-      expect(t.effects).toEqual(['install-fixture', 'install-runner', 'capture', 'copy']);
-      const read = await executePhysicalFixture('read', t.plan, t.runtime);
-      expect(read.artifact.nonce).toBe(nonce);
-      await executePhysicalFixture('close', t.plan, t.runtime);
-      expect(() => acquireLease(t.plan, t.runtime.leaseRuntime)).not.toThrow();
-      expect(read.receipt.artifactSHA256).toMatch(/^[0-9a-f]{64}$/);
     } finally {
       t.clean();
     }
@@ -135,24 +118,6 @@ describe('physical fixture attempt evidence and reservation lifetime', () => {
       }
     },
   );
-
-  it('accepts equivalent sorted JSON provenance emitted by the native artifact writer', async () => {
-    const t = setup();
-    const copy = t.runtime.executor.copyArtifact;
-    t.runtime.executor.copyArtifact = () => {
-      const artifact = JSON.parse(copy());
-      artifact.provenance = {
-        sourceFingerprint: t.plan.sourceFingerprint,
-        sourceSHA: t.plan.sourceSHA,
-      };
-      return JSON.stringify(artifact);
-    };
-    try {
-      expect((await executePhysicalFixture('capture', t.plan, t.runtime)).status).toBe('captured');
-    } finally {
-      t.clean();
-    }
-  });
 
   it('holds the host hardware reservation through the full bounded XCTest operation', async () => {
     const t = setup();

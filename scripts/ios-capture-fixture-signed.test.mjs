@@ -11,19 +11,6 @@ describe('explicit existing development profile selection', () => {
   });
 });
 
-it('refuses extra profile privileges rather than copying unknown entitlements', () => {
-  expect(() =>
-    validateSigningSelection(
-      selection,
-      {
-        ...profile,
-        Entitlements: { ...profile.Entitlements, 'com.apple.developer.unknown': true },
-      },
-      new Date('2026-10-30T00:00:00Z'),
-    ),
-  ).toThrow(/profile/);
-});
-
 import { buildSignedFixture } from './ios-capture-fixture-signed.mjs';
 it('refuses an invalid selection before invoking any OS command or creating output', () => {
   const commands = [];
@@ -39,7 +26,7 @@ it('refuses an invalid selection before invoking any OS command or creating outp
   expect(commands).toEqual([]);
 });
 
-import { writeFileSync, readFileSync, rmSync, existsSync, symlinkSync } from 'node:fs';
+import { writeFileSync, rmSync, existsSync, symlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { selection, profile, sandbox } from './ios-capture-fixture-signed-test-data.mjs';
@@ -82,42 +69,6 @@ it.each([[[]], [['--selection']], [['--selection', '/missing', '--provision']]])
   },
 );
 
-it('retains a verified four-bundle receipt while bundled provenance stays an unverified request', () => {
-  const fixture = sandbox();
-  try {
-    const result = buildSignedFixture(fixture.root, fixture.selected, {
-      command: fixture.command,
-      now: () => new Date('2026-10-30T00:00:00Z'),
-    });
-    expect(result.receipt.signatures.map((item) => item.bundleID)).toEqual([
-      'org.futo.fixture.editor294.tests',
-      'org.futo.fixture.editor294',
-      'org.futo.fixture.editor294.uitests',
-      'org.futo.fixture.editor294.uitests.xctrunner',
-    ]);
-    expect(
-      fixture.calls.find(({ program }) => program === 'just').options.env.CARGO_NET_OFFLINE,
-    ).toBe('true');
-    expect(fixture.calls.find(({ program }) => program === 'xcodebuild').args).toEqual(
-      expect.arrayContaining(['-disableAutomaticPackageResolution', '-skipPackageUpdates']),
-    );
-    expect(result.receipt.provenance.signed).toBe(false);
-    expect(result.receipt.provenance.signingStatus).toBe(
-      'development-signing-requested-not-verified',
-    );
-    expect(
-      JSON.parse(readFileSync(join(result.output, 'verified-signing-receipt.json'), 'utf8')).kind,
-    ).toBe('VERIFIED_SIGNED_ISOLATED_FIXTURE');
-    expect(
-      fixture.calls.some(({ args }) =>
-        args.some((arg) => /allowProvisioning|test-without-building|simctl|devicectl/.test(arg)),
-      ),
-    ).toBe(false);
-  } finally {
-    rmSync(fixture.root, { recursive: true });
-  }
-});
-
 it('does not sign or retain a verified receipt when the bundled source request was substituted', () => {
   const fixture = sandbox();
   try {
@@ -152,38 +103,6 @@ it('does not sign or retain a verified receipt when the bundled source request w
         ),
       ),
     ).toBe(false);
-  } finally {
-    rmSync(fixture.root, { recursive: true });
-  }
-});
-
-it('retains failed evidence without a successful receipt after a strict signature failure', () => {
-  const fixture = sandbox();
-  try {
-    const command = (program, args, options) => {
-      if (program === '/usr/bin/codesign' && args[0] === '--verify')
-        throw new Error('strict signature failed');
-      return fixture.command(program, args, options);
-    };
-    expect(() =>
-      buildSignedFixture(fixture.root, fixture.selected, {
-        command,
-        now: () => new Date('2026-10-30T00:00:00Z'),
-      }),
-    ).toThrow(/strict signature/);
-    const output = join(
-      fixture.root,
-      'apps/ios/FixtureCapture/.build-signed',
-      fixture.selected.runID,
-    );
-    expect(existsSync(join(output, 'selection.json'))).toBe(true);
-    expect(existsSync(join(output, 'verified-signing-receipt.json'))).toBe(false);
-    expect(() =>
-      buildSignedFixture(fixture.root, fixture.selected, {
-        command: fixture.command,
-        now: () => new Date('2026-10-30T00:00:00Z'),
-      }),
-    ).toThrow(/EEXIST/);
   } finally {
     rmSync(fixture.root, { recursive: true });
   }

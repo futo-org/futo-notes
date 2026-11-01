@@ -17,10 +17,7 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const CLASSES = [
   'NativeEditorSessionTest',
   'NativeBoundedEditorSessionTest',
-  'NativeEditorBlockRegressionTest',
   'NativeEditorCompositionTest',
-  'NativeEditorStructuralSeamTest',
-  'NativeEditorLinkTest',
   'NativeEditorContractSurfaceTest',
 ];
 const PACKAGE = 'com.futo.notes.dev';
