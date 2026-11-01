@@ -454,7 +454,7 @@ impl Layout {
         splices
     }
 
-    pub fn delete_column(&self, at: usize) -> Vec<Splice> {
+    pub fn delete_column(&self, text: &str, at: usize) -> Vec<Splice> {
         let mut splices = Vec::new();
         for line in &self.lines {
             let count = line.cells.len();
@@ -462,25 +462,41 @@ impl Layout {
                 continue;
             }
             let cell = &line.cells[at];
-            splices.push(if count == 1 {
-                Splice {
-                    at: cell.start,
-                    remove: cell.len(),
-                    text: "  ".into(),
-                }
-            } else if at + 1 < count {
-                Splice {
-                    at: cell.start,
-                    remove: cell.len() + 1,
-                    text: String::new(),
-                }
-            } else {
-                Splice {
-                    at: cell.start - 1,
-                    remove: cell.len() + 1,
-                    text: String::new(),
-                }
-            });
+            splices.push(
+                if line.lead.is_none() && line.trail.is_none() && line.pipes <= 1 {
+                    // The deletion would leave no pipe, and the row would stop
+                    // being a table row: rewrite it with its remaining cell.
+                    let kept = line.cells.get(1 - at.min(1)).filter(|_| count == 2);
+                    let kept = kept.map_or("", |raw| text[raw.clone()].trim_matches([' ', '\t']));
+                    let body = &text[line.start..line.end];
+                    let first =
+                        line.start + body.len() - body.trim_start_matches([' ', '\t']).len();
+                    let last = line.start + body.trim_end_matches([' ', '\t']).len();
+                    Splice {
+                        at: first,
+                        remove: last.saturating_sub(first),
+                        text: format!("| {kept} |"),
+                    }
+                } else if count == 1 {
+                    Splice {
+                        at: cell.start,
+                        remove: cell.len(),
+                        text: "  ".into(),
+                    }
+                } else if at + 1 < count {
+                    Splice {
+                        at: cell.start,
+                        remove: cell.len() + 1,
+                        text: String::new(),
+                    }
+                } else {
+                    Splice {
+                        at: cell.start - 1,
+                        remove: cell.len() + 1,
+                        text: String::new(),
+                    }
+                },
+            );
         }
         splices
     }

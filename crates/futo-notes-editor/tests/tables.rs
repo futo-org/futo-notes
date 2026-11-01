@@ -242,6 +242,28 @@ fn rows_and_columns_insert_and_delete_preserving_untouched_bytes_and_alignment()
             "|a|  |  b  |\n|:--| --- |--:|\n|x|  |y|\n|z|\n",
         ),
         (wide, 0, 1, DeleteColumn, "|a|\n|:--|\n|x|\n|z|\n"),
+        // A pipeless table keeps pipes once one column remains.
+        (
+            "a | b\n--- | ---\n1 | 2\n",
+            0,
+            0,
+            DeleteColumn,
+            "| b |\n| --- |\n| 2 |\n",
+        ),
+        (
+            "a | b\n--- | ---\n1 | 2\n",
+            1,
+            1,
+            DeleteColumn,
+            "| a |\n| --- |\n| 1 |\n",
+        ),
+        (
+            "a | b\n--|--\n1\n",
+            0,
+            0,
+            DeleteColumn,
+            "| b |\n| -- |\n|  |\n",
+        ),
         (
             wide,
             1,
