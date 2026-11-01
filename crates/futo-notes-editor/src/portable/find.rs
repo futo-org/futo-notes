@@ -41,6 +41,15 @@ impl PortableSession {
         Ok(self.engine.find_matches(expected, range)?)
     }
 
+    pub fn find_matches_utf16(
+        &mut self,
+        expected: Revision,
+        range: crate::DisplayUtf16Range,
+    ) -> Result<Vec<DisplayRange>, PortableError> {
+        self.displayed()?;
+        Ok(self.engine.find_matches_utf16(expected, range)?)
+    }
+
     pub fn find_scan_request(&self) -> Result<Option<FindScanRequest>, PortableError> {
         self.displayed()?;
         Ok(self.engine.find_scan_request())

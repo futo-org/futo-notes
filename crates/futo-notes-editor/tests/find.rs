@@ -214,3 +214,33 @@ fn table_barriers_scan_each_run_once_not_once_per_pipe_line() {
         source.len()
     );
 }
+
+#[test]
+fn utf16_matches_read_native_windows_and_stepping_waits_out_composition() {
+    use futo_notes_editor::{DisplayUtf16Offset, DisplayUtf16Range};
+    let mut session = EditorSession::open("\u{1F600} cat cat");
+    session.find_set_query(Revision(0), "cat").unwrap();
+    let display = session.display_text();
+    let all = session
+        .find_matches(Revision(0), range(0, display.len()))
+        .unwrap();
+    let native = DisplayUtf16Range {
+        start: DisplayUtf16Offset(0),
+        end: DisplayUtf16Offset(display.encode_utf16().count()),
+    };
+    assert_eq!(session.find_matches_utf16(Revision(0), native), Ok(all));
+    let split = DisplayUtf16Range {
+        start: DisplayUtf16Offset(1),
+        end: native.end,
+    };
+    assert!(session.find_matches_utf16(Revision(0), split).is_err());
+
+    // Composition keeps the selection, so stepping keeps the current match.
+    let before = session.find_report();
+    session.compose(Revision(0), range(0, 0), "x").unwrap();
+    let step = session
+        .find_step(Revision(0), CaretDirection::Forward)
+        .unwrap();
+    assert_eq!((step.current, step.reveal), (before.current, None));
+    assert_eq!(session.selection(), range(0, 0));
+}

@@ -236,7 +236,8 @@ impl EditorSession {
     }
 
     /// Step to the next or previous match, wrapping, and select it. A no-op
-    /// while closed or at zero matches.
+    /// while closed, at zero matches or during composition, like `select`:
+    /// the current match and selection stay together.
     pub fn find_step(
         &mut self,
         expected: Revision,
@@ -245,7 +246,7 @@ impl EditorSession {
         self.check_revision(expected)?;
         self.find.rebase();
         let total = self.find.matches.len();
-        if !self.find.open || total == 0 {
+        if !self.find.open || total == 0 || self.composition.is_some() {
             return Ok(self.find_report_with(None));
         }
         let forward = direction == CaretDirection::Forward;

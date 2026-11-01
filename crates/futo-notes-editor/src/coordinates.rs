@@ -243,4 +243,55 @@ impl EditorSession {
         let (range, inserted) = self.decode_utf16_input(expected, range, inserted)?;
         self.replace(expected, range, &inserted, accept)
     }
+
+    pub fn inspect_table_utf16(
+        &self,
+        expected: Revision,
+        range: DisplayUtf16Range,
+    ) -> Result<Option<crate::TableDescription>, EditorError> {
+        let (range, _) = self.decode_utf16_input(expected, range, &[])?;
+        self.inspect_table(expected, range)
+    }
+
+    pub fn replace_in_cell_utf16(
+        &mut self,
+        expected: Revision,
+        range: DisplayUtf16Range,
+        inserted: &[u16],
+        accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
+    ) -> Result<Option<ViewChange>, EditorError> {
+        let (range, inserted) = self.decode_utf16_input(expected, range, inserted)?;
+        self.replace_in_cell(expected, range, &inserted, accept)
+    }
+
+    pub fn paste_into_table_cell_utf16(
+        &mut self,
+        expected: Revision,
+        range: DisplayUtf16Range,
+        text: &[u16],
+        accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
+    ) -> Result<Option<ViewChange>, EditorError> {
+        let (range, text) = self.decode_utf16_input(expected, range, text)?;
+        self.paste_into_table_cell(expected, range, &text, accept)
+    }
+
+    pub fn table_command_utf16(
+        &mut self,
+        expected: Revision,
+        range: DisplayUtf16Range,
+        command: crate::TableCommand,
+        accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
+    ) -> Result<Option<ViewChange>, EditorError> {
+        let (range, _) = self.decode_utf16_input(expected, range, &[])?;
+        self.table_command(expected, range, command, accept)
+    }
+
+    pub fn find_matches_utf16(
+        &mut self,
+        expected: Revision,
+        range: DisplayUtf16Range,
+    ) -> Result<Vec<DisplayRange>, EditorError> {
+        let (range, _) = self.decode_utf16_input(expected, range, &[])?;
+        self.find_matches(expected, range)
+    }
 }

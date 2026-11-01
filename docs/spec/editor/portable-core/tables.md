@@ -13,11 +13,14 @@ or the delimiter row.
 - Table inspection projects cells in the note's own display coordinates, so one selection serves
   the note and the cell view. A cell's content excludes edge padding; the focused cell and the
   structural commands that apply (header row cannot be deleted or have a row inserted above it,
-  the last body row and last column cannot be deleted) are reported as plain state. A body row
+  the last body row and last column cannot be deleted; deleting down to one column keeps pipes
+  on every row, so a pipeless table stays a table) are reported as plain state. A body row
   shorter than the header lists only the cells it has. → crates/futo-notes-editor/src/session/blocks/tables.rs
 - Cell replacement writes `|` as `\|`, turns line breaks into spaces, and keeps inline formats;
   a range that crosses cells or touches a pipe, or a typed backslash that would make the next
-  pipe a delimiter, is refused whole. No other cell's bytes change. → crates/futo-notes-editor/src/session/blocks/tables.rs, crates/futo-notes-editor/src/inline/edit.rs
+  pipe a delimiter, is refused whole. No other cell's bytes change. Today the escape applies to the
+  cell entry points (`replace_in_cell`, cell paste); the engine-wide escape on every input path
+  is a pending follow-up (DECISIONS #11). → crates/futo-notes-editor/src/session/blocks/tables.rs, crates/futo-notes-editor/src/inline/edit.rs
 - Tab and Shift+Tab select the next/previous cell's content (Tab in the last cell appends a row;
   Shift+Tab in the first cell is left to the host). Enter selects the cell below, and on the last
   row appends a row and enters the same column. Mod+Enter leaves a blank line and an empty line

@@ -26,6 +26,20 @@ impl WasmSession {
         )
     }
 
+    pub fn inspect_table_utf16(
+        &self,
+        revision: u64,
+        start: usize,
+        end: usize,
+    ) -> Result<String, JsValue> {
+        json(
+            &self
+                .0
+                .inspect_table_utf16(Revision(revision), utf16_range(start, end))
+                .map_err(error)?,
+        )
+    }
+
     /// Request-or-null; `null` means the range is not in a table.
     pub fn replace_in_cell(
         &mut self,
@@ -38,6 +52,36 @@ impl WasmSession {
             &self
                 .0
                 .replace_in_cell(Revision(revision), range(start, end), inserted)
+                .map_err(error)?,
+        )
+    }
+
+    pub fn replace_in_cell_utf16(
+        &mut self,
+        revision: u64,
+        start: usize,
+        end: usize,
+        inserted: &[u16],
+    ) -> Result<String, JsValue> {
+        json(
+            &self
+                .0
+                .replace_in_cell_utf16(Revision(revision), utf16_range(start, end), inserted)
+                .map_err(error)?,
+        )
+    }
+
+    pub fn paste_into_table_cell_utf16(
+        &mut self,
+        revision: u64,
+        start: usize,
+        end: usize,
+        text: &[u16],
+    ) -> Result<String, JsValue> {
+        json(
+            &self
+                .0
+                .paste_into_table_cell_utf16(Revision(revision), utf16_range(start, end), text)
                 .map_err(error)?,
         )
     }
@@ -70,6 +114,22 @@ impl WasmSession {
             &self
                 .0
                 .table_command(Revision(revision), range(start, end), command)
+                .map_err(error)?,
+        )
+    }
+
+    pub fn table_command_utf16(
+        &mut self,
+        revision: u64,
+        start: usize,
+        end: usize,
+        command: &str,
+    ) -> Result<String, JsValue> {
+        let command = serde_json::from_str(&format!("{command:?}")).map_err(error)?;
+        json(
+            &self
+                .0
+                .table_command_utf16(Revision(revision), utf16_range(start, end), command)
                 .map_err(error)?,
         )
     }

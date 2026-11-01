@@ -1,6 +1,6 @@
 //! Portable table operations use the same ordered append/ack barrier as input.
 use super::*;
-use crate::{TableCommand, TableDescription, TableKey};
+use crate::{DisplayUtf16Range, TableCommand, TableDescription, TableKey};
 
 /// A table key either moves the selection (nothing to append) or stages one
 /// edit behind the usual acknowledgement barrier.
@@ -17,6 +17,15 @@ impl PortableSession {
     ) -> Result<Option<TableDescription>, PortableError> {
         self.ready()?;
         Ok(self.engine.inspect_table(expected, range)?)
+    }
+
+    pub fn inspect_table_utf16(
+        &self,
+        expected: Revision,
+        range: DisplayUtf16Range,
+    ) -> Result<Option<TableDescription>, PortableError> {
+        self.ready()?;
+        Ok(self.engine.inspect_table_utf16(expected, range)?)
     }
 
     pub fn replace_in_cell(
@@ -47,6 +56,39 @@ impl PortableSession {
         command: TableCommand,
     ) -> Result<Option<HostRequest>, PortableError> {
         self.stage_table(|engine, accept| engine.table_command(expected, range, command, accept))
+    }
+
+    pub fn replace_in_cell_utf16(
+        &mut self,
+        expected: Revision,
+        range: DisplayUtf16Range,
+        inserted: &[u16],
+    ) -> Result<Option<HostRequest>, PortableError> {
+        self.stage_table(|engine, accept| {
+            engine.replace_in_cell_utf16(expected, range, inserted, accept)
+        })
+    }
+
+    pub fn paste_into_table_cell_utf16(
+        &mut self,
+        expected: Revision,
+        range: DisplayUtf16Range,
+        text: &[u16],
+    ) -> Result<Option<HostRequest>, PortableError> {
+        self.stage_table(|engine, accept| {
+            engine.paste_into_table_cell_utf16(expected, range, text, accept)
+        })
+    }
+
+    pub fn table_command_utf16(
+        &mut self,
+        expected: Revision,
+        range: DisplayUtf16Range,
+        command: TableCommand,
+    ) -> Result<Option<HostRequest>, PortableError> {
+        self.stage_table(|engine, accept| {
+            engine.table_command_utf16(expected, range, command, accept)
+        })
     }
 
     pub fn table_key(
