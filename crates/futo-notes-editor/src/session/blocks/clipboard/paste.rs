@@ -273,7 +273,7 @@ impl EditorSession {
         let mut out = String::with_capacity(text.len() * 2);
         // An ordered list that cannot interrupt the paragraph above starts after a blank line.
         let parted = shape.first_block && !shape.interrupts && !siblings;
-        let (from, after_soft) = if parted && before_empty && line.soft && !line.heading {
+        let (from, after_soft) = if parted && before_empty && line.soft {
             (line.start, true)
         } else {
             (from, false)
