@@ -93,7 +93,9 @@ struct NativeEditorContractSurfaceTests {
         try await Task.detached {
             let grid = "| a | b |\r\n| --- | --: |\r\n| c | d |\r\n"
             let saved = try Self.scenario(grid) { _, s in
-                let table = try #require(try s.inspectTable(expected: 0, range: Self.at(0, 0)))
+                let origin = try s.utf16ToDisplay(
+                    expected: 0, range: EditorUtf16Range(start: 0, end: 0))
+                let table = try #require(try s.inspectTable(expected: 0, range: origin))
                 #expect((table.columns, table.rows.count) == (2, 2))
                 let end = table.rows[0][0].content.end
                 let caret = EditorUtf16Range(start: end, end: end)

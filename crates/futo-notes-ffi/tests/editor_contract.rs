@@ -178,6 +178,20 @@ fn native_input_errors_selection_and_history_match_the_direct_session() {
         native.display_to_utf16(0, selected.selection).unwrap(),
         EditorUtf16Range { start: 1, end: 3 }
     );
+    assert_eq!(
+        native
+            .utf16_to_display(0, EditorUtf16Range { start: 1, end: 3 })
+            .unwrap(),
+        selected.selection
+    );
+    assert!(matches!(
+        native.utf16_to_display(0, EditorUtf16Range { start: 2, end: 3 }),
+        Err(EditorSessionError::InvalidRange)
+    ));
+    assert!(matches!(
+        native.utf16_to_display(9, EditorUtf16Range { start: 1, end: 3 }),
+        Err(EditorSessionError::StaleRevision { .. })
+    ));
     let bytes = "日本\0".encode_utf16().collect::<Vec<_>>();
     let changed = native
         .replace_utf16(0, EditorUtf16Range { start: 1, end: 3 }, bytes.clone())

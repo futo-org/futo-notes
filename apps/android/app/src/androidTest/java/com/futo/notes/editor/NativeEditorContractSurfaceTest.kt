@@ -75,7 +75,8 @@ class NativeEditorContractSurfaceTest {
     fun tableCellsTabAndRowInsertionKeepExactBytes() {
         val grid = "| a | b |\r\n| --- | --: |\r\n| c | d |\r\n"
         assertEquals("| ax\\|y | b |\r\n| --- | --: |\r\n|  |  |\r\n| c | d |\r\n", scenario(grid) { _, s ->
-            val table = checkNotNull(s.inspectTable(0uL, at(0, 0)))
+            val origin = s.utf16ToDisplay(0uL, EditorUtf16Range(0uL, 0uL))
+            val table = checkNotNull(s.inspectTable(0uL, origin))
             assertEquals(2u to 2, table.columns to table.rows.size)
             val end = table.rows[0][0].content.end
             s.replaceUtf16(0uL, EditorUtf16Range(end, end), "x|y".map { it.code.toUShort() })

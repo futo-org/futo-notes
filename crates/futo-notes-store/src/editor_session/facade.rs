@@ -156,6 +156,20 @@ impl StoreEditorSession<'_> {
         })
     }
 
+    pub fn display_from_utf16(
+        &self,
+        expected: Revision,
+        range: DisplayUtf16Range,
+    ) -> Result<DisplayRange, EditorStoreError> {
+        self.read(|state| {
+            state
+                .engine
+                .full()?
+                .display_from_utf16(expected, range)
+                .map_err(EditorStoreError::Editor)
+        })
+    }
+
     pub fn project(
         &self,
         expected: Revision,
