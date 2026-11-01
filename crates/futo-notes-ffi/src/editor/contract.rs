@@ -507,6 +507,8 @@ pub struct EditorBlockDescription {
     pub list: Option<EditorListDescription>,
     pub code: bool,
     pub language: Option<String>,
+    /// Leading front matter, shown verbatim; hosts may render it as a panel.
+    pub metadata: bool,
 }
 impl From<editor::ProjectionSlice> for EditorProjection {
     fn from(value: editor::ProjectionSlice) -> Self {
@@ -528,6 +530,7 @@ impl From<editor::ProjectionSlice> for EditorProjection {
                     list: block.list.map(Into::into),
                     code: block.code,
                     language: block.language,
+                    metadata: block.metadata,
                 })
                 .collect(),
             runs: value

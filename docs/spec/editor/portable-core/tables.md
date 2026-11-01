@@ -33,8 +33,9 @@ or the delimiter row.
 - Plain-text paste inside one cell drops edge blank lines, turns inner line breaks into one space,
   keeps edge spaces and tabs, and never reaches another cell; one paste is one history action
   and a refused acceptance changes nothing. Multi-cell/grid paste is deferred; a selection that
-  crosses cells is refused. The clipboard entry routes to `paste_into_table_cell` when it returns
-  a change and otherwise continues with ordinary paste. → crates/futo-notes-editor/src/session/blocks/tables.rs
+  crosses cells is refused. `paste_markdown` tries the cell first in the engine, so every wrapper
+  inherits it: a table selection pastes into the cell, a cross-cell selection is refused, and
+  outside tables ordinary paste continues. → crates/futo-notes-editor/src/session/blocks/clipboard/paste.rs, crates/futo-notes-editor/tests/tables.rs
 - Cell edits reparse only the edited paragraph window, never the note. → crates/futo-notes-editor/tests/tables.rs
 - Portable, Store and native layers expose the same operations behind the usual acceptance and
   recovery barrier; each step recovers exact bytes. → crates/futo-notes-editor/src/portable/tables.rs, crates/futo-notes-store/src/editor_session/tables.rs, crates/futo-notes-ffi/src/editor/tables.rs

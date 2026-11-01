@@ -43,6 +43,10 @@ pub struct FindScanRequest {
     pub query: String,
     pub text: String,
     pub soft_breaks: Vec<DisplayRange>,
+    /// Table text outside cell contents: pipes, padding, delimiter rows and
+    /// row breaks. A match never touches or spans these.
+    #[serde(default)]
+    pub barriers: Vec<DisplayRange>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -145,7 +149,8 @@ fn fold(character: char) -> char {
 
 impl FindScanRequest {
     /// Literal case-insensitive occurrences, ascending and non-overlapping. A
-    /// paragraph's line break reads as one space; any other break is a barrier.
+    /// paragraph's line break reads as one space; any other break and table text
+    /// outside cell contents is a barrier.
     pub fn run(&self) -> FindScanResult {
         let mut result = FindScanResult {
             generation: self.generation,
@@ -160,14 +165,18 @@ impl FindScanRequest {
         let mut haystack = Vec::new();
         let mut starts = Vec::new();
         let mut soft = self.soft_breaks.iter().peekable();
+        let mut barriers = self.barriers.iter().peekable();
         let mut skip = 0;
         for (at, character) in self.text.char_indices() {
             if at < skip {
                 continue;
             }
             while soft.next_if(|range| range.end.0 <= at).is_some() {}
+            while barriers.next_if(|range| range.end.0 <= at).is_some() {}
             starts.push(at);
-            if let Some(range) = soft.next_if(|range| range.start.0 == at) {
+            if barriers.peek().is_some_and(|range| range.start.0 <= at) {
+                haystack.push('\n');
+            } else if let Some(range) = soft.next_if(|range| range.start.0 == at) {
                 skip = range.end.0;
                 haystack.push(' ');
             } else if matches!(character, '\r' | '\n') {
@@ -305,6 +314,7 @@ impl EditorSession {
             query: self.find.query.clone(),
             text: self.display_text(),
             soft_breaks: self.projection.soft_line_breaks(),
+            barriers: self.table_find_barriers(),
         })
     }
 

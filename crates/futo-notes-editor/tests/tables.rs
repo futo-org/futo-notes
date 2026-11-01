@@ -443,3 +443,21 @@ fn portable_table_steps_wait_for_acceptance_but_selection_moves_do_not() {
         .unwrap()
         .is_some());
 }
+
+#[test]
+fn markdown_paste_inside_a_table_joins_into_the_cell_and_refuses_across_cells() {
+    let mut session = EditorSession::open(GRID);
+    let at = cell(&session, 0, 0);
+    session
+        .paste_markdown(session.revision(), at, "x\n# y", &mut |_| Ok(()))
+        .unwrap()
+        .unwrap();
+    assert_eq!(session.source_text().lines().next(), Some("| x # y | b |"));
+    let across = range(cell(&session, 0, 0).start.0, cell(&session, 0, 1).end.0);
+    assert_eq!(
+        session
+            .paste_markdown(session.revision(), across, "z", &mut |_| Ok(()))
+            .unwrap_err(),
+        EditorError::InvalidRange
+    );
+}
