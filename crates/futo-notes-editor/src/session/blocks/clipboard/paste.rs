@@ -190,19 +190,26 @@ impl EditorSession {
         } else {
             PasteTarget::Line
         };
+        let start = self.split_point(range.start).max(line.content);
+        let end = self.split_point(range.end).max(start);
+        if let PasteTarget::Code = target {
+            // Verbatim: each further line repeats the code line's prefix.
+            let prefix = line.continuation();
+            let out = prefixed(&text, newline, &prefix, prefix.trim_end());
+            let caret = BlockSelection::Source(start + out.len());
+            return self
+                .commit_block_edit(expected, start..end, &out, caret, None, accept)
+                .map(Some);
+        }
         let shape = PastedShape::read(&text);
-        let literal = match target {
-            PasteTarget::Code => true,
-            PasteTarget::Line if !text.contains(newline) => {
-                !shape.has_block || shape.code || is_marker(&text)
-            }
-            PasteTarget::Line => !shape.has_block && !shape.blank_line,
+        let literal = if !text.contains(newline) {
+            !shape.has_block || shape.code || is_marker(&text)
+        } else {
+            !shape.has_block && !shape.blank_line
         };
         let mut change = if literal {
             self.replace_action(expected, range, &text, crate::InputAction::Isolated, accept)?
         } else {
-            let start = self.split_point(range.start).max(line.content);
-            let end = self.split_point(range.end).max(start);
             self.place_blocks(expected, start, end, &line, &text, &shape, newline, accept)?
         };
         change.work.parsed_source_bytes += shape.parsed;
@@ -275,17 +282,7 @@ impl EditorSession {
         if !shape.first_block && !siblings && text[shape.lead..].contains(newline) {
             text.insert_str(shape.lead, &self.straddling(start, false));
         }
-        for (index, pasted) in text.split(newline).enumerate() {
-            if index > 0 {
-                out.push_str(newline);
-                out.push_str(if pasted.is_empty() {
-                    &blank
-                } else {
-                    &lines_prefix
-                });
-            }
-            out.push_str(pasted);
-        }
+        out.push_str(&prefixed(&text, newline, &lines_prefix, &blank));
         if let Some(fence) = &shape.unclosed_fence {
             out.push_str(newline);
             out.push_str(&lines_prefix);
@@ -439,6 +436,19 @@ fn normalize_paste(text: &str, newline: &str) -> String {
             '\n' => out.push_str(newline),
             c => out.push(c),
         }
+    }
+    out
+}
+
+/// Pasted lines after the first take `prefix`, or `blank` when empty.
+fn prefixed(text: &str, newline: &str, prefix: &str, blank: &str) -> String {
+    let mut out = String::with_capacity(text.len() * 2);
+    for (index, pasted) in text.split(newline).enumerate() {
+        if index > 0 {
+            out.push_str(newline);
+            out.push_str(if pasted.is_empty() { blank } else { prefix });
+        }
+        out.push_str(pasted);
     }
     out
 }
