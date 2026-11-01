@@ -65,7 +65,7 @@ impl StoreEditorHost<'_> {
             .state
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let status = state.recovery_status(&self.session.store);
+        let status = state.recovery_status();
         HostSnapshot {
             token: self.token,
             source: state.engine.source_text(),
@@ -200,7 +200,7 @@ impl StoreEditorHost<'_> {
         request: &HostRequest,
         error: Option<String>,
     ) -> HostAck {
-        let status = state.recovery_status(&self.session.store);
+        let status = state.recovery_status();
         HostAck {
             token: request.token,
             sequence: request.sequence,

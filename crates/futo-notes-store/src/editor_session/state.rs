@@ -1,24 +1,7 @@
 use super::*;
 
-#[allow(unused_variables)]
 impl Attachment {
-    #[cfg(test)]
-    pub(crate) fn set_append_hook(
-        &mut self,
-        store: &LocalNoteStore,
-        hook: Box<dyn Fn(bool) + Send>,
-    ) {
-        self.recovery.append_hook = Some(hook);
-    }
-    #[cfg(test)]
-    pub(crate) fn set_retirement_failure(&mut self, store: &LocalNoteStore, fail: bool) {
-        self.recovery.fail_retirement = fail;
-    }
-    pub fn recovery_issue(&self, store: &LocalNoteStore) -> Option<RecoveryIssue> {
-        self.recovery.issue.clone()
-    }
-
-    pub fn recovery_status(&self, store: &LocalNoteStore) -> RecoveryStatus {
+    pub fn recovery_status(&self) -> RecoveryStatus {
         RecoveryStatus {
             accepted: self.recovery.accepted,
             durable: self.recovery.durable,
@@ -41,13 +24,7 @@ impl Attachment {
         self.recovery
             .flush(&store.root)
             .map_err(EditorStoreError::RecoveryFlush)?;
-        Ok(self.recovery_status(store))
-    }
-
-    /// Time remaining until the oldest unflushed edit's target, usable even
-    /// with the default clock whose origin is private to this session.
-    pub fn recovery_flush_delay(&self, store: &LocalNoteStore) -> Option<Duration> {
-        self.recovery.flush_delay()
+        Ok(self.recovery_status())
     }
 
     /// Run on the host's background worker when `flush_deadline` is reached.
@@ -95,95 +72,7 @@ impl Attachment {
                 .flush(&store.root)
                 .map_err(EditorStoreError::RecoveryResume)?;
         }
-        Ok(self.recovery_status(store))
-    }
-
-    pub fn source_text(&self, store: &LocalNoteStore) -> String {
-        self.engine.source_text()
-    }
-    pub fn display_text(&self, store: &LocalNoteStore) -> String {
-        self.engine.display_text()
-    }
-    pub fn id(&self, store: &LocalNoteStore) -> String {
-        self.id.clone()
-    }
-    pub fn revision(&self, store: &LocalNoteStore) -> Revision {
-        self.engine.revision()
-    }
-
-    pub fn active_formats(&self, store: &LocalNoteStore) -> Vec<InlineFormat> {
-        self.engine
-            .full()
-            .expect("full interface owner")
-            .active_formats()
-    }
-
-    pub fn selection(&self, store: &LocalNoteStore) -> DisplayRange {
-        self.engine
-            .full()
-            .expect("full interface owner")
-            .selection()
-    }
-
-    pub fn check_revision(
-        &self,
-        store: &LocalNoteStore,
-        expected: Revision,
-    ) -> Result<(), EditorStoreError> {
-        self.engine
-            .full()?
-            .check_revision(expected)
-            .map_err(EditorStoreError::Editor)
-    }
-
-    pub fn source_at(
-        &self,
-        store: &LocalNoteStore,
-        expected: Revision,
-        offset: futo_notes_editor::DisplayOffset,
-        affinity: Affinity,
-    ) -> Result<futo_notes_editor::SourceOffset, EditorStoreError> {
-        self.engine
-            .full()?
-            .source_at(expected, offset, affinity)
-            .map_err(EditorStoreError::Editor)
-    }
-
-    pub fn display_to_utf16(
-        &self,
-        store: &LocalNoteStore,
-        expected: Revision,
-        range: DisplayRange,
-    ) -> Result<DisplayUtf16Range, EditorStoreError> {
-        self.engine
-            .full()?
-            .display_to_utf16(expected, range)
-            .map_err(EditorStoreError::Editor)
-    }
-
-    pub fn project(
-        &self,
-        store: &LocalNoteStore,
-        expected: Revision,
-        range: DisplayRange,
-    ) -> Result<ProjectionSlice, EditorStoreError> {
-        self.engine
-            .full()?
-            .project(expected, range)
-            .map_err(EditorStoreError::Editor)
-    }
-
-    pub fn select_with_affinity(
-        &mut self,
-        store: &LocalNoteStore,
-        expected: Revision,
-        range: DisplayRange,
-        affinity: Affinity,
-    ) -> Result<SelectionChange, EditorStoreError> {
-        self.engine
-            .full_mut()?
-            .select_with_affinity(expected, range, affinity)
-            .map_err(EditorStoreError::Editor)
+        Ok(self.recovery_status())
     }
 
     pub fn toggle_format(
@@ -198,30 +87,6 @@ impl Attachment {
             .toggle_format(expected, format, &mut |edit| {
                 self.recovery.append(&store.root, edit)
             })
-            .map_err(EditorStoreError::Editor)
-    }
-
-    pub fn select_utf16(
-        &mut self,
-        store: &LocalNoteStore,
-        expected: Revision,
-        range: DisplayUtf16Range,
-    ) -> Result<SelectionChange, EditorStoreError> {
-        self.engine
-            .full_mut()?
-            .select_utf16(expected, range)
-            .map_err(EditorStoreError::Editor)
-    }
-
-    pub fn move_caret(
-        &mut self,
-        store: &LocalNoteStore,
-        expected: Revision,
-        direction: CaretDirection,
-    ) -> Result<SelectionChange, EditorStoreError> {
-        self.engine
-            .full_mut()?
-            .move_caret(expected, direction)
             .map_err(EditorStoreError::Editor)
     }
 

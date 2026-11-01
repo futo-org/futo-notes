@@ -2,19 +2,88 @@
 use super::*;
 use futo_notes_editor::Composition;
 
-#[allow(unused_variables)]
-impl Attachment {
-    pub fn composition(&self, store: &LocalNoteStore) -> Option<Composition> {
-        self.engine
-            .full()
-            .expect("full interface owner")
-            .composition()
-            .cloned()
+impl StoreEditorSession<'_> {
+    pub fn composition(&self) -> Option<Composition> {
+        self.read(|state| {
+            state
+                .engine
+                .full()
+                .expect("full interface owner")
+                .composition()
+                .cloned()
+        })
     }
 
     pub fn compose(
         &mut self,
-        store: &LocalNoteStore,
+        expected: Revision,
+        range: DisplayRange,
+        text: &str,
+    ) -> Result<Composition, EditorStoreError> {
+        self.mutate(|state, _| state.compose(expected, range, text))
+    }
+
+    pub fn compose_utf16(
+        &mut self,
+        expected: Revision,
+        range: DisplayUtf16Range,
+        text: &[u16],
+    ) -> Result<Composition, EditorStoreError> {
+        self.mutate(|state, _| state.compose_utf16(expected, range, text))
+    }
+
+    pub fn commit_composition_utf16(
+        &mut self,
+        expected: Revision,
+        text: Option<&[u16]>,
+    ) -> Result<Option<ViewChange>, EditorStoreError> {
+        self.mutate(|state, store| state.commit_composition_utf16(store, expected, text))
+    }
+
+    pub fn replace_os_utf16(
+        &mut self,
+        expected: Revision,
+        range: DisplayUtf16Range,
+        text: &[u16],
+        placeholders: &[DisplayUtf16Range],
+    ) -> Result<Option<ViewChange>, EditorStoreError> {
+        self.mutate(|state, store| {
+            state.replace_os_utf16(store, expected, range, text, placeholders)
+        })
+    }
+
+    pub fn cancel_composition(&mut self, expected: Revision) -> Result<(), EditorStoreError> {
+        self.mutate(|state, _| {
+            state
+                .engine
+                .full_mut()?
+                .cancel_composition(expected)
+                .map_err(EditorStoreError::Editor)
+        })
+    }
+
+    pub fn commit_composition(
+        &mut self,
+        expected: Revision,
+        text: Option<&str>,
+    ) -> Result<Option<ViewChange>, EditorStoreError> {
+        self.mutate(|state, store| state.commit_composition(store, expected, text))
+    }
+
+    pub fn replace_os(
+        &mut self,
+        expected: Revision,
+        range: DisplayRange,
+        text: &str,
+        placeholders: &[DisplayRange],
+    ) -> Result<Option<ViewChange>, EditorStoreError> {
+        self.mutate(|state, store| state.replace_os(store, expected, range, text, placeholders))
+    }
+}
+
+impl Attachment {
+    pub fn compose(
+        &mut self,
         expected: Revision,
         range: DisplayRange,
         text: &str,
@@ -28,7 +97,6 @@ impl Attachment {
 
     pub fn compose_utf16(
         &mut self,
-        store: &LocalNoteStore,
         expected: Revision,
         range: DisplayUtf16Range,
         text: &[u16],
@@ -70,17 +138,6 @@ impl Attachment {
                 self.recovery.append(&store.root, edit)
             })
             .map_err(input_error)
-    }
-
-    pub fn cancel_composition(
-        &mut self,
-        store: &LocalNoteStore,
-        expected: Revision,
-    ) -> Result<(), EditorStoreError> {
-        self.engine
-            .full_mut()?
-            .cancel_composition(expected)
-            .map_err(EditorStoreError::Editor)
     }
 
     pub fn commit_composition(

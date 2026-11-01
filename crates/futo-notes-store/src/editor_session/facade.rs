@@ -1,111 +1,130 @@
 use super::*;
 
 impl StoreEditorSession<'_> {
-    /// Ordered own-action changes produced by atomic store workflows. Hosts
-    /// apply each once before issuing input against the new revision.
-    pub fn take_coordinated_changes(&mut self) -> Result<Vec<ViewChange>, EditorStoreError> {
-        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+    fn lock_state(&self) -> std::sync::MutexGuard<'_, Attachment> {
+        self.state.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Lock only: usable on a deleted or paused attachment.
+    pub(super) fn read<R>(&self, f: impl FnOnce(&mut Attachment) -> R) -> R {
+        f(&mut self.lock_state())
+    }
+
+    /// Lock, then `SessionDeleted` once terminal. No gate: never writes recovery.
+    pub(super) fn live<R>(
+        &self,
+        f: impl FnOnce(&mut Attachment) -> Result<R, EditorStoreError>,
+    ) -> Result<R, EditorStoreError> {
+        let mut state = self.lock_state();
         if state.terminal {
             return Err(EditorStoreError::SessionDeleted);
         }
-        Ok(std::mem::take(&mut state.coordinated))
+        f(&mut state)
+    }
+
+    /// Gate, then vault guard, then state lock (this order), then the terminal check.
+    pub(super) fn mutate<R>(
+        &self,
+        f: impl FnOnce(&mut Attachment, &LocalNoteStore) -> Result<R, EditorStoreError>,
+    ) -> Result<R, EditorStoreError> {
+        let _gate = self.store.lock_gate().map_err(EditorStoreError::Recovery)?;
+        let _vault =
+            futo_notes_core::files::vault_mutation_guard().map_err(EditorStoreError::Recovery)?;
+        let mut state = self.lock_state();
+        if state.terminal {
+            return Err(EditorStoreError::SessionDeleted);
+        }
+        f(&mut state, &self.store)
+    }
+
+    /// Ordered own-action changes produced by atomic store workflows. Hosts
+    /// apply each once before issuing input against the new revision.
+    pub fn take_coordinated_changes(&mut self) -> Result<Vec<ViewChange>, EditorStoreError> {
+        self.live(|state| Ok(std::mem::take(&mut state.coordinated)))
     }
 
     #[cfg(test)]
     pub(crate) fn set_append_hook(&mut self, hook: Box<dyn Fn(bool) + Send>) {
-        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
-        state.set_append_hook(&self.store, hook)
+        self.read(|state| state.recovery.append_hook = Some(hook))
     }
 
     #[cfg(test)]
     pub(crate) fn set_retirement_failure(&mut self, fail: bool) {
-        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
-        state.set_retirement_failure(&self.store, fail)
+        self.read(|state| state.recovery.fail_retirement = fail)
     }
 
     pub fn recovery_issue(&self) -> Option<RecoveryIssue> {
-        let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
-        state.recovery_issue(&self.store)
+        self.read(|state| state.recovery.issue.clone())
     }
 
     pub fn recovery_status(&self) -> RecoveryStatus {
-        let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
-        state.recovery_status(&self.store)
+        self.read(|state| state.recovery_status())
     }
 
     pub fn flush_recovery(&mut self) -> Result<RecoveryStatus, EditorStoreError> {
-        let _gate = self.store.lock_gate().map_err(EditorStoreError::Recovery)?;
-        let _vault =
-            futo_notes_core::files::vault_mutation_guard().map_err(EditorStoreError::Recovery)?;
-        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
-        if state.terminal {
-            return Err(EditorStoreError::SessionDeleted);
-        }
-        state.flush_recovery(&self.store)
+        self.mutate(|state, store| state.flush_recovery(store))
     }
 
     pub fn recovery_flush_delay(&self) -> Option<Duration> {
-        let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
-        state.recovery_flush_delay(&self.store)
+        self.read(|state| state.recovery.flush_delay())
     }
 
     pub fn flush_recovery_if_due(&mut self) -> Result<bool, EditorStoreError> {
-        let _gate = self.store.lock_gate().map_err(EditorStoreError::Recovery)?;
-        let _vault =
-            futo_notes_core::files::vault_mutation_guard().map_err(EditorStoreError::Recovery)?;
-        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
-        if state.terminal {
-            return Err(EditorStoreError::SessionDeleted);
-        }
-        state.flush_recovery_if_due(&self.store)
+        self.mutate(|state, store| state.flush_recovery_if_due(store))
     }
 
     pub fn resume_recovery(&mut self) -> Result<RecoveryStatus, EditorStoreError> {
-        let _gate = self.store.lock_gate().map_err(EditorStoreError::Recovery)?;
-        let _vault =
-            futo_notes_core::files::vault_mutation_guard().map_err(EditorStoreError::Recovery)?;
-        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
-        if state.terminal {
-            return Err(EditorStoreError::SessionDeleted);
-        }
-        let result = state.resume_recovery(&self.store);
-        state.lease.bind(&self.state);
-        result
+        self.mutate(|state, store| {
+            let result = state.resume_recovery(store);
+            state.lease.bind(&self.state);
+            result
+        })
     }
 
     pub fn source_text(&self) -> String {
-        let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
-        state.source_text(&self.store)
+        self.read(|state| state.engine.source_text())
     }
 
     pub fn display_text(&self) -> String {
-        let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
-        state.display_text(&self.store)
+        self.read(|state| state.engine.display_text())
     }
 
     pub fn id(&self) -> String {
-        let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
-        state.id(&self.store)
+        self.read(|state| state.id.clone())
     }
 
     pub fn revision(&self) -> Revision {
-        let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
-        state.revision(&self.store)
+        self.read(|state| state.engine.revision())
     }
 
     pub fn active_formats(&self) -> Vec<InlineFormat> {
-        let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
-        state.active_formats(&self.store)
+        self.read(|state| {
+            state
+                .engine
+                .full()
+                .expect("full interface owner")
+                .active_formats()
+        })
     }
 
     pub fn selection(&self) -> DisplayRange {
-        let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
-        state.selection(&self.store)
+        self.read(|state| {
+            state
+                .engine
+                .full()
+                .expect("full interface owner")
+                .selection()
+        })
     }
 
     pub fn check_revision(&self, expected: Revision) -> Result<(), EditorStoreError> {
-        let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
-        state.check_revision(&self.store, expected)
+        self.read(|state| {
+            state
+                .engine
+                .full()?
+                .check_revision(expected)
+                .map_err(EditorStoreError::Editor)
+        })
     }
 
     pub fn source_at(
@@ -114,8 +133,13 @@ impl StoreEditorSession<'_> {
         offset: futo_notes_editor::DisplayOffset,
         affinity: Affinity,
     ) -> Result<futo_notes_editor::SourceOffset, EditorStoreError> {
-        let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
-        state.source_at(&self.store, expected, offset, affinity)
+        self.read(|state| {
+            state
+                .engine
+                .full()?
+                .source_at(expected, offset, affinity)
+                .map_err(EditorStoreError::Editor)
+        })
     }
 
     pub fn display_to_utf16(
@@ -123,8 +147,13 @@ impl StoreEditorSession<'_> {
         expected: Revision,
         range: DisplayRange,
     ) -> Result<DisplayUtf16Range, EditorStoreError> {
-        let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
-        state.display_to_utf16(&self.store, expected, range)
+        self.read(|state| {
+            state
+                .engine
+                .full()?
+                .display_to_utf16(expected, range)
+                .map_err(EditorStoreError::Editor)
+        })
     }
 
     pub fn project(
@@ -132,8 +161,13 @@ impl StoreEditorSession<'_> {
         expected: Revision,
         range: DisplayRange,
     ) -> Result<ProjectionSlice, EditorStoreError> {
-        let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
-        state.project(&self.store, expected, range)
+        self.read(|state| {
+            state
+                .engine
+                .full()?
+                .project(expected, range)
+                .map_err(EditorStoreError::Editor)
+        })
     }
 
     pub fn select_with_affinity(
@@ -142,14 +176,13 @@ impl StoreEditorSession<'_> {
         range: DisplayRange,
         affinity: Affinity,
     ) -> Result<SelectionChange, EditorStoreError> {
-        let _gate = self.store.lock_gate().map_err(EditorStoreError::Recovery)?;
-        let _vault =
-            futo_notes_core::files::vault_mutation_guard().map_err(EditorStoreError::Recovery)?;
-        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
-        if state.terminal {
-            return Err(EditorStoreError::SessionDeleted);
-        }
-        state.select_with_affinity(&self.store, expected, range, affinity)
+        self.mutate(|state, _| {
+            state
+                .engine
+                .full_mut()?
+                .select_with_affinity(expected, range, affinity)
+                .map_err(EditorStoreError::Editor)
+        })
     }
 
     pub fn toggle_format(
@@ -157,14 +190,7 @@ impl StoreEditorSession<'_> {
         expected: Revision,
         format: InlineFormat,
     ) -> Result<Option<ViewChange>, EditorStoreError> {
-        let _gate = self.store.lock_gate().map_err(EditorStoreError::Recovery)?;
-        let _vault =
-            futo_notes_core::files::vault_mutation_guard().map_err(EditorStoreError::Recovery)?;
-        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
-        if state.terminal {
-            return Err(EditorStoreError::SessionDeleted);
-        }
-        state.toggle_format(&self.store, expected, format)
+        self.mutate(|state, store| state.toggle_format(store, expected, format))
     }
 
     pub fn select_utf16(
@@ -172,14 +198,13 @@ impl StoreEditorSession<'_> {
         expected: Revision,
         range: DisplayUtf16Range,
     ) -> Result<SelectionChange, EditorStoreError> {
-        let _gate = self.store.lock_gate().map_err(EditorStoreError::Recovery)?;
-        let _vault =
-            futo_notes_core::files::vault_mutation_guard().map_err(EditorStoreError::Recovery)?;
-        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
-        if state.terminal {
-            return Err(EditorStoreError::SessionDeleted);
-        }
-        state.select_utf16(&self.store, expected, range)
+        self.mutate(|state, _| {
+            state
+                .engine
+                .full_mut()?
+                .select_utf16(expected, range)
+                .map_err(EditorStoreError::Editor)
+        })
     }
 
     pub fn move_caret(
@@ -187,36 +212,21 @@ impl StoreEditorSession<'_> {
         expected: Revision,
         direction: CaretDirection,
     ) -> Result<SelectionChange, EditorStoreError> {
-        let _gate = self.store.lock_gate().map_err(EditorStoreError::Recovery)?;
-        let _vault =
-            futo_notes_core::files::vault_mutation_guard().map_err(EditorStoreError::Recovery)?;
-        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
-        if state.terminal {
-            return Err(EditorStoreError::SessionDeleted);
-        }
-        state.move_caret(&self.store, expected, direction)
+        self.mutate(|state, _| {
+            state
+                .engine
+                .full_mut()?
+                .move_caret(expected, direction)
+                .map_err(EditorStoreError::Editor)
+        })
     }
 
     pub fn undo(&mut self, expected: Revision) -> Result<Option<ViewChange>, EditorStoreError> {
-        let _gate = self.store.lock_gate().map_err(EditorStoreError::Recovery)?;
-        let _vault =
-            futo_notes_core::files::vault_mutation_guard().map_err(EditorStoreError::Recovery)?;
-        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
-        if state.terminal {
-            return Err(EditorStoreError::SessionDeleted);
-        }
-        state.undo(&self.store, expected)
+        self.mutate(|state, store| state.undo(store, expected))
     }
 
     pub fn redo(&mut self, expected: Revision) -> Result<Option<ViewChange>, EditorStoreError> {
-        let _gate = self.store.lock_gate().map_err(EditorStoreError::Recovery)?;
-        let _vault =
-            futo_notes_core::files::vault_mutation_guard().map_err(EditorStoreError::Recovery)?;
-        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
-        if state.terminal {
-            return Err(EditorStoreError::SessionDeleted);
-        }
-        state.redo(&self.store, expected)
+        self.mutate(|state, store| state.redo(store, expected))
     }
 
     pub fn block_command_utf16(
@@ -225,14 +235,7 @@ impl StoreEditorSession<'_> {
         range: DisplayUtf16Range,
         command: futo_notes_editor::BlockCommand,
     ) -> Result<Option<ViewChange>, EditorStoreError> {
-        let _gate = self.store.lock_gate().map_err(EditorStoreError::Recovery)?;
-        let _vault =
-            futo_notes_core::files::vault_mutation_guard().map_err(EditorStoreError::Recovery)?;
-        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
-        if state.terminal {
-            return Err(EditorStoreError::SessionDeleted);
-        }
-        state.block_command_utf16(&self.store, expected, range, command)
+        self.mutate(|state, store| state.block_command_utf16(store, expected, range, command))
     }
 
     pub fn paragraph_key_utf16(
@@ -241,14 +244,7 @@ impl StoreEditorSession<'_> {
         range: DisplayUtf16Range,
         key: futo_notes_editor::ParagraphKey,
     ) -> Result<Option<ViewChange>, EditorStoreError> {
-        let _gate = self.store.lock_gate().map_err(EditorStoreError::Recovery)?;
-        let _vault =
-            futo_notes_core::files::vault_mutation_guard().map_err(EditorStoreError::Recovery)?;
-        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
-        if state.terminal {
-            return Err(EditorStoreError::SessionDeleted);
-        }
-        state.paragraph_key_utf16(&self.store, expected, range, key)
+        self.mutate(|state, store| state.paragraph_key_utf16(store, expected, range, key))
     }
 
     pub fn replace_utf16(
@@ -257,14 +253,7 @@ impl StoreEditorSession<'_> {
         range: DisplayUtf16Range,
         inserted: &[u16],
     ) -> Result<ViewChange, EditorStoreError> {
-        let _gate = self.store.lock_gate().map_err(EditorStoreError::Recovery)?;
-        let _vault =
-            futo_notes_core::files::vault_mutation_guard().map_err(EditorStoreError::Recovery)?;
-        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
-        if state.terminal {
-            return Err(EditorStoreError::SessionDeleted);
-        }
-        state.replace_utf16(&self.store, expected, range, inserted)
+        self.mutate(|state, store| state.replace_utf16(store, expected, range, inserted))
     }
 
     pub fn replace_utf16_action(
@@ -274,14 +263,9 @@ impl StoreEditorSession<'_> {
         inserted: &[u16],
         action: futo_notes_editor::InputAction,
     ) -> Result<ViewChange, EditorStoreError> {
-        let _gate = self.store.lock_gate().map_err(EditorStoreError::Recovery)?;
-        let _vault =
-            futo_notes_core::files::vault_mutation_guard().map_err(EditorStoreError::Recovery)?;
-        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
-        if state.terminal {
-            return Err(EditorStoreError::SessionDeleted);
-        }
-        state.replace_utf16_action(&self.store, expected, range, inserted, action)
+        self.mutate(|state, store| {
+            state.replace_utf16_action(store, expected, range, inserted, action)
+        })
     }
 
     pub fn replace_many_utf16(
@@ -289,14 +273,7 @@ impl StoreEditorSession<'_> {
         expected: Revision,
         replacements: &[futo_notes_editor::DisplayUtf16Replacement],
     ) -> Result<ViewChange, EditorStoreError> {
-        let _gate = self.store.lock_gate().map_err(EditorStoreError::Recovery)?;
-        let _vault =
-            futo_notes_core::files::vault_mutation_guard().map_err(EditorStoreError::Recovery)?;
-        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
-        if state.terminal {
-            return Err(EditorStoreError::SessionDeleted);
-        }
-        state.replace_many_utf16(&self.store, expected, replacements)
+        self.mutate(|state, store| state.replace_many_utf16(store, expected, replacements))
     }
 
     pub fn replace(
@@ -305,14 +282,7 @@ impl StoreEditorSession<'_> {
         range: DisplayRange,
         inserted: &str,
     ) -> Result<ViewChange, EditorStoreError> {
-        let _gate = self.store.lock_gate().map_err(EditorStoreError::Recovery)?;
-        let _vault =
-            futo_notes_core::files::vault_mutation_guard().map_err(EditorStoreError::Recovery)?;
-        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
-        if state.terminal {
-            return Err(EditorStoreError::SessionDeleted);
-        }
-        state.replace(&self.store, expected, range, inserted)
+        self.mutate(|state, store| state.replace(store, expected, range, inserted))
     }
 
     pub fn replace_action(
@@ -322,14 +292,7 @@ impl StoreEditorSession<'_> {
         inserted: &str,
         action: futo_notes_editor::InputAction,
     ) -> Result<ViewChange, EditorStoreError> {
-        let _gate = self.store.lock_gate().map_err(EditorStoreError::Recovery)?;
-        let _vault =
-            futo_notes_core::files::vault_mutation_guard().map_err(EditorStoreError::Recovery)?;
-        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
-        if state.terminal {
-            return Err(EditorStoreError::SessionDeleted);
-        }
-        state.replace_action(&self.store, expected, range, inserted, action)
+        self.mutate(|state, store| state.replace_action(store, expected, range, inserted, action))
     }
 
     pub fn replace_many(
@@ -337,26 +300,14 @@ impl StoreEditorSession<'_> {
         expected: Revision,
         replacements: &[futo_notes_editor::DisplayReplacement],
     ) -> Result<ViewChange, EditorStoreError> {
-        let _gate = self.store.lock_gate().map_err(EditorStoreError::Recovery)?;
-        let _vault =
-            futo_notes_core::files::vault_mutation_guard().map_err(EditorStoreError::Recovery)?;
-        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
-        if state.terminal {
-            return Err(EditorStoreError::SessionDeleted);
-        }
-        state.replace_many(&self.store, expected, replacements)
+        self.mutate(|state, store| state.replace_many(store, expected, replacements))
     }
 
     pub fn checkpoint(&mut self) -> Result<FlushDraftResult, EditorStoreError> {
-        let _gate = self.store.lock_gate().map_err(EditorStoreError::Recovery)?;
-        let _vault =
-            futo_notes_core::files::vault_mutation_guard().map_err(EditorStoreError::Recovery)?;
-        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
-        if state.terminal {
-            return Err(EditorStoreError::SessionDeleted);
-        }
-        let result = state.checkpoint(&self.store);
-        state.lease.bind(&self.state);
-        result
+        self.mutate(|state, store| {
+            let result = state.checkpoint(store);
+            state.lease.bind(&self.state);
+            result
+        })
     }
 }
