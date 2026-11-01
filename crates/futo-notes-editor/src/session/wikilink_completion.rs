@@ -33,7 +33,7 @@ impl EditorSession {
             return None;
         }
         let end_char = self.source.byte_to_char(low);
-        let mut begin_char = end_char.saturating_sub(MAX_RUN_BYTES);
+        let mut begin_char = self.source.byte_to_char(low.saturating_sub(MAX_RUN_BYTES));
         let mut window = self.source.slice(begin_char..end_char).to_string();
         if let Some(line_break) = window.rfind('\n') {
             begin_char += window[..=line_break].chars().count();
@@ -45,6 +45,9 @@ impl EditorSession {
         }
         let open = window.find("[[")?;
         let start = self.source.char_to_byte(begin_char) + open;
+        if low - start > MAX_RUN_BYTES {
+            return None;
+        }
         if !self.projection.opens_literal_wikilink(start) {
             return None;
         }
