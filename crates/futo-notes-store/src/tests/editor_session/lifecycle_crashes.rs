@@ -1,9 +1,23 @@
 use super::*;
 use std::path::Path;
 
+mod prepared;
+
+#[derive(Default)]
+struct PreparedIo {
+    created_bytes: usize,
+    replaced_bytes: usize,
+    appended_bytes: usize,
+    activations: usize,
+    short_write: bool,
+    activation_sync_failure: bool,
+    discard_failure: bool,
+}
+
 struct CrashStorage {
     inner: Box<dyn RecoveryStorage>,
     phase: String,
+    prepared_io: Option<Arc<Mutex<PreparedIo>>>,
 }
 impl CrashStorage {
     fn interrupt(&self, operation: &str, path: &str) {
@@ -35,6 +49,8 @@ impl CrashStorage {
             "relink-decision-retired" => {
                 operation == "remove" && path.ends_with(".retarget.committed")
             }
+            "bounded-before-activation" => operation == "before-activation",
+            "bounded-after-activation" => operation == "activation",
             _ => false,
         };
         if crash {
@@ -43,6 +59,53 @@ impl CrashStorage {
     }
 }
 impl RecoveryStorage for CrashStorage {
+    fn prepare_bounded_stream(
+        &mut self,
+        root: &Path,
+        inactive: &str,
+        canonical: &str,
+        header: &[u8],
+    ) -> Result<(), String> {
+        if let Some(io) = &self.prepared_io {
+            io.lock().unwrap().created_bytes += header.len();
+        }
+        self.inner
+            .prepare_bounded_stream(root, inactive, canonical, header)
+    }
+    fn activate_bounded_stream(
+        &mut self,
+        root: &Path,
+    ) -> Result<futo_notes_core::files::vault_fs::RecoveryActivation, String> {
+        self.interrupt("before-activation", "");
+        if let Some(io) = &self.prepared_io {
+            let mut io = io.lock().unwrap();
+            io.activations += 1;
+            if io.activation_sync_failure {
+                io.activation_sync_failure = false;
+                #[cfg(unix)]
+                futo_notes_core::files::vault_fs::fail_directory_sync_on_call(1);
+            }
+        }
+        let result = self.inner.activate_bounded_stream(root)?;
+        self.interrupt("activation", "");
+        Ok(result)
+    }
+    fn verify_bounded_stream(&mut self, root: &Path, path: &str) -> Result<(), String> {
+        self.inner.verify_bounded_stream(root, path)
+    }
+    fn deactivate_bounded_stream(&mut self, root: &Path) -> Result<(), String> {
+        self.inner.deactivate_bounded_stream(root)
+    }
+    fn discard_bounded_stream(&mut self, root: &Path) -> Result<(), String> {
+        if let Some(io) = &self.prepared_io {
+            let mut io = io.lock().unwrap();
+            if io.discard_failure {
+                io.discard_failure = false;
+                return Err("injected inactive recovery cleanup failure".into());
+            }
+        }
+        self.inner.discard_bounded_stream(root)
+    }
     fn list(&mut self, root: &Path) -> Result<Vec<String>, String> {
         self.inner.list(root)
     }
@@ -50,6 +113,9 @@ impl RecoveryStorage for CrashStorage {
         self.inner.read(root, path)
     }
     fn create(&mut self, root: &Path, path: &str, bytes: &[u8]) -> Result<(), String> {
+        if let Some(io) = &self.prepared_io {
+            io.lock().unwrap().created_bytes += bytes.len();
+        }
         if self.phase.starts_with("pending-delete-") && path.ends_with(".retarget.committed") {
             return Err("interrupted rename recovery".into());
         }
@@ -57,10 +123,23 @@ impl RecoveryStorage for CrashStorage {
         self.inner.create(root, path, bytes)
     }
     fn replace(&mut self, root: &std::path::Path, path: &str, bytes: &[u8]) -> Result<(), String> {
+        if let Some(io) = &self.prepared_io {
+            io.lock().unwrap().replaced_bytes += bytes.len();
+        }
         self.interrupt("before-replace", path);
         self.inner.replace(root, path, bytes)
     }
     fn append(&mut self, root: &Path, path: &str, bytes: &[u8]) -> Result<(), String> {
+        if let Some(io) = &self.prepared_io {
+            let mut io = io.lock().unwrap();
+            if io.short_write {
+                io.short_write = false;
+                io.appended_bytes += bytes.len() / 2;
+                self.inner.append(root, path, &bytes[..bytes.len() / 2])?;
+                return Err("injected prepared short write".into());
+            }
+            io.appended_bytes += bytes.len();
+        }
         self.inner.append(root, path, bytes)
     }
     fn truncate(&mut self, root: &Path, path: &str, length: u64) -> Result<(), String> {
@@ -256,6 +335,9 @@ fn identity_death_child() {
     let phase = std::env::var("FUTO_EDITOR_IDENTITY_PHASE").unwrap();
     let workflow = std::env::var("FUTO_EDITOR_IDENTITY_WORKFLOW").unwrap_or_else(|_| "note".into());
     let store = LocalNoteStore::new(root.into());
+    if phase.starts_with("bounded-") {
+        prepared::death_child(&store, &phase);
+    }
     if phase.starts_with("relink-") {
         let defaults = RecoveryOptions::default();
         let mut editor = store
@@ -266,6 +348,7 @@ fn identity_death_child() {
                     storage: Box::new(CrashStorage {
                         inner: defaults.storage,
                         phase: phase.clone(),
+                        prepared_io: None,
                     }),
                 },
             )
@@ -289,6 +372,7 @@ fn identity_death_child() {
                 storage: Box::new(CrashStorage {
                     inner: defaults.storage,
                     phase: phase.clone(),
+                    prepared_io: None,
                 }),
             },
         )
