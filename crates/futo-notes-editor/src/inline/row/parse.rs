@@ -299,6 +299,7 @@ impl Row {
             context,
             transparent_quote,
             continues: false,
+            through: false,
             source_len: source.len(),
             parsed_source_bytes: source.len() + additional_parse + reference_work.parsed,
             definitions,

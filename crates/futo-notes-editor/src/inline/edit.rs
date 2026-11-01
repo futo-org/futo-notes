@@ -316,7 +316,8 @@ impl Projection {
         let parsed = rendered.parsed + angle.work.parsed + completion.work.parsed;
         let guarded_words = rendered.take_guards(source_start, source_end);
         let output = rendered.text;
-        let (sealed, seal_parsed) = self.sealed_candidate(source_start, source_end, &output);
+        let (sealed, seal_parsed) =
+            self.sealed_candidate(source, source_start, source_end, &output);
         let caret = rendered.caret;
         let (mut retained, mut correspondence_work) =
             SourceCorrespondence::verify(&raw, inserted, &output, rendered.origins, source_start);

@@ -81,8 +81,10 @@ pub(crate) struct Row {
     pub blocks: Vec<super::blocks::BlockLine>,
     pub(super) context: Vec<ContextRun>,
     pub(super) transparent_quote: Option<usize>,
-    /// This row continues the preceding row's top-level paragraph.
+    /// This row's first block continues the preceding row's last block.
     pub continues: bool,
+    /// This row continues one block that the following row continues too.
+    pub through: bool,
 }
 
 pub(super) fn parser_options() -> Options {

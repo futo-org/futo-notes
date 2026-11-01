@@ -48,11 +48,12 @@ renderer integration retain their own owners and dependent tickets.
 Paragraph projections use a length-indexed tree and display Rope, so an ordinary
 edit after a distant jump reparses only its paragraph window without rewriting
 the note's tail offsets. Work counters include actual parser input for candidate
-verification, paragraph partitioning and projection. Work in a single large
-paragraph, list or fence still depends on that region; progressive interpretation,
-a preceding list row retaining a long run of trailing blanks, complete allocation/work
-bounds and native device latency measurements remain
-in their dependent tickets.
+verification, paragraph partitioning and projection. Large soft-line
+paragraphs and tight bullet lists are now cut into sealed rows
+(→ docs/spec/editor/portable-core/long-regions.md); work in an ordered or loose list,
+a quoted container, a single huge display line or a fence still depends on that region;
+progressive interpretation, complete allocation/work bounds and native device latency
+measurements remain in their dependent tickets.
 
 Early physical ARM32 reconnaissance confirms that large-region calls and returned
 semantic payloads still scale with that region. Immediate explicit flushes also

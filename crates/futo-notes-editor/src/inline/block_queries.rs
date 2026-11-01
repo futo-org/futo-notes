@@ -26,7 +26,8 @@ impl Projection {
         std::ops::Range<usize>,
         Option<std::ops::Range<usize>>,
     ) {
-        let (row, base, _) = self.rows.at(self.rows.locate(at, false));
+        let index = self.rows.locate(at, false);
+        let (row, base, _) = self.rows.at(index);
         let raw = source.byte_slice(base..base + row.source_len).to_string();
         let events = row::source_events(&raw);
         let paragraph = body.and_then(|body| {
@@ -45,6 +46,7 @@ impl Projection {
         for item in &mut items {
             visit_container();
             item.shift(base);
+            self.fix_list(index, base, item);
         }
         // Command-local event records are queried by original source range.
         items.sort_by_key(|item| {
@@ -55,27 +57,107 @@ impl Projection {
     }
 
     pub(crate) fn block_ref_at_source(&self, at: usize) -> Option<(&blocks::BlockLine, usize)> {
-        let (row, base, _) = self.rows.at(self.rows.locate(at, false));
+        self.indexed_block_at_source(at)
+            .map(|(block, base, _)| (block, base))
+    }
+
+    fn indexed_block_at_source(&self, at: usize) -> Option<(&blocks::BlockLine, usize, usize)> {
+        let index = self.rows.locate(at, false);
+        let (row, base, _) = self.rows.at(index);
         let local = at - base;
-        let index = row
+        let block = row
             .blocks
             .partition_point(|block| {
                 visit_container();
                 block.source.start <= local
             })
             .saturating_sub(1);
-        Some((row.blocks.get(index)?, base))
+        Some((row.blocks.get(block)?, base, index))
     }
 
     pub(crate) fn list_command_line_at_source(&self, at: usize) -> Option<blocks::ListCommandLine> {
-        let (block, base) = self.block_ref_at_source(at)?;
-        Some(blocks::ListCommandLine::from_block(block, base))
+        let (block, base, index) = self.indexed_block_at_source(at)?;
+        Some(self.command_line(block, base, index))
+    }
+
+    fn command_line(
+        &self,
+        block: &blocks::BlockLine,
+        base: usize,
+        index: usize,
+    ) -> blocks::ListCommandLine {
+        let mut line = blocks::ListCommandLine::from_block(block, base);
+        if let Some(list) = &mut line.list {
+            self.fix_list(index, base, list);
+        }
+        line
+    }
+
+    /// The retained semantic neighbor, with a cut list's list-wide fields.
+    pub(crate) fn context_neighbor(
+        &self,
+        at: usize,
+        forward: bool,
+        quote: usize,
+    ) -> Option<ContextWitness> {
+        let mut witness = self.rows.context_neighbor(at, forward, quote)?;
+        if let Some(list) = &mut witness.list {
+            let index = self.rows.locate(witness.source.start, false);
+            let base = self.rows.at(index).1;
+            self.fix_list(index, base, list);
+        }
+        Some(witness)
+    }
+
+    /// A cut list keeps each row's own parse. Its list-wide owner and the
+    /// first continued item's previous content column (equal by the cut rule)
+    /// come from the rows where the list starts and ends.
+    pub(crate) fn fix_list(&self, index: usize, base: usize, list: &mut ListLine) {
+        if list.depth != 1 || list.quote_depth != 0 {
+            return;
+        }
+        let row = self.rows.at(index).0;
+        let continued = row.continues
+            && row.blocks.first().is_some_and(|block| {
+                block.list.as_ref().is_some_and(|first| {
+                    first.quote_depth == 0 && first.outer_item.start == list.owner.start - base
+                })
+            });
+        let continues_on = list.owner.end - base == row.source_len
+            && index + 1 < self.rows.len()
+            && self.rows.at(index + 1).0.continues;
+        if !continued && !continues_on {
+            return;
+        }
+        let top = |block: &blocks::BlockLine| {
+            visit_container();
+            block
+                .list
+                .as_ref()
+                .filter(|list| list.depth == 1 && list.quote_depth == 0)
+                .map(|list| list.owner.clone())
+        };
+        if continued {
+            if list.item.start == list.owner.start && list.previous_content_column.is_none() {
+                list.previous_content_column = Some(list.content_column);
+            }
+            let (head, head_base, _) = self.rows.at(self.rows.block_start(index));
+            if let Some(owner) = head.blocks.iter().rev().find_map(top) {
+                list.owner.start = head_base + owner.start;
+            }
+        }
+        if continues_on {
+            let (tail, tail_base, _) = self.rows.at(self.rows.block_end(index));
+            if let Some(owner) = tail.blocks.iter().find_map(top) {
+                list.owner.end = tail_base + owner.end;
+            }
+        }
     }
 
     pub(crate) fn source_prefix_at(&self, at: usize) -> Option<blocks::SourcePrefix> {
         #[cfg(test)]
         CONTAINER_PREFIX_QUERIES.with(|count| count.set(count.get() + 1));
-        let (block, base) = self.block_ref_at_source(at)?;
+        let (block, base, row_index) = self.indexed_block_at_source(at)?;
         let local = at - base;
         let index = block
             .bodies
@@ -99,6 +181,7 @@ impl Projection {
         let mut list = block.list.clone();
         if let Some(list) = &mut list {
             list.shift(base);
+            self.fix_list(row_index, base, list);
         }
         Some(blocks::SourcePrefix {
             source: base + body.source.start..base + body.source.end,
@@ -117,9 +200,12 @@ impl Projection {
 
     pub(crate) fn block_lines(&self, range: DisplayRange) -> Vec<blocks::BlockLine> {
         let mut result = Vec::new();
-        self.visit_block_lines(range, false, |block, base| {
+        self.visit_block_lines(range, false, |block, base, index| {
             let mut block = block.clone();
             block.shift(base);
+            if let Some(list) = &mut block.list {
+                self.fix_list(index, base, list);
+            }
             result.push(block);
         });
         result
@@ -127,9 +213,12 @@ impl Projection {
 
     pub(crate) fn format_block_lines(&self, range: DisplayRange) -> Vec<blocks::BlockLine> {
         let mut result = Vec::new();
-        self.visit_block_lines(range, true, |block, base| {
+        self.visit_block_lines(range, true, |block, base, index| {
             let mut block = block.clone();
             block.shift(base);
+            if let Some(list) = &mut block.list {
+                self.fix_list(index, base, list);
+            }
             result.push(block);
         });
         result
@@ -137,8 +226,8 @@ impl Projection {
 
     pub(crate) fn list_command_lines(&self, range: DisplayRange) -> Vec<blocks::ListCommandLine> {
         let mut result = Vec::new();
-        self.visit_block_lines(range, true, |block, base| {
-            result.push(blocks::ListCommandLine::from_block(block, base))
+        self.visit_block_lines(range, true, |block, base, index| {
+            result.push(self.command_line(block, base, index))
         });
         result
     }
@@ -150,8 +239,8 @@ impl Projection {
         range: &std::ops::Range<usize>,
     ) -> Vec<blocks::ListCommandLine> {
         let mut result = Vec::new();
-        self.visit_source_blocks(range, |block, base| {
-            result.push(blocks::ListCommandLine::from_block(block, base));
+        self.visit_indexed_source_blocks(range, |block, base, index| {
+            result.push(self.command_line(block, base, index));
         });
         result
     }
@@ -162,6 +251,14 @@ impl Projection {
         &'a self,
         range: &std::ops::Range<usize>,
         mut visit: impl FnMut(&'a blocks::BlockLine, usize),
+    ) {
+        self.visit_indexed_source_blocks(range, |block, base, _| visit(block, base));
+    }
+
+    fn visit_indexed_source_blocks<'a>(
+        &'a self,
+        range: &std::ops::Range<usize>,
+        mut visit: impl FnMut(&'a blocks::BlockLine, usize, usize),
     ) {
         if range.is_empty() {
             return;
@@ -191,7 +288,7 @@ impl Projection {
                 CONTAINER_BLOCK_QUERY_VISITS.with(|count| count.set(count.get() + 1));
                 visit_container();
                 if !block.empty_comment && begin < block.source.end && block.source.start < end {
-                    visit(block, source);
+                    visit(block, source, index);
                 }
             }
         }
@@ -201,7 +298,7 @@ impl Projection {
         &self,
         range: DisplayRange,
         formatting: bool,
-        mut visit: impl FnMut(&blocks::BlockLine, usize),
+        mut visit: impl FnMut(&blocks::BlockLine, usize, usize),
     ) {
         let first = self.rows.locate(range.start.0, true);
         let last = self.rows.locate(range.end.0, true);
@@ -249,7 +346,7 @@ impl Projection {
                             == self.rows.at(self.rows.len() - 1).1
                                 + self.rows.at(self.rows.len() - 1).0.source_len
                     {
-                        visit(block, source);
+                        visit(block, source, index);
                     }
                 }
             }

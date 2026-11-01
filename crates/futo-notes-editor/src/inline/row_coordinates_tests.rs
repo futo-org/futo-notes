@@ -233,6 +233,7 @@ fn model(source_len: usize, display: &str, segments: Vec<Segment>) -> Row {
         context: Vec::new(),
         transparent_quote: None,
         continues: false,
+        through: false,
     }
 }
 

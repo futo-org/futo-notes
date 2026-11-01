@@ -147,7 +147,7 @@ impl EditorSession {
         forward: bool,
         quote: usize,
     ) -> Option<Neighbor> {
-        if let Some(witness) = self.projection.rows.context_neighbor(at, forward, quote) {
+        if let Some(witness) = self.projection.context_neighbor(at, forward, quote) {
             let marker = witness.list.as_ref().map(|list| {
                 self.source
                     .byte_slice(list.marker.end - 1..list.marker.end)

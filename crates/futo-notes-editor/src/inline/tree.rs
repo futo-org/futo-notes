@@ -1,6 +1,8 @@
 //! Paragraph-relative coordinates in a length-indexed sequence tree. Changing a
 //! paragraph never rewrites the offsets of the paragraphs following it.
 use super::row::Row;
+mod heads;
+use heads::heads;
 
 type Link = Option<Box<Node>>;
 pub(crate) struct Node {
@@ -12,6 +14,8 @@ pub(crate) struct Node {
     source: usize,
     display: usize,
     transparent_quote: Option<usize>,
+    /// Rows in this subtree that are not `through` rows.
+    heads: usize,
 }
 
 impl Node {
@@ -24,6 +28,7 @@ impl Node {
             })
         });
         self.count = 1 + count(&self.left) + count(&self.right);
+        self.heads = usize::from(!self.row.through) + heads(&self.left) + heads(&self.right);
         self.source = self.row.source_len + length(&self.left, false) + length(&self.right, false);
         self.display =
             self.row.display.len() + length(&self.left, true) + length(&self.right, true);
@@ -92,6 +97,7 @@ impl Rows {
             priority ^= priority >> 31;
             let node = Box::new(Node {
                 transparent_quote: row.transparent_quote,
+                heads: usize::from(!row.through),
                 source: row.source_len,
                 display: row.display.len(),
                 row,

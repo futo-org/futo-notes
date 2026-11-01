@@ -29,6 +29,8 @@ mod split_tests;
 pub(crate) use spelling::relink::{RetainedFormat, RetiredLinkText};
 mod toggle;
 mod tree;
+mod window;
+use window::Window;
 
 use crate::{
     Correspondence, DisplayOffset, DisplayRange, InlineFormat, ProjectionSlice, Revision,
@@ -87,14 +89,16 @@ impl Projection {
     ) -> Self {
         let mut origin = 0;
         let mut witness_work = 0;
-        let parsed: Vec<_> = partition(source, false, false)
+        let parsed: Vec<_> = partition(source, false, None)
             .rows
             .into_iter()
-            .map(|(text, continues)| {
+            .map(|piece| {
+                let text = piece.text;
                 let (local, work) = references::window_winners(winners, origin, text.len());
                 witness_work += work;
                 let mut row = Row::parse_with_references(text, &references, &local);
-                row.continues = continues;
+                row.continues = piece.continues;
+                row.through = piece.through;
                 origin += text.len();
                 row
             })
@@ -268,53 +272,17 @@ impl Projection {
         edit: &SourceEdit,
         canonical_origin: Option<&references::SourceOrigin>,
     ) -> Update {
-        let mut first = self
-            .rows
-            .locate(edit.range.start.0, false)
-            .saturating_sub(1);
-        let mut last = (self.rows.locate(edit.range.end.0, false) + 1).min(self.rows.len() - 1);
-        // A cut paragraph whose meaning reaches outside the window widens to
-        // its complete extent once; seams elsewhere remain sealed.
-        let mut partition_bytes = 0;
-        let (source_start, display_start, source_end, display_end, text, pieces) = loop {
-            let (_, source_start, display_start) = self.rows.at(first);
-            let (row, old_end, display_end) = self.rows.at(last);
-            let source_end = old_end + row.source_len - edit.removed.len() + edit.inserted.len();
-            let display_end = display_end + row.display.len();
-            let text = source.byte_slice(source_start..source_end).to_string();
-            let continues = self.rows.at(first).0.continues;
-            let next_continues = last + 1 < self.rows.len() && self.rows.at(last + 1).0.continues;
-            let found = partition(&text, continues, next_continues);
-            if !found.widen_back && !found.widen_forward {
-                let pieces: Vec<(usize, bool)> = found
-                    .rows
-                    .iter()
-                    .map(|(raw, continues)| (raw.len(), *continues))
-                    .collect();
-                break (
-                    source_start,
-                    display_start,
-                    source_end,
-                    display_end,
-                    text,
-                    pieces,
-                );
-            }
-            partition_bytes += text.len();
-            // Keep one neighbor row beyond the paragraph, as the local window does.
-            if found.widen_back {
-                while self.rows.at(first).0.continues {
-                    first -= 1;
-                }
-                first = first.saturating_sub(1);
-            }
-            if found.widen_forward {
-                while last + 1 < self.rows.len() && self.rows.at(last + 1).0.continues {
-                    last += 1;
-                }
-                last = (last + 1).min(self.rows.len() - 1);
-            }
-        };
+        let Window {
+            first,
+            last,
+            source_start,
+            display_start,
+            source_end,
+            display_end,
+            text,
+            pieces,
+            partition_bytes,
+        } = self.reparse_window(source, edit);
         let (pending, metadata_work) = self.pending_display(first, last);
         let (delimiters, delimiter_work) = self.retained_delimiters(first, last, edit);
         let mut guards = Vec::new();
@@ -356,12 +324,13 @@ impl Projection {
         let mut origin = 0;
         let parsed: Vec<_> = pieces
             .into_iter()
-            .map(|(len, continues)| {
+            .map(|(len, continues, through)| {
                 let raw = &text[origin..origin + len];
                 let (local, work) = references::window_winners(&winners, origin, raw.len());
                 reference_work.items += work;
                 let mut row = Row::parse_with_references(raw, &self.references, &local);
                 row.continues = continues;
+                row.through = through;
                 origin += raw.len();
                 row
             })

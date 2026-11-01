@@ -23,6 +23,8 @@ fn shared_frame_plan_counts_actual_row_and_emitted_prefix_work_without_ancestor_
             };
             s.select_with_affinity(s.revision(), selected, Affinity::Backward)
                 .unwrap();
+            // A long list is cut into rows (#314); the plan reads its own row.
+            let row = s.projection.rows.at(0).0.source_len;
             crate::inline::CONTAINER_METADATA_VISITS.with(|c| c.set(0));
             let mut accepted = 0;
             let change = s
@@ -39,8 +41,8 @@ fn shared_frame_plan_counts_actual_row_and_emitted_prefix_work_without_ancestor_
             assert_eq!(s.source_text(), expected);
             assert_eq!(display, shown);
             assert_eq!(s.selection().start, DisplayOffset(4));
-            assert!(change.work.parsed_source_bytes > raw.len());
-            assert!(change.work.materialized_source_bytes > expected.len());
+            assert!(change.work.parsed_source_bytes > row);
+            assert!(change.work.materialized_source_bytes > row);
             measurements.push((
                 raw.len(),
                 visits,
@@ -136,6 +138,8 @@ fn multiline_paragraph_frames_measure_actual_parser_copy_and_query_growth() {
             };
             s.select_with_affinity(Revision(0), selected, Affinity::Backward)
                 .unwrap();
+            // A long list is cut into rows (#314); the plan reads its own row.
+            let row = s.projection.rows.at(0).0.source_len;
             crate::inline::CONTAINER_METADATA_VISITS.with(|c| c.set(0));
             let mut accepted = 0;
             let mut accept = |_: &SourceEdit| {

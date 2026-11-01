@@ -12,15 +12,23 @@ impl Projection {
 
     /// A candidate replacing source `start..end` is sealed when it cannot
     /// pair with syntax in a neighboring row of the same cut paragraph.
-    pub(super) fn sealed_candidate(&self, start: usize, end: usize, output: &str) -> (bool, usize) {
+    pub(super) fn sealed_candidate(
+        &self,
+        source: &Rope,
+        start: usize,
+        end: usize,
+        output: &str,
+    ) -> (bool, usize) {
         let continues = self.rows.at(self.rows.locate(start, false)).0.continues;
         let index = self.rows.locate(end, false);
-        let (row, at, _) = self.rows.at(index);
-        let next_continues = at == end && end > start && row.continues;
-        if !continues && !next_continues {
+        let at = self.rows.at(index).1;
+        let next = (at == end && end > start)
+            .then(|| self.continued_line(source, index, end))
+            .flatten();
+        if !continues && next.is_none() {
             return (true, 0);
         }
-        let found = super::super::row::partition(output, continues, next_continues);
+        let found = super::super::row::partition(output, continues, next.as_deref());
         (!found.widen_back && !found.widen_forward, output.len())
     }
 

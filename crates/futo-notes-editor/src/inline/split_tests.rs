@@ -1,4 +1,4 @@
-//! A session with cut paragraphs must behave exactly like a twin session whose
+//! A session with cut paragraphs and lists must behave exactly like a twin session whose
 //! rows are never cut, through engine input and raw source records that unseal
 //! a cut or reach across it.
 use super::row::UNCUT;
@@ -21,11 +21,18 @@ fn range(start: usize, end: usize) -> DisplayRange {
     }
 }
 
-fn whole(session: &EditorSession) -> (String, ProjectionSlice) {
+fn whole(session: &EditorSession) -> (String, ProjectionSlice, String) {
     let end = session.projection.display.len_bytes();
+    let lines: Vec<_> = session
+        .projection
+        .list_command_lines(range(0, end))
+        .into_iter()
+        .map(|line| (line.source, line.list, line.task))
+        .collect();
     (
         session.source_text(),
         session.projection.query(Revision(0), range(0, end)),
+        format!("{lines:?}"),
     )
 }
 
@@ -44,12 +51,31 @@ const LINES: &[&str] = &[
 ];
 const EDITS: &[&str] = &[
     "x", "*", "`", "[", "]", "\n", "  ", "\\", "- ", "# ", "\n===", "_", "<b", "\n\n", "```", "> ",
-    "1. ", "**",
+    "1. ", "**", "\n- ", "* ", "[ ] ",
+];
+
+const ITEMS: &[&str] = &[
+    "  - nested item",
+    "- [ ] open task",
+    "- [x] done task",
+    "- a `code` item",
+    "- with *em* item",
+    "-   wide item",
+    "* other bullet",
+    "lazy continuation",
+    "  ```fence in item",
+];
+const KEYS: &[ParagraphKey] = &[
+    ParagraphKey::Enter,
+    ParagraphKey::Backspace,
+    ParagraphKey::Delete,
+    ParagraphKey::Tab,
+    ParagraphKey::ShiftTab,
 ];
 
 enum Step {
     Raw(usize, usize, &'static str),
-    Backspace(usize),
+    Key(usize, ParagraphKey),
     Type(usize, &'static str),
 }
 
@@ -71,13 +97,8 @@ fn run(session: &mut EditorSession, step: &Step) {
                 })
                 .unwrap();
         }
-        Step::Backspace(at) => {
-            let _ = session.paragraph_key(
-                revision,
-                range(at, at),
-                ParagraphKey::Backspace,
-                &mut |_| Ok(()),
-            );
+        Step::Key(at, key) => {
+            let _ = session.paragraph_key(revision, range(at, at), key, &mut |_| Ok(()));
         }
         Step::Type(at, text) => {
             let _ = session.replace(revision, range(at, at), text, &mut |_| Ok(()));
@@ -96,11 +117,18 @@ fn cut_paragraphs_match_uncut_twin_through_edits() {
     };
     let cases = std::env::var("SPLIT_CASES").map_or(24, |cases| cases.parse().unwrap());
     for case in 0..cases {
+        let list = case % 2 == 1;
         let mut source = String::new();
         for line in 0..400 {
-            let text = if case % 3 == 0 || next(4) != 0 {
+            let text = if list {
+                if case % 3 == 0 || next(5) != 0 {
+                    "- list item"
+                } else {
+                    ITEMS[next(ITEMS.len())]
+                }
+            } else if case % 3 == 0 || next(4) != 0 {
                 "plain words here"
-            } else if case % 6 == 5 && next(8) == 0 {
+            } else if case % 6 == 4 && next(8) == 0 {
                 ["*opens here", "closes here*"][next(2)]
             } else {
                 LINES[next(LINES.len())]
@@ -156,8 +184,8 @@ fn cut_paragraphs_match_uncut_twin_through_edits() {
                 while !display.is_char_boundary(at) {
                     at -= 1;
                 }
-                if next(4) == 0 {
-                    Step::Backspace(at)
+                if next(3) == 0 {
+                    Step::Key(at, KEYS[next(KEYS.len())])
                 } else {
                     Step::Type(at, EDITS[next(EDITS.len())])
                 }
@@ -177,9 +205,15 @@ fn cut_paragraphs_match_uncut_twin_through_edits() {
                 a.text == b.text && a.runs == b.runs && a.blocks == b.blocks && a.links == b.links
             };
             let ok = got == want
-                || (same_meaning(&got.1, &want.1)
+                || (!list
+                    && same_meaning(&got.1, &want.1)
                     && got == uncut(|| whole(&EditorSession::open(&got.0))));
-            assert!(ok, "case {case} step {index}");
+            let step = match step {
+                Step::Raw(at, end, text) => format!("raw {at}..{end} {text:?}"),
+                Step::Key(at, key) => format!("key {key:?} at {at}"),
+                Step::Type(at, text) => format!("type {text:?} at {at}"),
+            };
+            assert!(ok, "case {case} step {index}: {step}");
             if got != want {
                 // Continue from the cut twin's spelling.
                 reference = uncut(|| EditorSession::open(&got.0));

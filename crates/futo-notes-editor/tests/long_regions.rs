@@ -48,13 +48,21 @@ fn total(work: &EditWork) -> usize {
 #[test]
 fn local_keys_in_one_giant_region_do_not_scale_with_it() {
     type Shape = fn(usize) -> (String, String, String);
-    let shapes: [(&str, Shape); 1] = [("soft-line paragraph", |lines| {
-        let line = |i: usize| format!("word {i}\n");
-        let source: String = (0..lines).map(line).collect();
-        let middle = format!("word {}", lines / 2);
-        let expected = source.replace(&format!("{middle}\n"), &format!("{middle}\n\n"));
-        (source, middle, expected)
-    })];
+    let shapes: [(&str, Shape); 2] = [
+        ("tight bullet list", |lines| {
+            let source: String = (0..lines).map(|i| format!("- item {i}\n")).collect();
+            let middle = format!("item {}", lines / 2);
+            let expected = source.replace(&format!("- {middle}\n"), &format!("- {middle}\n- \n"));
+            (source, middle, expected)
+        }),
+        ("soft-line paragraph", |lines| {
+            let line = |i: usize| format!("word {i}\n");
+            let source: String = (0..lines).map(line).collect();
+            let middle = format!("word {}", lines / 2);
+            let expected = source.replace(&format!("{middle}\n"), &format!("{middle}\n\n"));
+            (source, middle, expected)
+        }),
+    ];
     for (name, shape) in shapes {
         let mut small = None;
         for lines in [1_000, 20_000] {

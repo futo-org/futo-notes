@@ -6,7 +6,8 @@
 //! parse: no inline element crosses it, its previous line has no hard-break
 //! spelling, and its next line cannot start a block. Cut paragraphs keep the
 //! invariant that no row holds a literal delimiter able to pair across rows;
-//! otherwise the whole paragraph stays one row.
+//! otherwise the whole paragraph stays one row. A tight top-level bullet list
+//! is cut between top-level items, which inline syntax never crosses.
 use pulldown_cmark::{Event, Parser, Tag, TagEnd};
 
 /// Paragraphs below this size keep their single row.
@@ -14,9 +15,16 @@ pub(crate) const SPLIT_MIN: usize = 2048;
 /// Minimum bytes between chosen seams.
 const CHUNK: usize = 512;
 
+pub(crate) struct Piece<'a> {
+    pub text: &'a str,
+    /// The row's first block continues the preceding row's last block.
+    pub continues: bool,
+    /// The row continues one block that the following row continues too.
+    pub through: bool,
+}
+
 pub(crate) struct Partition<'a> {
-    /// Row text and whether it continues the preceding row's paragraph.
-    pub rows: Vec<(&'a str, bool)>,
+    pub rows: Vec<Piece<'a>>,
     /// The first row continues an outside paragraph whose meaning changed.
     pub widen_back: bool,
     /// The last row's paragraph must absorb the following outside row.
@@ -24,13 +32,15 @@ pub(crate) struct Partition<'a> {
 }
 
 /// `continues`: the text's first row continues the preceding outside row.
-/// `next_continues`: the outside row after this text continues its last row.
-pub(crate) fn partition(source: &str, continues: bool, next_continues: bool) -> Partition<'_> {
-    let deep = continues || next_continues || source.len() >= SPLIT_MIN;
+/// `next`: the first line of the following outside row when it continues the
+/// text's last row.
+pub(crate) fn partition<'a>(source: &'a str, continues: bool, next: Option<&str>) -> Partition<'a> {
+    let deep = continues || next.is_some() || source.len() >= SPLIT_MIN;
     #[cfg(test)]
     let deep = deep && !UNCUT.with(|uncut| uncut.get());
     let mut protected = Vec::new();
     let mut cuts = Vec::new();
+    let mut starts = Vec::new();
     let (mut widen_back, mut widen_forward) = (false, false);
     if !deep {
         protected.extend(
@@ -42,8 +52,14 @@ pub(crate) fn partition(source: &str, continues: bool, next_continues: bool) -> 
                 }),
         );
     } else {
-        (widen_back, widen_forward) =
-            analyze(source, continues, next_continues, &mut protected, &mut cuts);
+        (widen_back, widen_forward) = analyze(
+            source,
+            continues,
+            next,
+            &mut protected,
+            &mut cuts,
+            &mut starts,
+        );
     }
     let mut protected_index = 0;
     let mut rows = Vec::new();
@@ -75,8 +91,27 @@ pub(crate) fn partition(source: &str, continues: bool, next_continues: bool) -> 
     if start < source.len() || rows.is_empty() {
         rows.push((&source[start..], row_continues));
     }
+    let mut offset = 0;
+    let mut starts = starts.into_iter().peekable();
+    let pieces = (0..rows.len())
+        .map(|index| {
+            let (text, continues) = rows[index];
+            let end = offset + text.len();
+            let mut single = true;
+            while let Some(at) = starts.next_if(|&at| at < end) {
+                single &= at <= offset;
+            }
+            offset = end;
+            let continued = rows.get(index + 1).map_or(next.is_some(), |row| row.1);
+            Piece {
+                text,
+                continues,
+                through: continues && continued && single,
+            }
+        })
+        .collect();
     Partition {
-        rows,
+        rows: pieces,
         widen_back,
         widen_forward,
     }
@@ -86,19 +121,22 @@ pub(crate) fn partition(source: &str, continues: bool, next_continues: bool) -> 
 fn analyze(
     source: &str,
     continues: bool,
-    next_continues: bool,
+    next: Option<&str>,
     protected: &mut Vec<std::ops::Range<usize>>,
     cuts: &mut Vec<usize>,
+    starts: &mut Vec<usize>,
 ) -> (bool, bool) {
     let (mut widen_back, mut widen_forward) = (false, false);
     let mut depth = 0usize;
     let mut first_block = None;
-    let mut last_paragraph_end = None;
-    let mut last_is_paragraph = false;
+    // The last top-level block, when it is a cut-compatible tail.
+    let mut tail = Tail::Other;
     let mut paragraph: Option<Paragraph> = None;
+    let mut list: Option<ListScan> = None;
     for (event, range) in Parser::new_ext(source, super::parser_options()).into_offset_iter() {
         if first_block.is_none() {
-            first_block = Some(matches!(event, Event::Start(Tag::Paragraph)) && depth == 0);
+            first_block =
+                Some(depth == 0 && matches!(event, Event::Start(Tag::Paragraph | Tag::List(None))));
         }
         match &event {
             Event::Start(tag) if is_block(tag) => {
@@ -106,10 +144,15 @@ fn analyze(
                     protected.push(range.clone());
                 }
                 if depth == 0 {
-                    last_is_paragraph = matches!(tag, Tag::Paragraph);
-                    if matches!(tag, Tag::Paragraph) {
-                        paragraph = Some(Paragraph::new(range.clone()));
+                    starts.push(range.start);
+                    tail = Tail::Other;
+                    match tag {
+                        Tag::Paragraph => paragraph = Some(Paragraph::new(range.clone())),
+                        Tag::List(number) => list = Some(ListScan::new(range.clone(), number)),
+                        _ => {}
                     }
+                } else if let Some(open) = list.as_mut() {
+                    open.nested(source, tag, depth, range.start);
                 }
                 if is_container(tag) {
                     depth += 1;
@@ -117,23 +160,45 @@ fn analyze(
             }
             Event::End(TagEnd::Paragraph) if depth == 0 => {
                 if let Some(found) = paragraph.take() {
-                    let connected_first = continues
-                        && source[..found.range.start]
-                            .trim_start_matches(' ')
-                            .is_empty();
+                    let connected_first = continues && at_line_start(source, found.range.start);
                     let end = found.range.end;
-                    let connected_last = next_continues && reaches_end(source, end);
+                    let connected_last = next.is_some() && reaches_end(source, end);
                     if found.dangling || !found.depth.is_empty() {
                         widen_back |= connected_first;
                         widen_forward |= connected_last;
                     } else if found.range.len() >= SPLIT_MIN || connected_first || connected_last {
                         found.cuts(source, cuts);
                     }
-                    last_paragraph_end = Some(end);
+                    if reaches_end(source, end) {
+                        tail = Tail::Paragraph;
+                    }
                 }
             }
-            Event::End(tag) if is_container_end(tag) => depth -= 1,
-            Event::Rule | Event::Html(_) if depth == 0 => last_is_paragraph = false,
+            Event::End(tag) if is_container_end(tag) => {
+                depth -= 1;
+                if depth == 0 {
+                    if let Some(found) = list.take() {
+                        let connected_first = continues && at_line_start(source, found.range.start);
+                        let reaches = found.reaches_end(source);
+                        let connected_last = next.is_some() && reaches;
+                        if found.cuttable(source) {
+                            if found.range.len() >= SPLIT_MIN || connected_first || connected_last {
+                                found.cuts(cuts);
+                            }
+                            if reaches {
+                                tail = Tail::List(found);
+                            }
+                        } else {
+                            widen_back |= connected_first;
+                            widen_forward |= connected_last;
+                        }
+                    }
+                }
+            }
+            Event::Rule if depth == 0 => {
+                starts.push(range.start);
+                tail = Tail::Other;
+            }
             _ => {
                 if let Some(open) = paragraph.as_mut() {
                     open.inline(source, &event, range);
@@ -144,13 +209,125 @@ fn analyze(
     if continues && first_block != Some(true) {
         widen_back = true;
     }
-    if next_continues {
-        let sealed = last_is_paragraph
-            && last_paragraph_end.is_some_and(|end| reaches_end(source, end))
-            && seam_after(source, source.len());
+    if let Some(next) = next {
+        let sealed = match &tail {
+            Tail::Paragraph => seam_after(source, source.len()) && seam_before(next, 0),
+            Tail::List(found) => found.continued_by(next),
+            Tail::Other => false,
+        };
         widen_forward |= !sealed;
     }
     (widen_back, widen_forward)
+}
+
+enum Tail {
+    Paragraph,
+    List(ListScan),
+    Other,
+}
+
+fn at_line_start(source: &str, at: usize) -> bool {
+    source[..at].trim_start_matches(' ').is_empty()
+}
+
+/// A top-level item's marker byte and content column, measured like the
+/// list metadata, or `None` when tabs or a wide indent make it context bound.
+fn bullet_line(line: &str) -> Option<(u8, usize)> {
+    let text = line.trim_start_matches(' ');
+    let indent = line.len() - text.len();
+    let marker = *text.as_bytes().first()?;
+    if indent > 3 || !matches!(marker, b'-' | b'*' | b'+') {
+        return None;
+    }
+    let rest = &text[1..];
+    let padding = rest.bytes().take_while(|&b| b == b' ').count();
+    if rest[padding..].starts_with('\t') {
+        return None;
+    }
+    Some((marker, indent + 1 + if padding > 4 { 1 } else { padding }))
+}
+
+/// A tight top-level bullet list. Cuts fall between items with the same
+/// content column and no nested list, so neither the sink target nor the
+/// previous content column depends on the other row.
+struct ListScan {
+    range: std::ops::Range<usize>,
+    bullet: bool,
+    /// Line start, marker byte, content column and nested-block flag.
+    items: Vec<(usize, Option<(u8, usize)>, bool)>,
+}
+
+impl ListScan {
+    fn new(range: std::ops::Range<usize>, number: &Option<u64>) -> Self {
+        Self {
+            range,
+            bullet: number.is_none(),
+            items: Vec::new(),
+        }
+    }
+
+    fn nested(&mut self, source: &str, tag: &Tag<'_>, depth: usize, at: usize) {
+        match tag {
+            Tag::Item if depth == 1 => {
+                let line = source[..at].rfind('\n').map_or(0, |end| end + 1);
+                let marker = source[line..].split_inclusive('\n').next().unwrap_or("");
+                self.items.push((line, bullet_line(marker), false));
+            }
+            // Nested lists name a sink target; a code or HTML block ending an
+            // item displays its final line ending only before a sibling.
+            Tag::List(_) | Tag::CodeBlock(_) | Tag::HtmlBlock => {
+                if let Some(item) = self.items.last_mut() {
+                    item.2 = true;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn trimmed_end(&self, source: &str) -> usize {
+        let text = &source[self.range.clone()];
+        let kept = text.trim_end_matches([' ', '\t', '\r', '\n']).len();
+        let line_end = text[kept..]
+            .find('\n')
+            .map_or(text.len(), |at| kept + at + 1);
+        self.range.start + line_end
+    }
+
+    fn reaches_end(&self, source: &str) -> bool {
+        self.trimmed_end(source) == source.len()
+    }
+
+    fn cuttable(&self, source: &str) -> bool {
+        let body = &source[self.range.start..self.trimmed_end(source)];
+        self.bullet
+            && self.items.iter().all(|item| item.1.is_some())
+            && !body
+                .split_inclusive('\n')
+                .any(|line| line.trim_matches([' ', '\t', '\r', '\n']).is_empty())
+    }
+
+    /// Neither item beside a cut nests a block, so each row's first and last
+    /// top-level lines name the list's own owner.
+    fn cuts(&self, cuts: &mut Vec<usize>) {
+        let mut last = self.range.start;
+        for pair in self.items.windows(2) {
+            let (previous, item) = (&pair[0], &pair[1]);
+            let column = |item: &(usize, Option<(u8, usize)>, bool)| item.1.map(|m| m.1);
+            if !previous.2 && !item.2 && column(previous) == column(item) && item.0 - last >= CHUNK
+            {
+                cuts.push(item.0);
+                last = item.0;
+            }
+        }
+    }
+
+    /// The following row's first line continues this list as a sibling.
+    fn continued_by(&self, next: &str) -> bool {
+        let Some(&(_, Some(last), nested)) = self.items.last() else {
+            return false;
+        };
+        !nested && bullet_line(next) == Some(last)
+    }
 }
 
 fn is_block(tag: &Tag<'_>) -> bool {
