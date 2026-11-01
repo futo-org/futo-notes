@@ -21,11 +21,12 @@ pub use session::{
     FindWork, OwnActionRelink, ParagraphKey,
 };
 pub use types::{
-    Affinity, BlockDescription, CaretDirection, Correspondence, DisplayOffset, DisplayRange,
-    DisplayUtf16Offset, DisplayUtf16Range, EditWork, EditorError, InlineFormat, LinkDescription,
-    ListDescription, NoteIdChange, NoteIdWork, ProjectionSlice, Revision, SelectionChange,
-    SemanticRun, SourceEdit, SourceOffset, SourceRange, SourceUtf16Offset, SourceUtf16Range,
-    ViewChange, WikilinkCandidate, WikilinkCompletion, WikilinkDescription,
+    Affinity, AtomDescription, AtomKind, BlockDescription, CaretDirection, Correspondence,
+    DisplayOffset, DisplayRange, DisplayUtf16Offset, DisplayUtf16Range, EditWork, EditorError,
+    ImageClaim, ImageDescription, InlineFormat, LinkDescription, ListDescription, NoteIdChange,
+    NoteIdWork, ProjectionSlice, Revision, SelectionChange, SemanticRun, SourceEdit, SourceOffset,
+    SourceRange, SourceUtf16Offset, SourceUtf16Range, ViewChange, WikilinkCandidate,
+    WikilinkCompletion, WikilinkDescription,
 };
 
 pub use portable::{

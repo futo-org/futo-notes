@@ -227,7 +227,7 @@ fn stale_or_unacceptable_claims_are_rejected_without_a_change() {
     e.select(Revision(0), range(1, 1)).unwrap();
     assert!(matches!(
         accept(&mut e, 0, &found, id),
-        Err(EditorError::StaleCompletion)
+        Err(EditorError::StaleClaim)
     ));
     // A claim for a different query or range.
     let (mut e, found) = claim("[[Ro", 4);
@@ -237,14 +237,14 @@ fn stale_or_unacceptable_claims_are_rejected_without_a_change() {
     };
     assert!(matches!(
         accept(&mut e, 0, &wrong, id),
-        Err(EditorError::StaleCompletion)
+        Err(EditorError::StaleClaim)
     ));
     // The note disappeared (or never existed) after note ids changed.
     let (mut e, found) = claim("[[Ro", 4);
     e.update_note_ids(&ids(&["Other/Notes"]));
     assert!(matches!(
         accept(&mut e, 0, &found, id),
-        Err(EditorError::StaleCompletion)
+        Err(EditorError::StaleClaim)
     ));
     // An id that cannot be written as a wikilink; a composition in progress.
     let (mut e, found) = claim("[[Ro", 4);

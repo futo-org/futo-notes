@@ -3,6 +3,7 @@ mod bounded;
 pub use bounded::*;
 mod composition;
 mod find;
+mod images;
 mod links;
 mod tags;
 mod wikilink_completion;

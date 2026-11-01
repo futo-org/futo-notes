@@ -157,6 +157,24 @@ impl WasmSession {
                 .map_err(error)?,
         )
     }
+    /// An opaque claim number for one asynchronous image insertion.
+    pub fn image_claim(&self) -> u64 {
+        self.0.image_claim().0
+    }
+    pub fn insert_image(
+        &mut self,
+        revision: u64,
+        claim: u64,
+        reference: &str,
+        alt: &str,
+    ) -> Result<String, JsValue> {
+        json(
+            &self
+                .0
+                .insert_image(Revision(revision), crate::ImageClaim(claim), reference, alt)
+                .map_err(error)?,
+        )
+    }
     pub fn tags(&self) -> Result<String, JsValue> {
         json(&self.0.tags().map_err(error)?)
     }

@@ -46,6 +46,10 @@ integration acceptance. Tables and renderer integration retain their own owners 
 dependent tickets; note-id delivery during composition is specified in
 [wikilinks.md](wikilinks.md).
 
+Image/atom roles and claimed insertion (#307) and wikilink completion (#306) are specified in
+[images.md](images.md) and [wikilinks.md](wikilinks.md); pickers, asset writing, image decoding,
+menus and navigation chrome remain with renderers and existing infrastructure.
+
 Shared find core (#312) matches visible text with rebased, stale-safe results; renderer
 bars, highlight painting and table-cell boundaries remain with their owners.
 → docs/spec/editor/portable-core/find.md

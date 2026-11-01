@@ -133,7 +133,7 @@ fn native_wikilink_completion_requests_accepts_and_rejects_stale_claims() {
     );
     assert!(matches!(
         session.accept_wikilink_completion(0, found.range, "R".into(), "Projects/Roadmap".into()),
-        Err(EditorSessionError::StaleCompletion)
+        Err(EditorSessionError::StaleClaim)
     ));
     let change = session
         .accept_wikilink_completion(
@@ -154,4 +154,52 @@ fn native_wikilink_completion_requests_accepts_and_rejects_stale_claims() {
         store.read("home".into()).unwrap(),
         "see [[Projects/Roadmap]]"
     );
+}
+
+#[test]
+fn native_atoms_and_image_insertion_reject_claims_from_a_reopened_session() {
+    let tree = TempTree::new();
+    std::fs::create_dir_all(tree.path("vault")).unwrap();
+    let store = NoteStore::new(path_string(&tree.path("vault")));
+    store
+        .create_note("pics".into(), "".into(), "a ![x](image-1.png) b".into())
+        .unwrap();
+    let session = store.open_editor("pics".into()).unwrap();
+    let atoms = session
+        .project(0, EditorByteRange { start: 0, end: 21 })
+        .unwrap()
+        .atoms;
+    assert_eq!(atoms.len(), 1);
+    assert_eq!(atoms[0].range, EditorByteRange { start: 2, end: 19 });
+    assert_eq!((atoms[0].before, atoms[0].after), (2, 19));
+    let image = atoms[0].image.as_ref().unwrap();
+    assert_eq!(
+        (image.alt.as_str(), image.destination.as_str()),
+        ("x", "image-1.png")
+    );
+    assert!(image.vault);
+
+    let claim = session.image_claim().unwrap();
+    session
+        .select_with_affinity(
+            0,
+            EditorByteRange { start: 21, end: 21 },
+            EditorAffinity::Forward,
+        )
+        .unwrap();
+    session
+        .insert_image(0, claim, "image-2.png".into(), "".into())
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        session.source_text().unwrap(),
+        "a ![x](image-1.png) b![](image-2.png)"
+    );
+    session.checkpoint().unwrap();
+    drop(session);
+    let reopened = store.open_editor("pics".into()).unwrap();
+    assert!(matches!(
+        reopened.insert_image(0, claim, "image-3.png".into(), "".into()),
+        Err(EditorSessionError::StaleClaim)
+    ));
 }

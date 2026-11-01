@@ -26,6 +26,7 @@ mod row;
 mod source_points;
 mod spelling;
 pub(crate) use spelling::relink::{RetainedFormat, RetiredLinkText};
+pub(crate) mod images;
 mod toggle;
 mod tree;
 pub(crate) mod wikilinks;
@@ -246,10 +247,12 @@ impl Projection {
         let (links, mut work) = self.link_descriptions_with_work(range);
         let (wikilinks, wikilink_items) = self.wikilink_descriptions(range);
         work.items += wikilink_items;
+        let atoms = self.atom_descriptions(range);
         (
             ProjectionSlice {
                 links,
                 wikilinks,
+                atoms,
                 blocks,
                 revision,
                 range,

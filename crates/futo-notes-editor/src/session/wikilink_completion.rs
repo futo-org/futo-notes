@@ -105,7 +105,7 @@ impl EditorSession {
     /// Replace exactly the claimed run with `[[note_id]]` and put the caret after
     /// it, as one isolated accepted edit. The claim is the `range` and `query` a
     /// request returned. It is stale (`StaleRevision` after any edit,
-    /// `StaleCompletion` when the caret left the run, the run changed or the note
+    /// `StaleClaim` when the caret left the run, the run changed or the note
     /// is no longer in the delivered ids) and then nothing changes.
     pub fn accept_wikilink_completion(
         &mut self,
@@ -122,9 +122,9 @@ impl EditorSession {
         let run = self
             .completion_run()
             .filter(|run| run.display == range && run.query == query)
-            .ok_or(EditorError::StaleCompletion)?;
+            .ok_or(EditorError::StaleClaim)?;
         if !self.projection.catalog.contains(note_id) {
-            return Err(EditorError::StaleCompletion);
+            return Err(EditorError::StaleClaim);
         }
         if !writable(note_id) {
             return Err(EditorError::InvalidText);
@@ -132,6 +132,6 @@ impl EditorSession {
         let link = format!("[[{note_id}]]");
         let after = run.source.start + link.len();
         self.edit_source(expected, run.source, &link, Some(after), accept)?
-            .ok_or(EditorError::StaleCompletion)
+            .ok_or(EditorError::StaleClaim)
     }
 }

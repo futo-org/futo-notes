@@ -111,8 +111,9 @@ pub enum EditorError {
     UnrepresentableFormat,
     Persistence(String),
     RecoveryMismatch,
-    /// A completion claim no longer matches the open `[[` run or note ids.
-    StaleCompletion,
+    /// A claim (wikilink completion, async image insertion) no longer matches
+    /// the run, note ids or session it was issued for.
+    StaleClaim,
 }
 
 impl std::fmt::Display for EditorError {
@@ -192,7 +193,48 @@ pub struct ProjectionSlice {
     pub links: Vec<LinkDescription>,
     #[serde(default)]
     pub wikilinks: Vec<WikilinkDescription>,
+    #[serde(default)]
+    pub atoms: Vec<AtomDescription>,
 }
+
+/// What an atom is. Renderers draw it as one unit and keep the caret outside it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AtomKind {
+    Image,
+    Divider,
+}
+
+/// A non-text atom. `range` covers its visible glyphs (an image keeps its
+/// `![alt](destination)` spelling in display text). The only caret stops are
+/// `before` and `after`; none lies strictly inside. Deleting an atom is replacing
+/// `range` with nothing.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AtomDescription {
+    pub kind: AtomKind,
+    pub range: DisplayRange,
+    pub before: DisplayOffset,
+    pub after: DisplayOffset,
+    pub image: Option<ImageDescription>,
+}
+
+/// An image's saved meaning. `alt` is the source spelling between `![` and `]`;
+/// `destination` is the parsed destination (or the destination a reference
+/// definition supplies); `reference` is the definition label for reference
+/// images. `vault` is the canonical vault-image classification, so a shell
+/// resolves a platform URL for display only and never writes it to source.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ImageDescription {
+    pub alt: String,
+    pub destination: String,
+    pub title: Option<String>,
+    pub reference: Option<String>,
+    pub vault: bool,
+}
+
+/// Issued when an asynchronous insertion (picker, paste, capture) begins and
+/// presented when it finishes. It names the editor session it was issued for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ImageClaim(pub u64);
 
 /// A `[[target]]` outside code and HTML. The range covers its visible source
 /// glyphs; a renderer may draw `label` in their place. `note_id` is `None` for

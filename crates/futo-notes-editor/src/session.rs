@@ -8,6 +8,7 @@ mod relink;
 pub use blocks::BlockCommand;
 pub use relink::OwnActionRelink;
 mod history_selection;
+mod images;
 mod input;
 mod links;
 mod note_ids;
@@ -24,20 +25,12 @@ pub use find::{FindReport, FindScanRequest, FindScanResult, FindWork};
 pub use paragraphs::ParagraphKey;
 use ropey::Rope;
 use std::sync::Arc;
-use transaction::InputMapping;
+use transaction::{accumulate_planning_work, InputMapping};
 
 use crate::{
     Affinity, DisplayOffset, DisplayRange, EditWork, EditorError, InlineFormat, ProjectionSlice,
     Revision, SelectionChange, SourceEdit, SourceOffset, SourceRange, ViewChange,
 };
-
-// Planning work never represents an extra accepted insertion.
-fn accumulate_planning_work(total: &mut EditWork, part: EditWork) {
-    total.materialized_source_bytes += part.materialized_source_bytes;
-    total.parsed_source_bytes += part.parsed_source_bytes;
-    total.link_metadata_items += part.link_metadata_items;
-    total.link_copied_bytes += part.link_copied_bytes;
-}
 
 /// Exact-source editor session. Hosts must not use this development surface as
 /// a replacement shipping renderer until renderer integration is complete.
@@ -57,6 +50,8 @@ pub struct EditorSession {
     bounded_work: crate::BoundedWork,
     context: staging::StageContext,
     find: find::FindState,
+    /// Names this session for async claims; never reused within a process.
+    incarnation: u64,
 }
 
 impl EditorSession {
@@ -108,6 +103,7 @@ impl EditorSession {
             bounded_work: crate::BoundedWork::default(),
             context: staging::StageContext::complete_source(),
             find: find::FindState::default(),
+            incarnation: images::next_incarnation(),
         }
     }
 

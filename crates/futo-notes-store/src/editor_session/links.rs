@@ -121,3 +121,44 @@ impl StoreEditorSession<'_> {
             })
     }
 }
+
+impl StoreEditorSession<'_> {
+    /// Begin an asynchronous image insertion; the claim expires with this
+    /// attachment (another note, or this note reopened).
+    pub fn image_claim(&self) -> Result<futo_notes_editor::ImageClaim, EditorStoreError> {
+        let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        if state.terminal {
+            return Err(EditorStoreError::SessionDeleted);
+        }
+        Ok(state.engine.full()?.image_claim())
+    }
+
+    /// Insert the stored vault reference as one recovered edit. The store writes
+    /// and cleans up asset files elsewhere; nothing here touches them.
+    pub fn insert_image(
+        &mut self,
+        expected: Revision,
+        claim: futo_notes_editor::ImageClaim,
+        reference: &str,
+        alt: &str,
+    ) -> Result<Option<ViewChange>, EditorStoreError> {
+        let _gate = self.store.lock_gate().map_err(EditorStoreError::Recovery)?;
+        let _vault =
+            futo_notes_core::files::vault_mutation_guard().map_err(EditorStoreError::Recovery)?;
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        state.input_ready()?;
+        let Attachment {
+            engine, recovery, ..
+        } = &mut *state;
+        let root = &self.store.root;
+        engine
+            .full_mut()?
+            .insert_image(expected, claim, reference, alt, &mut |edit| {
+                recovery.append(root, edit)
+            })
+            .map_err(|error| match error {
+                EditorError::Persistence(error) => EditorStoreError::RecoveryAppend(error),
+                other => EditorStoreError::Editor(other),
+            })
+    }
+}
