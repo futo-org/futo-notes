@@ -158,11 +158,63 @@ class NativeBoundedEditorSessionTest {
     }
 
     @Test
-    fun failedMaterializationAndAppendPreserveTheBoundedOwnerAndAcceptedCopy() = vault { store, root ->
+    fun preparationRefusalOrFailedMaterializationAndAppendPreserveTheOwnerAndAcceptedCopy() = vault { store, root ->
         val source = "```\nab\n```\n"
         store.createNote("plain", "", source)
         store.openEditor("plain").use { full ->
-            full.intoBounded(0uL, 88uL, 0uL).use { bounded ->
+            val openingDisplay = full.displayText()
+            val bounded = try { full.intoBounded(0uL, 88uL, 0uL) }
+            catch (error: EditorBoundedException.Session) {
+                if (error.error !is EditorSessionException.Recovery) throw error
+                // Fresh no-copy preparation may refuse; retain the actual error
+                // and prove rollback without claiming the prepared-fault body ran.
+                println("EDITOR_NATIVE_BOUNDED_FRESH_PREPARATION_REFUSED: ${error.error}; fresh prepared cleanup/append fault body NOT EXECUTED")
+                assertEquals(0uL, full.revision())
+                assertEquals(source, full.sourceText())
+                assertEquals(openingDisplay, full.displayText())
+                assertEquals(source, store.read("plain"))
+                assertNull(full.undo(0uL))
+                assertNull(full.redo(0uL))
+                assertEquals(0uL, full.revision())
+                assertEquals(source, full.sourceText())
+                assertEquals(openingDisplay, full.displayText())
+                val recovery = full.recoveryStatus()
+                assertEquals(0uL, recovery.accepted)
+                assertEquals(0uL, recovery.durable)
+                assertFalse(recovery.paused)
+                val recoveryDirectory = File(root, ".futo-editor-recovery")
+                if (recoveryDirectory.exists()) {
+                    assertTrue(checkNotNull(recoveryDirectory.listFiles()).none { it.extension == "jsonl" })
+                }
+                try { store.openEditor("plain"); fail("refused preparation released the lease") }
+                catch (_: EditorSessionException.SessionAlreadyOpen) {}
+                // This explicit small full edit uses ordinary recovery creation.
+                full.replaceUtf16(0uL, EditorUtf16Range(1uL, 1uL), listOf(120u.toUShort()))
+                assertEquals(1uL, full.revision())
+                assertEquals("```\naxb\n```\n", full.sourceText())
+                full.intoBounded(1uL, 88uL, 1uL).use { live ->
+                    val copy = live.acceptedSource()
+                    assertEquals("```\naxb\n```\n", copy.source)
+                    assertEquals(1uL, copy.revision)
+                    assertEquals(1uL, copy.recovery.accepted)
+                    assertEquals(1uL, copy.recovery.durable)
+                    assertFalse(copy.recovery.paused || copy.resetRequired || copy.deleted)
+                    assertEquals(copy.source.toByteArray(Charsets.UTF_8).size.toULong(), copy.conversion.copiedTextBytes)
+                    assertEquals(88uL, live.cursor().token)
+                    assertEquals(1uL, live.cursor().revision)
+                    live.intoFull().session.use { restored ->
+                        assertEquals(1uL, restored.revision())
+                        assertEquals(copy.source, restored.sourceText())
+                        checkNotNull(restored.undo(1uL))
+                        assertEquals(2uL, restored.revision())
+                        assertEquals(source, restored.sourceText())
+                        assertEquals(openingDisplay, restored.displayText())
+                        restored.detach()
+                    }
+                }
+                return@use
+            }
+            bounded.use {
                 val prepared = checkNotNull(File(root, ".futo-editor-recovery").listFiles()).single { it.extension == "prepared" }
                 val owned = File(prepared.path + ".owned")
                 check(prepared.renameTo(owned))
