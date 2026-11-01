@@ -39,6 +39,7 @@ mod list_typing;
 mod lists;
 mod physical_layout;
 mod split;
+mod tables;
 mod transaction;
 mod typing;
 

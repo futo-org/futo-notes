@@ -7,6 +7,7 @@ mod inline;
 mod movement;
 mod portable;
 mod session;
+mod table;
 mod types;
 
 pub use session::bounded::{
@@ -17,6 +18,10 @@ pub use session::bounded::{
     ProjectionContinuation,
 };
 pub use session::{BlockCommand, Composition, EditorSession, OwnActionRelink, ParagraphKey};
+pub use table::{
+    TableAlignment, TableCell, TableCommand, TableControls, TableDescription, TableFocus, TableKey,
+    TableOutcome,
+};
 pub use types::{
     Affinity, BlockDescription, CaretDirection, Correspondence, DisplayOffset, DisplayRange,
     DisplayUtf16Offset, DisplayUtf16Range, EditWork, EditorError, InlineFormat, LinkDescription,

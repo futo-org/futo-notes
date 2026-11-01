@@ -51,6 +51,8 @@ pub struct EditorSession {
     bounded_incarnation: u64,
     bounded_work: crate::BoundedWork,
     context: staging::StageContext,
+    /// Set only while a table-cell edit runs; see `session/tables.rs`.
+    escape_pipes: bool,
 }
 
 impl EditorSession {
@@ -101,6 +103,7 @@ impl EditorSession {
             bounded_incarnation: 0,
             bounded_work: crate::BoundedWork::default(),
             context: staging::StageContext::complete_source(),
+            escape_pipes: false,
         }
     }
 

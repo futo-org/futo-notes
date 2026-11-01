@@ -61,6 +61,21 @@ impl Projection {
         pending: Option<&[InlineFormat]>,
         intent: EditIntent,
     ) -> Result<Plan, EditorError> {
+        self.edit_cell(source, range, inserted, affinity, pending, intent, false)
+    }
+
+    /// `escape_pipes` spells every inserted `|` as `\|`, the only spelling a
+    /// GFM table cell can hold; display text stays a literal pipe.
+    pub fn edit_cell(
+        &self,
+        source: &Rope,
+        range: DisplayRange,
+        inserted: &str,
+        affinity: Affinity,
+        pending: Option<&[InlineFormat]>,
+        intent: EditIntent,
+        escape_pipes: bool,
+    ) -> Result<Plan, EditorError> {
         let toggle = match intent {
             EditIntent::Toggle(format) => Some(format),
             _ => None,
@@ -140,7 +155,11 @@ impl Projection {
             }),
             physical_prefix: false,
             literal_url: None,
-            raw: ch.to_string(),
+            raw: if escape_pipes && ch == '|' {
+                "\\|".to_owned()
+            } else {
+                ch.to_string()
+            },
             display: ch.to_string(),
             spans: active.clone(),
             trailing: false,
@@ -232,6 +251,7 @@ impl Projection {
         let speculative_fence = (prefix.starts_with("```") || prefix.starts_with("~~~"))
             && !prefix.contains(char::is_whitespace);
         let mut literal = inserted.contains(['<', '>'])
+            || escape_pipes && inserted.contains('|')
             || speculative_fence
             || speculative_block
             || toggle.is_some()
