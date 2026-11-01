@@ -40,8 +40,8 @@ struct NativeEditorContractSurfaceTests {
         try await Task.detached {
             let tagged = try Self.scenario("#a\n\nbody") { _, s in
                 _ = try #require(try s.addHeaderTag(expected: 0, tag: "b"))
-                #expect(try s.headerTags() == ["a", "b"])
-                #expect(try s.tags() == ["a", "b"])
+                #expect(try s.headerTags() == ["#a", "#b"])
+                #expect(try s.tags() == ["#a", "#b"])
             }
             #expect(tagged == "#a #b\n\nbody")
 

@@ -39,8 +39,8 @@ class NativeEditorContractSurfaceTest {
     fun tagsFindAndClipboardKeepExactBytes() {
         assertEquals("#a #b\n\nbody", scenario("#a\n\nbody") { _, s ->
             checkNotNull(s.addHeaderTag(0uL, "b"))
-            assertEquals(listOf("a", "b"), s.headerTags())
-            assertEquals(listOf("a", "b"), s.tags())
+            assertEquals(listOf("#a", "#b"), s.headerTags())
+            assertEquals(listOf("#a", "#b"), s.tags())
         })
         val front = "---\ntitle: x\n---\nbody"
         assertEquals(front, scenario(front) { _, s ->
