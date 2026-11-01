@@ -62,9 +62,9 @@ impl Projection {
         let ends_blank = |index: usize| {
             let (row, start, _) = self.rows.at(index);
             let end = start + row.source_len;
-            let tail = source
-                .byte_slice(start.max(end.saturating_sub(4))..end)
-                .to_string();
+            // The last four bytes, widened back to a character boundary.
+            let from = source.char_to_byte(source.byte_to_char(start.max(end.saturating_sub(4))));
+            let tail = source.byte_slice(from..end).to_string();
             tail.ends_with("\n\n") || tail.ends_with("\n\r\n") || row.source_len <= 2
         };
         while first > 0
