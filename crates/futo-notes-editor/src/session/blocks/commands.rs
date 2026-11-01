@@ -18,7 +18,7 @@ impl EditorSession {
     pub fn block_command(
         &mut self,
         expected: Revision,
-        range: DisplayRange,
+        mut range: DisplayRange,
         command: BlockCommand,
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<Option<ViewChange>, EditorError> {
@@ -34,6 +34,7 @@ impl EditorSession {
             );
         }
         self.validate_range(range)?;
+        range = self.body_range(range)?;
         if matches!(command, BlockCommand::Heading(level) if level > 6) {
             return Err(EditorError::InvalidRange);
         }

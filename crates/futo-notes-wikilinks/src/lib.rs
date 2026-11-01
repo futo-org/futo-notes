@@ -11,7 +11,9 @@
 //! inside the inner text. The port follows TS verbatim; the conformance
 //! fixtures `tests/conformance/wikilinks-*.json` lock both sides together.
 
+mod index;
 mod rewrite;
+pub use index::{fold, WikilinkIndex};
 pub use rewrite::{observe_wikilink_rewrite, RewriteRange, RewriteWork, WikilinkRewrite};
 
 /// Extract wikilink targets from `content`. An empty target (`[[]]` or

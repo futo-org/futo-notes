@@ -105,6 +105,7 @@ impl BoundedView {
                     list: None,
                     code: true,
                     language: change.projection.block.language.clone(),
+                    metadata: false,
                 },
                 source_owner: Some(change.projection.block.owner),
                 // Ignored below: CodeFragment has no physical-boundary flags.

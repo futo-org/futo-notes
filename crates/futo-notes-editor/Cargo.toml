@@ -8,6 +8,8 @@ crate-type = ["rlib", "cdylib"]
 
 [dependencies]
 futo-notes-wikilinks = { path = "../futo-notes-wikilinks" }
+futo-notes-tags = { path = "../futo-notes-tags" }
+futo-notes-image = { path = "../futo-notes-image" }
 ropey = "1.6"
 web-time = "1"
 similar = { version = "3.2", default-features = false, features = ["text"] }

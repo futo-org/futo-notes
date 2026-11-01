@@ -5,6 +5,9 @@ also deferred by the maintainer. Preserve existing alignment and exact untouched
 Basic row/column insertion and deletion, cell editing/navigation and ordinary single-cell
 paste remain required; shared find and 20,000-line performance/durability remain required.
 
+Tables (#308, #309, #310) are implemented on the shared engine; see tables.md. Table-in-container
+recognition, `<br>` display projection and renderer integration remain.
+
 Rich HTML paste (#303) and rendered block movement (#311) are deferred by the maintainer's
 2026-10-30 scope decision and do not block this milestone; their issues remain open for later
 work. Plain-text/Markdown paste, including ordinary single-cell table paste, remains
@@ -42,8 +45,17 @@ Links (#301) are integrated from reviewed source `4f5fdeb89` and fixture-only
 repair `ff442e23d` after current source gates, regenerated native consumers and a
 fresh 51-scenario desktop/Android aggregate. Native execution remains attributed
 to `4f5fdeb89` through unchanged runtime inputs; merged-head checks and CI complete
-integration acceptance. Tables, note-id-dependent composition arbitration and
-renderer integration retain their own owners and dependent tickets.
+integration acceptance. Tables and renderer integration retain their own owners and
+dependent tickets; note-id delivery during composition is specified in
+[wikilinks.md](wikilinks.md).
+
+Image/atom roles and claimed insertion (#307) and wikilink completion (#306) are specified in
+[images.md](images.md) and [wikilinks.md](wikilinks.md); pickers, asset writing, image decoding,
+menus and navigation chrome remain with renderers and existing infrastructure.
+
+Shared find core (#312) matches visible text with rebased, stale-safe results; renderer
+bars, highlight painting and table-cell boundaries remain with their owners.
+→ docs/spec/editor/portable-core/find.md
 
 Paragraph projections use a length-indexed tree and display Rope, so an ordinary
 edit after a distant jump reparses only its paragraph window without rewriting

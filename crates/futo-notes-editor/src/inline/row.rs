@@ -69,6 +69,11 @@ pub(crate) struct Row {
     pub source_len: usize,
     pub parsed_source_bytes: usize,
     pub guarded_words: Vec<super::guarded_words::GuardedWord>,
+    pub images: Vec<super::images::RowImage>,
+    pub wikilinks: Vec<super::wikilinks::RowWikilink>,
+    pub wikilink_mask: u64,
+    /// Code and HTML source ranges; kept only for rows containing `[[`.
+    pub wikilink_isolated: Vec<Range<usize>>,
     pub typed_inputs: Vec<super::typed_angle::TypedAngleOrigin>,
     pub literal_delimiters: Vec<Range<usize>>,
     pub literal_links: Vec<Range<usize>>,
@@ -85,10 +90,14 @@ pub(crate) struct Row {
     pub continues: bool,
     /// This row continues one block that the following row continues too.
     pub through: bool,
+    /// The document's leading front matter row (always row zero).
+    pub metadata: bool,
 }
 
 pub(super) fn parser_options() -> Options {
-    Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS
+    // GFM footnotes keep `[^x]` and its definition visible literal source
+    // rather than a hidden CommonMark reference definition.
+    Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS | Options::ENABLE_FOOTNOTES
 }
 pub(super) fn source_events(source: &str) -> Vec<(Event<'_>, Range<usize>)> {
     Parser::new_ext(source, parser_options())
@@ -304,6 +313,32 @@ impl Row {
             .filter_map(|span| span.kind.format())
             .collect()
     }
+}
+
+pub(crate) enum OpenEnd {
+    Html,
+    Footnote,
+}
+
+/// A raw HTML block (CommonMark kinds 1-5 run to their end condition across
+/// blank lines) or footnote definition that owns the window's trailing blank
+/// line may continue past it. Window rows always end after a blank line.
+/// Returns the parsed byte count with the answer.
+pub(crate) fn open_at_end(source: &str) -> (Option<OpenEnd>, usize) {
+    if !source.ends_with('\n') || !(source.contains('<') || source.contains("[^")) {
+        return (None, 0);
+    }
+    let mut open = None;
+    for (event, range) in Parser::new_ext(source, parser_options()).into_offset_iter() {
+        if range.end == source.len() {
+            match event {
+                Event::Start(Tag::HtmlBlock) => open = Some(OpenEnd::Html),
+                Event::Start(Tag::FootnoteDefinition(_)) => open = open.or(Some(OpenEnd::Footnote)),
+                _ => {}
+            }
+        }
+    }
+    (open, source.len())
 }
 
 #[cfg(test)]

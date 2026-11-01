@@ -61,24 +61,13 @@ impl Projection {
         pending: Option<&[InlineFormat]>,
         intent: EditIntent,
     ) -> Result<Plan, EditorError> {
-        let (plan, sealed) =
-            self.edit_in(source, range, inserted, affinity, pending, intent, false)?;
-        if sealed {
-            return Ok(plan);
-        }
-        // The candidate's meaning can reach another row of a cut paragraph:
-        // plan once more against the complete paragraph (#314).
-        let (mut wide, _) =
-            self.edit_in(source, range, inserted, affinity, pending, intent, true)?;
-        wide.materialized += plan.materialized;
-        wide.parsed += plan.parsed;
-        wide.link_metadata_items += plan.link_metadata_items;
-        wide.link_copied_bytes += plan.link_copied_bytes;
-        Ok(wide)
+        self.edit_cell(source, range, inserted, affinity, pending, intent, false)
     }
 
+    /// `escape_pipes` spells every inserted `|` as `\|`, the only spelling a
+    /// GFM table cell can hold; display text stays a literal pipe.
     #[allow(clippy::too_many_arguments)]
-    fn edit_in(
+    pub fn edit_cell(
         &self,
         source: &Rope,
         range: DisplayRange,
@@ -86,8 +75,53 @@ impl Projection {
         affinity: Affinity,
         pending: Option<&[InlineFormat]>,
         intent: EditIntent,
+        escape_pipes: bool,
+    ) -> Result<Plan, EditorError> {
+        let plan = |wide| {
+            self.edit_in(
+                source,
+                range,
+                inserted,
+                affinity,
+                pending,
+                intent,
+                escape_pipes,
+                wide,
+            )
+        };
+        let (narrow, sealed) = plan(false)?;
+        if sealed {
+            return Ok(narrow);
+        }
+        // The candidate's meaning can reach another row of a cut paragraph:
+        // plan once more against the complete paragraph (#314).
+        let (mut wide, _) = plan(true)?;
+        wide.materialized += narrow.materialized;
+        wide.parsed += narrow.parsed;
+        wide.link_metadata_items += narrow.link_metadata_items;
+        wide.link_copied_bytes += narrow.link_copied_bytes;
+        Ok(wide)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn edit_in(
+        &self,
+        source: &Rope,
+        mut range: DisplayRange,
+        inserted: &str,
+        affinity: Affinity,
+        pending: Option<&[InlineFormat]>,
+        intent: EditIntent,
+        escape_pipes: bool,
         wide: bool,
     ) -> Result<(Plan, bool), EditorError> {
+        // Front matter is inert: input within it rejects, and input covering
+        // it changes only the body.
+        let body = self.body_start();
+        if range.end.0 < body {
+            return Err(EditorError::InvalidRange);
+        }
+        range.start.0 = range.start.0.max(body);
         let toggle = match intent {
             EditIntent::Toggle(format) => Some(format),
             _ => None,
@@ -172,7 +206,11 @@ impl Projection {
             }),
             physical_prefix: false,
             literal_url: None,
-            raw: ch.to_string(),
+            raw: if escape_pipes && ch == '|' {
+                "\\|".to_owned()
+            } else {
+                ch.to_string()
+            },
             display: ch.to_string(),
             spans: active.clone(),
             trailing: false,
@@ -264,6 +302,7 @@ impl Projection {
         let speculative_fence = (prefix.starts_with("```") || prefix.starts_with("~~~"))
             && !prefix.contains(char::is_whitespace);
         let mut literal = inserted.contains(['<', '>'])
+            || escape_pipes && inserted.contains('|')
             || speculative_fence
             || speculative_block
             || toggle.is_some()

@@ -220,6 +220,10 @@ fn model(source_len: usize, display: &str, segments: Vec<Segment>) -> Row {
         source_len,
         parsed_source_bytes: 0,
         guarded_words: Vec::new(),
+        images: Vec::new(),
+        wikilinks: Vec::new(),
+        wikilink_mask: 0,
+        wikilink_isolated: Vec::new(),
         typed_inputs: Vec::new(),
         literal_delimiters: Vec::new(),
         literal_links: Vec::new(),
@@ -234,6 +238,7 @@ fn model(source_len: usize, display: &str, segments: Vec<Segment>) -> Row {
         transparent_quote: None,
         continues: false,
         through: false,
+        metadata: false,
     }
 }
 

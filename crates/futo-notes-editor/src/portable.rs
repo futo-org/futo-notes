@@ -1,9 +1,16 @@
 //! Asynchronous page/worker contract. No callback here performs storage I/O.
 mod bounded;
 pub use bounded::*;
+mod clipboard;
 mod composition;
+mod find;
+mod images;
 mod links;
+mod tables;
+mod tags;
+mod wikilink_completion;
 use serde::{Deserialize, Serialize};
+pub use tables::PortableTableStep;
 
 use crate::{
     DisplayRange, DisplayUtf16Range, EditorError, EditorSession, Revision, SourceEdit, ViewChange,

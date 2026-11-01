@@ -29,4 +29,16 @@ impl PortableSession {
             .map(|change| self.stage(record.unwrap(), change))
             .transpose()
     }
+
+    /// Note ids never append. Like a query, they wait for a released change so
+    /// returned semantics address the page's displayed revision.
+    pub fn update_note_ids(
+        &mut self,
+        note_ids: &[String],
+    ) -> Result<crate::NoteIdChange, PortableError> {
+        if self.pending.is_some() || self.bounded_entry.is_some() {
+            return Err(PortableError::Busy);
+        }
+        Ok(self.engine.update_note_ids(note_ids))
+    }
 }

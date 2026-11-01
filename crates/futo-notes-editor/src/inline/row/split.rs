@@ -29,6 +29,9 @@ pub(crate) struct Partition<'a> {
     pub widen_back: bool,
     /// The last row's paragraph must absorb the following outside row.
     pub widen_forward: bool,
+    /// A code, list, HTML or footnote block reaches the end, so the following
+    /// row may still belong to it (its range can take that row's indent).
+    pub open_tail: bool,
 }
 
 /// `continues`: the text's first row continues the preceding outside row.
@@ -44,10 +47,10 @@ pub(crate) fn partition<'a>(source: &'a str, continues: bool, next: Option<&str>
     let (mut widen_back, mut widen_forward) = (false, false);
     if !deep {
         protected.extend(
-            Parser::new(source)
+            Parser::new_ext(source, super::parser_options())
                 .into_offset_iter()
                 .filter_map(|(event, range)| match event {
-                    Event::Start(Tag::CodeBlock(_) | Tag::List(_)) => Some(range),
+                    Event::Start(tag) if protects(&tag) => Some(range),
                     _ => None,
                 }),
         );
@@ -110,7 +113,10 @@ pub(crate) fn partition<'a>(source: &'a str, continues: bool, next: Option<&str>
             }
         })
         .collect();
+    let kept = source.trim_end_matches([' ', '\t', '\r', '\n']).len();
+    let open_tail = protected.iter().any(|range| range.end > kept);
     Partition {
+        open_tail,
         rows: pieces,
         widen_back,
         widen_forward,
@@ -140,7 +146,7 @@ fn analyze(
         }
         match &event {
             Event::Start(tag) if is_block(tag) => {
-                if matches!(tag, Tag::CodeBlock(_) | Tag::List(_)) {
+                if protects(tag) {
                     protected.push(range.clone());
                 }
                 if depth == 0 {
@@ -341,6 +347,14 @@ impl ListScan {
         };
         !last.nested && last.marker.is_some() && bullet_line(next) == last.marker
     }
+}
+
+/// Code, lists, raw HTML and footnote definitions own their interior blanks.
+fn protects(tag: &Tag<'_>) -> bool {
+    matches!(
+        tag,
+        Tag::CodeBlock(_) | Tag::List(_) | Tag::HtmlBlock | Tag::FootnoteDefinition(_)
+    )
 }
 
 fn is_block(tag: &Tag<'_>) -> bool {

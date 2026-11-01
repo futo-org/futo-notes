@@ -138,8 +138,6 @@ fn multiline_paragraph_frames_measure_actual_parser_copy_and_query_growth() {
             };
             s.select_with_affinity(Revision(0), selected, Affinity::Backward)
                 .unwrap();
-            // A long list is cut into rows (#314); the plan reads its own row.
-            let row = s.projection.rows.at(0).0.source_len;
             crate::inline::CONTAINER_METADATA_VISITS.with(|c| c.set(0));
             let mut accepted = 0;
             let mut accept = |_: &SourceEdit| {

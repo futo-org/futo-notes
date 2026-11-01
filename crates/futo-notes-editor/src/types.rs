@@ -111,6 +111,9 @@ pub enum EditorError {
     UnrepresentableFormat,
     Persistence(String),
     RecoveryMismatch,
+    /// A claim (wikilink completion, async image insertion) no longer matches
+    /// the run, note ids or session it was issued for.
+    StaleClaim,
 }
 
 impl std::fmt::Display for EditorError {
@@ -177,6 +180,10 @@ pub struct BlockDescription {
     pub code: bool,
     /// First info-string word, preserving its case; rendering never rewrites source.
     pub language: Option<String>,
+    /// Leading front matter, shown verbatim as inert metadata (no Markdown,
+    /// no caret, no edits except a selection covering all of it).
+    #[serde(default)]
+    pub metadata: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -188,4 +195,99 @@ pub struct ProjectionSlice {
     pub correspondence: Vec<Correspondence>,
     pub blocks: Vec<BlockDescription>,
     pub links: Vec<LinkDescription>,
+    #[serde(default)]
+    pub wikilinks: Vec<WikilinkDescription>,
+    #[serde(default)]
+    pub atoms: Vec<AtomDescription>,
+}
+
+/// What an atom is. Renderers draw it as one unit and keep the caret outside it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AtomKind {
+    Image,
+    Divider,
+}
+
+/// A non-text atom. `range` covers its visible glyphs (an image keeps its
+/// `![alt](destination)` spelling in display text). The only caret stops are
+/// `before` and `after`; none lies strictly inside. Deleting an atom is replacing
+/// `range` with nothing.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AtomDescription {
+    pub kind: AtomKind,
+    pub range: DisplayRange,
+    pub before: DisplayOffset,
+    pub after: DisplayOffset,
+    pub image: Option<ImageDescription>,
+}
+
+/// An image's saved meaning. `alt` is the source spelling between `![` and `]`;
+/// `destination` is the parsed destination (or the destination a reference
+/// definition supplies); `reference` is the definition label for reference
+/// images. `vault` is the canonical vault-image classification, so a shell
+/// resolves a platform URL for display only and never writes it to source.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ImageDescription {
+    pub alt: String,
+    pub destination: String,
+    pub title: Option<String>,
+    pub reference: Option<String>,
+    pub vault: bool,
+}
+
+/// Issued when an asynchronous insertion (picker, paste, capture) begins and
+/// presented when it finishes. It names the editor session it was issued for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ImageClaim(pub u64);
+
+/// A `[[target]]` outside code and HTML. The range covers its visible source
+/// glyphs; a renderer may draw `label` in their place. `note_id` is `None` for
+/// an absent or ambiguous target, whose label is the raw target.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WikilinkDescription {
+    pub range: DisplayRange,
+    pub target: String,
+    pub label: String,
+    pub note_id: Option<String>,
+}
+
+/// One note a `[[` completion offers. `note_id` is the full id the link will
+/// name; `label` is its shortest unique suffix; `detail` repeats the id only when
+/// the label does not already show it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WikilinkCandidate {
+    pub note_id: String,
+    pub label: String,
+    pub detail: Option<String>,
+}
+
+/// The open `[[` run at the caret. `range` is what acceptance replaces: from the
+/// first `[` through the caret, and through an immediately following `]]`.
+/// `query` is the source text typed after `[[`. A run nothing matches is still
+/// reported, with no candidates, so a consumer can remember a dismissal.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WikilinkCompletion {
+    pub revision: Revision,
+    pub range: DisplayRange,
+    pub query: String,
+    pub candidates: Vec<WikilinkCandidate>,
+}
+
+/// Semantic replacements for only the wikilinks whose resolution or label a
+/// note-id delivery changed. Source, display text and revision are unchanged.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NoteIdChange {
+    pub revision: Revision,
+    pub projections: Vec<ProjectionSlice>,
+    pub work: NoteIdWork,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NoteIdWork {
+    /// Id suffix entries indexed and ids compared; proportional to the vault.
+    pub catalog_items: usize,
+    /// Row-tree nodes entered while locating links the change can affect.
+    pub rows_visited: usize,
+    /// Links re-resolved in those rows, including leaf-hash false positives.
+    pub links_examined: usize,
 }

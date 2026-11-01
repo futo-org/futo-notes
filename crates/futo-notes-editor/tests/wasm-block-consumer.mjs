@@ -296,4 +296,16 @@ export async function runBlockRegressions() {
     ['> ab\n> ===', 'Space', '> # &#32;', 'ab', 0, 2, ' ', false],
   ])
     await reviewedBlockRegression(...item);
+  // #300: front matter is one inert metadata block; a fence inside <pre> stays raw HTML.
+  const foreign = new WasmSession(1n, '---\ntags: [a]\n---\n<pre>\n\n```\n</pre>\n', 0n, 0n);
+  try {
+    const shown = 'tags: [a]\n<pre>\n\n```\n</pre>\n';
+    const projection = JSON.parse(foreign.project(0n, 0, Buffer.byteLength(shown)));
+    assert.equal(projection.text, shown);
+    assert.equal(projection.blocks[0].metadata, true);
+    assert.deepEqual(projection.blocks[0].range, { start: 0, end: 9 });
+    assert.ok(projection.blocks.slice(1).every((block) => !block.code && !block.metadata));
+  } finally {
+    foreign.free();
+  }
 }

@@ -276,8 +276,13 @@ impl super::super::Projection {
             return Err(EditorError::UnrepresentableFormat);
         }
         let (winners, visits) = self.reference_winners(range.clone());
-        let checked =
-            super::super::Projection::with_references(output, references, &winners, visits);
+        let checked = super::super::Projection::with_references(
+            output,
+            self.document_start && range.start == 0,
+            references,
+            &winners,
+            visits,
+        );
         work.parsed += checked.initial_parse_work;
         work.items += checked.initial_link_metadata_items;
         work.copied += checked.initial_link_copied_bytes;

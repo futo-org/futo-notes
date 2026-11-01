@@ -4,9 +4,11 @@ use futo_notes_editor::{DisplayOffset, DisplayRange, Revision};
 mod block_input;
 mod blocks;
 mod bounded;
+mod clipboard;
 mod composition;
 mod durability;
 mod fences;
+mod images;
 mod lifecycle;
 mod lifecycle_crashes;
 mod lifecycle_faults;
@@ -25,6 +27,9 @@ mod relink_guarded;
 mod seams;
 mod selected_source;
 mod storage;
+mod tables;
+mod tags;
+mod wikilinks;
 
 fn range(start: usize, end: usize) -> DisplayRange {
     DisplayRange {

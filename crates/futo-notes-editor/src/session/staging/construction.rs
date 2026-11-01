@@ -23,10 +23,12 @@ impl EditorSession {
         };
         let mut projection = crate::inline::Projection::with_references(
             raw,
+            window.start == 0 && self.projection.document_start,
             self.projection.references.clone(),
             &winners,
             work,
         );
+        projection.catalog = self.projection.catalog.clone();
         projection.references_complete = exact
             && self.projection.references_complete
             && window.start == 0

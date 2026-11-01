@@ -37,6 +37,7 @@ impl EditorSession {
             );
         }
         self.validate_range(range)?;
+        range = self.body_range(range)?;
         if matches!(key, ParagraphKey::Tab | ParagraphKey::ShiftTab) {
             return self.fence_tab(expected, range, key == ParagraphKey::ShiftTab, accept);
         }
@@ -67,7 +68,8 @@ impl EditorSession {
                         }
                         _ => unreachable!(),
                     }
-                    if range.start == range.end {
+                    // The body start is the boundary when front matter precedes it.
+                    if range.start == range.end || range.start.0 < self.projection.body_start() {
                         return Ok(None);
                     }
                 }

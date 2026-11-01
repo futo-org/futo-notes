@@ -8,7 +8,7 @@
  * - Not inside code blocks/fences or inline code
  *
  * This is a DELIBERATE TS copy of the canonical Rust rule
- * (`crates/futo-notes-model/src/tags.rs`), kept in lockstep via
+ * (`crates/futo-notes-tags/src/lib.rs`), kept in lockstep via
  * `tests/conformance/tags.json`. The copy exists so the editor's per-keystroke
  * paths (live tag decorations, the header tag bar) compute synchronously in the
  * webview without an async IPC/FFI round-trip to Rust on every keystroke — a
@@ -150,7 +150,7 @@ function isAsciiAlphaCode(code: number): boolean {
  * Find every `TAG_REGEX` match — name + position — in document order. This is a
  * LINEAR hand-scan, NOT a regex. It is byte-for-byte equivalent to `TAG_REGEX`
  * (locked by the `tagRegexMatches`/`extractTags` conformance fixtures) and the
- * matching Rust `tag_regex_matches` (crates/futo-notes-model/src/tags.rs), but
+ * matching Rust `tag_regex_matches` (crates/futo-notes-tags/src/lib.rs), but
  * O(n): it cannot catastrophically backtrack.
  *
  * `TAG_REGEX` needs a lookbehind, which only a *backtracking* engine

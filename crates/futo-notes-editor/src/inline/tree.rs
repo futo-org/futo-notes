@@ -16,6 +16,7 @@ pub(crate) struct Node {
     transparent_quote: Option<usize>,
     /// Rows in this subtree that are not `through` rows.
     heads: usize,
+    wikilinks: u64,
 }
 
 impl Node {
@@ -27,6 +28,10 @@ impl Node {
                     .is_none_or(|child| child.transparent_quote == Some(*quote))
             })
         });
+        self.wikilinks = [&self.left, &self.right]
+            .into_iter()
+            .flatten()
+            .fold(self.row.wikilink_mask, |mask, child| mask | child.wikilinks);
         self.count = 1 + count(&self.left) + count(&self.right);
         self.heads = usize::from(!self.row.through) + heads(&self.left) + heads(&self.right);
         self.source = self.row.source_len + length(&self.left, false) + length(&self.right, false);
@@ -98,6 +103,7 @@ impl Rows {
             let node = Box::new(Node {
                 transparent_quote: row.transparent_quote,
                 heads: usize::from(!row.through),
+                wikilinks: row.wikilink_mask,
                 source: row.source_len,
                 display: row.display.len(),
                 row,
@@ -217,6 +223,32 @@ impl Rows {
                 node = node.right.as_deref_mut().unwrap();
             }
         }
+    }
+    /// Rows in order whose links may carry a leaf in `mask`, with their source
+    /// and display offsets. Subtrees without such a leaf are never entered.
+    pub fn wikilink_rows(&self, mask: u64, visit: &mut dyn FnMut(&Row, usize, usize)) -> usize {
+        fn walk(
+            link: &Link,
+            mask: u64,
+            base: (usize, usize),
+            visit: &mut dyn FnMut(&Row, usize, usize),
+        ) -> usize {
+            let Some(node) = link.as_deref().filter(|node| node.wikilinks & mask != 0) else {
+                return 0;
+            };
+            let mut entered = 1 + walk(&node.left, mask, base, visit);
+            let own = (
+                base.0 + length(&node.left, false),
+                base.1 + length(&node.left, true),
+            );
+            if node.row.wikilink_mask & mask != 0 {
+                visit(&node.row, own.0, own.1);
+            }
+            let right = (own.0 + node.row.source_len, own.1 + node.row.display.len());
+            entered += walk(&node.right, mask, right, visit);
+            entered
+        }
+        walk(&self.root, mask, (0, 0), visit)
     }
     pub fn locate(&self, offset: usize, display: bool) -> usize {
         self.locate_with_work(offset, display).0

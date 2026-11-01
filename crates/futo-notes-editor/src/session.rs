@@ -1,38 +1,38 @@
 mod blocks;
 pub(crate) mod bounded;
 mod composition;
+mod find;
+mod formatting;
+mod front_matter;
 mod os_replacement;
 mod paragraphs;
 mod relink;
 pub use blocks::BlockCommand;
 pub use relink::OwnActionRelink;
 mod history_selection;
+mod images;
 mod input;
 mod links;
+mod note_ids;
 mod pending;
 mod staging;
+mod tags;
 mod transaction;
+mod wikilink_completion;
 use crate::history::{
     HistoryClock, HistoryEntry, HistoryGroup, HistoryInput, MonotonicClock, TypingRun,
 };
 pub use composition::Composition;
+pub use find::{FindReport, FindScanRequest, FindScanResult, FindWork};
 pub use paragraphs::ParagraphKey;
 use ropey::Rope;
 use std::sync::Arc;
-use transaction::InputMapping;
+use transaction::{accumulate_planning_work, InputMapping};
 
 use crate::{
     Affinity, DisplayOffset, DisplayRange, EditWork, EditorError, InlineFormat, ProjectionSlice,
     Revision, SelectionChange, SourceEdit, SourceOffset, SourceRange, ViewChange,
 };
-
-// Planning work never represents an extra accepted insertion.
-fn accumulate_planning_work(total: &mut EditWork, part: EditWork) {
-    total.materialized_source_bytes += part.materialized_source_bytes;
-    total.parsed_source_bytes += part.parsed_source_bytes;
-    total.link_metadata_items += part.link_metadata_items;
-    total.link_copied_bytes += part.link_copied_bytes;
-}
 
 /// Exact-source editor session. Hosts must not use this development surface as
 /// a replacement shipping renderer until renderer integration is complete.
@@ -51,6 +51,11 @@ pub struct EditorSession {
     bounded_incarnation: u64,
     bounded_work: crate::BoundedWork,
     context: staging::StageContext,
+    find: find::FindState,
+    /// Set only while a table-cell edit runs; see `session/tables.rs`.
+    escape_pipes: bool,
+    /// Names this session for async claims; never reused within a process.
+    incarnation: u64,
 }
 
 impl EditorSession {
@@ -86,11 +91,15 @@ impl EditorSession {
         clock: Arc<dyn HistoryClock>,
         projection: crate::inline::Projection,
     ) -> Self {
+        let body = DisplayOffset(projection.body_start());
         Self {
             source: Rope::from_str(source),
             projection,
             revision,
-            selection: DisplayRange::default(),
+            selection: DisplayRange {
+                start: body,
+                end: body,
+            },
             affinity: Affinity::Forward,
             pending_formats: None,
             undo: Vec::new(),
@@ -101,6 +110,9 @@ impl EditorSession {
             bounded_incarnation: 0,
             bounded_work: crate::BoundedWork::default(),
             context: staging::StageContext::complete_source(),
+            find: find::FindState::default(),
+            escape_pipes: false,
+            incarnation: images::next_incarnation(),
         }
     }
 
@@ -159,6 +171,7 @@ impl EditorSession {
     ) -> Result<SelectionChange, EditorError> {
         self.check_revision(expected)?;
         self.validate_range(range)?;
+        let range = self.outside_metadata(range);
         if self.composition.is_some() {
             return Ok(SelectionChange {
                 revision: self.revision,
@@ -247,7 +260,7 @@ impl EditorSession {
         Ok(index)
     }
 
-    fn prepare_source(
+    pub(super) fn prepare_exact_source(
         &self,
         expected: Revision,
         range: SourceRange,
@@ -298,6 +311,7 @@ impl EditorSession {
             .projection
             .apply(&self.source, edit, self.context.origin.as_ref());
         self.revision = edit.revision;
+        self.find.edited(update.range, update.inserted.len());
         let caret = DisplayOffset(
             self.projection
                 .display_at(edit.range.start.0 + edit.inserted.len()),
@@ -331,96 +345,6 @@ impl EditorSession {
         }
     }
 
-    /// A collapsed toggle changes the carried format without writing empty
-    /// markdown. A selected toggle is one accepted, byte-exact history action.
-    pub fn toggle_format(
-        &mut self,
-        expected: Revision,
-        format: InlineFormat,
-        accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
-    ) -> Result<Option<ViewChange>, EditorError> {
-        self.check_revision(expected)?;
-        let committed = self.commit_composition(expected, None, accept)?;
-        if self
-            .projection
-            .block_lines(self.selection)
-            .iter()
-            .all(|line| line.code)
-        {
-            return Ok(committed);
-        }
-        if self.selection.start == self.selection.end {
-            let mut formats = self.active_formats();
-            if formats.contains(&format) {
-                formats.retain(|value| *value != format);
-            } else {
-                formats.push(format);
-                formats.sort();
-            }
-            self.pending_formats = Some(formats);
-            self.typing = None;
-            return Ok(committed);
-        }
-        let before_selection = self.selection;
-        let (before_source, before_source_work) = self.capture_history_selection();
-        let before_affinity = self.affinity;
-        let before_formats = self.pending_formats.clone();
-        let mut plan = self.projection.edit(
-            &self.source,
-            self.selection,
-            "",
-            self.affinity,
-            None,
-            crate::inline::EditIntent::Toggle(format),
-        )?;
-        let edit = self.prepare_source(
-            expected,
-            SourceRange {
-                start: SourceOffset(plan.range.start),
-                end: SourceOffset(plan.range.end),
-            },
-            &plan.inserted,
-        )?;
-        let before_links = self.projection.pending_for_source_edit(edit.range);
-        let prepared = self.prepare_plan_pending(&edit, &plan, &before_links, None)?;
-        accept(&edit).map_err(EditorError::Persistence)?;
-        let mut change = self.apply(&edit);
-        self.install_plan_pending(&mut plan, prepared, &mut change, true);
-        self.selection = before_selection;
-        self.pending_formats = None;
-        change.selection = self.selection;
-        change.work.materialized_source_bytes += plan.materialized;
-        change.work.parsed_source_bytes += plan.parsed;
-        change.work.link_metadata_items += plan.link_metadata_items;
-        change.work.link_copied_bytes += plan.link_copied_bytes;
-        let (after_source, after_source_work) = self.capture_history_selection();
-        change.work.link_metadata_items += before_source_work + after_source_work;
-        let after_links = self
-            .projection
-            .pending_links(before_links.after_window(&edit));
-        change.work.link_metadata_items += before_links.work + after_links.work;
-        self.undo.push(HistoryGroup {
-            entries: vec![HistoryEntry {
-                before_source,
-                after_source,
-                before_selection,
-                before_affinity,
-                before_formats,
-                before_links,
-                after_selection: self.selection,
-                after_affinity: self.affinity,
-                after_formats: None,
-                after_links,
-                range: edit.range,
-                removed: edit.removed,
-                inserted: edit.inserted,
-            }],
-        });
-        self.typing = None;
-        self.redo.clear();
-        Ok(Some(change))
-    }
-
     /// Replay accepts only a record that matches both revision and exact bytes.
     pub fn replay(&mut self, edit: &SourceEdit) -> Result<ViewChange, EditorError> {
         self.replay_with_accept(edit, &mut |_| Ok(()))
@@ -436,7 +360,7 @@ impl EditorSession {
         if self.composition.is_some() {
             return Err(EditorError::CompositionActive);
         }
-        if self.prepare_source(edit.previous_revision, edit.range, &edit.inserted)? != *edit {
+        if self.prepare_exact_source(edit.previous_revision, edit.range, &edit.inserted)? != *edit {
             return Err(EditorError::RecoveryMismatch);
         }
         accept(edit).map_err(EditorError::Persistence)?;

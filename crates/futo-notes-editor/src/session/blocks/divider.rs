@@ -19,7 +19,8 @@ impl EditorSession {
                 lines.push(last);
             }
         }
-        if lines.iter().any(|line| line.code) {
+        // Code and raw HTML keep `---` literal.
+        if lines.iter().any(|line| line.code || line.html) {
             return Ok(None);
         }
         let first = &lines[0];

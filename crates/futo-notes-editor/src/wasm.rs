@@ -1,6 +1,8 @@
 //! JSON wire facade; all persistence happens asynchronously in the native host.
 use wasm_bindgen::prelude::*;
 mod bounded;
+mod clipboard;
+mod tables;
 
 use crate::{
     DisplayOffset, DisplayRange, DisplayUtf16Offset, DisplayUtf16Range, PortableSession, Revision,
@@ -15,6 +17,13 @@ fn error(error: impl std::fmt::Debug) -> JsValue {
 }
 fn json(value: &impl serde::Serialize) -> Result<String, JsValue> {
     serde_json::to_string(value).map_err(error)
+}
+
+fn utf16_range(start: usize, end: usize) -> DisplayUtf16Range {
+    DisplayUtf16Range {
+        start: DisplayUtf16Offset(start),
+        end: DisplayUtf16Offset(end),
+    }
 }
 
 fn validate_wire(token: u64, revision: u64, durable: u64) -> Result<(), JsValue> {
@@ -125,6 +134,153 @@ impl WasmSession {
                 )
                 .map_err(error)?,
         )
+    }
+    pub fn wikilink_completion(&self, revision: u64) -> Result<String, JsValue> {
+        json(
+            &self
+                .0
+                .wikilink_completion(Revision(revision))
+                .map_err(error)?,
+        )
+    }
+    pub fn accept_wikilink_completion(
+        &mut self,
+        revision: u64,
+        start: usize,
+        end: usize,
+        query: &str,
+        note_id: &str,
+    ) -> Result<String, JsValue> {
+        json(
+            &self
+                .0
+                .accept_wikilink_completion(
+                    Revision(revision),
+                    DisplayRange {
+                        start: DisplayOffset(start),
+                        end: DisplayOffset(end),
+                    },
+                    query,
+                    note_id,
+                )
+                .map_err(error)?,
+        )
+    }
+    /// An opaque claim number for one asynchronous image insertion.
+    pub fn image_claim(&self) -> u64 {
+        self.0.image_claim().0
+    }
+    pub fn insert_image(
+        &mut self,
+        revision: u64,
+        claim: u64,
+        reference: &str,
+        alt: &str,
+    ) -> Result<String, JsValue> {
+        json(
+            &self
+                .0
+                .insert_image(Revision(revision), crate::ImageClaim(claim), reference, alt)
+                .map_err(error)?,
+        )
+    }
+    pub fn tags(&self) -> Result<String, JsValue> {
+        json(&self.0.tags().map_err(error)?)
+    }
+    pub fn header_tags(&self) -> Result<String, JsValue> {
+        json(&self.0.header_tags().map_err(error)?)
+    }
+    pub fn add_header_tag(&mut self, revision: u64, tag: &str) -> Result<String, JsValue> {
+        json(
+            &self
+                .0
+                .add_header_tag(Revision(revision), tag)
+                .map_err(error)?,
+        )
+    }
+    pub fn remove_header_tag(&mut self, revision: u64, tag: &str) -> Result<String, JsValue> {
+        json(
+            &self
+                .0
+                .remove_header_tag(Revision(revision), tag)
+                .map_err(error)?,
+        )
+    }
+    pub fn find_set_query(&mut self, revision: u64, query: &str) -> Result<String, JsValue> {
+        json(
+            &self
+                .0
+                .find_set_query(Revision(revision), query)
+                .map_err(error)?,
+        )
+    }
+    pub fn find_step(&mut self, revision: u64, forward: bool) -> Result<String, JsValue> {
+        let direction = if forward {
+            crate::CaretDirection::Forward
+        } else {
+            crate::CaretDirection::Backward
+        };
+        json(
+            &self
+                .0
+                .find_step(Revision(revision), direction)
+                .map_err(error)?,
+        )
+    }
+    pub fn find_close(&mut self) -> Result<String, JsValue> {
+        json(&self.0.find_close())
+    }
+    pub fn find_report(&mut self) -> Result<String, JsValue> {
+        json(&self.0.find_report().map_err(error)?)
+    }
+    pub fn find_matches(
+        &mut self,
+        revision: u64,
+        start: usize,
+        end: usize,
+    ) -> Result<String, JsValue> {
+        json(
+            &self
+                .0
+                .find_matches(
+                    Revision(revision),
+                    DisplayRange {
+                        start: DisplayOffset(start),
+                        end: DisplayOffset(end),
+                    },
+                )
+                .map_err(error)?,
+        )
+    }
+    pub fn find_matches_utf16(
+        &mut self,
+        revision: u64,
+        start: usize,
+        end: usize,
+    ) -> Result<String, JsValue> {
+        json(
+            &self
+                .0
+                .find_matches_utf16(Revision(revision), utf16_range(start, end))
+                .map_err(error)?,
+        )
+    }
+    pub fn find_scan_request(&self) -> Result<String, JsValue> {
+        json(&self.0.find_scan_request().map_err(error)?)
+    }
+    /// Pure scan of a request snapshot; callable from any worker.
+    pub fn find_scan(request: &str) -> Result<String, JsValue> {
+        let request: crate::FindScanRequest = serde_json::from_str(request).map_err(error)?;
+        json(&request.run())
+    }
+    pub fn find_apply_scan(&mut self, result: &str) -> Result<String, JsValue> {
+        let result = serde_json::from_str(result).map_err(error)?;
+        json(&self.0.find_apply_scan(&result).map_err(error)?)
+    }
+    /// `note_ids` is a JSON string array supplied by the store-owned host.
+    pub fn update_note_ids(&mut self, note_ids: &str) -> Result<String, JsValue> {
+        let note_ids: Vec<String> = serde_json::from_str(note_ids).map_err(error)?;
+        json(&self.0.update_note_ids(&note_ids).map_err(error)?)
     }
     pub fn active_formats(&self) -> Result<String, JsValue> {
         json(&self.0.active_formats().map_err(error)?)

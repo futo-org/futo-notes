@@ -8,11 +8,14 @@ mod edit;
 pub(crate) use edit::{EditIntent, Plan, SourceCorrespondence};
 mod empty_comments;
 pub(crate) mod fences;
+mod find;
+pub(crate) mod front_matter;
 pub(crate) mod guarded_words;
 mod links;
 pub(crate) use links::complete_bare_uri;
 mod lists;
 mod pending_links;
+mod query;
 pub(crate) mod references;
 pub(crate) mod typed_angle;
 pub(crate) use pending_links::{PendingLinkWitness, PendingLinks};
@@ -27,10 +30,12 @@ mod spelling;
 #[cfg(test)]
 mod split_tests;
 pub(crate) use spelling::relink::{RetainedFormat, RetiredLinkText};
+pub(crate) mod images;
 mod toggle;
 mod tree;
 mod window;
 use window::Window;
+pub(crate) mod wikilinks;
 
 use crate::{
     Correspondence, DisplayOffset, DisplayRange, InlineFormat, ProjectionSlice, Revision,
@@ -61,6 +66,10 @@ pub(crate) struct Projection {
     pub(crate) has_rebuilt_references: bool,
     pub initial_link_metadata_items: usize,
     pub initial_link_copied_bytes: usize,
+    /// Note ids delivered by the store; never part of source or history.
+    pub(crate) catalog: std::sync::Arc<futo_notes_wikilinks::WikilinkIndex>,
+    /// Whether source offset zero is the note's start (front matter owner).
+    pub(crate) document_start: bool,
 }
 
 pub(crate) struct Update {
@@ -76,32 +85,46 @@ pub(crate) struct Update {
 impl Projection {
     pub fn new(source: &str) -> Self {
         let (references, winners, reference_work) = references::References::scan(source);
-        let mut projection = Self::with_references(source, references, &winners, reference_work);
+        let mut projection =
+            Self::with_references(source, true, references, &winners, reference_work);
         projection.references_complete = true;
         projection
     }
 
+    /// `document_start` says whether `source` begins the note, which alone can
+    /// hold front matter.
     pub(crate) fn with_references(
         source: &str,
+        document_start: bool,
         references: std::sync::Arc<references::References>,
         winners: &[references::Winner],
         reference_work: references::ReferenceWork,
     ) -> Self {
-        let mut origin = 0;
+        let metadata = if document_start {
+            front_matter::len(source.bytes())
+        } else {
+            0
+        };
+        let mut origin = metadata;
         let mut witness_work = 0;
-        let parsed: Vec<_> = partition(source, false, None)
-            .rows
+        let parsed: Vec<_> = (metadata > 0)
+            .then(|| Row::metadata(&source[..metadata]))
             .into_iter()
-            .map(|piece| {
-                let text = piece.text;
-                let (local, work) = references::window_winners(winners, origin, text.len());
-                witness_work += work;
-                let mut row = Row::parse_with_references(text, &references, &local);
-                row.continues = piece.continues;
-                row.through = piece.through;
-                origin += text.len();
-                row
-            })
+            .chain(
+                partition(&source[metadata..], false, None)
+                    .rows
+                    .into_iter()
+                    .map(|piece| {
+                        let text = piece.text;
+                        let (local, work) = references::window_winners(winners, origin, text.len());
+                        witness_work += work;
+                        let mut row = Row::parse_with_references(text, &references, &local);
+                        row.continues = piece.continues;
+                        row.through = piece.through;
+                        origin += text.len();
+                        row
+                    }),
+            )
             .collect();
         let initial_link_metadata_items = reference_work.items
             + witness_work
@@ -136,6 +159,8 @@ impl Projection {
             references_complete: false,
             needs_global_references: false,
             has_rebuilt_references: false,
+            catalog: Default::default(),
+            document_start,
         }
     }
 
@@ -160,110 +185,6 @@ impl Projection {
         row.formats_at(offset - source)
     }
 
-    pub fn query(&self, revision: Revision, range: DisplayRange) -> ProjectionSlice {
-        self.query_with_work(revision, range).0
-    }
-
-    pub(crate) fn query_with_work(
-        &self,
-        revision: Revision,
-        range: DisplayRange,
-    ) -> (ProjectionSlice, references::ReferenceWork) {
-        let first = self.rows.locate(range.start.0, true);
-        let last = self.rows.locate(range.end.0, true);
-        let mut runs: Vec<SemanticRun> = Vec::new();
-        let mut correspondence: Vec<Correspondence> = Vec::new();
-        for index in first..=last {
-            let (row, source, display) = self.rows.at(index);
-            for segment in &row.segments {
-                let start = display + segment.display.start;
-                let end = display + segment.display.end;
-                if start > range.end.0 || end < range.start.0 {
-                    continue;
-                }
-                let mapped = Correspondence {
-                    source: SourceRange {
-                        start: SourceOffset(source + segment.source.start),
-                        end: SourceOffset(source + segment.source.end),
-                    },
-                    display: DisplayRange {
-                        start: DisplayOffset(start),
-                        end: DisplayOffset(end),
-                    },
-                };
-                if let Some(previous) = correspondence.last_mut() {
-                    if previous.display.start == previous.display.end
-                        && mapped.display == previous.display
-                        && previous.source.end == mapped.source.start
-                    {
-                        previous.source.end = mapped.source.end;
-                    } else {
-                        correspondence.push(mapped);
-                    }
-                } else {
-                    correspondence.push(mapped);
-                }
-                if start == end || start >= range.end.0 || end <= range.start.0 {
-                    continue;
-                }
-                let mut formats = row.formats_at(segment.source.start);
-                formats.sort();
-                formats.dedup();
-                let selected = DisplayRange {
-                    start: DisplayOffset(start.max(range.start.0)),
-                    end: DisplayOffset(end.min(range.end.0)),
-                };
-                if let Some(previous) = runs.last_mut() {
-                    if previous.range.end == selected.start && previous.formats == formats {
-                        previous.range.end = selected.end;
-                        continue;
-                    }
-                }
-                runs.push(SemanticRun {
-                    range: selected,
-                    formats,
-                });
-            }
-        }
-        let blocks = self
-            .block_lines(range)
-            .into_iter()
-            .map(|block| crate::BlockDescription {
-                range: DisplayRange {
-                    start: DisplayOffset(self.display_at(block.content.start)),
-                    end: DisplayOffset(self.display_at(block.content.end)),
-                },
-                heading: block.heading,
-                quote_depth: block.quote_depth,
-                divider: block.divider,
-                list: block.list.as_ref().map(|list| crate::ListDescription {
-                    depth: list.depth,
-                    number: list.ordinal,
-                    checked: list.checked,
-                    first: list.first,
-                }),
-                code: block.code,
-                language: block.code_language,
-            })
-            .collect();
-        let (links, work) = self.link_descriptions_with_work(range);
-        (
-            ProjectionSlice {
-                links,
-                blocks,
-                revision,
-                range,
-                text: self
-                    .display
-                    .byte_slice(range.start.0..range.end.0)
-                    .to_string(),
-                runs,
-                correspondence,
-            },
-            work,
-        )
-    }
-
     /// Reparse the edit's paragraphs and immediate neighbors, which can join
     /// when a blank-line separator changes. No tail offsets are rewritten.
     pub fn apply(
@@ -280,6 +201,7 @@ impl Projection {
             source_end,
             display_end,
             text,
+            metadata,
             pieces,
             partition_bytes,
         } = self.reparse_window(source, edit);
@@ -322,9 +244,11 @@ impl Projection {
             }
         }
         let mut origin = 0;
-        let parsed: Vec<_> = pieces
+        origin += metadata;
+        let parsed: Vec<_> = (metadata > 0)
+            .then(|| Row::metadata(&text[..metadata]))
             .into_iter()
-            .map(|(len, continues, through)| {
+            .chain(pieces.into_iter().map(|(len, continues, through)| {
                 let raw = &text[origin..origin + len];
                 let (local, work) = references::window_winners(&winners, origin, raw.len());
                 reference_work.items += work;
@@ -333,7 +257,7 @@ impl Projection {
                 row.through = through;
                 origin += raw.len();
                 row
-            })
+            }))
             .collect();
         #[cfg(test)]
         let comparison_visits = coordinate_work_tests::visits();

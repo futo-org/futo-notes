@@ -279,6 +279,8 @@ pub enum EditorSessionError {
     Persistence { error: String },
     #[error("editor recovery mismatch")]
     RecoveryMismatch,
+    #[error("wikilink completion is stale")]
+    StaleClaim,
     #[error("editor open failed: {error}")]
     Open { error: String },
     #[error("editor session already open")]
@@ -329,6 +331,7 @@ impl From<editor::EditorError> for EditorSessionError {
             E::UnrepresentableFormat => Self::UnrepresentableFormat,
             E::Persistence(error) => Self::Persistence { error },
             E::RecoveryMismatch => Self::RecoveryMismatch,
+            E::StaleClaim => Self::StaleClaim,
         }
     }
 }
@@ -436,6 +439,26 @@ impl From<editor::LinkDescription> for EditorLinkDescription {
         }
     }
 }
+/// A wikilink's visible glyphs and the label/resolution the engine derived
+/// from store-delivered note ids. `note_id` is absent when unresolved.
+#[derive(Debug, PartialEq, Eq, uniffi::Record)]
+pub struct EditorWikilinkDescription {
+    pub range: EditorByteRange,
+    pub target: String,
+    pub label: String,
+    pub note_id: Option<String>,
+}
+impl From<editor::WikilinkDescription> for EditorWikilinkDescription {
+    fn from(value: editor::WikilinkDescription) -> Self {
+        Self {
+            range: value.range.into(),
+            target: value.target,
+            label: value.label,
+            note_id: value.note_id,
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Eq, uniffi::Record)]
 pub struct EditorSourceByteRange {
     pub start: u64,
@@ -455,6 +478,8 @@ pub struct EditorProjection {
     pub correspondence: Vec<EditorCorrespondence>,
     pub blocks: Vec<EditorBlockDescription>,
     pub links: Vec<EditorLinkDescription>,
+    pub wikilinks: Vec<EditorWikilinkDescription>,
+    pub atoms: Vec<super::images::EditorAtomDescription>,
 }
 #[derive(Debug, PartialEq, Eq, uniffi::Record)]
 pub struct EditorListDescription {
@@ -482,6 +507,8 @@ pub struct EditorBlockDescription {
     pub list: Option<EditorListDescription>,
     pub code: bool,
     pub language: Option<String>,
+    /// Leading front matter, shown verbatim; hosts may render it as a panel.
+    pub metadata: bool,
 }
 impl From<editor::ProjectionSlice> for EditorProjection {
     fn from(value: editor::ProjectionSlice) -> Self {
@@ -490,6 +517,8 @@ impl From<editor::ProjectionSlice> for EditorProjection {
             range: value.range.into(),
             text: value.text,
             links: value.links.into_iter().map(Into::into).collect(),
+            wikilinks: value.wikilinks.into_iter().map(Into::into).collect(),
+            atoms: value.atoms.into_iter().map(Into::into).collect(),
             blocks: value
                 .blocks
                 .into_iter()
@@ -501,6 +530,7 @@ impl From<editor::ProjectionSlice> for EditorProjection {
                     list: block.list.map(Into::into),
                     code: block.code,
                     language: block.language,
+                    metadata: block.metadata,
                 })
                 .collect(),
             runs: value

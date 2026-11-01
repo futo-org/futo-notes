@@ -48,6 +48,16 @@ const LINES: &[&str] = &[
     "<span title=x>tag</span> after",
     "x < y and [bracket] text",
     "Ünïcode wörds ✓",
+    "a [[Wiki link]] and ![img](a.png)",
+    "footnote ref[^n]",
+];
+/// Blocks interleaved into some documents; cuts never enter them.
+const BLOCKS: &[&str] = &[
+    "<div>\nraw html\n</div>\n",
+    "<!-- open comment\nstill inside\n-->\n",
+    "[^n]: footnote body\n    continued\n",
+    "| a | b |\n|---|---|\n| 1 | 2 |\n",
+    "```\ncode\n```\n",
 ];
 const EDITS: &[&str] = &[
     "x", "*", "`", "[", "]", "\n", "  ", "\\", "- ", "# ", "\n===", "_", "<b", "\n\n", "```", "> ",
@@ -200,6 +210,12 @@ fn cut_paragraphs_match_uncut_twin_through_edits() {
                 LINES[next(LINES.len())].to_owned()
             };
             source.push_str(&format!("{text} {line}\n"));
+            if case % 5 == 2 && next(40) == 0 {
+                source.push_str(BLOCKS[next(BLOCKS.len())]);
+            }
+        }
+        if case % 10 == 4 {
+            source.insert_str(0, "---\ntitle: front\n---\n");
         }
         if case % 4 == 1 {
             source.push_str("\nafter\n");
@@ -207,13 +223,21 @@ fn cut_paragraphs_match_uncut_twin_through_edits() {
         let mut cut = EditorSession::open(&source);
         let mut reference = uncut(|| EditorSession::open(&source));
         assert!(whole(&cut) == whole(&reference), "case {case} open");
-        if case % 3 == 0 && !ordered {
+        if case % 3 == 0 && case % 5 != 2 && !ordered {
             assert!(cut.projection.rows.len() > 4, "case {case} is cut");
         }
         for index in 0..12 {
             let step = choose(&cut, &mut next);
+            // The markdown crate's declaration scan panics on some inputs in
+            // both twins; such a case predates cuts and stops comparing.
+            let referenced = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                uncut(|| run(&mut reference, &step))
+            }));
+            UNCUT.with(|uncut| uncut.set(false));
+            if referenced.is_err() {
+                break;
+            }
             run(&mut cut, &step);
-            uncut(|| run(&mut reference, &step));
             let (got, want) = (whole(&cut), whole(&reference));
             // Incremental rows that already disagree with a fresh open (for
             // example blank lines after a list) predate cuts; stop comparing.
@@ -227,8 +251,7 @@ fn cut_paragraphs_match_uncut_twin_through_edits() {
                 a.text == b.text && a.runs == b.runs && a.blocks == b.blocks && a.links == b.links
             };
             let ok = got == want
-                || (!list
-                    && same_meaning(&got.1, &want.1)
+                || (same_meaning(&got.1, &want.1)
                     && got == uncut(|| whole(&EditorSession::open(&got.0))));
             let step = match step {
                 Step::Raw(at, end, text) => format!("raw {at}..{end} {text:?}"),

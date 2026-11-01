@@ -9,13 +9,8 @@ name = "futo_notes_model"
 # Pure note-domain decisions shared by the durable store and every shell.
 [dependencies]
 futo-notes-wikilinks = { path = "../futo-notes-wikilinks" }
+futo-notes-tags = { path = "../futo-notes-tags" }
 futo-notes-core = { path = "../futo-notes-core" }
-# `regex` lacks lookaround; the tag grammar (`tags.ts` TAG_REGEX) uses a
-# lookbehind for whitespace-or-start and a lookahead for the terminator, so we
-# need `fancy-regex` (already in the tree via the inference tokenizer).
-fancy-regex = "0.19"
-# SIMD byte search for the tag-extraction hot path (fence/backtick scanning
-# over a note's full body); already in the workspace lockfile transitively.
 memchr = "2"
 
 [dev-dependencies]

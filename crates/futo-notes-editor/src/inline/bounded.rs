@@ -265,6 +265,7 @@ impl Projection {
                     list: None,
                     code: block.code,
                     language,
+                    metadata: false,
                 },
                 source_owner: block.code.then_some(SourceOffset(code_owner)),
                 continues_before: a < display.start,

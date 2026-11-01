@@ -2001,6 +2001,7 @@ dependencies = [
  "argon2",
  "diffy",
  "filetime",
+ "futo-notes-image",
  "hex",
  "hkdf",
  "hmac",
@@ -2023,6 +2024,8 @@ dependencies = [
 name = "futo-notes-editor"
 version = "0.1.0"
 dependencies = [
+ "futo-notes-image",
+ "futo-notes-tags",
  "futo-notes-wikilinks",
  "markdown",
  "pulldown-cmark",
@@ -2057,6 +2060,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "futo-notes-image"
+version = "0.1.0"
+
+[[package]]
 name = "futo-notes-license"
 version = "0.1.0"
 dependencies = [
@@ -2071,8 +2078,8 @@ dependencies = [
 name = "futo-notes-model"
 version = "0.1.0"
 dependencies = [
- "fancy-regex",
  "futo-notes-core",
+ "futo-notes-tags",
  "futo-notes-wikilinks",
  "memchr",
  "serde",
@@ -2136,6 +2143,14 @@ dependencies = [
  "url",
  "uuid",
  "wiremock",
+]
+
+[[package]]
+name = "futo-notes-tags"
+version = "0.1.0"
+dependencies = [
+ "fancy-regex",
+ "memchr",
 ]
 
 [[package]]

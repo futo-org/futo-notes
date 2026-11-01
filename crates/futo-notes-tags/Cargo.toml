@@ -1,0 +1,14 @@
+[package]
+name = "futo-notes-tags"
+version = "0.1.0"
+edition = "2021"
+
+# Canonical tag rules shared by the durable note model and the filesystem-free
+# native/WASM editor. Keep this dependency tree portable.
+[dependencies]
+# `regex` lacks lookaround; the header tag-line grammar uses fancy-regex.
+fancy-regex = "0.19"
+memchr = "2"
+
+[lints]
+workspace = true
