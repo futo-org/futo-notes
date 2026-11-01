@@ -48,7 +48,7 @@ fn total(work: &EditWork) -> usize {
 #[test]
 fn local_keys_in_one_giant_region_do_not_scale_with_it() {
     type Shape = fn(usize) -> (String, String, String);
-    let shapes: [(&str, Shape); 3] = [
+    let shapes: [(&str, Shape); 4] = [
         ("tight bullet list", |lines| {
             let source: String = (0..lines).map(|i| format!("- item {i}\n")).collect();
             let middle = format!("item {}", lines / 2);
@@ -71,15 +71,27 @@ fn local_keys_in_one_giant_region_do_not_scale_with_it() {
             let expected = source.replace(&format!("{middle}\n"), &format!("{middle}\n\n"));
             (source, middle, expected)
         }),
+        ("ordered list", |lines| {
+            let source: String = (1..=lines).map(|i| format!("{i}. item {i}\n")).collect();
+            let half = lines / 2;
+            let middle = format!("item {half}");
+            let mut expected: String = (1..=half).map(|i| format!("{i}. item {i}\n")).collect();
+            expected.push_str(&format!("{}. \n", half + 1));
+            expected.extend((half + 1..=lines).map(|i| format!("{}. item {i}\n", i + 1)));
+            (source, middle, expected)
+        }),
     ];
     for (name, shape) in shapes {
+        // Enter in an ordered list renumbers every following item by design.
+        let bounded = if name == "ordered list" { 2 } else { 3 };
         let mut small = None;
         for lines in [1_000, 20_000] {
             let (source, needle, expected) = shape(lines);
             let (work, after) = keys(&source, &needle);
             assert_eq!(after, expected, "{name} at {lines}");
             let measured = work.map(|work| total(&work));
-            if let Some(small) = small {
+            let measured = measured[..bounded].to_vec();
+            if let Some(small) = &small {
                 for (key, (large, small)) in measured.iter().zip(small).enumerate() {
                     assert!(
                         *large <= small * 3 / 2 + 1024,

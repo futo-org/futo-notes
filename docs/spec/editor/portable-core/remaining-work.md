@@ -61,8 +61,8 @@ Paragraph projections use a length-indexed tree and display Rope, so an ordinary
 edit after a distant jump reparses only its paragraph window without rewriting
 the note's tail offsets. Work counters include actual parser input for candidate
 verification, paragraph partitioning and projection. Large soft-line
-paragraphs and tight bullet lists are now cut into sealed rows
-(→ docs/spec/editor/portable-core/long-regions.md); work in an ordered or loose list,
+paragraphs, tight bullet and ordered lists and long raw HTML blocks are now cut into sealed rows
+(→ docs/spec/editor/portable-core/long-regions.md); work in a loose list,
 a quoted container, a single huge display line or a fence still depends on that region;
 progressive interpretation, complete allocation/work bounds and native device latency
 measurements remain in their dependent tickets.

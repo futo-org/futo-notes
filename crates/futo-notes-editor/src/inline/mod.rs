@@ -167,11 +167,17 @@ impl Projection {
     /// never constructs this temporary session or materializes this envelope.
     pub fn edit_window(&self, range: DisplayRange) -> (std::ops::Range<usize>, usize) {
         let mut first = self.rows.locate(range.start.0, true).saturating_sub(1);
-        let last = (self.rows.locate(range.end.0, true) + 1).min(self.rows.len() - 1);
+        let mut last = (self.rows.locate(range.end.0, true) + 1).min(self.rows.len() - 1);
         // A staged window is opened alone, so it starts at the opener line of
-        // a cut raw HTML block it enters: a one-off region-sized read (#314).
-        while first > 0 && self.rows.at(first).0.opener.is_some() {
+        // a cut raw HTML block it enters, and holds a whole cut ordered list,
+        // whose numbering commands renumber every item: a one-off
+        // region-sized read (#314).
+        let ordered = |index: usize| self.rows.at(index).0.first_number().is_some();
+        while first > 0 && (self.rows.at(first).0.opener.is_some() || ordered(first)) {
             first = self.rows.block_start(first);
+        }
+        while last + 1 < self.rows.len() && ordered(last + 1) {
+            last = self.rows.block_end(last + 1);
         }
         let (_, source_start, display_start) = self.rows.at(first);
         let (row, source_end, _) = self.rows.at(last);

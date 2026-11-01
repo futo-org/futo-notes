@@ -1,37 +1,63 @@
-//! A tight top-level bullet list, cut between top-level items.
+//! A tight top-level list, cut between top-level items.
 use super::{Cut, CHUNK};
 use pulldown_cmark::Tag;
 
-/// A top-level item's marker byte and content column, measured like the
-/// list metadata, or `None` when tabs or a wide indent make it context bound.
-fn bullet_line(line: &str) -> Option<(u8, usize)> {
+/// A top-level item's marker byte (bullet or ordered delimiter), physical
+/// number and content column, measured like the list metadata, or `None`
+/// when tabs or a wide indent make it context bound.
+#[derive(Clone, Copy, PartialEq)]
+struct Marker {
+    byte: u8,
+    number: Option<u64>,
+    column: usize,
+}
+
+fn marker_line(line: &str) -> Option<Marker> {
     let text = line.trim_start_matches(' ');
     let indent = line.len() - text.len();
-    let marker = *text.as_bytes().first()?;
-    if indent > 3 || !matches!(marker, b'-' | b'*' | b'+') {
+    let digits = text.bytes().take_while(u8::is_ascii_digit).count();
+    let byte = *text.as_bytes().get(digits)?;
+    let number = if digits == 0 {
+        if !matches!(byte, b'-' | b'*' | b'+') {
+            return None;
+        }
+        None
+    } else {
+        if digits > 9 || !matches!(byte, b'.' | b')') {
+            return None;
+        }
+        Some(text[..digits].parse().ok()?)
+    };
+    if indent > 3 {
         return None;
     }
-    let rest = &text[1..];
+    let rest = &text[digits + 1..];
     let padding = rest.bytes().take_while(|&b| b == b' ').count();
     if rest[padding..].starts_with('\t') {
         return None;
     }
-    Some((marker, indent + 1 + if padding > 4 { 1 } else { padding }))
+    let padding = if padding > 4 { 1 } else { padding };
+    Some(Marker {
+        byte,
+        number,
+        column: indent + digits + 1 + padding,
+    })
 }
 
 struct Item {
     line: usize,
-    /// Marker byte and content column.
-    marker: Option<(u8, usize)>,
+    marker: Option<Marker>,
     nested: bool,
 }
 
-/// A tight top-level bullet list. Cuts fall between items with the same
-/// content column and no nested list, so neither the sink target nor the
-/// previous content column depends on the other row.
+/// A tight top-level list. Cuts fall between items with the same content
+/// column and no nested list, so neither the sink target nor the previous
+/// content column depends on the other row. An ordered list is cut only
+/// before an item whose physical number is its ordinal, so each row's own
+/// parse numbers its items as the whole list does.
 pub(super) struct ListScan {
     pub(super) range: std::ops::Range<usize>,
-    bullet: bool,
+    start: Option<u64>,
     items: Vec<Item>,
 }
 
@@ -39,7 +65,7 @@ impl ListScan {
     pub(super) fn new(range: std::ops::Range<usize>, number: &Option<u64>) -> Self {
         Self {
             range,
-            bullet: number.is_none(),
+            start: *number,
             items: Vec::new(),
         }
     }
@@ -51,7 +77,7 @@ impl ListScan {
                 let marker = source[line..].split_inclusive('\n').next().unwrap_or("");
                 self.items.push(Item {
                     line,
-                    marker: bullet_line(marker),
+                    marker: marker_line(marker),
                     nested: false,
                 });
             }
@@ -81,8 +107,7 @@ impl ListScan {
 
     pub(super) fn cuttable(&self, source: &str) -> bool {
         let body = &source[self.range.start..self.trimmed_end(source)];
-        self.bullet
-            && self.items.iter().all(|item| item.marker.is_some())
+        self.items.iter().all(|item| item.marker.is_some())
             && !body
                 .split_inclusive('\n')
                 .any(|line| line.trim_matches([' ', '\t', '\r', '\n']).is_empty())
@@ -90,14 +115,20 @@ impl ListScan {
 
     /// Neither item beside a cut nests a block, so each row's first and last
     /// top-level lines name the list's own owner.
+    /// The physical number an item at `index` needs to be its ordinal.
+    fn ordinal(&self, index: usize) -> Option<u64> {
+        self.start.map(|start| start + index as u64)
+    }
+
     pub(super) fn cuts(&self, cuts: &mut Vec<(usize, Cut)>) {
         let mut last = self.range.start;
-        for pair in self.items.windows(2) {
+        for (index, pair) in self.items.windows(2).enumerate() {
             let (previous, item) = (&pair[0], &pair[1]);
-            let column = |item: &Item| item.marker.map(|marker| marker.1);
+            let column = |item: &Item| item.marker.map(|marker| marker.column);
             if !previous.nested
                 && !item.nested
                 && column(previous) == column(item)
+                && item.marker.and_then(|marker| marker.number) == self.ordinal(index + 1)
                 && item.line - last >= CHUNK
             {
                 cuts.push((item.line, Cut::Continue));
@@ -111,6 +142,13 @@ impl ListScan {
         let Some(last) = self.items.last() else {
             return false;
         };
-        !last.nested && last.marker.is_some() && bullet_line(next) == last.marker
+        let Some(marker) = last.marker.filter(|_| !last.nested) else {
+            return false;
+        };
+        marker_line(next)
+            == Some(Marker {
+                number: self.ordinal(self.items.len()),
+                ..marker
+            })
     }
 }

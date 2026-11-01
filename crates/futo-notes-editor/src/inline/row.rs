@@ -345,6 +345,14 @@ pub(crate) fn open_at_end(source: &str) -> (Option<OpenEnd>, usize) {
     (open, source.len())
 }
 
+impl Row {
+    /// The physical number of a continued row's first ordered item.
+    pub(crate) fn first_number(&self) -> Option<u64> {
+        let list = self.blocks.first()?.list.as_ref()?;
+        (self.continues && list.depth == 1).then_some(list.ordinal)?
+    }
+}
+
 /// The opener line of a raw HTML block still open at the end of `source`.
 pub(crate) fn html_tail(source: &str) -> Option<&str> {
     let mut open = None;

@@ -194,7 +194,7 @@ fn cut_paragraphs_match_uncut_twin_through_edits() {
     let cases = std::env::var("SPLIT_CASES").map_or(24, |cases| cases.parse().unwrap());
     for case in 0..cases {
         let list = case % 2 == 1;
-        // Ordered lists stay uncut; they guard against numbering drift.
+        // Ordered lists cut only where markers equal ordinals; lazy `1.` stays uncut.
         let ordered = case % 4 == 3;
         let mut source = String::new();
         for line in 0..400 {
@@ -247,7 +247,7 @@ fn cut_paragraphs_match_uncut_twin_through_edits() {
         let mut cut = EditorSession::open(&source);
         let mut reference = uncut(|| EditorSession::open(&source));
         assert!(whole(&cut) == whole(&reference), "case {case} open");
-        if case % 3 == 0 && case % 5 != 2 && case % 7 != 6 && !ordered {
+        if case % 3 == 0 && case % 5 != 2 && case % 7 != 6 && !(ordered && case % 8 == 7) {
             assert!(cut.projection.rows.len() > 4, "case {case} is cut");
         }
         for index in 0..12 {
