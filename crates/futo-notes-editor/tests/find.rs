@@ -44,8 +44,14 @@ fn matching_reads_visible_text_across_marks_and_soft_lines_but_not_blocks() {
         ("# h\nb", "h b", &[]),
         ("```\nx\ny\n```", "x y", &[]),
         ("```\nlet Foo;\n```", "foo", &["Foo"]),
-        // Table text under the current contract: cells are findable.
+        // Table cells are findable; pipes, delimiters and cell edges are barriers.
         ("| a | Bee |\n|---|---|\n| c | d |", "bee", &["Bee"]),
+        ("| a | b |\n|---|---|\n| c | d |", "a | b", &[]),
+        ("| a | b |\n|---|---|\n| c | d |", "b c", &[]),
+        ("| a | b |\n|---|---|\n| c | d |", "|", &[]),
+        ("| a | b |\n|---|---|\n| c | d |", "---", &[]),
+        ("x\n\n| a\\|b | y |\n|---|---|\n\nx | y", "a|b", &["a|b"]),
+        ("x\n\n| a | y |\n|---|---|\n\nx | y", "x | y", &["x | y"]),
         // Folding: every sigma is one letter; İ matches only itself.
         ("ΟΔΟΣΑ οδος", "οδοσ", &["ΟΔΟΣ", "οδος"]),
         ("İi", "i", &["i"]),
