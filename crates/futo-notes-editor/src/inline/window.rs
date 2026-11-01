@@ -51,6 +51,7 @@ impl Projection {
         // A cut paragraph whose meaning reaches outside the window widens to
         // its complete extent once; seams elsewhere remain sealed.
         let mut partition_bytes = metadata_scanned;
+        let mut footnote_step = 1;
         loop {
             let (_, source_start, display_start) = self.rows.at(first);
             let (row, old_end, display_end) = self.rows.at(last);
@@ -73,8 +74,10 @@ impl Projection {
                     continue;
                 }
                 Some(row::OpenEnd::Footnote) => {
+                    // Double the step: a long definition costs linear work.
                     partition_bytes += text.len();
-                    last += 1;
+                    footnote_step *= 2;
+                    last = (last + footnote_step).min(self.rows.len() - 1);
                     continue;
                 }
                 None => {}
