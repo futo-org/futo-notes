@@ -29,7 +29,8 @@ use search::StoreSearch;
 
 pub use editor_session::{
     EditorStoreError, RecoveryClock, RecoveryIssue, RecoveryIssueKind, RecoveryOptions,
-    RecoveryStatus, RecoveryStorage, StoreEditorHost, StoreEditorSession,
+    RecoveryStatus, RecoveryStorage, StoreBoundedEditorSession, StoreBoundedEntryError,
+    StoreBoundedExitError, StoreEditorHost, StoreEditorSession,
 };
 pub use futo_notes_model::{WELCOME_NOTE, WELCOME_NOTE_ID};
 pub use futo_notes_search::{SearchHit, SearchStatus};

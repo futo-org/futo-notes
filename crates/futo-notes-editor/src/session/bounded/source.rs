@@ -56,8 +56,22 @@ impl BoundedSourceSession {
     pub fn preparation_work(&self) -> BoundedWork {
         self.engine.preparation_work()
     }
-    pub fn materialize(self) -> (EditorSession, BoundedWork) {
-        self.engine.materialize()
+    /// Ends source-worker authority. This endpoint never recorded page history;
+    /// its returned full engine starts a fresh history lifetime. Canonical
+    /// source/transient provenance survives the deliberate proportional replay.
+    pub fn materialize_source(self) -> (EditorSession, BoundedWork) {
+        let (mut engine, mut work) = self.engine.materialize();
+        for group in engine.undo.iter().chain(&engine.redo) {
+            work.retired_history_records += 1 + group.entries.len();
+            for entry in &group.entries {
+                work.retired_history_payload_bytes += entry.removed.len() + entry.inserted.len();
+            }
+        }
+        engine.undo.clear();
+        engine.redo.clear();
+        engine.typing = None;
+        engine.pending_formats = None;
+        (engine, work)
     }
     /// Validate and install only canonical source facts. This never advances
     /// page continuations, changes selection or guesses a history group.

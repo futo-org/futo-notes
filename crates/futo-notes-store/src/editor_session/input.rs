@@ -26,6 +26,7 @@ impl Attachment {
     ) -> Result<Option<ViewChange>, EditorStoreError> {
         self.input_ready()?;
         self.engine
+            .full_mut()?
             .block_command_utf16(expected, range, command, &mut |edit| {
                 self.recovery.append(&store.root, edit)
             })
@@ -44,6 +45,7 @@ impl Attachment {
     ) -> Result<Option<ViewChange>, EditorStoreError> {
         self.input_ready()?;
         self.engine
+            .full_mut()?
             .paragraph_key_utf16(expected, range, key, &mut |edit| {
                 self.recovery.append(&store.root, edit)
             })
@@ -62,6 +64,7 @@ impl Attachment {
     ) -> Result<ViewChange, EditorStoreError> {
         let (range, inserted) = self
             .engine
+            .full()?
             .decode_utf16_input(expected, range, inserted)
             .map_err(EditorStoreError::Editor)?;
         self.replace(store, expected, range, &inserted)
@@ -77,6 +80,7 @@ impl Attachment {
     ) -> Result<ViewChange, EditorStoreError> {
         let (range, inserted) = self
             .engine
+            .full()?
             .decode_utf16_input(expected, range, inserted)
             .map_err(EditorStoreError::Editor)?;
         self.replace_action(store, expected, range, &inserted, action)
@@ -90,6 +94,7 @@ impl Attachment {
     ) -> Result<ViewChange, EditorStoreError> {
         let replacements = self
             .engine
+            .full()?
             .decode_utf16_replacements(expected, replacements)
             .map_err(EditorStoreError::Editor)?;
         self.replace_many(store, expected, &replacements)
@@ -121,6 +126,7 @@ impl Attachment {
     ) -> Result<ViewChange, EditorStoreError> {
         self.input_ready()?;
         self.engine
+            .full_mut()?
             .replace_action(expected, range, inserted, action, &mut |edit| {
                 self.recovery.append(&store.root, edit)
             })
@@ -138,6 +144,7 @@ impl Attachment {
     ) -> Result<ViewChange, EditorStoreError> {
         self.input_ready()?;
         self.engine
+            .full_mut()?
             .replace_many(expected, replacements, &mut |edit| {
                 self.recovery.append(&store.root, edit)
             })

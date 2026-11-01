@@ -1,11 +1,5 @@
 mod blocks;
-mod bounded;
-pub use bounded::{
-    BoundedBlock, BoundedChange, BoundedCodeProjection, BoundedCursor, BoundedEditorSession,
-    BoundedEntryError, BoundedError, BoundedMap, BoundedMapKind, BoundedMeaning, BoundedProgress,
-    BoundedProgressChange, BoundedProgressStatus, BoundedSourceAuthority, BoundedSourceChange,
-    BoundedSourceOperation, BoundedWork, CodeFragment, CodeIdentity, ProjectionContinuation,
-};
+pub(crate) mod bounded;
 mod composition;
 mod os_replacement;
 mod paragraphs;

@@ -12,12 +12,20 @@ fn far_page_input_and_inverse_do_not_replay_the_workers_presentation() {
     let paragraph = "__😀__ &acE; [x](u) plain\n\n";
     let body = "ab\n".repeat(4096);
     let source = format!("```Rust\n{body}```\n\n{}", paragraph.repeat(64));
-    let mut worker = EditorSession::open_with_clock(&source, Arc::new(Clock(900)))
-        .into_bounded(Revision(0), SessionToken(71), DisplayOffset(0))
+    let mut native_worker = EditorSession::open_with_clock(&source, Arc::new(Clock(900)));
+    native_worker
+        .replace(Revision(0), DisplayRange::default(), "q", &mut |_| Ok(()))
+        .unwrap();
+    native_worker
+        .undo(Revision(1), &mut |_| Ok(()))
+        .unwrap()
+        .unwrap();
+    let mut worker = native_worker
+        .into_bounded(Revision(2), SessionToken(71), DisplayOffset(0))
         .unwrap()
         .into_source_worker();
-    let mut page = EditorSession::open_with_clock(&source, Arc::new(Clock(0)))
-        .into_bounded(Revision(0), SessionToken(71), DisplayOffset(0))
+    let mut page = EditorSession::restore_with_clock(&source, Revision(2), Arc::new(Clock(0)))
+        .into_bounded(Revision(2), SessionToken(71), DisplayOffset(0))
         .unwrap();
     let mut edit = None;
     page.remove_fence_closer(page.cursor(), &mut |record| {
@@ -151,6 +159,20 @@ fn far_page_input_and_inverse_do_not_replay_the_workers_presentation() {
         })
         .unwrap();
     assert_eq!(worker.source_text(), page.source_text());
+    let (mut full_worker, work) = worker.materialize_source();
+    assert!(work.retired_history_records > 0);
+    assert!(full_worker
+        .undo(full_worker.revision(), &mut |_| panic!(
+            "worker cannot publish page Undo"
+        ))
+        .unwrap()
+        .is_none());
+    assert!(full_worker
+        .redo(full_worker.revision(), &mut |_| panic!(
+            "worker cannot revive native Redo"
+        ))
+        .unwrap()
+        .is_none());
 }
 
 #[test]

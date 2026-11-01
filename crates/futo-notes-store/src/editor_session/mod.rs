@@ -8,7 +8,11 @@ use futo_notes_editor::{
 
 use crate::{paths, FlushDisposition, FlushDraftResult, LocalNoteStore, NOTE_NOT_FOUND};
 
+mod bounded;
+pub use bounded::{StoreBoundedEditorSession, StoreBoundedEntryError, StoreBoundedExitError};
 mod checkpoint;
+mod owner;
+use owner::{EditorMode, EditorOwner};
 mod clock;
 mod composition;
 mod composition_facade;
@@ -85,6 +89,8 @@ pub struct RecoveryIssue {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EditorStoreError {
     Open(String),
+    Bounded(futo_notes_editor::BoundedError),
+    ModeResetRequired,
     SessionAlreadyOpen,
     Editor(EditorError),
     Recovery(String),
@@ -122,7 +128,7 @@ pub struct StoreEditorSession<'store> {
 pub(super) struct Attachment {
     id: String,
     recovery: RecoveryLog,
-    engine: EditorSession,
+    engine: EditorOwner,
     lease: EditorLease,
     pending_checkpoint: Option<FlushDraftResult>,
     terminal: bool,
@@ -237,7 +243,7 @@ impl<'store> StoreEditorSession<'store> {
         };
         let state = Arc::new(Mutex::new(Attachment {
             id: id.to_owned(),
-            engine,
+            engine: EditorOwner(Some(EditorMode::Full(engine))),
             recovery,
             lease,
             pending_checkpoint,
