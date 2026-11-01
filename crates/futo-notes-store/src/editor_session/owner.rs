@@ -4,6 +4,7 @@ use futo_notes_editor::{BoundedEditorSession, BoundedError, BoundedWork};
 pub(super) enum EditorMode {
     Full(EditorSession),
     Bounded(BoundedEditorSession),
+    Source(futo_notes_editor::BoundedSourceSession),
 }
 
 /// The attachment keeps one engine owner across consuming interface transfers.
@@ -18,7 +19,9 @@ impl EditorOwner {
             .expect("engine transfer holds the attachment lock")
         {
             EditorMode::Full(engine) => Ok(engine),
-            EditorMode::Bounded(_) => Err(EditorStoreError::ModeResetRequired),
+            EditorMode::Bounded(_) | EditorMode::Source(_) => {
+                Err(EditorStoreError::ModeResetRequired)
+            }
         }
     }
     pub(super) fn full_mut(&mut self) -> Result<&mut EditorSession, EditorStoreError> {
@@ -28,7 +31,9 @@ impl EditorOwner {
             .expect("engine transfer holds the attachment lock")
         {
             EditorMode::Full(engine) => Ok(engine),
-            EditorMode::Bounded(_) => Err(EditorStoreError::ModeResetRequired),
+            EditorMode::Bounded(_) | EditorMode::Source(_) => {
+                Err(EditorStoreError::ModeResetRequired)
+            }
         }
     }
     pub(super) fn bounded(&self) -> Result<&BoundedEditorSession, EditorStoreError> {
@@ -38,7 +43,7 @@ impl EditorOwner {
             .expect("engine transfer holds the attachment lock")
         {
             EditorMode::Bounded(engine) => Ok(engine),
-            EditorMode::Full(_) => Err(EditorStoreError::ModeResetRequired),
+            EditorMode::Full(_) | EditorMode::Source(_) => Err(EditorStoreError::ModeResetRequired),
         }
     }
     pub(super) fn bounded_mut(&mut self) -> Result<&mut BoundedEditorSession, EditorStoreError> {
@@ -48,30 +53,53 @@ impl EditorOwner {
             .expect("engine transfer holds the attachment lock")
         {
             EditorMode::Bounded(engine) => Ok(engine),
-            EditorMode::Full(_) => Err(EditorStoreError::ModeResetRequired),
+            EditorMode::Full(_) | EditorMode::Source(_) => Err(EditorStoreError::ModeResetRequired),
+        }
+    }
+    pub(super) fn source_worker(
+        &self,
+    ) -> Result<&futo_notes_editor::BoundedSourceSession, EditorStoreError> {
+        match self.0.as_ref().unwrap() {
+            EditorMode::Source(engine) => Ok(engine),
+            _ => Err(EditorStoreError::ModeResetRequired),
+        }
+    }
+    pub(super) fn source_worker_mut(
+        &mut self,
+    ) -> Result<&mut futo_notes_editor::BoundedSourceSession, EditorStoreError> {
+        match self.0.as_mut().unwrap() {
+            EditorMode::Source(engine) => Ok(engine),
+            _ => Err(EditorStoreError::ModeResetRequired),
         }
     }
     pub(super) fn source_text(&self) -> String {
         match self.0.as_ref().unwrap() {
             EditorMode::Full(engine) => engine.source_text(),
             EditorMode::Bounded(engine) => engine.source_text(),
+            EditorMode::Source(engine) => engine.source_text(),
         }
     }
     pub(super) fn revision(&self) -> Revision {
         match self.0.as_ref().unwrap() {
             EditorMode::Full(engine) => engine.revision(),
             EditorMode::Bounded(engine) => engine.source_authority().revision,
+            EditorMode::Source(engine) => engine.source_authority().revision,
         }
     }
     pub(super) fn display_text(&self) -> String {
         match self.0.as_ref().unwrap() {
             EditorMode::Full(engine) => engine.display_text(),
             EditorMode::Bounded(engine) => engine.display_text(),
+            EditorMode::Source(_) => panic!("source worker has no presentation interface"),
         }
     }
     pub(super) fn materialize(&mut self) -> BoundedWork {
         let (mode, work) = match self.0.take().unwrap() {
             EditorMode::Full(engine) => (EditorMode::Full(engine), BoundedWork::default()),
+            EditorMode::Source(engine) => {
+                let (engine, work) = engine.materialize_source();
+                (EditorMode::Full(engine), work)
+            }
             EditorMode::Bounded(engine) => {
                 let (engine, work) = engine.materialize();
                 (EditorMode::Full(engine), work)

@@ -165,6 +165,9 @@ impl BoundedEditorSession {
         self.engine.source_text()
     }
     /// Explicit whole-display materialization; never used by a local input.
+    pub(crate) fn display_bytes(&self) -> usize {
+        self.display.len_bytes()
+    }
     pub fn display_text(&self) -> String {
         self.display.to_string()
     }

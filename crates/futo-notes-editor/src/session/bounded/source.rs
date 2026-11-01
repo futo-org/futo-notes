@@ -96,6 +96,9 @@ impl BoundedSourceSession {
 }
 
 impl BoundedEditorSession {
+    pub(crate) fn require_source_witness(&mut self) {
+        self.source_transport = true;
+    }
     pub fn into_source_worker(self) -> BoundedSourceSession {
         BoundedSourceSession { engine: self }
     }

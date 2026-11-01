@@ -17,6 +17,7 @@ mod native_input_traces;
 mod paragraphs;
 mod portable;
 mod portable_attachment;
+mod portable_bounded;
 mod portable_readiness;
 mod portable_waiting;
 mod recovery;

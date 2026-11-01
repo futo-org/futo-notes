@@ -9,9 +9,10 @@ use super::{Attachment, EditorStoreError, RecoveryIssue, StoreEditorSession};
 /// It exclusively owns the attached session, so markdown checkpoints cannot
 /// silently invalidate its page's revision/identity contract.
 pub struct StoreEditorHost<'store> {
-    session: StoreEditorSession<'store>,
-    token: SessionToken,
-    last: Option<(HostRequest, HostAck)>,
+    pub(super) session: StoreEditorSession<'store>,
+    pub(super) token: SessionToken,
+    pub(super) sequence_floor: Option<u64>,
+    pub(super) last: Option<(HostRequest, HostAck)>,
 }
 
 impl<'store> StoreEditorSession<'store> {
@@ -43,6 +44,7 @@ impl<'store> StoreEditorSession<'store> {
             session: self,
             token,
             last: None,
+            sequence_floor: None,
         })
     }
 }
@@ -120,6 +122,16 @@ impl StoreEditorHost<'_> {
         }
         if request.token != self.token {
             return self.reply_with_state(&state, &request, Some("stale editor session".into()));
+        }
+        if self
+            .sequence_floor
+            .is_some_and(|floor| request.sequence <= floor)
+        {
+            return self.reply_with_state(
+                &state,
+                &request,
+                Some("retired editor mode request".into()),
+            );
         }
         if let Some((previous, ack)) = &self.last {
             if *previous == request {

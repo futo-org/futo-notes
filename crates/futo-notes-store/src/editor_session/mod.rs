@@ -9,7 +9,14 @@ use futo_notes_editor::{
 use crate::{paths, FlushDisposition, FlushDraftResult, LocalNoteStore, NOTE_NOT_FOUND};
 
 mod bounded;
-pub use bounded::{StoreBoundedEditorSession, StoreBoundedEntryError, StoreBoundedExitError, StoreBoundedSourceSnapshot};
+mod bounded_host;
+pub use bounded::{
+    StoreBoundedEditorSession, StoreBoundedEntryError, StoreBoundedExitError,
+    StoreBoundedSourceSnapshot,
+};
+pub use bounded_host::{
+    StoreBoundedEditorHost, StoreBoundedHostEntryError, StoreBoundedHostExitError,
+};
 mod checkpoint;
 mod owner;
 use owner::{EditorMode, EditorOwner};

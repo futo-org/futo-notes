@@ -46,44 +46,56 @@ impl<'store> StoreEditorSession<'store> {
         token: SessionToken,
         body_caret: DisplayOffset,
     ) -> Result<StoreBoundedEditorSession<'store>, StoreBoundedEntryError<'store>> {
-        let result = (|| {
-            let _gate = self.store.lock_gate().map_err(EditorStoreError::Recovery)?;
-            let _vault = futo_notes_core::files::vault_mutation_guard()
-                .map_err(EditorStoreError::Recovery)?;
-            let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
-            state.input_ready()?;
-            state.engine.full()?;
-            // The oldest accepted prefix is protected before proportional
-            // certificate/header work. A failed flush publishes no new mode.
-            state.flush_recovery(&self.store)?;
-            state
-                .recovery
-                .prepare_bounded(&self.store.root)
-                .map_err(EditorStoreError::Recovery)?;
-            let Some(EditorMode::Full(engine)) = state.engine.0.take() else {
-                unreachable!("checked full owner")
-            };
-            match engine.into_bounded(expected, token, body_caret) {
-                Ok(engine) => {
-                    state.engine.0 = Some(EditorMode::Bounded(engine));
-                    Ok(())
-                }
-                Err(error) => {
-                    state.engine.0 = Some(EditorMode::Full(*error.session));
-                    state
-                        .recovery
-                        .cancel_bounded_preparation(&self.store.root)
-                        .map_err(EditorStoreError::Recovery)?;
-                    Err(owner::bounded_error(error.error))
-                }
-            }
-        })();
+        let result = self.enter_bounded(expected, token, body_caret, false);
         match result {
-            Ok(()) => Ok(StoreBoundedEditorSession { session: self }),
+            Ok(_) => Ok(StoreBoundedEditorSession { session: self }),
             Err(error) => Err(StoreBoundedEntryError {
                 session: self,
                 error,
             }),
+        }
+    }
+    pub(super) fn enter_bounded(
+        &self,
+        expected: Revision,
+        token: SessionToken,
+        body_caret: DisplayOffset,
+        source_worker: bool,
+    ) -> Result<(BoundedCursor, Revision), EditorStoreError> {
+        let _gate = self.store.lock_gate().map_err(EditorStoreError::Recovery)?;
+        let _vault =
+            futo_notes_core::files::vault_mutation_guard().map_err(EditorStoreError::Recovery)?;
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        state.input_ready()?;
+        state.engine.full()?;
+        // The oldest accepted prefix is protected before proportional
+        // certificate/header work. A failed flush publishes no new mode.
+        state.flush_recovery(&self.store)?;
+        state
+            .recovery
+            .prepare_bounded(&self.store.root)
+            .map_err(EditorStoreError::Recovery)?;
+        let Some(EditorMode::Full(engine)) = state.engine.0.take() else {
+            unreachable!("checked full owner")
+        };
+        match engine.into_bounded(expected, token, body_caret) {
+            Ok(engine) => {
+                let cursor = engine.cursor();
+                state.engine.0 = Some(if source_worker {
+                    EditorMode::Source(engine.into_source_worker())
+                } else {
+                    EditorMode::Bounded(engine)
+                });
+                Ok((cursor, state.recovery.durable))
+            }
+            Err(error) => {
+                state.engine.0 = Some(EditorMode::Full(*error.session));
+                state
+                    .recovery
+                    .cancel_bounded_preparation(&self.store.root)
+                    .map_err(EditorStoreError::Recovery)?;
+                Err(owner::bounded_error(error.error))
+            }
         }
     }
 }
