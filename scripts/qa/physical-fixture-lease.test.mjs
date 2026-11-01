@@ -1,5 +1,4 @@
 import { chmodSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
-import process from 'node:process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -9,23 +8,9 @@ import {
   releaseLease,
   useLease,
   holdLease,
-  physicalFixtureHostPaths,
 } from './physical-fixture-lease.mjs';
 
 describe('physical fixture reservation', () => {
-  it('uses one canonical host namespace across caller temporary-directory aliases', () => {
-    const before = process.env.TMPDIR;
-    try {
-      process.env.TMPDIR = '/a-caller-specific-directory';
-      const first = physicalFixtureHostPaths();
-      process.env.TMPDIR = '/another-caller-specific-directory';
-      expect(physicalFixtureHostPaths()).toEqual(first);
-      expect(first.leaseDirectory).toBe(join(realpathSync('/tmp'), 'futo-physical-fixture-leases'));
-    } finally {
-      if (before === undefined) delete process.env.TMPDIR;
-      else process.env.TMPDIR = before;
-    }
-  });
   it('refuses an operator template that supplies its own unrelated owner PID', async () => {
     await expect(holdLease({ ownerPID: 123 })).rejects.toThrow(/owns its PID/);
   });

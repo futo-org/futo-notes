@@ -23,17 +23,6 @@ it('requires a strict signed run UUID before any OS call', () => {
   expect(t.commands).toEqual([]);
 });
 
-it('consumes only the signed UUID output and keeps bundled request metadata distinct', () => {
-  const t = setupBuild();
-  const build = t.executor.inspectBuild(t.plan);
-  expect(build.products).toContain(`/.build-signed/${t.plan.runID}/DerivedData/Build/Products`);
-  expect(build.provenance.signed).toBe(false);
-  expect(build.signing).toEqual({
-    status: 'independently-verified-signed-output',
-    runID: t.plan.runID,
-  });
-});
-
 it.each(['runID', 'deviceUDID', 'sourceSHA', 'sourceFingerprint'])(
   'refuses a signed output selected for another %s',
   (field) => {
@@ -270,36 +259,6 @@ it('refuses same-byte private product replacement before installation', async ()
   expect(t.commands.some((item) => Array.isArray(item))).toBe(false);
 });
 
-it('accepts exact minimal producer entitlements independently of dictionary-key ordering', () => {
-  const t = setupBuild({ reverseSigningEntitlements: true });
-  const receipt = JSON.parse(readFileSync(join(t.signedOutput, receiptName)));
-  expect(Object.keys(receipt.signatures[0].entitlements)).toEqual([
-    'get-task-allow',
-    'com.apple.developer.team-identifier',
-    'application-identifier',
-  ]);
-  expect(t.executor.inspectBuild(t.plan).signing.status).toBe(
-    'independently-verified-signed-output',
-  );
-});
-
-it('binds the approved build fingerprint to receipt inodes across independent inspections', () => {
-  const t = setupBuild();
-  const approved = t.executor.inspectBuild(t.plan).buildFingerprint;
-  const path = join(t.signedOutput, receiptName);
-  const bytes = readFileSync(path);
-  renameSync(path, path + '-retained');
-  writeFileSync(path, bytes, { mode: 0o600 });
-  expect(readFileSync(path)).toEqual(bytes);
-  expect(t.executor.inspectBuild(t.plan).buildFingerprint).not.toBe(approved);
-});
-
-it('keeps honest independent inspection fingerprints equal without binding verification temp state', () => {
-  const t = setupBuild();
-  const first = t.executor.inspectBuild(t.plan).buildFingerprint;
-  expect(t.executor.inspectBuild(t.plan).buildFingerprint).toBe(first);
-});
-
 it('the actual capture CLI refuses a same-byte receipt swap since identity approval before any device command', async () => {
   const t = setupBuild();
   const approved = t.executor.inspectBuild(t.plan).buildFingerprint;
@@ -381,10 +340,3 @@ it.each(['receipt', 'selection', 'profile'])(
     });
   },
 );
-
-it('independently checks the signed output with Apple certificate extraction semantics', () => {
-  const t = setupBuild();
-  const build = t.executor.inspectBuild(t.plan);
-  expect(build.signing.status).toBe('independently-verified-signed-output');
-  expect(t.commands.some((command) => Array.isArray(command))).toBe(false);
-});

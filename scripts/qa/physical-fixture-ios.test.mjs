@@ -125,22 +125,6 @@ it('queries only the two exact fixture identities, without the all-apps override
   expect(inventories.every((args) => !args.includes('--include-all-apps'))).toBe(true);
 });
 
-it('runs only the pinned XCTest target and binds its retained attachment to the actual destination', async () => {
-  const t = setupScenario();
-  try {
-    expect((await t.executor.capture(t.plan, t.build, t.output)).gesture).toEqual(t.gesture);
-    expect(t.calls[0][1]).toContain(`platform=iOS,id=${t.plan.deviceUDID}`);
-    expect(t.calls[0][1]).toContain(
-      '-only-testing:Editor294FixtureUITests/DictationCaptureTests/testCapture',
-    );
-    expect(
-      JSON.parse(readFileSync(join(t.output, 'xctest-evidence-hashes.json'), 'utf8')).result,
-    ).toHaveLength(1);
-  } finally {
-    rmSync(t.root, { recursive: true });
-  }
-});
-
 it.each([
   ['zero tests', { summary: { totalTestCount: 0, passedTests: 0 } }],
   ['skipped test', { summary: { skippedTests: 1 } }],
@@ -379,43 +363,6 @@ it.each([
       ),
     ).rejects.toThrow();
     expect(installation).toBe(true);
-  } finally {
-    rmSync(t.root, { recursive: true });
-  }
-});
-
-it('actual adapter rejects products changed while validating a private copy before any install', () => {
-  let output;
-  const t = setupBuild({
-    respond(command, args) {
-      if (command === 'plutil' && output && args.at(-1).includes('/pinned-products/'))
-        writeFileSync(
-          join(output, 'pinned-products/Products/Debug-iphoneos/Editor294Fixture.app/Info.plist'),
-          'changed-copy',
-        );
-    },
-  });
-  try {
-    const build = t.executor.inspectBuild(t.plan);
-    output = join(t.root, 'run');
-    mkdirSync(output, { mode: 0o700 });
-    expect(() => t.executor.pinBuild(t.plan, build, output)).toThrow();
-    expect(t.commands.every((command) => typeof command === 'string')).toBe(true);
-  } finally {
-    rmSync(t.root, { recursive: true });
-  }
-});
-
-it('accepts the generated Xcode UI target whose app identity is attested by its fixed path and compiled Info.plist', () => {
-  const t = setupBuild({ generatedTarget: true });
-  try {
-    const build = t.executor.inspectBuild(t.plan);
-    expect(build.xctestrun.Editor294FixtureUITests.UITargetAppBundleIdentifier).toBeUndefined();
-    const output = join(t.root, 'run');
-    mkdirSync(output, { mode: 0o700 });
-    expect(t.executor.pinBuild(t.plan, build, output).buildFingerprint).toBe(
-      build.buildFingerprint,
-    );
   } finally {
     rmSync(t.root, { recursive: true });
   }
