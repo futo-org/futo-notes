@@ -183,7 +183,7 @@ Check each off in your renderer; the engine supplies data, not pixels.
 CI runs `cargo test -p futo-notes-editor -p futo-notes-store -p futo-notes-core`,
 `node scripts/test-editor-wasm.mjs` (blocking in `ci/test-rust.yml`, also in the release
 gate), FFI tests in `crates/futo-notes-ffi/tests/`, and the Swift/Kotlin contract-surface
-tests named in the #315 row (iOS simulator: 305 pass at 924888e5e). Device timing script:
+tests named in the #315 row. At 924888e5e: iOS simulator 305 tests / 59 suites pass (incl. the contract-surface, session, composition, input-trace and bounded suites); Android 32-bit x86 process 14/14 native methods pass; 911 Rust editor/Store/FFI tests and all WASM consumers pass. Device timing script:
 `scripts/android-performance-recon.mjs`. No massive campaign was added.
 
 ## 7. Deferred (open issues, not accepted capabilities)
