@@ -21,6 +21,7 @@ const CLASSES = [
   'NativeEditorCompositionTest',
   'NativeEditorStructuralSeamTest',
   'NativeEditorLinkTest',
+  'NativeEditorContractSurfaceTest',
 ];
 const PACKAGE = 'com.futo.notes.dev';
 const RUNNER = `${PACKAGE}.test/androidx.test.runner.AndroidJUnitRunner`;
