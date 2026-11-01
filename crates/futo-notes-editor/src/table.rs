@@ -524,15 +524,10 @@ pub(crate) fn combine(text: &str, splices: &[Splice]) -> Option<(Range<usize>, S
 }
 
 pub(crate) fn apply(text: &str, splices: &[Splice]) -> String {
-    let mut result = String::new();
-    let mut at = 0;
-    for splice in splices {
-        result.push_str(&text[at..splice.at]);
-        result.push_str(&splice.text);
-        at = splice.at + splice.remove;
-    }
-    result.push_str(&text[at..]);
-    result
+    combine(text, splices).map_or_else(
+        || text.to_owned(),
+        |(range, inserted)| format!("{}{inserted}{}", &text[..range.start], &text[range.end..]),
+    )
 }
 
 /// Plain text pasted into one cell: edge blank lines go, and every other run

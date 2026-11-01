@@ -2,6 +2,8 @@
 use super::*;
 use crate::{DisplayUtf16Range, TableCommand, TableDescription, TableKey};
 
+type Accept<'a> = dyn FnMut(&SourceEdit) -> Result<(), String> + 'a;
+
 /// A table key either moves the selection (nothing to append) or stages one
 /// edit behind the usual acknowledgement barrier.
 pub enum PortableTableStep {
@@ -96,12 +98,8 @@ impl PortableSession {
         expected: Revision,
         key: TableKey,
     ) -> Result<Option<PortableTableStep>, PortableError> {
-        self.ready()?;
-        let mut record = None;
-        let outcome = self.engine.table_key(expected, key, &mut |edit| {
-            record = Some(edit.clone());
-            Ok(())
-        })?;
+        let (outcome, record) =
+            self.record_edit(|engine, accept| engine.table_key(expected, key, accept))?;
         Ok(match outcome {
             None => None,
             Some(crate::TableOutcome::Selected(change)) => {
@@ -117,17 +115,26 @@ impl PortableSession {
         &mut self,
         operation: impl FnOnce(
             &mut EditorSession,
-            &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
+            &mut Accept,
         ) -> Result<Option<ViewChange>, EditorError>,
     ) -> Result<Option<HostRequest>, PortableError> {
-        self.ready()?;
-        let mut record = None;
-        let change = operation(&mut self.engine, &mut |edit| {
-            record = Some(edit.clone());
-            Ok(())
-        })?;
+        let (change, record) = self.record_edit(operation)?;
         change
             .map(|change| self.stage(record.unwrap(), change))
             .transpose()
+    }
+
+    /// Run an engine operation, keeping the edit it handed the host.
+    fn record_edit<T>(
+        &mut self,
+        operation: impl FnOnce(&mut EditorSession, &mut Accept<'_>) -> Result<T, EditorError>,
+    ) -> Result<(T, Option<SourceEdit>), PortableError> {
+        self.ready()?;
+        let mut record = None;
+        let result = operation(&mut self.engine, &mut |edit| {
+            record = Some(edit.clone());
+            Ok(())
+        })?;
+        Ok((result, record))
     }
 }
