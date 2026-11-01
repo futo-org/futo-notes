@@ -119,14 +119,12 @@ impl Projection {
         let (_, begin, display) = self.rows.at(first);
         assert_eq!(begin, at, "certified fence begins its canonical row");
         let raw = source.byte_slice(begin..source.len_bytes()).to_string();
-        let parsed: Vec<_> = partition(&raw, false, None)
+        let parsed: Vec<_> = partition(&raw, super::Outside::default())
             .rows
             .into_iter()
             .map(|piece| {
-                let mut row = Row::parse_with_references(piece.text, &self.references, &[]);
-                row.continues = piece.continues;
-                row.through = piece.through;
-                row
+                let shape = (piece.continues, piece.through, piece.opener.as_deref());
+                Row::piece(piece.text, shape, &self.references, &[])
             })
             .collect();
         let text: String = parsed.iter().map(|row| row.display.as_str()).collect();

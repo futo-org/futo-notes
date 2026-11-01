@@ -118,6 +118,7 @@ impl Projection {
         }
         let row = self.rows.at(index).0;
         let continued = row.continues
+            && row.opener.is_none()
             && row.blocks.first().is_some_and(|block| {
                 block.list.as_ref().is_some_and(|first| {
                     first.quote_depth == 0 && first.outer_item.start == list.owner.start - base
@@ -125,7 +126,8 @@ impl Projection {
             });
         let continues_on = list.owner.end - base == row.source_len
             && index + 1 < self.rows.len()
-            && self.rows.at(index + 1).0.continues;
+            && self.rows.at(index + 1).0.continues
+            && self.rows.at(index + 1).0.opener.is_none();
         if !continued && !continues_on {
             return;
         }

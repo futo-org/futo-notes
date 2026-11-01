@@ -48,7 +48,7 @@ pub(crate) use lists::{
     CONTAINER_METADATA_VISITS, CONTAINER_PREFIX_QUERIES, CONTAINER_STYLE_OWNER_SCANS,
 };
 use ropey::Rope;
-use row::{partition, Row};
+use row::{partition, Outside, Row};
 pub(crate) use tree::ContextWitness;
 use tree::Rows;
 #[cfg(test)]
@@ -111,16 +111,15 @@ impl Projection {
             .then(|| Row::metadata(&source[..metadata]))
             .into_iter()
             .chain(
-                partition(&source[metadata..], false, None)
+                partition(&source[metadata..], Outside::default())
                     .rows
                     .into_iter()
                     .map(|piece| {
                         let text = piece.text;
                         let (local, work) = references::window_winners(winners, origin, text.len());
                         witness_work += work;
-                        let mut row = Row::parse_with_references(text, &references, &local);
-                        row.continues = piece.continues;
-                        row.through = piece.through;
+                        let shape = (piece.continues, piece.through, piece.opener.as_deref());
+                        let row = Row::piece(text, shape, &references, &local);
                         origin += text.len();
                         row
                     }),
@@ -167,8 +166,13 @@ impl Projection {
     /// Whole paragraph context for an explicit compound action. Ordinary typing
     /// never constructs this temporary session or materializes this envelope.
     pub fn edit_window(&self, range: DisplayRange) -> (std::ops::Range<usize>, usize) {
-        let first = self.rows.locate(range.start.0, true).saturating_sub(1);
+        let mut first = self.rows.locate(range.start.0, true).saturating_sub(1);
         let last = (self.rows.locate(range.end.0, true) + 1).min(self.rows.len() - 1);
+        // A staged window is opened alone, so it starts at the opener line of
+        // a cut raw HTML block it enters: a one-off region-sized read (#314).
+        while first > 0 && self.rows.at(first).0.opener.is_some() {
+            first = self.rows.block_start(first);
+        }
         let (_, source_start, display_start) = self.rows.at(first);
         let (row, source_end, _) = self.rows.at(last);
         (source_start..source_end + row.source_len, display_start)
@@ -248,13 +252,12 @@ impl Projection {
         let parsed: Vec<_> = (metadata > 0)
             .then(|| Row::metadata(&text[..metadata]))
             .into_iter()
-            .chain(pieces.into_iter().map(|(len, continues, through)| {
+            .chain(pieces.into_iter().map(|(len, continues, through, opener)| {
                 let raw = &text[origin..origin + len];
                 let (local, work) = references::window_winners(&winners, origin, raw.len());
                 reference_work.items += work;
-                let mut row = Row::parse_with_references(raw, &self.references, &local);
-                row.continues = continues;
-                row.through = through;
+                let shape = (continues, through, opener.as_deref());
+                let row = Row::piece(raw, shape, &self.references, &local);
                 origin += raw.len();
                 row
             }))

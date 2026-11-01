@@ -377,6 +377,7 @@ impl Row {
             continues: false,
             through: false,
             metadata: false,
+            opener: None,
             source_len: source.len(),
             parsed_source_bytes: source.len() + additional_parse + reference_work.parsed,
             definitions,

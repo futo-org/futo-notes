@@ -171,6 +171,7 @@ impl super::row::Row {
             }],
             transparent_quote: None,
             metadata: true,
+            opener: None,
         }
     }
 }

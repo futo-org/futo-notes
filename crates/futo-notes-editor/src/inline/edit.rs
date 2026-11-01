@@ -148,6 +148,13 @@ impl Projection {
             toggle.is_none().then_some(inserted),
             wide,
         )?;
+        let _opener = super::row::CandidateOpener::set(
+            self.rows
+                .at(self.rows.locate(source_start, false))
+                .0
+                .opener
+                .clone(),
+        );
         let mut typed = super::typed_angle::TypedState::current(typed_inputs);
         let expanded = split_entities(pieces, a, z);
         let (split_guard, split_work) =
