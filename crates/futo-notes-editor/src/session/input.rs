@@ -89,7 +89,7 @@ impl EditorSession {
                 });
         }
         self.validate_range(range)?;
-        let cell = self.input_cell(range, inserted);
+        let cell = self.input_cell(range, inserted, query_work);
         let flat = cell.as_ref().map(|_| blocks::CellInput::flatten(inserted));
         let inserted = flat.as_deref().unwrap_or(inserted);
         if let Some(change) = self.fence_input(expected, range, inserted, action, accept)? {

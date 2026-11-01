@@ -114,13 +114,44 @@ impl EditorSession {
             })
     }
 
-    fn table_window(&self, at: usize) -> Option<Window> {
-        // A list, quote, code or heading line is never a root table's row:
-        // answer from the projection before reading the run.
-        if !self.table_at_root(at) {
+    /// Whether a table can hold source offset `at`: its header line holds a
+    /// `|`, so some row from `at` back to the start of its nonblank run does.
+    /// `visits`: rows checked.
+    fn table_possible(&self, at: usize, visits: &mut usize) -> bool {
+        let rows = &self.projection.rows;
+        let mut index = rows.locate(at, false);
+        loop {
+            *visits += 1;
+            let (row, start, _) = rows.at(index);
+            if row.pipes {
+                return true;
+            }
+            // A blank line before the row ends the run.
+            let mut before = self.source.bytes_at(start);
+            if index == 0 || before.prev() != Some(b'\n') {
+                return false;
+            }
+            loop {
+                match before.prev() {
+                    Some(b' ' | b'\t' | b'\r') => {}
+                    Some(b'\n') | None => return false,
+                    Some(_) => break,
+                }
+            }
+            index -= 1;
+        }
+    }
+
+    /// `read`: source bytes of the nonblank run read, and rows checked.
+    fn table_window(&self, at: usize, read: &mut usize) -> Option<Window> {
+        // A list, quote, code or heading line is never a root table's row,
+        // and a run without a `|` near enough holds no table: answer from
+        // the projection before reading the run.
+        if !self.table_at_root(at) || !self.table_possible(at, read) {
             return None;
         }
         let (base, text) = self.table_run(at)?;
+        *read += text.len();
         let layout = Layout::find(&text, at - base)?;
         self.table_at_root(base + layout.lines[0].start)
             .then_some(Window { base, text, layout })
@@ -144,8 +175,16 @@ impl EditorSession {
     }
 
     fn table_target(&self, range: DisplayRange) -> Option<(Window, Option<(usize, usize)>)> {
+        self.table_target_counted(range, &mut 0)
+    }
+
+    fn table_target_counted(
+        &self,
+        range: DisplayRange,
+        read: &mut usize,
+    ) -> Option<(Window, Option<(usize, usize)>)> {
         let (start, end) = self.table_source_span(range);
-        let window = self.table_window(start)?;
+        let window = self.table_window(start, read)?;
         let cell = window
             .layout
             .locate(start - window.base..end.saturating_sub(window.base));
@@ -260,11 +299,14 @@ impl EditorSession {
         &self,
         range: DisplayRange,
         inserted: &str,
+        work: &mut crate::inline::references::ReferenceWork,
     ) -> Option<CellInput> {
         if !inserted.contains(['|', '\\', '\r', '\n']) {
             return None;
         }
-        let (window, (row, column)) = self.table_target(range).and_then(|(w, c)| Some((w, c?)))?;
+        let (window, (row, column)) = self
+            .table_target_counted(range, &mut work.parsed)
+            .and_then(|(w, c)| Some((w, c?)))?;
         let raw = window.absolute(window.layout.row_line(row).cells[column].clone());
         let pipes = table::pipe_count(&window.text);
         Some(CellInput {

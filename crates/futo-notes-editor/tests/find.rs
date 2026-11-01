@@ -1,4 +1,6 @@
-use futo_notes_editor::{CaretDirection, DisplayOffset, DisplayRange, EditorSession, Revision};
+use futo_notes_editor::{
+    CaretDirection, DisplayOffset, DisplayRange, EditorSession, FindScanResult, Revision,
+};
 
 fn range(start: usize, end: usize) -> DisplayRange {
     DisplayRange {
@@ -179,6 +181,28 @@ fn input_maps_matches_without_scanning_and_rejects_stale_scans() {
     mine.find_set_query(Revision(0), "cat").unwrap();
     let foreign = other.find_scan_request().unwrap().run();
     assert!(mine.find_apply_scan(&foreign).is_none());
+    // Host matches out of order, overlapping, empty, out of range or inside a
+    // character are rejected.
+    let ours = mine.find_scan_request().unwrap().run();
+    for matches in [
+        vec![range(12, 15), range(0, 3)],
+        vec![range(0, 3), range(2, 5)],
+        vec![range(3, 3)],
+        vec![range(0, source.len() + 1)],
+    ] {
+        let forged = FindScanResult {
+            matches,
+            ..ours.clone()
+        };
+        assert!(mine.find_apply_scan(&forged).is_none(), "{forged:?}");
+    }
+    let mut wide = EditorSession::open("é cat");
+    wide.find_set_query(Revision(0), "cat").unwrap();
+    let forged = FindScanResult {
+        matches: vec![range(1, 6)],
+        ..wide.find_scan_request().unwrap().run()
+    };
+    assert!(wide.find_apply_scan(&forged).is_none());
     assert!(mine
         .find_apply_scan(&mine.find_scan_request().unwrap().run())
         .is_some());

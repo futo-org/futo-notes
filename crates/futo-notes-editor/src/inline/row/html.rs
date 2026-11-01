@@ -112,6 +112,7 @@ impl Row {
             .flatten();
         Some(Self {
             source_len: text.len(),
+            pipes: text.contains('|'),
             parsed_source_bytes: full.parsed_source_bytes,
             guarded_words: Vec::new(),
             images: Vec::new(),

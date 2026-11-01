@@ -10,12 +10,13 @@ fn caret(at: usize) -> DisplayRange {
     }
 }
 
-/// Type `x`, Backspace it, then Enter at the end of the middle line's `needle`.
+/// Type `|` (which may edit a table cell), Backspace it, then Enter at the end
+/// of the middle line's `needle`.
 fn keys(source: &str, needle: &str) -> ([EditWork; 3], String) {
     let mut session = EditorSession::open(source);
     let at = session.display_text().find(needle).unwrap() + needle.len();
     let typed = session
-        .replace(session.revision(), caret(at), "x", &mut |_| Ok(()))
+        .replace(session.revision(), caret(at), "|", &mut |_| Ok(()))
         .unwrap()
         .work;
     let deleted = session
@@ -117,4 +118,17 @@ fn local_keys_in_one_giant_region_do_not_scale_with_it() {
             }
         }
     }
+}
+
+/// A table whose pipeless body rows run on past a cut still escapes a typed `|`.
+#[test]
+fn a_long_pipeless_table_tail_still_edits_as_a_cell() {
+    let rows: String = (0..400).map(|i| format!("bar {i}\n")).collect();
+    let source = format!("| a | b |\n|---|---|\n| 1 | 2 |\n{rows}");
+    let mut session = EditorSession::open(&source);
+    let end = session.display_text().len() - 1;
+    session
+        .replace(session.revision(), caret(end), "|", &mut |_| Ok(()))
+        .unwrap();
+    assert!(session.source_text().ends_with("bar 399\\|\n"));
 }
