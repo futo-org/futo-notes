@@ -13,7 +13,7 @@
 
 mod index;
 mod rewrite;
-pub use index::WikilinkIndex;
+pub use index::{fold, WikilinkIndex};
 pub use rewrite::{observe_wikilink_rewrite, RewriteRange, RewriteWork, WikilinkRewrite};
 
 /// Extract wikilink targets from `content`. An empty target (`[[]]` or

@@ -17,12 +17,6 @@ struct Run {
     query: String,
 }
 
-/// Locale-independent folding shared with the shipping suggestion rule:
-/// lowercase the whole text, then every Greek sigma becomes one letter.
-fn fold(text: &str) -> String {
-    text.to_lowercase().replace('ς', "σ")
-}
-
 /// Ids that can be written as `[[id]]` and read back as exactly that target.
 fn writable(id: &str) -> bool {
     !id.is_empty() && !id.contains(['\n', '\r']) && !id.contains("]]") && !id.ends_with(']')
@@ -79,17 +73,16 @@ impl EditorSession {
             return Ok(None);
         };
         let catalog = &self.projection.catalog;
-        let needle = fold(run.query.trim());
+        let needle = futo_notes_wikilinks::fold(run.query.trim());
         let candidates = catalog
-            .ordered_ids()
-            .iter()
-            .filter(|id| writable(id) && fold(id).contains(&needle))
+            .ordered()
+            .filter(|(id, folded)| writable(id) && folded.contains(&needle))
             .take(WIKILINK_CANDIDATE_LIMIT)
-            .map(|id| {
+            .map(|(id, _)| {
                 let label = catalog.display_suffix(id);
                 WikilinkCandidate {
-                    detail: (label != *id).then(|| id.clone()),
-                    note_id: id.clone(),
+                    detail: (label != id).then(|| id.to_owned()),
+                    note_id: id.to_owned(),
                     label,
                 }
             })
