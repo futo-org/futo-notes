@@ -11,6 +11,7 @@ mod input;
 mod links;
 mod pending;
 mod staging;
+mod tags;
 mod transaction;
 use crate::history::{
     HistoryClock, HistoryEntry, HistoryGroup, HistoryInput, MonotonicClock, TypingRun,

@@ -2023,6 +2023,7 @@ dependencies = [
 name = "futo-notes-editor"
 version = "0.1.0"
 dependencies = [
+ "futo-notes-tags",
  "futo-notes-wikilinks",
  "markdown",
  "pulldown-cmark",
@@ -2071,8 +2072,8 @@ dependencies = [
 name = "futo-notes-model"
 version = "0.1.0"
 dependencies = [
- "fancy-regex",
  "futo-notes-core",
+ "futo-notes-tags",
  "futo-notes-wikilinks",
  "memchr",
  "serde",
@@ -2136,6 +2137,14 @@ dependencies = [
  "url",
  "uuid",
  "wiremock",
+]
+
+[[package]]
+name = "futo-notes-tags"
+version = "0.1.0"
+dependencies = [
+ "fancy-regex",
+ "memchr",
 ]
 
 [[package]]

@@ -28,7 +28,7 @@
       "pattern": "pub fn sanitize_title"
     },
     {
-      "location": "crates/futo-notes-model/src/tags.rs",
+      "location": "crates/futo-notes-tags/src/lib.rs",
       "pattern": "pub fn tag_regex_matches"
     },
     {

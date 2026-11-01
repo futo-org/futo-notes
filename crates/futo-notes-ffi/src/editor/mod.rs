@@ -9,6 +9,7 @@ pub(crate) mod bounded;
 mod composition;
 mod contract;
 mod links;
+mod tags;
 pub use contract::*;
 
 /// Blocking store endpoint. Call on the native I/O worker, including append

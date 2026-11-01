@@ -126,6 +126,28 @@ impl WasmSession {
                 .map_err(error)?,
         )
     }
+    pub fn tags(&self) -> Result<String, JsValue> {
+        json(&self.0.tags().map_err(error)?)
+    }
+    pub fn header_tags(&self) -> Result<String, JsValue> {
+        json(&self.0.header_tags().map_err(error)?)
+    }
+    pub fn add_header_tag(&mut self, revision: u64, tag: &str) -> Result<String, JsValue> {
+        json(
+            &self
+                .0
+                .add_header_tag(Revision(revision), tag)
+                .map_err(error)?,
+        )
+    }
+    pub fn remove_header_tag(&mut self, revision: u64, tag: &str) -> Result<String, JsValue> {
+        json(
+            &self
+                .0
+                .remove_header_tag(Revision(revision), tag)
+                .map_err(error)?,
+        )
+    }
     pub fn active_formats(&self) -> Result<String, JsValue> {
         json(&self.0.active_formats().map_err(error)?)
     }

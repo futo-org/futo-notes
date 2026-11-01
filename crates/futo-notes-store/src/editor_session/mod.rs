@@ -29,6 +29,7 @@ mod identity;
 mod input;
 mod links;
 mod state;
+mod tags;
 pub(crate) use identity::IdentityTransition;
 mod lease;
 pub use clock::RecoveryClock;

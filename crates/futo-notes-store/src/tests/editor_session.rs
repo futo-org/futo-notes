@@ -25,6 +25,7 @@ mod relink_guarded;
 mod seams;
 mod selected_source;
 mod storage;
+mod tags;
 
 fn range(start: usize, end: usize) -> DisplayRange {
     DisplayRange {
