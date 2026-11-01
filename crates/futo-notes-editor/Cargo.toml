@@ -16,7 +16,6 @@ similar = { version = "3.2", default-features = false, features = ["text"] }
 pulldown-cmark = { version = "0.13", default-features = false }
 unicode-segmentation = "1.13"
 serde = { version = "1", features = ["derive"] }
-markdown = { version = "1.0.0", default-features = false }
 unicase = { version = "2.10.0", default-features = false }
 
 [features]

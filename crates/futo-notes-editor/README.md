@@ -104,11 +104,12 @@ The behavior and public evidence are indexed in
 
 `EditWork` separates supplied parser bytes, source materialization, owned meaning
 copies and charged metadata/correspondence work. The bare-link primitive returns
-its existing `ReferenceWork` at the owner, including the explicit post-parser
-node/child walk and emitted meanings; consumers add their own local inspection
-without reconstructing those copies. It consumes positioned bounds from the
-pinned Rust mdast factory rather than searching equal text. Dependency updates
-must recheck that factory invariant. Counters do not measure parser CPU or all
+its existing `ReferenceWork` at the owner, including one item per pulldown
+event walked and emitted meanings; consumers add their own local inspection
+without reconstructing those copies. GFM autolink literals follow markdown-rs
+1.0's grammar over pulldown's inline text; reference definitions, duplicates
+included, come from pulldown too, so no scan can panic on user text (the
+markdown crate's tree builder did, #283). Counters do not measure parser CPU or all
 allocations, Ropey's internal work, semantic caret diff CPU or native latency.
 Genuine reference transitions and own-action history relinks have explicit global
 work; ordinary unrelated local input must retain its bounded paragraph path.
