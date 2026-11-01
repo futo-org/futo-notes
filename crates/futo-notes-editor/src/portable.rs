@@ -2,6 +2,7 @@
 mod bounded;
 pub use bounded::*;
 mod composition;
+mod find;
 mod links;
 use serde::{Deserialize, Serialize};
 

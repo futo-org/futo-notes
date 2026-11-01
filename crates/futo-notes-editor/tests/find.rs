@@ -85,31 +85,39 @@ fn stepping_wraps_selects_and_closes_without_editing() {
     // The current match maps to tight source bytes.
     session.find_set_query(Revision(0), "three").unwrap();
     let source = session.find_report().current_source.unwrap();
-    assert_eq!(&session.source_text()[source.start.0..source.end.0], "th**ree");
+    assert_eq!(
+        &session.source_text()[source.start.0..source.end.0],
+        "th**ree"
+    );
 
     // Closing clears matches, remembers the query and makes stepping a no-op.
     let closed = session.find_close();
     assert_eq!((closed.open, closed.total, closed.current), (false, 0, 0));
     assert_eq!(closed.query, "three");
     let selection = session.selection();
-    let step = session.find_step(Revision(0), CaretDirection::Forward).unwrap();
+    let step = session
+        .find_step(Revision(0), CaretDirection::Forward)
+        .unwrap();
     assert_eq!((step.total, step.reveal), (0, None));
     assert_eq!(session.selection(), selection);
 
     // Zero matches: stepping is a no-op.
     let none = session.find_set_query(Revision(0), "zzz").unwrap();
     assert_eq!((none.total, none.current, none.reveal), (0, 0, None));
-    let step = session.find_step(Revision(0), CaretDirection::Backward).unwrap();
+    let step = session
+        .find_step(Revision(0), CaretDirection::Backward)
+        .unwrap();
     assert_eq!(step.current, 0);
 
     // Find never edits source or history.
     assert_eq!(session.revision(), Revision(0));
-    assert!(session.undo(Revision(0), &mut |_| {
-        accepted += 1;
-        Ok(())
-    })
-    .unwrap()
-    .is_none());
+    assert!(session
+        .undo(Revision(0), &mut |_| {
+            accepted += 1;
+            Ok(())
+        })
+        .unwrap()
+        .is_none());
     assert_eq!(accepted, 0);
     assert_eq!(session.source_text(), "x one\nX two\n\nx **th**ree");
 }

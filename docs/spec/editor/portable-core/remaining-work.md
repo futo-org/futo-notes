@@ -45,6 +45,10 @@ to `4f5fdeb89` through unchanged runtime inputs; merged-head checks and CI compl
 integration acceptance. Tables, note-id-dependent composition arbitration and
 renderer integration retain their own owners and dependent tickets.
 
+Shared find core (#312) matches visible text with rebased, stale-safe results; renderer
+bars, highlight painting and table-cell boundaries remain with their owners.
+→ docs/spec/editor/portable-core/find.md
+
 Paragraph projections use a length-indexed tree and display Rope, so an ordinary
 edit after a distant jump reparses only its paragraph window without rewriting
 the note's tail offsets. Work counters include actual parser input for candidate

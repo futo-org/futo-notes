@@ -126,6 +126,64 @@ impl WasmSession {
                 .map_err(error)?,
         )
     }
+    pub fn find_set_query(&mut self, revision: u64, query: &str) -> Result<String, JsValue> {
+        json(
+            &self
+                .0
+                .find_set_query(Revision(revision), query)
+                .map_err(error)?,
+        )
+    }
+    pub fn find_step(&mut self, revision: u64, forward: bool) -> Result<String, JsValue> {
+        let direction = if forward {
+            crate::CaretDirection::Forward
+        } else {
+            crate::CaretDirection::Backward
+        };
+        json(
+            &self
+                .0
+                .find_step(Revision(revision), direction)
+                .map_err(error)?,
+        )
+    }
+    pub fn find_close(&mut self) -> Result<String, JsValue> {
+        json(&self.0.find_close())
+    }
+    pub fn find_report(&mut self) -> Result<String, JsValue> {
+        json(&self.0.find_report().map_err(error)?)
+    }
+    pub fn find_matches(
+        &mut self,
+        revision: u64,
+        start: usize,
+        end: usize,
+    ) -> Result<String, JsValue> {
+        json(
+            &self
+                .0
+                .find_matches(
+                    Revision(revision),
+                    DisplayRange {
+                        start: DisplayOffset(start),
+                        end: DisplayOffset(end),
+                    },
+                )
+                .map_err(error)?,
+        )
+    }
+    pub fn find_scan_request(&self) -> Result<String, JsValue> {
+        json(&self.0.find_scan_request().map_err(error)?)
+    }
+    /// Pure scan of a request snapshot; callable from any worker.
+    pub fn find_scan(request: &str) -> Result<String, JsValue> {
+        let request: crate::FindScanRequest = serde_json::from_str(request).map_err(error)?;
+        json(&request.run())
+    }
+    pub fn find_apply_scan(&mut self, result: &str) -> Result<String, JsValue> {
+        let result = serde_json::from_str(result).map_err(error)?;
+        json(&self.0.find_apply_scan(&result).map_err(error)?)
+    }
     pub fn active_formats(&self) -> Result<String, JsValue> {
         json(&self.0.active_formats().map_err(error)?)
     }

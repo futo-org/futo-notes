@@ -25,6 +25,7 @@ mod composition;
 mod composition_facade;
 pub(crate) mod deletion;
 mod facade;
+mod find;
 mod identity;
 mod input;
 mod links;
