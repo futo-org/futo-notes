@@ -1,4 +1,5 @@
 mod editor;
+pub use editor::bounded::*;
 pub use editor::{
     EditorAffinity, EditorBlockCommand, EditorBlockDescription, EditorByteRange, EditorComposition,
     EditorCorrespondence, EditorDisplayByteOffset, EditorInlineFormat, EditorInputAction,
