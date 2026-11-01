@@ -55,6 +55,7 @@ impl WasmSession {
             Revision(durable),
         )))
     }
+    #[cfg(feature = "test-clock")]
     /// Test-only: history grouping never expires, so undo counts do not depend on host speed.
     pub fn restore_frozen_clock(snapshot: &str) -> Result<WasmSession, JsValue> {
         struct Frozen;

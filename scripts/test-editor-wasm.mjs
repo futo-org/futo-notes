@@ -56,6 +56,8 @@ run('cargo', [
   '--locked',
   '-p',
   'futo-notes-editor',
+  '--features',
+  'test-clock',
   '--target',
   'wasm32-unknown-unknown',
 ]);
