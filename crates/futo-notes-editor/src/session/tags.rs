@@ -74,11 +74,11 @@ impl EditorSession {
         tag: &str,
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<Option<ViewChange>, EditorError> {
+        self.check_revision(expected)?;
         let name = normalize_tag_name(tag);
         if !is_valid_tag_name(&name) {
             return Err(EditorError::InvalidText);
         }
-        self.check_revision(expected)?;
         let header = self.read_header();
         if header.tags.contains(&format!("#{name}")) {
             return Ok(None);

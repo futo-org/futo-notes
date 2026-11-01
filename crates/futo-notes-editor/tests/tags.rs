@@ -71,6 +71,11 @@ fn add_spells_canonically_and_touches_only_the_header() {
         assert_eq!(add(source, tag), expected, "{source:?} + {tag:?}");
     }
     let mut session = EditorSession::open("x");
+    // A stale revision is reported before the name is judged.
+    assert!(matches!(
+        session.add_header_tag(Revision(9), "9lives", &mut |_| Ok(())),
+        Err(futo_notes_editor::EditorError::StaleRevision { .. })
+    ));
     for bad in ["", "9lives", "has/slash", &"a".repeat(51)] {
         assert!(session
             .add_header_tag(Revision(0), bad, &mut |_| Ok(()))
