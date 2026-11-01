@@ -47,12 +47,12 @@ struct NativeEditorContractSurfaceTests {
 
             let front = "---\ntitle: x\n---\nbody"
             let framed = try Self.scenario(front) { _, s in
-                    let text = try s.displayText()
-                    let blocks = try s.project(
-                        expected: 0, range: Self.at(0, UInt64(text.utf8.count))
-                    ).blocks
-                    #expect(blocks.filter(\.metadata).count == 1)
-                    #expect(blocks.last?.metadata == false)
+                let text = try s.displayText()
+                let blocks = try s.project(
+                    expected: 0, range: Self.at(0, UInt64(text.utf8.count))
+                ).blocks
+                #expect(blocks.filter(\.metadata).count == 1)
+                #expect(blocks.last?.metadata == false)
             }
             #expect(framed == front)
 
@@ -140,7 +140,8 @@ struct NativeEditorContractSurfaceTests {
             #expect(completed == "see [[Projects/Roadmap]]")
 
             let pictured = try Self.scenario("a ![x](image-1.png) b") { _, s in
-                let atom = try #require(try s.project(expected: 0, range: Self.at(0, 21)).atoms.first)
+                let atom = try #require(
+                    try s.project(expected: 0, range: Self.at(0, 21)).atoms.first)
                 #expect(atom.range == Self.at(2, 19) && atom.image?.destination == "image-1.png")
                 let claim = try s.imageClaim()
                 _ = try s.selectWithAffinity(

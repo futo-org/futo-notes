@@ -60,6 +60,7 @@ it('selects the existing consumers and refuses duplicate or foreign classes', ()
     'com.futo.notes.editor.NativeEditorCompositionTest',
     'com.futo.notes.editor.NativeEditorStructuralSeamTest',
     link,
+    'com.futo.notes.editor.NativeEditorContractSurfaceTest',
   ]);
   expect(selectedClasses([link])).toEqual([link]);
   expect(selectedClasses([cls])).toEqual([cls]);
