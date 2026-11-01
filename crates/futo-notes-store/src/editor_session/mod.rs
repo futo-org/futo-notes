@@ -31,6 +31,7 @@ mod identity;
 mod input;
 mod links;
 mod state;
+mod tables;
 mod tags;
 pub(crate) use identity::IdentityTransition;
 mod lease;

@@ -7,6 +7,7 @@ mod inline;
 mod movement;
 mod portable;
 mod session;
+mod table;
 mod types;
 
 pub use session::bounded::{
@@ -20,6 +21,10 @@ pub use session::{
     BlockCommand, Composition, EditorSession, FindReport, FindScanRequest, FindScanResult,
     FindWork, OwnActionRelink, ParagraphKey,
 };
+pub use table::{
+    TableAlignment, TableCell, TableCommand, TableControls, TableDescription, TableFocus, TableKey,
+    TableOutcome,
+};
 pub use types::{
     Affinity, BlockDescription, CaretDirection, Correspondence, DisplayOffset, DisplayRange,
     DisplayUtf16Offset, DisplayUtf16Range, EditWork, EditorError, InlineFormat, LinkDescription,
@@ -32,7 +37,7 @@ pub use portable::{
     BoundedFrame, BoundedHostAck, BoundedHostOperation, BoundedHostRequest, BoundedModeReady,
     BoundedModeRequest, HostAck, HostOperation, HostRequest, HostSnapshot,
     PortableBoundedEntryError, PortableBoundedExitError, PortableBoundedSession, PortableError,
-    PortableSession, PortableStatus, RelinkOffer, SessionToken,
+    PortableSession, PortableStatus, PortableTableStep, RelinkOffer, SessionToken,
 };
 
 #[cfg(target_arch = "wasm32")]

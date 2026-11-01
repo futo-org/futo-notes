@@ -116,13 +116,14 @@ impl EditorSession {
         } else {
             None
         };
-        let mut plan = self.projection.edit(
+        let mut plan = self.projection.edit_cell(
             &self.source,
             range,
             inserted,
             affinity,
             pending,
             crate::inline::EditIntent::Input(action),
+            self.escape_pipes,
         )?;
         let edit = self.prepare_source(
             expected,

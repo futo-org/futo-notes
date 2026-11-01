@@ -26,6 +26,7 @@ mod relink_guarded;
 mod seams;
 mod selected_source;
 mod storage;
+mod tables;
 mod tags;
 mod wikilinks;
 

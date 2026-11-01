@@ -14,6 +14,8 @@ mod links;
 mod tags;
 pub use contract::*;
 pub use find::{editor_find_scan, EditorFindReport, EditorFindScanRequest, EditorFindScanResult};
+mod tables;
+pub use tables::*;
 
 /// Blocking store endpoint. Call on the native I/O worker, including append
 /// acceptance before displaying a returned change. No callbacks cross this lock.

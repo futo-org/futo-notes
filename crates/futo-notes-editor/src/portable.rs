@@ -5,8 +5,10 @@ mod clipboard;
 mod composition;
 mod find;
 mod links;
+mod tables;
 mod tags;
 use serde::{Deserialize, Serialize};
+pub use tables::PortableTableStep;
 
 use crate::{
     DisplayRange, DisplayUtf16Range, EditorError, EditorSession, Revision, SourceEdit, ViewChange,
