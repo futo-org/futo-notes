@@ -23,7 +23,6 @@ mod owner;
 use owner::{EditorMode, EditorOwner};
 mod clock;
 mod composition;
-mod composition_facade;
 pub(crate) mod deletion;
 mod facade;
 mod find;

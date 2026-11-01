@@ -16,15 +16,13 @@ impl StoreEditorSession<'_> {
         expected: Revision,
         range: DisplayRange,
     ) -> Result<Option<TableDescription>, EditorStoreError> {
-        let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
-        if state.terminal {
-            return Err(EditorStoreError::SessionDeleted);
-        }
-        state
-            .engine
-            .full()?
-            .inspect_table(expected, range)
-            .map_err(EditorStoreError::Editor)
+        self.live(|state| {
+            state
+                .engine
+                .full()?
+                .inspect_table(expected, range)
+                .map_err(EditorStoreError::Editor)
+        })
     }
 
     pub fn table_command(
@@ -51,11 +49,7 @@ impl StoreEditorSession<'_> {
             &mut dyn FnMut(&futo_notes_editor::SourceEdit) -> Result<(), String>,
         ) -> Result<T, EditorError>,
     ) -> Result<T, EditorStoreError> {
-        let _gate = self.store.lock_gate().map_err(EditorStoreError::Recovery)?;
-        let _vault =
-            futo_notes_core::files::vault_mutation_guard().map_err(EditorStoreError::Recovery)?;
-        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
-        state.table_edit(&self.store, operation)
+        self.mutate(|state, store| state.table_edit(store, operation))
     }
 }
 

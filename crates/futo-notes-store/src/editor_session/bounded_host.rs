@@ -286,7 +286,7 @@ impl<'store> StoreBoundedEditorHost<'store> {
         error: Option<String>,
         work: BoundedWork,
     ) -> BoundedHostAck {
-        let status = state.recovery_status(&self.session.store);
+        let status = state.recovery_status();
         BoundedHostAck {
             token: request.token,
             incarnation: request.incarnation,

@@ -184,7 +184,7 @@ impl<'store> StoreBoundedEditorSession<'store> {
         StoreBoundedSourceSnapshot {
             source: state.engine.source_text(),
             revision: state.engine.revision(),
-            recovery: state.recovery_status(&self.session.store),
+            recovery: state.recovery_status(),
             reset_required: state.engine.bounded().is_err(),
             deleted: state.terminal,
         }

@@ -28,15 +28,13 @@ impl StoreEditorSession<'_> {
         expected: Revision,
         range: DisplayRange,
     ) -> Result<Option<LinkDescription>, EditorStoreError> {
-        let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
-        if state.terminal {
-            return Err(EditorStoreError::SessionDeleted);
-        }
-        state
-            .engine
-            .full()?
-            .inspect_link(expected, range)
-            .map_err(EditorStoreError::Editor)
+        self.live(|state| {
+            state
+                .engine
+                .full()?
+                .inspect_link(expected, range)
+                .map_err(EditorStoreError::Editor)
+        })
     }
 
     pub fn set_link(
@@ -45,11 +43,7 @@ impl StoreEditorSession<'_> {
         range: DisplayRange,
         destination: &str,
     ) -> Result<Option<ViewChange>, EditorStoreError> {
-        let _gate = self.store.lock_gate().map_err(EditorStoreError::Recovery)?;
-        let _vault =
-            futo_notes_core::files::vault_mutation_guard().map_err(EditorStoreError::Recovery)?;
-        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
-        state.set_link(&self.store, expected, range, destination)
+        self.mutate(|state, store| state.set_link(store, expected, range, destination))
     }
 }
 
@@ -81,15 +75,13 @@ impl StoreEditorSession<'_> {
         &self,
         expected: Revision,
     ) -> Result<Option<futo_notes_editor::WikilinkCompletion>, EditorStoreError> {
-        let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
-        if state.terminal {
-            return Err(EditorStoreError::SessionDeleted);
-        }
-        state
-            .engine
-            .full()?
-            .wikilink_completion(expected)
-            .map_err(EditorStoreError::Editor)
+        self.live(|state| {
+            state
+                .engine
+                .full()?
+                .wikilink_completion(expected)
+                .map_err(EditorStoreError::Editor)
+        })
     }
 
     /// Accept one candidate as a single recovered edit; stale claims change
@@ -101,24 +93,21 @@ impl StoreEditorSession<'_> {
         query: &str,
         note_id: &str,
     ) -> Result<ViewChange, EditorStoreError> {
-        let _gate = self.store.lock_gate().map_err(EditorStoreError::Recovery)?;
-        let _vault =
-            futo_notes_core::files::vault_mutation_guard().map_err(EditorStoreError::Recovery)?;
-        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
-        state.input_ready()?;
-        let Attachment {
-            engine, recovery, ..
-        } = &mut *state;
-        let root = &self.store.root;
-        engine
-            .full_mut()?
-            .accept_wikilink_completion(expected, range, query, note_id, &mut |edit| {
-                recovery.append(root, edit)
-            })
-            .map_err(|error| match error {
-                EditorError::Persistence(error) => EditorStoreError::RecoveryAppend(error),
-                other => EditorStoreError::Editor(other),
-            })
+        self.mutate(|state, store| {
+            state.input_ready()?;
+            let Attachment {
+                engine, recovery, ..
+            } = state;
+            engine
+                .full_mut()?
+                .accept_wikilink_completion(expected, range, query, note_id, &mut |edit| {
+                    recovery.append(&store.root, edit)
+                })
+                .map_err(|error| match error {
+                    EditorError::Persistence(error) => EditorStoreError::RecoveryAppend(error),
+                    other => EditorStoreError::Editor(other),
+                })
+        })
     }
 }
 
@@ -126,11 +115,7 @@ impl StoreEditorSession<'_> {
     /// Begin an asynchronous image insertion; the claim expires with this
     /// attachment (another note, or this note reopened).
     pub fn image_claim(&self) -> Result<futo_notes_editor::ImageClaim, EditorStoreError> {
-        let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
-        if state.terminal {
-            return Err(EditorStoreError::SessionDeleted);
-        }
-        Ok(state.engine.full()?.image_claim())
+        self.live(|state| Ok(state.engine.full()?.image_claim()))
     }
 
     /// Insert the stored vault reference as one recovered edit. The store writes
@@ -142,23 +127,20 @@ impl StoreEditorSession<'_> {
         reference: &str,
         alt: &str,
     ) -> Result<Option<ViewChange>, EditorStoreError> {
-        let _gate = self.store.lock_gate().map_err(EditorStoreError::Recovery)?;
-        let _vault =
-            futo_notes_core::files::vault_mutation_guard().map_err(EditorStoreError::Recovery)?;
-        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
-        state.input_ready()?;
-        let Attachment {
-            engine, recovery, ..
-        } = &mut *state;
-        let root = &self.store.root;
-        engine
-            .full_mut()?
-            .insert_image(expected, claim, reference, alt, &mut |edit| {
-                recovery.append(root, edit)
-            })
-            .map_err(|error| match error {
-                EditorError::Persistence(error) => EditorStoreError::RecoveryAppend(error),
-                other => EditorStoreError::Editor(other),
-            })
+        self.mutate(|state, store| {
+            state.input_ready()?;
+            let Attachment {
+                engine, recovery, ..
+            } = state;
+            engine
+                .full_mut()?
+                .insert_image(expected, claim, reference, alt, &mut |edit| {
+                    recovery.append(&store.root, edit)
+                })
+                .map_err(|error| match error {
+                    EditorError::Persistence(error) => EditorStoreError::RecoveryAppend(error),
+                    other => EditorStoreError::Editor(other),
+                })
+        })
     }
 }
