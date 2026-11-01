@@ -8,6 +8,7 @@ mod clipboard;
 mod composition;
 mod durability;
 mod fences;
+mod images;
 mod lifecycle;
 mod lifecycle_crashes;
 mod lifecycle_faults;

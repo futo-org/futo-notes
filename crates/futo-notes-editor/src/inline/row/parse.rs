@@ -35,6 +35,10 @@ impl Row {
         let mut replacements = Vec::<(Range<usize>, String)>::new();
         let mut in_code = false;
         let mut link = None;
+        // Open images (an alt may hold another image): whole source, meaning and
+        // the furthest alt-text byte seen so far.
+        let mut open_images: Vec<(Range<usize>, Arc<LinkMeaning>, usize)> = Vec::new();
+        let mut images = Vec::new();
         let mut isolated = Vec::new();
         for (event, range) in events {
             if matches!(
@@ -57,6 +61,54 @@ impl Row {
                 }
                 _ if in_code => continue,
                 _ => {}
+            }
+            match &event {
+                Event::Start(Tag::Image {
+                    link_type,
+                    dest_url,
+                    title,
+                    id,
+                }) => {
+                    let target = if crate::inline::references::is_reference(link_type) {
+                        references.target(id).cloned()
+                    } else {
+                        None
+                    };
+                    let meaning = target.unwrap_or_else(|| {
+                        Arc::new(LinkMeaning {
+                            destination: dest_url.to_string(),
+                            title: (!title.is_empty()).then(|| title.to_string()),
+                            reference: None,
+                        })
+                    });
+                    let mut whole = range.clone();
+                    if matches!(
+                        link_type,
+                        pulldown_cmark::LinkType::Collapsed
+                            | pulldown_cmark::LinkType::CollapsedUnknown
+                    ) && source.get(whole.end..whole.end + 2) == Some("[]")
+                    {
+                        whole.end += 2;
+                    }
+                    open_images.push((whole, meaning, range.start + 2));
+                }
+                Event::End(pulldown_cmark::TagEnd::Image) => {
+                    if let Some((whole, meaning, label_end)) = open_images.pop() {
+                        if let Some(parent) = open_images.last_mut() {
+                            parent.2 = parent.2.max(whole.end);
+                        }
+                        images.push(crate::inline::images::RowImage {
+                            alt: source[whole.start + 2..label_end].to_owned(),
+                            source: whole,
+                            meaning,
+                        });
+                    }
+                }
+                _ => {
+                    if let Some(open) = open_images.last_mut() {
+                        open.2 = open.2.max(range.end);
+                    }
+                }
             }
             match &event {
                 Event::Start(Tag::Link {
@@ -305,9 +357,19 @@ impl Row {
             .flatten();
         let (wikilinks, wikilink_mask) =
             crate::inline::wikilinks::scan(source, &isolated, &segments);
+        // Kept only where a link could be typed, so completion can refuse an
+        // unfinished `[[` inside code or HTML exactly as a finished link would.
+        let isolated = if wikilinks.is_empty() && !source.contains("[[") {
+            Vec::new()
+        } else {
+            isolated
+        };
+        images.sort_by_key(|image: &crate::inline::images::RowImage| image.source.start);
         Self {
+            images,
             wikilinks,
             wikilink_mask,
+            wikilink_isolated: isolated,
             guarded_words: Vec::new(),
             typed_inputs: Vec::new(),
             context,

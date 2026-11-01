@@ -279,6 +279,8 @@ pub enum EditorSessionError {
     Persistence { error: String },
     #[error("editor recovery mismatch")]
     RecoveryMismatch,
+    #[error("wikilink completion is stale")]
+    StaleClaim,
     #[error("editor open failed: {error}")]
     Open { error: String },
     #[error("editor session already open")]
@@ -329,6 +331,7 @@ impl From<editor::EditorError> for EditorSessionError {
             E::UnrepresentableFormat => Self::UnrepresentableFormat,
             E::Persistence(error) => Self::Persistence { error },
             E::RecoveryMismatch => Self::RecoveryMismatch,
+            E::StaleClaim => Self::StaleClaim,
         }
     }
 }
@@ -476,6 +479,7 @@ pub struct EditorProjection {
     pub blocks: Vec<EditorBlockDescription>,
     pub links: Vec<EditorLinkDescription>,
     pub wikilinks: Vec<EditorWikilinkDescription>,
+    pub atoms: Vec<super::images::EditorAtomDescription>,
 }
 #[derive(Debug, PartialEq, Eq, uniffi::Record)]
 pub struct EditorListDescription {
@@ -512,6 +516,7 @@ impl From<editor::ProjectionSlice> for EditorProjection {
             text: value.text,
             links: value.links.into_iter().map(Into::into).collect(),
             wikilinks: value.wikilinks.into_iter().map(Into::into).collect(),
+            atoms: value.atoms.into_iter().map(Into::into).collect(),
             blocks: value
                 .blocks
                 .into_iter()

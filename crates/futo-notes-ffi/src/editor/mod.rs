@@ -10,6 +10,7 @@ mod clipboard;
 mod composition;
 mod contract;
 mod find;
+mod images;
 mod links;
 mod tags;
 pub use contract::*;

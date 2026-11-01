@@ -146,9 +146,11 @@ impl super::row::Row {
             definitions: Vec::new(),
             reference_uses: Vec::new(),
             reference_work: Default::default(),
-            // Front matter is inert metadata: it never carries wikilink roles.
+            // Front matter is inert metadata: no wikilink or image roles.
             wikilinks: Vec::new(),
             wikilink_mask: 0,
+            wikilink_isolated: Vec::new(),
+            images: Vec::new(),
             display: value.to_owned(),
             segments,
             spans: Vec::new(),

@@ -4,9 +4,11 @@ pub use bounded::*;
 mod clipboard;
 mod composition;
 mod find;
+mod images;
 mod links;
 mod tables;
 mod tags;
+mod wikilink_completion;
 use serde::{Deserialize, Serialize};
 pub use tables::PortableTableStep;
 

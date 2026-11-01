@@ -20,6 +20,7 @@ reintroduce them or wait for them at final acceptance. → docs/plan/text-first-
 - [Link editing and source ownership](portable-core/links.md)
 - [Wikilink roles and note ids](portable-core/wikilinks.md)
 - [Plain Markdown copy, cut and paste](portable-core/clipboard.md)
+- [Images and non-text atoms](portable-core/images.md)
 - [List interpretation and editing](portable-core/lists.md)
 - [Fenced code and key intent](portable-core/fenced-code.md)
 - [Front matter, raw HTML and unfamiliar Markdown](portable-core/foreign-content.md)

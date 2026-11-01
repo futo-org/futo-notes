@@ -36,4 +36,22 @@ assert.deepEqual(
 assert.equal(JSON.parse(session.composition()).text, 'か');
 assert.equal(session.draft_text(), source);
 session.free();
-console.log('Compiled WASM wikilinks: roles and mid-composition note-id delivery passed.');
+
+// Completion: request, stale claim, accept; a pending change keeps requests out.
+const page = new WasmSession(2n, 'see [[Ro', 0n, 0n);
+page.update_note_ids(JSON.stringify(['Projects/Roadmap', 'Other/Notes']));
+page.select_with_affinity(0n, 8, 8, '"Forward"');
+const found = JSON.parse(page.wikilink_completion(0n));
+assert.deepEqual(found.range, { start: 4, end: 8 });
+assert.equal(found.query, 'Ro');
+assert.deepEqual(found.candidates, [
+  { note_id: 'Projects/Roadmap', label: 'Roadmap', detail: 'Projects/Roadmap' },
+]);
+assert.throws(() => page.accept_wikilink_completion(0n, 4, 8, 'R', 'Projects/Roadmap'));
+assert.throws(() => page.accept_wikilink_completion(0n, 4, 8, 'Ro', 'Gone/Note'));
+const request = JSON.parse(page.accept_wikilink_completion(0n, 4, 8, 'Ro', 'Projects/Roadmap'));
+// The record is the minimal source diff: `[[` is kept, `Ro` becomes the id.
+assert.equal(request.operation.Append.inserted, 'Projects/Roadmap]]');
+assert.throws(() => page.wikilink_completion(1n));
+page.free();
+console.log('Compiled WASM wikilinks: roles, note-id delivery and completion passed.');

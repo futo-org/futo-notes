@@ -11,7 +11,7 @@ Shared Rust crate imported across the workspace — by the Tauri app and, via th
 - **`merge.rs`**: Three-way text merge for conflict resolution when both client and server modified the same note.
 - **`e2ee/`**: AES-GCM, password keys (PBKDF2 and Argon2id), versioned note frames, vault-key wrapping under a vault password or a recovery key, Crockford-base32 recovery keys, and X25519 sealed boxes for QR pairing. `mod.rs` preserves the public crypto contract while child modules own the wire capabilities.
 - **`conflict_names.rs`**: Deterministic and dated conflict-copy filenames.
-- **`image.rs`**: Rust image-extension classification, conformance-locked to the editor package.
+- **`image`**: re-export of `futo-notes-image` (image-extension classification, conformance-locked to the editor package).
 - **`journal/`**: The instance journal — a local, size-capped JSONL event log of what a running app instance actually did. `mod.rs` owns the `Journal` handle and the envelope; child modules own the segment ring, the background writer thread, and the reader. It lives in the app data dir, never in a vault, and is never uploaded. This is the one place in the crate that owns a thread; keep it std-only (no tokio) so every shell can carry it.
 - **`stderr_log.rs`**: `log_to_stderr!`, the only way shipped Rust in any crate prints a diagnostic. `println!`/`eprintln!` panic once the launching terminal is gone, which aborts the desktop release app; `[workspace.lints]` denies them outside tests and `just rust-lint` enforces it, for code compiled on the host target.
 

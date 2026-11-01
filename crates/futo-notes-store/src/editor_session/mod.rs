@@ -213,9 +213,11 @@ impl<'store> StoreEditorSession<'store> {
             .read_existing(id)
             .map_err(EditorStoreError::Open)?
             .ok_or_else(|| EditorStoreError::Open(NOTE_NOT_FOUND.to_owned()))?;
-        let (mut recovery, engine) =
+        let (mut recovery, mut engine) =
             RecoveryLog::open(&store.root, id, &base, options.clock, options.storage)
                 .map_err(EditorStoreError::Recovery)?;
+        // The engine starts without note ids; the store owns delivering them.
+        engine.update_note_ids(&links::vault_note_ids(&store.root));
         // A durable destination precedes installation. If its exact draft is
         // present after a crash, finish that checkpoint instead of re-running
         // date-sensitive parking and minting another conflict copy.

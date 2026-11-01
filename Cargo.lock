@@ -2001,6 +2001,7 @@ dependencies = [
  "argon2",
  "diffy",
  "filetime",
+ "futo-notes-image",
  "hex",
  "hkdf",
  "hmac",
@@ -2023,6 +2024,7 @@ dependencies = [
 name = "futo-notes-editor"
 version = "0.1.0"
 dependencies = [
+ "futo-notes-image",
  "futo-notes-tags",
  "futo-notes-wikilinks",
  "markdown",
@@ -2056,6 +2058,10 @@ dependencies = [
  "tokio",
  "uniffi",
 ]
+
+[[package]]
+name = "futo-notes-image"
+version = "0.1.0"
 
 [[package]]
 name = "futo-notes-license"

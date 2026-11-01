@@ -115,7 +115,7 @@ impl EditorSession {
                 format!(" #{name}"),
             )
         };
-        self.edit_source(expected, at..at, &inserted, accept)
+        self.edit_source(expected, at..at, &inserted, None, accept)
     }
 
     /// Remove every spelling of a tag from the header block, keeping all other
@@ -183,17 +183,20 @@ impl EditorSession {
             expected,
             from..to,
             &rewritten[prefix..rewritten.len() - suffix],
+            None,
             accept,
         )
     }
 
-    /// One isolated, accepted edit over plain header text: undo restores the
-    /// exact bytes and selection, and the caret keeps its place around the edit.
-    fn edit_source(
+    /// One isolated, accepted edit over plain text: undo restores the exact
+    /// bytes and selection. The caret keeps its place around the edit, or lands
+    /// at the source offset `caret_after` (valid after the edit) when given.
+    pub(super) fn edit_source(
         &mut self,
         expected: Revision,
         source: std::ops::Range<usize>,
         inserted: &str,
+        caret_after: Option<usize>,
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<Option<ViewChange>, EditorError> {
         if self.composition().is_some() {
@@ -220,9 +223,15 @@ impl EditorSession {
                 range.start.0
             })
         };
-        let kept = DisplayRange {
-            start: carry(selection.start),
-            end: carry(selection.end),
+        let kept = match caret_after {
+            Some(source) => {
+                let at = DisplayOffset(self.projection.display_at(source));
+                DisplayRange { start: at, end: at }
+            }
+            None => DisplayRange {
+                start: carry(selection.start),
+                end: carry(selection.end),
+            },
         };
         self.select_with_affinity(self.revision, kept, affinity)?;
         let (after_source, _) = self.capture_history_selection();
