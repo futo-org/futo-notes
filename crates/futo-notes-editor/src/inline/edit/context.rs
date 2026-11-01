@@ -32,6 +32,32 @@ impl Projection {
         (!found.widen_back && !found.widen_forward, output.len())
     }
 
+    /// Rows `first..=last` widened to the blank-separated piece an uncut row
+    /// would hold, never into front matter.
+    fn uncut_piece(&self, source: &Rope, mut first: usize, mut last: usize) -> (usize, usize) {
+        // The blank-separated piece an uncut row would hold.
+        let ends_blank = |index: usize| {
+            let (row, start, _) = self.rows.at(index);
+            let end = start + row.source_len;
+            let tail = source
+                .byte_slice(start.max(end.saturating_sub(4))..end)
+                .to_string();
+            tail.ends_with("\n\n") || tail.ends_with("\n\r\n") || row.source_len <= 2
+        };
+        while first > 0
+            && !self.rows.at(first - 1).0.metadata
+            && (self.rows.at(first).0.continues || !ends_blank(first - 1))
+        {
+            first -= 1;
+        }
+        while last + 1 < self.rows.len()
+            && (self.rows.at(last + 1).0.continues || !ends_blank(last))
+        {
+            last += 1;
+        }
+        (first, last)
+    }
+
     pub(super) fn edit_context_for_change(
         &self,
         source: &Rope,
@@ -42,13 +68,7 @@ impl Projection {
         let mut first = self.rows.locate(range.start.0, true);
         let mut last = self.rows.locate(range.end.0, true);
         if wide {
-            // The complete paragraph of every cut row in the context.
-            while self.rows.at(first).0.continues {
-                first -= 1;
-            }
-            while last + 1 < self.rows.len() && self.rows.at(last + 1).0.continues {
-                last += 1;
-            }
+            (first, last) = self.uncut_piece(source, first, last);
         }
         let (_, source_start, display_start) = self.rows.at(first);
         let (end_row, source_end, _) = self.rows.at(last);

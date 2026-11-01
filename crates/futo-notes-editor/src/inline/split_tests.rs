@@ -217,13 +217,24 @@ fn cut_paragraphs_match_uncut_twin_through_edits() {
         if case % 10 == 4 {
             source.insert_str(0, "---\ntitle: front\n---\n");
         }
+        // A long raw HTML block: unterminated, or closed partway.
+        if case % 7 == 6 {
+            let at = source.len() / 8;
+            let at = source[..at].rfind('\n').map_or(0, |line| line + 1);
+            source.insert_str(at, ["<!-- open\n", "<pre>\n", "<?php\n"][case % 3]);
+            if case % 2 == 0 {
+                let end = source.len() * 3 / 4;
+                let end = source[..end].rfind('\n').map_or(0, |line| line + 1);
+                source.insert_str(end, ["-->\n", "</pre>\n", "?>\n"][case % 3]);
+            }
+        }
         if case % 4 == 1 {
             source.push_str("\nafter\n");
         }
         let mut cut = EditorSession::open(&source);
         let mut reference = uncut(|| EditorSession::open(&source));
         assert!(whole(&cut) == whole(&reference), "case {case} open");
-        if case % 3 == 0 && case % 5 != 2 && !ordered {
+        if case % 3 == 0 && case % 5 != 2 && case % 7 != 6 && !ordered {
             assert!(cut.projection.rows.len() > 4, "case {case} is cut");
         }
         for index in 0..12 {

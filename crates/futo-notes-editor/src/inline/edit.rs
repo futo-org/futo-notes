@@ -89,17 +89,20 @@ impl Projection {
                 wide,
             )
         };
-        let (narrow, sealed) = plan(false)?;
-        if sealed {
-            return Ok(narrow);
-        }
-        // The candidate's meaning can reach another row of a cut paragraph:
-        // plan once more against the complete paragraph (#314).
+        // A cut context can be too narrow to plan (or to judge) the input:
+        // plan once more against the complete paragraph or list (#314).
+        let narrow = match plan(false) {
+            Ok((narrow, true)) => return Ok(narrow),
+            Ok((narrow, false)) => Some(narrow),
+            Err(_) => None,
+        };
         let (mut wide, _) = plan(true)?;
-        wide.materialized += narrow.materialized;
-        wide.parsed += narrow.parsed;
-        wide.link_metadata_items += narrow.link_metadata_items;
-        wide.link_copied_bytes += narrow.link_copied_bytes;
+        if let Some(narrow) = narrow {
+            wide.materialized += narrow.materialized;
+            wide.parsed += narrow.parsed;
+            wide.link_metadata_items += narrow.link_metadata_items;
+            wide.link_copied_bytes += narrow.link_copied_bytes;
+        }
         Ok(wide)
     }
 
