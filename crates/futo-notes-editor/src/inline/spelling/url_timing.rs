@@ -30,7 +30,7 @@ impl Timing {
         rendered
     }
     fn parse(&mut self, rendered: &Rendered, references: &Arc<References>) -> Row {
-        let parsed = Row::parse_with_references(&rendered.text, references, &rendered.winners);
+        let parsed = Row::candidate(&rendered.text, references, &rendered.winners);
         self.work.parsed += parsed.parsed_source_bytes;
         self.work.items += parsed.reference_work.items;
         self.work.copied += parsed.reference_work.copied;

@@ -68,8 +68,7 @@ pub(super) fn spell_with_anchors(
         marker.pending || marker.activate || marker.literal_url
     });
     if literal || verify_pending || typed.has_literal_proof() {
-        let mut candidate =
-            Row::parse_with_references(&rendered.text, references, &rendered.winners);
+        let mut candidate = Row::candidate(&rendered.text, references, &rendered.winners);
         parsed += candidate.parsed_source_bytes;
         link_metadata_items += candidate.reference_work.items;
         link_copied_bytes += candidate.reference_work.copied;
@@ -86,7 +85,7 @@ pub(super) fn spell_with_anchors(
             materialized += render::replace(&mut rendered, &pieces, &markers, insertion.clone());
             rendered_changed = true;
             link_metadata_items += rendered.link_metadata_items;
-            candidate = Row::parse_with_references(&rendered.text, references, &rendered.winners);
+            candidate = Row::candidate(&rendered.text, references, &rendered.winners);
             parsed += candidate.parsed_source_bytes;
             link_metadata_items += candidate.reference_work.items;
             link_copied_bytes += candidate.reference_work.copied;
@@ -115,7 +114,7 @@ pub(super) fn spell_with_anchors(
             }
             materialized += render::replace(&mut rendered, &pieces, &markers, insertion.clone());
             link_metadata_items += rendered.link_metadata_items;
-            candidate = Row::parse_with_references(&rendered.text, references, &rendered.winners);
+            candidate = Row::candidate(&rendered.text, references, &rendered.winners);
             parsed += candidate.parsed_source_bytes;
             link_metadata_items += candidate.reference_work.items;
             link_copied_bytes += candidate.reference_work.copied;
@@ -166,7 +165,7 @@ pub(super) fn spell_with_anchors(
             }
             materialized += render::replace(&mut rendered, &pieces, &markers, insertion.clone());
             link_metadata_items += rendered.link_metadata_items;
-            candidate = Row::parse_with_references(&rendered.text, references, &rendered.winners);
+            candidate = Row::candidate(&rendered.text, references, &rendered.winners);
             parsed += candidate.parsed_source_bytes;
             link_metadata_items += candidate.reference_work.items;
             link_copied_bytes += candidate.reference_work.copied;
@@ -193,7 +192,7 @@ pub(super) fn spell_with_anchors(
             }
             materialized += render::replace(&mut rendered, &pieces, &markers, insertion.clone());
             link_metadata_items += rendered.link_metadata_items;
-            candidate = Row::parse_with_references(&rendered.text, references, &rendered.winners);
+            candidate = Row::candidate(&rendered.text, references, &rendered.winners);
             parsed += candidate.parsed_source_bytes;
             link_metadata_items += candidate.reference_work.items;
             link_copied_bytes += candidate.reference_work.copied;
@@ -234,7 +233,7 @@ pub(super) fn spell_with_anchors(
             }
             materialized += render::replace(&mut rendered, &pieces, &markers, insertion.clone());
             link_metadata_items += rendered.link_metadata_items;
-            candidate = Row::parse_with_references(&rendered.text, references, &rendered.winners);
+            candidate = Row::candidate(&rendered.text, references, &rendered.winners);
             parsed += candidate.parsed_source_bytes;
             link_metadata_items += candidate.reference_work.items;
             link_copied_bytes += candidate.reference_work.copied;
@@ -278,7 +277,7 @@ pub(super) fn spell_with_anchors(
         mapped.push(found.ok_or(EditorError::UnrepresentableFormat)?);
     }
     if verified.is_none() && (!guards.owners.is_empty() || typed.has_update()) {
-        let candidate = Row::parse_with_references(&rendered.text, references, &rendered.winners);
+        let candidate = Row::candidate(&rendered.text, references, &rendered.winners);
         parsed += candidate.parsed_source_bytes;
         link_metadata_items += candidate.reference_work.items;
         link_copied_bytes += candidate.reference_work.copied;

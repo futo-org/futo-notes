@@ -1,10 +1,12 @@
+mod html;
 mod parse;
+pub(crate) use html::CandidateOpener;
 mod split;
 use crate::InlineFormat;
 use pulldown_cmark::{Event, Options, Parser, Tag};
-pub(crate) use split::partition;
 #[cfg(test)]
 pub(crate) use split::UNCUT;
+pub(crate) use split::{partition, Outside};
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -92,6 +94,8 @@ pub(crate) struct Row {
     pub through: bool,
     /// The document's leading front matter row (always row zero).
     pub metadata: bool,
+    /// The opener line of the raw HTML block this row continues (#314).
+    pub opener: Option<Arc<str>>,
 }
 
 pub(super) fn parser_options() -> Options {
@@ -339,6 +343,21 @@ pub(crate) fn open_at_end(source: &str) -> (Option<OpenEnd>, usize) {
         }
     }
     (open, source.len())
+}
+
+/// The opener line of a raw HTML block still open at the end of `source`.
+pub(crate) fn html_tail(source: &str) -> Option<&str> {
+    let mut open = None;
+    for (event, range) in Parser::new_ext(source, parser_options()).into_offset_iter() {
+        if matches!(event, Event::Start(Tag::HtmlBlock)) {
+            open = (range.end == source.len() && source.ends_with('\n')).then_some(range.start);
+        }
+    }
+    let start = open?;
+    let line = source[start..]
+        .find('\n')
+        .map_or(source.len(), |end| start + end + 1);
+    Some(&source[start..line])
 }
 
 #[cfg(test)]

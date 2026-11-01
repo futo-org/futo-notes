@@ -166,6 +166,15 @@ fn choose(cut: &EditorSession, next: &mut impl FnMut(usize) -> usize) -> Step {
             at -= 1;
         }
         if next(3) == 0 {
+            // Half the keys land on a line edge, where item joins stage a window.
+            if next(2) == 0 {
+                at = match next(2) {
+                    0 => display[..at].rfind('\n').map_or(0, |line| line + 1),
+                    _ => display[at..]
+                        .find('\n')
+                        .map_or(display.len(), |end| at + end),
+                };
+            }
             Step::Key(at, KEYS[next(KEYS.len())])
         } else {
             Step::Type(at, EDITS[next(EDITS.len())])
@@ -219,12 +228,16 @@ fn cut_paragraphs_match_uncut_twin_through_edits() {
         }
         // A long raw HTML block: unterminated, or closed partway.
         if case % 7 == 6 {
-            let at = source.len() / 8;
-            let at = source[..at].rfind('\n').map_or(0, |line| line + 1);
+            let line_at = |source: &str, at: usize| {
+                source.as_bytes()[..at]
+                    .iter()
+                    .rposition(|&byte| byte == b'\n')
+                    .map_or(0, |line| line + 1)
+            };
+            let at = line_at(&source, source.len() / 8);
             source.insert_str(at, ["<!-- open\n", "<pre>\n", "<?php\n"][case % 3]);
-            if case % 2 == 0 {
-                let end = source.len() * 3 / 4;
-                let end = source[..end].rfind('\n').map_or(0, |line| line + 1);
+            if case / 14 % 2 == 0 {
+                let end = line_at(&source, source.len() * 3 / 4);
                 source.insert_str(end, ["-->\n", "</pre>\n", "?>\n"][case % 3]);
             }
         }

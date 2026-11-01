@@ -19,17 +19,38 @@ impl Projection {
         end: usize,
         output: &str,
     ) -> (bool, usize) {
-        let continues = self.rows.at(self.rows.locate(start, false)).0.continues;
+        let first = self.rows.at(self.rows.locate(start, false)).0;
         let index = self.rows.locate(end, false);
-        let at = self.rows.at(index).1;
+        let (following, at, _) = self.rows.at(index);
         let next = (at == end && end > start)
             .then(|| self.continued_line(source, index, end))
             .flatten();
-        if !continues && next.is_none() {
-            return (true, 0);
+        let following_row = at == end && end > start;
+        let next_opener = following.opener.as_deref().filter(|_| following_row);
+        // A cut raw HTML block must still end where its rows say it does.
+        let mut parsed = 0;
+        if following_row && (first.opener.is_some() || next_opener.is_some()) {
+            let opener = first.opener.as_deref().unwrap_or("");
+            let text = format!("{opener}{output}");
+            parsed += text.len();
+            if super::super::row::html_tail(&text) != next_opener {
+                return (false, parsed);
+            }
         }
-        let found = super::super::row::partition(output, continues, next.as_deref());
-        (!found.widen_back && !found.widen_forward, output.len())
+        if !first.continues && next.is_none() {
+            return (true, parsed);
+        }
+        let outside = super::super::row::Outside {
+            continues: first.continues,
+            opener: first.opener.as_deref(),
+            next: next.as_deref(),
+            next_opener: next.as_ref().and(next_opener),
+        };
+        let found = super::super::row::partition(output, outside);
+        (
+            !found.widen_back && !found.widen_forward,
+            parsed + output.len(),
+        )
     }
 
     /// Rows `first..=last` widened to the blank-separated piece an uncut row

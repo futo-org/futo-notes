@@ -48,7 +48,7 @@ fn total(work: &EditWork) -> usize {
 #[test]
 fn local_keys_in_one_giant_region_do_not_scale_with_it() {
     type Shape = fn(usize) -> (String, String, String);
-    let shapes: [(&str, Shape); 2] = [
+    let shapes: [(&str, Shape); 3] = [
         ("tight bullet list", |lines| {
             let source: String = (0..lines).map(|i| format!("- item {i}\n")).collect();
             let middle = format!("item {}", lines / 2);
@@ -59,6 +59,15 @@ fn local_keys_in_one_giant_region_do_not_scale_with_it() {
             let line = |i: usize| format!("word {i}\n");
             let source: String = (0..lines).map(line).collect();
             let middle = format!("word {}", lines / 2);
+            let expected = source.replace(&format!("{middle}\n"), &format!("{middle}\n\n"));
+            (source, middle, expected)
+        }),
+        ("unterminated HTML comment", |lines| {
+            let line = |i: usize| format!("para {i}\n\n");
+            let source: String = std::iter::once("<!-- open\n".to_owned())
+                .chain((0..lines).map(line))
+                .collect();
+            let middle = format!("para {}", lines / 2);
             let expected = source.replace(&format!("{middle}\n"), &format!("{middle}\n\n"));
             (source, middle, expected)
         }),

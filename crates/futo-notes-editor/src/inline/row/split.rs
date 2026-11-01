@@ -9,6 +9,32 @@
 //! otherwise the whole paragraph stays one row. A tight top-level bullet list
 //! is cut between top-level items, which inline syntax never crosses.
 use pulldown_cmark::{Event, Parser, Tag, TagEnd};
+mod html;
+mod list;
+use list::ListScan;
+
+/// A row boundary chosen inside the text.
+#[derive(Clone)]
+pub(super) enum Cut {
+    /// The next row continues this row's paragraph or list.
+    Continue,
+    /// The next row continues a raw HTML block with this opener line.
+    Html(std::ops::Range<usize>),
+    /// The next row starts a fresh block.
+    Head,
+}
+
+/// What surrounds the text: its first row's continuation and the following
+/// row's first line when that row continues the text's last row.
+#[derive(Clone, Copy, Default)]
+pub(crate) struct Outside<'a> {
+    pub continues: bool,
+    /// The opener line of the raw HTML block the first row continues.
+    pub opener: Option<&'a str>,
+    pub next: Option<&'a str>,
+    /// The opener line of the raw HTML block the following row continues.
+    pub next_opener: Option<&'a str>,
+}
 
 /// Paragraphs below this size keep their single row.
 pub(crate) const SPLIT_MIN: usize = 2048;
@@ -21,6 +47,8 @@ pub(crate) struct Piece<'a> {
     pub continues: bool,
     /// The row continues one block that the following row continues too.
     pub through: bool,
+    /// The opener line of the raw HTML block this row continues.
+    pub opener: Option<String>,
 }
 
 pub(crate) struct Partition<'a> {
@@ -34,13 +62,19 @@ pub(crate) struct Partition<'a> {
     pub open_tail: bool,
 }
 
-/// `continues`: the text's first row continues the preceding outside row.
-/// `next`: the first line of the following outside row when it continues the
-/// text's last row.
-pub(crate) fn partition<'a>(source: &'a str, continues: bool, next: Option<&str>) -> Partition<'a> {
-    let deep = continues || next.is_some() || source.len() >= SPLIT_MIN;
+pub(crate) fn partition<'a>(source: &'a str, outside: Outside<'_>) -> Partition<'a> {
+    let deep = outside.continues || outside.next.is_some() || source.len() >= SPLIT_MIN;
     #[cfg(test)]
     let deep = deep && !UNCUT.with(|uncut| uncut.get());
+    // A continued HTML row is read after its block's opener line.
+    let joined;
+    let (text, base) = match outside.opener.filter(|_| deep) {
+        Some(opener) => {
+            joined = format!("{opener}{source}");
+            (joined.as_str(), opener.len())
+        }
+        None => (source, 0),
+    };
     let mut protected = Vec::new();
     let mut cuts = Vec::new();
     let mut starts = Vec::new();
@@ -55,29 +89,41 @@ pub(crate) fn partition<'a>(source: &'a str, continues: bool, next: Option<&str>
                 }),
         );
     } else {
-        (widen_back, widen_forward) = analyze(
-            source,
-            continues,
-            next,
-            &mut protected,
-            &mut cuts,
-            &mut starts,
-        );
+        (widen_back, widen_forward) =
+            analyze(text, base, outside, &mut protected, &mut cuts, &mut starts);
     }
+    let back = |at: usize| at.max(base) - base;
+    for range in &mut protected {
+        *range = back(range.start)..back(range.end);
+    }
+    let cuts: Vec<_> = cuts
+        .into_iter()
+        .filter(|(at, _)| *at > base)
+        .map(|(at, cut)| (at - base, cut))
+        .collect();
+    let starts: Vec<_> = starts
+        .into_iter()
+        .filter(|&at| at >= base)
+        .map(back)
+        .collect();
     let mut protected_index = 0;
-    let mut rows = Vec::new();
+    let mut rows: Vec<(&str, bool, Option<String>)> = Vec::new();
     let mut start = 0;
     let mut offset = 0;
     let mut cut_index = 0;
-    let mut row_continues = continues;
+    let mut row_continues = outside.continues;
+    let mut row_opener = outside.opener.map(str::to_owned);
     for line in source.split_inclusive('\n') {
         let line_start = offset;
         offset += line.len();
-        if cuts.get(cut_index) == Some(&line_start) {
+        if let Some((_, cut)) = cuts.get(cut_index).filter(|(at, _)| *at == line_start) {
             cut_index += 1;
-            rows.push((&source[start..line_start], row_continues));
+            rows.push((&source[start..line_start], row_continues, row_opener.take()));
             start = line_start;
-            row_continues = true;
+            row_continues = !matches!(cut, Cut::Head);
+            if let Cut::Html(opener) = cut {
+                row_opener = Some(text[opener.clone()].to_owned());
+            }
         }
         while protected_index < protected.len() && protected[protected_index].end <= line_start {
             protected_index += 1;
@@ -86,30 +132,36 @@ pub(crate) fn partition<'a>(source: &'a str, continues: bool, next: Option<&str>
             .get(protected_index)
             .is_some_and(|range| range.start <= line_start && line_start < range.end);
         if !in_code && line.trim_matches([' ', '\t', '\r', '\n']).is_empty() {
-            rows.push((&source[start..offset], row_continues));
+            rows.push((&source[start..offset], row_continues, row_opener.take()));
             start = offset;
             row_continues = false;
         }
     }
     if start < source.len() || rows.is_empty() {
-        rows.push((&source[start..], row_continues));
+        rows.push((&source[start..], row_continues, row_opener.take()));
     }
     let mut offset = 0;
     let mut starts = starts.into_iter().peekable();
-    let pieces = (0..rows.len())
-        .map(|index| {
-            let (text, continues) = rows[index];
+    let continued: Vec<bool> = rows.iter().skip(1).map(|row| row.1).collect();
+    let pieces = rows
+        .into_iter()
+        .enumerate()
+        .map(|(index, (text, continues, opener))| {
             let end = offset + text.len();
             let mut single = true;
             while let Some(at) = starts.next_if(|&at| at < end) {
                 single &= at <= offset;
             }
             offset = end;
-            let continued = rows.get(index + 1).map_or(next.is_some(), |row| row.1);
+            let continued = continued
+                .get(index)
+                .copied()
+                .unwrap_or(outside.next.is_some());
             Piece {
                 text,
                 continues,
                 through: continues && continued && single,
+                opener,
             }
         })
         .collect();
@@ -126,12 +178,15 @@ pub(crate) fn partition<'a>(source: &'a str, continues: bool, next: Option<&str>
 /// One parse finds protected blocks, sealed cuts and outside dependencies.
 fn analyze(
     source: &str,
-    continues: bool,
-    next: Option<&str>,
+    base: usize,
+    outside: Outside<'_>,
     protected: &mut Vec<std::ops::Range<usize>>,
-    cuts: &mut Vec<usize>,
+    cuts: &mut Vec<(usize, Cut)>,
     starts: &mut Vec<usize>,
 ) -> (bool, bool) {
+    // A paragraph or list continues from outside only without an HTML prefix.
+    let continues = outside.continues && base == 0;
+    let next = outside.next.filter(|_| outside.next_opener.is_none());
     let (mut widen_back, mut widen_forward) = (false, false);
     let mut depth = 0usize;
     let mut first_block = None;
@@ -139,10 +194,14 @@ fn analyze(
     let mut tail = Tail::Other;
     let mut paragraph: Option<Paragraph> = None;
     let mut list: Option<ListScan> = None;
+    let mut html = None;
     for (event, range) in Parser::new_ext(source, super::parser_options()).into_offset_iter() {
         if first_block.is_none() {
-            first_block =
-                Some(depth == 0 && matches!(event, Event::Start(Tag::Paragraph | Tag::List(None))));
+            first_block = Some(if base > 0 {
+                matches!(event, Event::Start(Tag::HtmlBlock)) && range.end > base
+            } else {
+                depth == 0 && matches!(event, Event::Start(Tag::Paragraph | Tag::List(None)))
+            });
         }
         match &event {
             Event::Start(tag) if is_block(tag) => {
@@ -155,6 +214,7 @@ fn analyze(
                     match tag {
                         Tag::Paragraph => paragraph = Some(Paragraph::new(range.clone())),
                         Tag::List(number) => list = Some(ListScan::new(range.clone(), number)),
+                        Tag::HtmlBlock => html = Some(range.clone()),
                         _ => {}
                     }
                 } else if let Some(open) = list.as_mut() {
@@ -205,6 +265,16 @@ fn analyze(
                 starts.push(range.start);
                 tail = Tail::Other;
             }
+            Event::End(TagEnd::HtmlBlock) if depth == 0 => {
+                if let Some(block) = html.take() {
+                    let reaches = reaches_end(source, block.end);
+                    let connected = block.start < base || outside.next_opener.is_some() && reaches;
+                    html::cuts(source, block.clone(), base, connected, cuts);
+                    if reaches {
+                        tail = Tail::Html(block.start);
+                    }
+                }
+            }
             _ => {
                 if let Some(open) = paragraph.as_mut() {
                     open.inline(source, &event, range);
@@ -212,11 +282,17 @@ fn analyze(
             }
         }
     }
-    if continues && first_block != Some(true) {
+    if (continues || base > 0) && first_block != Some(true) {
         widen_back = true;
     }
-    if let Some(next) = next {
+    if let Some(next) = outside.next {
         let sealed = match &tail {
+            // The following row keeps its opener only when that line stands.
+            Tail::Html(start) => {
+                outside.next_opener == Some(html::opener_line(source, *start))
+                    && html::still_open(source, *start, next)
+            }
+            _ if outside.next_opener.is_some() => false,
             Tail::Paragraph => seam_after(source, source.len()) && seam_before(next, 0),
             Tail::List(found) => found.continued_by(next),
             Tail::Other => false,
@@ -227,6 +303,7 @@ fn analyze(
 }
 
 enum Tail {
+    Html(usize),
     Paragraph,
     List(ListScan),
     Other,
@@ -234,119 +311,6 @@ enum Tail {
 
 fn at_line_start(source: &str, at: usize) -> bool {
     source[..at].trim_start_matches(' ').is_empty()
-}
-
-/// A top-level item's marker byte and content column, measured like the
-/// list metadata, or `None` when tabs or a wide indent make it context bound.
-fn bullet_line(line: &str) -> Option<(u8, usize)> {
-    let text = line.trim_start_matches(' ');
-    let indent = line.len() - text.len();
-    let marker = *text.as_bytes().first()?;
-    if indent > 3 || !matches!(marker, b'-' | b'*' | b'+') {
-        return None;
-    }
-    let rest = &text[1..];
-    let padding = rest.bytes().take_while(|&b| b == b' ').count();
-    if rest[padding..].starts_with('\t') {
-        return None;
-    }
-    Some((marker, indent + 1 + if padding > 4 { 1 } else { padding }))
-}
-
-struct Item {
-    line: usize,
-    /// Marker byte and content column.
-    marker: Option<(u8, usize)>,
-    nested: bool,
-}
-
-/// A tight top-level bullet list. Cuts fall between items with the same
-/// content column and no nested list, so neither the sink target nor the
-/// previous content column depends on the other row.
-struct ListScan {
-    range: std::ops::Range<usize>,
-    bullet: bool,
-    items: Vec<Item>,
-}
-
-impl ListScan {
-    fn new(range: std::ops::Range<usize>, number: &Option<u64>) -> Self {
-        Self {
-            range,
-            bullet: number.is_none(),
-            items: Vec::new(),
-        }
-    }
-
-    fn nested(&mut self, source: &str, tag: &Tag<'_>, depth: usize, at: usize) {
-        match tag {
-            Tag::Item if depth == 1 => {
-                let line = source[..at].rfind('\n').map_or(0, |end| end + 1);
-                let marker = source[line..].split_inclusive('\n').next().unwrap_or("");
-                self.items.push(Item {
-                    line,
-                    marker: bullet_line(marker),
-                    nested: false,
-                });
-            }
-            // Nested lists name a sink target; a code or HTML block ending an
-            // item displays its final line ending only before a sibling.
-            Tag::List(_) | Tag::CodeBlock(_) | Tag::HtmlBlock => {
-                if let Some(item) = self.items.last_mut() {
-                    item.nested = true;
-                }
-            }
-            _ => {}
-        }
-    }
-
-    fn trimmed_end(&self, source: &str) -> usize {
-        let text = &source[self.range.clone()];
-        let kept = text.trim_end_matches([' ', '\t', '\r', '\n']).len();
-        let line_end = text[kept..]
-            .find('\n')
-            .map_or(text.len(), |at| kept + at + 1);
-        self.range.start + line_end
-    }
-
-    fn reaches_end(&self, source: &str) -> bool {
-        self.trimmed_end(source) == source.len()
-    }
-
-    fn cuttable(&self, source: &str) -> bool {
-        let body = &source[self.range.start..self.trimmed_end(source)];
-        self.bullet
-            && self.items.iter().all(|item| item.marker.is_some())
-            && !body
-                .split_inclusive('\n')
-                .any(|line| line.trim_matches([' ', '\t', '\r', '\n']).is_empty())
-    }
-
-    /// Neither item beside a cut nests a block, so each row's first and last
-    /// top-level lines name the list's own owner.
-    fn cuts(&self, cuts: &mut Vec<usize>) {
-        let mut last = self.range.start;
-        for pair in self.items.windows(2) {
-            let (previous, item) = (&pair[0], &pair[1]);
-            let column = |item: &Item| item.marker.map(|marker| marker.1);
-            if !previous.nested
-                && !item.nested
-                && column(previous) == column(item)
-                && item.line - last >= CHUNK
-            {
-                cuts.push(item.line);
-                last = item.line;
-            }
-        }
-    }
-
-    /// The following row's first line continues this list as a sibling.
-    fn continued_by(&self, next: &str) -> bool {
-        let Some(last) = self.items.last() else {
-            return false;
-        };
-        !last.nested && last.marker.is_some() && bullet_line(next) == last.marker
-    }
 }
 
 /// Code, lists, raw HTML and footnote definitions own their interior blanks.
@@ -503,7 +467,7 @@ impl Paragraph {
         }
     }
 
-    fn cuts(mut self, source: &str, cuts: &mut Vec<usize>) {
+    fn cuts(mut self, source: &str, cuts: &mut Vec<(usize, Cut)>) {
         self.covered.sort_by_key(|range| range.start);
         let mut covered = self.covered.iter().peekable();
         let mut reach = 0;
@@ -522,7 +486,7 @@ impl Paragraph {
                 && seam_after(source, at)
                 && seam_before(source, at)
             {
-                cuts.push(at);
+                cuts.push((at, Cut::Continue));
                 last = at;
             }
         }

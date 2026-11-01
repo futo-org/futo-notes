@@ -239,6 +239,7 @@ fn model(source_len: usize, display: &str, segments: Vec<Segment>) -> Row {
         continues: false,
         through: false,
         metadata: false,
+        opener: None,
     }
 }
 

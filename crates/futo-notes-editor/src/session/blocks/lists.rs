@@ -101,7 +101,10 @@ impl EditorSession {
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<Option<ViewChange>, EditorError> {
         let lines = self.projection.block_lines(range);
+        // A caret touching a hidden fence line also reads two lines; only a
+        // selection is deleted first (staging a caret would recurse).
         if matches!(key, ParagraphKey::Enter | ParagraphKey::ShiftEnter)
+            && range.start != range.end
             && lines.len() > 1
             && lines.iter().any(|line| line.list.is_some() && !line.code)
         {

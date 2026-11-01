@@ -159,7 +159,8 @@ impl EditorSession {
         pending: Option<crate::inline::PendingLinks>,
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<ViewChange, EditorError> {
-        let before_links = self.projection.pending_for_source_edit(edit.range);
+        let staged = pending.as_ref().map(|pending| &pending.window);
+        let before_links = self.projection.pending_for_staged_edit(&edit, staged);
         let (validation, validated_selection) =
             if let BlockSelection::SourceWithRetiredAtoms { atoms, .. } = &selection {
                 let window = before_links.window.clone();

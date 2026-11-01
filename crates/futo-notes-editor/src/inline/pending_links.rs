@@ -198,6 +198,28 @@ impl Projection {
         pending
     }
 
+    /// The neighbor window of `edit`, widened to hold a staged command's
+    /// window (pre-edit source), which may start at a cut HTML opener row.
+    pub(crate) fn pending_for_staged_edit(
+        &self,
+        edit: &SourceEdit,
+        staged: Option<&Range<usize>>,
+    ) -> PendingLinks {
+        let neighbors = self.pending_for_source_edit(edit.range);
+        let end = staged
+            .and_then(|staged| (staged.end + edit.removed.len()).checked_sub(edit.inserted.len()));
+        let (Some(staged), Some(end)) = (staged, end) else {
+            return neighbors;
+        };
+        if staged.start >= neighbors.window.start && end <= neighbors.window.end {
+            return neighbors;
+        }
+        let window = staged.start.min(neighbors.window.start)..end.max(neighbors.window.end);
+        let mut pending = self.pending_links(window);
+        pending.work += neighbors.work;
+        pending
+    }
+
     pub(super) fn pending_display(&self, first: usize, last: usize) -> (Vec<DisplayRange>, usize) {
         #[cfg(test)]
         let visits = super::coordinate_work_tests::visits();

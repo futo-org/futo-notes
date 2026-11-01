@@ -12,8 +12,8 @@ pub(super) struct Window {
     pub text: String,
     /// Leading front matter bytes of `text`, reparsed as the metadata row.
     pub metadata: usize,
-    /// Length, `continues` and `through` of each replacement row.
-    pub pieces: Vec<(usize, bool, bool)>,
+    /// Length, `continues`, `through` and HTML opener of each replacement row.
+    pub pieces: Vec<(usize, bool, bool, Option<String>)>,
     /// Source copied and parsed by boundary scans and refused attempts.
     pub partition_bytes: usize,
 }
@@ -62,12 +62,24 @@ impl Projection {
             }
             let display_end = display_end + row.display.len();
             let text = source.byte_slice(source_start..source_end).to_string();
+            let metadata = if source_start == 0 { metadata } else { 0 };
+            let first_row = self.rows.at(first).0;
+            let opener = first_row.opener.as_deref().filter(|_| metadata == 0);
+            let next = self.continued_line(source, last + 1, source_end);
+            let next_opener = next
+                .as_ref()
+                .and_then(|_| self.rows.at(last + 1).0.opener.clone());
             // A raw HTML block or footnote that still owns the window's final
-            // blank continues into following rows; reinterpret them too.
-            let (open, parsed) = row::open_at_end(&text);
+            // blank continues into following rows; reinterpret them too. A cut
+            // HTML continuation row instead proves its own seam.
+            let (open, parsed) = match opener {
+                Some(opener) => row::open_at_end(&format!("{opener}{text}")),
+                None => row::open_at_end(&text),
+            };
             partition_bytes += parsed;
             match open {
                 Some(_) if last + 1 >= self.rows.len() => {}
+                Some(row::OpenEnd::Html) if next_opener.is_some() => {}
                 Some(row::OpenEnd::Html) => {
                     partition_bytes += text.len();
                     last = self.rows.len() - 1;
@@ -82,11 +94,14 @@ impl Projection {
                 }
                 None => {}
             }
-            let metadata = if source_start == 0 { metadata } else { 0 };
             let body = &text[metadata..];
-            let continues = metadata == 0 && self.rows.at(first).0.continues;
-            let next = self.continued_line(source, last + 1, source_end);
-            let found = partition(body, continues, next.as_deref());
+            let outside = Outside {
+                continues: metadata == 0 && first_row.continues,
+                opener,
+                next: next.as_deref(),
+                next_opener: next_opener.as_deref(),
+            };
+            let found = partition(body, outside);
             // A block reaching the window end owns a following blank row, and
             // its range takes the indent of a following indented line.
             if !found.widen_forward
@@ -107,10 +122,13 @@ impl Projection {
                 }
             }
             if !found.widen_back && !found.widen_forward {
-                let pieces: Vec<(usize, bool, bool)> = found
+                let pieces: Vec<_> = found
                     .rows
                     .iter()
-                    .map(|piece| (piece.text.len(), piece.continues, piece.through))
+                    .map(|piece| {
+                        let opener = piece.opener.clone();
+                        (piece.text.len(), piece.continues, piece.through, opener)
+                    })
                     .collect();
                 return Window {
                     first,
