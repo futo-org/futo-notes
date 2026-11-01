@@ -316,3 +316,32 @@ pub(super) fn remove_local(root: &Path, relative: &str) -> Result<bool, String> 
 pub(super) fn rename_local(root: &Path, source: &str, destination: &str) -> Result<bool, String> {
     rename(root, source, destination)
 }
+/// No descriptor-relative identity/directory durability capability is available
+/// on this implementation. Ordinary no-replace moves retain their copy fallback.
+pub struct PreparedRecoveryActivation;
+
+pub fn prepare_recovery_activation(
+    _root: &std::path::Path,
+    _source: &str,
+    _destination: &str,
+) -> Result<PreparedRecoveryActivation, super::RecoveryPreparationError> {
+    Err(super::RecoveryPreparationError::Unsupported)
+}
+
+impl PreparedRecoveryActivation {
+    pub fn deactivate(&mut self, _root: &std::path::Path) -> Result<(), String> {
+        Err("no-copy recovery activation unsupported".into())
+    }
+    pub fn verify(&self, _root: &std::path::Path, _relative: &str) -> Result<(), String> {
+        Err("no-copy recovery activation unsupported".into())
+    }
+    pub fn activate(
+        &mut self,
+        _root: &std::path::Path,
+    ) -> Result<super::RecoveryActivation, String> {
+        Err("no-copy recovery activation unsupported".into())
+    }
+    pub fn discard(&mut self, _root: &std::path::Path) -> Result<(), String> {
+        Err("no-copy recovery activation unsupported".into())
+    }
+}

@@ -140,6 +140,7 @@ impl RecoveryLog {
         action: &OwnActionRelink,
         can_adopt: bool,
     ) -> Result<(), String> {
+        self.cancel_bounded_preparation(root)?;
         Self::recover_identities(root, &self.header.id, &mut *self.storage)?;
         let records = if self.exists {
             let bytes = self
@@ -202,6 +203,7 @@ impl RecoveryLog {
         root: &Path,
         original: &str,
     ) -> Result<(), String> {
+        self.cancel_bounded_preparation(root)?;
         let decision = install(root, &stem(original), &mut *self.storage)?;
         self.path = stream(&decision.header.id);
         self.header = decision.header;
