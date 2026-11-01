@@ -65,6 +65,14 @@ const ITEMS: &[&str] = &[
     "lazy continuation",
     "  ```fence in item",
 ];
+const ORDERED: &[&str] = &[
+    "   - nested item",
+    "   1. nested ordered",
+    "1) other delimiter",
+    "10. wide number",
+    "lazy continuation",
+    "   ```fence in item",
+];
 const KEYS: &[ParagraphKey] = &[
     ParagraphKey::Enter,
     ParagraphKey::Backspace,
@@ -118,20 +126,29 @@ fn cut_paragraphs_match_uncut_twin_through_edits() {
     let cases = std::env::var("SPLIT_CASES").map_or(24, |cases| cases.parse().unwrap());
     for case in 0..cases {
         let list = case % 2 == 1;
+        // Ordered lists stay uncut; they guard against numbering drift.
+        let ordered = case % 4 == 3;
         let mut source = String::new();
         for line in 0..400 {
-            let text = if list {
+            let number = if case % 8 == 7 { 1 } else { line + 1 };
+            let text = if list && ordered {
                 if case % 3 == 0 || next(5) != 0 {
-                    "- list item"
+                    format!("{number}. list item")
                 } else {
-                    ITEMS[next(ITEMS.len())]
+                    ORDERED[next(ORDERED.len())].to_owned()
+                }
+            } else if list {
+                if case % 3 == 0 || next(5) != 0 {
+                    "- list item".to_owned()
+                } else {
+                    ITEMS[next(ITEMS.len())].to_owned()
                 }
             } else if case % 3 == 0 || next(4) != 0 {
-                "plain words here"
+                "plain words here".to_owned()
             } else if case % 6 == 4 && next(8) == 0 {
-                ["*opens here", "closes here*"][next(2)]
+                ["*opens here", "closes here*"][next(2)].to_owned()
             } else {
-                LINES[next(LINES.len())]
+                LINES[next(LINES.len())].to_owned()
             };
             source.push_str(&format!("{text} {line}\n"));
         }
@@ -141,7 +158,7 @@ fn cut_paragraphs_match_uncut_twin_through_edits() {
         let mut cut = EditorSession::open(&source);
         let mut reference = uncut(|| EditorSession::open(&source));
         assert!(whole(&cut) == whole(&reference), "case {case} open");
-        if case % 3 == 0 {
+        if case % 3 == 0 && !ordered {
             assert!(cut.projection.rows.len() > 4, "case {case} is cut");
         }
         for index in 0..12 {
