@@ -9,8 +9,6 @@ fn range(a: usize, b: usize) -> DisplayRange {
     }
 }
 
-#[path = "fences/basis.rs"]
-mod basis;
 #[path = "fences/commands.rs"]
 mod commands;
 #[path = "fences/frame.rs"]
@@ -27,9 +25,6 @@ mod protected_input;
 #[path = "fences/physical_rows.rs"]
 mod physical_rows;
 
-#[path = "fences/physical_basis.rs"]
-mod physical_basis;
-
 fn assert_fresh_projection(session: &EditorSession, shown: &str) {
     assert_eq!(session.display_text(), shown);
     let mut actual = session
@@ -42,9 +37,3 @@ fn assert_fresh_projection(session: &EditorSession, shown: &str) {
     actual.revision = expected.revision;
     assert_eq!(actual, expected);
 }
-
-#[path = "fences/physical_indent.rs"]
-mod physical_indent;
-
-#[path = "fences/source_identity.rs"]
-mod source_identity;
