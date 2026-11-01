@@ -1,5 +1,5 @@
 mod support;
-use futo_notes_ffi::{EditorUtf16Range, NoteStore};
+use futo_notes_ffi::{EditorByteRange, EditorUtf16Range, NoteStore};
 use support::{path_string, TempTree};
 
 #[test]
@@ -426,4 +426,28 @@ fn native_uri_class_retirement_preserves_code_and_pre_code_history() {
     assert!(recovered.undo(6).unwrap().is_none());
     recovered.checkpoint().unwrap();
     assert_eq!(store.read("plain".into()).unwrap(), saved);
+}
+
+#[test]
+fn native_projection_marks_front_matter_as_metadata() {
+    let tree = TempTree::new();
+    std::fs::create_dir_all(tree.path("vault")).unwrap();
+    let store = NoteStore::new(path_string(&tree.path("vault")));
+    store
+        .create_note("fm".into(), "".into(), "---\ntitle: x\n---\nbody".into())
+        .unwrap();
+    let session = store.open_editor("fm".into()).unwrap();
+    let text = session.display_text().unwrap();
+    let blocks = session
+        .project(
+            0,
+            EditorByteRange {
+                start: 0,
+                end: text.len() as u64,
+            },
+        )
+        .unwrap()
+        .blocks;
+    assert_eq!(blocks.iter().filter(|block| block.metadata).count(), 1);
+    assert!(!blocks.last().unwrap().metadata);
 }
