@@ -8,6 +8,34 @@
 use std::path::{Component, Path};
 use std::sync::atomic::{AtomicBool, Ordering};
 
+/// Exclusive installation has a filesystem effect even if directory durability
+/// fails afterwards. Callers must retain ownership of that installed file.
+pub enum RecoveryActivation {
+    Occupied,
+    /// Post-install identity verification and strict directory durability.
+    /// An error must never be mistaken for an uninstalled destination.
+    Installed {
+        durability: Result<(), String>,
+    },
+}
+
+#[derive(Debug)]
+pub enum RecoveryPreparationError {
+    Unsupported,
+    Failure(String),
+}
+
+impl std::fmt::Display for RecoveryPreparationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Unsupported => f.write_str("no-copy recovery activation unsupported"),
+            Self::Failure(error) => f.write_str(error),
+        }
+    }
+}
+
+pub use platform::{prepare_recovery_activation, PreparedRecoveryActivation};
+
 fn relative_components(relative: &str) -> Result<Vec<&std::ffi::OsStr>, String> {
     let components = Path::new(relative)
         .components()
@@ -262,6 +290,10 @@ mod tests;
 #[path = "vault_fs/contract_tests.rs"]
 mod contract_tests;
 
+#[cfg(test)]
+#[path = "vault_fs/prepared_recovery_tests.rs"]
+mod prepared_recovery_tests;
+
 pub fn read_optional(root: &Path, relative: &str) -> Result<Option<Vec<u8>>, String> {
     platform::read_optional(root, relative)
 }
@@ -394,7 +426,8 @@ thread_local! {
 }
 
 /// Filesystem fault seam after durable destination coordination and before OS
-/// installation. Metadata writes do not invoke it. It never suppresses policy.
+/// installation. Ordinary metadata writes do not invoke it; prepared recovery
+/// activation shares it to exercise pinned-file ownership. It never suppresses policy.
 #[cfg(any(test, feature = "test-support"))]
 pub fn set_before_install_hook(hook: Option<Box<dyn Fn(&str)>>) {
     BEFORE_INSTALL.with(|slot| *slot.borrow_mut() = hook);

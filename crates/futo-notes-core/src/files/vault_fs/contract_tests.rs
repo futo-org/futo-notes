@@ -59,6 +59,66 @@ macro_rules! vault_fs_contract {
             use crate::files::vault_fs::$implementation as vault_fs;
 
             #[test]
+            fn recovery_activation_is_no_copy_or_explicitly_unsupported() {
+                use crate::files::vault_fs::{RecoveryActivation, RecoveryPreparationError};
+                let root = tempfile::tempdir().unwrap();
+                vault_fs::create_new_strict(
+                    root.path(),
+                    ".futo-editor-recovery/owned.prepared",
+                    b"exact header\nedit\n",
+                )
+                .unwrap();
+                match vault_fs::prepare_recovery_activation(
+                    root.path(),
+                    ".futo-editor-recovery/owned.prepared",
+                    ".futo-editor-recovery/live.jsonl",
+                ) {
+                    Err(RecoveryPreparationError::Unsupported) => {
+                        assert!(
+                            !vault_fs::exists(root.path(), ".futo-editor-recovery/live.jsonl")
+                                .unwrap()
+                        );
+                    }
+                    Err(error) => panic!("unexpected preparation failure: {error}"),
+                    Ok(mut prepared) => {
+                        assert!(matches!(
+                            prepared.activate(root.path()).unwrap(),
+                            RecoveryActivation::Installed { durability: Ok(()) }
+                        ));
+                        prepared
+                            .verify(root.path(), ".futo-editor-recovery/live.jsonl")
+                            .unwrap();
+                        vault_fs::open_append(root.path(), ".futo-editor-recovery/owned.prepared")
+                            .unwrap()
+                            .set_len(13)
+                            .unwrap();
+                        assert_eq!(
+                            vault_fs::read(root.path(), ".futo-editor-recovery/live.jsonl")
+                                .unwrap(),
+                            b"exact header\n"
+                        );
+                        prepared.deactivate(root.path()).unwrap();
+                        prepared.discard(root.path()).unwrap();
+                    }
+                }
+                for (source, destination) in [
+                    ("../owned.prepared", ".futo-editor-recovery/live.jsonl"),
+                    (".futo-editor-recovery/owned.prepared", "other/live.jsonl"),
+                    (
+                        ".futo-editor-recovery/owned.prepared",
+                        ".futo-editor-recovery/owned.prepared",
+                    ),
+                ] {
+                    assert!(vault_fs::prepare_recovery_activation(
+                        root.path(),
+                        source,
+                        destination
+                    )
+                    .is_err());
+                }
+            }
+
+            #[test]
             fn source_type_distinguishes_directories_files_and_missing_parents() {
                 let root = tempfile::tempdir().unwrap();
                 std::fs::create_dir(root.path().join("folder.md")).unwrap();

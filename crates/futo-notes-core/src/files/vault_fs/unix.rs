@@ -17,6 +17,9 @@ use super::{context, relative_components, OpenParentError};
 mod directories;
 #[path = "unix/no_replace.rs"]
 mod no_replace;
+#[path = "unix/prepared_recovery.rs"]
+mod prepared_recovery;
+pub use prepared_recovery::{prepare_recovery_activation, PreparedRecoveryActivation};
 #[path = "unix/writes.rs"]
 mod writes;
 

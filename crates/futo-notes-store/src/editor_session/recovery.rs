@@ -1,4 +1,5 @@
 mod identity;
+mod prepared;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
@@ -14,6 +15,7 @@ pub(super) struct RecoveryLog {
     header: Header,
     storage: Box<dyn RecoveryStorage>,
     exists: bool,
+    prepared: Option<prepared::PreparedStream>,
     accepted_bytes: u64,
     pub(super) failed: bool,
     pub(super) issue: Option<RecoveryIssue>,
@@ -124,6 +126,7 @@ impl RecoveryLog {
                 header,
                 storage,
                 exists,
+                prepared: None,
                 accepted_bytes,
                 failed,
                 issue,
@@ -145,8 +148,14 @@ impl RecoveryLog {
         ))
     }
 
-    pub(super) fn transfer_own_epoch(&mut self, before: u64, after: u64) -> Result<(), String> {
+    pub(super) fn transfer_own_epoch(
+        &mut self,
+        root: &Path,
+        before: u64,
+        after: u64,
+    ) -> Result<(), String> {
         if self.header.replacement_epoch == before {
+            self.cancel_bounded_preparation(root)?;
             let previous = self.header_bytes()?.len();
             self.header.replacement_epoch = after;
             let next = self.header_bytes()?.len();
@@ -211,6 +220,10 @@ impl RecoveryLog {
     }
 
     fn append_record(&mut self, root: &Path, edit: &SourceEdit) -> Result<(), String> {
+        if self.prepared.is_some() && !self.exists {
+            let record = format::encode(&Record::Edit(edit.clone()))?;
+            return self.append_prepared(root, &record);
+        }
         self.ensure_stream(root)?;
         let record = format::encode(&Record::Edit(edit.clone()))?;
         self.storage.append(root, &self.path, &record)?;
@@ -219,6 +232,7 @@ impl RecoveryLog {
     }
 
     fn ensure_stream(&mut self, root: &Path) -> Result<(), String> {
+        self.cancel_bounded_preparation(root)?;
         if !self.exists {
             let header = self.header_bytes()?;
             self.storage.create(root, &self.path, &header)?;
@@ -258,17 +272,24 @@ impl RecoveryLog {
         // The caller admits only failed live appends/flushes or a validated
         // prefix with an incomplete final frame. Interior damage never reaches
         // this truncation path.
-        if self.accepted_bytes == 0 {
+        if self.prepared.is_some() && self.accepted_bytes == 0 {
+            self.repair_prepared(root)?;
+        } else if self.accepted_bytes == 0 {
             self.storage.remove(root, &self.path)?;
             let header = self.header_bytes()?;
             self.storage.create(root, &self.path, &header)?;
             self.accepted_bytes = header.len() as u64;
             self.exists = true;
         } else {
+            if self.prepared.is_some() {
+                self.storage.verify_bounded_stream(root, &self.path)?;
+            }
             self.storage
                 .truncate(root, &self.path, self.accepted_bytes)?;
         }
-        self.storage.flush(root, &self.path)?;
+        if self.accepted_bytes != 0 {
+            self.storage.flush(root, &self.path)?;
+        }
         self.durable = self.accepted;
         self.last_flush_lateness = self
             .flush_deadline
@@ -316,6 +337,7 @@ impl RecoveryLog {
         }
         // Close the append handle before unlink, including on Windows. A failed
         // retirement leaves the old base usable for repeat recovery.
+        self.cancel_bounded_preparation(root)?;
         self.storage.remove(root, &self.path)?;
         self.exists = false;
         self.checkpoint_target = None;
