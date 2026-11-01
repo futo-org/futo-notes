@@ -42,6 +42,7 @@ impl Projection {
         }
         let outside = super::super::row::Outside {
             continues: first.continues,
+            first_number: first.first_number(),
             opener: first.opener.as_deref(),
             next: next.as_deref(),
             next_opener: next.as_ref().and(next_opener),

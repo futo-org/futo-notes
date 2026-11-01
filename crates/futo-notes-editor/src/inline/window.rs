@@ -97,6 +97,7 @@ impl Projection {
             let body = &text[metadata..];
             let outside = Outside {
                 continues: metadata == 0 && first_row.continues,
+                first_number: first_row.first_number(),
                 opener,
                 next: next.as_deref(),
                 next_opener: next_opener.as_deref(),

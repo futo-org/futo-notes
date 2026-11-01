@@ -32,6 +32,9 @@ pub(crate) struct Outside<'a> {
     /// The opener line of the raw HTML block the first row continues.
     pub opener: Option<&'a str>,
     pub next: Option<&'a str>,
+    /// The physical number of the first row's first item, which continues
+    /// an ordered list: the row's seam holds while that number stands.
+    pub first_number: Option<u64>,
     /// The opener line of the raw HTML block the following row continues.
     pub next_opener: Option<&'a str>,
 }
@@ -200,7 +203,14 @@ fn analyze(
             first_block = Some(if base > 0 {
                 matches!(event, Event::Start(Tag::HtmlBlock)) && range.end > base
             } else {
-                depth == 0 && matches!(event, Event::Start(Tag::Paragraph | Tag::List(None)))
+                depth == 0
+                    && match &event {
+                        Event::Start(Tag::Paragraph | Tag::List(None)) => true,
+                        Event::Start(Tag::List(Some(number))) => {
+                            outside.first_number == Some(*number)
+                        }
+                        _ => false,
+                    }
             });
         }
         match &event {

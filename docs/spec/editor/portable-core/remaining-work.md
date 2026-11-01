@@ -61,11 +61,20 @@ Paragraph projections use a length-indexed tree and display Rope, so an ordinary
 edit after a distant jump reparses only its paragraph window without rewriting
 the note's tail offsets. Work counters include actual parser input for candidate
 verification, paragraph partitioning and projection. Large soft-line
-paragraphs and tight bullet lists are now cut into sealed rows
-(→ docs/spec/editor/portable-core/long-regions.md); work in an ordered or loose list,
+paragraphs, tight bullet and ordered lists and long raw HTML blocks are now cut into sealed rows
+(→ docs/spec/editor/portable-core/long-regions.md); work in a loose list,
 a quoted container, a single huge display line or a fence still depends on that region;
 progressive interpretation, complete allocation/work bounds and native device latency
 measurements remain in their dependent tickets.
+Progressive reinterpretation (#313) covers only bounded fence-closer removal. On the
+full path, opening or closing a raw HTML block of kinds 1-5 above a 20,000-paragraph
+tail reparses that tail in one synchronous step (689 KB parsed, 458 KB materialized,
+1.56 M metadata visits; later keys stay local). A raw source edit that opens a fence,
+or removes its closer, past a blank line is not reinterpreted beyond its window: the projection keeps the
+old meaning until reopened (4 of 1,999 code blocks at 1,000 paragraphs), which is why the
+twin fuzz excludes raw backticks. Typed fences stay literal until converted to closed
+code, so engine input does not reach this. Bounded synchronous slices, revision-aware
+continuation for HTML, fence openers, long lines and large tables remain.
 
 Early physical ARM32 reconnaissance confirms that large-region calls and returned
 semantic payloads still scale with that region. Immediate explicit flushes also
