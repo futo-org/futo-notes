@@ -8,6 +8,7 @@ mod edit;
 pub(crate) use edit::{EditIntent, Plan, SourceCorrespondence};
 mod empty_comments;
 pub(crate) mod fences;
+mod find;
 pub(crate) mod guarded_words;
 mod links;
 pub(crate) use links::complete_bare_uri;

@@ -8,9 +8,11 @@ use crate::FlushDraftResult;
 pub(crate) mod bounded;
 mod composition;
 mod contract;
+mod find;
 mod links;
 mod tags;
 pub use contract::*;
+pub use find::{editor_find_scan, EditorFindReport, EditorFindScanRequest, EditorFindScanResult};
 
 /// Blocking store endpoint. Call on the native I/O worker, including append
 /// acceptance before displaying a returned change. No callbacks cross this lock.
