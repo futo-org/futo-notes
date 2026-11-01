@@ -10,6 +10,7 @@ impl BoundedEditorSession {
         let formats = self.engine.pending_formats.take();
         let mut work = BoundedWork::default();
         for record in self.source_records.iter().rev() {
+            work.metadata_items += 1;
             let edit = &record.edit;
             let start = self.engine.source.byte_to_char(edit.range.start.0);
             let end = self
@@ -28,6 +29,7 @@ impl BoundedEditorSession {
             let mut transaction = crate::history::Transaction::new(&self.engine.source);
             let final_revision = self.source_records.back().unwrap().edit.revision;
             for record in &self.source_records {
+                work.metadata_items += 1;
                 let edit = &record.edit;
                 transaction.apply(edit.range, &edit.inserted);
                 work.input_bytes += edit.inserted.len();
@@ -82,8 +84,15 @@ impl BoundedEditorSession {
             work.metadata_items += 1;
         }
         for group in self.redo_groups {
+            work.metadata_items += 1;
             self.engine.redo.push(HistoryGroup {
-                entries: group.into_iter().map(|accepted| accepted.history).collect(),
+                entries: group
+                    .into_iter()
+                    .map(|accepted| {
+                        work.metadata_items += 1;
+                        accepted.history
+                    })
+                    .collect(),
             });
         }
         for group in &self.retired_groups {
@@ -109,6 +118,7 @@ impl BoundedEditorSession {
         }
         self.engine.affinity = affinity;
         self.engine.pending_formats = formats;
+        self.engine.bounded_work = work;
         (self.engine, work)
     }
 }

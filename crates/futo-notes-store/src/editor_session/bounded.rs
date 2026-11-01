@@ -23,10 +23,12 @@ pub struct StoreBoundedSourceSnapshot {
 pub struct StoreBoundedEntryError<'store> {
     pub session: StoreEditorSession<'store>,
     pub error: EditorStoreError,
+    pub work: Box<BoundedWork>,
 }
 pub struct StoreBoundedExitError<'store> {
     pub session: StoreBoundedEditorSession<'store>,
     pub error: EditorStoreError,
+    pub work: Box<BoundedWork>,
 }
 impl std::fmt::Debug for StoreBoundedEntryError<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -40,6 +42,24 @@ impl std::fmt::Debug for StoreBoundedExitError<'_> {
 }
 
 impl<'store> StoreEditorSession<'store> {
+    /// Latest completed bounded attempt, including refused entry, for a
+    /// serialized caller. Queries do not erase the receipt.
+    pub fn last_bounded_operation_work(&self) -> BoundedWork {
+        self.state
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .bounded_work
+    }
+    /// Adapter preflights reset before validating foreign arguments. This
+    /// changes only the receipt, never source, history or mode authority.
+    #[doc(hidden)]
+    pub fn reset_bounded_operation_work(&self) {
+        self.state
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .bounded_work = BoundedWork::default();
+    }
+
     pub fn into_bounded(
         self,
         expected: Revision,
@@ -50,6 +70,7 @@ impl<'store> StoreEditorSession<'store> {
         match result {
             Ok(_) => Ok(StoreBoundedEditorSession { session: self }),
             Err(error) => Err(StoreBoundedEntryError {
+                work: Box::new(self.last_bounded_operation_work()),
                 session: self,
                 error,
             }),
@@ -62,6 +83,7 @@ impl<'store> StoreEditorSession<'store> {
         body_caret: DisplayOffset,
         source_worker: bool,
     ) -> Result<(BoundedCursor, Revision), EditorStoreError> {
+        self.reset_bounded_operation_work();
         let _gate = self.store.lock_gate().map_err(EditorStoreError::Recovery)?;
         let _vault =
             futo_notes_core::files::vault_mutation_guard().map_err(EditorStoreError::Recovery)?;
@@ -80,6 +102,7 @@ impl<'store> StoreEditorSession<'store> {
         };
         match engine.into_bounded(expected, token, body_caret) {
             Ok(engine) => {
+                state.bounded_work = engine.preparation_work();
                 let cursor = engine.cursor();
                 state.engine.0 = Some(if source_worker {
                     EditorMode::Source(engine.into_source_worker())
@@ -89,6 +112,7 @@ impl<'store> StoreEditorSession<'store> {
                 Ok((cursor, state.recovery.durable))
             }
             Err(error) => {
+                state.bounded_work = error.work;
                 state.engine.0 = Some(EditorMode::Full(*error.session));
                 state
                     .recovery
@@ -104,6 +128,7 @@ impl<'store> StoreBoundedEditorSession<'store> {
     pub fn into_full(
         self,
     ) -> Result<(StoreEditorSession<'store>, BoundedWork), StoreBoundedExitError<'store>> {
+        self.session.reset_bounded_operation_work();
         let result = (|| {
             let _gate = self
                 .session
@@ -126,12 +151,20 @@ impl<'store> StoreBoundedEditorSession<'store> {
         match result {
             Ok(work) => Ok((self.session, work)),
             Err(error) => Err(StoreBoundedExitError {
+                work: Box::new(self.last_operation_work()),
                 session: self,
                 error,
             }),
         }
     }
 
+    pub fn last_operation_work(&self) -> BoundedWork {
+        self.session.last_bounded_operation_work()
+    }
+    #[doc(hidden)]
+    pub fn reset_operation_work(&self) {
+        self.session.reset_bounded_operation_work();
+    }
     pub fn reset_required(&self) -> bool {
         self.session
             .state
@@ -165,12 +198,15 @@ impl<'store> StoreBoundedEditorSession<'store> {
         self.session.recovery_flush_delay()
     }
     pub fn flush_recovery(&mut self) -> Result<RecoveryStatus, EditorStoreError> {
+        self.reset_operation_work();
         self.session.flush_recovery()
     }
     pub fn flush_recovery_if_due(&mut self) -> Result<bool, EditorStoreError> {
+        self.reset_operation_work();
         self.session.flush_recovery_if_due()
     }
     pub fn resume_recovery(&mut self) -> Result<RecoveryStatus, EditorStoreError> {
+        self.reset_operation_work();
         self.session.resume_recovery()
     }
 
@@ -213,6 +249,7 @@ impl<'store> StoreBoundedEditorSession<'store> {
             &std::path::Path,
         ) -> Result<T, futo_notes_editor::BoundedError>,
     ) -> Result<T, EditorStoreError> {
+        self.reset_operation_work();
         let _gate = self
             .session
             .store
@@ -229,8 +266,10 @@ impl<'store> StoreBoundedEditorSession<'store> {
         let Attachment {
             engine, recovery, ..
         } = &mut *state;
-        operation(engine.bounded_mut()?, recovery, &self.session.store.root)
-            .map_err(owner::bounded_error)
+        let engine = engine.bounded_mut()?;
+        let result = operation(engine, recovery, &self.session.store.root);
+        state.bounded_work = engine.last_operation_work();
+        result.map_err(owner::bounded_error)
     }
     pub fn insert_literal(
         &mut self,

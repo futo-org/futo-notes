@@ -41,6 +41,7 @@ impl NativeBoundedEditorSession {
         operation: impl FnOnce(&mut StoreBoundedEditorSession<'static>) -> Result<T, EditorBoundedError>,
     ) -> Result<T, EditorBoundedError> {
         self.with_session(|session| {
+            session.reset_operation_work();
             if session.cursor()? != cursor.into() {
                 return Err(EditorBoundedError::StaleCursor);
             }
@@ -51,6 +52,21 @@ impl NativeBoundedEditorSession {
 
 #[uniffi::export]
 impl NativeEditorSession {
+    pub fn last_bounded_operation_work(
+        &self,
+    ) -> Result<EditorBoundedWorkReport, EditorBoundedError> {
+        let slot = self
+            .inner
+            .lock()
+            .map_err(|_| EditorBoundedError::Unavailable)?;
+        let session = slot.as_ref().ok_or(EditorBoundedError::Unavailable)?;
+        let mut conversion = Conversion::default();
+        let work = conversion.work(session.last_bounded_operation_work());
+        Ok(EditorBoundedWorkReport {
+            work,
+            conversion: conversion.0,
+        })
+    }
     /// Explicit proportional preparation. The original full owner is restored
     /// on refusal; success makes every old full alias unavailable atomically.
     pub fn into_bounded(
@@ -64,6 +80,7 @@ impl NativeEditorSession {
             .lock()
             .map_err(|_| EditorBoundedError::Unavailable)?;
         let session = slot.as_ref().ok_or(EditorBoundedError::Unavailable)?;
+        session.reset_bounded_operation_work();
         session
             .check_revision(Revision(expected))
             .map_err(EditorBoundedError::from)?;
@@ -83,6 +100,18 @@ impl NativeEditorSession {
 
 #[uniffi::export]
 impl NativeBoundedEditorSession {
+    /// Latest core attempt under serialized use, available even after a mode
+    /// reset or recovery pause. Conversion reports this getter's own output.
+    pub fn last_operation_work(&self) -> Result<EditorBoundedWorkReport, EditorBoundedError> {
+        self.with_session(|session| {
+            let mut conversion = Conversion::default();
+            let work = conversion.work(session.last_operation_work());
+            Ok(EditorBoundedWorkReport {
+                work,
+                conversion: conversion.0,
+            })
+        })
+    }
     pub fn cursor(&self) -> Result<EditorBoundedCursor, EditorBoundedError> {
         self.with_session(|session| Ok(session.cursor()?.into()))
     }
@@ -162,6 +191,7 @@ impl NativeBoundedEditorSession {
         continuation: EditorProjectionContinuation,
     ) -> Result<EditorBoundedProgress, EditorBoundedError> {
         self.with_session(|session| {
+            session.reset_operation_work();
             Ok(Conversion::default().progress(session.continue_projection(continuation.into())?))
         })
     }
@@ -216,10 +246,16 @@ impl NativeBoundedEditorSession {
         self.with_session(|session| Ok(session.recovery_flush_delay()))
     }
     pub fn flush_recovery(&self) -> Result<EditorRecoveryStatus, EditorBoundedError> {
-        self.with_session(|session| Ok(session.flush_recovery()?.into()))
+        self.with_session(|session| {
+            session.reset_operation_work();
+            Ok(session.flush_recovery()?.into())
+        })
     }
     pub fn resume_recovery(&self) -> Result<EditorRecoveryStatus, EditorBoundedError> {
-        self.with_session(|session| Ok(session.resume_recovery()?.into()))
+        self.with_session(|session| {
+            session.reset_operation_work();
+            Ok(session.resume_recovery()?.into())
+        })
     }
     /// Deliberate proportional materialization on the same page engine. Failed
     /// prerequisites restore the original bounded owner under this same lock.
@@ -228,6 +264,9 @@ impl NativeBoundedEditorSession {
             .inner
             .lock()
             .map_err(|_| EditorBoundedError::Unavailable)?;
+        slot.as_ref()
+            .ok_or(EditorBoundedError::Unavailable)?
+            .reset_operation_work();
         let session = slot.take().ok_or(EditorBoundedError::Unavailable)?;
         match session.into_full() {
             Ok((session, work)) => {

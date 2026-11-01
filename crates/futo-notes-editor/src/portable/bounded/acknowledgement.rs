@@ -4,6 +4,7 @@ impl PortableBoundedSession {
         &mut self,
         ack: BoundedHostAck,
     ) -> Result<Option<BoundedFrame>, PortableError> {
+        self.reset_operation_work();
         let Some(request) = &self.waiting else {
             return Ok(None);
         };

@@ -10,9 +10,24 @@ impl BoundedEditorSession {
         inserted: &str,
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<BoundedProgressChange, BoundedError> {
+        let mut work = BoundedWork::default();
+        let result = self.insert_prefix_literal_with_work(cursor, at, inserted, accept, &mut work);
+        self.last_operation = result.as_ref().map_or(work, |frame| frame.work);
+        result
+    }
+
+    fn insert_prefix_literal_with_work(
+        &mut self,
+        cursor: BoundedCursor,
+        at: DisplayOffset,
+        inserted: &str,
+        accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
+        work: &mut BoundedWork,
+    ) -> Result<BoundedProgressChange, BoundedError> {
         if cursor != self.cursor() {
             return Err(BoundedError::StaleCursor);
         }
+        work.input_bytes = inserted.len();
         if inserted.len() > 4
             || inserted.chars().count() != 1
             || !inserted.chars().all(char::is_alphanumeric)
@@ -49,16 +64,19 @@ impl BoundedEditorSession {
                 inserted,
             )
             .map_err(BoundedError::Editor)?;
+        work.copied_bytes += edit.inserted.len();
+        work.metadata_items += 2; // prefix and prepared source record
         let before_selection = self.engine.selection;
         let before_source = self.history_selection;
         let before_affinity = self.engine.affinity;
         let before_formats = self.engine.pending_formats.clone();
+        work.metadata_items += before_formats.as_ref().map_or(0, Vec::len);
         let affinity = self
             .engine
             .input_affinity(DisplayRange { start: at, end: at });
-        let prepared = self.prepare_page_source(&edit, SourceRegion::Prefix, None)?;
+        let prepared = self.prepare_page_source(&edit, SourceRegion::Prefix, None, work)?;
         accept(&edit).map_err(|error| BoundedError::Editor(EditorError::Persistence(error)))?;
-        let source_work = self.accept_page_source(&edit, SourceRegion::Prefix, prepared);
+        self.accept_page_source(&edit, SourceRegion::Prefix, prepared);
         self.engine.selection = DisplayRange {
             start: DisplayOffset(at.0 + inserted.len()),
             end: DisplayOffset(at.0 + inserted.len()),
@@ -120,10 +138,10 @@ impl BoundedEditorSession {
             source.0..source.0 + inserted.len(),
             source_change,
         );
-        frame.work.metadata_items += source_work.metadata_items;
-        frame.work.inspected_source_bytes += source_work.inspected_source_bytes;
-        frame.work.copied_bytes += source_work.copied_bytes;
-        frame.work.copied_bytes += inserted.len() * 2;
+        frame.work.metadata_items += work.metadata_items;
+        frame.work.inspected_source_bytes += work.inspected_source_bytes;
+        frame.work.copied_bytes += work.copied_bytes;
+        frame.work.copied_bytes += inserted.len();
         frame.work.input_bytes = inserted.len();
         Ok(frame)
     }

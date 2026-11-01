@@ -71,6 +71,11 @@ try {
   page.complete_entry(JSON.stringify(ready));
   assert.throws(() => page.complete_entry(JSON.stringify(ready)));
   assert.equal(JSON.parse(cursor()).revision, 0, 'failed repeat completion retains the same owner');
+  assert.throws(() => page.insert_literal(cursor(), 0, '\n'));
+  assert.equal(JSON.parse(page.last_operation_work()).input_bytes, 1);
+  assert.equal(page.draft_text(), source);
+  assert.throws(() => page.insert_literal('{', 0, 'q'));
+  assert.ok(Object.values(JSON.parse(page.last_operation_work())).every((value) => value === 0));
   const remove = JSON.parse(page.remove_fence_closer(cursor()));
   const oldCursor = JSON.stringify({ token: 17, incarnation: 1, revision: 1, generation: 1 });
   assert.throws(() => page.select(oldCursor, 0, 0, '"Forward"'));

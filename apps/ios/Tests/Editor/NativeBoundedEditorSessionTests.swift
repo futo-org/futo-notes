@@ -70,6 +70,8 @@ struct NativeBoundedEditorSessionTests {
                     _ = try bounded.insertLiteral(cursor: initial, at: 8, scalar: 0xD800)
                     Issue.record("invalid scalar accepted")
                 } catch EditorBoundedError.InvalidScalar {}
+                #expect(try bounded.lastOperationWork().work.metadataItems == 0)
+                #expect(try bounded.lastOperationWork().work.copiedBytes == 0)
                 #expect(try bounded.cursor() == initial)
                 let removed = try bounded.removeFenceCloser(cursor: initial)
                 try apply(removed.range, removed.inserted)
@@ -90,11 +92,13 @@ struct NativeBoundedEditorSessionTests {
                     _ = try bounded.continueProjection(continuation: stale)
                     Issue.record("stale continuation accepted")
                 } catch EditorBoundedError.StaleCursor {}
+                #expect(try bounded.lastOperationWork().work.metadataItems == 0)
                 let prefix = try bounded.insertPrefixLiteral(
                     cursor: bounded.cursor(), at: 1, scalar: 113)
                 try apply(prefix.range, prefix.inserted)
                 let code = try bounded.insertLiteral(
                     cursor: bounded.cursor(), at: 10, scalar: 0x1F600)
+                #expect(try bounded.lastOperationWork().work.copiedBytes == code.work.copiedBytes)
                 #expect(code.projection.block.owner == 9)
                 #expect(code.selection == EditorByteRange(start: 14, end: 14))
                 #expect(code.affinity == .backward)
@@ -177,6 +181,7 @@ struct NativeBoundedEditorSessionTests {
                 } catch EditorBoundedError.Session(let error) {
                     guard case EditorSessionError.CompositionActive = error else { throw error }
                 }
+                #expect(try full.lastBoundedOperationWork().work.metadataItems == 0)
                 #expect(try full.composition()?.text == "m")
                 #expect(try full.sourceText() == "```\naxb\n```\n")
                 try full.cancelComposition(expected: 1)
@@ -225,6 +230,7 @@ struct NativeBoundedEditorSessionTests {
                     guard case EditorSessionError.RecoveryAppend = error else { throw error }
                 }
                 let copy = try bounded.acceptedSource()
+                #expect(try bounded.lastOperationWork().work.copiedBytes > 0)
                 #expect(copy.source == source && copy.revision == 0 && copy.recovery.paused)
                 #expect(try bounded.cursor() == before)
                 do {

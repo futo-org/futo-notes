@@ -213,6 +213,10 @@ fn bounded_rejected_candidate_and_raw_callback_remain_distinct_through_resume() 
         Err(PortableError::Paused)
     );
     assert_eq!(
+        page.last_operation_work(),
+        futo_notes_editor::BoundedWork::default()
+    );
+    assert_eq!(
         page.draft_text(),
         "```\nqxab\n```\n",
         "portable Copy Draft names the retained candidate"
@@ -238,6 +242,43 @@ fn bounded_rejected_candidate_and_raw_callback_remain_distinct_through_resume() 
             futo_notes_editor::BoundedError::StaleCursor
         )),
         "retention does not rebase an old callback"
+    );
+    assert_eq!(
+        page.last_operation_work(),
+        futo_notes_editor::BoundedWork {
+            input_bytes: 2,
+            copied_bytes: 2,
+            ..Default::default()
+        },
+        "UTF-16 decoding happened before the core rejected this stale callback"
+    );
+    assert_eq!(
+        page.insert_literal_utf16(page.cursor().unwrap(), DisplayOffset(0), &[0xd800]),
+        Err(PortableError::Editor(
+            futo_notes_editor::EditorError::InvalidText
+        ))
+    );
+    assert_eq!(
+        page.last_operation_work(),
+        futo_notes_editor::BoundedWork {
+            input_bytes: 2,
+            ..Default::default()
+        }
+    );
+    assert_eq!(
+        page.insert_literal_utf16(page.cursor().unwrap(), DisplayOffset(0), &[65, 0xd800]),
+        Err(PortableError::Editor(
+            futo_notes_editor::EditorError::InvalidText
+        ))
+    );
+    assert_eq!(
+        page.last_operation_work(),
+        futo_notes_editor::BoundedWork {
+            input_bytes: 4,
+            copied_bytes: 1,
+            ..Default::default()
+        },
+        "a valid scalar copied before a later invalid unit is still charged"
     );
     assert_eq!(retained_raw, vec![0x03b2]);
     // A newly addressed callback may now use the retained text. Its Rust
@@ -343,4 +384,58 @@ fn bounded_registry_reset_materializes_a_retained_candidate_for_full_retry() {
     assert!(frame.work.link_copied_bytes >= 8);
     assert!(page.acknowledge(ack).unwrap().is_none());
     assert_eq!(host.snapshot().source, "```\nyxab\n```\n");
+}
+
+#[test]
+fn refused_worker_inverse_returns_spent_work_in_the_existing_error_ack() {
+    use futo_notes_editor::{BoundedHostOperation, BoundedSourceOperation, BoundedWork};
+    let root = TestRoot::new();
+    let store = store(&root);
+    store.create("", "plain", "```Rust\nab\n```\n").unwrap();
+    let host = store
+        .open_editor("plain")
+        .unwrap()
+        .into_portable_host(SessionToken(94))
+        .unwrap();
+    let mut page = PortableSession::from_snapshot(host.snapshot()).unwrap();
+    let entry = page.begin_bounded_entry(DisplayOffset(0)).unwrap();
+    let mut host = host.begin_bounded_entry(entry).ok().unwrap();
+    let mut page = page.complete_bounded_entry(host.ready()).unwrap();
+    let first = page
+        .insert_literal(page.cursor().unwrap(), DisplayOffset(0), "x")
+        .unwrap();
+    page.acknowledge(host.handle(first)).unwrap().unwrap();
+    let before = host.source_text();
+    let status = host.recovery_status();
+    let mut refusal = page
+        .insert_literal(page.cursor().unwrap(), DisplayOffset(0), "q")
+        .unwrap();
+    let BoundedHostOperation::Append { operation, .. } = &mut refusal.operation else {
+        panic!("append")
+    };
+    *operation = BoundedSourceOperation::Inverse { records: 1 };
+    let ack = host.handle(refusal.clone());
+    assert!(ack.error.is_some());
+    assert_eq!(
+        ack.work,
+        BoundedWork {
+            input_bytes: 1,
+            copied_bytes: 2,
+            inspected_source_bytes: 1,
+            metadata_items: 5,
+            ..Default::default()
+        }
+    );
+    assert_eq!(host.last_operation_work(), ack.work);
+    assert_eq!(host.source_text(), before);
+    assert_eq!(host.recovery_status(), status);
+    assert_eq!(
+        host.handle(refusal.clone()),
+        ack,
+        "duplicate reply retains its original work receipt"
+    );
+    refusal.token = SessionToken(95);
+    refusal.sequence += 1;
+    assert_eq!(host.handle(refusal).work, BoundedWork::default());
+    assert_eq!(host.source_text(), before);
 }

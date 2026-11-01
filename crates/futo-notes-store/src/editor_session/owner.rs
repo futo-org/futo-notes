@@ -126,7 +126,9 @@ impl Attachment {
         }
         self.recovery.flush(root)?;
         self.recovery.cancel_bounded_preparation(root)?;
-        Ok(self.engine.materialize())
+        let work = self.engine.materialize();
+        self.bounded_work = work;
+        Ok(work)
     }
 }
 

@@ -64,6 +64,8 @@ class NativeBoundedEditorSessionTest {
                 catch (error: EditorBoundedException.Session) { assertTrue(error.error is EditorSessionException.InvalidRange) }
                 try { bounded.insertLiteral(initial, 8uL, 0xD800u); fail("invalid scalar accepted") }
                 catch (_: EditorBoundedException.InvalidScalar) {}
+                assertEquals(0uL, bounded.lastOperationWork().work.metadataItems)
+                assertEquals(0uL, bounded.lastOperationWork().work.copiedBytes)
                 assertEquals(initial, bounded.cursor())
                 val removed = bounded.removeFenceCloser(initial)
                 apply(removed.range, removed.inserted)
@@ -73,9 +75,11 @@ class NativeBoundedEditorSessionTest {
                 apply(bounded.selectBounded(bounded.cursor(), EditorByteRange(far, far), EditorAffinity.BACKWARD))
                 try { bounded.continueProjection(stale); fail("stale continuation accepted") }
                 catch (_: EditorBoundedException.StaleCursor) {}
+                assertEquals(0uL, bounded.lastOperationWork().work.metadataItems)
                 val prefix = bounded.insertPrefixLiteral(bounded.cursor(), 1uL, 113u)
                 apply(prefix.range, prefix.inserted)
                 val code = bounded.insertLiteral(bounded.cursor(), 10uL, 0x1F600u)
+                assertEquals(code.work.copiedBytes, bounded.lastOperationWork().work.copiedBytes)
                 assertEquals(9uL, code.projection.block.owner)
                 assertEquals(EditorByteRange(14uL, 14uL), code.selection)
                 assertEquals(EditorAffinity.BACKWARD, code.affinity)
@@ -139,6 +143,7 @@ class NativeBoundedEditorSessionTest {
             full.composeUtf16(1uL, EditorUtf16Range(2uL, 2uL), listOf(109u.toUShort()))
             try { full.intoBounded(1uL, 87uL, 1uL); fail("composition entry accepted") }
             catch (error: EditorBoundedException.Session) { assertTrue(error.error is EditorSessionException.CompositionActive) }
+            assertEquals(0uL, full.lastBoundedOperationWork().work.metadataItems)
             assertEquals("m", full.composition()?.text)
             assertEquals("```\naxb\n```\n", full.sourceText())
             full.cancelComposition(1uL)
@@ -173,6 +178,7 @@ class NativeBoundedEditorSessionTest {
                 try { bounded.insertLiteral(before, 1uL, rejectedRaw); fail("foreign preparation append accepted") }
                 catch (error: EditorBoundedException.Session) { assertTrue(error.error is EditorSessionException.RecoveryAppend) }
                 val copy = bounded.acceptedSource()
+                assertTrue(bounded.lastOperationWork().work.copiedBytes > 0uL)
                 assertEquals(source, copy.source)
                 assertEquals(0uL, copy.revision)
                 assertTrue(copy.recovery.paused)

@@ -29,6 +29,7 @@ pub struct BoundedEditorSession {
     generation: u64,
     history_selection: SourceSelection,
     preparation: BoundedWork,
+    last_operation: BoundedWork,
     // One allocation per accepted record avoids moving an ever-growing Vec on
     // a local key. These exact records catch up the retained projection at the
     // explicit materializing handoff; there is no whole-source snapshot.
@@ -65,6 +66,11 @@ enum AcceptedKind {
 }
 
 impl EditorSession {
+    /// Retained on this Full owner when a consuming bounded entry is refused.
+    pub fn last_bounded_operation_work(&self) -> BoundedWork {
+        self.bounded_work
+    }
+
     /// Explicit proportional preparation, not a bounded cold-open operation.
     /// On rejection the error retains this exact session and its history.
     pub fn into_bounded(
@@ -73,28 +79,37 @@ impl EditorSession {
         token: SessionToken,
         body_caret: DisplayOffset,
     ) -> Result<BoundedEditorSession, BoundedEntryError> {
-        let fail = |session, error| {
+        let mut work = BoundedWork::default();
+        let fail = |mut session: Self, error, work| {
+            session.bounded_work = work;
             Err(BoundedEntryError {
                 session: Box::new(session),
+                work,
                 error,
             })
         };
         if let Err(error) = self.check_revision(expected) {
-            return fail(self, BoundedError::Editor(error));
+            return fail(self, BoundedError::Editor(error), work);
         }
         if self.composition.is_some() {
-            return fail(self, BoundedError::Editor(EditorError::CompositionActive));
+            return fail(
+                self,
+                BoundedError::Editor(EditorError::CompositionActive),
+                work,
+            );
         }
         if let Err(error) = self.char_index(body_caret) {
-            return fail(self, BoundedError::Editor(error));
+            return fail(self, BoundedError::Editor(error), work);
         }
-        let Some((code, metadata_items, copied_bytes)) =
-            self.projection.retain_bounded_code(body_caret)
-        else {
-            return fail(self, BoundedError::Unsupported);
+        let Some(code) = self.projection.retain_bounded_code(body_caret, &mut work) else {
+            return fail(self, BoundedError::Unsupported, work);
         };
         let Some(incarnation) = self.bounded_incarnation.checked_add(1) else {
-            return fail(self, BoundedError::Editor(EditorError::RevisionExhausted));
+            return fail(
+                self,
+                BoundedError::Editor(EditorError::RevisionExhausted),
+                work,
+            );
         };
         self.bounded_incarnation = incarnation;
         let (progress, progress_work) = progress::ProgressState::prepare(&self, &code);
@@ -106,6 +121,12 @@ impl EditorSession {
                 .byte_slice(progress.certificate.closer.clone())
                 .to_string()
         });
+        work.inspected_source_bytes +=
+            progress_work.inspected_source_bytes + prefix_work.inspected_source_bytes;
+        work.metadata_items +=
+            history_work + progress_work.metadata_items + prefix_work.metadata_items;
+        work.copied_bytes += progress_work.copied_bytes + prefix_work.copied_bytes + closer.len();
+        self.bounded_work = work;
         Ok(BoundedEditorSession {
             engine: self,
             closer,
@@ -116,16 +137,8 @@ impl EditorSession {
             token,
             generation: 0,
             history_selection,
-            preparation: BoundedWork {
-                inspected_source_bytes: progress_work.inspected_source_bytes
-                    + prefix_work.inspected_source_bytes,
-                metadata_items: metadata_items
-                    + history_work
-                    + progress_work.metadata_items
-                    + prefix_work.metadata_items,
-                copied_bytes: copied_bytes + progress_work.copied_bytes,
-                ..Default::default()
-            },
+            preparation: work,
+            last_operation: work,
             source_records: LinkedList::new(),
             deferred: LinkedList::new(),
             redo_groups: LinkedList::new(),
@@ -154,6 +167,13 @@ impl BoundedEditorSession {
             self.accepted_any = true;
         }
         self.retired_groups.append(&mut self.redo_groups);
+    }
+
+    /// Latest completed bounded attempt for a serialized caller. Reading this
+    /// receipt does not pair it atomically with an earlier competing call.
+    /// Queries do not replace it; the next attempted operation does.
+    pub fn last_operation_work(&self) -> BoundedWork {
+        self.last_operation
     }
 
     pub fn preparation_work(&self) -> BoundedWork {

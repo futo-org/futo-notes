@@ -53,6 +53,9 @@ impl BoundedSourceSession {
     pub fn source_text(&self) -> String {
         self.engine.source_text()
     }
+    pub fn last_operation_work(&self) -> BoundedWork {
+        self.engine.last_operation_work()
+    }
     pub fn preparation_work(&self) -> BoundedWork {
         self.engine.preparation_work()
     }
@@ -71,6 +74,7 @@ impl BoundedSourceSession {
         engine.redo.clear();
         engine.typing = None;
         engine.pending_formats = None;
+        engine.bounded_work = work;
         (engine, work)
     }
     /// Validate and install only canonical source facts. This never advances
@@ -82,16 +86,23 @@ impl BoundedSourceSession {
         operation: &BoundedSourceOperation,
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<BoundedWork, BoundedError> {
-        if authority != self.engine.source_authority() {
-            return Err(BoundedError::StaleCursor);
-        }
-        let (region, delta, mut work) = self.engine.validate_source_operation(edit, operation)?;
-        accept(edit).map_err(|error| BoundedError::Editor(EditorError::Persistence(error)))?;
-        self.engine
-            .install_source(edit, region, Some(operation.clone()), delta);
-        work.copied_bytes += edit.removed.len() + edit.inserted.len();
-        work.metadata_items += 4;
-        Ok(work)
+        let mut work = BoundedWork::default();
+        let result = (|| {
+            if authority != self.engine.source_authority() {
+                return Err(BoundedError::StaleCursor);
+            }
+            let (region, delta) = self
+                .engine
+                .validate_source_operation(edit, operation, &mut work)?;
+            accept(edit).map_err(|error| BoundedError::Editor(EditorError::Persistence(error)))?;
+            self.engine
+                .install_source(edit, region, Some(operation.clone()), delta);
+            work.copied_bytes += edit.removed.len() + edit.inserted.len();
+            work.metadata_items += 4;
+            Ok(work)
+        })();
+        self.engine.last_operation = work;
+        result
     }
 }
 
@@ -231,20 +242,21 @@ impl BoundedEditorSession {
         &self,
         edit: &SourceEdit,
         operation: &BoundedSourceOperation,
-    ) -> Result<(SourceRegion, i64, BoundedWork), BoundedError> {
-        let mut work = BoundedWork {
+        work: &mut BoundedWork,
+    ) -> Result<(SourceRegion, i64), BoundedError> {
+        *work = BoundedWork {
             input_bytes: edit.inserted.len(),
             inspected_source_bytes: 0,
             copied_bytes: 0,
             metadata_items: 4,
             ..Default::default()
         };
-        self.validate_source_edit(edit, &mut work)?;
+        self.validate_source_edit(edit, work)?;
         let mut delta = 0;
         let region = match operation {
             BoundedSourceOperation::Inverse { records } => {
                 let (inverse, region, effect) = self
-                    .inverse_source(usize::from(*records), &mut work)
+                    .inverse_source(usize::from(*records), work)
                     .ok_or(BoundedError::Unsupported)?;
                 delta = effect;
                 if inverse != *edit {
@@ -253,7 +265,7 @@ impl BoundedEditorSession {
                 region
             }
             direct => {
-                if self.direct_source_operation(edit, &mut work).as_ref() != Some(direct) {
+                if self.direct_source_operation(edit, work).as_ref() != Some(direct) {
                     return Err(BoundedError::Unsupported);
                 }
                 match direct {
@@ -273,7 +285,7 @@ impl BoundedEditorSession {
         self.dirty_suffix
             .checked_add(delta)
             .ok_or(BoundedError::Unsupported)?;
-        Ok((region, delta, work))
+        Ok((region, delta))
     }
 
     fn inverse_source(
@@ -324,6 +336,8 @@ impl BoundedEditorSession {
             .engine
             .prepare_source(self.engine.revision, range, &inserted)
             .ok()?;
+        work.copied_bytes += edit.inserted.len() + edit.removed.len();
+        work.inspected_source_bytes += edit.removed.len();
         if edit.removed.len() > MAX_BYTES || edit.inserted.len() > MAX_BYTES {
             return None;
         }
@@ -331,8 +345,6 @@ impl BoundedEditorSession {
             SourceRegion::Closer(removed) => SourceRegion::Closer(!removed),
             region => region,
         };
-        work.copied_bytes += edit.inserted.len() + edit.removed.len();
-        work.inspected_source_bytes += edit.removed.len();
         Some((edit, region, effect))
     }
 
@@ -348,17 +360,17 @@ impl BoundedEditorSession {
         edit: &SourceEdit,
         region: SourceRegion,
         inverse_records: Option<usize>,
-    ) -> Result<(Option<BoundedSourceOperation>, i64, BoundedWork), BoundedError> {
+        work: &mut BoundedWork,
+    ) -> Result<(Option<BoundedSourceOperation>, i64), BoundedError> {
         self.check_source_region(region)?;
-        let mut work = BoundedWork::default();
         let mut delta = if matches!(region, SourceRegion::Unit(_)) {
             1
         } else {
             0
         };
-        let operation = self.direct_source_operation(edit, &mut work).or_else(|| {
+        let operation = self.direct_source_operation(edit, work).or_else(|| {
             inverse_records.and_then(|records| {
-                self.inverse_source(records, &mut work)
+                self.inverse_source(records, work)
                     .and_then(|(inverse, _, effect)| {
                         if inverse == *edit {
                             delta = effect;
@@ -376,18 +388,17 @@ impl BoundedEditorSession {
             .checked_add(delta)
             .ok_or(BoundedError::Unsupported)?;
         work.metadata_items += 2;
-        Ok((operation, delta, work))
+        Ok((operation, delta))
     }
 
     pub(super) fn accept_page_source(
         &mut self,
         edit: &SourceEdit,
         region: SourceRegion,
-        prepared: (Option<BoundedSourceOperation>, i64, BoundedWork),
-    ) -> BoundedWork {
-        let (operation, delta, work) = prepared;
+        prepared: (Option<BoundedSourceOperation>, i64),
+    ) {
+        let (operation, delta) = prepared;
         self.install_source(edit, region, operation, delta);
-        work
     }
 
     fn install_source(

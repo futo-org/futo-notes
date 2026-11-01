@@ -25,6 +25,23 @@ impl BoundedEditorSession {
         redo: bool,
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<Option<BoundedProgress>, BoundedError> {
+        let mut work = BoundedWork::default();
+        let result = self.bounded_history_with_work(cursor, redo, accept, &mut work);
+        self.last_operation = result
+            .as_ref()
+            .ok()
+            .and_then(Option::as_ref)
+            .map_or(work, BoundedProgress::work);
+        result
+    }
+
+    fn bounded_history_with_work(
+        &mut self,
+        cursor: BoundedCursor,
+        redo: bool,
+        accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
+        work: &mut BoundedWork,
+    ) -> Result<Option<BoundedProgress>, BoundedError> {
         if cursor != self.cursor() {
             return Err(BoundedError::StaleCursor);
         }
@@ -35,6 +52,7 @@ impl BoundedEditorSession {
         let mut kind = None;
         let mut found = redo;
         let mut include = |entry: &AcceptedCodeInput| {
+            work.metadata_items += 1;
             count += 1;
             bytes += entry.history.removed.len() + entry.history.inserted.len();
             start = start.min(entry.history.range.start.0);
@@ -99,6 +117,7 @@ impl BoundedEditorSession {
         } else {
             self.deferred.iter().rev().take(count).collect()
         };
+        work.metadata_items += entries.len();
         let target = entries.last().unwrap();
         let selected = if redo {
             target.history.after_source
@@ -120,6 +139,7 @@ impl BoundedEditorSession {
         } else {
             target.history.before_formats.clone()
         };
+        work.metadata_items += formats.as_ref().map_or(0, Vec::len);
         let mut transaction = crate::history::Transaction::new(&self.engine.source);
         for accepted in &entries {
             let entry = &accepted.history;
@@ -134,9 +154,12 @@ impl BoundedEditorSession {
                     entry.removed.as_str(),
                 )
             };
+            work.copied_bytes += inserted.len();
+            work.metadata_items += 1;
             transaction.apply(range, inserted);
         }
         let (range, inserted) = transaction.finish();
+        work.copied_bytes += inserted.len();
         if inserted.len() > MAX_FOOTPRINT {
             return Err(BoundedError::Unsupported);
         }
@@ -144,8 +167,9 @@ impl BoundedEditorSession {
             .engine
             .prepare_source(cursor.revision, range, &inserted)
             .map_err(BoundedError::Editor)?;
+        work.copied_bytes += edit.inserted.len() + edit.removed.len();
+        work.inspected_source_bytes += edit.removed.len();
         let old_body = self.code.body.clone();
-        let mut selection_visits = 0;
         let old_display = if kind == AcceptedKind::Prefix {
             DisplayRange {
                 start: self
@@ -165,10 +189,10 @@ impl BoundedEditorSession {
             }
         } else {
             let start = self
-                .current_code_display(edit.range.start, &mut selection_visits)
+                .current_code_display(edit.range.start, &mut work.metadata_items)
                 .ok_or(BoundedError::Unsupported)?;
             let end = self
-                .current_code_display(edit.range.end, &mut selection_visits)
+                .current_code_display(edit.range.end, &mut work.metadata_items)
                 .ok_or(BoundedError::Unsupported)?;
             DisplayRange { start, end }
         };
@@ -185,16 +209,16 @@ impl BoundedEditorSession {
                 .certificate
                 .units
                 .partition_point(|unit| {
-                    selection_visits += 1;
+                    work.metadata_items += 1;
                     unit.source_lines.start <= line
                 })
                 .checked_sub(1)
                 .ok_or(BoundedError::Unsupported)?;
             SourceRegion::Unit(unit)
         };
-        let prepared = self.prepare_page_source(&edit, region, Some(count))?;
+        let prepared = self.prepare_page_source(&edit, region, Some(count), work)?;
         accept(&edit).map_err(|error| BoundedError::Editor(EditorError::Persistence(error)))?;
-        let source_work = self.accept_page_source(&edit, region, prepared);
+        self.accept_page_source(&edit, region, prepared);
         let source_change = BoundedSourceChange {
             range: edit.range,
             inserted_bytes: edit.inserted.len(),
@@ -274,12 +298,11 @@ impl BoundedEditorSession {
                 FrameKind::Region,
             )
         };
-        frame.work.copied_bytes += source_work.copied_bytes;
-        frame.work.inspected_source_bytes += source_work.inspected_source_bytes;
-        frame.work.metadata_items += source_work.metadata_items;
-        frame.work.copied_bytes += inserted.len() + 2 * (edit.inserted.len() + edit.removed.len());
-        frame.work.inspected_source_bytes += edit.removed.len();
-        frame.work.metadata_items += count + selection_visits;
+        frame.work.copied_bytes += work.copied_bytes;
+        frame.work.inspected_source_bytes += work.inspected_source_bytes;
+        frame.work.metadata_items += work.metadata_items;
+        frame.work.copied_bytes += edit.inserted.len() + edit.removed.len();
+        frame.work.metadata_items += count;
         Ok(Some(BoundedProgress::Change(frame)))
     }
 

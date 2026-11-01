@@ -242,6 +242,14 @@ fn a_far_caret_is_certified_directly_and_progress_keeps_its_adjacent_typing_grou
     );
     assert_eq!(bounded.cursor(), cursor);
     assert_eq!(bounded.source_text(), crlf);
+    assert_eq!(
+        bounded.last_operation_work(),
+        BoundedWork {
+            input_bytes: 1,
+            inspected_source_bytes: 2,
+            ..Default::default()
+        }
+    );
     let mixed = format!("```Rust\nab\r```\n\n{paragraph}");
     let rejected = EditorSession::open(&mixed)
         .into_bounded(Revision(0), SessionToken(28), DisplayOffset(0))

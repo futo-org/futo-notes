@@ -244,3 +244,72 @@ fn restoring_a_closer_refuses_dirty_suffix_meaning_before_acceptance() {
     assert_eq!(appends, 0);
     assert_eq!(worker.source_text(), "```Rust\nab\n\n\n# middle\n\ntail\n");
 }
+
+#[test]
+fn refused_source_inverse_reports_spent_work_without_accepting_or_reusing_a_receipt() {
+    let mut worker = EditorSession::open("```Rust\nab\n```\n")
+        .into_bounded(Revision(0), SessionToken(73), DisplayOffset(0))
+        .unwrap()
+        .into_source_worker();
+    let mut edit = SourceEdit {
+        previous_revision: Revision(0),
+        revision: Revision(1),
+        range: SourceRange {
+            start: SourceOffset(8),
+            end: SourceOffset(8),
+        },
+        removed: String::new(),
+        inserted: "x".into(),
+    };
+    worker
+        .replay_bounded_source(
+            worker.source_authority(),
+            &edit,
+            &BoundedSourceOperation::Literal { unit: None },
+            &mut |_| Ok(()),
+        )
+        .unwrap();
+    let before = worker.source_text();
+    let authority = worker.source_authority();
+    edit.previous_revision = Revision(1);
+    edit.revision = Revision(2);
+    edit.inserted = "q".into();
+    assert_eq!(
+        worker.replay_bounded_source(
+            authority,
+            &edit,
+            &BoundedSourceOperation::Inverse { records: 1 },
+            &mut |_| panic!("refusal appended")
+        ),
+        Err(BoundedError::Unsupported)
+    );
+    // The supplied insertion is copied during validation. The independently
+    // composed inverse removes the previous x, which is inspected and copied.
+    assert_eq!(
+        worker.last_operation_work(),
+        BoundedWork {
+            input_bytes: 1,
+            copied_bytes: 2,
+            inspected_source_bytes: 1,
+            metadata_items: 5,
+            ..Default::default()
+        }
+    );
+    assert_eq!(worker.source_text(), before);
+    assert_eq!(worker.source_authority(), authority);
+    let stale = BoundedSourceAuthority {
+        revision: Revision(0),
+        ..authority
+    };
+    assert_eq!(
+        worker.replay_bounded_source(
+            stale,
+            &edit,
+            &BoundedSourceOperation::Inverse { records: 1 },
+            &mut |_| panic!("stale appended")
+        ),
+        Err(BoundedError::StaleCursor)
+    );
+    assert_eq!(worker.last_operation_work(), BoundedWork::default());
+    assert_eq!(worker.source_text(), before);
+}

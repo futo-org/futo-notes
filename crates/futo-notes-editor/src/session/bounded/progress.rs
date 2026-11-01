@@ -55,6 +55,18 @@ impl BoundedEditorSession {
         cursor: BoundedCursor,
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<BoundedProgressChange, BoundedError> {
+        let mut work = BoundedWork::default();
+        let result = self.remove_fence_closer_with_work(cursor, accept, &mut work);
+        self.last_operation = result.as_ref().map_or(work, |frame| frame.work);
+        result
+    }
+
+    fn remove_fence_closer_with_work(
+        &mut self,
+        cursor: BoundedCursor,
+        accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
+        work: &mut BoundedWork,
+    ) -> Result<BoundedProgressChange, BoundedError> {
         if cursor != self.cursor() {
             return Err(BoundedError::StaleCursor);
         }
@@ -86,6 +98,9 @@ impl BoundedEditorSession {
                 "",
             )
             .map_err(BoundedError::Editor)?;
+        work.copied_bytes += edit.removed.len();
+        work.inspected_source_bytes += edit.removed.len();
+        work.metadata_items += 2; // prepared record and first retained unit
         let first = &progress.certificate.units[0];
         let display_end = self.display.line_to_byte(first.display_lines.start);
         let display_range = DisplayRange {
@@ -94,11 +109,12 @@ impl BoundedEditorSession {
         };
         let before_selection = self.engine.selection;
         let before_formats = self.engine.pending_formats.clone();
+        work.metadata_items += before_formats.as_ref().map_or(0, Vec::len);
         let before_affinity = self.engine.affinity;
         let before_links = opaque_pending(self.code.whole.clone());
-        let prepared = self.prepare_page_source(&edit, SourceRegion::Closer(true), None)?;
+        let prepared = self.prepare_page_source(&edit, SourceRegion::Closer(true), None, work)?;
         accept(&edit).map_err(|error| BoundedError::Editor(EditorError::Persistence(error)))?;
-        let source_work = self.accept_page_source(&edit, SourceRegion::Closer(true), prepared);
+        self.accept_page_source(&edit, SourceRegion::Closer(true), prepared);
         self.engine.typing = None;
         self.engine.pending_formats = None;
         self.discard_redo();
@@ -144,15 +160,24 @@ impl BoundedEditorSession {
             Some(source_change),
             FrameKind::Fence,
         );
-        change.work.metadata_items += source_work.metadata_items;
-        change.work.inspected_source_bytes += source_work.inspected_source_bytes;
-        change.work.copied_bytes += source_work.copied_bytes;
-        change.work.copied_bytes += closer.len() * 2;
-        change.work.inspected_source_bytes += closer.len();
+        change.work.metadata_items += work.metadata_items;
+        change.work.inspected_source_bytes += work.inspected_source_bytes;
+        change.work.copied_bytes += work.copied_bytes;
+        change.work.copied_bytes += closer.len();
         Ok(change)
     }
 
     pub fn continue_projection(
+        &mut self,
+        continuation: ProjectionContinuation,
+    ) -> Result<BoundedProgress, BoundedError> {
+        let work = BoundedWork::default();
+        let result = self.continue_projection_with_work(continuation);
+        self.last_operation = result.as_ref().map_or(work, BoundedProgress::work);
+        result
+    }
+
+    fn continue_projection_with_work(
         &mut self,
         continuation: ProjectionContinuation,
     ) -> Result<BoundedProgress, BoundedError> {

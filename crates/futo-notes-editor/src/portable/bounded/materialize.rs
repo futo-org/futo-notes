@@ -66,9 +66,11 @@ impl PortableBoundedSession {
     /// edit and becomes one real canonical full-display reset, released only by
     /// the legacy acceptance barrier. The accepted prefix must first pass its
     /// Flush/Resume barrier. Old bounded callback authority ends here.
-    pub fn into_full(self) -> Result<(PortableSession, BoundedWork), PortableBoundedExitError> {
+    pub fn into_full(mut self) -> Result<(PortableSession, BoundedWork), PortableBoundedExitError> {
+        self.reset_operation_work();
         if self.waiting.is_some() || self.durable != self.accepted {
             return Err(PortableBoundedExitError {
+                work: self.last_operation,
                 session: Box::new(self),
                 error: PortableError::Busy,
             });
@@ -76,6 +78,7 @@ impl PortableBoundedSession {
         if self.pending.is_none() && !self.reset_required {
             if let Err(error) = self.ready() {
                 return Err(PortableBoundedExitError {
+                    work: self.last_operation,
                     session: Box::new(self),
                     error,
                 });
@@ -86,6 +89,7 @@ impl PortableBoundedSession {
                 || (self.accepted != edit.previous_revision && self.accepted != edit.revision)
             {
                 return Err(PortableBoundedExitError {
+                    work: self.last_operation,
                     session: Box::new(self),
                     error: PortableError::InvalidAcknowledgement,
                 });
@@ -129,6 +133,7 @@ impl PortableBoundedSession {
                 paused: self.paused,
                 relink: self.relink,
                 bounded_entry: None,
+                bounded_work: work,
             },
             work,
         ))

@@ -63,10 +63,12 @@ impl BoundedFrame {
 pub struct PortableBoundedEntryError {
     pub session: Box<PortableSession>,
     pub error: PortableError,
+    pub work: BoundedWork,
 }
 pub struct PortableBoundedExitError {
     pub session: Box<PortableBoundedSession>,
     pub error: PortableError,
+    pub work: BoundedWork,
 }
 impl std::fmt::Debug for PortableBoundedEntryError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

@@ -2,19 +2,24 @@ use super::progress::{unit_display, unit_source, ProgressState};
 use super::*;
 
 impl ProgressState {
-    fn unit_at_display(&self, display: &Rope, at: DisplayOffset) -> Option<(usize, usize)> {
+    fn unit_at_display(
+        &self,
+        display: &Rope,
+        at: DisplayOffset,
+        visits: &mut usize,
+    ) -> Option<usize> {
         let line = display.byte_to_line(at.0).checked_sub(self.frame_lines)?;
-        let mut visits = 0;
         let index = self
             .certificate
             .units
             .partition_point(|unit| {
-                visits += 1;
+                *visits += 1;
                 unit.display_lines.start <= line
             })
             .checked_sub(1)?;
         let unit = &self.certificate.units[index];
-        (line <= unit.display_lines.end).then_some((index, visits + 1))
+        *visits += 1;
+        (line <= unit.display_lines.end).then_some(index)
     }
 
     pub(super) fn code_source_at(
@@ -22,11 +27,12 @@ impl ProgressState {
         source: &Rope,
         display: &Rope,
         at: DisplayOffset,
-    ) -> Option<(SourceOffset, std::ops::Range<usize>, usize)> {
+        visits: &mut usize,
+    ) -> Option<(SourceOffset, std::ops::Range<usize>)> {
         if self.restore {
             return None;
         }
-        let (index, visits) = self.unit_at_display(display, at)?;
+        let index = self.unit_at_display(display, at, visits)?;
         if !self.code[index] {
             return None;
         }
@@ -37,11 +43,7 @@ impl ProgressState {
             return None;
         }
         let range = unit_source(source, unit, last);
-        Some((
-            SourceOffset(range.start + at.0 - shown.start.0),
-            range,
-            visits,
-        ))
+        Some((SourceOffset(range.start + at.0 - shown.start.0), range))
     }
 
     pub(super) fn display_at_source(
@@ -116,6 +118,19 @@ impl BoundedEditorSession {
         range: DisplayRange,
         affinity: Affinity,
     ) -> Result<BoundedProgress, BoundedError> {
+        let mut work = BoundedWork::default();
+        let result = self.select_bounded_with_work(cursor, range, affinity, &mut work);
+        self.last_operation = result.as_ref().map_or(work, BoundedProgress::work);
+        result
+    }
+
+    fn select_bounded_with_work(
+        &mut self,
+        cursor: BoundedCursor,
+        range: DisplayRange,
+        affinity: Affinity,
+        work: &mut BoundedWork,
+    ) -> Result<BoundedProgress, BoundedError> {
         if cursor != self.cursor() {
             return Err(BoundedError::StaleCursor);
         }
@@ -137,7 +152,6 @@ impl BoundedEditorSession {
             .ok_or(BoundedError::Editor(EditorError::RevisionExhausted))?;
         let in_body =
             self.code.display.start <= range.start.0 && range.end.0 <= self.code.display.end;
-        let mut work = BoundedWork::default();
         let mut frame = None;
         let mut selected_unit = None;
         let exact = if in_body {
@@ -155,10 +169,9 @@ impl BoundedEditorSession {
             if !progress.changed || progress.restore {
                 return Err(BoundedError::Unsupported);
             }
-            let (index, visits) = progress
-                .unit_at_display(&self.display, range.start)
+            let index = progress
+                .unit_at_display(&self.display, range.start, &mut work.metadata_items)
                 .ok_or(BoundedError::Unsupported)?;
-            work.metadata_items += visits;
             selected_unit = Some(index);
             let unit = &progress.certificate.units[index];
             let last = index + 1 == progress.certificate.units.len();
@@ -239,7 +252,7 @@ impl BoundedEditorSession {
                 selection: resulting,
                 affinity,
                 continuation: self.continuation(),
-                work,
+                work: *work,
             }))
         }
     }

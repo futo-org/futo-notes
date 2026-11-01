@@ -12,6 +12,7 @@ mod materialize;
 /// the Store worker; it never replaces the page core's local cursor incarnation.
 pub struct PortableBoundedSession {
     engine: BoundedEditorSession,
+    last_operation: BoundedWork,
     mode: BoundedModeReady,
     sequence: u64,
     waiting: Option<BoundedHostRequest>,
@@ -25,10 +26,14 @@ pub struct PortableBoundedSession {
 }
 
 impl PortableSession {
+    pub fn last_bounded_operation_work(&self) -> BoundedWork {
+        self.bounded_work
+    }
     pub fn begin_bounded_entry(
         &mut self,
         body_caret: DisplayOffset,
     ) -> Result<BoundedModeRequest, PortableError> {
+        self.bounded_work = BoundedWork::default();
         self.ready()?;
         if self.accepted != self.engine.revision() {
             return Err(PortableError::Busy);
@@ -49,13 +54,15 @@ impl PortableSession {
     /// A refused host entry retains its old receipt authority; canceling this
     /// page handshake restores the same Full owner without source/history work.
     pub fn cancel_bounded_entry(&mut self) {
+        self.bounded_work = BoundedWork::default();
         self.bounded_entry = None;
     }
 
     pub fn complete_bounded_entry(
-        self,
+        mut self,
         mode: BoundedModeReady,
     ) -> Result<PortableBoundedSession, PortableBoundedEntryError> {
+        self.bounded_work = BoundedWork::default();
         if self.bounded_entry.as_ref() != Some(&mode.request)
             || mode.incarnation == 0
             || mode.durable.0 > self.accepted.0
@@ -65,6 +72,7 @@ impl PortableSession {
             || self.paused
         {
             return Err(PortableBoundedEntryError {
+                work: self.bounded_work,
                 session: Box::new(self),
                 error: PortableError::InvalidAcknowledgement,
             });
@@ -81,11 +89,13 @@ impl PortableSession {
             paused,
             relink,
             bounded_entry,
+            bounded_work: _,
         } = self;
         match engine.into_bounded(accepted, token, mode.request.body_caret) {
             Ok(mut engine) => {
                 engine.require_source_witness();
                 Ok(PortableBoundedSession {
+                    last_operation: engine.preparation_work(),
                     engine,
                     mode: mode.clone(),
                     sequence,
@@ -112,7 +122,9 @@ impl PortableSession {
                     paused,
                     relink,
                     bounded_entry,
+                    bounded_work: error.work,
                 }),
+                work: error.work,
                 error: PortableError::Bounded(error.error),
             }),
         }
@@ -120,6 +132,14 @@ impl PortableSession {
 }
 
 impl PortableBoundedSession {
+    /// Latest completed source/presentation attempt for a serialized caller;
+    /// accessible while paused, pending or reset. Queries do not replace it.
+    pub fn last_operation_work(&self) -> BoundedWork {
+        self.last_operation
+    }
+    pub(crate) fn reset_operation_work(&mut self) {
+        self.last_operation = BoundedWork::default();
+    }
     fn ready(&self) -> Result<(), PortableError> {
         if self.reset_required {
             return Err(PortableError::ModeResetRequired);
@@ -201,14 +221,17 @@ impl PortableBoundedSession {
         at: DisplayOffset,
         inserted: &str,
     ) -> Result<BoundedHostRequest, PortableError> {
+        self.reset_operation_work();
         self.ready()?;
         let mut edit = None;
-        let frame = self
+        let result = self
             .engine
             .insert_literal(cursor, at, inserted, &mut |record| {
                 edit = Some(record.clone());
                 Ok(())
-            })?;
+            });
+        self.last_operation = self.engine.last_operation_work();
+        let frame = result?;
         self.stage(edit.unwrap(), BoundedFrame::Literal(frame))
     }
     /// Foreign input is bounded before Rust decoding; binding argument lifting
@@ -221,20 +244,31 @@ impl PortableBoundedSession {
         at: DisplayOffset,
         inserted: &[u16],
     ) -> Result<BoundedHostRequest, PortableError> {
+        self.reset_operation_work();
         self.ready()?;
         if inserted.len() > 2 {
             return Err(PortableError::Bounded(BoundedError::Unsupported));
         }
         let lifted_bytes = std::mem::size_of_val(inserted);
-        let inserted = String::from_utf16(inserted)
-            .map_err(|_| PortableError::Editor(EditorError::InvalidText))?;
-        let request = self.insert_literal(cursor, at, &inserted)?;
-        let Some((_, _, BoundedFrame::Literal(frame))) = &mut self.pending else {
-            unreachable!("literal input staged a literal frame")
-        };
-        frame.work.input_bytes += lifted_bytes;
-        frame.work.copied_bytes += inserted.len();
-        Ok(request)
+        self.last_operation.input_bytes = lifted_bytes;
+        let mut decoded = String::new();
+        for scalar in char::decode_utf16(inserted.iter().copied()) {
+            let scalar = scalar.map_err(|_| PortableError::Editor(EditorError::InvalidText))?;
+            decoded.push(scalar);
+            self.last_operation.copied_bytes += scalar.len_utf8();
+        }
+        let inserted = decoded;
+        let result = self.insert_literal(cursor, at, &inserted);
+        self.last_operation.input_bytes += lifted_bytes;
+        self.last_operation.copied_bytes += inserted.len();
+        if result.is_ok() {
+            let Some((_, _, BoundedFrame::Literal(frame))) = &mut self.pending else {
+                unreachable!("literal input staged a literal frame")
+            };
+            frame.work.input_bytes += lifted_bytes;
+            frame.work.copied_bytes += inserted.len();
+        }
+        result
     }
     pub fn insert_prefix_literal(
         &mut self,
@@ -242,14 +276,17 @@ impl PortableBoundedSession {
         at: DisplayOffset,
         inserted: &str,
     ) -> Result<BoundedHostRequest, PortableError> {
+        self.reset_operation_work();
         self.ready()?;
         let mut edit = None;
-        let frame = self
+        let result = self
             .engine
             .insert_prefix_literal(cursor, at, inserted, &mut |record| {
                 edit = Some(record.clone());
                 Ok(())
-            })?;
+            });
+        self.last_operation = self.engine.last_operation_work();
+        let frame = result?;
         self.stage(
             edit.unwrap(),
             BoundedFrame::Progress(BoundedProgress::Change(frame)),
@@ -259,12 +296,15 @@ impl PortableBoundedSession {
         &mut self,
         cursor: BoundedCursor,
     ) -> Result<BoundedHostRequest, PortableError> {
+        self.reset_operation_work();
         self.ready()?;
         let mut edit = None;
-        let frame = self.engine.remove_fence_closer(cursor, &mut |record| {
+        let result = self.engine.remove_fence_closer(cursor, &mut |record| {
             edit = Some(record.clone());
             Ok(())
-        })?;
+        });
+        self.last_operation = self.engine.last_operation_work();
+        let frame = result?;
         self.stage(
             edit.unwrap(),
             BoundedFrame::Progress(BoundedProgress::Change(frame)),
@@ -276,15 +316,21 @@ impl PortableBoundedSession {
         range: DisplayRange,
         affinity: crate::Affinity,
     ) -> Result<BoundedProgress, PortableError> {
+        self.reset_operation_work();
         self.ready()?;
-        Ok(self.engine.select_bounded(cursor, range, affinity)?)
+        let result = self.engine.select_bounded(cursor, range, affinity);
+        self.last_operation = self.engine.last_operation_work();
+        Ok(result?)
     }
     pub fn continue_projection(
         &mut self,
         continuation: ProjectionContinuation,
     ) -> Result<BoundedProgress, PortableError> {
+        self.reset_operation_work();
         self.ready()?;
-        Ok(self.engine.continue_projection(continuation)?)
+        let result = self.engine.continue_projection(continuation);
+        self.last_operation = self.engine.last_operation_work();
+        Ok(result?)
     }
     pub fn undo_bounded(
         &mut self,
@@ -303,6 +349,7 @@ impl PortableBoundedSession {
         cursor: BoundedCursor,
         redo: bool,
     ) -> Result<Option<BoundedHostRequest>, PortableError> {
+        self.reset_operation_work();
         self.ready()?;
         let mut edit = None;
         let mut capture = |record: &SourceEdit| {
@@ -310,24 +357,28 @@ impl PortableBoundedSession {
             Ok(())
         };
         let frame = if redo {
-            self.engine.redo_bounded(cursor, &mut capture)?
+            self.engine.redo_bounded(cursor, &mut capture)
         } else {
-            self.engine.undo_bounded(cursor, &mut capture)?
+            self.engine.undo_bounded(cursor, &mut capture)
         };
-        frame
+        self.last_operation = self.engine.last_operation_work();
+        frame?
             .map(|frame| self.stage(edit.unwrap(), BoundedFrame::Progress(frame)))
             .transpose()
     }
     pub fn flush(&mut self) -> Result<BoundedHostRequest, PortableError> {
+        self.reset_operation_work();
         self.ready()?;
         self.request(BoundedHostOperation::Flush)
     }
     pub fn resume(&mut self) -> Result<BoundedHostRequest, PortableError> {
+        self.reset_operation_work();
         self.waiting = None;
         self.paused = true;
         self.request(BoundedHostOperation::Resume)
     }
     pub fn retry_pending(&mut self) -> Result<BoundedHostRequest, PortableError> {
+        self.reset_operation_work();
         if self.paused {
             return Err(PortableError::Paused);
         }

@@ -253,6 +253,7 @@ fn clean_preparation_refusal_or_failed_materialization_retains_original_owner() 
         })
     ));
     let copy = bounded.accepted_source().unwrap();
+    assert!(bounded.last_operation_work().unwrap().work.copied_bytes > 0);
     assert_eq!(copy.source, "```\nab\n```\n");
     assert_eq!(copy.revision, 0);
     assert!(copy.recovery.paused);

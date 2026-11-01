@@ -121,6 +121,10 @@ fn bounded_native_fixed_width_input_rejects_invalid_scalars_ranges_and_stale_aut
             bounded.insert_literal(cursor, 0, scalar),
             Err(EditorBoundedError::InvalidScalar)
         ));
+        assert_eq!(
+            bounded.last_operation_work().unwrap().work,
+            Default::default()
+        );
     }
     for at in [3, u64::MAX, 0x100000000] {
         assert!(matches!(
@@ -129,6 +133,10 @@ fn bounded_native_fixed_width_input_rejects_invalid_scalars_ranges_and_stale_aut
                 error: EditorSessionError::InvalidRange
             })
         ));
+        assert_eq!(
+            bounded.last_operation_work().unwrap().work,
+            Default::default()
+        );
     }
     assert!(matches!(
         bounded.insert_literal(cursor, 0, 10),
@@ -152,10 +160,15 @@ fn bounded_native_fixed_width_input_rejects_invalid_scalars_ranges_and_stale_aut
         Err(EditorBoundedError::StaleCursor)
     ));
     let changed = bounded.insert_literal(cursor, 1, 65).unwrap();
+    assert_eq!(bounded.last_operation_work().unwrap().work, changed.work);
     assert!(matches!(
         bounded.insert_literal(cursor, 1, 65),
         Err(EditorBoundedError::StaleCursor)
     ));
+    assert_eq!(
+        bounded.last_operation_work().unwrap().work,
+        Default::default()
+    );
     assert_eq!(changed.cursor.revision, 2);
     assert!(bounded.recovery_flush_delay().unwrap().is_some());
     assert_eq!(bounded.flush_recovery().unwrap().durable, 2);
@@ -234,4 +247,33 @@ fn bounded_native_reset_and_terminal_copy_keep_source_revision_separate_from_wat
             .unwrap(),
         "fresh"
     );
+}
+
+#[test]
+fn refused_native_entry_keeps_spent_work_on_the_restored_full_owner() {
+    let tree = TempTree::new();
+    std::fs::create_dir_all(tree.path("vault")).unwrap();
+    let store = NoteStore::new(path_string(&tree.path("vault")));
+    store
+        .create_note("plain".into(), "".into(), "plain\n".into())
+        .unwrap();
+    let full = store.open_editor("plain".into()).unwrap();
+    full.replace_utf16(0, EditorUtf16Range { start: 0, end: 0 }, vec![120])
+        .unwrap();
+    let alias = full.clone();
+    assert!(matches!(
+        full.into_bounded(1, 89, 0),
+        Err(futo_notes_ffi::EditorBoundedError::Unsupported)
+    ));
+    let receipt = alias.last_bounded_operation_work().unwrap();
+    assert!(receipt.work.metadata_items > 0);
+    assert_eq!(receipt, full.last_bounded_operation_work().unwrap());
+    assert_eq!(full.source_text().unwrap(), "xplain\n");
+    assert!(full.into_bounded(0, 89, 0).is_err());
+    assert_eq!(
+        full.last_bounded_operation_work().unwrap().work,
+        Default::default()
+    );
+    full.undo(1).unwrap().unwrap();
+    assert_eq!(alias.source_text().unwrap(), "plain\n");
 }

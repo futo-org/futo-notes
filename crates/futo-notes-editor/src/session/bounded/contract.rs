@@ -17,6 +17,7 @@ pub struct BoundedCursor {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BoundedWork {
     pub inspected_source_bytes: usize,
+    /// Input payload offered to validation, distinct from inspected source.
     pub input_bytes: usize,
     pub parsed_source_bytes: usize,
     pub copied_bytes: usize,
@@ -38,6 +39,7 @@ pub enum BoundedError {
 
 /// Rejected ownership transfer returns the original usable session.
 pub struct BoundedEntryError {
+    pub work: BoundedWork,
     pub session: Box<EditorSession>,
     pub error: BoundedError,
 }
@@ -160,4 +162,13 @@ pub struct BoundedMeaning {
     pub runs: Vec<crate::SemanticRun>,
     pub blocks: Vec<BoundedBlock>,
     pub links: Vec<crate::LinkDescription>,
+}
+
+impl BoundedProgress {
+    pub(crate) fn work(&self) -> BoundedWork {
+        match self {
+            Self::Change(frame) => frame.work,
+            Self::Status(frame) => frame.work,
+        }
+    }
 }

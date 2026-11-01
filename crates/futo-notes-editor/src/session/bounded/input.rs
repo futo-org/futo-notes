@@ -11,6 +11,20 @@ impl BoundedEditorSession {
         inserted: &str,
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<BoundedChange, BoundedError> {
+        let mut work = BoundedWork::default();
+        let result = self.insert_literal_with_work(cursor, at, inserted, accept, &mut work);
+        self.last_operation = work;
+        result
+    }
+
+    fn insert_literal_with_work(
+        &mut self,
+        cursor: BoundedCursor,
+        at: DisplayOffset,
+        inserted: &str,
+        accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
+        work: &mut BoundedWork,
+    ) -> Result<BoundedChange, BoundedError> {
         if cursor != self.cursor() {
             return Err(BoundedError::StaleCursor);
         }
@@ -21,6 +35,7 @@ impl BoundedEditorSession {
         if self.display.char_to_byte(position) != at.0 {
             return Err(BoundedError::Editor(EditorError::InvalidRange));
         }
+        work.input_bytes = inserted.len();
         if inserted.len() > 4
             || inserted.chars().count() != 1
             || inserted.contains(['\r', '\n', '`', '~'])
@@ -31,24 +46,23 @@ impl BoundedEditorSession {
             return Err(BoundedError::Unsupported);
         }
         let in_body = self.code.display.start <= at.0 && at.0 <= self.code.display.end;
-        let (source, pending_window, lookup_work) = if in_body {
+        let (source, pending_window) = if in_body {
             (
                 SourceOffset(self.code.body.start + at.0 - self.code.display.start),
                 self.code.whole.clone(),
-                0,
             )
         } else {
             self.progress
                 .as_ref()
                 .and_then(|progress| {
-                    progress.code_source_at(&self.engine.source, &self.display, at)
+                    progress.code_source_at(
+                        &self.engine.source,
+                        &self.display,
+                        at,
+                        &mut work.metadata_items,
+                    )
                 })
                 .ok_or(BoundedError::Unsupported)?
-        };
-        let mut work = BoundedWork {
-            input_bytes: inserted.len(),
-            metadata_items: lookup_work,
-            ..Default::default()
         };
         if self
             .progress
@@ -96,18 +110,15 @@ impl BoundedEditorSession {
             SourceRegion::Body
         } else {
             let Some(BoundedSourceOperation::Literal { unit: Some(unit) }) =
-                self.direct_source_operation(&edit, &mut work)
+                self.direct_source_operation(&edit, work)
             else {
                 unreachable!("certified page unit")
             };
             SourceRegion::Unit(unit)
         };
-        let prepared = self.prepare_page_source(&edit, region, None)?;
+        let prepared = self.prepare_page_source(&edit, region, None, work)?;
         accept(&edit).map_err(|error| BoundedError::Editor(EditorError::Persistence(error)))?;
-        let source_work = self.accept_page_source(&edit, region, prepared);
-        work.inspected_source_bytes += source_work.inspected_source_bytes;
-        work.copied_bytes += source_work.copied_bytes;
-        work.metadata_items += source_work.metadata_items;
+        self.accept_page_source(&edit, region, prepared);
         self.display
             .insert(self.display.byte_to_char(at.0), inserted);
         let caret = DisplayOffset(at.0 + inserted.len());
@@ -204,7 +215,7 @@ impl BoundedEditorSession {
                     language: self.code.language.clone(),
                 },
             },
-            work,
+            work: *work,
         })
     }
 }

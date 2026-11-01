@@ -142,6 +142,7 @@ pub(super) struct Attachment {
     coordinated: Vec<ViewChange>,
     pending_identity: Option<identity::PendingIdentity>,
     portable: bool,
+    bounded_work: futo_notes_editor::BoundedWork,
     relink_offer: Option<futo_notes_editor::RelinkOffer>,
 }
 
@@ -258,6 +259,7 @@ impl<'store> StoreEditorSession<'store> {
             coordinated: Vec::new(),
             pending_identity: None,
             portable: false,
+            bounded_work: futo_notes_editor::BoundedWork::default(),
             relink_offer: None,
         }));
         state

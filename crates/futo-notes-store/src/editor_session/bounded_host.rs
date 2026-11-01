@@ -16,10 +16,12 @@ pub struct StoreBoundedEditorHost<'store> {
 pub struct StoreBoundedHostEntryError<'store> {
     pub host: Box<StoreEditorHost<'store>>,
     pub error: EditorStoreError,
+    pub work: BoundedWork,
 }
 pub struct StoreBoundedHostExitError<'store> {
     pub host: Box<StoreBoundedEditorHost<'store>>,
     pub error: EditorStoreError,
+    pub work: BoundedWork,
 }
 impl std::fmt::Debug for StoreBoundedHostEntryError<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -33,10 +35,14 @@ impl std::fmt::Debug for StoreBoundedHostExitError<'_> {
 }
 
 impl<'store> StoreEditorHost<'store> {
+    pub fn last_bounded_operation_work(&self) -> BoundedWork {
+        self.session.last_bounded_operation_work()
+    }
     pub fn begin_bounded_entry(
         self,
         request: BoundedModeRequest,
     ) -> Result<StoreBoundedEditorHost<'store>, StoreBoundedHostEntryError<'store>> {
+        self.session.reset_bounded_operation_work();
         let floor = self
             .last
             .as_ref()
@@ -56,6 +62,7 @@ impl<'store> StoreEditorHost<'store> {
             Ok(authority) => authority,
             Err(error) => {
                 return Err(StoreBoundedHostEntryError {
+                    work: self.session.last_bounded_operation_work(),
                     host: Box::new(self),
                     error,
                 })
@@ -78,6 +85,9 @@ impl<'store> StoreEditorHost<'store> {
     }
 }
 impl<'store> StoreBoundedEditorHost<'store> {
+    pub fn last_operation_work(&self) -> BoundedWork {
+        self.session.last_bounded_operation_work()
+    }
     pub fn ready(&self) -> BoundedModeReady {
         self.ready.clone()
     }
@@ -108,8 +118,10 @@ impl<'store> StoreBoundedEditorHost<'store> {
         self,
         commit: bool,
     ) -> Result<StoreEditorHost<'store>, StoreBoundedHostExitError<'store>> {
+        self.session.reset_bounded_operation_work();
         if !commit && self.committed {
             return Err(StoreBoundedHostExitError {
+                work: self.session.last_bounded_operation_work(),
                 host: Box::new(self),
                 error: EditorStoreError::ModeResetRequired,
             });
@@ -135,6 +147,7 @@ impl<'store> StoreBoundedEditorHost<'store> {
         })();
         if let Err(error) = result {
             return Err(StoreBoundedHostExitError {
+                work: self.session.last_bounded_operation_work(),
                 host: Box::new(self),
                 error,
             });
@@ -156,6 +169,7 @@ impl<'store> StoreBoundedEditorHost<'store> {
         })
     }
     pub fn handle(&mut self, request: BoundedHostRequest) -> BoundedHostAck {
+        self.session.reset_bounded_operation_work();
         let _gate = match self.session.store.lock_gate() {
             Ok(gate) => gate,
             Err(error) => return self.reply(&request, Some(error), BoundedWork::default()),
@@ -197,6 +211,7 @@ impl<'store> StoreBoundedEditorHost<'store> {
         }
         if let Some((previous, ack)) = &self.last {
             if *previous == request {
+                state.bounded_work = ack.work;
                 return self.reply_state(&state, &request, ack.error.clone(), ack.work);
             }
             if request.sequence <= previous.sequence {
@@ -209,25 +224,26 @@ impl<'store> StoreBoundedEditorHost<'store> {
             }
         }
         self.committed = true;
+        let mut work = BoundedWork::default();
         let result = (|| match &request.operation {
             BoundedHostOperation::Append { edit, operation } => {
                 state.input_ready()?;
                 let Attachment {
                     engine, recovery, ..
                 } = &mut *state;
-                engine
-                    .source_worker_mut()?
-                    .replay_bounded_source(
-                        BoundedSourceAuthority {
-                            token: request.token,
-                            incarnation: request.incarnation,
-                            revision: edit.previous_revision,
-                        },
-                        edit,
-                        operation,
-                        &mut |edit| recovery.append(&self.session.store.root, edit),
-                    )
-                    .map_err(owner::bounded_error)
+                let engine = engine.source_worker_mut()?;
+                let result = engine.replay_bounded_source(
+                    BoundedSourceAuthority {
+                        token: request.token,
+                        incarnation: request.incarnation,
+                        revision: edit.previous_revision,
+                    },
+                    edit,
+                    operation,
+                    &mut |edit| recovery.append(&self.session.store.root, edit),
+                );
+                work = engine.last_operation_work();
+                result.map_err(owner::bounded_error)
             }
             BoundedHostOperation::Flush => {
                 state.engine.source_worker()?;
@@ -243,8 +259,9 @@ impl<'store> StoreBoundedEditorHost<'store> {
         })();
         let (work, error) = match result {
             Ok(work) => (work, None),
-            Err(error) => (BoundedWork::default(), Some(error.to_string())),
+            Err(error) => (work, Some(error.to_string())),
         };
+        state.bounded_work = work;
         let ack = self.reply_state(&state, &request, error, work);
         self.last = Some((request, ack.clone()));
         ack

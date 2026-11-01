@@ -49,6 +49,7 @@ pub struct EditorSession {
     typing: Option<TypingRun>,
     composition: Option<Composition>,
     bounded_incarnation: u64,
+    bounded_work: crate::BoundedWork,
     context: staging::StageContext,
 }
 
@@ -98,6 +99,7 @@ impl EditorSession {
             typing: None,
             composition: None,
             bounded_incarnation: 0,
+            bounded_work: crate::BoundedWork::default(),
             context: staging::StageContext::complete_source(),
         }
     }

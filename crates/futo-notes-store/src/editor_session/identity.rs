@@ -186,6 +186,7 @@ impl IdentityTransition {
                 coordinated: Vec::new(),
                 pending_identity: None,
                 portable: false,
+                bounded_work: futo_notes_editor::BoundedWork::default(),
                 relink_offer: None,
             }));
             state

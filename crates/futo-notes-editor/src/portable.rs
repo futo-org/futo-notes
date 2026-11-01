@@ -121,6 +121,7 @@ pub struct PortableSession {
     paused: bool,
     relink: Option<RelinkOffer>,
     bounded_entry: Option<BoundedModeRequest>,
+    bounded_work: crate::BoundedWork,
 }
 
 impl PortableSession {
@@ -156,6 +157,7 @@ impl PortableSession {
             paused: false,
             relink: None,
             bounded_entry: None,
+            bounded_work: crate::BoundedWork::default(),
         }
     }
 
