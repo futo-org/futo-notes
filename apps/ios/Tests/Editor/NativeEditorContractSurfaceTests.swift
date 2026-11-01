@@ -45,6 +45,17 @@ struct NativeEditorContractSurfaceTests {
             }
             #expect(tagged == "#a #b\n\nbody")
 
+            let front = "---\ntitle: x\n---\nbody"
+            #expect(
+                try Self.scenario(front) { _, s in
+                    let text = try s.displayText()
+                    let blocks = try s.project(
+                        expected: 0, range: Self.at(0, UInt64(text.utf8.count))
+                    ).blocks
+                    #expect(blocks.filter(\.metadata).count == 1)
+                    #expect(blocks.last?.metadata == false)
+                } == front)
+
             let found = try Self.scenario("a **bo**ld Bold\r\n\r\nBOLD") { _, s in
                 let report = try s.findSetQuery(expected: 0, query: "bold")
                 #expect((report.total, report.current) == (3, 1))

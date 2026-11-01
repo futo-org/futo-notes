@@ -42,6 +42,12 @@ class NativeEditorContractSurfaceTest {
             assertEquals(listOf("a", "b"), s.headerTags())
             assertEquals(listOf("a", "b"), s.tags())
         })
+        val front = "---\ntitle: x\n---\nbody"
+        assertEquals(front, scenario(front) { _, s ->
+            val blocks = s.project(0uL, at(0, s.displayText().toByteArray(Charsets.UTF_8).size.toLong())).blocks
+            assertEquals(1, blocks.count { it.metadata })
+            assertFalse(blocks.last().metadata)
+        })
         assertEquals("x a **bo**ld Bold\r\n\r\nBOLD", scenario("a **bo**ld Bold\r\n\r\nBOLD") { _, s ->
             val report = s.findSetQuery(0uL, "bold")
             assertEquals(3uL to 1uL, report.total to report.current)
