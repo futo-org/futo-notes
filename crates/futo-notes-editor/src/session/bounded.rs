@@ -14,6 +14,9 @@ mod prefix;
 mod progress;
 mod restore;
 mod selection;
+mod source;
+pub use source::{BoundedSourceAuthority, BoundedSourceOperation, BoundedSourceSession};
+use source::{SourceRecord, SourceRegion};
 
 /// The original session, its source/history and its canonical transient fields
 /// keep one owner. The old projection is private retained metadata until the
@@ -29,7 +32,10 @@ pub struct BoundedEditorSession {
     // One allocation per accepted record avoids moving an ever-growing Vec on
     // a local key. These exact records catch up the retained projection at the
     // explicit materializing handoff; there is no whole-source snapshot.
-    source_records: LinkedList<SourceEdit>,
+    source_records: LinkedList<SourceRecord>,
+    closer: String,
+    dirty_suffix: i64,
+    source_transport: bool,
     deferred: LinkedList<AcceptedCodeInput>,
     redo_groups: LinkedList<LinkedList<AcceptedCodeInput>>,
     retired_groups: LinkedList<LinkedList<AcceptedCodeInput>>,
@@ -95,8 +101,16 @@ impl EditorSession {
         let (prefix, prefix_work) = self.projection.bounded_plain_prefix(&self.source, &code);
         let (history_selection, history_work) = self.capture_history_selection();
         let display = self.projection.display.clone();
+        let closer = progress.as_ref().map_or_else(String::new, |progress| {
+            self.source
+                .byte_slice(progress.certificate.closer.clone())
+                .to_string()
+        });
         Ok(BoundedEditorSession {
             engine: self,
+            closer,
+            dirty_suffix: 0,
+            source_transport: false,
             code,
             display,
             token,

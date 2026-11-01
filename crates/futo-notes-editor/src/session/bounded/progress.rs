@@ -96,16 +96,12 @@ impl BoundedEditorSession {
         let before_formats = self.engine.pending_formats.clone();
         let before_affinity = self.engine.affinity;
         let before_links = opaque_pending(self.code.whole.clone());
+        let prepared = self.prepare_page_source(&edit, SourceRegion::Closer(true), None)?;
         accept(&edit).map_err(|error| BoundedError::Editor(EditorError::Persistence(error)))?;
-        let a = self.engine.source.byte_to_char(closer.start);
-        let z = self.engine.source.byte_to_char(closer.end);
-        self.engine.source.remove(a..z);
-        self.engine.revision = edit.revision;
-        self.code.whole.end -= closer.len();
+        let source_work = self.accept_page_source(&edit, SourceRegion::Closer(true), prepared);
         self.engine.typing = None;
         self.engine.pending_formats = None;
         self.discard_redo();
-        let record = edit.clone();
         let source_change = BoundedSourceChange {
             range: edit.range,
             inserted_bytes: 0,
@@ -125,7 +121,6 @@ impl BoundedEditorSession {
             removed: edit.removed,
             inserted: edit.inserted,
         };
-        self.source_records.push_back(record);
         self.deferred.push_back(AcceptedCodeInput {
             history,
             joins_previous: false,
@@ -149,6 +144,9 @@ impl BoundedEditorSession {
             Some(source_change),
             FrameKind::Fence,
         );
+        change.work.metadata_items += source_work.metadata_items;
+        change.work.inspected_source_bytes += source_work.inspected_source_bytes;
+        change.work.copied_bytes += source_work.copied_bytes;
         change.work.copied_bytes += closer.len() * 2;
         change.work.inspected_source_bytes += closer.len();
         Ok(change)

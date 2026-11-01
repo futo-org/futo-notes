@@ -13,8 +13,9 @@ pub use session::{
     BlockCommand, BoundedBlock, BoundedChange, BoundedCodeProjection, BoundedCursor,
     BoundedEditorSession, BoundedEntryError, BoundedError, BoundedMap, BoundedMapKind,
     BoundedMeaning, BoundedProgress, BoundedProgressChange, BoundedProgressStatus,
-    BoundedSourceChange, BoundedWork, CodeFragment, CodeIdentity, Composition, EditorSession,
-    OwnActionRelink, ParagraphKey, ProjectionContinuation,
+    BoundedSourceAuthority, BoundedSourceChange, BoundedSourceOperation, BoundedWork, CodeFragment,
+    CodeIdentity, Composition, EditorSession, OwnActionRelink, ParagraphKey,
+    ProjectionContinuation,
 };
 pub use types::{
     Affinity, BlockDescription, CaretDirection, Correspondence, DisplayOffset, DisplayRange,

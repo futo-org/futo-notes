@@ -56,12 +56,9 @@ impl BoundedEditorSession {
         let affinity = self
             .engine
             .input_affinity(DisplayRange { start: at, end: at });
+        let prepared = self.prepare_page_source(&edit, SourceRegion::Prefix, None)?;
         accept(&edit).map_err(|error| BoundedError::Editor(EditorError::Persistence(error)))?;
-        self.engine
-            .source
-            .insert(self.engine.source.byte_to_char(source.0), inserted);
-        self.engine.revision = edit.revision;
-        self.shift_code_prefix(0, inserted.len());
+        let source_work = self.accept_page_source(&edit, SourceRegion::Prefix, prepared);
         self.engine.selection = DisplayRange {
             start: DisplayOffset(at.0 + inserted.len()),
             end: DisplayOffset(at.0 + inserted.len()),
@@ -86,7 +83,6 @@ impl BoundedEditorSession {
             before_selection,
         );
         self.discard_redo();
-        self.source_records.push_back(edit.clone());
         self.deferred.push_back(AcceptedCodeInput {
             history: HistoryEntry {
                 before_source,
@@ -124,6 +120,9 @@ impl BoundedEditorSession {
             source.0..source.0 + inserted.len(),
             source_change,
         );
+        frame.work.metadata_items += source_work.metadata_items;
+        frame.work.inspected_source_bytes += source_work.inspected_source_bytes;
+        frame.work.copied_bytes += source_work.copied_bytes;
         frame.work.copied_bytes += inserted.len() * 2;
         frame.work.input_bytes = inserted.len();
         Ok(frame)

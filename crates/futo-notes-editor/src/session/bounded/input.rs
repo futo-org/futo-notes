@@ -92,12 +92,24 @@ impl BoundedEditorSession {
         let affinity = self
             .engine
             .input_affinity(DisplayRange { start: at, end: at });
+        let region = if in_body {
+            SourceRegion::Body
+        } else {
+            let Some(BoundedSourceOperation::Literal { unit: Some(unit) }) =
+                self.direct_source_operation(&edit, &mut work)
+            else {
+                unreachable!("certified page unit")
+            };
+            SourceRegion::Unit(unit)
+        };
+        let prepared = self.prepare_page_source(&edit, region, None)?;
         accept(&edit).map_err(|error| BoundedError::Editor(EditorError::Persistence(error)))?;
-        let char_index = self.engine.source.byte_to_char(source.0);
-        self.engine.source.insert(char_index, inserted);
+        let source_work = self.accept_page_source(&edit, region, prepared);
+        work.inspected_source_bytes += source_work.inspected_source_bytes;
+        work.copied_bytes += source_work.copied_bytes;
+        work.metadata_items += source_work.metadata_items;
         self.display
             .insert(self.display.byte_to_char(at.0), inserted);
-        self.engine.revision = edit.revision;
         let caret = DisplayOffset(at.0 + inserted.len());
         self.engine.selection = DisplayRange {
             start: caret,
@@ -116,11 +128,6 @@ impl BoundedEditorSession {
         });
         let before_links = opaque_pending(pending_window.clone());
         work.metadata_items += 4; // source point, exact range, selection and pending snapshot
-        if in_body {
-            self.code.body.end += inserted.len();
-            self.code.display.end += inserted.len();
-            self.code.whole.end += inserted.len();
-        }
         work.metadata_items += 3; // retained length updates
         let joins_previous = self.engine.input_joins_history(
             Some(&HistoryInput {
@@ -136,8 +143,7 @@ impl BoundedEditorSession {
             range: edit.range,
             inserted_bytes: edit.inserted.len(),
         };
-        let record = edit.clone();
-        work.copied_bytes += record.inserted.len();
+        work.copied_bytes += edit.inserted.len();
         let history = HistoryEntry {
             before_source: self.history_selection,
             after_source,
@@ -153,7 +159,6 @@ impl BoundedEditorSession {
             removed: edit.removed,
             inserted: edit.inserted,
         };
-        self.source_records.push_back(record);
         self.deferred.push_back(AcceptedCodeInput {
             history,
             joins_previous,

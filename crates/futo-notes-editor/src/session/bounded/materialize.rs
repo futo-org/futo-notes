@@ -9,7 +9,8 @@ impl BoundedEditorSession {
         let affinity = self.engine.affinity;
         let formats = self.engine.pending_formats.take();
         let mut work = BoundedWork::default();
-        for edit in self.source_records.iter().rev() {
+        for record in self.source_records.iter().rev() {
+            let edit = &record.edit;
             let start = self.engine.source.byte_to_char(edit.range.start.0);
             let end = self
                 .engine
@@ -25,8 +26,9 @@ impl BoundedEditorSession {
             // apply preserves transient fields without reparsing the giant row
             // once for every earlier key.
             let mut transaction = crate::history::Transaction::new(&self.engine.source);
-            let final_revision = self.source_records.back().unwrap().revision;
-            for edit in &self.source_records {
+            let final_revision = self.source_records.back().unwrap().edit.revision;
+            for record in &self.source_records {
+                let edit = &record.edit;
                 transaction.apply(edit.range, &edit.inserted);
                 work.input_bytes += edit.inserted.len();
             }

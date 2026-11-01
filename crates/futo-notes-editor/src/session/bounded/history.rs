@@ -172,29 +172,33 @@ impl BoundedEditorSession {
                 .ok_or(BoundedError::Unsupported)?;
             DisplayRange { start, end }
         };
+        let region = if kind == AcceptedKind::Prefix {
+            SourceRegion::Prefix
+        } else if kind == AcceptedKind::Closer {
+            SourceRegion::Closer(redo)
+        } else if old_body.start <= edit.range.start.0 && edit.range.end.0 <= old_body.end {
+            SourceRegion::Body
+        } else {
+            let progress = self.progress.as_ref().ok_or(BoundedError::Unsupported)?;
+            let line = self.engine.source.byte_to_line(edit.range.start.0);
+            let unit = progress
+                .certificate
+                .units
+                .partition_point(|unit| {
+                    selection_visits += 1;
+                    unit.source_lines.start <= line
+                })
+                .checked_sub(1)
+                .ok_or(BoundedError::Unsupported)?;
+            SourceRegion::Unit(unit)
+        };
+        let prepared = self.prepare_page_source(&edit, region, Some(count))?;
         accept(&edit).map_err(|error| BoundedError::Editor(EditorError::Persistence(error)))?;
-        let a = self.engine.source.byte_to_char(edit.range.start.0);
-        let z = self.engine.source.byte_to_char(edit.range.end.0);
-        self.engine.source.remove(a..z);
-        self.engine.source.insert(a, &edit.inserted);
-        self.engine.revision = edit.revision;
+        let source_work = self.accept_page_source(&edit, region, prepared);
         let source_change = BoundedSourceChange {
             range: edit.range,
             inserted_bytes: edit.inserted.len(),
         };
-        self.source_records.push_back(edit.clone());
-        if kind == AcceptedKind::Prefix {
-            self.shift_code_prefix(edit.removed.len(), edit.inserted.len());
-        }
-        if kind == AcceptedKind::Literal
-            && old_body.start <= edit.range.start.0
-            && edit.range.end.0 <= old_body.end
-        {
-            self.code.body.end = self.code.body.end - edit.removed.len() + edit.inserted.len();
-            self.code.display.end =
-                self.code.display.end - edit.removed.len() + edit.inserted.len();
-            self.code.whole.end = self.code.whole.end - edit.removed.len() + edit.inserted.len();
-        }
         self.engine.typing = None;
         self.engine.pending_formats = formats;
         self.engine.affinity = affinity;
@@ -222,7 +226,6 @@ impl BoundedEditorSession {
                 source_change,
             )
         } else if kind == AcceptedKind::Closer {
-            self.code.whole.end = self.code.whole.end - edit.removed.len() + edit.inserted.len();
             let progress = self.progress.as_mut().unwrap();
             progress.restore = !redo;
             progress.active = true;
@@ -271,6 +274,9 @@ impl BoundedEditorSession {
                 FrameKind::Region,
             )
         };
+        frame.work.copied_bytes += source_work.copied_bytes;
+        frame.work.inspected_source_bytes += source_work.inspected_source_bytes;
+        frame.work.metadata_items += source_work.metadata_items;
         frame.work.copied_bytes += inserted.len() + 2 * (edit.inserted.len() + edit.removed.len());
         frame.work.inspected_source_bytes += edit.removed.len();
         frame.work.metadata_items += count + selection_visits;
