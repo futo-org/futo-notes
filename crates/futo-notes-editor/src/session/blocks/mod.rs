@@ -17,6 +17,7 @@ pub enum BlockCommand {
     CodeBlock,
 }
 
+mod clipboard;
 mod code_command;
 mod commands;
 mod content;
