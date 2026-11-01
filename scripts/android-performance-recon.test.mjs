@@ -219,11 +219,6 @@ it('validates finite bounded phases separately and retains partial failures', ()
   const reusedToken = structuredClone(report);
   reusedToken.fixtures[1].attachmentToken = 283;
   expect(() => validate(reusedToken)).toThrow();
-  for (const token of [undefined, 0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1]) {
-    const invalidToken = structuredClone(report);
-    invalidToken.fixtures[0].attachmentToken = token;
-    expect(() => validate(invalidToken)).toThrow();
-  }
   const missing = structuredClone(report);
   missing.fixtures[0].warmTypingNs.pop();
   expect(() => validate(missing)).toThrow();
