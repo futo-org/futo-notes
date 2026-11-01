@@ -29,3 +29,24 @@ impl NativeEditorSession {
         })
     }
 }
+
+/// Replacement semantics for only the changed wikilinks, at an unchanged revision.
+#[derive(Debug, PartialEq, Eq, uniffi::Record)]
+pub struct EditorNoteIdChange {
+    pub revision: u64,
+    pub projections: Vec<EditorProjection>,
+}
+
+#[uniffi::export]
+impl NativeEditorSession {
+    /// The store reads the vault's note ids itself; valid while composing.
+    pub fn refresh_note_ids(&self) -> Result<EditorNoteIdChange, EditorSessionError> {
+        self.with_session(|session| {
+            let change = session.refresh_note_ids()?;
+            Ok(EditorNoteIdChange {
+                revision: change.revision.0,
+                projections: change.projections.into_iter().map(Into::into).collect(),
+            })
+        })
+    }
+}

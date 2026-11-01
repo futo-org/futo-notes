@@ -436,6 +436,26 @@ impl From<editor::LinkDescription> for EditorLinkDescription {
         }
     }
 }
+/// A wikilink's visible glyphs and the label/resolution the engine derived
+/// from store-delivered note ids. `note_id` is absent when unresolved.
+#[derive(Debug, PartialEq, Eq, uniffi::Record)]
+pub struct EditorWikilinkDescription {
+    pub range: EditorByteRange,
+    pub target: String,
+    pub label: String,
+    pub note_id: Option<String>,
+}
+impl From<editor::WikilinkDescription> for EditorWikilinkDescription {
+    fn from(value: editor::WikilinkDescription) -> Self {
+        Self {
+            range: value.range.into(),
+            target: value.target,
+            label: value.label,
+            note_id: value.note_id,
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Eq, uniffi::Record)]
 pub struct EditorSourceByteRange {
     pub start: u64,
@@ -455,6 +475,7 @@ pub struct EditorProjection {
     pub correspondence: Vec<EditorCorrespondence>,
     pub blocks: Vec<EditorBlockDescription>,
     pub links: Vec<EditorLinkDescription>,
+    pub wikilinks: Vec<EditorWikilinkDescription>,
 }
 #[derive(Debug, PartialEq, Eq, uniffi::Record)]
 pub struct EditorListDescription {
@@ -490,6 +511,7 @@ impl From<editor::ProjectionSlice> for EditorProjection {
             range: value.range.into(),
             text: value.text,
             links: value.links.into_iter().map(Into::into).collect(),
+            wikilinks: value.wikilinks.into_iter().map(Into::into).collect(),
             blocks: value
                 .blocks
                 .into_iter()

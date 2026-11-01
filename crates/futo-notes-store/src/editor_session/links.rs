@@ -4,6 +4,20 @@ use super::*;
 use futo_notes_editor::LinkDescription;
 
 impl StoreEditorSession<'_> {
+    /// Deliver the vault's current note ids, read by the store itself, to the
+    /// live engine. Nothing is appended; composition, selection and history stay.
+    pub fn refresh_note_ids(
+        &mut self,
+    ) -> Result<futo_notes_editor::NoteIdChange, EditorStoreError> {
+        let _gate = self.store.lock_gate().map_err(EditorStoreError::Recovery)?;
+        let ids = self.store.recent_note_ids(usize::MAX);
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        if state.terminal {
+            return Err(EditorStoreError::SessionDeleted);
+        }
+        Ok(state.engine.full_mut()?.update_note_ids(&ids))
+    }
+
     pub fn inspect_link(
         &self,
         expected: Revision,
