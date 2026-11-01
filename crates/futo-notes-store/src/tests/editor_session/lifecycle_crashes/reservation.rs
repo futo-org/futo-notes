@@ -161,6 +161,37 @@ fn first_frame_failure_repairs_the_nonzero_reservation_and_keeps_its_original_ep
 
 #[cfg(unix)]
 #[test]
+fn resume_clears_a_clean_reservation_whose_name_was_already_unlinked() {
+    let root = TestRoot::new();
+    let store = store(&root);
+    store.create("", "old", SOURCE).unwrap();
+    let io = Arc::new(Mutex::new(ReservationIo::default()));
+    let editor = store
+        .open_editor_with_recovery("old", options(&io))
+        .unwrap();
+    let mut bounded = editor
+        .into_bounded(Revision(0), SessionToken(96), DisplayOffset(0))
+        .unwrap();
+    // As after an unlink whose directory sync failed: the pin names an orphan.
+    fs::remove_file(canonical(&root.0)).unwrap();
+    let cursor = bounded.cursor().unwrap();
+    assert!(matches!(
+        bounded.insert_literal(cursor, DisplayOffset(1), "x"),
+        Err(EditorStoreError::RecoveryAppend(_))
+    ));
+    assert!(bounded.recovery_status().paused);
+    bounded.resume_recovery().unwrap();
+    assert!(!bounded.recovery_status().paused);
+    bounded
+        .insert_literal(cursor, DisplayOffset(1), "x")
+        .unwrap();
+    drop(bounded);
+    let reopened = store.open_editor("old").unwrap();
+    assert_eq!(reopened.source_text(), "```Rust\naxb\n```\n");
+}
+
+#[cfg(unix)]
+#[test]
 fn failed_materializing_exit_keeps_the_original_bounded_owner_until_cleanup_succeeds() {
     let root = TestRoot::new();
     let store = store(&root);

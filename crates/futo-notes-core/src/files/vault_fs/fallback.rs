@@ -320,6 +320,8 @@ pub(super) fn rename_local(root: &Path, source: &str, destination: &str) -> Resu
 /// on this implementation, so bounded recovery reservations are refused.
 pub struct PinnedRecoveryFile;
 
+pub const PINNED_RECOVERY_SUPPORTED: bool = false;
+
 const PINNED_UNSUPPORTED: &str = "pinned recovery unsupported";
 
 pub fn create_pinned_recovery(
@@ -338,6 +340,9 @@ pub fn open_pinned_recovery(
 
 impl PinnedRecoveryFile {
     pub fn verify(&self, _root: &std::path::Path) -> Result<(), String> {
+        Err(PINNED_UNSUPPORTED.into())
+    }
+    pub fn is_removed(&self, _root: &std::path::Path) -> Result<bool, String> {
         Err(PINNED_UNSUPPORTED.into())
     }
     pub fn read_all(&self) -> Result<Vec<u8>, String> {

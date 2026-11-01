@@ -174,7 +174,7 @@ impl RecoveryLog {
         after: u64,
     ) -> Result<(), String> {
         if self.header.replacement_epoch == before {
-            self.cancel_reservation(root)?;
+            self.cancel_or_pause(root)?;
             let previous = self.header_bytes()?.len();
             self.header.replacement_epoch = after;
             let next = self.header_bytes()?.len();
@@ -268,7 +268,7 @@ impl RecoveryLog {
     }
 
     pub(super) fn protect_checkpoint(&mut self, root: &Path, id: &str) -> Result<(), String> {
-        self.cancel_reservation(root)?;
+        self.cancel_or_pause(root)?;
         self.ensure_stream(root)?;
         let record = format::encode(&Record::Checkpoint {
             id: id.to_owned(),
@@ -299,6 +299,15 @@ impl RecoveryLog {
         // this truncation path.
         if self.stale.is_some() {
             self.retire_stale_reservation(root)?;
+        } else if self.reservation == Some(self.accepted_bytes)
+            && self.storage.reservation_removed(root)?
+        {
+            // A clean reservation whose unlink already landed: nothing is
+            // left to repair; the next accepted input creates a v3 stream.
+            self.exists = false;
+            self.accepted_bytes = 0;
+            self.reservation = None;
+            self.header.version = format::VERSION;
         } else if self.accepted_bytes == 0 {
             self.storage.remove(root, &self.path)?;
             let header = self.header_bytes()?;
@@ -364,7 +373,7 @@ impl RecoveryLog {
         }
         // Close the append handle before unlink, including on Windows. A failed
         // retirement leaves the old base usable for repeat recovery.
-        self.cancel_reservation(root)?;
+        self.cancel_or_pause(root)?;
         self.storage.remove(root, &self.path)?;
         self.reservation = None;
         self.exists = false;

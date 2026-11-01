@@ -223,3 +223,15 @@ fn relative_name_is_the_name_that_resolves_back_to_the_path() {
         assert_eq!(relative_name(root, &latin1), None);
     }
 }
+
+#[test]
+fn path_retirement_removes_only_unchanged_bytes() {
+    let root = tempfile::tempdir().unwrap();
+    let live = ".futo-editor-recovery/live.jsonl";
+    assert!(!remove_if_unchanged(root.path(), live, b"header\n").unwrap());
+    write_atomic(root.path(), live, b"header\n").unwrap();
+    assert!(remove_if_unchanged(root.path(), live, b"changed").is_err());
+    assert_eq!(read(root.path(), live).unwrap(), b"header\n");
+    assert!(remove_if_unchanged(root.path(), live, b"header\n").unwrap());
+    assert!(!exists(root.path(), live).unwrap());
+}

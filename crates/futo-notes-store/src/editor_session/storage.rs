@@ -21,11 +21,28 @@ pub trait RecoveryStorage: Send {
     fn pin(&mut self, _root: &Path, _path: &str) -> Result<Option<Vec<u8>>, String> {
         Err("bounded recovery reservation unsupported".into())
     }
+    /// Retire a strictly clean reservation by path on platforms that cannot
+    /// pin: remove `path` only while its bytes equal `expected`; an absent
+    /// stream is already retired.
+    fn retire_unpinned(
+        &mut self,
+        _root: &Path,
+        _path: &str,
+        _expected: &[u8],
+    ) -> Result<(), String> {
+        Err("bounded recovery reservation unsupported".into())
+    }
     /// Forget a pin without touching the file.
     fn release_pin(&mut self) {}
     /// The canonical name and parent still name the pinned inode.
     fn verify_reservation(&mut self, _root: &Path) -> Result<(), String> {
         Err("no pinned recovery stream".into())
+    }
+    /// `true` after the pinned inode's canonical name was found already
+    /// unlinked: its removal is made durable and the pin released. `false`
+    /// while the name still owns the pin; foreign bytes there are an error.
+    fn reservation_removed(&mut self, _root: &Path) -> Result<bool, String> {
+        Ok(false)
     }
     /// Durably remove only the verified pinned inode, then release the pin.
     /// Succeeds without effect when nothing is pinned.
@@ -112,8 +129,24 @@ impl RecoveryStorage for VaultRecoveryStorage {
         self.pinned = Some((path.to_owned(), file));
         Ok(Some(bytes))
     }
+    fn retire_unpinned(&mut self, root: &Path, path: &str, expected: &[u8]) -> Result<(), String> {
+        self.file = None;
+        vault_fs::remove_if_unchanged(root, path, expected).map(|_| ())
+    }
     fn release_pin(&mut self) {
         self.pinned = None;
+    }
+    fn reservation_removed(&mut self, root: &Path) -> Result<bool, String> {
+        let Some((_, file)) = &self.pinned else {
+            return Ok(false);
+        };
+        if !file.is_removed(root)? {
+            return Ok(false);
+        }
+        // Absent name: this only makes the earlier unlink durable.
+        file.remove(root)?;
+        self.pinned = None;
+        Ok(true)
     }
     fn verify_reservation(&mut self, root: &Path) -> Result<(), String> {
         self.pinned
@@ -140,10 +173,12 @@ impl RecoveryStorage for VaultRecoveryStorage {
     }
     fn replace(&mut self, root: &Path, path: &str, bytes: &[u8]) -> Result<(), String> {
         self.file = None;
-        if self.pinned(path).is_some() {
+        let written = vault_fs::write_atomic(root, path, bytes);
+        // A failed write leaves the owned inode canonical, so its pin stays.
+        if written.is_ok() && self.pinned(path).is_some() {
             self.pinned = None;
         }
-        vault_fs::write_atomic(root, path, bytes)
+        written
     }
     fn append(&mut self, root: &Path, path: &str, bytes: &[u8]) -> Result<(), String> {
         if let Some(file) = self.pinned(path) {

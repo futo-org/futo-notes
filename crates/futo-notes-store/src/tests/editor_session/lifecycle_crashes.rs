@@ -88,6 +88,12 @@ impl RecoveryStorage for CrashStorage {
     fn verify_reservation(&mut self, root: &Path) -> Result<(), String> {
         self.inner.verify_reservation(root)
     }
+    fn reservation_removed(&mut self, root: &Path) -> Result<bool, String> {
+        self.inner.reservation_removed(root)
+    }
+    fn retire_unpinned(&mut self, root: &Path, path: &str, expected: &[u8]) -> Result<(), String> {
+        self.inner.retire_unpinned(root, path, expected)
+    }
     fn remove_reservation(&mut self, root: &Path) -> Result<(), String> {
         self.injected("remove_reservation")?;
         self.inner.remove_reservation(root)

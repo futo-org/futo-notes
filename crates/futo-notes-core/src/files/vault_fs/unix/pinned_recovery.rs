@@ -44,11 +44,17 @@ fn pin(
         Err(error) => return Err(context("open pinned recovery", relative, error)),
     };
     let file = File::from(descriptor);
-    if !file
-        .metadata()
-        .map_err(|error| context("stat pinned recovery", relative, error))?
-        .is_file()
-    {
+    let regular = match file.metadata() {
+        Ok(metadata) => metadata.is_file(),
+        Err(error) => {
+            // An exclusive create made this empty file; do not strand it.
+            if flags.contains(OFlags::CREATE | OFlags::EXCL) {
+                let _ = unlinkat(&parent.directory, &parent.leaf, AtFlags::empty());
+            }
+            return Err(context("stat pinned recovery", relative, error));
+        }
+    };
+    if !regular {
         return Err(format!("pinned recovery is not a regular file: {relative}"));
     }
     Ok(Some(PinnedRecoveryFile {
@@ -157,8 +163,22 @@ impl PinnedRecoveryFile {
         )
     }
 
+    /// `Ok(true)` when the canonical name is absent under the original
+    /// parent (e.g. unlinked but not yet durable); foreign bytes there are an
+    /// error.
+    pub fn is_removed(&self, root: &Path) -> Result<bool, String> {
+        self.canonical_is_owned(root).map(|owned| !owned)
+    }
+
     /// Durably unlinks the canonical name only while it names the pinned
     /// inode. Foreign bytes there are refused untouched.
+    ///
+    /// Residual window: POSIX has no unlink-by-descriptor, so the name is
+    /// re-resolved by `unlinkat` after the identity check. An out-of-process
+    /// swap in that gap could unlink a foreign inode. In-process writers are
+    /// excluded by the vault mutation gate and recovery lease, and the file is
+    /// a hidden recovery stream no other process is meant to touch, so the
+    /// window is accepted rather than adding machinery.
     pub fn remove(&self, root: &Path) -> Result<(), String> {
         if self.canonical_is_owned(root)? {
             let leaf = Path::new(&self.relative).file_name().unwrap();

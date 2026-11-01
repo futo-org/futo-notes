@@ -46,6 +46,14 @@ impl RecoveryLog {
         Ok(())
     }
 
+    /// `cancel_reservation` for operations that cannot continue without it:
+    /// a failure pauses acceptance so `resume` can repair it.
+    pub(in crate::editor_session) fn cancel_or_pause(&mut self, root: &Path) -> Result<(), String> {
+        self.cancel_reservation(root).inspect_err(|_| {
+            self.failed = true;
+        })
+    }
+
     /// A strictly clean reservation found by an editable reopen is pinned,
     /// re-checked and durably retired before any append. Failure pauses
     /// acceptance while current markdown stays copyable.
@@ -54,6 +62,10 @@ impl RecoveryLog {
             return Ok(());
         };
         let result = (|| {
+            if !futo_notes_core::files::vault_fs::PINNED_RECOVERY_SUPPORTED {
+                // A clean v4 reservation left by another OS: compare, remove.
+                return self.storage.retire_unpinned(root, &self.path, &expected);
+            }
             // Retry a previously verified pin whose removal failed.
             self.storage.remove_reservation(root)?;
             if self.storage.pin(root, &self.path)?.as_ref() == Some(&expected) {
