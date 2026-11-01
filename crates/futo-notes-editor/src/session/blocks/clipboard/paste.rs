@@ -51,6 +51,7 @@ struct PastedShape {
     code: bool,
     blank_line: bool,
     first_block: bool,
+    first_quote: bool,
     last_container: bool,
     last_paragraph: bool,
     only_list: bool,
@@ -107,6 +108,7 @@ impl PastedShape {
             code: filled.iter().any(|line| line.code),
             blank_line: !filled.is_empty() && text.lines().any(|line| line.trim().is_empty()),
             first_block: first.is_some_and(|line| block(line)),
+            first_quote: first.is_some_and(|line| line.quote_depth > 0),
             last_container: last
                 .is_some_and(|line| !line.code && (line.list.is_some() || line.quote_depth > 0)),
             last_paragraph: last.is_some_and(|line| !block(line)),
@@ -245,6 +247,14 @@ impl EditorSession {
                 ),
                 if before_empty { *marker } else { start },
             ),
+            // A pasted quote replaces an empty quote line's own marker, as a
+            // list replaces an empty item's and a block an empty heading's.
+            _ if before_empty && after_empty && shape.first_quote && !line.heading => {
+                let outer = line.prefix.trim_end().strip_suffix('>').map(str::len);
+                let outer = outer.unwrap_or(continuation.len());
+                let prefix = continuation[..outer].to_owned();
+                (prefix.clone(), prefix, line.start + outer)
+            }
             _ => {
                 let tail = if line.heading {
                     line.prefix.clone()

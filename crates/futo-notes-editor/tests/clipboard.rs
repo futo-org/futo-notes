@@ -74,6 +74,7 @@ fn paste_keeps_copied_characters_and_places_blocks() {
         ("- item", (4, 4), "- x\n- y", "- item\n- x\n- y"),
         ("- abcd", (2, 2), "- x\n- y", "- ab\n- x\n- y\n- cd"),
         ("> q", (1, 1), "a\n\nb", "> qa\n>\n> b"),
+        ("> \nz", (0, 0), "> a\n> b", "> a\n> b\nz"),
         // Pasted endings follow the note; code takes text verbatim.
         ("ab\r\ncd", (1, 1), "# T\nz", "a\r\n# T\r\nzb\r\ncd"),
         ("```\nab\n```", (1, 1), "x\n# y", "```\nax\n# yb\n```"),
