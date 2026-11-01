@@ -16,8 +16,9 @@ source/evidence attribution remain in [MR !558](https://gitlab.futo.org/futo-not
    another marked string. Retain the complete refused update and deliver it once after the
    matching reply. Show how cancellation, a selection echo and repeated composition-end
    preserve the intended text. Withheld completed replies test ordering; they do not model
-   blocked filesystem I/O or actual OS composition. Real catalog/composition arbitration
-   remains #305; the separate #294 physical adapter work remains parked.
+   blocked filesystem I/O or actual OS composition. A note-id refresh during composition
+   changes only wikilink semantics (docs/spec/editor/portable-core/wikilinks.md); the separate
+   #294 physical adapter work remains parked.
 3. **Coordinate and semantic changes.** Source `__😀__ &amp;` displays `😀 &`. Emoji UTF-16
    `[0,2]` means display bytes `[0,4]`, never source offsets. Reject surrogate splits. A
    replacement addresses the old display; its returned selection addresses the new display.
