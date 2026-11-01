@@ -68,6 +68,7 @@ fn paste_keeps_copied_characters_and_places_blocks() {
         ),
         ("abc\ndef", (4, 4), "2. x", "abc\n\n2. x\n\ndef"),
         ("> abc\n> def", (4, 4), "2. x", "> abc\n>\n> 2. x\n>\n> def"),
+        ("abc\n# def", (4, 4), "2. x", "abc\n\n2. x\n\n# def"),
         ("abcd", (2, 2), "```\ncode", "ab\n```\ncode\n```\ncd"),
         // Inside containers: nested under the item, siblings for a list.
         ("- item", (4, 4), "# Title", "- item\n  # Title"),
@@ -92,6 +93,11 @@ fn paste_keeps_copied_characters_and_places_blocks() {
         ("[ab](u)", (1, 1), "x\n\ny", "[ax](u)\n\n[yb](u)"),
         ("**ab** c", (1, 1), "# T\n\nz", "**a**\n# T\n\n**zb** c"),
         ("ab", (1, 1), "\n", "a\nb"),
+        // A pasted span beside the same style joins it.
+        ("x **a** y", (3, 3), "**b**", "x **ab** y"),
+        ("x **a** y", (2, 2), "**b**", "x **ba** y"),
+        ("x *a* y", (3, 3), "*b*", "x *ab* y"),
+        ("**abc**", (2, 2), "__x__", "**abxc**"),
     ] {
         let s = paste(source, range(a, b), text);
         assert_eq!(s.source_text(), expected, "{source:?} + {text:?}");

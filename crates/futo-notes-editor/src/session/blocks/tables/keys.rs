@@ -93,7 +93,59 @@ impl EditorSession {
         if self.composition.is_some() {
             return Err(EditorError::CompositionActive);
         }
-        let Some((window, Some((row, column)))) = self.table_target(self.selection) else {
+        self.table_key_at(expected, self.selection, key, accept)
+    }
+
+    /// Paragraph Enter and Shift+Enter in a cell are the table's keys, so a
+    /// line break never splits a row; a move to the cell below is reported
+    /// as a selection-only change at the unchanged revision.
+    pub(in crate::session) fn cell_enter(
+        &mut self,
+        expected: Revision,
+        range: DisplayRange,
+        shift: bool,
+        accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
+    ) -> Result<Option<ViewChange>, EditorError> {
+        let key = if shift {
+            TableKey::ShiftEnter
+        } else {
+            TableKey::Enter
+        };
+        Ok(match self.table_key_at(expected, range, key, accept)? {
+            None => None,
+            Some(TableOutcome::Edited(change)) => Some(*change),
+            Some(TableOutcome::Selected(moved)) => {
+                let at = DisplayRange {
+                    start: moved.selection.start,
+                    end: moved.selection.start,
+                };
+                let (projection, work) = self.projection.query_with_work(self.revision, at);
+                Some(ViewChange {
+                    previous_revision: self.revision,
+                    revision: self.revision,
+                    range: at,
+                    inserted: String::new(),
+                    selection: moved.selection,
+                    affinity: moved.affinity,
+                    projection,
+                    work: crate::EditWork {
+                        link_metadata_items: work.items,
+                        link_copied_bytes: work.copied,
+                        ..Default::default()
+                    },
+                })
+            }
+        })
+    }
+
+    fn table_key_at(
+        &mut self,
+        expected: Revision,
+        range: DisplayRange,
+        key: TableKey,
+        accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
+    ) -> Result<Option<TableOutcome>, EditorError> {
+        let Some((window, Some((row, column)))) = self.table_target(range) else {
             return Ok(None);
         };
         let rows = window.layout.rows();
@@ -128,7 +180,7 @@ impl EditorSession {
                 .exit_table(expected, &window, accept)
                 .map(|change| TableOutcome::Edited(Box::new(change))),
             TableKey::ShiftEnter => {
-                let (start, end) = self.table_source_span(self.selection);
+                let (start, end) = self.table_source_span(range);
                 let selection = BlockSelection::Source(start + "<br>".len());
                 self.commit_block_edit(expected, start..end, "<br>", selection, None, accept)
                     .map(|change| TableOutcome::Edited(Box::new(change)))

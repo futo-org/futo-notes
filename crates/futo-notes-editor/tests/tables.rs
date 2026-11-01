@@ -44,8 +44,7 @@ fn command(session: &mut EditorSession, row: usize, column: usize, command: Tabl
 
 fn typed(session: &mut EditorSession, at: DisplayRange, text: &str) {
     session
-        .replace_in_cell(session.revision(), at, text, &mut |_| Ok(()))
-        .unwrap()
+        .replace(session.revision(), at, text, &mut |_| Ok(()))
         .unwrap();
 }
 
@@ -120,19 +119,13 @@ fn cell_edits_escape_pipes_keep_formats_and_never_touch_other_cells() {
         session.source_text(),
         "| **a\\|** | b |\n| - | - |\n| x y | d |\n"
     );
-    // Crossing a pipe is refused whole.
     let before = session.source_text();
-    let across = range(cell(&session, 1, 0).start.0, cell(&session, 1, 1).end.0);
-    let error = session
-        .replace_in_cell(session.revision(), across, "z", &mut |_| Ok(()))
-        .unwrap_err();
-    assert_eq!(error, EditorError::InvalidRange);
     // A typed backslash before a typed pipe would read as a delimiter.
     let d = caret_in(&mut session, 1, 1);
     typed(&mut session, d, "\\");
     let at = caret_in(&mut session, 1, 1);
     let error = session
-        .replace_in_cell(session.revision(), at, "|", &mut |_| Ok(()))
+        .replace(session.revision(), at, "|", &mut |_| Ok(()))
         .unwrap_err();
     assert_eq!(error, EditorError::UnrepresentableFormat);
     assert_ne!(session.source_text(), before);
@@ -146,6 +139,65 @@ fn cell_edits_escape_pipes_keep_formats_and_never_touch_other_cells() {
         session.source_text(),
         "| **a** | b |\n| - | - |\n| c | d |\n"
     );
+}
+
+#[test]
+fn every_input_path_escapes_pipes_inside_a_cell() {
+    use futo_notes_editor::{DisplayReplacement, ParagraphKey};
+    type Path = fn(&mut EditorSession, DisplayRange);
+    let paths: &[(&str, Path)] = &[
+        ("replace", |s, at| {
+            s.replace(s.revision(), at, "x|*y*", &mut |_| Ok(()))
+                .unwrap();
+        }),
+        ("replace_many", |s, at| {
+            let run = DisplayReplacement {
+                range: at,
+                inserted: "x|*y*".into(),
+            };
+            s.replace_many(s.revision(), &[run], &mut |_| Ok(()))
+                .unwrap();
+        }),
+        ("composition", |s, at| {
+            s.compose(s.revision(), at, "x|*y*").unwrap();
+            s.commit_composition(s.revision(), None, &mut |_| Ok(()))
+                .unwrap();
+        }),
+        ("os replacement", |s, at| {
+            let word = range(at.start.0 - 1, at.end.0);
+            s.replace_os(s.revision(), word, "ax|*y*", &[], &mut |_| Ok(()))
+                .unwrap();
+        }),
+    ];
+    // Only the pipe is escaped; the rest reads as Markdown.
+    for (name, path) in paths {
+        let mut session = EditorSession::open(GRID);
+        let at = caret_in(&mut session, 0, 0);
+        path(&mut session, at);
+        assert_eq!(
+            session.source_text(),
+            GRID.replace("| a |", "| ax\\|*y* |"),
+            "{name}"
+        );
+    }
+    // Enter in a cell follows the table keys; it never splits a row.
+    let enter = |session: &mut EditorSession, key| {
+        let at = session.selection();
+        session
+            .paragraph_key(session.revision(), at, key, &mut |_| Ok(()))
+            .unwrap()
+            .unwrap()
+    };
+    let mut session = EditorSession::open(GRID);
+    caret_in(&mut session, 0, 0);
+    let moved = enter(&mut session, ParagraphKey::Enter);
+    assert_eq!(moved.selection, cell(&session, 1, 0));
+    assert_eq!(session.source_text(), GRID);
+    enter(&mut session, ParagraphKey::Enter);
+    assert_eq!(session.source_text(), format!("{GRID}|  |  |\n"));
+    caret_in(&mut session, 1, 1);
+    enter(&mut session, ParagraphKey::ShiftEnter);
+    assert!(session.source_text().contains("| d<br> |"));
 }
 
 #[test]
@@ -425,8 +477,7 @@ fn cell_edit_work_follows_the_table_not_the_note() {
     let at = range(start + 2, start + 3);
     session.select(Revision(0), at).unwrap();
     let change = session
-        .replace_in_cell(Revision(0), at, "x", &mut |_| Ok(()))
-        .unwrap()
+        .replace(Revision(0), at, "x|", &mut |_| Ok(()))
         .unwrap();
     assert!(
         change.work.parsed_source_bytes < 8 * table.len(),
@@ -453,10 +504,7 @@ fn portable_table_steps_wait_for_acceptance_but_selection_moves_do_not() {
     else {
         panic!("Tab selects the next cell");
     };
-    let request = page
-        .replace_in_cell(Revision(0), range(6, 7), "x|")
-        .unwrap()
-        .unwrap();
+    let request = page.replace(Revision(0), range(6, 7), "x|").unwrap();
     assert_eq!(
         page.draft_text(),
         "| a | x\\| |\n| --- | :-: |\n| c | d |\n"
@@ -512,8 +560,7 @@ fn utf16_variants_address_cells_in_native_units_and_reject_split_surrogates() {
         end: native.end,
     };
     session
-        .replace_in_cell_utf16(Revision(0), caret, &[0x7c, 0x78], &mut |_| Ok(()))
-        .unwrap()
+        .replace_utf16(Revision(0), caret, &[0x7c, 0x78], &mut |_| Ok(()))
         .unwrap();
     assert!(session.source_text().starts_with("| \u{1F600}a\\|x | b |"));
     let at = cell(&session, 0, 0);
@@ -528,8 +575,7 @@ fn utf16_variants_address_cells_in_native_units_and_reject_split_surrogates() {
         .unwrap()
         .unwrap();
     session
-        .replace_in_cell_utf16(session.revision(), native, &[0x79], &mut |_| Ok(()))
-        .unwrap()
+        .replace_utf16(session.revision(), native, &[0x79], &mut |_| Ok(()))
         .unwrap();
     assert!(session.source_text().starts_with("| y | b |"));
 }

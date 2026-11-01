@@ -19,10 +19,7 @@ fn table_steps_recover_exact_bytes_and_a_failed_append_changes_no_grid() {
                 .unwrap();
             table.rows[row][column].content
         };
-        session
-            .replace_in_cell(Revision(0), range(3, 3), "|x")
-            .unwrap()
-            .unwrap();
+        session.replace(Revision(0), range(3, 3), "|x").unwrap();
         let typed = "| a\\|x | b |\r\n| --- | :-: |\r\n| c | d |\r\n";
         assert_eq!(session.source_text(), typed);
         let before = session.project(Revision(1), range(0, 10)).unwrap();

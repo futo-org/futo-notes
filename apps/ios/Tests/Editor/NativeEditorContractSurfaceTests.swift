@@ -96,8 +96,8 @@ struct NativeEditorContractSurfaceTests {
                 let table = try #require(try s.inspectTable(expected: 0, range: Self.at(0, 0)))
                 #expect((table.columns, table.rows.count) == (2, 2))
                 let end = table.rows[0][0].content.end
-                _ = try #require(
-                    try s.replaceInCell(expected: 0, range: Self.at(end, end), inserted: "x|y"))
+                let caret = EditorUtf16Range(start: end, end: end)
+                _ = try s.replaceUtf16(expected: 0, range: caret, inserted: [120, 124, 121])
                 let moved = try #require(try s.tableKey(expected: 1, key: .tab))
                 #expect(moved.selected?.revision == 1 && moved.edited == nil)
                 _ = try #require(

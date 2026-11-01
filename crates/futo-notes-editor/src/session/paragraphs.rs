@@ -18,7 +18,8 @@ impl EditorSession {
     /// Paragraph Enter/Shift+Enter insert one LF. Directional deletion removes
     /// the selection or one visible extended grapheme (CRLF is one line break).
     /// Headings, quotes and divider edges route through the shared block owner;
-    /// list, fence and table keys belong to their subsequent command layer.
+    /// Enter in a table cell takes the table's keys; list and fence keys
+    /// belong to their subsequent command layer.
     /// Boundary deletion is a no-op with no acceptance, revision or history.
     pub fn paragraph_key(
         &mut self,
@@ -42,6 +43,10 @@ impl EditorSession {
             return self.fence_tab(expected, range, key == ParagraphKey::ShiftTab, accept);
         }
         if matches!(key, ParagraphKey::Enter | ParagraphKey::ShiftEnter) {
+            let shift = key == ParagraphKey::ShiftEnter;
+            if let Some(change) = self.cell_enter(expected, range, shift, accept)? {
+                return Ok(Some(change));
+            }
             if let Some(change) = self.fence_conversion(expected, range, "\n", accept)? {
                 return Ok(Some(change));
             }

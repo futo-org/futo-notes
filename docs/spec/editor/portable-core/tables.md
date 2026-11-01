@@ -16,11 +16,13 @@ or the delimiter row.
   the last body row and last column cannot be deleted; deleting down to one column keeps pipes
   on every row, so a pipeless table stays a table) are reported as plain state. A body row
   shorter than the header lists only the cells it has. → crates/futo-notes-editor/src/session/blocks/tables.rs
-- Cell replacement writes `|` as `\|`, turns line breaks into spaces, and keeps inline formats;
-  a range that crosses cells or touches a pipe, or a typed backslash that would make the next
-  pipe a delimiter, is refused whole. No other cell's bytes change. Today the escape applies to the
-  cell entry points (`replace_in_cell`, cell paste); the engine-wide escape on every input path
-  is a pending follow-up (DECISIONS #11). → crates/futo-notes-editor/src/session/blocks/tables.rs, crates/futo-notes-editor/src/inline/edit.rs
+- Every input path whose range lies inside one cell (typing, compound replacement, IME commit,
+  OS replacement/autocorrect, paste) writes `|` as `\|`, turns line breaks into spaces, and keeps
+  inline formats; an edit that would leave the cell or change the pipe count (a typed backslash
+  before a pipe) is refused whole, so no other cell's bytes change. Only input holding `|`, `\`
+  or a line break reads the table. Paragraph Enter and Shift+Enter in a cell are the table's
+  Enter and Shift+Enter below (a move to the cell below is a selection-only change at the same
+  revision). There is no cell-specific input entry point. → crates/futo-notes-editor/src/session/blocks/tables.rs, crates/futo-notes-editor/src/inline/edit.rs
 - Tab and Shift+Tab select the next/previous cell's content (Tab in the last cell appends a row;
   Shift+Tab in the first cell is left to the host). Enter selects the cell below, and on the last
   row appends a row and enters the same column. Mod+Enter leaves a blank line and an empty line

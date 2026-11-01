@@ -13,7 +13,7 @@ use super::{
     Projection,
 };
 use crate::{Affinity, DisplayRange, EditorError, InlineFormat};
-pub(super) use carry::carry_formats;
+pub(super) use carry::{carry_formats, joined_span};
 use ropey::Rope;
 pub(super) use selection::{cut, split_entities, Cut};
 pub(crate) use source::SourceCorrespondence;
@@ -160,13 +160,28 @@ impl Projection {
             right,
         } = cut(expanded, a..z, toggle.is_some());
         let mut active = if a == z && affinity == Affinity::Backward {
-            left
+            left.clone()
         } else {
-            right
+            right.clone()
         };
         if let Some(formats) = pending {
             carry_formats(&mut before, &after, &mut markers, &mut active, formats);
         }
+        let joined = if toggle.is_none() {
+            joined_span(inserted, &markers, [&active, &left, &right])
+        } else {
+            None
+        };
+        let (kept, inserted_spans) = match &joined {
+            Some((id, kept)) => {
+                let mut spans = active.clone();
+                if !spans.contains(id) {
+                    spans.insert(0, *id);
+                }
+                (kept.clone(), spans)
+            }
+            None => (0..inserted.len(), active.clone()),
+        };
         let formats = active
             .iter()
             .filter_map(|id| markers[*id].kind.format())
@@ -199,7 +214,8 @@ impl Projection {
         }
         let mut changed = before;
         let insertion_index = changed.len();
-        changed.extend(inserted.char_indices().map(|(offset, ch)| Piece {
+        let pieces = inserted.char_indices().filter(|(at, _)| kept.contains(at));
+        changed.extend(pieces.map(|(offset, ch)| Piece {
             guard: split_guard.map(|id| super::guarded_words::GuardPart {
                 id,
                 role: super::guarded_words::GuardRole::Inner,
@@ -212,7 +228,7 @@ impl Projection {
                 ch.to_string()
             },
             display: ch.to_string(),
-            spans: active.clone(),
+            spans: inserted_spans.clone(),
             trailing: false,
             definition: None,
             origin: Some(PieceOrigin::Inserted(offset..offset + ch.len_utf8())),
@@ -244,7 +260,7 @@ impl Projection {
                 if boundary <= a {
                     Some(boundary)
                 } else if boundary >= z {
-                    Some(boundary - (z - a) + inserted.len())
+                    Some(boundary - (z - a) + kept.len())
                 } else {
                     None
                 }
@@ -302,12 +318,11 @@ impl Projection {
         let speculative_fence = (prefix.starts_with("```") || prefix.starts_with("~~~"))
             && !prefix.contains(char::is_whitespace);
         let mut literal = inserted.contains(['<', '>'])
-            || escape_pipes && inserted.contains('|')
             || speculative_fence
             || speculative_block
             || toggle.is_some()
             || inserted.is_empty()
-            || !inserted.contains(['*', '_', '~', '`', '\\', '&', '<', '>'])
+            || !inserted[kept.clone()].contains(['*', '_', '~', '`', '\\', '&', '<', '>'])
             || active
                 .iter()
                 .any(|id| markers[*id].kind == SpanKind::Format(InlineFormat::Code));

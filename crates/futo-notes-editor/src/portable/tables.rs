@@ -30,15 +30,6 @@ impl PortableSession {
         Ok(self.engine.inspect_table_utf16(expected, range)?)
     }
 
-    pub fn replace_in_cell(
-        &mut self,
-        expected: Revision,
-        range: DisplayRange,
-        inserted: &str,
-    ) -> Result<Option<HostRequest>, PortableError> {
-        self.stage_table(|engine, accept| engine.replace_in_cell(expected, range, inserted, accept))
-    }
-
     pub fn table_command(
         &mut self,
         expected: Revision,
@@ -46,17 +37,6 @@ impl PortableSession {
         command: TableCommand,
     ) -> Result<Option<HostRequest>, PortableError> {
         self.stage_table(|engine, accept| engine.table_command(expected, range, command, accept))
-    }
-
-    pub fn replace_in_cell_utf16(
-        &mut self,
-        expected: Revision,
-        range: DisplayUtf16Range,
-        inserted: &[u16],
-    ) -> Result<Option<HostRequest>, PortableError> {
-        self.stage_table(|engine, accept| {
-            engine.replace_in_cell_utf16(expected, range, inserted, accept)
-        })
     }
 
     pub fn table_command_utf16(

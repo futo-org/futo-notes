@@ -190,19 +190,6 @@ impl NativeEditorSession {
         })
     }
 
-    pub fn replace_in_cell(
-        &self,
-        expected: u64,
-        range: EditorByteRange,
-        inserted: String,
-    ) -> Result<Option<EditorViewChange>, EditorSessionError> {
-        self.with_revision(expected, |session| {
-            Ok(session
-                .replace_in_cell(Revision(expected), range.try_into()?, &inserted)?
-                .map(Into::into))
-        })
-    }
-
     pub fn table_command(
         &self,
         expected: u64,

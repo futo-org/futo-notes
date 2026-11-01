@@ -40,37 +40,6 @@ impl WasmSession {
         )
     }
 
-    /// Request-or-null; `null` means the range is not in a table.
-    pub fn replace_in_cell(
-        &mut self,
-        revision: u64,
-        start: usize,
-        end: usize,
-        inserted: &str,
-    ) -> Result<String, JsValue> {
-        json(
-            &self
-                .0
-                .replace_in_cell(Revision(revision), range(start, end), inserted)
-                .map_err(error)?,
-        )
-    }
-
-    pub fn replace_in_cell_utf16(
-        &mut self,
-        revision: u64,
-        start: usize,
-        end: usize,
-        inserted: &[u16],
-    ) -> Result<String, JsValue> {
-        json(
-            &self
-                .0
-                .replace_in_cell_utf16(Revision(revision), utf16_range(start, end), inserted)
-                .map_err(error)?,
-        )
-    }
-
     /// `command` is a `TableCommand` name such as `"InsertRowBelow"`.
     pub fn table_command(
         &mut self,
