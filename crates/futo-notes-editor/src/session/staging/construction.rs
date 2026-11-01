@@ -27,6 +27,7 @@ impl EditorSession {
             &winners,
             work,
         );
+        projection.catalog = self.projection.catalog.clone();
         projection.references_complete = exact
             && self.projection.references_complete
             && window.start == 0

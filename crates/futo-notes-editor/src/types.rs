@@ -188,4 +188,36 @@ pub struct ProjectionSlice {
     pub correspondence: Vec<Correspondence>,
     pub blocks: Vec<BlockDescription>,
     pub links: Vec<LinkDescription>,
+    #[serde(default)]
+    pub wikilinks: Vec<WikilinkDescription>,
+}
+
+/// A `[[target]]` outside code and HTML. The range covers its visible source
+/// glyphs; a renderer may draw `label` in their place. `note_id` is `None` for
+/// an absent or ambiguous target, whose label is the raw target.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WikilinkDescription {
+    pub range: DisplayRange,
+    pub target: String,
+    pub label: String,
+    pub note_id: Option<String>,
+}
+
+/// Semantic replacements for only the wikilinks whose resolution or label a
+/// note-id delivery changed. Source, display text and revision are unchanged.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NoteIdChange {
+    pub revision: Revision,
+    pub projections: Vec<ProjectionSlice>,
+    pub work: NoteIdWork,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NoteIdWork {
+    /// Id suffix entries indexed and ids compared; proportional to the vault.
+    pub catalog_items: usize,
+    /// Row-tree nodes entered while locating links the change can affect.
+    pub rows_visited: usize,
+    /// Links re-resolved in those rows, including leaf-hash false positives.
+    pub links_examined: usize,
 }

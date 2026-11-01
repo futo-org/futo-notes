@@ -90,14 +90,31 @@ mod tests {
 
     #[test]
     fn index_answers_equal_the_scanning_rules() {
-        let ids: Vec<String> = ["Projects/Roadmap", "Other/Notes", "Work/Notes", "Notes", "a/b/c"]
-            .iter()
-            .chain(&["x/b/c", "dup", "dup"])
-            .map(|s| s.to_string())
-            .collect();
+        let ids: Vec<String> = [
+            "Projects/Roadmap",
+            "Other/Notes",
+            "Work/Notes",
+            "Notes",
+            "a/b/c",
+            "x/b/c",
+            "dup",
+            "dup",
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
         let index = WikilinkIndex::new(&ids);
         for target in [
-            "Roadmap", "Notes", "Work/Notes", "c", "b/c", "a/b/c", "dup", "", "missing", "/c",
+            "Roadmap",
+            "Notes",
+            "Work/Notes",
+            "c",
+            "b/c",
+            "a/b/c",
+            "dup",
+            "",
+            "missing",
+            "/c",
         ] {
             assert_eq!(
                 index.resolve(target).map(str::to_owned),
