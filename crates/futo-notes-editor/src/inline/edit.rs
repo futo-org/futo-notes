@@ -302,7 +302,6 @@ impl Projection {
         let speculative_fence = (prefix.starts_with("```") || prefix.starts_with("~~~"))
             && !prefix.contains(char::is_whitespace);
         let mut literal = inserted.contains(['<', '>'])
-            || escape_pipes && inserted.contains('|')
             || speculative_fence
             || speculative_block
             || toggle.is_some()

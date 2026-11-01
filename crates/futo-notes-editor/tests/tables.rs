@@ -147,34 +147,36 @@ fn every_input_path_escapes_pipes_inside_a_cell() {
     type Path = fn(&mut EditorSession, DisplayRange);
     let paths: &[(&str, Path)] = &[
         ("replace", |s, at| {
-            s.replace(s.revision(), at, "x|y", &mut |_| Ok(())).unwrap();
+            s.replace(s.revision(), at, "x|*y*", &mut |_| Ok(()))
+                .unwrap();
         }),
         ("replace_many", |s, at| {
             let run = DisplayReplacement {
                 range: at,
-                inserted: "x|y".into(),
+                inserted: "x|*y*".into(),
             };
             s.replace_many(s.revision(), &[run], &mut |_| Ok(()))
                 .unwrap();
         }),
         ("composition", |s, at| {
-            s.compose(s.revision(), at, "x|y").unwrap();
+            s.compose(s.revision(), at, "x|*y*").unwrap();
             s.commit_composition(s.revision(), None, &mut |_| Ok(()))
                 .unwrap();
         }),
         ("os replacement", |s, at| {
             let word = range(at.start.0 - 1, at.end.0);
-            s.replace_os(s.revision(), word, "ax|y", &[], &mut |_| Ok(()))
+            s.replace_os(s.revision(), word, "ax|*y*", &[], &mut |_| Ok(()))
                 .unwrap();
         }),
     ];
+    // Only the pipe is escaped; the rest reads as Markdown.
     for (name, path) in paths {
         let mut session = EditorSession::open(GRID);
         let at = caret_in(&mut session, 0, 0);
         path(&mut session, at);
         assert_eq!(
             session.source_text(),
-            GRID.replace("| a |", "| ax\\|y |"),
+            GRID.replace("| a |", "| ax\\|*y* |"),
             "{name}"
         );
     }
