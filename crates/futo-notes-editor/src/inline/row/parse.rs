@@ -298,6 +298,7 @@ impl Row {
             typed_inputs: Vec::new(),
             context,
             transparent_quote,
+            continues: false,
             source_len: source.len(),
             parsed_source_bytes: source.len() + additional_parse + reference_work.parsed,
             definitions,

@@ -1,0 +1,3 @@
+# Long regions on the full path
+
+- A top-level paragraph of at least 2 KiB is cut into rows at sealed soft-line seams: no inline element crosses the seam, the earlier line has no hard-break spelling, the later line cannot start a block, and no row keeps a literal delimiter able to pair across rows. Local keys reparse only neighboring cuts; a change whose meaning reaches across a cut (a setext underline, a list interruption, an unmatched delimiter) widens once to the complete paragraph, including input planning, so the result matches the uncut projection while distant lines keep their exact spelling. → crates/futo-notes-editor/src/inline/row/split.rs, crates/futo-notes-editor/src/inline/split_tests.rs, crates/futo-notes-editor/tests/long_regions.rs

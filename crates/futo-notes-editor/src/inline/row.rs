@@ -1,6 +1,10 @@
 mod parse;
+mod split;
 use crate::InlineFormat;
 use pulldown_cmark::{Event, Options, Parser, Tag};
+pub(crate) use split::partition;
+#[cfg(test)]
+pub(crate) use split::UNCUT;
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -77,6 +81,8 @@ pub(crate) struct Row {
     pub blocks: Vec<super::blocks::BlockLine>,
     pub(super) context: Vec<ContextRun>,
     pub(super) transparent_quote: Option<usize>,
+    /// This row continues the preceding row's top-level paragraph.
+    pub continues: bool,
 }
 
 pub(super) fn parser_options() -> Options {
@@ -296,40 +302,6 @@ impl Row {
             .filter_map(|span| span.kind.format())
             .collect()
     }
-}
-
-/// Blank lines bound independent inline parses. Keep each separator with its
-/// preceding paragraph; edits reparse neighboring paragraphs when joining.
-pub(crate) fn paragraphs(source: &str) -> Vec<&str> {
-    let protected: Vec<_> = Parser::new(source)
-        .into_offset_iter()
-        .filter_map(|(event, range)| match event {
-            Event::Start(Tag::CodeBlock(_) | Tag::List(_)) => Some(range),
-            _ => None,
-        })
-        .collect();
-    let mut protected_index = 0;
-    let mut result = Vec::new();
-    let mut start = 0;
-    let mut offset = 0;
-    for line in source.split_inclusive('\n') {
-        let line_start = offset;
-        offset += line.len();
-        while protected_index < protected.len() && protected[protected_index].end <= line_start {
-            protected_index += 1;
-        }
-        let in_code = protected
-            .get(protected_index)
-            .is_some_and(|range| range.start <= line_start && line_start < range.end);
-        if !in_code && line.trim_matches([' ', '\t', '\r', '\n']).is_empty() {
-            result.push(&source[start..offset]);
-            start = offset;
-        }
-    }
-    if start < source.len() || result.is_empty() {
-        result.push(&source[start..]);
-    }
-    result
 }
 
 #[cfg(test)]

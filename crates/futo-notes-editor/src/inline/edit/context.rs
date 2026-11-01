@@ -7,7 +7,21 @@ impl Projection {
         source: &Rope,
         range: DisplayRange,
     ) -> Result<Context, crate::EditorError> {
-        self.edit_context_for_change(source, range, None)
+        self.edit_context_for_change(source, range, None, false)
+    }
+
+    /// A candidate replacing source `start..end` is sealed when it cannot
+    /// pair with syntax in a neighboring row of the same cut paragraph.
+    pub(super) fn sealed_candidate(&self, start: usize, end: usize, output: &str) -> (bool, usize) {
+        let continues = self.rows.at(self.rows.locate(start, false)).0.continues;
+        let index = self.rows.locate(end, false);
+        let (row, at, _) = self.rows.at(index);
+        let next_continues = at == end && end > start && row.continues;
+        if !continues && !next_continues {
+            return (true, 0);
+        }
+        let found = super::super::row::partition(output, continues, next_continues);
+        (!found.widen_back && !found.widen_forward, output.len())
     }
 
     pub(super) fn edit_context_for_change(
@@ -15,9 +29,19 @@ impl Projection {
         source: &Rope,
         range: DisplayRange,
         replacement: Option<&str>,
+        wide: bool,
     ) -> Result<Context, crate::EditorError> {
-        let first = self.rows.locate(range.start.0, true);
-        let last = self.rows.locate(range.end.0, true);
+        let mut first = self.rows.locate(range.start.0, true);
+        let mut last = self.rows.locate(range.end.0, true);
+        if wide {
+            // The complete paragraph of every cut row in the context.
+            while self.rows.at(first).0.continues {
+                first -= 1;
+            }
+            while last + 1 < self.rows.len() && self.rows.at(last + 1).0.continues {
+                last += 1;
+            }
+        }
         let (_, source_start, display_start) = self.rows.at(first);
         let (end_row, source_end, _) = self.rows.at(last);
         let source_end = source_end + end_row.source_len;

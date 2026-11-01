@@ -61,6 +61,33 @@ impl Projection {
         pending: Option<&[InlineFormat]>,
         intent: EditIntent,
     ) -> Result<Plan, EditorError> {
+        let (plan, sealed) =
+            self.edit_in(source, range, inserted, affinity, pending, intent, false)?;
+        if sealed {
+            return Ok(plan);
+        }
+        // The candidate's meaning can reach another row of a cut paragraph:
+        // plan once more against the complete paragraph (#314).
+        let (mut wide, _) =
+            self.edit_in(source, range, inserted, affinity, pending, intent, true)?;
+        wide.materialized += plan.materialized;
+        wide.parsed += plan.parsed;
+        wide.link_metadata_items += plan.link_metadata_items;
+        wide.link_copied_bytes += plan.link_copied_bytes;
+        Ok(wide)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn edit_in(
+        &self,
+        source: &Rope,
+        range: DisplayRange,
+        inserted: &str,
+        affinity: Affinity,
+        pending: Option<&[InlineFormat]>,
+        intent: EditIntent,
+        wide: bool,
+    ) -> Result<(Plan, bool), EditorError> {
         let toggle = match intent {
             EditIntent::Toggle(format) => Some(format),
             _ => None,
@@ -78,7 +105,12 @@ impl Projection {
             block_boundaries,
             pending_links,
             link_metadata_items,
-        } = self.edit_context_for_change(source, range, toggle.is_none().then_some(inserted))?;
+        } = self.edit_context_for_change(
+            source,
+            range,
+            toggle.is_none().then_some(inserted),
+            wide,
+        )?;
         let mut typed = super::typed_angle::TypedState::current(typed_inputs);
         let expanded = split_entities(pieces, a, z);
         let (split_guard, split_work) =
@@ -284,6 +316,7 @@ impl Projection {
         let parsed = rendered.parsed + angle.work.parsed + completion.work.parsed;
         let guarded_words = rendered.take_guards(source_start, source_end);
         let output = rendered.text;
+        let (sealed, seal_parsed) = self.sealed_candidate(source_start, source_end, &output);
         let caret = rendered.caret;
         let (mut retained, mut correspondence_work) =
             SourceCorrespondence::verify(&raw, inserted, &output, rendered.origins, source_start);
@@ -299,7 +332,7 @@ impl Projection {
             .take_while(|(a, b)| a == b)
             .map(|(c, _)| c.len_utf8())
             .sum();
-        Ok(Plan {
+        let plan = Plan {
             guarded_words,
             split_retirement: rendered.split_retirement,
             retained,
@@ -318,7 +351,11 @@ impl Projection {
                 + angle.materialized
                 + completion.materialized
                 + rendered.materialized,
-            parsed: parsed + timing.work.parsed + guard_work.parsed + typed_work.parsed,
+            parsed: parsed
+                + seal_parsed
+                + timing.work.parsed
+                + guard_work.parsed
+                + typed_work.parsed,
             link_metadata_items: typed_work.items
                 + guard_work.items
                 + link_metadata_items
@@ -335,7 +372,8 @@ impl Projection {
                 + angle.work.copied
                 + completion.work.copied
                 + timing.work.copied,
-        })
+        };
+        Ok((plan, sealed))
     }
 }
 

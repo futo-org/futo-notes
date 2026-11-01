@@ -24,6 +24,8 @@ mod retained_points;
 mod row;
 mod source_points;
 mod spelling;
+#[cfg(test)]
+mod split_tests;
 pub(crate) use spelling::relink::{RetainedFormat, RetiredLinkText};
 mod toggle;
 mod tree;
@@ -39,7 +41,7 @@ pub(crate) use lists::{
     CONTAINER_METADATA_VISITS, CONTAINER_PREFIX_QUERIES, CONTAINER_STYLE_OWNER_SCANS,
 };
 use ropey::Rope;
-use row::{paragraphs, Row};
+use row::{partition, Row};
 pub(crate) use tree::ContextWitness;
 use tree::Rows;
 #[cfg(test)]
@@ -85,12 +87,14 @@ impl Projection {
     ) -> Self {
         let mut origin = 0;
         let mut witness_work = 0;
-        let parsed: Vec<_> = paragraphs(source)
+        let parsed: Vec<_> = partition(source, false, false)
+            .rows
             .into_iter()
-            .map(|text| {
+            .map(|(text, continues)| {
                 let (local, work) = references::window_winners(winners, origin, text.len());
                 witness_work += work;
-                let row = Row::parse_with_references(text, &references, &local);
+                let mut row = Row::parse_with_references(text, &references, &local);
+                row.continues = continues;
                 origin += text.len();
                 row
             })
@@ -264,20 +268,57 @@ impl Projection {
         edit: &SourceEdit,
         canonical_origin: Option<&references::SourceOrigin>,
     ) -> Update {
-        let first = self
+        let mut first = self
             .rows
             .locate(edit.range.start.0, false)
             .saturating_sub(1);
-        let last = (self.rows.locate(edit.range.end.0, false) + 1).min(self.rows.len() - 1);
+        let mut last = (self.rows.locate(edit.range.end.0, false) + 1).min(self.rows.len() - 1);
+        // A cut paragraph whose meaning reaches outside the window widens to
+        // its complete extent once; seams elsewhere remain sealed.
+        let mut partition_bytes = 0;
+        let (source_start, display_start, source_end, display_end, text, pieces) = loop {
+            let (_, source_start, display_start) = self.rows.at(first);
+            let (row, old_end, display_end) = self.rows.at(last);
+            let source_end = old_end + row.source_len - edit.removed.len() + edit.inserted.len();
+            let display_end = display_end + row.display.len();
+            let text = source.byte_slice(source_start..source_end).to_string();
+            let continues = self.rows.at(first).0.continues;
+            let next_continues = last + 1 < self.rows.len() && self.rows.at(last + 1).0.continues;
+            let found = partition(&text, continues, next_continues);
+            if !found.widen_back && !found.widen_forward {
+                let pieces: Vec<(usize, bool)> = found
+                    .rows
+                    .iter()
+                    .map(|(raw, continues)| (raw.len(), *continues))
+                    .collect();
+                break (
+                    source_start,
+                    display_start,
+                    source_end,
+                    display_end,
+                    text,
+                    pieces,
+                );
+            }
+            partition_bytes += text.len();
+            // Keep one neighbor row beyond the paragraph, as the local window does.
+            if found.widen_back {
+                while self.rows.at(first).0.continues {
+                    first -= 1;
+                }
+                first = first.saturating_sub(1);
+            }
+            if found.widen_forward {
+                while last + 1 < self.rows.len() && self.rows.at(last + 1).0.continues {
+                    last += 1;
+                }
+                last = (last + 1).min(self.rows.len() - 1);
+            }
+        };
         let (pending, metadata_work) = self.pending_display(first, last);
         let (delimiters, delimiter_work) = self.retained_delimiters(first, last, edit);
         let mut guards = Vec::new();
         let mut typed_inputs = Vec::new();
-        let (_, source_start, display_start) = self.rows.at(first);
-        let (row, old_end, display_end) = self.rows.at(last);
-        let source_end = old_end + row.source_len - edit.removed.len() + edit.inserted.len();
-        let display_end = display_end + row.display.len();
-        let text = source.byte_slice(source_start..source_end).to_string();
         #[cfg(test)]
         materialization_tests::allocated(materialization_tests::Buffer::Apply, text.len());
         let mut winners = Vec::new();
@@ -313,12 +354,14 @@ impl Projection {
             }
         }
         let mut origin = 0;
-        let parsed: Vec<_> = paragraphs(&text)
+        let parsed: Vec<_> = pieces
             .into_iter()
-            .map(|raw| {
+            .map(|(len, continues)| {
+                let raw = &text[origin..origin + len];
                 let (local, work) = references::window_winners(&winners, origin, raw.len());
                 reference_work.items += work;
-                let row = Row::parse_with_references(raw, &self.references, &local);
+                let mut row = Row::parse_with_references(raw, &self.references, &local);
+                row.continues = continues;
                 origin += raw.len();
                 row
             })
@@ -332,7 +375,8 @@ impl Projection {
         reference_work.items += comparison_work;
         if meaning_changed {
             if self.references_complete || canonical_origin.is_some() {
-                let local_parsed = text.len()
+                let local_parsed = partition_bytes
+                    + text.len()
                     + parsed
                         .iter()
                         .map(|row| row.parsed_source_bytes)
@@ -358,7 +402,7 @@ impl Projection {
                 return self.rebuild_references(
                     source,
                     edit,
-                    text.len(),
+                    partition_bytes + text.len(),
                     local_parsed,
                     local_items + metadata_work + delimiter_work,
                     local_copied,
@@ -377,7 +421,8 @@ impl Projection {
                 .iter()
                 .map(|row| row.reference_work.items)
                 .sum::<usize>();
-        let parsed_source_bytes = text.len()
+        let parsed_source_bytes = partition_bytes
+            + text.len()
             + parsed
                 .iter()
                 .map(|row| row.parsed_source_bytes)
@@ -441,7 +486,7 @@ impl Projection {
             range,
             inserted,
             parsed_source_bytes,
-            materialized_source_bytes: text.len(),
+            materialized_source_bytes: partition_bytes + text.len(),
             semantic_range,
         }
     }
