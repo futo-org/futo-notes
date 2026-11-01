@@ -84,20 +84,19 @@ impl EditorSession {
             return Ok(None);
         }
         let (at, inserted) = if header.tags.is_empty() {
-            let first_line = self
+            let mut breaks = self
                 .source
                 .slice(self.source.byte_to_char(header.start)..)
                 .chars()
-                .take_while(|&c| c != '\n')
-                .last();
-            let eol = if first_line == Some('\r') {
-                "\r\n"
-            } else {
-                "\n"
+                .skip_while(|&c| c != '\n' && c != '\r');
+            let eol = match (breaks.next(), breaks.next()) {
+                (Some('\r'), Some('\n')) => "\r\n",
+                (Some('\r'), _) => "\r",
+                _ => "\n",
             };
             let body_empty = self.source.len_bytes() == header.start;
-            let tail = if body_empty { "" } else { "\n\n" };
-            (header.start, format!("#{name}{}", tail.replace('\n', eol)))
+            let tail = if body_empty { "" } else { eol };
+            (header.start, format!("#{name}{tail}{tail}"))
         } else {
             let last = header
                 .text
