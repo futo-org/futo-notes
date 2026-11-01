@@ -140,7 +140,7 @@ impl RecoveryLog {
         action: &OwnActionRelink,
         can_adopt: bool,
     ) -> Result<(), String> {
-        self.cancel_bounded_preparation(root)?;
+        self.cancel_reservation(root)?;
         Self::recover_identities(root, &self.header.id, &mut *self.storage)?;
         let records = if self.exists {
             let bytes = self
@@ -203,8 +203,10 @@ impl RecoveryLog {
         root: &Path,
         original: &str,
     ) -> Result<(), String> {
-        self.cancel_bounded_preparation(root)?;
+        self.cancel_reservation(root)?;
         let decision = install(root, &stem(original), &mut *self.storage)?;
+        // Installation replaced or retired any pinned original inode.
+        self.reservation = None;
         self.path = stream(&decision.header.id);
         self.header = decision.header;
         self.exists = decision.intent.exists || self.header.source.is_some();

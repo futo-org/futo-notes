@@ -114,10 +114,11 @@ impl<'store> StoreEditorSession<'store> {
             Err(error) => {
                 state.bounded_work = error.work;
                 state.engine.0 = Some(EditorMode::Full(*error.session));
-                state
-                    .recovery
-                    .cancel_bounded_preparation(&self.store.root)
-                    .map_err(EditorStoreError::Recovery)?;
+                // The original owner returns; a failed cleanup pauses input.
+                if let Err(cleanup) = state.recovery.cancel_reservation(&self.store.root) {
+                    state.recovery.failed = true;
+                    return Err(EditorStoreError::Recovery(cleanup));
+                }
                 Err(owner::bounded_error(error.error))
             }
         }

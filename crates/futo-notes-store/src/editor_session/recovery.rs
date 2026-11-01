@@ -1,6 +1,6 @@
 mod identity;
-mod prepared;
-use std::path::Path;
+mod reservation;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -10,12 +10,16 @@ use super::{RecoveryClock, RecoveryIssue, RecoveryIssueKind, RecoveryStorage};
 use futo_notes_core::hash::hash_sha256;
 use futo_notes_editor::{EditorSession, Revision, SourceEdit};
 pub(super) struct RecoveryLog {
+    root: PathBuf,
     path: String,
     pub(super) checkpoint_target: Option<String>,
     header: Header,
     storage: Box<dyn RecoveryStorage>,
     exists: bool,
-    prepared: Option<prepared::PreparedStream>,
+    /// Header length of this session's pinned bounded reservation.
+    reservation: Option<u64>,
+    /// Exact clean reservation found on reopen, awaiting retirement.
+    stale: Option<Vec<u8>>,
     accepted_bytes: u64,
     pub(super) failed: bool,
     pub(super) issue: Option<RecoveryIssue>,
@@ -49,6 +53,7 @@ impl RecoveryLog {
         let mut accepted_bytes = 0;
         let mut issue = None;
         let mut checkpoint_target = None;
+        let mut stale = None;
         let mut header = Header {
             version: format::VERSION,
             vault: vault.clone(),
@@ -66,7 +71,9 @@ impl RecoveryLog {
             let mut lines = bytes.split_inclusive(|byte| *byte == b'\n');
             let first = lines.next().unwrap_or_default();
             match format::decode_header(first) {
-                Ok(found) if found.version != 2 && found.version != format::VERSION => {
+                Ok(found)
+                    if !matches!(found.version, 2 | format::VERSION | format::BOUNDED_VERSION) =>
+                {
                     issue = Some(RecoveryIssue {
                         kind: RecoveryIssueKind::UnsupportedVersion {
                             version: found.version,
@@ -79,6 +86,16 @@ impl RecoveryLog {
                         kind: RecoveryIssueKind::IdentityMismatch,
                         record: 0,
                     })
+                }
+                // Only exact v4 header bytes are provisional. It opens current
+                // disk at the normal revision and is retired below.
+                Ok(found)
+                    if found.version == format::BOUNDED_VERSION
+                        && found.source.is_none()
+                        && first.ends_with(b"\n")
+                        && first.len() == bytes.len() =>
+                {
+                    stale = Some(bytes.clone());
                 }
                 Ok(found) if first.ends_with(b"\n") => {
                     header = found;
@@ -119,33 +136,35 @@ impl RecoveryLog {
             .is_some_and(|issue| issue.kind != RecoveryIssueKind::BaseMismatch);
         let revision = engine.revision();
         let durable = header.base_revision;
-        Ok((
-            Self {
-                path,
-                checkpoint_target,
-                header,
-                storage,
-                exists,
-                prepared: None,
-                accepted_bytes,
-                failed,
-                issue,
-                accepted: revision,
-                durable,
-                flush_deadline: if revision != durable {
-                    Some(clock.now() + Duration::from_millis(100))
-                } else {
-                    None
-                },
-                last_flush_lateness: None,
-                clock,
-                #[cfg(test)]
-                append_hook: None,
-                #[cfg(test)]
-                fail_retirement: false,
+        let mut log = Self {
+            root: root.to_owned(),
+            path,
+            checkpoint_target,
+            header,
+            storage,
+            exists,
+            reservation: None,
+            stale,
+            accepted_bytes,
+            failed,
+            issue,
+            accepted: revision,
+            durable,
+            flush_deadline: if revision != durable {
+                Some(clock.now() + Duration::from_millis(100))
+            } else {
+                None
             },
-            engine,
-        ))
+            last_flush_lateness: None,
+            clock,
+            #[cfg(test)]
+            append_hook: None,
+            #[cfg(test)]
+            fail_retirement: false,
+        };
+        // Failure is retained as paused acceptance; current disk stays copyable.
+        let _ = log.retire_stale_reservation(root);
+        Ok((log, engine))
     }
 
     pub(super) fn transfer_own_epoch(
@@ -155,11 +174,13 @@ impl RecoveryLog {
         after: u64,
     ) -> Result<(), String> {
         if self.header.replacement_epoch == before {
-            self.cancel_bounded_preparation(root)?;
+            self.cancel_reservation(root)?;
             let previous = self.header_bytes()?.len();
             self.header.replacement_epoch = after;
             let next = self.header_bytes()?.len();
-            if self.exists {
+            // Rollback rewrites only v3 headers; a v4 log keeps its original
+            // epoch on disk and conservatively reports the restored write.
+            if self.exists && self.header.version != format::BOUNDED_VERSION {
                 self.accepted_bytes = self.accepted_bytes - previous as u64 + next as u64;
             }
         }
@@ -220,19 +241,23 @@ impl RecoveryLog {
     }
 
     fn append_record(&mut self, root: &Path, edit: &SourceEdit) -> Result<(), String> {
-        if self.prepared.is_some() && !self.exists {
-            let record = format::encode(&Record::Edit(edit.clone()))?;
-            return self.append_prepared(root, &record);
-        }
         self.ensure_stream(root)?;
         let record = format::encode(&Record::Edit(edit.clone()))?;
-        self.storage.append(root, &self.path, &record)?;
+        self.append_bytes(root, &record)
+    }
+
+    /// A pinned reservation proves the canonical name still owns the written
+    /// inode before the record counts as accepted.
+    fn append_bytes(&mut self, root: &Path, record: &[u8]) -> Result<(), String> {
+        self.storage.append(root, &self.path, record)?;
+        if self.reservation.is_some() {
+            self.storage.verify_reservation(root)?;
+        }
         self.accepted_bytes += record.len() as u64;
         Ok(())
     }
 
     fn ensure_stream(&mut self, root: &Path) -> Result<(), String> {
-        self.cancel_bounded_preparation(root)?;
         if !self.exists {
             let header = self.header_bytes()?;
             self.storage.create(root, &self.path, &header)?;
@@ -243,16 +268,16 @@ impl RecoveryLog {
     }
 
     pub(super) fn protect_checkpoint(&mut self, root: &Path, id: &str) -> Result<(), String> {
+        self.cancel_reservation(root)?;
         self.ensure_stream(root)?;
         let record = format::encode(&Record::Checkpoint {
             id: id.to_owned(),
             revision: self.accepted,
         })?;
-        if let Err(error) = self.storage.append(root, &self.path, &record) {
+        if let Err(error) = self.append_bytes(root, &record) {
             self.failed = true;
             return Err(error);
         }
-        self.accepted_bytes += record.len() as u64;
         self.checkpoint_target = Some(id.to_owned());
         // A target must survive power loss before markdown installation can
         // make its outcome ambiguous. A scheduled flush is insufficient here.
@@ -272,8 +297,8 @@ impl RecoveryLog {
         // The caller admits only failed live appends/flushes or a validated
         // prefix with an incomplete final frame. Interior damage never reaches
         // this truncation path.
-        if self.prepared.is_some() && self.accepted_bytes == 0 {
-            self.repair_prepared(root)?;
+        if self.stale.is_some() {
+            self.retire_stale_reservation(root)?;
         } else if self.accepted_bytes == 0 {
             self.storage.remove(root, &self.path)?;
             let header = self.header_bytes()?;
@@ -281,8 +306,10 @@ impl RecoveryLog {
             self.accepted_bytes = header.len() as u64;
             self.exists = true;
         } else {
-            if self.prepared.is_some() {
-                self.storage.verify_bounded_stream(root, &self.path)?;
+            // Repair only this session's verified inode; foreign bytes at
+            // the canonical name keep acceptance paused untouched.
+            if self.reservation.is_some() {
+                self.storage.verify_reservation(root)?;
             }
             self.storage
                 .truncate(root, &self.path, self.accepted_bytes)?;
@@ -337,8 +364,9 @@ impl RecoveryLog {
         }
         // Close the append handle before unlink, including on Windows. A failed
         // retirement leaves the old base usable for repeat recovery.
-        self.cancel_bounded_preparation(root)?;
+        self.cancel_reservation(root)?;
         self.storage.remove(root, &self.path)?;
+        self.reservation = None;
         self.exists = false;
         self.checkpoint_target = None;
         self.accepted_bytes = 0;

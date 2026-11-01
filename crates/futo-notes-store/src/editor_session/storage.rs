@@ -1,6 +1,6 @@
 use std::fs::File;
 use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use futo_notes_core::files::vault_fs;
 
@@ -9,36 +9,28 @@ use futo_notes_core::files::vault_fs;
 /// `flush` persists the file and all directory entries needed to find it.
 /// Implementations must retain vault path/symlink safety and report failures.
 pub trait RecoveryStorage: Send {
-    /// Optional bounded-entry capability. Success owns this exact inactive file
-    /// and probes an exclusive no-copy install; ordinary full workflows do not
-    /// require it. Preparation must not install the canonical stream.
-    /// Failure leaves ordinary full recovery usable; any partial inactive bytes
-    /// remain inert and must not become an append target without a new success.
-    fn prepare_bounded_stream(
-        &mut self,
-        _root: &Path,
-        _inactive: &str,
-        _canonical: &str,
-        _header: &[u8],
-    ) -> Result<(), String> {
-        Err("no-copy recovery activation unsupported".into())
+    /// Optional bounded-entry capability: exclusively create `path`, write
+    /// and durably flush `header`, and keep that inode pinned. Later `append`,
+    /// `truncate`, `flush` and `remove` of `path` use the pinned inode. On
+    /// error the implementation removes what it created where it can; any
+    /// pin it still holds is released only by `remove_reservation`.
+    fn reserve(&mut self, _root: &Path, _path: &str, _header: &[u8]) -> Result<(), String> {
+        Err("bounded recovery reservation unsupported".into())
     }
-    /// Errors mean no installation. An installed receipt retains its effect
-    /// separately from a later directory durability failure.
-    fn activate_bounded_stream(
-        &mut self,
-        _root: &Path,
-    ) -> Result<vault_fs::RecoveryActivation, String> {
-        Err("no prepared recovery stream".into())
+    /// Pin an existing stream and return its bytes read through that inode.
+    fn pin(&mut self, _root: &Path, _path: &str) -> Result<Option<Vec<u8>>, String> {
+        Err("bounded recovery reservation unsupported".into())
     }
-    fn verify_bounded_stream(&mut self, _root: &Path, _path: &str) -> Result<(), String> {
-        Err("no prepared recovery stream".into())
+    /// Forget a pin without touching the file.
+    fn release_pin(&mut self) {}
+    /// The canonical name and parent still name the pinned inode.
+    fn verify_reservation(&mut self, _root: &Path) -> Result<(), String> {
+        Err("no pinned recovery stream".into())
     }
-    fn deactivate_bounded_stream(&mut self, _root: &Path) -> Result<(), String> {
-        Err("no prepared recovery stream".into())
-    }
-    fn discard_bounded_stream(&mut self, _root: &Path) -> Result<(), String> {
-        Err("no prepared recovery stream".into())
+    /// Durably remove only the verified pinned inode, then release the pin.
+    /// Succeeds without effect when nothing is pinned.
+    fn remove_reservation(&mut self, _root: &Path) -> Result<(), String> {
+        Ok(())
     }
     /// Hidden recovery metadata available for interrupted identity discovery.
     fn list(&mut self, root: &Path) -> Result<Vec<String>, String> {
@@ -75,61 +67,66 @@ pub trait RecoveryStorage: Send {
 #[derive(Default)]
 pub(super) struct VaultRecoveryStorage {
     file: Option<File>,
-    prepared: Option<(PathBuf, vault_fs::PreparedRecoveryActivation)>,
+    pinned: Option<(String, vault_fs::PinnedRecoveryFile)>,
+}
+
+impl VaultRecoveryStorage {
+    fn pinned(&mut self, path: &str) -> Option<&mut vault_fs::PinnedRecoveryFile> {
+        self.pinned
+            .as_mut()
+            .filter(|(pinned, _)| pinned == path)
+            .map(|(_, file)| file)
+    }
 }
 
 impl RecoveryStorage for VaultRecoveryStorage {
-    fn prepare_bounded_stream(
-        &mut self,
-        root: &Path,
-        inactive: &str,
-        canonical: &str,
-        header: &[u8],
-    ) -> Result<(), String> {
-        if self.prepared.is_some() {
-            return Err("recovery preparation already owned".into());
+    fn reserve(&mut self, root: &Path, path: &str, header: &[u8]) -> Result<(), String> {
+        if self.pinned.is_some() {
+            return Err("recovery reservation already owned".into());
         }
-        self.create(root, inactive, header)?;
-        self.flush(root, inactive)?;
-        // A failed probe leaves only inert metadata. Without a returned pinned
-        // identity it is deliberately retained rather than guessed safe to unlink.
-        let prepared = vault_fs::prepare_recovery_activation(root, inactive, canonical)
-            .map_err(|error| error.to_string())?;
-        self.prepared = Some((root.to_owned(), prepared));
+        let mut file = vault_fs::create_pinned_recovery(root, path)?
+            .ok_or("editor recovery stream already exists")?;
+        let written = file.append(header).and_then(|()| file.sync());
+        if let Err(error) = written {
+            // Only the inode this call created is removed; a failed cleanup
+            // keeps it pinned for an explicit retry.
+            if let Err(cleanup) = file.remove(root) {
+                self.pinned = Some((path.to_owned(), file));
+                return Err(format!("{error}; reservation cleanup failed: {cleanup}"));
+            }
+            return Err(error);
+        }
+        self.file = None;
+        self.pinned = Some((path.to_owned(), file));
         Ok(())
     }
-    fn activate_bounded_stream(
-        &mut self,
-        root: &Path,
-    ) -> Result<vault_fs::RecoveryActivation, String> {
-        self.prepared
-            .as_mut()
-            .ok_or("no prepared recovery stream")?
-            .1
-            .activate(root)
-    }
-    fn verify_bounded_stream(&mut self, root: &Path, path: &str) -> Result<(), String> {
-        self.prepared
-            .as_ref()
-            .ok_or("no prepared recovery stream")?
-            .1
-            .verify(root, path)
-    }
-    fn deactivate_bounded_stream(&mut self, root: &Path) -> Result<(), String> {
-        self.prepared
-            .as_mut()
-            .ok_or("no prepared recovery stream")?
-            .1
-            .deactivate(root)
-    }
-    fn discard_bounded_stream(&mut self, root: &Path) -> Result<(), String> {
+    fn pin(&mut self, root: &Path, path: &str) -> Result<Option<Vec<u8>>, String> {
+        if self.pinned.is_some() {
+            return Err("recovery reservation already owned".into());
+        }
+        let Some(file) = vault_fs::open_pinned_recovery(root, path)? else {
+            return Ok(None);
+        };
+        let bytes = file.read_all()?;
         self.file = None;
-        self.prepared
-            .as_mut()
-            .ok_or("no prepared recovery stream")?
+        self.pinned = Some((path.to_owned(), file));
+        Ok(Some(bytes))
+    }
+    fn release_pin(&mut self) {
+        self.pinned = None;
+    }
+    fn verify_reservation(&mut self, root: &Path) -> Result<(), String> {
+        self.pinned
+            .as_ref()
+            .ok_or("no pinned recovery stream")?
             .1
-            .discard(root)?;
-        self.prepared = None;
+            .verify(root)
+    }
+    fn remove_reservation(&mut self, root: &Path) -> Result<(), String> {
+        if let Some((_, file)) = &self.pinned {
+            file.remove(root)?;
+            self.pinned = None;
+        }
         Ok(())
     }
     fn read(&mut self, root: &Path, path: &str) -> Result<Option<Vec<u8>>, String> {
@@ -143,9 +140,15 @@ impl RecoveryStorage for VaultRecoveryStorage {
     }
     fn replace(&mut self, root: &Path, path: &str, bytes: &[u8]) -> Result<(), String> {
         self.file = None;
+        if self.pinned(path).is_some() {
+            self.pinned = None;
+        }
         vault_fs::write_atomic(root, path, bytes)
     }
     fn append(&mut self, root: &Path, path: &str, bytes: &[u8]) -> Result<(), String> {
+        if let Some(file) = self.pinned(path) {
+            return file.append(bytes);
+        }
         if self.file.is_none() {
             self.file = Some(vault_fs::open_append(root, path)?);
         }
@@ -156,31 +159,29 @@ impl RecoveryStorage for VaultRecoveryStorage {
             .map_err(|error| error.to_string())
     }
     fn truncate(&mut self, root: &Path, path: &str, length: u64) -> Result<(), String> {
+        if let Some(file) = self.pinned(path) {
+            return file.truncate(length);
+        }
         self.file = None;
         vault_fs::open_append(root, path)?
             .set_len(length)
             .map_err(|error| error.to_string())
     }
     fn flush(&mut self, root: &Path, path: &str) -> Result<(), String> {
-        vault_fs::sync_file(root, path)?;
-        vault_fs::sync_parent(root, path)?;
+        if let Some(file) = self.pinned(path) {
+            file.sync()?;
+        } else {
+            vault_fs::sync_file(root, path)?;
+            vault_fs::sync_parent(root, path)?;
+        }
         vault_fs::sync_parent(root, ".futo-editor-recovery")
     }
     fn remove(&mut self, root: &Path, path: &str) -> Result<(), String> {
+        if self.pinned(path).is_some() {
+            return self.remove_reservation(root);
+        }
         self.file = None;
         vault_fs::remove(root, path)?;
         Ok(())
-    }
-}
-
-impl Drop for VaultRecoveryStorage {
-    fn drop(&mut self) {
-        // Inactive metadata is not recovery authority. The capability checks
-        // exact parent/inode ownership and never removes the canonical stream.
-        if let Some((root, prepared)) = &mut self.prepared {
-            if let Err(error) = prepared.discard(root) {
-                futo_notes_core::log_to_stderr!("inactive editor recovery cleanup: {error}");
-            }
-        }
     }
 }

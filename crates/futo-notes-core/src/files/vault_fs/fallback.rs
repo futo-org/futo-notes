@@ -317,31 +317,42 @@ pub(super) fn rename_local(root: &Path, source: &str, destination: &str) -> Resu
     rename(root, source, destination)
 }
 /// No descriptor-relative identity/directory durability capability is available
-/// on this implementation. Ordinary no-replace moves retain their copy fallback.
-pub struct PreparedRecoveryActivation;
+/// on this implementation, so bounded recovery reservations are refused.
+pub struct PinnedRecoveryFile;
 
-pub fn prepare_recovery_activation(
+const PINNED_UNSUPPORTED: &str = "pinned recovery unsupported";
+
+pub fn create_pinned_recovery(
     _root: &std::path::Path,
-    _source: &str,
-    _destination: &str,
-) -> Result<PreparedRecoveryActivation, super::RecoveryPreparationError> {
-    Err(super::RecoveryPreparationError::Unsupported)
+    _relative: &str,
+) -> Result<Option<PinnedRecoveryFile>, String> {
+    Err(PINNED_UNSUPPORTED.into())
 }
 
-impl PreparedRecoveryActivation {
-    pub fn deactivate(&mut self, _root: &std::path::Path) -> Result<(), String> {
-        Err("no-copy recovery activation unsupported".into())
+pub fn open_pinned_recovery(
+    _root: &std::path::Path,
+    _relative: &str,
+) -> Result<Option<PinnedRecoveryFile>, String> {
+    Err(PINNED_UNSUPPORTED.into())
+}
+
+impl PinnedRecoveryFile {
+    pub fn verify(&self, _root: &std::path::Path) -> Result<(), String> {
+        Err(PINNED_UNSUPPORTED.into())
     }
-    pub fn verify(&self, _root: &std::path::Path, _relative: &str) -> Result<(), String> {
-        Err("no-copy recovery activation unsupported".into())
+    pub fn read_all(&self) -> Result<Vec<u8>, String> {
+        Err(PINNED_UNSUPPORTED.into())
     }
-    pub fn activate(
-        &mut self,
-        _root: &std::path::Path,
-    ) -> Result<super::RecoveryActivation, String> {
-        Err("no-copy recovery activation unsupported".into())
+    pub fn append(&mut self, _bytes: &[u8]) -> Result<(), String> {
+        Err(PINNED_UNSUPPORTED.into())
     }
-    pub fn discard(&mut self, _root: &std::path::Path) -> Result<(), String> {
-        Err("no-copy recovery activation unsupported".into())
+    pub fn truncate(&mut self, _length: u64) -> Result<(), String> {
+        Err(PINNED_UNSUPPORTED.into())
+    }
+    pub fn sync(&self) -> Result<(), String> {
+        Err(PINNED_UNSUPPORTED.into())
+    }
+    pub fn remove(&self, _root: &std::path::Path) -> Result<(), String> {
+        Err(PINNED_UNSUPPORTED.into())
     }
 }

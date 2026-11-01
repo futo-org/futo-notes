@@ -7,6 +7,10 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use super::{RecoveryIssue, RecoveryIssueKind};
 
 pub(super) const VERSION: u32 = 3;
+/// Written only by bounded entry. A complete checksum-valid v4 header with
+/// `source=None` and no following bytes is a provisional reservation, never an
+/// accepted draft; any following bytes use ordinary frame validation.
+pub(super) const BOUNDED_VERSION: u32 = 4;
 
 #[derive(Clone, Serialize, Deserialize)]
 pub(super) struct Header {
@@ -62,12 +66,14 @@ pub(super) fn decode<T: DeserializeOwned>(bytes: &[u8], record: usize) -> Result
 // recognized incompatible format from random corrupt bytes for recovery UI.
 pub(super) fn decode_header(bytes: &[u8]) -> Result<Header, RecoveryIssue> {
     decode(bytes, 0).map_err(|error| match serde_json::from_slice::<Header>(bytes) {
-        Ok(header) if header.version != VERSION => RecoveryIssue {
-            kind: RecoveryIssueKind::UnsupportedVersion {
-                version: header.version,
-            },
-            record: 0,
-        },
+        Ok(header) if header.version != VERSION && header.version != BOUNDED_VERSION => {
+            RecoveryIssue {
+                kind: RecoveryIssueKind::UnsupportedVersion {
+                    version: header.version,
+                },
+                record: 0,
+            }
+        }
         _ => error,
     })
 }

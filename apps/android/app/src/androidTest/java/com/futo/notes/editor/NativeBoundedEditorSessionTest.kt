@@ -215,7 +215,7 @@ class NativeBoundedEditorSessionTest {
                 return@use
             }
             bounded.use {
-                val prepared = checkNotNull(File(root, ".futo-editor-recovery").listFiles()).single { it.extension == "prepared" }
+                val prepared = checkNotNull(File(root, ".futo-editor-recovery").listFiles()).single { it.extension == "jsonl" }
                 val owned = File(prepared.path + ".owned")
                 check(prepared.renameTo(owned))
                 prepared.writeText("foreign")

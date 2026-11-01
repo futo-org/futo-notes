@@ -207,7 +207,7 @@ struct NativeBoundedEditorSessionTests {
                 let prepared = try #require(
                     try FileManager.default.contentsOfDirectory(
                         at: metadata, includingPropertiesForKeys: nil
-                    ).first { $0.pathExtension == "prepared" })
+                    ).first { $0.pathExtension == "jsonl" })
                 let owned = prepared.appendingPathExtension("owned")
                 try FileManager.default.moveItem(at: prepared, to: owned)
                 try Data("foreign".utf8).write(to: prepared)

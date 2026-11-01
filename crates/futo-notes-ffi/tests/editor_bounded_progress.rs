@@ -205,7 +205,7 @@ fn clean_preparation_refusal_or_failed_materialization_retains_original_owner() 
         Err(EditorBoundedError::Session {
             error: EditorSessionError::Recovery { error },
         }) => {
-            // A no-copy filesystem capability is optional. This branch proves
+            // The pinned reservation capability is optional. This branch proves
             // rollback; the other public traces use an existing live log.
             assert_eq!(full.source_text().unwrap(), "```\nab\n```\n");
             println!(
@@ -225,7 +225,7 @@ fn clean_preparation_refusal_or_failed_materialization_retains_original_owner() 
     let path = std::fs::read_dir(tree.path("vault/.futo-editor-recovery"))
         .unwrap()
         .map(|entry| entry.unwrap().path())
-        .find(|path| path.extension().is_some_and(|ext| ext == "prepared"))
+        .find(|path| path.extension().is_some_and(|ext| ext == "jsonl"))
         .unwrap();
     let owned = path.with_extension("owned");
     std::fs::rename(&path, &owned).unwrap();

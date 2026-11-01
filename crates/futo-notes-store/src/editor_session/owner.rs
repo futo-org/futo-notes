@@ -118,14 +118,14 @@ impl Attachment {
         root: &std::path::Path,
     ) -> Result<BoundedWork, String> {
         if self.engine.full().is_ok() {
-            self.recovery.cancel_bounded_preparation(root)?;
+            self.recovery.cancel_reservation(root)?;
             return Ok(BoundedWork::default());
         }
         if self.recovery.failed {
             return Err("editor recovery must settle before materialization".into());
         }
         self.recovery.flush(root)?;
-        self.recovery.cancel_bounded_preparation(root)?;
+        self.recovery.cancel_reservation(root)?;
         let work = self.engine.materialize();
         self.bounded_work = work;
         Ok(work)
