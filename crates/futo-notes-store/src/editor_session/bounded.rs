@@ -8,6 +8,18 @@ pub struct StoreBoundedEditorSession<'store> {
     pub(super) session: StoreEditorSession<'store>,
 }
 
+/// Explicit proportional draft copy paired with authority under one lock.
+/// Engine revision describes these bytes; recovery watermarks remain separate
+/// during a pending coordinated adoption. Copy survives reset and deletion.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StoreBoundedSourceSnapshot {
+    pub source: String,
+    pub revision: Revision,
+    pub recovery: RecoveryStatus,
+    pub reset_required: bool,
+    pub deleted: bool,
+}
+
 pub struct StoreBoundedEntryError<'store> {
     pub session: StoreEditorSession<'store>,
     pub error: EditorStoreError,
@@ -116,6 +128,20 @@ impl<'store> StoreBoundedEditorSession<'store> {
             .engine
             .bounded()
             .is_err()
+    }
+    pub fn accepted_source(&self) -> StoreBoundedSourceSnapshot {
+        let state = self
+            .session
+            .state
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        StoreBoundedSourceSnapshot {
+            source: state.engine.source_text(),
+            revision: state.engine.revision(),
+            recovery: state.recovery_status(&self.session.store),
+            reset_required: state.engine.bounded().is_err(),
+            deleted: state.terminal,
+        }
     }
     pub fn source_text(&self) -> String {
         self.session.source_text()

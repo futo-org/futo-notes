@@ -118,6 +118,12 @@ fn failed_registry_identity_work_cannot_restore_old_bounded_coordinates() {
     disk.lock().unwrap().fault = Some(Fault::Create);
     assert!(store.rename("plain", "renamed").is_err());
     assert!(bounded.reset_required());
+    let snapshot = bounded.accepted_source();
+    assert_eq!(snapshot.source, "```\nxab\n```\n");
+    assert_eq!(snapshot.revision, Revision(1));
+    assert_eq!(snapshot.recovery.accepted, Revision(1));
+    assert!(snapshot.reset_required);
+    assert!(!snapshot.deleted);
     assert_eq!(
         bounded.insert_literal(old, DisplayOffset(1), "z"),
         Err(EditorStoreError::ModeResetRequired)
