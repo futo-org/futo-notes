@@ -1,6 +1,7 @@
 //! Asynchronous page/worker contract. No callback here performs storage I/O.
 mod bounded;
 pub use bounded::*;
+mod clipboard;
 mod composition;
 mod find;
 mod links;
