@@ -190,13 +190,6 @@ fn long_fence(source: &mut String, shape: usize, line_at: impl Fn(&str, usize) -
     let closed = shape / 5 % 2 == 0;
     // 0: top level, 1: in a quote, 2: in a list item.
     let (head, body) = [("", ""), ("> ", "> "), ("- ", "  ")][shape / 10 % 3];
-    // An item fence past its content column panics the markdown crate when
-    // a less indented ordered line follows (`-  ```\n  1. x\n`).
-    let (open, close) = if head == "- " {
-        (open.trim_start(), close.trim_start())
-    } else {
-        (open, close)
-    };
     let at = line_at(source, source.len() / 8);
     let end = if closed {
         line_at(source, source.len() * 3 / 4)
@@ -301,24 +294,7 @@ fn cut_paragraphs_match_uncut_twin_through_edits() {
         }
         for index in 0..12 {
             let step = choose(&cut, &mut next);
-            // Only the pinned markdown-crate panic (see the ignored test
-            // below) stops a case; any other panic fails the fuzz.
-            let referenced = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                uncut(|| run(&mut reference, &step))
-            }));
-            UNCUT.with(|uncut| uncut.set(false));
-            if let Err(panic) = referenced {
-                let message = panic
-                    .downcast_ref::<String>()
-                    .map(String::as_str)
-                    .or_else(|| panic.downcast_ref::<&str>().copied())
-                    .unwrap_or("");
-                let pinned = ["mismatched (non-jsx): List", "Cannot push to non-parent"];
-                if !pinned.iter().any(|known| message.contains(known)) {
-                    std::panic::resume_unwind(panic);
-                }
-                break;
-            }
+            uncut(|| run(&mut reference, &step));
             run(&mut cut, &step);
             let (got, want) = (whole(&cut), whole(&reference));
             // Every step must leave the twin equal to a fresh open.
@@ -360,23 +336,74 @@ fn only_kind_one_tag_names_cut_html_blocks() {
     }
 }
 
-/// markdown 1.0.0's `to_mdast` (the declaration scan) panics on these
-/// inputs, so opening or typing them crashes the editor: an item fence past
-/// its content column meeting a shallower ordered line ("mismatched"), and a
-/// list item typed at the end of a line after a `-`/`--` pair ("Cannot push to non-parent"). The
-/// twin fuzz stops a case only on these exact panics. Un-ignore once the
-/// scan cannot panic.
 #[test]
-#[ignore = "known markdown-crate panics in the declaration scan"]
-fn declaration_scan_survives_an_item_fence_before_a_shallower_ordered_line() {
-    let _ = EditorSession::open("-  ```\n  1. x\n[a]: b\n");
+fn a_non_ascii_line_start_is_not_a_list_marker() {
+    assert!(super::row::list_marker("Ünïcode").is_none());
 }
 
+/// Random notes and edits never panic: release builds abort on panic, so a
+/// panic in any parse would crash the app and lose the session (#283).
 #[test]
-#[ignore = "known markdown-crate panics in the declaration scan"]
-fn declaration_scan_survives_an_item_typed_after_dash_lines() {
-    let source = "title: front\n-\n--\nescaped \\* star and 3 * 4 56\n";
-    let mut session = EditorSession::open(source);
-    let end = session.display_text().trim_end().len();
-    let _ = session.replace(session.revision(), range(end, end), "\n- ", &mut |_| Ok(()));
+fn random_notes_open_and_take_edits_without_panicking() {
+    let mut seed = 0x9e37_79b9_7f4a_7c15u64;
+    let mut next = move |bound: usize| {
+        seed ^= seed << 13;
+        seed ^= seed >> 7;
+        seed ^= seed << 17;
+        (seed % bound as u64) as usize
+    };
+    const PIECES: &[&str] = &[
+        "- ",
+        "1. ",
+        "> ",
+        "  ",
+        "   ",
+        "\t",
+        "\n",
+        "\r\n",
+        "```",
+        "~~~",
+        "-",
+        "--",
+        "===",
+        "[a]: b",
+        "[a]",
+        "[^n]: ",
+        "www.x.y",
+        "https://x.y/(a)",
+        "a@b.co",
+        "mailto:",
+        "<",
+        "&amp;",
+        "*",
+        "_",
+        "`",
+        "\\",
+        "]",
+        "(",
+        ")",
+        "title: front",
+        "word",
+        "é",
+    ];
+    let cases = std::env::var("SPLIT_CASES").map_or(200, |cases| cases.parse().unwrap());
+    for _ in 0..cases {
+        let mut source = String::new();
+        for _ in 0..1 + next(40) {
+            let pool = [PIECES, LINES, ITEMS, ORDERED, BLOCKS, EDITS][next(6)];
+            source.push_str(pool[next(pool.len())]);
+            if next(3) == 0 {
+                source.push('\n');
+            }
+        }
+        let mut session = EditorSession::open(&source);
+        for _ in 0..8 {
+            if session.display_text().is_empty() {
+                break;
+            }
+            let step = choose(&session, &mut next);
+            run(&mut session, &step);
+        }
+        let _ = EditorSession::open(&session.source_text());
+    }
 }

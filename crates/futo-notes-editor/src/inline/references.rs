@@ -1,7 +1,9 @@
 //! Document-wide reference read context with row-relative occurrence witnesses.
 //! Only the canonical parsers normalize labels and identify declarations/uses.
+mod declarations;
 mod repair;
 use super::row::LinkMeaning;
+pub(super) use declarations::declarations;
 use pulldown_cmark::{BrokenLink, CowStr, Event, LinkType, Parser, Tag};
 pub(crate) use repair::{BodyIntent, RetainedBody};
 use std::{collections::HashMap, ops::Range, sync::Arc};
@@ -155,66 +157,6 @@ impl References {
             .and_then(|target| self.uses.get(target.reference.as_ref().unwrap()))
             .is_some_and(|count| *count > 0)
     }
-}
-
-/// Collect every definition occurrence, including later duplicates omitted by
-/// pulldown's first-definition map. mdast owns positions and normalization.
-pub(super) fn declarations(source: &str, winners: &[Winner]) -> (Vec<Definition>, ReferenceWork) {
-    let mut work = ReferenceWork::default();
-    if !declaration_eligible(source, &mut work) {
-        return (Vec::new(), work);
-    }
-    let options = markdown::ParseOptions {
-        constructs: markdown::Constructs {
-            gfm_footnote_definition: true,
-            gfm_label_start_footnote: true,
-            ..Default::default()
-        },
-        ..Default::default()
-    };
-    let tree =
-        markdown::to_mdast(source, &options).expect("CommonMark declarations are infallible");
-    work.parsed = source.len();
-    let mut result = Vec::new();
-    let mut pending = vec![&tree];
-    while let Some(node) = pending.pop() {
-        work.items += 1;
-        if let markdown::mdast::Node::Definition(definition) = node {
-            if let Some(position) = &definition.position {
-                let range = position.start.offset..position.end.offset;
-                work.items += 1;
-                let witness = winners
-                    .iter()
-                    .find(|winner| {
-                        work.items += 1;
-                        winner.range.start <= range.start && range.end <= winner.range.end
-                    })
-                    .map(|winner| winner.key.clone());
-                // Parser identifiers are not a cross-library representation:
-                // mdast can remove whitespace that pulldown collapses. The
-                // actual canonical source occurrence joins their ownership;
-                // only its resolver key may query the canonical use table.
-                let resolved_key = witness.as_deref().unwrap_or(&definition.identifier);
-                work.copied += resolved_key.len()
-                    + definition.url.len()
-                    + definition.title.as_ref().map_or(0, String::len);
-                let key = UniCase::new(resolved_key.to_owned());
-                result.push(Definition {
-                    range,
-                    key,
-                    destination: definition.url.clone(),
-                    title: definition.title.clone(),
-                    winner: witness.is_some(),
-                    witness,
-                });
-            }
-        }
-        if let Some(children) = node.children() {
-            work.items += children.len();
-            pending.extend(children.iter().rev());
-        }
-    }
-    (result, work)
 }
 
 pub(super) fn hidden_definition(source: &str, definition: &Definition) -> Range<usize> {

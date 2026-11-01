@@ -21,9 +21,13 @@ pub(crate) fn list_marker(line: &str) -> Option<(usize, usize, u8, &str)> {
     let byte = *text.as_bytes().get(digits)?;
     let bullet = digits == 0 && matches!(byte, b'-' | b'*' | b'+');
     let ordered = (1..=9).contains(&digits) && matches!(byte, b'.' | b')');
+    if !(bullet || ordered) {
+        return None;
+    }
+    // The marker byte is ASCII, so the text after it starts on a boundary.
     let rest = &text[digits + 1..];
     let spaced = rest.is_empty() || rest.starts_with([' ', '\t', '\r', '\n']);
-    (indent <= 3 && (bullet || ordered) && spaced).then_some((indent, digits, byte, rest))
+    (indent <= 3 && spaced).then_some((indent, digits, byte, rest))
 }
 
 fn marker_line(line: &str) -> Option<Marker> {

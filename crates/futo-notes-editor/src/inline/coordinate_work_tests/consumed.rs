@@ -78,10 +78,10 @@ fn public_actions_report_each_consumed_planning_contribution() {
                     materialized_source_bytes: 320,
                     inserted_bytes: 22,
                     parsed_source_bytes: 278,
-                    link_metadata_items: 396,
+                    link_metadata_items: 370,
                     link_copied_bytes: 84,
                 },
-                (147, 28),
+                (139, 28),
             ),
             "header-apply" => (
                 EditWork {
@@ -98,10 +98,10 @@ fn public_actions_report_each_consumed_planning_contribution() {
                     materialized_source_bytes: 560,
                     inserted_bytes: 41,
                     parsed_source_bytes: 514,
-                    link_metadata_items: 199,
+                    link_metadata_items: 189,
                     link_copied_bytes: 28,
                 },
-                (222, 42),
+                (198, 42),
             ),
             _ => unreachable!(),
         };
@@ -125,10 +125,10 @@ fn public_actions_report_each_consumed_planning_contribution() {
             materialized_source_bytes: 196,
             inserted_bytes: 16,
             parsed_source_bytes: 225,
-            link_metadata_items: 353,
+            link_metadata_items: 329,
             link_copied_bytes: 98,
         },
-        (343, 56),
+        (331, 56),
     );
 
     let source = "[id]: /target\n\n[one][id]\n\nbody";
@@ -154,7 +154,7 @@ fn public_actions_report_each_consumed_planning_contribution() {
             materialized_source_bytes: 94,
             inserted_bytes: 0,
             parsed_source_bytes: 167,
-            link_metadata_items: 271,
+            link_metadata_items: 289,
             link_copied_bytes: 33,
         },
         (6, 0),

@@ -56,10 +56,10 @@ fn public_growth_work_separates_actual_index_visits_from_retained_local_work() {
             );
             let bare = super::coordinate_work_tests::bare_snapshot();
             let added_bare = if growing == "definitions" {
-                // The actual neighboring unused declaration has no Link:
-                // H10 plus root/node/child4, with no emitted-record cost.
-                assert_eq!(bare, vec![(10, 4, 14)]);
-                4
+                // The neighboring unused declaration has no pulldown
+                // events: H10 alone, with no emitted-record cost.
+                assert_eq!(bare, vec![(10, 0, 10)]);
+                0
             } else {
                 assert!(bare.is_empty());
                 0
@@ -68,7 +68,8 @@ fn public_growth_work_separates_actual_index_visits_from_retained_local_work() {
             assert_eq!(bounds_delta(), -1);
             body_fixed.link_metadata_items += 1;
             let old_local = match growing {
-                "definitions" => (255, 265),
+                // +32: the declaration pass over the unused definition.
+                "definitions" => (255, 265 + 32),
                 "uses" => (287, 329),
                 _ => (255, 255),
             };
@@ -186,13 +187,13 @@ fn public_pending_growth_work_keeps_foreign_word_fields_outside_the_local_ledger
         assert_eq!(nodes - new_reference_nodes, [404, 361][index]);
         assert_eq!(bounds_delta(), 9);
         // Seven independently observed actual bare traversals each add
-        // root/node/child6 + extraction3 + emitted records2 beyond old H6.
+        // three pulldown events + emitted records2 beyond old H6.
         assert_eq!(
             super::coordinate_work_tests::bare_snapshot(),
-            vec![(6, 6, 17); 7]
+            vec![(6, 3, 11); 7]
         );
-        assert_eq!(fixed.link_metadata_items, 910 + 7 * (6 + 3 + 2));
-        fixed.link_metadata_items -= 7 * (6 + 3 + 2);
+        assert_eq!(fixed.link_metadata_items, 910 + 7 * (3 + 2));
+        fixed.link_metadata_items -= 7 * (3 + 2);
         assert_eq!(fixed.link_metadata_items, 910);
         let mut previous = fixed;
         previous.link_metadata_items = previous

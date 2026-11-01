@@ -195,3 +195,38 @@ fn scalar_spelling_candidates_keep_partial_code_and_literal_prefix_in_the_rust_p
         assert_eq!(code, vec![range(15, 20)]);
     }
 }
+
+/// The markdown crate's tree builder panicked on these notes, and release
+/// builds abort on panic (#283). Opening and typing must match a fresh open.
+#[test]
+fn notes_that_crashed_the_old_markdown_scans_open_and_take_input() {
+    let same = |session: &EditorSession| {
+        let fresh = EditorSession::open(&session.source_text());
+        let whole = |session: &EditorSession| {
+            let slice = session
+                .project(session.revision(), range(0, session.display_text().len()))
+                .unwrap();
+            (slice.text, slice.runs, slice.blocks, slice.links)
+        };
+        assert_eq!(whole(session), whole(&fresh));
+    };
+    // An item fence past its content column before a shallower ordered line.
+    let fence = "-  ```\n  1. x\n[a]: b\n";
+    let mut session = EditorSession::open(fence);
+    assert_eq!(session.source_text(), fence);
+    same(&session);
+    session
+        .replace(Revision(0), range(0, 0), "x", &mut |_| Ok(()))
+        .unwrap();
+    same(&session);
+    // A list item typed at the end of a line after a `-`/`--` pair.
+    let dashes = "title: front\n-\n--\nescaped \\* star and 3 * 4 56\n";
+    let mut session = EditorSession::open(dashes);
+    same(&session);
+    let end = session.display_text().trim_end().len();
+    session
+        .replace(Revision(0), range(end, end), "\n- ", &mut |_| Ok(()))
+        .unwrap();
+    assert!(session.display_text().ends_with("56\n- \n"));
+    same(&session);
+}
