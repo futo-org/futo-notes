@@ -142,6 +142,54 @@ impl EditorSession {
         Some((window, cell))
     }
 
+    /// Display ranges outside every table cell's content (pipes, padding,
+    /// delimiter rows, row breaks): no find match may touch or span them. One
+    /// pass over the source for an explicit scan, never the input path.
+    pub(crate) fn table_find_barriers(&self) -> Vec<DisplayRange> {
+        let source = self
+            .source
+            .byte_slice(0..self.source.len_bytes())
+            .to_string();
+        let mut barriers = Vec::new();
+        let mut at = 0;
+        while at < source.len() {
+            let next = source[at..].find('\n').map_or(source.len(), |n| at + n + 1);
+            let window = source[at..next]
+                .contains('|')
+                .then(|| self.table_window(at))
+                .flatten();
+            let Some(window) = window else {
+                at = next;
+                continue;
+            };
+            let layout = &window.layout;
+            let first = window.base + layout.lines[0].start;
+            let last = layout.lines.last().unwrap();
+            let mut previous = self.projection.display_at(first);
+            for row in 0..layout.rows() {
+                for column in 0..layout.row_line(row).cells.len().min(layout.columns) {
+                    let cell = self.display_range(window.cell_content(row, column).unwrap());
+                    if previous < cell.start.0 {
+                        barriers.push(DisplayRange {
+                            start: DisplayOffset(previous),
+                            end: cell.start,
+                        });
+                    }
+                    previous = cell.end.0;
+                }
+            }
+            let end = self.projection.display_at(window.base + last.end);
+            if previous < end {
+                barriers.push(DisplayRange {
+                    start: DisplayOffset(previous),
+                    end: DisplayOffset(end),
+                });
+            }
+            at = (window.base + last.next).max(next);
+        }
+        barriers
+    }
+
     fn display_range(&self, source: Range<usize>) -> DisplayRange {
         DisplayRange {
             start: DisplayOffset(self.projection.display_at(source.start)),

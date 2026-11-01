@@ -118,6 +118,7 @@ fn code_html_escapes_and_link_syntax_are_isolated() {
         "<div>\n[[Roadmap]]\n</div>",
         "\\[[Roadmap]]",
         "[[Roadmap]](https://x.test)",
+        "---\ntitle: [[Roadmap]]\n---\n",
     ] {
         let mut editor = EditorSession::open(source);
         editor.update_note_ids(&ids(VAULT));

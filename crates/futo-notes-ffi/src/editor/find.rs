@@ -44,6 +44,7 @@ pub struct EditorFindScanRequest {
     pub query: String,
     pub text: String,
     pub soft_breaks: Vec<EditorByteRange>,
+    pub barriers: Vec<EditorByteRange>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
@@ -70,6 +71,7 @@ pub fn editor_find_scan(
         query: request.query,
         text: request.text,
         soft_breaks: ranges(request.soft_breaks)?,
+        barriers: ranges(request.barriers)?,
     }
     .run();
     Ok(EditorFindScanResult {
@@ -139,6 +141,7 @@ impl NativeEditorSession {
                     query: request.query,
                     text: request.text,
                     soft_breaks: request.soft_breaks.into_iter().map(Into::into).collect(),
+                    barriers: request.barriers.into_iter().map(Into::into).collect(),
                 }))
         })
     }

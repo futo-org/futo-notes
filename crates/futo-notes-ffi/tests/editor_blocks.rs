@@ -1,5 +1,7 @@
 mod support;
-use futo_notes_ffi::{EditorBlockCommand, EditorParagraphKey, EditorUtf16Range, NoteStore};
+use futo_notes_ffi::{
+    EditorBlockCommand, EditorByteRange, EditorParagraphKey, EditorUtf16Range, NoteStore,
+};
 use support::{path_string, TempTree};
 #[test]
 fn native_block_commands_project_structure_and_recover_exact_source() {
@@ -391,4 +393,28 @@ fn native_complete_body_and_returned_caret_input_recover_exactly() {
         recovered.checkpoint().unwrap();
         assert_eq!(store.read("body".into()).unwrap(), expected);
     }
+}
+
+#[test]
+fn native_projection_marks_front_matter_as_metadata() {
+    let tree = TempTree::new();
+    std::fs::create_dir_all(tree.path("vault")).unwrap();
+    let store = NoteStore::new(path_string(&tree.path("vault")));
+    store
+        .create_note("fm".into(), "".into(), "---\ntitle: x\n---\nbody".into())
+        .unwrap();
+    let session = store.open_editor("fm".into()).unwrap();
+    let text = session.display_text().unwrap();
+    let blocks = session
+        .project(
+            0,
+            EditorByteRange {
+                start: 0,
+                end: text.len() as u64,
+            },
+        )
+        .unwrap()
+        .blocks;
+    assert_eq!(blocks.iter().filter(|block| block.metadata).count(), 1);
+    assert!(!blocks.last().unwrap().metadata);
 }

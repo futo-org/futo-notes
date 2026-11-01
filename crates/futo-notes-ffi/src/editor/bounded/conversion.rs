@@ -154,6 +154,7 @@ impl Conversion {
             list: value.list.map(Into::into),
             code: value.code,
             language: self.optional_text(value.language),
+            metadata: value.metadata,
         }
     }
     fn meaning(&mut self, value: core::BoundedMeaning) -> EditorBoundedMeaning {

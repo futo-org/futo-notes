@@ -2,6 +2,7 @@
 use wasm_bindgen::prelude::*;
 mod bounded;
 mod clipboard;
+mod tables;
 
 use crate::{
     DisplayOffset, DisplayRange, DisplayUtf16Offset, DisplayUtf16Range, PortableSession, Revision,
