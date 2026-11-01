@@ -59,7 +59,8 @@ pub struct EditWork {
     /// this is not a complete allocation or end-to-end latency measurement.
     pub materialized_source_bytes: usize,
     pub inserted_bytes: usize,
-    /// Bytes supplied to the markdown parser, including verification parses.
+    /// Bytes supplied to the markdown parser, including verification parses,
+    /// and the table run (plus rows checked) read for input in a table cell.
     pub parsed_source_bytes: usize,
     /// Charged metadata visits and fixed-size copies during link/reference
     /// interpretation, source correspondence and pending-field planning.

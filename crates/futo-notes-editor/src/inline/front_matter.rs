@@ -140,6 +140,7 @@ impl super::row::Row {
             continues: false,
             through: false,
             source_len: source.len(),
+            pipes: source.contains('|'),
             parsed_source_bytes: source.len(),
             guarded_words: Vec::new(),
             typed_inputs: Vec::new(),

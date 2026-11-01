@@ -328,7 +328,8 @@ impl EditorSession {
     }
 
     /// Accept a scan only for this session, and the exact revision and query it was taken at;
-    /// anything else is rejected as stale with no state change.
+    /// anything else is rejected as stale with no state change. Host-supplied matches must
+    /// also be non-empty, ascending, non-overlapping, in range and on character boundaries.
     pub fn find_apply_scan(&mut self, result: &FindScanResult) -> Option<FindReport> {
         if !self.find.open
             || result.incarnation != self.incarnation
@@ -336,6 +337,18 @@ impl EditorSession {
             || result.revision != self.revision
         {
             return None;
+        }
+        let display = &self.projection.display;
+        let boundary = |at: usize| {
+            at <= display.len_bytes() && display.char_to_byte(display.byte_to_char(at)) == at
+        };
+        let mut previous = 0;
+        for found in &result.matches {
+            let (start, end) = (found.start.0, found.end.0);
+            if start < previous || end <= start || !boundary(start) || !boundary(end) {
+                return None;
+            }
+            previous = end;
         }
         self.find.rebase();
         self.find.matches = result.matches.clone();

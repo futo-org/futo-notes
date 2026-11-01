@@ -69,6 +69,8 @@ pub(super) struct ContextRun {
 
 pub(crate) struct Row {
     pub source_len: usize,
+    /// The source holds a `|`, as every table header line does.
+    pub pipes: bool,
     pub parsed_source_bytes: usize,
     pub guarded_words: Vec<super::guarded_words::GuardedWord>,
     pub images: Vec<super::images::RowImage>,

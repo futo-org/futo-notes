@@ -218,6 +218,7 @@ fn source_coordinate_index_keeps_malformed_entity_reference_and_fence_boundaries
 fn model(source_len: usize, display: &str, segments: Vec<Segment>) -> Row {
     Row {
         source_len,
+        pipes: false,
         parsed_source_bytes: 0,
         guarded_words: Vec::new(),
         images: Vec::new(),

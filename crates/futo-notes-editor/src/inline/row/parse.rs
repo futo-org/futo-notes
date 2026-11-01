@@ -379,6 +379,7 @@ impl Row {
             metadata: false,
             opener: None,
             source_len: source.len(),
+            pipes: source.contains('|'),
             parsed_source_bytes: source.len() + additional_parse + reference_work.parsed,
             definitions,
             reference_uses,

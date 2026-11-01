@@ -22,6 +22,8 @@ pub(crate) use pending_links::{PendingLinkWitness, PendingLinks};
 #[cfg(test)]
 pub(crate) mod coordinate_work_tests;
 #[cfg(test)]
+mod cross_feature_tests;
+#[cfg(test)]
 mod query_growth_tests;
 mod retained_points;
 mod row;

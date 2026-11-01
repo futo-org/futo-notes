@@ -32,7 +32,11 @@ pub(super) fn cuts(
     cuts: &mut Vec<(usize, Cut)>,
 ) {
     let body = &text[block.clone()];
-    if body.contains("[[") || !(block.len() >= SPLIT_MIN || connected) {
+    // A continued block must end its own row, like a block cut here, even
+    // when it holds `[[` and so takes no further cuts.
+    let mut cut = block.start < base;
+    let whole = body.contains("[[") || !(block.len() >= SPLIT_MIN || connected);
+    if whole && !cut {
         return;
     }
     let Some(line) = body.find('\n') else {
@@ -48,9 +52,7 @@ pub(super) fn cuts(
     // A fence's final body line ending is its hidden frame, so its closer
     // line never starts a row.
     let closer = closer_line(text, &block, fence).unwrap_or(block.end);
-    // A continued block must end its own row, like a block cut here.
-    let mut cut = block.start < base;
-    while at < block.end {
+    while !whole && at < block.end {
         if at - last >= CHUNK && at < closer {
             cuts.push((at, Cut::Opener(opener.clone())));
             last = at;

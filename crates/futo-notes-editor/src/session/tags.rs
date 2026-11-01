@@ -126,8 +126,8 @@ impl EditorSession {
         tag: &str,
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<Option<ViewChange>, EditorError> {
-        let name = normalize_tag_name(tag);
         self.check_revision(expected)?;
+        let name = normalize_tag_name(tag);
         let header = self.read_header();
         if !header.tags.contains(&format!("#{name}")) {
             return Ok(None);
