@@ -135,6 +135,10 @@ impl EditorSession {
             );
         }
         self.validate_range(range)?;
+        // Inside a table the paste is one cell's text; across cells it is refused.
+        if let Some(change) = self.paste_into_table_cell(expected, range, text, accept)? {
+            return Ok(Some(change));
+        }
         let (low, high) = self.projection.source_bounds(range.start.0);
         let caret = if range.start == range.end && self.input_affinity(range) == Affinity::Backward
         {
