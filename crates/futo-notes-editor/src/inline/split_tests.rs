@@ -301,13 +301,22 @@ fn cut_paragraphs_match_uncut_twin_through_edits() {
         }
         for index in 0..12 {
             let step = choose(&cut, &mut next);
-            // The markdown crate's declaration scan panics on some inputs in
-            // both twins; such a case predates cuts and stops comparing.
+            // Only the pinned markdown-crate panic (see the ignored test
+            // below) stops a case; any other panic fails the fuzz.
             let referenced = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 uncut(|| run(&mut reference, &step))
             }));
             UNCUT.with(|uncut| uncut.set(false));
-            if referenced.is_err() {
+            if let Err(panic) = referenced {
+                let message = panic
+                    .downcast_ref::<String>()
+                    .map(String::as_str)
+                    .or_else(|| panic.downcast_ref::<&str>().copied())
+                    .unwrap_or("");
+                let pinned = ["mismatched (non-jsx): List", "Cannot push to non-parent"];
+                if !pinned.iter().any(|known| message.contains(known)) {
+                    std::panic::resume_unwind(panic);
+                }
                 break;
             }
             run(&mut cut, &step);
@@ -349,4 +358,25 @@ fn only_kind_one_tag_names_cut_html_blocks() {
         let projection = super::Projection::new(&format!("{opener}{body}"));
         assert_eq!(projection.rows.len() > 1, cut, "{opener:?}");
     }
+}
+
+/// markdown 1.0.0's `to_mdast` (the declaration scan) panics on these
+/// inputs, so opening or typing them crashes the editor: an item fence past
+/// its content column meeting a shallower ordered line ("mismatched"), and a
+/// list item typed at the end of a line after a `-`/`--` pair ("Cannot push to non-parent"). The
+/// twin fuzz stops a case only on these exact panics. Un-ignore once the
+/// scan cannot panic.
+#[test]
+#[ignore = "known markdown-crate panics in the declaration scan"]
+fn declaration_scan_survives_an_item_fence_before_a_shallower_ordered_line() {
+    let _ = EditorSession::open("-  ```\n  1. x\n[a]: b\n");
+}
+
+#[test]
+#[ignore = "known markdown-crate panics in the declaration scan"]
+fn declaration_scan_survives_an_item_typed_after_dash_lines() {
+    let source = "title: front\n-\n--\nescaped \\* star and 3 * 4 56\n";
+    let mut session = EditorSession::open(source);
+    let end = session.display_text().trim_end().len();
+    let _ = session.replace(session.revision(), range(end, end), "\n- ", &mut |_| Ok(()));
 }
