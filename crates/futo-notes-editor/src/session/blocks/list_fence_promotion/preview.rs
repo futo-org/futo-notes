@@ -269,13 +269,15 @@ impl FencePreview {
         let needs_close = item.tail.needs_close;
         let last_opener = base + fence.opener.start;
         for &(fence, base, code) in &item.fences {
-            let (actual, actual_base) = preview
+            let at = plan.mapped(base + fence.opener.start)? - window.start;
+            let (actual, _) = preview
                 .projection
-                .block_ref_at_source(plan.mapped(base + fence.opener.start)? - window.start)
+                .block_ref_at_source(at)
                 .ok_or(EditorError::UnrepresentableFormat)?;
-            let actual_fence = actual
-                .fence
-                .as_ref()
+            // A promoted large fence may be cut; read its block-wide ranges.
+            let actual_fence = &preview
+                .projection
+                .fence_at_source(at)
                 .ok_or(EditorError::UnrepresentableFormat)?;
             crate::inline::visit_container();
             if !actual.code
@@ -285,11 +287,9 @@ impl FencePreview {
                 || actual.code_language != code.code_language
                 || actual_fence.marker != fence.marker
                 || actual_fence.width != fence.width
-                || actual_base + actual_fence.body.start
-                    != plan.body_at(base + fence.body.start, window.start)?
-                || actual_base + actual_fence.body.end
-                    != plan.body_at(base + fence.body.end, window.start)?
-                || actual_base + actual_fence.opener.start
+                || actual_fence.body.start != plan.body_at(base + fence.body.start, window.start)?
+                || actual_fence.body.end != plan.body_at(base + fence.body.end, window.start)?
+                || actual_fence.opener.start
                     != plan.mapped(base + fence.opener.start)? - window.start
                 || needs_close
                     && base + fence.opener.start == last_opener
@@ -312,13 +312,9 @@ impl FencePreview {
         let last_opener = base + fence.opener.start;
         let edge_quote_boundary = item.tail.edge_quote_boundary;
         if edge_quote_boundary {
-            let (actual, actual_base) = preview
+            let actual_fence = preview
                 .projection
-                .block_ref_at_source(plan.mapped(last_opener)? - window.start)
-                .ok_or(EditorError::UnrepresentableFormat)?;
-            let actual_fence = actual
-                .fence
-                .as_ref()
+                .fence_at_source(plan.mapped(last_opener)? - window.start)
                 .ok_or(EditorError::UnrepresentableFormat)?;
             let physical_end = preview.source.len_bytes();
             let physical = preview
@@ -336,7 +332,7 @@ impl FencePreview {
                 || !closed.content.is_empty()
                 || preview.source.byte(physical_end - 1) != b'\n'
                 || actual_fence.closer.is_some()
-                || actual_base + actual_fence.whole.end > physical
+                || actual_fence.whole.end > physical
             {
                 return Err(EditorError::UnrepresentableFormat);
             }

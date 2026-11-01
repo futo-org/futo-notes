@@ -177,6 +177,46 @@ fn choose(cut: &EditorSession, next: &mut impl FnMut(usize) -> usize) -> Step {
     }
 }
 
+/// Turn the middle of `source` into one long fenced block (#314).
+fn long_fence(source: &mut String, shape: usize, line_at: impl Fn(&str, usize) -> usize) {
+    const FENCES: &[(&str, &str)] = &[
+        ("```\n", "```\n"),
+        ("```rust title\n", "```\n"),
+        ("~~~~ py\n", "~~~~~\n"),
+        ("  ```\n", "   ```\n"),
+        ("````\n", "```\n````\n"),
+    ];
+    let (open, close) = FENCES[shape % FENCES.len()];
+    let closed = shape / 5 % 2 == 0;
+    // 0: top level, 1: in a quote, 2: in a list item.
+    let (head, body) = [("", ""), ("> ", "> "), ("- ", "  ")][shape / 10 % 3];
+    // An item fence past its content column panics the markdown crate when
+    // a less indented ordered line follows (`-  ```\n  1. x\n`).
+    let (open, close) = if head == "- " {
+        (open.trim_start(), close.trim_start())
+    } else {
+        (open, close)
+    };
+    let at = line_at(source, source.len() / 8);
+    let end = if closed {
+        line_at(source, source.len() * 3 / 4)
+    } else {
+        source.len()
+    };
+    let mut fenced = format!("{head}{open}");
+    for line in source[at..end].split_inclusive('\n') {
+        fenced.push_str(body);
+        fenced.push_str(line);
+    }
+    if closed {
+        for line in close.split_inclusive('\n') {
+            fenced.push_str(body);
+            fenced.push_str(line);
+        }
+    }
+    source.replace_range(at..end, &fenced);
+}
+
 #[test]
 fn cut_paragraphs_match_uncut_twin_through_edits() {
     let mut seed = 0x2545_f491_4f6c_dd1du64;
@@ -221,14 +261,18 @@ fn cut_paragraphs_match_uncut_twin_through_edits() {
         if case % 10 == 4 {
             source.insert_str(0, "---\ntitle: front\n---\n");
         }
+        let line_at = |source: &str, at: usize| {
+            source.as_bytes()[..at]
+                .iter()
+                .rposition(|&byte| byte == b'\n')
+                .map_or(0, |line| line + 1)
+        };
+        // A long fence: top-level, quoted or in an item, unclosed or closed.
+        if case % 9 == 5 {
+            long_fence(&mut source, case / 9, line_at);
+        }
         // A long raw HTML block: unterminated, or closed partway.
         if case % 7 == 6 {
-            let line_at = |source: &str, at: usize| {
-                source.as_bytes()[..at]
-                    .iter()
-                    .rposition(|&byte| byte == b'\n')
-                    .map_or(0, |line| line + 1)
-            };
             let at = line_at(&source, source.len() / 8);
             source.insert_str(at, ["<!-- open\n", "<pre>\n", "<?php\n"][case % 3]);
             if case / 14 % 2 == 0 {
@@ -239,10 +283,20 @@ fn cut_paragraphs_match_uncut_twin_through_edits() {
         if case % 4 == 1 {
             source.push_str("\nafter\n");
         }
+        // CRLF top-level fences. (Quoted CRLF paragraphs already differ:
+        // input the uncut row refuses can be accepted in a cut row.)
+        if case % 18 == 14 && case / 9 / 10 % 3 == 0 {
+            source = source.replace('\n', "\r\n");
+        }
         let mut cut = EditorSession::open(&source);
         let mut reference = uncut(|| EditorSession::open(&source));
         assert!(whole(&cut) == whole(&reference), "case {case} open");
-        if case % 3 == 0 && case % 5 != 2 && case % 7 != 6 && !(ordered && case % 8 == 7) {
+        if case % 3 == 0
+            && case % 5 != 2
+            && case % 7 != 6
+            && case % 9 != 5
+            && !(ordered && case % 8 == 7)
+        {
             assert!(cut.projection.rows.len() > 4, "case {case} is cut");
         }
         for index in 0..12 {

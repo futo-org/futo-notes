@@ -61,9 +61,9 @@ Paragraph projections use a length-indexed tree and display Rope, so an ordinary
 edit after a distant jump reparses only its paragraph window without rewriting
 the note's tail offsets. Work counters include actual parser input for candidate
 verification, paragraph partitioning and projection. Large soft-line
-paragraphs, tight bullet and ordered lists and long raw HTML blocks are now cut into sealed rows
-(→ docs/spec/editor/portable-core/long-regions.md); work in a loose list,
-a quoted container, a single huge display line or a fence still depends on that region;
+paragraphs, tight bullet and ordered lists, long raw HTML blocks and top-level fences are now
+cut into sealed rows (→ docs/spec/editor/portable-core/long-regions.md); work in a loose list,
+a quoted container, a single huge display line or a contained fence still depends on that region;
 progressive interpretation, complete allocation/work bounds and native device latency
 measurements remain in their dependent tickets.
 Progressive reinterpretation (#313) covers only bounded fence-closer removal. On the
@@ -77,9 +77,9 @@ Pasting over a closer's line ending above 20,000 paragraphs costs 687 KB parsed,
 materialized and 1.55 M metadata visits in one step (27 ms release on an M-series
 Mac); its Undo costs the same (45 ms). At 1,000 paragraphs both cost 30 KB parsed.
 Bounded synchronous slices and revision-aware continuation remain open for HTML,
-fence openers, long lines and large tables. Two things block a sound version. Fences
-have no row cutting, so a slice cannot install part of an unclosed fence's tail as
-rows. And no full-path API yet guards pending stale rows past a frontier: input,
+fence openers, long lines and large tables. Top-level fences are now cut into rows
+(long-regions.md), so a slice could install part of an unclosed fence's tail as
+rows, but no full-path API yet guards pending stale rows past a frontier: input,
 queries, find, staged commands and history would each have to finish or refuse there.
 
 Early physical ARM32 reconnaissance confirms that large-region calls and returned

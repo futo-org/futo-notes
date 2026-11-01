@@ -118,8 +118,7 @@ impl Projection {
                         let text = piece.text;
                         let (local, work) = references::window_winners(winners, origin, text.len());
                         witness_work += work;
-                        let shape = (piece.continues, piece.through, piece.opener.as_deref());
-                        let row = Row::piece(text, shape, &references, &local);
+                        let row = Row::piece(text, &piece.shape, &references, &local);
                         origin += text.len();
                         row
                     }),
@@ -258,12 +257,11 @@ impl Projection {
         let parsed: Vec<_> = (metadata > 0)
             .then(|| Row::metadata(&text[..metadata]))
             .into_iter()
-            .chain(pieces.into_iter().map(|(len, continues, through, opener)| {
+            .chain(pieces.into_iter().map(|(len, shape)| {
                 let raw = &text[origin..origin + len];
                 let (local, work) = references::window_winners(&winners, origin, raw.len());
                 reference_work.items += work;
-                let shape = (continues, through, opener.as_deref());
-                let row = Row::piece(raw, shape, &self.references, &local);
+                let row = Row::piece(raw, &shape, &self.references, &local);
                 origin += raw.len();
                 row
             }))

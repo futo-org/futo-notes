@@ -82,6 +82,25 @@ impl Fence {
         })
     }
 
+    /// Rebase onto a row that starts `by` bytes later; ranges before it
+    /// (a continued fence's opener) collapse to the row start.
+    pub fn back(&mut self, by: usize) {
+        let back = |range: &mut Range<usize>| {
+            *range = range.start.max(by) - by..range.end.max(by) - by;
+        };
+        for range in [
+            &mut self.whole,
+            &mut self.body,
+            &mut self.opener,
+            &mut self.separator,
+        ] {
+            back(range);
+        }
+        if let Some(range) = &mut self.closer {
+            back(range);
+        }
+    }
+
     pub fn shift(&mut self, by: usize) {
         for range in [
             &mut self.whole,
@@ -97,6 +116,11 @@ impl Fence {
             range.end += by;
         }
     }
+}
+
+/// Whether a continued row's opener line opens a fence rather than HTML.
+pub(crate) fn is_opener(line: &str) -> bool {
+    line.trim_start_matches(' ').starts_with(['`', '~'])
 }
 
 pub(super) fn describe(

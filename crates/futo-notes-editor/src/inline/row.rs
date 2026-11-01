@@ -1,6 +1,6 @@
 mod html;
 mod parse;
-pub(crate) use html::CandidateOpener;
+pub(crate) use html::{CandidateOpener, Shape};
 mod split;
 use crate::InlineFormat;
 use pulldown_cmark::{CodeBlockKind, Event, Options, Parser, Tag};
@@ -375,7 +375,7 @@ pub(crate) fn reaches_into(source: &str, line: &str) -> bool {
 
 /// Whether a top-level fenced block's source lacks its closing fence. A fence
 /// inside a container ends with that container, so it never counts.
-fn unclosed_fence(block: &str) -> bool {
+pub(crate) fn unclosed_fence(block: &str) -> bool {
     fn fence(line: &str) -> Option<(char, usize, &str)> {
         let body = line.trim_start_matches(' ');
         let marker = body.chars().next().filter(|c| *c == '`' || *c == '~')?;
@@ -402,12 +402,26 @@ impl Row {
     }
 }
 
-/// The opener line of a raw HTML block still open at the end of `source`.
-pub(crate) fn html_tail(source: &str) -> Option<&str> {
+/// The opener line of a raw HTML block, or of a top-level fence without its
+/// closer, still open at the end of `source`.
+pub(crate) fn open_tail(source: &str) -> Option<&str> {
     let mut open = None;
+    let mut depth = 0usize;
     for (event, range) in Parser::new_ext(source, parser_options()).into_offset_iter() {
-        if matches!(event, Event::Start(Tag::HtmlBlock)) {
-            open = (range.end == source.len() && source.ends_with('\n')).then_some(range.start);
+        match event {
+            Event::Start(Tag::HtmlBlock) => {
+                open = (range.end == source.len() && source.ends_with('\n')).then_some(range.start);
+            }
+            Event::Start(Tag::CodeBlock(CodeBlockKind::Fenced(_))) if depth == 0 => {
+                open = (range.end == source.len() && unclosed_fence(&source[range.clone()]))
+                    .then_some(range.start);
+            }
+            _ => {}
+        }
+        match event {
+            Event::Start(_) => depth += 1,
+            Event::End(_) => depth -= 1,
+            _ => {}
         }
     }
     let start = open?;

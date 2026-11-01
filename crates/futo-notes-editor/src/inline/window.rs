@@ -12,8 +12,8 @@ pub(super) struct Window {
     pub text: String,
     /// Leading front matter bytes of `text`, reparsed as the metadata row.
     pub metadata: usize,
-    /// Length, `continues`, `through` and HTML opener of each replacement row.
-    pub pieces: Vec<(usize, bool, bool, Option<String>)>,
+    /// Length and shape of each replacement row.
+    pub pieces: Vec<(usize, row::Shape)>,
     /// Source copied and parsed by boundary scans and refused attempts.
     pub partition_bytes: usize,
 }
@@ -78,7 +78,7 @@ impl Projection {
             }
             // A raw HTML block, unclosed fence or footnote that still owns the
             // window's final blank continues into following rows; reinterpret
-            // them too. A cut HTML continuation row instead proves its own seam.
+            // them too. A cut continuation row instead proves its own seam.
             let (open, parsed) = match opener {
                 Some(opener) => row::open_at_end(&format!("{opener}{text}")),
                 None => row::open_at_end(&text),
@@ -86,7 +86,7 @@ impl Projection {
             partition_bytes += parsed;
             match open {
                 Some(_) if last + 1 >= self.rows.len() => {}
-                Some(row::OpenEnd::Html) if next_opener.is_some() => {}
+                Some(row::OpenEnd::Html | row::OpenEnd::Code) if next_opener.is_some() => {}
                 Some(row::OpenEnd::Html | row::OpenEnd::Code) => {
                     partition_bytes += text.len();
                     last = self.rows.len() - 1;
@@ -108,6 +108,7 @@ impl Projection {
                 opener,
                 next: next.as_deref(),
                 next_opener: next_opener.as_deref(),
+                followed: last + 1 < self.rows.len(),
             };
             let found = partition(body, outside);
             // A block reaching the window end owns a following blank row, and
@@ -146,10 +147,7 @@ impl Projection {
                 let pieces: Vec<_> = found
                     .rows
                     .iter()
-                    .map(|piece| {
-                        let opener = piece.opener.clone();
-                        (piece.text.len(), piece.continues, piece.through, opener)
-                    })
+                    .map(|piece| (piece.text.len(), piece.shape.clone()))
                     .collect();
                 return Window {
                     first,

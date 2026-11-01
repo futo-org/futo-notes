@@ -179,9 +179,21 @@ impl EditorSession {
         if added_ending {
             input.push('\n');
         }
-        let body = self.source.byte_slice(fence.body.clone()).to_string();
+        // Without a container prefix an unchanged body line can never read
+        // as a closer (it would have ended the fence), so only the edited
+        // lines can need a longer fence: a large block stays local (#314).
+        let window = if prefix.is_empty() {
+            let line = |at: usize| self.source.line_to_byte(self.source.byte_to_line(at));
+            let start = line(a).max(fence.body.start);
+            let end = (line(b) + self.source.line(self.source.byte_to_line(b)).len_bytes())
+                .clamp(b, fence.body.end);
+            start..end
+        } else {
+            fence.body.clone()
+        };
+        let body = self.source.byte_slice(window.clone()).to_string();
         let mut candidate = body.clone();
-        candidate.replace_range(a - fence.body.start..b - fence.body.start, &input);
+        candidate.replace_range(a - window.start..b - window.start, &input);
         let needed = candidate
             .lines()
             .filter_map(|line| {

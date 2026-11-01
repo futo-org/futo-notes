@@ -8,7 +8,7 @@
 //! invariant that no row holds a literal delimiter able to pair across rows;
 //! otherwise the whole paragraph stays one row. A tight top-level bullet list
 //! is cut between top-level items, which inline syntax never crosses.
-use pulldown_cmark::{Event, Parser, Tag, TagEnd};
+use pulldown_cmark::{CodeBlockKind, Event, Parser, Tag, TagEnd};
 mod html;
 mod list;
 use list::ListScan;
@@ -18,8 +18,9 @@ use list::ListScan;
 pub(super) enum Cut {
     /// The next row continues this row's paragraph or list.
     Continue,
-    /// The next row continues a raw HTML block with this opener line.
-    Html(std::ops::Range<usize>),
+    /// The next row continues a raw HTML or fenced code block with this
+    /// opener line.
+    Opener(std::ops::Range<usize>),
     /// The next row starts a fresh block.
     Head,
 }
@@ -29,13 +30,15 @@ pub(super) enum Cut {
 #[derive(Clone, Copy, Default)]
 pub(crate) struct Outside<'a> {
     pub continues: bool,
-    /// The opener line of the raw HTML block the first row continues.
+    /// The opener line of the raw HTML or fenced block the first row continues.
     pub opener: Option<&'a str>,
     pub next: Option<&'a str>,
     /// The physical number of the first row's first item, which continues
     /// an ordered list: the row's seam holds while that number stands.
     pub first_number: Option<u64>,
-    /// The opener line of the raw HTML block the following row continues.
+    /// More source follows the text.
+    pub followed: bool,
+    /// The opener line of the block the following row continues.
     pub next_opener: Option<&'a str>,
 }
 
@@ -44,14 +47,11 @@ pub(crate) const SPLIT_MIN: usize = 2048;
 /// Minimum bytes between chosen seams.
 const CHUNK: usize = 512;
 
+use super::Shape;
+
 pub(crate) struct Piece<'a> {
     pub text: &'a str,
-    /// The row's first block continues the preceding row's last block.
-    pub continues: bool,
-    /// The row continues one block that the following row continues too.
-    pub through: bool,
-    /// The opener line of the raw HTML block this row continues.
-    pub opener: Option<String>,
+    pub shape: Shape,
 }
 
 pub(crate) struct Partition<'a> {
@@ -124,7 +124,7 @@ pub(crate) fn partition<'a>(source: &'a str, outside: Outside<'_>) -> Partition<
             rows.push((&source[start..line_start], row_continues, row_opener.take()));
             start = line_start;
             row_continues = !matches!(cut, Cut::Head);
-            if let Cut::Html(opener) = cut {
+            if let Cut::Opener(opener) = cut {
                 row_opener = Some(text[opener.clone()].to_owned());
             }
         }
@@ -146,6 +146,7 @@ pub(crate) fn partition<'a>(source: &'a str, outside: Outside<'_>) -> Partition<
     let mut offset = 0;
     let mut starts = starts.into_iter().peekable();
     let continued: Vec<bool> = rows.iter().skip(1).map(|row| row.1).collect();
+    let count = rows.len();
     let pieces = rows
         .into_iter()
         .enumerate()
@@ -160,12 +161,14 @@ pub(crate) fn partition<'a>(source: &'a str, outside: Outside<'_>) -> Partition<
                 .get(index)
                 .copied()
                 .unwrap_or(outside.next.is_some());
-            Piece {
-                text,
+            let shape = Shape {
                 continues,
                 through: continues && continued && single,
+                continued,
+                followed: index + 1 < count || outside.followed,
                 opener,
-            }
+            };
+            Piece { text, shape }
         })
         .collect();
     let kept = source.trim_end_matches([' ', '\t', '\r', '\n']).len();
@@ -201,7 +204,10 @@ fn analyze(
     for (event, range) in Parser::new_ext(source, super::parser_options()).into_offset_iter() {
         if first_block.is_none() {
             first_block = Some(if base > 0 {
-                matches!(event, Event::Start(Tag::HtmlBlock)) && range.end > base
+                matches!(
+                    event,
+                    Event::Start(Tag::HtmlBlock | Tag::CodeBlock(CodeBlockKind::Fenced(_)))
+                ) && range.end > base
             } else {
                 depth == 0
                     && match &event {
@@ -224,7 +230,10 @@ fn analyze(
                     match tag {
                         Tag::Paragraph => paragraph = Some(Paragraph::new(range.clone())),
                         Tag::List(number) => list = Some(ListScan::new(range.clone(), number)),
-                        Tag::HtmlBlock => html = Some(range.clone()),
+                        Tag::HtmlBlock => html = Some((range.clone(), false)),
+                        Tag::CodeBlock(CodeBlockKind::Fenced(_)) => {
+                            html = Some((range.clone(), true))
+                        }
                         _ => {}
                     }
                 } else if let Some(open) = list.as_mut() {
@@ -275,13 +284,24 @@ fn analyze(
                 starts.push(range.start);
                 tail = Tail::Other;
             }
-            Event::End(TagEnd::HtmlBlock) if depth == 0 => {
-                if let Some(block) = html.take() {
-                    let reaches = reaches_end(source, block.end);
+            Event::End(TagEnd::HtmlBlock | TagEnd::CodeBlock) if depth == 0 => {
+                if let Some((mut block, fence)) = html.take() {
+                    // A fence opener line keeps its indentation, which body
+                    // lines strip.
+                    if fence {
+                        block.start = source[..block.start].rfind('\n').map_or(0, |at| at + 1);
+                    }
+                    // A fence stays open into the following row only unclosed.
+                    let reaches = reaches_end(source, block.end)
+                        && (!fence || super::unclosed_fence(&source[block.clone()]));
                     let connected = block.start < base || outside.next_opener.is_some() && reaches;
-                    html::cuts(source, block.clone(), base, connected, cuts);
+                    // A continued fence closing on the row's first line makes
+                    // the preceding row's final line ending its frame.
+                    widen_back |= block.start < base
+                        && html::closer_line(source, &block, fence) == Some(base);
+                    html::cuts(source, block.clone(), (base, fence), connected, cuts);
                     if reaches {
-                        tail = Tail::Html(block.start);
+                        tail = Tail::Opened(block.start);
                     }
                 }
             }
@@ -298,7 +318,7 @@ fn analyze(
     if let Some(next) = outside.next {
         let sealed = match &tail {
             // The following row keeps its opener only when that line stands.
-            Tail::Html(start) => {
+            Tail::Opened(start) => {
                 outside.next_opener == Some(html::opener_line(source, *start))
                     && html::still_open(source, *start, next)
             }
@@ -313,7 +333,8 @@ fn analyze(
 }
 
 enum Tail {
-    Html(usize),
+    /// An open raw HTML or fenced block starting here.
+    Opened(usize),
     Paragraph,
     List(ListScan),
     Other,
