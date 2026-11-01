@@ -270,6 +270,15 @@ fn note_ids_reach_a_composing_session_and_change_only_affected_regions() {
         role("[[Notes]]", "Notes", "Notes", Some("Work/Notes"))
     );
 
+    // The same ids again do no work; a repeated id is still one note.
+    let same = ids(&["Projects/Roadmap", "Other", "Work/Notes"]);
+    let change = editor.update_note_ids(&same);
+    assert!(change.projections.is_empty() && change.work.catalog_items == 0);
+    let before = roles(&editor);
+    let repeated = ids(&["Projects/Roadmap", "Projects/Roadmap", "Other", "Work/Notes"]);
+    assert!(editor.update_note_ids(&repeated).projections.is_empty());
+    assert_eq!(roles(&editor), before);
+
     editor
         .commit_composition(Revision(0), None, &mut |_| Ok(()))
         .unwrap()
