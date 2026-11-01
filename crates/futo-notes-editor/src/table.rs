@@ -410,6 +410,12 @@ impl Layout {
                 remove: 0,
                 text: cells,
             },
+            // A lone pipe already opens the first cell.
+            None if line.lead.is_some() && line.cells.is_empty() => Splice {
+                at: line.end,
+                remove: 0,
+                text: cells,
+            },
             None => Splice {
                 at: line.end,
                 remove: 0,

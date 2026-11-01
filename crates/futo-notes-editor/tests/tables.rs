@@ -189,6 +189,12 @@ fn keys_navigate_extend_exit_and_break_with_exact_bytes() {
         middle.source_text(),
         "| a |\r\n| - |\r\n\r\n\r\n\r\nnext\r\n"
     );
+    // A lone `|` body row is filled to the table's width, no cell over.
+    let mut lone = EditorSession::open("| a | b |\n| - | - |\n|\n");
+    caret_in(&mut lone, 0, 1);
+    key(&mut lone, TableKey::Tab);
+    assert_eq!(lone.source_text(), "| a | b |\n| - | - |\n|  |  |\n");
+    assert_eq!(lone.selection().start, cell(&lone, 1, 0).start);
     // Outside a table every key is the paragraph path's.
     let mut prose = EditorSession::open("plain\n");
     assert!(key(&mut prose, TableKey::Tab).is_none());
