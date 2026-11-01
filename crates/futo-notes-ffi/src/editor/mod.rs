@@ -144,6 +144,21 @@ impl NativeEditorSession {
         })
     }
 
+    /// Inverse of `display_to_utf16`: native hosts convert UTF-16 selections
+    /// to display byte ranges before calling byte-range FFI methods.
+    /// Mid-surrogate offsets are rejected.
+    pub fn utf16_to_display(
+        &self,
+        expected: u64,
+        range: EditorUtf16Range,
+    ) -> Result<EditorByteRange, EditorSessionError> {
+        self.with_revision(expected, |session| {
+            Ok(session
+                .display_from_utf16(Revision(expected), range.try_into()?)?
+                .into())
+        })
+    }
+
     pub fn undo(&self, expected: u64) -> Result<Option<EditorViewChange>, EditorSessionError> {
         self.with_session(|session| Ok(session.undo(Revision(expected))?.map(Into::into)))
     }

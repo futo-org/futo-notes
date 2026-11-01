@@ -69,7 +69,7 @@ Three layers, same semantics:
 - **Engine (Rust embedders, tests):** `EditorSession` and friends re-exported from
   `crates/futo-notes-editor/src/lib.rs`.
 
-Public surface (portable/WASM names; FFI mirrors with `_utf16` and typed errors): input
+Public surface (portable/WASM names; FFI mirrors the input `_utf16` calls with typed errors): input
 `replace`, `replace_utf16`, `replace_many_utf16`, `replace_os_utf16`, `compose_utf16`,
 `commit_composition_utf16`, `cancel_composition`, `undo`, `redo`; structure
 `block_command_utf16`, `paragraph_key_utf16`; tables `inspect_table`, `table_command`,
@@ -85,9 +85,10 @@ Public surface (portable/WASM names; FFI mirrors with `_utf16` and typed errors)
 **Coordinates.** Source offsets are UTF-8 bytes and never leave the engine as editing
 coordinates. Display coordinates are UTF-8 bytes in the engine and UTF-16 units at the
 WASM/native edge; native input carries exact UTF-16 units (malformed included) with checked
-fixed-width ranges, rejecting oversized values on 32-bit runtimes. Table and find `*_utf16`
-variants take native units for input ranges and text only; results stay byte ranges,
-converted with `display_to_utf16` (item 14). Reject surrogate splits. A replacement
+fixed-width ranges, rejecting oversized values on 32-bit runtimes. Portable/WASM table and
+find `*_utf16` variants take native units for input; FFI table, find, clipboard, completion
+and link calls take byte ranges, so native hosts convert with `utf16_to_display`; results
+stay byte ranges, converted with `display_to_utf16` (item 14). Reject surrogate splits. A replacement
 addresses the old display; its returned selection addresses the new one. Ranges carry no
 anchor/focus direction; the adapter owns direction and history policy.
 
