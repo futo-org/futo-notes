@@ -18,7 +18,8 @@ src/features/sync/syncContract.generated.ts
 tests/conformance/*.json
 pnpm-lock.yaml
 
-# Fixtures (byte-exact test inputs)
+# Fixtures (byte-exact test inputs; one case/event per line)
+crates/futo-notes-editor/tests/fixtures/*.json
 
 # Single-file editor bundle input (hand-tuned inline HTML)
 editor.html
