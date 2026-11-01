@@ -97,11 +97,6 @@ impl<'store> StoreBoundedEditorSession<'store> {
             let work = state
                 .materializing_reset(&self.session.store.root)
                 .map_err(EditorStoreError::Recovery)?;
-            // Also resolves an earlier materialization whose cleanup failed.
-            state
-                .recovery
-                .cancel_bounded_preparation(&self.session.store.root)
-                .map_err(EditorStoreError::Recovery)?;
             Ok(work)
         })();
         match result {
