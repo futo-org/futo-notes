@@ -18,6 +18,8 @@ struct TargetLine {
     heading: bool,
     /// List marker start and the item prefix that a split-off tail item reuses.
     list: Option<(usize, String)>,
+    /// The line continues a paragraph from the line before.
+    soft: bool,
 }
 
 impl TargetLine {
@@ -259,10 +261,21 @@ impl EditorSession {
         };
         let blank = lines_prefix.trim_end().to_owned();
         let mut out = String::with_capacity(text.len() * 2);
-        if (shape.first_block || siblings) && !before_empty {
+        // An ordered list that cannot interrupt the paragraph above starts after a blank line.
+        let parted = shape.first_block && !shape.interrupts && !siblings;
+        let (from, after_soft) = if parted && before_empty && line.soft && !line.heading {
+            (line.start, true)
+        } else {
+            (from, false)
+        };
+        if after_soft {
+            out.push_str(&blank);
+            out.push_str(newline);
+            out.push_str(&lines_prefix);
+        } else if (shape.first_block || siblings) && !before_empty {
             out.push_str(&self.straddling(start, false));
             out.push_str(newline);
-            if !shape.interrupts && !siblings {
+            if parted {
                 out.push_str(&blank);
                 out.push_str(newline);
             }
@@ -343,11 +356,20 @@ impl EditorSession {
                         .to_string(),
                 )
             });
+        let soft = start > 0
+            && self
+                .projection
+                .block_lines(DisplayRange {
+                    start: DisplayOffset(at.0.saturating_sub(1)),
+                    end: at,
+                })
+                .iter()
+                .any(|line| line.source.end == start && line.paragraph_text);
         TargetLine {
             start,
             content,
-
             prefix,
+            soft,
             heading: block.is_some_and(|block| block.heading > 0 && block.source.start == start)
                 && self
                     .source

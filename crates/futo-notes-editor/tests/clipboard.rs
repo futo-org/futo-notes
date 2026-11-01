@@ -66,6 +66,8 @@ fn paste_keeps_copied_characters_and_places_blocks() {
             "1986. A great year",
             "ab\n\n1986. A great year\n\ncd",
         ),
+        ("abc\ndef", (4, 4), "2. x", "abc\n\n2. x\n\ndef"),
+        ("> abc\n> def", (4, 4), "2. x", "> abc\n>\n> 2. x\n>\n> def"),
         ("abcd", (2, 2), "```\ncode", "ab\n```\ncode\n```\ncd"),
         // Inside containers: nested under the item, siblings for a list.
         ("- item", (4, 4), "# Title", "- item\n  # Title"),
