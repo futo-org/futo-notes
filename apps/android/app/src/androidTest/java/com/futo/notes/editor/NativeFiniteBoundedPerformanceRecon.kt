@@ -87,7 +87,7 @@ internal fun recordFiniteBoundedRecon() {
                 val openStart = System.nanoTime()
                 val full = store.openEditor(id)
                 metric.put("openNs", JSONArray().put(System.nanoTime() - openStart))
-                val finalSource = recordFiniteBoundedFixture(store, full, name, source, metric,
+                val finalSource = recordFiniteBoundedFixture(store, full, name, source, 283uL + index.toULong(), metric,
                     { label -> phase = "$name/$label"; persist() }, ::checkBudget, ::persist)
                 phase = "$name/reopen-checkpoint-readback"
                 persist()
@@ -114,7 +114,7 @@ internal fun recordFiniteBoundedRecon() {
 
 /** This finite consumer retains deltas; it replays the whole-view oracle only after timing. */
 private fun recordFiniteBoundedFixture(store: NoteStore, full: NativeEditorSession,
-    name: String, source: String, metric: JSONObject, stage: (String) -> Unit,
+    name: String, source: String, attachmentToken: ULong, metric: JSONObject, stage: (String) -> Unit,
     checkBudget: () -> Unit, persist: () -> Unit): String = full.use {
     val suffix = name == "short-fence-20000-lines-independent-paragraphs"
     val shown = full.displayText() // Initial display and UTF-8 anchors precede bounded timing.
@@ -135,10 +135,12 @@ private fun recordFiniteBoundedFixture(store: NoteStore, full: NativeEditorSessi
     stage("proportional-entry")
     checkBudget()
     val entryStart = System.nanoTime()
-    val bounded = full.intoBounded(0uL, 283uL, 1uL)
+    val bounded = full.intoBounded(0uL, attachmentToken, 1uL)
     single("entryPreparationNs", System.nanoTime() - entryStart)
     bounded.use { b ->
         var cursor = b.cursor()
+        metric.put("attachmentToken", cursor.token.toLong())
+        assertEquals(attachmentToken, cursor.token)
         val preparation = b.preparationWork()
         metric.put("preparationInspectedSourceBytes", preparation.work.inspectedSourceBytes.toLong())
             .put("preparationMetadataItems", preparation.work.metadataItems.toLong())

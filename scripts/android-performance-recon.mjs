@@ -103,10 +103,13 @@ export function validateReconReport(report, runId, mode = 'full') {
       values.every((ns) => Number.isSafeInteger(ns) && ns >= 0);
     if (
       report.fixtures.length !== 2 ||
+      new Set(report.fixtures.map((fixture) => fixture.attachmentToken)).size !== 2 ||
       report.fixtures.some((fixture, index) => {
         const suffix = index === 1;
         return (
           fixture.fixture !== names[index] ||
+          !Number.isSafeInteger(fixture.attachmentToken) ||
+          fixture.attachmentToken <= 0 ||
           Object.entries(counts).some(([key, count]) => !durations(fixture[key], count)) ||
           fixture.acceptedRevisions?.length !== (suffix ? 53 : 51) ||
           fixture.acceptedRevisions.some((revision, i) => revision !== i + 1) ||

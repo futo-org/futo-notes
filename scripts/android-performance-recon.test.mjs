@@ -161,6 +161,7 @@ it('requires the small list-first checkpoint and fresh immediate/batch flush fee
 it('validates finite bounded phases separately and retains partial failures', () => {
   const fixture = (name, suffix) => ({
     fixture: name,
+    attachmentToken: suffix ? 284 : 283,
     createNs: [1],
     openNs: [1],
     entryPreparationNs: [1],
@@ -215,6 +216,14 @@ it('validates finite bounded phases separately and retains partial failures', ()
   };
   const validate = (value) => validateReconReport(value, 'owned-run', 'finite-bounded-checkpoint');
   expect(() => validate(report)).not.toThrow();
+  const reusedToken = structuredClone(report);
+  reusedToken.fixtures[1].attachmentToken = 283;
+  expect(() => validate(reusedToken)).toThrow();
+  for (const token of [undefined, 0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1]) {
+    const invalidToken = structuredClone(report);
+    invalidToken.fixtures[0].attachmentToken = token;
+    expect(() => validate(invalidToken)).toThrow();
+  }
   const missing = structuredClone(report);
   missing.fixtures[0].warmTypingNs.pop();
   expect(() => validate(missing)).toThrow();

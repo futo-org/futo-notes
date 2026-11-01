@@ -156,7 +156,7 @@ struct NativeBoundedEditorSessionTests {
                 #expect(actual == fresh)
                 try oracle.detach()
                 for _ in 0..<4 {
-                    _ = try #require(handoff.session.undo(expected: handoff.session.revision()))
+                    _ = try #require(try handoff.session.undo(expected: handoff.session.revision()))
                 }
                 #expect(try handoff.session.sourceText() == source)
                 try handoff.session.detach()
@@ -187,7 +187,7 @@ struct NativeBoundedEditorSessionTests {
                 try full.cancelComposition(expected: 1)
                 let bounded = try full.intoBounded(expected: 1, token: 87, bodyCaret: 1)
                 let restored = try bounded.intoFull().session
-                _ = try #require(restored.undo(expected: 1))
+                _ = try #require(try restored.undo(expected: 1))
                 #expect(try restored.sourceText() == source)
                 try restored.detach()
             }
@@ -250,7 +250,7 @@ struct NativeBoundedEditorSessionTests {
                 _ = try bounded.insertLiteral(cursor: before, at: 1, scalar: rejectedRaw)
                 let restored = try bounded.intoFull().session
                 #expect(try restored.sourceText() == "```\naxb\n```\n")
-                _ = try #require(restored.undo(expected: 1))
+                _ = try #require(try restored.undo(expected: 1))
                 #expect(try restored.sourceText() == source)
                 try restored.detach()
             }
@@ -278,7 +278,7 @@ struct NativeBoundedEditorSessionTests {
                 #expect(reset.resetRequired && !reset.deleted)
                 let restored = try bounded.intoFull().session
                 #expect(try restored.noteId() == "renamed")
-                _ = try #require(restored.undo(expected: 1))
+                _ = try #require(try restored.undo(expected: 1))
                 let deleted = try restored.intoBounded(expected: 2, token: 90, bodyCaret: 0)
                 _ = try store.delete(id: "renamed")
                 _ = try store.createNote(title: "renamed", folder: "", content: "fresh")
