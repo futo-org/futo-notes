@@ -16,6 +16,7 @@ import { LEGACY_ANDROID_AVDS, POOL } from './qa/pool.mjs';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const CLASSES = [
   'NativeEditorSessionTest',
+  'NativeBoundedEditorSessionTest',
   'NativeEditorBlockRegressionTest',
   'NativeEditorCompositionTest',
   'NativeEditorStructuralSeamTest',
@@ -172,14 +173,17 @@ function main() {
     );
     const passed = parseInstrumentationResult(output, cls, expected);
     receipt.classes[cls] = { expected, passed, started, finished: Date.now() / 1000 };
-    if (short === 'NativeEditorSessionTest') {
+    if (short === 'NativeEditorSessionTest' || short === 'NativeBoundedEditorSessionTest') {
+      const widthMarker =
+        short === 'NativeBoundedEditorSessionTest'
+          ? 'EDITOR_NATIVE_BOUNDED_32BIT=true'
+          : 'EDITOR_NATIVE_CONTRACT_32BIT=true';
       const log = adb('logcat', '-d', '-v', 'epoch', '-s', 'System.out:I');
       const lines = log
         .split(/\r?\n/)
         .filter(
           (line) =>
-            Number(line.trim().split(/\s+/)[0]) >= started - 1 &&
-            line.includes('EDITOR_NATIVE_CONTRACT_32BIT=true'),
+            Number(line.trim().split(/\s+/)[0]) >= started - 1 && line.includes(widthMarker),
         );
       if (!lines.length) throw new Error('No current Process.is64Bit=false witness');
       receipt.classes[cls].processWidth = lines;

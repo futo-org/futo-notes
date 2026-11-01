@@ -59,5 +59,16 @@ selection, history, cancellation, stale-result rejection and complete final sema
 
 Contract owners: `crates/futo-notes-editor/src/portable.rs`, `session/input.rs`, `session.rs`,
 `types.rs`; `crates/futo-notes-store/src/editor_session/recovery.rs`, `facade.rs`;
-`crates/futo-notes-ffi/src/editor/mod.rs`, `contract.rs`. The portable-core specifications
+`crates/futo-notes-ffi/src/editor/mod.rs`, `contract.rs`, `bounded.rs` and
+`bounded/contract.rs`. The portable-core specifications
 remain the behavioral authority. No coworker has been contacted.
+
+The additive bounded native endpoint owns the same Store page attachment. Enter it
+explicitly, obtain its cursor and preparation work, then apply each returned byte
+delta together with its complete semantic replacement and generation. Accepted
+source copying includes reset/deletion state and a source revision distinct from
+recovery watermarks. A refused callback remains the caller's raw payload. Explicit
+materialization returns a fresh full native object with the same page history; old
+aliases are unavailable. Entry, accepted-source copying, materialization and foreign
+binding allocations are proportional operations. This finite contract supplies no
+general paragraph/container/table, renderer, IME or physical latency acceptance.
