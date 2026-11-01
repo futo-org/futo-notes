@@ -305,9 +305,17 @@ impl Row {
             .flatten();
         let (wikilinks, wikilink_mask) =
             crate::inline::wikilinks::scan(source, &isolated, &segments);
+        // Kept only where a link could be typed, so completion can refuse an
+        // unfinished `[[` inside code or HTML exactly as a finished link would.
+        let isolated = if wikilinks.is_empty() && !source.contains("[[") {
+            Vec::new()
+        } else {
+            isolated
+        };
         Self {
             wikilinks,
             wikilink_mask,
+            wikilink_isolated: isolated,
             guarded_words: Vec::new(),
             typed_inputs: Vec::new(),
             context,

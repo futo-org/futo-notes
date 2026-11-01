@@ -15,6 +15,8 @@ struct Entry {
 #[derive(Default)]
 pub struct WikilinkIndex {
     ids: HashSet<String>,
+    /// Distinct ids in delivery order, so completion keeps the host's ranking.
+    order: Vec<String>,
     by_suffix: HashMap<String, Entry>,
     /// Suffix entries visited while building; proportional to the id list.
     pub build_items: usize,
@@ -25,6 +27,9 @@ impl WikilinkIndex {
         let mut index = Self::default();
         for id in all_ids {
             let first_seen = index.ids.insert(id.clone());
+            if first_seen {
+                index.order.push(id.clone());
+            }
             for suffix in super::link_targets_naming(id) {
                 index.build_items += 1;
                 match index.by_suffix.get_mut(suffix) {
@@ -54,6 +59,11 @@ impl WikilinkIndex {
 
     pub fn ids(&self) -> impl Iterator<Item = &str> {
         self.ids.iter().map(String::as_str)
+    }
+
+    /// Distinct ids in the order they were delivered.
+    pub fn ordered_ids(&self) -> &[String] {
+        &self.order
     }
 
     pub fn resolve(&self, target: &str) -> Option<&str> {

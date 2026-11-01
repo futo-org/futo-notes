@@ -279,6 +279,8 @@ pub enum EditorSessionError {
     Persistence { error: String },
     #[error("editor recovery mismatch")]
     RecoveryMismatch,
+    #[error("wikilink completion is stale")]
+    StaleCompletion,
     #[error("editor open failed: {error}")]
     Open { error: String },
     #[error("editor session already open")]
@@ -329,6 +331,7 @@ impl From<editor::EditorError> for EditorSessionError {
             E::UnrepresentableFormat => Self::UnrepresentableFormat,
             E::Persistence(error) => Self::Persistence { error },
             E::RecoveryMismatch => Self::RecoveryMismatch,
+            E::StaleCompletion => Self::StaleCompletion,
         }
     }
 }

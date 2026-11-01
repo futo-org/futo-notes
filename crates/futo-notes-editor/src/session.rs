@@ -15,6 +15,7 @@ mod pending;
 mod staging;
 mod tags;
 mod transaction;
+mod wikilink_completion;
 use crate::history::{
     HistoryClock, HistoryEntry, HistoryGroup, HistoryInput, MonotonicClock, TypingRun,
 };

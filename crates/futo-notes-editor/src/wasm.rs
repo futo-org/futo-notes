@@ -126,6 +126,37 @@ impl WasmSession {
                 .map_err(error)?,
         )
     }
+    pub fn wikilink_completion(&self, revision: u64) -> Result<String, JsValue> {
+        json(
+            &self
+                .0
+                .wikilink_completion(Revision(revision))
+                .map_err(error)?,
+        )
+    }
+    pub fn accept_wikilink_completion(
+        &mut self,
+        revision: u64,
+        start: usize,
+        end: usize,
+        query: &str,
+        note_id: &str,
+    ) -> Result<String, JsValue> {
+        json(
+            &self
+                .0
+                .accept_wikilink_completion(
+                    Revision(revision),
+                    DisplayRange {
+                        start: DisplayOffset(start),
+                        end: DisplayOffset(end),
+                    },
+                    query,
+                    note_id,
+                )
+                .map_err(error)?,
+        )
+    }
     pub fn tags(&self) -> Result<String, JsValue> {
         json(&self.0.tags().map_err(error)?)
     }
@@ -205,6 +236,7 @@ impl WasmSession {
     pub fn find_apply_scan(&mut self, result: &str) -> Result<String, JsValue> {
         let result = serde_json::from_str(result).map_err(error)?;
         json(&self.0.find_apply_scan(&result).map_err(error)?)
+    }
     /// `note_ids` is a JSON string array supplied by the store-owned host.
     pub fn update_note_ids(&mut self, note_ids: &str) -> Result<String, JsValue> {
         let note_ids: Vec<String> = serde_json::from_str(note_ids).map_err(error)?;

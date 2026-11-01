@@ -25,7 +25,7 @@ pub use types::{
     DisplayUtf16Offset, DisplayUtf16Range, EditWork, EditorError, InlineFormat, LinkDescription,
     ListDescription, NoteIdChange, NoteIdWork, ProjectionSlice, Revision, SelectionChange,
     SemanticRun, SourceEdit, SourceOffset, SourceRange, SourceUtf16Offset, SourceUtf16Range,
-    ViewChange, WikilinkDescription,
+    ViewChange, WikilinkCandidate, WikilinkCompletion, WikilinkDescription,
 };
 
 pub use portable::{

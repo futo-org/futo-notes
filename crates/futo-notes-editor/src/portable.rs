@@ -5,6 +5,7 @@ mod composition;
 mod find;
 mod links;
 mod tags;
+mod wikilink_completion;
 use serde::{Deserialize, Serialize};
 
 use crate::{

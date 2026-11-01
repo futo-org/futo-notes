@@ -67,6 +67,8 @@ pub(crate) struct Row {
     pub guarded_words: Vec<super::guarded_words::GuardedWord>,
     pub wikilinks: Vec<super::wikilinks::RowWikilink>,
     pub wikilink_mask: u64,
+    /// Code and HTML source ranges; kept only for rows containing `[[`.
+    pub wikilink_isolated: Vec<Range<usize>>,
     pub typed_inputs: Vec<super::typed_angle::TypedAngleOrigin>,
     pub literal_delimiters: Vec<Range<usize>>,
     pub literal_links: Vec<Range<usize>>,

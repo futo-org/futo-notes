@@ -127,6 +127,10 @@ impl Attachment {
         self.recovery.flush(root)?;
         self.recovery.cancel_reservation(root)?;
         let work = self.engine.materialize();
+        // The rebuilt full engine has no note ids until the store delivers them.
+        if let Ok(engine) = self.engine.full_mut() {
+            engine.update_note_ids(&super::links::vault_note_ids(root));
+        }
         self.bounded_work = work;
         Ok(work)
     }

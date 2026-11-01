@@ -222,6 +222,7 @@ fn model(source_len: usize, display: &str, segments: Vec<Segment>) -> Row {
         guarded_words: Vec::new(),
         wikilinks: Vec::new(),
         wikilink_mask: 0,
+        wikilink_isolated: Vec::new(),
         typed_inputs: Vec::new(),
         literal_delimiters: Vec::new(),
         literal_links: Vec::new(),

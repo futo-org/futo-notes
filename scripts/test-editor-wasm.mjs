@@ -108,6 +108,10 @@ run(process.execPath, [
 
 run(process.execPath, [
   join(root, 'crates/futo-notes-editor/tests/find/wasm-find-consumer.mjs'),
+  join(output, 'futo_notes_editor.js'),
+]);
+
+run(process.execPath, [
   join(root, 'crates/futo-notes-editor/tests/wasm-wikilink-consumer.mjs'),
   join(output, 'futo_notes_editor.js'),
 ]);

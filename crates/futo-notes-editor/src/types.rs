@@ -111,6 +111,8 @@ pub enum EditorError {
     UnrepresentableFormat,
     Persistence(String),
     RecoveryMismatch,
+    /// A completion claim no longer matches the open `[[` run or note ids.
+    StaleCompletion,
 }
 
 impl std::fmt::Display for EditorError {
@@ -201,6 +203,28 @@ pub struct WikilinkDescription {
     pub target: String,
     pub label: String,
     pub note_id: Option<String>,
+}
+
+/// One note a `[[` completion offers. `note_id` is the full id the link will
+/// name; `label` is its shortest unique suffix; `detail` repeats the id only when
+/// the label does not already show it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WikilinkCandidate {
+    pub note_id: String,
+    pub label: String,
+    pub detail: Option<String>,
+}
+
+/// The open `[[` run at the caret. `range` is what acceptance replaces: from the
+/// first `[` through the caret, and through an immediately following `]]`.
+/// `query` is the source text typed after `[[`. A run nothing matches is still
+/// reported, with no candidates, so a consumer can remember a dismissal.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WikilinkCompletion {
+    pub revision: Revision,
+    pub range: DisplayRange,
+    pub query: String,
+    pub candidates: Vec<WikilinkCandidate>,
 }
 
 /// Semantic replacements for only the wikilinks whose resolution or label a

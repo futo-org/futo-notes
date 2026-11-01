@@ -108,3 +108,26 @@ pub(crate) fn describe_in_row(
         note_id,
     }
 }
+
+impl super::Projection {
+    /// Whether the two `[` bytes at `source` are visible literal text outside
+    /// code and HTML: the same condition a finished link's brackets must meet.
+    pub(crate) fn opens_literal_wikilink(&self, source: usize) -> bool {
+        let (row, row_source, _) = self.rows.at(self.rows.locate(source, false));
+        let at = source - row_source;
+        let literal = |at: usize| {
+            let index = row
+                .segments
+                .partition_point(|segment| segment.source.end <= at);
+            row.segments
+                .get(index)
+                .is_some_and(|segment| segment.identity && segment.source.start <= at)
+        };
+        literal(at)
+            && literal(at + 1)
+            && !row
+                .wikilink_isolated
+                .iter()
+                .any(|range| range.start < at + 2 && at < range.end)
+    }
+}
