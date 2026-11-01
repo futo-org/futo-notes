@@ -275,7 +275,12 @@ fn note_ids_reach_a_composing_session_and_change_only_affected_regions() {
     let change = editor.update_note_ids(&same);
     assert!(change.projections.is_empty() && change.work.catalog_items == 0);
     let before = roles(&editor);
-    let repeated = ids(&["Projects/Roadmap", "Projects/Roadmap", "Other", "Work/Notes"]);
+    let repeated = ids(&[
+        "Projects/Roadmap",
+        "Projects/Roadmap",
+        "Other",
+        "Work/Notes",
+    ]);
     assert!(editor.update_note_ids(&repeated).projections.is_empty());
     assert_eq!(roles(&editor), before);
 
