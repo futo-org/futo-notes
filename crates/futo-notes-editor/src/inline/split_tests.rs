@@ -337,3 +337,16 @@ fn cut_paragraphs_match_uncut_twin_through_edits() {
         }
     }
 }
+
+#[test]
+fn only_kind_one_tag_names_cut_html_blocks() {
+    let body = "line of raw html\n".repeat(200);
+    for (opener, cut) in [
+        ("<pre>\n", true),
+        ("<script\n", true),
+        ("<prefix>\n", false),
+    ] {
+        let projection = super::Projection::new(&format!("{opener}{body}"));
+        assert_eq!(projection.rows.len() > 1, cut, "{opener:?}");
+    }
+}

@@ -6,20 +6,21 @@ use super::{Cut, CHUNK, SPLIT_MIN};
 use pulldown_cmark::{Event, Parser, Tag};
 use std::ops::Range;
 
-/// CommonMark kinds 1-5 end at a terminator rather than a blank line.
+/// CommonMark kinds 1-5 end at a terminator rather than a blank line. A kind
+/// 1 tag name must end at whitespace, `>` or the line end (`<prefix>` is 7).
 fn ends_at_terminator(opener: &str) -> bool {
     let lower = opener.trim_start_matches(' ').to_ascii_lowercase();
-    [
-        "<!--",
-        "<?",
-        "<![cdata[",
-        "<pre",
-        "<script",
-        "<style",
-        "<textarea",
-    ]
-    .iter()
-    .any(|start| lower.starts_with(start))
+    let kind_one = ["<pre", "<script", "<style", "<textarea"]
+        .iter()
+        .any(|tag| {
+            lower.strip_prefix(tag).is_some_and(|rest| {
+                rest.is_empty() || rest.starts_with([' ', '\t', '>', '\r', '\n'])
+            })
+        });
+    kind_one
+        || ["<!--", "<?", "<![cdata["]
+            .iter()
+            .any(|start| lower.starts_with(start))
         || lower.starts_with("<!") && lower.as_bytes().get(2).is_some_and(u8::is_ascii_alphabetic)
 }
 
