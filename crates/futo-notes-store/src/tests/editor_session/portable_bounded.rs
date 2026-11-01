@@ -30,6 +30,15 @@ fn bounded_page_and_real_source_worker_accept_far_inverse_once_without_shared_fr
     assert!(ack.error.is_none(), "{ack:?}");
     assert_eq!(ack.work.parsed_source_bytes, 0);
     assert_eq!(page.status().displayed, Revision(0));
+    assert_eq!(page.status().accepted, Revision(0));
+    assert_eq!(page.status().durable, Revision(0));
+    assert_eq!(host.recovery_status().accepted, Revision(1));
+    assert_eq!(host.recovery_status().durable, Revision(0));
+    assert!(host.recovery_status().flush_deadline.is_some());
+    let refusal = page.into_full().err().expect("withheld successful Append keeps the mode handoff blocked even when page watermarks are equal");
+    assert_eq!(refusal.error, PortableError::Busy);
+    let mut page = *refusal.session;
+    assert!(page.status().waiting);
     assert!(page.draft_text().contains("ab\n\n\nmiddle"));
     let raw_callback = "x";
     assert_eq!(
@@ -94,6 +103,17 @@ fn bounded_page_and_real_source_worker_accept_far_inverse_once_without_shared_fr
         .unwrap()
         .is_some());
     assert_eq!(host.source_text(), source);
+    let cursor_before_flush = page.cursor().unwrap();
+    let deadline_before_flush = host.recovery_status().flush_deadline;
+    assert!(deadline_before_flush.is_some());
+    let refusal = page
+        .into_full()
+        .err()
+        .expect("page materialization must wait for the accepted-prefix Flush barrier");
+    assert_eq!(refusal.error, PortableError::Busy);
+    let mut page = *refusal.session;
+    assert_eq!(page.cursor().unwrap(), cursor_before_flush);
+    assert_eq!(host.recovery_status().flush_deadline, deadline_before_flush);
     let flush = page.flush().unwrap();
     let old_ack = host.handle(flush);
     page.acknowledge(old_ack.clone()).unwrap();

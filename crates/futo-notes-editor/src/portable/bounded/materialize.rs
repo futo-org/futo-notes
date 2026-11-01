@@ -64,9 +64,10 @@ fn canonical_reset(
 impl PortableBoundedSession {
     /// Deliberately proportional. A withheld candidate keeps its exact source
     /// edit and becomes one real canonical full-display reset, released only by
-    /// the legacy acceptance barrier. Old bounded callback authority ends here.
+    /// the legacy acceptance barrier. The accepted prefix must first pass its
+    /// Flush/Resume barrier. Old bounded callback authority ends here.
     pub fn into_full(self) -> Result<(PortableSession, BoundedWork), PortableBoundedExitError> {
-        if self.waiting.is_some() {
+        if self.waiting.is_some() || self.durable != self.accepted {
             return Err(PortableBoundedExitError {
                 session: Box::new(self),
                 error: PortableError::Busy,

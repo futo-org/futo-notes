@@ -225,7 +225,7 @@ impl PortableBoundedSession {
         if inserted.len() > 2 {
             return Err(PortableError::Bounded(BoundedError::Unsupported));
         }
-        let lifted_bytes = inserted.len() * std::mem::size_of::<u16>();
+        let lifted_bytes = std::mem::size_of_val(inserted);
         let inserted = String::from_utf16(inserted)
             .map_err(|_| PortableError::Editor(EditorError::InvalidText))?;
         let request = self.insert_literal(cursor, at, &inserted)?;
