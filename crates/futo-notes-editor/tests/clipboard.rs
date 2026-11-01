@@ -107,6 +107,8 @@ fn copy_exports_markdown_for_the_selection() {
         ("- a\n  - b\n  - c", (2, 5), "- b\n- c"),
         ("> a\r\n> b", (0, 4), "> a\r\n> b"),
         ("a  b", (1, 3), "  "),
+        ("**a b**", (1, 2), " "),
+        ("`a b`", (1, 2), " "),
     ] {
         let s = EditorSession::open(source);
         assert_eq!(

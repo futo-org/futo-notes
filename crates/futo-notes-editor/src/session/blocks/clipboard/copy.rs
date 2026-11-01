@@ -32,7 +32,6 @@ impl EditorSession {
             .chars()
             .take_while(|c| matches!(c, ' ' | '\t'))
             .count();
-        let (openers, closers) = self.cut_spans(start, end);
         let mut body = self.source.byte_slice(start..end).to_string();
         if indent > 0 {
             body = dedent(&body, if whole_start { indent } else { 0 }, indent);
@@ -46,6 +45,12 @@ impl EditorSession {
             body.len()
         } else {
             body.trim_end_matches([' ', '\t']).len().max(skip)
+        };
+        // Whitespace alone carries no format, so it gets no delimiters.
+        let (openers, closers) = if skip < keep {
+            self.cut_spans(start, end)
+        } else {
+            Default::default()
         };
         let mut out = String::with_capacity(body.len() + openers.len() + closers.len());
         out.push_str(&body[..skip]);
