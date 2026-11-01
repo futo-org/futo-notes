@@ -47,7 +47,8 @@ for (const item of cases) {
   let worker = host(vault, item.source),
     page;
   try {
-    page = WasmSession.restore(JSON.stringify(await worker.next()));
+    // Frozen clock: 500ms typing-run grouping must not depend on CI speed.
+    page = WasmSession.restore_frozen_clock(JSON.stringify(await worker.next()));
     let display = item.display,
       revision = 0n,
       caret;

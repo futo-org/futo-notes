@@ -55,6 +55,21 @@ impl WasmSession {
             Revision(durable),
         )))
     }
+    /// Test-only: history grouping never expires, so undo counts do not depend on host speed.
+    pub fn restore_frozen_clock(snapshot: &str) -> Result<WasmSession, JsValue> {
+        struct Frozen;
+        impl crate::HistoryClock for Frozen {
+            fn now(&self) -> std::time::Duration {
+                std::time::Duration::ZERO
+            }
+        }
+        let snapshot: crate::HostSnapshot = serde_json::from_str(snapshot).map_err(error)?;
+        validate_wire(snapshot.token.0, snapshot.revision.0, snapshot.durable.0)?;
+        Ok(Self(
+            PortableSession::from_snapshot_with_clock(snapshot, std::sync::Arc::new(Frozen))
+                .map_err(error)?,
+        ))
+    }
     pub fn restore(snapshot: &str) -> Result<WasmSession, JsValue> {
         let snapshot: crate::HostSnapshot = serde_json::from_str(snapshot).map_err(error)?;
         // Reuse constructor validation for the JSON integer boundary.

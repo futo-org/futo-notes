@@ -169,14 +169,25 @@ impl PortableSession {
     }
 
     pub fn from_snapshot(snapshot: HostSnapshot) -> Result<Self, PortableError> {
+        Self::from_snapshot_with_clock(
+            snapshot,
+            std::sync::Arc::new(crate::history::MonotonicClock::default()),
+        )
+    }
+
+    pub fn from_snapshot_with_clock(
+        snapshot: HostSnapshot,
+        clock: std::sync::Arc<dyn crate::HistoryClock>,
+    ) -> Result<Self, PortableError> {
         if snapshot.durable.0 > snapshot.revision.0 {
             return Err(PortableError::InvalidAcknowledgement);
         }
-        let mut session = Self::open(
+        let mut session = Self::open_with_clock(
             snapshot.token,
             &snapshot.source,
             snapshot.revision,
             snapshot.durable,
+            clock,
         );
         session.paused = snapshot.paused;
         Ok(session)
