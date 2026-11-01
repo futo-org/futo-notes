@@ -34,3 +34,26 @@ fn widening_past_a_non_ascii_row_end_does_not_panic() {
         assert!(whole(&session) == whole(&fresh), "{source:?}");
     }
 }
+
+/// A cut fence row that gains `[[` still ends its fence where a fresh open does.
+#[test]
+fn wikilink_opener_typed_into_a_cut_fence_keeps_the_fence() {
+    let body: String = (0..300).map(|i| format!("code {i}\n")).collect();
+    for (line, (open, close)) in [0, 120, 240, 299]
+        .into_iter()
+        .flat_map(|line| [(line, ("```", "```")), (line, ("<pre>", "</pre>"))])
+    {
+        let source = format!("{open}\n{body}{close}\n- item 1\n");
+        let mut session = EditorSession::open(&source);
+        let at = session
+            .display_text()
+            .find(&format!("code {line}\n"))
+            .unwrap();
+        let revision = session.revision();
+        session
+            .replace(revision, range(at, at), "[[", &mut |_| Ok(()))
+            .unwrap();
+        let fresh = EditorSession::open(&session.source_text());
+        assert!(whole(&session) == whole(&fresh), "{open} line {line}");
+    }
+}
