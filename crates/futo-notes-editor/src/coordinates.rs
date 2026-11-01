@@ -253,17 +253,6 @@ impl EditorSession {
         self.inspect_table(expected, range)
     }
 
-    pub fn replace_in_cell_utf16(
-        &mut self,
-        expected: Revision,
-        range: DisplayUtf16Range,
-        inserted: &[u16],
-        accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
-    ) -> Result<Option<ViewChange>, EditorError> {
-        let (range, inserted) = self.decode_utf16_input(expected, range, inserted)?;
-        self.replace_in_cell(expected, range, &inserted, accept)
-    }
-
     pub fn table_command_utf16(
         &mut self,
         expected: Revision,

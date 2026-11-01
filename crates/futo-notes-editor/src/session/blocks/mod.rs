@@ -41,6 +41,7 @@ mod lists;
 mod physical_layout;
 mod split;
 mod tables;
+pub(super) use tables::CellInput;
 mod transaction;
 mod typing;
 

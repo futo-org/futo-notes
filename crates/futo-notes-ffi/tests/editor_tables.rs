@@ -1,5 +1,7 @@
 mod support;
-use futo_notes_ffi::{EditorByteRange, EditorTableCommand, EditorTableKey, NoteStore};
+use futo_notes_ffi::{
+    EditorByteRange, EditorTableCommand, EditorTableKey, EditorUtf16Range, NoteStore,
+};
 use support::{path_string, TempTree};
 
 #[test]
@@ -22,13 +24,12 @@ fn native_table_cells_keys_and_commands_recover_exact_source() {
         .unwrap();
     assert_eq!((table.columns, table.rows.len()), (2, 2));
     let a = &table.rows[0][0].content;
-    let caret = EditorByteRange {
+    let caret = EditorUtf16Range {
         start: a.end,
         end: a.end,
     };
     session
-        .replace_in_cell(0, caret, "x|y".into())
-        .unwrap()
+        .replace_utf16(0, caret, "x|y".encode_utf16().collect())
         .unwrap();
     let at = EditorByteRange { start: 2, end: 2 };
     let moved = session.table_key(1, EditorTableKey::Tab).unwrap().unwrap();

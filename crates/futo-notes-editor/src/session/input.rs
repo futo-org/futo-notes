@@ -89,6 +89,9 @@ impl EditorSession {
                 });
         }
         self.validate_range(range)?;
+        let cell = self.input_cell(range, inserted);
+        let flat = cell.as_ref().map(|_| blocks::CellInput::flatten(inserted));
+        let inserted = flat.as_deref().unwrap_or(inserted);
         if let Some(change) = self.fence_input(expected, range, inserted, action, accept)? {
             let mapping = InputMapping::new(range, inserted.len());
             return Ok((change, mapping));
@@ -123,7 +126,7 @@ impl EditorSession {
             affinity,
             pending,
             crate::inline::EditIntent::Input(action),
-            self.escape_pipes,
+            cell.is_some(),
         )?;
         let edit = self.prepare_source(
             expected,
@@ -133,6 +136,9 @@ impl EditorSession {
             },
             &plan.inserted,
         )?;
+        if let Some(cell) = &cell {
+            cell.check(&edit)?;
+        }
         let before_links = self.projection.pending_for_source_edit(edit.range);
         let prepared = self.prepare_plan_pending(&edit, &plan, &before_links, Some(range))?;
         accept(&edit).map_err(EditorError::Persistence)?;

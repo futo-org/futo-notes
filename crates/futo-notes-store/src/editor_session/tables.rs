@@ -27,17 +27,6 @@ impl StoreEditorSession<'_> {
             .map_err(EditorStoreError::Editor)
     }
 
-    pub fn replace_in_cell(
-        &mut self,
-        expected: Revision,
-        range: DisplayRange,
-        inserted: &str,
-    ) -> Result<Option<ViewChange>, EditorStoreError> {
-        self.table_edit(|session, accept| {
-            session.replace_in_cell(expected, range, inserted, accept)
-        })
-    }
-
     pub fn table_command(
         &mut self,
         expected: Revision,

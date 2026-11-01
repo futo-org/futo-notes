@@ -115,6 +115,11 @@ impl EditorSession {
     }
 
     fn table_window(&self, at: usize) -> Option<Window> {
+        // A list, quote, code or heading line is never a root table's row:
+        // answer from the projection before reading the run.
+        if !self.table_at_root(at) {
+            return None;
+        }
         let (base, text) = self.table_run(at)?;
         let layout = Layout::find(&text, at - base)?;
         self.table_at_root(base + layout.lines[0].start)
@@ -249,64 +254,76 @@ impl EditorSession {
         }))
     }
 
-    /// Replace display text inside one cell. `|` is written `\|` and line
-    /// breaks become spaces, so no other cell can change. `None`: the range is
-    /// not in a table. A range crossing cells or touching pipes is refused.
-    pub fn replace_in_cell(
-        &mut self,
-        expected: Revision,
+    /// The cell an input edit lies in, when its text could change the grid
+    /// (`|`, `\`, a line break); ordinary typing never reads the table.
+    pub(in crate::session) fn input_cell(
+        &self,
         range: DisplayRange,
         inserted: &str,
-        accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
-    ) -> Result<Option<ViewChange>, EditorError> {
-        let typing = crate::InputAction::Typing;
-        self.cell_replace(expected, range, inserted, flatten_breaks, typing, accept)
+    ) -> Option<CellInput> {
+        if !inserted.contains(['|', '\\', '\r', '\n']) {
+            return None;
+        }
+        let (window, (row, column)) = self.table_target(range).and_then(|(w, c)| Some((w, c?)))?;
+        let raw = window.absolute(window.layout.row_line(row).cells[column].clone());
+        let pipes = table::pipe_count(&window.text);
+        Some(CellInput {
+            base: window.base,
+            text: window.text,
+            raw,
+            pipes,
+        })
     }
 
-    /// Replaces display text inside one cell with `flatten(text)`; `None`: the
-    /// range is not in a table.
-    pub(super) fn cell_replace(
+    /// Paste inside one cell: `flatten_for_cell` text through the ordinary
+    /// input path. `None`: not in a table; across cells is refused.
+    pub(super) fn paste_in_cell(
         &mut self,
         expected: Revision,
         range: DisplayRange,
         text: &str,
-        flatten: fn(&str) -> String,
-        action: crate::InputAction,
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<Option<ViewChange>, EditorError> {
-        self.check_revision(expected)?;
-        if self.composition.is_some() {
-            return Err(EditorError::CompositionActive);
-        }
-        self.validate_range(range)?;
-        let Some((window, cell)) = self.table_target(range) else {
+        let Some((_, cell)) = self.table_target(range) else {
             return Ok(None);
         };
-        let (row, column) = cell.ok_or(EditorError::InvalidRange)?;
-        let text = &flatten(text);
-        let raw = window.absolute(window.layout.row_line(row).cells[column].clone());
-        let before = table::pipe_count(&window.text);
-        let mut refused = false;
-        self.escape_pipes = true;
-        let result = self.replace_action(expected, range, text, action, &mut |edit| {
-            let rel = edit.range.start.0.wrapping_sub(window.base)
-                ..edit.range.end.0.wrapping_sub(window.base);
-            let mut after = window.text.clone();
-            let inside = raw.start <= edit.range.start.0 && edit.range.end.0 <= raw.end;
-            if inside {
-                after.replace_range(rel, &edit.inserted);
-            }
-            if !inside || table::pipe_count(&after) != before {
-                refused = true;
-                return Err("table cell edit would change the grid".into());
-            }
-            accept(edit)
-        });
-        self.escape_pipes = false;
-        match result {
-            Err(EditorError::Persistence(_)) if refused => Err(EditorError::UnrepresentableFormat),
-            other => other.map(Some),
+        cell.ok_or(EditorError::InvalidRange)?;
+        let text = &table::flatten_for_cell(text);
+        let isolated = crate::InputAction::Isolated;
+        self.replace_action(expected, range, text, isolated, accept)
+            .map(Some)
+    }
+}
+
+/// Input inside one cell: `|` is written `\|` and line breaks become spaces;
+/// an edit that leaves the cell or changes the pipe count is refused.
+pub(in crate::session) struct CellInput {
+    base: usize,
+    text: String,
+    raw: Range<usize>,
+    pipes: usize,
+}
+
+impl CellInput {
+    pub(in crate::session) fn flatten(inserted: &str) -> std::borrow::Cow<'_, str> {
+        if inserted.contains(['\r', '\n']) {
+            flatten_breaks(inserted).into()
+        } else {
+            inserted.into()
         }
+    }
+
+    pub(in crate::session) fn check(&self, edit: &SourceEdit) -> Result<(), EditorError> {
+        let (start, end) = (edit.range.start.0, edit.range.end.0);
+        if start < self.raw.start || self.raw.end < end {
+            return Err(EditorError::UnrepresentableFormat);
+        }
+        let mut after = self.text.clone();
+        after.replace_range(start - self.base..end - self.base, &edit.inserted);
+        if table::pipe_count(&after) != self.pipes {
+            return Err(EditorError::UnrepresentableFormat);
+        }
+        Ok(())
     }
 }
 

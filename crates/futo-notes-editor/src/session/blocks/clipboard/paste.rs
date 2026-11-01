@@ -160,9 +160,7 @@ impl EditorSession {
         self.validate_range(range)?;
         // Inside a table the paste is one cell's text: edge blank lines go and
         // inner line breaks become one space. Across cells it is refused.
-        let flatten = crate::table::flatten_for_cell;
-        let isolated = crate::InputAction::Isolated;
-        if let Some(change) = self.cell_replace(expected, range, text, flatten, isolated, accept)? {
+        if let Some(change) = self.paste_in_cell(expected, range, text, accept)? {
             return Ok(Some(change));
         }
         let (low, high) = self.projection.source_bounds(range.start.0);

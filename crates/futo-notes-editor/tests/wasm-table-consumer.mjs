@@ -40,7 +40,7 @@ assert.equal(
 // Native-unit variants address the same cells (ASCII: units agree) and refuse a split.
 assert.equal(session.inspect_table_utf16(revision, 0, 0), session.inspect_table(revision, 0, 0));
 const native = cell(0, 0);
-accept(session.replace_in_cell_utf16(revision, native.end, native.end, Uint16Array.of(0x7c)));
+accept(session.replace_utf16(revision, native.end, native.end, Uint16Array.of(0x7c)));
 assert.equal(session.draft_text().split('\n')[0], '| x y\\| | b |');
 const below = cell(1, 0);
 accept(session.table_command_utf16(revision, below.start, below.end, 'InsertRowBelow'));

@@ -52,8 +52,6 @@ pub struct EditorSession {
     bounded_work: crate::BoundedWork,
     context: staging::StageContext,
     find: find::FindState,
-    /// Set only while a table-cell edit runs; see `session/tables.rs`.
-    escape_pipes: bool,
     /// Names this session for async claims; never reused within a process.
     incarnation: u64,
 }
@@ -111,7 +109,6 @@ impl EditorSession {
             bounded_work: crate::BoundedWork::default(),
             context: staging::StageContext::complete_source(),
             find: find::FindState::default(),
-            escape_pipes: false,
             incarnation: images::next_incarnation(),
         }
     }

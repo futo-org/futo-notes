@@ -77,8 +77,8 @@ class NativeEditorContractSurfaceTest {
         assertEquals("| ax\\|y | b |\r\n| --- | --: |\r\n|  |  |\r\n| c | d |\r\n", scenario(grid) { _, s ->
             val table = checkNotNull(s.inspectTable(0uL, at(0, 0)))
             assertEquals(2u to 2, table.columns to table.rows.size)
-            val end = table.rows[0][0].content.end.toLong()
-            checkNotNull(s.replaceInCell(0uL, at(end, end), "x|y"))
+            val end = table.rows[0][0].content.end
+            s.replaceUtf16(0uL, EditorUtf16Range(end, end), "x|y".map { it.code.toUShort() })
             val moved = checkNotNull(s.tableKey(1uL, EditorTableKey.TAB))
             assertEquals(1uL, moved.selected?.revision)
             assertNull(moved.edited)
