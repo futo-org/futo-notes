@@ -1,7 +1,24 @@
-//! A row continuing a cut raw HTML block (#314). HTML block lines carry no
-//! inline meaning, so the row is the parse of its block's opener line followed
-//! by its own text, with the opener's records dropped.
+//! A row continuing a cut raw HTML or fenced code block (#314). Neither
+//! block's lines carry inline meaning, so the row is the parse of its block's
+//! opener line followed by its own text, with the opener's records dropped.
+//! A continued fence keeps its row-local frame; projection queries resolve
+//! its block-wide ranges from the block's first and last rows.
 use super::*;
+
+/// How a row joins its neighbors.
+#[derive(Clone, Default)]
+pub(crate) struct Shape {
+    /// The row's first block continues the preceding row's last block.
+    pub continues: bool,
+    /// The row continues one block that the following row continues too.
+    pub through: bool,
+    /// The following row continues this row's last block.
+    pub continued: bool,
+    /// More source follows the row.
+    pub followed: bool,
+    /// The opener line of the raw HTML or fenced block this row continues.
+    pub opener: Option<String>,
+}
 
 impl Row {
     /// `None` when the parse holds meaning this narrow form cannot move:
@@ -14,7 +31,11 @@ impl Row {
         let joined = format!("{opener}{text}");
         let full = Self::parse_with_references(&joined, references, &[]);
         let skip = opener.len();
-        let shown = full.display.get(..skip)? == opener;
+        let fence = opener.trim_start_matches(' ').starts_with(['`', '~']);
+        // A raw HTML opener displays literally; a fence opener is hidden.
+        let shown_skip = if fence { 0 } else { skip };
+        let shown = full.display.get(..shown_skip)? == &opener[..shown_skip]
+            && full.display_at(skip) == shown_skip;
         let inert = shown
             && full.spans.is_empty()
             && full.images.is_empty()
@@ -27,7 +48,8 @@ impl Row {
                 block.source.end <= skip && block.source.start < skip
                     || block.source.start >= skip
                         && block.list.is_none()
-                        && block.fence.is_none()
+                        && (block.fence.is_some() == fence && block.code == fence
+                            || block.source.is_empty())
                         && block.underline.is_none()
                         && block.task.is_none()
             });
@@ -35,9 +57,12 @@ impl Row {
             return None;
         }
         let back = |range: &Range<usize>| range.start.max(skip) - skip..range.end.max(skip) - skip;
+        let shown_back = |range: &Range<usize>| {
+            range.start.max(shown_skip) - shown_skip..range.end.max(shown_skip) - shown_skip
+        };
         let mut segments = Vec::new();
         for segment in &full.segments {
-            if segment.source.end <= skip && segment.display.end <= skip {
+            if segment.source.end <= skip && segment.display.end <= shown_skip {
                 continue;
             }
             if !segment.identity && segment.source.start < skip {
@@ -45,10 +70,11 @@ impl Row {
             }
             segments.push(Segment {
                 source: back(&segment.source),
-                display: back(&segment.display),
+                display: shown_back(&segment.display),
                 identity: segment.identity,
             });
         }
+        let display = full.display[shown_skip..].to_owned();
         let dropped = full
             .blocks
             .iter()
@@ -60,6 +86,9 @@ impl Row {
             .map(|mut block| {
                 block.source = back(&block.source);
                 block.content = back(&block.content);
+                if let Some(fence) = &mut block.fence {
+                    fence.back(skip);
+                }
                 for physical in &mut block.bodies {
                     physical.source = back(&physical.source);
                     physical.content = back(&physical.content);
@@ -100,7 +129,7 @@ impl Row {
             definitions: Vec::new(),
             reference_uses: Vec::new(),
             reference_work: full.reference_work,
-            display: full.display[skip..].to_owned(),
+            display,
             segments,
             spans: Vec::new(),
             blocks,
@@ -115,42 +144,129 @@ impl Row {
 }
 
 impl Row {
+    /// A row whose open fence the next row continues shows its final line
+    /// ending as body text, as the uncut block does; only the block's last
+    /// row hides its frame. A closer ending a row that more source follows
+    /// shows its line ending as the break before that source.
+    fn continue_fence(&mut self, text: &str, continued: bool, followed: bool) {
+        let Some(fence) = self
+            .blocks
+            .iter()
+            .rev()
+            .find_map(|block| block.fence.as_ref())
+        else {
+            return;
+        };
+        let len = text.len();
+        let ending = if text.ends_with("\r\n") {
+            2
+        } else {
+            usize::from(text.ends_with('\n'))
+        };
+        if ending == 0 {
+            return;
+        }
+        if continued && fence.closer.is_none() && fence.whole.end == len {
+            shown_ending(len - ending..len, &mut self.segments, &mut self.display);
+            return;
+        }
+        let Some(closer) = fence.closer.clone() else {
+            return;
+        };
+        if !followed || continued {
+            return;
+        }
+        let Some(line) = self
+            .blocks
+            .iter_mut()
+            .rev()
+            .find(|block| block.source.start <= closer.start && closer.end <= block.source.end)
+        else {
+            return;
+        };
+        // Only a closer line ending the row; its parse saw no following source.
+        if line.source.end != len || line.content.start != len {
+            return;
+        }
+        line.content = len - ending..len - ending;
+        line.bodies[0].content = line.content.clone();
+        shown_ending(len - ending..len, &mut self.segments, &mut self.display);
+    }
+}
+
+/// Show the hidden line ending `ending` as identity text.
+fn shown_ending(ending: Range<usize>, segments: &mut Vec<Segment>, display: &mut String) {
+    let mut kept = segments.len();
+    while kept > 0
+        && segments[kept - 1].source.start >= ending.start
+        && segments[kept - 1].display.is_empty()
+    {
+        kept -= 1;
+    }
+    if kept < segments.len() && segments[kept..].iter().any(|s| s.source.end > ending.end)
+        || segments[..kept]
+            .last()
+            .is_some_and(|s| s.source.end > ending.start)
+    {
+        return;
+    }
+    segments.truncate(kept);
+    let bytes: &[&str] = if ending.len() == 2 {
+        &["\r", "\n"]
+    } else {
+        &["\n"]
+    };
+    for (at, byte) in ending.zip(bytes) {
+        segments.push(Segment {
+            source: at..at + 1,
+            display: display.len()..display.len() + 1,
+            identity: true,
+        });
+        display.push_str(byte);
+    }
+}
+
+impl Row {
     /// One partition piece: a continued HTML row or an ordinary parse.
     pub(crate) fn piece(
         text: &str,
-        piece: (bool, bool, Option<&str>),
+        shape: &Shape,
         references: &Arc<crate::inline::references::References>,
         winners: &[crate::inline::references::Winner],
     ) -> Self {
-        let (continues, through, opener) = piece;
+        let opener = shape.opener.as_deref();
         let mut row = opener
             .and_then(|opener| Self::html_continuation(opener, text, references))
             .unwrap_or_else(|| Self::parse_with_references(text, references, winners));
-        row.continues = continues;
-        row.through = through;
+        row.continue_fence(text, shape.continued, shape.followed);
+        row.continues = shape.continues;
+        row.through = shape.through;
         row.opener = opener.map(Into::into);
         row
     }
 }
 
 thread_local! {
-    /// The HTML opener of the row whose input is being verified, if any.
-    static CANDIDATE_OPENER: std::cell::RefCell<Option<Arc<str>>> =
-        const { std::cell::RefCell::new(None) };
+    /// The opener of the row whose input is being verified, if any, and
+    /// whether the following row continues its block.
+    static CANDIDATE_OPENER: std::cell::RefCell<(Option<Arc<str>>, bool, bool)> =
+        const { std::cell::RefCell::new((None, false, false)) };
 }
 
-/// Verification of input within a continued HTML row reads its opener first.
-pub(crate) struct CandidateOpener(Option<Arc<str>>);
+/// Verification of input within a continued row reads its opener first.
+pub(crate) struct CandidateOpener((Option<Arc<str>>, bool, bool));
 
 impl CandidateOpener {
-    pub(crate) fn set(opener: Option<Arc<str>>) -> Self {
+    /// The opener, whether the next row continues the block and whether
+    /// any source follows.
+    pub(crate) fn set(opener: (Option<Arc<str>>, bool, bool)) -> Self {
         Self(CANDIDATE_OPENER.with(|slot| slot.replace(opener)))
     }
 }
 
 impl Drop for CandidateOpener {
     fn drop(&mut self) {
-        let previous = self.0.take();
+        let previous = std::mem::take(&mut self.0);
         CANDIDATE_OPENER.with(|slot| *slot.borrow_mut() = previous);
     }
 }
@@ -162,9 +278,11 @@ impl Row {
         references: &Arc<crate::inline::references::References>,
         winners: &[crate::inline::references::Winner],
     ) -> Self {
-        CANDIDATE_OPENER
-            .with(|slot| slot.borrow().clone())
+        let (opener, continued, followed) = CANDIDATE_OPENER.with(|slot| slot.borrow().clone());
+        let mut row = opener
             .and_then(|opener| Self::html_continuation(&opener, text, references))
-            .unwrap_or_else(|| Self::parse_with_references(text, references, winners))
+            .unwrap_or_else(|| Self::parse_with_references(text, references, winners));
+        row.continue_fence(text, continued, followed);
+        row
     }
 }

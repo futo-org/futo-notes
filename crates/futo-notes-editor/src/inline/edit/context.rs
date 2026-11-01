@@ -27,13 +27,13 @@ impl Projection {
             .flatten();
         let following_row = at == end && end > start;
         let next_opener = following.opener.as_deref().filter(|_| following_row);
-        // A cut raw HTML block must still end where its rows say it does.
+        // A cut raw HTML or fenced block must still end where its rows say it does.
         let mut parsed = 0;
         if following_row && (first.opener.is_some() || next_opener.is_some()) {
             let opener = first.opener.as_deref().unwrap_or("");
             let text = format!("{opener}{output}");
             parsed += text.len();
-            if super::super::row::html_tail(&text) != next_opener {
+            if super::super::row::open_tail(&text) != next_opener {
                 return (false, parsed);
             }
         }
@@ -46,6 +46,7 @@ impl Projection {
             opener: first.opener.as_deref(),
             next: next.as_deref(),
             next_opener: next.as_ref().and(next_opener),
+            followed: end < source.len_bytes(),
         };
         let found = super::super::row::partition(output, outside);
         (

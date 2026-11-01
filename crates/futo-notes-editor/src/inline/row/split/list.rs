@@ -12,26 +12,26 @@ struct Marker {
     column: usize,
 }
 
-fn marker_line(line: &str) -> Option<Marker> {
+/// The list marker starting `line` within three spaces: its indent, digit
+/// count, marker byte and the text after it, which starts with whitespace.
+pub(crate) fn list_marker(line: &str) -> Option<(usize, usize, u8, &str)> {
     let text = line.trim_start_matches(' ');
     let indent = line.len() - text.len();
     let digits = text.bytes().take_while(u8::is_ascii_digit).count();
     let byte = *text.as_bytes().get(digits)?;
-    let number = if digits == 0 {
-        if !matches!(byte, b'-' | b'*' | b'+') {
-            return None;
-        }
-        None
-    } else {
-        if digits > 9 || !matches!(byte, b'.' | b')') {
-            return None;
-        }
-        Some(text[..digits].parse().ok()?)
-    };
-    if indent > 3 {
-        return None;
-    }
+    let bullet = digits == 0 && matches!(byte, b'-' | b'*' | b'+');
+    let ordered = (1..=9).contains(&digits) && matches!(byte, b'.' | b')');
     let rest = &text[digits + 1..];
+    let spaced = rest.is_empty() || rest.starts_with([' ', '\t', '\r', '\n']);
+    (indent <= 3 && (bullet || ordered) && spaced).then_some((indent, digits, byte, rest))
+}
+
+fn marker_line(line: &str) -> Option<Marker> {
+    let (indent, digits, byte, rest) = list_marker(line)?;
+    let number = match digits {
+        0 => None,
+        _ => Some(line[indent..indent + digits].parse().ok()?),
+    };
     let padding = rest.bytes().take_while(|&b| b == b' ').count();
     if rest[padding..].starts_with('\t') {
         return None;

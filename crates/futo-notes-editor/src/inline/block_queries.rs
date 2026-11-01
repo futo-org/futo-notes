@@ -75,6 +75,15 @@ impl Projection {
         Some((row.blocks.get(block)?, base, index))
     }
 
+    /// The absolute block-wide fence of the block at `at`, if code.
+    pub(crate) fn fence_at_source(&self, at: usize) -> Option<fences::Fence> {
+        let (block, base, index) = self.indexed_block_at_source(at)?;
+        let mut fence = block.fence.clone()?;
+        fence.shift(base);
+        self.fix_fence(index, base, &mut fence);
+        Some(fence)
+    }
+
     pub(crate) fn list_command_line_at_source(&self, at: usize) -> Option<blocks::ListCommandLine> {
         let (block, base, index) = self.indexed_block_at_source(at)?;
         Some(self.command_line(block, base, index))
@@ -174,9 +183,13 @@ impl Projection {
         }
         let mut end = body.content.start;
         if let Some(fence) = &block.fence {
+            let mut fence = fence.clone();
+            fence.shift(base);
+            self.fix_fence(row_index, base, &mut fence);
             for marker in std::iter::once(&fence.opener).chain(fence.closer.iter()) {
-                if body.source.start <= marker.start && marker.start < body.source.end {
-                    end = end.min(marker.start);
+                let source = base + body.source.start..base + body.source.end;
+                if source.contains(&marker.start) {
+                    end = end.min(marker.start - base);
                 }
             }
         }
@@ -203,12 +216,7 @@ impl Projection {
     pub(crate) fn block_lines(&self, range: DisplayRange) -> Vec<blocks::BlockLine> {
         let mut result = Vec::new();
         self.visit_block_lines(range, false, |block, base, index| {
-            let mut block = block.clone();
-            block.shift(base);
-            if let Some(list) = &mut block.list {
-                self.fix_list(index, base, list);
-            }
-            result.push(block);
+            result.push(self.fixed_block(block, base, index));
         });
         result
     }
@@ -216,14 +224,70 @@ impl Projection {
     pub(crate) fn format_block_lines(&self, range: DisplayRange) -> Vec<blocks::BlockLine> {
         let mut result = Vec::new();
         self.visit_block_lines(range, true, |block, base, index| {
-            let mut block = block.clone();
-            block.shift(base);
-            if let Some(list) = &mut block.list {
-                self.fix_list(index, base, list);
-            }
-            result.push(block);
+            result.push(self.fixed_block(block, base, index));
         });
         result
+    }
+
+    /// A shifted copy with a cut list's and cut fence's block-wide fields.
+    fn fixed_block(
+        &self,
+        block: &blocks::BlockLine,
+        base: usize,
+        index: usize,
+    ) -> blocks::BlockLine {
+        let mut block = block.clone();
+        block.shift(base);
+        if let Some(list) = &mut block.list {
+            self.fix_list(index, base, list);
+        }
+        if let Some(fence) = &mut block.fence {
+            self.fix_fence(index, base, fence);
+        }
+        block
+    }
+
+    /// A cut fence keeps each row's own parse. Its opener and body start
+    /// come from the row where it starts; its body end, frame and closer from
+    /// the row where it ends (#314).
+    pub(crate) fn fix_fence(&self, index: usize, base: usize, fence: &mut fences::Fence) {
+        let row = self.rows.at(index).0;
+        let continued = fence.whole.start == base
+            && row.continues
+            && row.opener.as_deref().is_some_and(fences::is_opener);
+        let continues_on = fence.closer.is_none()
+            && fence.whole.end == base + row.source_len
+            && index + 1 < self.rows.len()
+            && self.rows.at(index + 1).0.continues
+            && self.rows.at(index + 1).0.opener.is_some();
+        let found = |at: usize, last: bool| {
+            let (row, base, _) = self.rows.at(at);
+            visit_container();
+            let mut blocks = row.blocks.iter();
+            let block = if last {
+                blocks.rev().find(|block| block.fence.is_some())
+            } else {
+                blocks.find(|block| block.fence.is_some())
+            };
+            let mut fence = block?.fence.clone()?;
+            fence.shift(base);
+            Some(fence)
+        };
+        if continued {
+            if let Some(head) = found(self.rows.block_start(index), true) {
+                fence.whole.start = head.whole.start;
+                fence.opener = head.opener;
+                fence.body.start = head.body.start;
+            }
+        }
+        if continues_on {
+            if let Some(tail) = found(self.rows.block_end(index), false) {
+                fence.whole.end = tail.whole.end;
+                fence.body.end = tail.body.end;
+                fence.separator = tail.separator;
+                fence.closer = tail.closer;
+            }
+        }
     }
 
     pub(crate) fn list_command_lines(&self, range: DisplayRange) -> Vec<blocks::ListCommandLine> {

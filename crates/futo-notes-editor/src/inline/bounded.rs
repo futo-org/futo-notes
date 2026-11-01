@@ -10,6 +10,67 @@ pub(crate) struct RetainedCode {
 }
 
 impl Projection {
+    /// Bounded keys own one retained fence row, so explicit entry rejoins a
+    /// fence the full path cut (#314): a one-off region-sized parse.
+    pub(crate) fn uncut_bounded_fence(
+        &mut self,
+        source: &Rope,
+        at: DisplayOffset,
+        work: &mut crate::BoundedWork,
+    ) {
+        let index = self.rows.locate(at.0, true);
+        let row = self.rows.at(index).0;
+        let cut = |index: usize| {
+            let row = self.rows.at(index).0;
+            row.continues && row.opener.as_deref().is_some_and(fences::is_opener)
+        };
+        let continued_on = index + 1 < self.rows.len() && cut(index + 1);
+        if !cut(index) && !continued_on || row.metadata {
+            return;
+        }
+        let first = if cut(index) {
+            self.rows.block_start(index)
+        } else {
+            index
+        };
+        let last = if continued_on {
+            self.rows.block_end(index + 1)
+        } else {
+            index
+        };
+        let (head, start, _) = self.rows.at(first);
+        let shape = row::Shape {
+            continues: head.continues,
+            followed: last + 1 < self.rows.len(),
+            ..Default::default()
+        };
+        let (tail, tail_start, _) = self.rows.at(last);
+        let end = tail_start + tail.source_len;
+        let mut winners = Vec::new();
+        for index in first..=last {
+            let (row, base, _) = self.rows.at(index);
+            for definition in row
+                .definitions
+                .iter()
+                .filter(|definition| definition.winner)
+            {
+                if let Some(target) = self.references.target(definition.key.as_ref()) {
+                    winners.push(references::Winner {
+                        range: base + definition.range.start - start
+                            ..base + definition.range.end - start,
+                        key: target.reference.as_ref().unwrap().clone(),
+                    });
+                }
+            }
+        }
+        let text = source.byte_slice(start..end).to_string();
+        let joined = Row::piece(&text, &shape, &self.references, &winners);
+        work.inspected_source_bytes += text.len();
+        work.parsed_source_bytes += joined.parsed_source_bytes;
+        work.copied_bytes += text.len();
+        self.rows.replace(first, last + 1, vec![joined]);
+    }
+
     /// Explicit entry preparation may inspect a whole retained row. Subsequent
     /// code keys use this proof, never equal source/display bytes as provenance.
     pub(crate) fn retain_bounded_code(
@@ -122,10 +183,7 @@ impl Projection {
         let parsed: Vec<_> = partition(&raw, super::Outside::default())
             .rows
             .into_iter()
-            .map(|piece| {
-                let shape = (piece.continues, piece.through, piece.opener.as_deref());
-                Row::piece(piece.text, shape, &self.references, &[])
-            })
+            .map(|piece| Row::piece(piece.text, &piece.shape, &self.references, &[]))
             .collect();
         let text: String = parsed.iter().map(|row| row.display.as_str()).collect();
         let mut work = crate::BoundedWork {

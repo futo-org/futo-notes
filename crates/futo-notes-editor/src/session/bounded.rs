@@ -101,6 +101,8 @@ impl EditorSession {
         if let Err(error) = self.char_index(body_caret) {
             return fail(self, BoundedError::Editor(error), work);
         }
+        self.projection
+            .uncut_bounded_fence(&self.source, body_caret, &mut work);
         let Some(code) = self.projection.retain_bounded_code(body_caret, &mut work) else {
             return fail(self, BoundedError::Unsupported, work);
         };
