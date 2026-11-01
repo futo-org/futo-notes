@@ -17,7 +17,7 @@
 
 pub mod filename;
 pub mod note;
-pub mod tags;
+pub use futo_notes_tags as tags;
 pub use futo_notes_wikilinks as wikilinks;
 
 // Re-export the title primitives reused from core so consumers have one import

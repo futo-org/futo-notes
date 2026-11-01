@@ -158,6 +158,7 @@ test:rust:macos:
         - crates/futo-notes-store/**/*
         - crates/futo-notes-sync/**/*
         - crates/futo-notes-wikilinks/**/*
+        - crates/futo-notes-tags/**/*
         - .cirrus.star
         - ci/cirrus/*.yml
         - .cirrus.yml
