@@ -247,14 +247,20 @@ fn bullet_line(line: &str) -> Option<(u8, usize)> {
     Some((marker, indent + 1 + if padding > 4 { 1 } else { padding }))
 }
 
+struct Item {
+    line: usize,
+    /// Marker byte and content column.
+    marker: Option<(u8, usize)>,
+    nested: bool,
+}
+
 /// A tight top-level bullet list. Cuts fall between items with the same
 /// content column and no nested list, so neither the sink target nor the
 /// previous content column depends on the other row.
 struct ListScan {
     range: std::ops::Range<usize>,
     bullet: bool,
-    /// Line start, marker byte, content column and nested-block flag.
-    items: Vec<(usize, Option<(u8, usize)>, bool)>,
+    items: Vec<Item>,
 }
 
 impl ListScan {
@@ -271,13 +277,17 @@ impl ListScan {
             Tag::Item if depth == 1 => {
                 let line = source[..at].rfind('\n').map_or(0, |end| end + 1);
                 let marker = source[line..].split_inclusive('\n').next().unwrap_or("");
-                self.items.push((line, bullet_line(marker), false));
+                self.items.push(Item {
+                    line,
+                    marker: bullet_line(marker),
+                    nested: false,
+                });
             }
             // Nested lists name a sink target; a code or HTML block ending an
             // item displays its final line ending only before a sibling.
             Tag::List(_) | Tag::CodeBlock(_) | Tag::HtmlBlock => {
                 if let Some(item) = self.items.last_mut() {
-                    item.2 = true;
+                    item.nested = true;
                 }
             }
             _ => {}
@@ -300,7 +310,7 @@ impl ListScan {
     fn cuttable(&self, source: &str) -> bool {
         let body = &source[self.range.start..self.trimmed_end(source)];
         self.bullet
-            && self.items.iter().all(|item| item.1.is_some())
+            && self.items.iter().all(|item| item.marker.is_some())
             && !body
                 .split_inclusive('\n')
                 .any(|line| line.trim_matches([' ', '\t', '\r', '\n']).is_empty())
@@ -312,21 +322,24 @@ impl ListScan {
         let mut last = self.range.start;
         for pair in self.items.windows(2) {
             let (previous, item) = (&pair[0], &pair[1]);
-            let column = |item: &(usize, Option<(u8, usize)>, bool)| item.1.map(|m| m.1);
-            if !previous.2 && !item.2 && column(previous) == column(item) && item.0 - last >= CHUNK
+            let column = |item: &Item| item.marker.map(|marker| marker.1);
+            if !previous.nested
+                && !item.nested
+                && column(previous) == column(item)
+                && item.line - last >= CHUNK
             {
-                cuts.push(item.0);
-                last = item.0;
+                cuts.push(item.line);
+                last = item.line;
             }
         }
     }
 
     /// The following row's first line continues this list as a sibling.
     fn continued_by(&self, next: &str) -> bool {
-        let Some(&(_, Some(last), nested)) = self.items.last() else {
+        let Some(last) = self.items.last() else {
             return false;
         };
-        !nested && bullet_line(next) == Some(last)
+        !last.nested && last.marker.is_some() && bullet_line(next) == last.marker
     }
 }
 

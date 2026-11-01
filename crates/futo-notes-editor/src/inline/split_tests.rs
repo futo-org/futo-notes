@@ -114,6 +114,55 @@ fn run(session: &mut EditorSession, step: &Step) {
     }
 }
 
+/// A raw record near a row boundary, or input or a key at a display caret.
+fn choose(cut: &EditorSession, next: &mut impl FnMut(usize) -> usize) -> Step {
+    if next(2) == 0 {
+        // Raw source near a cut, bypassing literal input spelling.
+        let source = cut.source_text();
+        let mut base = 0;
+        let starts: Vec<usize> = (0..cut.projection.rows.len())
+            .map(|row| {
+                let at = base;
+                base += cut.projection.rows.at(row).0.source_len;
+                at
+            })
+            .collect();
+        let mut at = (starts[next(starts.len())] + next(9)).saturating_sub(4);
+        at = at.min(source.len());
+        while !source.is_char_boundary(at) {
+            at -= 1;
+        }
+        let mut end = (at + next(3)).min(source.len());
+        while !source.is_char_boundary(end) {
+            end += 1;
+        }
+        // Raw backticks are excluded: an unclosed fence reaching past
+        // blank lines is #313 work for both twins, and mismatched code
+        // runs make uncut input respell distant spans in the paragraph.
+        let inserted = EDITS[next(EDITS.len())];
+        Step::Raw(
+            at,
+            end,
+            if inserted.contains('`') {
+                "x"
+            } else {
+                inserted
+            },
+        )
+    } else {
+        let display = cut.display_text();
+        let mut at = next(display.len());
+        while !display.is_char_boundary(at) {
+            at -= 1;
+        }
+        if next(3) == 0 {
+            Step::Key(at, KEYS[next(KEYS.len())])
+        } else {
+            Step::Type(at, EDITS[next(EDITS.len())])
+        }
+    }
+}
+
 #[test]
 fn cut_paragraphs_match_uncut_twin_through_edits() {
     let mut seed = 0x2545_f491_4f6c_dd1du64;
@@ -162,51 +211,7 @@ fn cut_paragraphs_match_uncut_twin_through_edits() {
             assert!(cut.projection.rows.len() > 4, "case {case} is cut");
         }
         for index in 0..12 {
-            let step = if next(2) == 0 {
-                // Raw source near a cut, bypassing literal input spelling.
-                let source = cut.source_text();
-                let mut base = 0;
-                let starts: Vec<usize> = (0..cut.projection.rows.len())
-                    .map(|row| {
-                        let at = base;
-                        base += cut.projection.rows.at(row).0.source_len;
-                        at
-                    })
-                    .collect();
-                let mut at = (starts[next(starts.len())] + next(9)).saturating_sub(4);
-                at = at.min(source.len());
-                while !source.is_char_boundary(at) {
-                    at -= 1;
-                }
-                let mut end = (at + next(3)).min(source.len());
-                while !source.is_char_boundary(end) {
-                    end += 1;
-                }
-                // Raw backticks are excluded: an unclosed fence reaching past
-                // blank lines is #313 work for both twins, and mismatched code
-                // runs make uncut input respell distant spans in the paragraph.
-                let inserted = EDITS[next(EDITS.len())];
-                Step::Raw(
-                    at,
-                    end,
-                    if inserted.contains('`') {
-                        "x"
-                    } else {
-                        inserted
-                    },
-                )
-            } else {
-                let display = cut.display_text();
-                let mut at = next(display.len());
-                while !display.is_char_boundary(at) {
-                    at -= 1;
-                }
-                if next(3) == 0 {
-                    Step::Key(at, KEYS[next(KEYS.len())])
-                } else {
-                    Step::Type(at, EDITS[next(EDITS.len())])
-                }
-            };
+            let step = choose(&cut, &mut next);
             run(&mut cut, &step);
             uncut(|| run(&mut reference, &step));
             let (got, want) = (whole(&cut), whole(&reference));
