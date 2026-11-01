@@ -194,18 +194,7 @@ fn empty_item_tail(text: &str) -> bool {
 
 /// The text after a list marker starting `line` within three spaces.
 fn list_marker(line: &str) -> Option<&str> {
-    let body = line.trim_start_matches(' ');
-    if line.len() - body.len() > 3 {
-        return None;
-    }
-    let digits = body.len() - body.trim_start_matches(|c: char| c.is_ascii_digit()).len();
-    match body.as_bytes().get(digits)? {
-        b'-' | b'*' | b'+' if digits == 0 => {}
-        b'.' | b')' if (1..=9).contains(&digits) => {}
-        _ => return None,
-    }
-    let rest = &body[digits + 1..];
-    (rest.is_empty() || rest.starts_with([' ', '\t', '\r', '\n'])).then_some(rest)
+    row::list_marker(line).map(|(.., rest)| rest)
 }
 
 /// Whether `text` ends with a blank line, the separator every uncut row ends at.

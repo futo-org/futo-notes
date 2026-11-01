@@ -3,7 +3,6 @@
 //! before its own text; the line after the block's end starts a fresh block.
 //! Only HTML kinds 1-5 are cut: they alone run past blank lines.
 use super::{Cut, CHUNK, SPLIT_MIN};
-use pulldown_cmark::{Event, Parser, Tag};
 use std::ops::Range;
 
 /// CommonMark kinds 1-5 end at a terminator rather than a blank line. A kind
@@ -72,26 +71,6 @@ pub(super) fn cuts(
     if cut && end < text.len() && text[..end].ends_with('\n') {
         cuts.push((end, Cut::Head));
     }
-}
-
-/// The first line of the block starting at `start`.
-pub(super) fn opener_line(text: &str, start: usize) -> &str {
-    let line = text[start..]
-        .find('\n')
-        .map_or(text.len(), |end| start + end + 1);
-    &text[start..line]
-}
-
-/// The block starting at `start` still owns the following row's first line.
-pub(super) fn still_open(text: &str, start: usize, next: &str) -> bool {
-    let joined = format!("{}{next}", &text[start..]);
-    let shown = text.len() - start;
-    Parser::new_ext(&joined, crate::inline::row::parser_options())
-        .into_offset_iter()
-        .next()
-        .is_some_and(|(event, range)| {
-            matches!(event, Event::Start(Tag::HtmlBlock | Tag::CodeBlock(_))) && range.end > shown
-        })
 }
 
 /// The start of a closed fence's closer line.

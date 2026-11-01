@@ -11,6 +11,7 @@
 use pulldown_cmark::{CodeBlockKind, Event, Parser, Tag, TagEnd};
 mod html;
 mod list;
+pub(crate) use list::list_marker;
 use list::ListScan;
 
 /// A row boundary chosen inside the text.
@@ -319,8 +320,8 @@ fn analyze(
         let sealed = match &tail {
             // The following row keeps its opener only when that line stands.
             Tail::Opened(start) => {
-                outside.next_opener == Some(html::opener_line(source, *start))
-                    && html::still_open(source, *start, next)
+                outside.next_opener == Some(super::opener_line(source, *start))
+                    && super::reaches_into(&source[*start..], next)
             }
             _ if outside.next_opener.is_some() => false,
             Tail::Paragraph => seam_after(source, source.len()) && seam_before(next, 0),
@@ -352,35 +353,10 @@ fn protects(tag: &Tag<'_>) -> bool {
     )
 }
 
-fn is_block(tag: &Tag<'_>) -> bool {
-    !matches!(
+fn inline_end(tag: &TagEnd) -> bool {
+    matches!(
         tag,
-        Tag::Emphasis
-            | Tag::Strong
-            | Tag::Strikethrough
-            | Tag::Superscript
-            | Tag::Subscript
-            | Tag::Link { .. }
-            | Tag::Image { .. }
-    )
-}
-
-fn is_container(tag: &Tag<'_>) -> bool {
-    !matches!(
-        tag,
-        Tag::Paragraph | Tag::Heading { .. } | Tag::CodeBlock(_)
-    ) && is_block(tag)
-        && !matches!(tag, Tag::HtmlBlock)
-}
-
-fn is_container_end(tag: &TagEnd) -> bool {
-    !matches!(
-        tag,
-        TagEnd::Paragraph
-            | TagEnd::Heading(_)
-            | TagEnd::CodeBlock
-            | TagEnd::HtmlBlock
-            | TagEnd::Emphasis
+        TagEnd::Emphasis
             | TagEnd::Strong
             | TagEnd::Strikethrough
             | TagEnd::Superscript
@@ -388,6 +364,23 @@ fn is_container_end(tag: &TagEnd) -> bool {
             | TagEnd::Link
             | TagEnd::Image
     )
+}
+
+fn is_block(tag: &Tag<'_>) -> bool {
+    !inline_end(&tag.to_end())
+}
+
+fn is_container(tag: &Tag<'_>) -> bool {
+    is_container_end(&tag.to_end())
+}
+
+/// Blocks that hold other blocks: everything but leaves and inline tags.
+fn is_container_end(tag: &TagEnd) -> bool {
+    !inline_end(tag)
+        && !matches!(
+            tag,
+            TagEnd::Paragraph | TagEnd::Heading(_) | TagEnd::CodeBlock | TagEnd::HtmlBlock
+        )
 }
 
 /// A paragraph range ends at its final line; only that line ending may follow.

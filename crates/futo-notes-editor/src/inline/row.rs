@@ -6,7 +6,7 @@ use crate::InlineFormat;
 use pulldown_cmark::{CodeBlockKind, Event, Options, Parser, Tag};
 #[cfg(test)]
 pub(crate) use split::UNCUT;
-pub(crate) use split::{partition, Outside};
+pub(crate) use split::{list_marker, partition, Outside};
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -331,26 +331,58 @@ pub(crate) enum OpenEnd {
 /// window's trailing blank line may continue past it. Window rows always end
 /// after a blank line. Returns the parsed byte count with the answer.
 pub(crate) fn open_at_end(source: &str) -> (Option<OpenEnd>, usize) {
+    match scan_open(source) {
+        Some((open, _)) => (open, source.len()),
+        None => (None, 0),
+    }
+}
+
+/// The opener line of a raw HTML block, or of a top-level fence without its
+/// closer, still open at the end of `source`.
+pub(crate) fn open_tail(source: &str) -> Option<&str> {
+    let start = scan_open(source)?.1?;
+    Some(opener_line(source, start))
+}
+
+/// What stays open at the end of `source`, and where a raw HTML block or
+/// top-level fence open there starts; `None` when nothing can be open.
+fn scan_open(source: &str) -> Option<(Option<OpenEnd>, Option<usize>)> {
     let fence = source.contains("```") || source.contains("~~~");
     if !source.ends_with('\n') || !(fence || source.contains('<') || source.contains("[^")) {
-        return (None, 0);
+        return None;
     }
-    let mut open = None;
+    let (mut open, mut start, mut depth) = (None, None, 0usize);
     for (event, range) in Parser::new_ext(source, parser_options()).into_offset_iter() {
         if range.end == source.len() {
             match event {
-                Event::Start(Tag::HtmlBlock) => open = Some(OpenEnd::Html),
+                Event::Start(Tag::HtmlBlock) => {
+                    (open, start) = (Some(OpenEnd::Html), Some(range.start))
+                }
                 Event::Start(Tag::FootnoteDefinition(_)) => open = open.or(Some(OpenEnd::Footnote)),
                 Event::Start(Tag::CodeBlock(CodeBlockKind::Fenced(_)))
-                    if unclosed_fence(&source[range]) =>
+                    if unclosed_fence(&source[range.clone()]) =>
                 {
-                    open = Some(OpenEnd::Code)
+                    open = Some(OpenEnd::Code);
+                    start = (depth == 0).then_some(range.start);
                 }
                 _ => {}
             }
         }
+        match event {
+            Event::Start(_) => depth += 1,
+            Event::End(_) => depth -= 1,
+            _ => {}
+        }
     }
-    (open, source.len())
+    Some((open, start))
+}
+
+/// The line starting at `start`.
+pub(crate) fn opener_line(source: &str, start: usize) -> &str {
+    let line = source[start..]
+        .find('\n')
+        .map_or(source.len(), |end| start + end + 1);
+    &source[start..line]
 }
 
 /// Whether the last top-level block of `source` continues into `line`.
@@ -400,35 +432,6 @@ impl Row {
         let list = self.blocks.first()?.list.as_ref()?;
         (self.continues && list.depth == 1).then_some(list.ordinal)?
     }
-}
-
-/// The opener line of a raw HTML block, or of a top-level fence without its
-/// closer, still open at the end of `source`.
-pub(crate) fn open_tail(source: &str) -> Option<&str> {
-    let mut open = None;
-    let mut depth = 0usize;
-    for (event, range) in Parser::new_ext(source, parser_options()).into_offset_iter() {
-        match event {
-            Event::Start(Tag::HtmlBlock) => {
-                open = (range.end == source.len() && source.ends_with('\n')).then_some(range.start);
-            }
-            Event::Start(Tag::CodeBlock(CodeBlockKind::Fenced(_))) if depth == 0 => {
-                open = (range.end == source.len() && unclosed_fence(&source[range.clone()]))
-                    .then_some(range.start);
-            }
-            _ => {}
-        }
-        match event {
-            Event::Start(_) => depth += 1,
-            Event::End(_) => depth -= 1,
-            _ => {}
-        }
-    }
-    let start = open?;
-    let line = source[start..]
-        .find('\n')
-        .map_or(source.len(), |end| start + end + 1);
-    Some(&source[start..line])
 }
 
 #[cfg(test)]
