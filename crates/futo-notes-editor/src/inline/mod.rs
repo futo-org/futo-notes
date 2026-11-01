@@ -7,6 +7,7 @@ mod blocks_paragraph;
 mod edit;
 pub(crate) use edit::{EditIntent, Plan, SourceCorrespondence};
 mod empty_comments;
+mod find;
 pub(crate) mod fences;
 pub(crate) mod guarded_words;
 mod links;

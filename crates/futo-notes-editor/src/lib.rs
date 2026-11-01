@@ -16,7 +16,10 @@ pub use session::bounded::{
     BoundedSourceOperation, BoundedSourceSession, BoundedWork, CodeFragment, CodeIdentity,
     ProjectionContinuation,
 };
-pub use session::{BlockCommand, Composition, EditorSession, OwnActionRelink, ParagraphKey};
+pub use session::{
+    BlockCommand, Composition, EditorSession, FindReport, FindScanRequest, FindScanResult,
+    FindWork, OwnActionRelink, ParagraphKey,
+};
 pub use types::{
     Affinity, BlockDescription, CaretDirection, Correspondence, DisplayOffset, DisplayRange,
     DisplayUtf16Offset, DisplayUtf16Range, EditWork, EditorError, InlineFormat, LinkDescription,

@@ -1,6 +1,7 @@
 mod blocks;
 pub(crate) mod bounded;
 mod composition;
+mod find;
 mod os_replacement;
 mod paragraphs;
 mod relink;
@@ -16,6 +17,7 @@ use crate::history::{
     HistoryClock, HistoryEntry, HistoryGroup, HistoryInput, MonotonicClock, TypingRun,
 };
 pub use composition::Composition;
+pub use find::{FindReport, FindScanRequest, FindScanResult, FindWork};
 pub use paragraphs::ParagraphKey;
 use ropey::Rope;
 use std::sync::Arc;
@@ -51,6 +53,7 @@ pub struct EditorSession {
     bounded_incarnation: u64,
     bounded_work: crate::BoundedWork,
     context: staging::StageContext,
+    find: find::FindState,
 }
 
 impl EditorSession {
@@ -101,6 +104,7 @@ impl EditorSession {
             bounded_incarnation: 0,
             bounded_work: crate::BoundedWork::default(),
             context: staging::StageContext::complete_source(),
+            find: find::FindState::default(),
         }
     }
 
@@ -298,6 +302,7 @@ impl EditorSession {
             .projection
             .apply(&self.source, edit, self.context.origin.as_ref());
         self.revision = edit.revision;
+        self.find.edited(update.range, update.inserted.len());
         let caret = DisplayOffset(
             self.projection
                 .display_at(edit.range.start.0 + edit.inserted.len()),
