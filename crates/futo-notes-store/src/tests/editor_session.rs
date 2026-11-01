@@ -3,6 +3,7 @@ use futo_notes_editor::{DisplayOffset, DisplayRange, Revision};
 
 mod block_input;
 mod blocks;
+mod bounded;
 mod composition;
 mod durability;
 mod fences;

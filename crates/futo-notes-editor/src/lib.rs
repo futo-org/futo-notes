@@ -9,6 +9,13 @@ mod portable;
 mod session;
 mod types;
 
+pub use session::bounded::{
+    BoundedBlock, BoundedChange, BoundedCodeProjection, BoundedCursor, BoundedEditorSession,
+    BoundedEntryError, BoundedError, BoundedMap, BoundedMapKind, BoundedMeaning, BoundedProgress,
+    BoundedProgressChange, BoundedProgressStatus, BoundedSourceAuthority, BoundedSourceChange,
+    BoundedSourceOperation, BoundedSourceSession, BoundedWork, CodeFragment, CodeIdentity,
+    ProjectionContinuation,
+};
 pub use session::{BlockCommand, Composition, EditorSession, OwnActionRelink, ParagraphKey};
 pub use types::{
     Affinity, BlockDescription, CaretDirection, Correspondence, DisplayOffset, DisplayRange,

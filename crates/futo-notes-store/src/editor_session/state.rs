@@ -112,11 +112,17 @@ impl Attachment {
     }
 
     pub fn active_formats(&self, store: &LocalNoteStore) -> Vec<InlineFormat> {
-        self.engine.active_formats()
+        self.engine
+            .full()
+            .expect("full interface owner")
+            .active_formats()
     }
 
     pub fn selection(&self, store: &LocalNoteStore) -> DisplayRange {
-        self.engine.selection()
+        self.engine
+            .full()
+            .expect("full interface owner")
+            .selection()
     }
 
     pub fn check_revision(
@@ -125,6 +131,7 @@ impl Attachment {
         expected: Revision,
     ) -> Result<(), EditorStoreError> {
         self.engine
+            .full()?
             .check_revision(expected)
             .map_err(EditorStoreError::Editor)
     }
@@ -137,6 +144,7 @@ impl Attachment {
         affinity: Affinity,
     ) -> Result<futo_notes_editor::SourceOffset, EditorStoreError> {
         self.engine
+            .full()?
             .source_at(expected, offset, affinity)
             .map_err(EditorStoreError::Editor)
     }
@@ -148,6 +156,7 @@ impl Attachment {
         range: DisplayRange,
     ) -> Result<DisplayUtf16Range, EditorStoreError> {
         self.engine
+            .full()?
             .display_to_utf16(expected, range)
             .map_err(EditorStoreError::Editor)
     }
@@ -159,6 +168,7 @@ impl Attachment {
         range: DisplayRange,
     ) -> Result<ProjectionSlice, EditorStoreError> {
         self.engine
+            .full()?
             .project(expected, range)
             .map_err(EditorStoreError::Editor)
     }
@@ -171,6 +181,7 @@ impl Attachment {
         affinity: Affinity,
     ) -> Result<SelectionChange, EditorStoreError> {
         self.engine
+            .full_mut()?
             .select_with_affinity(expected, range, affinity)
             .map_err(EditorStoreError::Editor)
     }
@@ -183,6 +194,7 @@ impl Attachment {
     ) -> Result<Option<ViewChange>, EditorStoreError> {
         self.input_ready()?;
         self.engine
+            .full_mut()?
             .toggle_format(expected, format, &mut |edit| {
                 self.recovery.append(&store.root, edit)
             })
@@ -196,6 +208,7 @@ impl Attachment {
         range: DisplayUtf16Range,
     ) -> Result<SelectionChange, EditorStoreError> {
         self.engine
+            .full_mut()?
             .select_utf16(expected, range)
             .map_err(EditorStoreError::Editor)
     }
@@ -207,6 +220,7 @@ impl Attachment {
         direction: CaretDirection,
     ) -> Result<SelectionChange, EditorStoreError> {
         self.engine
+            .full_mut()?
             .move_caret(expected, direction)
             .map_err(EditorStoreError::Editor)
     }
@@ -218,6 +232,7 @@ impl Attachment {
     ) -> Result<Option<ViewChange>, EditorStoreError> {
         self.input_ready()?;
         self.engine
+            .full_mut()?
             .undo(expected, &mut |edit| {
                 self.recovery.append(&store.root, edit)
             })
@@ -234,6 +249,7 @@ impl Attachment {
     ) -> Result<Option<ViewChange>, EditorStoreError> {
         self.input_ready()?;
         self.engine
+            .full_mut()?
             .redo(expected, &mut |edit| {
                 self.recovery.append(&store.root, edit)
             })

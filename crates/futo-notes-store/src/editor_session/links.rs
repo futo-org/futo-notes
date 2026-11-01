@@ -15,6 +15,7 @@ impl StoreEditorSession<'_> {
         }
         state
             .engine
+            .full()?
             .inspect_link(expected, range)
             .map_err(EditorStoreError::Editor)
     }
@@ -43,6 +44,7 @@ impl Attachment {
     ) -> Result<Option<ViewChange>, EditorStoreError> {
         self.input_ready()?;
         self.engine
+            .full_mut()?
             .set_link(expected, range, destination, &mut |edit| {
                 self.recovery.append(&store.root, edit)
             })

@@ -1,4 +1,5 @@
 mod blocks;
+pub(crate) mod bounded;
 mod composition;
 mod os_replacement;
 mod paragraphs;
@@ -47,6 +48,7 @@ pub struct EditorSession {
     clock: Arc<dyn HistoryClock>,
     typing: Option<TypingRun>,
     composition: Option<Composition>,
+    bounded_incarnation: u64,
     context: staging::StageContext,
 }
 
@@ -95,6 +97,7 @@ impl EditorSession {
             clock,
             typing: None,
             composition: None,
+            bounded_incarnation: 0,
             context: staging::StageContext::complete_source(),
         }
     }
