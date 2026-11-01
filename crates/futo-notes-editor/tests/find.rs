@@ -172,6 +172,17 @@ fn input_maps_matches_without_scanning_and_rejects_stale_scans() {
     session.find_set_query(Revision(1), "cat").unwrap();
     assert!(session.find_apply_scan(&pending.run()).is_none());
 
+    // Another session at the same revision and query generation is not ours.
+    let mut other = EditorSession::open(source);
+    other.find_set_query(Revision(0), "cat").unwrap();
+    let mut mine = EditorSession::open(source);
+    mine.find_set_query(Revision(0), "cat").unwrap();
+    let foreign = other.find_scan_request().unwrap().run();
+    assert!(mine.find_apply_scan(&foreign).is_none());
+    assert!(mine
+        .find_apply_scan(&mine.find_scan_request().unwrap().run())
+        .is_some());
+
     // Many keystrokes never scan either, and a flood still ends consistent.
     let scans = session.find_work().scans;
     for revision in 1..=80u64 {

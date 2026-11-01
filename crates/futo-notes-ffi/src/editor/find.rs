@@ -39,6 +39,7 @@ impl From<editor::FindReport> for EditorFindReport {
 
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
 pub struct EditorFindScanRequest {
+    pub incarnation: u64,
     pub generation: u64,
     pub revision: u64,
     pub query: String,
@@ -49,6 +50,7 @@ pub struct EditorFindScanRequest {
 
 #[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
 pub struct EditorFindScanResult {
+    pub incarnation: u64,
     pub generation: u64,
     pub revision: u64,
     pub matches: Vec<EditorByteRange>,
@@ -66,6 +68,7 @@ pub fn editor_find_scan(
     request: EditorFindScanRequest,
 ) -> Result<EditorFindScanResult, EditorSessionError> {
     let result = editor::FindScanRequest {
+        incarnation: request.incarnation,
         generation: request.generation,
         revision: Revision(request.revision),
         query: request.query,
@@ -75,6 +78,7 @@ pub fn editor_find_scan(
     }
     .run();
     Ok(EditorFindScanResult {
+        incarnation: result.incarnation,
         generation: result.generation,
         revision: result.revision.0,
         matches: result.matches.into_iter().map(Into::into).collect(),
@@ -136,6 +140,7 @@ impl NativeEditorSession {
             Ok(session
                 .find_scan_request()?
                 .map(|request| EditorFindScanRequest {
+                    incarnation: request.incarnation,
                     generation: request.generation,
                     revision: request.revision.0,
                     query: request.query,
@@ -153,6 +158,7 @@ impl NativeEditorSession {
     ) -> Result<Option<EditorFindReport>, EditorSessionError> {
         self.with_session(|session| {
             let result = editor::FindScanResult {
+                incarnation: result.incarnation,
                 generation: result.generation,
                 revision: Revision(result.revision),
                 matches: ranges(result.matches)?,

@@ -37,9 +37,11 @@ pub struct FindReport {
 }
 
 /// Owned snapshot a host may scan on any thread. A result is accepted only for
-/// the same revision and query generation.
+/// the same session, revision and query generation.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FindScanRequest {
+    /// The session that took the snapshot; another session's result is stale.
+    pub incarnation: u64,
     pub generation: u64,
     pub revision: Revision,
     pub query: String,
@@ -53,6 +55,7 @@ pub struct FindScanRequest {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FindScanResult {
+    pub incarnation: u64,
     pub generation: u64,
     pub revision: Revision,
     pub matches: Vec<DisplayRange>,
@@ -156,6 +159,7 @@ impl FindScanRequest {
     /// outside cell contents is a barrier.
     pub fn run(&self) -> FindScanResult {
         let mut result = FindScanResult {
+            incarnation: self.incarnation,
             generation: self.generation,
             revision: self.revision,
             matches: Vec::new(),
@@ -312,6 +316,7 @@ impl EditorSession {
     /// call it after input settles, never per keystroke.
     pub fn find_scan_request(&self) -> Option<FindScanRequest> {
         (self.find.open && !self.find.query.is_empty()).then(|| FindScanRequest {
+            incarnation: self.incarnation,
             generation: self.find.generation,
             revision: self.revision,
             query: self.find.query.clone(),
@@ -321,10 +326,11 @@ impl EditorSession {
         })
     }
 
-    /// Accept a scan only for the exact revision and query it was taken at;
+    /// Accept a scan only for this session, and the exact revision and query it was taken at;
     /// anything else is rejected as stale with no state change.
     pub fn find_apply_scan(&mut self, result: &FindScanResult) -> Option<FindReport> {
         if !self.find.open
+            || result.incarnation != self.incarnation
             || result.generation != self.find.generation
             || result.revision != self.revision
         {
