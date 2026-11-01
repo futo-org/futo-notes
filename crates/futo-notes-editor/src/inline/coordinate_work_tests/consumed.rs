@@ -95,9 +95,9 @@ fn public_actions_report_each_consumed_planning_contribution() {
             ),
             "fence-apply" => (
                 EditWork {
-                    materialized_source_bytes: 458,
+                    materialized_source_bytes: 560,
                     inserted_bytes: 41,
-                    parsed_source_bytes: 412,
+                    parsed_source_bytes: 514,
                     link_metadata_items: 199,
                     link_copied_bytes: 28,
                 },

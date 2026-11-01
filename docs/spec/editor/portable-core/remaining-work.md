@@ -69,12 +69,12 @@ measurements remain in their dependent tickets.
 Progressive reinterpretation (#313) covers only bounded fence-closer removal. On the
 full path, opening or closing a raw HTML block of kinds 1-5 above a 20,000-paragraph
 tail reparses that tail in one synchronous step (689 KB parsed, 458 KB materialized,
-1.56 M metadata visits; later keys stay local). A raw source edit that opens a fence,
-or removes its closer, past a blank line is not reinterpreted beyond its window: the projection keeps the
-old meaning until reopened (4 of 1,999 code blocks at 1,000 paragraphs), which is why the
-twin fuzz excludes raw backticks. Typed fences stay literal until converted to closed
-code, so engine input does not reach this. Bounded synchronous slices, revision-aware
-continuation for HTML, fence openers, long lines and large tables remain.
+1.56 M metadata visits; later keys stay local). Any accepted edit (paste, replay, Undo)
+that leaves a top-level fence unclosed at its window end, moves a raw HTML block's end
+condition, or lets a list continue past its window now reparses through to the true
+end, so the projection equals a fresh open; the fence and HTML edits are region-sized. Bounded
+synchronous slices and revision-aware continuation for HTML, fence openers, long lines
+and large tables remain.
 
 Early physical ARM32 reconnaissance confirms that large-region calls and returned
 semantic payloads still scale with that region. Immediate explicit flushes also

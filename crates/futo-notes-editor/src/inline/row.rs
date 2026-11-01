@@ -3,7 +3,7 @@ mod parse;
 pub(crate) use html::CandidateOpener;
 mod split;
 use crate::InlineFormat;
-use pulldown_cmark::{Event, Options, Parser, Tag};
+use pulldown_cmark::{CodeBlockKind, Event, Options, Parser, Tag};
 #[cfg(test)]
 pub(crate) use split::UNCUT;
 pub(crate) use split::{partition, Outside};
@@ -322,14 +322,17 @@ impl Row {
 pub(crate) enum OpenEnd {
     Html,
     Footnote,
+    /// A top-level fence without its closer runs to the end of the note.
+    Code,
 }
 
 /// A raw HTML block (CommonMark kinds 1-5 run to their end condition across
-/// blank lines) or footnote definition that owns the window's trailing blank
-/// line may continue past it. Window rows always end after a blank line.
-/// Returns the parsed byte count with the answer.
+/// blank lines), unclosed top-level fence or footnote definition that owns the
+/// window's trailing blank line may continue past it. Window rows always end
+/// after a blank line. Returns the parsed byte count with the answer.
 pub(crate) fn open_at_end(source: &str) -> (Option<OpenEnd>, usize) {
-    if !source.ends_with('\n') || !(source.contains('<') || source.contains("[^")) {
+    let fence = source.contains("```") || source.contains("~~~");
+    if !source.ends_with('\n') || !(fence || source.contains('<') || source.contains("[^")) {
         return (None, 0);
     }
     let mut open = None;
@@ -338,11 +341,57 @@ pub(crate) fn open_at_end(source: &str) -> (Option<OpenEnd>, usize) {
             match event {
                 Event::Start(Tag::HtmlBlock) => open = Some(OpenEnd::Html),
                 Event::Start(Tag::FootnoteDefinition(_)) => open = open.or(Some(OpenEnd::Footnote)),
+                Event::Start(Tag::CodeBlock(CodeBlockKind::Fenced(_)))
+                    if unclosed_fence(&source[range]) =>
+                {
+                    open = Some(OpenEnd::Code)
+                }
                 _ => {}
             }
         }
     }
     (open, source.len())
+}
+
+/// Whether the last top-level block of `source` continues into `line`.
+pub(crate) fn reaches_into(source: &str, line: &str) -> bool {
+    let joined = format!("{source}{line}");
+    let mut depth = 0usize;
+    let mut reaches = false;
+    for (event, range) in Parser::new_ext(&joined, parser_options()).into_offset_iter() {
+        match event {
+            Event::Start(_) => {
+                if depth == 0 {
+                    reaches = range.start < source.len() && range.end > source.len();
+                }
+                depth += 1;
+            }
+            Event::End(_) => depth -= 1,
+            _ => {}
+        }
+    }
+    reaches
+}
+
+/// Whether a top-level fenced block's source lacks its closing fence. A fence
+/// inside a container ends with that container, so it never counts.
+fn unclosed_fence(block: &str) -> bool {
+    fn fence(line: &str) -> Option<(char, usize, &str)> {
+        let body = line.trim_start_matches(' ');
+        let marker = body.chars().next().filter(|c| *c == '`' || *c == '~')?;
+        let run = body.len() - body.trim_start_matches(marker).len();
+        (line.len() - body.len() <= 3 && run >= 3).then_some((marker, run, &body[run..]))
+    }
+    let mut lines = block.lines();
+    let Some((marker, run, _)) = lines.next().and_then(fence) else {
+        return false;
+    };
+    match lines.last().and_then(fence) {
+        Some((closer, length, rest)) => {
+            closer != marker || length < run || !rest.trim_matches([' ', '\t']).is_empty()
+        }
+        None => true,
+    }
 }
 
 impl Row {

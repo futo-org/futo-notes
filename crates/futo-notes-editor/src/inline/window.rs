@@ -69,9 +69,16 @@ impl Projection {
             let next_opener = next
                 .as_ref()
                 .and_then(|_| self.rows.at(last + 1).0.opener.clone());
-            // A raw HTML block or footnote that still owns the window's final
-            // blank continues into following rows; reinterpret them too. A cut
-            // HTML continuation row instead proves its own seam.
+            // The row after a raw HTML block's end condition starts without a
+            // blank line; the window's new meaning may continue into it.
+            if next.is_none() && last + 1 < self.rows.len() && !ends_blank(&text) {
+                partition_bytes += text.len();
+                last += 1;
+                continue;
+            }
+            // A raw HTML block, unclosed fence or footnote that still owns the
+            // window's final blank continues into following rows; reinterpret
+            // them too. A cut HTML continuation row instead proves its own seam.
             let (open, parsed) = match opener {
                 Some(opener) => row::open_at_end(&format!("{opener}{text}")),
                 None => row::open_at_end(&text),
@@ -80,7 +87,7 @@ impl Projection {
             match open {
                 Some(_) if last + 1 >= self.rows.len() => {}
                 Some(row::OpenEnd::Html) if next_opener.is_some() => {}
-                Some(row::OpenEnd::Html) => {
+                Some(row::OpenEnd::Html | row::OpenEnd::Code) => {
                     partition_bytes += text.len();
                     last = self.rows.len() - 1;
                     continue;
@@ -116,7 +123,20 @@ impl Projection {
                     .bytes()
                     .next()
                     .is_some_and(|b| b == b' ' || b == b'\t');
-                if indented || following.bytes().all(|b| b.is_ascii_whitespace()) {
+                // A list item there may continue the list ending the window;
+                // its marker alone decides, so only the marker is read.
+                let prefix = following.slice(..following.len_chars().min(16)).to_string();
+                let line = prefix.lines().next().unwrap_or_default();
+                let item = list_marker(line).is_some_and(|rest| {
+                    let marker = &line[..line.len() - rest.len()];
+                    partition_bytes += text.len() + marker.len();
+                    row::reaches_into(&text, marker)
+                });
+                if item
+                    || empty_item_tail(&text)
+                    || indented
+                    || following.bytes().all(|b| b.is_ascii_whitespace())
+                {
                     partition_bytes += text.len();
                     last += 1;
                     continue;
@@ -160,4 +180,41 @@ impl Projection {
             }
         }
     }
+}
+
+/// An empty list item owns a following blank line only at the end of the
+/// note; before a paragraph that blank leaves the list.
+fn empty_item_tail(text: &str) -> bool {
+    if !ends_blank(text) {
+        return false;
+    }
+    let Some(line) = text.trim_end().rsplit('\n').next() else {
+        return false;
+    };
+    list_marker(line).is_some_and(|rest| rest.trim().is_empty())
+}
+
+/// The text after a list marker starting `line` within three spaces.
+fn list_marker(line: &str) -> Option<&str> {
+    let body = line.trim_start_matches(' ');
+    if line.len() - body.len() > 3 {
+        return None;
+    }
+    let digits = body.len() - body.trim_start_matches(|c: char| c.is_ascii_digit()).len();
+    match body.as_bytes().get(digits)? {
+        b'-' | b'*' | b'+' if digits == 0 => {}
+        b'.' | b')' if (1..=9).contains(&digits) => {}
+        _ => return None,
+    }
+    let rest = &body[digits + 1..];
+    (rest.is_empty() || rest.starts_with([' ', '\t', '\r', '\n'])).then_some(rest)
+}
+
+/// Whether `text` ends with a blank line, the separator every uncut row ends at.
+fn ends_blank(text: &str) -> bool {
+    let body = text.strip_suffix('\n').unwrap_or(text);
+    body.rsplit('\n')
+        .next()
+        .is_some_and(|line| line.trim().is_empty())
+        && body.len() < text.len()
 }

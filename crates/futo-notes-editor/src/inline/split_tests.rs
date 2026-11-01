@@ -146,19 +146,14 @@ fn choose(cut: &EditorSession, next: &mut impl FnMut(usize) -> usize) -> Step {
         while !source.is_char_boundary(end) {
             end += 1;
         }
-        // Raw backticks are excluded: an unclosed fence reaching past
-        // blank lines is #313 work for both twins, and mismatched code
-        // runs make uncut input respell distant spans in the paragraph.
-        let inserted = EDITS[next(EDITS.len())];
-        Step::Raw(
-            at,
-            end,
-            if inserted.contains('`') {
-                "x"
-            } else {
-                inserted
-            },
-        )
+        // Raw records may open a fence or raw HTML block, or break a closer,
+        // so their meaning reaches every later row (#313).
+        const RAW: &[&str] = &["```", "```\n", "~~~\n", "<!--", "-->", "\n```\n"];
+        let inserted = match next(3) {
+            0 => RAW[next(RAW.len())],
+            _ => EDITS[next(EDITS.len())],
+        };
+        Step::Raw(at, end, inserted)
     } else {
         let display = cut.display_text();
         let mut at = next(display.len());
@@ -263,11 +258,9 @@ fn cut_paragraphs_match_uncut_twin_through_edits() {
             }
             run(&mut cut, &step);
             let (got, want) = (whole(&cut), whole(&reference));
-            // Incremental rows that already disagree with a fresh open (for
-            // example blank lines after a list) predate cuts; stop comparing.
-            if want != uncut(|| whole(&EditorSession::open(&want.0))) {
-                break;
-            }
+            // Every step must leave the twin equal to a fresh open.
+            let fresh = uncut(|| whole(&EditorSession::open(&want.0)));
+            assert!(want == fresh, "case {case} step {index}: twin is stale");
             // Uncut input may respell distant lines of its whole-paragraph
             // context; a cut result must still show the same meaning and
             // agree with a fresh open of its own source.
