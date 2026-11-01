@@ -6,17 +6,22 @@ use std::collections::{HashMap, HashSet};
 
 struct Entry {
     id: String,
-    /// Every id carrying the suffix, repeats included (resolution's tally).
-    matches: usize,
-    /// Distinct ids carrying the suffix (display's tally).
+    /// Distinct ids carrying the suffix: resolution and display both need one.
     owners: usize,
+}
+
+/// Locale-independent folding shared with the shipping suggestion rule:
+/// lowercase the whole text, then every Greek sigma becomes one letter.
+pub fn fold(text: &str) -> String {
+    text.to_lowercase().replace('ς', "σ")
 }
 
 #[derive(Default)]
 pub struct WikilinkIndex {
     ids: HashSet<String>,
-    /// Distinct ids in delivery order, so completion keeps the host's ranking.
-    order: Vec<String>,
+    /// Distinct ids in delivery order, so completion keeps the host's ranking,
+    /// each with its folded text so a request never re-folds the catalog.
+    order: Vec<(String, String)>,
     by_suffix: HashMap<String, Entry>,
     /// Suffix entries visited while building; proportional to the id list.
     pub build_items: usize,
@@ -26,23 +31,19 @@ impl WikilinkIndex {
     pub fn new(all_ids: &[String]) -> Self {
         let mut index = Self::default();
         for id in all_ids {
-            let first_seen = index.ids.insert(id.clone());
-            if first_seen {
-                index.order.push(id.clone());
+            if !index.ids.insert(id.clone()) {
+                continue; // a repeated id is one note
             }
+            index.order.push((id.clone(), fold(id)));
             for suffix in super::link_targets_naming(id) {
                 index.build_items += 1;
                 match index.by_suffix.get_mut(suffix) {
-                    Some(entry) => {
-                        entry.matches += 1;
-                        entry.owners += usize::from(first_seen);
-                    }
+                    Some(entry) => entry.owners += 1,
                     None => {
                         index.by_suffix.insert(
                             suffix.to_owned(),
                             Entry {
                                 id: id.clone(),
-                                matches: 1,
                                 owners: 1,
                             },
                         );
@@ -61,9 +62,9 @@ impl WikilinkIndex {
         self.ids.iter().map(String::as_str)
     }
 
-    /// Distinct ids in the order they were delivered.
-    pub fn ordered_ids(&self) -> &[String] {
-        &self.order
+    /// Distinct `(id, folded id)` pairs in the order they were delivered.
+    pub fn ordered(&self) -> impl Iterator<Item = (&str, &str)> {
+        self.order.iter().map(|(id, folded)| (&**id, &**folded))
     }
 
     pub fn resolve(&self, target: &str) -> Option<&str> {
@@ -75,15 +76,13 @@ impl WikilinkIndex {
         }
         self.by_suffix
             .get(target)
-            .filter(|entry| entry.matches == 1)
+            .filter(|entry| entry.owners == 1)
             .map(|entry| entry.id.as_str())
     }
 
+    /// Shortest suffix naming `id` among the delivered ids; callers pass a
+    /// delivered id.
     pub fn display_suffix(&self, id: &str) -> String {
-        if !self.ids.contains(id) {
-            let ids: Vec<String> = self.ids.iter().cloned().collect();
-            return super::shortest_unique_suffix(id, &ids);
-        }
         let mut suffixes: Vec<&str> = super::link_targets_naming(id).collect();
         suffixes.reverse();
         suffixes
@@ -109,11 +108,17 @@ mod tests {
             "x/b/c",
             "dup",
             "dup",
+            "a/dup",
+            "a/dup",
         ]
         .iter()
         .map(|s| s.to_string())
         .collect();
         let index = WikilinkIndex::new(&ids);
+        // A repeated id is one note: the scanning rules see the distinct list.
+        let mut distinct = ids.clone();
+        distinct.sort();
+        distinct.dedup();
         for target in [
             "Roadmap",
             "Notes",
@@ -122,20 +127,21 @@ mod tests {
             "b/c",
             "a/b/c",
             "dup",
+            "a/dup",
             "",
             "missing",
             "/c",
         ] {
             assert_eq!(
                 index.resolve(target).map(str::to_owned),
-                super::super::resolve_wikilink(target, &ids),
+                super::super::resolve_wikilink(target, &distinct),
                 "{target}"
             );
         }
-        for id in &ids {
+        for id in &distinct {
             assert_eq!(
                 index.display_suffix(id),
-                super::super::shortest_unique_suffix(id, &ids),
+                super::super::shortest_unique_suffix(id, &distinct),
                 "{id}"
             );
         }

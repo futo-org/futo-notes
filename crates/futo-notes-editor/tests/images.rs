@@ -252,6 +252,7 @@ fn stale_claims_and_unwritable_inserts_change_nothing() {
         ("a\\b.png", ""),
         ("image-1.png", "x]"),
         ("image-1.png", "x\n"),
+        ("image-1.png", "a`b"),
     ] {
         assert!(
             matches!(

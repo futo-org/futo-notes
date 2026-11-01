@@ -18,7 +18,7 @@ fn image_source(reference: &str, alt: &str) -> Option<String> {
     use pulldown_cmark::{Event, Parser, Tag};
     if !futo_notes_image::is_vault_image_reference(reference)
         || reference.contains(['\n', '\r', '\0', '<', '>', '\\'])
-        || alt.contains(['[', ']', '\\', '\n', '\r', '\0'])
+        || alt.contains(['[', ']', '\\', '`', '\n', '\r', '\0'])
     {
         return None;
     }

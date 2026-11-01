@@ -104,6 +104,14 @@ fn the_open_run_and_its_candidates_follow_the_existing_rules() {
         assert_eq!(editor.source_text(), source);
     }
 
+    // A run longer than 512 source bytes is not offered; bytes, not characters.
+    for unit in ["x", "é"] {
+        let source = format!("[[{}", unit.repeat(300));
+        let caret = source.len();
+        let long = editor(&source, caret);
+        assert_eq!(offered(&long).is_some(), unit == "x", "{unit}");
+    }
+
     // Labels use the shortest unique suffix; the full id is detail when it differs.
     let editor = editor("[[o", 3);
     let found = editor.wikilink_completion(Revision(0)).unwrap().unwrap();

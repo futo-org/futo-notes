@@ -12,6 +12,14 @@ impl EditorSession {
     /// is proportional to the id list plus the rows holding a link whose last
     /// component matches a changed id; other rows are never visited.
     pub fn update_note_ids(&mut self, note_ids: &[String]) -> NoteIdChange {
+        let held = self.projection.catalog.ordered().map(|(id, _)| id);
+        if held.eq(note_ids.iter().map(String::as_str)) {
+            return NoteIdChange {
+                revision: self.revision,
+                projections: Vec::new(),
+                work: NoteIdWork::default(),
+            };
+        }
         let next = WikilinkIndex::new(note_ids);
         let previous = std::mem::replace(&mut self.projection.catalog, Arc::new(next));
         let next = &self.projection.catalog;

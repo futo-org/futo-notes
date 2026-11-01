@@ -91,7 +91,7 @@ impl super::row::Row {
     /// Inert metadata: fence lines are hidden, the body shows verbatim with
     /// no inline or block meaning, and one block description covers it.
     pub(crate) fn metadata(source: &str) -> Self {
-        use super::blocks::{BlockLine, HeadingSyntax, PhysicalLine};
+        use super::blocks::{BlockLine, PhysicalLine};
         use super::row::{ContextRun, Segment};
         let opener = source.find(['\r', '\n']).map_or(source.len(), |at| {
             at + if source[at..].starts_with("\r\n") {
@@ -157,23 +157,9 @@ impl super::row::Row {
             blocks: vec![BlockLine {
                 source: line.source.clone(),
                 content: line.content.clone(),
-                heading: 0,
-                heading_syntax: HeadingSyntax::None,
-                quote_depth: 0,
-                quote_start: false,
-                divider: false,
-                code: false,
                 metadata: true,
-                html: false,
-                empty_comment: false,
-                paragraph_text: false,
-                list: None,
-                task: None,
-                in_list: false,
-                code_language: None,
-                fence: None,
                 bodies: vec![line],
-                underline: None,
+                ..BlockLine::default()
             }],
             context: vec![ContextRun {
                 source: 0..source.len(),

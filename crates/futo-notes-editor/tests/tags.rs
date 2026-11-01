@@ -57,6 +57,8 @@ fn add_spells_canonically_and_touches_only_the_header() {
         ("body", "Work Stuff", "#work_stuff\n\nbody"),
         ("", "#a", "#a"),
         ("body\r\nmore", "a", "#a\r\n\r\nbody\r\nmore"),
+        ("body\rmore", "a", "#a\r\rbody\rmore"),
+        ("#a\r#b", "c", "#a\r#b #c"),
         ("#a\n\nbody", " #B ", "#a #b\n\nbody"),
         ("#a   \n#b  \nbody", "c", "#a   \n#b #c  \nbody"),
         ("#a\n\nbody #c", "c", "#a #c\n\nbody #c"),
@@ -71,6 +73,11 @@ fn add_spells_canonically_and_touches_only_the_header() {
         assert_eq!(add(source, tag), expected, "{source:?} + {tag:?}");
     }
     let mut session = EditorSession::open("x");
+    // A stale revision is reported before the name is judged.
+    assert!(matches!(
+        session.add_header_tag(Revision(9), "9lives", &mut |_| Ok(())),
+        Err(futo_notes_editor::EditorError::StaleRevision { .. })
+    ));
     for bad in ["", "9lives", "has/slash", &"a".repeat(51)] {
         assert!(session
             .add_header_tag(Revision(0), bad, &mut |_| Ok(()))
@@ -85,6 +92,7 @@ fn remove_deletes_every_spelling_and_keeps_other_bytes() {
         ("#a #b\n\nbody", "#A", "#b\n\nbody"),
         ("  #a  #b  #a\r\n#c\n\nbody", "a", "  #b\r\n#c\n\nbody"),
         ("#a\n#b\n\nbody", "a", "#b\n\nbody"),
+        ("#a\r#b", "a", "#b"),
         ("#a\n\nbody", "a", "body"),
         ("#a", "a", ""),
         ("#a\n\nbody #a", "z", "#a\n\nbody #a"),
