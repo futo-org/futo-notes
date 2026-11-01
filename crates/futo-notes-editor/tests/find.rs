@@ -133,9 +133,9 @@ fn input_maps_matches_without_scanning_and_rejects_stale_scans() {
     let source = "cat one\n\ncat two\n\nbird cat three\n\ncat four";
     let mut session = EditorSession::open(source);
     session.find_set_query(Revision(0), "cat").unwrap();
+    let request = session.find_scan_request().unwrap();
     let before = session.find_work();
     assert_eq!(before.scans, 1);
-    let request = session.find_scan_request().unwrap();
 
     // Typing costs no scan, and every match maps across the edit.
     let mut accept = |_: &futo_notes_editor::SourceEdit| Ok(());
@@ -185,4 +185,21 @@ fn input_maps_matches_without_scanning_and_rejects_stale_scans() {
     assert!(report.stale);
     let fresh = session.find_scan_request().unwrap();
     assert_eq!(session.find_apply_scan(&fresh.run()).unwrap().total, 4);
+}
+
+#[test]
+fn table_barriers_scan_each_run_once_not_once_per_pipe_line() {
+    let line = "a | b | c | d\n";
+    let mut source = String::from("```\n");
+    source.push_str(&line.repeat(4000));
+    source.push_str("```\n\n| h | i |\n| - | - |\n| hit | x |\n");
+    let mut session = EditorSession::open(&source);
+    let report = session.find_set_query(Revision(0), "hit").unwrap();
+    assert_eq!(report.total, 1);
+    let bytes = session.find_work().barrier_bytes;
+    assert!(
+        bytes <= 2 * source.len() as u64,
+        "barrier pass read {bytes} bytes of {}",
+        source.len()
+    );
 }

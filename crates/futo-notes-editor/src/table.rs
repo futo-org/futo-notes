@@ -229,6 +229,17 @@ fn interrupts(line: &str) -> bool {
 impl Layout {
     /// The table in `text` (a run of nonblank lines) that contains `target`.
     pub fn find(text: &str, target: usize) -> Option<Self> {
+        Self::scan(text, Some(target)).pop()
+    }
+
+    /// Every table in the run, in order.
+    pub fn all(text: &str) -> Vec<Self> {
+        Self::scan(text, None)
+    }
+
+    /// One pass over the run: the tables in it, or with a target just the one
+    /// containing it (the scan stops there).
+    fn scan(text: &str, target: Option<usize>) -> Vec<Self> {
         let mut spans = Vec::new();
         let mut at = 0;
         for line in text.split_inclusive('\n') {
@@ -236,14 +247,14 @@ impl Layout {
             spans.push((at, end, at + line.len()));
             at += line.len();
         }
-        let line_of = |offset: usize| {
+        let target = target.map(|offset| {
             spans
                 .partition_point(|(_, _, next)| *next <= offset)
                 .min(spans.len().saturating_sub(1))
-        };
-        let target = line_of(target);
+        });
+        let mut tables = Vec::new();
         let mut header = 0;
-        while header <= target && header + 1 < spans.len() {
+        while header + 1 < spans.len() && target.is_none_or(|target| header <= target) {
             let head = parse_line(text, spans[header].0, spans[header].1, spans[header].2);
             let rule = parse_line(
                 text,
@@ -262,19 +273,24 @@ impl Layout {
                     }
                     lines.push(parse_line(text, start, end, next));
                 }
-                if header + lines.len() > target {
-                    return Some(Self {
+                let count = lines.len();
+                let hit = target.is_none_or(|target| header + count > target);
+                if hit {
+                    tables.push(Self {
                         columns: alignments.len(),
                         alignments,
                         lines,
                     });
+                    if target.is_some() {
+                        break;
+                    }
                 }
-                header += lines.len();
+                header += count;
             } else {
                 header += 1;
             }
         }
-        None
+        tables
     }
 
     pub fn rows(&self) -> usize {
