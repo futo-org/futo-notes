@@ -18,6 +18,7 @@ pub use bounded_host::{
     StoreBoundedEditorHost, StoreBoundedHostEntryError, StoreBoundedHostExitError,
 };
 mod checkpoint;
+mod clipboard;
 mod owner;
 use owner::{EditorMode, EditorOwner};
 mod clock;
