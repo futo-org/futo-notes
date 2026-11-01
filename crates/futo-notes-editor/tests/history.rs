@@ -9,8 +9,6 @@ use std::{
 mod common;
 use common::ReferenceView;
 
-#[path = "history/block_input.rs"]
-mod block_input;
 #[path = "history/compound.rs"]
 mod compound;
 

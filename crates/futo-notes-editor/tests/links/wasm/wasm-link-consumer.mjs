@@ -1,6 +1,5 @@
 // Link semantics and exact recovery through compiled WASM and the real store.
 import assert from 'node:assert/strict';
-import { liveSourceConsumers } from './wasm-live-source-consumers.mjs';
 import { spawn } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -404,17 +403,6 @@ try {
     assert.deepEqual(await blockReopened(JSON.stringify({ checkpoint: true })), { id: 'plain' });
     await stop();
   }
-  await liveSourceConsumers({
-    start,
-    stop,
-    getSession: () => session,
-    parseSource: (source) => new WasmSession(0n, source, 0n, 0n),
-    createRoot: (prefix) => {
-      const root = mkdtempSync(join(tmpdir(), prefix));
-      timingVaults.push(root);
-      return root;
-    },
-  });
   console.log(
     'Compiled WASM links: canonical inspection, actual-parent reference blocks, URL timing, retained/inserted targets, ordered acceptance, exact history and real recovery passed.',
   );

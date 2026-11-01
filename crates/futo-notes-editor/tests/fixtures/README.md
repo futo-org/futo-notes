@@ -58,7 +58,7 @@ The schema's Markdown runner passes that value directly into the code text node;
 `editor-embed-milkdown-interactive-code-blocks.spec.ts` independently names a
 multiline node without the frame LF. New #297 EOF display expectations were
 corrected against that authority; exact source oracles and historical red logs
-remain intact. `../fences/frame.rs` and `../fences/basis.rs` lock the frame/body
+remain intact. `../fences/frame.rs` locks the frame/body
 ownership, fresh-open agreement and exact history through public sessions.
 
 The twelve physical-row literals cover authored blank CRLF, valid unmatched EOF

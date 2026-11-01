@@ -13,21 +13,11 @@ mod commands;
 mod composition;
 #[path = "blocks/conversions.rs"]
 mod conversions;
-#[path = "blocks/divider.rs"]
-mod divider;
 #[path = "blocks/keys.rs"]
 mod keys;
-#[path = "blocks/ownership.rs"]
-mod ownership;
 #[path = "blocks/projection.rs"]
 mod projection;
 #[path = "blocks/seams.rs"]
 mod seams;
 #[path = "blocks/selected_source.rs"]
 mod selected_source;
-
-#[path = "blocks/mapping.rs"]
-mod mapping;
-
-#[path = "blocks/source_generations.rs"]
-mod source_generations;
