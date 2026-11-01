@@ -78,6 +78,9 @@ fn paste_keeps_copied_characters_and_places_blocks() {
         // A selection is replaced; inline text carries its first format.
         ("a **bold** c", (2, 6), "*it*", "a ***it*** c"),
         ("**abcd**", (1, 3), "# T", "**a**\n# T\n**d**"),
+        ("**ab**", (1, 1), "x\n\ny", "**ax**\n\n**yb**"),
+        ("[ab](u)", (1, 1), "x\n\ny", "[ax](u)\n\n[yb](u)"),
+        ("**ab** c", (1, 1), "# T\n\nz", "**a**\n# T\n\n**zb** c"),
         ("ab", (1, 1), "\n", "a\nb"),
     ] {
         let s = paste(source, range(a, b), text);

@@ -54,6 +54,10 @@ struct PastedShape {
     only_list: bool,
     interrupts: bool,
     unclosed_fence: Option<String>,
+    /// End of the leading paragraph run that continues the caret's text, and
+    /// start of the trailing run that the caret line's tail continues.
+    lead: usize,
+    trail: usize,
     parsed: usize,
 }
 
@@ -76,6 +80,20 @@ impl PastedShape {
             .iter()
             .filter(|line| block(line) || line.paragraph_text)
             .collect();
+        let paragraph = |line: &&crate::inline::blocks::BlockLine| {
+            line.paragraph_text && !block(line)
+        };
+        let lead = lines
+            .iter()
+            .take_while(paragraph)
+            .last()
+            .map_or(0, |line| line.content.end);
+        let trail = lines
+            .iter()
+            .rev()
+            .take_while(paragraph)
+            .last()
+            .map_or(text.len(), |line| line.source.start);
         let first = filled.first();
         let last = filled.last();
         let unclosed_fence = last
@@ -106,6 +124,8 @@ impl PastedShape {
                     .is_some_and(|list| list.ordinal.is_some_and(|ordinal| ordinal != 1))
             }),
             unclosed_fence,
+            lead,
+            trail,
             parsed: projection.initial_parse_work,
         }
     }
@@ -241,6 +261,20 @@ impl EditorSession {
             }
             out.push_str(&lines_prefix);
         }
+        let tail_needed = if siblings {
+            !after_empty
+        } else {
+            !shape.last_paragraph && !after_empty
+        };
+        // Spans open across the caret close before the first paragraph break
+        // and reopen after the last, as they do around a split-off block.
+        let mut text = text.to_owned();
+        if !tail_needed && text[..shape.trail].contains(newline) {
+            text.insert_str(shape.trail, &self.straddling(end, true));
+        }
+        if !shape.first_block && !siblings && text[shape.lead..].contains(newline) {
+            text.insert_str(shape.lead, &self.straddling(start, false));
+        }
         for (index, pasted) in text.split(newline).enumerate() {
             if index > 0 {
                 out.push_str(newline);
@@ -258,11 +292,6 @@ impl EditorSession {
             out.push_str(fence);
         }
         let caret = from + out.len();
-        let tail_needed = if siblings {
-            !after_empty
-        } else {
-            !shape.last_paragraph && !after_empty
-        };
         if tail_needed {
             if shape.last_container && !siblings {
                 out.push_str(newline);
