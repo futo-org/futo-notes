@@ -72,9 +72,15 @@ tail reparses that tail in one synchronous step (689 KB parsed, 458 KB materiali
 1.56 M metadata visits; later keys stay local). Any accepted edit (paste, replay, Undo)
 that leaves a top-level fence unclosed at its window end, moves a raw HTML block's end
 condition, or lets a list continue past its window now reparses through to the true
-end, so the projection equals a fresh open; the fence and HTML edits are region-sized. Bounded
-synchronous slices and revision-aware continuation for HTML, fence openers, long lines
-and large tables remain.
+end, so the projection equals a fresh open; the fence and HTML edits are region-sized.
+Pasting over a closer's line ending above 20,000 paragraphs costs 687 KB parsed, 458 KB
+materialized and 1.55 M metadata visits in one step (27 ms release on an M-series
+Mac); its Undo costs the same (45 ms). At 1,000 paragraphs both cost 30 KB parsed.
+Bounded synchronous slices and revision-aware continuation remain open for HTML,
+fence openers, long lines and large tables. Two things block a sound version. Fences
+have no row cutting, so a slice cannot install part of an unclosed fence's tail as
+rows. And no full-path API yet guards pending stale rows past a frontier: input,
+queries, find, staged commands and history would each have to finish or refuse there.
 
 Early physical ARM32 reconnaissance confirms that large-region calls and returned
 semantic payloads still scale with that region. Immediate explicit flushes also
