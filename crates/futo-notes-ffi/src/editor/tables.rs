@@ -203,20 +203,6 @@ impl NativeEditorSession {
         })
     }
 
-    /// Plain-text paste inside one cell; `None` leaves it to general paste.
-    pub fn paste_into_table_cell(
-        &self,
-        expected: u64,
-        range: EditorByteRange,
-        text: String,
-    ) -> Result<Option<EditorViewChange>, EditorSessionError> {
-        self.with_revision(expected, |session| {
-            Ok(session
-                .paste_into_table_cell(Revision(expected), range.try_into()?, &text)?
-                .map(Into::into))
-        })
-    }
-
     pub fn table_command(
         &self,
         expected: u64,

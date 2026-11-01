@@ -83,9 +83,8 @@ impl PastedShape {
             .iter()
             .filter(|line| block(line) || line.paragraph_text)
             .collect();
-        let paragraph = |line: &&crate::inline::blocks::BlockLine| {
-            line.paragraph_text && !block(line)
-        };
+        let paragraph =
+            |line: &&crate::inline::blocks::BlockLine| line.paragraph_text && !block(line);
         let lead = lines
             .iter()
             .take_while(paragraph)
@@ -159,8 +158,11 @@ impl EditorSession {
             );
         }
         self.validate_range(range)?;
-        // Inside a table the paste is one cell's text; across cells it is refused.
-        if let Some(change) = self.paste_into_table_cell(expected, range, text, accept)? {
+        // Inside a table the paste is one cell's text: edge blank lines go and
+        // inner line breaks become one space. Across cells it is refused.
+        let flatten = crate::table::flatten_for_cell;
+        let isolated = crate::InputAction::Isolated;
+        if let Some(change) = self.cell_replace(expected, range, text, flatten, isolated, accept)? {
             return Ok(Some(change));
         }
         let (low, high) = self.projection.source_bounds(range.start.0);
@@ -232,7 +234,7 @@ impl EditorSession {
         newline: &str,
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<ViewChange, EditorError> {
-        let end_line_end = self.physical_end(end);
+        let end_line_end = line_end(&self.source, end);
         let before_empty = start <= line.content;
         let after_empty = end >= end_line_end;
         let continuation = line.continuation();
@@ -332,8 +334,8 @@ impl EditorSession {
     }
 
     fn target_line(&self, at: DisplayOffset, caret: usize) -> TargetLine {
-        let start = self.physical_start(caret);
-        let end = self.physical_end(caret);
+        let start = line_start(&self.source, caret);
+        let end = line_end(&self.source, caret);
         let blocks = self
             .projection
             .block_lines(DisplayRange { start: at, end: at });
@@ -392,7 +394,7 @@ impl EditorSession {
 
     /// The caret line's ending, else the preceding line's, else LF.
     fn line_ending_at(&self, at: usize) -> &'static str {
-        let end = self.physical_end(at);
+        let end = line_end(&self.source, at);
         let len = self.source.len_bytes();
         let crlf = |at: usize| {
             at + 1 < len && self.source.byte(at) == b'\r' && self.source.byte(at + 1) == b'\n'
@@ -400,7 +402,7 @@ impl EditorSession {
         if end < len {
             return if crlf(end) { "\r\n" } else { "\n" };
         }
-        let start = self.physical_start(at);
+        let start = line_start(&self.source, at);
         if start >= 2 && crlf(start - 2) {
             "\r\n"
         } else {

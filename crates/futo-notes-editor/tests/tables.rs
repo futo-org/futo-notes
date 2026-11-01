@@ -346,7 +346,7 @@ fn cell_paste_flattens_lines_keeps_edge_spaces_and_stays_in_one_cell() {
     let at = caret_in(&mut session, 0, 0);
     let paste = |session: &mut EditorSession, at: DisplayRange, text: &str| {
         session
-            .paste_into_table_cell(session.revision(), at, text, &mut |_| Ok(()))
+            .paste_markdown(session.revision(), at, text, &mut |_| Ok(()))
             .unwrap()
     };
     paste(&mut session, at, " world").unwrap();
@@ -366,14 +366,12 @@ fn cell_paste_flattens_lines_keeps_edge_spaces_and_stays_in_one_cell() {
     // One paste is one history action; a refused acceptance changes nothing.
     let before = session.source_text();
     let at = cell(&session, 0, 1);
-    let refused =
-        session.paste_into_table_cell(session.revision(), at, "x", &mut |_| Err("no".into()));
+    let refused = session.paste_markdown(session.revision(), at, "x", &mut |_| Err("no".into()));
     assert!(refused.is_err());
     assert_eq!(session.source_text(), before);
-    assert!(paste(&mut EditorSession::open("plain"), range(0, 0), "x").is_none());
     let across = range(cell(&session, 0, 0).start.0, cell(&session, 0, 1).end.0);
     assert!(session
-        .paste_into_table_cell(session.revision(), across, "x", &mut |_| Ok(()))
+        .paste_markdown(session.revision(), across, "x", &mut |_| Ok(()))
         .is_err());
     session
         .undo(session.revision(), &mut |_| Ok(()))

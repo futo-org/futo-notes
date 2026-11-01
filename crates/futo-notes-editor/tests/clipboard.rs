@@ -79,7 +79,12 @@ fn paste_keeps_copied_characters_and_places_blocks() {
         ("ab\r\ncd", (1, 1), "# T\nz", "a\r\n# T\r\nzb\r\ncd"),
         ("```\nab\n```", (1, 1), "x\n# y", "```\nax\n# yb\n```"),
         ("    code", (2, 2), "x\n# y", "    cox\n    # yde"),
-        ("    co\n    de", (2, 2), "x\n\ny", "    cox\n\n    y\n    de"),
+        (
+            "    co\n    de",
+            (2, 2),
+            "x\n\ny",
+            "    cox\n\n    y\n    de",
+        ),
         // A selection is replaced; inline text carries its first format.
         ("a **bold** c", (2, 6), "*it*", "a ***it*** c"),
         ("**abcd**", (1, 3), "# T", "**a**\n# T\n**d**"),

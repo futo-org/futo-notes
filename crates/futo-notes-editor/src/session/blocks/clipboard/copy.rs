@@ -17,13 +17,12 @@ impl EditorSession {
             return Ok(String::new());
         }
         let display = &self.projection.display;
-        let line_start = display_line_start(display, range.start.0);
-        let line_end = display_line_end(display, range.start.0);
-        let whole_start = range.start.0 == line_start && range.end.0 >= line_end;
-        let whole_end = range.end.0 == display_line_end(display, range.end.0);
+        let whole_start = range.start.0 == line_start(display, range.start.0)
+            && range.end.0 >= line_end(display, range.start.0);
+        let whole_end = range.end.0 == line_end(display, range.end.0);
         let (_, tight_start) = self.projection.source_bounds(range.start.0);
         let (tight_end, wide_end) = self.projection.source_bounds(range.end.0);
-        let physical = self.physical_start(tight_start);
+        let physical = line_start(&self.source, tight_start);
         let start = if whole_start { physical } else { tight_start };
         let end = if whole_end { wide_end } else { tight_end };
         let indent = self
@@ -112,23 +111,6 @@ impl EditorSession {
             closers.into_iter().map(|(_, text)| text).collect(),
         )
     }
-}
-
-fn display_line_start(display: &ropey::Rope, at: usize) -> usize {
-    let mut at = at;
-    while at > 0 && display.byte(at - 1) != b'\n' {
-        at -= 1;
-    }
-    at
-}
-
-fn display_line_end(display: &ropey::Rope, at: usize) -> usize {
-    let len = display.len_bytes();
-    let mut at = at;
-    while at < len && !matches!(display.byte(at), b'\n' | b'\r') {
-        at += 1;
-    }
-    at
 }
 
 /// Removes up to `later` leading spaces/tabs from each line after the first,
