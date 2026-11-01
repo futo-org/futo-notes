@@ -140,7 +140,14 @@ supplies no general paragraph, container, table, renderer or IME acceptance.
 - **Note ids.** The Store delivers vault ids to a live session on open and after a bounded
   reset (call `refresh_note_ids` only on later vault changes, item 9); delivery never
   changes source, selection, history or a composition. An unreleased change answers `Busy`.
-- **Find during composition.** `find_step` is a no-op while composing (item 13).
+- **Composition conventions** (item 13):
+
+  | Command | While composing |
+  | --- | --- |
+  | `paste_markdown`, tag edits | staged until the composition ends |
+  | `table_key`, `table_command` | `CompositionActive` |
+  | `find_step` | no-op |
+
 - **Sessions are single-owner.** Native calls serialize through the attachment lock; do
   not share a portable session across threads.
 

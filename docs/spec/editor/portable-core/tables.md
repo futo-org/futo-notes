@@ -41,6 +41,6 @@ or the delimiter row.
   crosses cells is refused. `paste_markdown` tries the cell first in the engine, so every wrapper
   inherits it: a table selection pastes into the cell, a cross-cell selection is refused, and
   outside tables ordinary paste continues. → crates/futo-notes-editor/src/session/blocks/clipboard/paste.rs, crates/futo-notes-editor/tests/tables.rs
-- Cell edits reparse only the edited paragraph window, never the note. → crates/futo-notes-editor/tests/tables.rs
+- Tables are region-proportional, not cut into rows: a key, paste or row command reparses the whole table region. Measured on a Mac release build: a 20,000-row table costs about 72 ms per key, 77 ms for a paste in a cell and 21 ms for InsertRow; 1,000 rows cost about 4 ms (roughly 10x slower on a Moto). Giant tables stay this way by decision; the row-cut approach of long-regions.md is not applied. → crates/futo-notes-editor/tests/tables.rs
 - Portable, Store and native layers expose the same operations behind the usual acceptance and
   recovery barrier; each step recovers exact bytes. → crates/futo-notes-editor/src/portable/tables.rs, crates/futo-notes-store/src/editor_session/tables.rs, crates/futo-notes-ffi/src/editor/tables.rs
