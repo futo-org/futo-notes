@@ -134,10 +134,12 @@ impl EditorSession {
         }
         let mut rewritten = String::new();
         let mut kept_lines = 0;
+        let mut tag_bytes = 0;
         for line in header.text.split_inclusive('\n') {
             if line.trim().is_empty() {
                 continue; // separator: re-added below only while tags remain
             }
+            tag_bytes += line.len();
             let body = line.trim_end_matches(['\n', '\r']);
             let eol = &line[body.len()..];
             // (whitespace before, token) pairs plus the trailing whitespace.
@@ -165,17 +167,14 @@ impl EditorSession {
             }
         }
         if kept_lines > 0 {
-            let separator = &header.text[header
-                .text
-                .split_inclusive('\n')
-                .filter(|line| !line.trim().is_empty())
-                .map(str::len)
-                .sum::<usize>()..];
-            rewritten.push_str(separator);
+            rewritten.push_str(&header.text[tag_bytes..]);
         }
         let old = &header.text;
-        let prefix = common_prefix_len(old, &rewritten);
-        let suffix = common_suffix_len(&old[prefix..], &rewritten[prefix..]);
+        let prefix = shared_len(old.chars(), rewritten.chars());
+        let suffix = shared_len(
+            old[prefix..].chars().rev(),
+            rewritten[prefix..].chars().rev(),
+        );
         let from = header.start + prefix;
         let to = header.start + old.len() - suffix;
         self.edit_source(
@@ -246,18 +245,9 @@ impl EditorSession {
     }
 }
 
-fn common_prefix_len(a: &str, b: &str) -> usize {
-    a.chars()
-        .zip(b.chars())
-        .take_while(|(x, y)| x == y)
-        .map(|(c, _)| c.len_utf8())
-        .sum()
-}
-
-fn common_suffix_len(a: &str, b: &str) -> usize {
-    a.chars()
-        .rev()
-        .zip(b.chars().rev())
+/// Bytes of the leading characters two iterators share.
+fn shared_len(a: impl Iterator<Item = char>, b: impl Iterator<Item = char>) -> usize {
+    a.zip(b)
         .take_while(|(x, y)| x == y)
         .map(|(c, _)| c.len_utf8())
         .sum()
