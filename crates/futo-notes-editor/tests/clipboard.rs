@@ -92,6 +92,11 @@ fn paste_keeps_copied_characters_and_places_blocks() {
         ("[ab](u)", (1, 1), "x\n\ny", "[ax](u)\n\n[yb](u)"),
         ("**ab** c", (1, 1), "# T\n\nz", "**a**\n# T\n\n**zb** c"),
         ("ab", (1, 1), "\n", "a\nb"),
+        // A pasted span beside the same style joins it.
+        ("x **a** y", (3, 3), "**b**", "x **ab** y"),
+        ("x **a** y", (2, 2), "**b**", "x **ba** y"),
+        ("x *a* y", (3, 3), "*b*", "x *ab* y"),
+        ("**abc**", (2, 2), "__x__", "**abxc**"),
     ] {
         let s = paste(source, range(a, b), text);
         assert_eq!(s.source_text(), expected, "{source:?} + {text:?}");

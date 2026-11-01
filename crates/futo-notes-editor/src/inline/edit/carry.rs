@@ -74,3 +74,35 @@ pub(in crate::inline) fn carry_formats(
         }
     }
 }
+
+/// Inserted Markdown wrapped in one style's delimiters inside or beside a span
+/// of that style. CommonMark cannot nest or abut equal delimiter runs
+/// (`**a**` then `**b**` reads `**a****b**`), so the wrapped text joins the
+/// span instead: its identity and the kept byte range of `inserted`.
+pub(in crate::inline) fn joined_span(
+    inserted: &str,
+    markers: &[Marker],
+    beside: [&[usize]; 3],
+) -> Option<(usize, std::ops::Range<usize>)> {
+    let styles = [
+        (InlineFormat::Bold, "**"),
+        (InlineFormat::Bold, "__"),
+        (InlineFormat::Strike, "~~"),
+        (InlineFormat::Italic, "*"),
+        (InlineFormat::Italic, "_"),
+    ];
+    styles.into_iter().find_map(|(format, wrap)| {
+        let inner = inserted.strip_prefix(wrap)?.strip_suffix(wrap)?;
+        let plain = !inner.is_empty()
+            && !inner.contains(&wrap[..1])
+            && !inner.contains(['\r', '\n'])
+            && !inner.starts_with(char::is_whitespace)
+            && !inner.ends_with(char::is_whitespace);
+        let id = beside
+            .into_iter()
+            .flatten()
+            .copied()
+            .find(|id| markers[*id].kind == SpanKind::Format(format));
+        Some((id.filter(|_| plain)?, wrap.len()..wrap.len() + inner.len()))
+    })
+}
