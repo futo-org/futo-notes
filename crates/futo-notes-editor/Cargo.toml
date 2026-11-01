@@ -19,6 +19,10 @@ serde = { version = "1", features = ["derive"] }
 markdown = { version = "1.0.0", default-features = false }
 unicase = { version = "2.10.0", default-features = false }
 
+[features]
+# Test-only WASM hook: restore a session with a frozen history clock.
+test-clock = []
+
 [lints]
 workspace = true
 
