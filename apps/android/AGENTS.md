@@ -166,8 +166,10 @@ Generated and gitignored: `uniffi/` Kotlin bindings, `jniLibs/`,
 
 - **CRITICAL — dev/prod data split (M3).** Debug builds use the `.dev`
   application id, which isolates APP/INTERNAL storage; DEVICE mode uses
-  `FUTO Notes Dev` instead of prod's `FUTO Notes`, gated by `BuildConfig.DEBUG`.
-  Never weaken this — a debug build must never touch real notes.
+  `FUTO Notes Dev` instead of prod's `FUTO Notes`. The gate is the `.dev`
+  applicationId (`NotesStorage.isDevBuild`), never `BuildConfig.DEBUG`: the
+  `-PfutoEditorPerf=true` variant is non-debuggable yet is still a dev install.
+  Never weaken this — a dev build must never touch real notes.
 - **`app/src/main/java/com/futo/notes/storage/NotesStorage.kt` holds one of three
   independent copies of the default notes-root split** (Rust `vault_location.rs`
   and iOS `NotesStore.swift` are the others; registry entry
@@ -223,47 +225,9 @@ consumers.
 
 ## Debug-only automation hooks
 
-`app/src/debug/java/com/futo/notes/testhook/` registers a broadcast-driven command
-surface: the Android counterpart of the desktop `window.__testSync` hook. It
-exists because an accessibility dump costs ~2s and shows what Compose last
-managed to render, not what the app holds (M21) — so a test that taps through a
-multi-step flow is both slow and unreliable.
-
-Adding a hook is a few lines in `MainActivity.testHooks()` (`MainActivityTestHooks.kt`):
-
-```kotlin
-"confirm-storage" to {
-    val adoption = checkNotNull(pendingStorageAdoption.value) {
-        "no storage switch is awaiting confirmation"
-    }
-    pendingStorageAdoption.value = null
-    adoptExistingStorage(adoption)
-    null            // or a Map<String, Any?> of fields to report back
-}
-```
-
-Rules:
-
-- **A hook calls an entry point the UI already calls.** It must not contain
-  behavior of its own, or the test stops testing the app.
-- **Throw on a bad argument.** The ack carries the reason; a silent no-op looks
-  exactly like a hung flow.
-- **Return fields rather than logging them.** They travel back on the ack line,
-  which is what makes one round-trip enough.
-- **Never widen `main` to serve a hook.** If a hook needs state, it reads it in
-  `MainActivity`, where it already lives.
-- **Debug source set only.** A release build compiles the no-op sibling, so the
-  release APK carries none of this — do not "simplify" that back into a
-  `BuildConfig.DEBUG` branch in `main`, which would leave a shell-reachable way to
-  move the user's notes in the shipped source and rely on R8 to drop it. The two
-  `TestHooks` signatures must match; a mismatch fails the release compile, which
-  is when you want to hear about it.
-
-The `state` hook's field names are read by `tests/lib/android/testHooks.mjs`
-(`STATE_FIELDS`) with nothing linking them at compile time. That is deliberate —
-adding a field to `main` for a test-only type would be worse — and it fails loud:
-`parseStateAck` throws naming any field that went missing. Change one side, change
-the other.
+Adding or changing a broadcast test hook (`app/src/debug/.../testhook/`, `MainActivity.testHooks()`), or
+touching the `state` hook's fields: read `docs/agents/android-test-hooks.md` first. Hooks live in the debug
+source set only; the release APK compiles a no-op sibling.
 
 ## Traps specific to this shell
 
