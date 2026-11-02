@@ -2,93 +2,6 @@
 use super::*;
 
 impl Projection {
-    /// Command-local canonical metadata from the original retained row. The
-    /// returned byte count charges both source materialization and parser input.
-    pub(crate) fn list_items_at(
-        &self,
-        source: &Rope,
-        at: usize,
-    ) -> (Vec<ListLine>, usize, std::ops::Range<usize>) {
-        let (items, work, window, _) = self.list_items_and_paragraph_at(source, at, None);
-        (items, work, window)
-    }
-
-    /// The optional textblock is temporary command metadata from the same
-    /// canonical row/events as item ownership, never a naked body reparse.
-    pub(crate) fn list_items_and_paragraph_at(
-        &self,
-        source: &Rope,
-        at: usize,
-        body: Option<usize>,
-    ) -> (
-        Vec<ListLine>,
-        usize,
-        std::ops::Range<usize>,
-        Option<std::ops::Range<usize>>,
-    ) {
-        let index = self.rows.locate(at, false);
-        let (row, base, _) = self.rows.at(index);
-        let raw = source.byte_slice(base..base + row.source_len).to_string();
-        let events = row::source_events(&raw);
-        let paragraph = body.and_then(|body| {
-            let textblock = blocks_paragraph::at(&events, at - base, body.checked_sub(base)?)?;
-            let mut end = base + textblock.source.end;
-            if !textblock.source.is_empty() {
-                let physical = source.line_to_byte(source.byte_to_line(end - 1));
-                let row = self.source_prefix_at(physical)?;
-                if row.source.end <= base + textblock.boundary {
-                    end = row.source.end;
-                }
-            }
-            Some(base + textblock.source.start..end)
-        });
-        let mut items = lists::describe(&raw, &events).into_items();
-        for item in &mut items {
-            visit_container();
-            item.shift(base);
-            self.fix_list(index, base, item);
-        }
-        // Command-local event records are queried by original source range.
-        items.sort_by_key(|item| {
-            visit_container();
-            item.marker.start
-        });
-        (items, raw.len(), base..base + row.source_len, paragraph)
-    }
-
-    pub(crate) fn block_ref_at_source(&self, at: usize) -> Option<(&blocks::BlockLine, usize)> {
-        self.indexed_block_at_source(at)
-            .map(|(block, base, _)| (block, base))
-    }
-
-    fn indexed_block_at_source(&self, at: usize) -> Option<(&blocks::BlockLine, usize, usize)> {
-        let index = self.rows.locate(at, false);
-        let (row, base, _) = self.rows.at(index);
-        let local = at - base;
-        let block = row
-            .blocks
-            .partition_point(|block| {
-                visit_container();
-                block.source.start <= local
-            })
-            .saturating_sub(1);
-        Some((row.blocks.get(block)?, base, index))
-    }
-
-    /// The absolute block-wide fence of the block at `at`, if code.
-    pub(crate) fn fence_at_source(&self, at: usize) -> Option<fences::Fence> {
-        let (block, base, index) = self.indexed_block_at_source(at)?;
-        let mut fence = block.fence.clone()?;
-        fence.shift(base);
-        self.fix_fence(index, base, &mut fence);
-        Some(fence)
-    }
-
-    pub(crate) fn list_command_line_at_source(&self, at: usize) -> Option<blocks::ListCommandLine> {
-        let (block, base, index) = self.indexed_block_at_source(at)?;
-        Some(self.command_line(block, base, index))
-    }
-
     fn command_line(
         &self,
         block: &blocks::BlockLine,
@@ -100,22 +13,6 @@ impl Projection {
             self.fix_list(index, base, list);
         }
         line
-    }
-
-    /// The retained semantic neighbor, with a cut list's list-wide fields.
-    pub(crate) fn context_neighbor(
-        &self,
-        at: usize,
-        forward: bool,
-        quote: usize,
-    ) -> Option<ContextWitness> {
-        let mut witness = self.rows.context_neighbor(at, forward, quote)?;
-        if let Some(list) = &mut witness.list {
-            let index = self.rows.locate(witness.source.start, false);
-            let base = self.rows.at(index).1;
-            self.fix_list(index, base, list);
-        }
-        Some(witness)
     }
 
     /// A cut list keeps each row's own parse. Its list-wide owner and the
@@ -163,54 +60,6 @@ impl Projection {
                 list.owner.end = tail_base + owner.end;
             }
         }
-    }
-
-    pub(crate) fn source_prefix_at(&self, at: usize) -> Option<blocks::SourcePrefix> {
-        #[cfg(test)]
-        CONTAINER_PREFIX_QUERIES.with(|count| count.set(count.get() + 1));
-        let (block, base, row_index) = self.indexed_block_at_source(at)?;
-        let local = at - base;
-        let index = block
-            .bodies
-            .partition_point(|body| {
-                visit_container();
-                body.source.start <= local
-            })
-            .saturating_sub(1);
-        let body = block.bodies.get(index)?;
-        if body.source.start != local {
-            return None;
-        }
-        let mut end = body.content.start;
-        if let Some(fence) = &block.fence {
-            let mut fence = fence.clone();
-            fence.shift(base);
-            self.fix_fence(row_index, base, &mut fence);
-            for marker in std::iter::once(&fence.opener).chain(fence.closer.iter()) {
-                let source = base + body.source.start..base + body.source.end;
-                if source.contains(&marker.start) {
-                    end = end.min(marker.start - base);
-                }
-            }
-        }
-        let mut list = block.list.clone();
-        if let Some(list) = &mut list {
-            list.shift(base);
-            self.fix_list(row_index, base, list);
-        }
-        Some(blocks::SourcePrefix {
-            source: base + body.source.start..base + body.source.end,
-            prefix: base + body.source.start..base + end,
-            content: base + body.content.start..base + body.content.end,
-            quote_depth: block.quote_depth,
-            code: block.code,
-            list,
-        })
-    }
-
-    pub(crate) fn block_is_code(&self, at: usize) -> bool {
-        self.block_ref_at_source(at)
-            .is_some_and(|(block, _)| block.code)
     }
 
     pub(crate) fn block_lines(&self, range: DisplayRange) -> Vec<blocks::BlockLine> {
@@ -309,16 +158,6 @@ impl Projection {
             result.push(self.command_line(block, base, index));
         });
         result
-    }
-
-    /// Borrow original canonical metadata once in a bounded source window.
-    /// Bodies and language strings remain in their retained row.
-    pub(crate) fn visit_source_blocks<'a>(
-        &'a self,
-        range: &std::ops::Range<usize>,
-        mut visit: impl FnMut(&'a blocks::BlockLine, usize),
-    ) {
-        self.visit_indexed_source_blocks(range, |block, base, _| visit(block, base));
     }
 
     fn visit_indexed_source_blocks<'a>(

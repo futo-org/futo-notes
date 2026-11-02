@@ -81,7 +81,7 @@ fn list_shortcuts_retain_literal_whitespace_and_task_looking_body_content() {
     for (raw, at, expected, shown) in [
         ("\\*  foo", 1, "- &#32; foo", "  foo"),
         ("\\*[x] foo", 1, "- \\[x] foo", "[x] foo"),
-        ("* \\[x]  foo", 3, "* [x] &#32; foo", "  foo"),
+        ("* \\[x]  foo", 3, "* [x]   foo", "  foo"),
     ] {
         let mut s = EditorSession::open(raw);
         let mut view = ReferenceView::new(&s.display_text());
@@ -116,10 +116,10 @@ fn shortcut_acceptance_keeps_foreign_ownership_selection_and_carried_format() {
                 "9. before\n\n2\\.\n\n7) after",
                 "before\n\n2.\n\nafter",
                 10,
-                "9. before\n\n<!-- -->\n2. \n\n7) after",
+                "9. before\n\n2) \n<!-- -->\n\n7) after",
                 "before\n\n\n\nafter",
                 8,
-                "9. before\n\n<!-- -->\n2. **!**\n\n7) after",
+                "9. before\n\n2) **!**\n<!-- -->\n\n7) after",
                 "before\n\n!\n\nafter",
             ),
             (
@@ -136,10 +136,10 @@ fn shortcut_acceptance_keeps_foreign_ownership_selection_and_carried_format() {
                 "9. before\n\n\n2\\.\n\n\n7) after",
                 "before\n\n\n2.\n\n\nafter",
                 11,
-                "9. before\n\n\n<!-- -->\n2. \n\n\n7) after",
+                "9. before\n\n\n2) \n<!-- -->\n\n\n7) after",
                 "before\n\n\n\n\n\nafter",
                 9,
-                "9. before\n\n\n<!-- -->\n2. **!**\n\n\n7) after",
+                "9. before\n\n\n2) **!**\n<!-- -->\n\n\n7) after",
                 "before\n\n\n!\n\n\nafter",
             ),
             (

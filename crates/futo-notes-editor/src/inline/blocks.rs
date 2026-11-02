@@ -10,17 +10,6 @@ pub(crate) enum HeadingSyntax {
     Setext,
 }
 
-/// Fixed-size physical source attribution for container prefix edits. Bodies
-/// remain borrowed in the retained row; callers never clone their vectors.
-pub(crate) struct SourcePrefix {
-    pub source: Range<usize>,
-    pub prefix: Range<usize>,
-    pub content: Range<usize>,
-    pub quote_depth: usize,
-    pub code: bool,
-    pub list: Option<super::lists::ListLine>,
-}
-
 /// Body-free command metadata copied from retained canonical attribution.
 /// Original physical body vectors stay borrowed in the projection.
 pub(crate) struct ListCommandLine {
@@ -30,9 +19,11 @@ pub(crate) struct ListCommandLine {
     pub quote_depth: usize,
     pub divider: bool,
     pub code: bool,
-    pub empty_comment: bool,
     pub list: Option<super::lists::ListLine>,
     pub task: Option<Range<usize>>,
+    /// Syntax a generic list edit cannot respell: setext/multi-line bodies,
+    /// raw HTML, front matter.
+    pub fixed: bool,
 }
 
 impl ListCommandLine {
@@ -50,9 +41,13 @@ impl ListCommandLine {
             quote_depth: block.quote_depth,
             divider: block.divider,
             code: block.code,
-            empty_comment: block.empty_comment,
             list,
             task: block.task.as_ref().map(shift),
+            fixed: block.bodies.len() > 1
+                || block.underline.is_some()
+                || block.html
+                || block.metadata
+                || block.heading_syntax == HeadingSyntax::Setext,
         }
     }
 }

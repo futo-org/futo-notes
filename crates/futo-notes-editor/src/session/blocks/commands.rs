@@ -55,15 +55,20 @@ impl EditorSession {
         {
             return self.list_command(expected, range, command, accept);
         }
-        if command == BlockCommand::Outdent {
-            if let Some(change) = self.shared_prefix_frames(
-                expected,
-                range,
-                super::list_prefix_frames::FrameAction::Outdent,
-                accept,
-            )? {
-                return Ok(Some(change));
-            }
+        if command == BlockCommand::Outdent
+            && self
+                .selected_block_lines(range)
+                .first()
+                .is_some_and(|line| {
+                    line.list.as_ref().is_some_and(|list| {
+                        list.first
+                            && line.source.contains(&list.marker.start)
+                            && line.quote_depth != list.quote_depth
+                    })
+                })
+        {
+            // A quote inside a list item is outside the generic list path.
+            return Err(EditorError::UnrepresentableFormat);
         }
         if matches!(command, BlockCommand::Indent | BlockCommand::Outdent) {
             if self

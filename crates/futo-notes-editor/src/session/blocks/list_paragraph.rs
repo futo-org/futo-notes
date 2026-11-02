@@ -20,55 +20,7 @@ impl EditorSession {
             }) {
                 return self.indent_list(expected, range, BlockCommand::Outdent, accept);
             }
-            let quote_end = prefix.rfind('>').map_or(0, |at| {
-                at + 1 + usize::from(matches!(prefix.as_bytes().get(at + 1), Some(b' ' | b'\t')))
-            });
-            let formats = (range == self.selection)
-                .then(|| self.pending_formats.clone())
-                .flatten();
-            let affinity = self.input_affinity(range);
-            let list = line.list.as_ref().unwrap();
-            let group = DisplayRange {
-                start: DisplayOffset(self.projection.display_at(list.owner.start)),
-                end: DisplayOffset(self.projection.display_at(list.owner.end)),
-            };
-            let members = self.projection.block_lines(group);
-            let before = members.iter().any(|other| {
-                other.list.as_ref().is_some_and(|item| {
-                    item.owner == list.owner && item.marker.start < list.marker.start
-                })
-            });
-            let after = members.iter().any(|other| {
-                other.list.as_ref().is_some_and(|item| {
-                    item.owner == list.owner && item.marker.start > list.marker.start
-                })
-            });
-            let mut replacement = prefix[..quote_end].to_owned();
-            let end = if before && after {
-                // Blank lines alone leave both halves in one loose CommonMark
-                // list. Keep this exited blank line and persist the boundary.
-                replacement.push_str(
-                    &self
-                        .source
-                        .byte_slice(line.content.end..line.source.end)
-                        .to_string(),
-                );
-                replacement.push_str(&prefix[..quote_end]);
-                replacement.push_str("<!-- -->\n");
-                line.source.end
-            } else {
-                line.content.start
-            };
-            let mut change = self.commit_block_edit(
-                expected,
-                line.source.start..end,
-                &replacement,
-                BlockSelection::Display(range),
-                None,
-                accept,
-            )?;
-            self.carry_block_state(&mut change, formats, affinity);
-            return Ok(Some(change));
+            return self.lift_current_list(expected, range, accept);
         }
         let list = line.list.as_ref().unwrap();
         let at_start = range.start.0 == self.projection.display_at(line.content.start);

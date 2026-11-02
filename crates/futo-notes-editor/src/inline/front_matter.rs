@@ -92,7 +92,7 @@ impl super::row::Row {
     /// no inline or block meaning, and one block description covers it.
     pub(crate) fn metadata(source: &str) -> Self {
         use super::blocks::{BlockLine, PhysicalLine};
-        use super::row::{ContextRun, Segment};
+        use super::row::Segment;
         let opener = source.find(['\r', '\n']).map_or(source.len(), |at| {
             at + if source[at..].starts_with("\r\n") {
                 2
@@ -164,13 +164,6 @@ impl super::row::Row {
                 bodies: vec![line],
                 ..BlockLine::default()
             }],
-            context: vec![ContextRun {
-                source: 0..source.len(),
-                first: 0,
-                last: 0,
-                transparent_quote: None,
-            }],
-            transparent_quote: None,
             metadata: true,
             opener: None,
         }

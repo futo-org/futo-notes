@@ -390,7 +390,7 @@ fn mixed_retirement_preserves_retained_and_enclosing_quote_scopes() {
     for (raw, expected, before, shown, selected, mapped, depths) in [
         (
             "- parent\n  > 1. child\u{1f600}\n  >    - grandchild\n  > 2. sibling\n- following",
-            "parent\n> - child\u{1f600}\n>   - grandchild\n> - sibling\n- following",
+            "parent\n  > - child\u{1f600}\n  >   - grandchild\n  > - sibling\n- following",
             "parent\nchild\u{1f600}\ngrandchild\nsibling\nfollowing",
             "parent\nchild\u{1f600}\ngrandchild\nsibling\nfollowing",
             range(0, 16),

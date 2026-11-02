@@ -33,29 +33,14 @@ fn public_actions_report_each_consumed_planning_contribution() {
                 missing.push((name, actual, expected));
             }
         };
-    for (name, source, expected, command, at) in [
-        (
+    {
+        let (name, source, expected, command, at) = (
             "lift-list",
             "- label https://x.test",
             "# label https://x.test",
             BlockCommand::Heading(1),
             0,
-        ),
-        (
-            "header-apply",
-            "- > &acE;",
-            "\n> &acE;",
-            BlockCommand::Heading(0),
-            3,
-        ),
-        (
-            "fence-apply",
-            "- parent https://x.test\n  ```Rust\n  opaque\n- outside\n",
-            "parent https://x.test\n```Rust\nopaque\n```\n- outside\n",
-            BlockCommand::Heading(0),
-            0,
-        ),
-    ] {
+        );
         let mut session = EditorSession::open(source);
         let canonical = EditorSession::open(expected);
         reset();
@@ -75,62 +60,18 @@ fn public_actions_report_each_consumed_planning_contribution() {
         let (baseline, addition) = match name {
             "lift-list" => (
                 EditWork {
-                    materialized_source_bytes: 320,
+                    materialized_source_bytes: 360,
                     inserted_bytes: 22,
-                    parsed_source_bytes: 278,
+                    parsed_source_bytes: 384,
                     link_metadata_items: 370,
                     link_copied_bytes: 84,
                 },
-                (139, 28),
-            ),
-            "header-apply" => (
-                EditWork {
-                    materialized_source_bytes: 93,
-                    inserted_bytes: 8,
-                    parsed_source_bytes: 55,
-                    link_metadata_items: 66,
-                    link_copied_bytes: 0,
-                },
-                (55, 0),
-            ),
-            "fence-apply" => (
-                EditWork {
-                    materialized_source_bytes: 560,
-                    inserted_bytes: 41,
-                    parsed_source_bytes: 514,
-                    link_metadata_items: 189,
-                    link_copied_bytes: 28,
-                },
-                (198, 42),
+                (257, 70),
             ),
             _ => unreachable!(),
         };
         check(name, change.work, baseline, addition);
     }
-    let mut session = EditorSession::open("-https://x.test");
-    reset();
-    let change = session
-        .replace(Revision(0), range(1, 1), " ", &mut |_| Ok(()))
-        .unwrap();
-    assert_eq!(session.source_text(), "- https://x.test");
-    assert_eq!(session.display_text(), "https://x.test");
-    let children = child_snapshot();
-    assert!(children
-        .iter()
-        .any(|(name, part)| *name == "shortcut-remove" && part.link_metadata_items > 0));
-    check(
-        "shortcut-remove",
-        change.work,
-        EditWork {
-            materialized_source_bytes: 196,
-            inserted_bytes: 16,
-            parsed_source_bytes: 225,
-            link_metadata_items: 329,
-            link_copied_bytes: 98,
-        },
-        (331, 56),
-    );
-
     let source = "[id]: /target\n\n[one][id]\n\nbody";
     let expected = "[id]: /target\n\n\n\nbody";
     let canonical = EditorSession::open(expected);

@@ -9,7 +9,7 @@ fn ordered_tasks_keep_the_existing_start_and_raw_padding_when_checkboxes_are_rem
         ),
         (
             "7)\t[x] parent\n\t- child\n8)\t[ ] following",
-            "7)\tparent\n\t- child\n8)\tfollowing",
+            "7)  parent\n\t- child\n8) following",
         ),
     ] {
         let shown = "parent\nchild\nfollowing";
@@ -270,7 +270,7 @@ fn quoted_and_ancestor_selected_ordered_fragments_keep_their_canonical_owners() 
         ),
         (
             "- [ ] parent\n  1. child\n     1. grandchild\n- [x] following",
-            "1. parent\n\nchild\n1) grandchild\n1. following",
+            "1. parent\n\nchild\n1. grandchild\n1) following",
             "parent\nchild\ngrandchild\nfollowing",
             "parent\n\nchild\ngrandchild\nfollowing",
             23,

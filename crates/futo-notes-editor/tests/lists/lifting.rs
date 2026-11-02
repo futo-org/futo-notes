@@ -3,7 +3,7 @@ use super::*;
 #[test]
 fn nested_text_lift_keeps_quote_ancestry_and_foreign_list_owner() {
     let raw = "> - parent\n>   - child😀\n>     - grandchild\n>   - sibling\n> - following";
-    let expected = "> - parent\n>\n> child😀\n> + grandchild\n> + sibling\n> - following";
+    let expected = "> - parent\n>\n> child😀\n> - grandchild\n> + sibling\n> - following";
     let shown = "parent\nchild😀\ngrandchild\nsibling\nfollowing";
     let mut s = EditorSession::open(raw);
     let mut view = ReferenceView::new(shown);
@@ -74,7 +74,7 @@ fn nested_text_lift_removes_each_selected_sibling_in_one_action() {
 #[test]
 fn nested_heading_lifts_all_list_ancestry_before_setting_the_heading() {
     let raw = "- parent\n  - child😀\n    - grandchild\n  - sibling\n- following";
-    let expected = "- parent\n\n## child😀\n+ grandchild\n+ sibling\n- following";
+    let expected = "- parent\n\n## child😀\n- grandchild\n+ sibling\n- following";
     let shown = "parent\nchild😀\ngrandchild\nsibling\nfollowing";
     let mut s = EditorSession::open(raw);
     let mut view = ReferenceView::new(shown);
@@ -150,117 +150,35 @@ fn text_command_includes_a_next_item_first_text_endpoint_but_not_the_prior_text_
 }
 
 #[test]
-fn text_lifts_every_list_above_an_intervening_quote_and_keeps_fragment_owners() {
-    let raw = "- parent\n  > - child\n  >   - grandchild\n  > - sibling\n- following";
-    let expected = "parent\n> child\n> + grandchild\n> - sibling\n- following";
-    let shown = "parent\nchild\ngrandchild\nsibling\nfollowing";
-    let selected = range(7, 12);
-    let mut s = EditorSession::open(raw);
-    let mut view = ReferenceView::new(shown);
-    assert_eq!(s.display_text(), shown);
-    s.select_with_affinity(s.revision(), selected, Affinity::Backward)
-        .unwrap();
-    assert!(matches!(
-        s.block_command(
-            s.revision(),
-            selected,
-            BlockCommand::Heading(0),
-            &mut |_| Err("append rejected".into())
+fn text_lifting_through_a_quote_inside_an_item_is_refused_unchanged() {
+    // Lifting a list whose item contains a quoted list would respell the quote
+    // across container levels; refused before acceptance (DECISIONS #20).
+    for (raw, selected) in [
+        (
+            "- parent\n  > - child\n  >   - grandchild\n  > - sibling\n- following",
+            range(7, 12),
         ),
-        Err(EditorError::Persistence(_))
-    ));
-    assert_eq!(s.source_text(), raw);
-    assert_eq!(s.selection(), selected);
-    assert_eq!(s.revision(), Revision(0));
-    let mut accepted = 0;
-    view.apply(
-        s.block_command(
-            s.revision(),
-            selected,
-            BlockCommand::Heading(0),
-            &mut |_| {
-                accepted += 1;
-                Ok(())
-            },
-        )
-        .unwrap()
-        .unwrap(),
-    );
-    assert_eq!(accepted, 1);
-    assert_eq!(s.source_text(), expected);
-    assert_eq!(view.text, shown);
-    assert_eq!(s.selection(), selected);
-    assert_eq!(s.affinity(), Affinity::Backward);
-    let p = s.project(s.revision(), range(0, shown.len())).unwrap();
-    let lists = p
-        .blocks
-        .iter()
-        .filter_map(|block| {
-            block
-                .list
-                .as_ref()
-                .filter(|list| list.first)
-                .map(|list| (list.depth, block.quote_depth))
-        })
-        .collect::<Vec<_>>();
-    assert_eq!(lists, vec![(1, 1), (1, 1), (1, 0)]);
-    view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
-    assert_eq!(s.source_text(), raw);
-    assert_eq!(view.text, shown);
-    assert_eq!(s.selection(), selected);
-    assert_eq!(s.affinity(), Affinity::Backward);
-    view.apply(s.redo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
-    assert_eq!(s.source_text(), expected);
-    assert_eq!(s.selection(), selected);
-}
-
-#[test]
-fn text_lifts_two_quote_crossings_without_merging_the_inner_list_fragments() {
-    let raw = "- outer\n  > - middle\n  >   > - child\n  >   >   - grandchild\n  >   > - inner sibling\n  > - middle sibling\n- following";
-    let expected = "outer\n> middle\n> > child\n> > + grandchild\n> > - inner sibling\n> - middle sibling\n- following";
-    let shown = "outer\nmiddle\nchild\ngrandchild\ninner sibling\nmiddle sibling\nfollowing";
-    let selected = range(13, 18);
-    let mut s = EditorSession::open(raw);
-    let mut view = ReferenceView::new(shown);
-    s.select_with_affinity(s.revision(), selected, Affinity::Backward)
-        .unwrap();
-    let mut accepted = 0;
-    view.apply(
-        s.block_command(
-            s.revision(),
-            selected,
-            BlockCommand::Heading(0),
-            &mut |_| {
-                accepted += 1;
-                Ok(())
-            },
-        )
-        .unwrap()
-        .unwrap(),
-    );
-    assert_eq!(accepted, 1);
-    assert_eq!(s.source_text(), expected);
-    assert_eq!(view.text, shown);
-    assert_eq!(s.selection(), selected);
-    let p = s.project(s.revision(), range(0, shown.len())).unwrap();
-    let lists = p
-        .blocks
-        .iter()
-        .filter_map(|block| {
-            block
-                .list
-                .as_ref()
-                .filter(|list| list.first)
-                .map(|list| (list.depth, block.quote_depth))
-        })
-        .collect::<Vec<_>>();
-    assert_eq!(lists, vec![(1, 2), (1, 2), (1, 1), (1, 0)]);
-    view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
-    assert_eq!(s.source_text(), raw);
-    assert_eq!(s.selection(), selected);
-    assert_eq!(s.affinity(), Affinity::Backward);
-    view.apply(s.redo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
-    assert_eq!(s.source_text(), expected);
+        (
+            "- outer\n  > - middle\n  >   > - child\n  >   >   - grandchild\n  >   > - inner sibling\n  > - middle sibling\n- following",
+            range(13, 18),
+        ),
+    ] {
+        let mut s = EditorSession::open(raw);
+        s.select_with_affinity(s.revision(), selected, Affinity::Backward)
+            .unwrap();
+        assert!(matches!(
+            s.block_command(
+                s.revision(),
+                selected,
+                BlockCommand::Heading(0),
+                &mut |_| panic!("accepted")
+            ),
+            Err(EditorError::UnrepresentableFormat)
+        ));
+        assert_eq!(s.source_text(), raw);
+        assert_eq!(s.selection(), selected);
+        assert_eq!(s.revision(), Revision(0));
+    }
 }
 
 #[test]

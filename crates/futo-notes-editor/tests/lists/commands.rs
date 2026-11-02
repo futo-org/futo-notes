@@ -83,7 +83,7 @@ fn cross_kind_commands_convert_the_touched_list_and_preserve_other_lists() {
         (
             "5) [X] a\n1) b\n\n+ keep",
             "TaskList",
-            "- [X] a\n- [ ] b\n\n+ keep",
+            "- [x] a\n- [ ] b\n\n+ keep",
         ),
     ] {
         let mut s = EditorSession::open(raw);
@@ -283,7 +283,7 @@ fn list_retarget_does_not_renumber_either_neighbor_when_ordered_delimiters_confl
     assert_eq!(numbers(&s), vec![Some(9), Some(1), Some(2), Some(7)]);
     assert_eq!(
         s.source_text(),
-        "9. before\n\n<!-- -->\n1. a\n2. b\n\n7) after"
+        "9. before\n\n1) a\n2) b\n<!-- -->\n\n7) after"
     );
     assert_eq!(view.text, shown);
     assert_eq!(s.selection(), range(8, 8));
@@ -293,10 +293,8 @@ fn list_retarget_does_not_renumber_either_neighbor_when_ordered_delimiters_confl
 
 #[test]
 fn list_commands_retire_heading_syntax_while_preserving_inline_body_and_neighbors() {
-    for (raw, shown) in [
-        ("## __a__ ##\r\n\r\n+ keep", "a\r\n\r\nkeep"),
-        ("__a__\r\n===\r\n\r\n+ keep", "a\r\n\r\nkeep"),
-    ] {
+    let (raw, shown) = ("## __a__ ##\r\n\r\n+ keep", "a\r\n\r\nkeep");
+    {
         let mut s = EditorSession::open(raw);
         let mut view = ReferenceView::new(shown);
         view.apply(
@@ -317,4 +315,20 @@ fn list_commands_retire_heading_syntax_while_preserving_inline_body_and_neighbor
         view.apply(s.redo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
         assert_eq!(s.source_text(), "- [ ] __a__\r\n\r\n+ keep");
     }
+}
+
+#[test]
+fn list_commands_refuse_setext_headings_unchanged() {
+    let raw = "__a__\r\n===\r\n\r\n+ keep";
+    let mut s = EditorSession::open(raw);
+    assert!(matches!(
+        s.block_command(
+            s.revision(),
+            range(0, 0),
+            BlockCommand::TaskList,
+            &mut |_| panic!("accepted")
+        ),
+        Err(EditorError::UnrepresentableFormat)
+    ));
+    assert_eq!(s.source_text(), raw);
 }

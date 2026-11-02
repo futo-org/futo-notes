@@ -37,6 +37,10 @@ impl EditorSession {
                             .byte_slice(physical.source.start..physical.content.start)
                             .to_string();
                         let replacement = if line.list.is_some() {
+                            if !prefix.contains('>') {
+                                // A lazy list continuation has no quote prefix to shift.
+                                return Err(EditorError::UnrepresentableFormat);
+                            }
                             shift_inner_quote_prefix(&prefix, command)
                         } else {
                             shift_quote_prefix(&prefix, line.quote_depth, command)

@@ -8,11 +8,6 @@ impl EditorSession {
         window: Range<usize>,
         exact: bool,
     ) -> Result<Self, EditorError> {
-        let physical_tail = if exact {
-            self.physical_tail_at(window.end)
-        } else {
-            PhysicalTail::Unknown
-        };
         let (winners, work) = if exact {
             self.projection.reference_winners(window.clone())
         } else {
@@ -127,23 +122,7 @@ impl EditorSession {
             None
         };
         staged.projection.initial_link_metadata_items += usize::from(origin.is_some());
-        staged.context = StageContext {
-            before: self.stage_boundary(window.start, false),
-            after: self.stage_boundary(window.end, true),
-            origin,
-            physical_tail,
-            original_canonical: false,
-            leading_list_prose: if exact {
-                self.capture_leading_list_prose(window.start)
-            } else {
-                None
-            },
-            fence_edge: if exact {
-                self.capture_fence_edge(&window)
-            } else {
-                None
-            },
-        };
+        staged.context = StageContext { origin };
         Ok(staged)
     }
 }
