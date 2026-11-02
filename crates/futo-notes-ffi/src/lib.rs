@@ -1,5 +1,4 @@
 mod editor;
-pub use editor::bounded::*;
 pub use editor::editor_find_scan;
 pub use editor::{
     EditorAffinity, EditorBlockCommand, EditorBlockDescription, EditorByteRange, EditorComposition,
