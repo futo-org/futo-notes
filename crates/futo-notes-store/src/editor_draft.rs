@@ -20,6 +20,21 @@ impl LocalNoteStore {
         self.save_draft_as_locked(id, wanted_id, base, content)
     }
 
+    /// `save_draft_as`, refused when an editor session holds either id (see
+    /// `save_unattached`).
+    pub fn save_draft_as_unattached(
+        &self,
+        id: &str,
+        wanted_id: &str,
+        base: &str,
+        content: &str,
+    ) -> Result<MutationResult, String> {
+        let _gate = self.lock_gate()?;
+        let _vault_mutation = vault_mutation_guard()?;
+        crate::editor_session::refuse_attached(&self.root, [id, wanted_id])?;
+        self.save_draft_as_locked(id, wanted_id, base, content)
+    }
+
     fn save_draft_as_locked(
         &self,
         id: &str,
@@ -29,6 +44,11 @@ impl LocalNoteStore {
     ) -> Result<MutationResult, String> {
         paths::note_path(&self.root, id)?;
         paths::note_path(&self.root, wanted_id)?;
+        if let Some(mutation) = crate::editor_session::IdentityTransition::save_draft(
+            self, id, wanted_id, base, content,
+        )? {
+            return Ok(mutation);
+        }
         match self.read_note_file(id) {
             Ok(current) if current != base && current != content => {
                 let parked = self.park_conflict_draft(wanted_id, content)?;

@@ -1,13 +1,22 @@
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { isAndroidPackageInstalled, runPackageProbe } from './android-package-probe.mjs';
 
+// The fake CI emulator answers identity; package probes retain their original assertions.
+const probeAdb = (execute) =>
+  vi.fn((command, args, options) =>
+    args.includes('avd') ? 'ci\nOK\n' : execute(command, args, options),
+  );
+
 describe('Package Manager probe boundary', () => {
+  beforeEach(() => vi.stubEnv('ANDROID_AVD_NAME', 'ci'));
+  afterEach(() => vi.unstubAllEnvs());
+
   it('matches the exact package rather than a filtered prefix', () => {
-    const execFile = vi.fn(() => 'package:com.futo.notes.dev.extra\r\n');
+    const execFile = probeAdb(() => 'package:com.futo.notes.dev.extra\r\n');
     expect(
-      isAndroidPackageInstalled('com.futo.notes.dev', { serial: 'fixture-phone', execFile }),
+      isAndroidPackageInstalled('com.futo.notes.dev', { serial: 'emulator-5558', execFile }),
     ).toBe(false);
   });
 
@@ -18,10 +27,10 @@ describe('Package Manager probe boundary', () => {
     });
     expect(() =>
       isAndroidPackageInstalled('com.futo.notes.dev', {
-        serial: 'fixture-phone',
-        execFile: () => {
+        serial: 'emulator-5558',
+        execFile: probeAdb(() => {
           throw cause;
-        },
+        }),
       }),
     ).toThrow(/Cannot find service: package/);
   });
@@ -32,14 +41,14 @@ describe('Package Manager probe boundary', () => {
     ['install-abandon', '42; input tap 1 1'],
   ])('refuses non-probe or unsafe PM arguments %j', (...args) => {
     const execFile = vi.fn();
-    expect(() => runPackageProbe(args, { serial: 'fixture-phone', execFile })).toThrow(/probe/);
+    expect(() => runPackageProbe(args, { serial: 'emulator-5558', execFile })).toThrow(/probe/);
     expect(execFile).not.toHaveBeenCalled();
   });
 
   it('keeps install-session readiness commands bounded too', () => {
-    const execFile = vi.fn(() => 'Success\n');
+    const execFile = probeAdb(() => 'Success\n');
     for (const args of [['install-create'], ['install-abandon', '42']]) {
-      expect(runPackageProbe(args, { serial: 'fixture-phone', execFile })).toBe('Success\n');
+      expect(runPackageProbe(args, { serial: 'emulator-5558', execFile })).toBe('Success\n');
     }
     expect(execFile.mock.calls.every(([, , options]) => options.timeout === 5000)).toBe(true);
   });

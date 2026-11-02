@@ -8,7 +8,7 @@ use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use rustix::fs::{
-    fsync, mkdirat, open, openat, renameat, statat, unlinkat, AtFlags, FileType, Mode, OFlags,
+    fsync, mkdirat, open, openat, renameat, unlinkat, AtFlags, FileType, Mode, OFlags,
 };
 
 use super::{context, relative_components, OpenParentError};
@@ -20,15 +20,98 @@ mod no_replace;
 #[path = "unix/writes.rs"]
 mod writes;
 
-pub(super) use directories::{clear, create_dir, exists, remove_dir, set_mtime_ms, sync_parent};
-pub(super) use no_replace::{create_new, move_no_replace, move_no_replace_strict, rename_case};
+pub(super) use directories::{
+    clear, create_dir, entry_is_directory, exists, remove_dir, set_mtime_ms, sync_parent,
+};
+pub(super) use no_replace::{
+    create_new, create_new_strict, move_no_replace, move_no_replace_strict, rename_case,
+};
 pub(super) use writes::{
     create_dir_all, remove, remove_local, rename, rename_local, write_atomic, write_atomic_local,
 };
 
+// rustix's 32-bit Android statat probes statx, which pre-API-30 seccomp
+// kills instead of returning ENOSYS. O_PATH pins the no-follow entry and
+// std's Android fstat64 reads its type without that forbidden probe. Linux
+// unit tests run this same branch through the shared vault-fs contract suite.
+fn entry_type<P: rustix::path::Arg>(directory: &OwnedFd, path: P) -> rustix::io::Result<FileType> {
+    #[cfg(any(
+        all(target_os = "android", target_pointer_width = "32"),
+        all(test, target_os = "linux")
+    ))]
+    {
+        use std::os::unix::fs::MetadataExt;
+        let descriptor = openat(
+            directory,
+            path,
+            OFlags::PATH | OFlags::NOFOLLOW | OFlags::CLOEXEC,
+            Mode::empty(),
+        )?;
+        let metadata = File::from(descriptor).metadata().map_err(|error| {
+            rustix::io::Errno::from_io_error(&error).unwrap_or(rustix::io::Errno::IO)
+        })?;
+        Ok(FileType::from_raw_mode(metadata.mode()))
+    }
+    #[cfg(not(any(
+        all(target_os = "android", target_pointer_width = "32"),
+        all(test, target_os = "linux")
+    )))]
+    rustix::fs::statat(directory, path, AtFlags::SYMLINK_NOFOLLOW)
+        .map(|metadata| FileType::from_raw_mode(metadata.st_mode))
+}
+
 struct Parent {
     directory: OwnedFd,
     leaf: OsString,
+}
+
+pub(super) fn open_append(root: &Path, relative: &str) -> Result<File, String> {
+    let parent = open_parent(root, relative, true).map_err(OpenParentError::message)?;
+    let descriptor = openat(
+        &parent.directory,
+        &parent.leaf,
+        OFlags::WRONLY
+            | OFlags::CREATE
+            | OFlags::APPEND
+            | OFlags::NOFOLLOW
+            | OFlags::CLOEXEC
+            | OFlags::NONBLOCK,
+        Mode::RUSR | Mode::WUSR,
+    )
+    .map_err(|error| {
+        super::note_create_failure(&error.into(), super::in_root(relative));
+        context("open append", relative, error)
+    })?;
+    let file = File::from(descriptor);
+    if !file
+        .metadata()
+        .map_err(|error| context("stat append", relative, error))?
+        .is_file()
+    {
+        return Err(format!("append target is not a file: {relative}"));
+    }
+    Ok(file)
+}
+
+pub(super) fn sync_file(root: &Path, relative: &str) -> Result<(), String> {
+    let parent = open_parent(root, relative, false).map_err(OpenParentError::message)?;
+    let descriptor = openat(
+        &parent.directory,
+        &parent.leaf,
+        OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::CLOEXEC | OFlags::NONBLOCK,
+        Mode::empty(),
+    )
+    .map_err(|error| context("open sync", relative, error))?;
+    let file = File::from(descriptor);
+    if !file
+        .metadata()
+        .map_err(|error| context("stat sync", relative, error))?
+        .is_file()
+    {
+        return Err(format!("sync target is not a file: {relative}"));
+    }
+    file.sync_all()
+        .map_err(|error| context("sync file", relative, error))
 }
 
 #[cfg(any(test, feature = "test-support"))]
@@ -195,8 +278,8 @@ fn open_parent_with_policy(
 }
 
 fn is_symlink(parent: &Parent) -> Result<bool, String> {
-    match statat(&parent.directory, &parent.leaf, AtFlags::SYMLINK_NOFOLLOW) {
-        Ok(metadata) => Ok(FileType::from_raw_mode(metadata.st_mode) == FileType::Symlink),
+    match entry_type(&parent.directory, &parent.leaf) {
+        Ok(kind) => Ok(kind == FileType::Symlink),
         Err(rustix::io::Errno::NOENT) => Ok(false),
         Err(error) => Err(error.to_string()),
     }
@@ -269,7 +352,7 @@ fn write_temp_and_install<T>(
             .and_then(|()| install(&temp));
         let taken = result.is_err()
             && matches!(
-                statat(&parent.directory, &temp, AtFlags::SYMLINK_NOFOLLOW),
+                entry_type(&parent.directory, &temp),
                 Err(rustix::io::Errno::NOENT)
             );
         let _ = unlinkat(&parent.directory, &temp, AtFlags::empty());

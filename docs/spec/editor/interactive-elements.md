@@ -229,3 +229,5 @@
   over it. An empty URL, Escape, or a click outside the prompt cancels it and
   leaves the document exactly as the `/link` deletion left it. →
   milkdown/linkPrompt/, milkdown/slash/exec.ts
+
+- The portable replacement core prepares link, formatting and structural changes before one recovery acceptance, including pending marked text and exact source/selection history; [its link contract](portable-core/links.md) distinguishes in-session input lifetimes from saved source. Shipping renderer interactions above remain in use until cutover. → crates/futo-notes-editor/src/session/composition.rs, crates/futo-notes-store/src/tests/editor_session/links/compound_derived.rs

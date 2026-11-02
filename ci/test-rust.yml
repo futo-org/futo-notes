@@ -13,6 +13,7 @@ test:rust:workspace:
     CARGO_CACHE_POLICY: pull
   cache:
     - !reference [.cache-cargo-tauri, cache]
+    - !reference [.cache-pnpm, cache]
   script:
     # `cargo test --workspace` compiles the futo-notes-tauri desktop crate,
     # which links gtk-sys/gobject-sys and needs the GTK/WebKit dev libs.
@@ -23,6 +24,10 @@ test:rust:workspace:
     # One metadata traversal replaces the former standalone dep-guard job.
     # The workspace tests already contain model conformance coverage.
     - node scripts/check-rust-dependency-boundaries.mjs
+    # Existing blocking Rust job/release gate also runs the actual WASM consumer.
+    # Its payload drift check parses wasmPayloads.d.ts with `typescript`.
+    - pnpm install --frozen-lockfile --prefer-offline
+    - node "$CI_PROJECT_DIR/scripts/test-editor-wasm.mjs"
     # Windows is the only non-Unix target we ship, and its build is tag-only
     # and slow, so a cfg-gating mistake in the `cfg(not(unix))` vault layer or
     # in platform-gated test scaffolding is otherwise found at release time at
@@ -64,6 +69,7 @@ test:rust:workspace:
         - Cargo.lock
         - rust-toolchain.toml
         - .config/nextest.toml
+        - scripts/test-editor-wasm.mjs
         - scripts/rust-tests.mjs
         - scripts/cargo-nextest-pin.json
         - ci/install-nextest.sh
@@ -78,6 +84,7 @@ test:rust:workspace:
         - packages/editor/src/preview.ts
         - packages/editor/src/images.ts
         - src/shared/note/wikilinks.ts
+        - packages/editor/src/wasmPayloads.d.ts
         - apps/tauri/src-tauri/**/*
         - apps/tauri/Cargo.toml
         - apps/cli/**/*
@@ -90,6 +97,7 @@ test:rust:workspace:
         - scripts/build-rust-ios.sh
         - scripts/check-rust-dependency-boundaries.mjs
         - tests/conformance/**/*
+        - tests/fixtures/editor-native-input/**/*
         # CI config changes can alter this job's toolchain/system-dep setup
         # (e.g. the GTK deps it needs to compile the tauri crate) — re-run the
         # workspace tests so an environment break is caught on that change.
@@ -147,11 +155,15 @@ test:rust:macos:
         - scripts/cargo-nextest-pin.json
         - ci/install-nextest.sh
         - crates/futo-notes-core/**/*
+        - crates/futo-notes-editor/**/*
         - crates/futo-notes-license/**/*
         - crates/futo-notes-model/**/*
         - crates/futo-notes-search/**/*
         - crates/futo-notes-store/**/*
         - crates/futo-notes-sync/**/*
+        - crates/futo-notes-wikilinks/**/*
+        - crates/futo-notes-tags/**/*
+        - crates/futo-notes-image/**/*
         - .cirrus.star
         - ci/cirrus/*.yml
         - .cirrus.yml
@@ -219,7 +231,7 @@ test:rust:ffi-android:
     policy: pull-push
     when: always
   variables:
-    GIT_DEPTH: "20"
+    GIT_DEPTH: '20'
     # See build:android-native for why ANDROID_NDK_HOME must be set explicitly.
     ANDROID_NDK_HOME: /opt/android-sdk/ndk/28.2.13676358
   script:

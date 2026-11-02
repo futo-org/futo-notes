@@ -258,8 +258,8 @@ pub async fn local_notes_save(
 ) -> Result<MutationResult, String> {
     let store = store(&app, &state)?;
     blocking(move || match (original_id.as_deref(), base.as_deref()) {
-        (Some(id), Some(base)) => store.save_draft_as(id, &wanted_id, base, &content),
-        _ => store.save(original_id.as_deref(), &wanted_id, &content, modified_ms),
+        (Some(id), Some(base)) => store.save_draft_as_unattached(id, &wanted_id, base, &content),
+        _ => store.save_unattached(original_id.as_deref(), &wanted_id, &content, modified_ms),
     })
     .await
 }
@@ -273,7 +273,7 @@ pub async fn local_notes_flush_draft(
     content: String,
 ) -> Result<FlushDraftResult, String> {
     let store = store(&app, &state)?;
-    blocking(move || store.flush_draft(&id, &base, &content)).await
+    blocking(move || store.flush_draft_unattached(&id, &base, &content)).await
 }
 
 #[tauri::command]

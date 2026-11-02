@@ -8,7 +8,8 @@
     ".": "./src/index.ts",
     "./bridge": "./src/bridge.ts",
     "./milkdown-compat": "./src/milkdown-compat/index.ts",
-    "./markdown": "./src/markdown/index.ts"
+    "./markdown": "./src/markdown/index.ts",
+    "./wasm-payloads": "./src/wasmPayloads.d.ts"
   },
   "scripts": {
     "test": "vitest run"

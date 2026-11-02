@@ -3,6 +3,7 @@ package com.futo.notes.storage
 import android.content.Context
 import android.os.Build
 import android.os.Environment
+import com.futo.notes.BuildConfig
 import java.io.File
 
 /** Where the note vault lives on disk. Mirrors Obsidian's two storage modes. */
@@ -34,12 +35,19 @@ enum class StorageRootState { PRESENT, ABSENT, UNAVAILABLE }
 object NotesStorage {
     private const val VAULT_DIR = "futo-notes"
 
+    /** Dev install = the `.dev` applicationId (also `.perf.dev`). Data isolation
+     *  follows that split, never BuildConfig.DEBUG: the perf build is
+     *  non-debuggable, so DEBUG is false there. */
+    fun isDevApplicationId(applicationId: String): Boolean = applicationId.endsWith(".dev")
+
+    val isDevBuild: Boolean get() = isDevApplicationId(BuildConfig.APPLICATION_ID)
+
     /** dev/prod guard for DEVICE mode: the public Documents folder is NOT
-     *  package-scoped, so a debug build must use a distinct folder name or a dev
+     *  package-scoped, so a dev build must use a distinct folder name or a dev
      *  install would write into the production vault. (APP/INTERNAL already
      *  isolate via the `.dev` applicationId on their package-scoped paths.) */
-    fun deviceFolderName(isDebug: Boolean): String =
-        if (isDebug) "FUTO Notes Dev" else "FUTO Notes"
+    fun deviceFolderName(isDevBuild: Boolean): String =
+        if (isDevBuild) "FUTO Notes Dev" else "FUTO Notes"
 
     /** DEVICE mode relies on All-files access, an Android 11+ (API 30) mechanism.
      *  On older devices only APP storage is offered. */
@@ -111,22 +119,22 @@ object NotesStorage {
         File(context.getExternalFilesDir(null) ?: context.filesDir, VAULT_DIR)
 
     @Suppress("DEPRECATION")
-    fun deviceRoot(isDebug: Boolean): File =
+    fun deviceRoot(isDevBuild: Boolean): File =
         File(
             Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS),
-            deviceFolderName(isDebug),
+            deviceFolderName(isDevBuild),
         )
 
-    fun rootFor(context: Context, mode: StorageMode, isDebug: Boolean): File = when (mode) {
+    fun rootFor(context: Context, mode: StorageMode, isDevBuild: Boolean): File = when (mode) {
         StorageMode.INTERNAL -> internalRoot(context)
         StorageMode.APP -> appRoot(context)
-        StorageMode.DEVICE -> deviceRoot(isDebug)
+        StorageMode.DEVICE -> deviceRoot(isDevBuild)
     }
 
     fun sourceStateForRecovery(
         context: Context,
         mode: StorageMode,
-        isDebug: Boolean,
+        isDevBuild: Boolean,
     ): StorageRootState {
         val root = when (mode) {
             StorageMode.INTERNAL -> internalRoot(context)
@@ -146,7 +154,7 @@ object NotesStorage {
                 ) {
                     return StorageRootState.UNAVAILABLE
                 }
-                deviceRoot(isDebug)
+                deviceRoot(isDevBuild)
             }
         }
         if (root.exists()) return StorageRootState.PRESENT

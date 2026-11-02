@@ -22,6 +22,7 @@ bindgen = ["uniffi/cli", "uniffi/cargo-metadata"]
 # `tokio` exports async methods; the `bindgen` feature above adds the generator.
 uniffi = { version = "0.32", default-features = false, features = ["tokio"] }
 tokio = { version = "1", features = ["sync", "macros", "rt-multi-thread", "time"] }
+futo-notes-editor = { path = "../futo-notes-editor" }
 futo-notes-core = { path = "../futo-notes-core" }
 futo-notes-license = { path = "../futo-notes-license" }
 futo-notes-model = { path = "../futo-notes-model" }
@@ -34,6 +35,9 @@ reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"
 icu_locale = { version = "2.4", features = ["compiled_data"] }
 icu_plurals = { version = "2.4", features = ["compiled_data"] }
 thiserror = "2"
+
+[dev-dependencies]
+serde_json = "1"
 
 [lints]
 workspace = true

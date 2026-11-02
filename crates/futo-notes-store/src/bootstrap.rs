@@ -65,9 +65,11 @@ impl LocalNoteStore {
     /// Recover crash leftovers before migration/scan/seed so a stranded real
     /// note can never be mistaken for an empty vault (A2/C1).
     fn prepare_bootstrap(&self) -> Result<(u32, Vec<String>), String> {
+        let _vault_mutation = vault_mutation_guard()?;
         fs::create_dir_all(&self.root).map_err(io_error)?;
-        let mut warnings = Vec::new();
-        for recovered in futo_notes_core::files::recover_parked_backups(&self.root) {
+        let (recovered_backups, mut warnings) =
+            futo_notes_core::files::recover_parked_backups_locked(&self.root);
+        for recovered in recovered_backups {
             if let Err(error) = self.park_recovered_backup(&recovered) {
                 warnings.push(format!("recovered note {}: {error}", recovered.leaf));
             }
@@ -188,8 +190,12 @@ impl LocalNoteStore {
                 Err(error) => warnings.push(format!("{name}: {error}")),
             }
         }
-        if let Err(error) = write_atomic_text(&sentinel, "1") {
-            warnings.push(format!("migration sentinel: {error}"));
+        // A refused destination remains retryable after the underlying fault
+        // is repaired; do not mark an incomplete migration as finished.
+        if warnings.is_empty() {
+            if let Err(error) = write_atomic_text(&sentinel, "1") {
+                warnings.push(format!("migration sentinel: {error}"));
+            }
         }
         (migrated, warnings)
     }

@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AndroidDevice } from '../android-device.mjs';
 import { createAdbClient } from './adbClient.mjs';
 
@@ -13,7 +13,9 @@ const fs = require('node:fs');
 const args = process.argv.slice(2);
 fs.appendFileSync(process.env.QA_PM_RECORD, JSON.stringify(args) + '\\n');
 const command = args.slice(2).join(' ');
-if (command === 'emu avd name') {
+if (command === 'emu avd name' && process.env.QA_PM_MODE) {
+  process.stdout.write('ci\\nOK\\n');
+} else if (command === 'emu avd name') {
   process.on('SIGTERM', () => {});
   setTimeout(() => {
     fs.writeFileSync(process.env.QA_PM_FINISHED, 'identity finished');
@@ -42,13 +44,17 @@ describe('bounded Android package presence probes', () => {
   let record;
   let finished;
   beforeEach(() => {
+    vi.stubEnv('ANDROID_AVD_NAME', 'ci');
     scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'android-package-probe-'));
     fake = path.join(scratch, 'fake-adb.cjs');
     record = path.join(scratch, 'calls.jsonl');
     finished = path.join(scratch, 'pm-finished');
     fs.writeFileSync(fake, FAKE_ADB);
   });
-  afterEach(() => fs.rmSync(scratch, { recursive: true, force: true }));
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    fs.rmSync(scratch, { recursive: true, force: true });
+  });
 
   function client(kind, mode = 'stall', state = 'device') {
     const execFile = (_command, args, options) =>
@@ -64,8 +70,8 @@ describe('bounded Android package presence probes', () => {
         },
       });
     return kind === 'sync'
-      ? new AndroidDevice('fixture-phone', { execFile })
-      : createAdbClient({ pkg: 'com.futo.notes.dev', serial: 'fixture-phone', execFile });
+      ? new AndroidDevice('emulator-5558', { execFile })
+      : createAdbClient({ pkg: 'com.futo.notes.dev', serial: 'emulator-5558', execFile });
   }
   const installed = (value, kind) =>
     kind === 'sync'
@@ -136,14 +142,15 @@ describe('bounded Android package presence probes', () => {
     'does not add a global timeout to ordinary %s adb commands',
     (kind) => {
       const calls = [];
-      const execFile = (_command, _args, options) => {
+      const execFile = (_command, args, options) => {
+        if (args.includes('avd')) return 'ci\nOK\n';
         calls.push(options);
         return '';
       };
       const value =
         kind === 'sync'
-          ? new AndroidDevice('fixture-phone', { execFile })
-          : createAdbClient({ pkg: 'com.futo.notes.dev', serial: 'fixture-phone', execFile });
+          ? new AndroidDevice('emulator-5558', { execFile })
+          : createAdbClient({ pkg: 'com.futo.notes.dev', serial: 'emulator-5558', execFile });
       value.adb(['install', '-r', '/fixture/app.apk']);
       expect(calls).toHaveLength(1);
       expect(calls[0].timeout).toBeUndefined();

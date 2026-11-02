@@ -3,6 +3,7 @@
 mod bootstrap;
 mod commit;
 mod editor_draft;
+mod editor_session;
 mod flush;
 mod folders;
 mod list_cache;
@@ -26,6 +27,10 @@ use serde::{Deserialize, Serialize};
 
 use search::StoreSearch;
 
+pub use editor_session::{
+    EditorStoreError, RecoveryClock, RecoveryIssue, RecoveryIssueKind, RecoveryOptions,
+    RecoveryStatus, RecoveryStorage, StoreEditorHost, StoreEditorSession,
+};
 pub use futo_notes_model::{WELCOME_NOTE, WELCOME_NOTE_ID};
 pub use futo_notes_search::{SearchHit, SearchStatus};
 pub use vault_migration::{
@@ -234,6 +239,9 @@ pub struct LocalNoteStore {
     /// owns the process-wide check/write span.
     #[cfg(test)]
     flush_window_hook: Mutex<Option<InstallWindowHook>>,
+    /// Deterministic contention before the workflow gate is acquired.
+    #[cfg(test)]
+    gate_wait_hook: Mutex<Option<Box<dyn Fn() + Send + Sync>>>,
 }
 
 impl LocalNoteStore {
@@ -254,6 +262,8 @@ impl LocalNoteStore {
             install_window_hook: Mutex::new(None),
             #[cfg(test)]
             flush_window_hook: Mutex::new(None),
+            #[cfg(test)]
+            gate_wait_hook: Mutex::new(None),
         }
     }
 
@@ -392,6 +402,10 @@ impl LocalNoteStore {
     }
 
     fn lock_gate(&self) -> Result<std::sync::MutexGuard<'_, ()>, String> {
+        #[cfg(test)]
+        if let Some(hook) = self.gate_wait_hook.lock().unwrap().as_ref() {
+            hook();
+        }
         self.gate
             .lock()
             .map_err(|_| "vault mutation lock poisoned".to_owned())

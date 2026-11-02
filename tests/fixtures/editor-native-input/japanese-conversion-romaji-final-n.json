@@ -1,0 +1,213 @@
+[
+  {
+    "after": {
+      "availableLanguages": [
+        "ja-JP",
+        "ko-KR",
+        "en-US",
+        "emoji"
+      ],
+      "language": "ja-JP",
+      "marked": [
+        2,
+        4
+      ],
+      "selected": [
+        4,
+        4
+      ],
+      "textUTF16": [
+        97,
+        98,
+        12395,
+        12411,
+        32,
+        38,
+        32,
+        99,
+        100,
+        13,
+        10
+      ]
+    },
+    "arguments": {
+      "range": [
+        4,
+        4
+      ],
+      "textUTF16": [
+        110
+      ]
+    },
+    "before": {
+      "availableLanguages": [
+        "ja-JP",
+        "ko-KR",
+        "en-US",
+        "emoji"
+      ],
+      "language": "ja-JP",
+      "marked": [
+        2,
+        4
+      ],
+      "selected": [
+        4,
+        4
+      ],
+      "textUTF16": [
+        97,
+        98,
+        12395,
+        12411,
+        32,
+        38,
+        32,
+        99,
+        100,
+        13,
+        10
+      ]
+    },
+    "id": 16,
+    "method": "shouldChangeText",
+    "parent": null,
+    "returned": true
+  },
+  {
+    "after": {
+      "availableLanguages": [
+        "ja-JP",
+        "ko-KR",
+        "en-US",
+        "emoji"
+      ],
+      "language": "ja-JP",
+      "marked": [
+        2,
+        5
+      ],
+      "selected": [
+        5,
+        5
+      ],
+      "textUTF16": [
+        97,
+        98,
+        12395,
+        12411,
+        110,
+        32,
+        38,
+        32,
+        99,
+        100,
+        13,
+        10
+      ]
+    },
+    "arguments": {},
+    "before": {
+      "availableLanguages": [
+        "ja-JP",
+        "ko-KR",
+        "en-US",
+        "emoji"
+      ],
+      "language": "ja-JP",
+      "marked": [
+        2,
+        5
+      ],
+      "selected": [
+        5,
+        5
+      ],
+      "textUTF16": [
+        97,
+        98,
+        12395,
+        12411,
+        110,
+        32,
+        38,
+        32,
+        99,
+        100,
+        13,
+        10
+      ]
+    },
+    "id": 17,
+    "method": "didChangeSelection",
+    "parent": null
+  },
+  {
+    "after": {
+      "availableLanguages": [
+        "ja-JP",
+        "ko-KR",
+        "en-US",
+        "emoji"
+      ],
+      "language": "ja-JP",
+      "marked": [
+        2,
+        5
+      ],
+      "selected": [
+        5,
+        5
+      ],
+      "textUTF16": [
+        97,
+        98,
+        12395,
+        12411,
+        110,
+        32,
+        38,
+        32,
+        99,
+        100,
+        13,
+        10
+      ]
+    },
+    "arguments": {},
+    "before": {
+      "availableLanguages": [
+        "ja-JP",
+        "ko-KR",
+        "en-US",
+        "emoji"
+      ],
+      "language": "ja-JP",
+      "marked": [
+        2,
+        5
+      ],
+      "selected": [
+        5,
+        5
+      ],
+      "textUTF16": [
+        97,
+        98,
+        12395,
+        12411,
+        110,
+        32,
+        38,
+        32,
+        99,
+        100,
+        13,
+        10
+      ]
+    },
+    "id": 18,
+    "method": "didChange",
+    "parent": null
+  }
+]

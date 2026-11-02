@@ -1,0 +1,11 @@
+[package]
+name = "futo-notes-image"
+version = "0.1.0"
+edition = "2021"
+
+# Canonical image-file rules shared by sync, the note model and the
+# filesystem-free native/WASM editor. Keep this dependency tree empty.
+[dependencies]
+
+[lints]
+workspace = true

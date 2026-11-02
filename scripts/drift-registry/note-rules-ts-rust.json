@@ -1,6 +1,6 @@
 {
   "concept": "note-rules-ts-rust",
-  "description": "Per-keystroke note rules (title/tag/preview/wikilink/image) — the ONE sanctioned TS mirror of the Rust note domain (AGENTS.md 'Where logic lives', M6/M7). Both sides satisfy hand-reviewed tests/conformance/*.json; every family also crosses a broad deterministic TS/Rust differential (tests/conformance/README.md).",
+  "description": "Per-keystroke note rules (title/tag/preview/wikilink/image) \u2014 the ONE sanctioned TS mirror of the Rust note domain (AGENTS.md 'Where logic lives', M6/M7). Both sides satisfy hand-reviewed tests/conformance/*.json; every family also crosses a broad deterministic TS/Rust differential (tests/conformance/README.md).",
   "lockStatus": "locked",
   "copies": [
     {
@@ -28,7 +28,7 @@
       "pattern": "pub fn sanitize_title"
     },
     {
-      "location": "crates/futo-notes-model/src/tags.rs",
+      "location": "crates/futo-notes-tags/src/lib.rs",
       "pattern": "pub fn tag_regex_matches"
     },
     {
@@ -36,7 +36,7 @@
       "pattern": "pub fn make_preview"
     },
     {
-      "location": "crates/futo-notes-model/src/wikilinks.rs",
+      "location": "crates/futo-notes-wikilinks/src/lib.rs",
       "pattern": "pub fn resolve_wikilink"
     }
   ],

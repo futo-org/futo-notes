@@ -1,6 +1,14 @@
 use super::*;
 
 #[test]
+fn system_elements_is_a_read_only_query() {
+    assert!(matches!(
+        parse_invocation(&strings(&["system-elements"])).unwrap(),
+        Invocation::Query(name, _) if name == "system-elements"
+    ));
+}
+
+#[test]
 fn do_accepts_one_verb_with_optional_args() {
     let steps = parse_do(&strings(&["OpenNote", r#"{"noteId":"a"}"#])).unwrap();
     assert_eq!(steps, vec![("OpenNote".to_string(), json!({"noteId":"a"}))]);

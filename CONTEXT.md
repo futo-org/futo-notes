@@ -33,6 +33,30 @@ The id a note actually ends up with after the engine resolves collisions (e.g. "
 "Note (2)"). Reported in the mutation; never recomputed by a shell.
 _Avoid_: resolved name, actual id
 
+### Editing a note
+
+**Editor engine**:
+The shared authority for interpreting a note's markdown and its editing behavior, distinct
+from the local note engine that owns the vault and save outcomes.
+_Avoid_: core (ambiguous), local note engine (for editing rules)
+
+**Source text**:
+A note's exact markdown text, including its marker spelling, whitespace and line endings.
+_Avoid_: serialized document, normalized content
+
+**Display text**:
+The text a person reads and edits, with markdown markers removed from the editing surface.
+_Avoid_: source text (for rendered text), concealed markdown
+
+**Editor projection**:
+The rendered meaning of source text: display text, formatting and the correspondence between
+visible positions and source positions. Distinct from the shell's note-cache projection.
+_Avoid_: projection (without a qualifier when both meanings are in scope)
+
+**Editor session**:
+The editing state of one open note, including its source text, selection and undo history.
+_Avoid_: document instance, dirty buffer
+
 ### Drafts and flushing
 
 **Draft**:

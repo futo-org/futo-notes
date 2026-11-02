@@ -26,6 +26,8 @@ primitives (path safety, atomic writes, conflict names, the vault mutation guard
   trusted only on an exact stat fingerprint older than a 2 s racy margin; the file records the
   vault root and a checksum of the derivation rules. Every open still stats every note.
 - **`paths.rs`**: collision resolution (`unique_note_id`, `unique_folder_path`).
+- **`editor_session/`**: store-owned editor attachment, input acceptance and recovery;
+  `checkpoint.rs` owns checkpoint decisions, destination validation and recovery retirement.
 - **`editor_draft.rs`**: baseline-aware identity changes. A stale editor parks its draft at the
   requested destination instead of overwriting the peer, and does not redirect links away from it.
 - **`vault_migration.rs`**: staged, verified moves of a whole vault to a new root; `vault_migration/`

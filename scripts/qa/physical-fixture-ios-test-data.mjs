@@ -1,0 +1,176 @@
+// Disposable compiled products and injected CoreDevice/XCTest responses for
+// public adapter tests. No device or signature command is executed.
+import { mkdirSync, readFileSync, writeFileSync, renameSync, symlinkSync } from 'node:fs';
+import { join } from 'node:path';
+import { expect } from 'vitest';
+import { sandbox } from '../ios-capture-fixture-signed-test-data.mjs';
+import { buildSignedFixture } from '../ios-capture-fixture-signed.mjs';
+import { createIOSFixtureExecutor } from './physical-fixture-ios.mjs';
+
+export function setupBuild({
+  respond = () => undefined,
+  generatedTarget = false,
+  reverseSigningEntitlements = false,
+} = {}) {
+  const t = sandbox();
+  let mutate = false;
+  const xctestrun = {
+    __xctestrun_metadata__: { FormatVersion: 1 },
+    Editor294FixtureUITests: {
+      IsUITestBundle: true,
+      ...(generatedTarget ? {} : { UITargetAppBundleIdentifier: 'org.futo.fixture.editor294' }),
+      TestHostBundleIdentifier: 'org.futo.fixture.editor294.uitests.xctrunner',
+      TestHostPath: '__TESTROOT__/Debug-iphoneos/Editor294FixtureUITests-Runner.app',
+      UITargetAppPath: '__TESTROOT__/Debug-iphoneos/Editor294Fixture.app',
+      TestBundlePath: '__TESTHOST__/PlugIns/Editor294FixtureUITests.xctest',
+    },
+  };
+  const built = buildSignedFixture(t.root, t.selected, {
+    command(program, args, options) {
+      const result = t.command(program, args, options);
+      if (program === 'xcodebuild')
+        writeFileSync(
+          join(
+            t.root,
+            'apps/ios/FixtureCapture/.build-signed',
+            t.selected.runID,
+            'DerivedData/Build/Products/Editor294Fixture_iphoneos27.2-arm64.xctestrun',
+          ),
+          JSON.stringify(xctestrun),
+        );
+      if (
+        reverseSigningEntitlements &&
+        program === '/usr/bin/codesign' &&
+        args.includes('--display') &&
+        args.includes('--entitlements')
+      )
+        return JSON.stringify(Object.fromEntries(Object.entries(JSON.parse(result)).reverse()));
+      return result;
+    },
+  });
+  const products = join(built.output, 'DerivedData/Build/Products');
+  const app = join(products, 'Debug-iphoneos/Editor294Fixture.app');
+  const runner = join(products, 'Debug-iphoneos/Editor294FixtureUITests-Runner.app');
+  const commands = [];
+  const plan = { ...t.selected };
+  const executor = createIOSFixtureExecutor(t.root, {
+    runCommand(command, args, options) {
+      commands.push(command === 'xcrun' ? [command, args] : command);
+      const response = respond(command, args);
+      if (response !== undefined) return response;
+      if (mutate && args.includes('--display'))
+        writeFileSync(join(app, 'changed-during-verification'), 'changed');
+      if (command === 'plutil') return { status: 0, stdout: readFileSync(args.at(-1), 'utf8') };
+      return { status: 0, stdout: t.command(command, args, options), stderr: '' };
+    },
+  });
+  return {
+    root: t.root,
+    app,
+    runner,
+    products,
+    executor,
+    commands,
+    plan,
+    signedOutput: built.output,
+    mutate: () => {
+      mutate = true;
+    },
+  };
+}
+
+export function setupScenario(change = {}) {
+  let output;
+  const plan = {
+    bundleID: 'org.futo.fixture.editor294',
+    deviceUDID: '00000000-0000000000000001',
+    coreDeviceID: '0B240C73-A6B0-49C1-B483-0DF861CE5478',
+    runID: 'A1111111-1111-4111-8111-111111111111',
+    nonce: '9ADC97CB-1A3D-443E-B5C7-62E50B90CDF1',
+    seconds: 10,
+  };
+  const gesture = {
+    runID: plan.runID,
+    nonce: plan.nonce,
+    bundleID: plan.bundleID,
+    destination: plan.deviceUDID,
+    action: 'tap-system-dictate',
+    status: 'capture-window-ended',
+    control: { label: 'Dictate', hittable: true, frame: { x: 1, y: 2, width: 30, height: 40 } },
+    ...change.gesture,
+  };
+  const calls = [];
+  const t = setupBuild({
+    respond(command, args) {
+      if (!['xcodebuild', 'xcrun'].includes(command)) return;
+      calls.push([command, args]);
+      if (command === 'xcodebuild') {
+        const fixed = JSON.parse(readFileSync(args[args.indexOf('-xctestrun') + 1], 'utf8'));
+        expect(Object.keys(fixed)).toEqual(['Editor294FixtureUITests', '__xctestrun_metadata__']);
+        expect(fixed.Editor294FixtureUITests.CommandLineArguments).toEqual([]);
+        expect(fixed.Editor294FixtureUITests.OnlyTestIdentifiers).toEqual([
+          'DictationCaptureTests/testCapture',
+        ]);
+        expect(
+          fixed.Editor294FixtureUITests.UITargetAppPath.startsWith(output + '/pinned-products/'),
+        ).toBe(true);
+        expect(
+          JSON.parse(fixed.Editor294FixtureUITests.EnvironmentVariables.FUTO_EDITOR294_LAUNCH),
+        ).toEqual({
+          runID: plan.runID,
+          nonce: plan.nonce,
+          destination: plan.deviceUDID,
+          seconds: 10,
+        });
+        mkdirSync(join(output, 'capture.xcresult'));
+        writeFileSync(join(output, 'capture.xcresult/Info.plist'), 'retained result');
+        return { status: 0, stdout: 'one fixed test' };
+      }
+      if (args.includes('summary'))
+        return {
+          status: 0,
+          stdout: JSON.stringify({
+            totalTestCount: 1,
+            passedTests: 1,
+            failedTests: 0,
+            skippedTests: 0,
+            devicesAndConfigurations: [{ device: { deviceId: plan.deviceUDID, platform: 'iOS' } }],
+            ...change.summary,
+          }),
+        };
+      mkdirSync(join(output, 'attachments'));
+      writeFileSync(join(output, 'attachments/gesture.json'), JSON.stringify(gesture));
+      const item = {
+        suggestedHumanReadableName: 'editor294-gesture.json',
+        exportedFileName: 'gesture.json',
+        deviceId: plan.deviceUDID,
+        ...change.attachment,
+      };
+      writeFileSync(
+        join(output, 'attachments/manifest.json'),
+        JSON.stringify(
+          change.manifest ?? [
+            {
+              testIdentifier: 'DictationCaptureTests/testCapture()',
+              attachments: change.duplicate ? [item, item] : [item],
+            },
+          ],
+        ),
+      );
+      if (change.exportSymlink) {
+        const path = join(
+          output,
+          change.exportSymlink === 'file' ? 'attachments/gesture.json' : 'attachments',
+        );
+        renameSync(path, path + '-retained');
+        symlinkSync(path + '-retained', path);
+      }
+      return { status: 0, stdout: '' };
+    },
+  });
+  output = join(t.root, 'run');
+  mkdirSync(output, { mode: 0o700 });
+  Object.assign(plan, t.plan);
+  const build = t.executor.pinBuild(plan, t.executor.inspectBuild(plan), output);
+  return { ...t, output, plan, build, calls, gesture };
+}

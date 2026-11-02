@@ -2,7 +2,7 @@
 
 # ── Parallel QA isolation (multiple worktrees, one machine; model: scripts/qa.mjs) ──
 
-# Claim a QA device; --erase resets one existing owned iOS claim (all simulator data); --avd selects legacy Android.
+# Claim QA: --sim exact iOS pool; --erase owned iOS; --avd legacy Android; --serial physical Android (no reset).
 qa-claim target="all" *flags:
   @node scripts/qa.mjs claim "$@"
 
@@ -156,6 +156,10 @@ android-drive *args:
 #   just qa-shot list | pid <pid> | port <port> [--out <path>]
 qa-shot *args:
   @node scripts/qa-shot.mjs "$@"
+
+# Reserve/read/release an exact physical-fixture host lease; never selects or drives a device.
+physical-fixture-lease operation manifest:
+  bash scripts/dev-env.sh node scripts/qa/physical-fixture-lease.mjs "$1" --manifest "$2"
 
 # Drive and read the running debug app (crates/futo-puppet); see justfile-notes.md.
 #   just puppet   with no arguments, every command and its arguments

@@ -1,0 +1,258 @@
+//! Fence commands own only their physical source region.
+use super::*;
+
+impl EditorSession {
+    pub(in crate::session) fn fence_conversion(
+        &mut self,
+        expected: Revision,
+        range: DisplayRange,
+        inserted: &str,
+        accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
+    ) -> Result<Option<ViewChange>, EditorError> {
+        if range.start != range.end || !matches!(inserted, " " | "\n") {
+            return Ok(None);
+        }
+        let Some(line) = self.projection.block_lines(range).into_iter().next() else {
+            return Ok(None);
+        };
+        if line.code || line.html || line.heading > 0 || line.divider {
+            return Ok(None);
+        }
+        let (inside, _) = self.projection.source_bounds(range.start.0);
+        if self
+            .projection
+            .formats_at(inside)
+            .contains(&InlineFormat::Code)
+        {
+            return Ok(None);
+        }
+        let start = self.projection.display_at(line.content.start);
+        let prefix = self
+            .projection
+            .display
+            .byte_slice(start..range.start.0)
+            .to_string();
+        let marker = prefix.as_bytes().first().copied().unwrap_or(0);
+        let width = prefix.bytes().take_while(|&ch| ch == marker).count();
+        if marker != b'`'
+            || width != 3
+            || prefix[width..].contains(char::is_whitespace)
+            || prefix[width..].contains('`')
+        {
+            return Ok(None);
+        }
+        let quote = "> ".repeat(line.quote_depth);
+        let body = self
+            .projection
+            .display
+            .byte_slice(range.start.0..self.projection.display_at(line.content.end))
+            .to_string();
+        let fence = (marker as char).to_string().repeat(width);
+        let output = format!("{prefix}\n{quote}{body}\n{quote}{fence}");
+        let caret = line.content.start + prefix.len() + 1 + quote.len();
+        self.commit_block_edit(
+            expected,
+            line.content.clone(),
+            &output,
+            BlockSelection::Source(caret),
+            None,
+            accept,
+        )
+        .map(Some)
+    }
+}
+
+impl EditorSession {
+    pub(in crate::session) fn fence_input(
+        &mut self,
+        expected: Revision,
+        range: DisplayRange,
+        inserted: &str,
+        action: crate::InputAction,
+        accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
+    ) -> Result<Option<ViewChange>, EditorError> {
+        let mut lines = self.projection.block_lines(range);
+        if range.start == range.end
+            && range == self.selection
+            && self.affinity == Affinity::Backward
+            && range.start.0 > 0
+            && !lines.iter().any(|line| line.fence.is_some())
+        {
+            let previous =
+                self.grapheme_stop(range.start.0, crate::CaretDirection::Backward, false)?;
+            let preceding = self.projection.block_lines(DisplayRange {
+                start: DisplayOffset(previous),
+                end: range.end,
+            });
+            if preceding.iter().any(|line| {
+                line.fence.as_ref().is_some_and(|fence| {
+                    self.projection.display_at(fence.body.end) == range.start.0
+                })
+            }) {
+                lines = preceding;
+            }
+        }
+        let Some(line) = lines.iter().find(|line| line.fence.is_some()) else {
+            return Ok(None);
+        };
+        let fence = line.fence.as_ref().unwrap();
+        if lines.iter().any(|line| {
+            line.fence
+                .as_ref()
+                .is_none_or(|other| other.whole != fence.whole)
+        }) {
+            return Ok(None);
+        }
+        let Some(owned) = fence.input_range(&self.projection, range, &lines, inserted) else {
+            // Keep foreign code/prose separators with the strict generic planner.
+            return Ok(None);
+        };
+        let (a, b) = (owned.source.start, owned.source.end);
+        // An unchanged supplied code run owns its exact physical spelling,
+        // including every hidden prefix inside it. Do not reconstruct those
+        // rows from the first row's prefix. Still record the explicit action
+        // through the same acceptance/history path as an empty replacement.
+        if self
+            .projection
+            .display
+            .byte_slice(range.start.0..range.end.0)
+            == inserted
+        {
+            let caret = DisplayRange {
+                start: range.end,
+                end: range.end,
+            };
+            let code_end_caret = fence.closer.is_some()
+                && range.end.0 == self.projection.display_at(fence.body.end)
+                && range.start != range.end;
+            let mut change = self.commit_block_edit(
+                expected,
+                a..a,
+                "",
+                BlockSelection::Display(caret),
+                Some(HistoryInput {
+                    range,
+                    inserted,
+                    action,
+                }),
+                accept,
+            )?;
+            if code_end_caret {
+                self.carry_block_state(&mut change, None, Affinity::Backward);
+            }
+            return Ok(Some(change));
+        }
+        let prefix =
+            if line.content.start <= fence.body.end && line.source.start >= fence.body.start {
+                self.source
+                    .byte_slice(line.source.start..line.content.start)
+                    .to_string()
+            } else {
+                self.source
+                    .byte_slice(
+                        self.source
+                            .line_to_byte(self.source.byte_to_line(fence.opener.start))
+                            ..fence.opener.start,
+                    )
+                    .to_string()
+            };
+        let mut input = inserted.replace('\n', &format!("\n{prefix}"));
+        if owned.continues_existing_row {
+            // The selected ending survives in the replacement. Its following
+            // physical prefix is still in source, with its exact own spelling.
+            input.truncate(input.len() - prefix.len());
+        }
+        if fence.body.is_empty() {
+            input.insert_str(0, &prefix);
+            if fence.body.start == fence.whole.end
+                && !self
+                    .source
+                    .byte_slice(fence.whole.clone())
+                    .to_string()
+                    .ends_with('\n')
+            {
+                input.insert(0, '\n');
+            }
+        }
+        let added_ending = fence.separator.is_empty()
+            && ((fence.closer.is_some() && a == fence.body.end) || inserted.ends_with('\n'));
+        if added_ending {
+            input.push('\n');
+        }
+        // Without a container prefix an unchanged body line can never read
+        // as a closer (it would have ended the fence), so only the edited
+        // lines can need a longer fence: a large block stays local (#314).
+        let window = if prefix.is_empty() {
+            let line = |at: usize| self.source.line_to_byte(self.source.byte_to_line(at));
+            let start = line(a).max(fence.body.start);
+            let end = (line(b) + self.source.line(self.source.byte_to_line(b)).len_bytes())
+                .clamp(b, fence.body.end);
+            start..end
+        } else {
+            fence.body.clone()
+        };
+        let body = self.source.byte_slice(window.clone()).to_string();
+        let mut candidate = body.clone();
+        candidate.replace_range(a - window.start..b - window.start, &input);
+        let needed = candidate
+            .lines()
+            .filter_map(|line| {
+                let raw = line.strip_prefix(&prefix).unwrap_or(line);
+                let indentation = raw.bytes().take_while(|&ch| ch == b' ').count();
+                if indentation > 3 {
+                    return None;
+                }
+                let raw = &raw[indentation..];
+                let width = raw.bytes().take_while(|&ch| ch == fence.marker).count();
+                (width >= fence.width && raw[width..].trim_matches([' ', '\t']).is_empty())
+                    .then_some(width + 1)
+            })
+            .max()
+            .unwrap_or(fence.width);
+        let caret = a + input.len() - usize::from(added_ending);
+        let code_end_caret =
+            fence.closer.is_some() && caret == fence.body.end + input.len() - (b - a);
+        let (footprint, output, caret) = if needed > fence.width {
+            let mut whole = self.source.byte_slice(fence.whole.clone()).to_string();
+            if let Some(close) = fence.closer.as_ref().filter(|close| close.len() < needed) {
+                whole.replace_range(
+                    close.start - fence.whole.start..close.end - fence.whole.start,
+                    &(fence.marker as char).to_string().repeat(needed),
+                );
+            }
+            whole.replace_range(a - fence.whole.start..b - fence.whole.start, &input);
+            whole.replace_range(
+                fence.opener.start - fence.whole.start..fence.opener.end - fence.whole.start,
+                &(fence.marker as char).to_string().repeat(needed),
+            );
+            (fence.whole.clone(), whole, caret + needed - fence.width)
+        } else {
+            (a..b, input, caret)
+        };
+        let materialized = body.len()
+            + candidate.len()
+            + prefix.len()
+            + if needed > fence.width {
+                fence.whole.len()
+            } else {
+                0
+            };
+        let mut change = self.commit_block_edit(
+            expected,
+            footprint,
+            &output,
+            BlockSelection::Source(caret),
+            Some(HistoryInput {
+                range,
+                inserted,
+                action,
+            }),
+            accept,
+        )?;
+        change.work.materialized_source_bytes += materialized;
+        if code_end_caret {
+            self.carry_block_state(&mut change, None, Affinity::Backward);
+        }
+        Ok(Some(change))
+    }
+}

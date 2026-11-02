@@ -1,0 +1,105 @@
+{
+  "current": {
+    "availableLanguages": [
+      "ja-JP",
+      "ko-KR",
+      "en-US",
+      "emoji"
+    ],
+    "language": "ko-KR",
+    "marked": null,
+    "selected": [
+      5,
+      5
+    ],
+    "textUTF16": [
+      97,
+      98,
+      44032,
+      45208,
+      32,
+      32,
+      38,
+      32,
+      99,
+      100,
+      13,
+      10
+    ]
+  },
+  "diff": {
+    "elements": {
+      "added": [],
+      "changed": [],
+      "removed": []
+    }
+  },
+  "formatVersion": 1,
+  "ok": true,
+  "opening": {
+    "availableLanguages": [
+      "ja-JP",
+      "ko-KR",
+      "en-US",
+      "emoji"
+    ],
+    "language": null,
+    "marked": null,
+    "selected": [
+      9,
+      9
+    ],
+    "textUTF16": [
+      97,
+      98,
+      32,
+      38,
+      32,
+      99,
+      100,
+      13,
+      10
+    ]
+  },
+  "os": "Version 27.2 (Build 24B114)",
+  "selectionRect": [
+    72,
+    70,
+    0,
+    26.33333333333333
+  ],
+  "sourceUTF16": [
+    95,
+    95,
+    97,
+    98,
+    95,
+    95,
+    32,
+    38,
+    97,
+    109,
+    112,
+    59,
+    32,
+    99,
+    100,
+    13,
+    10
+  ],
+  "traits": {
+    "autocapitalization": 2,
+    "autocorrection": 2,
+    "keyboard": 0,
+    "spellChecking": 1
+  },
+  "verb": "ReadNativeInputRecorder",
+  "eventFiles": [
+    "korean-replacement-focus",
+    "korean-replacement-initial-jamo",
+    "korean-replacement-first-syllable",
+    "korean-replacement-replace-last",
+    "korean-replacement-split-syllable",
+    "korean-replacement-following-space"
+  ]
+}

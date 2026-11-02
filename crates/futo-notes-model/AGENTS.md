@@ -4,7 +4,8 @@ The note domain: deterministic decisions about filenames, folders, tags, preview
 wikilinks. **This crate never touches a user's note tree** — no `std::fs`, no vault paths. Durable
 behavior belongs to `futo-notes-store`; low-level primitives (`sanitize_title`, `validate_title`,
 path safety, atomic writes, hashing) belong to `futo-notes-core` and are re-exported here, not
-re-ported. `src/lib.rs` is the public facade and says which rule lives where.
+re-ported. `src/lib.rs` is the public facade and says which rule lives where. Wikilinks are
+reexported from the filesystem-free `futo-notes-wikilinks` and `futo-notes-tags` owners, also used by the editor.
 
 Consumers: `futo-notes-store`, which is how Tauri desktop reaches these rules — the desktop crate
 does not depend on this one directly (`apps/tauri/src-tauri/Cargo.toml`) — and native iOS and

@@ -25,6 +25,32 @@ const gitlabYamlSchema = CORE_SCHEMA.withTags(
 );
 
 describe('pre-merge CI routing contracts', () => {
+  it('runs Rust/WASM and iOS consumers for captured-input fixture-only changes', () => {
+    for (const jobName of [/^test:rust:workspace:$/m, /^test:ios-native:$/m]) {
+      const job = topLevelBlock(gitlabPipeline, jobName);
+      const anchor = job.indexOf('changes: &');
+      const start = job.lastIndexOf('$CI_MERGE_REQUEST_IID', anchor);
+      const rule = job.slice(start);
+      const changes = rule.slice(rule.indexOf('changes:'), rule.indexOf('- if:'));
+      expect(changes, `${jobName} must run the captured-input consumers`).toContain(
+        '- tests/fixtures/editor-native-input/**/*\n',
+      );
+    }
+  });
+
+  it('runs iOS consumers for shared editor fixture-only changes', () => {
+    const job = topLevelBlock(gitlabPipeline, /^test:ios-native:$/m);
+    const anchor = job.indexOf('changes: &native-ios-test-changes');
+    const start = job.lastIndexOf('$CI_MERGE_REQUEST_IID', anchor);
+    const rule = job.slice(start);
+    const changes = rule.slice(rule.indexOf('changes:'), rule.indexOf('- if:'));
+    // Both structural-seams.json and fence-physical-rows.json are shared
+    // inputs to the Swift consumer, even when no apps/ios path changes.
+    expect(changes, 'fixture-only MRs must run the existing iOS consumers').toContain(
+      '- crates/futo-notes-editor/tests/fixtures/**/*\n',
+    );
+  });
+
   it('has no duplicate mapping keys in any pipeline file', () => {
     // GitLab keeps the last of two same-named keys without a warning: a stale
     // second `changes:` once replaced main's sync-suite path list.

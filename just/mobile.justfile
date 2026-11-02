@@ -217,6 +217,30 @@ test-android-native-ui *classes: qa-android-target _preflight-android android-en
   cd apps/android
   ./gradlew :app:connectedDirectDebugAndroidTest ${TEST_ARGS[@]+"${TEST_ARGS[@]}"}
 
+# Existing portable-editor consumers in a real x86 process on a claimed QA emulator; keeps all four ABIs packaged.
+test-android-native-ui32 *classes: qa-android-target
+  #!/usr/bin/env bash
+  set -euo pipefail
+  ABIS=arm64-v8a,armeabi-v7a,x86_64,x86 FUTO_ANDROID_FFI_PROFILE=release-ffi just build-android-native
+  apps/android/gradlew --project-dir apps/android :app:assembleDirectDebugAndroidTest
+  node scripts/android-native32.mjs "$@"
+
+# Opt-in public-call reconnaissance on a claimed physical phone; preserves dev data and partial raw reports.
+test-android-performance-recon *args: qa-android-target
+  #!/usr/bin/env bash
+  set -euo pipefail
+  ABIS=arm64-v8a,armeabi-v7a,x86_64,x86 FUTO_ANDROID_FFI_PROFILE=release-ffi just build-android-native
+  apps/android/gradlew --project-dir apps/android :app:assembleDirectDebugAndroidTest
+  node scripts/android-performance-recon.mjs "$@"
+
+# Release-like keystroke p50/p95 (non-debuggable, profileable separate app, JIT-warmed) on a claimed physical phone.
+test-android-keystroke-latency: qa-android-target
+  #!/usr/bin/env bash
+  set -euo pipefail
+  ABIS=device FUTO_ANDROID_FFI_PROFILE=release-ffi just build-android-native
+  apps/android/gradlew --project-dir apps/android -PfutoEditorPerf=true :app:assembleDirectDebug :app:assembleDirectDebugAndroidTest
+  node scripts/android-keystroke-latency.mjs
+
 # Editor performance stories against the REAL native Android app on an
 # explicitly claimed device — written for the low-end reference phone, where
 # the budgets are hardest (issue #106, docs/plan/milkdown-transition.md §5):
@@ -318,3 +342,23 @@ app-icons:
 # Run current source on an isolated Mac checkout (including targeted native UI classes).
 ios-remote *args: check-node-version
   @node scripts/ios-remote.mjs "$@"
+
+# Build only the isolated #294 capture fixture + native test bundle (no device/signing/install/input).
+build-ios-capture-fixture:
+  bash scripts/dev-env.sh node scripts/ios-capture-fixture.mjs
+
+# Explicit existing-profile development signing of isolated fixture outputs only (no device/provisioning).
+build-ios-capture-fixture-signed selection:
+  bash scripts/dev-env.sh node scripts/ios-capture-fixture-signed.mjs --selection "$1"
+
+# Read the existing fixture's compiled identity/signatures (no device, signing or provisioning changes).
+ios-capture-fixture-build-identity run:
+  bash scripts/dev-env.sh node scripts/qa/physical-fixture-ios.mjs --identity --run "$1"
+
+# Run fixture artifact contracts on the host; native UIKit contracts are compiled by the build recipe.
+test-ios-capture-artifact:
+  swift test --package-path apps/ios/FixtureCapture
+
+# Run synthetic fixture-only native unit contracts on an explicitly claimed pool SIM (no dictation).
+test-ios-capture-fixture:
+  python3 scripts/ios-test-session.py -- bash scripts/dev-env.sh node scripts/ios-capture-fixture.mjs --test-simulator

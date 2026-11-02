@@ -6,6 +6,9 @@ use super::*;
 /// A read. On a phone `elements` and `show` answer from the whole screen, and the page's
 /// reads, which exist only while the editor is up, speak the screen's units there.
 pub(crate) fn query(target: &Target, command: &str, args: &Value) -> Result<Reply, String> {
+    if command == "system-elements" {
+        return system_elements(target);
+    }
     const PAGE_ONLY: [&str; 5] = ["doc", "at", "events", "diff", "show"];
     if command == "file" {
         return file(target, args);
@@ -65,6 +68,81 @@ pub(crate) fn query(target: &Target, command: &str, args: &Value) -> Result<Repl
     let mut reply = call(target, command, &args)?;
     screen::shift(&mut reply.body, offset);
     Ok(reply)
+}
+
+/// Read-only platform accessibility description for keyboard/candidate rows hosted
+/// outside the app process. Ownership and listener identity are checked before asking
+/// AX for this worktree's simulator. All input still uses the ordinary puppet gestures.
+fn system_elements(target: &Target) -> Result<Reply, String> {
+    let Target::Native(NativePlatform::Ios, _, device) = target else {
+        return Ok(Reply::refusal(
+            400,
+            "system-elements currently requires an owned iOS simulator",
+        ));
+    };
+    let identity = call_once(target, "state", &json!({}))?;
+    if identity.status != 200 {
+        return Ok(identity);
+    }
+    // AXe's description temporarily enables AX and then switches it OFF, even when
+    // the app already had it enabled. Preserve the claimed simulator's exact value;
+    // otherwise the next native screen transition silently loses its readable tree.
+    let preference = Command::new("xcrun")
+        .args([
+            "simctl",
+            "spawn",
+            device,
+            "defaults",
+            "read",
+            "com.apple.Accessibility",
+            "ApplicationAccessibilityEnabled",
+        ])
+        .output()
+        .map_err(|error| format!("could not read simulator accessibility preference: {error}"))?;
+    let original = match String::from_utf8_lossy(&preference.stdout).trim() {
+        "1" if preference.status.success() => "true",
+        "0" if preference.status.success() => "false",
+        _ => return Err("could not read simulator accessibility preference as a boolean".into()),
+    };
+    let described = Command::new("axe")
+        .args(["describe-ui", "--udid", device])
+        .output();
+    let restored = Command::new("xcrun")
+        .args([
+            "simctl",
+            "spawn",
+            device,
+            "defaults",
+            "write",
+            "com.apple.Accessibility",
+            "ApplicationAccessibilityEnabled",
+            "-bool",
+            original,
+        ])
+        .output()
+        .map_err(|error| {
+            format!("could not restore simulator accessibility preference: {error}")
+        })?;
+    if !restored.status.success() {
+        return Err(format!(
+            "could not restore simulator accessibility preference: {}",
+            String::from_utf8_lossy(&restored.stderr)
+        ));
+    }
+    let output =
+        described.map_err(|error| format!("system accessibility description failed: {error}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "system accessibility description failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
+    let description: Value = serde_json::from_slice(&output.stdout)
+        .map_err(|error| format!("invalid system accessibility description: {error}"))?;
+    Ok(Reply {
+        status: 200,
+        body: json!({ "udid": device, "description": description }),
+    })
 }
 
 /// `look`: the whole screen in one read, from the queries and renderers `state`, `elements`,

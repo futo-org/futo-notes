@@ -2001,6 +2001,7 @@ dependencies = [
  "argon2",
  "diffy",
  "filetime",
+ "futo-notes-image",
  "hex",
  "hkdf",
  "hmac",
@@ -2020,10 +2021,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "futo-notes-editor"
+version = "0.1.0"
+dependencies = [
+ "futo-notes-image",
+ "futo-notes-tags",
+ "futo-notes-wikilinks",
+ "pulldown-cmark",
+ "ropey",
+ "serde",
+ "serde_json",
+ "similar",
+ "unicase",
+ "unicode-segmentation",
+ "wasm-bindgen",
+ "web-time",
+]
+
+[[package]]
 name = "futo-notes-ffi"
 version = "0.1.0"
 dependencies = [
  "futo-notes-core",
+ "futo-notes-editor",
  "futo-notes-license",
  "futo-notes-model",
  "futo-notes-store",
@@ -2032,10 +2052,15 @@ dependencies = [
  "icu_plurals",
  "jni",
  "reqwest 0.12.28",
+ "serde_json",
  "thiserror 2.0.21",
  "tokio",
  "uniffi",
 ]
+
+[[package]]
+name = "futo-notes-image"
+version = "0.1.0"
 
 [[package]]
 name = "futo-notes-license"
@@ -2052,8 +2077,9 @@ dependencies = [
 name = "futo-notes-model"
 version = "0.1.0"
 dependencies = [
- "fancy-regex",
  "futo-notes-core",
+ "futo-notes-tags",
+ "futo-notes-wikilinks",
  "memchr",
  "serde",
  "serde_json",
@@ -2079,11 +2105,13 @@ dependencies = [
  "crc32fast",
  "criterion",
  "futo-notes-core",
+ "futo-notes-editor",
  "futo-notes-model",
  "futo-notes-search",
  "rayon",
  "rustix",
  "serde",
+ "serde_json",
  "sha2",
  "simdutf8",
  "tempfile",
@@ -2096,6 +2124,8 @@ version = "0.1.0"
 dependencies = [
  "base64 0.23.1",
  "futo-notes-core",
+ "futo-notes-editor",
+ "futo-notes-store",
  "jni",
  "openssl-probe",
  "rcgen",
@@ -2104,6 +2134,7 @@ dependencies = [
  "rustls-platform-verifier",
  "serde",
  "serde_json",
+ "tempfile",
  "thiserror 2.0.21",
  "time",
  "tokio",
@@ -2114,11 +2145,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "futo-notes-tags"
+version = "0.1.0"
+dependencies = [
+ "fancy-regex",
+ "memchr",
+]
+
+[[package]]
 name = "futo-notes-tauri"
 version = "0.1.0"
 dependencies = [
  "cairo-rs",
  "futo-notes-core",
+ "futo-notes-editor",
  "futo-notes-license",
  "futo-notes-store",
  "futo-notes-sync",
@@ -2160,6 +2200,10 @@ dependencies = [
  "windows-core",
  "zbus 5.19.0",
 ]
+
+[[package]]
+name = "futo-notes-wikilinks"
+version = "0.1.0"
 
 [[package]]
 name = "futo-puppet"
@@ -4829,6 +4873,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "pulldown-cmark"
+version = "0.13.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "278e9268c93b9e498a2da46c34d90ba93a3255eb99009646398f34bc73ab36eb"
+dependencies = [
+ "bitflags 2.13.2",
+ "memchr",
+ "unicase",
+]
+
+[[package]]
 name = "pxfm"
 version = "0.1.30"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5257,6 +5312,16 @@ dependencies = [
  "libc",
  "untrusted",
  "windows-sys 0.52.0",
+]
+
+[[package]]
+name = "ropey"
+version = "1.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "93411e420bcd1a75ddd1dc3caf18c23155eda2c090631a85af21ba19e97093b5"
+dependencies = [
+ "smallvec",
+ "str_indices",
 ]
 
 [[package]]
@@ -5836,6 +5901,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e3a9fe34e3e7a50316060351f37187a3f546bce95496156754b601a5fa71b76e"
 
 [[package]]
+name = "similar"
+version = "3.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d2f8bec09ae8fae0f4f265a4559a9334be3929d8504e9b536df0a41302bd1733"
+
+[[package]]
 name = "siphasher"
 version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5993,6 +6064,12 @@ name = "static_vcruntime"
 version = "3.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ff7589a1859b09232522bb9edf076ca7fcf14ded96685d3fa629db73023ffbb7"
+
+[[package]]
+name = "str_indices"
+version = "0.4.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d08889ec5408683408db66ad89e0e1f93dff55c73a4ccc71c427d5b277ee47e6"
 
 [[package]]
 name = "string_cache"
@@ -7307,6 +7384,12 @@ name = "unarray"
 version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "eaea85b334db583fe3274d12b4cd1880032beab409c0d774be044d4480ab9a94"
+
+[[package]]
+name = "unicase"
+version = "2.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "357cc3acc6a036009fd6c973ed009037c732d60d0b4f6c673e9041497482a28f"
 
 [[package]]
 name = "unicode-ident"

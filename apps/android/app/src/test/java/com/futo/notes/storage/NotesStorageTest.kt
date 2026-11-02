@@ -22,8 +22,8 @@ class NotesStorageTest {
 
     @Test
     fun deviceFolderNameSeparatesDevFromProd() {
-        assertEquals("FUTO Notes", NotesStorage.deviceFolderName(isDebug = false))
-        assertEquals("FUTO Notes Dev", NotesStorage.deviceFolderName(isDebug = true))
+        assertEquals("FUTO Notes", NotesStorage.deviceFolderName(isDevBuild = false))
+        assertEquals("FUTO Notes Dev", NotesStorage.deviceFolderName(isDevBuild = true))
     }
 
     // ── decideStartup ──

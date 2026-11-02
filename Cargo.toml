@@ -1,10 +1,14 @@
 [workspace]
 resolver = "2"
 members = [
+  "crates/futo-notes-editor",
   "crates/futo-notes-core",
   "crates/futo-notes-sync",
   "crates/futo-notes-license",
   "crates/futo-notes-model",
+  "crates/futo-notes-wikilinks",
+  "crates/futo-notes-tags",
+  "crates/futo-notes-image",
   "crates/futo-notes-store",
   "crates/futo-notes-ffi",
   "crates/futo-notes-search",

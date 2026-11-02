@@ -1,0 +1,252 @@
+[
+  {
+    "after": {
+      "availableLanguages": [
+        "ja-JP",
+        "ko-KR",
+        "en-US",
+        "emoji"
+      ],
+      "language": "ja-JP",
+      "marked": null,
+      "selected": [
+        0,
+        0
+      ],
+      "textUTF16": [
+        97,
+        98,
+        26085,
+        26412,
+        32,
+        38,
+        32,
+        99,
+        100,
+        13,
+        10
+      ]
+    },
+    "arguments": {
+      "range": [
+        0,
+        0
+      ]
+    },
+    "before": {
+      "availableLanguages": [
+        "ja-JP",
+        "ko-KR",
+        "en-US",
+        "emoji"
+      ],
+      "language": "ja-JP",
+      "marked": null,
+      "selected": [
+        11,
+        11
+      ],
+      "textUTF16": [
+        97,
+        98,
+        26085,
+        26412,
+        32,
+        38,
+        32,
+        99,
+        100,
+        13,
+        10
+      ]
+    },
+    "id": 1,
+    "method": "selectedTextRange",
+    "parent": null
+  },
+  {
+    "after": {
+      "availableLanguages": [
+        "ja-JP",
+        "ko-KR",
+        "en-US",
+        "emoji"
+      ],
+      "language": "ja-JP",
+      "marked": null,
+      "selected": [
+        0,
+        0
+      ],
+      "textUTF16": [
+        97,
+        98,
+        26085,
+        26412,
+        32,
+        38,
+        32,
+        99,
+        100,
+        13,
+        10
+      ]
+    },
+    "arguments": {},
+    "before": {
+      "availableLanguages": [
+        "ja-JP",
+        "ko-KR",
+        "en-US",
+        "emoji"
+      ],
+      "language": "ja-JP",
+      "marked": null,
+      "selected": [
+        0,
+        0
+      ],
+      "textUTF16": [
+        97,
+        98,
+        26085,
+        26412,
+        32,
+        38,
+        32,
+        99,
+        100,
+        13,
+        10
+      ]
+    },
+    "id": 2,
+    "method": "didChangeSelection",
+    "parent": 1
+  },
+  {
+    "after": {
+      "availableLanguages": [
+        "ja-JP",
+        "ko-KR",
+        "en-US",
+        "emoji"
+      ],
+      "language": "ja-JP",
+      "marked": null,
+      "selected": [
+        2,
+        4
+      ],
+      "textUTF16": [
+        97,
+        98,
+        26085,
+        26412,
+        32,
+        38,
+        32,
+        99,
+        100,
+        13,
+        10
+      ]
+    },
+    "arguments": {},
+    "before": {
+      "availableLanguages": [
+        "ja-JP",
+        "ko-KR",
+        "en-US",
+        "emoji"
+      ],
+      "language": "ja-JP",
+      "marked": null,
+      "selected": [
+        2,
+        4
+      ],
+      "textUTF16": [
+        97,
+        98,
+        26085,
+        26412,
+        32,
+        38,
+        32,
+        99,
+        100,
+        13,
+        10
+      ]
+    },
+    "id": 3,
+    "method": "didChangeSelection",
+    "parent": null
+  },
+  {
+    "after": {
+      "availableLanguages": [
+        "ja-JP",
+        "ko-KR",
+        "en-US",
+        "emoji"
+      ],
+      "language": "ja-JP",
+      "marked": null,
+      "selected": [
+        2,
+        4
+      ],
+      "textUTF16": [
+        97,
+        98,
+        26085,
+        26412,
+        32,
+        38,
+        32,
+        99,
+        100,
+        13,
+        10
+      ]
+    },
+    "arguments": {
+      "range": [
+        2,
+        4
+      ]
+    },
+    "before": {
+      "availableLanguages": [
+        "ja-JP",
+        "ko-KR",
+        "en-US",
+        "emoji"
+      ],
+      "language": "ja-JP",
+      "marked": null,
+      "selected": [
+        2,
+        4
+      ],
+      "textUTF16": [
+        97,
+        98,
+        26085,
+        26412,
+        32,
+        38,
+        32,
+        99,
+        100,
+        13,
+        10
+      ]
+    },
+    "id": 4,
+    "method": "selectedTextRange",
+    "parent": null
+  }
+]

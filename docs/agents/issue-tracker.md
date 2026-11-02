@@ -222,6 +222,14 @@ Create a GitLab issue.
 
 Run `glab issue view <number> --comments`.
 
+## Native child items
+
+When attaching existing issues beneath a parent, use the
+[work-item hierarchy procedure](gitlab-work-item-hierarchy.md). This instance supports Task
+children under an Issue, retaining their issue numbers after conversion. A license failure
+for blocking links does not prevent child-item hierarchy. Keep dependency fallback text and
+native parentage separate; verify the parent's children through GraphQL.
+
 ## Wayfinding operations
 
 Used by `/wayfinder`, one of the optional third-party skills — it only loads once `just skills-link` has linked it, so treat this section as inert unless it did. The **map** is a single issue with **child** issues as tickets.

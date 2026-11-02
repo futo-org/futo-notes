@@ -209,19 +209,50 @@ impl LocalNoteStore {
         let _gate = self.lock_gate()?;
         let _vault_mutation = vault_mutation_guard()?;
         let path = paths::note_path(&self.root, id)?;
-        if !path.exists() {
-            return Ok(self.finish_mutation(Vec::new(), MutationResult::default()));
-        }
+        let existed = path.exists();
+        crate::editor_session::deletion::prepare(&self.root, id)?;
         let change = FileChange::Removed(note_filename(id));
-        self.before_write
-            .before_write(std::slice::from_ref(&change));
-        remove(&path)?;
+        if path.exists() {
+            self.before_write
+                .before_write(std::slice::from_ref(&change));
+            if let Err(error) = remove(&path) {
+                crate::editor_session::deletion::recover(&self.root, id)?;
+                return Err(error);
+            }
+            if path.exists() {
+                crate::editor_session::deletion::recover(&self.root, id)?;
+                return Err("delete policy left the source note present".into());
+            }
+        }
+        let decision_warning = match crate::editor_session::deletion::commit(&self.root, id) {
+            Ok(()) => None,
+            Err(error) => {
+                if !crate::editor_session::deletion::decision_exists(&self.root, id)? {
+                    crate::editor_session::deletion::recover(&self.root, id)?;
+                    return Err(error);
+                }
+                Some(format!(
+                    "delete decision installed; durability needs retry: {error}"
+                ))
+            }
+        };
+        let cleanup_warning = crate::editor_session::deletion::finish(&self.root, id)
+            .err()
+            .map(|error| format!("delete committed; recovery cleanup pending: {error}"));
         prune_empty_parents(&self.root, &path);
         self.search.notify(&change);
         Ok(self.finish_mutation(
             Vec::new(),
             MutationResult {
-                removed: vec![id.to_owned()],
+                removed: if existed {
+                    vec![id.to_owned()]
+                } else {
+                    Vec::new()
+                },
+                warnings: decision_warning
+                    .into_iter()
+                    .chain(cleanup_warning)
+                    .collect(),
                 ..MutationResult::default()
             },
         ))

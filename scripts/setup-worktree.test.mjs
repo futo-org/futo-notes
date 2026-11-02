@@ -149,7 +149,7 @@ it('the resolver selects the Gradle pin when a newer NDK is also installed', () 
   });
 });
 
-function buildUntilCargo(state) {
+function buildUntilCargo(state, entryRoot = state.directory) {
   // Copy only the build entry point and its resolver into our own disposable
   // tree. The first cargo call exits deliberately, before any Rust build.
   for (const relative of ['scripts/build-rust-android.sh', 'scripts/lib/android-toolchain.mjs']) {
@@ -164,7 +164,7 @@ function buildUntilCargo(state) {
     ),
     0o755,
   );
-  return spawnSync('/bin/bash', [path.join(state.directory, 'scripts/build-rust-android.sh')], {
+  return spawnSync('/bin/bash', [path.join(entryRoot, 'scripts/build-rust-android.sh')], {
     cwd: state.directory,
     env: { ...state.env, PATH: `${state.env.PATH}:/usr/bin:/bin` },
     encoding: 'utf8',
@@ -175,6 +175,16 @@ it('the Rust build discovers and exports the same pinned NDK before invoking car
   const state = fixture();
   state.write('sdk/ndk/29.0.0/source.properties', 'Pkg.Revision = 29.0.0\n');
   const result = buildUntilCargo(state);
+  expect(result.status).toBe(73);
+  expect(result.stderr).toBe('');
+  expect(result.stdout).toContain(`selected-ndk=${path.join(state.sdk, 'ndk', pin)}`);
+});
+
+it('the Rust build resolves the pinned NDK through a symlinked checkout path', () => {
+  const state = fixture();
+  const entryRoot = path.join(state.directory, 'linked-root');
+  fs.symlinkSync(state.directory, entryRoot, 'dir');
+  const result = buildUntilCargo(state, entryRoot);
   expect(result.status).toBe(73);
   expect(result.stderr).toBe('');
   expect(result.stdout).toContain(`selected-ndk=${path.join(state.sdk, 'ndk', pin)}`);

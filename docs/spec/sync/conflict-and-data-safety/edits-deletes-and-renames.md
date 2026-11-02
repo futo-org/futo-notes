@@ -20,6 +20,13 @@
   `UnresolvedConflict` that wrote nothing / mapped the note to the tombstone, and
   the edit was silently lost. (F3) → futo-notes-sync sync module;
   cross-platform scenario "edit vs peer delete preserves edit"
+- A pending editor recovery draft counts as a local edit against a peer delete:
+  the tombstone neither removes the note nor parks it, the note is unmapped so
+  the next push re-creates it as a fresh object, and the draft's later
+  checkpoint syncs as an ordinary edit. →
+  futo-notes-sync `sync/tombstones.rs` `claim_local_names`; guarded by
+  `peer_delete_keeps_a_note_whose_only_edit_is_a_pending_editor_draft` in
+  crates/futo-notes-sync/src/sync/editor_recovery_tests/peer_delete.rs
 - A direct PUT that "succeeds" onto a still-deleted server row (the server's
   DELETE bumps the version, so a concurrent editor's expected-version can
   collide and no 409 fires) is detected via the response's `deleted` flag and
@@ -142,3 +149,5 @@
   target that also received a real update in the same cycle" and "closes the
   open note when a followed rename target was tombstoned in the same cycle" in
   src/features/sync/syncManager.test.ts
+
+- Conflict adoption into a distinct absent target, conflict-copy creation and delete-conflict restoration use exclusive durable installation; an external newcomer after the absence check survives, and the existing source fallback or retry outcome retains the competing version. Public sync regressions assert push precedes the decision-window install. → crates/futo-notes-sync/src/sync/vault/guarded_write.rs, crates/futo-notes-sync/src/sync/editor_recovery_tests/absent_installs.rs
