@@ -24,38 +24,26 @@ impl Projection {
                 if start > range.end.0 || end < range.start.0 {
                     continue;
                 }
-                let kind = if start == end {
-                    CorrespondenceKind::Hidden
-                } else if segment.identity {
-                    CorrespondenceKind::Literal
-                } else {
-                    CorrespondenceKind::Replaced
-                };
-                let mapped = Correspondence {
-                    source: SourceRange {
-                        start: SourceOffset(source + segment.source.start),
-                        end: SourceOffset(source + segment.source.end),
+                push_run(
+                    &mut correspondence,
+                    Correspondence {
+                        source: SourceRange {
+                            start: SourceOffset(source + segment.source.start),
+                            end: SourceOffset(source + segment.source.end),
+                        },
+                        display: DisplayRange {
+                            start: DisplayOffset(start),
+                            end: DisplayOffset(end),
+                        },
+                        kind: if start == end {
+                            CorrespondenceKind::Hidden
+                        } else if segment.identity {
+                            CorrespondenceKind::Literal
+                        } else {
+                            CorrespondenceKind::Replaced
+                        },
                     },
-                    display: DisplayRange {
-                        start: DisplayOffset(start),
-                        end: DisplayOffset(end),
-                    },
-                    kind,
-                };
-                // Hidden pieces at one display point, and literal stretches
-                // contiguous in both coordinates, each arrive as one run.
-                match correspondence.last_mut() {
-                    Some(previous)
-                        if previous.kind == kind
-                            && kind != CorrespondenceKind::Replaced
-                            && previous.source.end == mapped.source.start
-                            && previous.display.end == mapped.display.start =>
-                    {
-                        previous.source.end = mapped.source.end;
-                        previous.display.end = mapped.display.end;
-                    }
-                    _ => correspondence.push(mapped),
-                }
+                );
                 if start == end || start >= range.end.0 || end <= range.start.0 {
                     continue;
                 }
@@ -121,5 +109,22 @@ impl Projection {
             },
             work,
         )
+    }
+}
+
+/// Hidden pieces at one display point, and literal stretches contiguous in
+/// both coordinates, each arrive as one run.
+fn push_run(runs: &mut Vec<Correspondence>, piece: Correspondence) {
+    match runs.last_mut() {
+        Some(previous)
+            if previous.kind == piece.kind
+                && piece.kind != CorrespondenceKind::Replaced
+                && previous.source.end == piece.source.start
+                && previous.display.end == piece.display.start =>
+        {
+            previous.source.end = piece.source.end;
+            previous.display.end = piece.display.end;
+        }
+        _ => runs.push(piece),
     }
 }
