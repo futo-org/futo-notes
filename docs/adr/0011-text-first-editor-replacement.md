@@ -9,7 +9,7 @@ This replaces ADR-0002's permission for whole-note normalization for the replace
 the shipping Milkdown editor keeps its existing contract until each platform switches.
 
 Plan the entire replacement at roadmap level, then detail and execute the Rust editor engine
-and its local-note-engine recovery integration first. Preserve ADR-0001's atomic save and
+and its local-note-engine integration first (its recovery log was later dropped; see ADR-0012). Preserve ADR-0001's atomic save and
 persist-or-park rules. Use today's file sync, including focused-editor deferral and dirty-draft
 protection; applying remote edits during focused typing, CRDTs and collaborative editing are
 future work. Persistent undo is also deferred.

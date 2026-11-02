@@ -32,6 +32,11 @@ deferred with #303. Consequently #310 depends on #302 and #309, and #315 no long
 deferrals explicitly. Tables, shared find, wikilink completion, the 20,000-line performance
 targets and durability targets have **not** been deferred.
 
+> **Update, 2026-11-02:** the recovery log was dropped by maintainer decision, so the recovery
+> and durability scope of #283 and #285-#288 and #316 is superseded by debounced markdown
+> saves (see ADR-0012). The per-keystroke handoff (display after worker acknowledgement) was
+> removed the same day; the page applies edits at once and streams requests unawaited.
+
 This phase produces the shared Rust editor engine, coordinated store recovery, thin
 Swift/Kotlin/WebAssembly consumers and the portable host contract. After core acceptance,
 a coworker takes desktop while the maintainer builds Android/iPhone. Full platform renderers
