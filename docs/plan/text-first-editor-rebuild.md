@@ -1,5 +1,16 @@
 # Text-first editor production rebuild
 
+> **Update, 2026-11-02 (maintainer decision):** the per-note recovery log (`.futo-editor-recovery`,
+> the durable/accepted watermarks, replacement epochs, delete intents and the 100 ms
+> durability target below) was dropped. The editor saves debounced markdown instead: 500 ms
+> after the last edit, at most 2 s after the first unsaved edit; a crash loses at most that
+> window. The text below records the 2026-10-29 plan as agreed; where it describes the
+> recovery log, it is superseded. The same day, the per-keystroke page-to-worker handoff
+> (display only after the worker acknowledged each edit, one request in flight) was also
+> removed: the page applies each edit at once and streams requests without waiting, so
+> the "explicit edit sequence acknowledgements" and "in flight" language below no longer
+> describes the contract. See ADR-0012 and `docs/spec/editor/portable-core/recovery.md`.
+
 Planning decisions recorded, 2026-10-29. The detailed implementation contract is
 [Build the production text-first editor engine with store-owned recovery](https://gitlab.futo.org/futo-notes/futo-notes/-/work_items/283),
 GitLab issue #283, published with `ready-for-agent`. This file preserves the agreed planning

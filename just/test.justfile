@@ -43,7 +43,7 @@ test-cross-platform *args: editor-deps
 test-sync-integration *args:
   node tests/sync-integration.mjs "$@"
 
-# Editor/store recovery, Rust conformance goldens + the TS↔Rust rules differential.
+# Editor engine + store/core tests, Rust conformance goldens + the TS↔Rust rules differential.
 test-rust:
   cargo test -p futo-notes-editor -p futo-notes-store -p futo-notes-core
   cargo test -p futo-notes-model --test conformance

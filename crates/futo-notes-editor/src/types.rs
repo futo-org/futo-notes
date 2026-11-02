@@ -111,7 +111,7 @@ pub enum EditorError {
     RevisionExhausted,
     UnrepresentableFormat,
     Persistence(String),
-    RecoveryMismatch,
+    ReplayMismatch,
     /// A claim (wikilink completion, async image insertion) no longer matches
     /// the run, note ids or session it was issued for.
     StaleClaim,

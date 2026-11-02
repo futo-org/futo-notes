@@ -1,4 +1,4 @@
-//! Thin tag projection. Tag rules, edits and recovery acceptance remain in the
+//! Thin tag projection. Tag rules and edits remain in the
 //! canonical editor/store owners.
 use super::*;
 

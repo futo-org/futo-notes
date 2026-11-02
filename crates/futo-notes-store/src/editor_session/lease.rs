@@ -19,7 +19,7 @@ fn key(root: &Path, id: &str) -> Result<SessionKey, EditorStoreError> {
 }
 
 /// Legacy whole-note writes must not race an editor attachment: its draft lives
-/// in the recovery stream and saves through its checkpoint. The caller holds the
+/// lives in the session and saves through its checkpoint. The caller holds the
 /// store gate, which `open` also holds from acquiring the lease on.
 pub(crate) fn refuse_attached<'a>(
     root: &Path,
@@ -80,45 +80,20 @@ impl EditorLease {
             .get(&key)
             .and_then(Weak::upgrade))
     }
-    pub(super) fn deleting_owner(
-        root: &Path,
-        id: &str,
-    ) -> Result<Option<Arc<Mutex<Attachment>>>, String> {
-        Ok(Self::deleting_owners(root, id)?.into_iter().next())
-    }
-    pub(super) fn deleting_owners(
-        root: &Path,
-        id: &str,
-    ) -> Result<Vec<Arc<Mutex<Attachment>>>, String> {
-        let (root, _) = key(root, id).map_err(|error| error.to_string())?;
-        let owners: Vec<_> = sessions()
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .iter()
-            .filter(|((vault, _), _)| vault == &root)
-            .filter_map(|(_, owner)| owner.upgrade())
-            .collect();
-        // No registry mutex is held while examining an attachment. A foreign
-        // destination recovery remains independently attachable while the
-        // source's pending transition still participates in deletion.
-        let mut matching = Vec::new();
-        for owner in owners {
-            let state = owner.lock().unwrap_or_else(PoisonError::into_inner);
-            let matches = collision_key(&state.id) == collision_key(id)
-                || state
-                    .pending_identity
-                    .as_ref()
-                    .is_some_and(|pending| pending.targets(id));
-            drop(state);
-            if matches && !matching.iter().any(|entry| Arc::ptr_eq(entry, &owner)) {
-                matching.push(owner);
-            }
-        }
-        Ok(matching)
-    }
 }
 impl Drop for EditorLease {
     fn drop(&mut self) {
         self.release();
     }
+}
+
+/// The note's file was removed: its attached draft is discarded, later input
+/// reports `SessionDeleted`, and the id can be attached again.
+pub(crate) fn terminate_deleted(root: &Path, id: &str) -> Result<(), String> {
+    if let Some(state) = EditorLease::attached(root, id)? {
+        let mut state = state.lock().unwrap_or_else(PoisonError::into_inner);
+        state.terminal = true;
+        state.lease.release();
+    }
+    Ok(())
 }

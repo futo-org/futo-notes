@@ -220,6 +220,3 @@ fn needs_bootstrap(state: &ConnectedState) -> bool {
 mod behavior_tests;
 #[cfg(test)]
 mod failure_boundary_tests;
-
-#[cfg(test)]
-mod editor_recovery_tests;

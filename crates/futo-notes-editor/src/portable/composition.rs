@@ -1,4 +1,4 @@
-//! The page owns the marked overlay; final source still waits for native append.
+//! The page owns the marked overlay; committing it is ordinary input.
 use super::*;
 
 impl PortableSession {
@@ -17,7 +17,6 @@ impl PortableSession {
     }
 
     pub fn cancel_composition(&mut self, expected: Revision) -> Result<(), PortableError> {
-        self.ready()?;
         Ok(self.engine.cancel_composition(expected)?)
     }
 
@@ -25,7 +24,7 @@ impl PortableSession {
         &mut self,
         expected: Revision,
         text: Option<&[u16]>,
-    ) -> Result<Option<HostRequest>, PortableError> {
+    ) -> Result<Option<Applied>, PortableError> {
         self.ready()?;
         let mut record = None;
         let change = self
@@ -34,9 +33,7 @@ impl PortableSession {
                 record = Some(edit.clone());
                 Ok(())
             })?;
-        change
-            .map(|change| self.stage(record.unwrap(), change))
-            .transpose()
+        Ok(change.map(|change| self.issue(record.unwrap(), change)))
     }
 
     pub fn replace_os_utf16(
@@ -45,7 +42,7 @@ impl PortableSession {
         range: DisplayUtf16Range,
         text: &[u16],
         placeholders: &[DisplayUtf16Range],
-    ) -> Result<Option<HostRequest>, PortableError> {
+    ) -> Result<Option<Applied>, PortableError> {
         self.ready()?;
         let mut record = None;
         let change =
@@ -54,8 +51,6 @@ impl PortableSession {
                     record = Some(edit.clone());
                     Ok(())
                 })?;
-        change
-            .map(|change| self.stage(record.unwrap(), change))
-            .transpose()
+        Ok(change.map(|change| self.issue(record.unwrap(), change)))
     }
 }

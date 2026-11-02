@@ -1,4 +1,4 @@
-//! Thin byte-coordinate link projection. Source interpretation and recovery
+//! Thin byte-coordinate link projection. Source interpretation and
 //! acceptance remain in the canonical editor/store owners.
 use super::*;
 

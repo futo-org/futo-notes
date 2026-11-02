@@ -1,5 +1,4 @@
-//! Image insertion uses the ordered append/ack barrier; a claim is a plain
-//! session fact and needs no barrier.
+//! Image insertion is ordinary input; a claim is a plain session fact.
 use super::*;
 use crate::ImageClaim;
 
@@ -15,7 +14,7 @@ impl PortableSession {
         claim: ImageClaim,
         reference: &str,
         alt: &str,
-    ) -> Result<Option<HostRequest>, PortableError> {
+    ) -> Result<Option<Applied>, PortableError> {
         self.ready()?;
         let mut record = None;
         let change = self
@@ -24,8 +23,6 @@ impl PortableSession {
                 record = Some(edit.clone());
                 Ok(())
             })?;
-        change
-            .map(|change| self.stage(record.unwrap(), change))
-            .transpose()
+        Ok(change.map(|change| self.issue(record.unwrap(), change)))
     }
 }

@@ -15,56 +15,31 @@ fn range(a: usize, z: usize) -> DisplayUtf16Range {
     }
 }
 
-/// Runs the one accepting input. Under a fault it first proves the rejected
-/// attempt left source, revision, selection and marking untouched.
+/// Runs the one accepting input.
 fn accept(
     s: &mut crate::StoreEditorSession<'_>,
-    disk: &Arc<Mutex<storage::Disk>>,
-    fault: Option<storage::Fault>,
     mut op: impl FnMut(&mut crate::StoreEditorSession<'_>) -> Result<ViewChange, EditorStoreError>,
 ) -> ViewChange {
-    if let Some(fault) = fault {
-        let (source, revision, selection) = (s.source_text(), s.revision(), s.selection());
-        let composition = s.composition();
-        disk.lock().unwrap().fault = Some(fault);
-        assert!(matches!(op(s), Err(EditorStoreError::RecoveryAppend(_))));
-        assert_eq!(s.source_text(), source);
-        assert_eq!(s.revision(), revision);
-        assert_eq!(s.selection(), selection);
-        assert_eq!(s.composition(), composition);
-        assert!(s.recovery_status().paused);
-        disk.lock().unwrap().fault = None;
-        s.resume_recovery().unwrap();
-    }
     op(s).unwrap()
 }
 
-/// The shared structural-seam fixtures through a real recovery session: each
-/// case clean, then with the accepting input first rejected by an append
-/// failure and by a short write, then undo, redo, flush, power loss, reopen
-/// and checkpoint.
+/// The shared structural-seam fixtures through a real store session: each
+/// case's input, undo, redo, checkpoint, reopen.
 #[test]
-fn structural_seams_and_raw_composition_recover_exact_source_and_carets() {
+fn structural_seams_and_raw_composition_keep_exact_source_and_carets() {
     let cases: Vec<serde_json::Value> = CASES
         .into_iter()
         .flat_map(|source| serde_json::from_str::<Vec<serde_json::Value>>(source).unwrap())
         .collect();
     assert_eq!(cases.len(), 72);
     for case in &cases {
-        for fault in [
-            None,
-            Some(storage::Fault::Append),
-            Some(storage::Fault::ShortWrite),
-        ] {
+        {
             let text = |key: &str| case[key].as_str().unwrap();
             let root = TestRoot::new();
             let store = store(&root);
             store.create("", "seam", text("source")).unwrap();
-            let disk = Arc::new(Mutex::new(storage::Disk::default()));
             {
-                let mut s = store
-                    .open_editor_with_recovery("seam", storage::options(&disk))
-                    .unwrap();
+                let mut s = store.open_editor("seam").unwrap();
                 let mut view = text("display").to_owned();
                 let mut apply = |change: ViewChange| {
                     view.replace_range(change.range.start.0..change.range.end.0, &change.inserted)
@@ -106,7 +81,7 @@ fn structural_seams_and_raw_composition_recover_exact_source_and_carets() {
                     s.cancel_composition(s.revision()).unwrap();
                     assert!(s.composition().is_none());
                     s.compose_utf16(s.revision(), selected, &inserted).unwrap();
-                    apply(accept(&mut s, &disk, fault, |s| {
+                    apply(accept(&mut s, |s| {
                         s.commit_composition_utf16(s.revision(), None)
                             .map(Option::unwrap)
                     }));
@@ -125,7 +100,7 @@ fn structural_seams_and_raw_composition_recover_exact_source_and_carets() {
                             inserted: run[2].as_str().unwrap().encode_utf16().collect(),
                         })
                         .collect();
-                    apply(accept(&mut s, &disk, fault, |s| {
+                    apply(accept(&mut s, |s| {
                         s.replace_many_utf16(s.revision(), &replacements)
                     }));
                     assert_eq!(s.revision(), Revision(1));
@@ -136,13 +111,13 @@ fn structural_seams_and_raw_composition_recover_exact_source_and_carets() {
                         0
                     };
                     s.compose_utf16(s.revision(), range(at, at), &[33]).unwrap();
-                    apply(accept(&mut s, &disk, fault, |s| {
+                    apply(accept(&mut s, |s| {
                         s.replace_os_utf16(s.revision(), selected, &inserted, &[])
                             .map(Option::unwrap)
                     }));
                     assert_eq!(s.revision(), Revision(1));
                 } else if matches!(mode, "os" | "indent_os") {
-                    apply(accept(&mut s, &disk, fault, |s| {
+                    apply(accept(&mut s, |s| {
                         s.replace_os_utf16(s.revision(), selected, &inserted, &[])
                             .map(Option::unwrap)
                     }));
@@ -159,7 +134,7 @@ fn structural_seams_and_raw_composition_recover_exact_source_and_carets() {
                     for input in case["inputs"].as_array().unwrap() {
                         let selected = s.display_to_utf16(s.revision(), s.selection()).unwrap();
                         let typed: Vec<_> = input[1].as_str().unwrap().encode_utf16().collect();
-                        apply(accept(&mut s, &disk, fault, |s| {
+                        apply(accept(&mut s, |s| {
                             s.replace_utf16_action(
                                 s.revision(),
                                 selected,
@@ -169,7 +144,7 @@ fn structural_seams_and_raw_composition_recover_exact_source_and_carets() {
                         }));
                     }
                 } else if mode == "typing" {
-                    apply(accept(&mut s, &disk, fault, |s| {
+                    apply(accept(&mut s, |s| {
                         s.replace_utf16_action(
                             s.revision(),
                             selected,
@@ -194,7 +169,7 @@ fn structural_seams_and_raw_composition_recover_exact_source_and_carets() {
                             inserted,
                         }]
                     };
-                    apply(accept(&mut s, &disk, fault, |s| {
+                    apply(accept(&mut s, |s| {
                         s.replace_many_utf16(s.revision(), &replacements)
                     }));
                 } else if mode == "batch" {
@@ -205,7 +180,7 @@ fn structural_seams_and_raw_composition_recover_exact_source_and_carets() {
                                 inserted: text.encode_utf16().collect(),
                             }
                         });
-                    apply(accept(&mut s, &disk, fault, |s| {
+                    apply(accept(&mut s, |s| {
                         s.replace_many_utf16(s.revision(), &replacements)
                     }));
                 }
@@ -229,12 +204,9 @@ fn structural_seams_and_raw_composition_recover_exact_source_and_carets() {
                     as usize;
                 assert_eq!(redone, range(redo_caret, redo_caret));
                 assert_eq!(store.read("seam").unwrap(), text("source"));
-                assert_eq!(s.flush_recovery().unwrap().durable, s.revision());
+                s.checkpoint().unwrap();
             }
-            disk.lock().unwrap().power_loss();
-            let mut recovered = store
-                .open_editor_with_recovery("seam", storage::options(&disk))
-                .unwrap();
+            let mut recovered = store.open_editor("seam").unwrap();
             assert_eq!(recovered.source_text(), text("expectedSource"));
             assert_eq!(recovered.display_text(), text("expectedDisplay"));
             assert!(recovered.undo(recovered.revision()).unwrap().is_none());

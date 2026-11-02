@@ -20,7 +20,7 @@ fn apply(view: &mut String, change: &EditorViewChange) {
 }
 
 #[test]
-fn shared_list_actions_forward_native_coordinates_history_and_exact_recovery() {
+fn shared_list_actions_forward_native_coordinates_history_and_exact_saves() {
     let original: Vec<Value> = serde_json::from_str(include_str!(
         "../../futo-notes-editor/tests/fixtures/list-actions.json"
     ))
@@ -244,7 +244,7 @@ fn shared_list_actions_forward_native_coordinates_history_and_exact_recovery() {
         }
         assert_eq!(s.source_text().unwrap(), text("expected"));
         assert_eq!(view, text("shown"));
-        s.flush_recovery().unwrap();
+        s.checkpoint().unwrap();
         s.detach().unwrap();
         let recovered = store.open_editor("lists".into()).unwrap();
         assert_eq!(recovered.source_text().unwrap(), text("expected"));

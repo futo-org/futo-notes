@@ -8,7 +8,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let root = std::env::args_os().nth(1).ok_or("scratch vault required")?;
     let store = LocalNoteStore::new(root.into());
     // The lifecycle fixture, captured literal sources and reopen mode all
-    // use the same public store open/recovery workflow.
+    // use the same public store open workflow.
     let fixture = std::env::args().nth(2);
     let reopen_id = fixture
         .as_deref()
@@ -44,5 +44,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         output.write_all(b"\n")?;
         output.flush()?;
     }
+    // A clean shutdown (stdin closed) saves the draft like a real host's close.
+    host.close()?;
     Ok(())
 }

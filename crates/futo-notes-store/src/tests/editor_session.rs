@@ -4,21 +4,16 @@ use futo_notes_editor::{DisplayOffset, DisplayRange, Revision};
 mod blocks;
 mod clipboard;
 mod composition;
-mod durability;
 mod images;
 mod lifecycle;
-mod lifecycle_crashes;
-mod lifecycle_faults;
 mod links;
 mod list_actions;
 mod native_input_traces;
 mod portable;
 mod portable_attachment;
-mod portable_readiness;
 mod portable_waiting;
-mod recovery;
+mod saving;
 mod seams;
-mod storage;
 mod tables;
 mod tags;
 mod wikilinks;
@@ -31,7 +26,7 @@ fn range(start: usize, end: usize) -> DisplayRange {
 }
 
 #[test]
-fn unchanged_editor_open_close_creates_no_recovery_or_note_write() {
+fn unchanged_editor_open_close_creates_no_note_write() {
     let root = TestRoot::new();
     let observer = Arc::new(RecordingObserver::default());
     let store = LocalNoteStore::with_before_write(root.0.clone(), observer.clone());
@@ -78,108 +73,26 @@ fn legacy_writes_are_refused_by_lease_under_any_case() {
 }
 
 #[test]
-fn accepted_edits_recover_and_checkpoint_returns_the_complete_store_mutation() {
+fn checkpoint_returns_the_complete_store_mutation() {
     let root = TestRoot::new();
     let store = store(&root);
     store.create("", "plain", "one\r\ntwo  ").unwrap();
-    {
-        let mut editor = store.open_editor("plain").unwrap();
-        let change = editor.replace(Revision(0), range(5, 8), "three").unwrap();
-        assert_eq!(change.revision, Revision(1));
-        assert_eq!(editor.source_text(), "one\r\nthree  ");
-        assert_eq!(store.read("plain").unwrap(), "one\r\ntwo  ");
-    }
-    let mut recovered = store.open_editor("plain").unwrap();
-    assert_eq!(recovered.source_text(), "one\r\nthree  ");
-    assert_eq!(recovered.revision(), Revision(1));
-    let result = recovered.checkpoint().unwrap();
+    let mut editor = store.open_editor("plain").unwrap();
+    let change = editor.replace(Revision(0), range(5, 8), "three").unwrap();
+    assert_eq!(change.revision, Revision(1));
+    assert_eq!(editor.source_text(), "one\r\nthree  ");
+    assert_eq!(store.read("plain").unwrap(), "one\r\ntwo  ");
+    let result = editor.checkpoint().unwrap();
     assert_eq!(result.disposition, FlushDisposition::Wrote);
     let mutation = result.mutation.unwrap();
     assert_eq!(mutation.final_id.as_deref(), Some("plain"));
     assert_eq!(mutation.upserted[0].note.id, "plain");
     assert_eq!(store.read("plain").unwrap(), "one\r\nthree  ");
-    drop(recovered);
+    drop(editor);
     let reopened = store.open_editor("plain").unwrap();
     assert_eq!(reopened.source_text(), "one\r\nthree  ");
     assert_eq!(reopened.revision(), Revision(0));
     assert_eq!(store.snapshot().notes.len(), 1);
-}
-
-#[test]
-fn process_death_before_or_after_append_never_loses_a_completed_edit() {
-    for (phase, expected, revision) in [("before", "plain!", 1), ("after", "plain!?", 2)] {
-        let root = TestRoot::new();
-        let store = store(&root);
-        store.create("", "plain", "plain").unwrap();
-        let status = std::process::Command::new(std::env::current_exe().unwrap())
-            .args([
-                "--exact",
-                "tests::editor_session::process_death_child",
-                "--nocapture",
-            ])
-            .env("FUTO_EDITOR_DEATH_VAULT", &root.0)
-            .env("FUTO_EDITOR_DEATH_PHASE", phase)
-            .status()
-            .unwrap();
-        assert_eq!(status.code(), Some(73));
-        let recovered = store.open_editor("plain").unwrap();
-        assert_eq!(recovered.source_text(), expected);
-        assert_eq!(recovered.revision(), Revision(revision));
-        assert_eq!(store.read("plain").unwrap(), "plain");
-    }
-}
-
-#[test]
-fn process_death_child() {
-    let Some(root) = std::env::var_os("FUTO_EDITOR_DEATH_VAULT") else {
-        return;
-    };
-    let phase = std::env::var("FUTO_EDITOR_DEATH_PHASE").unwrap();
-    let store = LocalNoteStore::new(root.into());
-    let mut editor = store.open_editor("plain").unwrap();
-    let completed = editor.replace(Revision(0), range(5, 5), "!").unwrap();
-    assert_eq!(completed.revision, Revision(1));
-    editor.set_append_hook(Box::new(move |after| {
-        if after == (phase == "after") {
-            std::process::exit(73);
-        }
-    }));
-    editor.replace(Revision(1), range(6, 6), "?").unwrap();
-    panic!("process death was not injected");
-}
-
-#[test]
-fn checkpoint_reports_a_committed_mutation_when_recovery_retirement_fails() {
-    let root = TestRoot::new();
-    let store = store(&root);
-    store.create("", "plain", "plain").unwrap();
-    let mut editor = store.open_editor("plain").unwrap();
-    editor.replace(Revision(0), range(5, 5), "!").unwrap();
-    editor.set_retirement_failure(true);
-    let EditorStoreError::CheckpointCommitted { result, .. } = editor.checkpoint().unwrap_err()
-    else {
-        panic!("committed outcome must remain available to the shell");
-    };
-    assert_eq!(result.disposition, FlushDisposition::Wrote);
-    assert_eq!(result.mutation.unwrap().final_id.as_deref(), Some("plain"));
-    assert_eq!(store.read("plain").unwrap(), "plain!");
-    assert!(matches!(
-        editor.replace(Revision(1), range(6, 6), "?"),
-        Err(EditorStoreError::CheckpointPending)
-    ));
-    editor.set_retirement_failure(false);
-    assert_eq!(
-        editor.checkpoint().unwrap().disposition,
-        FlushDisposition::Wrote
-    );
-    editor.replace(Revision(1), range(6, 6), "?").unwrap();
-    drop(editor);
-    let mut reopened = store.open_editor("plain").unwrap();
-    assert_eq!(reopened.source_text(), "plain!?");
-    assert_eq!(
-        reopened.checkpoint().unwrap().disposition,
-        FlushDisposition::Wrote
-    );
 }
 
 #[test]
@@ -206,44 +119,21 @@ fn session_checkpoint_preserves_a_competing_note_and_follows_the_parked_id() {
 }
 
 #[test]
-fn store_history_edits_are_recoverable_too() {
+fn history_edits_are_saved_like_any_other() {
     let root = TestRoot::new();
     let store = store(&root);
     store.create("", "plain", "a\r\n").unwrap();
-    {
-        let mut editor = store.open_editor("plain").unwrap();
-        editor.replace(Revision(0), range(0, 1), "b").unwrap();
-        editor.undo(Revision(1)).unwrap().unwrap();
-        assert_eq!(editor.source_text(), "a\r\n");
-        editor.redo(Revision(2)).unwrap().unwrap();
-    }
-    let recovered = store.open_editor("plain").unwrap();
-    assert_eq!(recovered.source_text(), "b\r\n");
-    assert_eq!(recovered.revision(), Revision(3));
-}
-
-#[test]
-fn recovered_editor_can_continue_editing_before_checkpoint() {
-    let root = TestRoot::new();
-    let store = store(&root);
-    store.create("", "plain", "plain").unwrap();
-    {
-        let mut editor = store.open_editor("plain").unwrap();
-        editor.replace(Revision(0), range(5, 5), "!").unwrap();
-    }
-    {
-        let mut editor = store.open_editor("plain").unwrap();
-        editor.replace(Revision(1), range(6, 6), "?").unwrap();
-    }
     let mut editor = store.open_editor("plain").unwrap();
-    assert_eq!(editor.source_text(), "plain!?");
-    assert_eq!(editor.revision(), Revision(2));
+    editor.replace(Revision(0), range(0, 1), "b").unwrap();
+    editor.undo(Revision(1)).unwrap().unwrap();
+    assert_eq!(editor.source_text(), "a\r\n");
+    editor.redo(Revision(2)).unwrap().unwrap();
     editor.checkpoint().unwrap();
-    assert_eq!(store.read("plain").unwrap(), "plain!?");
+    assert_eq!(store.read("plain").unwrap(), "b\r\n");
 }
 
 #[test]
-fn two_store_instances_cannot_open_the_same_editor_recovery_stream() {
+fn two_store_instances_cannot_attach_the_same_note() {
     let root = TestRoot::new();
     let first_store = store(&root);
     let second_store = store(&root);
@@ -258,7 +148,7 @@ fn two_store_instances_cannot_open_the_same_editor_recovery_stream() {
 }
 
 #[test]
-fn owned_editor_outlives_its_opening_store_handle_and_keeps_recovery() {
+fn owned_editor_outlives_its_opening_store_handle() {
     let root = TestRoot::new();
     let opening_store = Arc::new(store(&root));
     opening_store.create("", "plain", "hello").unwrap();
@@ -266,22 +156,19 @@ fn owned_editor_outlives_its_opening_store_handle_and_keeps_recovery() {
     drop(opening_store);
     editor.replace(Revision(0), range(5, 5), "!").unwrap();
     assert_eq!(editor.source_text(), "hello!");
-    drop(editor);
+    editor.close().unwrap();
     let store = store(&root);
-    let mut recovered = store.open_editor("plain").unwrap();
-    assert_eq!(recovered.source_text(), "hello!");
-    recovered.checkpoint().unwrap();
     assert_eq!(store.read("plain").unwrap(), "hello!");
 }
 
 #[test]
-fn hidden_inline_edits_history_recovery_and_checkpoint_preserve_exact_markdown() {
+fn hidden_inline_edits_history_and_checkpoint_preserve_exact_markdown() {
     use futo_notes_editor::{Affinity, InlineFormat};
     let root = TestRoot::new();
     let store = store(&root);
     let original = "__日😀__*ab* tail\t\r\n";
     store.create("", "inline", original).unwrap();
-    {
+    let mut editor = {
         let mut editor = store.open_editor("inline").unwrap();
         assert_eq!(editor.display_text(), "日😀ab tail\t\r\n");
         editor
@@ -303,11 +190,10 @@ fn hidden_inline_edits_history_recovery_and_checkpoint_preserve_exact_markdown()
         editor.redo(Revision(3)).unwrap().unwrap();
         assert_eq!(editor.display_text(), "日😀中ab tail\t\r\n");
         assert_eq!(store.read("inline").unwrap(), original);
-    }
-    let mut editor = store.open_editor("inline").unwrap();
-    assert_eq!(editor.source_text(), "__日😀__*中*~~*ab*~~ tail\t\r\n");
-    assert_eq!(editor.display_text(), "日😀中ab tail\t\r\n");
-    assert_eq!(editor.revision(), Revision(4));
+        assert_eq!(editor.source_text(), "__日😀__*中*~~*ab*~~ tail\t\r\n");
+        assert_eq!(editor.revision(), Revision(4));
+        editor
+    };
     assert_eq!(
         editor.project(Revision(4), range(10, 12)).unwrap().runs[0].formats,
         vec![InlineFormat::Italic, InlineFormat::Strike]
@@ -324,11 +210,11 @@ fn hidden_inline_edits_history_recovery_and_checkpoint_preserve_exact_markdown()
 }
 
 #[test]
-fn grouped_typing_uses_store_clock_and_recovery_replays_without_persistent_history() {
+fn grouped_typing_uses_the_store_clock() {
     use futo_notes_editor::DisplayReplacement;
     #[derive(Default)]
     struct Clock(std::sync::atomic::AtomicU64);
-    impl RecoveryClock for Clock {
+    impl EditorClock for Clock {
         fn now(&self) -> Duration {
             Duration::from_millis(self.0.load(std::sync::atomic::Ordering::Relaxed))
         }
@@ -338,13 +224,7 @@ fn grouped_typing_uses_store_clock_and_recovery_replays_without_persistent_histo
     store.create("", "history", "__日__\r\n").unwrap();
     let clock = Arc::new(Clock::default());
     let mut editor = store
-        .open_editor_with_recovery(
-            "history",
-            RecoveryOptions {
-                clock: clock.clone(),
-                ..RecoveryOptions::default()
-            },
-        )
+        .open_editor_with_clock("history", clock.clone())
         .unwrap();
     editor.replace(Revision(0), range(3, 3), "a").unwrap();
     clock.0.store(499, std::sync::atomic::Ordering::Relaxed);
@@ -373,11 +253,9 @@ fn grouped_typing_uses_store_clock_and_recovery_replays_without_persistent_histo
         )
         .unwrap();
     assert_eq!(editor.source_text(), "__中ax__\r\n");
-    drop(editor);
-    let mut recovered = store.open_editor("history").unwrap();
-    assert_eq!(recovered.source_text(), "__中ax__\r\n");
-    assert_eq!(recovered.revision(), Revision(7));
-    assert!(recovered.undo(Revision(7)).unwrap().is_none());
-    recovered.checkpoint().unwrap();
+    editor.checkpoint().unwrap();
     assert_eq!(store.read("history").unwrap(), "__中ax__\r\n");
+    drop(editor);
+    let mut reopened = store.open_editor("history").unwrap();
+    assert!(reopened.undo(Revision(0)).unwrap().is_none());
 }

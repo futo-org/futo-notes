@@ -1,5 +1,5 @@
 //! Thin byte-coordinate plain Markdown clipboard projection. Clipboard policy
-//! and recovery acceptance remain in the canonical editor/store owners.
+//! remain in the canonical editor/store owners.
 use super::*;
 
 /// Copied Markdown plus the removal change, absent for an empty selection.

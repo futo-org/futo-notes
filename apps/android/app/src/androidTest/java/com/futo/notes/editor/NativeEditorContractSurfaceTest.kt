@@ -11,7 +11,7 @@ import uniffi.futo_notes_ffi.*
 class NativeEditorContractSurfaceTest {
     private fun at(start: Long, end: Long) = EditorByteRange(start.toULong(), end.toULong())
 
-    /** Recovered source after a reopen; must equal the checkpointed store bytes. */
+    /** Source after a reopen; detach saves, so it must equal the stored bytes. */
     private fun scenario(source: String, seed: (NoteStore) -> Unit = {}, body: (NoteStore, NativeEditorSession) -> Unit): String {
         val root = File(InstrumentationRegistry.getInstrumentation().targetContext.cacheDir, "editor-surfaces-${UUID.randomUUID()}")
         check(root.mkdirs())
@@ -21,15 +21,13 @@ class NativeEditorContractSurfaceTest {
                 store.createNote("n", "", source)
                 store.openEditor("n").use { session ->
                     body(store, session)
-                    session.flushRecovery()
                     session.detach()
                 }
                 store.openEditor("n").use { reopened ->
-                    val recovered = reopened.sourceText()
-                    reopened.checkpoint()
-                    assertEquals(recovered, store.read("n"))
+                    val reopenedSource = reopened.sourceText()
+                    assertEquals(reopenedSource, store.read("n"))
                     reopened.detach()
-                    return recovered
+                    return reopenedSource
                 }
             }
         } finally { root.deleteRecursively() }

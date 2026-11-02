@@ -37,7 +37,7 @@ fn an_adopted_relink_is_one_undo_step_above_untouched_history() {
 }
 
 #[test]
-fn an_adopted_relink_and_its_undo_replay_exactly_after_reopening() {
+fn an_adopted_relink_and_its_undo_save_exactly() {
     for undo in [false, true] {
         let root = tempfile::tempdir().unwrap();
         let store = LocalNoteStore::new(root.path().to_owned());
@@ -45,14 +45,17 @@ fn an_adopted_relink_and_its_undo_replay_exactly_after_reopening() {
         if undo {
             editor.undo(editor.revision()).unwrap().unwrap();
         }
-        drop(editor);
-        assert_eq!(store.read("long name").unwrap(), "[[long name]] tail!");
-        let reopened = store.open_editor("long name").unwrap();
         let expected = if undo {
             "[[old]] tail!"
         } else {
             "[[long name]] tail!"
         };
-        assert_eq!(reopened.source_text(), expected);
+        editor.checkpoint().unwrap();
+        assert_eq!(store.read("long name").unwrap(), expected);
+        drop(editor);
+        assert_eq!(
+            store.open_editor("long name").unwrap().source_text(),
+            expected
+        );
     }
 }

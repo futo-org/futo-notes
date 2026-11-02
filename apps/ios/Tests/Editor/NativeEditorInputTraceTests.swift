@@ -61,7 +61,7 @@ private final class NativeInputTraceBundle {}
 
 @Suite("Captured native editor input")
 struct NativeEditorInputTraceTests {
-    @Test("actual delegate snapshots retain exact source, history and recovered bytes")
+    @Test("actual delegate snapshots retain exact source, history and saved bytes")
     func capturedOSResults() async throws {
         try await Task.detached {
             let fixtures = try inputFixture("native-input-cases", [InputTraceCase].self)
@@ -114,7 +114,7 @@ struct NativeEditorInputTraceTests {
                             Int(overlay.range.start)..<Int(overlay.range.end),
                             with: overlay.text.utf8)
                         #expect(String(decoding: provisional, as: UTF8.self) == native.text)
-                        #expect(try editor.flushRecovery().accepted == revision)
+                        #expect(try editor.saveStatus().revision == revision)
                     case "typing":
                         let parent = try #require(trace.events.first { $0.id == event.parent })
                         #expect(parent.method == "insertText")
@@ -175,16 +175,10 @@ struct NativeEditorInputTraceTests {
                     #expect(try editor.sourceText() == expected.source)
                     #expect(String(decoding: view, as: UTF8.self) == expected.display)
                 }
-                #expect(try editor.flushRecovery().durable == revision)
-                try editor.detach()
-                let recovered = try store.openEditor(id: "input")
-                #expect(try recovered.sourceText() == fixture.steps.last?.source)
-                #expect(try recovered.composition() == nil)
-                _ = try recovered.checkpoint()
-                try recovered.detach()
+                _ = try editor.detach()
                 let reopened = try store.openEditor(id: "input")
                 #expect(try reopened.sourceText() == fixture.steps.last?.source)
-                try reopened.detach()
+                _ = try reopened.detach()
             }
         }.value
     }

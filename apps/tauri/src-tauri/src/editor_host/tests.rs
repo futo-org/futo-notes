@@ -32,7 +32,7 @@ fn open(hosts: &EditorHostState, store: &Arc<LocalNoteStore>) -> (EditorOpened, 
     (opened, page)
 }
 
-/// The page's ordered exchange: request, host ack, release.
+/// The page's exchange: send the request, hand the host's ack back.
 fn exchange(
     hosts: &EditorHostState,
     token: u64,
@@ -45,69 +45,63 @@ fn exchange(
 }
 
 #[test]
-fn accepted_edits_flush_checkpoint_and_replay_after_reopening() {
+fn close_saves_accepted_edits_and_reopening_reads_them() {
     let (root, store) = vault("ab");
     let hosts = EditorHostState::default();
     let (opened, mut page) = open(&hosts, &store);
     assert_eq!(opened.snapshot.source, "ab");
     assert_eq!(opened.note_ids, ["plain"]);
-    let edit = page.replace(Revision(0), at(2), "c").unwrap();
+    let edit = page.replace(Revision(0), at(2), "c").unwrap().request;
     let ack = exchange(&hosts, opened.token, &mut page, edit);
-    assert_eq!(
-        (ack.accepted, ack.durable, ack.error),
-        (Revision(1), Revision(0), None)
-    );
-    let flush = page.flush().unwrap();
-    assert_eq!(
-        exchange(&hosts, opened.token, &mut page, flush).durable,
-        Revision(1)
-    );
-
-    // Closing without a checkpoint keeps the draft recoverable, not saved.
-    hosts.close(opened.token).unwrap();
+    assert_eq!((ack.accepted, ack.error), (Revision(1), None));
+    // Accepting an edit writes nothing; the save timer or close does.
     assert_eq!(store.read_existing("plain").unwrap().as_deref(), Some("ab"));
-    let (reopened, _) = open(&hosts, &store);
-    assert_eq!(reopened.snapshot.source, "abc");
-    assert_ne!(reopened.token, opened.token);
-    hosts.checkpoint(reopened.token).unwrap();
+
+    hosts.close(opened.token).unwrap();
     assert_eq!(
         store.read_existing("plain").unwrap().as_deref(),
         Some("abc")
     );
+    let (reopened, _) = open(&hosts, &store);
+    assert_eq!(reopened.snapshot.source, "abc");
+    assert_ne!(reopened.token, opened.token);
     hosts.close_all();
+    assert!(!root.join(".futo-editor-recovery").exists());
     std::fs::remove_dir_all(root).unwrap();
 }
 
 #[test]
-fn a_committed_checkpoint_reaches_the_page_with_its_mutation() {
-    let result = FlushDraftResult {
-        disposition: futo_notes_store::FlushDisposition::Wrote,
-        mutation: None,
-    };
-    let committed = EditorCheckpointError::from(EditorStoreError::CheckpointCommitted {
-        result: Box::new(result.clone()),
-        error: "retire failed".into(),
-    });
+fn checkpoint_saves_now_and_failed_close_keeps_the_note_attached() {
+    let (root, store) = vault("ab");
+    let hosts = EditorHostState::default();
+    let (opened, mut page) = open(&hosts, &store);
+    let edit = page.replace(Revision(0), at(2), "c").unwrap().request;
+    exchange(&hosts, opened.token, &mut page, edit);
+    hosts.checkpoint(opened.token).unwrap();
     assert_eq!(
-        committed,
-        EditorCheckpointError::Committed {
-            result,
-            message: "retire failed".into()
-        }
+        store.read_existing("plain").unwrap().as_deref(),
+        Some("abc")
     );
+
+    // A directory where the note file belongs makes the next save fail.
+    let edit = page.replace(Revision(1), at(3), "d").unwrap().request;
+    exchange(&hosts, opened.token, &mut page, edit);
+    let note = root.join("plain.md");
+    std::fs::remove_file(&note).unwrap();
+    std::fs::create_dir(&note).unwrap();
+    assert!(hosts.close(opened.token).is_err());
+    // Still attached: the lease is held and requests are still routed.
+    assert!(store.open_editor("plain").is_err());
+    let edit = page.replace(Revision(2), at(4), "e").unwrap().request;
+    let ack = exchange(&hosts, opened.token, &mut page, edit);
+    assert_eq!(ack.accepted, Revision(3));
+    std::fs::remove_dir(&note).unwrap();
+    hosts.close(opened.token).unwrap();
     assert_eq!(
-        serde_json::to_value(&committed).unwrap(),
-        serde_json::json!({
-            "kind": "committed",
-            "result": {"disposition": {"kind": "wrote"}, "mutation": null},
-            "message": "retire failed",
-        })
+        store.read_existing("plain").unwrap().as_deref(),
+        Some("abcde")
     );
-    let failed = EditorCheckpointError::from(EditorStoreError::CheckpointPending);
-    assert_eq!(
-        serde_json::to_value(&failed).unwrap(),
-        serde_json::json!({"kind": "failed", "message": "CheckpointPending"})
-    );
+    std::fs::remove_dir_all(root).unwrap();
 }
 
 #[test]
@@ -118,7 +112,7 @@ fn stale_tokens_are_refused_and_close_releases_the_lease() {
     // A second store handle cannot attach while the host holds the lease.
     assert!(store.open_editor("plain").is_err());
     let (second, _) = open(&hosts, &store);
-    let edit = page.replace(Revision(0), at(0), "x").unwrap();
+    let edit = page.replace(Revision(0), at(0), "x").unwrap().request;
     assert_eq!(
         hosts.request(first.token, edit.clone()),
         Err("stale editor session".into())
@@ -149,7 +143,7 @@ fn legacy_save_is_refused_while_attached() {
     let (root, store) = vault("ab");
     let hosts = EditorHostState::default();
     let (opened, mut page) = open(&hosts, &store);
-    let edit = page.replace(Revision(0), at(2), "c").unwrap();
+    let edit = page.replace(Revision(0), at(2), "c").unwrap().request;
     exchange(&hosts, opened.token, &mut page, edit);
     // The Store refuses by lease, under its gate, whatever the key's case.
     let refusal = store.save_unattached(None, "PLAIN", "x", None).unwrap_err();
@@ -166,57 +160,41 @@ fn legacy_save_is_refused_while_attached() {
 }
 
 #[test]
-fn worker_signals_a_due_flush_that_the_page_performs() {
+fn worker_saves_when_the_timer_fires_and_reports_it() {
     let (root, store) = vault("ab");
     let hosts = EditorHostState::default();
-    let (due_tx, due) = mpsc::channel();
+    let (saved_tx, saved) = mpsc::channel();
     let opened = hosts
-        .open(store.clone(), "plain".into(), move |token| {
-            let _ = due_tx.send(token);
+        .open(store.clone(), "plain".into(), move |event| {
+            let _ = saved_tx.send(event);
         })
         .unwrap();
     let mut page = PortableSession::from_snapshot(opened.snapshot.clone()).unwrap();
-    let edit = page.replace(Revision(0), at(2), "c").unwrap();
+    let edit = page.replace(Revision(0), at(2), "c").unwrap().request;
     exchange(&hosts, opened.token, &mut page, edit);
-    // The timer only tells the page; durability still needs its Flush.
-    let token = due.recv_timeout(Duration::from_secs(5)).unwrap();
-    assert_eq!(token.0, opened.token);
-    assert!(due.recv_timeout(Duration::from_millis(300)).is_err());
-    assert_eq!(page.status().durable, Revision(0));
-    let flush = page.flush().unwrap();
+    let event = saved.recv_timeout(Duration::from_secs(5)).unwrap();
+    assert_eq!(event.token, opened.token);
+    assert_eq!(event.error, None);
+    assert!(event.result.is_some());
     assert_eq!(
-        exchange(&hosts, opened.token, &mut page, flush).durable,
-        Revision(1)
+        store.read_existing("plain").unwrap().as_deref(),
+        Some("abc")
     );
-
-    let edit = page.replace(Revision(1), at(3), "d").unwrap();
-    exchange(&hosts, opened.token, &mut page, edit);
-    hosts.close(opened.token).unwrap();
-    let (reopened, _) = open(&hosts, &store);
-    assert_eq!(reopened.snapshot.source, "abcd");
+    // Clean now: the timer does not fire again.
+    assert!(saved.recv_timeout(Duration::from_millis(700)).is_err());
     hosts.close_all();
     std::fs::remove_dir_all(root).unwrap();
 }
 
 #[test]
-fn a_recovered_draft_signals_its_flush_without_a_request() {
-    let (root, store) = vault("ab");
-    let hosts = EditorHostState::default();
-    let (opened, mut page) = open(&hosts, &store);
-    let edit = page.replace(Revision(0), at(2), "c").unwrap();
-    exchange(&hosts, opened.token, &mut page, edit);
-    hosts.close(opened.token).unwrap();
-
-    let (due_tx, due) = mpsc::channel();
-    let reopened = hosts
-        .open(store.clone(), "plain".into(), move |token| {
-            let _ = due_tx.send(token);
-        })
-        .unwrap();
-    assert_eq!(reopened.snapshot.source, "abc");
-    // The replayed edit is accepted but not durable; no request has arrived.
-    let token = due.recv_timeout(Duration::from_secs(5)).unwrap();
-    assert_eq!(token.0, reopened.token);
-    hosts.close_all();
-    std::fs::remove_dir_all(root).unwrap();
+fn saved_event_serializes_token_result_and_error() {
+    let event = EditorSaved {
+        token: 7,
+        result: None,
+        error: Some("disk full".into()),
+    };
+    assert_eq!(
+        serde_json::to_value(&event).unwrap(),
+        serde_json::json!({"token": 7, "result": null, "error": "disk full"})
+    );
 }

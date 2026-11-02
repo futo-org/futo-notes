@@ -1,14 +1,14 @@
 use futo_notes_editor::{
-    EditorError, HostAck, HostError, HostErrorKind, HostOperation, HostRequest, HostSnapshot,
-    SessionToken,
+    HostAck, HostError, HostErrorKind, HostOperation, HostRequest, HostSnapshot, SessionToken,
 };
 
-use super::{Attachment, EditorStoreError, RecoveryIssue, StoreEditorSession};
+use super::{Attachment, EditorStoreError, StoreEditorSession};
 
 /// Worker-owned native endpoint. Move this session to the worker and exchange
-/// requests/replies; never call `handle` on the UI thread. It does blocking I/O.
-/// It exclusively owns the attached session, so markdown checkpoints cannot
-/// silently invalidate its page's revision/identity contract.
+/// requests/replies; never call `handle` on the UI thread (it takes the attachment
+/// lock, which a checkpoint on this worker can hold). The worker's timer calls `save_if_due`. The host exclusively owns the
+/// attached session, so markdown saves cannot silently invalidate its page's
+/// revision/identity contract.
 pub struct StoreEditorHost<'store> {
     pub(super) session: StoreEditorSession<'store>,
     pub(super) token: SessionToken,
@@ -22,22 +22,15 @@ impl<'store> StoreEditorSession<'store> {
         token: SessionToken,
     ) -> Result<StoreEditorHost<'store>, EditorStoreError> {
         {
-            // A prepared native relink may still adopt source. Complete that
-            // workflow before changing the attachment's source-delivery owner.
-            let _gate = self.store.lock_gate().map_err(EditorStoreError::Recovery)?;
-            let _vault = futo_notes_core::files::vault_mutation_guard()
-                .map_err(EditorStoreError::Recovery)?;
+            let _gate = self.store.lock_gate().map_err(EditorStoreError::Open)?;
+            let _vault =
+                futo_notes_core::files::vault_mutation_guard().map_err(EditorStoreError::Open)?;
             let mut state = self
                 .state
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
             if state.terminal {
                 return Err(EditorStoreError::SessionDeleted);
-            }
-            // A failed native transition may still own a captured source
-            // adoption. Its retry must finish before a page snapshots source.
-            if state.pending_identity.is_some() {
-                return Err(EditorStoreError::CheckpointPending);
             }
             state.portable = true;
         }
@@ -58,51 +51,40 @@ impl StoreEditorHost<'_> {
     pub fn id(&self) -> String {
         self.session.id()
     }
+
+    /// Time left until the next save is due; see `StoreEditorSession::save_delay`.
+    pub fn save_delay(&self) -> Option<std::time::Duration> {
+        self.session.save_delay()
+    }
+
+    pub fn save_if_due(&mut self) -> Result<Option<crate::FlushDraftResult>, EditorStoreError> {
+        self.session.save_if_due()
+    }
+
+    /// Save and release the attachment; a failed save leaves it attached.
+    pub fn close(&mut self) -> Result<crate::FlushDraftResult, EditorStoreError> {
+        self.session.close()
+    }
+
     /// Opening state must be produced on the worker and attached with a fresh
-    /// token. In particular a recovery pause must survive page initialization.
+    /// token. A paused attachment stays paused through page initialization.
     pub fn snapshot(&self) -> HostSnapshot {
         let state = self
             .session
             .state
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let status = state.recovery_status();
         HostSnapshot {
             token: self.token,
             source: state.engine.source_text(),
             revision: state.engine.revision(),
-            durable: status.durable,
-            paused: status.paused,
+            paused: state.terminal,
         }
     }
 
-    /// Native recovery UI consumes the store's typed issue directly, while the
-    /// page receives its retained draft and pause through the opening snapshot.
-    pub fn recovery_issue(&self) -> Option<RecoveryIssue> {
-        self.session.recovery_issue()
-    }
-
-    /// Remaining delay from the oldest accepted, unflushed edit; subsequent
-    /// appends do not extend it. Arrange a Flush request on this worker when due.
-    pub fn recovery_flush_delay(&self) -> Option<std::time::Duration> {
-        self.session.recovery_flush_delay()
-    }
-
     pub fn handle(&mut self, request: HostRequest) -> HostAck {
-        // Readiness and request receipts share the identity/checkpoint workflow's
-        // decision boundary. A healthy pre-gate snapshot cannot authorize input.
-        let _gate = match self.session.store.lock_gate() {
-            Ok(gate) => gate,
-            Err(error) => {
-                return self.reply(&request, Some(EditorStoreError::Recovery(error).into()))
-            }
-        };
-        let _vault = match futo_notes_core::files::vault_mutation_guard() {
-            Ok(vault) => vault,
-            Err(error) => {
-                return self.reply(&request, Some(EditorStoreError::Recovery(error).into()))
-            }
-        };
+        // Only the attachment lock: input never waits on the store gate. The
+        // lock makes the sequence check and the replay one decision.
         let mut state = self
             .session
             .state
@@ -143,29 +125,39 @@ impl StoreEditorHost<'_> {
         }
         if let Some((previous, ack)) = &self.last {
             if *previous == request {
-                // Preserve the operation's result without replaying it, but
-                // report current recovery health and watermarks after workflows.
+                // A duplicate of the last request is idempotent: report its
+                // original result without replaying it.
                 return self.reply_with_state(&state, &request, ack.error.clone());
             }
-            if request.sequence <= previous.sequence {
-                return self.reply_with_state(
-                    &state,
-                    &request,
-                    Some(HostError::new(
-                        HostErrorKind::StaleToken,
-                        "stale or conflicting editor request",
-                    )),
-                );
-            }
+        }
+        // Edits must arrive exactly in order. A resume is a state query that
+        // also restarts the page's numbering, so any newer number is fine.
+        let last = self
+            .last
+            .as_ref()
+            .map_or(0, |(previous, _)| previous.sequence);
+        let in_order = match request.operation {
+            HostOperation::Append(_) => request.sequence == last.saturating_add(1),
+            HostOperation::Resume => request.sequence > last,
+        };
+        if !in_order {
+            return self.reply_with_state(
+                &state,
+                &request,
+                Some(HostError::new(
+                    HostErrorKind::Rejected,
+                    format!(
+                        "request sequence {} is out of order after {last}",
+                        request.sequence
+                    ),
+                )),
+            );
         }
         let result = match &request.operation {
-            HostOperation::Append(edit) => Self::append(&mut state, &self.session.store, edit),
-            HostOperation::Flush => state.flush_recovery(&self.session.store).map(|_| ()),
-            HostOperation::Resume => {
-                let result = state.resume_recovery(&self.session.store).map(|_| ());
-                state.lease.bind(&self.session.state);
-                result
-            }
+            HostOperation::Append(edit) => Self::append(&mut state, edit),
+            // The worker's state is always current: resume only reports it
+            // (including a pending relink offer).
+            HostOperation::Resume => Ok(()),
         };
         let ack = self.reply_with_state(&state, &request, result.err().map(HostError::from));
         self.last = Some((request, ack.clone()));
@@ -174,30 +166,20 @@ impl StoreEditorHost<'_> {
 
     fn append(
         state: &mut Attachment,
-        store: &crate::LocalNoteStore,
         edit: &futo_notes_editor::SourceEdit,
     ) -> Result<(), EditorStoreError> {
         state.input_ready()?;
         state.relink_offer = None;
-        let Attachment {
-            engine, recovery, ..
-        } = state;
-        engine
-            .replay_with_accept(edit, &mut |edit| recovery.append(&store.root, edit))
+        let before = state.engine.revision();
+        let result = state
+            .engine
+            .replay_with_accept(edit, &mut super::save::no_accept)
             .map(|_| ())
-            .map_err(|error| match error {
-                EditorError::Persistence(error) => EditorStoreError::RecoveryAppend(error),
-                error => EditorStoreError::Editor(error),
-            })
-    }
-
-    fn reply(&self, request: &HostRequest, error: Option<HostError>) -> HostAck {
-        let state = self
-            .session
-            .state
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        self.reply_with_state(&state, request, error)
+            .map_err(EditorStoreError::Editor);
+        if state.engine.revision() != before {
+            state.note_edit();
+        }
+        result
     }
 
     fn reply_with_state(
@@ -206,13 +188,11 @@ impl StoreEditorHost<'_> {
         request: &HostRequest,
         error: Option<HostError>,
     ) -> HostAck {
-        let status = state.recovery_status();
         HostAck {
             token: request.token,
             sequence: request.sequence,
-            accepted: status.accepted,
-            durable: status.durable,
-            paused: status.paused,
+            accepted: state.engine.revision(),
+            paused: state.terminal,
             error,
             relink: state.relink_offer.clone(),
         }
@@ -224,9 +204,9 @@ impl From<EditorStoreError> for HostError {
         use EditorStoreError as E;
         let kind = match &error {
             E::SessionDeleted => HostErrorKind::Deleted,
-            E::RecoveryPaused | E::RecoveryNeedsReview(_) => HostErrorKind::Paused,
-            E::Editor(_) | E::SessionAlreadyOpen => HostErrorKind::Rejected,
-            _ => HostErrorKind::Storage,
+            E::Editor(_) | E::SessionAlreadyOpen | E::Open(_) | E::Checkpoint(_) => {
+                HostErrorKind::Rejected
+            }
         };
         Self::new(kind, error.to_string())
     }

@@ -1,5 +1,5 @@
 //! Link queries and commands remain canonical editor operations; the store
-//! supplies one guarded recovery acceptance before returning the visible delta.
+//! applies each edit in memory before returning the visible delta.
 use super::*;
 use futo_notes_editor::LinkDescription;
 
@@ -14,7 +14,7 @@ impl StoreEditorSession<'_> {
     pub fn refresh_note_ids(
         &mut self,
     ) -> Result<futo_notes_editor::NoteIdChange, EditorStoreError> {
-        let _gate = self.store.lock_gate().map_err(EditorStoreError::Recovery)?;
+        let _gate = self.store.lock_gate().map_err(EditorStoreError::Open)?;
         let ids = vault_note_ids(&self.store.root);
         let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
         if state.terminal {
@@ -42,27 +42,18 @@ impl StoreEditorSession<'_> {
         range: DisplayRange,
         destination: &str,
     ) -> Result<Option<ViewChange>, EditorStoreError> {
-        self.mutate(|state, store| state.set_link(store, expected, range, destination))
+        self.live(|state| state.set_link(expected, range, destination))
     }
 }
 
 impl Attachment {
     pub fn set_link(
         &mut self,
-        store: &LocalNoteStore,
         expected: Revision,
         range: DisplayRange,
         destination: &str,
     ) -> Result<Option<ViewChange>, EditorStoreError> {
-        self.input_ready()?;
-        self.engine
-            .set_link(expected, range, destination, &mut |edit| {
-                self.recovery.append(&store.root, edit)
-            })
-            .map_err(|error| match error {
-                EditorError::Persistence(error) => EditorStoreError::RecoveryAppend(error),
-                other => EditorStoreError::Editor(other),
-            })
+        self.edit(|engine, accept| engine.set_link(expected, range, destination, accept))
     }
 }
 
@@ -81,8 +72,7 @@ impl StoreEditorSession<'_> {
         })
     }
 
-    /// Accept one candidate as a single recovered edit; stale claims change
-    /// nothing and append nothing.
+    /// Accept one candidate as a single edit; stale claims change nothing.
     pub fn accept_wikilink_completion(
         &mut self,
         expected: Revision,
@@ -90,19 +80,10 @@ impl StoreEditorSession<'_> {
         query: &str,
         note_id: &str,
     ) -> Result<ViewChange, EditorStoreError> {
-        self.mutate(|state, store| {
-            state.input_ready()?;
-            let Attachment {
-                engine, recovery, ..
-            } = state;
-            engine
-                .accept_wikilink_completion(expected, range, query, note_id, &mut |edit| {
-                    recovery.append(&store.root, edit)
-                })
-                .map_err(|error| match error {
-                    EditorError::Persistence(error) => EditorStoreError::RecoveryAppend(error),
-                    other => EditorStoreError::Editor(other),
-                })
+        self.live(|state| {
+            state.edit(|engine, accept| {
+                engine.accept_wikilink_completion(expected, range, query, note_id, accept)
+            })
         })
     }
 }
@@ -114,7 +95,7 @@ impl StoreEditorSession<'_> {
         self.live(|state| Ok(state.engine.image_claim()))
     }
 
-    /// Insert the stored vault reference as one recovered edit. The store writes
+    /// Insert the stored vault reference as one edit. The store writes
     /// and cleans up asset files elsewhere; nothing here touches them.
     pub fn insert_image(
         &mut self,
@@ -123,19 +104,9 @@ impl StoreEditorSession<'_> {
         reference: &str,
         alt: &str,
     ) -> Result<Option<ViewChange>, EditorStoreError> {
-        self.mutate(|state, store| {
-            state.input_ready()?;
-            let Attachment {
-                engine, recovery, ..
-            } = state;
-            engine
-                .insert_image(expected, claim, reference, alt, &mut |edit| {
-                    recovery.append(&store.root, edit)
-                })
-                .map_err(|error| match error {
-                    EditorError::Persistence(error) => EditorStoreError::RecoveryAppend(error),
-                    other => EditorStoreError::Editor(other),
-                })
+        self.live(|state| {
+            state
+                .edit(|engine, accept| engine.insert_image(expected, claim, reference, alt, accept))
         })
     }
 }

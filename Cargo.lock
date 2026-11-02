@@ -2124,8 +2124,6 @@ version = "0.1.0"
 dependencies = [
  "base64 0.23.1",
  "futo-notes-core",
- "futo-notes-editor",
- "futo-notes-store",
  "jni",
  "openssl-probe",
  "rcgen",
@@ -2134,7 +2132,6 @@ dependencies = [
  "rustls-platform-verifier",
  "serde",
  "serde_json",
- "tempfile",
  "thiserror 2.0.21",
  "time",
  "tokio",

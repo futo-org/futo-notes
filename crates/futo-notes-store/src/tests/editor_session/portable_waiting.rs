@@ -2,11 +2,11 @@ use super::*;
 use futo_notes_editor::{PortableSession, SessionToken};
 
 #[test]
-fn withheld_due_flush_ack_preserves_marking_until_the_same_complete_update_is_retried() {
+fn withheld_resume_ack_preserves_marking_until_the_same_complete_update_is_retried() {
     use futo_notes_editor::{DisplayUtf16Offset, DisplayUtf16Range, PortableError};
     use std::sync::atomic::{AtomicU64, Ordering};
     struct Clock(AtomicU64);
-    impl RecoveryClock for Clock {
+    impl EditorClock for Clock {
         fn now(&self) -> Duration {
             Duration::from_millis(self.0.load(Ordering::SeqCst))
         }
@@ -16,19 +16,14 @@ fn withheld_due_flush_ack_preserves_marking_until_the_same_complete_update_is_re
     store.create("", "plain", "a").unwrap();
     let clock = Arc::new(Clock(AtomicU64::new(0)));
     let mut host = store
-        .open_editor_with_recovery(
-            "plain",
-            RecoveryOptions {
-                clock: clock.clone(),
-                ..RecoveryOptions::default()
-            },
-        )
+        .open_editor_with_clock("plain", clock.clone())
         .unwrap()
         .into_portable_host(SessionToken(133))
         .unwrap();
     let mut page = PortableSession::from_snapshot(host.snapshot()).unwrap();
     let input = page.replace(Revision(0), range(1, 1), "!").unwrap();
-    let change = page.acknowledge(host.handle(input)).unwrap().unwrap();
+    let change = input.change;
+    page.acknowledge(host.handle(input.request)).unwrap();
     let mut view = "a".to_owned();
     view.replace_range(change.range.start.0..change.range.end.0, &change.inserted);
     let marked_range = DisplayUtf16Range {
@@ -40,24 +35,21 @@ fn withheld_due_flush_ack_preserves_marking_until_the_same_complete_update_is_re
         .compose_utf16(Revision(1), marked_range, &first)
         .unwrap();
     clock.0.store(100, Ordering::SeqCst);
-    assert_eq!(host.recovery_flush_delay(), Some(Duration::ZERO));
-    let flush = page.flush().unwrap();
-    let withheld = std::thread::scope(|scope| scope.spawn(|| host.handle(flush)).join().unwrap());
+    let resume = page.resume().unwrap();
+    let withheld = std::thread::scope(|scope| scope.spawn(|| host.handle(resume)).join().unwrap());
     assert!(withheld.error.is_none(), "{withheld:?}");
-    assert_eq!(withheld.durable, Revision(1));
-    // Retain this exact callback payload while Flush owns the page request.
+    assert_eq!(withheld.accepted, Revision(1));
+    // Retain this exact callback payload while Resume owns the page request.
     let retained = "日本".encode_utf16().collect::<Vec<_>>();
     assert_eq!(
         page.compose_utf16(Revision(1), marked_range, &retained),
-        Err(PortableError::Busy)
+        Err(PortableError::Paused)
     );
     assert_eq!(page.composition(), Some(&marked));
     assert_eq!(page.draft_text(), "a!");
     assert_eq!(view, "a!");
-    assert_eq!(page.status().durable, Revision(0));
-    assert!(page.acknowledge(withheld.clone()).unwrap().is_none());
-    assert!(page.acknowledge(withheld).unwrap().is_none());
-    assert_eq!(page.status().durable, Revision(1));
+    assert!(page.acknowledge(withheld.clone()).unwrap().is_empty());
+    assert!(page.acknowledge(withheld).unwrap().is_empty());
     let updated = page
         .compose_utf16(Revision(1), marked_range, &retained)
         .unwrap();
@@ -66,12 +58,12 @@ fn withheld_due_flush_ack_preserves_marking_until_the_same_complete_update_is_re
         .commit_composition_utf16(Revision(1), None)
         .unwrap()
         .unwrap();
-    let accepted = host.handle(commit.clone());
-    assert_eq!(host.handle(commit), accepted);
-    assert_eq!(view, "a!");
-    let change = page.acknowledge(accepted.clone()).unwrap().unwrap();
+    let change = commit.change;
     view.replace_range(change.range.start.0..change.range.end.0, &change.inserted);
-    assert!(page.acknowledge(accepted).unwrap().is_none());
+    let accepted = host.handle(commit.request.clone());
+    assert_eq!(host.handle(commit.request), accepted);
+    assert!(page.acknowledge(accepted.clone()).unwrap().is_empty());
+    assert!(page.acknowledge(accepted).unwrap().is_empty());
     assert!(page
         .commit_composition_utf16(Revision(2), None)
         .unwrap()
@@ -80,6 +72,7 @@ fn withheld_due_flush_ack_preserves_marking_until_the_same_complete_update_is_re
     assert_eq!(page.draft_text(), "a!日本");
     assert_eq!(page.status().accepted, Revision(2));
     assert!(page.composition().is_none());
+    host.checkpoint().unwrap();
     drop(host);
     assert_eq!(store.open_editor("plain").unwrap().source_text(), "a!日本");
 }

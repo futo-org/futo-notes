@@ -1,5 +1,4 @@
-//! Completion requests are queries and wait for a released change; acceptance
-//! uses the same ordered append/ack barrier as input.
+//! Completion requests are queries; acceptance is ordinary input.
 use super::*;
 use crate::WikilinkCompletion;
 
@@ -8,9 +7,6 @@ impl PortableSession {
         &self,
         expected: Revision,
     ) -> Result<Option<WikilinkCompletion>, PortableError> {
-        if self.pending.is_some() {
-            return Err(PortableError::Busy);
-        }
         Ok(self.engine.wikilink_completion(expected)?)
     }
 
@@ -20,7 +16,7 @@ impl PortableSession {
         range: DisplayRange,
         query: &str,
         note_id: &str,
-    ) -> Result<HostRequest, PortableError> {
+    ) -> Result<Applied, PortableError> {
         self.ready()?;
         let mut record = None;
         let change = self.engine.accept_wikilink_completion(
@@ -33,6 +29,6 @@ impl PortableSession {
                 Ok(())
             },
         )?;
-        self.stage(record.unwrap(), change)
+        Ok(self.issue(record.unwrap(), change))
     }
 }

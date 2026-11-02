@@ -10,8 +10,8 @@ struct NativeEditorContractSurfaceTests {
         EditorByteRange(start: start, end: end)
     }
 
-    /// Runs `body` on a fresh vault note; returns the recovered source after a
-    /// reopen and the checkpointed store bytes (which must agree).
+    /// Runs `body` on a fresh vault note; returns the source after a reopen;
+    /// detach saves, so it must equal the stored bytes.
     private static func scenario(
         _ source: String, seed: (NoteStore) throws -> Void = { _ in },
         _ body: (NoteStore, NativeEditorSession) throws -> Void
@@ -25,14 +25,12 @@ struct NativeEditorContractSurfaceTests {
         _ = try store.createNote(title: "n", folder: "", content: source)
         let session = try store.openEditor(id: "n")
         try body(store, session)
-        _ = try session.flushRecovery()
-        try session.detach()
+        _ = try session.detach()
         let reopened = try store.openEditor(id: "n")
-        let recovered = try reopened.sourceText()
-        _ = try reopened.checkpoint()
-        #expect(try store.read(id: "n") == recovered)
-        try reopened.detach()
-        return recovered
+        let reopenedSource = try reopened.sourceText()
+        #expect(try store.read(id: "n") == reopenedSource)
+        _ = try reopened.detach()
+        return reopenedSource
     }
 
     @Test("tags, find and clipboard keep exact bytes")

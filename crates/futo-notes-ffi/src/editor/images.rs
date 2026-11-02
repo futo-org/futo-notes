@@ -1,4 +1,4 @@
-//! Thin atom projection and insertion. Roles, spelling, claims and recovery
+//! Thin atom projection and insertion. Roles, spelling, claims and
 //! acceptance remain in the canonical editor/store owners.
 use super::*;
 use futo_notes_editor as editor;

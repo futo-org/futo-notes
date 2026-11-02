@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { pathToFileURL } from 'node:url';
 import process from 'node:process';
 const { WasmSession } = await import(pathToFileURL(process.argv[2]).href);
-const page = new WasmSession(1n, 'a **bo**ld Bold\n\nBOLD', 0n, 0n);
+const page = new WasmSession(1n, 'a **bo**ld Bold\n\nBOLD', 0n);
 const send = (json) => JSON.parse(json);
 
 let report = send(page.find_set_query(0n, 'bold'));
@@ -27,8 +27,8 @@ assert.equal(applied.stale, false);
 page.find_set_query(0n, 'b');
 assert.equal(send(page.find_apply_scan(result)), null);
 
-// Input awaiting acknowledgement keeps find from reporting an unseen revision.
+// Find never waits on an unacknowledged edit.
 page.replace(0n, 0, 0, 'x');
-assert.throws(() => page.find_report());
+assert.ok(page.find_report());
 assert.equal(send(page.find_close()).open, false);
 console.log('wasm find consumer ok');

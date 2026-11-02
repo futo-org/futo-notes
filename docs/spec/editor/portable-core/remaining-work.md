@@ -3,7 +3,7 @@
 Table alignment changes, row reordering, column reordering and multi-cell/grid paste are
 also deferred by the maintainer. Preserve existing alignment and exact untouched bytes.
 Basic row/column insertion and deletion, cell editing/navigation and ordinary single-cell
-paste remain required; shared find and 20,000-line performance/durability remain required.
+paste remain required; shared find and 20,000-line performance remain required.
 
 Tables (#308, #309, #310) are implemented on the shared engine; see tables.md. Table-in-container
 recognition, `<br>` display projection and renderer integration remain.
@@ -11,7 +11,7 @@ recognition, `<br>` display projection and renderer integration remain.
 Rich HTML paste (#303) and rendered block movement (#311) are deferred by the maintainer's
 2026-10-30 scope decision and do not block this milestone; their issues remain open for later
 work. Plain-text/Markdown paste, including ordinary single-cell table paste, remains
-required. Tables, shared find, wikilink completion and the 20,000-line/native durability
+required. Tables, shared find, wikilink completion and the 20,000-line
 acceptance targets have not been deferred. → docs/plan/text-first-editor-rebuild-tickets.md
 
 Fenced-code interpretation and key intent (#297) are accepted on the integration branch;
@@ -40,7 +40,7 @@ The command planning/proof owners have completed bounded readability cleanup.
 The shared-head path has measured source/caret/history and parser/copy/metadata
 controls, with an independent pre-cursor constructor field differential. These
 finite controls and synthetic consumers do not prove real keyboard/IME input,
-renderer parity, complete allocation bounds, physical latency or durability.
+renderer parity, complete allocation bounds, or physical latency.
 Links (#301) are integrated from reviewed source `4f5fdeb89` and fixture-only
 repair `ff442e23d` after current source gates, regenerated native consumers and a
 fresh 51-scenario desktop/Android aggregate. Native execution remains attributed
@@ -82,9 +82,7 @@ rows, but no full-path API yet guards pending stale rows past a frontier: input,
 queries, find, staged commands and history would each have to finish or refuse there.
 
 Early physical ARM32 reconnaissance confirms that large-region calls and returned
-semantic payloads still scale with that region. Immediate explicit flushes also
-showed post-append completion overruns; timer scheduling and healthy-storage
-durability remain unaccepted. The full materializing projection contract remains
+semantic payloads still scale with that region. The full materializing projection contract remains
 available; bounded input/results and revision-aware progressive work remain
 required on the same engine and Store. The renderer/host walkthrough challenges
 input ordering, failure copying, coordinate mapping and worker scheduling before

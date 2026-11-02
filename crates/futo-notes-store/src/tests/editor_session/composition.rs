@@ -64,7 +64,7 @@ fn marked_text_is_not_recovered_but_final_correction_is_exact_and_protected() {
         editor.undo(editor.revision()).unwrap().unwrap();
         assert_eq!(editor.source_text(), "the __middle__ &amp; wrng\r\n");
         editor.redo(editor.revision()).unwrap().unwrap();
-        editor.flush_recovery().unwrap();
+        editor.checkpoint().unwrap();
     }
     let mut recovered = store.open_editor("input").unwrap();
     assert_eq!(recovered.source_text(), "the __middle__ &amp; wrong\r\n");
@@ -76,7 +76,7 @@ fn marked_text_is_not_recovered_but_final_correction_is_exact_and_protected() {
 }
 
 #[test]
-fn implicit_commit_and_paragraph_key_recover_the_separate_history_result() {
+fn implicit_commit_and_paragraph_key_keep_the_separate_history_result() {
     use futo_notes_editor::ParagraphKey;
     let root = TestRoot::new();
     let store = store(&root);
@@ -96,15 +96,15 @@ fn implicit_commit_and_paragraph_key_recover_the_separate_history_result() {
             .unwrap()
             .unwrap();
         assert_eq!(editor.source_text(), "__a日__\n tail\r\n");
-        assert_eq!(editor.recovery_status().accepted, Revision(1));
+        assert_eq!(editor.revision(), Revision(1));
         editor.undo(Revision(1)).unwrap().unwrap();
         assert_eq!(editor.source_text(), "__a日__ tail\r\n");
-        editor.flush_recovery().unwrap();
+        editor.checkpoint().unwrap();
     }
     let mut editor = store.open_editor("input").unwrap();
     assert_eq!(editor.source_text(), "__a日__ tail\r\n");
-    assert_eq!(editor.revision(), Revision(2));
-    assert!(editor.undo(Revision(2)).unwrap().is_none());
+    assert_eq!(editor.revision(), Revision(0));
+    assert!(editor.undo(Revision(0)).unwrap().is_none());
     editor.checkpoint().unwrap();
     assert_eq!(store.read("input").unwrap(), "__a日__ tail\r\n");
 }

@@ -15,7 +15,7 @@ From the monorepo root, prefer the `just` wrappers: `just tauri-dev`, `just taur
 The desktop adapter is split by responsibility:
 
 - **`local_notes.rs`**: the complete `local_notes_*` projection over one `LocalNoteStore`, including desktop trash policy.
-- **`editor_host.rs`**: the `editor_*` commands for the text-first editor's portable page: one worker thread owns the attached note's `StoreEditorHost`, answers `HostRequest`s in order, emits `editor:flush-due` and refuses legacy `local_notes_save`/`flush_draft` writes to the attached note.
+- **`editor_host.rs`**: the `editor_*` commands for the text-first editor's portable page: one worker thread owns the attached note's `StoreEditorHost`, answers `HostRequest`s in order, emits `editor:saved` after each timer save and refuses legacy `local_notes_save`/`flush_draft` writes to the attached note.
 - **`sync/`**: `mod.rs` is only the module map. `tauri_commands.rs` owns the stable `e2ee_*` command surface, `hosted_commands.rs` the `e2ee_hosted_*` one (hosted setup — sign-in, billing, checkout, create/unlock vault, sign out; the engine's `HostedSetup` owns the sequence and this holds the attempt in progress, building one over the keyring when a cold start has none), `cycle_runner.rs` wires manual/live push-first cycles, `frontend_contract.rs` owns serialization, `tauri_events.rs` translates callbacks, and `password_store.rs` keeps this device's E2EE sync secrets — vault password, vault key,
   session token — in the OS keyring (never on disk). The session itself is the `sync: SyncSession`
   field on `AppState` — there is no separate session-state bridge module.

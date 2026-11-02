@@ -1,4 +1,4 @@
-//! Thin byte-coordinate table projection. Table grammar, recovery acceptance
+//! Thin byte-coordinate table projection. Table grammar
 //! and history stay in the canonical editor/store owners.
 use super::*;
 use futo_notes_editor as editor;

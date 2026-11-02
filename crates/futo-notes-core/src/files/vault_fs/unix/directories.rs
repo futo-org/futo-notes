@@ -17,23 +17,6 @@ use crate::files::vault_fs::{
     context, in_root, note_create_failure, refused_create, OpenParentError,
 };
 
-pub(in crate::files::vault_fs) fn entry_is_directory(
-    root: &Path,
-    relative: &str,
-) -> Result<Option<bool>, String> {
-    let parent = match open_parent(root, relative, false) {
-        Ok(parent) => parent,
-        Err(OpenParentError::NotFound(_)) => return Ok(None),
-        Err(error) => return Err(error.message()),
-    };
-    match entry_type(&parent.directory, &parent.leaf) {
-        Ok(FileType::Symlink) => Err(format!("vault symlink rejected: {relative}")),
-        Ok(kind) => Ok(Some(kind == FileType::Directory)),
-        Err(rustix::io::Errno::NOENT) => Ok(None),
-        Err(error) => Err(context("inspect source type", relative, error)),
-    }
-}
-
 pub(in crate::files::vault_fs) fn exists(root: &Path, relative: &str) -> Result<bool, String> {
     let parent = match open_parent(root, relative, false) {
         Ok(parent) => parent,

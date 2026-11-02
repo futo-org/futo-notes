@@ -2,55 +2,6 @@ use std::path::{Path, PathBuf};
 
 use super::{context, relative_components, OpenParentError};
 
-pub(super) fn entry_is_directory(root: &Path, relative: &str) -> Result<Option<bool>, String> {
-    super::validate_path(root, relative)?;
-    match std::fs::symlink_metadata(root.join(relative)) {
-        Ok(metadata) if super::is_link(&metadata) => {
-            Err(format!("vault symlink rejected: {relative}"))
-        }
-        Ok(metadata) => Ok(Some(metadata.is_dir())),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(error) => Err(context("inspect source type", relative, error)),
-    }
-}
-
-pub(super) fn open_append(root: &Path, relative: &str) -> Result<std::fs::File, String> {
-    let path = checked_path(root, relative, true).map_err(OpenParentError::message)?;
-    let file = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(path)
-        .map_err(|error| {
-            super::note_create_failure(&error, super::in_root(relative));
-            context("open append", relative, error)
-        })?;
-    if !file
-        .metadata()
-        .map_err(|error| context("stat append", relative, error))?
-        .is_file()
-    {
-        return Err(format!("append target is not a file: {relative}"));
-    }
-    Ok(file)
-}
-
-pub(super) fn sync_file(root: &Path, relative: &str) -> Result<(), String> {
-    let path = checked_path(root, relative, false).map_err(OpenParentError::message)?;
-    let file = std::fs::OpenOptions::new()
-        .write(true)
-        .open(path)
-        .map_err(|error| context("open sync", relative, error))?;
-    if !file
-        .metadata()
-        .map_err(|error| context("stat sync", relative, error))?
-        .is_file()
-    {
-        return Err(format!("sync target is not a file: {relative}"));
-    }
-    file.sync_all()
-        .map_err(|error| context("sync file", relative, error))
-}
-
 /// Makes the next temp file vanish before it is installed, as a file-provider
 /// agent can take it.
 #[cfg(test)]

@@ -12,7 +12,7 @@ fn native(start: usize, end: usize) -> DisplayUtf16Range {
 }
 
 #[test]
-fn unicode_native_edits_history_recovery_and_checkpoint_preserve_exact_bytes() {
+fn unicode_native_edits_history_and_checkpoint_preserve_exact_bytes() {
     let root = TestRoot::new();
     let store = store(&root);
     let original = "😀e\u{301}日\r\n한\rن\n";
@@ -56,27 +56,23 @@ fn unicode_native_edits_history_recovery_and_checkpoint_preserve_exact_bytes() {
                 actual: Revision(4)
             }))
         );
+        assert_eq!(store.read("unicode").unwrap(), original);
+        assert_eq!(
+            editor.checkpoint().unwrap().disposition,
+            FlushDisposition::Wrote
+        );
     }
-    assert_eq!(store.read("unicode").unwrap(), original);
-    let mut recovered = store.open_editor("unicode").unwrap();
-    assert_eq!(recovered.source_text(), "👩🏽\u{200d}💻中文\r\n日本\rن\n");
-    assert_eq!(recovered.revision(), Revision(4));
-    assert_eq!(
-        recovered.checkpoint().unwrap().disposition,
-        FlushDisposition::Wrote
-    );
     assert_eq!(
         store.read("unicode").unwrap(),
         "👩🏽\u{200d}💻中文\r\n日本\rن\n"
     );
-    drop(recovered);
     let reopened = store.open_editor("unicode").unwrap();
     assert_eq!(reopened.source_text(), "👩🏽\u{200d}💻中文\r\n日本\rن\n");
     assert_eq!(reopened.revision(), Revision(0));
 }
 
 #[test]
-fn selection_only_native_callbacks_do_not_write_notes_or_recovery() {
+fn selection_only_native_callbacks_do_not_write_notes() {
     let root = TestRoot::new();
     let observer = Arc::new(RecordingObserver::default());
     let store = LocalNoteStore::with_before_write(root.0.clone(), observer.clone());

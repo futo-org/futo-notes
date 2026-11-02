@@ -85,9 +85,7 @@ impl LocalNoteStore {
             }
         }
         for transition in relinks.attachments {
-            if let Err(error) = transition.finish(&self.root) {
-                warnings.push(format!("editor identity recovery pending: {error}"));
-            }
+            transition.finish();
         }
         relinked.sort();
         for (from, to) in &mappings {

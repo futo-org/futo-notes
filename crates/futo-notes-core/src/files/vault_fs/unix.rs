@@ -20,9 +20,7 @@ mod no_replace;
 #[path = "unix/writes.rs"]
 mod writes;
 
-pub(super) use directories::{
-    clear, create_dir, entry_is_directory, exists, remove_dir, set_mtime_ms, sync_parent,
-};
+pub(super) use directories::{clear, create_dir, exists, remove_dir, set_mtime_ms, sync_parent};
 pub(super) use no_replace::{
     create_new, create_new_strict, move_no_replace, move_no_replace_strict, rename_case,
 };
@@ -63,55 +61,6 @@ fn entry_type<P: rustix::path::Arg>(directory: &OwnedFd, path: P) -> rustix::io:
 struct Parent {
     directory: OwnedFd,
     leaf: OsString,
-}
-
-pub(super) fn open_append(root: &Path, relative: &str) -> Result<File, String> {
-    let parent = open_parent(root, relative, true).map_err(OpenParentError::message)?;
-    let descriptor = openat(
-        &parent.directory,
-        &parent.leaf,
-        OFlags::WRONLY
-            | OFlags::CREATE
-            | OFlags::APPEND
-            | OFlags::NOFOLLOW
-            | OFlags::CLOEXEC
-            | OFlags::NONBLOCK,
-        Mode::RUSR | Mode::WUSR,
-    )
-    .map_err(|error| {
-        super::note_create_failure(&error.into(), super::in_root(relative));
-        context("open append", relative, error)
-    })?;
-    let file = File::from(descriptor);
-    if !file
-        .metadata()
-        .map_err(|error| context("stat append", relative, error))?
-        .is_file()
-    {
-        return Err(format!("append target is not a file: {relative}"));
-    }
-    Ok(file)
-}
-
-pub(super) fn sync_file(root: &Path, relative: &str) -> Result<(), String> {
-    let parent = open_parent(root, relative, false).map_err(OpenParentError::message)?;
-    let descriptor = openat(
-        &parent.directory,
-        &parent.leaf,
-        OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::CLOEXEC | OFlags::NONBLOCK,
-        Mode::empty(),
-    )
-    .map_err(|error| context("open sync", relative, error))?;
-    let file = File::from(descriptor);
-    if !file
-        .metadata()
-        .map_err(|error| context("stat sync", relative, error))?
-        .is_file()
-    {
-        return Err(format!("sync target is not a file: {relative}"));
-    }
-    file.sync_all()
-        .map_err(|error| context("sync file", relative, error))
 }
 
 #[cfg(any(test, feature = "test-support"))]

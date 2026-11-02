@@ -3,7 +3,7 @@ use futo_notes_ffi::{EditorByteRange, EditorUtf16Range, NoteStore};
 use support::{path_string, TempTree};
 
 #[test]
-fn native_recovery_flush_delay_tracks_unflushed_edits_without_a_host_clock_origin() {
+fn native_save_delay_tracks_unsaved_edits_and_checkpoint_clears_it() {
     let tree = TempTree::new();
     std::fs::create_dir_all(tree.path("vault")).unwrap();
     let store = NoteStore::new(path_string(&tree.path("vault")));
@@ -11,15 +11,25 @@ fn native_recovery_flush_delay_tracks_unflushed_edits_without_a_host_clock_origi
         .create_note("plain".into(), "".into(), "before".into())
         .unwrap();
     let session = store.open_editor("plain".into()).unwrap();
-    assert_eq!(session.recovery_flush_delay().unwrap(), None);
+    assert_eq!(session.save_delay().unwrap(), None);
+    assert_eq!(session.save_status().unwrap().save_deadline, None);
     session
         .replace_utf16(0, EditorUtf16Range { start: 6, end: 6 }, vec![33])
         .unwrap();
-    let delay = session.recovery_flush_delay().unwrap().unwrap();
-    // Zero is valid when the worker is already due; do not depend on host load.
-    assert!(delay <= std::time::Duration::from_millis(100));
-    assert_eq!(session.flush_recovery().unwrap().durable, 1);
-    assert_eq!(session.recovery_flush_delay().unwrap(), None);
+    let delay = session.save_delay().unwrap().unwrap();
+    assert!(delay <= std::time::Duration::from_millis(500));
+    let status = session.save_status().unwrap();
+    assert_eq!((status.revision, status.saved), (1, 0));
+    assert!(status.save_deadline.is_some());
+    // Not due yet: nothing is written.
+    if delay > std::time::Duration::from_millis(50) {
+        assert!(session.save_if_due().unwrap().is_none());
+        assert_eq!(store.read("plain".into()).unwrap(), "before");
+    }
+    session.checkpoint().unwrap();
+    assert_eq!(store.read("plain".into()).unwrap(), "before!");
+    assert_eq!(session.save_delay().unwrap(), None);
+    assert_eq!(session.save_status().unwrap().saved, 1);
 }
 
 #[test]
@@ -81,7 +91,7 @@ fn native_relink_is_one_undo_step_and_delete_fences_the_same_attachment() {
 }
 
 #[test]
-fn native_session_preserves_unicode_nul_and_recovers_after_handle_release() {
+fn native_session_preserves_unicode_nul_and_saves_on_detach() {
     let tree = TempTree::new();
     std::fs::create_dir_all(tree.path("vault")).unwrap();
     let path = path_string(&tree.path("vault"));
@@ -105,18 +115,10 @@ fn native_session_preserves_unicode_nul_and_recovers_after_handle_release() {
     assert_eq!(change.inserted, "🇯🇵");
     assert_eq!(change.selection.start, 9);
     assert_eq!(session.source_text().unwrap(), "a🇯🇵\0z\r\n");
-    assert_eq!(session.recovery_status().unwrap().accepted, 1);
-    assert_eq!(session.flush_recovery().unwrap().durable, 1);
-    drop(session);
+    assert_eq!(session.save_status().unwrap().saved, 0);
+    let saved = session.detach().unwrap();
+    assert_eq!(saved.mutation.unwrap().final_id.as_deref(), Some("plain"));
     let store = NoteStore::new(path);
-    let recovered = store.open_editor("plain".into()).unwrap();
-    assert_eq!(recovered.source_text().unwrap(), "a🇯🇵\0z\r\n");
-    assert_eq!(recovered.revision().unwrap(), 1);
-    let checkpoint = recovered.checkpoint().unwrap();
-    assert_eq!(
-        checkpoint.mutation.unwrap().final_id.as_deref(),
-        Some("plain")
-    );
     assert_eq!(store.read("plain".into()).unwrap(), "a🇯🇵\0z\r\n");
 }
 
@@ -231,8 +233,8 @@ fn native_input_errors_selection_and_history_match_the_direct_session() {
         native.source_text(),
         Err(EditorSessionError::Unavailable)
     ));
-    let recovered = store.open_editor("plain".into()).unwrap();
-    assert_eq!(recovered.source_text().unwrap(), "a日本\0\0z\r\n");
+    let reopened = store.open_editor("plain".into()).unwrap();
+    assert_eq!(reopened.source_text().unwrap(), "a日本\0\0z\r\n");
 }
 
 #[test]
@@ -279,8 +281,7 @@ fn native_projection_preserves_rich_semantics_and_source_correspondence() {
 }
 
 #[test]
-fn native_storage_failure_keeps_draft_copyable_and_reports_its_stage() {
-    use futo_notes_ffi::EditorSessionError;
+fn native_save_failure_keeps_the_session_attached_and_accepting_input() {
     let tree = TempTree::new();
     let root = tree.path("vault");
     std::fs::create_dir_all(&root).unwrap();
@@ -289,23 +290,20 @@ fn native_storage_failure_keeps_draft_copyable_and_reports_its_stage() {
         .create_note("plain".into(), "".into(), "before".into())
         .unwrap();
     let session = store.open_editor("plain".into()).unwrap();
-    std::fs::write(root.join(".futo-editor-recovery"), "blocked").unwrap();
-    assert!(matches!(
-        session.replace_utf16(0, EditorUtf16Range { start: 6, end: 6 }, vec![33]),
-        Err(EditorSessionError::RecoveryAppend { .. })
-    ));
-    assert_eq!(session.source_text().unwrap(), "before");
-    assert_eq!(session.revision().unwrap(), 0);
-    assert!(session.recovery_status().unwrap().paused);
-    assert!(session.recovery_issue().unwrap().is_none());
-    assert!(matches!(
-        session.replace_utf16(0, EditorUtf16Range { start: 6, end: 6 }, vec![33]),
-        Err(EditorSessionError::RecoveryPaused)
-    ));
-    assert!(matches!(
-        session.resume_recovery(),
-        Err(EditorSessionError::RecoveryResume { .. })
-    ));
+    session
+        .replace_utf16(0, EditorUtf16Range { start: 6, end: 6 }, vec![33])
+        .unwrap();
+    // A directory in the note's place makes the markdown write fail.
+    let note = root.join("plain.md");
+    std::fs::remove_file(&note).unwrap();
+    std::fs::create_dir(&note).unwrap();
+    assert!(session.detach().is_err());
+    assert_eq!(session.source_text().unwrap(), "before!");
+    session
+        .replace_utf16(1, EditorUtf16Range { start: 7, end: 7 }, vec![33])
+        .unwrap();
+    assert_eq!(session.source_text().unwrap(), "before!!");
+    assert!(!root.join(".futo-editor-recovery").exists());
 }
 
 #[test]

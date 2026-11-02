@@ -23,18 +23,19 @@ fn portable_composition_refuses_relink_offer_and_commits_under_retargeted_identi
     )
     .unwrap();
     store.rename("old", "long name").unwrap();
-    let poll = page.flush().unwrap();
+    let poll = page.resume().unwrap();
     page.acknowledge(host.handle(poll)).unwrap();
     assert!(page.apply_relink_offer().unwrap().is_none());
     assert_eq!(page.composition().unwrap().text, "にほん");
-    let request = page
+    let applied = page
         .commit_composition_utf16(
             Revision(0),
             Some(&"日本".encode_utf16().collect::<Vec<_>>()),
         )
         .unwrap()
         .unwrap();
-    let change = page.acknowledge(host.handle(request)).unwrap().unwrap();
+    let change = applied.change;
+    page.acknowledge(host.handle(applied.request)).unwrap();
     let mut view = "[[old]]".to_owned();
     view.replace_range(change.range.start.0..change.range.end.0, &change.inserted);
     assert_eq!(view, "[[old]]日本");
@@ -46,7 +47,7 @@ fn portable_composition_refuses_relink_offer_and_commits_under_retargeted_identi
 }
 
 #[test]
-fn portable_own_relink_is_one_appended_undo_step_before_display() {
+fn portable_own_relink_is_one_appended_undo_step() {
     let root = TestRoot::new();
     let store = store(&root);
     store.create("", "old", "[[old]]").unwrap();
@@ -58,32 +59,35 @@ fn portable_own_relink_is_one_appended_undo_step_before_display() {
     let mut page = PortableSession::from_snapshot(host.snapshot()).unwrap();
     let mut view = "[[old]]".to_owned();
     let input = page.replace(Revision(0), range(7, 7), "!").unwrap();
-    let change = page.acknowledge(host.handle(input)).unwrap().unwrap();
+    let change = input.change;
     view.replace_range(change.range.start.0..change.range.end.0, &change.inserted);
+    page.acknowledge(host.handle(input.request)).unwrap();
     host.checkpoint().unwrap();
     store.rename("old", "long name").unwrap();
     assert_eq!(host.id(), "long name");
-    let poll = page.flush().unwrap();
+    let poll = page.resume().unwrap();
     let offer_ack = host.handle(poll);
     assert!(offer_ack.relink.is_some());
-    assert!(page.acknowledge(offer_ack.clone()).unwrap().is_none());
+    assert!(page.acknowledge(offer_ack.clone()).unwrap().is_empty());
     let relink = page.apply_relink_offer().unwrap().unwrap();
-    assert_eq!(view, "[[old]]!");
-    assert_eq!(page.draft_text(), "[[long name]]!");
-    let accepted = host.handle(relink.clone());
-    assert_eq!(host.handle(relink), accepted);
-    let change = page.acknowledge(accepted.clone()).unwrap().unwrap();
+    let change = relink.change;
     view.replace_range(change.range.start.0..change.range.end.0, &change.inserted);
     assert_eq!(view, "[[long name]]!");
-    assert!(page.acknowledge(accepted).unwrap().is_none());
-    assert!(page.acknowledge(offer_ack).unwrap().is_none());
+    assert_eq!(page.draft_text(), "[[long name]]!");
+    let accepted = host.handle(relink.request.clone());
+    assert_eq!(host.handle(relink.request), accepted);
+    assert!(page.acknowledge(accepted.clone()).unwrap().is_empty());
+    assert!(page.acknowledge(accepted).unwrap().is_empty());
+    assert!(page.acknowledge(offer_ack).unwrap().is_empty());
     let undo = page.undo(Revision(2)).unwrap().unwrap();
-    let change = page.acknowledge(host.handle(undo)).unwrap().unwrap();
+    let change = undo.change;
+    page.acknowledge(host.handle(undo.request)).unwrap();
     view.replace_range(change.range.start.0..change.range.end.0, &change.inserted);
     assert_eq!(view, "[[old]]!");
     assert_eq!(page.draft_text(), "[[old]]!");
     let redo = page.redo(Revision(3)).unwrap().unwrap();
-    let change = page.acknowledge(host.handle(redo)).unwrap().unwrap();
+    let change = redo.change;
+    page.acknowledge(host.handle(redo.request)).unwrap();
     view.replace_range(change.range.start.0..change.range.end.0, &change.inserted);
     assert_eq!(view, "[[long name]]!");
     host.checkpoint().unwrap();
@@ -103,21 +107,18 @@ fn portable_relink_never_advances_the_worker_past_unacknowledged_page_source() {
     let mut page = PortableSession::from_snapshot(host.snapshot()).unwrap();
     let pending = page.replace(Revision(0), range(7, 7), "!").unwrap();
     store.rename("old", "long name").unwrap();
-    let ack = host.handle(pending);
+    assert_eq!(pending.change.inserted, "!");
+    let ack = host.handle(pending.request);
     assert!(ack.error.is_none(), "{ack:?}");
-    let change = page.acknowledge(ack).unwrap().unwrap();
-    assert_eq!(change.inserted, "!");
+    assert!(page.acknowledge(ack).unwrap().is_empty());
     assert_eq!(page.draft_text(), "[[old]]!");
-    drop(host);
-    let mut current = store.open_editor("long name").unwrap();
-    assert_eq!(current.source_text(), "[[old]]!");
-    current.checkpoint().unwrap();
+    host.checkpoint().unwrap();
     assert_eq!(store.read("long name").unwrap(), "[[old]]!");
     assert_eq!(store.read_existing("old").unwrap(), None);
 }
 
 #[test]
-fn worker_append_ack_is_distinct_from_page_completion_and_durable_flush() {
+fn worker_append_ack_is_distinct_from_page_completion() {
     let root = TestRoot::new();
     let store = store(&root);
     store.create("", "plain", "plain").unwrap();
@@ -126,31 +127,27 @@ fn worker_append_ack_is_distinct_from_page_completion_and_durable_flush() {
         .unwrap()
         .into_portable_host(SessionToken(41))
         .unwrap();
-    let mut page = PortableSession::open(SessionToken(41), "plain", Revision(0), Revision(0));
-    let request = page.replace(Revision(0), range(5, 5), "!").unwrap();
+    let mut page = PortableSession::open(SessionToken(41), "plain", Revision(0));
+    let request = page.replace(Revision(0), range(5, 5), "!").unwrap().request;
     assert_eq!(page.status().accepted, Revision(0));
     let ack = host.handle(request.clone());
     assert_eq!(ack.accepted, Revision(1));
-    assert_eq!(ack.durable, Revision(0));
     assert_eq!(host.handle(request.clone()), ack);
-    assert_eq!(page.acknowledge(ack).unwrap().unwrap().inserted, "!");
-    let flush = page.flush().unwrap();
-    let durable = host.handle(flush);
-    page.acknowledge(durable).unwrap();
-    assert_eq!(page.status().durable, Revision(1));
+    page.acknowledge(ack).unwrap();
+    assert_eq!(page.status().accepted, Revision(1));
     let mut wrong = request;
     wrong.token = SessionToken(42);
     assert_eq!(
         host.handle(wrong).error.map(|error| error.kind),
         Some(futo_notes_editor::HostErrorKind::StaleToken)
     );
-    drop(host);
-    assert_eq!(store.open_editor("plain").unwrap().source_text(), "plain!");
     assert_eq!(store.read("plain").unwrap(), "plain");
+    host.checkpoint().unwrap();
+    assert_eq!(store.read("plain").unwrap(), "plain!");
 }
 
 #[test]
-fn page_and_worker_exchange_small_edits_without_running_storage_on_the_page_thread() {
+fn page_and_worker_exchange_small_edits_without_running_store_work_on_the_page_thread() {
     let root = TestRoot::new();
     let store = store(&root);
     store.create("", "plain", "a\r\n").unwrap();
@@ -167,152 +164,40 @@ fn page_and_worker_exchange_small_edits_without_running_storage_on_the_page_thre
             for request in receive {
                 reply.send(host.handle(request)).unwrap();
             }
+            host.checkpoint().unwrap();
         });
-        let mut page = PortableSession::open(SessionToken(50), "a\r\n", Revision(0), Revision(0));
-        let request = page.replace(Revision(0), range(1, 1), "🎉").unwrap();
+        let mut page = PortableSession::open(SessionToken(50), "a\r\n", Revision(0));
+        let applied = page.replace(Revision(0), range(1, 1), "🎉").unwrap();
+        let request = applied.request;
         let futo_notes_editor::HostOperation::Append(edit) = &request.operation else {
             panic!()
         };
         assert_eq!(edit.inserted, "🎉");
         assert_eq!(edit.removed, "");
         let mut view = "a\r\n".to_owned();
+        let change = applied.change;
+        view.replace_range(change.range.start.0..change.range.end.0, &change.inserted);
+        assert_eq!(
+            view, "a🎉\r\n",
+            "the page shows the edit before the worker replies"
+        );
         send.send(request).unwrap();
-        assert_eq!(view, "a\r\n");
-        let change = page.acknowledge(replies.recv().unwrap()).unwrap().unwrap();
-        view.replace_range(change.range.start.0..change.range.end.0, &change.inserted);
-        assert_eq!(view, "a🎉\r\n");
-        send.send(page.undo(Revision(1)).unwrap().unwrap()).unwrap();
-        let change = page.acknowledge(replies.recv().unwrap()).unwrap().unwrap();
-        view.replace_range(change.range.start.0..change.range.end.0, &change.inserted);
-        assert_eq!(view, "a\r\n");
-        send.send(page.redo(Revision(2)).unwrap().unwrap()).unwrap();
-        let change = page.acknowledge(replies.recv().unwrap()).unwrap().unwrap();
-        view.replace_range(change.range.start.0..change.range.end.0, &change.inserted);
-        assert_eq!(view, "a🎉\r\n");
-        send.send(page.flush().unwrap()).unwrap();
         page.acknowledge(replies.recv().unwrap()).unwrap();
-        assert_eq!(page.status().durable, Revision(3));
+        let undo = page.undo(Revision(1)).unwrap().unwrap();
+        let change = undo.change;
+        view.replace_range(change.range.start.0..change.range.end.0, &change.inserted);
+        assert_eq!(view, "a\r\n");
+        send.send(undo.request).unwrap();
+        page.acknowledge(replies.recv().unwrap()).unwrap();
+        let redo = page.redo(Revision(2)).unwrap().unwrap();
+        let change = redo.change;
+        view.replace_range(change.range.start.0..change.range.end.0, &change.inserted);
+        assert_eq!(view, "a🎉\r\n");
+        send.send(redo.request).unwrap();
+        page.acknowledge(replies.recv().unwrap()).unwrap();
         drop(send);
     });
-    assert_eq!(store.open_editor("plain").unwrap().source_text(), "a🎉\r\n");
-}
-
-#[test]
-fn interruptions_lose_only_an_unhanded_active_edit_and_never_a_displayed_backlog() {
-    for phase in ["before handoff", "after handoff", "after acknowledgement"] {
-        let root = TestRoot::new();
-        let store = store(&root);
-        store.create("", "plain", "plain").unwrap();
-        let mut host = store
-            .open_editor("plain")
-            .unwrap()
-            .into_portable_host(SessionToken(60))
-            .unwrap();
-        let mut page = PortableSession::open(SessionToken(60), "plain", Revision(0), Revision(0));
-        let first = page.replace(Revision(0), range(5, 5), "!").unwrap();
-        page.acknowledge(host.handle(first)).unwrap().unwrap();
-        let active = page.replace(Revision(1), range(6, 6), "?").unwrap();
-        if phase != "before handoff" {
-            let ack = host.handle(active);
-            if phase == "after acknowledgement" {
-                page.acknowledge(ack).unwrap().unwrap();
-            }
-        }
-        drop(page);
-        drop(host);
-        let recovered = store.open_editor("plain").unwrap();
-        let expected = if phase == "before handoff" {
-            "plain!"
-        } else {
-            "plain!?"
-        };
-        assert_eq!(recovered.source_text(), expected, "{phase}");
-    }
-}
-
-#[test]
-fn failed_worker_append_retains_active_draft_repairs_and_retries_exactly_once() {
-    for fault in [storage::Fault::Append, storage::Fault::ShortWrite] {
-        let root = TestRoot::new();
-        let store = store(&root);
-        store.create("", "plain", "plain").unwrap();
-        let disk = Arc::new(Mutex::new(storage::Disk::default()));
-        let mut host = store
-            .open_editor_with_recovery("plain", storage::options(&disk))
-            .unwrap()
-            .into_portable_host(SessionToken(70))
-            .unwrap();
-        let mut page = PortableSession::open(SessionToken(70), "plain", Revision(0), Revision(0));
-        let first = page.replace(Revision(0), range(5, 5), "!").unwrap();
-        page.acknowledge(host.handle(first)).unwrap().unwrap();
-        disk.lock().unwrap().fault = Some(fault);
-        let active = page.replace(Revision(1), range(6, 6), "?").unwrap();
-        let failed = host.handle(active);
-        assert!(failed.error.is_some());
-        assert!(page.acknowledge(failed.clone()).unwrap().is_none());
-        assert!(page.status().paused);
-        assert_eq!(page.status().displayed, Revision(1));
-        assert_eq!(page.draft_text(), "plain!?");
-        disk.lock().unwrap().fault = None;
-        let resume = page.resume().unwrap();
-        assert!(page.acknowledge(host.handle(resume)).unwrap().is_none());
-        assert_eq!(page.status().durable, Revision(1));
-        let retry = page.retry_pending().unwrap();
-        let accepted = host.handle(retry.clone());
-        assert_eq!(host.handle(retry), accepted);
-        assert_eq!(page.acknowledge(accepted).unwrap().unwrap().inserted, "?");
-        assert!(page.acknowledge(failed).unwrap().is_none());
-        drop(host);
-        assert_eq!(
-            store
-                .open_editor_with_recovery("plain", storage::options(&disk))
-                .unwrap()
-                .source_text(),
-            "plain!?"
-        );
-    }
-}
-
-#[test]
-fn failed_worker_flush_never_claims_durable_and_resume_flushes_before_unpausing() {
-    let root = TestRoot::new();
-    let store = store(&root);
-    store.create("", "plain", "plain").unwrap();
-    let disk = Arc::new(Mutex::new(storage::Disk::default()));
-    let mut host = store
-        .open_editor_with_recovery("plain", storage::options(&disk))
-        .unwrap()
-        .into_portable_host(SessionToken(80))
-        .unwrap();
-    let mut page = PortableSession::open(SessionToken(80), "plain", Revision(0), Revision(0));
-    let request = page.replace(Revision(0), range(5, 5), "!").unwrap();
-    page.acknowledge(host.handle(request)).unwrap().unwrap();
-    disk.lock().unwrap().fault = Some(storage::Fault::Flush);
-    let flush = page.flush().unwrap();
-    let failed = host.handle(flush);
-    assert!(failed.error.is_some());
-    page.acknowledge(failed).unwrap();
-    assert_eq!(page.status().accepted, Revision(1));
-    assert_eq!(page.status().durable, Revision(0));
-    assert!(page.status().paused);
-    let resume = page.resume().unwrap();
-    page.acknowledge(host.handle(resume)).unwrap();
-    assert!(page.status().paused);
-    disk.lock().unwrap().fault = None;
-    let resume = page.resume().unwrap();
-    page.acknowledge(host.handle(resume)).unwrap();
-    assert!(!page.status().paused);
-    assert_eq!(page.status().durable, Revision(1));
-    assert_eq!(page.draft_text(), "plain!");
-    drop(host);
-    disk.lock().unwrap().power_loss();
-    assert_eq!(
-        store
-            .open_editor_with_recovery("plain", storage::options(&disk))
-            .unwrap()
-            .source_text(),
-        "plain!"
-    );
+    assert_eq!(store.read("plain").unwrap(), "a🎉\r\n");
 }
 
 #[test]
@@ -326,14 +211,18 @@ fn foreign_or_conflicting_source_records_never_append_or_apply_twice() {
         .unwrap()
         .into_portable_host(SessionToken(90))
         .unwrap();
-    let mut page = PortableSession::open(SessionToken(90), "plain", Revision(0), Revision(0));
-    let request = page.replace(Revision(0), range(0, 5), "other").unwrap();
+    let mut page = PortableSession::open(SessionToken(90), "plain", Revision(0));
+    let request = page
+        .replace(Revision(0), range(0, 5), "other")
+        .unwrap()
+        .request;
     let mut invalid = request.clone();
     let HostOperation::Append(edit) = &mut invalid.operation else {
         panic!()
     };
     edit.removed = "foreign".into();
     assert!(host.handle(invalid).error.is_some());
+    // A refused edit still consumes its sequence number.
     let mut retry = request.clone();
     retry.sequence += 1;
     let accepted = host.handle(retry.clone());
@@ -341,61 +230,20 @@ fn foreign_or_conflicting_source_records_never_append_or_apply_twice() {
     assert!(accepted.error.is_none());
     assert_eq!(
         host.handle(request).error.map(|error| error.kind),
-        Some(futo_notes_editor::HostErrorKind::StaleToken)
+        Some(futo_notes_editor::HostErrorKind::Rejected),
+        "an old sequence is out of order"
     );
     retry.sequence += 1;
-    assert!(host.handle(retry).error.is_some());
-    drop(host);
-    assert_eq!(store.open_editor("plain").unwrap().source_text(), "other");
+    assert!(
+        host.handle(retry).error.is_some(),
+        "a replayed edit is refused"
+    );
+    host.checkpoint().unwrap();
+    assert_eq!(store.read("plain").unwrap(), "other");
 }
 
 #[test]
-fn continuous_page_handoffs_do_not_postpone_the_workers_oldest_flush_deadline() {
-    use std::sync::atomic::{AtomicU64, Ordering};
-    struct Clock(AtomicU64);
-    impl RecoveryClock for Clock {
-        fn now(&self) -> std::time::Duration {
-            std::time::Duration::from_millis(self.0.load(Ordering::SeqCst))
-        }
-    }
-    let root = TestRoot::new();
-    let store = store(&root);
-    store.create("", "plain", "plain").unwrap();
-    let clock = Arc::new(Clock(AtomicU64::new(10)));
-    let options = RecoveryOptions {
-        clock: clock.clone(),
-        ..RecoveryOptions::default()
-    };
-    let mut host = store
-        .open_editor_with_recovery("plain", options)
-        .unwrap()
-        .into_portable_host(SessionToken(100))
-        .unwrap();
-    let mut page = PortableSession::from_snapshot(host.snapshot()).unwrap();
-    let first = page.replace(Revision(0), range(5, 5), "!").unwrap();
-    page.acknowledge(host.handle(first)).unwrap().unwrap();
-    assert_eq!(
-        host.recovery_flush_delay(),
-        Some(std::time::Duration::from_millis(100))
-    );
-    clock.0.store(99, Ordering::SeqCst);
-    let second = page.replace(Revision(1), range(6, 6), "?").unwrap();
-    page.acknowledge(host.handle(second)).unwrap().unwrap();
-    assert_eq!(
-        host.recovery_flush_delay(),
-        Some(std::time::Duration::from_millis(11))
-    );
-    clock.0.store(150, Ordering::SeqCst);
-    assert_eq!(host.recovery_flush_delay(), Some(std::time::Duration::ZERO));
-    assert_eq!(page.status().durable, Revision(0));
-    let request = page.flush().unwrap();
-    page.acknowledge(host.handle(request)).unwrap();
-    assert_eq!(page.status().durable, Revision(2));
-    assert_eq!(host.recovery_flush_delay(), None);
-}
-
-#[test]
-fn healthy_worker_resume_flushes_an_edit_whose_append_reply_was_lost() {
+fn worker_resume_reports_an_edit_whose_append_reply_was_lost() {
     let root = TestRoot::new();
     let store = store(&root);
     store.create("", "plain", "plain").unwrap();
@@ -405,55 +253,152 @@ fn healthy_worker_resume_flushes_an_edit_whose_append_reply_was_lost() {
         .into_portable_host(SessionToken(110))
         .unwrap();
     let mut page = PortableSession::from_snapshot(host.snapshot()).unwrap();
-    let request = page.replace(Revision(0), range(5, 5), "!").unwrap();
+    let request = page.replace(Revision(0), range(5, 5), "!").unwrap().request;
     let lost_reply = host.handle(request);
-    assert_eq!(lost_reply.durable, Revision(0));
     let resume = page.resume().unwrap();
-    assert_eq!(
-        page.acknowledge(host.handle(resume))
-            .unwrap()
-            .unwrap()
-            .inserted,
-        "!"
-    );
-    assert_eq!(page.status().durable, Revision(1));
-    assert!(page.acknowledge(lost_reply).unwrap().is_none());
+    assert!(page.acknowledge(host.handle(resume)).unwrap().is_empty());
+    assert_eq!(page.status().accepted, Revision(1));
+    assert_eq!(page.status().outstanding, 0);
+    assert!(page.acknowledge(lost_reply).unwrap().is_empty());
+}
+
+fn host_for<'a>(
+    store: &'a LocalNoteStore,
+    id: &str,
+    token: u64,
+) -> (crate::StoreEditorHost<'a>, PortableSession) {
+    let host = store
+        .open_editor(id)
+        .unwrap()
+        .into_portable_host(SessionToken(token))
+        .unwrap();
+    let page = PortableSession::from_snapshot(host.snapshot()).unwrap();
+    (host, page)
 }
 
 #[test]
-fn worker_retains_typed_recovery_review_and_page_pause_across_attach_and_resume() {
+fn worker_rejects_gapped_and_out_of_order_sequences_and_treats_a_repeat_as_idempotent() {
+    use futo_notes_editor::HostErrorKind;
+    let root = TestRoot::new();
+    let store = store(&root);
+    store.create("", "plain", "").unwrap();
+    let (mut host, mut page) = host_for(&store, "plain", 150);
+    let one = page.replace(Revision(0), range(0, 0), "a").unwrap().request;
+    let two = page.replace(Revision(1), range(1, 1), "b").unwrap().request;
+    let three = page.replace(Revision(2), range(2, 2), "c").unwrap().request;
+    // Request 1 never reached the worker: 2 is a gap and changes nothing.
+    let gap = host.handle(two.clone());
+    assert_eq!(
+        gap.error.map(|error| error.kind),
+        Some(HostErrorKind::Rejected)
+    );
+    assert_eq!(host.snapshot().source, "");
+    let first = host.handle(one.clone());
+    assert!(first.error.is_none(), "{first:?}");
+    // A repeat of the last request replies the same and does not replay it.
+    assert_eq!(host.handle(one.clone()), first);
+    assert_eq!(host.snapshot().source, "a");
+    // Skipping ahead is a gap, and so is going back.
+    assert!(host.handle(three.clone()).error.is_some());
+    let second = host.handle(two.clone());
+    assert!(second.error.is_none(), "{second:?}");
+    assert!(host.handle(one).error.is_some());
+    assert_eq!(host.snapshot().source, "ab");
+    assert!(host.handle(three).error.is_none());
+    assert_eq!(host.snapshot().source, "abc");
+}
+
+#[test]
+fn an_error_ack_pauses_the_page_and_resume_converges_the_worker_to_the_page_source() {
+    let root = TestRoot::new();
+    let store = store(&root);
+    store.create("", "plain", "").unwrap();
+    let (mut host, mut page) = host_for(&store, "plain", 151);
+    let one = page.replace(Revision(0), range(0, 0), "a").unwrap();
+    let two = page.replace(Revision(1), range(1, 1), "b").unwrap();
+    let three = page.replace(Revision(2), range(2, 2), "c").unwrap();
+    // Request 1 is lost; the worker refuses 2 and 3 as gaps, and the page pauses.
+    let refused = host.handle(two.request);
+    page.acknowledge(refused).unwrap();
+    assert!(page.status().paused);
+    assert!(page.replace(Revision(3), range(3, 3), "d").is_err());
+    assert_eq!(page.draft_text(), "abc");
+    assert!(page.project(Revision(3), range(0, 3)).is_ok());
+    drop((one, three));
+    let resume = page.resume().unwrap();
+    let reply = host.handle(resume);
+    assert!(reply.error.is_none(), "{reply:?}");
+    assert_eq!(reply.accepted, Revision(0));
+    let resent = page.acknowledge(reply).unwrap();
+    assert_eq!(resent.len(), 3);
+    assert!(!page.status().paused);
+    for request in resent {
+        let ack = host.handle(request);
+        assert!(ack.error.is_none(), "{ack:?}");
+        page.acknowledge(ack).unwrap();
+    }
+    assert_eq!(host.snapshot().source, page.draft_text());
+    assert_eq!(page.status().accepted, Revision(3));
+    assert_eq!(page.status().outstanding, 0);
+    assert!(page.replace(Revision(3), range(3, 3), "d").is_ok());
+}
+
+#[test]
+fn input_proceeds_while_another_thread_holds_the_store_gate() {
     let root = TestRoot::new();
     let store = store(&root);
     store.create("", "plain", "plain").unwrap();
-    let disk = Arc::new(Mutex::new(storage::Disk::default()));
-    {
-        let mut editor = store
-            .open_editor_with_recovery("plain", storage::options(&disk))
-            .unwrap();
+    let (mut host, mut page) = host_for(&store, "plain", 152);
+    let (held, held_receive) = mpsc::channel();
+    let (release, release_receive) = mpsc::channel::<()>();
+    std::thread::scope(|scope| {
+        let store = &store;
+        scope.spawn(move || {
+            // Any store workflow holds the gate; hold it for the whole test body.
+            let _gate = store.lock_gate().unwrap();
+            held.send(()).unwrap();
+            release_receive.recv().unwrap();
+        });
+        held_receive.recv().unwrap();
+        let applied = page.replace(Revision(0), range(5, 5), "!").unwrap();
+        let ack = host.handle(applied.request);
+        assert!(ack.error.is_none(), "{ack:?}");
+        page.acknowledge(ack).unwrap();
+        let undo = page.undo(Revision(1)).unwrap().unwrap();
+        assert!(host.handle(undo.request).error.is_none());
+        assert_eq!(host.snapshot().source, "plain");
+        release.send(()).unwrap();
+    });
+}
+
+#[test]
+fn native_session_input_proceeds_while_another_thread_holds_the_store_gate() {
+    let root = TestRoot::new();
+    let store = store(&root);
+    store.create("", "plain", "plain").unwrap();
+    let mut editor = store.open_editor("plain").unwrap();
+    let (held, held_receive) = mpsc::channel();
+    let (release, release_receive) = mpsc::channel::<()>();
+    std::thread::scope(|scope| {
+        let store = &store;
+        scope.spawn(move || {
+            let _gate = store.lock_gate().unwrap();
+            held.send(()).unwrap();
+            release_receive.recv().unwrap();
+        });
+        held_receive.recv().unwrap();
         editor.replace(Revision(0), range(5, 5), "!").unwrap();
+        editor.select_utf16(Revision(1), utf16_at(6)).unwrap();
+        editor.undo(Revision(1)).unwrap();
+        assert_eq!(editor.source_text(), "plain");
+        release.send(()).unwrap();
+    });
+}
+
+fn utf16_at(offset: usize) -> futo_notes_editor::DisplayUtf16Range {
+    use futo_notes_editor::DisplayUtf16Offset;
+    futo_notes_editor::DisplayUtf16Range {
+        start: DisplayUtf16Offset(offset),
+        end: DisplayUtf16Offset(offset),
     }
-    disk.lock().unwrap().accepted.values_mut().next().unwrap()[0] = b'!';
-    let before = disk.lock().unwrap().accepted.clone();
-    let mut host = store
-        .open_editor_with_recovery("plain", storage::options(&disk))
-        .unwrap()
-        .into_portable_host(SessionToken(120))
-        .unwrap();
-    assert_eq!(
-        host.recovery_issue().as_ref(),
-        Some(&RecoveryIssue {
-            kind: RecoveryIssueKind::CorruptRecord,
-            record: 0
-        })
-    );
-    let mut page = PortableSession::from_snapshot(host.snapshot()).unwrap();
-    assert_eq!(page.draft_text(), "plain");
-    assert!(page.status().paused);
-    let request = page.resume().unwrap();
-    let ack = host.handle(request);
-    assert!(ack.error.is_some());
-    page.acknowledge(ack).unwrap();
-    assert!(page.status().paused);
-    assert_eq!(page.status().durable, Revision(0));
-    assert_eq!(disk.lock().unwrap().accepted, before);
 }

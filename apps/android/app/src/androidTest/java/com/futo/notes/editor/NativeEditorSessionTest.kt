@@ -56,7 +56,7 @@ class NativeEditorSessionTest {
     }
 
     @Test
-    fun paragraphKeysPreservePlatformRangesExactLineEndingsAndRecovery() {
+    fun paragraphKeysPreservePlatformRangesExactLineEndingsAndSave() {
         val root = File(InstrumentationRegistry.getInstrumentation().targetContext.cacheDir, "editor-lines-${UUID.randomUUID()}")
         check(root.mkdirs())
         try {
@@ -76,14 +76,12 @@ class NativeEditorSessionTest {
                     assertEquals("a😀b\r\ntail  \r\n", view.toString(Charsets.UTF_8))
                     apply(session.undo(2uL))
                     assertEquals("__a😀\nb__\r\ntail  \r\n", session.sourceText())
-                    session.flushRecovery()
                     session.detach()
                 }
-                store.openEditor("lines").use { recovered ->
-                    assertEquals("__a😀\nb__\r\ntail  \r\n", recovered.sourceText())
-                    recovered.checkpoint()
-                    assertEquals("__a😀\nb__\r\ntail  \r\n", store.read("lines"))
-                    recovered.detach()
+                assertEquals("__a😀\nb__\r\ntail  \r\n", store.read("lines"))
+                store.openEditor("lines").use { reopened ->
+                    assertEquals("__a😀\nb__\r\ntail  \r\n", reopened.sourceText())
+                    reopened.detach()
                 }
             }
         } finally { root.deleteRecursively() }
@@ -138,7 +136,7 @@ class NativeEditorSessionTest {
     }
 
     @Test
-    fun exactInputErrorsDeltasHistoryAndRecovery() {
+    fun exactInputErrorsDeltasHistoryAndSave() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val require32 = InstrumentationRegistry.getArguments().getString("editorRequire32Bit") == "true"
         if (require32) assertFalse("This acceptance run requires a 32-bit native process", Process.is64Bit())
@@ -149,7 +147,7 @@ class NativeEditorSessionTest {
             NoteStore(root.absolutePath).use { store ->
                 store.createNote("plain", "", "a😀\u0000z\r\n")
                 val session = store.openEditor("plain")
-                assertNull(session.recoveryFlushDelay())
+                assertNull(session.saveDelay())
                 assertEquals("a😀\u0000z\r\n", session.sourceText())
                 val selected = session.selectUtf16(0uL, EditorUtf16Range(1uL, 3uL))
                 assertEquals(EditorByteRange(1uL, 5uL), selected.selection)
@@ -165,9 +163,9 @@ class NativeEditorSessionTest {
                     } catch (_: EditorSessionException.InvalidRange) {}
                 }
                 val change = session.replaceUtf16(0uL, EditorUtf16Range(1uL, 3uL), "🇯🇵\u0000".map { it.code.toUShort() })
-                val delay = checkNotNull(session.recoveryFlushDelay())
+                val delay = checkNotNull(session.saveDelay())
                 assertFalse(delay.isNegative)
-                assertTrue(delay <= java.time.Duration.ofMillis(100))
+                assertTrue(delay <= java.time.Duration.ofMillis(500))
                 assertEquals(0uL, change.previousRevision)
                 assertEquals(1uL, change.revision)
                 assertEquals(EditorByteRange(1uL, 5uL), change.range)
@@ -187,16 +185,15 @@ class NativeEditorSessionTest {
                 session.undo(1uL)
                 assertEquals("a😀\u0000z\r\n", session.sourceText())
                 session.redo(2uL)
-                assertEquals(3uL, session.flushRecovery().durable)
-                assertNull(session.recoveryFlushDelay())
-                session.detach()
+                assertEquals(3uL, session.saveStatus().revision)
+                assertEquals(0uL, session.saveStatus().saved)
+                assertEquals("plain", session.detach().mutation?.finalId)
                 session.destroy()
-                store.openEditor("plain").use { recovered ->
-                    assertEquals("a🇯🇵\u0000\u0000z\r\n", recovered.sourceText())
-                    assertEquals(3uL, recovered.revision())
-                    assertEquals("plain", recovered.checkpoint().mutation?.finalId)
-                    assertEquals("a🇯🇵\u0000\u0000z\r\n", store.read("plain"))
-                    recovered.detach()
+                assertEquals("a🇯🇵\u0000\u0000z\r\n", store.read("plain"))
+                store.openEditor("plain").use { reopened ->
+                    assertEquals("a🇯🇵\u0000\u0000z\r\n", reopened.sourceText())
+                    assertNull(reopened.saveDelay())
+                    reopened.detach()
                 }
                 store.createNote("inline", "", "__日😀__ tail\r\n")
                 store.openEditor("inline").use { inline ->
@@ -270,14 +267,12 @@ class NativeEditorSessionTest {
                     } catch (_: EditorSessionException.InvalidText) {}
                     assertEquals(final, session.sourceText())
                     assertEquals(12uL, session.revision())
-                    assertEquals(12uL, session.flushRecovery().durable)
-                    session.detach()
-                    store.openEditor("history").use { recovered ->
-                        assertEquals(final, recovered.sourceText())
-                        assertNull(recovered.undo(12uL))
-                        assertEquals("history", recovered.checkpoint().mutation?.finalId)
-                        assertEquals(final, store.read("history"))
-                        recovered.detach()
+                    assertEquals("history", session.detach().mutation?.finalId)
+                    assertEquals(final, store.read("history"))
+                    store.openEditor("history").use { reopened ->
+                        assertEquals(final, reopened.sourceText())
+                        assertNull(reopened.undo(0uL))
+                        reopened.detach()
                     }
                     store.createNote("echo", "", "__a__")
                     store.openEditor("echo").use { echo ->

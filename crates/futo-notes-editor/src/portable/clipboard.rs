@@ -1,6 +1,5 @@
-//! Portable plain Markdown clipboard. Cut and paste use the same ordered
-//! append/ack barrier as input; copying reads the accepted projection, so a
-//! paused draft stays copyable while a pending change reports Busy.
+//! Portable plain Markdown clipboard. Cut and paste are ordinary input;
+//! copying reads the page's draft, so a paused draft stays copyable.
 use super::*;
 
 impl PortableSession {
@@ -9,9 +8,6 @@ impl PortableSession {
         expected: Revision,
         range: DisplayRange,
     ) -> Result<String, PortableError> {
-        if self.pending.is_some() {
-            return Err(PortableError::Busy);
-        }
         Ok(self.engine.copy_markdown(expected, range)?)
     }
 
@@ -19,17 +15,15 @@ impl PortableSession {
         &mut self,
         expected: Revision,
         range: DisplayRange,
-    ) -> Result<(String, Option<HostRequest>), PortableError> {
+    ) -> Result<(String, Option<Applied>), PortableError> {
         self.ready()?;
         let mut record = None;
         let (markdown, change) = self.engine.cut_markdown(expected, range, &mut |edit| {
             record = Some(edit.clone());
             Ok(())
         })?;
-        let request = change
-            .map(|change| self.stage(record.unwrap(), change))
-            .transpose()?;
-        Ok((markdown, request))
+        let applied = change.map(|change| self.issue(record.unwrap(), change));
+        Ok((markdown, applied))
     }
 
     pub fn paste_markdown(
@@ -37,7 +31,7 @@ impl PortableSession {
         expected: Revision,
         range: DisplayRange,
         text: &str,
-    ) -> Result<Option<HostRequest>, PortableError> {
+    ) -> Result<Option<Applied>, PortableError> {
         self.ready()?;
         let mut record = None;
         let change = self
@@ -46,8 +40,6 @@ impl PortableSession {
                 record = Some(edit.clone());
                 Ok(())
             })?;
-        change
-            .map(|change| self.stage(record.unwrap(), change))
-            .transpose()
+        Ok(change.map(|change| self.issue(record.unwrap(), change)))
     }
 }

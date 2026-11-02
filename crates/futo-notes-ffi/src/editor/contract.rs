@@ -1,8 +1,6 @@
 use futo_notes_editor as editor;
 use futo_notes_store as store;
 
-use crate::FlushDraftResult;
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Record)]
 pub struct EditorByteRange {
     pub start: u64,
@@ -201,60 +199,22 @@ impl From<editor::ViewChange> for EditorViewChange {
     }
 }
 
+/// Where the markdown file stands relative to the editor's in-memory text.
 #[derive(Debug, uniffi::Record)]
-pub struct EditorRecoveryStatus {
-    pub accepted: u64,
-    pub durable: u64,
-    pub flush_deadline: Option<std::time::Duration>,
-    pub paused: bool,
-    pub last_flush_lateness: Option<std::time::Duration>,
+pub struct EditorSaveStatus {
+    pub revision: u64,
+    /// Last revision written to the markdown file (or the one the note opened at).
+    pub saved: u64,
+    /// Time until the next save is due; `None` when nothing is unsaved.
+    pub save_deadline: Option<std::time::Duration>,
 }
 
-impl From<store::RecoveryStatus> for EditorRecoveryStatus {
-    fn from(value: store::RecoveryStatus) -> Self {
+impl From<store::SaveStatus> for EditorSaveStatus {
+    fn from(value: store::SaveStatus) -> Self {
         Self {
-            accepted: value.accepted.0,
-            durable: value.durable.0,
-            flush_deadline: value.flush_deadline,
-            paused: value.paused,
-            last_flush_lateness: value.last_flush_lateness,
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, uniffi::Enum)]
-pub enum EditorRecoveryIssueKind {
-    TornTail,
-    CorruptRecord,
-    InvalidEdit,
-    SequenceMismatch,
-    IdentityMismatch,
-    UnsupportedVersion { version: u32 },
-    BaseMismatch,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
-pub struct EditorRecoveryIssue {
-    pub kind: EditorRecoveryIssueKind,
-    pub record: u64,
-}
-
-impl From<store::RecoveryIssue> for EditorRecoveryIssue {
-    fn from(value: store::RecoveryIssue) -> Self {
-        use store::RecoveryIssueKind as K;
-        Self {
-            record: value.record as u64,
-            kind: match value.kind {
-                K::TornTail => EditorRecoveryIssueKind::TornTail,
-                K::CorruptRecord => EditorRecoveryIssueKind::CorruptRecord,
-                K::InvalidEdit => EditorRecoveryIssueKind::InvalidEdit,
-                K::SequenceMismatch => EditorRecoveryIssueKind::SequenceMismatch,
-                K::IdentityMismatch => EditorRecoveryIssueKind::IdentityMismatch,
-                K::UnsupportedVersion { version } => {
-                    EditorRecoveryIssueKind::UnsupportedVersion { version }
-                }
-                K::BaseMismatch => EditorRecoveryIssueKind::BaseMismatch,
-            },
+            revision: value.revision.0,
+            saved: value.saved.0,
+            save_deadline: value.save_deadline,
         }
     }
 }
@@ -277,37 +237,18 @@ pub enum EditorSessionError {
     RevisionExhausted,
     #[error("editor persistence failed: {error}")]
     Persistence { error: String },
-    #[error("editor recovery mismatch")]
-    RecoveryMismatch,
+    #[error("replayed edit does not match the worker source")]
+    ReplayMismatch,
     #[error("wikilink completion is stale")]
     StaleClaim,
     #[error("editor open failed: {error}")]
     Open { error: String },
     #[error("editor session already open")]
     SessionAlreadyOpen,
-    #[error("editor recovery failed: {error}")]
-    Recovery { error: String },
-    #[error("editor recovery append failed: {error}")]
-    RecoveryAppend { error: String },
-    #[error("editor recovery flush failed: {error}")]
-    RecoveryFlush { error: String },
-    #[error("editor recovery resume failed: {error}")]
-    RecoveryResume { error: String },
-    #[error("editor recovery paused")]
-    RecoveryPaused,
-    #[error("editor recovery needs review: {issue:?}")]
-    RecoveryNeedsReview { issue: EditorRecoveryIssue },
     #[error("editor checkpoint failed: {error}")]
     Checkpoint { error: String },
-    #[error("editor checkpoint pending")]
-    CheckpointPending,
     #[error("editor attachment was deleted")]
     SessionDeleted,
-    #[error("editor checkpoint committed but needs retry: {error}")]
-    CheckpointCommitted {
-        result: Box<FlushDraftResult>,
-        error: String,
-    },
 }
 
 impl std::fmt::Debug for EditorSessionError {
@@ -330,7 +271,7 @@ impl From<editor::EditorError> for EditorSessionError {
             E::RevisionExhausted => Self::RevisionExhausted,
             E::UnrepresentableFormat => Self::UnrepresentableFormat,
             E::Persistence(error) => Self::Persistence { error },
-            E::RecoveryMismatch => Self::RecoveryMismatch,
+            E::ReplayMismatch => Self::ReplayMismatch,
             E::StaleClaim => Self::StaleClaim,
         }
     }
@@ -343,21 +284,8 @@ impl From<store::EditorStoreError> for EditorSessionError {
             E::Editor(error) => error.into(),
             E::Open(error) => Self::Open { error },
             E::SessionAlreadyOpen => Self::SessionAlreadyOpen,
-            E::Recovery(error) => Self::Recovery { error },
-            E::RecoveryAppend(error) => Self::RecoveryAppend { error },
-            E::RecoveryFlush(error) => Self::RecoveryFlush { error },
-            E::RecoveryResume(error) => Self::RecoveryResume { error },
-            E::RecoveryPaused => Self::RecoveryPaused,
-            E::RecoveryNeedsReview(issue) => Self::RecoveryNeedsReview {
-                issue: issue.into(),
-            },
             E::Checkpoint(error) => Self::Checkpoint { error },
-            E::CheckpointPending => Self::CheckpointPending,
             E::SessionDeleted => Self::SessionDeleted,
-            E::CheckpointCommitted { result, error } => Self::CheckpointCommitted {
-                result: Box::new((*result).into()),
-                error,
-            },
         }
     }
 }

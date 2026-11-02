@@ -245,47 +245,27 @@ fn selected_formatting_repairs_are_one_action_and_restore_selection_formats() {
 }
 
 #[test]
-fn portable_grouped_undo_waits_for_one_acknowledgement_and_backpressures_input() {
-    use futo_notes_editor::{HostOperation, PortableError, PortableSession, SessionToken};
+fn portable_grouped_undo_is_one_request_and_displays_at_once() {
+    use futo_notes_editor::{HostOperation, PortableSession, SessionToken};
     let clock = Arc::new(Clock::default());
-    let mut page = PortableSession::open_with_clock(
-        SessionToken(20),
-        "__a__",
-        Revision(0),
-        Revision(0),
-        clock.clone(),
-    );
+    let mut page =
+        PortableSession::open_with_clock(SessionToken(20), "__a__", Revision(0), clock.clone());
     let mut view = ReferenceView::new("a");
     let first = page.replace(Revision(0), range(1, 1), "b").unwrap();
-    view.apply(
-        page.acknowledge(first.accepted(Revision(1), Revision(0)))
-            .unwrap()
-            .unwrap(),
-    );
+    view.apply(first.change);
     clock.0.store(499, Ordering::Relaxed);
     let second = page.replace(Revision(1), range(2, 2), "c").unwrap();
-    view.apply(
-        page.acknowledge(second.accepted(Revision(2), Revision(0)))
-            .unwrap()
-            .unwrap(),
-    );
+    view.apply(second.change);
+    // No acknowledgement has arrived; undo still works and shows now.
     let undo = page.undo(Revision(2)).unwrap().unwrap();
-    let HostOperation::Append(edit) = &undo.operation else {
+    let HostOperation::Append(edit) = &undo.request.operation else {
         panic!("one undo append");
     };
     assert_eq!(edit.removed, "bc");
     assert_eq!(edit.inserted, "");
-    assert_eq!(view.text, "abc");
-    assert_eq!(
-        page.replace(Revision(3), range(1, 1), "x"),
-        Err(PortableError::Busy)
-    );
-    view.apply(
-        page.acknowledge(undo.accepted(Revision(3), Revision(0)))
-            .unwrap()
-            .unwrap(),
-    );
+    view.apply(undo.change);
     assert_eq!(view.text, "a");
+    assert_eq!(page.status().outstanding, 3);
     assert!(page.undo(Revision(3)).unwrap().is_none());
 }
 

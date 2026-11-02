@@ -7,7 +7,7 @@
 // Revisions, sequences and tokens are JS-safe integers (< 2^53). Offsets are UTF-8 bytes
 // in display or source text unless a `_utf16` method takes UTF-16 code units.
 // Failures throw a string: the Rust `Debug` text of the error (for example
-// `Busy`, `Paused`, `Editor(StaleRevision { expected: Revision(0), actual: Revision(1) })`).
+// `Paused`, `Editor(StaleRevision { expected: Revision(0), actual: Revision(1) })`).
 // Match on it only for logging; hosts branch on `HostError.kind` instead.
 
 export type WasmError = string;
@@ -54,16 +54,19 @@ export interface SourceEdit {
   inserted: string;
 }
 
-export type HostOperation = { Append: SourceEdit } | 'Flush' | 'Resume';
+export type HostOperation = { Append: SourceEdit } | 'Resume';
 
-/** Page to host. Send to the store worker; deliver its `HostAck` to `acknowledge`. */
+/**
+ * Page to host. Send to the store worker, in sequence order; deliver its `HostAck` to
+ * `acknowledge`. Any number may be outstanding.
+ */
 export interface HostRequest {
   token: number;
   sequence: number;
   operation: HostOperation;
 }
 
-export type HostErrorKind = 'Deleted' | 'StaleToken' | 'Paused' | 'Storage' | 'Rejected';
+export type HostErrorKind = 'Deleted' | 'StaleToken' | 'Rejected';
 
 export interface HostError {
   kind: HostErrorKind;
@@ -81,7 +84,6 @@ export interface HostAck {
   token: number;
   sequence: number;
   accepted: number;
-  durable: number;
   paused: boolean;
   error?: HostError | null;
   relink?: RelinkOffer;
@@ -92,17 +94,17 @@ export interface HostSnapshot {
   token: number;
   source: string;
   revision: number;
-  durable: number;
   paused: boolean;
 }
 
 export interface PortableStatus {
+  /** The page's current revision. */
   local: number;
-  displayed: number;
+  /** The newest revision the worker has acknowledged. */
   accepted: number;
-  durable: number;
   paused: boolean;
-  waiting: boolean;
+  /** Edit requests sent but not yet acknowledged. */
+  outstanding: number;
 }
 
 // ---- Projection ----------------------------------------------------------
@@ -192,7 +194,7 @@ export interface EditWork {
   link_copied_bytes: number;
 }
 
-/** Released by `acknowledge`/`update_note_ids`-style calls after host acceptance. */
+/** Returned at once by every edit; the view applies it immediately. */
 export interface ViewChange {
   previous_revision: number;
   revision: number;
@@ -311,19 +313,29 @@ export interface TableDescription {
 }
 
 /** `table_key`: `null` when the key is not a table key. */
-export type TableOutcome = { selected: SelectionChange } | { edited: HostRequest };
+export type TableOutcome = { selected: SelectionChange } | { edited: Applied };
 
 // ---- Per-method results --------------------------------------------------
 // Edit methods (`replace*`, `toggle_format`, `block_command_utf16`, `paragraph_key_utf16`,
 // `undo`, `redo`, `set_link`, `insert_image`, `add_header_tag`, `remove_header_tag`,
 // `paste_markdown`, `commit_composition_utf16`, `replace_os_utf16`, `apply_relink_offer`,
-// `table_command*`) return `HostRequest | null` (`null` = nothing to do), except
-// `flush`/`resume`/`retry_pending`/`accept_wikilink_completion` which always return a
-// `HostRequest`. `acknowledge` returns `ViewChange | null`; `compose_utf16` and `composition`
-// return `Composition` / `Composition | null`.
-export type EditResult = HostRequest | null;
-/** `cut_markdown`: `[markdown, request]`. */
-export type CutResult = [string, HostRequest | null];
+// `table_command*`) apply the edit to the page's engine and return `Applied | null`
+// (`null` = nothing to do), except `replace*`/`accept_wikilink_completion`, which always
+// return `Applied`. Show `change` now and send `request` to the worker. `resume` returns a
+// `HostRequest`. `acknowledge` returns `HostRequest[]`: empty, except the reply to `resume`,
+// which returns the outstanding requests (renumbered) the worker lacks. `compose_utf16` and
+// `composition` return `Composition` / `Composition | null`.
+
+/** One applied input: the view change to show now and the request to send. */
+export interface Applied {
+  change: ViewChange;
+  request: HostRequest;
+}
+export type EditResult = Applied | null;
+/** `cut_markdown`: `[markdown, applied]`. */
+export type CutResult = [string, Applied | null];
+/** `acknowledge`. */
+export type AcknowledgeResult = HostRequest[];
 /** `find_matches*`. */
 export type FindMatches = DisplayRange[];
 /** `tags`, `header_tags`. */

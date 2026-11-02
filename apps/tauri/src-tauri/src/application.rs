@@ -180,7 +180,7 @@ pub(crate) fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|_app, _event| {
-            // Release the editor lease after a final recovery flush.
+            // Release the editor lease after a final save.
             if matches!(_event, tauri::RunEvent::Exit) {
                 use tauri::Manager;
                 _app.state::<crate::application_state::AppState>()

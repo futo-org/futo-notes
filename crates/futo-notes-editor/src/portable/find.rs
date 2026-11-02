@@ -9,7 +9,6 @@ impl PortableSession {
         expected: Revision,
         query: &str,
     ) -> Result<FindReport, PortableError> {
-        self.ready()?;
         Ok(self.engine.find_set_query(expected, query)?)
     }
 
@@ -18,17 +17,15 @@ impl PortableSession {
         expected: Revision,
         direction: CaretDirection,
     ) -> Result<FindReport, PortableError> {
-        self.ready()?;
         Ok(self.engine.find_step(expected, direction)?)
     }
 
-    /// Closing always succeeds, even with input awaiting acknowledgement.
+    /// Closing always succeeds.
     pub fn find_close(&mut self) -> FindReport {
         self.engine.find_close()
     }
 
     pub fn find_report(&mut self) -> Result<FindReport, PortableError> {
-        self.displayed()?;
         Ok(self.engine.find_report())
     }
 
@@ -37,7 +34,6 @@ impl PortableSession {
         expected: Revision,
         range: DisplayRange,
     ) -> Result<Vec<DisplayRange>, PortableError> {
-        self.displayed()?;
         Ok(self.engine.find_matches(expected, range)?)
     }
 
@@ -46,12 +42,10 @@ impl PortableSession {
         expected: Revision,
         range: crate::DisplayUtf16Range,
     ) -> Result<Vec<DisplayRange>, PortableError> {
-        self.displayed()?;
         Ok(self.engine.find_matches_utf16(expected, range)?)
     }
 
     pub fn find_scan_request(&self) -> Result<Option<FindScanRequest>, PortableError> {
-        self.displayed()?;
         Ok(self.engine.find_scan_request())
     }
 
@@ -60,14 +54,6 @@ impl PortableSession {
         &mut self,
         result: &FindScanResult,
     ) -> Result<Option<FindReport>, PortableError> {
-        self.displayed()?;
         Ok(self.engine.find_apply_scan(result))
-    }
-
-    fn displayed(&self) -> Result<(), PortableError> {
-        if self.pending.is_some() {
-            return Err(PortableError::Busy);
-        }
-        Ok(())
     }
 }

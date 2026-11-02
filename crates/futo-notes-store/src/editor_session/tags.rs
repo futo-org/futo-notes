@@ -1,5 +1,5 @@
 //! Tag queries and header-tag edits remain canonical editor operations; the
-//! store supplies one guarded recovery acceptance before returning the delta.
+//! store applies each edit in memory before returning the delta.
 use super::*;
 
 impl StoreEditorSession<'_> {
@@ -33,23 +33,13 @@ impl StoreEditorSession<'_> {
         tag: &str,
         add: bool,
     ) -> Result<Option<ViewChange>, EditorStoreError> {
-        self.mutate(|state, store| {
-            state.input_ready()?;
-            let Attachment {
-                engine: session,
-                recovery,
-                ..
-            } = state;
-            let root = &store.root;
-            let accept = &mut |edit: &futo_notes_editor::SourceEdit| recovery.append(root, edit);
-            let result = if add {
-                session.add_header_tag(expected, tag, accept)
-            } else {
-                session.remove_header_tag(expected, tag, accept)
-            };
-            result.map_err(|error| match error {
-                EditorError::Persistence(error) => EditorStoreError::RecoveryAppend(error),
-                other => EditorStoreError::Editor(other),
+        self.live(|state| {
+            state.edit(|engine, accept| {
+                if add {
+                    engine.add_header_tag(expected, tag, accept)
+                } else {
+                    engine.remove_header_tag(expected, tag, accept)
+                }
             })
         })
     }

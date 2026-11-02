@@ -1,61 +1,51 @@
-//! Protected editor input: one store gate and recovery append per user action.
+//! Editor input: every edit applies in memory; saving is scheduled separately.
 use super::*;
 
-#[allow(unused_variables)]
 impl Attachment {
-    /// Called only while the workflow gate and attachment lock are held.
+    /// Called only while the attachment lock is held.
     pub(super) fn input_ready(&self) -> Result<(), EditorStoreError> {
         if self.terminal {
             return Err(EditorStoreError::SessionDeleted);
         }
-        if self.pending_checkpoint.is_some() || self.pending_identity.is_some() {
-            return Err(EditorStoreError::CheckpointPending);
-        }
-        if self.recovery.failed {
-            return Err(EditorStoreError::RecoveryPaused);
-        }
         Ok(())
+    }
+
+    pub fn toggle_format(
+        &mut self,
+        expected: Revision,
+        format: InlineFormat,
+    ) -> Result<Option<ViewChange>, EditorStoreError> {
+        self.edit(|engine, accept| engine.toggle_format(expected, format, accept))
+    }
+
+    pub fn undo(&mut self, expected: Revision) -> Result<Option<ViewChange>, EditorStoreError> {
+        self.edit(|engine, accept| engine.undo(expected, accept))
+    }
+
+    pub fn redo(&mut self, expected: Revision) -> Result<Option<ViewChange>, EditorStoreError> {
+        self.edit(|engine, accept| engine.redo(expected, accept))
     }
 
     pub fn block_command_utf16(
         &mut self,
-        store: &LocalNoteStore,
         expected: Revision,
         range: DisplayUtf16Range,
         command: futo_notes_editor::BlockCommand,
     ) -> Result<Option<ViewChange>, EditorStoreError> {
-        self.input_ready()?;
-        self.engine
-            .block_command_utf16(expected, range, command, &mut |edit| {
-                self.recovery.append(&store.root, edit)
-            })
-            .map_err(|error| match error {
-                EditorError::Persistence(error) => EditorStoreError::RecoveryAppend(error),
-                other => EditorStoreError::Editor(other),
-            })
+        self.edit(|engine, accept| engine.block_command_utf16(expected, range, command, accept))
     }
 
     pub fn paragraph_key_utf16(
         &mut self,
-        store: &LocalNoteStore,
         expected: Revision,
         range: DisplayUtf16Range,
         key: futo_notes_editor::ParagraphKey,
     ) -> Result<Option<ViewChange>, EditorStoreError> {
-        self.input_ready()?;
-        self.engine
-            .paragraph_key_utf16(expected, range, key, &mut |edit| {
-                self.recovery.append(&store.root, edit)
-            })
-            .map_err(|error| match error {
-                EditorError::Persistence(error) => EditorStoreError::RecoveryAppend(error),
-                other => EditorStoreError::Editor(other),
-            })
+        self.edit(|engine, accept| engine.paragraph_key_utf16(expected, range, key, accept))
     }
 
     pub fn replace_utf16(
         &mut self,
-        store: &LocalNoteStore,
         expected: Revision,
         range: DisplayUtf16Range,
         inserted: &[u16],
@@ -64,12 +54,11 @@ impl Attachment {
             .engine
             .decode_utf16_input(expected, range, inserted)
             .map_err(EditorStoreError::Editor)?;
-        self.replace(store, expected, range, &inserted)
+        self.replace(expected, range, &inserted)
     }
 
     pub fn replace_utf16_action(
         &mut self,
-        store: &LocalNoteStore,
         expected: Revision,
         range: DisplayUtf16Range,
         inserted: &[u16],
@@ -79,12 +68,11 @@ impl Attachment {
             .engine
             .decode_utf16_input(expected, range, inserted)
             .map_err(EditorStoreError::Editor)?;
-        self.replace_action(store, expected, range, &inserted, action)
+        self.replace_action(expected, range, &inserted, action)
     }
 
     pub fn replace_many_utf16(
         &mut self,
-        store: &LocalNoteStore,
         expected: Revision,
         replacements: &[futo_notes_editor::DisplayUtf16Replacement],
     ) -> Result<ViewChange, EditorStoreError> {
@@ -92,18 +80,16 @@ impl Attachment {
             .engine
             .decode_utf16_replacements(expected, replacements)
             .map_err(EditorStoreError::Editor)?;
-        self.replace_many(store, expected, &replacements)
+        self.replace_many(expected, &replacements)
     }
 
     pub fn replace(
         &mut self,
-        store: &LocalNoteStore,
         expected: Revision,
         range: DisplayRange,
         inserted: &str,
     ) -> Result<ViewChange, EditorStoreError> {
         self.replace_action(
-            store,
             expected,
             range,
             inserted,
@@ -113,37 +99,19 @@ impl Attachment {
 
     pub fn replace_action(
         &mut self,
-        store: &LocalNoteStore,
         expected: Revision,
         range: DisplayRange,
         inserted: &str,
         action: futo_notes_editor::InputAction,
     ) -> Result<ViewChange, EditorStoreError> {
-        self.input_ready()?;
-        self.engine
-            .replace_action(expected, range, inserted, action, &mut |edit| {
-                self.recovery.append(&store.root, edit)
-            })
-            .map_err(|error| match error {
-                EditorError::Persistence(error) => EditorStoreError::RecoveryAppend(error),
-                other => EditorStoreError::Editor(other),
-            })
+        self.edit(|engine, accept| engine.replace_action(expected, range, inserted, action, accept))
     }
 
     pub fn replace_many(
         &mut self,
-        store: &LocalNoteStore,
         expected: Revision,
         replacements: &[futo_notes_editor::DisplayReplacement],
     ) -> Result<ViewChange, EditorStoreError> {
-        self.input_ready()?;
-        self.engine
-            .replace_many(expected, replacements, &mut |edit| {
-                self.recovery.append(&store.root, edit)
-            })
-            .map_err(|error| match error {
-                EditorError::Persistence(error) => EditorStoreError::RecoveryAppend(error),
-                other => EditorStoreError::Editor(other),
-            })
+        self.edit(|engine, accept| engine.replace_many(expected, replacements, accept))
     }
 }

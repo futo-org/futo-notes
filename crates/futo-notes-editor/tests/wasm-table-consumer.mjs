@@ -5,18 +5,17 @@ import process from 'node:process';
 import console from 'node:console';
 const { WasmSession } = await import(pathToFileURL(process.argv[2]).href);
 
-const session = new WasmSession(1n, '| a | b |\n| --- | --- |\n| c | d |\n', 0n, 0n);
+const session = new WasmSession(1n, '| a | b |\n| --- | --- |\n| c | d |\n', 0n);
 let revision = 0n;
-// Acknowledge as the host would; the staged edit becomes the accepted revision.
-const accept = (request) => {
-  const { sequence } = JSON.parse(request);
+// Acknowledge as the host would; the applied edit becomes the accepted revision.
+const accept = (applied) => {
+  const { sequence } = JSON.parse(applied).request;
   revision += 1n;
   session.acknowledge(
     JSON.stringify({
       token: 1,
       sequence,
       accepted: Number(revision),
-      durable: 0,
       paused: false,
       error: null,
     }),

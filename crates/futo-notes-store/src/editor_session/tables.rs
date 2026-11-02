@@ -1,14 +1,7 @@
 //! Table cell queries and commands remain canonical editor operations; the
-//! store supplies one guarded recovery acceptance before returning the delta.
+//! store applies each edit in memory before returning the delta.
 use super::*;
 use futo_notes_editor::{TableCommand, TableDescription, TableKey, TableOutcome};
-
-fn append_error(error: EditorError) -> EditorStoreError {
-    match error {
-        EditorError::Persistence(error) => EditorStoreError::RecoveryAppend(error),
-        other => EditorStoreError::Editor(other),
-    }
-}
 
 impl StoreEditorSession<'_> {
     pub fn inspect_table(
@@ -48,24 +41,6 @@ impl StoreEditorSession<'_> {
             &mut dyn FnMut(&futo_notes_editor::SourceEdit) -> Result<(), String>,
         ) -> Result<T, EditorError>,
     ) -> Result<T, EditorStoreError> {
-        self.mutate(|state, store| state.table_edit(store, operation))
-    }
-}
-
-impl Attachment {
-    fn table_edit<T>(
-        &mut self,
-        store: &LocalNoteStore,
-        operation: impl FnOnce(
-            &mut EditorSession,
-            &mut dyn FnMut(&futo_notes_editor::SourceEdit) -> Result<(), String>,
-        ) -> Result<T, EditorError>,
-    ) -> Result<T, EditorStoreError> {
-        self.input_ready()?;
-        let recovery = &mut self.recovery;
-        operation(&mut self.engine, &mut |edit| {
-            recovery.append(&store.root, edit)
-        })
-        .map_err(append_error)
+        self.live(|state| state.edit(operation))
     }
 }

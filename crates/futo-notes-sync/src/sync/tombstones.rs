@@ -7,10 +7,7 @@ use std::path::PathBuf;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine;
 use futo_notes_core::conflict_names::{collision_conflict_filename, conflict_filename};
-use futo_notes_core::files::recovery_coordination::has_pending_recovery;
-use futo_notes_core::files::{
-    classify_incoming_sync_path, note_id_from_relative_path, vault_mutation_guard, IncomingSyncPath,
-};
+use futo_notes_core::files::{classify_incoming_sync_path, vault_mutation_guard, IncomingSyncPath};
 use futo_notes_core::hash::hash_sha256;
 use futo_notes_core::image::is_image_filename;
 
@@ -110,35 +107,21 @@ pub(super) fn recover_stale_claims(root: &Path, pre_write: &PreWrite) {
     remove_orphan_sidecars(root, &names);
 }
 
-enum Claim {
-    Taken(String, String),
-    Absent,
-    /// An accepted editor draft exists only in recovery: a local edit.
-    PendingDraft,
-}
-
 fn claim_local_names(
     root: &Path,
     name: &str,
     object_id: &str,
     pre_write: &PreWrite,
-) -> Result<Claim, String> {
+) -> Result<Option<(String, String)>, String> {
     let _vault_mutation = vault_mutation_guard()?;
-    // Decided under the same guard hold as the claim: the editor's first
-    // append takes this guard, so a draft cannot start between check and claim.
-    if let Some(id) = note_id_from_relative_path(name) {
-        if has_pending_recovery(root, &id)? {
-            return Ok(Claim::PendingDraft);
-        }
-    }
     let (claim, sidecar) = claim_names(name, object_id);
     vault_fs::write_atomic(root, &sidecar, name.as_bytes())?;
     pre_write(name);
     match vault_fs::rename(root, name, &claim) {
-        Ok(true) => Ok(Claim::Taken(claim, sidecar)),
+        Ok(true) => Ok(Some((claim, sidecar))),
         Ok(false) => {
             let _ = remove_if_present(root, &sidecar);
-            Ok(Claim::Absent)
+            Ok(None)
         }
         Err(error) => {
             // A rename error may be a directory-fsync failure after the claim
@@ -156,10 +139,8 @@ pub(super) fn claim_local(
     object_id: &str,
     pre_write: &PreWrite,
 ) -> Result<Option<(PathBuf, PathBuf)>, String> {
-    claim_local_names(root, name, object_id, pre_write).map(|claimed| match claimed {
-        Claim::Taken(claim, sidecar) => Some((root.join(claim), root.join(sidecar))),
-        Claim::Absent | Claim::PendingDraft => None,
-    })
+    claim_local_names(root, name, object_id, pre_write)
+        .map(|claimed| claimed.map(|(claim, sidecar)| (root.join(claim), root.join(sidecar))))
 }
 
 fn restore_claim(root: &Path, claim: &str, sidecar: &str, destination: &str) {
@@ -278,27 +259,9 @@ pub(super) fn apply_tombstone(
     let Some((name, expected_hash)) = tombstone_target(state, &object.id, ancestry) else {
         return Ok(());
     };
-    let (claim, sidecar) = match claim_local_names(root, &name, &object.id, pre_write)? {
-        Claim::Taken(claim, sidecar) => (claim, sidecar),
-        Claim::Absent => {
-            state.object_map.remove(&name);
-            return Ok(());
-        }
-        // Edit wins over a peer delete. The note stays; unmapping it makes the
-        // next push create it as a fresh object (the tombstone's id no longer
-        // matches any file, so it cannot re-apply), and the draft's later
-        // checkpoint syncs as an ordinary edit. Any pending stream counts: the
-        // sync crate cannot cheaply tell a draft equal to its base.
-        Claim::PendingDraft => {
-            state.object_map.remove(&name);
-            summary.decide(
-                SyncPhase::Pull,
-                &name,
-                decision::TOMBSTONE_KEPT,
-                "unsaved_editor_draft_is_a_local_edit",
-            );
-            return Ok(());
-        }
+    let Some((claim, sidecar)) = claim_local_names(root, &name, &object.id, pre_write)? else {
+        state.object_map.remove(&name);
+        return Ok(());
     };
     let current = match claim_content(root, &claim, &name) {
         Ok(content) => content,

@@ -57,7 +57,7 @@ impl EditorSession {
         Self::restore(source, Revision(0))
     }
 
-    /// Starts a recovered session without persistent undo history.
+    /// Starts a session at a given revision without persistent undo history.
     pub fn restore(source: &str, revision: Revision) -> Self {
         Self::restore_with_clock(source, revision, Arc::new(MonotonicClock::default()))
     }
@@ -352,7 +352,7 @@ impl EditorSession {
             return Err(EditorError::CompositionActive);
         }
         if self.prepare_exact_source(edit.previous_revision, edit.range, &edit.inserted)? != *edit {
-            return Err(EditorError::RecoveryMismatch);
+            return Err(EditorError::ReplayMismatch);
         }
         accept(edit).map_err(EditorError::Persistence)?;
         Ok(self.apply(edit))
