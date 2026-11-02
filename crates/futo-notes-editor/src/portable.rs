@@ -39,9 +39,40 @@ pub struct HostAck {
     pub accepted: Revision,
     pub durable: Revision,
     pub paused: bool,
-    pub error: Option<String>,
+    pub error: Option<HostError>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub relink: Option<RelinkOffer>,
+}
+
+/// Why the host refused or failed a request. The kind is for control flow;
+/// the message is for logs only.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum HostErrorKind {
+    /// The note was deleted; the attachment is terminal.
+    Deleted,
+    /// Token, sequence or retired-mode mismatch: the request is not for this attachment.
+    StaleToken,
+    /// Recovery is paused or needs review; input stays paused until `resume`.
+    Paused,
+    /// Recovery, checkpoint or open failed in storage.
+    Storage,
+    /// The engine rejected the edit itself.
+    Rejected,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HostError {
+    pub kind: HostErrorKind,
+    pub message: String,
+}
+
+impl HostError {
+    pub fn new(kind: HostErrorKind, message: impl Into<String>) -> Self {
+        Self {
+            kind,
+            message: message.into(),
+        }
+    }
 }
 
 /// A successful own-action relink may be adopted only while the page still
@@ -190,6 +221,30 @@ impl PortableSession {
             return Err(PortableError::Busy);
         }
         Ok(self.engine.project(expected, range)?)
+    }
+
+    /// Display byte range to UTF-16 units; like `project`, never exposes staged text.
+    pub fn display_to_utf16(
+        &self,
+        expected: Revision,
+        range: DisplayRange,
+    ) -> Result<DisplayUtf16Range, PortableError> {
+        if self.pending.is_some() {
+            return Err(PortableError::Busy);
+        }
+        Ok(self.engine.display_to_utf16(expected, range)?)
+    }
+
+    /// Inverse of `display_to_utf16`; rejects mid-surrogate and mid-char offsets.
+    pub fn utf16_to_display(
+        &self,
+        expected: Revision,
+        range: DisplayUtf16Range,
+    ) -> Result<DisplayRange, PortableError> {
+        if self.pending.is_some() {
+            return Err(PortableError::Busy);
+        }
+        Ok(self.engine.display_from_utf16(expected, range)?)
     }
 
     pub fn select_with_affinity(

@@ -1,5 +1,6 @@
 use futo_notes_editor::{
-    EditorError, HostAck, HostOperation, HostRequest, HostSnapshot, SessionToken,
+    EditorError, HostAck, HostError, HostErrorKind, HostOperation, HostRequest, HostSnapshot,
+    SessionToken,
 };
 
 use super::{Attachment, EditorStoreError, RecoveryIssue, StoreEditorSession};
@@ -93,19 +94,13 @@ impl StoreEditorHost<'_> {
         let _gate = match self.session.store.lock_gate() {
             Ok(gate) => gate,
             Err(error) => {
-                return self.reply(
-                    &request,
-                    Some(EditorStoreError::Recovery(error).to_string()),
-                )
+                return self.reply(&request, Some(EditorStoreError::Recovery(error).into()))
             }
         };
         let _vault = match futo_notes_core::files::vault_mutation_guard() {
             Ok(vault) => vault,
             Err(error) => {
-                return self.reply(
-                    &request,
-                    Some(EditorStoreError::Recovery(error).to_string()),
-                )
+                return self.reply(&request, Some(EditorStoreError::Recovery(error).into()))
             }
         };
         let mut state = self
@@ -117,11 +112,21 @@ impl StoreEditorHost<'_> {
             return self.reply_with_state(
                 &state,
                 &request,
-                Some("editor attachment was deleted".into()),
+                Some(HostError::new(
+                    HostErrorKind::Deleted,
+                    "editor attachment was deleted",
+                )),
             );
         }
         if request.token != self.token {
-            return self.reply_with_state(&state, &request, Some("stale editor session".into()));
+            return self.reply_with_state(
+                &state,
+                &request,
+                Some(HostError::new(
+                    HostErrorKind::StaleToken,
+                    "stale editor session",
+                )),
+            );
         }
         if self
             .sequence_floor
@@ -130,7 +135,10 @@ impl StoreEditorHost<'_> {
             return self.reply_with_state(
                 &state,
                 &request,
-                Some("retired editor mode request".into()),
+                Some(HostError::new(
+                    HostErrorKind::StaleToken,
+                    "retired editor mode request",
+                )),
             );
         }
         if let Some((previous, ack)) = &self.last {
@@ -143,7 +151,10 @@ impl StoreEditorHost<'_> {
                 return self.reply_with_state(
                     &state,
                     &request,
-                    Some("stale or conflicting editor request".into()),
+                    Some(HostError::new(
+                        HostErrorKind::StaleToken,
+                        "stale or conflicting editor request",
+                    )),
                 );
             }
         }
@@ -156,11 +167,7 @@ impl StoreEditorHost<'_> {
                 result
             }
         };
-        let ack = self.reply_with_state(
-            &state,
-            &request,
-            result.err().map(|error| error.to_string()),
-        );
+        let ack = self.reply_with_state(&state, &request, result.err().map(HostError::from));
         self.last = Some((request, ack.clone()));
         ack
     }
@@ -184,7 +191,7 @@ impl StoreEditorHost<'_> {
             })
     }
 
-    fn reply(&self, request: &HostRequest, error: Option<String>) -> HostAck {
+    fn reply(&self, request: &HostRequest, error: Option<HostError>) -> HostAck {
         let state = self
             .session
             .state
@@ -197,7 +204,7 @@ impl StoreEditorHost<'_> {
         &self,
         state: &Attachment,
         request: &HostRequest,
-        error: Option<String>,
+        error: Option<HostError>,
     ) -> HostAck {
         let status = state.recovery_status();
         HostAck {
@@ -209,5 +216,18 @@ impl StoreEditorHost<'_> {
             error,
             relink: state.relink_offer.clone(),
         }
+    }
+}
+
+impl From<EditorStoreError> for HostError {
+    fn from(error: EditorStoreError) -> Self {
+        use EditorStoreError as E;
+        let kind = match &error {
+            E::SessionDeleted => HostErrorKind::Deleted,
+            E::RecoveryPaused | E::RecoveryNeedsReview(_) => HostErrorKind::Paused,
+            E::Editor(_) | E::SessionAlreadyOpen => HostErrorKind::Rejected,
+            _ => HostErrorKind::Storage,
+        };
+        Self::new(kind, error.to_string())
     }
 }

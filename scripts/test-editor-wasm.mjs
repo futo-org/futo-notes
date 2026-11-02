@@ -127,3 +127,8 @@ run(process.execPath, [
   join(root, 'crates/futo-notes-editor/tests/wasm-table-consumer.mjs'),
   join(output, 'futo_notes_editor.js'),
 ]);
+
+run(process.execPath, [
+  join(root, 'crates/futo-notes-editor/tests/wasm-payload-shapes.mjs'),
+  join(output, 'futo_notes_editor.js'),
+]);

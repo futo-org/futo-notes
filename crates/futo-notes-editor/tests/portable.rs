@@ -1,7 +1,8 @@
 mod common;
 
 use futo_notes_editor::{
-    Affinity, DisplayOffset, DisplayRange, PortableError, PortableSession, Revision, SessionToken,
+    Affinity, DisplayOffset, DisplayRange, HostError, HostErrorKind, PortableError,
+    PortableSession, Revision, SessionToken,
 };
 
 #[test]
@@ -85,7 +86,7 @@ fn delayed_failed_ack_cannot_pause_a_resumed_session_or_release_a_delta_twice() 
         .unwrap();
     let mut failed = request.accepted(Revision(0), Revision(0));
     failed.paused = true;
-    failed.error = Some("append failed".into());
+    failed.error = Some(HostError::new(HostErrorKind::Storage, "append failed"));
     assert!(page.acknowledge(failed.clone()).unwrap().is_none());
     assert_eq!(page.draft_text(), "!a");
     assert!(page.status().paused);

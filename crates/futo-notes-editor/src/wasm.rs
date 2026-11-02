@@ -93,6 +93,40 @@ impl WasmSession {
                 .map_err(error)?,
         )
     }
+    /// Display byte range to UTF-16 code units; `{start, end}` JSON.
+    pub fn display_to_utf16(
+        &self,
+        revision: u64,
+        start: usize,
+        end: usize,
+    ) -> Result<String, JsValue> {
+        json(
+            &self
+                .0
+                .display_to_utf16(
+                    Revision(revision),
+                    DisplayRange {
+                        start: DisplayOffset(start),
+                        end: DisplayOffset(end),
+                    },
+                )
+                .map_err(error)?,
+        )
+    }
+    /// UTF-16 code units to display byte range; rejects mid-surrogate offsets.
+    pub fn utf16_to_display(
+        &self,
+        revision: u64,
+        start: usize,
+        end: usize,
+    ) -> Result<String, JsValue> {
+        json(
+            &self
+                .0
+                .utf16_to_display(Revision(revision), utf16_range(start, end))
+                .map_err(error)?,
+        )
+    }
     pub fn select_with_affinity(
         &mut self,
         revision: u64,
