@@ -175,7 +175,7 @@ try {
         accepted: beforeCorrection.accepted,
         durable: beforeCorrection.durable,
         paused: true,
-        error: 'injected transport rejection',
+        error: { kind: 'Storage', message: 'injected transport rejection' },
       });
       assert.equal(JSON.parse(session.acknowledge(failed)), null);
       assert.equal(JSON.parse(session.status()).accepted, beforeCorrection.accepted);
@@ -262,7 +262,7 @@ try {
       accepted: 1,
       durable: before.durable,
       paused: true,
-      error: 'injected transport rejection',
+      error: { kind: 'Storage', message: 'injected transport rejection' },
     });
     assert.equal(JSON.parse(session.acknowledge(failed)), null);
     assert.equal(JSON.parse(session.status()).accepted, 1);
