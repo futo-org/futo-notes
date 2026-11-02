@@ -19,6 +19,12 @@ use repair::{escape, repairs};
 #[cfg(test)]
 mod fuzz_tests;
 
+#[cfg(test)]
+thread_local! {
+    /// Set when an action is planned by this generic path (fuzz attribution).
+    pub(super) static GENERIC: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct Shape {
     pub quotes: usize,
@@ -31,6 +37,8 @@ pub(super) struct Shape {
     pub heading: u8,
     /// Bullet character or ordered delimiter of an opening row.
     pub marker: u8,
+    /// Quotes opened inside the innermost list item on a continuation row.
+    pub inner: usize,
 }
 
 impl Shape {
@@ -115,9 +123,9 @@ impl EditorSession {
             let start = line.source.start;
             let mut fixed = line.fixed;
             let quotes = line.list.as_ref().map_or(line.quote_depth, |list| {
-                fixed |= list.quote_depth != line.quote_depth;
-                list.quote_depth
+                list.quote_depth.min(line.quote_depth)
             });
+            let inner = line.quote_depth - quotes;
             let quote_end = super::indent_source::quote_prefix_end(text, quotes);
             let mut chain = Vec::new();
             let mut physical = None;
@@ -140,7 +148,10 @@ impl EditorSession {
                 let partial;
                 (body, physical, partial) =
                     list_body(text, start, quote_end, list, opens, line.task.as_ref());
-                fixed |= partial && (opens || line.code);
+                fixed |= partial && (opens || line.code) || inner > 0 && opens;
+                if inner > 0 {
+                    body += super::indent_source::quote_prefix_end(&text[body..], inner);
+                }
             } else {
                 open.clear();
             }
@@ -169,6 +180,7 @@ impl EditorSession {
                     .filter(|_| opens),
                 heading: line.heading,
                 marker,
+                inner,
             };
             let blank = !line.code && !opens && text[body..].trim().is_empty();
             let key = line
@@ -200,6 +212,49 @@ impl EditorSession {
                 insert: Insert::None,
             });
         }
+        // The empty final line after a line ending is a row of its own.
+        let len = self.source.len_bytes();
+        if window.end == len
+            && (len == 0 || matches!(self.source.byte(len - 1), b'\n' | b'\r'))
+            && rows
+                .last()
+                .is_none_or(|row| row.end < len || row.line.start < len)
+        {
+            let shape = Shape {
+                quotes: 0,
+                depth: 0,
+                opens: false,
+                ordinal: None,
+                checked: None,
+                heading: 0,
+                marker: 0,
+                inner: 0,
+            };
+            rows.push(Row {
+                line: len..len,
+                end: len,
+                body: len..len,
+                content: len..len,
+                quote_end: len,
+                before: shape.clone(),
+                after: shape,
+                list: None,
+                chain: Vec::new(),
+                code: false,
+                blank: true,
+                divider: false,
+                fixed: false,
+                selected: selected.contains(&len),
+                exact_blank: false,
+                start: None,
+                pinned: false,
+                key: usize::MAX - rows.len(),
+                forced: false,
+                escape: false,
+                escapable: false,
+                insert: Insert::None,
+            });
+        }
         rows
     }
 
@@ -212,6 +267,8 @@ impl EditorSession {
         mut rows: Vec<Row>,
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<Option<ViewChange>, EditorError> {
+        #[cfg(test)]
+        GENERIC.with(|generic| generic.set(true));
         shapes::number(&mut rows);
         for row in rows.iter_mut().filter(|row| row.changed()) {
             row.escapable = escape(&self.source.byte_slice(row.body.clone()).to_string()).is_some();

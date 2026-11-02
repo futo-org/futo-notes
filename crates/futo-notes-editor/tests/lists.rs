@@ -36,3 +36,6 @@ mod ordered_tasks;
 
 #[path = "lists/fence_promotion.rs"]
 mod fence_promotion;
+
+#[path = "lists/common_actions.rs"]
+mod common_actions;

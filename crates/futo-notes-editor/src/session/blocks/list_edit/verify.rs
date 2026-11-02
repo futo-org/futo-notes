@@ -7,8 +7,70 @@ fn shown(projection: &crate::inline::Projection, range: Range<usize>) -> String 
     projection.display.byte_slice(start..end).to_string()
 }
 
+/// Inline semantics of one body, relative to its display start: formatted
+/// runs, links, wikilinks and atoms (merged so run boundaries cannot differ).
+#[derive(PartialEq, Eq)]
+struct Inline {
+    runs: Vec<(usize, usize, Vec<InlineFormat>)>,
+    links: Vec<(usize, usize, String, Option<String>)>,
+    wikilinks: Vec<(usize, usize, String)>,
+    atoms: Vec<(usize, usize)>,
+}
+
+fn inline(projection: &crate::inline::Projection, body: Range<usize>) -> Inline {
+    let start = projection.display_at(body.start);
+    let end = projection.display_at(body.end).max(start);
+    let slice = projection.query(
+        Revision(0),
+        DisplayRange {
+            start: DisplayOffset(start),
+            end: DisplayOffset(end),
+        },
+    );
+    let clip = |range: DisplayRange| {
+        (
+            range.start.0.max(start) - start,
+            range.end.0.min(end) - start,
+        )
+    };
+    let mut runs: Vec<(usize, usize, Vec<InlineFormat>)> = Vec::new();
+    for run in slice.runs.into_iter().filter(|run| !run.formats.is_empty()) {
+        let (a, z) = clip(run.range);
+        match runs.last_mut() {
+            Some(last) if last.1 == a && last.2 == run.formats => last.1 = z,
+            _ if a < z => runs.push((a, z, run.formats)),
+            _ => {}
+        }
+    }
+    Inline {
+        runs,
+        links: slice
+            .links
+            .into_iter()
+            .map(|link| {
+                let (a, z) = clip(link.range);
+                (a, z, link.destination, link.title)
+            })
+            .collect(),
+        wikilinks: slice
+            .wikilinks
+            .into_iter()
+            .map(|link| {
+                let (a, z) = clip(link.range);
+                (a, z, link.target)
+            })
+            .collect(),
+        atoms: slice
+            .atoms
+            .into_iter()
+            .map(|atom| clip(atom.range))
+            .collect(),
+    }
+}
+
 impl EditorSession {
-    /// The first row whose reparsed shape or display differs, if any.
+    /// The first row whose reparsed shape, display or (for an edited row)
+    /// inline semantics differ, if any.
     pub(super) fn verify_rows(
         &self,
         expected: Revision,
@@ -26,6 +88,13 @@ impl EditorSession {
             &plan.text,
         )?;
         let (whole, wanted) = self.intended_display(window, rows);
+        let inlines: Vec<Option<Inline>> = rows
+            .iter()
+            .map(|row| {
+                row.changed()
+                    .then(|| inline(&self.projection, row.body.clone()))
+            })
+            .collect();
         let (found, used) = self.with_exact_candidate(&edit, window.clone(), |staged| {
             let projection = &staged.projection;
             let lines = projection.list_command_lines_in_source(&(0..staged.source.len_bytes()));
@@ -35,7 +104,12 @@ impl EditorSession {
                 let (line, body) = plan.starts[index];
                 let delta = plan.escapes[index].map_or(0, |(_, delta)| delta);
                 let end = (body + row.body.len()).saturating_add_signed(delta) - window.start;
-                if shown(projection, body - window.start..end) != wanted[index] {
+                let local = body - window.start..end;
+                if shown(projection, local.clone()) != wanted[index]
+                    || inlines[index]
+                        .as_ref()
+                        .is_some_and(|before| *before != inline(projection, local))
+                {
                     return Ok(Some(index));
                 }
                 let line = line - window.start;
@@ -75,8 +149,7 @@ impl EditorSession {
         for row in rows {
             whole.push_str(&shown(&self.projection, previous..row.line.start));
             if row.insert == Insert::Blank {
-                let ending = self.source.byte_slice(row.line.end..row.end).to_string();
-                whole.push_str(if ending.is_empty() { "\n" } else { &ending });
+                whole.push_str(&self.inserted_ending(rows, row));
             }
             let text = shown(&self.projection, row.body.clone());
             whole.push_str(&text);
@@ -102,7 +175,7 @@ fn same_row(
         return !row.exact_blank || candidate.list.is_none();
     }
     let shape = &row.after;
-    candidate.quote_depth == shape.quotes
+    candidate.quote_depth == shape.quotes + shape.inner
         && candidate.heading == shape.heading
         && candidate.code == row.code
         && candidate.divider == row.divider

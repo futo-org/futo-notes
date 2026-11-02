@@ -5,7 +5,12 @@ fn shortcuts_remove_styled_prefixes_and_split_multiline_inline_runs() {
     for (raw, shown, expected, display) in [
         ("__#x__", "#x", "# __x__", "x"),
         ("__#a\nb__", "#a\nb", "# __a__\n__b__", "a\nb"),
-        ("__>a\r\nb__", ">a\r\nb", "> __a__\r\n\n__b__", "a\r\n\nb"),
+        (
+            "__>a\r\nb__",
+            ">a\r\nb",
+            "> __a__\r\n\r\n__b__",
+            "a\r\n\r\nb",
+        ),
     ] {
         let mut s = EditorSession::open(raw);
         let mut v = ReferenceView::new(shown);
@@ -122,10 +127,10 @@ fn quote_shortcut_isolates_its_line_from_following_plain_text() {
         .unwrap();
     s.replace(s.revision(), s.selection(), " ", &mut |_| Ok(()))
         .unwrap();
-    assert_eq!(s.source_text(), "before\r\n> \r\n\nafter");
+    assert_eq!(s.source_text(), "before\r\n> \r\n\r\nafter");
     s.replace(s.revision(), s.selection(), "Q", &mut |_| Ok(()))
         .unwrap();
-    assert_eq!(s.source_text(), "before\r\n> Q\r\n\nafter");
+    assert_eq!(s.source_text(), "before\r\n> Q\r\n\r\nafter");
     assert_eq!(
         s.project(s.revision(), range(12, 17))
             .unwrap()

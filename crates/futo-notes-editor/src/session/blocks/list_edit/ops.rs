@@ -317,10 +317,13 @@ impl EditorSession {
             .item()
             .ok_or(EditorError::UnrepresentableFormat)?;
         retire(&mut rows, &[item], false);
+        // An exited empty item must not stay a blank row of the list that
+        // continues after it; a trailing one needs no separator.
+        let continues = rows[item + 1..].iter().any(|row| !row.blank);
         let row = &mut rows[item];
         if row.body.is_empty() && !row.code {
             row.blank = true;
-            row.exact_blank = true;
+            row.exact_blank = continues;
         }
         self.commit_rows(expected, range, window, rows, accept)
     }
@@ -387,6 +390,7 @@ impl EditorSession {
             ordinal: None,
             checked: None,
             heading: 0,
+            inner: 0,
             marker: joined.map_or(if start.is_some() { b'.' } else { b'-' }, |(marker, _)| {
                 marker
             }),
@@ -395,6 +399,56 @@ impl EditorSession {
         row.pinned = start.is_some() && joined.is_none();
         row.key = joined.map_or(usize::MAX - index, |(_, key)| key);
         row.blank = false;
+        self.commit_rows(expected, range, window, rows, accept)
+    }
+}
+
+impl EditorSession {
+    /// Text retires heading syntax; Quote adds a quote to unquoted selected
+    /// rows (a heading becomes quoted text); Indent/Outdent add or remove one
+    /// quote level on quoted rows. Code and divider rows keep their bytes.
+    pub(in crate::session::blocks) fn quote_command(
+        &mut self,
+        expected: Revision,
+        range: DisplayRange,
+        command: BlockCommand,
+        accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
+    ) -> Result<Option<ViewChange>, EditorError> {
+        let (window, mut rows) = self.command_rows(range, false);
+        for row in rows
+            .iter_mut()
+            .filter(|row| row.selected && !row.code && !row.divider)
+        {
+            let quotes = row.before.quotes;
+            match command {
+                BlockCommand::Heading(0) => row.retire_heading(),
+                BlockCommand::Quote if row.list.is_none() => {
+                    row.retire_heading();
+                    row.after.quotes = quotes.max(1);
+                }
+                BlockCommand::Indent if row.before.inner > 0 => row.after.inner += 1,
+                BlockCommand::Outdent if row.before.inner > 0 => row.after.inner -= 1,
+                BlockCommand::Indent if quotes > 0 => row.after.quotes += 1,
+                BlockCommand::Outdent if quotes > 0 => row.after.quotes -= 1,
+                _ => {}
+            }
+        }
+        // A newly quoted empty line keeps a following paragraph out of the
+        // quote that typing into it will open.
+        for index in 1..rows.len() {
+            let (above, row) = (&rows[index - 1], &rows[index]);
+            if above.blank
+                && above.after.quotes > above.before.quotes
+                && !row.blank
+                && !row.code
+                && row.before.heading == 0
+                && row.list.is_none()
+                && !row.changed()
+                && row.after.quotes < above.after.quotes
+            {
+                rows[index].insert = Insert::Blank;
+            }
+        }
         self.commit_rows(expected, range, window, rows, accept)
     }
 }

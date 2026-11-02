@@ -32,6 +32,62 @@ const COMMANDS: &[BlockCommand] = &[
     BlockCommand::ToggleTask,
 ];
 
+/// Non-empty display lines with their formatted runs and links, relative to
+/// each line: list commands keep these while changing only block structure.
+fn inline_lines(
+    s: &EditorSession,
+) -> Vec<(
+    String,
+    Vec<(usize, usize, Vec<crate::InlineFormat>)>,
+    Vec<String>,
+)> {
+    let text = s.display_text();
+    let slice = s
+        .project(
+            s.revision(),
+            DisplayRange {
+                start: DisplayOffset(0),
+                end: DisplayOffset(text.len()),
+            },
+        )
+        .unwrap();
+    let mut lines = Vec::new();
+    let mut at = 0;
+    for line in text.split('\n') {
+        let end = at + line.len();
+        let body = line.trim_end_matches('\r');
+        if !body.is_empty() {
+            let mut runs: Vec<(usize, usize, Vec<crate::InlineFormat>)> = Vec::new();
+            for run in slice.runs.iter().filter(|run| !run.formats.is_empty()) {
+                let (mut a, mut z) = (run.range.start.0.max(at), run.range.end.0.min(end));
+                // A block seam may leave edge whitespace outside the markers.
+                while a < z && text.as_bytes()[a].is_ascii_whitespace() {
+                    a += 1;
+                }
+                while a < z && text.as_bytes()[z - 1].is_ascii_whitespace() {
+                    z -= 1;
+                }
+                if a >= z {
+                    continue;
+                }
+                match runs.last_mut() {
+                    Some(last) if last.1 == a - at && last.2 == run.formats => last.1 = z - at,
+                    _ => runs.push((a - at, z - at, run.formats.clone())),
+                }
+            }
+            let links = slice
+                .links
+                .iter()
+                .filter(|link| link.range.start.0 >= at && link.range.end.0 <= end)
+                .map(|link| link.destination.clone())
+                .collect();
+            lines.push((body.to_owned(), runs, links));
+        }
+        at = end + 1;
+    }
+    lines
+}
+
 #[test]
 fn list_edits_match_a_fresh_open_and_undo_exactly() {
     let mut seed = 0x9e37_79b9_7f4a_7c15u64;
@@ -71,6 +127,8 @@ fn list_edits_match_a_fresh_open_and_undo_exactly() {
                 }
             };
             let before = session.source_text();
+            let before_inline = inline_lines(&session);
+            super::GENERIC.with(|generic| generic.set(false));
             let revision = session.revision();
             let op = next(COMMANDS.len() + 3);
             let label = format!("case {case} step {step} op {op} {selected:?}\n{before:?}");
@@ -116,6 +174,19 @@ fn list_edits_match_a_fresh_open_and_undo_exactly() {
                     let after = session.source_text();
                     if after != before {
                         changed += 1;
+                        // Inline runs are kept by every action the generic path plans.
+                        let structural = super::GENERIC.with(|generic| generic.get())
+                            && op < COMMANDS.len()
+                            && COMMANDS[op] != BlockCommand::Heading(2);
+                        if structural {
+                            let now = inline_lines(&session);
+                            assert!(
+                                now == before_inline,
+                                "inline {label}\n{:?}\n{:?}",
+                                before_inline,
+                                now
+                            );
+                        }
                         session.undo(session.revision(), &mut |_| Ok(())).unwrap();
                         assert_eq!(session.source_text(), before, "undo {label}");
                         session.redo(session.revision(), &mut |_| Ok(())).unwrap();

@@ -169,6 +169,12 @@ impl EditorSession {
         if command == BlockCommand::Divider {
             return self.insert_divider(expected, range, lines, accept);
         }
+        if matches!(
+            command,
+            BlockCommand::Quote | BlockCommand::Indent | BlockCommand::Outdent
+        ) {
+            return self.quote_command(expected, range, command, accept);
+        }
         self.apply_block_prefix_command(expected, range, command, lines, accept)
     }
 
@@ -269,34 +275,4 @@ fn folded_offset(text: &str, offset: usize) -> usize {
         cr = ch == '\r';
     }
     size
-}
-
-/// All physical lines of a semantic block use the same quote-depth operation.
-fn shift_quote_prefix(prefix: &str, depth: usize, command: BlockCommand) -> String {
-    let canonical;
-    let prefix = if prefix.bytes().filter(|ch| *ch == b'>').count() < depth {
-        canonical = format!("{}{}", "> ".repeat(depth), prefix);
-        canonical.as_str()
-    } else {
-        prefix
-    };
-    if command == BlockCommand::Indent {
-        format!("> {prefix}")
-    } else {
-        let at = prefix.find('>').unwrap();
-        let cut = at + 1 + usize::from(matches!(prefix.as_bytes().get(at + 1), Some(b' ' | b'\t')));
-        prefix[cut..].to_owned()
-    }
-}
-
-fn shift_inner_quote_prefix(prefix: &str, command: BlockCommand) -> String {
-    let at = prefix.rfind('>').unwrap();
-    let mut result = prefix.to_owned();
-    if command == BlockCommand::Indent {
-        result.insert_str(at, "> ");
-    } else {
-        let end = at + 1 + usize::from(matches!(prefix.as_bytes().get(at + 1), Some(b' ' | b'\t')));
-        result.replace_range(at..end, "");
-    }
-    result
 }

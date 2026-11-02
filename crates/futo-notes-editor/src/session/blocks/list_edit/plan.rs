@@ -68,6 +68,10 @@ impl EditorSession {
                 outputs.push(None);
                 continue;
             }
+            if row.fixed && row.list.is_none() && !row.escape && only_quotes(row) {
+                outputs.push(Some(self.requote_lines(row)));
+                continue;
+            }
             if row.fixed || row.divider && depth != row.before.depth {
                 return Err(EditorError::UnrepresentableFormat);
             }
@@ -82,7 +86,7 @@ impl EditorSession {
                 ("> ".repeat(row.after.quotes), 2 * row.after.quotes)
             };
             if row.blank {
-                prefix.truncate(prefix.trim_end().len());
+                // A blank row keeps only its quote markers.
             } else if depth > 0 {
                 if row.after.opens {
                     self.opener_prefix(row, parents[index], base, &mut stack, &mut prefix)?;
@@ -92,6 +96,7 @@ impl EditorSession {
                         .get(depth - 1)
                         .ok_or(EditorError::UnrepresentableFormat)?;
                     prefix.push_str(&" ".repeat(column.saturating_sub(base)));
+                    prefix.push_str(&"> ".repeat(row.after.inner));
                 }
             } else {
                 stack.clear();
@@ -185,12 +190,6 @@ impl EditorSession {
         rows: &[Row],
         outputs: &[Option<Respelled>],
     ) -> Result<Option<Plan>, EditorError> {
-        let ending = rows
-            .iter()
-            .find(|row| row.end > row.line.end)
-            .map_or("\n".to_owned(), |row| {
-                self.source.byte_slice(row.line.end..row.end).to_string()
-            });
         let Some(first) = rows
             .iter()
             .zip(outputs)
@@ -230,11 +229,7 @@ impl EditorSession {
                 } else {
                     "> ".repeat(row.after.quotes)
                 };
-                let line_ending = if row.end > row.line.end {
-                    self.source.byte_slice(row.line.end..row.end).to_string()
-                } else {
-                    ending.clone()
-                };
+                let line_ending = self.inserted_ending(rows, row);
                 if row.insert == Insert::Comment {
                     text.push_str(&quote);
                     text.push_str("<!-- -->");
@@ -265,4 +260,49 @@ impl EditorSession {
             escapes,
         }))
     }
+
+    /// An inserted line takes the row's own ending, else the note's style.
+    pub(super) fn inserted_ending(&self, rows: &[Row], row: &Row) -> String {
+        let row = if row.end > row.line.end {
+            Some(row)
+        } else {
+            rows.iter().find(|row| row.end > row.line.end)
+        };
+        row.map_or("\n".to_owned(), |row| {
+            self.source.byte_slice(row.line.end..row.end).to_string()
+        })
+    }
+
+    /// A multi-line block (setext heading, hard-broken paragraph) that changes
+    /// only its quote depth respells every physical line's quote prefix.
+    fn requote_lines(&self, row: &Row) -> Respelled {
+        let text = self.source.byte_slice(row.line.clone()).to_string();
+        let quote = "> ".repeat(row.after.quotes);
+        let mut out = String::new();
+        let mut first = None;
+        for line in text.split_inclusive('\n') {
+            let end = super::super::indent_source::quote_prefix_end(line, row.before.quotes);
+            out.push_str(&quote);
+            first.get_or_insert(out.len());
+            out.push_str(&line[end..]);
+        }
+        let prefix = first.unwrap_or(0);
+        let later = text.find('\n').map_or(row.body.len(), |at| at + row.line.start - row.body.start);
+        Respelled {
+            escaped: Some((later, (out.len() - prefix) as isize - row.body.len() as isize)),
+            text: out,
+            prefix,
+        }
+    }
+}
+
+fn only_quotes(row: &Row) -> bool {
+    row.after.quotes != row.before.quotes
+        && Shape {
+            quotes: 0,
+            ..row.after.clone()
+        } == Shape {
+            quotes: 0,
+            ..row.before.clone()
+        }
 }
