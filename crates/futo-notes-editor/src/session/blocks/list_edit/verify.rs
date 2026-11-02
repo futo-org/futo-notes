@@ -17,55 +17,84 @@ struct Inline {
     atoms: Vec<(usize, usize)>,
 }
 
-fn inline(projection: &crate::inline::Projection, body: Range<usize>) -> Inline {
-    let start = projection.display_at(body.start);
-    let end = projection.display_at(body.end).max(start);
+/// Inline semantics of each body (source ranges, ascending) from one query
+/// over their whole display span.
+fn inlines(projection: &crate::inline::Projection, bodies: &[Range<usize>]) -> Vec<Inline> {
+    let spans: Vec<(usize, usize)> = bodies
+        .iter()
+        .map(|body| {
+            let start = projection.display_at(body.start);
+            (start, projection.display_at(body.end).max(start))
+        })
+        .collect();
+    let (Some(first), Some(last)) = (spans.first(), spans.last()) else {
+        return Vec::new();
+    };
     let slice = projection.query(
         Revision(0),
         DisplayRange {
-            start: DisplayOffset(start),
-            end: DisplayOffset(end),
+            start: DisplayOffset(first.0),
+            end: DisplayOffset(last.1),
         },
     );
-    let clip = |range: DisplayRange| {
+    let within = |range: &DisplayRange, (start, end): (usize, usize)| {
+        range.end.0 > start && (range.start.0 < end || range.start.0 == start)
+    };
+    // Items are in display order: each span reads only from its first overlap.
+    fn from<T>(items: &[T], range: impl Fn(&T) -> &DisplayRange, start: usize) -> &[T] {
+        &items[items.partition_point(|item| range(item).end.0 <= start)..]
+    }
+    let clip = |range: &DisplayRange, (start, end): (usize, usize)| {
         (
             range.start.0.max(start) - start,
             range.end.0.min(end) - start,
         )
     };
-    let mut runs: Vec<(usize, usize, Vec<InlineFormat>)> = Vec::new();
-    for run in slice.runs.into_iter().filter(|run| !run.formats.is_empty()) {
-        let (a, z) = clip(run.range);
-        match runs.last_mut() {
-            Some(last) if last.1 == a && last.2 == run.formats => last.1 = z,
-            _ if a < z => runs.push((a, z, run.formats)),
-            _ => {}
-        }
-    }
-    Inline {
-        runs,
-        links: slice
-            .links
-            .into_iter()
-            .map(|link| {
-                let (a, z) = clip(link.range);
-                (a, z, link.destination, link.title)
-            })
-            .collect(),
-        wikilinks: slice
-            .wikilinks
-            .into_iter()
-            .map(|link| {
-                let (a, z) = clip(link.range);
-                (a, z, link.target)
-            })
-            .collect(),
-        atoms: slice
-            .atoms
-            .into_iter()
-            .map(|atom| clip(atom.range))
-            .collect(),
-    }
+    spans
+        .iter()
+        .map(|&span| {
+            let mut runs: Vec<(usize, usize, Vec<InlineFormat>)> = Vec::new();
+            for run in from(&slice.runs, |run| &run.range, span.0)
+                .iter()
+                .take_while(|run| run.range.start.0 <= span.1)
+                .filter(|run| !run.formats.is_empty() && within(&run.range, span))
+            {
+                let (a, z) = clip(&run.range, span);
+                match runs.last_mut() {
+                    Some(last) if last.1 == a && last.2 == run.formats => last.1 = z,
+                    _ if a < z => runs.push((a, z, run.formats.clone())),
+                    _ => {}
+                }
+            }
+            Inline {
+                runs,
+                links: from(&slice.links, |link| &link.range, span.0)
+                    .iter()
+                    .take_while(|link| link.range.start.0 <= span.1)
+                    .filter(|link| within(&link.range, span))
+                    .map(|link| {
+                        let (a, z) = clip(&link.range, span);
+                        (a, z, link.destination.clone(), link.title.clone())
+                    })
+                    .collect(),
+                wikilinks: from(&slice.wikilinks, |link| &link.range, span.0)
+                    .iter()
+                    .take_while(|link| link.range.start.0 <= span.1)
+                    .filter(|link| within(&link.range, span))
+                    .map(|link| {
+                        let (a, z) = clip(&link.range, span);
+                        (a, z, link.target.clone())
+                    })
+                    .collect(),
+                atoms: from(&slice.atoms, |atom| &atom.range, span.0)
+                    .iter()
+                    .take_while(|atom| atom.range.start.0 <= span.1)
+                    .filter(|atom| within(&atom.range, span))
+                    .map(|atom| clip(&atom.range, span))
+                    .collect(),
+            }
+        })
+        .collect()
 }
 
 impl EditorSession {
@@ -88,29 +117,25 @@ impl EditorSession {
             &plan.text,
         )?;
         let (whole, wanted) = self.intended_display(window, rows);
-        let inlines: Vec<Option<Inline>> = rows
-            .iter()
-            .map(|row| {
-                row.changed()
-                    .then(|| inline(&self.projection, row.body.clone()))
-            })
-            .collect();
+        let edited: Vec<usize> = (0..rows.len()).filter(|&at| rows[at].changed()).collect();
+        let bodies: Vec<_> = edited.iter().map(|&at| rows[at].body.clone()).collect();
+        let before = inlines(&self.projection, &bodies);
         let (found, used) = self.with_exact_candidate(&edit, window.clone(), |staged| {
             let projection = &staged.projection;
             let lines = projection.list_command_lines_in_source(&(0..staged.source.len_bytes()));
             // Lists the intent keeps apart must not merge.
             let mut owners: Vec<(usize, usize)> = Vec::new();
+            let mut candidate_bodies = Vec::with_capacity(edited.len());
             for (index, row) in rows.iter().enumerate() {
                 let (line, body) = plan.starts[index];
                 let delta = plan.escapes[index].map_or(0, |(_, delta)| delta);
                 let end = (body + row.body.len()).saturating_add_signed(delta) - window.start;
                 let local = body - window.start..end;
-                if shown(projection, local.clone()) != wanted[index]
-                    || inlines[index]
-                        .as_ref()
-                        .is_some_and(|before| *before != inline(projection, local))
-                {
+                if shown(projection, local.clone()) != wanted[index] {
                     return Ok(Some(index));
+                }
+                if row.changed() {
+                    candidate_bodies.push(local);
                 }
                 let line = line - window.start;
                 let found = lines
@@ -133,7 +158,16 @@ impl EditorSession {
                     return Ok(Some(index));
                 }
             }
-            Ok((staged.display_text() != whole).then_some(rows.len() - 1))
+            if staged.display_text() != whole {
+                return Ok(Some(rows.len() - 1));
+            }
+            // Respelling and repairs never change an edited body's inline runs.
+            let after = inlines(projection, &candidate_bodies);
+            Ok(before
+                .iter()
+                .zip(&after)
+                .position(|(before, after)| before != after)
+                .map(|at| edited[at]))
         })?;
         accumulate_planning_work(work, used);
         Ok(found)

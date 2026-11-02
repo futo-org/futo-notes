@@ -34,13 +34,13 @@ const COMMANDS: &[BlockCommand] = &[
 
 /// Non-empty display lines with their formatted runs and links, relative to
 /// each line: list commands keep these while changing only block structure.
-fn inline_lines(
-    s: &EditorSession,
-) -> Vec<(
+type InlineLine = (
     String,
     Vec<(usize, usize, Vec<crate::InlineFormat>)>,
     Vec<String>,
-)> {
+);
+
+fn inline_lines(s: &EditorSession) -> Vec<InlineLine> {
     let text = s.display_text();
     let slice = s
         .project(
@@ -150,57 +150,80 @@ fn list_edits_match_a_fresh_open_and_undo_exactly() {
                 }
             }))
             .unwrap_or_else(|_| panic!("panicked: {label}"));
-            let fresh = EditorSession::open(&session.source_text());
-            assert_eq!(session.display_text(), fresh.display_text(), "{label}");
-            let whole = |s: &EditorSession| {
-                let end = s.display_text().len();
-                let mut slice = s
-                    .project(
-                        s.revision(),
-                        DisplayRange {
-                            start: DisplayOffset(0),
-                            end: DisplayOffset(end),
-                        },
-                    )
-                    .unwrap();
-                slice.revision = crate::Revision(0);
-                slice.correspondence.clear();
-                slice.links.clear();
-                slice
-            };
-            assert!(whole(&session) == whole(&fresh), "{label}");
-            match result {
-                Ok(Some(_)) => {
-                    let after = session.source_text();
-                    if after != before {
-                        changed += 1;
-                        // Inline runs are kept by every action the generic path plans.
-                        let structural = super::GENERIC.with(|generic| generic.get())
-                            && op < COMMANDS.len()
-                            && COMMANDS[op] != BlockCommand::Heading(2);
-                        if structural {
-                            let now = inline_lines(&session);
-                            assert!(
-                                now == before_inline,
-                                "inline {label}\n{:?}\n{:?}",
-                                before_inline,
-                                now
-                            );
-                        }
-                        session.undo(session.revision(), &mut |_| Ok(())).unwrap();
-                        assert_eq!(session.source_text(), before, "undo {label}");
-                        session.redo(session.revision(), &mut |_| Ok(())).unwrap();
-                        assert_eq!(session.source_text(), after, "redo {label}");
-                    }
-                }
-                Ok(None) | Err(EditorError::UnrepresentableFormat) => {
-                    refused += usize::from(result.is_err());
-                    assert_eq!(session.source_text(), before, "refused {label}");
-                }
-                Err(_) => assert_eq!(session.source_text(), before, "rejected {label}"),
-            }
+            // Inline runs are kept by every block command the generic path plans.
+            let inline = super::GENERIC.with(|generic| generic.get())
+                && op < COMMANDS.len()
+                && COMMANDS[op] != BlockCommand::Heading(2);
+            let (accepted, refusal) = check_step(
+                &mut session,
+                &before,
+                inline.then_some(&before_inline),
+                result,
+                &label,
+            );
+            changed += usize::from(accepted);
+            refused += usize::from(refusal);
         }
     }
     // The generator must exercise accepted edits, not only refusals.
     assert!(changed > refused, "changed {changed} refused {refused}");
+}
+
+fn whole(s: &EditorSession) -> crate::ProjectionSlice {
+    let end = s.display_text().len();
+    let mut slice = s
+        .project(
+            s.revision(),
+            DisplayRange {
+                start: DisplayOffset(0),
+                end: DisplayOffset(end),
+            },
+        )
+        .unwrap();
+    slice.revision = crate::Revision(0);
+    slice.correspondence.clear();
+    slice.links.clear();
+    slice
+}
+
+/// Fresh-open equality, refusal without change, inline preservation and
+/// exact Undo/Redo for one step: (accepted a change, refused).
+fn check_step(
+    session: &mut EditorSession,
+    before: &str,
+    before_inline: Option<&Vec<InlineLine>>,
+    result: Result<Option<crate::ViewChange>, EditorError>,
+    label: &str,
+) -> (bool, bool) {
+    let fresh = EditorSession::open(&session.source_text());
+    assert_eq!(session.display_text(), fresh.display_text(), "{label}");
+    assert!(whole(session) == whole(&fresh), "{label}");
+    match result {
+        Ok(Some(_)) => {
+            let after = session.source_text();
+            if after == before {
+                return (false, false);
+            }
+            if let Some(before_inline) = before_inline {
+                let now = inline_lines(session);
+                assert!(
+                    now == *before_inline,
+                    "inline {label}\n{before_inline:?}\n{now:?}"
+                );
+            }
+            session.undo(session.revision(), &mut |_| Ok(())).unwrap();
+            assert_eq!(session.source_text(), before, "undo {label}");
+            session.redo(session.revision(), &mut |_| Ok(())).unwrap();
+            assert_eq!(session.source_text(), after, "redo {label}");
+            (true, false)
+        }
+        Ok(None) | Err(EditorError::UnrepresentableFormat) => {
+            assert_eq!(session.source_text(), before, "refused {label}");
+            (false, result.is_err())
+        }
+        Err(_) => {
+            assert_eq!(session.source_text(), before, "rejected {label}");
+            (false, false)
+        }
+    }
 }

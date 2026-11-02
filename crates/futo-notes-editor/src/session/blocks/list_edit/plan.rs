@@ -287,9 +287,14 @@ impl EditorSession {
             out.push_str(&line[end..]);
         }
         let prefix = first.unwrap_or(0);
-        let later = text.find('\n').map_or(row.body.len(), |at| at + row.line.start - row.body.start);
+        let later = text
+            .find('\n')
+            .map_or(row.body.len(), |at| at + row.line.start - row.body.start);
         Respelled {
-            escaped: Some((later, (out.len() - prefix) as isize - row.body.len() as isize)),
+            escaped: Some((
+                later,
+                (out.len() - prefix) as isize - row.body.len() as isize,
+            )),
             text: out,
             prefix,
         }

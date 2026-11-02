@@ -42,6 +42,20 @@ pub(super) struct Shape {
 }
 
 impl Shape {
+    /// The list part of a row's current shape.
+    fn of(list: Option<&ListLine>, opens: bool, marker: u8) -> Self {
+        Self {
+            quotes: 0,
+            depth: list.map_or(0, |list| list.depth),
+            opens,
+            ordinal: list.and_then(|list| list.ordinal).filter(|_| opens),
+            checked: list.and_then(|list| list.checked).filter(|_| opens),
+            heading: 0,
+            marker,
+            inner: 0,
+        }
+    }
+
     fn ordered(&self) -> bool {
         matches!(self.marker, b'.' | b')')
     }
@@ -131,20 +145,10 @@ impl EditorSession {
             let mut physical = None;
             let mut body = quote_end;
             if let Some(list) = &line.list {
-                open.retain(|(item, _)| item.start <= start && start < item.end);
                 let opens = list.first && list.marker.start >= start;
-                if opens {
-                    open.push((list.item.clone(), index));
-                }
-                chain = open.iter().map(|(_, row)| Some(*row)).collect();
-                if chain.len() > list.depth {
-                    fixed = true;
-                    chain.drain(..chain.len() - list.depth);
-                }
-                while chain.len() < list.depth {
-                    fixed = true;
-                    chain.insert(0, None);
-                }
+                let complete;
+                (chain, complete) = item_chain(&mut open, list, start, opens.then_some(index));
+                fixed |= !complete;
                 let partial;
                 (body, physical, partial) =
                     list_body(text, start, quote_end, list, opens, line.task.as_ref());
@@ -166,21 +170,9 @@ impl EditorSession {
                 .map_or(0, |list| self.source.byte(list.marker.end - 1));
             let shape = Shape {
                 quotes,
-                depth: line.list.as_ref().map_or(0, |list| list.depth),
-                opens,
-                ordinal: line
-                    .list
-                    .as_ref()
-                    .and_then(|list| list.ordinal)
-                    .filter(|_| opens),
-                checked: line
-                    .list
-                    .as_ref()
-                    .and_then(|list| list.checked)
-                    .filter(|_| opens),
                 heading: line.heading,
-                marker,
                 inner,
+                ..Shape::of(line.list.as_ref(), opens, marker)
             };
             let blank = !line.code && !opens && text[body..].trim().is_empty();
             let key = line
@@ -220,40 +212,7 @@ impl EditorSession {
                 .last()
                 .is_none_or(|row| row.end < len || row.line.start < len)
         {
-            let shape = Shape {
-                quotes: 0,
-                depth: 0,
-                opens: false,
-                ordinal: None,
-                checked: None,
-                heading: 0,
-                marker: 0,
-                inner: 0,
-            };
-            rows.push(Row {
-                line: len..len,
-                end: len,
-                body: len..len,
-                content: len..len,
-                quote_end: len,
-                before: shape.clone(),
-                after: shape,
-                list: None,
-                chain: Vec::new(),
-                code: false,
-                blank: true,
-                divider: false,
-                fixed: false,
-                selected: selected.contains(&len),
-                exact_blank: false,
-                start: None,
-                pinned: false,
-                key: usize::MAX - rows.len(),
-                forced: false,
-                escape: false,
-                escapable: false,
-                insert: Insert::None,
-            });
+            rows.push(eof_row(len, rows.len(), selected.contains(&len)));
         }
         rows
     }
@@ -364,6 +323,58 @@ fn map_offset(rows: &[Row], plan: &Plan, offset: usize) -> usize {
         (body + offset - row.body.start).saturating_add_signed(shift)
     } else {
         body.max(line)
+    }
+}
+
+/// Opening rows of the items containing a row at `start`, outermost first;
+/// false when the parse nests items on one line (no row of their own).
+fn item_chain(
+    open: &mut Vec<(Range<usize>, usize)>,
+    list: &ListLine,
+    start: usize,
+    opens: Option<usize>,
+) -> (Vec<Option<usize>>, bool) {
+    open.retain(|(item, _)| item.start <= start && start < item.end);
+    if let Some(index) = opens {
+        open.push((list.item.clone(), index));
+    }
+    let mut chain: Vec<_> = open.iter().map(|(_, row)| Some(*row)).collect();
+    let complete = chain.len() == list.depth;
+    if chain.len() > list.depth {
+        chain.drain(..chain.len() - list.depth);
+    }
+    while chain.len() < list.depth {
+        chain.insert(0, None);
+    }
+    (chain, complete)
+}
+
+/// The empty final line after a line ending, as an unlisted blank row.
+fn eof_row(len: usize, index: usize, selected: bool) -> Row {
+    let shape = Shape::of(None, false, 0);
+    Row {
+        line: len..len,
+        end: len,
+        body: len..len,
+        content: len..len,
+        quote_end: len,
+        before: shape.clone(),
+        after: shape,
+        list: None,
+        chain: Vec::new(),
+        code: false,
+        blank: true,
+        divider: false,
+        fixed: false,
+        selected,
+        exact_blank: false,
+        start: None,
+        pinned: false,
+        key: usize::MAX - index,
+        forced: false,
+        escape: false,
+        escapable: false,
+        insert: Insert::None,
     }
 }
 
