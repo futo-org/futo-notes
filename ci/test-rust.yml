@@ -13,6 +13,7 @@ test:rust:workspace:
     CARGO_CACHE_POLICY: pull
   cache:
     - !reference [.cache-cargo-tauri, cache]
+    - !reference [.cache-pnpm, cache]
   script:
     # `cargo test --workspace` compiles the futo-notes-tauri desktop crate,
     # which links gtk-sys/gobject-sys and needs the GTK/WebKit dev libs.
@@ -24,6 +25,8 @@ test:rust:workspace:
     # The workspace tests already contain model conformance coverage.
     - node scripts/check-rust-dependency-boundaries.mjs
     # Existing blocking Rust job/release gate also runs the actual WASM consumer.
+    # Its payload drift check parses wasmPayloads.d.ts with `typescript`.
+    - pnpm install --frozen-lockfile --prefer-offline
     - node "$CI_PROJECT_DIR/scripts/test-editor-wasm.mjs"
     # Windows is the only non-Unix target we ship, and its build is tag-only
     # and slow, so a cfg-gating mistake in the `cfg(not(unix))` vault layer or
@@ -81,6 +84,7 @@ test:rust:workspace:
         - packages/editor/src/preview.ts
         - packages/editor/src/images.ts
         - src/shared/note/wikilinks.ts
+        - packages/editor/src/wasmPayloads.d.ts
         - apps/tauri/src-tauri/**/*
         - apps/tauri/Cargo.toml
         - apps/cli/**/*
