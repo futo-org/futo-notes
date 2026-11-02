@@ -1,5 +1,4 @@
 mod block_edit;
-pub(crate) mod bounded;
 pub(crate) use block_edit::BodySource;
 mod block_queries;
 pub(crate) mod blocks;

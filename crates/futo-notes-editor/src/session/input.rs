@@ -238,8 +238,7 @@ impl EditorSession {
         self.redo.clear();
     }
 
-    /// Shared grouping decision; bounded input retains the entry in its owning
-    /// session without reallocating or dropping a growing history vector.
+    /// Whether this input joins the open typing group.
     pub(super) fn input_joins_history(
         &mut self,
         input: Option<&HistoryInput<'_>>,

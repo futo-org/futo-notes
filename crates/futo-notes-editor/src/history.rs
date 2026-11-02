@@ -137,12 +137,6 @@ impl TypingRun {
             at,
         }
     }
-    pub(crate) fn rebase_selection(&mut self, opening: DisplayRange, resulting: DisplayRange) {
-        if self.selection == opening {
-            self.selection = resulting;
-        }
-    }
-
     pub fn relocate(mut self, display_start: usize, accepted_at: Duration) -> Self {
         self.selection.start.0 += display_start;
         self.selection.end.0 += display_start;

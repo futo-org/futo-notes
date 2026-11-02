@@ -1,5 +1,4 @@
 mod blocks;
-pub(crate) mod bounded;
 mod composition;
 mod find;
 mod formatting;
@@ -48,8 +47,6 @@ pub struct EditorSession {
     clock: Arc<dyn HistoryClock>,
     typing: Option<TypingRun>,
     composition: Option<Composition>,
-    bounded_incarnation: u64,
-    bounded_work: crate::BoundedWork,
     context: staging::StageContext,
     find: find::FindState,
     /// Names this session for async claims; never reused within a process.
@@ -105,8 +102,6 @@ impl EditorSession {
             clock,
             typing: None,
             composition: None,
-            bounded_incarnation: 0,
-            bounded_work: crate::BoundedWork::default(),
             context: staging::StageContext::complete_source(),
             find: find::FindState::default(),
             incarnation: images::next_incarnation(),

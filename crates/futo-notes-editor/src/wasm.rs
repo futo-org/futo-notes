@@ -1,6 +1,5 @@
 //! JSON wire facade; all persistence happens asynchronously in the native host.
 use wasm_bindgen::prelude::*;
-mod bounded;
 mod clipboard;
 mod tables;
 

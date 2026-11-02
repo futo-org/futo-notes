@@ -9,7 +9,7 @@ impl PortableSession {
         expected: Revision,
         range: DisplayRange,
     ) -> Result<String, PortableError> {
-        if self.pending.is_some() || self.bounded_entry.is_some() {
+        if self.pending.is_some() {
             return Err(PortableError::Busy);
         }
         Ok(self.engine.copy_markdown(expected, range)?)
