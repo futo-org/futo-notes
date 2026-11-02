@@ -94,5 +94,5 @@ internal fun MainActivity.chooseStorage(mode: StorageMode) {
 internal fun MainActivity.finalizeFreshChoice(mode: StorageMode) {
     prefs.edit().putString(Prefs.STORAGE_MODE, mode.name).apply()
     showOnboarding.value = false
-    initVault(NotesStorage.rootFor(this, mode, BuildConfig.DEBUG))
+    initVault(NotesStorage.rootFor(this, mode, NotesStorage.isDevBuild))
 }

@@ -39,7 +39,7 @@ internal fun recoverStorageStartup(
     context: Context,
     preferences: SharedPreferences,
     journal: StorageMigrationJournal,
-    isDebug: Boolean,
+    isDevBuild: Boolean,
 ): StorageStartupRecovery {
     val pending = journal.read().getOrElse {
         return StorageStartupRecovery(
@@ -50,7 +50,7 @@ internal fun recoverStorageStartup(
     val savedMode = preferences.getString(Prefs.STORAGE_MODE, null)
     val effectiveMode = pending?.let { migration ->
         val sourceState =
-            NotesStorage.sourceStateForRecovery(context, migration.from, isDebug)
+            NotesStorage.sourceStateForRecovery(context, migration.from, isDevBuild)
         if (migration.phase == StorageMigrationPhase.FINALIZING) {
             when (sourceState) {
                 StorageRootState.PRESENT -> Unit

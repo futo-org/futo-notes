@@ -305,7 +305,7 @@ class MainActivity : ComponentActivity() {
                                 }
                             }
                             showRegrant.value -> StorageRegrantScreen(
-                                onGrant = { requestDeviceAccess { showRegrant.value = false; initVault(NotesStorage.deviceRoot(BuildConfig.DEBUG)) } },
+                                onGrant = { requestDeviceAccess { showRegrant.value = false; initVault(NotesStorage.deviceRoot(NotesStorage.isDevBuild)) } },
                                 onUseAppStorage = {
                                     // commit() — restartApp() kills the process before an
                                     // async apply() would flush (see performSwitch).
@@ -342,7 +342,7 @@ class MainActivity : ComponentActivity() {
                     context = this@MainActivity,
                     preferences = prefs,
                     journal = storageMigrationJournal,
-                    isDebug = BuildConfig.DEBUG,
+                    isDevBuild = NotesStorage.isDevBuild,
                 )
             }
             themeMode.value = recovered.first

@@ -43,7 +43,7 @@ internal fun MainActivity.applyStorageStartup(recovery: StorageStartupRecovery) 
         if (mode == StorageMode.DEVICE && !NotesStorage.hasDeviceAccess()) {
             showRegrant.value = true
         } else {
-            initVault(NotesStorage.rootFor(this, mode, BuildConfig.DEBUG))
+            initVault(NotesStorage.rootFor(this, mode, NotesStorage.isDevBuild))
         }
     }
     storageResolving.value = false
@@ -71,7 +71,7 @@ internal fun MainActivity.performStorageChange(mode: StorageMode) {
 internal fun MainActivity.planStorageChange(newMode: StorageMode) {
     if (storageSwitching.value) return
     val current = store.value ?: return
-    val to = NotesStorage.rootFor(this, newMode, BuildConfig.DEBUG)
+    val to = NotesStorage.rootFor(this, newMode, NotesStorage.isDevBuild)
     lifecycleScope.launch {
         when (val plan = storageSwitchPlan(current.inspectVaultDestination(to), sync.connected)) {
             StorageSwitchPlan.Migrate -> performSwitch(newMode)
@@ -148,7 +148,7 @@ internal fun MainActivity.performSwitch(newMode: StorageMode) {
     if (storageSwitching.value) return
     val current = store.value ?: return
     val previousMode = currentMode()
-    val to = NotesStorage.rootFor(this, newMode, BuildConfig.DEBUG)
+    val to = NotesStorage.rootFor(this, newMode, NotesStorage.isDevBuild)
     storageSwitching.value = true
     if (!current.tryBeginStorageMigration()) {
         storageSwitching.value = false
