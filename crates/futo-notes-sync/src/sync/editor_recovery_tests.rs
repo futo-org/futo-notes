@@ -8,6 +8,7 @@ use std::collections::HashMap;
 
 mod absent_installs;
 mod destinations;
+mod peer_delete;
 
 #[tokio::test]
 async fn crash_then_sync_preserves_restored_checkpoint_and_pending_draft() {

@@ -44,6 +44,7 @@ pub(crate) mod decision {
     pub(crate) const RELOCATED: &str = "relocated";
     pub(crate) const TOMBSTONE_APPLIED: &str = "tombstone_applied";
     pub(crate) const TOMBSTONE_PARKED: &str = "tombstone_parked";
+    pub(crate) const TOMBSTONE_KEPT: &str = "tombstone_kept";
     pub(crate) const FAILED: &str = "failed";
     /// Left strictly alone — not written, not uploaded, and deliberately NOT a
     /// failure. Journal-only, so the silence is still answerable after the fact.
