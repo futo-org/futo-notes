@@ -106,44 +106,51 @@ fn shared_list_actions_forward_native_coordinates_history_and_exact_recovery() {
             .unwrap();
             assert_eq!(s.source_text().unwrap(), text("source"));
         }
-        let change = match action {
+        let result = match action {
             "Typing" => s
                 .replace_utf16_action(0, selected, inserted, EditorInputAction::Typing)
-                .unwrap(),
-            "Enter" | "Backspace" | "Delete" => s
-                .paragraph_key_utf16(
-                    0,
-                    selected,
-                    if action == "Enter" {
-                        EditorParagraphKey::Enter
-                    } else if action == "Delete" {
-                        EditorParagraphKey::Delete
-                    } else {
-                        EditorParagraphKey::Backspace
-                    },
-                )
-                .unwrap()
-                .unwrap(),
-            command => s
-                .block_command_utf16(
-                    0,
-                    selected,
-                    match command {
-                        "Text" => EditorBlockCommand::Heading { level: 0 },
-                        "Heading2" => EditorBlockCommand::Heading { level: 2 },
-                        "Quote" => EditorBlockCommand::Quote,
-                        "Indent" => EditorBlockCommand::Indent,
-                        "Outdent" => EditorBlockCommand::Outdent,
-                        "BulletList" => EditorBlockCommand::BulletList,
-                        "OrderedList" => EditorBlockCommand::OrderedList,
-                        "TaskList" => EditorBlockCommand::TaskList,
-                        "ToggleTask" | "ComposeToggleTask" => EditorBlockCommand::ToggleTask,
-                        _ => panic!("unknown fixture action {command}"),
-                    },
-                )
-                .unwrap()
-                .unwrap(),
+                .map(Some),
+            "Enter" | "Backspace" | "Delete" => s.paragraph_key_utf16(
+                0,
+                selected,
+                if action == "Enter" {
+                    EditorParagraphKey::Enter
+                } else if action == "Delete" {
+                    EditorParagraphKey::Delete
+                } else {
+                    EditorParagraphKey::Backspace
+                },
+            ),
+            command => s.block_command_utf16(
+                0,
+                selected,
+                match command {
+                    "Text" => EditorBlockCommand::Heading { level: 0 },
+                    "Heading2" => EditorBlockCommand::Heading { level: 2 },
+                    "Quote" => EditorBlockCommand::Quote,
+                    "Indent" => EditorBlockCommand::Indent,
+                    "Outdent" => EditorBlockCommand::Outdent,
+                    "BulletList" => EditorBlockCommand::BulletList,
+                    "OrderedList" => EditorBlockCommand::OrderedList,
+                    "TaskList" => EditorBlockCommand::TaskList,
+                    "ToggleTask" | "ComposeToggleTask" => EditorBlockCommand::ToggleTask,
+                    _ => panic!("unknown fixture action {command}"),
+                },
+            ),
         };
+        if case["refused"].as_bool() == Some(true) {
+            assert!(
+                matches!(
+                    result,
+                    Err(futo_notes_ffi::EditorSessionError::UnrepresentableFormat)
+                ),
+                "{}",
+                text("name")
+            );
+            assert_eq!(s.source_text().unwrap(), text("source"));
+            continue;
+        }
+        let change = result.unwrap().unwrap();
         apply(&mut view, &change);
         assert_eq!(change.revision, 1);
         assert_eq!(

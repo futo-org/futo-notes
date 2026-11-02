@@ -16,6 +16,7 @@ targets remain in scope. The dependency plan records these deferrals so agents d
 reintroduce them or wait for them at final acceptance. → docs/plan/text-first-editor-rebuild-tickets.md
 
 - [Exact source, interpretation and input](portable-core/interpretation-and-input.md)
+- [Heading, quote and divider block commands](portable-core/block-commands.md)
 - [Find in note](portable-core/find.md)
 - [Link editing and source ownership](portable-core/links.md)
 - [Wikilink roles and note ids](portable-core/wikilinks.md)

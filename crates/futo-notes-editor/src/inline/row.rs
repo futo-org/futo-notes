@@ -58,15 +58,6 @@ pub(crate) struct Segment {
     pub identity: bool,
 }
 
-/// Consecutive transparent physical blanks share a context run. All other
-/// blocks are individual witnesses, including code and quote boundaries.
-pub(super) struct ContextRun {
-    pub source: Range<usize>,
-    pub first: usize,
-    pub last: usize,
-    pub transparent_quote: Option<usize>,
-}
-
 pub(crate) struct Row {
     pub source_len: usize,
     /// The source holds a `|`, as every table header line does.
@@ -88,8 +79,6 @@ pub(crate) struct Row {
     pub segments: Vec<Segment>,
     pub spans: Vec<Span>,
     pub blocks: Vec<super::blocks::BlockLine>,
-    pub(super) context: Vec<ContextRun>,
-    pub(super) transparent_quote: Option<usize>,
     /// This row's first block continues the preceding row's last block.
     pub continues: bool,
     /// This row continues one block that the following row continues too.
@@ -105,6 +94,7 @@ pub(super) fn parser_options() -> Options {
     // rather than a hidden CommonMark reference definition.
     Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS | Options::ENABLE_FOOTNOTES
 }
+#[cfg(test)]
 pub(super) fn source_events(source: &str) -> Vec<(Event<'_>, Range<usize>)> {
     Parser::new_ext(source, parser_options())
         .into_offset_iter()

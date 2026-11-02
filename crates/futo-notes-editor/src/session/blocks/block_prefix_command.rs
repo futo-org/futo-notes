@@ -1,4 +1,4 @@
-//! Spell direct heading/quote prefix changes after command routing and seam staging.
+//! Spell heading prefix changes after command routing and seam staging.
 use super::*;
 
 impl EditorSession {
@@ -27,27 +27,6 @@ impl EditorSession {
                 || line.divider
                 || matches!(command, BlockCommand::Heading(level) if line.heading == level)
             {
-                continue;
-            }
-            if matches!(command, BlockCommand::Indent | BlockCommand::Outdent) {
-                if line.quote_depth > 0 {
-                    for physical in line.bodies.iter().chain(line.underline.iter()).rev() {
-                        let prefix = self
-                            .source
-                            .byte_slice(physical.source.start..physical.content.start)
-                            .to_string();
-                        let replacement = if line.list.is_some() {
-                            shift_inner_quote_prefix(&prefix, command)
-                        } else {
-                            shift_quote_prefix(&prefix, line.quote_depth, command)
-                        };
-                        output.replace_range(
-                            physical.source.start - start..physical.content.start - start,
-                            &replacement,
-                        );
-                    }
-                    changed = true;
-                }
                 continue;
             }
             let prefix = self
@@ -81,16 +60,12 @@ impl EditorSession {
                         format!("{} ", "#".repeat(level as usize))
                     }
                 ),
-                BlockCommand::Quote if line.quote_depth == 0 => format!("> {quote_prefix}"),
-                BlockCommand::Quote if line.heading > 0 => quote_prefix.to_owned(),
                 _ => continue,
             };
             changed = true;
             let prior_len = output.len();
             // Changing heading level retires only that line's optional ATX closer.
-            if matches!(command, BlockCommand::Heading(_))
-                || command == BlockCommand::Quote && line.heading > 0
-            {
+            if matches!(command, BlockCommand::Heading(_)) {
                 let content_end = line.source.end
                     - self
                         .source
@@ -107,7 +82,7 @@ impl EditorSession {
             }
             let retained_body = self.source.byte_slice(line.content.clone()).to_string();
             let heading = matches!(command, BlockCommand::Heading(level) if level > 0);
-            let paragraph = command == BlockCommand::Heading(0) || command == BlockCommand::Quote;
+            let paragraph = command == BlockCommand::Heading(0);
             let (body, work) = if heading && line.bodies.len() > 1 {
                 let body_start = self.projection.display_at(line.content.start);
                 let body_end = self.projection.display_at(line.content.end);
@@ -175,41 +150,6 @@ impl EditorSession {
                     let within = (original - start).min(shown.len());
                     *endpoint -= within - folded_offset(shown, within);
                 }
-            }
-        }
-        if (command == BlockCommand::Indent
-            || command == BlockCommand::Quote && first.quote_depth == 0)
-            && end < self.source.len_bytes()
-        {
-            if let Some((separator, copied)) =
-                self.quote_neighbor_separator(end, first.quote_depth + 1, !first.content.is_empty())
-            {
-                materialized += copied + separator.len();
-                output.push_str(&separator);
-            }
-        }
-        if command == BlockCommand::Outdent && first.quote_depth > 0 && first.source.start > 0 {
-            let previous_display = self
-                .projection
-                .display_at(first.source.start)
-                .saturating_sub(1);
-            let previous_range = DisplayRange {
-                start: DisplayOffset(previous_display),
-                end: DisplayOffset(previous_display),
-            };
-            // Query at the preceding newline (ASCII boundary), never inside Unicode text.
-            if self
-                .projection
-                .block_lines(previous_range)
-                .first()
-                .is_some_and(|previous| previous.quote_depth >= first.quote_depth)
-            {
-                output.insert_str(
-                    0,
-                    &format!("{}\n", "> ".repeat(first.quote_depth - 1).trim_end()),
-                );
-                selection.start.0 += 1;
-                selection.end.0 += 1;
             }
         }
         let (reference_work, reference_bytes) = self.projection.protect_exposed_definitions(

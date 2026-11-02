@@ -208,6 +208,22 @@ fn shared_list_actions_survive_failed_append_undo_flush_power_loss_and_checkpoin
                 .unwrap();
             }
             let marked = s.composition();
+            if case["refused"].as_bool() == Some(true) {
+                // Outside the generic list path: refused before any append.
+                assert!(
+                    matches!(
+                        action(&mut s, case),
+                        Err(EditorStoreError::Editor(
+                            futo_notes_editor::EditorError::UnrepresentableFormat
+                        ))
+                    ),
+                    "{}",
+                    text("name")
+                );
+                assert_eq!(s.source_text(), text("source"));
+                assert_eq!(s.revision(), Revision(0));
+                continue;
+            }
             disk.lock().unwrap().fault = Some(storage::Fault::Append);
             assert!(
                 matches!(

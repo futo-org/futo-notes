@@ -156,3 +156,11 @@ native UTF-16 unit1 to unit2 after the root newline. Its strict interior positio
 is valid between the decoded scalars, including when they form one grapheme.
 The public session regression also checks both affinities, rejected acceptance
 and exact Undo/Redo; all six consumers use the same literal mutation.
+
+Generic list editing (DECISIONS #20) updated these goldens on 2026-11-01: an edited
+list item may be respelled canonically while every untouched row keeps its bytes, and
+seventy-one cases whose shapes the generic path does not respell (quotes opening inside
+an item's own line, crossquote lifting, same-line nested parents, unclosed fences in a
+lifted item, setext headings) carry `"refused": true`. Their `expected`/`shown` keep the
+historical literals for reference; every consumer instead asserts `UnrepresentableFormat`
+with source and revision unchanged.

@@ -8,9 +8,6 @@ use std::ops::Range;
 #[cfg(test)]
 thread_local! {
     pub(crate) static CONTAINER_METADATA_VISITS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
-    pub(crate) static CONTAINER_PREFIX_QUERIES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
-    pub(crate) static CONTAINER_STYLE_OWNER_SCANS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
-    pub(crate) static CONTAINER_LIFT_ITEM_SCANS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
     pub(crate) static CONTAINER_BLOCK_QUERY_VISITS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
     pub(crate) static CONTAINER_CORRESPONDENCE_SCANS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
 }
@@ -32,19 +29,11 @@ pub(crate) fn visit_correspondence(_segments: usize) {
 }
 
 #[derive(Clone, Debug)]
-pub(crate) struct SinkTarget {
-    pub marker: Range<usize>,
-    pub next_number: Option<u64>,
-    pub column: usize,
-}
-
-#[derive(Clone, Debug)]
 pub(crate) struct ListLine {
     pub marker: Range<usize>,
     pub owner: Range<usize>,
     pub item: Range<usize>,
     pub outer_item: Range<usize>,
-    pub outer_depth: usize,
     pub ordinal: Option<u64>,
     pub depth: usize,
     pub checked: Option<bool>,
@@ -53,10 +42,7 @@ pub(crate) struct ListLine {
     pub marker_column: usize,
     pub content_column: usize,
     pub previous_content_column: Option<usize>,
-    pub sink: Option<SinkTarget>,
     pub parent_marker_column: Option<usize>,
-    pub parent_marker: Option<Range<usize>>,
-    pub parent_number: Option<u64>,
     pub parent_content_column: Option<usize>,
     pub quote_depth: usize,
 }
@@ -70,8 +56,6 @@ impl ListLine {
             &mut self.outer_item,
         ]
         .into_iter()
-        .chain(self.parent_marker.iter_mut())
-        .chain(self.sink.iter_mut().map(|sink| &mut sink.marker))
         {
             range.start += by;
             range.end += by;
@@ -98,6 +82,7 @@ pub(super) struct ListCursor {
 }
 
 impl ListCursor {
+    #[cfg(test)]
     pub(super) fn into_items(self) -> Vec<ListLine> {
         self.items
     }
@@ -224,30 +209,13 @@ pub(super) fn describe(source: &str, events: &[(Event<'_>, Range<usize>)]) -> Li
                     .last()
                     .unwrap()
                     .map(|at| items[at].content_column);
-                let sink = previous_items
-                    .last()
-                    .copied()
-                    .flatten()
-                    .and_then(|previous| last_child[previous])
-                    .filter(|&child| {
-                        items[child].ordinal.is_some() == ordinal.is_some()
-                            && items[child].quote_depth == quote_depth
-                    })
-                    .map(|child| SinkTarget {
-                        marker: items[child].marker.clone(),
-                        next_number: items[child].ordinal.map(|number| number + 1),
-                        column: items[child].marker_column,
-                    });
                 *previous_items.last_mut().unwrap() = Some(items.len());
                 let parent = active_items
                     .last()
                     .filter(|&&at| items[at].quote_depth == quote_depth);
                 let outer_item =
                     parent.map_or_else(|| range.clone(), |&at| items[at].outer_item.clone());
-                let outer_depth = parent.map_or(depth, |&at| items[at].outer_depth);
                 let parent_marker_column = parent.map(|&at| items[at].marker_column);
-                let parent_marker = parent.map(|&at| items[at].marker.clone());
-                let parent_number = parent.and_then(|&at| items[at].ordinal);
                 let parent_content_column = parent.map(|&at| items[at].content_column);
                 if let Some(&parent) = parent {
                     last_child[parent] = Some(items.len());
@@ -258,7 +226,6 @@ pub(super) fn describe(source: &str, events: &[(Event<'_>, Range<usize>)]) -> Li
                     owner: owner.clone(),
                     item: range.clone(),
                     outer_item,
-                    outer_depth,
                     ordinal,
                     depth,
                     checked: None,
@@ -267,10 +234,7 @@ pub(super) fn describe(source: &str, events: &[(Event<'_>, Range<usize>)]) -> Li
                     marker_column,
                     content_column,
                     previous_content_column,
-                    sink,
                     parent_marker_column,
-                    parent_marker,
-                    parent_number,
                     parent_content_column,
                     quote_depth,
                 });

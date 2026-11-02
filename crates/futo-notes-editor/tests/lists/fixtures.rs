@@ -76,7 +76,7 @@ fn shared_literal_list_actions_cover_native_coordinates_and_exact_history() {
             accepts += 1;
             Ok(())
         };
-        let change = match action {
+        let result = match action {
             "Typing" => s
                 .replace_utf16_action(
                     s.revision(),
@@ -85,43 +85,49 @@ fn shared_literal_list_actions_cover_native_coordinates_and_exact_history() {
                     InputAction::Typing,
                     &mut accept,
                 )
-                .unwrap(),
-            "Enter" | "Backspace" | "Delete" => s
-                .paragraph_key_utf16(
-                    s.revision(),
-                    selected,
-                    if action == "Enter" {
-                        ParagraphKey::Enter
-                    } else if action == "Delete" {
-                        ParagraphKey::Delete
-                    } else {
-                        ParagraphKey::Backspace
-                    },
-                    &mut accept,
-                )
-                .unwrap()
-                .unwrap(),
-            command => s
-                .block_command_utf16(
-                    s.revision(),
-                    selected,
-                    match command {
-                        "Text" => BlockCommand::Heading(0),
-                        "Heading2" => BlockCommand::Heading(2),
-                        "Quote" => BlockCommand::Quote,
-                        "Indent" => BlockCommand::Indent,
-                        "Outdent" => BlockCommand::Outdent,
-                        "BulletList" => BlockCommand::BulletList,
-                        "OrderedList" => BlockCommand::OrderedList,
-                        "TaskList" => BlockCommand::TaskList,
-                        "ToggleTask" | "ComposeToggleTask" => BlockCommand::ToggleTask,
-                        _ => panic!("unknown fixture action {command}"),
-                    },
-                    &mut accept,
-                )
-                .unwrap()
-                .unwrap(),
+                .map(Some),
+            "Enter" | "Backspace" | "Delete" => s.paragraph_key_utf16(
+                s.revision(),
+                selected,
+                if action == "Enter" {
+                    ParagraphKey::Enter
+                } else if action == "Delete" {
+                    ParagraphKey::Delete
+                } else {
+                    ParagraphKey::Backspace
+                },
+                &mut accept,
+            ),
+            command => s.block_command_utf16(
+                s.revision(),
+                selected,
+                match command {
+                    "Text" => BlockCommand::Heading(0),
+                    "Heading2" => BlockCommand::Heading(2),
+                    "Quote" => BlockCommand::Quote,
+                    "Indent" => BlockCommand::Indent,
+                    "Outdent" => BlockCommand::Outdent,
+                    "BulletList" => BlockCommand::BulletList,
+                    "OrderedList" => BlockCommand::OrderedList,
+                    "TaskList" => BlockCommand::TaskList,
+                    "ToggleTask" | "ComposeToggleTask" => BlockCommand::ToggleTask,
+                    _ => panic!("unknown fixture action {command}"),
+                },
+                &mut accept,
+            ),
         };
+        if case["refused"].as_bool() == Some(true) {
+            // Outside the generic list path: refused before acceptance.
+            assert!(
+                matches!(result, Err(EditorError::UnrepresentableFormat)),
+                "{}",
+                text("name")
+            );
+            assert_eq!(accepts, 0);
+            assert_eq!(s.source_text(), text("source"));
+            continue;
+        }
+        let change = result.unwrap().unwrap();
         view.apply(change);
         assert_eq!(accepts, 1, "{}", text("name"));
         assert_eq!(s.source_text(), text("expected"), "{}", text("name"));

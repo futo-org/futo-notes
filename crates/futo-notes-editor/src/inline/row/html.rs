@@ -96,20 +96,6 @@ impl Row {
                 block
             })
             .collect();
-        let context: Vec<_> = full
-            .context
-            .iter()
-            .filter(|run| run.first >= dropped)
-            .map(|run| ContextRun {
-                source: back(&run.source),
-                first: run.first - dropped,
-                last: run.last - dropped,
-                transparent_quote: run.transparent_quote,
-            })
-            .collect();
-        let transparent_quote = (context.len() == 1)
-            .then(|| context[0].transparent_quote)
-            .flatten();
         Some(Self {
             source_len: text.len(),
             pipes: text.contains('|'),
@@ -134,8 +120,6 @@ impl Row {
             segments,
             spans: Vec::new(),
             blocks,
-            context,
-            transparent_quote,
             continues: true,
             through: false,
             metadata: false,

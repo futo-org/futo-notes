@@ -5,59 +5,6 @@ mod paragraph;
 use super::*;
 
 impl EditorSession {
-    pub(super) fn list_neighbor_separator(
-        &self,
-        end: usize,
-        depth: usize,
-    ) -> Option<(String, usize)> {
-        if end >= self.source.len_bytes() {
-            return None;
-        }
-        let point = DisplayOffset(self.projection.display_at(end));
-        let next = self
-            .projection
-            .list_command_lines(DisplayRange {
-                start: point,
-                end: point,
-            })
-            .into_iter()
-            .next()?;
-        if next.content.is_empty()
-            || next.list.is_some()
-            || next.heading > 0
-            || next.code
-            || next.divider
-            || next.quote_depth > depth
-        {
-            return None;
-        }
-        let next_line = self.source.byte_to_line(next.source.start);
-        if next_line > 0 {
-            let previous = self.source.line_to_byte(next_line - 1);
-            if self
-                .projection
-                .source_prefix_at(previous)
-                .is_some_and(|prefix| {
-                    !prefix.code
-                        && prefix.quote_depth == next.quote_depth
-                        && self.source.byte_slice(prefix.content).chars().all(|ch| {
-                            crate::inline::visit_container();
-                            ch.is_whitespace()
-                        })
-                })
-            {
-                return None;
-            }
-        }
-        let prefix = self
-            .source
-            .byte_slice(next.source.start..next.content.start)
-            .to_string();
-        let separator = format!("{}\n", prefix.trim_end_matches([' ', '\t']));
-        let materialized = prefix.len() + separator.len();
-        Some((separator, materialized))
-    }
-
     pub(super) fn toggle_task(
         &mut self,
         expected: Revision,
@@ -139,15 +86,17 @@ impl EditorSession {
         if lines.len() != 1 || lines[0].list.is_none() || lines[0].code {
             return Ok(None);
         }
-        if key == ParagraphKey::Backspace {
-            if let Some(change) = self.shared_prefix_frames(
-                expected,
-                range,
-                super::list_prefix_frames::FrameAction::Backspace,
-                accept,
-            )? {
-                return Ok(Some(change));
-            }
+        if key == ParagraphKey::Backspace
+            && range.start == range.end
+            && lines[0].list.as_ref().is_some_and(|list| {
+                list.first
+                    && lines[0].source.contains(&list.marker.start)
+                    && list.quote_depth != lines[0].quote_depth
+            })
+            && range.start.0 == self.projection.display_at(lines[0].content.start)
+        {
+            // A quote inside a list item is outside the generic list path.
+            return Err(EditorError::UnrepresentableFormat);
         }
         if key == ParagraphKey::Backspace && range.start == range.end {
             let line = &lines[0];

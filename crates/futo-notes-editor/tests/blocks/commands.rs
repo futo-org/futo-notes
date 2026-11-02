@@ -168,7 +168,7 @@ fn quote_commands_do_not_adopt_neighboring_lazy_lines() {
         .unwrap()
         .unwrap(),
     );
-    assert_eq!(s.source_text(), "before\r\n> A\r\n\nB\r\nend");
+    assert_eq!(s.source_text(), "before\r\n> A\r\n\r\nB\r\nend");
     let p = s.project(s.revision(), range(12, 13)).unwrap();
     assert!(p.blocks.iter().all(|b| b.quote_depth == 0));
     v.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
@@ -496,7 +496,7 @@ fn whole_setext_quote_depth_changes_every_owned_prefix_and_exact_history() {
             "  > x\r\n  > y\r\n  > ---\r\n",
             "x\r\ny\r\n",
             BlockCommand::Indent,
-            ">   > x\r\n>   > y\r\n>   > ---\r\n",
+            "> > x\r\n> > y\r\n> > ---\r\n",
             2,
         ),
         (

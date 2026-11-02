@@ -249,26 +249,26 @@ fn outdent_retargets_the_lifted_item_to_its_parent_list_kind_and_content_width()
     }
 }
 #[test]
-fn outdent_same_line_nested_syntax_preserves_the_empty_parent_item() {
-    let source = "* 0. text";
-    let mut s = EditorSession::open(source);
-    let mut view = ReferenceView::new("text");
-    assert_eq!(s.display_text(), "text");
-    let selected = range(0, 4);
-    s.select(s.revision(), selected).unwrap();
-    view.apply(
-        s.block_command(s.revision(), selected, BlockCommand::Outdent, &mut |_| {
-            Ok(())
-        })
-        .unwrap()
-        .unwrap(),
-    );
-    assert_eq!(s.source_text(), "* \n* text");
-    assert_eq!(view.text, "\ntext");
-    assert_eq!(s.selection(), range(1, 5));
-    view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
-    assert_eq!(s.source_text(), source);
-    assert_eq!(s.selection(), selected);
+fn same_line_nested_list_parents_are_refused_unchanged() {
+    // Two items opening on one physical line have no canonical respelling
+    // that keeps the empty parent (DECISIONS #20): refused before acceptance.
+    for (raw, selected, command) in [
+        ("* 0. text", range(0, 4), BlockCommand::Outdent),
+        (
+            "- - child\n  - sibling\n- following",
+            range(0, 5),
+            BlockCommand::Heading(0),
+        ),
+    ] {
+        let mut s = EditorSession::open(raw);
+        s.select(s.revision(), selected).unwrap();
+        assert!(matches!(
+            s.block_command(s.revision(), selected, command, &mut |_| panic!("accepted")),
+            Err(EditorError::UnrepresentableFormat)
+        ));
+        assert_eq!(s.source_text(), raw);
+        assert_eq!(s.selection(), selected);
+    }
 }
 
 #[test]
@@ -488,32 +488,4 @@ fn nested_bullet_toggle_lifts_text_descendants_and_following_nested_siblings() {
     assert_eq!(s.source_text(), expected);
     assert_eq!(view.text, after);
     assert_eq!(s.selection(), final_selected);
-}
-
-#[test]
-fn explicit_text_preserves_a_same_line_empty_parent_when_lifting_all_lists() {
-    let raw = "- - child\n  - sibling\n- following";
-    let expected = "- \n\nchild\n+ sibling\n- following";
-    let mut s = EditorSession::open(raw);
-    let mut view = ReferenceView::new("child\nsibling\nfollowing");
-    s.select(s.revision(), range(0, 5)).unwrap();
-    view.apply(
-        s.block_command(
-            s.revision(),
-            range(0, 5),
-            BlockCommand::Heading(0),
-            &mut |_| Ok(()),
-        )
-        .unwrap()
-        .unwrap(),
-    );
-    assert_eq!(s.source_text(), expected);
-    assert_eq!(view.text, "\n\nchild\nsibling\nfollowing");
-    assert_eq!(s.selection(), range(2, 7));
-    view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
-    assert_eq!(s.source_text(), raw);
-    assert_eq!(view.text, "child\nsibling\nfollowing");
-    assert_eq!(s.selection(), range(0, 5));
-    view.apply(s.redo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
-    assert_eq!(s.source_text(), expected);
 }

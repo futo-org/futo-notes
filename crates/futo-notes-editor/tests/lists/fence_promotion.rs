@@ -83,42 +83,6 @@ fn prove_fence_plan(
 }
 
 #[test]
-fn lifting_a_list_item_closes_its_unmatched_fence_before_the_untouched_outside_item() {
-    prove_fence_plan(
-        "- parent\n  ```\n  opaque\n- outside",
-        "parent\n```\nopaque\n```\n- outside",
-        "parent\nopaque\noutside",
-        0,
-        None,
-        0,
-    );
-}
-
-#[test]
-fn promoted_unmatched_fences_retain_raw_tilde_width_info_and_crlf() {
-    prove_fence_plan(
-        "- parent\r\n  ~~~~lang\r\n  opaque\r\n- outside",
-        "parent\r\n~~~~lang\r\nopaque\r\n~~~~\r\n- outside",
-        "parent\r\nopaque\r\noutside",
-        0,
-        Some("lang"),
-        0,
-    );
-}
-
-#[test]
-fn a_retained_quote_boundary_still_closes_its_promoted_unmatched_fence() {
-    prove_fence_plan(
-        "- parent\n  > ```\n  > opaque\n- outside",
-        "parent\n> ```\n> opaque\n- outside",
-        "parent\nopaque\noutside",
-        1,
-        None,
-        0,
-    );
-}
-
-#[test]
 fn existing_closers_and_true_eof_remain_exact_during_list_fence_promotion() {
     prove_fence_plan(
         "- parent\n  ```\n  opaque\n  ```\n- outside",
@@ -139,44 +103,38 @@ fn existing_closers_and_true_eof_remain_exact_during_list_fence_promotion() {
 }
 
 #[test]
-fn an_outer_quote_retained_at_the_same_scope_still_needs_a_fence_closer() {
-    prove_fence_plan(
+fn lifting_an_item_whose_fence_is_unclosed_is_refused_unchanged() {
+    // A promoted unclosed fence would run past the item; the generic list path
+    // has no fence-closer repair, so the command is refused (DECISIONS #20).
+    for raw in [
+        "- parent\n  ```\n  opaque\n- outside",
+        "- parent\r\n  ~~~~lang\r\n  opaque\r\n- outside",
+        "- parent\n  > ```\n  > opaque\n- outside",
         "> - parent\n>   ```\n>   opaque\n> - outside",
-        "> parent\n> ```\n> opaque\n> ```\n> - outside",
-        "parent\nopaque\noutside",
-        1,
-        None,
-        1,
-    );
-}
-
-#[test]
-fn fence_promotion_preserves_relative_leaf_indent_and_opaque_crlf_blank_spaces() {
-    prove_fence_plan(
         "- parent\r\n   ```Rust\r\n   a\r\n    \r\n   b\r\n- outside",
-        "parent\r\n ```Rust\r\n a\r\n  \r\n b\r\n ```\r\n- outside",
-        "parent\r\na\r\n \r\nb\r\noutside",
-        0,
-        Some("Rust"),
-        0,
-    );
-}
-
-#[test]
-fn fence_promotion_preserves_authored_blank_tabs() {
-    prove_fence_plan(
         "- parent\n  ```\n  a\n  \t\n  b\n- outside",
-        "parent\n```\na\n\t\nb\n```\n- outside",
-        "parent\na\n\t\nb\noutside",
-        0,
-        None,
-        0,
-    );
+    ] {
+        let mut s = EditorSession::open(raw);
+        let selected = range(0, 0);
+        s.select(s.revision(), selected).unwrap();
+        assert!(matches!(
+            s.block_command(
+                s.revision(),
+                selected,
+                BlockCommand::Heading(0),
+                &mut |_| panic!("refused before acceptance")
+            ),
+            Err(EditorError::UnrepresentableFormat)
+        ));
+        assert_eq!(s.source_text(), raw);
+        assert_eq!(s.revision(), Revision(0));
+        assert_eq!(s.selection(), selected);
+    }
 }
 
 #[test]
 fn code_enter_after_list_promotion_is_opaque_with_two_exact_undo_groups() {
-    let raw = "- parent\n  ```\n  opaque\n- outside";
+    let raw = "- parent\n  ```\n  opaque\n  ```\n- outside";
     let promoted = "parent\n```\nopaque\n```\n- outside";
     let expected = "parent\n```\n- opaque\n```\n- outside";
     let mut s = EditorSession::open(raw);

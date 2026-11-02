@@ -25,7 +25,6 @@ pub(crate) mod coordinate_work_tests;
 mod cross_feature_tests;
 #[cfg(test)]
 mod query_growth_tests;
-mod retained_points;
 mod row;
 mod source_points;
 mod spelling;
@@ -46,15 +45,11 @@ use crate::{
 pub(crate) use lists::{columns, visit_container, visit_correspondence, ListLine};
 #[cfg(test)]
 pub(crate) use lists::{
-    CONTAINER_BLOCK_QUERY_VISITS, CONTAINER_CORRESPONDENCE_SCANS, CONTAINER_LIFT_ITEM_SCANS,
-    CONTAINER_METADATA_VISITS, CONTAINER_PREFIX_QUERIES, CONTAINER_STYLE_OWNER_SCANS,
+    CONTAINER_BLOCK_QUERY_VISITS, CONTAINER_CORRESPONDENCE_SCANS, CONTAINER_METADATA_VISITS,
 };
 use ropey::Rope;
 use row::{partition, Outside, Row};
-pub(crate) use tree::ContextWitness;
 use tree::Rows;
-#[cfg(test)]
-pub(crate) use tree::CONTEXT_VISITS;
 
 pub(crate) struct Projection {
     pub display: Rope,
@@ -167,18 +162,40 @@ impl Projection {
     /// Whole paragraph context for an explicit compound action. Ordinary typing
     /// never constructs this temporary session or materializes this envelope.
     pub fn edit_window(&self, range: DisplayRange) -> (std::ops::Range<usize>, usize) {
+        self.edit_window_with(range, true)
+    }
+
+    /// `whole_ordered` holds a whole cut ordered list for numbering commands;
+    /// a local list edit reads only its neighbors (cut rows number alike).
+    pub fn edit_window_with(
+        &self,
+        range: DisplayRange,
+        whole_ordered: bool,
+    ) -> (std::ops::Range<usize>, usize) {
         let mut first = self.rows.locate(range.start.0, true).saturating_sub(1);
         let mut last = (self.rows.locate(range.end.0, true) + 1).min(self.rows.len() - 1);
         // A staged window is opened alone, so it starts at the opener line of
         // a cut raw HTML block it enters, and holds a whole cut ordered list,
         // whose numbering commands renumber every item: a one-off
         // region-sized read (#314).
-        let ordered = |index: usize| self.rows.at(index).0.first_number().is_some();
+        let ordered =
+            |index: usize| whole_ordered && self.rows.at(index).0.first_number().is_some();
         while first > 0 && (self.rows.at(first).0.opener.is_some() || ordered(first)) {
             first = self.rows.block_start(first);
         }
         while last + 1 < self.rows.len() && ordered(last + 1) {
             last = self.rows.block_end(last + 1);
+        }
+        // Lists continue across blank lines: reach the nearest nonblank row.
+        let blank = |index: usize| {
+            let row = self.rows.at(index).0;
+            !row.blocks.iter().any(|block| block.code) && row.display.trim().is_empty()
+        };
+        while last + 1 < self.rows.len() && blank(last) {
+            last += 1;
+        }
+        while first > 0 && blank(first) {
+            first -= 1;
         }
         let (_, source_start, display_start) = self.rows.at(first);
         let (row, source_end, _) = self.rows.at(last);

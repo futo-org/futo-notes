@@ -70,30 +70,13 @@ pub(in crate::inline) fn describe(
                     .last()
                     .unwrap()
                     .map(|at| items[at].content_column);
-                let sink = previous_items
-                    .last()
-                    .copied()
-                    .flatten()
-                    .and_then(|previous| last_child[previous])
-                    .filter(|&child| {
-                        items[child].ordinal.is_some() == ordinal.is_some()
-                            && items[child].quote_depth == quote_depth
-                    })
-                    .map(|child| SinkTarget {
-                        marker: items[child].marker.clone(),
-                        next_number: items[child].ordinal.map(|number| number + 1),
-                        column: items[child].marker_column,
-                    });
                 *previous_items.last_mut().unwrap() = Some(items.len());
                 let parent = active_items
                     .last()
                     .filter(|&&at| items[at].quote_depth == quote_depth);
                 let outer_item =
                     parent.map_or_else(|| range.clone(), |&at| items[at].outer_item.clone());
-                let outer_depth = parent.map_or(depth, |&at| items[at].outer_depth);
                 let parent_marker_column = parent.map(|&at| items[at].marker_column);
-                let parent_marker = parent.map(|&at| items[at].marker.clone());
-                let parent_number = parent.and_then(|&at| items[at].ordinal);
                 let parent_content_column = parent.map(|&at| items[at].content_column);
                 if let Some(&parent) = parent {
                     last_child[parent] = Some(items.len());
@@ -104,7 +87,6 @@ pub(in crate::inline) fn describe(
                     owner: owner.clone(),
                     item: range.clone(),
                     outer_item,
-                    outer_depth,
                     ordinal,
                     depth,
                     checked: None,
@@ -113,10 +95,7 @@ pub(in crate::inline) fn describe(
                     marker_column,
                     content_column,
                     previous_content_column,
-                    sink,
                     parent_marker_column,
-                    parent_marker,
-                    parent_number,
                     parent_content_column,
                     quote_depth,
                 });

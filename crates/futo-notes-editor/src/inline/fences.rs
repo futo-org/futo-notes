@@ -282,9 +282,5 @@ fn body_start(bodies: &[Range<usize>], line: &Range<usize>) -> Option<usize> {
 }
 
 #[cfg(test)]
-#[path = "fences_promotion_tests.rs"]
-mod promotion_tests;
-
-#[cfg(test)]
 #[path = "fences_range_tests.rs"]
 mod range_tests;

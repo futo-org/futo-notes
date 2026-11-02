@@ -26,16 +26,8 @@ mod fence_tab;
 mod fences;
 mod indent_source;
 mod keys;
-mod list_commands;
-mod list_fence_promotion;
-mod list_indent;
+mod list_edit;
 mod list_join;
-mod list_lift;
-mod list_lift_crossquote;
-mod list_lift_plan;
-mod list_prefix_frames;
-mod list_styles;
-mod list_targets;
 mod list_typing;
 mod lists;
 mod physical_layout;
@@ -44,34 +36,6 @@ mod tables;
 pub(super) use tables::CellInput;
 mod transaction;
 mod typing;
-
-#[derive(Clone, Copy)]
-enum HeaderShape<'a> {
-    List {
-        original: &'a crate::inline::ListLine,
-        quotes: usize,
-        first: bool,
-    },
-    ParagraphList {
-        original: &'a crate::inline::ListLine,
-        quotes: usize,
-        first: bool,
-        body: usize,
-        inserted_at: usize,
-        newline: &'a str,
-    },
-    ParagraphPlain {
-        quotes: usize,
-        earlier: Option<(usize, Option<u64>)>,
-        body: usize,
-        inserted_at: usize,
-        newline: &'a str,
-    },
-    Plain {
-        quotes: usize,
-        earlier: Option<(usize, Option<u64>)>,
-    },
-}
 
 enum BlockSelection {
     Display(DisplayRange),

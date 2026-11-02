@@ -43,7 +43,7 @@ fn supported_alternate_markers_avoid_comments_when_a_neighbor_style_is_free() {
 #[test]
 fn quoted_crlf_conflicting_lists_keep_exact_bodies_and_one_reversible_empty_comment() {
     let raw = "> 9. before\r\n> \r\n> * __a__\r\n> * b\r\n> \r\n> 7) after";
-    let expected = "> 9. before\r\n> \r\n> <!-- -->\n> 1. __a__\r\n> 2. b\r\n> \r\n> 7) after";
+    let expected = "> 9. before\r\n> \r\n> 1) __a__\r\n> 2) b\r\n> <!-- -->\r\n> \r\n> 7) after";
     let shown = "before\r\n\r\na\r\nb\r\n\r\nafter";
     let mut s = EditorSession::open(raw);
     let mut view = ReferenceView::new(shown);

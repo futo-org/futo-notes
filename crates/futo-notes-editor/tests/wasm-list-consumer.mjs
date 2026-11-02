@@ -134,26 +134,31 @@ for (const item of cases) {
       page.compose_utf16(revision, ...item.composeRange, units(item.compositionText ?? item.text));
       assert.equal(page.draft_text(), item.source);
     }
-    if (item.action === 'Typing')
-      await apply(page.replace_utf16_action(revision, ...item.range, units(item.text), '"Typing"'));
-    else if (['Enter', 'Backspace', 'Delete'].includes(item.action))
-      await apply(page.paragraph_key_utf16(revision, ...item.range, JSON.stringify(item.action)));
-    else
-      await apply(
-        page.block_command_utf16(
-          revision,
-          ...item.range,
-          JSON.stringify(
-            item.action === 'Text'
-              ? { Heading: 0 }
-              : item.action === 'Heading2'
-                ? { Heading: 2 }
-                : item.action === 'ComposeToggleTask'
-                  ? 'ToggleTask'
-                  : item.action,
-          ),
-        ),
-      );
+    const request = () =>
+      item.action === 'Typing'
+        ? page.replace_utf16_action(revision, ...item.range, units(item.text), '"Typing"')
+        : ['Enter', 'Backspace', 'Delete'].includes(item.action)
+          ? page.paragraph_key_utf16(revision, ...item.range, JSON.stringify(item.action))
+          : page.block_command_utf16(
+              revision,
+              ...item.range,
+              JSON.stringify(
+                item.action === 'Text'
+                  ? { Heading: 0 }
+                  : item.action === 'Heading2'
+                    ? { Heading: 2 }
+                    : item.action === 'ComposeToggleTask'
+                      ? 'ToggleTask'
+                      : item.action,
+              ),
+            );
+    if (item.refused) {
+      // Outside the generic list path: refused before any store append.
+      assert.throws(request, /Unrepresentable/, item.name);
+      assert.equal(page.draft_text(), item.source, item.name);
+      continue;
+    }
+    await apply(request());
     assert.equal(revision, 1n, 'one protected append');
     assert.equal(page.draft_text(), item.expected, item.name);
     assert.equal(display, item.shown, item.name);
