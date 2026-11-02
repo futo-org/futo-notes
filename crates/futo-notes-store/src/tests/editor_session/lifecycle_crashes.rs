@@ -1,22 +1,9 @@
 use super::*;
 use std::path::Path;
 
-mod reservation;
-
-#[derive(Default)]
-struct ReservationIo {
-    created_bytes: usize,
-    replaced_bytes: usize,
-    appended_bytes: usize,
-    /// Fails the next named operation once: "append" (short), "pin" or
-    /// "remove_reservation".
-    fail: Option<&'static str>,
-}
-
 struct CrashStorage {
     inner: Box<dyn RecoveryStorage>,
     phase: String,
-    prepared_io: Option<Arc<Mutex<ReservationIo>>>,
 }
 impl CrashStorage {
     fn interrupt(&self, operation: &str, path: &str) {
@@ -48,8 +35,6 @@ impl CrashStorage {
             "relink-decision-retired" => {
                 operation == "remove" && path.ends_with(".retarget.committed")
             }
-            "bounded-reserved" => operation == "reserve",
-            "bounded-first-frame" => operation == "append" && path.ends_with(".jsonl"),
             _ => false,
         };
         if crash {
@@ -57,47 +42,7 @@ impl CrashStorage {
         }
     }
 }
-impl CrashStorage {
-    fn injected(&self, operation: &str) -> Result<(), String> {
-        if let Some(io) = &self.prepared_io {
-            let mut io = io.lock().unwrap();
-            if io.fail == Some(operation) {
-                io.fail = None;
-                return Err(format!("injected {operation} failure"));
-            }
-        }
-        Ok(())
-    }
-}
 impl RecoveryStorage for CrashStorage {
-    fn reserve(&mut self, root: &Path, path: &str, header: &[u8]) -> Result<(), String> {
-        if let Some(io) = &self.prepared_io {
-            io.lock().unwrap().created_bytes += header.len();
-        }
-        self.inner.reserve(root, path, header)?;
-        self.interrupt("reserve", path);
-        Ok(())
-    }
-    fn pin(&mut self, root: &Path, path: &str) -> Result<Option<Vec<u8>>, String> {
-        self.injected("pin")?;
-        self.inner.pin(root, path)
-    }
-    fn release_pin(&mut self) {
-        self.inner.release_pin();
-    }
-    fn verify_reservation(&mut self, root: &Path) -> Result<(), String> {
-        self.inner.verify_reservation(root)
-    }
-    fn reservation_removed(&mut self, root: &Path) -> Result<bool, String> {
-        self.inner.reservation_removed(root)
-    }
-    fn retire_unpinned(&mut self, root: &Path, path: &str, expected: &[u8]) -> Result<(), String> {
-        self.inner.retire_unpinned(root, path, expected)
-    }
-    fn remove_reservation(&mut self, root: &Path) -> Result<(), String> {
-        self.injected("remove_reservation")?;
-        self.inner.remove_reservation(root)
-    }
     fn list(&mut self, root: &Path) -> Result<Vec<String>, String> {
         self.inner.list(root)
     }
@@ -105,9 +50,6 @@ impl RecoveryStorage for CrashStorage {
         self.inner.read(root, path)
     }
     fn create(&mut self, root: &Path, path: &str, bytes: &[u8]) -> Result<(), String> {
-        if let Some(io) = &self.prepared_io {
-            io.lock().unwrap().created_bytes += bytes.len();
-        }
         if self.phase.starts_with("pending-delete-") && path.ends_with(".retarget.committed") {
             return Err("interrupted rename recovery".into());
         }
@@ -115,26 +57,11 @@ impl RecoveryStorage for CrashStorage {
         self.inner.create(root, path, bytes)
     }
     fn replace(&mut self, root: &std::path::Path, path: &str, bytes: &[u8]) -> Result<(), String> {
-        if let Some(io) = &self.prepared_io {
-            io.lock().unwrap().replaced_bytes += bytes.len();
-        }
         self.interrupt("before-replace", path);
         self.inner.replace(root, path, bytes)
     }
     fn append(&mut self, root: &Path, path: &str, bytes: &[u8]) -> Result<(), String> {
-        if let Some(io) = &self.prepared_io {
-            let mut io = io.lock().unwrap();
-            if io.fail == Some("append") {
-                io.fail = None;
-                io.appended_bytes += bytes.len() / 2;
-                self.inner.append(root, path, &bytes[..bytes.len() / 2])?;
-                return Err("injected short write".into());
-            }
-            io.appended_bytes += bytes.len();
-        }
-        self.inner.append(root, path, bytes)?;
-        self.interrupt("append", path);
-        Ok(())
+        self.inner.append(root, path, bytes)
     }
     fn truncate(&mut self, root: &Path, path: &str, length: u64) -> Result<(), String> {
         self.inner.truncate(root, path, length)
@@ -329,9 +256,6 @@ fn identity_death_child() {
     let phase = std::env::var("FUTO_EDITOR_IDENTITY_PHASE").unwrap();
     let workflow = std::env::var("FUTO_EDITOR_IDENTITY_WORKFLOW").unwrap_or_else(|_| "note".into());
     let store = LocalNoteStore::new(root.into());
-    if phase.starts_with("bounded-") {
-        reservation::death_child(&store, &phase);
-    }
     if phase.starts_with("relink-") {
         let defaults = RecoveryOptions::default();
         let mut editor = store
@@ -342,7 +266,6 @@ fn identity_death_child() {
                     storage: Box::new(CrashStorage {
                         inner: defaults.storage,
                         phase: phase.clone(),
-                        prepared_io: None,
                     }),
                 },
             )
@@ -366,7 +289,6 @@ fn identity_death_child() {
                 storage: Box::new(CrashStorage {
                     inner: defaults.storage,
                     phase: phase.clone(),
-                    prepared_io: None,
                 }),
             },
         )

@@ -341,15 +341,6 @@ impl From<store::EditorStoreError> for EditorSessionError {
         use store::EditorStoreError as E;
         match value {
             E::Editor(error) => error.into(),
-            // These modes have no valid full native owner: a successful
-            // consuming transfer has already emptied its native slot.
-            E::ModeResetRequired => Self::Unavailable,
-            E::Bounded(error) => match error {
-                editor::BoundedError::Editor(error) => error.into(),
-                editor::BoundedError::Unsupported | editor::BoundedError::StaleCursor => {
-                    Self::Unavailable
-                }
-            },
             E::Open(error) => Self::Open { error },
             E::SessionAlreadyOpen => Self::SessionAlreadyOpen,
             E::Recovery(error) => Self::Recovery { error },

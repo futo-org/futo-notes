@@ -8,10 +8,6 @@
 use std::path::{Component, Path};
 use std::sync::atomic::{AtomicBool, Ordering};
 
-pub use platform::{
-    create_pinned_recovery, open_pinned_recovery, PinnedRecoveryFile, PINNED_RECOVERY_SUPPORTED,
-};
-
 fn relative_components(relative: &str) -> Result<Vec<&std::ffi::OsStr>, String> {
     let components = Path::new(relative)
         .components()
@@ -224,23 +220,6 @@ pub fn remove(root: &Path, relative: &str) -> Result<bool, String> {
     platform::remove(root, relative)
 }
 
-/// Path-based retirement for platforms without `PinnedRecoveryFile`: removes
-/// `relative` only while its bytes still equal `expected`; `Ok(false)` when it
-/// is absent. Changed bytes are refused untouched. Unlike a pin this cannot
-/// close the window between the comparison and the unlink, which the vault
-/// mutation gate and recovery lease exclude in-process.
-pub fn remove_if_unchanged(root: &Path, relative: &str, expected: &[u8]) -> Result<bool, String> {
-    match read_optional(root, relative)? {
-        None => Ok(false),
-        Some(found) if found == expected => {
-            remove(root, relative)?;
-            sync_parent(root, relative)?;
-            Ok(true)
-        }
-        Some(_) => Err(format!("recovery stream changed; retained: {relative}")),
-    }
-}
-
 pub fn rename(root: &Path, source: &str, destination: &str) -> Result<bool, String> {
     protect_move(root, source, destination)?;
     before_install(destination);
@@ -415,7 +394,7 @@ thread_local! {
 }
 
 /// Filesystem fault seam after durable destination coordination and before OS
-/// installation. Ordinary metadata writes do not invoke it. It never suppresses policy.
+/// installation. Metadata writes do not invoke it. It never suppresses policy.
 #[cfg(any(test, feature = "test-support"))]
 pub fn set_before_install_hook(hook: Option<Box<dyn Fn(&str)>>) {
     BEFORE_INSTALL.with(|slot| *slot.borrow_mut() = hook);

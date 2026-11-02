@@ -1,6 +1,4 @@
 //! Asynchronous page/worker contract. No callback here performs storage I/O.
-mod bounded;
-pub use bounded::*;
 mod clipboard;
 mod composition;
 mod find;
@@ -83,18 +81,10 @@ pub struct PortableStatus {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PortableError {
     Editor(EditorError),
-    Bounded(crate::BoundedError),
-    ModeResetRequired,
     Busy,
     Paused,
     InvalidAcknowledgement,
     SequenceExhausted,
-}
-
-impl From<crate::BoundedError> for PortableError {
-    fn from(error: crate::BoundedError) -> Self {
-        Self::Bounded(error)
-    }
 }
 
 impl From<EditorError> for PortableError {
@@ -128,8 +118,6 @@ pub struct PortableSession {
     durable: Revision,
     paused: bool,
     relink: Option<RelinkOffer>,
-    bounded_entry: Option<BoundedModeRequest>,
-    bounded_work: crate::BoundedWork,
 }
 
 impl PortableSession {
@@ -164,8 +152,6 @@ impl PortableSession {
             durable,
             paused: false,
             relink: None,
-            bounded_entry: None,
-            bounded_work: crate::BoundedWork::default(),
         }
     }
 
@@ -200,7 +186,7 @@ impl PortableSession {
         expected: Revision,
         range: DisplayRange,
     ) -> Result<crate::ProjectionSlice, PortableError> {
-        if self.pending.is_some() || self.bounded_entry.is_some() {
+        if self.pending.is_some() {
             return Err(PortableError::Busy);
         }
         Ok(self.engine.project(expected, range)?)
@@ -249,7 +235,7 @@ impl PortableSession {
             accepted: self.accepted,
             durable: self.durable,
             paused: self.paused,
-            waiting: self.waiting.is_some() || self.bounded_entry.is_some(),
+            waiting: self.waiting.is_some(),
         }
     }
 
@@ -257,7 +243,7 @@ impl PortableSession {
         if self.paused {
             return Err(PortableError::Paused);
         }
-        if self.waiting.is_some() || self.pending.is_some() || self.bounded_entry.is_some() {
+        if self.waiting.is_some() || self.pending.is_some() {
             return Err(PortableError::Busy);
         }
         if self.sequence == u64::MAX {
@@ -267,7 +253,7 @@ impl PortableSession {
     }
 
     fn request(&mut self, operation: HostOperation) -> Result<HostRequest, PortableError> {
-        if self.waiting.is_some() || self.bounded_entry.is_some() {
+        if self.waiting.is_some() {
             return Err(PortableError::Busy);
         }
         self.sequence = self
@@ -464,9 +450,6 @@ impl PortableSession {
     /// Also used after a transport timeout. The host repairs/flushes before
     /// acknowledgement; if it already accepted the active edit, do not resend it.
     pub fn resume(&mut self) -> Result<HostRequest, PortableError> {
-        if self.bounded_entry.is_some() {
-            return Err(PortableError::Busy);
-        }
         self.waiting = None;
         self.paused = true;
         self.request(HostOperation::Resume)

@@ -43,7 +43,6 @@ impl Attachment {
         if self.pending_identity.is_none() {
             return Ok(());
         }
-        self.materializing_reset(root)?;
         let pending = self.pending_identity.as_mut().unwrap();
         if !pending.installed
             && futo_notes_core::files::collision_key(&pending.original)
@@ -78,8 +77,6 @@ impl Attachment {
             let revision = self.engine.revision();
             let change = self
                 .engine
-                .full_mut()
-                .map_err(|error| error.to_string())?
                 .apply_own_relink(revision, rewritten, &mut |edit| {
                     if edit.revision == accepted {
                         Ok(())
@@ -126,7 +123,6 @@ impl IdentityTransition {
         if attachment.terminal {
             return Err("editor attachment was deleted".into());
         }
-        attachment.materializing_reset(&store.root)?;
         if attachment.engine.source_text() != content {
             return Ok(None);
         }
@@ -181,7 +177,7 @@ impl IdentityTransition {
                 RecoveryLog::open(root, from, disk, options.clock, options.storage)?;
             let state = Arc::new(Mutex::new(Attachment {
                 id: from.to_owned(),
-                engine: super::EditorOwner(Some(super::EditorMode::Full(engine))),
+                engine,
                 recovery,
                 lease,
                 pending_checkpoint: None,
@@ -189,7 +185,6 @@ impl IdentityTransition {
                 coordinated: Vec::new(),
                 pending_identity: None,
                 portable: false,
-                bounded_work: futo_notes_editor::BoundedWork::default(),
                 relink_offer: None,
             }));
             state
@@ -203,7 +198,6 @@ impl IdentityTransition {
         if attachment.terminal {
             return Err("editor attachment was deleted".into());
         }
-        attachment.materializing_reset(root)?;
         if attachment.pending_checkpoint.is_some()
             || attachment.pending_identity.is_some()
             || attachment.recovery.failed
@@ -238,13 +232,7 @@ impl IdentityTransition {
             } else {
                 None
             };
-        let can_adopt = !attachment.portable
-            && attachment
-                .engine
-                .full()
-                .map_err(|error| error.to_string())?
-                .composition()
-                .is_none();
+        let can_adopt = !attachment.portable && attachment.engine.composition().is_none();
         if let Err(error) = attachment
             .recovery
             .prepare_identity(root, to, expected, can_adopt)

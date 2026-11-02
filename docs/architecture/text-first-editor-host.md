@@ -44,7 +44,7 @@ with `.mjs` consumers), `crates/futo-notes-store/src/tests/editor_session/` (S),
 | #307 | Image and divider atoms, claims | images | E `images.rs`, `wasm-image-consumer.mjs`, F `editor_links.rs` |
 | #308-#310 | Table cells, rows/cols, single-cell paste | tables | E `tables.rs`, `wasm-table-consumer.mjs`, F `editor_tables.rs` |
 | #312 | Find, off-thread scans | find | E `find.rs`, `find/wasm-find-consumer.mjs` |
-| #313, #314 | Reinterpretation correctness, long-region locality | long-regions, bounded-code | E `long_regions.rs`, `reinterpretation.rs`, `bounded*.rs`; see 8 |
+| #313, #314 | Reinterpretation correctness, long-region locality | long-regions | E `long_regions.rs`, `reinterpretation.rs`; see 8 |
 | #315 | Native + WASM consumers | transports | `apps/ios/Tests/Editor/NativeEditorContractSurfaceTests.swift`, `apps/android/app/src/androidTest/java/com/futo/notes/editor/NativeEditorContractSurfaceTest.kt`, `scripts/test-editor-wasm.mjs`, F `editor_*.rs` |
 | #316 | Latency and durability | remaining-work | reconnaissance budgets and decision in 9 |
 | #303, #311 | Rich HTML paste; rendered block movement | n/a | **deferred**, see 7 |
@@ -115,13 +115,6 @@ retargets the live session; a committed delete terminates it (late input, saves,
 and cached requests cannot revive it). Image claims and find scans name their session
 incarnation and go stale (`StaleClaim`, rejected scan) if the note is reopened. Stale attachments reject every call.
 
-**Bounded endpoint (opt-in).** `BoundedEditorSession` / native `bounded.rs` is entered
-explicitly for giant fences. Apply each returned byte delta with its complete semantic
-replacement and generation. Accepted-source copying carries a source revision distinct from
-recovery watermarks; a refused callback stays the caller's raw payload. Materialization
-returns a full native object with the same history; old aliases become unavailable. It
-supplies no general paragraph, container, table, renderer or IME acceptance.
-
 ## 3. Threading and lifetime guide
 
 - **Store and FFI calls block.** Native: call on the I/O worker, never the UI thread.
@@ -137,8 +130,8 @@ supplies no general paragraph, container, table, renderer or IME acceptance.
   natively or WASM `find_scan` on any worker/thread, then `find_apply_scan` on the session
   thread. A result for another session incarnation, revision or query generation, or after
   close, is rejected with no state change. Typing never triggers a scan.
-- **Note ids.** The Store delivers vault ids to a live session on open and after a bounded
-  reset (call `refresh_note_ids` only on later vault changes, item 9); delivery never
+- **Note ids.** The Store delivers vault ids to a live session on open (call
+  `refresh_note_ids` only on later vault changes, item 9); delivery never
   changes source, selection, history or a composition. An unreleased change answers `Busy`.
 - **Composition conventions** (item 13):
 
@@ -153,13 +146,11 @@ supplies no general paragraph, container, table, renderer or IME acceptance.
 
 ## 4. Compatibility
 
-- Recovery stream format: ordinary full streams stay v3; **bounded-only entry writes v4**.
-  New readers read v2, v3 and v4. **Older readers refuse v4 streams and keep them paused**
-  (retained, not discarded); no data is lost. **Rollout:** no shipped build reads
-  `.futo-editor-recovery` (nothing on main), so v2/v3/v4 ship together and bounded mode
-  needs no reader-first gating (item 8). Unknown versions are retained and paused.
-- Bounded entry needs pinned-descriptor exclusive create; other filesystems refuse entry
-  and keep full recovery. No change to bridge schemas, AppState, sync or shipping defaults.
+- Recovery stream format: streams are written as v3; readers read v2 and v3. Unknown
+  versions (including v4 from pre-release bounded-mode builds of this branch) are retained
+  and paused; no data is lost. **Rollout:** no shipped build reads `.futo-editor-recovery`
+  (nothing on main), so v2/v3 ship together with no reader-first gating (item 8).
+- No change to bridge schemas, AppState, sync or shipping defaults.
 - Persistent Undo across reopening is not included. The full materializing paragraph
   projection stays available; do not remove it.
 - Shared crates `futo-notes-tags` and `futo-notes-image` were split out for wasm32 and
@@ -191,7 +182,7 @@ Check each off in your renderer; the engine supplies data, not pixels.
 CI runs `cargo test -p futo-notes-editor -p futo-notes-store -p futo-notes-core`,
 `node scripts/test-editor-wasm.mjs` (blocking in `ci/test-rust.yml`, also in the release
 gate), FFI tests in `crates/futo-notes-ffi/tests/`, and the Swift/Kotlin contract-surface
-tests named in the #315 row. At 924888e5e: iOS simulator 305 tests / 59 suites pass (incl. the contract-surface, session, composition, input-trace and bounded suites); Android 32-bit x86 process 14/14 native methods pass; 911 Rust editor/Store/FFI tests and all WASM consumers pass. Device timing script:
+tests named in the #315 row. At 924888e5e: iOS simulator 305 tests / 59 suites pass (incl. the contract-surface, session, composition and input-trace suites, plus the since-removed bounded suite); Android 32-bit x86 process 14/14 native methods pass; 911 Rust editor/Store/FFI tests and all WASM consumers pass. Device timing script:
 `scripts/android-performance-recon.mjs`. No massive campaign was added.
 
 ## 7. Deferred (open issues, not accepted capabilities)
@@ -206,7 +197,7 @@ tests named in the #315 row. At 924888e5e: iOS simulator 305 tests / 59 suites p
 
 ## 8. Long regions, reinterpretation and their limits (#313 / #314)
 
-Spec: long-regions.md, bounded-code.md, remaining-work.md. Scope for this milestone is
+Spec: long-regions.md, remaining-work.md. Scope for this milestone is
 **correctness plus locality**; progressive background slices are deferred (item 15).
 
 - **Locality on the full path.** Per-key work is flat from 1k to 20k lines for long
@@ -216,7 +207,8 @@ Spec: long-regions.md, bounded-code.md, remaining-work.md. Scope for this milest
   that changes how text outside its window reads reparses through to the true end, so the
   projection always equals a fresh open. The twin fuzz (`reinterpretation.rs`, 6k cases,
   raw fence and comment delimiters included) requires every step to match a fresh open.
-- **Bounded mode** stays the opt-in endpoint for giant closed top-level fences (section 2).
+- **No bounded mode.** The former opt-in endpoint for giant closed top-level fences was
+  removed (item 18); the full path's fence locality gives giant fences bounded work.
 - **Documented limits** (renderers must not assume otherwise):
   - Numbered-list Enter (renumbers every later marker) and Backspace at an item start
     are whole-list work (about 2.4 M and 13.7 M counted work at 20k items); typing in
@@ -244,12 +236,10 @@ p95/100 ms durability acceptance.
 | Fenced code | 26.7 / 29.7 ms | 1,146 ms |
 | Cold first keys (four shapes) | 47.0 / 61.2 / 85.7 / 53.2 ms | n/a |
 | Explicit flushes | 10-22 ms | n/a |
-| Bounded mode, 20k fence | 5.27 / 8.2 ms | n/a |
-| Bounded mode, short fence + 20k paragraphs | 4.21 / 4.71 ms | n/a |
 
 - Small samples, uncontrolled load: no p95, timer, OS typing, blocked-I/O, kill or power-loss
   proof. Flushes are immediate explicit flushes, not 100 ms durability.
-- Work counters (`EditWork`, `FindWork`, `NoteIdWork`, `BoundedWork`) are deterministic
+- Work counters (`EditWork`, `FindWork`, `NoteIdWork`) are deterministic
   bounds, not latency. Durability evidence is injected-filesystem tests (modeled power loss).
 - **iOS:** simulator only (305 native tests pass at 924888e5e). **#316 decision**
   (maintainer, 2026-11-01): simulator plus the Moto suffice for this milestone; physical
@@ -265,13 +255,14 @@ includes the block prefix; ordered siblings are not renumbered on paste. (4) Tab
 level only; Mod+Enter adds a blank line; Shift+Enter writes `<br>`. (5) Find rebase log cap
 is 64 unread edits (`REBASE_LOG_LIMIT`). (6) Select-all + delete keeps front matter. (7)
 `futo-notes-tags` and `futo-notes-image` split out for wasm32. (8) No recovery reader ships
-today, so v2/v3/v4 ship together. (9) Store auto-delivers note ids on open and after bounded
-reset. (10) #316 iPhone leg replaced by simulator + Moto evidence. (11) Table-cell pipes are
+today, so v2/v3 ship together. (9) Store auto-delivers note ids on open. (10) #316 iPhone leg replaced by simulator + Moto evidence. (11) Table-cell pipes are
 escaped on every input path; no cell entry points. (12) Spans cut by a multi-paragraph paste
 close and reopen on both sides. (13) `find_step` during composition is a no-op. (14)
 `*_utf16` table/find variants take native units for input only. (15) #313 is correctness +
 locality; progressive slices deferred. (16) Numbered-list Enter renumbers synchronously.
 (17) `markdown` crate dropped; definitions and bare autolinks use the engine's own parsers.
+(18) Bounded mode and its v4 recovery reservation removed (2026-11-02); full-path long-region
+locality replaces it.
 
 ## Appendix: adapter walkthrough
 

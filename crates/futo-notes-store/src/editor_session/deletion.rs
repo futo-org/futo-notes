@@ -116,7 +116,7 @@ pub(crate) fn recover(root: &Path, id: &str) -> Result<(), String> {
     if let Some(state) = EditorLease::deleting_owner(root, id)? {
         let mut state = state.lock().unwrap_or_else(PoisonError::into_inner);
         if let Some((before, after)) = transfer {
-            state.recovery.transfer_own_epoch(root, before, after)?;
+            state.recovery.transfer_own_epoch(before, after)?;
         }
         if result.is_err() {
             state.recovery.failed = true;
@@ -170,7 +170,7 @@ pub(super) fn recover_live(
     let mut transfer = None;
     let result = recover_inner(root, id, recovery.storage_mut(), &mut transfer);
     if let Some((before, after)) = transfer {
-        recovery.transfer_own_epoch(root, before, after)?;
+        recovery.transfer_own_epoch(before, after)?;
     }
     result
 }

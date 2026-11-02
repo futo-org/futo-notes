@@ -8,7 +8,7 @@ impl PortableSession {
         &self,
         expected: Revision,
     ) -> Result<Option<WikilinkCompletion>, PortableError> {
-        if self.pending.is_some() || self.bounded_entry.is_some() {
+        if self.pending.is_some() {
             return Err(PortableError::Busy);
         }
         Ok(self.engine.wikilink_completion(expected)?)

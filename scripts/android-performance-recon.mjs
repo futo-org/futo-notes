@@ -21,17 +21,9 @@ export function reconMode(args) {
   if (args.length === 0) return 'full';
   if (args.length === 1 && args[0] === '--bounded-followup') return 'bounded-followup';
   if (args.length === 1 && args[0] === '--post-fix-checkpoint') return 'post-fix-checkpoint';
-  if (args.length === 1 && args[0] === '--finite-bounded-checkpoint')
-    return 'finite-bounded-checkpoint';
   throw new Error(
-    'Only --bounded-followup, --post-fix-checkpoint or --finite-bounded-checkpoint is supported; the full default is unchanged',
+    'Only --bounded-followup or --post-fix-checkpoint is supported; the full default is unchanged',
   );
-}
-
-export function reconSelection(mode) {
-  const method =
-    mode === 'finite-bounded-checkpoint' ? 'recordFiniteBoundedCallsAndExplicitFlushes' : METHOD;
-  return { selector: `${CLASS}#${method}`, method };
 }
 
 export function assertReconApks(app, tests, manifestTree) {
@@ -74,76 +66,6 @@ export function validateReconReport(report, runId, mode = 'full') {
     (report.probeMode ?? 'full') !== mode
   )
     throw new Error('Probe report identity/format does not match this run');
-  if (mode === 'finite-bounded-checkpoint') {
-    if (report.outcome !== 'completed') return;
-    const names = [
-      '20000-code-lines-single-fence',
-      'short-fence-20000-lines-independent-paragraphs',
-    ];
-    const counts = {
-      createNs: 1,
-      openNs: 1,
-      entryPreparationNs: 1,
-      coldFirstAppendNs: 1,
-      coldImmediateExplicitFlushNs: 1,
-      warmTypingNs: 20,
-      warmBatchExplicitFlushNs: 1,
-      jumpSelectionNs: 20,
-      firstKeyAfterJumpNs: 20,
-      jumpBatchExplicitFlushNs: 1,
-      pairedAppendNs: 10,
-      pairedExplicitFlushNs: 10,
-      appendThroughExplicitFlushNs: 10,
-      acceptedSourceCopyNs: 1,
-      fullMaterializationNs: 1,
-    };
-    const durations = (values, count) =>
-      Array.isArray(values) &&
-      values.length === count &&
-      values.every((ns) => Number.isSafeInteger(ns) && ns >= 0);
-    if (
-      report.fixtures.length !== 2 ||
-      new Set(report.fixtures.map((fixture) => fixture.attachmentToken)).size !== 2 ||
-      report.fixtures.some((fixture, index) => {
-        const suffix = index === 1;
-        return (
-          fixture.fixture !== names[index] ||
-          !Number.isSafeInteger(fixture.attachmentToken) ||
-          fixture.attachmentToken <= 0 ||
-          Object.entries(counts).some(([key, count]) => !durations(fixture[key], count)) ||
-          fixture.acceptedRevisions?.length !== (suffix ? 53 : 51) ||
-          fixture.acceptedRevisions.some((revision, i) => revision !== i + 1) ||
-          fixture.flushes?.length !== (suffix ? 14 : 13) ||
-          fixture.flushes.some(
-            (flush, index) =>
-              flush.previousDurable !== (fixture.flushes[index - 1]?.durable ?? 0) ||
-              flush.accepted !== flush.durable ||
-              !(flush.accepted > flush.previousDurable) ||
-              flush.paused !== false ||
-              !Number.isSafeInteger(flush.lastFlushLatenessNs) ||
-              flush.lastFlushLatenessNs < 0 ||
-              (index >= 3 && index < 13
-                ? flush.remainingDelayObservation !==
-                    'not queried inside append-through-flush timer' ||
-                  flush.remainingDelayNs !== null
-                : !Number.isSafeInteger(flush.remainingDelayNs) || flush.remainingDelayNs < 0),
-          ) ||
-          (suffix &&
-            ([
-              'removeCloserNs',
-              'firstFarUnitSelectionNs',
-              'firstFarUnitKeyNs',
-              'continuationCompletionNs',
-              'frontierBatchExplicitFlushNs',
-            ].some((key) => !durations(fixture[key], 1)) ||
-              !(fixture.continuationFrameCount > 0) ||
-              !durations(fixture.continuationNs, fixture.continuationFrameCount)))
-        );
-      })
-    )
-      throw new Error('Completed finite bounded probe does not contain all requested samples');
-    return;
-  }
   const bounded = mode === 'bounded-followup';
   const checkpoint = mode === 'post-fix-checkpoint';
   const samples = bounded || checkpoint ? 4 : 100;
@@ -187,7 +109,6 @@ export function validateReconReport(report, runId, mode = 'full') {
 
 function main() {
   const mode = reconMode(process.argv.slice(2));
-  const selection = reconSelection(mode);
   const serial = process.env.ANDROID_SERIAL;
   if (!/^[A-Za-z0-9][A-Za-z0-9_.:-]*$/.test(serial ?? '') || serial.startsWith('emulator-'))
     throw new Error('Select an explicitly claimed physical Android phone');
@@ -241,10 +162,7 @@ function main() {
   const receipt = {
     source: run('git', ['rev-parse', 'HEAD']).trim(),
     serial,
-    nativeApi:
-      mode === 'finite-bounded-checkpoint'
-        ? 'NativeBoundedEditorSession'
-        : 'NativeEditorSession (full API)',
+    nativeApi: 'NativeEditorSession (full API)',
     appSha256: digest(app),
     testSha256: digest(tests),
     reports: [],
@@ -267,7 +185,7 @@ function main() {
       '-r',
       '-e',
       'class',
-      selection.selector,
+      `${CLASS}#${METHOD}`,
       '-e',
       'editorPerformanceRecon',
       'true',
@@ -279,7 +197,7 @@ function main() {
       mode,
       `${PACKAGE}.test/androidx.test.runner.AndroidJUnitRunner`,
     );
-    parseInstrumentationResult(output, CLASS, [selection.method]);
+    parseInstrumentationResult(output, CLASS, [METHOD]);
   } catch (error) {
     nativeError = error;
   }

@@ -36,7 +36,7 @@ impl PortableSession {
         &mut self,
         note_ids: &[String],
     ) -> Result<crate::NoteIdChange, PortableError> {
-        if self.pending.is_some() || self.bounded_entry.is_some() {
+        if self.pending.is_some() {
             return Err(PortableError::Busy);
         }
         Ok(self.engine.update_note_ids(note_ids))

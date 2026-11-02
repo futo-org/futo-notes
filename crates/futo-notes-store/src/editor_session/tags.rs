@@ -4,11 +4,11 @@ use super::*;
 
 impl StoreEditorSession<'_> {
     pub fn tags(&self) -> Result<Vec<String>, EditorStoreError> {
-        self.live(|state| Ok(state.engine.full()?.tags()))
+        self.live(|state| Ok(state.engine.tags()))
     }
 
     pub fn header_tags(&self) -> Result<Vec<String>, EditorStoreError> {
-        self.live(|state| Ok(state.engine.full()?.header_tags()))
+        self.live(|state| Ok(state.engine.header_tags()))
     }
 
     pub fn add_header_tag(
@@ -36,11 +36,12 @@ impl StoreEditorSession<'_> {
         self.mutate(|state, store| {
             state.input_ready()?;
             let Attachment {
-                engine, recovery, ..
+                engine: session,
+                recovery,
+                ..
             } = state;
             let root = &store.root;
             let accept = &mut |edit: &futo_notes_editor::SourceEdit| recovery.append(root, edit);
-            let session = engine.full_mut()?;
             let result = if add {
                 session.add_header_tag(expected, tag, accept)
             } else {

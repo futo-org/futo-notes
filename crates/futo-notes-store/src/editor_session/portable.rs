@@ -176,7 +176,6 @@ impl StoreEditorHost<'_> {
             engine, recovery, ..
         } = state;
         engine
-            .full_mut()?
             .replay_with_accept(edit, &mut |edit| recovery.append(&store.root, edit))
             .map(|_| ())
             .map_err(|error| match error {

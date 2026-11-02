@@ -109,12 +109,6 @@ run(process.execPath, [
 ]);
 
 run(process.execPath, [
-  join(root, 'crates/futo-notes-editor/tests/wasm-bounded-consumer.mjs'),
-  join(output, 'futo_notes_editor.js'),
-  join(target, 'debug/examples/portable_host'),
-]);
-
-run(process.execPath, [
   join(root, 'crates/futo-notes-editor/tests/find/wasm-find-consumer.mjs'),
   join(output, 'futo_notes_editor.js'),
 ]);

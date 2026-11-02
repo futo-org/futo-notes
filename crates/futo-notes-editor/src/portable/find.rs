@@ -65,7 +65,7 @@ impl PortableSession {
     }
 
     fn displayed(&self) -> Result<(), PortableError> {
-        if self.pending.is_some() || self.bounded_entry.is_some() {
+        if self.pending.is_some() {
             return Err(PortableError::Busy);
         }
         Ok(())

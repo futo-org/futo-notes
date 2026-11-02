@@ -4,14 +4,7 @@ use futo_notes_editor::Composition;
 
 impl StoreEditorSession<'_> {
     pub fn composition(&self) -> Option<Composition> {
-        self.read(|state| {
-            state
-                .engine
-                .full()
-                .expect("full interface owner")
-                .composition()
-                .cloned()
-        })
+        self.read(|state| state.engine.composition().cloned())
     }
 
     pub fn compose(
@@ -56,7 +49,6 @@ impl StoreEditorSession<'_> {
         self.mutate(|state, _| {
             state
                 .engine
-                .full_mut()?
                 .cancel_composition(expected)
                 .map_err(EditorStoreError::Editor)
         })
@@ -90,7 +82,6 @@ impl Attachment {
     ) -> Result<Composition, EditorStoreError> {
         self.input_ready()?;
         self.engine
-            .full_mut()?
             .compose(expected, range, text)
             .map_err(EditorStoreError::Editor)
     }
@@ -103,7 +94,6 @@ impl Attachment {
     ) -> Result<Composition, EditorStoreError> {
         self.input_ready()?;
         self.engine
-            .full_mut()?
             .compose_utf16(expected, range, text)
             .map_err(EditorStoreError::Editor)
     }
@@ -116,7 +106,6 @@ impl Attachment {
     ) -> Result<Option<ViewChange>, EditorStoreError> {
         self.input_ready()?;
         self.engine
-            .full_mut()?
             .commit_composition_utf16(expected, text, &mut |edit| {
                 self.recovery.append(&store.root, edit)
             })
@@ -133,7 +122,6 @@ impl Attachment {
     ) -> Result<Option<ViewChange>, EditorStoreError> {
         self.input_ready()?;
         self.engine
-            .full_mut()?
             .replace_os_utf16(expected, range, text, placeholders, &mut |edit| {
                 self.recovery.append(&store.root, edit)
             })
@@ -148,7 +136,6 @@ impl Attachment {
     ) -> Result<Option<ViewChange>, EditorStoreError> {
         self.input_ready()?;
         self.engine
-            .full_mut()?
             .commit_composition(expected, text, &mut |edit| {
                 self.recovery.append(&store.root, edit)
             })
@@ -165,7 +152,6 @@ impl Attachment {
     ) -> Result<Option<ViewChange>, EditorStoreError> {
         self.input_ready()?;
         self.engine
-            .full_mut()?
             .replace_os(expected, range, text, placeholders, &mut |edit| {
                 self.recovery.append(&store.root, edit)
             })

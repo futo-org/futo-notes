@@ -16,8 +16,6 @@ impl Attachment {
         store: &LocalNoteStore,
         draft: Option<(&str, &str)>,
     ) -> Result<FlushDraftResult, EditorStoreError> {
-        self.materializing_reset(&store.root)
-            .map_err(EditorStoreError::Checkpoint)?;
         self.finish_identity(&store.root)
             .map_err(EditorStoreError::Checkpoint)?;
         if let Some(issue) = &self.recovery.issue {

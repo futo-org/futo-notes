@@ -2,7 +2,6 @@ use super::*;
 use futo_notes_editor::{DisplayOffset, DisplayRange, Revision};
 
 mod blocks;
-mod bounded;
 mod clipboard;
 mod composition;
 mod durability;
@@ -15,7 +14,6 @@ mod list_actions;
 mod native_input_traces;
 mod portable;
 mod portable_attachment;
-mod portable_bounded;
 mod portable_readiness;
 mod portable_waiting;
 mod recovery;

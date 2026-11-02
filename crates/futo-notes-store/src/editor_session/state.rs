@@ -83,7 +83,6 @@ impl Attachment {
     ) -> Result<Option<ViewChange>, EditorStoreError> {
         self.input_ready()?;
         self.engine
-            .full_mut()?
             .toggle_format(expected, format, &mut |edit| {
                 self.recovery.append(&store.root, edit)
             })
@@ -97,7 +96,6 @@ impl Attachment {
     ) -> Result<Option<ViewChange>, EditorStoreError> {
         self.input_ready()?;
         self.engine
-            .full_mut()?
             .undo(expected, &mut |edit| {
                 self.recovery.append(&store.root, edit)
             })
@@ -114,7 +112,6 @@ impl Attachment {
     ) -> Result<Option<ViewChange>, EditorStoreError> {
         self.input_ready()?;
         self.engine
-            .full_mut()?
             .redo(expected, &mut |edit| {
                 self.recovery.append(&store.root, edit)
             })
