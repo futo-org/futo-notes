@@ -45,6 +45,15 @@ export function editorRequest(token: number, request: HostRequest): Promise<Host
   return invoke<HostAck>('editor_request', { token, request });
 }
 
+/**
+ * What `editorCheckpoint` rejects with. `committed`: the Markdown is on disk
+ * but recovery retirement or its durability check failed; apply `result`'s
+ * mutation, then retry the checkpoint.
+ */
+export type EditorCheckpointError =
+  | { kind: 'failed'; message: string }
+  | { kind: 'committed'; result: LocalFlushDraftResult; message: string };
+
 /** Writes the accepted draft to Markdown (the only save path while attached). */
 export function editorCheckpoint(token: number): Promise<LocalFlushDraftResult> {
   return invoke<LocalFlushDraftResult>('editor_checkpoint', { token });
