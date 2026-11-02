@@ -30,6 +30,8 @@ futo-notes-core = { path = "../../../crates/futo-notes-core" }
 futo-notes-sync = { path = "../../../crates/futo-notes-sync" }
 # The durable local-note owner, including the derived BM25 index.
 futo-notes-store = { path = "../../../crates/futo-notes-store" }
+# The portable editor transport types (HostRequest/HostAck) the editor host relays.
+futo-notes-editor = { path = "../../../crates/futo-notes-editor" }
 time = { version = "0.3", features = ["formatting"] }
 notify = "8.2.0"
 png = "0.18"

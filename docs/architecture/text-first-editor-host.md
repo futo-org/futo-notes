@@ -153,6 +153,13 @@ incarnation and go stale (`StaleClaim`, rejected scan) if the note is reopened. 
 - **Sessions are single-owner.** Native calls serialize through the attachment lock; do
   not share a portable session across threads.
 
+### Desktop host commands
+
+`editor_open`, `editor_request`, `editor_checkpoint`, `editor_close`, `editor_note_ids` and
+the `editor:flush-due` event (`apps/tauri/src-tauri/src/editor_host.rs`) relay the page's
+requests to a worker-owned Store host; see
+[text-first-editor-desktop-host.md](text-first-editor-desktop-host.md).
+
 ## 4. Compatibility
 
 - Recovery stream format: streams are written as v3; readers read v2 and v3. Unknown

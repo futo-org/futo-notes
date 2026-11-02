@@ -171,10 +171,22 @@ pub(crate) fn run() {
             crate::local_notes::local_notes_wait_until_search_ready,
             crate::local_notes::local_notes_rescan,
             crate::local_notes::local_notes_refresh_external_changes,
+            crate::editor_host::editor_open,
+            crate::editor_host::editor_request,
+            crate::editor_host::editor_checkpoint,
+            crate::editor_host::editor_close,
+            crate::editor_host::editor_note_ids,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|_app, _event| {
+            // Release the editor lease after a final recovery flush.
+            if matches!(_event, tauri::RunEvent::Exit) {
+                use tauri::Manager;
+                _app.state::<crate::application_state::AppState>()
+                    .editor
+                    .close_all();
+            }
             // Every exit, however it was reached, ends a terminate: that AppKit is waiting on.
             #[cfg(target_os = "macos")]
             if matches!(_event, tauri::RunEvent::ExitRequested { .. }) {
