@@ -47,6 +47,37 @@ fn unchanged_editor_open_close_creates_no_recovery_or_note_write() {
 }
 
 #[test]
+fn legacy_writes_are_refused_by_lease_under_any_case() {
+    let root = TestRoot::new();
+    let store = LocalNoteStore::new(root.0.clone());
+    store.create("", "plain", "ab").unwrap();
+    store.create("", "other", "x").unwrap();
+    let editor = store.open_editor("plain").unwrap();
+    let refused = [
+        store.save_unattached(Some("PLAIN"), "PLAIN", "z", None),
+        store.save_unattached(Some("other"), "Plain", "z", None),
+        store.save_unattached(None, "plain", "z", None),
+    ];
+    for refusal in refused {
+        assert!(refusal.unwrap_err().contains("editor_checkpoint"));
+    }
+    let refusal = store
+        .flush_draft_unattached("Plain", "ab", "z")
+        .unwrap_err();
+    assert!(refusal.contains("editor_checkpoint"), "{refusal}");
+    store
+        .save_draft_as_unattached("other", "plain", "x", "z")
+        .unwrap_err();
+    assert_eq!(store.read_existing("plain").unwrap().as_deref(), Some("ab"));
+    store
+        .save_unattached(Some("other"), "other", "y", None)
+        .unwrap();
+    drop(editor);
+    store.flush_draft_unattached("plain", "ab", "z").unwrap();
+    assert_eq!(store.read_existing("plain").unwrap().as_deref(), Some("z"));
+}
+
+#[test]
 fn accepted_edits_recover_and_checkpoint_returns_the_complete_store_mutation() {
     let root = TestRoot::new();
     let store = store(&root);

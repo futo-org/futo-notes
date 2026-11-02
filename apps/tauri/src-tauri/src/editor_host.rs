@@ -11,7 +11,6 @@ use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::Instant;
 
-use futo_notes_core::files::collision_key;
 use futo_notes_editor::{HostAck, HostOperation, HostRequest, HostSnapshot, SessionToken};
 use futo_notes_store::{FlushDraftResult, LocalNoteStore, RecoveryIssue, RecoveryIssueKind};
 use serde::Serialize;
@@ -68,7 +67,6 @@ impl From<RecoveryIssue> for EditorRecoveryIssue {
 enum Job {
     Request(HostRequest, Sender<HostAck>),
     Checkpoint(Sender<Result<FlushDraftResult, String>>),
-    Id(Sender<String>),
 }
 
 /// One attached note: its worker thread exclusively owns the Store host, so
@@ -127,9 +125,6 @@ impl Worker {
                         Ok(Job::Checkpoint(reply)) => {
                             let _ =
                                 reply.send(host.checkpoint().map_err(|error| error.to_string()));
-                        }
-                        Ok(Job::Id(reply)) => {
-                            let _ = reply.send(host.id());
                         }
                         Err(RecvTimeoutError::Timeout) => {
                             // Once per armed deadline; the next request re-arms it.
@@ -262,24 +257,6 @@ impl EditorHostState {
     pub(crate) fn close_all(&self) {
         let worker = self.slot().take();
         drop(worker);
-    }
-
-    /// The legacy whole-note save must not write a note the editor host owns:
-    /// its draft lives in the recovery stream and saves through `editor_checkpoint`.
-    pub(crate) fn refuse_attached<'a>(
-        &self,
-        ids: impl IntoIterator<Item = &'a str>,
-    ) -> Result<(), String> {
-        let Some(jobs) = self.slot().as_ref().and_then(|worker| worker.sender().ok()) else {
-            return Ok(());
-        };
-        let attached = collision_key(&ask(jobs, Job::Id)?);
-        if ids.into_iter().any(|id| collision_key(id) == attached) {
-            return Err(format!(
-                "note is attached to the editor host; save it with editor_checkpoint: {attached}"
-            ));
-        }
-        Ok(())
     }
 }
 
@@ -457,11 +434,17 @@ mod tests {
         let (opened, mut page) = open(&hosts, &store);
         let edit = page.replace(Revision(0), at(2), "c").unwrap();
         exchange(&hosts, opened.token, &mut page, edit);
-        let refusal = hosts.refuse_attached(["Other", "PLAIN"]).unwrap_err();
+        // The Store refuses by lease, under its gate, whatever the key's case.
+        let refusal = store.save_unattached(None, "PLAIN", "x", None).unwrap_err();
         assert!(refusal.contains("editor_checkpoint"), "{refusal}");
-        hosts.refuse_attached(["Other"]).unwrap();
+        store
+            .flush_draft_unattached("Plain", "ab", "abc")
+            .unwrap_err();
+        store.save_unattached(None, "Other", "x", None).unwrap();
         hosts.close_all();
-        hosts.refuse_attached(["plain"]).unwrap();
+        store
+            .save_unattached(Some("plain"), "plain", "x", None)
+            .unwrap();
         std::fs::remove_dir_all(root).unwrap();
     }
 

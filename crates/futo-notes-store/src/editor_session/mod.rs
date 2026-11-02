@@ -29,6 +29,7 @@ mod recovery;
 mod recovery_format;
 pub use portable::StoreEditorHost;
 mod storage;
+pub(crate) use lease::refuse_attached;
 use lease::EditorLease;
 use recovery::RecoveryLog;
 pub use storage::RecoveryStorage;

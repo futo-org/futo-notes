@@ -18,6 +18,29 @@ fn key(root: &Path, id: &str) -> Result<SessionKey, EditorStoreError> {
     ))
 }
 
+/// Legacy whole-note writes must not race an editor attachment: its draft lives
+/// in the recovery stream and saves through its checkpoint. The caller holds the
+/// store gate, which `open` also holds from acquiring the lease on.
+pub(crate) fn refuse_attached<'a>(
+    root: &Path,
+    ids: impl IntoIterator<Item = &'a str>,
+) -> Result<(), String> {
+    for id in ids {
+        let key = key(root, id).map_err(|error| error.to_string())?;
+        if sessions()
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .contains_key(&key)
+        {
+            return Err(format!(
+                "note is attached to the editor host; save it with editor_checkpoint: {}",
+                key.1
+            ));
+        }
+    }
+    Ok(())
+}
+
 /// Registry lookup never holds the registry lock while locking an attachment.
 /// A lease reserves its collision key even before its state has been bound.
 pub(super) struct EditorLease(SessionKey, bool);
