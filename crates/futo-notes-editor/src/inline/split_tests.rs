@@ -276,9 +276,7 @@ fn cut_paragraphs_match_uncut_twin_through_edits() {
         if case % 4 == 1 {
             source.push_str("\nafter\n");
         }
-        // CRLF top-level fences. (Quoted CRLF paragraphs already differ:
-        // input the uncut row refuses can be accepted in a cut row.)
-        if case % 18 == 14 && case / 9 / 10 % 3 == 0 {
+        if case % 18 == 14 {
             source = source.replace('\n', "\r\n");
         }
         let mut cut = EditorSession::open(&source);
@@ -406,4 +404,36 @@ fn random_notes_open_and_take_edits_without_panicking() {
         }
         let _ = EditorSession::open(&session.source_text());
     }
+}
+
+/// Escaping a typed `- ` already keeps a later `2.` line a paragraph line; a
+/// whole-paragraph context must not also respell that line inside the raw
+/// inline HTML it sits in, where the escape cannot decode (found by the
+/// twin fuzz: the uncut row refused what the cut row accepted).
+#[test]
+fn a_typed_marker_agrees_with_uncut_when_a_later_line_sits_in_raw_html() {
+    let p = |n: usize| "p".repeat(n);
+    let source = format!(
+        "pp*pp*ppppp**pppppp**{}*pp*ppppp**pppppp**pppppp309{}\n{}\n{}<!{}\n2. {}>ppppp",
+        p(15),
+        p(436),
+        p(383),
+        p(34),
+        p(1095),
+        p(22)
+    );
+    let mut cut = EditorSession::open(&source);
+    assert!(cut.projection.rows.len() > 1, "the paragraph is cut");
+    let mut reference = uncut(|| EditorSession::open(&source));
+    let display = cut.display_text();
+    let at = display.find("309").unwrap();
+    let at = at + display[at..].find('\n').unwrap() + 6;
+    let revision = cut.revision();
+    let got = cut.replace(revision, range(at, at), "\n- ", &mut |_| Ok(()));
+    let revision = reference.revision();
+    let want = uncut(|| reference.replace(revision, range(at, at), "\n- ", &mut |_| Ok(())));
+    assert_eq!(got.is_ok(), want.is_ok());
+    assert!(got.is_ok());
+    let fresh = uncut(|| whole(&EditorSession::open(&cut.source_text())));
+    assert!(whole(&cut) == fresh && whole(&reference) == fresh);
 }
