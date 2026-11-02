@@ -44,11 +44,6 @@ impl LocalNoteStore {
     ) -> Result<MutationResult, String> {
         paths::note_path(&self.root, id)?;
         paths::note_path(&self.root, wanted_id)?;
-        if let Some(mutation) = crate::editor_session::IdentityTransition::save_draft(
-            self, id, wanted_id, base, content,
-        )? {
-            return Ok(mutation);
-        }
         match self.read_note_file(id) {
             Ok(current) if current != base && current != content => {
                 let parked = self.park_conflict_draft(wanted_id, content)?;

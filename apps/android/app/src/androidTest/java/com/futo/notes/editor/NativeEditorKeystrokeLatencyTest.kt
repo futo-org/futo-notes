@@ -54,11 +54,9 @@ class NativeEditorKeystrokeLatencyTest {
                             caret++
                             return elapsed
                         }
-                        // Warm the JIT and this note's recovery stream; flush outside the timed keys.
+                        // Warm the JIT before the timed keys.
                         repeat(warmup) { key() }
-                        session.flushRecovery()
                         val times = LongArray(samples) { key() }
-                        session.flushRecovery()
                         session.detach()
                         val sorted = times.sorted()
                         fun percentile(p: Int) = sorted[((sorted.size - 1) * p + 50) / 100]

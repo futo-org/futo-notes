@@ -46,9 +46,10 @@ const stop = async () => {
 try {
   const exchange = await start('ab **cd**\r\nend');
   let display = 'ab cd\r\nend';
-  const accept = async (request) => {
-    const ack = await exchange(request);
-    const change = JSON.parse(session.acknowledge(JSON.stringify(ack)));
+  const accept = async (applied) => {
+    const { change, request } = JSON.parse(applied);
+    const ack = await exchange(JSON.stringify(request));
+    session.acknowledge(JSON.stringify(ack));
     const bytes = Buffer.from(display);
     display = Buffer.concat([
       bytes.subarray(0, change.range.start),
@@ -58,7 +59,8 @@ try {
   };
   assert.equal(session.copy_markdown(0n, 4, 5), '**d**');
   const request = session.paste_markdown(0n, 1, 1, 'x \t\n# T\ny');
-  assert.throws(() => session.copy_markdown(1n, 0, 1));
+  // Copy does not wait for the acknowledgement.
+  assert.equal(session.copy_markdown(1n, 0, 1), 'a');
   await accept(request);
   const pasted = 'ax \t\r\n# T\r\nyb **cd**\r\nend';
   assert.equal(session.draft_text(), pasted);
@@ -71,15 +73,14 @@ try {
   await accept(session.undo(2n));
   assert.equal(session.draft_text(), pasted);
   await accept(session.redo(3n));
-  session.acknowledge(JSON.stringify(await exchange(session.flush())));
   await stop();
   const reopened = await start('--reopen');
   assert.equal(session.draft_text(), finalSource);
-  assert.equal(JSON.parse(session.project(4n, 0, Buffer.byteLength(display))).text, display);
+  assert.equal(JSON.parse(session.project(0n, 0, Buffer.byteLength(display))).text, display);
   assert.deepEqual(await reopened(JSON.stringify({ checkpoint: true })), { id: 'plain' });
   await stop();
   console.log(
-    'Compiled WASM clipboard: copy, one-action cut, Markdown paste and real recovery passed.',
+    'Compiled WASM clipboard: copy, one-action cut, Markdown paste and real store saving passed.',
   );
 } finally {
   if (session) await stop();

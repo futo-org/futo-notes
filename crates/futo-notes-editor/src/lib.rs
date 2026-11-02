@@ -28,8 +28,8 @@ pub use types::{
 };
 
 pub use portable::{
-    HostAck, HostError, HostErrorKind, HostOperation, HostRequest, HostSnapshot, PortableError,
-    PortableSession, PortableStatus, PortableTableStep, RelinkOffer, SessionToken,
+    Applied, HostAck, HostError, HostErrorKind, HostOperation, HostRequest, HostSnapshot,
+    PortableError, PortableSession, PortableStatus, PortableTableStep, RelinkOffer, SessionToken,
 };
 
 #[cfg(target_arch = "wasm32")]

@@ -26,16 +26,9 @@ fn range16(value: &Value) -> DisplayUtf16Range {
 
 /// History grouping never expires, so the 500 ms boundary cannot flake under load.
 struct FrozenClock;
-impl RecoveryClock for FrozenClock {
+impl EditorClock for FrozenClock {
     fn now(&self) -> Duration {
         Duration::ZERO
-    }
-}
-
-fn frozen() -> RecoveryOptions {
-    RecoveryOptions {
-        clock: Arc::new(FrozenClock),
-        ..RecoveryOptions::default()
     }
 }
 
@@ -53,7 +46,7 @@ fn read_trace(name: &str) -> Value {
 }
 
 #[test]
-fn captured_native_results_keep_only_commits_in_recovery_and_checkpoint() {
+fn captured_native_results_keep_only_commits_in_the_draft_and_checkpoint() {
     let cases = read("native-input-cases");
     assert_eq!(cases.as_array().unwrap().len(), 6);
     for case in cases.as_array().unwrap() {
@@ -64,7 +57,9 @@ fn captured_native_results_keep_only_commits_in_recovery_and_checkpoint() {
         store.create("", "input", source).unwrap();
         let final_source;
         {
-            let mut editor = store.open_editor_with_recovery("input", frozen()).unwrap();
+            let mut editor = store
+                .open_editor_with_clock("input", Arc::new(FrozenClock))
+                .unwrap();
             let mut view = case["display"].as_str().unwrap().to_owned();
             let history = case["history"].as_array().unwrap();
             for step in case["steps"].as_array().unwrap() {
@@ -76,7 +71,6 @@ fn captured_native_results_keep_only_commits_in_recovery_and_checkpoint() {
                     .unwrap();
                 let snapshot = &event["after"];
                 let revision = editor.revision();
-                let accepted = editor.recovery_status().accepted;
                 let delta = match step["operation"].as_str().unwrap() {
                     "select" => {
                         editor
@@ -100,8 +94,7 @@ fn captured_native_results_keep_only_commits_in_recovery_and_checkpoint() {
                             &overlay.text,
                         );
                         assert_eq!(provisional, String::from_utf16(&raw).unwrap());
-                        assert_eq!(editor.recovery_status().accepted, accepted);
-                        assert_eq!(editor.flush_recovery().unwrap().durable, accepted);
+                        assert_eq!(editor.revision(), revision);
                         assert_eq!(store.read("input").unwrap(), source);
                         None
                     }
@@ -139,7 +132,7 @@ fn captured_native_results_keep_only_commits_in_recovery_and_checkpoint() {
                 };
                 if let Some(delta) = delta {
                     view.replace_range(delta.range.start.0..delta.range.end.0, &delta.inserted);
-                    assert_eq!(editor.recovery_status().accepted.0, accepted.0 + 1);
+                    assert_eq!(editor.revision().0, revision.0 + 1);
                     assert_eq!(
                         editor
                             .display_to_utf16(editor.revision(), editor.selection())
@@ -185,7 +178,7 @@ fn captured_native_results_keep_only_commits_in_recovery_and_checkpoint() {
                 .commit_composition_utf16(editor.revision(), None)
                 .unwrap()
                 .is_none());
-            assert_eq!(editor.flush_recovery().unwrap().durable, editor.revision());
+            editor.checkpoint().unwrap();
             final_source = case["steps"].as_array().unwrap().last().unwrap()["source"]
                 .as_str()
                 .unwrap()

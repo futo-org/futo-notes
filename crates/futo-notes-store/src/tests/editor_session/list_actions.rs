@@ -186,11 +186,8 @@ fn shared_list_actions_survive_failed_append_undo_flush_power_loss_and_checkpoin
         let root = TestRoot::new();
         let store = store(&root);
         store.create("", "lists", text("source")).unwrap();
-        let disk = Arc::new(Mutex::new(storage::Disk::default()));
         {
-            let mut s = store
-                .open_editor_with_recovery("lists", storage::options(&disk))
-                .unwrap();
+            let mut s = store.open_editor("lists").unwrap();
             let mut view = text("display").to_owned();
             assert_eq!(s.display_text(), view, "{}", text("name"));
             let initial = native(case.get("selection").unwrap_or(&case["range"]));
@@ -224,15 +221,6 @@ fn shared_list_actions_survive_failed_append_undo_flush_power_loss_and_checkpoin
                 assert_eq!(s.revision(), Revision(0));
                 continue;
             }
-            disk.lock().unwrap().fault = Some(storage::Fault::Append);
-            assert!(
-                matches!(
-                    action(&mut s, case),
-                    Err(EditorStoreError::RecoveryAppend(_))
-                ),
-                "{}",
-                text("name")
-            );
             assert_eq!(s.source_text(), text("source"));
             assert_eq!(s.revision(), Revision(0));
             assert_eq!(
@@ -240,12 +228,6 @@ fn shared_list_actions_survive_failed_append_undo_flush_power_loss_and_checkpoin
                 initial
             );
             assert_eq!(s.composition(), marked);
-            assert!(matches!(
-                action(&mut s, case),
-                Err(EditorStoreError::RecoveryPaused)
-            ));
-            disk.lock().unwrap().fault = None;
-            s.resume_recovery().unwrap();
             apply(&mut view, action(&mut s, case).unwrap());
             assert_eq!(s.source_text(), text("expected"), "{}", text("name"));
             assert_eq!(view, text("shown"));
@@ -254,15 +236,8 @@ fn shared_list_actions_survive_failed_append_undo_flush_power_loss_and_checkpoin
                 s.display_to_utf16(s.revision(), s.selection()).unwrap(),
                 native(&case["resultRange"])
             );
-            assert_eq!(s.revision(), Revision(1), "one protected acceptance");
-            disk.lock().unwrap().fault = Some(storage::Fault::Append);
-            assert!(matches!(
-                s.undo(s.revision()),
-                Err(EditorStoreError::RecoveryAppend(_))
-            ));
+            assert_eq!(s.revision(), Revision(1), "one edit");
             assert_eq!(s.source_text(), text("expected"));
-            disk.lock().unwrap().fault = None;
-            s.resume_recovery().unwrap();
             let histories = case["undoSources"].as_array().map_or(1, Vec::len);
             for step in 0..histories {
                 apply(&mut view, s.undo(s.revision()).unwrap().unwrap());
@@ -289,12 +264,9 @@ fn shared_list_actions_survive_failed_append_undo_flush_power_loss_and_checkpoin
             assert_eq!(view, text("shown"));
             assert_items(&s, case);
             assert_eq!(store.read("lists").unwrap(), text("source"));
-            assert_eq!(s.flush_recovery().unwrap().durable, s.revision());
+            s.checkpoint().unwrap();
         }
-        disk.lock().unwrap().power_loss();
-        let mut recovered = store
-            .open_editor_with_recovery("lists", storage::options(&disk))
-            .unwrap();
+        let mut recovered = store.open_editor("lists").unwrap();
         assert_eq!(recovered.source_text(), text("expected"));
         assert_eq!(recovered.display_text(), text("shown"));
         assert_items(&recovered, case);

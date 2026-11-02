@@ -5,7 +5,7 @@ import Testing
 
 @Suite("Native editor composition contract")
 struct NativeEditorCompositionTests {
-    @Test("marked Japanese, changed commit, OS correction and exact recovered bytes")
+    @Test("marked Japanese, changed commit, OS correction and exact saved bytes")
     func compositionAndCorrection() async throws {
         try await Task.detached {
             let root = FileManager.default.temporaryDirectory
@@ -51,14 +51,13 @@ struct NativeEditorCompositionTests {
             apply(try #require(try session.undo(expected: 2)))
             #expect(try session.sourceText() == "__the__ &amp; wrng\r\n")
             apply(try #require(try session.redo(expected: 3)))
-            #expect(try session.flushRecovery().durable == 4)
-            try session.detach()
-            let recovered = try store.openEditor(id: "input")
-            #expect(try recovered.sourceText() == "__the__ &amp; wrong\r\n")
-            #expect(try recovered.composition() == nil)
-            #expect(try recovered.commitCompositionUtf16(expected: 4, text: nil) == nil)
-            try recovered.cancelComposition(expected: 4)
-            try recovered.detach()
+            _ = try session.detach()
+            let reopened = try store.openEditor(id: "input")
+            #expect(try reopened.sourceText() == "__the__ &amp; wrong\r\n")
+            #expect(try reopened.composition() == nil)
+            #expect(try reopened.commitCompositionUtf16(expected: 0, text: nil) == nil)
+            try reopened.cancelComposition(expected: 0)
+            _ = try reopened.detach()
         }.value
     }
 }

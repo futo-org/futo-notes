@@ -59,10 +59,10 @@ class NativeEditorPerformanceReconTest {
             .put("process64Bit", Process.is64Bit()).put("logicalCores", Runtime.getRuntime().availableProcessors())
             .put("thread", Thread.currentThread().name).put("wallBudgetSeconds", 120)
             .put("storageRoot", root.absolutePath)
-            .put("measurement", "Public-call wall-time upper bound: Kotlin/FFI, engine and real Store append acceptance; no pure engine CPU or append-IO attribution")
-            .put("warmup", "20 edits in separate tiny note; large note first recovery append remains separate")
+            .put("measurement", "Public-call wall-time upper bound: Kotlin/FFI and engine, in-memory edits; explicit checkpoints time the Store markdown write; no pure engine CPU attribution")
+            .put("warmup", "20 edits in separate tiny note; ")
             .put("limits", "No renderer/IME, scheduler100ms, process-kill or power-loss acceptance; phase-entry report writes outside timers affect between-phase conditions; profile/source/artifact attribution requires host receipt")
-            .put("flushClock", "lastFlushLateness.toNanos: successful completion minus oldest Rust deadline, saturated at zero; includes flush storage, excludes pre-accept planning/append; zero hides slack; immediate flush is not timer scheduling proof; warm/jump are intentional unflushed batches")
+            .put("flushClock", "explicit checkpoint wall time: persist-or-park markdown write of the whole note; warm/jump are intentional unsaved batches; not timer scheduling proof")
             .put("fixtures", results)
         fun persist() {
             report.put("outcome", outcome).put("phase", phase).put("updatedEpochMs", System.currentTimeMillis())
@@ -86,7 +86,6 @@ class NativeEditorPerformanceReconTest {
                         warmup.replaceUtf16Action(at.toULong(), EditorUtf16Range(0uL, 0uL),
                             listOf(120u.toUShort()), EditorInputAction.TYPING)
                     }
-                    warmup.flushRecovery()
                     warmup.detach()
                 }
                 if (mode == "bounded-followup") {
@@ -138,7 +137,7 @@ class NativeEditorPerformanceReconTest {
                             persist()
                         }
                         assertEquals(0uL, control.revision())
-                        assertEquals(0uL, control.recoveryStatus().accepted)
+                        assertEquals(0uL, control.saveStatus().revision)
                         control.detach()
                     }
                 }
@@ -171,10 +170,10 @@ class NativeEditorPerformanceReconTest {
                         assertTrue(shown.length > 2)
                         var length = shown.length.toULong()
                         var revision = s.revision()
-                        var durable = 0uL
+                        var saved = 0uL
                         var lastChange: EditorViewChange? = null
-                        var lastFlush: EditorRecoveryStatus? = null
-                        var previousDurable = 0uL
+                        var lastFlush: EditorSaveStatus? = null
+                        var previousSaved = 0uL
                         val flushes = JSONArray()
                         val returned = JSONArray()
                         metric.put("flushes", flushes).put("returnedProjections", returned)
@@ -209,27 +208,25 @@ class NativeEditorPerformanceReconTest {
                         }
                         fun flush(): Long {
                             checkBudget()
-                            check(revision > durable) { "Flush sample requires a fresh unflushed accepted revision" }
-                            previousDurable = durable
+                            check(revision > saved) { "Save sample requires a fresh unsaved revision" }
+                            previousSaved = saved
                             val started = System.nanoTime()
-                            val status = s.flushRecovery()
+                            s.checkpoint()
                             val elapsed = System.nanoTime() - started
-                            assertEquals(revision, status.accepted)
-                            assertEquals(revision, status.durable)
-                            assertFalse(status.paused)
-                            durable = status.durable
+                            val status = s.saveStatus()
+                            assertEquals(revision, status.revision)
+                            assertEquals(revision, status.saved)
+                            saved = status.saved
                             lastFlush = status
                             return elapsed
                         }
                         fun recordFlush(label: String, immediate: Boolean, elapsed: Long) {
                             val status = checkNotNull(lastFlush)
-                            val lateness = checkNotNull(status.lastFlushLateness).toNanos()
                             flushes.put(JSONObject().put("sample", label).put("immediateAfterOneAppend", immediate)
-                                .put("previousDurable", previousDurable.toLong()).put("accepted", status.accepted.toLong())
-                                .put("durable", status.durable.toLong()).put("flushNs", elapsed)
-                                .put("lastFlushLatenessNs", lateness))
+                                .put("previousSaved", previousSaved.toLong()).put("revision", status.revision.toLong())
+                                .put("saved", status.saved.toLong()).put("flushNs", elapsed))
                         }
-                        // A new recovery stream writes the full base header on its FIRST append.
+                        // The first edit of a fresh session; its checkpoint is the first markdown write.
                         phase = "${fixture.name}/cold-first-append"
                         persist()
                         metric.put("coldFirstAppendNs", edit(0uL))
@@ -307,11 +304,10 @@ class NativeEditorPerformanceReconTest {
                         }
                         s.detach()
                     }
-                    store.openEditor(id).use { recovered ->
-                        assertEquals(finalSource, recovered.sourceText())
-                        recovered.checkpoint()
-                        assertEquals(finalSource, store.read(id))
-                        recovered.detach()
+                    assertEquals(finalSource, store.read(id))
+                    store.openEditor(id).use { reopened ->
+                        assertEquals(finalSource, reopened.sourceText())
+                        reopened.detach()
                     }
                 }
             }

@@ -48,16 +48,19 @@ const stop = async () => {
 try {
   const exchange = await start("see [teh __docs__](https://old.test 'Title')\r\n");
   let display = 'see teh docs\r\n';
-  const accept = async (request) => {
-    const ack = await exchange(request);
-    const change = JSON.parse(session.acknowledge(JSON.stringify(ack)));
+  // Every edit returns `{change, request}`: the page shows the change at once
+  // and the worker mirrors the request.
+  const accept = async (applied) => {
+    const { change, request } = JSON.parse(applied);
+    const ack = await exchange(JSON.stringify(request));
+    assert.deepEqual(JSON.parse(session.acknowledge(JSON.stringify(ack))), []);
     const bytes = Buffer.from(display);
     display = Buffer.concat([
       bytes.subarray(0, change.range.start),
       Buffer.from(change.inserted),
       bytes.subarray(change.range.end),
     ]).toString();
-    assert.equal(JSON.parse(session.acknowledge(JSON.stringify(ack))), null);
+    assert.deepEqual(JSON.parse(session.acknowledge(JSON.stringify(ack))), []);
     return change;
   };
   await accept(session.replace(0n, 4, 7, 'the'));
@@ -68,7 +71,8 @@ try {
     title: 'Title',
   });
   const request = session.set_link(1n, 5, 6, 'https://x.test');
-  assert.throws(() => session.project(2n, 0, 14));
+  // Queries do not wait for the worker.
+  assert.equal(JSON.parse(session.project(2n, 0, 14)).links[0].destination, 'https://x.test');
   await accept(request);
   const updated = "see [the __docs__](https://x.test 'Title')\r\n";
   assert.equal(display, 'see the docs\r\n');
@@ -77,23 +81,23 @@ try {
   await accept(session.undo(2n));
   assert.equal(session.draft_text(), "see [the __docs__](https://old.test 'Title')\r\n");
   await accept(session.redo(3n));
-  session.acknowledge(JSON.stringify(await exchange(session.flush())));
-  assert.equal(JSON.parse(session.status()).durable, 4);
   await stop();
   const reopened = await start('--reopen');
   assert.equal(session.draft_text(), updated);
-  assert.equal(JSON.parse(session.project(4n, 0, 14)).text, display);
-  assert.equal(JSON.parse(session.inspect_link(4n, 5, 6)).destination, 'https://x.test');
+  assert.equal(JSON.parse(session.project(0n, 0, 14)).text, display);
+  assert.equal(JSON.parse(session.inspect_link(0n, 5, 6)).destination, 'https://x.test');
   assert.deepEqual(await reopened(JSON.stringify({ checkpoint: true })), { id: 'plain' });
   await stop();
   const referenceSource = "[id]: <https://x.test> 'T'\n\nmiddle\n\n[one][id] end";
   const unlinkedSource = "[id]: <https://x.test> 'T'\n\nmiddle\n\none end";
   const referenceExchange = await start(referenceSource, referenceVault);
   let referenceDisplay = 'middle\n\none end';
-  const unlinkRequest = session.set_link(0n, 9, 10, '');
-  assert.throws(() => session.project(1n, 0, 15));
-  const referenceAck = await referenceExchange(unlinkRequest);
-  const referenceChange = JSON.parse(session.acknowledge(JSON.stringify(referenceAck)));
+  const { change: referenceChange, request: unlinkRequest } = JSON.parse(
+    session.set_link(0n, 9, 10, ''),
+  );
+  assert.ok(session.project(1n, 0, 15));
+  const referenceAck = await referenceExchange(JSON.stringify(unlinkRequest));
+  assert.deepEqual(JSON.parse(session.acknowledge(JSON.stringify(referenceAck))), []);
   const openingBytes = Buffer.from(referenceDisplay);
   referenceDisplay = Buffer.concat([
     openingBytes.subarray(0, referenceChange.range.start),
@@ -104,11 +108,10 @@ try {
   assert.deepEqual(referenceChange.selection, { start: 37, end: 38 });
   assert.equal(session.draft_text(), unlinkedSource);
   assert.equal(JSON.parse(session.inspect_link(1n, 36, 39)), null);
-  session.acknowledge(JSON.stringify(await referenceExchange(session.flush())));
   await stop();
   const referenceReopened = await start('--reopen', referenceVault);
   assert.equal(session.draft_text(), unlinkedSource);
-  assert.equal(JSON.parse(session.project(1n, 0, 43)).text, unlinkedSource);
+  assert.equal(JSON.parse(session.project(0n, 0, 43)).text, unlinkedSource);
   assert.deepEqual(await referenceReopened(JSON.stringify({ checkpoint: true })), { id: 'plain' });
   await stop();
   for (const kind of ['typed', 'composed']) {
@@ -117,9 +120,7 @@ try {
     const timingExchange = await start('', timingVault);
     let timingDisplay = '';
     let timingRevision = 0n;
-    const applyTiming = async (request) => {
-      const ack = await timingExchange(request);
-      const change = JSON.parse(session.acknowledge(JSON.stringify(ack)));
+    const showTiming = (change) => {
       const before = Buffer.from(timingDisplay);
       timingDisplay = Buffer.concat([
         before.subarray(0, change.range.start),
@@ -128,8 +129,14 @@ try {
       ]).toString();
       timingRevision += 1n;
       assert.equal(change.revision, Number(timingRevision));
-      assert.equal(JSON.parse(session.acknowledge(JSON.stringify(ack))), null);
       return change;
+    };
+    const applyTiming = async (applied) => {
+      const { change, request } = JSON.parse(applied);
+      const ack = await timingExchange(JSON.stringify(request));
+      assert.deepEqual(JSON.parse(session.acknowledge(JSON.stringify(ack))), []);
+      assert.deepEqual(JSON.parse(session.acknowledge(JSON.stringify(ack))), []);
+      return showTiming(change);
     };
     const pendingSource = 'x \\*b https://x.test/a*';
     if (kind === 'typed') {
@@ -158,37 +165,37 @@ try {
     const finalSource = 'x *B https://x.test/a* ';
     const beforeCorrection = JSON.parse(session.status());
     let correction = session.replace(timingRevision, 3, 4, 'B');
-    // Portable draft_text is the copyable pending local draft; only the
-    // accepted/displayed watermarks and released delta wait for host ack.
+    // The edit is in the page's draft at once; only the accepted watermark
+    // waits for the worker.
     assert.equal(session.draft_text(), finalSource);
     assert.equal(JSON.parse(session.status()).accepted, beforeCorrection.accepted);
-    assert.equal(JSON.parse(session.status()).displayed, beforeCorrection.displayed);
-    assert.equal(timingDisplay, kind === 'typed' ? 'x *b https://x.test/a*' : '');
-    assert.throws(() => session.project(timingRevision + 1n, 0, 21));
+    assert.ok(session.project(timingRevision + 1n, 0, 21));
     if (kind === 'typed') {
       // Inject a transport rejection before sending this request to the real
       // store. Store append/short-write faults are separate Rust public tests.
-      const request = JSON.parse(correction);
+      const original = JSON.parse(correction);
       const failed = JSON.stringify({
-        token: request.token,
-        sequence: request.sequence,
+        token: original.request.token,
+        sequence: original.request.sequence,
         accepted: beforeCorrection.accepted,
-        durable: beforeCorrection.durable,
         paused: true,
-        error: { kind: 'Storage', message: 'injected transport rejection' },
+        error: { kind: 'Rejected', message: 'injected transport rejection' },
       });
-      assert.equal(JSON.parse(session.acknowledge(failed)), null);
+      assert.deepEqual(JSON.parse(session.acknowledge(failed)), []);
       assert.equal(JSON.parse(session.status()).accepted, beforeCorrection.accepted);
-      assert.equal(JSON.parse(session.status()).displayed, beforeCorrection.displayed);
       assert.equal(JSON.parse(session.status()).paused, true);
       assert.equal(session.draft_text(), finalSource);
-      assert.equal(timingDisplay, 'x *b https://x.test/a*');
-      assert.equal(
-        JSON.parse(session.acknowledge(JSON.stringify(await timingExchange(session.resume())))),
-        null,
-      );
-      correction = session.retry_pending();
-      assert.equal(JSON.parse(session.acknowledge(failed)), null);
+      // A paused page refuses input but still answers queries.
+      assert.throws(() => session.replace(timingRevision + 1n, 0, 0, 'z'), /Paused/);
+      assert.ok(session.project(timingRevision + 1n, 0, 21));
+      // The worker never saw the correction, so Resume re-sends it.
+      const resumeAck = await timingExchange(session.resume());
+      const resent = JSON.parse(session.acknowledge(JSON.stringify(resumeAck)));
+      assert.equal(resent.length, 1);
+      assert.equal(resent[0].operation.Append.revision, original.request.operation.Append.revision);
+      assert.notEqual(resent[0].sequence, original.request.sequence);
+      correction = JSON.stringify({ change: original.change, request: resent[0] });
+      assert.deepEqual(JSON.parse(session.acknowledge(failed)), []);
       assert.equal(JSON.parse(session.status()).paused, false);
     }
     const corrected = await applyTiming(correction);
@@ -209,17 +216,12 @@ try {
     const redone = await applyTiming(session.redo(timingRevision));
     assert.equal(session.draft_text(), finalSource);
     assert.deepEqual(redone.selection, { start: 3, end: 3 });
-    session.acknowledge(JSON.stringify(await timingExchange(session.flush())));
-    assert.equal(JSON.parse(session.status()).durable, Number(timingRevision));
     await stop();
     const timingReopened = await start('--reopen', timingVault);
     assert.equal(session.draft_text(), finalSource);
-    assert.equal(JSON.parse(session.project(timingRevision, 0, 21)).text, 'x B https://x.test/a ');
-    assert.equal(
-      JSON.parse(session.inspect_link(timingRevision, 4, 20)).destination,
-      'https://x.test/a',
-    );
-    assert.equal(JSON.parse(session.undo(timingRevision)), null);
+    assert.equal(JSON.parse(session.project(0n, 0, 21)).text, 'x B https://x.test/a ');
+    assert.equal(JSON.parse(session.inspect_link(0n, 4, 20)).destination, 'https://x.test/a');
+    assert.equal(JSON.parse(session.undo(0n)), null);
     assert.deepEqual(await timingReopened(JSON.stringify({ checkpoint: true })), { id: 'plain' });
     await stop();
   }
@@ -229,9 +231,10 @@ try {
     const liveExchange = await start('# x&#32;', liveVault);
     let liveDisplay = 'x ';
     let revision = 0n;
-    const applyLive = async (request) => {
-      const ack = await liveExchange(request);
-      const change = JSON.parse(session.acknowledge(JSON.stringify(ack)));
+    const applyLive = async (applied) => {
+      const { change, request } = JSON.parse(applied);
+      const ack = await liveExchange(JSON.stringify(request));
+      assert.deepEqual(JSON.parse(session.acknowledge(JSON.stringify(ack))), []);
       assert.ok(change);
       const bytes = Buffer.from(liveDisplay);
       liveDisplay = Buffer.concat([
@@ -240,7 +243,7 @@ try {
         bytes.subarray(change.range.end),
       ]).toString();
       revision = BigInt(change.revision);
-      assert.equal(JSON.parse(session.acknowledge(JSON.stringify(ack))), null);
+      assert.deepEqual(JSON.parse(session.acknowledge(JSON.stringify(ack))), []);
       return change;
     };
     const pendingSource = '# x&#32;\\*b https://x.test/a*';
@@ -252,28 +255,25 @@ try {
     let request = session.paragraph_key_utf16(1n, 22, 22, JSON.stringify('Enter'));
     const before = JSON.parse(session.status());
     assert.equal(before.accepted, 1);
-    assert.equal(before.displayed, 1);
     assert.equal(session.draft_text(), committed);
-    assert.throws(() => session.project(2n, 0, 21));
+    assert.ok(session.project(2n, 0, 21));
     const body = JSON.parse(request);
     const failed = JSON.stringify({
-      token: body.token,
-      sequence: body.sequence,
+      token: body.request.token,
+      sequence: body.request.sequence,
       accepted: 1,
-      durable: before.durable,
       paused: true,
-      error: { kind: 'Storage', message: 'injected transport rejection' },
+      error: { kind: 'Rejected', message: 'injected transport rejection' },
     });
-    assert.equal(JSON.parse(session.acknowledge(failed)), null);
+    assert.deepEqual(JSON.parse(session.acknowledge(failed)), []);
     assert.equal(JSON.parse(session.status()).accepted, 1);
     assert.equal(liveDisplay, 'x *b https://x.test/a*');
-    assert.equal(
-      JSON.parse(session.acknowledge(JSON.stringify(await liveExchange(session.resume())))),
-      null,
-    );
-    request = session.retry_pending();
+    const resumeAck = await liveExchange(session.resume());
+    const resent = JSON.parse(session.acknowledge(JSON.stringify(resumeAck)));
+    assert.equal(resent.length, 1);
+    request = JSON.stringify({ change: body.change, request: resent[0] });
     const entered = await applyLive(request);
-    assert.equal(JSON.parse(session.acknowledge(failed)), null);
+    assert.deepEqual(JSON.parse(session.acknowledge(failed)), []);
     assert.deepEqual(entered.selection, { start: 21, end: 21 });
     assert.equal(liveDisplay, 'x b https://x.test/a\n');
     assert.equal(JSON.parse(session.inspect_link(revision, 4, 5)).destination, 'https://x.test/a');
@@ -295,14 +295,12 @@ try {
     await applyLive(session.redo(revision));
     await applyLive(session.redo(revision));
     assert.equal(session.draft_text(), committed + '!');
-    session.acknowledge(JSON.stringify(await liveExchange(session.flush())));
-    assert.equal(JSON.parse(session.status()).durable, Number(revision));
     await stop();
     const liveReopened = await start('--reopen', liveVault);
     assert.equal(session.draft_text(), committed + '!');
-    assert.equal(JSON.parse(session.project(revision, 0, 22)).text, 'x b https://x.test/a\n!');
-    assert.equal(JSON.parse(session.inspect_link(revision, 4, 5)).destination, 'https://x.test/a');
-    assert.equal(JSON.parse(session.undo(revision)), null);
+    assert.equal(JSON.parse(session.project(0n, 0, 22)).text, 'x b https://x.test/a\n!');
+    assert.equal(JSON.parse(session.inspect_link(0n, 4, 5)).destination, 'https://x.test/a');
+    assert.equal(JSON.parse(session.undo(0n)), null);
     assert.deepEqual(await liveReopened(JSON.stringify({ checkpoint: true })), { id: 'plain' });
     await stop();
   }
@@ -356,9 +354,10 @@ try {
     const blockExchange = await start(original, blockVault);
     let blockDisplay = opening;
     let revision = 0n;
-    const applyBlock = async (request) => {
-      const ack = await blockExchange(request);
-      const change = JSON.parse(session.acknowledge(JSON.stringify(ack)));
+    const applyBlock = async (applied) => {
+      const { change, request } = JSON.parse(applied);
+      const ack = await blockExchange(JSON.stringify(request));
+      assert.deepEqual(JSON.parse(session.acknowledge(JSON.stringify(ack))), []);
       const before = Buffer.from(blockDisplay);
       blockDisplay = Buffer.concat([
         before.subarray(0, change.range.start),
@@ -366,7 +365,7 @@ try {
         before.subarray(change.range.end),
       ]).toString();
       revision = BigInt(change.revision);
-      assert.equal(JSON.parse(session.acknowledge(JSON.stringify(ack))), null);
+      assert.deepEqual(JSON.parse(session.acknowledge(JSON.stringify(ack))), []);
       return change;
     };
     assert.equal(JSON.parse(session.project(0n, 0, Buffer.byteLength(opening))).text, opening);
@@ -377,7 +376,7 @@ try {
     assert.equal(session.draft_text(), finalSource);
     assert.equal(JSON.parse(session.status()).accepted, 0);
     assert.equal(blockDisplay, opening);
-    assert.throws(() => session.project(1n, 0, Buffer.byteLength(shown)));
+    assert.ok(session.project(1n, 0, Buffer.byteLength(shown)));
     const change = await applyBlock(request);
     assert.equal(blockDisplay, shown);
     assert.deepEqual(change.selection, { start: selected, end: selected });
@@ -391,20 +390,19 @@ try {
     await applyBlock(session.redo(revision));
     assert.equal(session.draft_text(), finalSource);
     assert.equal(blockDisplay, shown);
-    session.acknowledge(JSON.stringify(await blockExchange(session.flush())));
     await stop();
     const blockReopened = await start('--reopen', blockVault);
     assert.equal(session.draft_text(), finalSource);
-    assert.equal(JSON.parse(session.project(revision, 0, Buffer.byteLength(shown))).text, shown);
+    assert.equal(JSON.parse(session.project(0n, 0, Buffer.byteLength(shown))).text, shown);
     assert.equal(
-      JSON.parse(session.inspect_link(revision, at, at + 1))?.destination ?? null,
+      JSON.parse(session.inspect_link(0n, at, at + 1))?.destination ?? null,
       destination,
     );
     assert.deepEqual(await blockReopened(JSON.stringify({ checkpoint: true })), { id: 'plain' });
     await stop();
   }
   console.log(
-    'Compiled WASM links: canonical inspection, actual-parent reference blocks, URL timing, retained/inserted targets, ordered acceptance, exact history and real recovery passed.',
+    'Compiled WASM links: canonical inspection, actual-parent reference blocks, URL timing, retained/inserted targets, immediate edits, exact history and real store saving passed.',
   );
 } finally {
   if (session) await stop();

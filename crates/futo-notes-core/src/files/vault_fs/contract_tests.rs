@@ -59,43 +59,6 @@ macro_rules! vault_fs_contract {
             use crate::files::vault_fs::$implementation as vault_fs;
 
             #[test]
-            fn source_type_distinguishes_directories_files_and_missing_parents() {
-                let root = tempfile::tempdir().unwrap();
-                std::fs::create_dir(root.path().join("folder.md")).unwrap();
-                std::fs::write(root.path().join("note.md"), "file").unwrap();
-                assert_eq!(
-                    vault_fs::entry_is_directory(root.path(), "folder.md").unwrap(),
-                    Some(true)
-                );
-                assert_eq!(
-                    vault_fs::entry_is_directory(root.path(), "note.md").unwrap(),
-                    Some(false)
-                );
-                assert_eq!(
-                    vault_fs::entry_is_directory(root.path(), "absent/entry").unwrap(),
-                    None
-                );
-                assert!(vault_fs::entry_is_directory(root.path(), "../entry").is_err());
-                assert!(vault_fs::entry_is_directory(root.path(), "note.md/entry").is_err());
-            }
-
-            #[cfg(unix)]
-            #[test]
-            fn source_type_rejects_symlink_leaf_and_parent() {
-                let root = tempfile::tempdir().unwrap();
-                let outside = tempfile::tempdir().unwrap();
-                std::fs::write(outside.path().join("note.md"), "outside").unwrap();
-                std::os::unix::fs::symlink(outside.path(), root.path().join("linked")).unwrap();
-                std::os::unix::fs::symlink(
-                    outside.path().join("note.md"),
-                    root.path().join("note.md"),
-                )
-                .unwrap();
-                assert!(vault_fs::entry_is_directory(root.path(), "linked/note.md").is_err());
-                assert!(vault_fs::entry_is_directory(root.path(), "note.md").is_err());
-            }
-
-            #[test]
             fn strict_exclusive_create_never_replaces_an_occupied_destination() {
                 let root = tempfile::tempdir().unwrap();
                 assert!(
@@ -107,43 +70,6 @@ macro_rules! vault_fs_contract {
                 assert_eq!(
                     vault_fs::read(root.path(), "nested/note.md").unwrap(),
                     b"first"
-                );
-            }
-
-            #[test]
-            fn recovery_append_preserves_existing_bytes_and_creates_safe_parents() {
-                use std::io::Write;
-                let root = tempfile::tempdir().unwrap();
-                let mut file = vault_fs::open_append(root.path(), ".editor/record").unwrap();
-                file.write_all(b"first\n").unwrap();
-                drop(file);
-                let mut file = vault_fs::open_append(root.path(), ".editor/record").unwrap();
-                file.write_all(b"second\n").unwrap();
-                assert_eq!(
-                    vault_fs::read(root.path(), ".editor/record").unwrap(),
-                    b"first\nsecond\n"
-                );
-                assert!(vault_fs::open_append(root.path(), "../outside").is_err());
-                vault_fs::sync_file(root.path(), ".editor/record").unwrap();
-                assert!(vault_fs::sync_file(root.path(), "missing/record").is_err());
-            }
-
-            #[cfg(unix)]
-            #[test]
-            fn recovery_append_and_sync_reject_symlinked_targets_and_parents() {
-                use std::os::unix::fs::symlink;
-                let root = tempfile::tempdir().unwrap();
-                let outside = tempfile::tempdir().unwrap();
-                std::fs::write(outside.path().join("record"), b"untouched").unwrap();
-                symlink(outside.path(), root.path().join("linked")).unwrap();
-                symlink(outside.path().join("record"), root.path().join("record")).unwrap();
-                for relative in ["linked/record", "record"] {
-                    assert!(vault_fs::open_append(root.path(), relative).is_err());
-                    assert!(vault_fs::sync_file(root.path(), relative).is_err());
-                }
-                assert_eq!(
-                    std::fs::read(outside.path().join("record")).unwrap(),
-                    b"untouched"
                 );
             }
 

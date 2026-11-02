@@ -168,13 +168,17 @@ impl NativeEditorSession {
         self.with_session(|session| Ok(session.redo(Revision(expected))?.map(Into::into)))
     }
 
-    /// Releases the attachment without silently saving or discarding recovery.
-    pub fn detach(&self) -> Result<(), EditorSessionError> {
-        self.inner
+    /// Saves unsaved edits, then releases the attachment. If the save fails the
+    /// session stays attached so the caller can retry.
+    pub fn detach(&self) -> Result<FlushDraftResult, EditorSessionError> {
+        let mut guard = self
+            .inner
             .lock()
-            .map_err(|_| EditorSessionError::Unavailable)?
-            .take();
-        Ok(())
+            .map_err(|_| EditorSessionError::Unavailable)?;
+        let session = guard.as_mut().ok_or(EditorSessionError::Unavailable)?;
+        let result = session.close()?.into();
+        guard.take();
+        Ok(result)
     }
 
     /// Code units preserve malformed foreign input for canonical rejection;
@@ -288,28 +292,22 @@ impl NativeEditorSession {
         })
     }
 
-    pub fn recovery_issue(&self) -> Result<Option<EditorRecoveryIssue>, EditorSessionError> {
-        self.with_session(|session| Ok(session.recovery_issue().map(Into::into)))
+    pub fn save_status(&self) -> Result<EditorSaveStatus, EditorSessionError> {
+        self.with_session(|session| Ok(session.save_status().into()))
     }
 
-    pub fn resume_recovery(&self) -> Result<EditorRecoveryStatus, EditorSessionError> {
-        self.with_session(|session| Ok(session.resume_recovery()?.into()))
+    /// Remaining time until the next save is due, in the store's clock domain.
+    /// None means nothing is unsaved; zero means already due.
+    pub fn save_delay(&self) -> Result<Option<std::time::Duration>, EditorSessionError> {
+        self.with_session(|session| Ok(session.save_delay()))
     }
 
-    pub fn recovery_status(&self) -> Result<EditorRecoveryStatus, EditorSessionError> {
-        self.with_session(|session| Ok(session.recovery_status().into()))
+    /// Writes the markdown file if the debounce window has closed.
+    pub fn save_if_due(&self) -> Result<Option<FlushDraftResult>, EditorSessionError> {
+        self.with_session(|session| Ok(session.save_if_due()?.map(Into::into)))
     }
 
-    /// Remaining time until the oldest unflushed edit is due, computed in the
-    /// store's clock domain. None means no pending flush; zero means already due.
-    pub fn recovery_flush_delay(&self) -> Result<Option<std::time::Duration>, EditorSessionError> {
-        self.with_session(|session| Ok(session.recovery_flush_delay()))
-    }
-
-    pub fn flush_recovery(&self) -> Result<EditorRecoveryStatus, EditorSessionError> {
-        self.with_session(|session| Ok(session.flush_recovery()?.into()))
-    }
-
+    /// Writes the markdown file now.
     pub fn checkpoint(&self) -> Result<FlushDraftResult, EditorSessionError> {
         self.with_session(|session| Ok(session.checkpoint()?.into()))
     }

@@ -1,4 +1,6 @@
-//! Asynchronous page/worker contract. No callback here performs storage I/O.
+//! Page/worker contract. The page applies every edit at once and sends the
+//! worker a request to mirror it; acknowledgements arrive later and never gate
+//! the page. No callback here performs I/O.
 mod clipboard;
 mod composition;
 mod find;
@@ -21,7 +23,6 @@ pub struct SessionToken(pub u64);
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum HostOperation {
     Append(SourceEdit),
-    Flush,
     Resume,
 }
 
@@ -37,7 +38,6 @@ pub struct HostAck {
     pub token: SessionToken,
     pub sequence: u64,
     pub accepted: Revision,
-    pub durable: Revision,
     pub paused: bool,
     pub error: Option<HostError>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -52,10 +52,6 @@ pub enum HostErrorKind {
     Deleted,
     /// Token, sequence or retired-mode mismatch: the request is not for this attachment.
     StaleToken,
-    /// Recovery is paused or needs review; input stays paused until `resume`.
-    Paused,
-    /// Recovery, checkpoint or open failed in storage.
-    Storage,
     /// The engine rejected the edit itself.
     Rejected,
 }
@@ -86,12 +82,11 @@ pub struct RelinkOffer {
 }
 
 impl HostRequest {
-    pub fn accepted(&self, accepted: Revision, durable: Revision) -> HostAck {
+    pub fn accepted(&self, accepted: Revision) -> HostAck {
         HostAck {
             token: self.token,
             sequence: self.sequence,
             accepted,
-            durable,
             paused: false,
             error: None,
             relink: None,
@@ -99,20 +94,28 @@ impl HostRequest {
     }
 }
 
+/// One applied input: the view change to show now and the request the caller
+/// must send to the worker.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Applied {
+    pub change: ViewChange,
+    pub request: HostRequest,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PortableStatus {
+    /// The page's current revision.
     pub local: Revision,
-    pub displayed: Revision,
+    /// The newest revision the worker has acknowledged.
     pub accepted: Revision,
-    pub durable: Revision,
     pub paused: bool,
-    pub waiting: bool,
+    /// Edit requests sent but not yet acknowledged.
+    pub outstanding: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PortableError {
     Editor(EditorError),
-    Busy,
     Paused,
     InvalidAcknowledgement,
     SequenceExhausted,
@@ -124,42 +127,40 @@ impl From<EditorError> for PortableError {
     }
 }
 
-/// Worker-issued opening state, including a recovery pause that the page must
-/// preserve. Materialize source once at attach, never with each small edit.
+/// Worker-issued opening state, including a pause that the page must preserve. Materialize source once at attach, never with each small edit.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HostSnapshot {
     pub token: SessionToken,
     pub source: String,
     pub revision: Revision,
-    pub durable: Revision,
     pub paused: bool,
 }
 
-/// One page-local edit may be active. Its view delta is released only after a
-/// matching host append acknowledgement. Further input is backpressured rather
-/// than queued on a display timer. A failed active draft remains copyable.
+/// Edits apply to the page's engine immediately. Each returns its view change
+/// together with a request carrying the next sequence number; any number may be
+/// outstanding. Queries, selection and composition never wait on
+/// acknowledgements. An error acknowledgement pauses the page: input is refused
+/// and the draft stays copyable.
 pub struct PortableSession {
     engine: EditorSession,
     token: SessionToken,
     sequence: u64,
-    waiting: Option<HostRequest>,
-    pending: Option<(SourceEdit, ViewChange)>,
-    displayed: Revision,
+    /// Sent edit requests not yet acknowledged, in sequence order.
+    outstanding: std::collections::VecDeque<HostRequest>,
+    /// The sequence of the `Resume` request awaiting its reply.
+    resuming: Option<u64>,
     accepted: Revision,
-    durable: Revision,
     paused: bool,
     relink: Option<RelinkOffer>,
 }
 
 impl PortableSession {
-    /// The host supplies exact recovered text/revision and conservative durable
-    /// watermark. A token must never be reused for a different attached session.
-    pub fn open(token: SessionToken, source: &str, revision: Revision, durable: Revision) -> Self {
+    /// The host supplies the exact opening text and revision. A token must never be reused for a different attached session.
+    pub fn open(token: SessionToken, source: &str, revision: Revision) -> Self {
         Self::open_with_clock(
             token,
             source,
             revision,
-            durable,
             std::sync::Arc::new(crate::history::MonotonicClock::default()),
         )
     }
@@ -168,19 +169,15 @@ impl PortableSession {
         token: SessionToken,
         source: &str,
         revision: Revision,
-        durable: Revision,
         clock: std::sync::Arc<dyn crate::HistoryClock>,
     ) -> Self {
-        assert!(durable.0 <= revision.0);
         Self {
             engine: EditorSession::restore_with_clock(source, revision, clock),
             token,
             sequence: 0,
-            waiting: None,
-            pending: None,
-            displayed: revision,
+            outstanding: std::collections::VecDeque::new(),
+            resuming: None,
             accepted: revision,
-            durable,
             paused: false,
             relink: None,
         }
@@ -197,41 +194,26 @@ impl PortableSession {
         snapshot: HostSnapshot,
         clock: std::sync::Arc<dyn crate::HistoryClock>,
     ) -> Result<Self, PortableError> {
-        if snapshot.durable.0 > snapshot.revision.0 {
-            return Err(PortableError::InvalidAcknowledgement);
-        }
-        let mut session = Self::open_with_clock(
-            snapshot.token,
-            &snapshot.source,
-            snapshot.revision,
-            snapshot.durable,
-            clock,
-        );
+        let mut session =
+            Self::open_with_clock(snapshot.token, &snapshot.source, snapshot.revision, clock);
         session.paused = snapshot.paused;
         Ok(session)
     }
 
-    /// Queries cannot expose a locally staged projection before host acceptance.
     pub fn project(
         &self,
         expected: Revision,
         range: DisplayRange,
     ) -> Result<crate::ProjectionSlice, PortableError> {
-        if self.pending.is_some() {
-            return Err(PortableError::Busy);
-        }
         Ok(self.engine.project(expected, range)?)
     }
 
-    /// Display byte range to UTF-16 units; like `project`, never exposes staged text.
+    /// Display byte range to UTF-16 units.
     pub fn display_to_utf16(
         &self,
         expected: Revision,
         range: DisplayRange,
     ) -> Result<DisplayUtf16Range, PortableError> {
-        if self.pending.is_some() {
-            return Err(PortableError::Busy);
-        }
         Ok(self.engine.display_to_utf16(expected, range)?)
     }
 
@@ -241,9 +223,6 @@ impl PortableSession {
         expected: Revision,
         range: DisplayUtf16Range,
     ) -> Result<DisplayRange, PortableError> {
-        if self.pending.is_some() {
-            return Err(PortableError::Busy);
-        }
         Ok(self.engine.display_from_utf16(expected, range)?)
     }
 
@@ -253,14 +232,12 @@ impl PortableSession {
         range: DisplayRange,
         affinity: crate::Affinity,
     ) -> Result<crate::SelectionChange, PortableError> {
-        self.ready()?;
         Ok(self
             .engine
             .select_with_affinity(expected, range, affinity)?)
     }
 
     pub fn active_formats(&self) -> Result<Vec<crate::InlineFormat>, PortableError> {
-        self.ready()?;
         Ok(self.engine.active_formats())
     }
 
@@ -268,16 +245,14 @@ impl PortableSession {
         &mut self,
         expected: Revision,
         format: crate::InlineFormat,
-    ) -> Result<Option<HostRequest>, PortableError> {
+    ) -> Result<Option<Applied>, PortableError> {
         self.ready()?;
         let mut record = None;
         let change = self.engine.toggle_format(expected, format, &mut |edit| {
             record = Some(edit.clone());
             Ok(())
         })?;
-        change
-            .map(|change| self.stage(record.unwrap(), change))
-            .transpose()
+        Ok(change.map(|change| self.issue(record.unwrap(), change)))
     }
 
     pub fn draft_text(&self) -> String {
@@ -286,20 +261,16 @@ impl PortableSession {
     pub fn status(&self) -> PortableStatus {
         PortableStatus {
             local: self.engine.revision(),
-            displayed: self.displayed,
             accepted: self.accepted,
-            durable: self.durable,
             paused: self.paused,
-            waiting: self.waiting.is_some(),
+            outstanding: self.outstanding.len(),
         }
     }
 
+    /// Input is refused while paused or once sequence numbers run out.
     fn ready(&self) -> Result<(), PortableError> {
         if self.paused {
             return Err(PortableError::Paused);
-        }
-        if self.waiting.is_some() || self.pending.is_some() {
-            return Err(PortableError::Busy);
         }
         if self.sequence == u64::MAX {
             return Err(PortableError::SequenceExhausted);
@@ -307,21 +278,13 @@ impl PortableSession {
         Ok(())
     }
 
-    fn request(&mut self, operation: HostOperation) -> Result<HostRequest, PortableError> {
-        if self.waiting.is_some() {
-            return Err(PortableError::Busy);
-        }
-        self.sequence = self
-            .sequence
-            .checked_add(1)
-            .ok_or(PortableError::SequenceExhausted)?;
-        let request = HostRequest {
+    fn next_request(&mut self, operation: HostOperation) -> HostRequest {
+        self.sequence += 1;
+        HostRequest {
             token: self.token,
             sequence: self.sequence,
             operation,
-        };
-        self.waiting = Some(request.clone());
-        Ok(request)
+        }
     }
 
     pub fn block_command_utf16(
@@ -329,7 +292,7 @@ impl PortableSession {
         expected: Revision,
         range: DisplayUtf16Range,
         command: crate::BlockCommand,
-    ) -> Result<Option<HostRequest>, PortableError> {
+    ) -> Result<Option<Applied>, PortableError> {
         self.ready()?;
         let mut record = None;
         let change = self
@@ -338,9 +301,7 @@ impl PortableSession {
                 record = Some(edit.clone());
                 Ok(())
             })?;
-        change
-            .map(|change| self.stage(record.unwrap(), change))
-            .transpose()
+        Ok(change.map(|change| self.issue(record.unwrap(), change)))
     }
 
     pub fn paragraph_key_utf16(
@@ -348,7 +309,7 @@ impl PortableSession {
         expected: Revision,
         range: DisplayUtf16Range,
         key: crate::ParagraphKey,
-    ) -> Result<Option<HostRequest>, PortableError> {
+    ) -> Result<Option<Applied>, PortableError> {
         self.ready()?;
         let mut record = None;
         let change = self
@@ -357,9 +318,7 @@ impl PortableSession {
                 record = Some(edit.clone());
                 Ok(())
             })?;
-        change
-            .map(|change| self.stage(record.unwrap(), change))
-            .transpose()
+        Ok(change.map(|change| self.issue(record.unwrap(), change)))
     }
 
     pub fn replace(
@@ -367,7 +326,7 @@ impl PortableSession {
         expected: Revision,
         range: DisplayRange,
         inserted: &str,
-    ) -> Result<HostRequest, PortableError> {
+    ) -> Result<Applied, PortableError> {
         self.replace_action(expected, range, inserted, crate::InputAction::Typing)
     }
 
@@ -377,7 +336,7 @@ impl PortableSession {
         range: DisplayRange,
         inserted: &str,
         action: crate::InputAction,
-    ) -> Result<HostRequest, PortableError> {
+    ) -> Result<Applied, PortableError> {
         self.ready()?;
         let mut record = None;
         let change =
@@ -386,14 +345,14 @@ impl PortableSession {
                     record = Some(edit.clone());
                     Ok(())
                 })?;
-        self.stage(record.unwrap(), change)
+        Ok(self.issue(record.unwrap(), change))
     }
 
     pub fn replace_many(
         &mut self,
         expected: Revision,
         replacements: &[crate::DisplayReplacement],
-    ) -> Result<HostRequest, PortableError> {
+    ) -> Result<Applied, PortableError> {
         self.ready()?;
         let mut record = None;
         let change = self
@@ -402,7 +361,7 @@ impl PortableSession {
                 record = Some(edit.clone());
                 Ok(())
             })?;
-        self.stage(record.unwrap(), change)
+        Ok(self.issue(record.unwrap(), change))
     }
 
     pub fn replace_utf16(
@@ -410,7 +369,7 @@ impl PortableSession {
         expected: Revision,
         range: DisplayUtf16Range,
         inserted: &[u16],
-    ) -> Result<HostRequest, PortableError> {
+    ) -> Result<Applied, PortableError> {
         self.ready()?;
         let (range, inserted) = self.engine.decode_utf16_input(expected, range, inserted)?;
         self.replace(expected, range, &inserted)
@@ -422,7 +381,7 @@ impl PortableSession {
         range: DisplayUtf16Range,
         inserted: &[u16],
         action: crate::InputAction,
-    ) -> Result<HostRequest, PortableError> {
+    ) -> Result<Applied, PortableError> {
         self.ready()?;
         let (range, inserted) = self.engine.decode_utf16_input(expected, range, inserted)?;
         self.replace_action(expected, range, &inserted, action)
@@ -432,7 +391,7 @@ impl PortableSession {
         &mut self,
         expected: Revision,
         replacements: &[crate::DisplayUtf16Replacement],
-    ) -> Result<HostRequest, PortableError> {
+    ) -> Result<Applied, PortableError> {
         self.ready()?;
         let replacements = self
             .engine
@@ -440,17 +399,17 @@ impl PortableSession {
         self.replace_many(expected, &replacements)
     }
 
-    pub fn undo(&mut self, expected: Revision) -> Result<Option<HostRequest>, PortableError> {
+    pub fn undo(&mut self, expected: Revision) -> Result<Option<Applied>, PortableError> {
         self.history(expected, false)
     }
-    pub fn redo(&mut self, expected: Revision) -> Result<Option<HostRequest>, PortableError> {
+    pub fn redo(&mut self, expected: Revision) -> Result<Option<Applied>, PortableError> {
         self.history(expected, true)
     }
     fn history(
         &mut self,
         expected: Revision,
         redo: bool,
-    ) -> Result<Option<HostRequest>, PortableError> {
+    ) -> Result<Option<Applied>, PortableError> {
         self.ready()?;
         let mut record = None;
         let mut capture = |edit: &SourceEdit| {
@@ -462,27 +421,20 @@ impl PortableSession {
         } else {
             self.engine.undo(expected, &mut capture)?
         };
-        change
-            .map(|change| self.stage(record.unwrap(), change))
-            .transpose()
+        Ok(change.map(|change| self.issue(record.unwrap(), change)))
     }
-    fn stage(
-        &mut self,
-        edit: SourceEdit,
-        change: ViewChange,
-    ) -> Result<HostRequest, PortableError> {
-        let request = self.request(HostOperation::Append(edit.clone()))?;
-        self.pending = Some((edit, change));
+    /// Record an edit the engine already applied and issue its request.
+    /// `ready` has checked the sequence, so numbering cannot overflow here.
+    fn issue(&mut self, edit: SourceEdit, change: ViewChange) -> Applied {
+        let request = self.next_request(HostOperation::Append(edit));
+        self.outstanding.push_back(request.clone());
         self.relink = None;
-        Ok(request)
+        Applied { change, request }
     }
 
-    pub fn flush(&mut self) -> Result<HostRequest, PortableError> {
-        self.ready()?;
-        self.request(HostOperation::Flush)
-    }
-
-    pub fn apply_relink_offer(&mut self) -> Result<Option<HostRequest>, PortableError> {
+    /// Adopt the worker's relink offer when the page still holds exactly the
+    /// offered revision; a stale offer is dropped.
+    pub fn apply_relink_offer(&mut self) -> Result<Option<Applied>, PortableError> {
         self.ready()?;
         let Some(offer) = self.relink.take() else {
             return Ok(None);
@@ -497,80 +449,75 @@ impl PortableSession {
                 record = Some(edit.clone());
                 Ok(())
             })?;
-        change
-            .map(|change| self.stage(record.unwrap(), change))
-            .transpose()
+        Ok(change.map(|change| self.issue(record.unwrap(), change)))
     }
 
-    /// Also used after a transport timeout. The host repairs/flushes before
-    /// acknowledgement; if it already accepted the active edit, do not resend it.
+    /// Ask the worker for its current state; also the way out of a pause.
+    /// Nothing is re-sent here: the reply to this request (see `acknowledge`)
+    /// returns the outstanding requests the worker is missing.
     pub fn resume(&mut self) -> Result<HostRequest, PortableError> {
-        self.waiting = None;
+        if self.sequence == u64::MAX {
+            return Err(PortableError::SequenceExhausted);
+        }
         self.paused = true;
-        self.request(HostOperation::Resume)
+        let request = self.next_request(HostOperation::Resume);
+        self.resuming = Some(request.sequence);
+        Ok(request)
     }
 
-    pub fn retry_pending(&mut self) -> Result<HostRequest, PortableError> {
-        if self.paused {
-            return Err(PortableError::Paused);
+    /// Duplicate, old-incarnation and unknown replies change nothing. A success
+    /// advances `accepted` and releases no view change: the view already shows
+    /// the edit. An error pauses the page. The reply to `resume` returns the
+    /// outstanding requests the worker has not accepted, renumbered after the
+    /// resume request and in order; every other reply returns none.
+    pub fn acknowledge(&mut self, ack: HostAck) -> Result<Vec<HostRequest>, PortableError> {
+        if ack.token != self.token {
+            return Ok(Vec::new());
         }
-        let edit = self.pending.as_ref().ok_or(PortableError::Busy)?.0.clone();
-        self.request(HostOperation::Append(edit))
-    }
-
-    /// Duplicate, old-incarnation and superseded replies cannot release a delta
-    /// or move watermarks. Invalid matching replies leave the active request intact.
-    pub fn acknowledge(&mut self, ack: HostAck) -> Result<Option<ViewChange>, PortableError> {
-        let Some(request) = &self.waiting else {
-            return Ok(None);
-        };
-        if ack.token != self.token || ack.sequence != request.sequence {
-            return Ok(None);
+        let resume = self.resuming == Some(ack.sequence);
+        let edit_revision = self
+            .outstanding
+            .iter()
+            .find(|request| request.sequence == ack.sequence)
+            .map(|request| match &request.operation {
+                HostOperation::Append(edit) => edit.revision,
+                HostOperation::Resume => unreachable!("resume is never outstanding"),
+            });
+        if !resume && edit_revision.is_none() {
+            return Ok(Vec::new());
         }
-        let limit = match &request.operation {
-            HostOperation::Append(edit) => edit.revision,
-            HostOperation::Flush => self.accepted,
-            HostOperation::Resume => self.engine.revision(),
-        };
-        if ack.durable.0 > ack.accepted.0
-            || ack.accepted.0 < self.accepted.0
-            || ack.durable.0 < self.durable.0
-            || ack.accepted.0 > limit.0
-        {
+        if ack.accepted.0 < self.accepted.0 || ack.accepted.0 > self.engine.revision().0 {
             return Err(PortableError::InvalidAcknowledgement);
         }
-        if ack.error.is_none() && (!ack.paused) {
-            let expected = match &request.operation {
-                HostOperation::Append(edit) => Some(edit.revision),
-                HostOperation::Flush => Some(self.accepted),
-                HostOperation::Resume => None,
-            };
-            if expected.is_some_and(|expected| ack.accepted != expected)
-                || (matches!(
-                    request.operation,
-                    HostOperation::Flush | HostOperation::Resume
-                ) && ack.durable != ack.accepted)
-            {
-                return Err(PortableError::InvalidAcknowledgement);
-            }
+        let failed = ack.paused || ack.error.is_some();
+        if !failed && edit_revision.is_some_and(|revision| ack.accepted != revision) {
+            return Err(PortableError::InvalidAcknowledgement);
         }
-        self.waiting = None;
+        if resume {
+            self.resuming = None;
+        }
         self.accepted = ack.accepted;
-        self.durable = ack.durable;
-        self.paused = ack.paused || ack.error.is_some();
+        self.paused = failed;
+        self.outstanding.retain(|request| match &request.operation {
+            HostOperation::Append(edit) => edit.revision.0 > ack.accepted.0,
+            HostOperation::Resume => false,
+        });
         self.relink = ack
             .relink
             .filter(|offer| offer.revision == self.engine.revision());
-        if !self.paused
-            && self
-                .pending
-                .as_ref()
-                .is_some_and(|(edit, _)| edit.revision == self.accepted)
-        {
-            let (_, change) = self.pending.take().unwrap();
-            self.displayed = change.revision;
-            return Ok(Some(change));
+        if !resume || failed {
+            return Ok(Vec::new());
         }
-        Ok(None)
+        let count = self.outstanding.len() as u64;
+        if self.sequence.checked_add(count).is_none() {
+            return Err(PortableError::SequenceExhausted);
+        }
+        let mut resent = Vec::with_capacity(self.outstanding.len());
+        for request in self.outstanding.iter_mut() {
+            self.sequence += 1;
+            request.sequence = self.sequence;
+            resent.push(request.clone());
+        }
+        Ok(resent)
     }
 }

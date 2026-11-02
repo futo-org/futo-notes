@@ -86,10 +86,10 @@ fn native_isolated_input_and_compound_runs_preserve_exact_history_and_validate_e
         "__kitten__ &amp; _ox日本!_\r\n"
     );
     session.detach().unwrap();
-    let recovered = store.open_editor("history".into()).unwrap();
+    let reopened = store.open_editor("history".into()).unwrap();
     assert_eq!(
-        recovered.source_text().unwrap(),
+        reopened.source_text().unwrap(),
         "__kitten__ &amp; _ox日本!_\r\n"
     );
-    assert!(recovered.undo(9).unwrap().is_none());
+    assert!(reopened.undo(0).unwrap().is_none());
 }

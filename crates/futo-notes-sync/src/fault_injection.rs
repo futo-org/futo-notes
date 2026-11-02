@@ -20,8 +20,7 @@
 //!
 //! Limitation: [`Fault::Status`] answers with an error body, so a 409 injected
 //! on a mutation route arrives as a 409 transport error rather than the
-//! structured optimistic-version conflict the real server sends. Use
-//! [`Fault::VersionConflict`] for that protocol response against a seeded object.
+//! structured optimistic-version conflict the real server sends.
 
 use std::collections::HashMap;
 use std::io::{Read, Write};
@@ -52,8 +51,6 @@ pub(crate) enum Route {
 pub(crate) enum Fault {
     /// Reply with this status and a JSON error body.
     Status(u16),
-    /// A real version conflict for the seeded object, rather than a transport error.
-    VersionConflict,
     /// Promise more bytes than are sent, then close the connection.
     TruncatedBody,
     /// Reply 200 with a body the client cannot parse.
@@ -304,18 +301,6 @@ impl Handler {
                     "application/json",
                     body.as_bytes(),
                 )?;
-            }
-            Some(Fault::VersionConflict) => {
-                let object = self
-                    .objects
-                    .iter()
-                    .find(|object| object.id == request.target)
-                    .expect("version conflict requires a seeded object");
-                let body = serde_json::to_vec(&serde_json::json!({
-                    "currentVersion": 1, "currentBlobKey": object.blob_key,
-                }))
-                .unwrap();
-                write_response(stream, "409 Conflict", "application/json", &body)?;
             }
             Some(Fault::TruncatedBody) => write_truncated(stream)?,
             Some(Fault::MalformedBody) => write_response(

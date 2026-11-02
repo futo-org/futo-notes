@@ -6,7 +6,7 @@ fn range(a: u64, z: u64) -> EditorUtf16Range {
 }
 
 #[test]
-fn native_structural_seams_and_raw_composition_keep_exact_recovery_and_carets() {
+fn native_structural_seams_and_raw_composition_keep_exact_saves_and_carets() {
     let cases: Vec<serde_json::Value> = [
         include_str!("../../futo-notes-editor/tests/fixtures/structural-seams.json"),
         include_str!("../../futo-notes-editor/tests/fixtures/fence-physical-rows.json"),
@@ -197,7 +197,7 @@ fn native_structural_seams_and_raw_composition_keep_exact_recovery_and_carets() 
                 .unwrap(),
             range(caret, caret)
         );
-        s.flush_recovery().unwrap();
+        s.checkpoint().unwrap();
         s.detach().unwrap();
         let recovered = store.open_editor("seam".into()).unwrap();
         assert_eq!(recovered.source_text().unwrap(), text("expectedSource"));

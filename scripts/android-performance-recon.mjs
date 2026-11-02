@@ -96,10 +96,8 @@ export function validateReconReport(report, runId, mode = 'full') {
               fixture.returnedProjections?.length !== 5 ||
               fixture.flushes.some(
                 (flush, index) =>
-                  flush.accepted !== flush.durable ||
-                  !(flush.accepted > flush.previousDurable) ||
-                  !Number.isSafeInteger(flush.lastFlushLatenessNs) ||
-                  flush.lastFlushLatenessNs < 0 ||
+                  flush.revision !== flush.saved ||
+                  !(flush.revision > flush.previousSaved) ||
                   flush.immediateAfterOneAppend !== (index === 0 || index >= 3),
               ))),
       ))

@@ -82,8 +82,8 @@ impl WasmSession {
                 Some(PortableTableStep::Selected(change)) => {
                     serde_json::json!({ "selected": change })
                 }
-                Some(PortableTableStep::Edited(request)) => {
-                    serde_json::json!({ "edited": request })
+                Some(PortableTableStep::Edited(applied)) => {
+                    serde_json::json!({ "edited": applied })
                 }
             },
         )

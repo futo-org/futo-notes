@@ -491,7 +491,7 @@ fn cell_edit_work_follows_the_table_not_the_note() {
 #[test]
 fn portable_table_steps_wait_for_acceptance_but_selection_moves_do_not() {
     use futo_notes_editor::{PortableSession, PortableTableStep, SessionToken};
-    let mut page = PortableSession::open(SessionToken(7), GRID, Revision(0), Revision(0));
+    let mut page = PortableSession::open(SessionToken(7), GRID, Revision(0));
     let a = page
         .inspect_table(Revision(0), range(0, 0))
         .unwrap()
@@ -504,14 +504,11 @@ fn portable_table_steps_wait_for_acceptance_but_selection_moves_do_not() {
     else {
         panic!("Tab selects the next cell");
     };
-    let request = page.replace(Revision(0), range(6, 7), "x|").unwrap();
+    page.replace(Revision(0), range(6, 7), "x|").unwrap();
     assert_eq!(
         page.draft_text(),
         "| a | x\\| |\n| --- | :-: |\n| c | d |\n"
     );
-    assert!(page.inspect_table(Revision(1), range(0, 0)).is_err());
-    page.acknowledge(request.accepted(Revision(1), Revision(0)))
-        .unwrap();
     assert!(page
         .inspect_table(Revision(1), range(0, 0))
         .unwrap()

@@ -1,4 +1,4 @@
-//! Portable link operations use the same ordered append/ack barrier as input.
+//! Portable link operations: edits are ordinary input, inspection is a query.
 use super::*;
 
 impl PortableSession {
@@ -7,7 +7,6 @@ impl PortableSession {
         expected: Revision,
         range: DisplayRange,
     ) -> Result<Option<crate::LinkDescription>, PortableError> {
-        self.ready()?;
         Ok(self.engine.inspect_link(expected, range)?)
     }
 
@@ -16,7 +15,7 @@ impl PortableSession {
         expected: Revision,
         range: DisplayRange,
         destination: &str,
-    ) -> Result<Option<HostRequest>, PortableError> {
+    ) -> Result<Option<Applied>, PortableError> {
         self.ready()?;
         let mut record = None;
         let change = self
@@ -25,20 +24,14 @@ impl PortableSession {
                 record = Some(edit.clone());
                 Ok(())
             })?;
-        change
-            .map(|change| self.stage(record.unwrap(), change))
-            .transpose()
+        Ok(change.map(|change| self.issue(record.unwrap(), change)))
     }
 
-    /// Note ids never append. Like a query, they wait for a released change so
-    /// returned semantics address the page's displayed revision.
+    /// Note ids never append; like a query they never wait on acknowledgements.
     pub fn update_note_ids(
         &mut self,
         note_ids: &[String],
     ) -> Result<crate::NoteIdChange, PortableError> {
-        if self.pending.is_some() {
-            return Err(PortableError::Busy);
-        }
         Ok(self.engine.update_note_ids(note_ids))
     }
 }

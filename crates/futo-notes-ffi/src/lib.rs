@@ -5,9 +5,9 @@ pub use editor::{
     EditorCorrespondence, EditorCorrespondenceKind, EditorDisplayByteOffset, EditorFindReport,
     EditorFindScanRequest, EditorFindScanResult, EditorInlineFormat, EditorInputAction,
     EditorLinkDescription, EditorListDescription, EditorParagraphKey, EditorProjection,
-    EditorRecoveryIssue, EditorRecoveryIssueKind, EditorRecoveryStatus, EditorSemanticRun,
-    EditorSessionError, EditorSourceByteOffset, EditorSourceByteRange, EditorUtf16Range,
-    EditorUtf16Replacement, EditorViewChange, NativeEditorSession,
+    EditorSaveStatus, EditorSemanticRun, EditorSessionError, EditorSourceByteOffset,
+    EditorSourceByteRange, EditorUtf16Range, EditorUtf16Replacement, EditorViewChange,
+    NativeEditorSession,
 };
 pub use editor::{
     EditorTableAlignment, EditorTableCell, EditorTableCommand, EditorTableControls,

@@ -1,8 +1,8 @@
 # Native facade
 
 `NoteStore.open_editor` opens an owning `NativeEditorSession`. Call it and its
-methods on the native I/O worker: append acceptance performs blocking recovery
-I/O before returning the view change. Swift and Kotlin contract consumers live
+methods on the native I/O worker: input and saving take the
+session's lock and may block on the store. Swift and Kotlin contract consumers live
 in `apps/ios/Tests/Editor/NativeEditorSessionTests.swift` and
 `apps/android/app/src/androidTest/java/com/futo/notes/editor/NativeEditorSessionTest.kt`.
 The shipping views do not select this engine yet.
@@ -18,17 +18,16 @@ and semantic descriptions without parsing markdown.
 `CompositionCommit` history intent. Native marked text stays provisional until
 one final commit; composition staging belongs to the following engine slice.
 `replace_many_utf16` accepts all runs of one user action in opening-display
-coordinates and validates every run before one recovery append. Undo/Redo
+coordinates and validates every run before one accepted edit. Undo/Redo
 restore the entire action's exact bytes, selection, affinity and carried formats.
 `select_with_affinity`, `toggle_format` and `active_formats` expose that same
-shared formatting contract without native policy. Reopening retains the protected
-draft and starts with no persistent Undo/Redo history.
+shared formatting contract without native policy. Reopening starts from the saved markdown with no persistent Undo/Redo history.
 
-`recovery_status` distinguishes accepted and durable revisions. A successful
-`flush_recovery` protects accepted edits against modeled power loss; `checkpoint`
-performs the store's complete persist-or-park workflow and returns its mutation.
-A `CheckpointCommitted` failure still carries that mutation. `detach` releases
-the attachment and keeps accepted recovery available, without checkpointing.
+Edits live in memory and are saved as markdown 500 ms after the last edit (2 s max wait);
+`save_delay` and `save_if_due` expose that schedule. `checkpoint` performs the store's
+complete persist-or-park workflow and returns its mutation; a failed save does not pause
+input. `detach` checkpoints, then releases the attachment; if the save fails the session
+stays attached. There is no recovery log.
 UniFFI's generated Kotlin `close`/`destroy` only releases object references.
 
 The regular FFI, iOS and Android jobs collect the contract tests; these use the

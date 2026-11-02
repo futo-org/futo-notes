@@ -39,7 +39,7 @@ fn native_table_cells_keys_and_commands_recover_exact_source() {
         .table_command(1, at, EditorTableCommand::InsertColumnRight)
         .unwrap()
         .unwrap();
-    session.flush_recovery().unwrap();
+    session.checkpoint().unwrap();
     drop(session);
     drop(store);
     let store = NoteStore::new(path);

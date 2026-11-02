@@ -6,32 +6,19 @@ import { invoke } from './invoke';
 
 /**
  * Desktop host for the text-first editor (apps/tauri/src-tauri/src/editor_host.rs).
- * The page's `WasmSession` produces each `HostRequest`; pass it here and hand
- * the returned `HostAck` back to `WasmSession.acknowledge`, one at a time.
+ * The page's `WasmSession` applies every edit at once and returns
+ * `{change, request}`; show the change, pass the request here, and hand the
+ * returned `HostAck` back to `WasmSession.acknowledge` (it returns the requests
+ * to re-send after a `resume` reply, otherwise none).
  * Request/ack/snapshot shapes are the Rust serde types described in
  * `packages/editor/src/wasmPayloads.d.ts`.
  */
 export type { HostAck, HostRequest, HostSnapshot };
 
-export interface EditorRecoveryIssue {
-  kind:
-    | 'TornTail'
-    | 'CorruptRecord'
-    | 'InvalidEdit'
-    | 'SequenceMismatch'
-    | 'IdentityMismatch'
-    | 'UnsupportedVersion'
-    | 'BaseMismatch';
-  /** Zero for the header, one-based for edit records. */
-  record: number;
-  version: number | null;
-}
-
 export interface EditorOpened {
   token: number;
   /** `WasmSession.restore(JSON.stringify(snapshot))`. */
   snapshot: HostSnapshot;
-  recoveryIssue: EditorRecoveryIssue | null;
   /** First `update_note_ids` delivery. */
   noteIds: string[];
 }
@@ -41,27 +28,34 @@ export function editorOpen(noteId: string): Promise<EditorOpened> {
   return invoke<EditorOpened>('editor_open', { noteId });
 }
 
+// The worker requires sequence numbers in order, but concurrent Tauri commands
+// can reach it in any order. Send one request at a time; callers never wait on
+// the returned ack to keep typing.
+let sendChain: Promise<unknown> = Promise.resolve();
+
 export function editorRequest(token: number, request: HostRequest): Promise<HostAck> {
-  return invoke<HostAck>('editor_request', { token, request });
+  const sent = sendChain.then(() => invoke<HostAck>('editor_request', { token, request }));
+  sendChain = sent.catch(() => undefined);
+  return sent;
 }
 
 /**
- * What `editorCheckpoint` rejects with. `committed`: the Markdown is on disk
- * but recovery retirement or its durability check failed; apply `result`'s
- * mutation, then retry the checkpoint.
+ * What `editorCheckpoint` and `editorClose` reject with. The note stays
+ * attached and accepting input; retry or copy the draft.
  */
-export type EditorCheckpointError =
-  | { kind: 'failed'; message: string }
-  | { kind: 'committed'; result: LocalFlushDraftResult; message: string };
+export type EditorCheckpointError = { kind: 'failed'; message: string };
 
-/** Writes the accepted draft to Markdown (the only save path while attached). */
+/**
+ * Writes the accepted edits to Markdown now. Typing is also saved by the host's
+ * own timer (500 ms after the last edit, 2 s max wait); see `onEditorSaved`.
+ */
 export function editorCheckpoint(token: number): Promise<LocalFlushDraftResult> {
   return invoke<LocalFlushDraftResult>('editor_checkpoint', { token });
 }
 
-/** Flushes accepted edits to recovery and releases the note. No Markdown save. */
-export function editorClose(token: number): Promise<void> {
-  return invoke<void>('editor_close', { token });
+/** Saves unsaved edits, then releases the note. A failed save leaves it attached. */
+export function editorClose(token: number): Promise<LocalFlushDraftResult> {
+  return invoke<LocalFlushDraftResult>('editor_close', { token });
 }
 
 /** The vault's note ids, for `update_note_ids` after the vault changes. */
@@ -69,7 +63,15 @@ export function editorNoteIds(): Promise<string[]> {
   return invoke<string[]>('editor_note_ids');
 }
 
-/** The recovery flush deadline for `token` passed: send `WasmSession.flush()`. */
-export function onEditorFlushDue(handler: (token: number) => void): Promise<UnlistenFn> {
-  return listen<number>('editor:flush-due', (event) => handler(event.payload));
+/** Payload of the `editor:saved` event the host's save timer emits. */
+export interface EditorSaved {
+  token: number;
+  /** Set when the timer wrote the note; apply its mutation like any save. */
+  result: LocalFlushDraftResult | null;
+  /** Set when the write failed; the Store retries, so keep typing. */
+  error: string | null;
+}
+
+export function onEditorSaved(handler: (saved: EditorSaved) => void): Promise<UnlistenFn> {
+  return listen<EditorSaved>('editor:saved', (event) => handler(event.payload));
 }

@@ -104,12 +104,12 @@ for (const item of cases) {
     let display = item.display,
       revision = 0n,
       caret;
-    const apply = async (request) => {
-      assert.ok(request, item.name);
-      const before = display;
-      const ack = await worker.exchange(request);
-      assert.equal(display, before, 'view waits for real store acceptance');
-      const delta = JSON.parse(page.acknowledge(JSON.stringify(ack)));
+    const apply = async (applied) => {
+      assert.ok(applied, item.name);
+      // The page already shows the edit; the worker only mirrors it.
+      const { change: delta, request } = JSON.parse(applied);
+      const ack = await worker.exchange(JSON.stringify(request));
+      assert.deepEqual(JSON.parse(page.acknowledge(JSON.stringify(ack))), []);
       assert.equal(delta.previous_revision, Number(revision));
       assert.equal(delta.revision, Number(++revision));
       const bytes = Buffer.from(display);
@@ -176,8 +176,6 @@ for (const item of cases) {
     assert.equal(page.draft_text(), item.expected);
     assert.equal(display, item.shown);
     assert.deepEqual(caret, item.resultRange);
-    page.acknowledge(JSON.stringify(await worker.exchange(page.flush())));
-    assert.equal(JSON.parse(page.status()).durable, Number(revision));
     await worker.close();
     worker = null;
     page.free();

@@ -1,14 +1,12 @@
-//! Portable header-tag edits use the same ordered append/ack barrier as input.
+//! Portable header-tag edits are ordinary input: applied now, acknowledged later.
 use super::*;
 
 impl PortableSession {
     pub fn tags(&self) -> Result<Vec<String>, PortableError> {
-        self.ready()?;
         Ok(self.engine.tags())
     }
 
     pub fn header_tags(&self) -> Result<Vec<String>, PortableError> {
-        self.ready()?;
         Ok(self.engine.header_tags())
     }
 
@@ -16,31 +14,27 @@ impl PortableSession {
         &mut self,
         expected: Revision,
         tag: &str,
-    ) -> Result<Option<HostRequest>, PortableError> {
+    ) -> Result<Option<Applied>, PortableError> {
         self.ready()?;
         let mut record = None;
         let change = self.engine.add_header_tag(expected, tag, &mut |edit| {
             record = Some(edit.clone());
             Ok(())
         })?;
-        change
-            .map(|change| self.stage(record.unwrap(), change))
-            .transpose()
+        Ok(change.map(|change| self.issue(record.unwrap(), change)))
     }
 
     pub fn remove_header_tag(
         &mut self,
         expected: Revision,
         tag: &str,
-    ) -> Result<Option<HostRequest>, PortableError> {
+    ) -> Result<Option<Applied>, PortableError> {
         self.ready()?;
         let mut record = None;
         let change = self.engine.remove_header_tag(expected, tag, &mut |edit| {
             record = Some(edit.clone());
             Ok(())
         })?;
-        change
-            .map(|change| self.stage(record.unwrap(), change))
-            .transpose()
+        Ok(change.map(|change| self.issue(record.unwrap(), change)))
     }
 }

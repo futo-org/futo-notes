@@ -1,4 +1,4 @@
-//! JSON wire facade; all persistence happens asynchronously in the native host.
+//! JSON wire facade. Edits return `{change, request}` (or null); the request goes to the native host, which owns persistence.
 use wasm_bindgen::prelude::*;
 mod clipboard;
 mod tables;
@@ -25,14 +25,11 @@ fn utf16_range(start: usize, end: usize) -> DisplayUtf16Range {
     }
 }
 
-fn validate_wire(token: u64, revision: u64, durable: u64) -> Result<(), JsValue> {
+fn validate_wire(token: u64, revision: u64) -> Result<(), JsValue> {
     if token > 9_007_199_254_740_991 || revision > 9_007_199_254_740_991 {
         return Err(error(
             "JSON wire integers must be exactly representable in JavaScript",
         ));
-    }
-    if durable > revision {
-        return Err(error("invalid durable revision"));
     }
     Ok(())
 }
@@ -40,18 +37,12 @@ fn validate_wire(token: u64, revision: u64, durable: u64) -> Result<(), JsValue>
 #[wasm_bindgen]
 impl WasmSession {
     #[wasm_bindgen(constructor)]
-    pub fn new(
-        token: u64,
-        source: &str,
-        revision: u64,
-        durable: u64,
-    ) -> Result<WasmSession, JsValue> {
-        validate_wire(token, revision, durable)?;
+    pub fn new(token: u64, source: &str, revision: u64) -> Result<WasmSession, JsValue> {
+        validate_wire(token, revision)?;
         Ok(Self(PortableSession::open(
             SessionToken(token),
             source,
             Revision(revision),
-            Revision(durable),
         )))
     }
     #[cfg(feature = "test-clock")]
@@ -64,7 +55,7 @@ impl WasmSession {
             }
         }
         let snapshot: crate::HostSnapshot = serde_json::from_str(snapshot).map_err(error)?;
-        validate_wire(snapshot.token.0, snapshot.revision.0, snapshot.durable.0)?;
+        validate_wire(snapshot.token.0, snapshot.revision.0)?;
         Ok(Self(
             PortableSession::from_snapshot_with_clock(snapshot, std::sync::Arc::new(Frozen))
                 .map_err(error)?,
@@ -73,7 +64,7 @@ impl WasmSession {
     pub fn restore(snapshot: &str) -> Result<WasmSession, JsValue> {
         let snapshot: crate::HostSnapshot = serde_json::from_str(snapshot).map_err(error)?;
         // Reuse constructor validation for the JSON integer boundary.
-        validate_wire(snapshot.token.0, snapshot.revision.0, snapshot.durable.0)?;
+        validate_wire(snapshot.token.0, snapshot.revision.0)?;
         Ok(Self(
             PortableSession::from_snapshot(snapshot).map_err(error)?,
         ))
@@ -553,17 +544,11 @@ impl WasmSession {
     pub fn redo(&mut self, revision: u64) -> Result<String, JsValue> {
         json(&self.0.redo(Revision(revision)).map_err(error)?)
     }
-    pub fn flush(&mut self) -> Result<String, JsValue> {
-        json(&self.0.flush().map_err(error)?)
-    }
     pub fn apply_relink_offer(&mut self) -> Result<String, JsValue> {
         json(&self.0.apply_relink_offer().map_err(error)?)
     }
     pub fn resume(&mut self) -> Result<String, JsValue> {
         json(&self.0.resume().map_err(error)?)
-    }
-    pub fn retry_pending(&mut self) -> Result<String, JsValue> {
-        json(&self.0.retry_pending().map_err(error)?)
     }
     pub fn acknowledge(&mut self, acknowledgement: &str) -> Result<String, JsValue> {
         let ack = serde_json::from_str(acknowledgement).map_err(error)?;

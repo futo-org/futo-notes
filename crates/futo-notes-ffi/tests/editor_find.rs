@@ -3,7 +3,7 @@ use futo_notes_ffi::{editor_find_scan, EditorByteRange, EditorUtf16Range, NoteSt
 use support::{path_string, TempTree};
 
 #[test]
-fn native_find_steps_scans_off_lock_and_never_touches_recovery_or_history() {
+fn native_find_steps_scans_off_lock_and_never_touches_saves_or_history() {
     let tree = TempTree::new();
     std::fs::create_dir_all(tree.path("vault")).unwrap();
     let store = NoteStore::new(path_string(&tree.path("vault")));

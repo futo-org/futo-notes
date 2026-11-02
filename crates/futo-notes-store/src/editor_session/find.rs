@@ -1,5 +1,5 @@
-//! Find stays a canonical editor operation. It never appends recovery records;
-//! only stepping moves the (non-durable) selection, like any selection change.
+//! Find stays a canonical editor operation. It never edits the draft;
+//! only stepping moves the selection, like any selection change.
 use super::*;
 use futo_notes_editor::{FindReport, FindScanRequest, FindScanResult};
 

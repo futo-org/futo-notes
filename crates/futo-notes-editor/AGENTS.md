@@ -4,15 +4,16 @@ Portable exact-source editor engine. Keep its shipped dependencies independent
 of filesystem, shells, networking and the local note engine so the same session
 can run natively and in WebAssembly.
 
-`EditorSession` validates revision and coordinate boundaries, accepts a recovery
-record through its host, then changes source/history and returns a display delta.
-The host's append acceptance precedes any view update. Store save/recovery policy
-belongs in `futo-notes-store::StoreEditorSession`.
+`EditorSession` validates revision and coordinate boundaries, hands the edit to
+its accept hook, then changes source/history and returns a display delta.
+`PortableSession` applies each input at once and returns the delta with the
+request that mirrors it to the worker; acknowledgements never gate the view.
+Store save policy belongs in `futo-notes-store::StoreEditorSession`.
 
 `coordinates.rs` validates native UTF-16 text and coordinate conversions; never
 clamp a foreign range or widen one across a surrogate pair. `movement.rs` uses
 Unicode extended grapheme segmentation over Rope chunks. Selection-only updates
-keep source revisions/history/recovery unchanged. Source and display use separate
+keep source revisions/history unchanged. Source and display use separate
 Ropes and coordinate conversions; hidden markers and decoded entities make their
 positions differ.
 

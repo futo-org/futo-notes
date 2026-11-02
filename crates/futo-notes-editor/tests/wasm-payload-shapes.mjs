@@ -97,7 +97,7 @@ const shape = (type, json) => {
 
 const source =
   '---\ntitle: x\n---\n# Head\n\n**bé** [l](http://x.test "t") [[Road]] ![alt](img.png)\n\n- [ ] task\n1. num\n\n| a | b |\n| --- | --- |\n| c | d |\n\n```rust\ncode\n```\n---\n';
-const session = new WasmSession(1n, source, 0n, 0n);
+const session = new WasmSession(1n, source, 0n);
 session.update_note_ids('["Road"]');
 let length = Buffer.byteLength(session.draft_text());
 while (length > 0) {
@@ -142,53 +142,60 @@ session.select_with_affinity(0n, cell.end, cell.end, '"Forward"');
 assert.ok(shape('TableDescription', session.inspect_table(0n, cell.end, cell.end)).focus);
 shape('TableOutcome | null', session.table_key(0n, 'Tab'));
 shape('string', JSON.stringify(session.copy_markdown(0n, 0, 4)));
-shape('[string, HostRequest | null]', session.cut_markdown(0n, 0, 0));
+shape('[string, Applied | null]', session.cut_markdown(0n, 0, 0));
 assert.equal(typeof session.image_claim(), 'bigint');
 
-const completion = new WasmSession(2n, '[[Ro', 0n, 0n);
+const completion = new WasmSession(2n, '[[Ro', 0n);
 completion.update_note_ids('["Road"]');
 completion.select_with_affinity(0n, 4, 4, '"Forward"');
 const open = shape('WikilinkCompletion | null', completion.wikilink_completion(0n));
 assert.equal(open.candidates[0].note_id, 'Road');
 shape(
-  'HostRequest',
+  'Applied',
   completion.accept_wikilink_completion(0n, open.range.start, open.range.end, open.query, 'Road'),
 );
 
 // Requests, acknowledgements (with and without typed errors), snapshots and views.
-const edit = new WasmSession(3n, 'abc', 0n, 0n);
-const request = shape('HostRequest', edit.replace(0n, 1, 1, 'x'));
+const edit = new WasmSession(3n, 'abc', 0n);
+const { request } = shape('Applied', edit.replace(0n, 1, 1, 'x'));
 const ack = {
   token: 3,
   sequence: request.sequence,
   accepted: 1,
-  durable: 0,
   paused: false,
   error: null,
 };
 shape('HostAck', ack);
-const change = shape('ViewChange | null', edit.acknowledge(JSON.stringify(ack)));
-assert.ok(change);
-shape('HostRequest', edit.flush());
+assert.deepEqual(shape('HostRequest[]', edit.acknowledge(JSON.stringify(ack))), []);
+const second = shape('Applied', edit.replace(1n, 1, 1, 'y'));
+assert.ok(second.change);
 const failed = {
   ...ack,
   sequence: 2,
   paused: true,
-  error: { kind: 'Storage', message: 'disk full' },
+  error: { kind: 'Rejected', message: 'disk full' },
 };
 shape('HostAck', failed);
 shape('HostAck', { ...ack, relink: { revision: 1, source: 'abc' } });
-assert.equal(JSON.parse(edit.acknowledge(JSON.stringify(failed))), null);
+assert.deepEqual(shape('HostRequest[]', edit.acknowledge(JSON.stringify(failed))), []);
 shape('PortableStatus', edit.status());
 assert.equal(JSON.parse(edit.status()).paused, true);
-shape('HostRequest', edit.resume());
-const snapshot = { token: 4, source: 'abc', revision: 0, durable: 0, paused: false };
+const resume = shape('HostRequest', edit.resume());
+// The reply to a resume re-sends what the worker lacks, renumbered after it.
+const resent = shape(
+  'HostRequest[]',
+  edit.acknowledge(JSON.stringify({ ...ack, sequence: resume.sequence })),
+);
+assert.equal(resent.length, 1);
+assert.equal(resent[0].sequence, resume.sequence + 1);
+assert.equal(JSON.parse(edit.status()).paused, false);
+const snapshot = { token: 4, source: 'abc', revision: 0, paused: false };
 shape('HostSnapshot', snapshot);
 WasmSession.restore(JSON.stringify(snapshot)).free();
-const block = new WasmSession(5n, 'abc', 0n, 0n);
-shape('HostRequest | null', block.block_command_utf16(0n, 0, 0, '{"Heading":2}'));
-shape('HostRequest', new WasmSession(6n, 'abc', 0n, 0n).resume());
-const compose = new WasmSession(7n, 'abc', 0n, 0n);
+const block = new WasmSession(5n, 'abc', 0n);
+shape('Applied | null', block.block_command_utf16(0n, 0, 0, '{"Heading":2}'));
+shape('HostRequest', new WasmSession(6n, 'abc', 0n).resume());
+const compose = new WasmSession(7n, 'abc', 0n);
 shape('Composition', compose.compose_utf16(0n, 1, 1, Uint16Array.of(0x65e5)));
 shape('Composition | null', compose.composition());
 session.free();

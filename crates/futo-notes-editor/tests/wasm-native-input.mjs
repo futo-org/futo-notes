@@ -61,13 +61,13 @@ for (const fixture of cases) {
     page = WasmSession.restore(JSON.stringify(await worker.next()));
     let view = fixture.display;
     let revision = 0n;
-    const apply = async (request) => {
-      const before = view;
+    const apply = async (applied) => {
+      const { change, request } = applied;
       assert.equal(JSON.parse(page.status()).accepted, Number(revision));
-      const ack = await worker.exchange(request);
-      assert.equal(view, before, 'display waits for real store acceptance');
-      const change = JSON.parse(page.acknowledge(JSON.stringify(ack)));
+      // The page shows the edit at once; the worker only mirrors it.
       assert.equal(change.previous_revision, Number(revision));
+      const ack = await worker.exchange(request);
+      assert.deepEqual(JSON.parse(page.acknowledge(JSON.stringify(ack))), []);
       revision += 1n;
       assert.equal(change.revision, Number(revision));
       const bytes = Buffer.from(view);
@@ -76,9 +76,9 @@ for (const fixture of cases) {
         Buffer.from(change.inserted),
         bytes.subarray(change.range.end),
       ]).toString();
-      assert.equal(
+      assert.deepEqual(
         JSON.parse(page.acknowledge(JSON.stringify(ack))),
-        null,
+        [],
         'duplicate acknowledgement',
       );
       return change;
@@ -171,14 +171,11 @@ for (const fixture of cases) {
       assert.equal(page.draft_text(), expected.source);
       assert.equal(view, expected.display);
     }
-    page.acknowledge(JSON.stringify(await worker.exchange(JSON.parse(page.flush()))));
-    assert.equal(JSON.parse(page.status()).durable, Number(revision));
     await worker.close();
     const reopened = host(vault, '--reopen');
     try {
       const recovered = await reopened.next();
       assert.equal(recovered.source, fixture.steps.at(-1).source);
-      assert.equal(recovered.revision, Number(revision));
     } finally {
       await reopened.close();
     }

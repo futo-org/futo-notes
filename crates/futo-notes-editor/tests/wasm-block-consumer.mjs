@@ -28,9 +28,10 @@ async function blockRegression(opening, shown, converted, finalSource, finalDisp
     };
     session = WasmSession.restore(JSON.stringify(await next()));
     let display = shown;
-    const accept = async (request) => {
-      worker.stdin.write(request + '\n');
-      const change = JSON.parse(session.acknowledge(JSON.stringify(await next())));
+    const accept = async (applied) => {
+      const { change, request } = JSON.parse(applied);
+      worker.stdin.write(JSON.stringify(request) + '\n');
+      session.acknowledge(JSON.stringify(await next()));
       const bytes = Buffer.from(display);
       display = Buffer.concat([
         bytes.subarray(0, change.range.start),
@@ -56,9 +57,6 @@ async function blockRegression(opening, shown, converted, finalSource, finalDisp
     }
     assert.equal(session.draft_text(), finalSource);
     assert.equal(display, finalDisplay);
-    worker.stdin.write(session.flush() + '\n');
-    session.acknowledge(JSON.stringify(await next()));
-    assert.equal(JSON.parse(session.status()).durable, shortcut ? 3 : 4);
   } finally {
     clearTimeout(deadline);
     session?.free();
@@ -96,9 +94,10 @@ async function reviewedBlockRegression(
     session = WasmSession.restore(JSON.stringify(await next()));
     assert.equal(JSON.parse(session.project(0n, 0, Buffer.byteLength(shown))).text, shown);
     let display = shown;
-    const accept = async (request) => {
-      worker.stdin.write(request + '\n');
-      const change = JSON.parse(session.acknowledge(JSON.stringify(await next())));
+    const accept = async (applied) => {
+      const { change, request } = JSON.parse(applied);
+      worker.stdin.write(JSON.stringify(request) + '\n');
+      session.acknowledge(JSON.stringify(await next()));
       const bytes = Buffer.from(display);
       display = Buffer.concat([
         bytes.subarray(0, change.range.start),
@@ -153,9 +152,6 @@ async function reviewedBlockRegression(
     if (followup) await accept(session.redo(revision++));
     assert.equal(session.draft_text(), expected);
     assert.equal(display, finalDisplay);
-    worker.stdin.write(session.flush() + '\n');
-    session.acknowledge(JSON.stringify(await next()));
-    assert.equal(JSON.parse(session.status()).durable, Number(revision));
   } finally {
     clearTimeout(deadline);
     session?.free();
@@ -297,7 +293,7 @@ export async function runBlockRegressions() {
   ])
     await reviewedBlockRegression(...item);
   // #300: front matter is one inert metadata block; a fence inside <pre> stays raw HTML.
-  const foreign = new WasmSession(1n, '---\ntags: [a]\n---\n<pre>\n\n```\n</pre>\n', 0n, 0n);
+  const foreign = new WasmSession(1n, '---\ntags: [a]\n---\n<pre>\n\n```\n</pre>\n', 0n);
   try {
     const shown = 'tags: [a]\n<pre>\n\n```\n</pre>\n';
     const projection = JSON.parse(foreign.project(0n, 0, Buffer.byteLength(shown)));

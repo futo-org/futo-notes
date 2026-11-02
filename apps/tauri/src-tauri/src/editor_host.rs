@@ -11,74 +11,44 @@ use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::Instant;
 
-use futo_notes_editor::{HostAck, HostOperation, HostRequest, HostSnapshot, SessionToken};
-use futo_notes_store::{
-    EditorStoreError, FlushDraftResult, LocalNoteStore, RecoveryIssue, RecoveryIssueKind,
-};
+use futo_notes_editor::{HostAck, HostRequest, HostSnapshot, SessionToken};
+use futo_notes_store::{EditorStoreError, FlushDraftResult, LocalNoteStore};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
 
 use crate::application_state::AppState;
 use crate::background_tasks::{blocking, join_error};
 
-/// Payload: the session token whose recovery flush deadline has passed. The
-/// page answers with its own `flush()` request; this event acknowledges nothing.
-pub(crate) const FLUSH_DUE_EVENT: &str = "editor:flush-due";
+/// Emitted by the worker each time its save timer fires and writes (or fails
+/// to write) the note's markdown. Payload: [`EditorSaved`]. The page applies
+/// `result`'s mutation like any other save; on `error` it keeps typing, since
+/// the Store retries on its own schedule.
+pub(crate) const SAVED_EVENT: &str = "editor:saved";
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct EditorSaved {
+    pub(crate) token: u64,
+    pub(crate) result: Option<FlushDraftResult>,
+    pub(crate) error: Option<String>,
+}
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct EditorOpened {
     pub(crate) token: u64,
-    /// Feed to `WasmSession.restore`; a recovered pause is preserved.
+    /// Feed to `WasmSession.restore`.
     pub(crate) snapshot: HostSnapshot,
-    pub(crate) recovery_issue: Option<EditorRecoveryIssue>,
     /// For the page's first `update_note_ids`.
     pub(crate) note_ids: Vec<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub(crate) struct EditorRecoveryIssue {
-    pub(crate) kind: &'static str,
-    /// Zero for the header, one-based for edit records.
-    pub(crate) record: usize,
-    pub(crate) version: Option<u32>,
-}
-
-impl From<RecoveryIssue> for EditorRecoveryIssue {
-    fn from(issue: RecoveryIssue) -> Self {
-        let (kind, version) = match issue.kind {
-            RecoveryIssueKind::TornTail => ("TornTail", None),
-            RecoveryIssueKind::CorruptRecord => ("CorruptRecord", None),
-            RecoveryIssueKind::InvalidEdit => ("InvalidEdit", None),
-            RecoveryIssueKind::SequenceMismatch => ("SequenceMismatch", None),
-            RecoveryIssueKind::IdentityMismatch => ("IdentityMismatch", None),
-            RecoveryIssueKind::UnsupportedVersion { version } => {
-                ("UnsupportedVersion", Some(version))
-            }
-            RecoveryIssueKind::BaseMismatch => ("BaseMismatch", None),
-        };
-        Self {
-            kind,
-            record: issue.record,
-            version,
-        }
-    }
-}
-
-/// Why `editor_checkpoint` did not complete. `Committed` is the Store's
-/// `CheckpointCommitted`: the Markdown is on disk, so the page applies `result`
-/// (disposition and complete mutation) and retries the checkpoint.
+/// Why `editor_checkpoint` did not complete. The session stays attached and
+/// accepting input; the page may retry.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub(crate) enum EditorCheckpointError {
-    Failed {
-        message: String,
-    },
-    Committed {
-        result: FlushDraftResult,
-        message: String,
-    },
+    Failed { message: String },
 }
 
 impl From<String> for EditorCheckpointError {
@@ -89,14 +59,8 @@ impl From<String> for EditorCheckpointError {
 
 impl From<EditorStoreError> for EditorCheckpointError {
     fn from(error: EditorStoreError) -> Self {
-        match error {
-            EditorStoreError::CheckpointCommitted { result, error } => Self::Committed {
-                result: *result,
-                message: error,
-            },
-            error => Self::Failed {
-                message: error.to_string(),
-            },
+        Self::Failed {
+            message: error.to_string(),
         }
     }
 }
@@ -104,10 +68,11 @@ impl From<EditorStoreError> for EditorCheckpointError {
 enum Job {
     Request(HostRequest, Sender<HostAck>),
     Checkpoint(Sender<Result<FlushDraftResult, EditorCheckpointError>>),
+    Close(Sender<Result<FlushDraftResult, EditorCheckpointError>>),
 }
 
 /// One attached note: its worker thread exclusively owns the Store host, so
-/// every blocking Store call and the flush timer run off the IPC threads.
+/// every blocking Store call and the save timer run off the IPC threads.
 struct Worker {
     token: SessionToken,
     jobs: Option<Sender<Job>>,
@@ -119,7 +84,7 @@ impl Worker {
         store: Arc<LocalNoteStore>,
         id: String,
         token: SessionToken,
-        flush_due: impl Fn(SessionToken) + Send + 'static,
+        saved: impl Fn(EditorSaved) + Send + 'static,
     ) -> Result<(Self, EditorOpened), String> {
         let (jobs, inbox) = mpsc::channel::<Job>();
         let (opened_tx, opened) = mpsc::channel();
@@ -140,14 +105,10 @@ impl Worker {
                 let _ = opened_tx.send(Ok(EditorOpened {
                     token: token.0,
                     snapshot: host.snapshot(),
-                    recovery_issue: host.recovery_issue().map(Into::into),
                     note_ids: note_ids(&store),
                 }));
-                let mut last_sequence = 0;
-                // A recovered draft is already accepted but not durable.
-                let mut deadline = host
-                    .recovery_flush_delay()
-                    .map(|delay| Instant::now() + delay);
+                let mut closed = false;
+                let mut deadline = host.save_delay().map(|delay| Instant::now() + delay);
                 loop {
                     let job = match deadline {
                         Some(at) => {
@@ -157,34 +118,47 @@ impl Worker {
                     };
                     match job {
                         Ok(Job::Request(request, reply)) => {
-                            if request.token == token {
-                                last_sequence = last_sequence.max(request.sequence);
-                            }
                             let _ = reply.send(host.handle(request));
                         }
                         Ok(Job::Checkpoint(reply)) => {
                             let _ = reply.send(host.checkpoint().map_err(Into::into));
                         }
-                        Err(RecvTimeoutError::Timeout) => {
-                            // Once per armed deadline; the next request re-arms it.
-                            flush_due(token);
-                            deadline = None;
-                            continue;
+                        Ok(Job::Close(reply)) => {
+                            let result = host.close();
+                            closed = result.is_ok();
+                            let _ = reply.send(result.map_err(Into::into));
+                            if closed {
+                                break;
+                            }
                         }
+                        Err(RecvTimeoutError::Timeout) => match host.save_if_due() {
+                            Ok(Some(result)) => saved(EditorSaved {
+                                token: token.0,
+                                result: Some(result),
+                                error: None,
+                            }),
+                            Ok(None) => {}
+                            // The Store reschedules a failed save; keep going.
+                            Err(error) => saved(EditorSaved {
+                                token: token.0,
+                                result: None,
+                                error: Some(error.to_string()),
+                            }),
+                        },
                         Err(RecvTimeoutError::Disconnected) => break,
                     }
-                    deadline = host
-                        .recovery_flush_delay()
-                        .map(|delay| Instant::now() + delay);
+                    deadline = host.save_delay().map(|delay| Instant::now() + delay);
                 }
-                // Closing: make accepted edits durable before the lease drops.
-                // The page is gone, so a sequence past its last request is free.
-                if host.recovery_flush_delay().is_some() {
-                    host.handle(HostRequest {
-                        token,
-                        sequence: last_sequence.saturating_add(1),
-                        operation: HostOperation::Flush,
-                    });
+                // The page is gone (or the app is exiting): save before the
+                // lease drops. Nobody is left to tell, so a failure is logged:
+                // the unsaved edits are lost.
+                if !closed {
+                    if let Err(error) = host.close() {
+                        futo_notes_core::log_to_stderr!(
+                            "futo-editor-host: closing note {:?} failed, unsaved edits are lost: {error}",
+                            host.id()
+                        );
+                    }
                 }
             })
             .map_err(|error| format!("failed to start editor host: {error}"))?;
@@ -253,14 +227,14 @@ impl EditorHostState {
         &self,
         store: Arc<LocalNoteStore>,
         id: String,
-        flush_due: impl Fn(SessionToken) + Send + 'static,
+        saved: impl Fn(EditorSaved) + Send + 'static,
     ) -> Result<EditorOpened, String> {
         // Close first: reopening the same note needs its lease back.
         let previous = self.slot().take();
         drop(previous);
         // Tokens stay below 2^53 so a JavaScript number carries them exactly.
         let token = SessionToken(self.tokens.fetch_add(1, Ordering::Relaxed) + 1);
-        let (worker, opened) = Worker::open(store, id, token, flush_due)?;
+        let (worker, opened) = Worker::open(store, id, token, saved)?;
         let replaced = self.slot().replace(worker);
         drop(replaced);
         Ok(opened)
@@ -282,15 +256,14 @@ impl EditorHostState {
         ask(self.jobs(token)?, Job::Checkpoint)?
     }
 
-    fn close(&self, token: u64) -> Result<(), String> {
-        let mut slot = self.slot();
-        if slot.as_ref().is_some_and(|worker| worker.token.0 != token) {
-            return Err("stale editor session".to_owned());
-        }
-        let worker = slot.take();
-        drop(slot);
+    /// Saves unsaved edits, then releases the note. If the save fails the note
+    /// stays attached and the error comes back so the page can retry.
+    fn close(&self, token: u64) -> Result<FlushDraftResult, EditorCheckpointError> {
+        let jobs = self.jobs(token)?;
+        let result = ask(jobs, Job::Close)??;
+        let worker = self.slot().take();
         drop(worker);
-        Ok(())
+        Ok(result)
     }
 
     pub(crate) fn close_all(&self) {
@@ -308,8 +281,8 @@ pub(crate) async fn editor_open(
     let store = crate::local_notes::store(&app, &state)?;
     let editor = state.editor.clone();
     blocking(move || {
-        editor.open(store, note_id, move |token| {
-            let _ = app.emit(FLUSH_DUE_EVENT, token.0);
+        editor.open(store, note_id, move |saved| {
+            let _ = app.emit(SAVED_EVENT, saved);
         })
     })
     .await
@@ -337,9 +310,14 @@ pub(crate) async fn editor_checkpoint(
 }
 
 #[tauri::command]
-pub(crate) async fn editor_close(state: State<'_, AppState>, token: u64) -> Result<(), String> {
+pub(crate) async fn editor_close(
+    state: State<'_, AppState>,
+    token: u64,
+) -> Result<FlushDraftResult, EditorCheckpointError> {
     let editor = state.editor.clone();
-    blocking(move || editor.close(token)).await
+    tauri::async_runtime::spawn_blocking(move || editor.close(token))
+        .await
+        .map_err(|error| EditorCheckpointError::from(join_error(error)))?
 }
 
 #[tauri::command]

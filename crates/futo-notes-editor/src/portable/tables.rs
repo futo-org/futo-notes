@@ -1,14 +1,14 @@
-//! Portable table operations use the same ordered append/ack barrier as input.
+//! Portable table operations are ordinary input: applied now, acknowledged later.
 use super::*;
 use crate::{DisplayUtf16Range, TableCommand, TableDescription, TableKey};
 
 type Accept<'a> = dyn FnMut(&SourceEdit) -> Result<(), String> + 'a;
 
-/// A table key either moves the selection (nothing to append) or stages one
-/// edit behind the usual acknowledgement barrier.
+/// A table key either moves the selection (nothing to append) or applies one
+/// edit and issues its request.
 pub enum PortableTableStep {
     Selected(crate::SelectionChange),
-    Edited(HostRequest),
+    Edited(Box<Applied>),
 }
 
 impl PortableSession {
@@ -17,7 +17,6 @@ impl PortableSession {
         expected: Revision,
         range: DisplayRange,
     ) -> Result<Option<TableDescription>, PortableError> {
-        self.ready()?;
         Ok(self.engine.inspect_table(expected, range)?)
     }
 
@@ -26,7 +25,6 @@ impl PortableSession {
         expected: Revision,
         range: DisplayUtf16Range,
     ) -> Result<Option<TableDescription>, PortableError> {
-        self.ready()?;
         Ok(self.engine.inspect_table_utf16(expected, range)?)
     }
 
@@ -35,8 +33,8 @@ impl PortableSession {
         expected: Revision,
         range: DisplayRange,
         command: TableCommand,
-    ) -> Result<Option<HostRequest>, PortableError> {
-        self.stage_table(|engine, accept| engine.table_command(expected, range, command, accept))
+    ) -> Result<Option<Applied>, PortableError> {
+        self.apply_table(|engine, accept| engine.table_command(expected, range, command, accept))
     }
 
     pub fn table_command_utf16(
@@ -44,8 +42,8 @@ impl PortableSession {
         expected: Revision,
         range: DisplayUtf16Range,
         command: TableCommand,
-    ) -> Result<Option<HostRequest>, PortableError> {
-        self.stage_table(|engine, accept| {
+    ) -> Result<Option<Applied>, PortableError> {
+        self.apply_table(|engine, accept| {
             engine.table_command_utf16(expected, range, command, accept)
         })
     }
@@ -62,23 +60,21 @@ impl PortableSession {
             Some(crate::TableOutcome::Selected(change)) => {
                 Some(PortableTableStep::Selected(change))
             }
-            Some(crate::TableOutcome::Edited(change)) => Some(PortableTableStep::Edited(
-                self.stage(record.unwrap(), *change)?,
-            )),
+            Some(crate::TableOutcome::Edited(change)) => Some(PortableTableStep::Edited(Box::new(
+                self.issue(record.unwrap(), *change),
+            ))),
         })
     }
 
-    fn stage_table(
+    fn apply_table(
         &mut self,
         operation: impl FnOnce(
             &mut EditorSession,
             &mut Accept,
         ) -> Result<Option<ViewChange>, EditorError>,
-    ) -> Result<Option<HostRequest>, PortableError> {
+    ) -> Result<Option<Applied>, PortableError> {
         let (change, record) = self.record_edit(operation)?;
-        change
-            .map(|change| self.stage(record.unwrap(), change))
-            .transpose()
+        Ok(change.map(|change| self.issue(record.unwrap(), change)))
     }
 
     /// Run an engine operation, keeping the edit it handed the host.

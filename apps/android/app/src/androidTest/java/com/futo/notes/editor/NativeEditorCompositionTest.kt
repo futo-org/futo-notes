@@ -10,7 +10,7 @@ import uniffi.futo_notes_ffi.*
 /** Binding acceptance, not a claim of driving a real Japanese keyboard. */
 class NativeEditorCompositionTest {
     @Test
-    fun markedJapaneseChangedCommitCorrectionAndExactRecovery() {
+    fun markedJapaneseChangedCommitCorrectionAndExactSave() {
         val root = File(InstrumentationRegistry.getInstrumentation().targetContext.cacheDir, "editor-composition-${UUID.randomUUID()}")
         check(root.mkdirs())
         fun units(text: String) = text.map { it.code.toUShort() }
@@ -41,15 +41,14 @@ class NativeEditorCompositionTest {
                     apply(checkNotNull(session.undo(2uL)))
                     assertEquals("__the__ &amp; wrng\r\n", session.sourceText())
                     apply(checkNotNull(session.redo(3uL)))
-                    assertEquals(4uL, session.flushRecovery().durable)
                     session.detach()
                 }
-                store.openEditor("input").use { recovered ->
-                    assertEquals("__the__ &amp; wrong\r\n", recovered.sourceText())
-                    assertNull(recovered.composition())
-                    assertNull(recovered.commitCompositionUtf16(4uL, null))
-                    recovered.cancelComposition(4uL)
-                    recovered.detach()
+                store.openEditor("input").use { reopened ->
+                    assertEquals("__the__ &amp; wrong\r\n", reopened.sourceText())
+                    assertNull(reopened.composition())
+                    assertNull(reopened.commitCompositionUtf16(0uL, null))
+                    reopened.cancelComposition(0uL)
+                    reopened.detach()
                 }
             }
         } finally { root.deleteRecursively() }

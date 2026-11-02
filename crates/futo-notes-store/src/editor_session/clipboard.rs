@@ -1,6 +1,6 @@
 //! Plain Markdown clipboard operations stay canonical editor operations; the
-//! store supplies one guarded recovery acceptance for cut and paste. Copying
-//! reads the accepted projection, so a paused draft remains copyable.
+//! store applies cut and paste in memory. Copying reads the current projection,
+//! so a deleted note's draft remains copyable.
 use super::*;
 
 impl StoreEditorSession<'_> {
@@ -22,17 +22,7 @@ impl StoreEditorSession<'_> {
         expected: Revision,
         range: DisplayRange,
     ) -> Result<(String, Option<ViewChange>), EditorStoreError> {
-        self.mutate(|state, store| {
-            state.input_ready()?;
-            let Attachment {
-                engine, recovery, ..
-            } = state;
-            engine
-                .cut_markdown(expected, range, &mut |edit| {
-                    recovery.append(&store.root, edit)
-                })
-                .map_err(append_error)
-        })
+        self.live(|state| state.edit(|engine, accept| engine.cut_markdown(expected, range, accept)))
     }
 
     pub fn paste_markdown(
@@ -41,23 +31,8 @@ impl StoreEditorSession<'_> {
         range: DisplayRange,
         text: &str,
     ) -> Result<Option<ViewChange>, EditorStoreError> {
-        self.mutate(|state, store| {
-            state.input_ready()?;
-            let Attachment {
-                engine, recovery, ..
-            } = state;
-            engine
-                .paste_markdown(expected, range, text, &mut |edit| {
-                    recovery.append(&store.root, edit)
-                })
-                .map_err(append_error)
+        self.live(|state| {
+            state.edit(|engine, accept| engine.paste_markdown(expected, range, text, accept))
         })
-    }
-}
-
-fn append_error(error: EditorError) -> EditorStoreError {
-    match error {
-        EditorError::Persistence(error) => EditorStoreError::RecoveryAppend(error),
-        other => EditorStoreError::Editor(other),
     }
 }

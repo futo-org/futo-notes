@@ -21,7 +21,7 @@ impl WasmSession {
             .map_err(error)
     }
 
-    /// `[markdown, request-or-null]`.
+    /// `[markdown, applied-or-null]`.
     pub fn cut_markdown(
         &mut self,
         revision: u64,
