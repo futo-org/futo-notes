@@ -46,7 +46,7 @@ fn portable_composition_refuses_relink_offer_and_commits_under_retargeted_identi
 }
 
 #[test]
-fn portable_own_relink_is_appended_before_display_and_preserves_page_history() {
+fn portable_own_relink_is_one_appended_undo_step_before_display() {
     let root = TestRoot::new();
     let store = store(&root);
     store.create("", "old", "[[old]]").unwrap();
@@ -80,8 +80,8 @@ fn portable_own_relink_is_appended_before_display_and_preserves_page_history() {
     let undo = page.undo(Revision(2)).unwrap().unwrap();
     let change = page.acknowledge(host.handle(undo)).unwrap().unwrap();
     view.replace_range(change.range.start.0..change.range.end.0, &change.inserted);
-    assert_eq!(view, "[[long name]]");
-    assert_eq!(page.draft_text(), "[[long name]]");
+    assert_eq!(view, "[[old]]!");
+    assert_eq!(page.draft_text(), "[[old]]!");
     let redo = page.redo(Revision(3)).unwrap().unwrap();
     let change = page.acknowledge(host.handle(redo)).unwrap().unwrap();
     view.replace_range(change.range.start.0..change.range.end.0, &change.inserted);

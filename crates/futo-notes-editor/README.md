@@ -91,16 +91,10 @@ Reference-dependent actions use the current canonical winner and generation,
 including after a declaration becomes visible or a body changes container form.
 Equal text, raw lengths and semantic caret diff runs are not source lineage.
 
-Own-action relink is an explicit history lifecycle operation. It replays actual
-source generations, preserves the canonical wiki emitter's program, and uses a
-separate real Spelling step when old pending Link markers must become literal.
-Complete original atoms, copied markers and controlled emitted identities are
-validated against one final candidate before fields are retired or installed.
-Known URI identities reconcile original identity, exact program and outcome;
-previously incomplete Typed seeds use only a boundary-local witnessed outcome.
-All source, history, targets and fields prepare before the one host acceptance.
-The behavior and public evidence are indexed in
-[link editing and source ownership](../../docs/spec/editor/portable-core/links.md).
+Own-action relink is one ordinary isolated edit: the store supplies the exact
+rewritten note, the session replaces the changed byte window and pushes one
+Undo step. Existing history is not rewritten. The behavior is indexed in
+[persistence and recovery](../../docs/spec/editor/portable-core/recovery.md).
 
 `EditWork` separates supplied parser bytes, source materialization, owned meaning
 copies and charged metadata/correspondence work. The bare-link primitive returns
@@ -111,7 +105,7 @@ without reconstructing those copies. GFM autolink literals follow markdown-rs
 included, come from pulldown too, so no scan can panic on user text (the
 markdown crate's tree builder did, #283). Counters do not measure parser CPU or all
 allocations, Ropey's internal work, semantic caret diff CPU or native latency.
-Genuine reference transitions and own-action history relinks have explicit global
+Genuine reference transitions and own-action relinks have explicit global
 work; ordinary unrelated local input must retain its bounded paragraph path.
 
 An outstanding Flush blocks new input and selection while queries still expose

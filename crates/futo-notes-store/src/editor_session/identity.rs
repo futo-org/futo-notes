@@ -1,6 +1,5 @@
 //! Attachment coordination underneath all supported note and folder mappings.
 use super::{Attachment, EditorLease, RecoveryLog, RecoveryOptions};
-use futo_notes_editor::OwnActionRelink;
 use std::path::Path;
 use std::sync::{Arc, Mutex, PoisonError};
 
@@ -23,7 +22,8 @@ pub(super) struct PendingIdentity {
     original: String,
     destination: String,
     lease: Option<EditorLease>,
-    action: OwnActionRelink,
+    /// The store's rewritten note bytes, when the relink changed this note.
+    rewritten: Option<String>,
     installed: bool,
     portable_offer: Option<(futo_notes_editor::Revision, String)>,
 }
@@ -70,13 +70,17 @@ impl Attachment {
             pending.installed = true;
         }
         if self.engine.revision() != self.recovery.accepted {
+            let rewritten = pending
+                .rewritten
+                .as_deref()
+                .ok_or("coordinated relink has no rewritten source")?;
             let accepted = self.recovery.accepted;
             let revision = self.engine.revision();
             let change = self
                 .engine
                 .full_mut()
                 .map_err(|error| error.to_string())?
-                .apply_own_relink(revision, &pending.action, &mut |edit| {
+                .apply_own_relink(revision, rewritten, &mut |edit| {
                     if edit.revision == accepted {
                         Ok(())
                     } else {
@@ -93,9 +97,9 @@ impl Attachment {
         self.recovery.cleanup_identity(root, &pending.original)?;
         let pending = self.pending_identity.take().unwrap();
         self.relink_offer = pending.portable_offer.and_then(|(revision, rewritten)| {
-            (self.recovery.base() == rewritten).then(|| futo_notes_editor::RelinkOffer {
+            (self.recovery.base() == rewritten).then_some(futo_notes_editor::RelinkOffer {
                 revision,
-                action: pending.action,
+                source: rewritten,
             })
         });
         if let Some(lease) = pending.lease {
@@ -151,7 +155,6 @@ impl IdentityTransition {
         from: &str,
         to: &str,
         rewritten: Option<&String>,
-        action: &OwnActionRelink,
     ) -> Result<Option<Self>, String> {
         let state = if let Some(state) = EditorLease::attached(root, from)? {
             state
@@ -244,7 +247,7 @@ impl IdentityTransition {
                 .is_none();
         if let Err(error) = attachment
             .recovery
-            .prepare_identity(root, to, expected, action, can_adopt)
+            .prepare_identity(root, to, expected, can_adopt)
         {
             if attachment.recovery.cancel_prepared_identity(root).is_err() {
                 attachment.recovery.failed = true;
@@ -259,7 +262,7 @@ impl IdentityTransition {
                 original: from.to_owned(),
                 destination: to.to_owned(),
                 lease,
-                action: action.clone(),
+                rewritten: rewritten.cloned(),
                 installed: false,
                 portable_offer,
             }),

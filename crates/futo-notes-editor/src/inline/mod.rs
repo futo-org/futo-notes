@@ -12,7 +12,6 @@ mod find;
 pub(crate) mod front_matter;
 pub(crate) mod guarded_words;
 mod links;
-pub(crate) use links::complete_bare_uri;
 mod lists;
 mod pending_links;
 mod query;
@@ -23,6 +22,7 @@ pub(crate) use pending_links::{PendingLinkWitness, PendingLinks};
 pub(crate) mod coordinate_work_tests;
 #[cfg(test)]
 mod cross_feature_tests;
+pub(crate) mod images;
 #[cfg(test)]
 mod query_growth_tests;
 mod row;
@@ -30,8 +30,6 @@ mod source_points;
 mod spelling;
 #[cfg(test)]
 mod split_tests;
-pub(crate) use spelling::relink::{RetainedFormat, RetiredLinkText};
-pub(crate) mod images;
 mod toggle;
 mod tree;
 mod window;

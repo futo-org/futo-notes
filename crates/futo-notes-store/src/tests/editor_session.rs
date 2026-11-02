@@ -19,7 +19,6 @@ mod portable_bounded;
 mod portable_readiness;
 mod portable_waiting;
 mod recovery;
-mod relink_guarded;
 mod seams;
 mod storage;
 mod tables;

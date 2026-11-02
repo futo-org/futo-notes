@@ -8,7 +8,6 @@ mod os_replacement;
 mod paragraphs;
 mod relink;
 pub use blocks::BlockCommand;
-pub use relink::OwnActionRelink;
 mod history_selection;
 mod images;
 mod input;

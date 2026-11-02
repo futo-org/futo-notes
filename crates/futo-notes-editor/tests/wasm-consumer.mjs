@@ -301,7 +301,7 @@ const { WasmSession } = await import(pathToFileURL(process.argv[2]).href);
         identityPage.acknowledge(JSON.stringify(await exchange(JSON.parse(identityPage.undo(2n))))),
       ),
     );
-    assert.equal(view, '[[long name]]');
+    assert.equal(view, '[[plain]]!');
     apply(
       JSON.parse(
         identityPage.acknowledge(JSON.stringify(await exchange(JSON.parse(identityPage.redo(3n))))),

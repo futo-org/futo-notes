@@ -141,7 +141,6 @@ pub(crate) fn prepare_relinks(
     let raw = vault::bodies(root);
     // Every note counts toward link resolution, decodable or not.
     let mut ids = raw.keys().cloned().collect::<Vec<_>>();
-    let precommit_ids = ids.clone();
     // An undecodable note gets a lossy view, used ONLY to learn whether the
     // rename would have rewritten it. It is never written.
     let notes = raw
@@ -212,10 +211,6 @@ pub(crate) fn prepare_relinks(
         }
     }
     relinks.skipped.sort();
-    let action = futo_notes_editor::OwnActionRelink {
-        mappings: mappings.to_vec(),
-        note_ids: precommit_ids,
-    };
     let mut coordinated = mappings.to_vec();
     coordinated.extend(
         relinks
@@ -233,7 +228,6 @@ pub(crate) fn prepare_relinks(
                 from,
                 to,
                 relinks.rewritten.get(to),
-                &action,
             )
         })
         .collect::<Result<Vec<_>, _>>()?

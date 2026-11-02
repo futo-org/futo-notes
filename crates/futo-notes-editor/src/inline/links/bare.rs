@@ -216,17 +216,3 @@ pub(in crate::inline) fn bare_links(
     crate::inline::coordinate_work_tests::bare_query(primitive, hint_items, work.items);
     (spans, work)
 }
-
-/// Read only canonical complete-word extent; no origin or phase authority.
-pub(crate) fn complete_bare_uri(source: &str) -> (bool, crate::EditWork) {
-    let (links, read) = bare_links(source);
-    let work = crate::EditWork {
-        parsed_source_bytes: read.parsed,
-        link_metadata_items: read.items + links.len() + 1,
-        link_copied_bytes: read.copied,
-        ..crate::EditWork::default()
-    };
-    let complete =
-        links.len() == 1 && links[0].open.start == 0 && links[0].close.end == source.len();
-    (complete, work)
-}

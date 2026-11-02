@@ -1,7 +1,6 @@
 //! Discoverable prepared intent and durable decision retain the original stream
 //! until a coherent final identity, baseline and accepted source are installed.
 use super::*;
-use futo_notes_editor::OwnActionRelink;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize)]
@@ -12,7 +11,6 @@ struct Intent {
     destination: String,
     expected_disk: Vec<String>,
     replaced: bool,
-    action: OwnActionRelink,
     can_adopt: bool,
 }
 #[derive(Serialize, Deserialize)]
@@ -137,7 +135,6 @@ impl RecoveryLog {
         root: &Path,
         destination: &str,
         expected_disk: Vec<String>,
-        action: &OwnActionRelink,
         can_adopt: bool,
     ) -> Result<(), String> {
         self.cancel_or_pause(root)?;
@@ -166,7 +163,6 @@ impl RecoveryLog {
             destination: destination.to_owned(),
             expected_disk,
             replaced: self.replaced(root)?,
-            action: action.clone(),
             can_adopt,
         };
         let path = stem(&self.header.id);
@@ -365,13 +361,8 @@ fn decide(root: &Path, intent: Intent) -> Result<Decision, String> {
     if actual != *before {
         if engine.source_text() == *before && intent.can_adopt {
             engine
-                .apply_own_relink(engine.revision(), &intent.action, &mut |_| Ok(()))
+                .apply_own_relink(engine.revision(), &actual, &mut |_| Ok(()))
                 .map_err(|error| error.to_string())?;
-            if engine.source_text() != actual {
-                return Err(
-                    "committed backlink bytes differ from coordinated source change".into(),
-                );
-            }
             header.base = actual;
         } else if header.base == *before {
             // New accepted typing (or provisional input) refused adoption.
