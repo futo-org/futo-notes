@@ -35,8 +35,12 @@ class NativeEditorSessionTest {
                     changes.forEach { apply(it) }
                     assertTrue(session.takeCoordinatedChanges().isEmpty())
                     assertEquals("[[long name]]!", String(view, Charsets.UTF_8))
+                    // A relink is one ordinary Undo step: Undo restores the old
+                    // link text, then the earlier typed "!" undoes as usual.
                     apply(checkNotNull(session.undo(revision)))
-                    assertEquals("[[long name]]", String(view, Charsets.UTF_8))
+                    assertEquals("[[old]]!", String(view, Charsets.UTF_8))
+                    apply(checkNotNull(session.undo(revision)))
+                    assertEquals("[[old]]", String(view, Charsets.UTF_8))
                     store.delete("long name")
                     store.createNote("long name", "", "fresh")
                     try { session.checkpoint(); fail("deleted session checkpoint accepted") }

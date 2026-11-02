@@ -35,8 +35,12 @@ struct NativeEditorSessionTests {
             for change in changes { apply(change) }
             #expect(try session.takeCoordinatedChanges().isEmpty)
             #expect(String(decoding: view, as: UTF8.self) == "[[long name]]!")
+            // A relink is one ordinary Undo step: Undo restores the old link
+            // text, then the earlier typed "!" undoes as usual.
             apply(try #require(try session.undo(expected: revision)))
-            #expect(String(decoding: view, as: UTF8.self) == "[[long name]]")
+            #expect(String(decoding: view, as: UTF8.self) == "[[old]]!")
+            apply(try #require(try session.undo(expected: revision)))
+            #expect(String(decoding: view, as: UTF8.self) == "[[old]]")
             _ = try store.delete(id: "long name")
             _ = try store.createNote(title: "long name", folder: "", content: "fresh")
             do {
