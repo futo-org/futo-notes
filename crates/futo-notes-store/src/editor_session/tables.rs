@@ -19,7 +19,6 @@ impl StoreEditorSession<'_> {
         self.live(|state| {
             state
                 .engine
-                .full()?
                 .inspect_table(expected, range)
                 .map_err(EditorStoreError::Editor)
         })
@@ -64,7 +63,7 @@ impl Attachment {
     ) -> Result<T, EditorStoreError> {
         self.input_ready()?;
         let recovery = &mut self.recovery;
-        operation(self.engine.full_mut()?, &mut |edit| {
+        operation(&mut self.engine, &mut |edit| {
             recovery.append(&store.root, edit)
         })
         .map_err(append_error)

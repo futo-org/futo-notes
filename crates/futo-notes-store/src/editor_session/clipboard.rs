@@ -12,7 +12,6 @@ impl StoreEditorSession<'_> {
         self.live(|state| {
             state
                 .engine
-                .full()?
                 .copy_markdown(expected, range)
                 .map_err(EditorStoreError::Editor)
         })
@@ -29,7 +28,6 @@ impl StoreEditorSession<'_> {
                 engine, recovery, ..
             } = state;
             engine
-                .full_mut()?
                 .cut_markdown(expected, range, &mut |edit| {
                     recovery.append(&store.root, edit)
                 })
@@ -49,7 +47,6 @@ impl StoreEditorSession<'_> {
                 engine, recovery, ..
             } = state;
             engine
-                .full_mut()?
                 .paste_markdown(expected, range, text, &mut |edit| {
                     recovery.append(&store.root, edit)
                 })

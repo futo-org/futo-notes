@@ -8,19 +8,8 @@ use futo_notes_editor::{
 
 use crate::{paths, FlushDisposition, FlushDraftResult, LocalNoteStore, NOTE_NOT_FOUND};
 
-mod bounded;
-mod bounded_host;
-pub use bounded::{
-    StoreBoundedEditorSession, StoreBoundedEntryError, StoreBoundedExitError,
-    StoreBoundedSourceSnapshot,
-};
-pub use bounded_host::{
-    StoreBoundedEditorHost, StoreBoundedHostEntryError, StoreBoundedHostExitError,
-};
 mod checkpoint;
 mod clipboard;
-mod owner;
-use owner::{EditorMode, EditorOwner};
 mod clock;
 mod composition;
 pub(crate) mod deletion;
@@ -99,8 +88,6 @@ pub struct RecoveryIssue {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EditorStoreError {
     Open(String),
-    Bounded(futo_notes_editor::BoundedError),
-    ModeResetRequired,
     SessionAlreadyOpen,
     Editor(EditorError),
     Recovery(String),
@@ -138,14 +125,13 @@ pub struct StoreEditorSession<'store> {
 pub(super) struct Attachment {
     id: String,
     recovery: RecoveryLog,
-    engine: EditorOwner,
+    engine: EditorSession,
     lease: EditorLease,
     pending_checkpoint: Option<FlushDraftResult>,
     terminal: bool,
     coordinated: Vec<ViewChange>,
     pending_identity: Option<identity::PendingIdentity>,
     portable: bool,
-    bounded_work: futo_notes_editor::BoundedWork,
     relink_offer: Option<futo_notes_editor::RelinkOffer>,
 }
 
@@ -256,7 +242,7 @@ impl<'store> StoreEditorSession<'store> {
         };
         let state = Arc::new(Mutex::new(Attachment {
             id: id.to_owned(),
-            engine: EditorOwner(Some(EditorMode::Full(engine))),
+            engine,
             recovery,
             lease,
             pending_checkpoint,
@@ -264,7 +250,6 @@ impl<'store> StoreEditorSession<'store> {
             coordinated: Vec::new(),
             pending_identity: None,
             portable: false,
-            bounded_work: futo_notes_editor::BoundedWork::default(),
             relink_offer: None,
         }));
         state

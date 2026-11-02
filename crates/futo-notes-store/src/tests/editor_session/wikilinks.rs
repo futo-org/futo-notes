@@ -44,7 +44,7 @@ fn store_note_ids_reach_a_composing_session_and_recovery_keeps_exact_bytes() {
 }
 
 #[test]
-fn note_ids_are_delivered_on_open_and_after_a_bounded_reset_without_a_refresh() {
+fn note_ids_are_delivered_on_open_without_a_refresh() {
     let root = TestRoot::new();
     let store = store(&root);
     store.create("Projects", "Roadmap", "").unwrap();
@@ -61,15 +61,6 @@ fn note_ids_are_delivered_on_open_and_after_a_bounded_reset_without_a_refresh() 
             .clone()
     };
     let session = store.open_editor("home").unwrap();
-    assert_eq!(id_of(&session).as_deref(), Some("Projects/Roadmap"));
-    let bounded = session
-        .into_bounded(
-            Revision(0),
-            futo_notes_editor::SessionToken(91),
-            DisplayOffset(0),
-        )
-        .unwrap();
-    let (session, _) = bounded.into_full().unwrap();
     assert_eq!(id_of(&session).as_deref(), Some("Projects/Roadmap"));
 }
 

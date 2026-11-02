@@ -59,41 +59,6 @@ macro_rules! vault_fs_contract {
             use crate::files::vault_fs::$implementation as vault_fs;
 
             #[test]
-            fn pinned_recovery_is_exclusive_owned_or_explicitly_unsupported() {
-                let root = tempfile::tempdir().unwrap();
-                let live = ".futo-editor-recovery/live.jsonl";
-                let mut pinned = match vault_fs::create_pinned_recovery(root.path(), live) {
-                    Err(_) => {
-                        assert!(!vault_fs::exists(root.path(), live).unwrap());
-                        return;
-                    }
-                    Ok(pinned) => pinned.unwrap(),
-                };
-                assert!(vault_fs::create_pinned_recovery(root.path(), live)
-                    .unwrap()
-                    .is_none());
-                assert!(vault_fs::create_pinned_recovery(root.path(), "note.md").is_err());
-                pinned.append(b"header\nedit").unwrap();
-                pinned.truncate(7).unwrap();
-                pinned.sync().unwrap();
-                pinned.verify(root.path()).unwrap();
-                assert_eq!(vault_fs::read(root.path(), live).unwrap(), b"header\n");
-                let reopened = vault_fs::open_pinned_recovery(root.path(), live)
-                    .unwrap()
-                    .unwrap();
-                assert_eq!(reopened.read_all().unwrap(), b"header\n");
-                // A substituted canonical name is foreign: refused untouched.
-                std::fs::remove_file(root.path().join(live)).unwrap();
-                std::fs::write(root.path().join(live), b"foreign").unwrap();
-                assert!(pinned.verify(root.path()).is_err());
-                assert!(pinned.remove(root.path()).is_err());
-                assert_eq!(vault_fs::read(root.path(), live).unwrap(), b"foreign");
-                std::fs::remove_file(root.path().join(live)).unwrap();
-                pinned.remove(root.path()).unwrap();
-                reopened.remove(root.path()).unwrap();
-            }
-
-            #[test]
             fn source_type_distinguishes_directories_files_and_missing_parents() {
                 let root = tempfile::tempdir().unwrap();
                 std::fs::create_dir(root.path().join("folder.md")).unwrap();

@@ -20,7 +20,7 @@ impl StoreEditorSession<'_> {
         if state.terminal {
             return Err(EditorStoreError::SessionDeleted);
         }
-        Ok(state.engine.full_mut()?.update_note_ids(&ids))
+        Ok(state.engine.update_note_ids(&ids))
     }
 
     pub fn inspect_link(
@@ -31,7 +31,6 @@ impl StoreEditorSession<'_> {
         self.live(|state| {
             state
                 .engine
-                .full()?
                 .inspect_link(expected, range)
                 .map_err(EditorStoreError::Editor)
         })
@@ -57,7 +56,6 @@ impl Attachment {
     ) -> Result<Option<ViewChange>, EditorStoreError> {
         self.input_ready()?;
         self.engine
-            .full_mut()?
             .set_link(expected, range, destination, &mut |edit| {
                 self.recovery.append(&store.root, edit)
             })
@@ -78,7 +76,6 @@ impl StoreEditorSession<'_> {
         self.live(|state| {
             state
                 .engine
-                .full()?
                 .wikilink_completion(expected)
                 .map_err(EditorStoreError::Editor)
         })
@@ -99,7 +96,6 @@ impl StoreEditorSession<'_> {
                 engine, recovery, ..
             } = state;
             engine
-                .full_mut()?
                 .accept_wikilink_completion(expected, range, query, note_id, &mut |edit| {
                     recovery.append(&store.root, edit)
                 })
@@ -115,7 +111,7 @@ impl StoreEditorSession<'_> {
     /// Begin an asynchronous image insertion; the claim expires with this
     /// attachment (another note, or this note reopened).
     pub fn image_claim(&self) -> Result<futo_notes_editor::ImageClaim, EditorStoreError> {
-        self.live(|state| Ok(state.engine.full()?.image_claim()))
+        self.live(|state| Ok(state.engine.image_claim()))
     }
 
     /// Insert the stored vault reference as one recovered edit. The store writes
@@ -133,7 +129,6 @@ impl StoreEditorSession<'_> {
                 engine, recovery, ..
             } = state;
             engine
-                .full_mut()?
                 .insert_image(expected, claim, reference, alt, &mut |edit| {
                     recovery.append(&store.root, edit)
                 })

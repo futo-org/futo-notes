@@ -98,30 +98,17 @@ impl StoreEditorSession<'_> {
     }
 
     pub fn active_formats(&self) -> Vec<InlineFormat> {
-        self.read(|state| {
-            state
-                .engine
-                .full()
-                .expect("full interface owner")
-                .active_formats()
-        })
+        self.read(|state| state.engine.active_formats())
     }
 
     pub fn selection(&self) -> DisplayRange {
-        self.read(|state| {
-            state
-                .engine
-                .full()
-                .expect("full interface owner")
-                .selection()
-        })
+        self.read(|state| state.engine.selection())
     }
 
     pub fn check_revision(&self, expected: Revision) -> Result<(), EditorStoreError> {
         self.read(|state| {
             state
                 .engine
-                .full()?
                 .check_revision(expected)
                 .map_err(EditorStoreError::Editor)
         })
@@ -136,7 +123,6 @@ impl StoreEditorSession<'_> {
         self.read(|state| {
             state
                 .engine
-                .full()?
                 .source_at(expected, offset, affinity)
                 .map_err(EditorStoreError::Editor)
         })
@@ -150,7 +136,6 @@ impl StoreEditorSession<'_> {
         self.read(|state| {
             state
                 .engine
-                .full()?
                 .display_to_utf16(expected, range)
                 .map_err(EditorStoreError::Editor)
         })
@@ -164,7 +149,6 @@ impl StoreEditorSession<'_> {
         self.read(|state| {
             state
                 .engine
-                .full()?
                 .display_from_utf16(expected, range)
                 .map_err(EditorStoreError::Editor)
         })
@@ -178,7 +162,6 @@ impl StoreEditorSession<'_> {
         self.read(|state| {
             state
                 .engine
-                .full()?
                 .project(expected, range)
                 .map_err(EditorStoreError::Editor)
         })
@@ -193,7 +176,6 @@ impl StoreEditorSession<'_> {
         self.mutate(|state, _| {
             state
                 .engine
-                .full_mut()?
                 .select_with_affinity(expected, range, affinity)
                 .map_err(EditorStoreError::Editor)
         })
@@ -215,7 +197,6 @@ impl StoreEditorSession<'_> {
         self.mutate(|state, _| {
             state
                 .engine
-                .full_mut()?
                 .select_utf16(expected, range)
                 .map_err(EditorStoreError::Editor)
         })
@@ -229,7 +210,6 @@ impl StoreEditorSession<'_> {
         self.mutate(|state, _| {
             state
                 .engine
-                .full_mut()?
                 .move_caret(expected, direction)
                 .map_err(EditorStoreError::Editor)
         })

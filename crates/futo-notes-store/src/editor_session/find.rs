@@ -8,7 +8,7 @@ impl StoreEditorSession<'_> {
         &self,
         operation: impl FnOnce(&mut EditorSession) -> Result<T, EditorError>,
     ) -> Result<T, EditorStoreError> {
-        self.live(|state| operation(state.engine.full_mut()?).map_err(EditorStoreError::Editor))
+        self.live(|state| operation(&mut state.engine).map_err(EditorStoreError::Editor))
     }
 
     pub fn find_set_query(
@@ -44,7 +44,7 @@ impl StoreEditorSession<'_> {
     }
 
     pub fn find_scan_request(&self) -> Result<Option<FindScanRequest>, EditorStoreError> {
-        self.live(|state| Ok(state.engine.full()?.find_scan_request()))
+        self.live(|state| Ok(state.engine.find_scan_request()))
     }
 
     /// `None` means the result was stale (other revision or query) and ignored.

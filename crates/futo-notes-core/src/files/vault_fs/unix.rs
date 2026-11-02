@@ -17,10 +17,6 @@ use super::{context, relative_components, OpenParentError};
 mod directories;
 #[path = "unix/no_replace.rs"]
 mod no_replace;
-#[path = "unix/pinned_recovery.rs"]
-mod pinned_recovery;
-pub use pinned_recovery::{create_pinned_recovery, open_pinned_recovery, PinnedRecoveryFile};
-pub const PINNED_RECOVERY_SUPPORTED: bool = true;
 #[path = "unix/writes.rs"]
 mod writes;
 
