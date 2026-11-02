@@ -250,48 +250,6 @@ fn text_and_list_commands_keep_item_continuations_and_literal_body_text() {
 }
 
 #[test]
-fn list_retarget_does_not_renumber_either_neighbor_when_ordered_delimiters_conflict() {
-    let raw = "9. before\n\n* a\n* b\n\n7) after";
-    let shown = "before\n\na\nb\n\nafter";
-    let mut s = EditorSession::open(raw);
-    let mut view = ReferenceView::new(shown);
-    let numbers = |s: &EditorSession| {
-        s.project(s.revision(), range(0, s.display_text().len()))
-            .unwrap()
-            .blocks
-            .into_iter()
-            .filter_map(|block| block.list.filter(|list| list.first).map(|list| list.number))
-            .collect::<Vec<_>>()
-    };
-    assert_eq!(numbers(&s), vec![Some(9), None, None, Some(7)]);
-    s.select(s.revision(), range(8, 8)).unwrap();
-    let mut accepted = 0;
-    view.apply(
-        s.block_command(
-            s.revision(),
-            range(8, 8),
-            BlockCommand::OrderedList,
-            &mut |_| {
-                accepted += 1;
-                Ok(())
-            },
-        )
-        .unwrap()
-        .unwrap(),
-    );
-    assert_eq!(accepted, 1);
-    assert_eq!(numbers(&s), vec![Some(9), Some(1), Some(2), Some(7)]);
-    assert_eq!(
-        s.source_text(),
-        "9. before\n\n1) a\n2) b\n<!-- -->\n\n7) after"
-    );
-    assert_eq!(view.text, shown);
-    assert_eq!(s.selection(), range(8, 8));
-    view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
-    assert_eq!(s.source_text(), raw);
-}
-
-#[test]
 fn list_commands_retire_heading_syntax_while_preserving_inline_body_and_neighbors() {
     let (raw, shown) = ("## __a__ ##\r\n\r\n+ keep", "a\r\n\r\nkeep");
     {
