@@ -140,7 +140,10 @@ fn worker_append_ack_is_distinct_from_page_completion_and_durable_flush() {
     assert_eq!(page.status().durable, Revision(1));
     let mut wrong = request;
     wrong.token = SessionToken(42);
-    assert!(host.handle(wrong).error.is_some());
+    assert_eq!(
+        host.handle(wrong).error.map(|error| error.kind),
+        Some(futo_notes_editor::HostErrorKind::StaleToken)
+    );
     drop(host);
     assert_eq!(store.open_editor("plain").unwrap().source_text(), "plain!");
     assert_eq!(store.read("plain").unwrap(), "plain");
@@ -336,7 +339,10 @@ fn foreign_or_conflicting_source_records_never_append_or_apply_twice() {
     let accepted = host.handle(retry.clone());
     assert_eq!(accepted.accepted, Revision(1));
     assert!(accepted.error.is_none());
-    assert!(host.handle(request).error.is_some());
+    assert_eq!(
+        host.handle(request).error.map(|error| error.kind),
+        Some(futo_notes_editor::HostErrorKind::StaleToken)
+    );
     retry.sequence += 1;
     assert!(host.handle(retry).error.is_some());
     drop(host);

@@ -113,7 +113,8 @@ Append or Flush is outstanding, input, selection and projection (and find querie
 always copyable. Retain a refused payload and the revision it addressed; the engine does
 not rebase it.
 
-**Errors.** Structured values: editor kinds (`StaleRevision`, `StaleClaim`, `InvalidText`,
+**Errors.** `HostAck.error` is `{kind, message}`: `kind` is `Deleted`, `StaleToken`, `Paused`,
+`Storage` or `Rejected` (branch on it; `message` is for logs). Structured values: editor kinds (`StaleRevision`, `StaleClaim`, `InvalidText`,
 `CompositionActive`, `Busy`), recovery stage, review-required issues, committed checkpoint
 mutations. Storage failure pauses input with the draft copyable; `resume` repairs, flushes
 the accepted prefix, then retries. Review-required corruption is never bypassed.

@@ -39,9 +39,40 @@ pub struct HostAck {
     pub accepted: Revision,
     pub durable: Revision,
     pub paused: bool,
-    pub error: Option<String>,
+    pub error: Option<HostError>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub relink: Option<RelinkOffer>,
+}
+
+/// Why the host refused or failed a request. The kind is for control flow;
+/// the message is for logs only.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum HostErrorKind {
+    /// The note was deleted; the attachment is terminal.
+    Deleted,
+    /// Token, sequence or retired-mode mismatch: the request is not for this attachment.
+    StaleToken,
+    /// Recovery is paused or needs review; input stays paused until `resume`.
+    Paused,
+    /// Recovery, checkpoint or open failed in storage.
+    Storage,
+    /// The engine rejected the edit itself.
+    Rejected,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HostError {
+    pub kind: HostErrorKind,
+    pub message: String,
+}
+
+impl HostError {
+    pub fn new(kind: HostErrorKind, message: impl Into<String>) -> Self {
+        Self {
+            kind,
+            message: message.into(),
+        }
+    }
 }
 
 /// A successful own-action relink may be adopted only while the page still

@@ -24,7 +24,7 @@ initial integer values within JavaScript's exact integer range.
 2. Send the request to the worker. `StoreEditorHost::handle` validates the token,
    request sequence, source revision and exact removed bytes, then appends through
    the real store recovery owner before applying the replacement once.
-3. Deliver its `HostAck` to `acknowledge`. Only a matching successful append ACK
+3. Deliver its `HostAck` to `acknowledge`. Only a matching successful append ACK (`error: {kind, message}` absent)
    releases a `ViewChange`. Apply that delta to the view. No next input is accepted
    while the active edit awaits acknowledgement: there is no displayed timer queue.
 4. A `flush` request runs recovery flush on the worker. Append acceptance protects
