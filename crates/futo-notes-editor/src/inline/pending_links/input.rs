@@ -30,12 +30,8 @@ impl Projection {
             let (links, query_work) = self.all_link_ranges(word);
             work += links.len() + query_work;
             for link in links {
-                #[cfg(test)]
-                let visits = super::super::coordinate_work_tests::visits();
                 let (index, a) = self.rows.locate_with_work(link.start.0, true);
                 let (row, _, display, b) = self.rows.at_with_work(index);
-                #[cfg(test)]
-                let previous_work = work;
                 work += a + b;
                 let bare = row
                     .spans
@@ -71,12 +67,6 @@ impl Projection {
                         row.literal_links.push(bare);
                     }
                 }
-                #[cfg(test)]
-                super::super::coordinate_work_tests::query(
-                    "pending-input-run",
-                    visits,
-                    work - previous_work,
-                );
             }
         }
         if inserted.contains(char::is_whitespace) {

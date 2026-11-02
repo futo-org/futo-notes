@@ -21,9 +21,7 @@ pub(super) fn canonical_quote_end(prefix: &str, depth: usize) -> Option<usize> {
     let mut at = 0;
     for _ in 0..depth {
         let next = prefix[at..].find('>')?;
-        for _ in 0..=next {
-            crate::inline::visit_container();
-        }
+        for _ in 0..=next {}
         at += next + 1;
         if matches!(prefix.as_bytes().get(at), Some(b' ' | b'\t')) {
             at += 1;

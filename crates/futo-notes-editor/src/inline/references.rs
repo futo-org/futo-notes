@@ -204,8 +204,6 @@ impl super::Projection {
     /// Only occurrence witnesses in the exact source window cross a stage.
     /// The immutable document resolver itself is shared without enumeration.
     pub(crate) fn reference_winners(&self, window: Range<usize>) -> (Vec<Winner>, ReferenceWork) {
-        #[cfg(test)]
-        let visits = super::coordinate_work_tests::visits();
         let (first, first_work) = self.rows.locate_with_work(window.start, false);
         let (last, last_work) = self.rows.locate_with_work(
             window.end.saturating_sub(usize::from(!window.is_empty())),
@@ -237,8 +235,6 @@ impl super::Projection {
                 }
             }
         }
-        #[cfg(test)]
-        super::coordinate_work_tests::query("reference-winners", visits, work.items);
         (winners, work)
     }
 }

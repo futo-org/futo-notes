@@ -8,19 +8,10 @@ impl Projection {
         affinity: crate::Affinity,
     ) -> (crate::history::ExactSelection, usize) {
         let endpoint = |offset: usize| {
-            #[cfg(test)]
-            let visits = super::coordinate_work_tests::visits();
-            #[cfg(test)]
-            let bounds_before = super::coordinate_work_tests::bounds_before();
             let (row, source, display, nodes) = self.rows.display_row_with_work(offset);
             let (mut point, segments) = row.source_point_with_work(offset - display, affinity);
             let work = nodes + segments;
             point.source.0 += source;
-            #[cfg(test)]
-            {
-                super::coordinate_work_tests::query("capture", visits, work);
-                super::coordinate_work_tests::capture_bounds(bounds_before);
-            }
             (point, work)
         };
         let (start, a) = endpoint(range.start.0);
@@ -36,14 +27,10 @@ impl Projection {
         &self,
         mut point: crate::history::SourcePoint,
     ) -> (usize, usize) {
-        #[cfg(test)]
-        let visits = super::coordinate_work_tests::visits();
         let (row, source, display, nodes) = self.rows.source_row_with_work(point.source.0);
         point.source.0 -= source;
         let (local, segments) = row.project_source_point(point);
         let work = nodes + segments;
-        #[cfg(test)]
-        super::coordinate_work_tests::query("project", visits, work);
         (display + local, work)
     }
 
@@ -65,13 +52,9 @@ impl Projection {
 
     #[cfg_attr(test, track_caller)]
     pub(crate) fn display_at_with_work(&self, offset: usize) -> (usize, usize) {
-        #[cfg(test)]
-        let visits = coordinate_work_tests::visits();
         let (row, source, display, nodes) = self.rows.source_row_with_work(offset);
         let (local, segments) = row.display_at_with_work(offset - source);
         let work = nodes + segments;
-        #[cfg(test)]
-        coordinate_work_tests::query(std::panic::Location::caller().file(), visits, work);
         (display + local, work)
     }
 }

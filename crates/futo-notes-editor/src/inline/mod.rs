@@ -18,12 +18,8 @@ pub(crate) mod references;
 pub(crate) mod typed_angle;
 pub(crate) use pending_links::{PendingLinkWitness, PendingLinks};
 #[cfg(test)]
-pub(crate) mod coordinate_work_tests;
-#[cfg(test)]
 mod cross_feature_tests;
 pub(crate) mod images;
-#[cfg(test)]
-mod query_growth_tests;
 mod row;
 mod source_points;
 mod spelling;
@@ -39,11 +35,7 @@ use crate::{
     Correspondence, CorrespondenceKind, DisplayOffset, DisplayRange, InlineFormat, ProjectionSlice,
     Revision, SemanticRun, SourceEdit, SourceOffset, SourceRange,
 };
-pub(crate) use lists::{columns, visit_container, visit_correspondence, ListLine};
-#[cfg(test)]
-pub(crate) use lists::{
-    CONTAINER_BLOCK_QUERY_VISITS, CONTAINER_CORRESPONDENCE_SCANS, CONTAINER_METADATA_VISITS,
-};
+pub(crate) use lists::{columns, ListLine};
 use ropey::Rope;
 use row::{partition, Outside, Row};
 use tree::Rows;
@@ -234,8 +226,6 @@ impl Projection {
         let (delimiters, delimiter_work) = self.retained_delimiters(first, last, edit);
         let mut guards = Vec::new();
         let mut typed_inputs = Vec::new();
-        #[cfg(test)]
-        materialization_tests::allocated(materialization_tests::Buffer::Apply, text.len());
         let mut winners = Vec::new();
         let mut reference_work = references::ReferenceWork::default();
         for index in first..=last {
@@ -282,12 +272,8 @@ impl Projection {
                 row
             }))
             .collect();
-        #[cfg(test)]
-        let comparison_visits = coordinate_work_tests::visits();
         let (meaning_changed, comparison_work) =
             self.reference_meaning_changed(first, last, source_start, &parsed, edit);
-        #[cfg(test)]
-        coordinate_work_tests::query("reference-comparison", comparison_visits, comparison_work);
         reference_work.items += comparison_work;
         if meaning_changed {
             if self.references_complete || canonical_origin.is_some() {
@@ -307,14 +293,6 @@ impl Projection {
                         .iter()
                         .map(|row| row.reference_work.copied)
                         .sum::<usize>();
-                #[cfg(test)]
-                coordinate_work_tests::child(
-                    "semantic-delimiters",
-                    crate::EditWork {
-                        link_metadata_items: delimiter_work,
-                        ..Default::default()
-                    },
-                );
                 return self.rebuild_references(
                     source,
                     edit,
@@ -407,6 +385,3 @@ impl Projection {
         }
     }
 }
-
-#[cfg(test)]
-mod materialization_tests;

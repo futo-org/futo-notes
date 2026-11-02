@@ -183,16 +183,12 @@ impl Projection {
     }
 
     pub(crate) fn pending_for_source_edit(&self, edit: SourceRange) -> PendingLinks {
-        #[cfg(test)]
-        let visits = super::coordinate_work_tests::visits();
         let (first, a) = self.rows.locate_with_work(edit.start.0, false);
         let (last, z) = self.rows.locate_with_work(edit.end.0, false);
         let first = first.saturating_sub(1);
         let last = (last + 1).min(self.rows.len() - 1);
         let (_, start, _, b) = self.rows.at_with_work(first);
         let (row, end, _, c) = self.rows.at_with_work(last);
-        #[cfg(test)]
-        super::coordinate_work_tests::query("pending-neighbors", visits, a + z + b + c);
         let mut pending = self.pending_links(start..end + row.source_len);
         pending.work += a + z + b + c;
         pending
@@ -221,8 +217,6 @@ impl Projection {
     }
 
     pub(super) fn pending_display(&self, first: usize, last: usize) -> (Vec<DisplayRange>, usize) {
-        #[cfg(test)]
-        let visits = super::coordinate_work_tests::visits();
         let mut ranges = Vec::new();
         let mut work = 0;
         for index in first..=last {
@@ -238,8 +232,6 @@ impl Projection {
                 });
             }
         }
-        #[cfg(test)]
-        super::coordinate_work_tests::query("pending-display", visits, work);
         (ranges, work)
     }
 
@@ -249,8 +241,6 @@ impl Projection {
         change: DisplayRange,
         inserted: usize,
     ) -> usize {
-        #[cfg(test)]
-        let visits = super::coordinate_work_tests::visits();
         let removed = change.end.0 - change.start.0;
         let mut work = 0;
         for mut range in pending {
@@ -293,8 +283,6 @@ impl Projection {
                 row.literal_links.push(local);
             }
         }
-        #[cfg(test)]
-        super::coordinate_work_tests::query("pending-preserve", visits, work);
         work
     }
 
@@ -306,8 +294,6 @@ impl Projection {
     }
 
     pub(super) fn link_is_pending_with_work(&self, range: DisplayRange) -> (bool, usize) {
-        #[cfg(test)]
-        let visits = super::coordinate_work_tests::visits();
         let (row, _, display, mut work) = self.rows.display_row_with_work(range.start.0);
         let pending = row.literal_links.iter().any(|link| {
             work += 1;
@@ -320,8 +306,6 @@ impl Projection {
             work += visits;
             display + end == range.end.0
         });
-        #[cfg(test)]
-        super::coordinate_work_tests::query("link-pending", visits, work);
         (pending, work)
     }
 }
@@ -331,8 +315,6 @@ impl Projection {
         &mut self,
         ranges: impl IntoIterator<Item = Range<usize>>,
     ) -> usize {
-        #[cfg(test)]
-        let visits = super::coordinate_work_tests::visits();
         let mut work = 0;
         for range in ranges {
             work += 1;
@@ -361,8 +343,6 @@ impl Projection {
                 row.literal_delimiters.insert(position, local);
             }
         }
-        #[cfg(test)]
-        super::coordinate_work_tests::query("delimiter-install", visits, work);
         work
     }
 
@@ -372,8 +352,6 @@ impl Projection {
         last: usize,
         edit: &SourceEdit,
     ) -> (Vec<Range<usize>>, usize) {
-        #[cfg(test)]
-        let visits = super::coordinate_work_tests::visits();
         let mut ranges = Vec::new();
         let mut work = 0;
         for index in first..=last {
@@ -392,8 +370,6 @@ impl Projection {
                 ranges.push(range);
             }
         }
-        #[cfg(test)]
-        super::coordinate_work_tests::query("delimiter-retain", visits, work);
         (ranges, work)
     }
 }

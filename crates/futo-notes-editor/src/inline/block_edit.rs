@@ -176,10 +176,7 @@ impl Projection {
     pub(crate) fn has_block_seams(&self, range: DisplayRange) -> bool {
         let first = self.rows.locate(range.start.0, true);
         let last = self.rows.locate(range.end.0, true);
-        if !(first..=last).any(|index| {
-            super::visit_container();
-            !self.rows.at(index).0.spans.is_empty()
-        }) {
+        if !(first..=last).any(|index| !self.rows.at(index).0.spans.is_empty()) {
             return false;
         }
         self.has_block_seams_at(range, &self.line_boundaries(range))

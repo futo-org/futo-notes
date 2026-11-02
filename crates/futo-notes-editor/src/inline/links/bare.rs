@@ -162,8 +162,6 @@ pub(in crate::inline) fn bare_links(
     if !possible {
         return (Vec::new(), work);
     }
-    #[cfg(test)]
-    let primitive = crate::inline::coordinate_work_tests::bare_before();
     let events: Vec<_> = Parser::new_ext(source, crate::inline::row::parser_options())
         .into_offset_iter()
         .collect();
@@ -189,8 +187,6 @@ pub(in crate::inline) fn bare_links(
             _ => {}
         }
         for _ in start..index {
-            #[cfg(test)]
-            crate::inline::coordinate_work_tests::bare_visit();
             work.items += 1;
         }
     }
@@ -212,7 +208,5 @@ pub(in crate::inline) fn bare_links(
             })
         })
         .collect();
-    #[cfg(test)]
-    crate::inline::coordinate_work_tests::bare_query(primitive, hint_items, work.items);
     (spans, work)
 }

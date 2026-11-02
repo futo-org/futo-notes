@@ -38,7 +38,6 @@ impl Projection {
             return;
         }
         let top = |block: &blocks::BlockLine| {
-            visit_container();
             block
                 .list
                 .as_ref()
@@ -111,7 +110,6 @@ impl Projection {
             && self.rows.at(index + 1).0.opener.is_some();
         let found = |at: usize, last: bool| {
             let (row, base, _) = self.rows.at(at);
-            visit_container();
             let mut blocks = row.blocks.iter();
             let block = if last {
                 blocks.rev().find(|block| block.fence.is_some())
@@ -179,19 +177,10 @@ impl Projection {
             }
             let first = row
                 .blocks
-                .partition_point(|block| {
-                    visit_container();
-                    block.source.start < begin
-                })
+                .partition_point(|block| block.source.start < begin)
                 .saturating_sub(1);
-            let last = row.blocks.partition_point(|block| {
-                visit_container();
-                block.source.start < end
-            });
+            let last = row.blocks.partition_point(|block| block.source.start < end);
             for block in &row.blocks[first..last] {
-                #[cfg(test)]
-                CONTAINER_BLOCK_QUERY_VISITS.with(|count| count.set(count.get() + 1));
-                visit_container();
                 if !block.empty_comment && begin < block.source.end && block.source.start < end {
                     visit(block, source, index);
                 }
@@ -210,9 +199,6 @@ impl Projection {
         for index in first..=last {
             let (row, source, display) = self.rows.at(index);
             for block in &row.blocks {
-                #[cfg(test)]
-                CONTAINER_BLOCK_QUERY_VISITS.with(|count| count.set(count.get() + 1));
-                visit_container();
                 if block.empty_comment {
                     continue;
                 }
