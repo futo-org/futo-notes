@@ -47,7 +47,7 @@ fn relink_recovery_failures_keep_history_and_survive_repeated_power_loss() {
         assert_eq!(editor.source_text(), "[[long name]]!");
         assert_eq!(editor.revision(), Revision(2));
         editor.undo(Revision(2)).unwrap().unwrap();
-        assert_eq!(editor.source_text(), "[[long name]]");
+        assert_eq!(editor.source_text(), "[[old]]!");
         editor.redo(Revision(3)).unwrap().unwrap();
         assert_eq!(editor.source_text(), "[[long name]]!");
         editor.flush_recovery().unwrap();

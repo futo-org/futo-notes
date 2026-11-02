@@ -3,7 +3,6 @@
 mod boundaries;
 mod pieces;
 use boundaries::{repair_boundaries, repair_literal_boundaries};
-pub(super) mod relink;
 mod render;
 pub(super) use pieces::{full_reference_close, Marker, Piece, PieceOrigin, Spelling};
 mod guarded;

@@ -5,7 +5,6 @@ mod angle;
 mod bare;
 pub(super) use angle::{complete_typed_angle, finish_angle_word};
 pub(super) use bare::bare_links;
-pub(crate) use bare::complete_bare_uri;
 
 impl super::Projection {
     pub(crate) fn link_descriptions_with_work(

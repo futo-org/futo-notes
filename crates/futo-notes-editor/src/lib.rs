@@ -19,7 +19,7 @@ pub use session::bounded::{
 };
 pub use session::{
     BlockCommand, Composition, EditorSession, FindReport, FindScanRequest, FindScanResult,
-    FindWork, OwnActionRelink, ParagraphKey,
+    FindWork, ParagraphKey,
 };
 pub use table::{
     TableAlignment, TableCell, TableCommand, TableControls, TableDescription, TableFocus, TableKey,

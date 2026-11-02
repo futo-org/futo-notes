@@ -52,7 +52,8 @@ pub struct HostAck {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RelinkOffer {
     pub revision: Revision,
-    pub action: crate::OwnActionRelink,
+    /// The store's exact rewritten note bytes.
+    pub source: String,
 }
 
 impl HostRequest {
@@ -451,7 +452,7 @@ impl PortableSession {
         let mut record = None;
         let change = self
             .engine
-            .apply_own_relink(offer.revision, &offer.action, &mut |edit| {
+            .apply_own_relink(offer.revision, &offer.source, &mut |edit| {
                 record = Some(edit.clone());
                 Ok(())
             })?;

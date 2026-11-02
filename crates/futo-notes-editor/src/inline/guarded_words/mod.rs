@@ -1,9 +1,6 @@
 //! Transient ownership of a typed URI whose automatic link was retired by Code.
 //! Standard Markdown owns saved meaning; these fields never survive recovery.
 mod context;
-mod relink;
-mod relink_atoms;
-pub(crate) use relink::{CanonicalUri, CodeWitness, RelinkWord};
 mod deletion;
 mod split;
 pub(crate) use split::{SplitInventory, ValidationAtom};
