@@ -2,7 +2,8 @@
 
 Appendix to [the renderer handoff](text-first-editor-host.md). The Tauri side of the
 portable transport: `apps/tauri/src-tauri/src/editor_host.rs`, typed client
-`src/lib/platform/tauri/editorHost.ts`. No renderer is wired to it yet.
+`src/lib/platform/tauri/editorHost.ts`. No renderer is wired to it yet. The page-side text view
+is the renderer's choice: CodeMirror 6 or a custom view; the host commands are the same either way.
 
 | Command | Returns | Notes |
 |---|---|---|

@@ -3,8 +3,8 @@
 Decided 2026-10-29, following the text-first spike: build the production replacement from
 current main, using the spike's findings, regression cases and captured input as evidence.
 One Rust editor engine owns markdown interpretation and editing rules. Platform text views
-hold display text only: native views on mobile, CodeMirror 6 with the engine as WebAssembly
-on desktop. Opening never rewrites a note; an edit changes only the source text it touches.
+hold display text only: native views on mobile, and on desktop a web text view (CodeMirror 6
+or a custom view — amended 2026-11-02: either is acceptable) driving the engine as WebAssembly. Opening never rewrites a note; an edit changes only the source text it touches.
 This replaces ADR-0002's permission for whole-note normalization for the replacement editor;
 the shipping Milkdown editor keeps its existing contract until each platform switches.
 

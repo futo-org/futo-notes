@@ -10,8 +10,8 @@ decisions and evidence; the issue owns the implementation spec. The approved 34 
 
 - Plan the complete replacement, detail and execute the Rust editor engine plus store and
   recovery integration first, then platform parity and cutover (round 1, 1A).
-- Preserve source bytes outside the edit and keep markdown rules in Rust. Native mobile and
-  CodeMirror 6/WebAssembly desktop hold display text only. See ADR-0011.
+- Preserve source bytes outside the edit and keep markdown rules in Rust. Native mobile views and
+  the desktop WebAssembly host (CodeMirror 6 or a custom view) hold display text only. See ADR-0011.
 - Distinguish process death from device crash/power loss: only the edit in flight may be lost
   on process death; successful durable flushes survive power loss. Validate an initial
   100 ms durability-window target on devices (round 1, 2A; ADR-0012).

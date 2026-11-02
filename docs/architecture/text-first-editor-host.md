@@ -1,8 +1,8 @@
 # Text-first editor: shared-core acceptance and renderer handoff
 
 Milestone [#283](https://gitlab.futo.org/futo-notes/futo-notes/-/work_items/283), handoff
-issue #317. For desktop (CodeMirror 6 + portable WASM), Android (Kotlin) and iPhone (Swift)
-renderer owners. The shared Rust engine owns Markdown source, interpretation, editing,
+issue #317. For desktop (portable WASM under a text view of the renderer's choice — CodeMirror 6
+or a custom view; both are fine), Android (Kotlin) and iPhone (Swift) renderer owners. The shared Rust engine owns Markdown source, interpretation, editing,
 selection affinity and in-session history; Store owns recovery, identity and saves.
 Renderers hold display text only and draw the engine's descriptions. **Shipping renderers,
 defaults, bridge schemas, AppState and sync are unchanged.** The portable-core specs in
