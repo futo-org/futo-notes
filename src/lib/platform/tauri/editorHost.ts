@@ -1,3 +1,4 @@
+import type { HostAck, HostRequest, HostSnapshot } from '@futo-notes/editor/wasm-payloads';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 
 import type { LocalFlushDraftResult } from '../../localNoteStore';
@@ -7,11 +8,10 @@ import { invoke } from './invoke';
  * Desktop host for the text-first editor (apps/tauri/src-tauri/src/editor_host.rs).
  * The page's `WasmSession` produces each `HostRequest`; pass it here and hand
  * the returned `HostAck` back to `WasmSession.acknowledge`, one at a time.
- * Request/ack/snapshot shapes are the Rust serde types, kept opaque here.
+ * Request/ack/snapshot shapes are the Rust serde types described in
+ * `packages/editor/src/wasmPayloads.d.ts`.
  */
-export type HostRequest = unknown;
-export type HostAck = unknown;
-export type HostSnapshot = unknown;
+export type { HostAck, HostRequest, HostSnapshot };
 
 export interface EditorRecoveryIssue {
   kind:
