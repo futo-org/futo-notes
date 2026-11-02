@@ -66,8 +66,7 @@ cut into sealed rows (→ docs/spec/editor/portable-core/long-regions.md); work 
 a quoted container, a single huge display line or a contained fence still depends on that region;
 progressive interpretation, complete allocation/work bounds and native device latency
 measurements remain in their dependent tickets.
-Progressive reinterpretation (#313) covers only bounded fence-closer removal. On the
-full path, opening or closing a raw HTML block of kinds 1-5 above a 20,000-paragraph
+Progressive reinterpretation (#313) is deferred. On the full path, opening or closing a raw HTML block of kinds 1-5 above a 20,000-paragraph
 tail reparses that tail in one synchronous step (689 KB parsed, 458 KB materialized,
 1.56 M metadata visits; later keys stay local). Any accepted edit (paste, replay, Undo)
 that leaves a top-level fence unclosed at its window end, moves a raw HTML block's end
