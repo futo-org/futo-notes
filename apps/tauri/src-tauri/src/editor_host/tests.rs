@@ -197,3 +197,26 @@ fn worker_signals_a_due_flush_that_the_page_performs() {
     hosts.close_all();
     std::fs::remove_dir_all(root).unwrap();
 }
+
+#[test]
+fn a_recovered_draft_signals_its_flush_without_a_request() {
+    let (root, store) = vault("ab");
+    let hosts = EditorHostState::default();
+    let (opened, mut page) = open(&hosts, &store);
+    let edit = page.replace(Revision(0), at(2), "c").unwrap();
+    exchange(&hosts, opened.token, &mut page, edit);
+    hosts.close(opened.token).unwrap();
+
+    let (due_tx, due) = mpsc::channel();
+    let reopened = hosts
+        .open(store.clone(), "plain".into(), move |token| {
+            let _ = due_tx.send(token);
+        })
+        .unwrap();
+    assert_eq!(reopened.snapshot.source, "abc");
+    // The replayed edit is accepted but not durable; no request has arrived.
+    let token = due.recv_timeout(Duration::from_secs(5)).unwrap();
+    assert_eq!(token.0, reopened.token);
+    hosts.close_all();
+    std::fs::remove_dir_all(root).unwrap();
+}

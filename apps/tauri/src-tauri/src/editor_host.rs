@@ -144,7 +144,10 @@ impl Worker {
                     note_ids: note_ids(&store),
                 }));
                 let mut last_sequence = 0;
-                let mut deadline: Option<Instant> = None;
+                // A recovered draft is already accepted but not durable.
+                let mut deadline = host
+                    .recovery_flush_delay()
+                    .map(|delay| Instant::now() + delay);
                 loop {
                     let job = match deadline {
                         Some(at) => {
