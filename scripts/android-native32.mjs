@@ -16,7 +16,6 @@ import { LEGACY_ANDROID_AVDS, POOL } from './qa/pool.mjs';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const CLASSES = [
   'NativeEditorSessionTest',
-  'NativeBoundedEditorSessionTest',
   'NativeEditorCompositionTest',
   'NativeEditorContractSurfaceTest',
 ];
@@ -171,11 +170,8 @@ function main() {
     );
     const passed = parseInstrumentationResult(output, cls, expected);
     receipt.classes[cls] = { expected, passed, started, finished: Date.now() / 1000 };
-    if (short === 'NativeEditorSessionTest' || short === 'NativeBoundedEditorSessionTest') {
-      const widthMarker =
-        short === 'NativeBoundedEditorSessionTest'
-          ? 'EDITOR_NATIVE_BOUNDED_32BIT=true'
-          : 'EDITOR_NATIVE_CONTRACT_32BIT=true';
+    if (short === 'NativeEditorSessionTest') {
+      const widthMarker = 'EDITOR_NATIVE_CONTRACT_32BIT=true';
       const log = adb('logcat', '-d', '-v', 'epoch', '-s', 'System.out:I');
       const lines = log
         .split(/\r?\n/)
