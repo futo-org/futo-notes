@@ -139,6 +139,47 @@ pub(super) fn retire(rows: &mut [Row], retired: &[usize], across_quotes: bool) {
             shape.marker = 0;
         }
     }
+    split_lists(rows, retired, &broken);
+}
+
+/// A lifted item splits its own list and every list holding a left ancestor:
+/// later items of those lists form new lists. Items moved out to the same new
+/// level after the same lift form one new list together.
+fn split_lists(rows: &mut [Row], retired: &[usize], broken: &[(usize, usize)]) {
+    let mut fresh = usize::MAX / 2;
+    for &item in retired {
+        let mut split: Vec<(usize, usize)> = vec![(rows[item].key, 0)];
+        split.extend(
+            broken
+                .iter()
+                .filter(|(_, by)| *by == item)
+                .map(|(above, _)| (rows[*above].key, 0)),
+        );
+        for entry in &mut split {
+            fresh -= 1;
+            entry.1 = fresh;
+        }
+        // New level -> key of the list moved items there join.
+        let mut moved: Vec<Option<usize>> = Vec::new();
+        for row in rows[item + 1..].iter_mut() {
+            if row.blank {
+                continue;
+            }
+            let depth = row.after.depth;
+            moved.truncate(depth);
+            if !row.after.opens {
+                continue;
+            }
+            let lifted = row.after.depth < row.before.depth;
+            if let Some(&(_, key)) = split.iter().find(|(key, _)| *key == row.key) {
+                row.key = key;
+            }
+            if lifted {
+                moved.resize(depth, None);
+                row.key = *moved[depth - 1].get_or_insert(row.key);
+            }
+        }
+    }
 }
 
 /// Every item of the touched list takes the command's kind.

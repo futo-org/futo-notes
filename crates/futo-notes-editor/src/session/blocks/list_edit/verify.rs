@@ -146,8 +146,12 @@ impl EditorSession {
                     .and_then(|candidate| candidate.list.as_ref())
                     .filter(|_| row.after.opens && !row.blank)
                     .is_some_and(|list| {
-                        match owners.iter().find(|(owner, _)| *owner == list.owner.start) {
-                            Some((_, key)) => *key != row.key,
+                        // One intended list per parsed list, both ways.
+                        match owners
+                            .iter()
+                            .find(|(owner, key)| *owner == list.owner.start || *key == row.key)
+                        {
+                            Some(&(owner, key)) => owner != list.owner.start || key != row.key,
                             None => {
                                 owners.push((list.owner.start, row.key));
                                 false

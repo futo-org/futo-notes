@@ -205,6 +205,7 @@ fn check_step(
                 return (false, false);
             }
             if let Some(before_inline) = before_inline {
+                untouched_lists_kept(before, &after, label);
                 let now = inline_lines(session);
                 assert!(
                     now == *before_inline,
@@ -224,6 +225,73 @@ fn check_step(
         Err(_) => {
             assert_eq!(session.source_text(), before, "rejected {label}");
             (false, false)
+        }
+    }
+}
+
+fn shift_of(before: &str, after: &str) -> isize {
+    after.len() as isize - before.len() as isize
+}
+
+/// Item start offsets with the index of the list holding each item.
+fn list_items(source: &str) -> Vec<(usize, usize)> {
+    use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
+    let (mut lists, mut next, mut items) = (Vec::new(), 0, Vec::new());
+    for (event, range) in Parser::new_ext(source, Options::ENABLE_TASKLISTS).into_offset_iter() {
+        match event {
+            Event::Start(Tag::List(_)) => {
+                lists.push(next);
+                next += 1;
+            }
+            Event::End(TagEnd::List(_)) => drop(lists.pop()),
+            Event::Start(Tag::Item) => items.push((range.start, *lists.last().unwrap())),
+            _ => {}
+        }
+    }
+    items
+}
+
+/// Items outside the edited span keep their list membership: neighbors on the
+/// same side stay together or apart exactly; across the span, separate lists
+/// never merge (an edit may only split them).
+fn untouched_lists_kept(before: &str, after: &str, label: &str) {
+    let prefix = before
+        .bytes()
+        .zip(after.bytes())
+        .take_while(|(a, b)| a == b)
+        .count();
+    let suffix = before[prefix..]
+        .bytes()
+        .rev()
+        .zip(after[prefix..].bytes().rev())
+        .take_while(|(a, b)| a == b)
+        .count();
+    let (cut, old_end) = (prefix, before.len() - suffix);
+    let line_start = |text: &str, at: usize| text[..at].rfind('\n').map_or(0, |at| at + 1);
+    // Whole edited lines: a respelled prefix may leave its marker unchanged.
+    let line_end = |text: &str, at: usize| text[at..].find('\n').map_or(text.len(), |end| at + end);
+    let (cut, old_end) = (line_start(before, cut), line_end(before, old_end.max(cut)));
+    let shift = shift_of(before, after);
+    let new_items = list_items(after);
+    let kept: Vec<(bool, usize, usize)> = list_items(before)
+        .into_iter()
+        .filter(|&(at, _)| at < cut || at >= old_end)
+        .filter_map(|(at, list)| {
+            let moved = if at < cut {
+                at
+            } else {
+                at.saturating_add_signed(shift)
+            };
+            let found = new_items.iter().find(|(start, _)| *start == moved)?;
+            Some((at >= old_end, list, found.1))
+        })
+        .collect();
+    for pair in kept.windows(2) {
+        let ((side_a, old_a, new_a), (side_b, old_b, new_b)) = (pair[0], pair[1]);
+        if side_a == side_b {
+            assert_eq!(old_a == old_b, new_a == new_b, "list membership {label}");
+        } else if old_a != old_b {
+            assert_ne!(new_a, new_b, "lists merged {label}");
         }
     }
 }

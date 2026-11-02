@@ -3,7 +3,7 @@ use super::*;
 #[test]
 fn nested_text_lift_keeps_quote_ancestry_and_foreign_list_owner() {
     let raw = "> - parent\n>   - child😀\n>     - grandchild\n>   - sibling\n> - following";
-    let expected = "> - parent\n>\n> child😀\n> - grandchild\n> + sibling\n> - following";
+    let expected = "> - parent\n>\n> child😀\n> + grandchild\n> + sibling\n> - following";
     let shown = "parent\nchild😀\ngrandchild\nsibling\nfollowing";
     let mut s = EditorSession::open(raw);
     let mut view = ReferenceView::new(shown);
@@ -74,7 +74,7 @@ fn nested_text_lift_removes_each_selected_sibling_in_one_action() {
 #[test]
 fn nested_heading_lifts_all_list_ancestry_before_setting_the_heading() {
     let raw = "- parent\n  - child😀\n    - grandchild\n  - sibling\n- following";
-    let expected = "- parent\n\n## child😀\n- grandchild\n+ sibling\n- following";
+    let expected = "- parent\n\n## child😀\n+ grandchild\n+ sibling\n- following";
     let shown = "parent\nchild😀\ngrandchild\nsibling\nfollowing";
     let mut s = EditorSession::open(raw);
     let mut view = ReferenceView::new(shown);

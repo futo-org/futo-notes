@@ -279,6 +279,20 @@ impl EditorSession {
                 row.after.depth -= 1;
             }
         }
+        // Outdented items leave their old list: its later items, now nested
+        // under the last moved item, form a new list.
+        if command == BlockCommand::Outdent {
+            let old = rows[item].key;
+            let last = *moved.last().unwrap_or(&item);
+            for row in rows[last + 1..].iter_mut() {
+                if !row.blank && row.before.depth < depth {
+                    break;
+                }
+                if row.before.opens && row.key == old && row.before.depth == depth {
+                    row.key = usize::MAX / 2 - last;
+                }
+            }
+        }
         for &at in &moved {
             let row = &mut rows[at];
             match joined {
@@ -434,9 +448,20 @@ impl EditorSession {
             }
         }
         // A newly quoted empty line keeps a following paragraph out of the
-        // quote that typing into it will open.
+        // quote that typing into it will open; an ordered list that cannot
+        // interrupt a paragraph keeps a real blank line before it.
         for index in 1..rows.len() {
             let (above, row) = (&rows[index - 1], &rows[index]);
+            if !above.blank
+                && above.after.quotes > above.before.quotes
+                && !row.changed()
+                && row.before.opens
+                && row.before.quotes < above.after.quotes
+                && row.before.ordinal.is_some_and(|ordinal| ordinal != 1)
+            {
+                rows[index].insert = Insert::Blank;
+                continue;
+            }
             if above.blank
                 && above.after.quotes > above.before.quotes
                 && !row.blank
