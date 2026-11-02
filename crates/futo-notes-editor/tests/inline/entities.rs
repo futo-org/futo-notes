@@ -1,7 +1,8 @@
 use super::{assert_fresh, range, ReferenceView};
 use futo_notes_editor::{
-    Affinity, DisplayOffset, DisplayUtf16Offset, DisplayUtf16Range, EditorSession, InlineFormat,
-    Revision, SourceOffset, SourceRange, SourceUtf16Offset, SourceUtf16Range,
+    Affinity, CorrespondenceKind, DisplayOffset, DisplayUtf16Offset, DisplayUtf16Range,
+    EditorSession, InlineFormat, Revision, SourceOffset, SourceRange, SourceUtf16Offset,
+    SourceUtf16Range,
 };
 
 #[test]
@@ -30,7 +31,9 @@ fn equal_byte_length_entities_keep_transformed_source_boundaries() {
         assert!(projection
             .correspondence
             .iter()
-            .any(|part| part.source == source_range && part.display == range(0, 5)));
+            .any(|part| part.source == source_range
+                && part.display == range(0, 5)
+                && part.kind == CorrespondenceKind::Replaced));
         let utf16 = DisplayUtf16Range {
             start: DisplayUtf16Offset(1),
             end: DisplayUtf16Offset(2),

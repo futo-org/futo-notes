@@ -8,6 +8,8 @@ use crate::FlushDraftResult;
 mod clipboard;
 mod composition;
 mod contract;
+mod correspondence;
+pub use correspondence::{EditorCorrespondence, EditorCorrespondenceKind};
 mod find;
 mod images;
 mod links;

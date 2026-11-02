@@ -146,6 +146,11 @@ android {
     buildTypes {
         debug {
             applicationIdSuffix = ".dev"
+            // `just test-android-keystroke-latency`: a separate, non-debuggable dev app.
+            if (project.findProperty("futoEditorPerf") == "true") {
+                applicationIdSuffix = ".perf.dev"
+                isDebuggable = false
+            }
             manifestPlaceholders["appLabel"] = "@string/app_name_debug"
             // Hosted sync ("Log in with FUTO") is always compiled into a debug
             // build — this is the dogfooding surface (ADR 0003 decision 13).

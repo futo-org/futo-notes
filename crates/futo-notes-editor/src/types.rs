@@ -157,10 +157,71 @@ pub struct LinkDescription {
     pub title: Option<String>,
 }
 
+/// How a correspondence piece maps its source onto its display.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CorrespondenceKind {
+    /// Equal lengths; each display byte is the source byte at the same distance
+    /// into the run. Adjacent literal stretches arrive as one run.
+    Literal,
+    /// Source with no display (markers, hidden syntax); `display` is empty.
+    Hidden,
+    /// One indivisible source piece shown as other text (a decoded entity, a
+    /// divider glyph). Interior offsets map only to its whole source range,
+    /// even when the two lengths happen to match.
+    Replaced,
+}
+
+/// One source/display piece. Pieces arrive in display (and source) order.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Correspondence {
     pub source: SourceRange,
     pub display: DisplayRange,
+    pub kind: CorrespondenceKind,
+}
+
+impl Correspondence {
+    /// The source bytes this piece maps to display offset `at`, or `None`
+    /// when `at` lies outside it. An edge maps to the matching source edge; a
+    /// hidden piece or a replaced interior maps to its whole source range.
+    /// Where several pieces meet at one display offset (hidden markers between
+    /// visible text, a line start), `EditorSession::source_at` chooses the caret.
+    pub fn source_bounds(&self, at: DisplayOffset) -> Option<SourceRange> {
+        if at.0 < self.display.start.0 || at.0 > self.display.end.0 {
+            return None;
+        }
+        let point = |offset: usize| SourceRange {
+            start: SourceOffset(offset),
+            end: SourceOffset(offset),
+        };
+        Some(if self.kind == CorrespondenceKind::Hidden {
+            self.source
+        } else if at == self.display.start {
+            point(self.source.start.0)
+        } else if at == self.display.end {
+            point(self.source.end.0)
+        } else if self.kind == CorrespondenceKind::Literal {
+            point(self.source.start.0 + at.0 - self.display.start.0)
+        } else {
+            self.source
+        })
+    }
+
+    /// The display offset for source offset `at`, or `None` outside this piece
+    /// or strictly inside a replaced one. A hidden piece maps to its display point.
+    pub fn display_at(&self, at: SourceOffset) -> Option<DisplayOffset> {
+        if at.0 < self.source.start.0 || at.0 > self.source.end.0 {
+            return None;
+        }
+        match self.kind {
+            CorrespondenceKind::Literal => Some(DisplayOffset(
+                self.display.start.0 + at.0 - self.source.start.0,
+            )),
+            CorrespondenceKind::Hidden => Some(self.display.start),
+            CorrespondenceKind::Replaced if at == self.source.start => Some(self.display.start),
+            CorrespondenceKind::Replaced if at == self.source.end => Some(self.display.end),
+            CorrespondenceKind::Replaced => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
