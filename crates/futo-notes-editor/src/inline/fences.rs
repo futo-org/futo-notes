@@ -130,7 +130,6 @@ pub(super) fn describe(
 ) {
     let mut code: Option<(Range<usize>, Option<String>, bool, Vec<Range<usize>>)> = None;
     for (event, range) in events {
-        super::visit_container();
         match event {
             Event::Start(Tag::CodeBlock(kind)) => {
                 let (language, fenced) = match kind {
@@ -144,14 +143,8 @@ pub(super) fn describe(
             Event::Text(_) if code.is_some() => code.as_mut().unwrap().3.push(range.clone()),
             Event::End(TagEnd::CodeBlock) => {
                 let (whole, language, fenced, bodies) = code.take().unwrap();
-                let first = lines.partition_point(|line| {
-                    super::visit_container();
-                    line.source.end <= whole.start
-                });
-                let last = lines.partition_point(|line| {
-                    super::visit_container();
-                    line.source.start < whole.end
-                });
+                let first = lines.partition_point(|line| line.source.end <= whole.start);
+                let last = lines.partition_point(|line| line.source.start < whole.end);
                 let fence = if fenced {
                     let marker = source.as_bytes()[whole.start];
                     let width = source[whole.clone()]
@@ -166,9 +159,7 @@ pub(super) fn describe(
                     let close_width = tail.bytes().take_while(|&ch| ch == marker).count();
                     let closed = last > first + 1
                         && !bodies.iter().any(|body| {
-                            super::visit_container();
                             if body.start < final_line.source.end {
-                                super::visit_container();
                                 final_line.source.start < body.end
                             } else {
                                 false
@@ -206,7 +197,6 @@ pub(super) fn describe(
                     None
                 };
                 for line in &mut lines[first..last] {
-                    super::visit_container();
                     line.code = true;
                     line.code_language.clone_from(&language);
                     line.fence.clone_from(&fence);
@@ -264,23 +254,13 @@ fn body_start(bodies: &[Range<usize>], line: &Range<usize>) -> Option<usize> {
     // Canonical Text ranges have monotonic starts and ends. Earlier endings
     // cannot overlap; among the remaining ranges the first overlapping start
     // supplies the old minimum, even for duplicates or overlapping bodies.
-    let first = bodies.partition_point(|body| {
-        super::visit_container();
-        body.end <= line.start
-    });
+    let first = bodies.partition_point(|body| body.end <= line.start);
     let body = bodies.get(first)?;
-    super::visit_container();
     if body.start >= line.end {
         return None;
     }
-    super::visit_container();
     if line.start >= body.end {
         return None;
     }
-    super::visit_container();
     Some(body.start.max(line.start))
 }
-
-#[cfg(test)]
-#[path = "fences_range_tests.rs"]
-mod range_tests;

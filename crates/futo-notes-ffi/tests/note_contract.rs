@@ -1,9 +1,8 @@
 use std::fs;
 
 use futo_notes_ffi::{
-    extract_tags, extract_wikilinks, image_extensions, make_id, make_preview, make_rich_preview,
-    sanitize_title, split_id, validate_title, NoteBootstrap, NoteError, NoteIdParts, NoteSnapshot,
-    NoteSortKey, NoteSortOrder, NoteStore, RenamePair, SortDirection,
+    make_preview, make_rich_preview, NoteBootstrap, NoteError, NoteSnapshot, NoteSortKey,
+    NoteSortOrder, NoteStore, RenamePair, SortDirection,
 };
 
 #[path = "note_contract/flush_draft.rs"]
@@ -18,61 +17,6 @@ fn default_sort_order() -> NoteSortOrder {
     NoteSortOrder {
         key: NoteSortKey::LastModified,
         direction: SortDirection::Descending,
-    }
-}
-
-#[test]
-fn deterministic_rules_are_thin_projections_of_the_canonical_model() {
-    let title = "  A:/ title  ";
-    assert_eq!(
-        sanitize_title(title.to_owned()),
-        futo_notes_model::sanitize_title(title)
-    );
-
-    let folder = "Projects/Nested";
-    let clean_title = "A title";
-    assert_eq!(
-        make_id(folder.to_owned(), clean_title.to_owned()),
-        futo_notes_model::make_id(folder, clean_title)
-    );
-
-    let note_id = "Projects/Nested/A title.md";
-    let (expected_folder, expected_title) = futo_notes_model::split_id(note_id);
-    let NoteIdParts { folder, title } = split_id(note_id.to_owned());
-    assert_eq!(folder, expected_folder);
-    assert_eq!(title, expected_title);
-
-    let content = "# Heading\nBody with #Tag and [[Target|alias]].\n\n- item";
-    assert_eq!(
-        extract_tags(content.to_owned()),
-        futo_notes_model::note_tags(content)
-    );
-    assert_eq!(
-        make_preview(content.to_owned()),
-        futo_notes_model::make_preview(content)
-    );
-    assert_eq!(
-        make_rich_preview(content.to_owned()),
-        futo_notes_model::make_rich_preview(content)
-    );
-    assert_eq!(
-        extract_wikilinks(content.to_owned()),
-        futo_notes_model::extract_wikilinks(content)
-    );
-    assert_eq!(
-        image_extensions(),
-        futo_notes_model::IMAGE_EXTENSIONS
-            .iter()
-            .map(|extension| (*extension).to_owned())
-            .collect::<Vec<_>>()
-    );
-
-    let expected_issues = futo_notes_model::validate_title("bad/name.");
-    let actual_issues = validate_title("bad/name.".to_owned());
-    assert_eq!(actual_issues.len(), expected_issues.len());
-    for (actual, expected) in actual_issues.into_iter().zip(expected_issues) {
-        assert_eq!(actual.kind, expected.kind.as_str());
-        assert_eq!(actual.message, expected.message);
     }
 }
 

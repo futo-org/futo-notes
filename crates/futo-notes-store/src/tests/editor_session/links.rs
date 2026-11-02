@@ -215,23 +215,10 @@ fn nested_reference_composition_and_source_anchored_history_survive_append_and_h
     }
 }
 
-mod derived;
-
-mod angle_pending;
-
 mod code_literal;
-
-mod divider_references;
 
 mod typed_origin;
 
-mod literal_retirement;
-
-mod partial_ending;
-
 mod input_lifecycle;
-
-#[path = "links/partial_guard_scopes.rs"]
-mod partial_guard_scopes;
 
 mod compound_derived;

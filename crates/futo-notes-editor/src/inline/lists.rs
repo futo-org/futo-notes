@@ -2,32 +2,6 @@
 use pulldown_cmark::{Event, Tag, TagEnd};
 use std::ops::Range;
 
-// Test work units count canonical events/column bytes, row-tree visits,
-// block-search comparisons and touched item/row planning. They complement
-// parser/materialization bytes and do not claim complete allocation or latency.
-#[cfg(test)]
-thread_local! {
-    pub(crate) static CONTAINER_METADATA_VISITS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
-    pub(crate) static CONTAINER_BLOCK_QUERY_VISITS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
-    pub(crate) static CONTAINER_CORRESPONDENCE_SCANS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
-}
-
-#[inline]
-pub(crate) fn visit_container() {
-    #[cfg(test)]
-    CONTAINER_METADATA_VISITS.with(|count| count.set(count.get() + 1));
-}
-
-/// Aggregate the actual examined segments once per coordinate query.
-#[inline]
-pub(crate) fn visit_correspondence(_segments: usize) {
-    #[cfg(test)]
-    {
-        CONTAINER_CORRESPONDENCE_SCANS.with(|count| count.set(count.get() + _segments as u64));
-        CONTAINER_METADATA_VISITS.with(|count| count.set(count.get() + _segments));
-    }
-}
-
 #[derive(Clone, Debug)]
 pub(crate) struct ListLine {
     pub marker: Range<usize>,
@@ -82,13 +56,7 @@ pub(super) struct ListCursor {
 }
 
 impl ListCursor {
-    #[cfg(test)]
-    pub(super) fn into_items(self) -> Vec<ListLine> {
-        self.items
-    }
-
     pub fn line(&mut self, start: usize, end: usize) -> Attribution {
-        visit_container();
         while self.next_item < self.items.len() && self.items[self.next_item].item.start <= end {
             let next = self.next_item;
             while self
@@ -154,7 +122,6 @@ pub(super) fn describe(source: &str, events: &[(Event<'_>, Range<usize>)]) -> Li
     let mut last_child: Vec<Option<usize>> = Vec::new();
     let mut physical = PhysicalColumns::default();
     for (event, range) in events {
-        visit_container();
         if matches!(
             event,
             Event::Start(
@@ -282,7 +249,6 @@ impl PhysicalColumns {
             *self = Self::default();
         }
         for byte in source.as_bytes()[self.at..marker].iter().copied() {
-            visit_container();
             self.at += 1;
             if byte == b'\n' {
                 self.line = self.at;
@@ -302,12 +268,7 @@ impl PhysicalColumns {
 /// CommonMark columns expand a tab to the next four-column stop.
 pub(crate) fn columns(raw: &str, mut column: usize) -> usize {
     for byte in raw.bytes() {
-        visit_container();
         column += if byte == b'\t' { 4 - column % 4 } else { 1 };
     }
     column
 }
-
-#[cfg(test)]
-#[path = "lists_frozen_columns.rs"]
-pub(super) mod frozen_columns;

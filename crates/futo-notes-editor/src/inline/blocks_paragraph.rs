@@ -39,7 +39,6 @@ fn inline_end(tag: &pulldown_cmark::TagEnd) -> bool {
 
 impl ProseAttribution {
     pub(super) fn observe(&mut self, event: &Event<'_>, span: &Range<usize>) {
-        super::visit_container();
         if self.opaque_depth > 0 {
             match event {
                 Event::Start(_) => self.opaque_depth += 1,
@@ -85,7 +84,6 @@ impl ProseAttribution {
     }
 
     fn extend(&mut self, span: &Range<usize>) {
-        super::visit_container();
         if let Some(run) = &mut self.direct {
             run.start = run.start.min(span.start);
             run.end = run.end.max(span.end);
@@ -94,12 +92,10 @@ impl ProseAttribution {
         }
     }
     fn emit(&mut self, span: Range<usize>) {
-        super::visit_container();
         if span.is_empty() {
             return;
         }
         if let Some(last) = self.ranges.last_mut() {
-            super::visit_container();
             if span.start <= last.end && last.start <= span.end {
                 last.start = last.start.min(span.start);
                 last.end = last.end.max(span.end);
@@ -118,23 +114,18 @@ impl ProseAttribution {
         }
     }
     pub(super) fn owns(&mut self, content: &Range<usize>) -> bool {
-        super::visit_container();
         if content.is_empty() {
             return false;
         }
-        while self.ranges.get(self.next).is_some_and(|span| {
-            super::visit_container();
-            span.end <= content.start
-        }) {
+        while self
+            .ranges
+            .get(self.next)
+            .is_some_and(|span| span.end <= content.start)
+        {
             self.next += 1;
         }
-        self.ranges.get(self.next).is_some_and(|span| {
-            super::visit_container();
-            content.start < span.end && span.start < content.end
-        })
-    }
-    #[cfg(test)]
-    pub(super) fn ranges(&self) -> &[Range<usize>] {
-        &self.ranges
+        self.ranges
+            .get(self.next)
+            .is_some_and(|span| content.start < span.end && span.start < content.end)
     }
 }

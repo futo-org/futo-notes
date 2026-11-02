@@ -20,7 +20,6 @@ pub(crate) struct Node {
 
 impl Node {
     fn update(&mut self) {
-        super::visit_container();
         self.wikilinks = [&self.left, &self.right]
             .into_iter()
             .flatten()
@@ -116,10 +115,7 @@ impl Rows {
         let mut node = self.root.as_deref().unwrap();
         let (mut source, mut display, mut work) = (0, 0, 0);
         loop {
-            super::visit_container();
             work += 1;
-            #[cfg(test)]
-            super::coordinate_work_tests::visit();
             let n = count(&node.left);
             if index < n {
                 node = node.left.as_deref().unwrap();
@@ -147,9 +143,6 @@ impl Rows {
         let mut node = self.root.as_deref().unwrap();
         let (mut source, mut display, mut work) = (0, 0, 0);
         loop {
-            super::visit_container();
-            #[cfg(test)]
-            super::coordinate_work_tests::visit();
             work += 1;
             let left = length(&node.left, displayed);
             let own = if displayed {
@@ -180,9 +173,6 @@ impl Rows {
         let mut node = self.root.as_deref_mut().unwrap();
         let (mut source, mut work) = (0, 0);
         loop {
-            super::visit_container();
-            #[cfg(test)]
-            super::coordinate_work_tests::visit();
             work += 1;
             let left = length(&node.left, false);
             if offset < left {
@@ -201,10 +191,7 @@ impl Rows {
         let mut node = self.root.as_deref_mut().unwrap();
         let mut work = 0;
         loop {
-            super::visit_container();
             work += 1;
-            #[cfg(test)]
-            super::coordinate_work_tests::visit();
             let left = count(&node.left);
             if index < left {
                 node = node.left.as_deref_mut().unwrap();
@@ -249,10 +236,7 @@ impl Rows {
         let mut node = self.root.as_deref().unwrap();
         let (mut index, mut work) = (0, 0);
         loop {
-            super::visit_container();
             work += 1;
-            #[cfg(test)]
-            super::coordinate_work_tests::visit();
             let left = length(&node.left, display);
             let own = if display {
                 node.row.display.len()

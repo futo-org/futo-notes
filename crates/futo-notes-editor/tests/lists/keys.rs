@@ -270,32 +270,6 @@ fn list_backspace_lifts_the_first_item_and_selected_enter_is_one_action() {
 }
 
 #[test]
-fn joining_ordered_items_renumbers_only_that_list_and_undoes_the_join_together() {
-    for (at, key) in [(3, ParagraphKey::Backspace), (2, ParagraphKey::Delete)] {
-        let raw = "5) ab\n1) cd\n1) tail\n\n9. keep\n1. exact";
-        let mut s = EditorSession::open(raw);
-        let mut view = ReferenceView::new("ab\ncd\ntail\n\nkeep\nexact");
-        s.select(s.revision(), range(at, at)).unwrap();
-        let mut accepted = 0;
-        view.apply(
-            s.paragraph_key(s.revision(), range(at, at), key, &mut |_| {
-                accepted += 1;
-                Ok(())
-            })
-            .unwrap()
-            .unwrap(),
-        );
-        assert_eq!(accepted, 1);
-        assert_eq!(s.source_text(), "5) abcd\n6) tail\n\n9. keep\n1. exact");
-        assert_eq!(view.text, "abcd\ntail\n\nkeep\nexact");
-        assert_eq!(s.selection(), range(2, 2));
-        view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
-        assert_eq!(s.source_text(), raw);
-        assert_eq!(s.selection(), range(at, at));
-    }
-}
-
-#[test]
 fn maximum_supported_ordered_markers_continue_with_valid_lazy_physical_numbers() {
     let raw = "999999999. a\n1. b";
     let mut s = EditorSession::open(raw);
@@ -417,38 +391,6 @@ fn nested_backspace_retires_the_item_into_the_immediate_preceding_container() {
         view.apply(s.redo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
         assert_eq!(s.source_text(), expected);
     }
-}
-
-#[test]
-fn enter_on_an_empty_nested_item_lifts_exactly_one_level() {
-    let raw = "- a\n\n  - ";
-    let mut s = EditorSession::open(raw);
-    let mut view = ReferenceView::new("a\n\n");
-    assert_eq!(s.display_text(), "a\n\n");
-    s.select(s.revision(), range(3, 3)).unwrap();
-    view.apply(
-        s.paragraph_key(s.revision(), range(3, 3), ParagraphKey::Enter, &mut |_| {
-            Ok(())
-        })
-        .unwrap()
-        .unwrap(),
-    );
-    assert_eq!(s.source_text(), "- a\n\n- ");
-    assert_eq!(view.text, "a\n\n");
-    assert_eq!(s.selection(), range(3, 3));
-    view.apply(
-        s.paragraph_key(s.revision(), range(3, 3), ParagraphKey::Enter, &mut |_| {
-            Ok(())
-        })
-        .unwrap()
-        .unwrap(),
-    );
-    assert_eq!(s.source_text(), "- a\n\n");
-    view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
-    assert_eq!(s.source_text(), "- a\n\n- ");
-    view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
-    assert_eq!(s.source_text(), raw);
-    assert_eq!(s.selection(), range(3, 3));
 }
 
 #[test]

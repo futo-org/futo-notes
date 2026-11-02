@@ -97,11 +97,6 @@ impl Projection {
         let (end_row, source_end, _) = self.rows.at(last);
         let source_end = source_end + end_row.source_len;
         let raw = source.byte_slice(source_start..source_end).to_string();
-        #[cfg(test)]
-        super::super::materialization_tests::allocated(
-            super::super::materialization_tests::Buffer::Context,
-            raw.len(),
-        );
         let mut markers = Vec::new();
         let mut guarded_words = Vec::new();
         let mut typed_inputs = Vec::new();
@@ -216,13 +211,9 @@ impl Projection {
                     if !definition.winner {
                         return false;
                     }
-                    #[cfg(test)]
-                    let before = super::super::CONTAINER_CORRESPONDENCE_SCANS.with(|n| n.get());
                     let (start, a) = row.display_at_with_work(definition.range.start);
                     let (end, z) = row.display_at_with_work(definition.range.end);
                     link_metadata_items += a + z;
-                    #[cfg(test)]
-                    super::super::coordinate_work_tests::hidden_definition_query(before, a + z);
                     start == end
                 })
                 .map(|definition| {
@@ -401,7 +392,3 @@ pub(in crate::inline) struct Context {
     pub(in crate::inline) pending_links: Vec<Range<usize>>,
     pub(in crate::inline) link_metadata_items: usize,
 }
-
-#[cfg(test)]
-#[path = "context_work_tests.rs"]
-mod work_tests;

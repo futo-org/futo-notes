@@ -94,12 +94,6 @@ pub(super) fn parser_options() -> Options {
     // rather than a hidden CommonMark reference definition.
     Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS | Options::ENABLE_FOOTNOTES
 }
-#[cfg(test)]
-pub(super) fn source_events(source: &str) -> Vec<(Event<'_>, Range<usize>)> {
-    Parser::new_ext(source, parser_options())
-        .into_offset_iter()
-        .collect()
-}
 
 impl Row {
     pub fn source_bounds(&self, at: usize) -> (usize, usize) {
@@ -114,8 +108,6 @@ impl Row {
             examined += 1;
             segment.display.end < at
         });
-        #[cfg(test)]
-        let first_work = examined;
         let last = self.segments.partition_point(|segment| {
             examined += 1;
             segment.display.start <= at
@@ -153,12 +145,6 @@ impl Row {
         } else {
             None
         };
-        #[cfg(test)]
-        super::coordinate_work_tests::bounds(
-            examined,
-            first_work + last.saturating_sub(first) + usize::from(last < self.segments.len()),
-        );
-        super::visit_correspondence(examined);
         (result.unwrap_or((self.source_len, 0)), examined)
     }
 
@@ -175,7 +161,6 @@ impl Row {
         if let Some(segment) = self.segments.get(first) {
             work += 1;
             if !segment.identity && segment.display.start < at && at < segment.display.end {
-                super::visit_correspondence(work);
                 return (
                     crate::history::SourcePoint {
                         source: crate::SourceOffset(segment.source.start),
@@ -189,7 +174,6 @@ impl Row {
                 );
             }
         }
-        super::visit_correspondence(work);
         let ((low, high), visits) = self.source_bounds_with_work(at);
         (
             crate::history::SourcePoint {
@@ -218,7 +202,6 @@ impl Row {
         point: crate::history::SourcePoint,
     ) -> (Option<usize>, usize) {
         if point.source.0 > self.source_len {
-            super::visit_correspondence(1);
             return (None, 1);
         }
         let Some(atom) = point.atom else {
@@ -228,7 +211,6 @@ impl Row {
                 segment.source.end < point.source.0
             });
             let Some(segment) = self.segments.get(index) else {
-                super::visit_correspondence(work);
                 return (Some(self.display.len()), work);
             };
             work += 1;
@@ -236,7 +218,6 @@ impl Row {
                 && segment.source.start < point.source.0
                 && point.source.0 < segment.source.end
             {
-                super::visit_correspondence(work);
                 return (None, work);
             }
             let display = if segment.identity {
@@ -247,7 +228,6 @@ impl Row {
                 segment.display.start
             };
             work += 1;
-            super::visit_correspondence(work);
             return (
                 self.display.is_char_boundary(display).then_some(display),
                 work,
@@ -259,7 +239,6 @@ impl Row {
             segment.source.start < point.source.0
         });
         let Some(segment) = self.segments.get(index) else {
-            super::visit_correspondence(work);
             return (None, work);
         };
         work += 1;
@@ -269,7 +248,6 @@ impl Row {
             && segment.display.len() == atom.display_len
             && point.within < atom.display_len
             && self.display[segment.display.clone()].is_char_boundary(point.within);
-        super::visit_correspondence(work);
         (valid.then_some(segment.display.start + point.within), work)
     }
 
@@ -287,7 +265,6 @@ impl Row {
             work += 1;
             segment.source.start <= source && source <= segment.source.end
         });
-        super::visit_correspondence(work);
         if let Some(segment) = segment {
             let display = if segment.identity {
                 segment.display.start + source - segment.source.start

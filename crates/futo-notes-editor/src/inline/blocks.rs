@@ -28,7 +28,6 @@ pub(crate) struct ListCommandLine {
 
 impl ListCommandLine {
     pub(crate) fn from_block(block: &BlockLine, base: usize) -> Self {
-        super::visit_container();
         let shift = |range: &Range<usize>| base + range.start..base + range.end;
         let mut list = block.list.clone();
         if let Some(list) = &mut list {
@@ -118,17 +117,10 @@ impl BlockLine {
 /// source.start <= range.start. Keep both boundaries inclusive: an empty range
 /// at a shared edge may match either neighbor. The final predicate is unchanged.
 pub(super) fn trailing_syntax(lines: &[BlockLine], range: &Range<usize>) -> bool {
-    let first = lines.partition_point(|line| {
-        super::visit_container();
-        line.source.end < range.end
-    });
-    let last = lines.partition_point(|line| {
-        super::visit_container();
-        line.source.start <= range.start
-    });
+    let first = lines.partition_point(|line| line.source.end < range.end);
+    let last = lines.partition_point(|line| line.source.start <= range.start);
     first < last
         && lines[first..last].iter().any(|block| {
-            super::visit_container();
             !block.empty_comment
                 && block.content.end <= range.start
                 && range.end <= block.source.end
@@ -148,15 +140,6 @@ fn describe_with_items(
     mark_items: impl Fn(&mut [BlockLine], &Range<usize>),
 ) -> (Vec<BlockLine>, Vec<Range<usize>>) {
     describe_with_parts(source, events, mark_items, super::fences::describe)
-}
-
-#[cfg(test)]
-pub(super) fn describe_with_fences(
-    source: &str,
-    events: &[(Event<'_>, Range<usize>)],
-    fences: impl Fn(&str, &[(Event<'_>, Range<usize>)], &mut [BlockLine]),
-) -> (Vec<BlockLine>, Vec<Range<usize>>) {
-    describe_with_parts(source, events, mark_item_lines, fences)
 }
 
 fn describe_with_parts(
@@ -297,7 +280,6 @@ fn describe_with_parts(
         if let Some(list) = &line.list {
             if !list.first {
                 while start < end && column < list.content_column {
-                    super::visit_container();
                     match source.as_bytes()[start] {
                         b' ' => column += 1,
                         b'\t' => column += 4 - column % 4,
@@ -333,42 +315,25 @@ fn describe_with_parts(
             let (marker, _) = container_indent(source.as_bytes(), start, end, column);
             let hashes = source[marker..end]
                 .bytes()
-                .take_while(|b| {
-                    super::visit_container();
-                    *b == b'#'
-                })
+                .take_while(|b| *b == b'#')
                 .count();
             if hashes > 0 {
                 start = marker + hashes;
                 loop {
-                    super::visit_container();
                     if start >= end || !matches!(source.as_bytes()[start], b' ' | b'\t') {
                         break;
                     }
                     start += 1;
                 }
-                let trimmed = source[start..end].trim_end_matches(|ch| {
-                    super::visit_container();
-                    matches!(ch, ' ' | '\t')
-                });
-                let closing = trimmed
-                    .bytes()
-                    .rev()
-                    .take_while(|b| {
-                        super::visit_container();
-                        *b == b'#'
-                    })
-                    .count();
+                let trimmed = source[start..end].trim_end_matches(|ch| matches!(ch, ' ' | '\t'));
+                let closing = trimmed.bytes().rev().take_while(|b| *b == b'#').count();
                 if closing > 0
                     && (closing == trimmed.len()
                         || trimmed.as_bytes()[trimmed.len() - closing - 1].is_ascii_whitespace())
                 {
                     line.content.end = start
                         + trimmed[..trimmed.len() - closing]
-                            .trim_end_matches(|ch| {
-                                super::visit_container();
-                                matches!(ch, ' ' | '\t')
-                            })
+                            .trim_end_matches(|ch| matches!(ch, ' ' | '\t'))
                             .len();
                 }
             }
@@ -423,13 +388,11 @@ fn consume_quote_prefix(
     let mut consumed = 0;
     for _ in 0..depth {
         let (at, at_column) = container_indent(source, start, end, column);
-        super::visit_container();
         if at >= end || source[at] != b'>' {
             break;
         }
         start = at + 1;
         column = at_column + 1;
-        super::visit_container();
         if start < end && matches!(source[start], b' ' | b'\t') {
             column += if source[start] == b'\t' {
                 4 - column % 4
@@ -447,7 +410,6 @@ fn container_indent(source: &[u8], start: usize, end: usize, column: usize) -> (
     let mut at = start;
     let mut at_column = column;
     loop {
-        super::visit_container();
         if at >= end {
             break;
         }
@@ -468,22 +430,11 @@ fn container_indent(source: &[u8], start: usize, end: usize, column: usize) -> (
 fn mark_item_lines(lines: &mut [BlockLine], range: &Range<usize>) {
     // Physical rows are ordered and nonoverlapping. Keep the old strict
     // overlap predicate, including an empty query inside a nonempty row.
-    let first = lines.partition_point(|line| {
-        super::visit_container();
-        line.source.end <= range.start
-    });
-    let last = lines.partition_point(|line| {
-        super::visit_container();
-        line.source.start < range.end
-    });
+    let first = lines.partition_point(|line| line.source.end <= range.start);
+    let last = lines.partition_point(|line| line.source.start < range.end);
     if first < last {
         for line in &mut lines[first..last] {
-            super::visit_container();
             line.in_list = true;
         }
     }
 }
-
-#[cfg(test)]
-#[path = "blocks_range_tests.rs"]
-mod range_tests;

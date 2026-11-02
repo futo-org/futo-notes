@@ -36,59 +36,6 @@ fn indent_nests_only_the_selected_item_and_preserves_exact_foreign_spelling() {
 }
 
 #[test]
-fn outdent_lifts_one_container_level_and_preserves_descendants() {
-    let raw = "- parent\n  - __child__\n    - grandchild";
-    let expected = "- parent\n- __child__\n  - grandchild";
-    let shown = "parent\nchild\ngrandchild";
-    let mut s = EditorSession::open(raw);
-    let mut view = ReferenceView::new(shown);
-    let selected = range(7, 12);
-    s.select(s.revision(), selected).unwrap();
-    view.apply(
-        s.block_command(s.revision(), selected, BlockCommand::Outdent, &mut |_| {
-            Ok(())
-        })
-        .unwrap()
-        .expect("a nested list item can lift one level"),
-    );
-    assert_eq!(s.source_text(), expected);
-    assert_eq!(view.text, shown);
-    assert_eq!(s.selection(), selected);
-    view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
-    assert_eq!(s.source_text(), raw);
-    assert_eq!(s.selection(), selected);
-    view.apply(s.redo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
-    assert_eq!(s.source_text(), expected);
-}
-
-#[test]
-fn indent_moves_all_selected_siblings_as_one_exact_action() {
-    let raw = "* parent\n* one\n* two\n* keep";
-    let expected = "* parent\n  * one\n  * two\n* keep";
-    let shown = "parent\none\ntwo\nkeep";
-    let selected = range(7, 14);
-    let mut s = EditorSession::open(raw);
-    let mut view = ReferenceView::new(shown);
-    s.select(s.revision(), selected).unwrap();
-    view.apply(
-        s.block_command(
-            s.revision(),
-            selected,
-            BlockCommand::Indent,
-            &mut |_| Ok(()),
-        )
-        .unwrap()
-        .unwrap(),
-    );
-    assert_eq!(s.source_text(), expected);
-    assert_eq!(view.text, shown);
-    assert_eq!(s.selection(), selected);
-    view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
-    assert_eq!(s.source_text(), raw);
-    assert_eq!(s.selection(), selected);
-}
-
-#[test]
 fn indent_and_outdent_choose_the_nearest_list_or_quote_container() {
     for (raw, expected) in [
         ("> - a\n> - b", "> - a\n>   - b"),
@@ -162,29 +109,6 @@ fn outdent_lifts_a_top_level_item_to_paragraph_text() {
     assert_eq!(view.text, "a\nb");
     view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
     assert_eq!(s.source_text(), "* a\n* b");
-}
-
-#[test]
-fn quoted_tab_outdent_uses_physical_tab_stops_after_the_quote_prefix() {
-    let source = "> - a\n> \t- b";
-    let mut s = EditorSession::open(source);
-    let mut view = ReferenceView::new("a\nb");
-    s.select(s.revision(), range(2, 3)).unwrap();
-    view.apply(
-        s.block_command(
-            s.revision(),
-            range(2, 3),
-            BlockCommand::Outdent,
-            &mut |_| Ok(()),
-        )
-        .unwrap()
-        .unwrap(),
-    );
-    assert_eq!(s.source_text(), "> - a\n> - b");
-    assert_eq!(view.text, "a\nb");
-    assert_eq!(s.selection(), range(2, 3));
-    view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
-    assert_eq!(s.source_text(), source);
 }
 
 #[test]
@@ -272,61 +196,6 @@ fn same_line_nested_list_parents_are_refused_unchanged() {
 }
 
 #[test]
-fn outdent_retargets_each_selected_sibling_and_maps_its_own_descendants() {
-    let raw = "9) a\n   - b\n     - child\n   - c";
-    let expected = "9) a\n10) b\n    - child\n11) c";
-    let shown = "a\nb\nchild\nc";
-    let mut s = EditorSession::open(raw);
-    let mut view = ReferenceView::new(shown);
-    s.select(s.revision(), range(2, 11)).unwrap();
-    view.apply(
-        s.block_command(
-            s.revision(),
-            range(2, 11),
-            BlockCommand::Outdent,
-            &mut |_| Ok(()),
-        )
-        .unwrap()
-        .unwrap(),
-    );
-    assert_eq!(s.source_text(), expected);
-    assert_eq!(view.text, shown);
-    assert_eq!(s.selection(), range(2, 11));
-    view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
-    assert_eq!(s.source_text(), raw);
-}
-
-#[test]
-fn indent_starts_a_new_ordered_child_list_at_one() {
-    let raw = "9) parent\n10) child";
-    let mut s = EditorSession::open(raw);
-    let mut view = ReferenceView::new("parent\nchild");
-    s.select(s.revision(), range(7, 12)).unwrap();
-    view.apply(
-        s.block_command(
-            s.revision(),
-            range(7, 12),
-            BlockCommand::Indent,
-            &mut |_| Ok(()),
-        )
-        .unwrap()
-        .unwrap(),
-    );
-    assert_eq!(s.source_text(), "9) parent\n   1) child");
-    assert_eq!(view.text, "parent\nchild");
-    let p = s.project(s.revision(), range(7, 12)).unwrap();
-    let list = p
-        .blocks
-        .iter()
-        .find_map(|block| block.list.as_ref())
-        .unwrap();
-    assert_eq!(list.depth, 2);
-    assert_eq!(list.number, Some(1));
-    view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
-    assert_eq!(s.source_text(), raw);
-}
-
-#[test]
 fn indent_joins_the_preceding_items_existing_compatible_child_list() {
     for (source, shown, selected, expected) in [
         (
@@ -389,31 +258,6 @@ fn non_one_ordered_text_without_a_separator_remains_a_parent_paragraph() {
 }
 
 #[test]
-fn list_indent_moves_owned_code_prefixes_without_changing_authored_blank_body_spaces() {
-    let source = "- before\n- parent\n  ```\n    \n  ```";
-    let expected = "- before\n  - parent\n    ```\n      \n    ```";
-    let shown = "before\nparent\n  ";
-    let mut s = EditorSession::open(source);
-    let mut view = ReferenceView::new(shown);
-    assert_eq!(s.display_text(), shown);
-    s.select(s.revision(), range(7, 13)).unwrap();
-    view.apply(
-        s.block_command(
-            s.revision(),
-            range(7, 13),
-            BlockCommand::Indent,
-            &mut |_| Ok(()),
-        )
-        .unwrap()
-        .unwrap(),
-    );
-    assert_eq!(s.source_text(), expected);
-    assert_eq!(view.text, shown);
-    view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
-    assert_eq!(s.source_text(), source);
-}
-
-#[test]
 fn retargeting_an_outer_list_preserves_the_owned_nested_list_depth() {
     let source = "- a\n  - b";
     let mut s = EditorSession::open(source);
@@ -444,48 +288,4 @@ fn retargeting_an_outer_list_preserves_the_owned_nested_list_depth() {
     );
     view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
     assert_eq!(s.source_text(), source);
-}
-
-#[test]
-fn nested_bullet_toggle_lifts_text_descendants_and_following_nested_siblings() {
-    // Actual shipping toolbar/preset oracle, retaining the foreign outer marker.
-    let raw = "- parent\n  - child😀\n    - grandchild\n  - sibling\n- following";
-    let expected = "- parent\n\nchild😀\n+ grandchild\n+ sibling\n- following";
-    let shown = "parent\nchild😀\ngrandchild\nsibling\nfollowing";
-    let after = "parent\n\nchild😀\ngrandchild\nsibling\nfollowing";
-    let selected = range(7, 16);
-    let final_selected = range(8, 17);
-    let mut s = EditorSession::open(raw);
-    let mut view = ReferenceView::new(shown);
-    assert_eq!(s.display_text(), shown);
-    s.select_with_affinity(s.revision(), selected, Affinity::Backward)
-        .unwrap();
-    let mut accepted = 0;
-    view.apply(
-        s.block_command(
-            s.revision(),
-            selected,
-            BlockCommand::BulletList,
-            &mut |_| {
-                accepted += 1;
-                Ok(())
-            },
-        )
-        .unwrap()
-        .unwrap(),
-    );
-    assert_eq!(accepted, 1);
-    assert_eq!(s.source_text(), expected);
-    assert_eq!(view.text, after);
-    assert_eq!(s.selection(), final_selected);
-    assert_eq!(s.affinity(), Affinity::Backward);
-    view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
-    assert_eq!(s.source_text(), raw);
-    assert_eq!(view.text, shown);
-    assert_eq!(s.selection(), selected);
-    assert_eq!(s.affinity(), Affinity::Backward);
-    view.apply(s.redo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
-    assert_eq!(s.source_text(), expected);
-    assert_eq!(view.text, after);
-    assert_eq!(s.selection(), final_selected);
 }

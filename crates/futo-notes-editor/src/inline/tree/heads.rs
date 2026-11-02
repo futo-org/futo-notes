@@ -21,7 +21,6 @@ impl Rows {
         let mut node = self.root.as_deref();
         let mut total = 0;
         while let Some(n) = node {
-            crate::inline::visit_container();
             let left = count(&n.left);
             if index < left {
                 node = n.left.as_deref();
@@ -41,7 +40,6 @@ impl Rows {
         let mut node = self.root.as_deref();
         let mut index = 0;
         while let Some(n) = node {
-            crate::inline::visit_container();
             let left = heads(&n.left);
             if rank <= left {
                 node = n.left.as_deref();

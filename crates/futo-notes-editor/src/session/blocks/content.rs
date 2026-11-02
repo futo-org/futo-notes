@@ -53,7 +53,6 @@ impl EditorSession {
             return None;
         }
         if next.list.as_ref().is_some_and(|list| {
-            crate::inline::visit_container();
             list.first
                 && list.depth == 1
                 && list.quote_depth == next.quote_depth
@@ -75,9 +74,7 @@ impl EditorSession {
             prefix.len()
         };
         let retained = prefix[..kept].trim_end_matches([' ', '\t']);
-        for _ in retained.len()..=kept {
-            crate::inline::visit_container();
-        }
+        for _ in retained.len()..=kept {}
         let separator = format!("{retained}\n");
         let copied = prefix.len() + separator.len();
         Some((separator, copied))
