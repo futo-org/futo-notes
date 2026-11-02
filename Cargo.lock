@@ -2158,6 +2158,7 @@ version = "0.1.0"
 dependencies = [
  "cairo-rs",
  "futo-notes-core",
+ "futo-notes-editor",
  "futo-notes-license",
  "futo-notes-store",
  "futo-notes-sync",

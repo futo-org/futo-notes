@@ -14,6 +14,7 @@ mod desktop_settings;
 #[cfg(all(target_os = "macos", debug_assertions))]
 mod dev_app_name;
 mod dev_open_url;
+mod editor_host;
 mod external_file_open;
 mod filesystem_watcher;
 mod image_commands;
