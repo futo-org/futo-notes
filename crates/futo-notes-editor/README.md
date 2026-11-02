@@ -32,7 +32,7 @@ initial integer values within JavaScript's exact integer range.
    Neither watermark means the Markdown file has been checkpointed.
 
 `project(revision, display_range)` supplies display text, semantic runs, block descriptions (heading level, quote depth and divider identity) and exact
-source/display correspondence for the requested window. `select_with_affinity`
+source/display correspondence runs (literal, hidden, replaced) for the requested window. `select_with_affinity`
 chooses the visible neighbor at a hidden boundary. Formatting toggles preserve
 display text and selection, but their source edits still require worker acceptance.
 Collapsed toggles carry formatting locally without emitting a recovery record.

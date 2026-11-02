@@ -24,6 +24,13 @@ impl Projection {
                 if start > range.end.0 || end < range.start.0 {
                     continue;
                 }
+                let kind = if start == end {
+                    CorrespondenceKind::Hidden
+                } else if segment.identity {
+                    CorrespondenceKind::Literal
+                } else {
+                    CorrespondenceKind::Replaced
+                };
                 let mapped = Correspondence {
                     source: SourceRange {
                         start: SourceOffset(source + segment.source.start),
@@ -33,18 +40,21 @@ impl Projection {
                         start: DisplayOffset(start),
                         end: DisplayOffset(end),
                     },
+                    kind,
                 };
-                if let Some(previous) = correspondence.last_mut() {
-                    if previous.display.start == previous.display.end
-                        && mapped.display == previous.display
-                        && previous.source.end == mapped.source.start
+                // Hidden pieces at one display point, and literal stretches
+                // contiguous in both coordinates, each arrive as one run.
+                match correspondence.last_mut() {
+                    Some(previous)
+                        if previous.kind == kind
+                            && kind != CorrespondenceKind::Replaced
+                            && previous.source.end == mapped.source.start
+                            && previous.display.end == mapped.display.start =>
                     {
                         previous.source.end = mapped.source.end;
-                    } else {
-                        correspondence.push(mapped);
+                        previous.display.end = mapped.display.end;
                     }
-                } else {
-                    correspondence.push(mapped);
+                    _ => correspondence.push(mapped),
                 }
                 if start == end || start >= range.end.0 || end <= range.start.0 {
                     continue;

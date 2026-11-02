@@ -456,17 +456,12 @@ pub struct EditorSourceByteRange {
     pub end: u64,
 }
 #[derive(Debug, PartialEq, Eq, uniffi::Record)]
-pub struct EditorCorrespondence {
-    pub source: EditorSourceByteRange,
-    pub display: EditorByteRange,
-}
-#[derive(Debug, PartialEq, Eq, uniffi::Record)]
 pub struct EditorProjection {
     pub revision: u64,
     pub range: EditorByteRange,
     pub text: String,
     pub runs: Vec<EditorSemanticRun>,
-    pub correspondence: Vec<EditorCorrespondence>,
+    pub correspondence: Vec<super::correspondence::EditorCorrespondence>,
     pub blocks: Vec<EditorBlockDescription>,
     pub links: Vec<EditorLinkDescription>,
     pub wikilinks: Vec<EditorWikilinkDescription>,
@@ -532,17 +527,7 @@ impl From<editor::ProjectionSlice> for EditorProjection {
                     formats: run.formats.into_iter().map(Into::into).collect(),
                 })
                 .collect(),
-            correspondence: value
-                .correspondence
-                .into_iter()
-                .map(|item| EditorCorrespondence {
-                    source: EditorSourceByteRange {
-                        start: item.source.start.0 as u64,
-                        end: item.source.end.0 as u64,
-                    },
-                    display: item.display.into(),
-                })
-                .collect(),
+            correspondence: value.correspondence.into_iter().map(Into::into).collect(),
         }
     }
 }

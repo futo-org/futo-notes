@@ -22,6 +22,8 @@ fn assert_fresh(session: &EditorSession, view: &ReferenceView) {
 
 #[path = "inline/code.rs"]
 mod code;
+#[path = "inline/correspondence.rs"]
+mod correspondence;
 #[path = "inline/work.rs"]
 mod work;
 

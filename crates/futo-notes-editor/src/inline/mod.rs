@@ -36,8 +36,8 @@ use window::Window;
 pub(crate) mod wikilinks;
 
 use crate::{
-    Correspondence, DisplayOffset, DisplayRange, InlineFormat, ProjectionSlice, Revision,
-    SemanticRun, SourceEdit, SourceOffset, SourceRange,
+    Correspondence, CorrespondenceKind, DisplayOffset, DisplayRange, InlineFormat, ProjectionSlice,
+    Revision, SemanticRun, SourceEdit, SourceOffset, SourceRange,
 };
 pub(crate) use lists::{columns, visit_container, visit_correspondence, ListLine};
 #[cfg(test)]

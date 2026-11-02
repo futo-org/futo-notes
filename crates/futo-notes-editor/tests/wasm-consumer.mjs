@@ -39,7 +39,11 @@ const { WasmSession } = await import(pathToFileURL(process.argv[2]).href);
     const opening = JSON.parse(page.project(0n, 0, 3));
     assert.equal(opening.text, 'a\r\n');
     assert.deepEqual(opening.runs[0].formats, ['Bold']);
-    assert.ok(opening.correspondence.some((part) => part.display.start === part.display.end));
+    assert.ok(
+      opening.correspondence.some(
+        (part) => part.kind === 'Hidden' && part.display.start === part.display.end,
+      ),
+    );
     let text = opening.text;
     const apply = (change) => {
       assert.ok(change);
@@ -90,7 +94,8 @@ const { WasmSession } = await import(pathToFileURL(process.argv[2]).href);
           part.source.start === 4 &&
           part.source.end === 9 &&
           part.display.start === 0 &&
-          part.display.end === 5,
+          part.display.end === 5 &&
+          part.kind === 'Replaced',
       ),
     );
     for (const affinity of ['Backward', 'Forward']) {

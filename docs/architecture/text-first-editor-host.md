@@ -96,6 +96,14 @@ anchor/focus direction; the adapter owns direction and history policy.
 addresses; a stale one returns `StaleRevision` and changes nothing. Apply returned
 `ViewChange` values (semantic replacements, correspondence, selection, affinity) together, once.
 
+**Correspondence.** A projection's `correspondence` is runs in display and source order that
+tile both spaces: `{source, display, kind}`. `Literal` runs have equal lengths and map byte
+for byte (offset arithmetic; adjacent literal stretches are one run); `Hidden` runs have an
+empty display range (markers, hidden syntax); `Replaced` runs are one indivisible piece shown
+as other text (entities, divider glyph) whose interior maps only to its whole source range,
+even when lengths match. `Correspondence::source_bounds`/`display_at` do the mapping; where
+pieces meet at one display offset, `source_at` chooses the caret.
+
 **Acknowledgement semantics.** Each request carries a session token and monotonic
 sequence. A reply binds to exactly one request; duplicate, stale and superseded replies
 never apply twice, regress a watermark or claim durability. *Accepted* (Append reply)

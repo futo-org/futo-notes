@@ -268,7 +268,14 @@ fn native_projection_preserves_rich_semantics_and_source_correspondence() {
         change.projection.runs[0].formats,
         vec![EditorInlineFormat::Bold]
     );
-    assert!(!change.projection.correspondence.is_empty());
+    use futo_notes_ffi::EditorCorrespondenceKind::{Hidden, Literal};
+    let kinds: Vec<_> = change
+        .projection
+        .correspondence
+        .iter()
+        .map(|part| part.kind)
+        .collect();
+    assert_eq!(kinds, [Hidden, Literal, Hidden, Literal]);
 }
 
 #[test]
