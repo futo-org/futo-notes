@@ -67,6 +67,12 @@ const { WasmSession } = await import(pathToFileURL(process.argv[2]).href);
     assert.deepEqual(await exchange(request), ack);
     apply(JSON.parse(page.acknowledge(JSON.stringify(ack))));
     assert.equal(text, 'a🎉\r\n');
+    // Coordinate converters after an emoji: 4 display bytes are 2 UTF-16 units.
+    assert.deepEqual(JSON.parse(page.display_to_utf16(1n, 1, 5)), { start: 1, end: 3 });
+    assert.deepEqual(JSON.parse(page.utf16_to_display(1n, 1, 3)), { start: 1, end: 5 });
+    assert.throws(() => page.utf16_to_display(1n, 2, 3), 'mid-surrogate');
+    assert.throws(() => page.display_to_utf16(1n, 2, 5), 'mid-char');
+    assert.throws(() => page.utf16_to_display(0n, 1, 3), 'stale revision');
     assert.equal(JSON.parse(page.acknowledge(JSON.stringify(ack))), null);
     apply(JSON.parse(page.acknowledge(JSON.stringify(await exchange(JSON.parse(page.undo(1n)))))));
     assert.equal(text, 'a\r\n');

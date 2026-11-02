@@ -192,6 +192,30 @@ impl PortableSession {
         Ok(self.engine.project(expected, range)?)
     }
 
+    /// Display byte range to UTF-16 units; like `project`, never exposes staged text.
+    pub fn display_to_utf16(
+        &self,
+        expected: Revision,
+        range: DisplayRange,
+    ) -> Result<DisplayUtf16Range, PortableError> {
+        if self.pending.is_some() {
+            return Err(PortableError::Busy);
+        }
+        Ok(self.engine.display_to_utf16(expected, range)?)
+    }
+
+    /// Inverse of `display_to_utf16`; rejects mid-surrogate and mid-char offsets.
+    pub fn utf16_to_display(
+        &self,
+        expected: Revision,
+        range: DisplayUtf16Range,
+    ) -> Result<DisplayRange, PortableError> {
+        if self.pending.is_some() {
+            return Err(PortableError::Busy);
+        }
+        Ok(self.engine.display_from_utf16(expected, range)?)
+    }
+
     pub fn select_with_affinity(
         &mut self,
         expected: Revision,
