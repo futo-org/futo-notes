@@ -90,8 +90,11 @@ pub(super) fn spell_with_anchors(
             link_metadata_items += candidate.reference_work.items;
             link_copied_bytes += candidate.reference_work.copied;
         }
-        if candidate.display != expected {
-            repair_literal_boundaries(&mut pieces, &rendered, &candidate, &insertion);
+        for near_only in [true, false] {
+            if candidate.display == expected {
+                break;
+            }
+            repair_literal_boundaries(&mut pieces, &rendered, &candidate, &insertion, near_only);
             // A speculative line-start marker must reopen as the literal text
             // the writer still sees. The block shortcut replaces this spelling
             // only when its final triggering character arrives.

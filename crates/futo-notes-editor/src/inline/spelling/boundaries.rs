@@ -7,6 +7,7 @@ pub(super) fn repair_literal_boundaries(
     rendered: &Rendered,
     candidate: &Row,
     insertion: &Range<usize>,
+    near_only: bool,
 ) {
     for (piece, source) in pieces.iter_mut().zip(&rendered.pieces) {
         if piece.raw == "\\"
@@ -53,9 +54,14 @@ pub(super) fn repair_literal_boundaries(
     }
     // A deletion can expose a body space as ATX separation, or a
     // literal hash as an opener/closer. Repair only visible pieces
-    // that the candidate now consumes as hidden block syntax.
+    // that the candidate now consumes as hidden block syntax. A first pass
+    // keeps to the insertion and what precedes it: escaping them can already
+    // dissolve a later block, whose own escape could not decode inside raw inline HTML.
     let mut repaired = Vec::new();
     for (index, (piece, source)) in pieces.iter_mut().zip(&rendered.pieces).enumerate() {
+        if near_only && index >= insertion.end {
+            continue;
+        }
         let boundary = candidate.blocks.iter().find_map(|block| {
             if block.source.start <= source.start && source.end <= block.content.start {
                 Some((block.source.start, false))
