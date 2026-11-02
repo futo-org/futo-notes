@@ -24,6 +24,21 @@ fn range16(value: &Value) -> DisplayUtf16Range {
     }
 }
 
+/// History grouping never expires, so the 500 ms boundary cannot flake under load.
+struct FrozenClock;
+impl RecoveryClock for FrozenClock {
+    fn now(&self) -> Duration {
+        Duration::ZERO
+    }
+}
+
+fn frozen() -> RecoveryOptions {
+    RecoveryOptions {
+        clock: Arc::new(FrozenClock),
+        ..RecoveryOptions::default()
+    }
+}
+
 fn read_trace(name: &str) -> Value {
     let mut trace = read(name);
     trace["events"] = Value::Array(
@@ -49,7 +64,7 @@ fn captured_native_results_keep_only_commits_in_recovery_and_checkpoint() {
         store.create("", "input", source).unwrap();
         let final_source;
         {
-            let mut editor = store.open_editor("input").unwrap();
+            let mut editor = store.open_editor_with_recovery("input", frozen()).unwrap();
             let mut view = case["display"].as_str().unwrap().to_owned();
             let history = case["history"].as_array().unwrap();
             for step in case["steps"].as_array().unwrap() {
