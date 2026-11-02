@@ -21,4 +21,23 @@ class CrashlogEndpointTest {
             CrashlogEndpoint.devBaseUrl(useStaging = true),
         )
     }
+
+    @Test
+    fun devInstallsNeverResolveToProduction() {
+        assertEquals(
+            "http://10.0.2.2:${BuildConfig.DEV_CRASHLOG_PORT}",
+            CrashlogEndpoint.baseUrlFor(isDevBuild = true, useStaging = false),
+        )
+        assertEquals(
+            "https://staging-notes-crashlog.futo.org",
+            CrashlogEndpoint.baseUrlFor(isDevBuild = true, useStaging = true),
+        )
+    }
+
+    @Test
+    fun productionInstallIgnoresTheStagingFlag() {
+        val production = "https://notes-crashlog.futo.org"
+        assertEquals(production, CrashlogEndpoint.baseUrlFor(isDevBuild = false, useStaging = false))
+        assertEquals(production, CrashlogEndpoint.baseUrlFor(isDevBuild = false, useStaging = true))
+    }
 }
