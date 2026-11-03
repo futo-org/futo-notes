@@ -35,9 +35,6 @@ impl EditorSession {
         }
         self.validate_range(range)?;
         range = self.body_range(range)?;
-        if let Some(result) = self.indent_empty_item(expected, range, command)? {
-            return Ok(result);
-        }
         if matches!(command, BlockCommand::Heading(level) if level > 6) {
             return Err(EditorError::InvalidRange);
         }

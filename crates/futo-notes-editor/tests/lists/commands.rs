@@ -373,79 +373,41 @@ fn leaving_a_list_at_its_end_types_a_separate_paragraph() {
     assert_eq!(s.source_text(), "- C\n- Y\n- ");
 }
 
-fn empty_nested_item() -> (EditorSession, usize) {
-    let mut s = EditorSession::open("* item 1\n  * item 2\n  * ");
+#[test]
+fn indenting_an_empty_item_under_its_siblings_text_is_refused() {
+    // `  * item 2\n    * ` would read the empty item as text of item 2; only
+    // a blank line (loosening the list) could write it.
+    let source = "* item 1\n  * item 2\n  * ";
+    let mut s = EditorSession::open(source);
     let end = s.display_text().len();
     s.select(s.revision(), range(end, end)).unwrap();
-    (s, end)
-}
-
-fn last_depth(s: &EditorSession, end: usize) -> Option<usize> {
-    let blocks = s.project(s.revision(), range(0, end)).unwrap().blocks;
-    blocks.last().and_then(|b| b.list.as_ref().map(|l| l.depth))
-}
-
-#[test]
-fn indenting_an_empty_item_waits_for_typing_and_shows_its_depth() {
-    let (mut s, end) = empty_nested_item();
-    let change = s
-        .block_command(
-            s.revision(),
-            range(end, end),
-            BlockCommand::Indent,
-            &mut |_| panic!("an empty sub-list item cannot be written; nothing is accepted yet"),
-        )
-        .unwrap()
-        .unwrap();
-    assert_eq!(change.revision, change.previous_revision);
-    assert_eq!(s.source_text(), "* item 1\n  * item 2\n  * ");
-    assert_eq!(last_depth(&s, end), Some(3));
-    let mut accepted = 0;
+    let revision = s.revision();
+    let result = s.block_command(revision, range(end, end), BlockCommand::Indent, &mut |_| {
+        panic!("a refused indent accepts nothing")
+    });
+    assert!(
+        matches!(result, Err(EditorError::UnrepresentableFormat)),
+        "{result:?}"
+    );
+    assert_eq!(s.source_text(), source);
+    assert_eq!(s.revision(), revision);
+    assert_eq!(s.selection(), range(end, end));
+    // Once it has text, the same item indents.
     s.replace_action(
         s.revision(),
         range(end, end),
         "x",
         InputAction::Typing,
-        &mut |_| {
-            accepted += 1;
-            Ok(())
-        },
+        &mut |_| Ok(()),
     )
     .unwrap();
-    assert_eq!(accepted, 1, "text and indent are one recovery record");
+    let end = s.display_text().len();
+    s.block_command(
+        s.revision(),
+        range(end, end),
+        BlockCommand::Indent,
+        &mut |_| Ok(()),
+    )
+    .unwrap();
     assert_eq!(s.source_text(), "* item 1\n  * item 2\n    * x");
-    s.undo(s.revision(), &mut |_| Ok(())).unwrap();
-    assert_eq!(s.source_text(), "* item 1\n  * item 2\n  * ");
-}
-
-#[test]
-fn a_pending_indent_unwinds_without_touching_source() {
-    let (mut s, end) = empty_nested_item();
-    s.block_command(
-        s.revision(),
-        range(end, end),
-        BlockCommand::Indent,
-        &mut |_| Ok(()),
-    )
-    .unwrap();
-    s.block_command(
-        s.revision(),
-        range(end, end),
-        BlockCommand::Outdent,
-        &mut |_| Ok(()),
-    )
-    .unwrap();
-    assert_eq!(last_depth(&s, end), Some(2));
-    assert_eq!(s.source_text(), "* item 1\n  * item 2\n  * ");
-    // Moving the caret away drops it too.
-    s.block_command(
-        s.revision(),
-        range(end, end),
-        BlockCommand::Indent,
-        &mut |_| Ok(()),
-    )
-    .unwrap();
-    s.select(s.revision(), range(0, 0)).unwrap();
-    assert_eq!(last_depth(&s, end), Some(2));
-    assert_eq!(s.source_text(), "* item 1\n  * item 2\n  * ");
 }

@@ -66,6 +66,16 @@ impl EditorSession {
         } else {
             rows[item].chain[depth - 2].map(|parent| (rows[parent].before.marker, rows[parent].key))
         };
+        // An empty item cannot open a new sub-list right under its sibling's
+        // text (it cannot interrupt a paragraph); only a blank line, which
+        // loosens the list, could write it, so the indent is refused.
+        if command == BlockCommand::Indent
+            && joined.is_none()
+            && rows[item].body.is_empty()
+            && !rows[item - 1].blank
+        {
+            return Err(EditorError::UnrepresentableFormat);
+        }
         for row in rows.iter_mut() {
             if !row
                 .chain

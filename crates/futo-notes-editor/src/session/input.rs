@@ -52,14 +52,6 @@ impl EditorSession {
         action: crate::InputAction,
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<(ViewChange, InputMapping), EditorError> {
-        if self.check_revision(expected).is_ok() {
-            if let Some(change) =
-                self.type_into_pending_indent(expected, range, inserted, action, accept)?
-            {
-                let mapping = InputMapping::new(change.range, change.inserted.len());
-                return Ok((change, mapping));
-            }
-        }
         let mut query_work = crate::inline::references::ReferenceWork::default();
         let (mut change, mapping) = self.replace_action_planned(
             expected,
