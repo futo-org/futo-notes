@@ -7,22 +7,22 @@ import uniffi.futo_notes_ffi.FlushDraftResult
  * including marked text, on its owning thread before staging the copy. */
 internal fun EditorEngine.checkpointForMigration(done: (Boolean) -> Unit) {
     if (!handler.post {
-    val s = session
-    var saved = true
-    try {
-        if (!closed && s != null) {
-            if (mirror.overlay != null) commitComposition(null)
-            val result = s.checkpoint()
-            val id = s.noteId()
-            ui.post { sink.onCheckpoint(result, id) }
+        val s = session
+        var saved = true
+        try {
+            if (!closed && s != null) {
+                if (mirror.overlay != null) commitComposition(null)
+                val result = s.checkpoint()
+                val id = s.noteId()
+                ui.post { sink.onCheckpoint(result, id) }
+            }
+        } catch (e: EditorSessionException) {
+            saved = false
+            handleFailure(e)
+        } finally {
+            drainAfterCheckpoint()
         }
-    } catch (e: EditorSessionException) {
-        saved = false
-        handleFailure(e)
-    } finally {
-        drainAfterCheckpoint()
-    }
-    ui.post { done(saved) }
+        ui.post { done(saved) }
     }) ui.post { done(false) }
 }
 
@@ -39,7 +39,7 @@ internal fun EditorEngine.save(force: Boolean): FlushDraftResult? {
     return result
 }
 
-internal fun EditorEngine.saveUnderGate(force: Boolean): FlushDraftResult? {
+private fun EditorEngine.saveUnderGate(force: Boolean): FlushDraftResult? {
     val s = session ?: return null
     return try {
         val result = when {
