@@ -34,6 +34,8 @@ reqwest = { version = "0.12.12", default-features = false, features = ["json", "
 # dev-only for the same reason the cookie jar does.
 time = { version = "0.3", features = ["formatting"] }
 rcgen = "0.14"
+# The attached-editor rename regression drives a real store editor session.
+futo-notes-editor = { path = "../futo-notes-editor" }
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring"] }
 
 [target.'cfg(target_os = "android")'.dependencies]
