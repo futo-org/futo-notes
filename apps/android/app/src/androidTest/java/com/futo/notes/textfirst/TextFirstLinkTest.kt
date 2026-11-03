@@ -1,6 +1,7 @@
 package com.futo.notes.textfirst
 
 import android.graphics.Color
+import android.view.View
 import android.view.inputmethod.EditorInfo
 import androidx.activity.ComponentActivity
 import androidx.core.content.res.ResourcesCompat
@@ -148,6 +149,50 @@ class TextFirstLinkTest {
                 }
                 assertFalse("late editor input must invalidate a dialog claim", controller.editLink(selected, "wrong", "https://wrong.test"))
                 assertEquals("new before café after", controller.sourceText())
+                assertNotNull(controller.close())
+            }
+        } finally {
+            withContext(Dispatchers.Main) { controller.discard(); controller.dispose() }
+            scenario.close()
+            store.destroy()
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun longWikilinkFitsTheViewportWithoutChangingItsSource() = runBlocking {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val root = File(context.cacheDir, "wikilink-wrap-${UUID.randomUUID()}").apply { check(mkdirs()) }
+        val scenario = ActivityScenario.launch(ComponentActivity::class.java)
+        val store = NoteStore(root.path)
+        lateinit var controller: TextFirstController
+        val source = "Before [[A very long wikilink label that should wrap across multiple visible lines and remain readable while editing]] after"
+        try {
+            store.createNote("wrap", "", source)
+            withContext(Dispatchers.Main) {
+                suspendCancellableCoroutine<Unit> { done ->
+                    scenario.onActivity { activity ->
+                        controller = createController(activity, { store }, root)
+                        activity.setContentView(controller.view)
+                        controller.open("wrap") { assertNull(it); done.resume(Unit) }
+                    }
+                }
+                val view = controller.view
+                val width = (320 * context.resources.displayMetrics.density).toInt()
+                view.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+                    View.MeasureSpec.makeMeasureSpec(2000, View.MeasureSpec.EXACTLY))
+                view.layout(0, 0, width, 2000)
+                val layout = view.layout
+                val available = width - view.compoundPaddingLeft - view.compoundPaddingRight
+                for (line in 0 until layout.lineCount) {
+                    assertTrue("line $line extends beyond the viewport: ${layout.getLineWidth(line)} > $available",
+                        layout.getLineWidth(line) <= available + 1)
+                }
+                assertTrue("a long linked label must occupy multiple visible lines", layout.lineCount >= 3)
+                assertEquals(source, controller.sourceText())
+                assertNotNull(controller.close())
+                controller.open("wrap")
+                assertEquals(source, controller.sourceText())
                 assertNotNull(controller.close())
             }
         } finally {
