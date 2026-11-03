@@ -140,6 +140,7 @@ internal fun TextFirstEditorScreen(
         TextFirstController(context, { store.core }, java.io.File(store.rootPath), style, store)
     }
 
+    val find = rememberTextFirstFind(controller, initialNoteId)
     val images = rememberTextFirstImages(controller, store, noteId, leaving, imagePicker)
 
     fun showTitleValidation(title: String) {
@@ -312,7 +313,8 @@ internal fun TextFirstEditorScreen(
         }
     }
 
-    BackHandler { onBack() }
+    BackHandler { if (find.visible) find.close() else onBack() }
+    TextFirstFindVerbs(find, enabled = !leaving)
 
     suspend fun retrySave() {
         val navigate = pendingNavigation
@@ -378,6 +380,7 @@ internal fun TextFirstEditorScreen(
                         }
                     }
                 },
+                onFind = find::open,
                 onMove = { showMoveSheet = true },
                 onCopyPath = {
                     clipboard.setText(AnnotatedString("${store.rootPath}/$noteId.md"))
@@ -411,11 +414,12 @@ internal fun TextFirstEditorScreen(
                     update = { it.isEnabled = !images.recovering && !leaving })
             }
             if (!leaving && !images.recovering) TextFirstCompletions(controller)
+            TextFirstFindBar(find)
             TextFirstToolbarSlot(controller, onPickImage = images.pick)
         }
     }
 
-    controller.cellView?.let { TextFirstTableCellDialog(controller, it) }
+    controller.cellView?.let { TextFirstTableCellDialog(controller, it, find.visible) }
 
     if (confirmDiscard) {
         ConfirmDialog(

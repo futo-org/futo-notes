@@ -6,6 +6,7 @@ import androidx.compose.material.icons.automirrored.filled.DriveFileMove
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -28,6 +29,7 @@ import com.futo.notes.ui.theme.FutoTheme
 internal fun TextFirstTopBar(
     onBack: () -> Unit,
     onShare: () -> Unit,
+    onFind: () -> Unit,
     onMove: () -> Unit,
     onCopyPath: () -> Unit,
     onDelete: () -> Unit,
@@ -46,6 +48,9 @@ internal fun TextFirstTopBar(
     PuppetVerbScope(modal = true) {
         if (!actionsMenu) emptyList() else listOf(
             toggleMenu(),
+            PuppetVerb("OpenFind", controls = listOf("editor.find.open")) {
+                actionsMenu = false; onFind()
+            },
             PuppetVerb("MoveCurrentNoteToFolder", controls = listOf("notes.actions.moveToFolderEllipsis")) {
                 actionsMenu = false; onMove()
             },
@@ -72,6 +77,11 @@ internal fun TextFirstTopBar(
                 Icon(Icons.Filled.MoreVert, localization.localizedText("notes.actions.moreAccessibilityLabel"), tint = c.textSecondary)
             }
             FutoMenu(expanded = actionsMenu, onDismissRequest = { actionsMenu = false }) {
+                DropdownMenuItem(
+                    text = { Text(localization.localizedText("editor.find.open")) },
+                    leadingIcon = { Icon(Icons.Filled.Search, null, tint = c.textSecondary) },
+                    onClick = { actionsMenu = false; onFind() },
+                )
                 DropdownMenuItem(
                     text = { Text(localization.localizedText("notes.actions.moveToFolderEllipsis")) },
                     leadingIcon = { Icon(Icons.AutoMirrored.Filled.DriveFileMove, null, tint = c.textSecondary) },

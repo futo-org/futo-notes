@@ -30,20 +30,21 @@ import uniffi.futo_notes_ffi.EditorParagraphKey
 @SuppressLint("ViewConstructor")
 internal class TextFirstEditText(
     context: Context,
-    private val style: TextFirstStyle,
+    internal val style: TextFirstStyle,
     private val images: ImageLoader,
 ) : AppCompatEditText(context), EngineInputConnection.ViewSide {
     var engine: EditorEngine? = null
     /** The first draw after a keyed update, with where that key's time went. */
     var onFrameDrawn: ((KeyTimings) -> Unit)? = null
 
-    private var applying = false
+    internal var applying = false
     private var appliedSeq = 0
     private var pendingTimings: KeyTimings? = null
     private var checkboxDown = -1
     var onTableCell: ((Int, Int, Int) -> Unit)? = null
     private val tableTouch = TableGridTouch(this, { cell -> onTableCell?.invoke(cell.start, cell.end, appliedSeq) }, ::invalidateTableScroll)
-    private val spans = TfSpanFactory(style) { contentWidth() }
+    internal val marks = FindMarks()
+    private val spans = TfSpanFactory(style, marks) { contentWidth() }
     /** The composing underline this view set; the only SPAN_COMPOSING span it owns. */
     private var composing: Any? = null
 
@@ -160,6 +161,7 @@ internal class TextFirstEditText(
     override fun onDraw(canvas: android.graphics.Canvas) {
         val timings = pendingTimings
         if (timings != null) timings.drawStart = android.os.SystemClock.elapsedRealtimeNanos()
+        drawFindMarks(canvas)
         val e = editableText as? ChunkedEditable
         e?.drawWindow = visibleChars()
         try { super.onDraw(canvas) } finally { e?.drawWindow = null }

@@ -49,6 +49,8 @@ internal class TextFirstController(
     var dirty by mutableStateOf(false); private set
     var isEmpty by mutableStateOf(true); private set
     var focused by mutableStateOf(false); private set
+    /** The last find result, or null before find is first used in this open note. */
+    var find by mutableStateOf<FindSnapshot?>(null); private set
 
     var onCheckpointed: (FlushDraftResult, String) -> Unit = { _, _ -> }
     var onFailure: (EditorSessionException) -> Unit = {}
@@ -112,6 +114,12 @@ internal class TextFirstController(
     }
     override fun onCompletion(draft: CompletionDraft?) { completion = draft }
 
+    override fun onFind(snapshot: FindSnapshot) {
+        find = snapshot
+        view.setFind(snapshot)
+        snapshot.reveal?.let { (start, end) -> view.post { view.revealRange(start, end) } }
+    }
+
     override fun onCaretState(state: CaretState) { caret = state }
 
     override fun onCheckpoint(result: FlushDraftResult, noteId: String) {
@@ -144,6 +152,23 @@ internal class TextFirstController(
         val e = engine ?: return@suspendCancellableCoroutine cont.resume(false)
         e.selectDisplayRange(start, end) { cont.resume(it) }
     }
+    /** Open find or change its query. Highlights only: the selection, source and history are untouched. */
+    suspend fun findSetQuery(query: String): FindSnapshot? = suspendCancellableCoroutine { cont ->
+        val e = engine ?: return@suspendCancellableCoroutine cont.resume(null)
+        e.findSetQuery(query) { cont.resume(it) }
+    }
+
+    /** Land on the current match, then move to the next or previous one; table matches open their cell field. */
+    suspend fun findStep(forward: Boolean): FindSnapshot? = suspendCancellableCoroutine { cont ->
+        val e = engine ?: return@suspendCancellableCoroutine cont.resume(null)
+        e.findStep(forward) { cont.resume(it) }
+    }
+
+    suspend fun findClose(): FindSnapshot? = suspendCancellableCoroutine { cont ->
+        val e = engine ?: return@suspendCancellableCoroutine cont.resume(null)
+        e.findClose { cont.resume(it) }
+    }
+
     fun undo() { engine?.undo() }
     fun redo() { engine?.redo() }
     fun drainCoordinatedChanges() { engine?.drainCoordinatedChanges() }
@@ -230,6 +255,8 @@ internal class TextFirstController(
         view.removeCallbacks(latencyFlush)
         latencyFlush.run()
         engine = null
+        find = null
+        view.setFind(FindSnapshot.Closed)
         cellView = null
         completion = null
         view.engine = null
