@@ -70,6 +70,9 @@ pub(super) struct Mapping {
     /// checkpoint. Opaque to the store.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(super) object_id: Option<String>,
+    /// The store deleted the file at `to`: the move ended there.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub(super) ended: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

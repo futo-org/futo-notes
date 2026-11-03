@@ -50,6 +50,7 @@ pub(crate) fn move_journaled(
                 from: from.clone(),
                 to: to.clone(),
                 object_id: None,
+                ended: false,
             })
             .collect(),
     });

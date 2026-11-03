@@ -504,3 +504,37 @@ async fn a_deleted_rename_destination_reused_by_a_new_note_is_not_the_moved_note
     assert_eq!(server.requests(Route::UpdateObject), 0);
     assert!(intents(root.path()).is_empty());
 }
+
+#[tokio::test]
+async fn deleting_the_moved_note_never_hands_its_object_to_a_newcomer_from_its_old_name() {
+    let root = TempRoot::new();
+    let server = FaultServer::new()
+        .note(&KEY, "obj-a", 1, "a.md", "A")
+        .start();
+    let state = synced_notes(root.path(), &server.base_url, &[("a.md", "obj-a", "A")]);
+    let store = LocalNoteStore::new(root.path().to_owned());
+    store.rename("a", "b").unwrap();
+    store.write("a", "newcomer", None).unwrap();
+    store.rename("a", "c").unwrap();
+    store.delete("b").unwrap();
+
+    let (summary, after) = cycle(
+        &state,
+        root.path(),
+        &no_progress,
+        &no_pre_write,
+        &SyncRunJournal::disabled(),
+    )
+    .await
+    .unwrap();
+
+    assert!(summary.failures.is_empty(), "{summary:?}");
+    assert!(
+        object_at(&after, "c.md").is_some_and(|id| id != "obj-a"),
+        "{:?}",
+        after.object_map
+    );
+    assert_eq!(server.requests(Route::DeleteObject), 1, "obj-a is deleted");
+    assert_eq!(server.requests(Route::UpdateObject), 0);
+    assert!(intents(root.path()).is_empty());
+}

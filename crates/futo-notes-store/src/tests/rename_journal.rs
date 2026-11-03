@@ -467,7 +467,7 @@ fn a_crash_inside_undoing_a_move_leaves_one_note_not_two() {
 }
 
 #[test]
-fn deleting_a_renamed_note_ends_its_rename_intent() {
+fn deleting_a_renamed_note_ends_its_rename_chain() {
     let root = TestRoot::new();
     let store = scoped(&root);
     store.write("a", "body", None).unwrap();
@@ -478,8 +478,19 @@ fn deleting_a_renamed_note_ends_its_rename_intent() {
 
     store.delete("c").unwrap();
 
+    let ends = with_rename_journal(&root.0, |journal| {
+        journal
+            .chains()
+            .into_iter()
+            .map(|chain| (chain.origin, chain.current))
+            .collect::<Vec<_>>()
+    })
+    .unwrap();
     assert_eq!(
-        intents(&root.0),
-        vec![("other.md".to_owned(), "kept.md".to_owned())]
+        ends,
+        vec![
+            ("a.md".to_owned(), None),
+            ("other.md".to_owned(), Some("kept.md".to_owned())),
+        ]
     );
 }
