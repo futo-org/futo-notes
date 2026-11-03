@@ -212,8 +212,6 @@ test:puppet-gates:
   allow_failure: true
   rules:
     - !reference [.not-scheduled, rules]
-    - if: $CI_COMMIT_BRANCH =~ /^engine-climb\//
-      when: never
     # Preserve the default branch/tag routing of a job without rules.
     - if: $CI_COMMIT_TAG || $CI_COMMIT_BRANCH
   cache:
