@@ -313,3 +313,20 @@ fn edit_link_in_a_table_cell_keeps_neighbor_source_and_literal_pipes() {
     session.undo(Revision(1), &mut |_| Ok(())).unwrap().unwrap();
     assert_eq!(session.source_text(), original);
 }
+
+#[test]
+fn empty_supplied_label_at_a_caret_does_not_insert_the_destination_or_add_history() {
+    let mut session = EditorSession::open("see ");
+    assert!(session
+        .edit_link(Revision(0), range(4, 4), "", "/target", &mut |_| panic!(
+            "empty label accepted"
+        ))
+        .unwrap()
+        .is_none());
+    assert_eq!(session.source_text(), "see ");
+    assert_eq!(session.revision(), Revision(0));
+    assert!(session
+        .undo(Revision(0), &mut |_| Ok(()))
+        .unwrap()
+        .is_none());
+}
