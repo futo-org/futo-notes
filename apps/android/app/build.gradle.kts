@@ -151,6 +151,7 @@ android {
                 applicationIdSuffix = ".perf.dev"
                 isDebuggable = false
             }
+            if (project.findProperty("futoDebuggable") == "false") isDebuggable = false
             manifestPlaceholders["appLabel"] = "@string/app_name_debug"
             // Hosted sync ("Log in with FUTO") is always compiled into a debug
             // build — this is the dogfooding surface (ADR 0003 decision 13).
@@ -168,18 +169,6 @@ android {
                 "boolean",
                 "HOSTED_SYNC",
                 if (System.getenv("FUTO_HOSTED_SYNC") == "true") "true" else "false",
-            )
-            // R8 minification: shrinks the app and emits the deobfuscation
-            // mapping file Play wants. Keep rules for JNA, the UniFFI bindings,
-            // and the WebView JS bridge live in proguard-rules.pro.
-            isMinifyEnabled = true
-            // Resource shrinking: R8 also drops unreferenced res/ entries (Play
-            // Console flags its absence). assets/ — where the bundled editor.html
-            // lives — is untouched by it.
-            isShrinkResources = true
-            proguardFiles(
-                getDefaultProguardFile("proguard-android-optimize.txt"),
-                "proguard-rules.pro",
             )
             if (hasReleaseKeystore) {
                 signingConfig = signingConfigs.getByName("release")
@@ -369,3 +358,5 @@ dependencies {
     androidTestImplementation("androidx.test.ext:junit:1.3.0")
     androidTestImplementation("androidx.test:runner:1.7.0")
 }
+
+apply(from = "performance.gradle")

@@ -107,6 +107,8 @@ fun EditorToolbar(
     activeFormats: Set<String> = emptySet(),
     /** Bridge `formatState.disabled` — dims the button and blocks the tap. */
     disabledFormats: Set<String> = emptySet(),
+    /** Items this editor does not offer (the text-first editor drops "paragraph"). */
+    hiddenItems: Set<String> = emptySet(),
 ) {
     val containerVisible = inContainer ?: onListLine
     val c = FutoTheme.colors
@@ -183,7 +185,7 @@ fun EditorToolbar(
                             )
                         }
                         group.forEach { item ->
-                            if (!item.onlyInContainer || containerVisible) {
+                            if ((!item.onlyInContainer || containerVisible) && item.id !in hiddenItems) {
                                 ToolbarButton(
                                     item,
                                     tint = c.textPrimary,

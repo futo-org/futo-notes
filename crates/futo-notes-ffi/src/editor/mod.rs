@@ -12,6 +12,8 @@ mod correspondence;
 pub use correspondence::{EditorCorrespondence, EditorCorrespondenceKind};
 mod find;
 mod images;
+#[cfg(any(target_os = "android", test))]
+mod jni_keys;
 mod links;
 mod tags;
 pub use contract::*;

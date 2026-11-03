@@ -15,11 +15,12 @@ internal suspend fun forward(
     command: String,
     argsJson: String,
 ): PuppetReply {
+    val host = bound.host ?: return PuppetContract.refusal(503, "the native editor has no webview inspector")
     // A renderer that never calls back (gone, or detached) must not hold the one accept loop.
     val raw = try {
         withTimeout(10_000) {
             suspendCancellableCoroutine<String?> { continuation ->
-                bound.host.webView.evaluateJavaScriptForPuppet(
+                host.webView.evaluateJavaScriptForPuppet(
                     PuppetContract.forwardScript(command, argsJson),
                 ) { value -> continuation.resume(value) }
             }

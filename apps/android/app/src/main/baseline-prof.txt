@@ -1,0 +1,12 @@
+# App baseline profile: compiled ahead of time on install (Play, or
+# androidx.profileinstaller on a sideload), so the editor's per-key code never
+# runs interpreted. Wildcards per developer.android.com/topic/performance/baselineprofiles.
+# The text-first editor: every key runs through these classes.
+HSPLcom/futo/notes/textfirst/**->**(**)**
+Lcom/futo/notes/textfirst/**;
+# The Rust engine's generated bindings, called once or more per key.
+HSPLuniffi/futo_notes_ffi/**->**(**)**
+Luniffi/futo_notes_ffi/**;
+# JNA, which the bindings use for every call (call status, buffers).
+HSPLcom/sun/jna/**->**(**)**
+Lcom/sun/jna/**;

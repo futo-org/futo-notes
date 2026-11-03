@@ -1,0 +1,432 @@
+package com.futo.notes.textfirst
+
+import android.net.Uri
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.isImeVisible
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.content.res.ResourcesCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import com.futo.notes.ImagePicker
+import com.futo.notes.NoteMutationOutcome
+import com.futo.notes.NoteShare
+import com.futo.notes.NotesStore
+import com.futo.notes.R
+import com.futo.notes.awaitEditorLeaves
+import com.futo.notes.claimDraftOwnership
+import com.futo.notes.delete
+import com.futo.notes.launchEditorLeave
+import com.futo.notes.localization.LocalLocalization
+import com.futo.notes.localization.LocalizedMessage
+import com.futo.notes.moveNote
+import com.futo.notes.releaseDraftOwnership
+import com.futo.notes.rename
+import com.futo.notes.saveImageIntoVault
+import com.futo.notes.ui.EditorToolbar
+import com.futo.notes.ui.NoteTitleField
+import com.futo.notes.ui.TitleFieldState
+import com.futo.notes.ui.ToolbarItemAction
+import com.futo.notes.ui.affectsOpenNote
+import com.futo.notes.ui.collidesWithOtherNote
+import com.futo.notes.ui.components.ConfirmDialog
+import com.futo.notes.ui.components.FolderPickerSheet
+import com.futo.notes.ui.editorTitleTarget
+import com.futo.notes.ui.isPlaceholderTitle
+import com.futo.notes.ui.showToast
+import com.futo.notes.ui.theme.FutoPalette
+import com.futo.notes.ui.theme.FutoTheme
+import com.futo.notes.ui.theme.FutoType
+import com.futo.notes.ui.titleValidationMessage
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import uniffi.futo_notes_ffi.FlushDisposition
+import uniffi.futo_notes_ffi.makeId
+import uniffi.futo_notes_ffi.sanitizeTitle
+import uniffi.futo_notes_ffi.splitId
+import uniffi.futo_notes_ffi.validateTitle
+
+/**
+ * The note screen for the text-first editor (debug builds, [TextFirstFlag]).
+ *
+ * Saving is the engine's: edits live in the Store's session and the Markdown
+ * file is written on the Store's debounce (500 ms idle, 2 s max wait), on
+ * pause, and when leaving detaches. So the screen never holds the
+ * note body; rename, move and delete go through the Store's ordinary
+ * workflows, which retarget or end the live attachment themselves.
+ *
+ * Not here yet (later stages): find, links/wikilink completion, tables,
+ * front-matter panel, Copy Draft after a storage failure.
+ */
+@OptIn(ExperimentalLayoutApi::class, FlowPreview::class)
+@Composable
+fun TextFirstEditorScreen(
+    store: NotesStore,
+    initialNoteId: String,
+    autoFocus: Boolean,
+    darkTheme: Boolean,
+    onBack: () -> Unit,
+    imagePicker: ImagePicker? = null,
+) {
+    val c = FutoTheme.colors
+    val localization = LocalLocalization.current
+    val context = LocalContext.current
+    val clipboard = LocalClipboardManager.current
+    val scope = rememberCoroutineScope()
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+
+    var noteId by remember(initialNoteId) { mutableStateOf(initialNoteId) }
+    val titleField = remember(initialNoteId) { TitleFieldState(splitId(initialNoteId).title) }
+    var titleWarning by remember(initialNoteId) { mutableStateOf<LocalizedMessage?>(null) }
+    var leaving by remember(initialNoteId) { mutableStateOf(false) }
+    var confirmDelete by remember { mutableStateOf(false) }
+    var showMoveSheet by remember { mutableStateOf(false) }
+    var pendingImages by remember(initialNoteId) { mutableStateOf(0) }
+    var adoptWhenBlurred by remember(initialNoteId) { mutableStateOf(false) }
+    val ownerToken = remember(initialNoteId) { store.claimDraftOwnership() }
+    // Title renames, moves, deletes and reloads run one at a time.
+    val work = remember(initialNoteId) { Mutex() }
+
+    val controller = remember(initialNoteId) {
+        val density = context.resources.displayMetrics.density
+        val scaled = context.resources.displayMetrics.scaledDensity
+        val regular = ResourcesCompat.getFont(context, R.font.barlow_regular)!!
+        val style = TextFirstStyle(
+            density = density,
+            textSizePx = 17f * scaled,
+            regular = regular,
+            semibold = ResourcesCompat.getFont(context, R.font.barlow_semibold)!!,
+            bold = ResourcesCompat.getFont(context, R.font.barlow_bold)!!,
+            mono = ResourcesCompat.getFont(context, R.font.jetbrains_mono_regular)!!,
+            textColor = c.textPrimary.toArgb(),
+            mutedColor = c.textMuted.toArgb(),
+            linkColor = c.accent.toArgb(),
+            borderColor = c.border.toArgb(),
+            codeBackground = (if (darkTheme) FutoPalette.InkHairline else FutoPalette.N200).toArgb(),
+            surfaceColor = c.surfaceSunken.toArgb(),
+        )
+        TextFirstController(context, { store.core }, java.io.File(store.rootPath), style)
+    }
+
+    fun showTitleValidation(title: String) {
+        val blocking = validateTitle(title).firstOrNull { it.kind != "empty" && it.kind != "forbidden_chars" }
+        val duplicate = title.trim().let { t ->
+            t.isNotEmpty() && collidesWithOtherNote(
+                noteId, makeId(splitId(noteId).folder, sanitizeTitle(t)), store.notes.map { it.id },
+            )
+        }
+        titleWarning = blocking?.let { titleValidationMessage(it.kind) }
+            ?: if (duplicate) LocalizedMessage("notes.title.duplicate") else null
+    }
+
+    controller.onCheckpointed = { result, finalId ->
+        result.mutation?.let {
+            store.applyMutation(it)
+            store.signalLocalChange()
+        }
+        val disposition = result.disposition
+        if (disposition is FlushDisposition.ParkedConflict) {
+            showToast(context, localization.localizedText("notes.save.conflictCopy"))
+        }
+        if (finalId != noteId) {
+            noteId = finalId
+            if (!titleField.isFocused) titleField.commit(splitId(finalId).title)
+        }
+    }
+    // A failed save keeps the draft in the engine and input running; the Store
+    // retries it. The Copy Draft screen comes in stage 3.
+    controller.onFailure = {
+        showToast(context, localization.localizedText("notes.save.failedPending"))
+    }
+
+    // Open after any leave of this same note has released its attachment.
+    LaunchedEffect(initialNoteId) {
+        store.awaitEditorLeaves()
+        controller.open(initialNoteId) { error ->
+            // A note that cannot be opened never shows as a blank page; leave,
+            // as the WebView editor does when its read fails.
+            if (error != null) {
+                onBack()
+            } else if (autoFocus) {
+                controller.view.post { controller.view.showKeyboard() }
+            }
+        }
+    }
+
+    // Save on pause, ahead of the debounce: the process may not come back.
+    DisposableEffect(lifecycle, controller) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_PAUSE) scope.launch { controller.checkpoint() }
+        }
+        lifecycle.addObserver(observer)
+        onDispose { lifecycle.removeObserver(observer) }
+    }
+
+    suspend fun renameTo(next: String): Boolean {
+        val wanted = editorTitleTarget(noteId, next, store.notes.mapTo(mutableSetOf()) { it.id })
+        if (wanted == null || wanted == noteId) {
+            return next.isNotBlank() && sanitizeTitle(next.trim()) == splitId(noteId).title
+        }
+        return when (val outcome = store.rename(noteId, wanted, draft = null, ownerToken = ownerToken)) {
+            is NoteMutationOutcome.Committed -> {
+                noteId = outcome.value.id
+                if (titleField.text == next) titleField.commit(splitId(noteId).title)
+                controller.drainCoordinatedChanges()
+                true
+            }
+            NoteMutationOutcome.Failed -> {
+                showToast(context, localization.localizedText("notes.title.renameFailed"))
+                false
+            }
+        }
+    }
+
+    LaunchedEffect(initialNoteId) {
+        snapshotFlow { titleField.text }.debounce(500).collect { next ->
+            if (!leaving) work.withLock { renameTo(next) }
+        }
+    }
+
+    LaunchedEffect(titleField) {
+        titleField.watchEdits { title -> showTitleValidation(title) }
+    }
+
+    LaunchedEffect(titleField.isFocused) {
+        if (titleField.isFocused && isPlaceholderTitle(titleField.text)) titleField.selectAll()
+    }
+
+    // Sync changed this note on disk. A clean editor adopts the new bytes (a
+    // focused one waits for blur, as the WebView editor does); a dirty one
+    // keeps its draft, and its next save persists or parks it.
+    LaunchedEffect(initialNoteId) {
+        store.localTreeChanges.collect { summary ->
+            if (!summary.affectsOpenNote(noteId) || leaving) return@collect
+            work.withLock {
+                val renamed = summary.renamed.firstOrNull { it.fromId == noteId }?.toId
+                when {
+                    noteId in summary.deletedIds && !controller.dirty -> {
+                        leaving = true
+                        controller.close()
+                        showToast(context, localization.localizedText("notes.deletedElsewhere"))
+                        onBack()
+                    }
+                    controller.dirty -> Unit
+                    renamed != null -> {
+                        noteId = renamed
+                        titleField.commit(splitId(renamed).title)
+                        controller.reopen(renamed)
+                    }
+                    controller.focused -> adoptWhenBlurred = true
+                    else -> controller.reopen(noteId)
+                }
+            }
+        }
+    }
+
+    LaunchedEffect(controller.focused, adoptWhenBlurred) {
+        if (adoptWhenBlurred && !controller.focused && !leaving) {
+            adoptWhenBlurred = false
+            work.withLock { if (!controller.dirty) controller.reopen(noteId) }
+        }
+    }
+
+    fun leave(navigate: () -> Unit) {
+        if (leaving) return
+        leaving = true
+        controller.view.hideKeyboard()
+        scope.launch {
+            work.withLock { renameTo(titleField.text) }
+            navigate()
+        }
+    }
+
+    // Leaving: save and detach on the store's scope, which outlives this
+    // screen; reopening the note waits for it (awaitEditorLeaves). An untouched
+    // quick-capture note is discarded, as in the WebView editor.
+    DisposableEffect(initialNoteId) {
+        onDispose {
+            val id = noteId
+            val untouched = autoFocus && id == initialNoteId && controller.isEmpty && !controller.dirty &&
+                titleField.text == splitId(initialNoteId).title && pendingImages == 0
+            store.launchEditorLeave {
+                controller.close()
+                if (untouched) store.delete(id, ownerToken = ownerToken)
+                controller.dispose()
+                store.releaseDraftOwnership(ownerToken)
+            }
+        }
+    }
+
+    BackHandler { leave(onBack) }
+
+    fun pickImage(source: String) {
+        val handle: (List<Uri>) -> Unit = { uris ->
+            val uri = uris.firstOrNull()
+            if (uri != null) {
+                pendingImages += 1
+                scope.launch {
+                    try {
+                        val claim = controller.imageClaim() ?: return@launch
+                        val name = store.saveImageIntoVault(
+                            save = { root -> saveImageIntoVault(context.contentResolver, root, uri) },
+                            useSavedImage = { filename ->
+                                check(controller.insertImage(claim, filename)) { "the editor refused the image" }
+                            },
+                        )
+                        if (name == null) showToast(context, localization.localizedText("editor.images.unsupportedType"))
+                    } finally {
+                        pendingImages -= 1
+                    }
+                }
+            }
+        }
+        when (source) {
+            "camera" -> imagePicker?.captureCamera(handle)
+            else -> imagePicker?.pickLibrary(callback = handle)
+        }
+    }
+
+    fun deleteNote() {
+        leaving = true
+        scope.launch {
+            work.withLock {
+                when (store.delete(noteId, ownerToken = ownerToken)) {
+                    is NoteMutationOutcome.Committed -> {
+                        controller.close()
+                        showToast(context, localization.localizedText("notes.deleted"))
+                        onBack()
+                    }
+                    NoteMutationOutcome.Failed -> {
+                        leaving = false
+                        showToast(context, localization.localizedText("notes.errors.deleteFailed"))
+                    }
+                }
+            }
+        }
+    }
+
+    fun moveNote(folder: String): Deferred<Boolean> {
+        val moved = CompletableDeferred<Boolean>()
+        scope.launch {
+            work.withLock {
+                val outcome = store.moveNote(noteId, folder, draft = null, ownerToken = ownerToken)
+                if (outcome is NoteMutationOutcome.Committed) {
+                    noteId = outcome.value.id
+                    titleField.commit(splitId(noteId).title)
+                    controller.drainCoordinatedChanges()
+                    showMoveSheet = false
+                    showToast(
+                        context,
+                        if (folder.isEmpty()) localization.localizedText("notes.movedToRoot")
+                        else localization.localizedText("notes.movedTo", mapOf("destination" to folder)),
+                    )
+                    moved.complete(true)
+                } else {
+                    showToast(context, localization.localizedText("notes.errors.moveFailed"))
+                    moved.complete(false)
+                }
+            }
+        }
+        return moved
+    }
+
+    Scaffold(
+        containerColor = c.surface,
+        topBar = {
+            TextFirstTopBar(
+                onBack = { leave(onBack) },
+                onShare = {
+                    scope.launch {
+                        val body = controller.sourceText() ?: return@launch
+                        if (!NoteShare.share(context, titleField.text, body, localization.localizedText("notes.shareChooserTitle"))) {
+                            showToast(context, localization.localizedText("notes.shareFailed"))
+                        }
+                    }
+                },
+                onMove = { showMoveSheet = true },
+                onCopyPath = {
+                    clipboard.setText(AnnotatedString("${store.rootPath}/$noteId.md"))
+                    showToast(context, localization.localizedText("notes.pathCopied"))
+                },
+                onDelete = { confirmDelete = true },
+            )
+        },
+    ) { padding ->
+        Column(
+            modifier = Modifier.padding(padding).consumeWindowInsets(padding).fillMaxSize().imePadding(),
+        ) {
+            NoteTitleField(
+                enabled = !leaving,
+                state = titleField.textState,
+                placeholder = localization.localizedText("notes.untitledPlaceholder"),
+                onReturn = { controller.view.showKeyboard() },
+                onTyped = { title, forbidden ->
+                    if (forbidden) titleWarning = LocalizedMessage("notes.title.forbiddenCharacter") else showTitleValidation(title)
+                },
+                modifier = Modifier.fillMaxWidth().padding(start = 22.dp, end = 22.dp, top = 4.dp)
+                    .onFocusChanged { focus -> titleField.focusChanged(focus.isFocused) },
+            )
+            titleWarning?.let { warning ->
+                Text(
+                    localization.localizedText(warning.path, warning.arguments),
+                    style = FutoType.caption,
+                    color = c.danger,
+                    modifier = Modifier.fillMaxWidth().padding(start = 22.dp, end = 22.dp, top = 2.dp),
+                )
+            }
+            Spacer(Modifier.size(4.dp))
+            Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                AndroidView(factory = { controller.view }, modifier = Modifier.fillMaxSize())
+            }
+            TextFirstToolbarSlot(controller, onPickImage = ::pickImage)
+        }
+    }
+
+    if (confirmDelete) {
+        ConfirmDialog(
+            title = localization.localizedText("notes.delete.thisNoteQuestion"),
+            body = localization.localizedText("notes.delete.recoverableWarning"),
+            confirmLabelKey = "common.actions.delete",
+            onConfirm = { confirmDelete = false; deleteNote() },
+            onDismiss = { confirmDelete = false },
+        )
+    }
+
+    if (showMoveSheet) {
+        FolderPickerSheet(store = store, onDismiss = { showMoveSheet = false }, onPick = ::moveNote)
+    }
+}

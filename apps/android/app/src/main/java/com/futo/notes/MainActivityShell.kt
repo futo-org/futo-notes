@@ -33,6 +33,8 @@ internal fun MainActivity.AppShell(
     onThemeMode: (ThemeMode) -> Unit,
     dark: Boolean,
 ) {
+    // Debug builds open notes in the text-first editor (textfirst/TextFirstFlag.kt).
+    val textFirstEditor = androidx.compose.runtime.remember { com.futo.notes.textfirst.TextFirstFlag.enabled(this) }
     AppNavigation(
         hasBootstrapped = s.hasBootstrapped,
         availableFolderPaths = s.folders,
@@ -57,7 +59,14 @@ internal fun MainActivity.AppShell(
                 onOpenSettings = navigator::openSettings,
                 onBack = navigator::goBack,
             )
-            is Screen.Editor -> NoteEditorScreen(
+            is Screen.Editor -> if (textFirstEditor) com.futo.notes.textfirst.TextFirstEditorScreen(
+                store = s,
+                initialNoteId = screen.noteId,
+                autoFocus = screen.autoFocus,
+                darkTheme = dark,
+                onBack = navigator::goBack,
+                imagePicker = imagePicker,
+            ) else NoteEditorScreen(
                 store = s,
                 initialNoteId = screen.noteId,
                 autoFocus = screen.autoFocus,

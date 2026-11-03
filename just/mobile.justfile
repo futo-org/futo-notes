@@ -241,6 +241,37 @@ test-android-keystroke-latency: qa-android-target
   apps/android/gradlew --project-dir apps/android -PfutoEditorPerf=true :app:assembleDirectDebug :app:assembleDirectDebugAndroidTest
   node scripts/android-keystroke-latency.mjs
 
+# Text-first editor: key → drawn frame over futo-notes-ml corpus notes (non-debuggable perf app, claimed phone).
+test-android-text-first-bench *args: qa-android-target
+  #!/usr/bin/env bash
+  set -euo pipefail
+  ABIS=device FUTO_ANDROID_FFI_PROFILE=release-ffi just build-android-native
+  apps/android/gradlew --project-dir apps/android -PfutoEditorPerf=true :app:assembleDirectDebug :app:assembleDirectDebugAndroidTest
+  node scripts/android-text-first-bench.mjs {{args}}
+
+
+
+# The same engine bench natively on the claimed phone (its real CPU; files are pushed along).
+engine-keys-device *args: qa-android-target
+  #!/usr/bin/env bash
+  set -euo pipefail
+  export ANDROID_NDK_HOME="${ANDROID_NDK_HOME:-$ANDROID_HOME/ndk/28.2.13676358}"
+  cargo ndk -t armeabi-v7a -t arm64-v8a --platform 26 build --release -q -p futo-notes-store --example editor_keys
+  abi=$(adb shell getprop ro.product.cpu.abi | tr -d '\r')
+  triple=$([ "$abi" = arm64-v8a ] && echo aarch64-linux-android || echo armv7-linux-androideabi)
+  dir=/data/local/tmp/editor-keys
+  adb shell "rm -rf $dir && mkdir -p $dir" && adb push -q "target/$triple/release/examples/editor_keys" $dir/
+  remote=()
+  for a in {{args}}; do
+    if [ -f "$a" ]; then adb push -q "$a" "$dir/$(basename "$a")"; remote+=("$dir/$(basename "$a")"); else remote+=("$a"); fi
+  done
+  adb shell "cd $dir && TMPDIR=$dir ./editor_keys ${remote[*]:-}"
+  adb shell rm -rf $dir
+
+# Text-first editor, quick loop: 8 notes (one per known slow shape + small ones), ~1 min on the Moto.
+bench-text-first *args:
+  just test-android-text-first-bench --quick {{args}}
+
 # Editor performance stories against the REAL native Android app on an
 # explicitly claimed device — written for the low-end reference phone, where
 # the budgets are hardest (issue #106, docs/plan/milkdown-transition.md §5):

@@ -25,6 +25,13 @@ hardest on. It needs `$ANDROID_SERIAL` set to a physical low-end device — a
 fast emulator on a desktop CPU cannot fail the way the ticket cares about — and
 it is deliberately out of `check`/CI, which has no device.
 
+To judge how the app FEELS, build the dev app non-debuggable:
+`./gradlew -PfutoDebuggable=false :app:installDirectDebug` (same `.dev` app id and data).
+A debuggable build runs framework code interpreted and Compose several times
+slower: on the Moto, Back and keyboard animations measured 2-4x worse frames.
+Branch on `NotesStorage.isDevBuild`, never `BuildConfig.DEBUG`, for anything
+that must still hold in that build: AGP sets DEBUG from `isDebuggable`.
+
 For app-only Kotlin iteration, `./gradlew :app:installDirectDebug` from here is
 enough **in a warm checkout**. In a FRESH worktree it is not, and the failures look
 unrelated to what you changed:

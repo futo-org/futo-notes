@@ -20,6 +20,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.runtime.mutableStateOf
@@ -138,6 +139,7 @@ class MainActivity : ComponentActivity() {
         }
 
         super.onCreate(savedInstanceState)
+        com.futo.notes.textfirst.TextFirstFlag.readIntent(this, intent)
         lifecycleScope.launch {
             val icons = com.futo.notes.ui.settings.appicon.AppIconController(this@MainActivity)
             icons.refresh()
@@ -230,9 +232,14 @@ class MainActivity : ComponentActivity() {
                     license.handle(licenseLink)
                 }
                 DropLicenseLandingWithoutShell(license, noShell = hasNoShell())
+                // The text-first editor (debug builds) never uses the WebView
+                // host: don't create it, its sandbox process or its bundle.
+                val textFirstEditor = remember { com.futo.notes.textfirst.TextFirstFlag.enabled(this@MainActivity) }
                 LaunchedEffect(currentLocalization.effectiveLanguage.tag) {
-                    EditorHost.prewarm(this@MainActivity)
-                    EditorHost.get(this@MainActivity).setLocalization(currentLocalization)
+                    if (!textFirstEditor) {
+                        EditorHost.prewarm(this@MainActivity)
+                        EditorHost.get(this@MainActivity).setLocalization(currentLocalization)
+                    }
                 }
                 val selectedTheme = themeMode.value
                 val dark = when (selectedTheme) {
@@ -248,8 +255,10 @@ class MainActivity : ComponentActivity() {
                     // the editor WebView's DOM caret via a bridge blur (it
                     // survives clearFocus). Dialog windows install their own.
                     ClearFocusOnImeDismiss(imeTargetVisible()) {
-                        val editorHost = EditorHost.get(this)
-                        if (editorHost.editorFocused) editorHost.blur()
+                        if (!textFirstEditor) {
+                            val editorHost = EditorHost.get(this)
+                            if (editorHost.editorFocused) editorHost.blur()
+                        }
                     }
                     Surface(modifier = Modifier.fillMaxSize()) {
                         val s = store.value

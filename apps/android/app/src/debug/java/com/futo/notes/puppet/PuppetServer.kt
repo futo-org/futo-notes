@@ -13,6 +13,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import com.futo.notes.NotesStore
 import com.futo.notes.SyncManager
+import com.futo.notes.localization.LocalLocalization
+import com.futo.notes.localization.Localization
 import com.futo.notes.ui.EditorHost
 import com.futo.notes.ui.currentToast
 import com.futo.notes.ui.navigation.AppNavigator
@@ -57,11 +59,12 @@ internal object PuppetServer {
     internal class Binding(
         val navigator: AppNavigator,
         val store: NotesStore,
-        val host: EditorHost,
+        val host: EditorHost?,
         val sync: SyncManager,
         val prefs: SharedPreferences,
         /** The shell's own view: its display, its density, and on API 28 its window. */
         val shellView: View,
+        val localization: Localization,
     )
 
     /** The composed shell's binding, or null before (or after) it. Main thread only. */
@@ -248,8 +251,12 @@ internal fun PuppetServerStart(
 ) {
     val context = LocalContext.current
     val view = LocalView.current
-    DisposableEffect(navigator, store) {
-        val bound = PuppetServer.Binding(navigator, store, EditorHost.get(context), sync, prefs, view)
+    val localization = LocalLocalization.current
+    DisposableEffect(navigator, store, localization) {
+        // Native editor QA must not boot an unused Chromium renderer merely
+        // to expose shell navigation. Page queries explicitly refuse below.
+        val host = if (com.futo.notes.textfirst.TextFirstFlag.enabled(context)) null else EditorHost.get(context)
+        val bound = PuppetServer.Binding(navigator, store, host, sync, prefs, view, localization)
         PuppetServer.bind(bound)
         onDispose { PuppetServer.unbind(bound) }
     }
