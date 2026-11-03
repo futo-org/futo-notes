@@ -43,6 +43,7 @@ internal class TextFirstController(
     /** Whether navigation can proceed without an attached editor save. */
     private var released = false
     val canNavigateWithoutSaving: Boolean get() = openFailure != null || released
+    var completion by mutableStateOf<CompletionDraft?>(null); private set
     var caret by mutableStateOf(CaretState.Empty); private set
     /** Edits not yet saved as Markdown. */
     var dirty by mutableStateOf(false); private set
@@ -109,6 +110,7 @@ internal class TextFirstController(
         val field = cellView ?: TableCellEditText(context, e, style).also { cellView = it; view.hideKeyboard() }
         field.apply(update)
     }
+    override fun onCompletion(draft: CompletionDraft?) { completion = draft }
 
     override fun onCaretState(state: CaretState) { caret = state }
 
@@ -145,6 +147,19 @@ internal class TextFirstController(
     fun undo() { engine?.undo() }
     fun redo() { engine?.redo() }
     fun drainCoordinatedChanges() { engine?.drainCoordinatedChanges() }
+
+    fun dismissCompletion(draft: CompletionDraft) { engine?.dismissCompletion(draft) }
+    fun refreshCompletionNoteIds() { engine?.refreshCompletionNoteIds() }
+
+    suspend fun completionDraft(): CompletionDraft? = suspendCancellableCoroutine { cont ->
+        val e = engine ?: return@suspendCancellableCoroutine cont.resume(null)
+        e.completionDraft { cont.resume(it) }
+    }
+
+    suspend fun acceptCompletion(draft: CompletionDraft, noteId: String): Boolean = suspendCancellableCoroutine { cont ->
+        val e = engine ?: return@suspendCancellableCoroutine cont.resume(false)
+        e.acceptCompletion(draft, noteId) { cont.resume(it) }
+    }
 
     suspend fun linkDraft(): LinkDraft? = suspendCancellableCoroutine { cont ->
         val e = engine ?: return@suspendCancellableCoroutine cont.resume(null)
@@ -216,6 +231,7 @@ internal class TextFirstController(
         latencyFlush.run()
         engine = null
         cellView = null
+        completion = null
         view.engine = null
         released = true
         opened = false
