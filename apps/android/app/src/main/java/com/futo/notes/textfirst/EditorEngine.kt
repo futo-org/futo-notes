@@ -22,6 +22,7 @@ import uniffi.futo_notes_ffi.NoteStore
 
 internal interface EngineSink {
     fun onUpdate(update: UiUpdate)
+    fun onCompletion(draft: CompletionDraft?) {}
     fun onCaretState(state: CaretState)
     /** A Markdown save landed; [noteId] is the attachment's identity after it (a park moves it). */
     fun onCheckpoint(result: FlushDraftResult, noteId: String)
@@ -58,6 +59,7 @@ internal class EditorEngine(
     // ---- editor-thread state ----
     internal var session: NativeEditorSession? = null
     internal var fast: FastSession? = null
+    internal var dismissedCompletionStart: ULong? = null
     internal var rev: ULong = 0u
     internal val mirror = DisplayMirror()
 
@@ -386,6 +388,7 @@ internal class EditorEngine(
         )
         publishSelection()
         ui.post { sink.onUpdate(update) }
+        scheduleCaretState()
     }
 
     private fun publishSelection() {

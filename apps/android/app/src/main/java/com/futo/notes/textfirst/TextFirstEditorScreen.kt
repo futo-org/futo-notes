@@ -87,7 +87,7 @@ import uniffi.futo_notes_ffi.validateTitle
  * note body; rename, move and delete go through the Store's ordinary
  * workflows, which retarget or end the live attachment themselves.
  *
- * Not here yet (later stages): find, wikilink completion, tables,
+ * Not here yet (later stages): find, tables,
  * front-matter panel.
  */
 @OptIn(ExperimentalLayoutApi::class, FlowPreview::class)
@@ -233,6 +233,7 @@ internal fun TextFirstEditorScreen(
     // keeps its draft, and its next save persists or parks it.
     LaunchedEffect(initialNoteId) {
         store.localTreeChanges.collect { summary ->
+            controller.refreshCompletionNoteIds()
             if (!summary.affectsOpenNote(noteId) || leaving) return@collect
             work.withLock {
                 val renamed = summary.renamed.firstOrNull { it.fromId == noteId }?.toId
@@ -430,6 +431,7 @@ internal fun TextFirstEditorScreen(
             Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
                 AndroidView(factory = { controller.view }, modifier = Modifier.fillMaxSize().nativeEditorField(controller))
             }
+            if (!leaving) TextFirstCompletions(controller)
             TextFirstToolbarSlot(controller, onPickImage = ::pickImage)
         }
     }
