@@ -63,6 +63,59 @@ class TextFirstCompletionTest {
         }
     }
 
+    @Test
+    fun compositionAndDismissalPreserveTypingWithoutTakingSelection() = runBlocking {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val root = File(context.cacheDir, "completion-compose-${UUID.randomUUID()}").apply { check(mkdirs()) }
+        val scenario = ActivityScenario.launch(ComponentActivity::class.java)
+        val store = NoteStore(root.path)
+        lateinit var controller: TextFirstController
+        try {
+            store.createNote("links", "", "before [[ after")
+            store.createNote("東京", "work", "destination")
+            withContext(Dispatchers.Main) {
+                suspendCancellableCoroutine<Unit> { done ->
+                    scenario.onActivity { activity ->
+                        controller = createController(activity, { store }, root)
+                        activity.setContentView(controller.view)
+                        controller.open("links") { assertNull(it); done.resume(Unit) }
+                    }
+                }
+                controller.select(9)
+                val connection = controller.view.onCreateInputConnection(EditorInfo())!!
+                val beforeComposition = controller.completionDraft()!!
+                suspendCancellableCoroutine<Unit> { done ->
+                    connection.handler!!.post { connection.setComposingText("東", 1); done.resume(Unit) }
+                }
+                assertNull("Suggestions must not claim marked text", controller.completionDraft())
+                assertFalse(controller.acceptCompletion(beforeComposition, "work/東京"))
+                assertEquals("before [[ after", controller.sourceText())
+                suspendCancellableCoroutine<Unit> { done ->
+                    connection.handler!!.post { connection.finishComposingText(); done.resume(Unit) }
+                }
+                val draft = controller.completionDraft()!!
+                assertEquals("東", draft.value.query)
+                controller.dismissCompletion(draft)
+                suspendCancellableCoroutine<Unit> { done ->
+                    connection.handler!!.post { connection.commitText("京", 1); done.resume(Unit) }
+                }
+                assertNull("Dismissed run stays dismissed during typing", controller.completionDraft())
+                assertEquals("before [[東京 after", controller.sourceText())
+                assertEquals(11, controller.view.selectionStart)
+                controller.select(0)
+                assertNull(controller.completionDraft())
+                controller.select(11)
+                assertNotNull("Returning to the run permits completion again", controller.completionDraft())
+                assertNotNull(controller.close())
+            }
+        } finally {
+            withContext(Dispatchers.Main) { controller.discard(); controller.dispose() }
+            scenario.close()
+            store.destroy()
+            root.deleteRecursively()
+        }
+    }
+
     private fun createController(activity: ComponentActivity, core: () -> NoteStore, root: File): TextFirstController {
         val metrics = activity.resources.displayMetrics
         val regular = ResourcesCompat.getFont(activity, R.font.barlow_regular)!!
