@@ -112,6 +112,7 @@ impl super::Projection {
         range: crate::DisplayRange,
         selection: crate::DisplayRange,
         destination: &str,
+        label: Option<&str>,
     ) -> Result<(super::edit::Plan, crate::SourceRange), crate::EditorError> {
         use super::{
             edit::{common_prefix, split_entities, Context, Plan},
@@ -131,12 +132,19 @@ impl super::Projection {
             mut link_metadata_items,
             ..
         } = self.edit_context(source, range)?;
-        let selected = [
+        let selected = label.map_or(
+            [
+                a + selection.start.0 - range.start.0,
+                a + selection.end.0 - range.start.0,
+            ],
+            |label| [a + label.len(), a + label.len()],
+        );
+        let pieces = split_entities(pieces, a, z);
+        let mut pieces = split_entities(
+            pieces,
             a + selection.start.0 - range.start.0,
             a + selection.end.0 - range.start.0,
-        ];
-        let pieces = split_entities(pieces, a, z);
-        let mut pieces = split_entities(pieces, selected[0], selected[1]);
+        );
         let mut at = 0;
         let mut existing = Vec::new();
         for piece in &pieces {
@@ -234,14 +242,57 @@ impl super::Projection {
                 at = end;
             }
         }
-        let end = pieces.len();
+        let mut insertion = pieces.len()..pieces.len();
+        if let Some(label) = label {
+            // Keep markers shared by all replaced text (including its enclosing
+            // link), and let the canonical spelling verifier escape the label.
+            let mut at = 0;
+            let mut active: Option<Vec<usize>> = None;
+            for piece in &pieces {
+                let end = at + piece.display.len();
+                if at < z && a < end {
+                    match &mut active {
+                        None => active = Some(piece.spans.clone()),
+                        Some(ids) => ids.retain(|id| piece.spans.contains(id)),
+                    }
+                }
+                at = end;
+            }
+            let mut active = active.unwrap_or_default();
+            if a == z && !destination.is_empty() {
+                active.push(markers.len() - 1);
+            }
+            let super::edit::Cut {
+                mut before, after, ..
+            } = super::edit::cut(pieces, a..z, false);
+            let start = before.len();
+            before.extend(label.chars().map(|ch| super::spelling::Piece {
+                guard: None,
+                physical_prefix: false,
+                literal_url: None,
+                raw: if ch.is_ascii_punctuation() {
+                    format!("\\{ch}")
+                } else {
+                    ch.to_string()
+                },
+                display: ch.to_string(),
+                spans: active.clone(),
+                trailing: false,
+                definition: None,
+                origin: None,
+                timing: false,
+            }));
+            insertion = start..before.len();
+            before.extend(after);
+            pieces = before;
+        }
         let mut rendered = spell_with_anchors(
             pieces,
             guard_state,
             super::typed_angle::TypedState::current(typed_inputs),
             &raw,
             markers,
-            end..end,
+            insertion,
             true,
             &self.references,
             &selected,

@@ -165,3 +165,34 @@ mod typed_origin;
 mod input_lifecycle;
 
 mod compound_derived;
+
+#[test]
+fn atomic_label_and_destination_edit_saves_and_reopens_as_one_history_action() {
+    let root = TestRoot::new();
+    let store = store(&root);
+    let original = "before [old](https://old.test 'T') after\r\n";
+    store.create("", "labels", original).unwrap();
+    let mut session = store.open_editor("labels").unwrap();
+    session
+        .edit_link(Revision(0), range(8, 9), "資料 [one]", "/new")
+        .unwrap()
+        .unwrap();
+    let edited = session.source_text();
+    assert_eq!(session.display_text(), "before 資料 [one] after\r\n");
+    session.undo(Revision(1)).unwrap().unwrap();
+    assert_eq!(session.source_text(), original);
+    session.redo(Revision(2)).unwrap().unwrap();
+    assert_eq!(session.source_text(), edited);
+    session.checkpoint().unwrap();
+    drop(session);
+    let mut reopened = store.open_editor("labels").unwrap();
+    assert_eq!(reopened.source_text(), edited);
+    let link = reopened
+        .inspect_link(Revision(0), range(7, 10))
+        .unwrap()
+        .unwrap();
+    assert_eq!(link.destination, "/new");
+    assert_eq!(link.title.as_deref(), Some("T"));
+    assert!(reopened.undo(Revision(0)).unwrap().is_none());
+    assert_eq!(store.read("labels").unwrap(), edited);
+}
