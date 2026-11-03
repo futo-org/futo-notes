@@ -44,6 +44,15 @@ impl StoreEditorSession<'_> {
     ) -> Result<Option<ViewChange>, EditorStoreError> {
         self.live(|state| state.set_link(expected, range, destination))
     }
+    pub fn edit_link(
+        &mut self,
+        expected: Revision,
+        range: DisplayRange,
+        label: &str,
+        destination: &str,
+    ) -> Result<Option<ViewChange>, EditorStoreError> {
+        self.live(|state| state.edit_link(expected, range, label, destination))
+    }
 }
 
 impl Attachment {
@@ -54,6 +63,15 @@ impl Attachment {
         destination: &str,
     ) -> Result<Option<ViewChange>, EditorStoreError> {
         self.edit(|engine, accept| engine.set_link(expected, range, destination, accept))
+    }
+    pub fn edit_link(
+        &mut self,
+        expected: Revision,
+        range: DisplayRange,
+        label: &str,
+        destination: &str,
+    ) -> Result<Option<ViewChange>, EditorStoreError> {
+        self.edit(|engine, accept| engine.edit_link(expected, range, label, destination, accept))
     }
 }
 
