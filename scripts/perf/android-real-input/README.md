@@ -47,7 +47,9 @@ queue and refresh waiting; it is not a CPU-time measurement or a frame deadline.
 Windows contain up to 50 drawn updates; idle and close flush the partial tail.
 First/final input coverage is checked. No-op keyboard operations need not draw.
 The Java receipt's final timestamp is completion of UP injection, not UP's original
-event timestamp. There is no per-key input-to-compositor correlation yet.
+event timestamp. There is no per-key input-to-compositor correlation yet. Only the final pending
+update per draw is timed; coalesced updates are not individually reconstructed.
+First/final coverage checks do not prove every intermediate key was timed.
 
 Navigation timing is touch-down to the last presented app frame within 1.5 s,
 including the animation. It is not time to first readable content. Every trial
@@ -79,8 +81,9 @@ device coverage, outside CI. The pure collection/model tests run with
 The Android-only adapter adds 119 Rust + 59 Kotlin source lines (178 total,
 excluding blank lines and comments), plus call-site/build glue. Its Rust and
 Android contract tests add 86 SLoC. It invokes the same canonical engine and
-reuses UniFFI's generated result/error codec. The rest of the app still uses
-UniFFI/JNA; no dependency or APK-size reduction is claimed.
+reuses UniFFI's generated result/error codec. Only replace and paragraph-key calls use this adapter. Composition updates and
+commits still use the generated UniFFI/JNA path, so benefit depends on the IME.
+The rest of the app still uses UniFFI/JNA; no dependency or APK-size reduction is claimed.
 
 The maintenance cost is three handwritten JNI entry points, explicit enum tags,
 and ownership of a cloned UniFFI Arc handle. Tests cover exact UTF-16 (including
