@@ -10,6 +10,7 @@ mod list_cache;
 mod notes;
 mod paths;
 mod relink;
+pub mod rename_journal;
 mod search;
 mod vault;
 mod vault_migration;

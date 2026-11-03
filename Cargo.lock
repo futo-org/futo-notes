@@ -2124,6 +2124,7 @@ version = "0.1.0"
 dependencies = [
  "base64 0.23.1",
  "futo-notes-core",
+ "futo-notes-store",
  "jni",
  "openssl-probe",
  "rcgen",

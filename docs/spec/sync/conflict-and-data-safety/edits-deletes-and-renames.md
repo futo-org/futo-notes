@@ -51,8 +51,35 @@
   `(conflict <oid32>)` copy and its map entry is dropped without tombstoning
   the live server object) — only genuinely divergent content is parked. →
   futo-notes-sync sync module
-- Renames are paired — a rename is not seen as delete + create. → migration plan
-  Phase 5
+- **An in-app rename keeps the note's server identity (#214).** Every store
+  move — title rename, note move, folder rename/move, delete-folder's move-up —
+  goes through the store's durable rename journal (`.local-renames.json`, with
+  the moving file parked in a transaction-owned `.local-renames/<tx>/` between
+  its two renames). The next push binds the source's object id in the journal,
+  moves that one checkpoint entry to the destination, and PUTs the original
+  object there even when the body is unchanged; a 409 against a peer's newer
+  edit takes the ordinary `local_was_rename` merge, so the peer's edit lands at
+  the new name and the old name is never resurrected. Identity comes only from
+  the journaled move — never a hash, basename or title (two equal-body notes
+  stay distinct). Renames chain (A→B→C is one move A→C), the pair is reported
+  in `SyncSummary.renamed` on both clients, and an intent is acknowledged only
+  after its PUT landed and the checkpoint holding it saved; until then a retry
+  or restart replays it against the same object. A move whose source never
+  reached the server has no identity to carry and uploads as a new note. A
+  crash mid-move is finished (or undone, if the move was not yet recorded) by
+  the next store bootstrap, which also replays its backlink rewrite; a
+  newcomer at either name is never overwritten. Intents belong to the
+  checkpoint's collection: disconnect (demote) or a different collection drops
+  them. Without a live checkpoint the journal keeps nothing. An older binary
+  ignores the journal, so downgrading with a pending intent loses that one
+  rename's identity (unsupported); a journal format this binary does not know
+  stops renames and sync with an error and is left untouched. Unchanged-content
+  external folder moves still pair by equal hash AND basename. → futo-notes-store
+  `rename_journal/` (guarded by `tests/rename_journal.rs`); futo-notes-sync
+  `sync/push/local_renames.rs` (guarded by `server_integration/rename_identity.rs`
+  against the real server, `sync/local_rename_tests.rs` for failed PUT,
+  unsaved checkpoint and a rename between scan and pull write); cross-platform
+  scenario "offline title rename keeps identity under a peer edit"
 - **Sync reports rename intent; shells never infer renames from id patterns.**
   Every relocation the sync engine performs — paired local moves, mapping
   relocations, merge-target moves, and collision placements that relocate a

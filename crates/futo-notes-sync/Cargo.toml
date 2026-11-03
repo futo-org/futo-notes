@@ -7,6 +7,7 @@ edition = "2021"
 name = "futo_notes_sync"
 
 [dependencies]
+futo-notes-store = { path = "../futo-notes-store" }
 futo-notes-core = { path = "../futo-notes-core" }
 reqwest = { version = "0.12.12", default-features = false, features = ["json", "rustls-tls-manual-roots", "stream", "http2"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
