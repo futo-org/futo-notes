@@ -7,7 +7,7 @@ use crate::{
     SourceEdit, SourceOffset, SourceRange,
 };
 
-fn uncut<T>(run: impl FnOnce() -> T) -> T {
+pub(super) fn uncut<T>(run: impl FnOnce() -> T) -> T {
     UNCUT.with(|uncut| uncut.set(true));
     let result = run();
     UNCUT.with(|uncut| uncut.set(false));
@@ -21,7 +21,7 @@ fn range(start: usize, end: usize) -> DisplayRange {
     }
 }
 
-fn whole(session: &EditorSession) -> (String, ProjectionSlice, String) {
+pub(super) fn whole(session: &EditorSession) -> (String, ProjectionSlice, String) {
     let end = session.projection.display.len_bytes();
     let lines: Vec<_> = session
         .projection
@@ -290,33 +290,99 @@ fn cut_paragraphs_match_uncut_twin_through_edits() {
         {
             assert!(cut.projection.rows.len() > 4, "case {case} is cut");
         }
-        for index in 0..12 {
-            let step = choose(&cut, &mut next);
-            uncut(|| run(&mut reference, &step));
-            run(&mut cut, &step);
-            let (got, want) = (whole(&cut), whole(&reference));
-            // Every step must leave the twin equal to a fresh open.
-            let fresh = uncut(|| whole(&EditorSession::open(&want.0)));
-            assert!(want == fresh, "case {case} step {index}: twin is stale");
-            // Uncut input may respell distant lines of its whole-paragraph
-            // context; a cut result must still show the same meaning and
-            // agree with a fresh open of its own source.
-            let same_meaning = |a: &ProjectionSlice, b: &ProjectionSlice| {
-                a.text == b.text && a.runs == b.runs && a.blocks == b.blocks && a.links == b.links
-            };
-            let ok = got == want
-                || (same_meaning(&got.1, &want.1)
-                    && got == uncut(|| whole(&EditorSession::open(&got.0))));
-            let step = match step {
-                Step::Raw(at, end, text) => format!("raw {at}..{end} {text:?}"),
-                Step::Key(at, key) => format!("key {key:?} at {at}"),
-                Step::Type(at, text) => format!("type {text:?} at {at}"),
-            };
-            assert!(ok, "case {case} step {index}: {step}");
-            if got != want {
-                // Continue from the cut twin's spelling.
-                reference = uncut(|| EditorSession::open(&got.0));
+        twin_steps(&mut cut, &mut reference, case, 12, &mut next);
+    }
+}
+
+fn step_text(step: &Step) -> String {
+    match *step {
+        Step::Raw(at, end, text) => format!("raw {at}..{end} {text:?}"),
+        Step::Key(at, key) => format!("key {key:?} at {at}"),
+        Step::Type(at, text) => format!("type {text:?} at {at}"),
+    }
+}
+
+/// The first part where two sessions' whole views differ.
+pub(super) fn difference(a: &EditorSession, b: &EditorSession) -> String {
+    let (a, b) = (whole(a), whole(b));
+    if a.0 != b.0 {
+        let p =
+            a.0.bytes()
+                .zip(b.0.bytes())
+                .position(|(x, y)| x != y)
+                .unwrap_or(a.0.len().min(b.0.len()));
+        let around = |text: &str| {
+            let mut from = p.saturating_sub(300);
+            while !text.is_char_boundary(from) {
+                from -= 1;
             }
+            let mut to = (p + 300).min(text.len());
+            while !text.is_char_boundary(to) {
+                to += 1;
+            }
+            format!("{:?}", &text[from..to])
+        };
+        return format!(
+            "source at {p}:\n cut   {}\n uncut {}",
+            around(&a.0),
+            around(&b.0)
+        );
+    }
+    let lines = |text: &str| text.split("), (").map(str::to_owned).collect::<Vec<_>>();
+    let (x, y) = (lines(&a.2), lines(&b.2));
+    if let Some(at) = (0..x.len().min(y.len())).find(|&at| x[at] != y[at]) {
+        return format!("list line {at}:\n cut   {}\n uncut {}", x[at], y[at]);
+    }
+    let (x, y) = (format!("{:?}", a.1), format!("{:?}", b.1));
+    let at = x
+        .bytes()
+        .zip(y.bytes())
+        .position(|(p, q)| p != q)
+        .unwrap_or(0);
+    format!(
+        "slice at {at}:\n cut   {}\n uncut {}",
+        &x[at.saturating_sub(200)..(at + 200).min(x.len())],
+        &y[at.saturating_sub(200)..(at + 200).min(y.len())]
+    )
+}
+
+/// Run `steps` random steps on a cut session and its uncut twin, asserting
+/// after each that the cut session shows what the twin does.
+pub(super) fn twin_steps(
+    cut: &mut EditorSession,
+    reference: &mut EditorSession,
+    case: usize,
+    steps: usize,
+    next: &mut impl FnMut(usize) -> usize,
+) {
+    for index in 0..steps {
+        let before = reference.source_text();
+        let step = choose(cut, next);
+        uncut(|| run(reference, &step));
+        run(cut, &step);
+        let (got, want) = (whole(cut), whole(reference));
+        // Every step must leave the twin equal to a fresh open.
+        let fresh = uncut(|| whole(&EditorSession::open(&want.0)));
+        assert!(want == fresh, "case {case} step {index}: twin is stale");
+        // Uncut input may respell distant lines of its whole-paragraph
+        // context; a cut result must still show the same meaning and
+        // agree with a fresh open of its own source.
+        let same_meaning = |a: &ProjectionSlice, b: &ProjectionSlice| {
+            a.text == b.text && a.runs == b.runs && a.blocks == b.blocks && a.links == b.links
+        };
+        let ok = got == want
+            || (same_meaning(&got.1, &want.1)
+                && got == uncut(|| whole(&EditorSession::open(&got.0))));
+        let step = step_text(&step);
+        assert!(
+            ok,
+            "case {case} step {index}: {step}: {}\nBEFORE {:?}",
+            difference(cut, reference),
+            before
+        );
+        if got != want {
+            // Continue from the cut twin's spelling.
+            *reference = uncut(|| EditorSession::open(&got.0));
         }
     }
 }
@@ -437,3 +503,5 @@ fn a_typed_marker_agrees_with_uncut_when_a_later_line_sits_in_raw_html() {
     let fresh = uncut(|| whole(&EditorSession::open(&cut.source_text())));
     assert!(whole(&cut) == fresh && whole(&reference) == fresh);
 }
+
+mod word_seams;

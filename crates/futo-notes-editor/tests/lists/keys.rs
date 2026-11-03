@@ -446,3 +446,81 @@ fn nested_backspace_preserves_outer_quotes_and_a_second_key_joins_the_continuati
         assert_eq!(s.selection(), selected);
     }
 }
+
+/// Enter on an empty nested item outdents it one level, last or not: the
+/// items after it at its old level become its children and ordered lists on
+/// both levels count on sequentially (decided 2026-11-02, as Google Docs).
+#[test]
+fn empty_nested_item_enter_outdents_and_adopts_the_items_after_it() {
+    for (raw, expected) in [
+        // Bullets, a middle item and a last item.
+        ("- a\n  - b\n  - \n  - c\n- d\n", "- a\n  - b\n- \n  - c\n- d\n"),
+        ("- a\n  - b\n  - \n- d\n", "- a\n  - b\n- \n- d\n"),
+        // Ordered on both levels.
+        (
+            "1. a\n   1. b\n   2. \n   3. c\n2. d\n",
+            "1. a\n   1. b\n2. \n   1. c\n3. d\n",
+        ),
+        // Mixed nesting either way.
+        (
+            "1. a\n   - b\n   - \n   - c\n2. d\n",
+            "1. a\n   - b\n2. \n   - c\n3. d\n",
+        ),
+        (
+            "- a\n  1. b\n  2. \n  3. c\n- d\n",
+            "- a\n  1. b\n- \n  1. c\n- d\n",
+        ),
+        // Tasks keep their states; the empty task stays a task.
+        (
+            "- [ ] a\n  - [x] b\n  - [ ] \n  - [ ] c\n",
+            "- [ ] a\n  - [x] b\n- [ ] \n  - [ ] c\n",
+        ),
+        // Three levels: only the empty item's level moves.
+        (
+            "- a\n  - b\n    - x\n    - \n    - y\n  - c\n",
+            "- a\n  - b\n    - x\n  - \n    - y\n  - c\n",
+        ),
+        // Lazy numbers stay as written; the respelled item takes its number.
+        (
+            "1. a\n   1. b\n   1. \n   1. c\n1. d\n",
+            "1. a\n   1. b\n2. \n   1. c\n1. d\n",
+        ),
+        // A renumbered item owning rows keeps digits that would change width.
+        (
+            "1. a\n   1. b\n   2. \n2. c\n3. c\n4. c\n5. c\n6. c\n7. c\n8. c\n9. c\n   1. d\n",
+            "1. a\n   1. b\n2. \n3. c\n4. c\n5. c\n6. c\n7. c\n8. c\n9. c\n9. c\n   1. d\n",
+        ),
+        // The corpus 6ae4d2 shape: numbered steps with numbered sub-steps.
+        (
+            "1. Download\n2. Create\n   1. General\n      1. Name\n   2. \n   3. System\n      1. Disk\n   4. Memory\n3. Done\n",
+            "1. Download\n2. Create\n   1. General\n      1. Name\n3. \n   1. System\n      1. Disk\n   2. Memory\n4. Done\n",
+        ),
+    ] {
+        let mut s = EditorSession::open(raw);
+        let empty = raw
+            .lines()
+            .position(|line| line.trim_end().ends_with(['-', '.', ']']))
+            .unwrap();
+        let display = s.display_text();
+        let at: usize = display.split_inclusive('\n').take(empty).map(str::len).sum();
+        let mut view = ReferenceView::new(&display);
+        view.apply(
+            s.paragraph_key(s.revision(), range(at, at), ParagraphKey::Enter, &mut |_| Ok(()))
+                .unwrap()
+                .unwrap(),
+        );
+        assert_eq!(s.source_text(), expected, "{raw:?}");
+        assert_eq!(view.text, s.display_text(), "{raw:?}");
+        assert_eq!(s.selection(), range(at, at), "{raw:?}");
+        assert_eq!(
+            EditorSession::open(expected).display_text(),
+            s.display_text(),
+            "{raw:?}"
+        );
+        view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+        assert_eq!(s.source_text(), raw, "{raw:?} undo");
+        assert_eq!(view.text, display);
+        view.apply(s.redo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+        assert_eq!(s.source_text(), expected, "{raw:?} redo");
+    }
+}

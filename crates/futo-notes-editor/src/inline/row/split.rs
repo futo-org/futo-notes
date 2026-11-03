@@ -6,13 +6,22 @@
 //! parse: no inline element crosses it, its previous line has no hard-break
 //! spelling, and its next line cannot start a block. Cut paragraphs keep the
 //! invariant that no row holds a literal delimiter able to pair across rows;
-//! otherwise the whole paragraph stays one row. A tight top-level bullet list
+//! otherwise the whole paragraph stays one row. A long line is further cut
+//! inside a space-delimited word of ASCII letters (a word seam): no inline
+//! construct reads such a word, so each side's parse is still the joined one. A tight top-level bullet list
 //! is cut between top-level items, which inline syntax never crosses.
 use pulldown_cmark::{CodeBlockKind, Event, Parser, Tag, TagEnd};
 mod html;
 mod list;
+mod paragraph;
+mod seams;
+mod word;
 pub(crate) use list::list_marker;
 use list::ListScan;
+use paragraph::{seam_after, seam_before, Paragraph};
+pub(crate) use seams::delimiter_neutral;
+use seams::is_table;
+pub(crate) use word::WORD_TAIL;
 
 /// A row boundary chosen inside the text.
 #[derive(Clone)]
@@ -24,6 +33,8 @@ pub(super) enum Cut {
     Opener(std::ops::Range<usize>),
     /// The next row starts a fresh block.
     Head,
+    /// The next row continues a nested list after these ancestor lines.
+    Context(String),
 }
 
 /// What surrounds the text: its first row's continuation and the following
@@ -41,6 +52,16 @@ pub(crate) struct Outside<'a> {
     pub followed: bool,
     /// The opener line of the block the following row continues.
     pub next_opener: Option<&'a str>,
+    /// The edit being reparsed creates, removes and reflanks no emphasis
+    /// delimiter run, so literal runs outside the text keep their pairing.
+    pub neutral: bool,
+    /// The nested list context of the first row.
+    pub context: Option<&'a str>,
+    /// The nested list context of the following row, when it continues.
+    pub next_context: Option<&'a str>,
+    /// The preceding row's tail when the text starts at a word seam inside
+    /// that row's last line.
+    pub previous: Option<&'a str>,
 }
 
 /// Paragraphs below this size keep their single row.
@@ -72,10 +93,10 @@ pub(crate) fn partition<'a>(source: &'a str, outside: Outside<'_>) -> Partition<
     let deep = deep && !UNCUT.with(|uncut| uncut.get());
     // A continued HTML row is read after its block's opener line.
     let joined;
-    let (text, base) = match outside.opener.filter(|_| deep) {
-        Some(opener) => {
-            joined = format!("{opener}{source}");
-            (joined.as_str(), opener.len())
+    let (text, base) = match outside.opener.or(outside.context).filter(|_| deep) {
+        Some(prefix) => {
+            joined = format!("{prefix}{source}");
+            (joined.as_str(), prefix.len())
         }
         None => (source, 0),
     };
@@ -111,22 +132,37 @@ pub(crate) fn partition<'a>(source: &'a str, outside: Outside<'_>) -> Partition<
         .map(back)
         .collect();
     let mut protected_index = 0;
-    let mut rows: Vec<(&str, bool, Option<String>)> = Vec::new();
+    // Text, continues, opener, context, and whether it starts mid-line.
+    type Pending<'s> = (&'s str, bool, Option<String>, Option<String>, bool);
+    let mut rows: Vec<Pending<'_>> = Vec::new();
     let mut start = 0;
     let mut offset = 0;
     let mut cut_index = 0;
     let mut row_continues = outside.continues;
     let mut row_opener = outside.opener.map(str::to_owned);
+    let mut row_context = outside.context.map(str::to_owned);
+    let mut row_mid = outside.previous.is_some();
     for line in source.split_inclusive('\n') {
         let line_start = offset;
         offset += line.len();
-        if let Some((_, cut)) = cuts.get(cut_index).filter(|(at, _)| *at == line_start) {
+        // A line-start cut, then any word seams inside the line.
+        while let Some((at, cut)) = cuts.get(cut_index).filter(|(at, _)| *at < offset) {
+            let at = *at;
             cut_index += 1;
-            rows.push((&source[start..line_start], row_continues, row_opener.take()));
-            start = line_start;
+            rows.push((
+                &source[start..at],
+                row_continues,
+                row_opener.take(),
+                row_context.take(),
+                row_mid,
+            ));
+            start = at;
             row_continues = !matches!(cut, Cut::Head);
-            if let Cut::Opener(opener) = cut {
-                row_opener = Some(text[opener.clone()].to_owned());
+            row_mid = at > line_start;
+            match cut {
+                Cut::Opener(opener) => row_opener = Some(text[opener.clone()].to_owned()),
+                Cut::Context(context) => row_context = Some(context.clone()),
+                _ => {}
             }
         }
         while protected_index < protected.len() && protected[protected_index].end <= line_start {
@@ -136,13 +172,26 @@ pub(crate) fn partition<'a>(source: &'a str, outside: Outside<'_>) -> Partition<
             .get(protected_index)
             .is_some_and(|range| range.start <= line_start && line_start < range.end);
         if !in_code && line.trim_matches([' ', '\t', '\r', '\n']).is_empty() {
-            rows.push((&source[start..offset], row_continues, row_opener.take()));
+            rows.push((
+                &source[start..offset],
+                row_continues,
+                row_opener.take(),
+                row_context.take(),
+                row_mid,
+            ));
             start = offset;
             row_continues = false;
+            row_mid = false;
         }
     }
     if start < source.len() || rows.is_empty() {
-        rows.push((&source[start..], row_continues, row_opener.take()));
+        rows.push((
+            &source[start..],
+            row_continues,
+            row_opener.take(),
+            row_context.take(),
+            row_mid,
+        ));
     }
     let mut offset = 0;
     let mut starts = starts.into_iter().peekable();
@@ -151,7 +200,7 @@ pub(crate) fn partition<'a>(source: &'a str, outside: Outside<'_>) -> Partition<
     let pieces = rows
         .into_iter()
         .enumerate()
-        .map(|(index, (text, continues, opener))| {
+        .map(|(index, (text, continues, opener, context, mid_line))| {
             let end = offset + text.len();
             let mut single = true;
             while let Some(at) = starts.next_if(|&at| at < end) {
@@ -168,6 +217,8 @@ pub(crate) fn partition<'a>(source: &'a str, outside: Outside<'_>) -> Partition<
                 continued,
                 followed: index + 1 < count || outside.followed,
                 opener,
+                context,
+                mid_line,
             };
             Piece { text, shape }
         })
@@ -191,8 +242,11 @@ fn analyze(
     cuts: &mut Vec<(usize, Cut)>,
     starts: &mut Vec<usize>,
 ) -> (bool, bool) {
-    // A paragraph or list continues from outside only without an HTML prefix.
-    let continues = outside.continues && base == 0;
+    // A paragraph or list continues from outside only without an HTML
+    // prefix; a nested list context is the list's own ancestors.
+    let context = outside.context.filter(|_| base > 0);
+    let html_prefix = base > 0 && context.is_none();
+    let continues = outside.continues && (base == 0 || context.is_some());
     let next = outside.next.filter(|_| outside.next_opener.is_none());
     let (mut widen_back, mut widen_forward) = (false, false);
     let mut depth = 0usize;
@@ -204,7 +258,9 @@ fn analyze(
     let mut html = None;
     for (event, range) in Parser::new_ext(source, super::parser_options()).into_offset_iter() {
         if first_block.is_none() {
-            first_block = Some(if base > 0 {
+            first_block = Some(if context.is_some() {
+                depth == 0 && matches!(event, Event::Start(Tag::List(_)))
+            } else if html_prefix {
                 matches!(
                     event,
                     Event::Start(Tag::HtmlBlock | Tag::CodeBlock(CodeBlockKind::Fenced(_)))
@@ -230,7 +286,9 @@ fn analyze(
                     tail = Tail::Other;
                     match tag {
                         Tag::Paragraph => paragraph = Some(Paragraph::new(range.clone())),
-                        Tag::List(number) => list = Some(ListScan::new(range.clone(), number)),
+                        Tag::List(number) => {
+                            list = Some(ListScan::new(range.clone(), number, base))
+                        }
                         Tag::HtmlBlock => html = Some((range.clone(), false)),
                         Tag::CodeBlock(CodeBlockKind::Fenced(_)) => {
                             html = Some((range.clone(), true))
@@ -245,15 +303,33 @@ fn analyze(
                 }
             }
             Event::End(TagEnd::Paragraph) if depth == 0 => {
-                if let Some(found) = paragraph.take() {
+                if let Some(mut found) = paragraph.take() {
+                    found.wikilinks(source);
                     let connected_first = continues && at_line_start(source, found.range.start);
                     let end = found.range.end;
                     let connected_last = next.is_some() && reaches_end(source, end);
-                    if found.dangling || !found.depth.is_empty() {
+                    // An emphasis literal keeps an ordinary paragraph whole;
+                    // a table's rows cut around it, and only an edit that can
+                    // change some delimiter run reparses the whole table.
+                    let table = found.emphasis && is_table(source, &found.range);
+                    // Connections at word seams outside the text.
+                    let word_first = connected_first && outside.previous.is_some();
+                    let word_last = connected_last && !source.ends_with('\n');
+                    if found.dangling || !found.depth.is_empty() || found.emphasis && !table {
                         widen_back |= connected_first;
                         widen_forward |= connected_last;
-                    } else if found.range.len() >= SPLIT_MIN || connected_first || connected_last {
-                        found.cuts(source, cuts);
+                    } else if found.word_dangling && (word_first || word_last) {
+                        widen_back |= word_first;
+                        widen_forward |= word_last;
+                    } else {
+                        if found.emphasis && !outside.neutral {
+                            widen_back |= connected_first;
+                            widen_forward |= connected_last;
+                        }
+                        if found.range.len() >= SPLIT_MIN || connected_first || connected_last {
+                            // A line cut at a word seam outside the text is long.
+                            found.cuts(source, (word_first, word_last), cuts);
+                        }
                     }
                     if reaches_end(source, end) {
                         tail = Tail::Paragraph;
@@ -263,11 +339,18 @@ fn analyze(
             Event::End(tag) if is_container_end(tag) => {
                 depth -= 1;
                 if depth == 0 {
-                    if let Some(found) = list.take() {
+                    if let Some(mut found) = list.take() {
                         let connected_first = continues && at_line_start(source, found.range.start);
                         let reaches = found.reaches_end(source);
                         let connected_last = next.is_some() && reaches;
-                        if found.cuttable(source) {
+                        let cuttable = found.cuttable(source);
+                        // A context row's first item must still continue
+                        // its list where the context says.
+                        if let Some(context) = context.filter(|_| connected_first) {
+                            widen_back |=
+                                !(cuttable && found.first_continues(context, outside.first_number));
+                        }
+                        if cuttable {
                             if found.range.len() >= SPLIT_MIN || connected_first || connected_last {
                                 found.cuts(cuts);
                             }
@@ -309,12 +392,17 @@ fn analyze(
             _ => {
                 if let Some(open) = paragraph.as_mut() {
                     open.inline(source, &event, range);
+                } else if let Some(open) = list.as_mut() {
+                    open.content(depth);
                 }
             }
         }
     }
     if (continues || base > 0) && first_block != Some(true) {
         widen_back = true;
+    }
+    if let Some(previous) = outside.previous {
+        widen_back |= !word::sealed(previous, &source[base..]);
     }
     if let Some(next) = outside.next {
         let sealed = match &tail {
@@ -324,8 +412,12 @@ fn analyze(
                     && super::reaches_into(&source[*start..], next)
             }
             _ if outside.next_opener.is_some() => false,
-            Tail::Paragraph => seam_after(source, source.len()) && seam_before(next, 0),
-            Tail::List(found) => found.continued_by(next),
+            Tail::List(found) => found.continued_by(next, outside.next_context),
+            _ if outside.next_context.is_some() => false,
+            Tail::Paragraph => {
+                seam_after(source, source.len()) && seam_before(next, 0)
+                    || word::sealed(source, next)
+            }
             Tail::Other => false,
         };
         widen_forward |= !sealed;
@@ -388,137 +480,10 @@ fn reaches_end(source: &str, end: usize) -> bool {
     matches!(&source[end.min(source.len())..], "" | "\n" | "\r\n")
 }
 
-/// The line ending at `at` ends with LF and no hard-break spelling.
-fn seam_after(source: &str, at: usize) -> bool {
-    let Some(line) = source[..at].strip_suffix('\n') else {
-        return false;
-    };
-    let line = line.strip_suffix('\r').unwrap_or(line);
-    !line.ends_with([' ', '\t', '\\'])
-}
-
-/// The line at `at` continues a paragraph and cannot start a block alone.
-fn seam_before(source: &str, at: usize) -> bool {
-    let rest = &source[at..];
-    let text = rest.trim_start_matches(' ');
-    if rest.len() - text.len() > 3 {
-        return false;
-    }
-    let Some(first) = text.chars().next() else {
-        return false;
-    };
-    if !first.is_alphanumeric() {
-        return false;
-    }
-    let digits = text.bytes().take_while(u8::is_ascii_digit).count();
-    !(digits > 0 && matches!(text.as_bytes().get(digits), Some(b'.' | b')')))
-}
-
-struct Paragraph {
-    range: std::ops::Range<usize>,
-    /// Ranges no seam may enter: inline elements and literal bracket pairs.
-    covered: Vec<std::ops::Range<usize>>,
-    /// Open literal brackets.
-    depth: Vec<usize>,
-    dangling: bool,
-}
-
-impl Paragraph {
-    fn new(range: std::ops::Range<usize>) -> Self {
-        Self {
-            range,
-            covered: Vec::new(),
-            depth: Vec::new(),
-            dangling: false,
-        }
-    }
-
-    fn inline(&mut self, source: &str, event: &Event<'_>, range: std::ops::Range<usize>) {
-        match event {
-            Event::Text(_) => self.scan(source, range),
-            Event::InlineHtml(_) | Event::Html(_) => {
-                let raw = &source[range.clone()];
-                self.dangling |= !(raw.starts_with('<') && raw.ends_with('>'));
-                self.covered.push(range);
-            }
-            Event::Start(_) | Event::Code(_) | Event::InlineMath(_) | Event::DisplayMath(_) => {
-                self.covered.push(range)
-            }
-            Event::FootnoteReference(_) => self.dangling = true,
-            _ => {}
-        }
-    }
-
-    /// Literal characters that could pair with syntax in another row.
-    fn scan(&mut self, source: &str, range: std::ops::Range<usize>) {
-        let bytes = source.as_bytes();
-        for at in range {
-            let byte = bytes[at];
-            if !matches!(byte, b'*' | b'_' | b'~' | b'`' | b'[' | b']' | b'<') {
-                continue;
-            }
-            let escapes = bytes[..at]
-                .iter()
-                .rev()
-                .take_while(|&&b| b == b'\\')
-                .count();
-            if escapes % 2 == 1 {
-                continue;
-            }
-            let before = source[..at].chars().next_back();
-            let after = source[at + 1..].chars().next();
-            let space = |c: Option<char>| c.is_none_or(char::is_whitespace);
-            self.dangling |= match byte {
-                b'`' => true,
-                b'[' => {
-                    self.depth.push(at);
-                    false
-                }
-                b']' => match self.depth.pop() {
-                    Some(open) => {
-                        self.covered.push(open..at + 1);
-                        false
-                    }
-                    None => true,
-                },
-                b'<' => after.is_none_or(|c| c.is_ascii_alphabetic() || "/!?".contains(c)),
-                b'_' => {
-                    let word = |c: Option<char>| c.is_some_and(char::is_alphanumeric);
-                    !(space(before) && space(after) || word(before) && word(after))
-                }
-                _ => !(space(before) && space(after)),
-            };
-        }
-    }
-
-    fn cuts(mut self, source: &str, cuts: &mut Vec<(usize, Cut)>) {
-        self.covered.sort_by_key(|range| range.start);
-        let mut covered = self.covered.iter().peekable();
-        let mut reach = 0;
-        let mut last = self.range.start;
-        let mut at = self.range.start;
-        while let Some(next) = source[at..self.range.end].find('\n') {
-            at += next + 1;
-            if at >= self.range.end {
-                break;
-            }
-            while let Some(range) = covered.next_if(|range| range.start < at) {
-                reach = reach.max(range.end);
-            }
-            if reach <= at
-                && at - last >= CHUNK
-                && seam_after(source, at)
-                && seam_before(source, at)
-            {
-                cuts.push((at, Cut::Continue));
-                last = at;
-            }
-        }
-    }
-}
-
 #[cfg(test)]
 thread_local! {
     /// Reference projections without paragraph cuts.
     pub(crate) static UNCUT: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    /// Reference projections cut only at line seams.
+    pub(crate) static NO_WORD_SEAMS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }

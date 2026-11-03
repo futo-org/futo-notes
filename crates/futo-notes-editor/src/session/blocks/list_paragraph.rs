@@ -20,7 +20,44 @@ impl EditorSession {
             }) {
                 return self.indent_list(expected, range, BlockCommand::Outdent, accept);
             }
-            return self.lift_current_list(expected, range, accept);
+            // Leaving a list at its last item: a line written straight under it
+            // would join that item as a lazy continuation, so a blank line
+            // separates the paragraph the user is about to type.
+            let separate = line.quote_depth == 0
+                && line.list.as_ref().is_some_and(|list| {
+                    list.owner.start < line.source.start && list.owner.end <= line.source.end
+                });
+            if !separate {
+                return self.lift_current_list(expected, range, accept);
+            }
+            return self.stage_block_action(
+                expected,
+                range,
+                None,
+                accept,
+                |staged, local, accept| {
+                    let Some(lifted) =
+                        staged.lift_current_list(staged.revision(), local, accept)?
+                    else {
+                        return Ok(None);
+                    };
+                    let caret = staged.selection();
+                    let (at, _) = staged.projection.source_bounds(caret.start.0);
+                    let mut change = staged.commit_block_key(
+                        staged.revision(),
+                        caret,
+                        at..at,
+                        "\n",
+                        at + 1,
+                        accept,
+                    )?;
+                    crate::session::transaction::accumulate_planning_work(
+                        &mut change.work,
+                        lifted.work,
+                    );
+                    Ok(Some(change))
+                },
+            );
         }
         let list = line.list.as_ref().unwrap();
         let at_start = range.start.0 == self.projection.display_at(line.content.start);

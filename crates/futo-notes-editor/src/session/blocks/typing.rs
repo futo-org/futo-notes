@@ -211,6 +211,19 @@ impl EditorSession {
             return Ok(None);
         }
         let start_display = self.projection.display_at(line.content.start);
+        // Every conversion below needs a short prefix after its indentation
+        // (at most `123456789. `): a caret deep in a long line converts
+        // nothing, so its line is not read or queried.
+        let indent = self
+            .projection
+            .display
+            .byte_slice(start_display..range.start.0)
+            .bytes()
+            .take_while(|byte| matches!(byte, b' ' | b'\t'))
+            .count();
+        if range.start.0 - start_display - indent + inserted.len() > SHORTCUT_MAX {
+            return Ok(None);
+        }
         let mut prefix = self
             .projection
             .display
@@ -286,3 +299,6 @@ impl EditorSession {
         })
     }
 }
+
+/// The longest prefix a line-start shortcut reads after its indentation.
+const SHORTCUT_MAX: usize = "123456789. ".len();

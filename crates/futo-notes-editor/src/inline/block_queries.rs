@@ -15,50 +15,164 @@ impl Projection {
         line
     }
 
-    /// A cut list keeps each row's own parse. Its list-wide owner and the
-    /// first continued item's previous content column (equal by the cut rule)
-    /// come from the rows where the list starts and ends.
+    /// A cut list keeps each row's own parse. Its ranges reaching across a
+    /// cut come from the rows where they start and end, and a continued
+    /// item's previous content column equals its own (the cut rule).
     pub(crate) fn fix_list(&self, index: usize, base: usize, list: &mut ListLine) {
-        if list.depth != 1 || list.quote_depth != 0 {
+        if list.quote_depth != 0 {
             return;
         }
         let row = self.rows.at(index).0;
-        let continued = row.continues
-            && row.opener.is_none()
-            && row.blocks.first().is_some_and(|block| {
-                block.list.as_ref().is_some_and(|first| {
-                    first.quote_depth == 0 && first.outer_item.start == list.owner.start - base
-                })
-            });
-        let continues_on = list.owner.end - base == row.source_len
-            && index + 1 < self.rows.len()
-            && self.rows.at(index + 1).0.continues
-            && self.rows.at(index + 1).0.opener.is_none();
-        if !continued && !continues_on {
+        let depth = list.depth;
+        let start_depth = row.start_depth();
+        let next_depth = if index + 1 < self.rows.len() {
+            self.rows.at(index + 1).0.start_depth()
+        } else {
+            0
+        };
+        if start_depth == 0 && next_depth == 0 {
             return;
         }
-        let top = |block: &blocks::BlockLine| {
-            block
-                .list
-                .as_ref()
-                .filter(|list| list.depth == 1 && list.quote_depth == 0)
-                .map(|list| list.owner.clone())
-        };
-        if continued {
-            if list.item.start == list.owner.start && list.previous_content_column.is_none() {
-                list.previous_content_column = Some(list.content_column);
-            }
-            let (head, head_base, _) = self.rows.at(self.rows.block_start(index));
-            if let Some(owner) = head.blocks.iter().rev().find_map(top) {
-                list.owner.start = head_base + owner.start;
+        let len = row.source_len;
+        let at = |range: &std::ops::Range<usize>| range.start - base..range.end - base;
+        let (owner, item, outer) = (at(&list.owner), at(&list.item), at(&list.outer_item));
+        let first_line = row.blocks.first().map_or(0, |block| block.source.end);
+        if start_depth == depth && item.start < first_line && list.previous_content_column.is_none()
+        {
+            list.previous_content_column = Some(list.content_column);
+        }
+        if continued_start(row, depth, owner.start) {
+            list.owner.start = self.open_start(index, depth, false);
+        }
+        if next_depth >= depth && owner.end == len {
+            list.owner.end = self.open_end(index, depth, false);
+        }
+        if start_depth > depth && item.start == 0 {
+            list.item.start = self.open_start(index, depth, true);
+        }
+        if next_depth > depth && item.end == len {
+            list.item.end = self.open_end(index, depth, true);
+        }
+        if depth == 1 {
+            list.outer_item = list.item.clone();
+            return;
+        }
+        if start_depth > 1 && outer.start == 0 {
+            list.outer_item.start = self.open_start(index, 1, true);
+        }
+        if next_depth > 1 && outer.end == len {
+            list.outer_item.end = self.open_end(index, 1, true);
+        }
+    }
+
+    /// The start of the item (or list) at `depth` open across the start of
+    /// row `index`: in the nearest earlier row where it starts.
+    fn open_start(&self, mut index: usize, depth: usize, item: bool) -> usize {
+        // A list spanning rows starts in the row its block starts at; a
+        // staged first row's context starts before its text.
+        if index == 0 {
+            return 0;
+        }
+        if !item && depth == 1 {
+            index = self.rows.block_start(index) + 1;
+        }
+        while index > 0 {
+            index -= 1;
+            let (row, base, _) = self.rows.at(index);
+            let Some(&(item_start, owner_start)) = row.tail_chain.get(depth - 1) else {
+                return base;
+            };
+            let continued = if item {
+                row.start_depth() > depth && item_start == 0
+            } else {
+                continued_start(row, depth, owner_start)
+            };
+            if !continued {
+                return base + if item { item_start } else { owner_start };
             }
         }
-        if continues_on {
-            let (tail, tail_base, _) = self.rows.at(self.rows.block_end(index));
-            if let Some(owner) = tail.blocks.iter().find_map(top) {
-                list.owner.end = tail_base + owner.end;
+        0
+    }
+
+    /// The nested list context a window starting at source `start` is
+    /// parsed after, when a row starting there continues a nested list: the
+    /// row's context, its first item's number, and each context ancestor's
+    /// item range and content column (depth 1 first).
+    pub(crate) fn window_context(&self, start: usize) -> Option<WindowContext> {
+        if start == 0 {
+            return None;
+        }
+        let index = self.rows.locate(start, false);
+        let index =
+            (index..(index + 2).min(self.rows.len())).find(|&at| self.rows.at(at).1 == start)?;
+        let row = self.rows.at(index).0;
+        let context = row.context.clone()?;
+        let ancestors = context
+            .lines()
+            .enumerate()
+            .map(|(depth, line)| {
+                let depth = depth + 1;
+                let range =
+                    self.open_start(index, depth, true)..self.open_end(index - 1, depth, true);
+                // A restated ancestor line ends with its empty heading's `#`.
+                (range, line.len() - 1)
+            })
+            .collect();
+        Some(WindowContext {
+            context,
+            first_number: row.first_number(),
+            ancestors,
+        })
+    }
+
+    /// The end of the item (or list) at `depth` open across the end of row
+    /// `index`: in the nearest later row where it ends.
+    fn open_end(&self, mut index: usize, depth: usize, item: bool) -> usize {
+        let last = self.rows.len() - 1;
+        if !item && depth == 1 {
+            index = self.rows.block_end(index).max(index + 1) - 1;
+        }
+        while index < last {
+            index += 1;
+            let (row, base, _) = self.rows.at(index);
+            let end = if depth < row.start_depth() {
+                let (item_end, owner_end) = row.context_ends[depth - 1];
+                if item {
+                    item_end
+                } else {
+                    owner_end
+                }
+            } else {
+                row.blocks
+                    .iter()
+                    .find_map(|block| {
+                        let list = block.list.as_ref()?;
+                        (list.quote_depth == 0 && list.depth == depth).then_some(list.owner.end)
+                    })
+                    .unwrap_or(row.source_len)
+            };
+            let crosses = index < last && {
+                let next = self.rows.at(index + 1).0.start_depth();
+                next >= depth + usize::from(item)
+            };
+            if end < row.source_len || !crosses {
+                return base + end;
             }
         }
+        let (row, base, _) = self.rows.at(last);
+        base + row.source_len
+    }
+
+    /// Shifted block lines whose cut list ranges stay row-local: only for
+    /// readers of depth, number, check state and first-line role.
+    pub(crate) fn view_block_lines(&self, range: DisplayRange) -> Vec<blocks::BlockLine> {
+        let mut result = Vec::new();
+        self.visit_block_lines(range, false, |block, base, _| {
+            let mut block = block.clone();
+            block.shift(base);
+            result.push(block);
+        });
+        result
     }
 
     pub(crate) fn block_lines(&self, range: DisplayRange) -> Vec<blocks::BlockLine> {
@@ -158,31 +272,83 @@ impl Projection {
         result
     }
 
-    fn visit_indexed_source_blocks<'a>(
-        &'a self,
+    /// The row where the physical line holding row `index`'s start begins:
+    /// word seams cut one line across several rows.
+    fn line_head(&self, mut index: usize) -> usize {
+        while index > 0 && self.rows.at(index).0.mid_line {
+            index -= 1;
+        }
+        index
+    }
+
+    /// Whether row `index`'s last block continues into the next row's first.
+    fn joins_next(&self, index: usize) -> bool {
+        index + 1 < self.rows.len() && self.rows.at(index + 1).0.mid_line
+    }
+
+    /// Row `index`'s last block joined with the first block of each following
+    /// row that starts inside its line at a word seam: the one physical line
+    /// an uncut row holds, in absolute source coordinates. Also whether that
+    /// line is its final row's last block.
+    fn joined_line(&self, index: usize) -> (blocks::BlockLine, usize, bool) {
+        let (row, base, _) = self.rows.at(index);
+        let mut line = row.blocks.last().expect("a row holds a block").clone();
+        line.shift(base);
+        let mut tail = index;
+        let mut last_block = true;
+        while last_block && self.joins_next(tail) {
+            tail += 1;
+            let (row, base, _) = self.rows.at(tail);
+            let more = &row.blocks[0];
+            line.source.end = base + more.source.end;
+            line.content.end = base + more.content.end;
+            if let (Some(body), Some(next)) = (line.bodies.last_mut(), more.bodies.first()) {
+                body.source.end = base + next.source.end;
+                body.content.end = base + next.content.end;
+            }
+            last_block = row.blocks.len() == 1;
+        }
+        (line, tail, last_block)
+    }
+
+    fn visit_indexed_source_blocks(
+        &self,
         range: &std::ops::Range<usize>,
-        mut visit: impl FnMut(&'a blocks::BlockLine, usize, usize),
+        mut visit: impl FnMut(&blocks::BlockLine, usize, usize),
     ) {
         if range.is_empty() {
             return;
         }
-        let first = self.rows.locate(range.start, false);
+        let first = self.line_head(self.rows.locate(range.start, false));
         let last = self.rows.locate(range.end - 1, false);
         for index in first..=last {
             let (row, source, _) = self.rows.at(index);
+            let joined = self.joins_next(index);
+            let skip = usize::from(row.mid_line);
+            let kept = row.blocks.len() - usize::from(joined);
             let begin = range.start.max(source) - source;
             let end = range.end.min(source + row.source_len) - source;
-            if begin >= end {
-                continue;
+            if begin < end {
+                let first = row
+                    .blocks
+                    .partition_point(|block| block.source.start < begin)
+                    .saturating_sub(1)
+                    .max(skip);
+                let last = row
+                    .blocks
+                    .partition_point(|block| block.source.start < end)
+                    .min(kept);
+                for block in row.blocks.get(first..last).unwrap_or_default() {
+                    if !block.empty_comment && begin < block.source.end && block.source.start < end
+                    {
+                        visit(block, source, index);
+                    }
+                }
             }
-            let first = row
-                .blocks
-                .partition_point(|block| block.source.start < begin)
-                .saturating_sub(1);
-            let last = row.blocks.partition_point(|block| block.source.start < end);
-            for block in &row.blocks[first..last] {
-                if !block.empty_comment && begin < block.source.end && block.source.start < end {
-                    visit(block, source, index);
+            if joined && kept >= skip {
+                let (line, ..) = self.joined_line(index);
+                if range.start < line.source.end && line.source.start < range.end {
+                    visit(&line, 0, index);
                 }
             }
         }
@@ -194,12 +360,31 @@ impl Projection {
         formatting: bool,
         mut visit: impl FnMut(&blocks::BlockLine, usize, usize),
     ) {
-        let first = self.rows.locate(range.start.0, true);
+        let first = self.line_head(self.rows.locate(range.start.0, true));
         let last = self.rows.locate(range.end.0, true);
+        let note_end =
+            self.rows.at(self.rows.len() - 1).1 + self.rows.at(self.rows.len() - 1).0.source_len;
         for index in first..=last {
             let (row, source, display) = self.rows.at(index);
-            for block in &row.blocks {
-                if block.empty_comment {
+            let joined = self.joins_next(index);
+            for (at, block) in row.blocks.iter().enumerate() {
+                if block.empty_comment || at == 0 && row.mid_line {
+                    continue;
+                }
+                if joined && at + 1 == row.blocks.len() {
+                    // One physical line cut at word seams: plain paragraph text.
+                    let (line, _, last_block) = self.joined_line(index);
+                    let a = self.display_at(line.source.start);
+                    let z = self.display_at(line.source.end);
+                    let hit = if range.start == range.end {
+                        a <= range.start.0
+                            && (range.start.0 < z || last_block && line.source.end == note_end)
+                    } else {
+                        a < range.end.0 && range.start.0 < z
+                    };
+                    if hit {
+                        visit(&line, 0, index);
+                    }
                     continue;
                 }
                 let a = display + row.display_at(block.source.start);
@@ -243,4 +428,21 @@ impl Projection {
             }
         }
     }
+}
+
+/// Whether a list at `depth` starting at row-relative `start` continues from
+/// an earlier row: it starts in the row's context, or it is the first item's
+/// own list, which the cut rule continues.
+fn continued_start(row: &super::row::Row, depth: usize, start: usize) -> bool {
+    let start_depth = row.start_depth();
+    let first_line = row.blocks.first().map_or(0, |block| block.source.end);
+    start_depth > depth && start == 0 || start_depth == depth && start < first_line
+}
+
+/// What a staged window starting inside a nested list is parsed after.
+pub(crate) struct WindowContext {
+    pub context: std::sync::Arc<str>,
+    pub first_number: Option<u64>,
+    /// Each context ancestor's item range and content column.
+    pub ancestors: Vec<(std::ops::Range<usize>, usize)>,
 }

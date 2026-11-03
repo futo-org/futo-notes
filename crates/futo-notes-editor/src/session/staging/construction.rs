@@ -16,12 +16,20 @@ impl EditorSession {
                 crate::inline::references::ReferenceWork::default(),
             )
         };
-        let mut projection = crate::inline::Projection::with_references(
+        // A window starting inside a nested list parses after its ancestors.
+        let context = self
+            .projection
+            .window_context(window.start)
+            .filter(|_| exact);
+        let mut projection = crate::inline::Projection::in_context(
             raw,
             window.start == 0 && self.projection.document_start,
             self.projection.references.clone(),
             &winners,
             work,
+            context
+                .as_ref()
+                .map(|context| (&*context.context, context.first_number)),
         );
         projection.catalog = self.projection.catalog.clone();
         projection.references_complete = exact

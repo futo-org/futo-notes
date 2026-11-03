@@ -8,6 +8,7 @@ use super::*;
 use crate::inline::ListLine;
 use std::ops::Range;
 
+mod indent;
 mod ops;
 mod plan;
 mod repair;
@@ -90,6 +91,8 @@ pub(super) struct Row {
     pub selected: bool,
     /// The intended row is an unlisted empty paragraph.
     pub exact_blank: bool,
+    /// A blank row the command turned into a new (empty) item.
+    pub from_blank: bool,
     /// Start number for an ordered row that begins a list.
     pub start: Option<u64>,
     /// The start is the user's typed number, not the list's next ordinal.
@@ -124,7 +127,7 @@ impl EditorSession {
     /// Window rows with their current shapes; `after` starts equal to `before`.
     fn list_rows(&self, window: &Range<usize>, selected: &[usize]) -> Vec<Row> {
         let mut rows: Vec<Row> = Vec::new();
-        let mut open: Vec<(Range<usize>, usize)> = Vec::new();
+        let mut open = self.outer_items(window);
         for line in self.projection.list_command_lines_in_source(window) {
             let index = rows.len();
             let raw = self.source.byte_slice(line.source.clone()).to_string();
@@ -195,6 +198,7 @@ impl EditorSession {
                 fixed,
                 selected: selected.contains(&start),
                 exact_blank: false,
+                from_blank: false,
                 start: physical,
                 pinned: false,
                 key,
@@ -215,6 +219,20 @@ impl EditorSession {
             rows.push(eof_row(len, rows.len(), selected.contains(&len)));
         }
         rows
+    }
+
+    /// Items open at a window starting inside a nested list: they contain
+    /// its rows without a row of their own in it.
+    fn outer_items(&self, window: &Range<usize>) -> Vec<(Range<usize>, Option<usize>)> {
+        self.projection
+            .window_context(window.start)
+            .map_or_else(Vec::new, |context| {
+                context
+                    .ancestors
+                    .into_iter()
+                    .map(|(item, _)| (item, None))
+                    .collect()
+            })
     }
 
     /// Plan, verify and repair, then commit one protected action.
@@ -267,7 +285,18 @@ impl EditorSession {
         rows: &mut [Row],
         work: &mut EditWork,
     ) -> Result<Option<Plan>, EditorError> {
-        let Some(mut plan) = self.plan_rows(rows)? else {
+        // Content columns of the items a window inside a nested list starts in.
+        let outer: Vec<usize> =
+            self.projection
+                .window_context(window.start)
+                .map_or_else(Vec::new, |context| {
+                    context
+                        .ancestors
+                        .into_iter()
+                        .map(|(_, column)| column)
+                        .collect()
+                });
+        let Some(mut plan) = self.plan_rows(rows, &outer)? else {
             return Ok(None);
         };
         let mut bad = self.verify_rows(expected, window, rows, &plan, work)?;
@@ -284,7 +313,7 @@ impl EditorSession {
                     .map(|row| (row.escape, row.insert, row.after.marker))
                     .collect();
                 option.apply(rows);
-                if let Some(candidate) = self.plan_rows(rows).ok().flatten() {
+                if let Some(candidate) = self.plan_rows(rows, &outer).ok().flatten() {
                     let result = self.verify_rows(expected, window, rows, &candidate, work)?;
                     if result.is_none_or(|next| next > at) {
                         (plan, bad, repaired) = (candidate, result, true);
@@ -329,16 +358,16 @@ fn map_offset(rows: &[Row], plan: &Plan, offset: usize) -> usize {
 /// Opening rows of the items containing a row at `start`, outermost first;
 /// false when the parse nests items on one line (no row of their own).
 fn item_chain(
-    open: &mut Vec<(Range<usize>, usize)>,
+    open: &mut Vec<(Range<usize>, Option<usize>)>,
     list: &ListLine,
     start: usize,
     opens: Option<usize>,
 ) -> (Vec<Option<usize>>, bool) {
     open.retain(|(item, _)| item.start <= start && start < item.end);
     if let Some(index) = opens {
-        open.push((list.item.clone(), index));
+        open.push((list.item.clone(), Some(index)));
     }
-    let mut chain: Vec<_> = open.iter().map(|(_, row)| Some(*row)).collect();
+    let mut chain: Vec<_> = open.iter().map(|(_, row)| *row).collect();
     let complete = chain.len() == list.depth;
     if chain.len() > list.depth {
         chain.drain(..chain.len() - list.depth);
@@ -368,6 +397,7 @@ fn eof_row(len: usize, index: usize, selected: bool) -> Row {
         fixed: false,
         selected,
         exact_blank: false,
+        from_blank: false,
         start: None,
         pinned: false,
         key: usize::MAX - index,

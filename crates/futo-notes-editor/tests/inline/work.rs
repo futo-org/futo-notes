@@ -44,6 +44,10 @@ fn a_distant_edit_reparses_a_paragraph_window_instead_of_the_note() {
     for (measured, references) in work.iter_mut().zip([12, 30]) {
         measured.link_metadata_items -= references;
     }
+    // Span sweep visits over the reparsed window's segments, 54 at both sizes.
+    for measured in &mut work {
+        measured.link_metadata_items -= 54;
+    }
     assert_eq!(
         work.iter()
             .map(|w| w.link_metadata_items)

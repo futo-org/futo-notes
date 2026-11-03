@@ -7,6 +7,7 @@ mod prefixes;
 pub(super) use context::Context;
 mod selection;
 mod source;
+mod span_sweep;
 use super::row::SpanKind;
 use super::{
     spelling::{spell, Marker, Piece, PieceOrigin},
@@ -23,6 +24,17 @@ use std::ops::Range;
 pub(crate) enum EditIntent {
     Input(crate::InputAction),
     Toggle(InlineFormat),
+}
+
+/// How far an input's planning context reaches.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum Width {
+    /// The rows holding the edited range.
+    Rows,
+    /// Those rows widened to whole physical lines past word seams.
+    Line,
+    /// The complete paragraph or list.
+    Paragraph,
 }
 
 pub(crate) struct Plan {
@@ -77,7 +89,7 @@ impl Projection {
         intent: EditIntent,
         escape_pipes: bool,
     ) -> Result<Plan, EditorError> {
-        let plan = |wide| {
+        let plan = |width| {
             self.edit_in(
                 source,
                 range,
@@ -86,24 +98,26 @@ impl Projection {
                 pending,
                 intent,
                 escape_pipes,
-                wide,
+                width,
             )
         };
         // A cut context can be too narrow to plan (or to judge) the input:
-        // plan once more against the complete paragraph or list (#314).
-        let narrow = match plan(false) {
-            Ok((narrow, true)) => return Ok(narrow),
-            Ok((narrow, false)) => Some(narrow),
-            Err(_) => None,
-        };
-        let (mut wide, _) = plan(true)?;
-        if let Some(narrow) = narrow {
-            wide.materialized += narrow.materialized;
-            wide.parsed += narrow.parsed;
-            wide.link_metadata_items += narrow.link_metadata_items;
-            wide.link_copied_bytes += narrow.link_copied_bytes;
+        // plan once more against the whole line when a word seam bounds the
+        // rows, then against the complete paragraph or list (#314).
+        let mut tried = Vec::new();
+        let mut widths = vec![Width::Rows];
+        if self.at_word_seam(range) {
+            widths.push(Width::Line);
         }
-        Ok(wide)
+        for width in widths {
+            match plan(width) {
+                Ok((plan, true)) => return Ok(spent(plan, tried)),
+                Ok((plan, false)) => tried.push(plan),
+                Err(_) => {}
+            }
+        }
+        let (wide, _) = plan(Width::Paragraph)?;
+        Ok(spent(wide, tried))
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -116,7 +130,7 @@ impl Projection {
         pending: Option<&[InlineFormat]>,
         intent: EditIntent,
         escape_pipes: bool,
-        wide: bool,
+        width: Width,
     ) -> Result<(Plan, bool), EditorError> {
         // Front matter is inert: input within it rejects, and input covering
         // it changes only the body.
@@ -146,21 +160,19 @@ impl Projection {
             source,
             range,
             toggle.is_none().then_some(inserted),
-            wide,
+            width,
         )?;
         let following = self.rows.locate(source_end, false);
         let continued = source_end < source.len_bytes() && {
             let (row, at, _) = self.rows.at(following);
             at == source_end && row.continues && row.opener.is_some()
         };
+        let first_row = self.rows.at(self.rows.locate(source_start, false)).0;
         let _opener = super::row::CandidateOpener::set((
-            self.rows
-                .at(self.rows.locate(source_start, false))
-                .0
-                .opener
-                .clone(),
+            first_row.opener.clone(),
             continued,
             source_end < source.len_bytes(),
+            first_row.context.clone(),
         ));
         let mut typed = super::typed_angle::TypedState::current(typed_inputs);
         let expanded = split_entities(pieces, a, z);
@@ -327,13 +339,16 @@ impl Projection {
         let display_line = self
             .display
             .line_to_byte(self.display.byte_to_line(range.start.0));
-        let prefix = format!(
-            "{}{}",
-            self.display.byte_slice(display_line..range.start.0),
-            inserted
-        );
-        let speculative_fence = (prefix.starts_with("```") || prefix.starts_with("~~~"))
-            && !prefix.contains(char::is_whitespace);
+        // The line's text before the input, then the input: read lazily, so
+        // a caret deep in a long line stops at its first character.
+        let prefix = || {
+            self.display
+                .byte_slice(display_line..range.start.0)
+                .chars()
+                .chain(inserted.chars())
+        };
+        let fence = |marker: char| prefix().take(3).filter(|&ch| ch == marker).count() == 3;
+        let speculative_fence = (fence('`') || fence('~')) && !prefix().any(char::is_whitespace);
         let mut literal = inserted.contains(['<', '>'])
             || speculative_fence
             || speculative_block
@@ -447,6 +462,17 @@ impl Projection {
         };
         Ok((plan, sealed))
     }
+}
+
+/// `plan` charged with the work of the refused attempts before it.
+fn spent(mut plan: Plan, tried: Vec<Plan>) -> Plan {
+    for attempt in tried {
+        plan.materialized += attempt.materialized;
+        plan.parsed += attempt.parsed;
+        plan.link_metadata_items += attempt.link_metadata_items;
+        plan.link_copied_bytes += attempt.link_copied_bytes;
+    }
+    plan
 }
 
 pub(crate) fn delimiter(format: InlineFormat) -> &'static str {

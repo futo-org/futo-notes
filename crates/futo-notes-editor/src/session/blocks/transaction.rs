@@ -2,7 +2,7 @@
 use super::*;
 
 impl EditorSession {
-    pub(super) fn stage_block_action(
+    pub(in crate::session) fn stage_block_action(
         &mut self,
         expected: Revision,
         range: DisplayRange,

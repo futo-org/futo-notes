@@ -4,7 +4,11 @@ use super::*;
 
 impl EditorSession {
     /// Window rows around `range`; a retarget reads its whole touched lists.
-    fn command_rows(&self, range: DisplayRange, whole_lists: bool) -> (Range<usize>, Vec<Row>) {
+    pub(super) fn command_rows(
+        &self,
+        range: DisplayRange,
+        whole_lists: bool,
+    ) -> (Range<usize>, Vec<Row>) {
         let lines = self.selected_list_lines(range);
         let selected: Vec<usize> = lines.iter().map(|line| line.source.start).collect();
         let mut low = range.start.0;
@@ -161,7 +165,9 @@ impl EditorSession {
                 ancestor = Some((item, run));
             } else if command == BlockCommand::Heading(0) {
                 rows[index].retire_heading();
-            } else if !row.blank {
+            } else if !row.blank || !written {
+                // A caret on a blank line (nothing else selected) starts an
+                // empty item there; within a wider selection blank rows stay.
                 created.push((index, format));
             }
         }
@@ -186,6 +192,10 @@ impl EditorSession {
             };
             row.key = key;
             previous_created = Some((index, key));
+            // A blank row chosen for a new item is written as one (an empty
+            // item); reparse verification and its repairs still apply.
+            row.from_blank = row.blank;
+            row.blank = false;
             row.retire_heading();
             row.after.depth = 1;
             row.after.opens = true;
@@ -199,115 +209,6 @@ impl EditorSession {
             };
             row.after.checked = (command == BlockCommand::TaskList).then_some(false);
             row.start = Some(1);
-        }
-        self.commit_rows(expected, range, window, rows, accept)
-    }
-
-    /// Indent moves the selected items of the first item's list, with their
-    /// descendants, under the previous sibling; Outdent moves them one level
-    /// out, and a root item becomes paragraph text.
-    pub(in crate::session::blocks) fn indent_list(
-        &mut self,
-        expected: Revision,
-        range: DisplayRange,
-        command: BlockCommand,
-        accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
-    ) -> Result<Option<ViewChange>, EditorError> {
-        let (window, mut rows) = self.command_rows(range, false);
-        let Some(first) = rows.iter().position(|row| row.selected && !row.code) else {
-            return Ok(None);
-        };
-        let Some(list) = rows[first].list.clone() else {
-            return Ok(None);
-        };
-        let item = rows[first]
-            .item()
-            .ok_or(EditorError::UnrepresentableFormat)?;
-        if command == BlockCommand::Indent && list.previous_content_column.is_none() {
-            return Ok(None);
-        }
-        let parent = list
-            .depth
-            .checked_sub(2)
-            .and_then(|at| rows[item].chain[at]);
-        if command == BlockCommand::Outdent
-            && parent.is_none_or(|parent| rows[parent].before.quotes != rows[item].before.quotes)
-        {
-            retire(&mut rows, &[item], false);
-            return self.commit_rows(expected, range, window, rows, accept);
-        }
-        let last = rows.iter().rposition(|row| row.selected).unwrap_or(first);
-        let moved: Vec<usize> = (item..=last)
-            .filter(|&index| {
-                let row = &rows[index];
-                row.before.opens
-                    && row
-                        .list
-                        .as_ref()
-                        .is_some_and(|other| other.owner == list.owner)
-            })
-            .collect();
-        // Moved items join the list at their new level and take its marker.
-        let depth = list.depth;
-        let joined = if command == BlockCommand::Indent {
-            let sibling = (0..item)
-                .rev()
-                .find(|&at| rows[at].before.opens && rows[at].before.depth == depth)
-                .ok_or(EditorError::UnrepresentableFormat)?;
-            (sibling + 1..item)
-                .rev()
-                .find(|&at| {
-                    rows[at].before.opens
-                        && rows[at].before.depth == depth + 1
-                        && rows[at].chain.contains(&Some(sibling))
-                })
-                .map(|at| (rows[at].before.marker, rows[at].key))
-        } else {
-            rows[item].chain[depth - 2].map(|parent| (rows[parent].before.marker, rows[parent].key))
-        };
-        for row in rows.iter_mut() {
-            if !row
-                .chain
-                .iter()
-                .any(|at| at.is_some_and(|at| moved.contains(&at)))
-            {
-                continue;
-            }
-            if command == BlockCommand::Indent {
-                row.after.depth += 1;
-            } else {
-                row.after.depth -= 1;
-            }
-        }
-        // Outdented items leave their old list: its later items, now nested
-        // under the last moved item, form a new list.
-        if command == BlockCommand::Outdent {
-            let old = rows[item].key;
-            let last = *moved.last().unwrap_or(&item);
-            for row in rows[last + 1..].iter_mut() {
-                if !row.blank && row.before.depth < depth {
-                    break;
-                }
-                if row.before.opens && row.key == old && row.before.depth == depth {
-                    row.key = usize::MAX / 2 - last;
-                }
-            }
-        }
-        for &at in &moved {
-            let row = &mut rows[at];
-            match joined {
-                Some((marker, key)) => {
-                    row.after.marker = marker;
-                    row.key = key;
-                }
-                None => {
-                    row.key = usize::MAX - moved[0];
-                    if row.after.ordered() {
-                        row.start = Some(1);
-                        row.pinned = at == moved[0];
-                    }
-                }
-            }
         }
         self.commit_rows(expected, range, window, rows, accept)
     }

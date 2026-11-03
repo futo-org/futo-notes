@@ -27,6 +27,7 @@ impl Row {
         reference_work.copied += callback_copied.get();
         let mut reference_uses = Vec::new();
         let (blocks, prefixes) = crate::inline::blocks::describe(source, &events);
+        let tail_chain = tail_chain(source.len(), &events);
         let mut hidden = vec![false; source.len()];
         for prefix in prefixes {
             hidden[prefix].fill(true);
@@ -343,9 +344,13 @@ impl Row {
             guarded_words: Vec::new(),
             typed_inputs: Vec::new(),
             continues: false,
+            mid_line: false,
             through: false,
             metadata: false,
             opener: None,
+            context: None,
+            context_ends: Vec::new(),
+            tail_chain,
             source_len: source.len(),
             pipes: source.contains('|'),
             parsed_source_bytes: source.len() + additional_parse + reference_work.parsed,
@@ -407,4 +412,32 @@ fn code_span(source: &str, range: Range<usize>) -> (Span, Vec<(Range<usize>, Str
         }
     }
     (span, replacements)
+}
+
+/// The start of each item open at the end of `len` source bytes (depth 1
+/// first) and of the list holding it.
+fn tail_chain(len: usize, events: &[(Event<'_>, Range<usize>)]) -> Vec<(usize, usize)> {
+    let mut lists: Vec<usize> = Vec::new();
+    let mut chain: Vec<(usize, usize, usize)> = Vec::new();
+    for (event, range) in events {
+        match event {
+            Event::Start(Tag::List(_)) => lists.push(range.start),
+            Event::End(pulldown_cmark::TagEnd::List(_)) => {
+                lists.pop();
+            }
+            Event::Start(Tag::Item) if range.end >= len => {
+                if let Some(&owner) = lists.last() {
+                    chain.truncate(lists.len() - 1);
+                    chain.push((range.start, owner, lists.len()));
+                }
+            }
+            _ => {}
+        }
+    }
+    chain
+        .into_iter()
+        .enumerate()
+        .take_while(|(index, (.., depth))| index + 1 == *depth)
+        .map(|(_, (item, owner, _))| (item, owner))
+        .collect()
 }

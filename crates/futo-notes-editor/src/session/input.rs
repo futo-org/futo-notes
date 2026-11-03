@@ -114,7 +114,13 @@ impl EditorSession {
             return Ok(change);
         }
         let affinity = self.input_affinity(range);
-        let pending = if range == self.selection {
+        // A deletion that ends at the caret (Backspace) keeps the caret's
+        // carried formats: removing the space typed after italic text, as a
+        // keyboard's double-space period does, must not end the italic.
+        let backspace = inserted.is_empty()
+            && self.selection.start == self.selection.end
+            && range.end == self.selection.start;
+        let pending = if range == self.selection || backspace {
             self.pending_formats.as_deref()
         } else {
             None

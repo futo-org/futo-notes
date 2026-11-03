@@ -71,6 +71,9 @@ fn ordinary_reference_label_and_body_edits_do_not_copy_or_scan_distant_definitio
             let references = [(5, 9), (9, 14)][index];
             label.link_metadata_items -= references.0;
             body.link_metadata_items -= references.1;
+            // Span sweep visits over the edited row's segments: 17 for the
+            // label edit at every size, none for the body edit.
+            label.link_metadata_items -= 17;
             assert_eq!(
                 (label.link_metadata_items, body.link_metadata_items),
                 expected[index]

@@ -125,6 +125,16 @@ fn unescaped_pipes(text: &str, start: usize, end: usize) -> Vec<usize> {
     pipes
 }
 
+/// Whether `range` (relative to `line`, one physical line without its
+/// ending) lies inside one cell of that line read as a table row. Cells come
+/// from the line alone, so `false` means no table can give it a cell.
+pub(crate) fn line_has_cell(line: &str, range: Range<usize>) -> bool {
+    parse_line(line, 0, line.len(), line.len())
+        .cells
+        .iter()
+        .any(|cell| cell.start <= range.start && range.end <= cell.end)
+}
+
 pub(crate) fn pipe_count(text: &str) -> usize {
     unescaped_pipes(text, 0, text.len()).len()
 }

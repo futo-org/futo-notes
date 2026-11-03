@@ -1,4 +1,5 @@
 //! Canonical source pieces and spans for one input context.
+use super::span_sweep::{Enclosing, MarkerRanges};
 use super::*;
 
 impl Projection {
@@ -7,7 +8,7 @@ impl Projection {
         source: &Rope,
         range: DisplayRange,
     ) -> Result<Context, crate::EditorError> {
-        self.edit_context_for_change(source, range, None, false)
+        self.edit_context_for_change(source, range, None, super::Width::Rows)
     }
 
     /// A candidate replacing source `start..end` is sealed when it cannot
@@ -40,13 +41,21 @@ impl Projection {
         if !first.continues && next.is_none() {
             return (true, parsed);
         }
+        let first_index = self.rows.locate(start, false);
+        let previous = self.previous_tail(source, first_index, start);
         let outside = super::super::row::Outside {
+            previous: previous.as_deref(),
             continues: first.continues,
             first_number: first.first_number(),
             opener: first.opener.as_deref(),
             next: next.as_deref(),
             next_opener: next.as_ref().and(next_opener),
             followed: end < source.len_bytes(),
+            neutral: neutral_replacement(source, start, end, output),
+            context: first.context.as_deref(),
+            next_context: next
+                .as_ref()
+                .and(following.context.as_deref().filter(|_| following_row)),
         };
         let found = super::super::row::partition(output, outside);
         (
@@ -86,12 +95,14 @@ impl Projection {
         source: &Rope,
         range: DisplayRange,
         replacement: Option<&str>,
-        wide: bool,
+        width: super::Width,
     ) -> Result<Context, crate::EditorError> {
         let mut first = self.rows.locate(range.start.0, true);
         let mut last = self.rows.locate(range.end.0, true);
-        if wide {
-            (first, last) = self.uncut_piece(source, first, last);
+        match width {
+            super::Width::Rows => {}
+            super::Width::Line => (first, last) = self.whole_lines(first, last),
+            super::Width::Paragraph => (first, last) = self.uncut_piece(source, first, last),
         }
         let (_, source_start, display_start) = self.rows.at(first);
         let (end_row, source_end, _) = self.rows.at(last);
@@ -118,7 +129,7 @@ impl Projection {
         });
         let mut selected_body_before = false;
         for index in first..=last {
-            let (row, row_source, row_display) = self.rows.at(index);
+            let (row, row_source, _) = self.rows.at(index);
             let base = row_source - source_start;
             link_metadata_items += super::super::guarded_words::validate_row(
                 &raw[base..base + row.source_len],
@@ -155,34 +166,55 @@ impl Projection {
                     block_boundaries.push(display_len + row.display_at(pair[1].source.start));
                 }
             }
-            markers.extend(row.spans.iter().map(|span| {
-                if matches!(span.kind, SpanKind::Link(_)) {
-                    link_metadata_items += 1;
-                }
-                let pending = !span.open.is_empty()
-                    && matches!(span.kind, SpanKind::Link(_))
-                    && row.literal_links.iter().any(|range| {
-                        link_metadata_items += 1;
-                        *range == (span.open.end..span.close.start)
-                    });
-                if pending {
-                    link_metadata_items += 4;
-                }
-                Marker {
-                    source: pending.then(|| {
-                        (
-                            base + span.open.start..base + span.open.end,
-                            base + span.close.start..base + span.close.end,
-                        )
+            // Literal (pending) link fields, looked up per span rather than
+            // scanned per span: a row of many links costs spans + fields.
+            let literal: std::collections::HashSet<(usize, usize)> = row
+                .literal_links
+                .iter()
+                .map(|range| (range.start, range.end))
+                .collect();
+            let suppressed: Vec<bool> = row
+                .spans
+                .iter()
+                .map(|span| {
+                    matches!(span.kind, SpanKind::Link(_))
+                        && literal.contains(&(span.open.end, span.close.start))
+                })
+                .collect();
+            markers.extend(
+                row.spans
+                    .iter()
+                    .zip(&suppressed)
+                    .map(|(span, &suppressed)| {
+                        if matches!(span.kind, SpanKind::Link(_)) {
+                            link_metadata_items += 1;
+                        }
+                        let pending = !span.open.is_empty() && suppressed;
+                        if matches!(span.kind, SpanKind::Link(_))
+                            && !span.open.is_empty()
+                            && !literal.is_empty()
+                        {
+                            link_metadata_items += 1;
+                        }
+                        if pending {
+                            link_metadata_items += 4;
+                        }
+                        Marker {
+                            source: pending.then(|| {
+                                (
+                                    base + span.open.start..base + span.open.end,
+                                    base + span.close.start..base + span.close.end,
+                                )
+                            }),
+                            literal_url: false,
+                            pending,
+                            activate: false,
+                            kind: span.kind.clone(),
+                            open: raw[base + span.open.start..base + span.open.end].into(),
+                            close: raw[base + span.close.start..base + span.close.end].into(),
+                        }
                     }),
-                    literal_url: false,
-                    pending,
-                    activate: false,
-                    kind: span.kind.clone(),
-                    open: raw[base + span.open.start..base + span.open.end].into(),
-                    close: raw[base + span.close.start..base + span.close.end].into(),
-                }
-            }));
+            );
             let retired_headings: Vec<_> = row
                 .blocks
                 .iter()
@@ -227,6 +259,10 @@ impl Projection {
                 })
                 .collect();
             let mut hidden = hidden.iter().peekable();
+            let mut enclosing = Enclosing::new(row, |index| {
+                !suppressed[index] || !row.spans[index].open.is_empty()
+            });
+            let markers_at = MarkerRanges::new(row);
             for segment in &row.segments {
                 while hidden
                     .peek()
@@ -287,26 +323,15 @@ impl Projection {
                 }) {
                     continue;
                 }
-                let active = row
-                    .spans
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, span)| {
-                        (!self.suppressed_link(row, span, row_display) || !span.open.is_empty())
-                            && span.open.end <= segment.source.start
-                            && segment.source.end <= span.close.start
-                    })
-                    .map(|(i, _)| span_base + i)
+                let active = enclosing
+                    .at(&segment.source, &mut link_metadata_items)
+                    .into_iter()
+                    .map(|i| span_base + i)
                     .collect();
                 if segment.display.is_empty() {
                     // Inline markers are reconstructed from spans; block markers
                     // are exact source pieces outside that inline stack.
-                    if row.spans.iter().any(|span| {
-                        span.open.start <= segment.source.start
-                            && segment.source.end <= span.open.end
-                            || span.close.start <= segment.source.start
-                                && segment.source.end <= span.close.end
-                    }) {
+                    if markers_at.covers(&segment.source, &mut link_metadata_items) {
                         continue;
                     }
                     let trailing =
@@ -391,4 +416,35 @@ pub(in crate::inline) struct Context {
     pub(in crate::inline) block_boundaries: Vec<usize>,
     pub(in crate::inline) pending_links: Vec<Range<usize>>,
     pub(in crate::inline) link_metadata_items: usize,
+}
+
+/// Whether `output` replacing source `start..end` changes no emphasis
+/// delimiter run: the differing middle and the bytes beside it hold none.
+fn neutral_replacement(source: &Rope, start: usize, end: usize, output: &str) -> bool {
+    let raw = source.byte_slice(start..end).to_string();
+    let (raw, new) = (raw.as_bytes(), output.as_bytes());
+    let prefix = raw.iter().zip(new).take_while(|(a, b)| a == b).count();
+    let room = raw.len().min(new.len()) - prefix;
+    let suffix = raw
+        .iter()
+        .rev()
+        .zip(new.iter().rev())
+        .take(room)
+        .take_while(|(a, b)| a == b)
+        .count();
+    let byte = |at: usize| (at < source.len_bytes()).then(|| source.byte(at));
+    let before = match prefix {
+        0 => start.checked_sub(1).and_then(byte),
+        _ => Some(raw[prefix - 1]),
+    };
+    let after = match suffix {
+        0 => byte(end),
+        _ => Some(raw[raw.len() - suffix]),
+    };
+    super::super::row::delimiter_neutral(
+        &raw[prefix..raw.len() - suffix],
+        &new[prefix..new.len() - suffix],
+        before,
+        after,
+    )
 }

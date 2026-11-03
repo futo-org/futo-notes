@@ -10,7 +10,7 @@ pub(in crate::inline) struct Cut {
 }
 
 pub(in crate::inline) fn split_entities(pieces: Vec<Piece>, a: usize, z: usize) -> Vec<Piece> {
-    let mut expanded = Vec::new();
+    let mut expanded = Vec::with_capacity(pieces.len() + 2);
     let mut position = 0;
     for piece in pieces {
         if piece.display.is_empty() {
@@ -76,7 +76,7 @@ pub(in crate::inline) fn split_entities(pieces: Vec<Piece>, a: usize, z: usize) 
 pub(in crate::inline) fn cut(expanded: Vec<Piece>, selected: Range<usize>, keep: bool) -> Cut {
     let (a, z) = (selected.start, selected.end);
     let mut offset = 0;
-    let mut before = Vec::new();
+    let mut before = Vec::with_capacity(expanded.len());
     let mut after = Vec::new();
     let mut left = Vec::new();
     let mut right = Vec::new();

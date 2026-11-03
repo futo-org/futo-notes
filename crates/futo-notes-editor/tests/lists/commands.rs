@@ -290,3 +290,124 @@ fn list_commands_refuse_setext_headings_unchanged() {
     ));
     assert_eq!(s.source_text(), raw);
 }
+
+#[test]
+fn a_list_command_on_a_blank_line_starts_an_empty_item() {
+    // (source, caret, command, expected source)
+    let cases = [
+        ("", 0, BlockCommand::BulletList, "- "),
+        ("", 0, BlockCommand::OrderedList, "1. "),
+        ("", 0, BlockCommand::TaskList, "- [ ] "),
+        ("a\n\n", 3, BlockCommand::BulletList, "a\n\n- "),
+        // An empty item cannot interrupt a paragraph (it would make it a
+        // setext heading), so a blank line separates them.
+        ("a\n", 2, BlockCommand::BulletList, "a\n\n- "),
+    ];
+    for (raw, at, command, expected) in cases {
+        let mut s = EditorSession::open(raw);
+        let change = s
+            .block_command(s.revision(), range(at, at), command, &mut |_| Ok(()))
+            .unwrap();
+        assert!(change.is_some(), "{command:?} on {raw:?} changed nothing");
+        assert_eq!(s.source_text(), expected, "{command:?} on {raw:?}");
+        s.undo(s.revision(), &mut |_| Ok(())).unwrap();
+        assert_eq!(s.source_text(), raw, "undo of {command:?} on {raw:?}");
+    }
+}
+
+#[test]
+fn enter_at_a_lists_end_describes_the_new_empty_item() {
+    let mut s = EditorSession::open("- C\n- Y");
+    let end = s.display_text().len();
+    let change = s
+        .paragraph_key(
+            s.revision(),
+            range(end, end),
+            ParagraphKey::Enter,
+            &mut |_| Ok(()),
+        )
+        .unwrap()
+        .unwrap();
+    assert_eq!(s.source_text(), "- C\n- Y\n- ");
+    let at = s.display_text().len();
+    // The view draws a bullet only for blocks the projection describes.
+    for blocks in [
+        change.projection.blocks,
+        s.project(s.revision(), range(0, at)).unwrap().blocks,
+    ] {
+        assert!(
+            blocks
+                .iter()
+                .any(|b| b.range == range(at, at) && b.list.is_some()),
+            "empty last item missing from {blocks:?}"
+        );
+    }
+}
+
+#[test]
+fn leaving_a_list_at_its_end_types_a_separate_paragraph() {
+    let mut s = EditorSession::open("- C\n- Y\n- ");
+    let end = s.display_text().len();
+    s.paragraph_key(
+        s.revision(),
+        range(end, end),
+        ParagraphKey::Enter,
+        &mut |_| Ok(()),
+    )
+    .unwrap();
+    assert_eq!(s.source_text(), "- C\n- Y\n\n");
+    let at = s.selection();
+    s.replace_action(s.revision(), at, "x", InputAction::Typing, &mut |_| Ok(()))
+        .unwrap();
+    assert_eq!(s.source_text(), "- C\n- Y\n\nx");
+    let lines = s
+        .project(s.revision(), range(0, s.display_text().len()))
+        .unwrap()
+        .blocks;
+    assert!(
+        lines.last().is_some_and(|b| b.list.is_none()),
+        "x joined the list: {lines:?}"
+    );
+    s.undo(s.revision(), &mut |_| Ok(())).unwrap();
+    s.undo(s.revision(), &mut |_| Ok(())).unwrap();
+    assert_eq!(s.source_text(), "- C\n- Y\n- ");
+}
+
+#[test]
+fn indenting_an_empty_item_under_its_siblings_text_is_refused() {
+    // `  * item 2\n    * ` would read the empty item as text of item 2; only
+    // a blank line (loosening the list) could write it.
+    let source = "* item 1\n  * item 2\n  * ";
+    let mut s = EditorSession::open(source);
+    let end = s.display_text().len();
+    s.select(s.revision(), range(end, end)).unwrap();
+    let revision = s.revision();
+    let result = s.block_command(revision, range(end, end), BlockCommand::Indent, &mut |_| {
+        panic!("a refused indent accepts nothing")
+    });
+    assert!(
+        matches!(result, Err(EditorError::UnrepresentableFormat)),
+        "{result:?}"
+    );
+    assert_eq!(s.source_text(), source);
+    assert_eq!(s.revision(), revision);
+    assert_eq!(s.selection(), range(end, end));
+    // Once it has text, the same item indents.
+    s.replace_action(
+        s.revision(),
+        range(end, end),
+        "x",
+        InputAction::Typing,
+        &mut |_| Ok(()),
+    )
+    .unwrap();
+    let end = s.display_text().len();
+    s.block_command(
+        s.revision(),
+        range(end, end),
+        BlockCommand::Indent,
+        &mut |_| Ok(()),
+    )
+    .unwrap();
+    assert_eq!(s.source_text(), "* item 1\n  * item 2\n    * x");
+}

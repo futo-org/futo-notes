@@ -20,7 +20,8 @@ pub(super) struct Window {
 
 impl Projection {
     /// The first line of row `index` at source `start`, when that row
-    /// continues its predecessor's paragraph or list.
+    /// continues its predecessor's paragraph or list. A line that the row
+    /// ends inside, at a word seam, is read only to the row's end.
     pub(crate) fn continued_line(
         &self,
         source: &Rope,
@@ -30,8 +31,49 @@ impl Projection {
         if index >= self.rows.len() || !self.rows.at(index).0.continues {
             return None;
         }
+        let row_end = start + self.rows.at(index).0.source_len;
         let line = source.byte_to_line(start);
-        Some(source.line(line).to_string())
+        let line_end = if line + 1 < source.len_lines() {
+            source.line_to_byte(line + 1)
+        } else {
+            source.len_bytes()
+        };
+        Some(source.byte_slice(start..line_end.min(row_end)).to_string())
+    }
+
+    /// The tail of row `index - 1` when row `index`, at source `start`,
+    /// starts at a word seam inside it: enough to hold the cut word.
+    pub(crate) fn previous_tail(
+        &self,
+        source: &Rope,
+        index: usize,
+        start: usize,
+    ) -> Option<String> {
+        if index == 0 || index >= self.rows.len() || !self.rows.at(index).0.mid_line {
+            return None;
+        }
+        let from = start.saturating_sub(row::WORD_TAIL);
+        let from = source.char_to_byte(source.byte_to_char(from));
+        Some(source.byte_slice(from..start).to_string())
+    }
+
+    /// Whether a word seam bounds the rows holding `range`.
+    pub(super) fn at_word_seam(&self, range: DisplayRange) -> bool {
+        let first = self.rows.locate(range.start.0, true);
+        let last = self.rows.locate(range.end.0, true);
+        self.rows.at(first).0.mid_line
+            || last + 1 < self.rows.len() && self.rows.at(last + 1).0.mid_line
+    }
+
+    /// Rows `first..=last` widened past word seams to whole physical lines.
+    pub(super) fn whole_lines(&self, mut first: usize, mut last: usize) -> (usize, usize) {
+        while first > 0 && self.rows.at(first).0.mid_line {
+            first -= 1;
+        }
+        while last + 1 < self.rows.len() && self.rows.at(last + 1).0.mid_line {
+            last += 1;
+        }
+        (first, last)
     }
 
     pub(super) fn reparse_window(&self, source: &Rope, edit: &SourceEdit) -> Window {
@@ -66,9 +108,13 @@ impl Projection {
             let first_row = self.rows.at(first).0;
             let opener = first_row.opener.as_deref().filter(|_| metadata == 0);
             let next = self.continued_line(source, last + 1, source_end);
+            let previous = self.previous_tail(source, first, source_start);
             let next_opener = next
                 .as_ref()
                 .and_then(|_| self.rows.at(last + 1).0.opener.clone());
+            let next_context = next
+                .as_ref()
+                .and_then(|_| self.rows.at(last + 1).0.context.clone());
             // The row after a raw HTML block's end condition starts without a
             // blank line; the window's new meaning may continue into it.
             if next.is_none() && last + 1 < self.rows.len() && !ends_blank(&text) {
@@ -109,6 +155,10 @@ impl Projection {
                 next: next.as_deref(),
                 next_opener: next_opener.as_deref(),
                 followed: last + 1 < self.rows.len(),
+                previous: previous.as_deref().filter(|_| metadata == 0),
+                neutral: edit_neutral(source, edit),
+                context: first_row.context.as_deref().filter(|_| metadata == 0),
+                next_context: next_context.as_deref(),
             };
             let found = partition(body, outside);
             // A block reaching the window end owns a following blank row, and
@@ -204,4 +254,18 @@ fn ends_blank(text: &str) -> bool {
         .next()
         .is_some_and(|line| line.trim().is_empty())
         && body.len() < text.len()
+}
+
+/// Whether the applied edit changes no emphasis delimiter run (see
+/// `row::delimiter_neutral`); `source` already holds the edit.
+fn edit_neutral(source: &Rope, edit: &SourceEdit) -> bool {
+    let start = edit.range.start.0;
+    let end = start + edit.inserted.len();
+    let byte = |at: usize| (at < source.len_bytes()).then(|| source.byte(at));
+    row::delimiter_neutral(
+        edit.removed.as_bytes(),
+        edit.inserted.as_bytes(),
+        start.checked_sub(1).and_then(byte),
+        byte(end),
+    )
 }
