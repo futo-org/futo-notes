@@ -65,7 +65,7 @@ internal class EditorEngine(
     val selEnd: Int get() = mirror.selEnd
     internal var seq = 0
     private var saveArmed = false
-    private var closed = false
+    internal var closed = false
     private var inputStartNanos = 0L
     private var engineNanos = 0L
     /** The last change's projection; the caret state reads its block from it. */
@@ -267,7 +267,7 @@ internal class EditorEngine(
         }
     }
 
-    private fun handleFailure(e: EditorSessionException) {
+    internal fun handleFailure(e: EditorSessionException) {
         when (e) {
             is EditorSessionException.UnrepresentableFormat,
             is EditorSessionException.CompositionActive,
@@ -291,7 +291,7 @@ internal class EditorEngine(
         }
     }
 
-    private fun reloadFromEngine() {
+    internal fun reloadFromEngine() {
         val s = session ?: return
         mirror.overlay = null
         try { s.composition()?.let { s.cancelComposition(s.revision()) } } catch (_: EditorSessionException) {}
@@ -414,39 +414,11 @@ internal class EditorEngine(
         save(force = false)
     }
 
-    private fun armSave() {
+    internal fun armSave() {
         if (saveArmed || closed) return
         val delay = try { session?.saveDelay() } catch (_: EditorSessionException) { null } ?: return
         saveArmed = true
         handler.postDelayed(saveRunnable, delay.toMillis())
-    }
-
-    /** `checkpoint` when [force], else `saveIfDue`; null when nothing was written or it failed. */
-    private fun save(force: Boolean): FlushDraftResult? {
-        val s = session ?: return null
-        return try {
-            val result = when {
-                force -> if (s.saveDelay() == null) null else s.checkpoint()
-                else -> s.saveIfDue()
-            } ?: return null
-            val id = s.noteId()
-            ui.post { sink.onCheckpoint(result, id) }
-            drainAfterCheckpoint()
-            result
-        } catch (e: EditorSessionException) {
-            handleFailure(e)
-            null
-        } finally {
-            // A failed save reschedules itself in the Store; follow it.
-            armSave()
-        }
-    }
-
-    private fun drainAfterCheckpoint() {
-        val s = session ?: return
-        for (change in s.takeCoordinatedChanges()) {
-            if (change.previousRevision == rev) accept(change) else { reloadFromEngine(); return }
-        }
     }
 
     // ---- toolbar state ----
