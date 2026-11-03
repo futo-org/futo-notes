@@ -45,7 +45,7 @@ test-sync-integration *args:
 
 # Editor engine + store/core tests, Rust conformance goldens + the TS↔Rust rules differential.
 test-rust:
-  cargo test -p futo-notes-editor -p futo-notes-store -p futo-notes-core
+  cargo test -p futo-notes-editor -p futo-notes-store -p futo-notes-core -p futo-notes-merge
   cargo test -p futo-notes-model --test conformance
   cargo test -p futo-notes-license
   node --experimental-strip-types tests/conformance/title-rules-differential.mjs
