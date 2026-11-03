@@ -40,12 +40,10 @@ test:e2e:rest:
   # Runner 71 — see the `test` job. Median 10m10 on runner 55 vs 3m02 on runner 71.
   tags:
     - $LINUX_RUNNER_TAG
-  # Three shards by file (188 tests split 63/71/54 on 2026-10-08). Each shard
-  # starts its own dev server; the docker executor gives every job its own
-  # network namespace, so the shards cannot collide on the port. July's
-  # two-shard attempt was undone for oversubscribing runner 55 (58ceb12b7);
-  # these run on runner 71 only, where the cost is its five job slots.
-  parallel: 3
+  # One job, not three shards: each shard took 47-58s wall on runner 112
+  # (2026-11, MR pipelines), most of it clone, image start and pnpm install,
+  # and the three starts queued ahead of the editor-embed shards (the long
+  # pole) on runners with 2-5 slots. Playwright still runs --workers=2.
   variables:
     PLAYWRIGHT_JSON: $CI_PROJECT_DIR/test-results/results.json
   cache:
@@ -54,10 +52,9 @@ test:e2e:rest:
   script:
     - pnpm install --frozen-lockfile --prefer-offline
     - !reference [.setup-playwright, script]
-    # The flag goes straight after the script name, never after `--`; see
-    # .check-playwright-shard.
-    - pnpm run test:e2e:rest --shard="$CI_NODE_INDEX/$CI_NODE_TOTAL"
-    - !reference [.check-playwright-shard, script]
+    - pnpm run test:e2e:rest
+    # M11: a green exit with zero tests (a broken testMatch) must still fail red.
+    - !reference [.check-playwright-ran, script]
   artifacts:
     when: always
     paths:
