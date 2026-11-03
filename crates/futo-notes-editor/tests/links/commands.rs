@@ -162,3 +162,171 @@ fn adjacent_equal_destinations_form_one_command_run_without_rewriting_untouched_
     view.apply(session.undo(Revision(1), &mut |_| Ok(())).unwrap().unwrap());
     assert_eq!(session.source_text(), original);
 }
+
+#[test]
+fn edit_link_changes_label_and_target_in_one_accepted_undo_step() {
+    let original = "__before [old](https://old.test 'Title') after__\r\n";
+    let mut session = EditorSession::open(original);
+    session.select(Revision(0), range(8, 9)).unwrap();
+    let mut accepted = 0;
+    let change = session
+        .edit_link(
+            Revision(0),
+            range(8, 9),
+            "新 [label]",
+            "https://new.test",
+            &mut |_| {
+                accepted += 1;
+                Ok(())
+            },
+        )
+        .unwrap()
+        .unwrap();
+    assert_eq!(accepted, 1);
+    assert_eq!(session.display_text(), "before 新 [label] after\r\n");
+    assert_eq!(
+        session
+            .inspect_link(Revision(1), range(7, 10))
+            .unwrap()
+            .unwrap()
+            .title
+            .as_deref(),
+        Some("Title")
+    );
+    assert!(session.source_text().starts_with("__before ["));
+    assert!(session.source_text().ends_with(" after__\r\n"));
+    assert_eq!(change.selection, range(18, 18));
+    session.undo(Revision(1), &mut |_| Ok(())).unwrap().unwrap();
+    assert_eq!(session.source_text(), original);
+    assert_eq!(session.selection(), range(8, 9));
+    assert!(session
+        .undo(Revision(2), &mut |_| Ok(()))
+        .unwrap()
+        .is_none());
+}
+
+#[test]
+fn edit_link_inserts_literal_label_unlinks_and_rejects_stale_or_refused_edits() {
+    let mut session = EditorSession::open("see  tail");
+    session.select(Revision(0), range(4, 4)).unwrap();
+    session
+        .edit_link(Revision(0), range(4, 4), "a*[雪]|", "/x", &mut |_| Ok(()))
+        .unwrap()
+        .unwrap();
+    assert_eq!(session.display_text(), "see a*[雪]| tail");
+    assert_eq!(
+        session
+            .inspect_link(Revision(1), range(4, 5))
+            .unwrap()
+            .unwrap()
+            .destination,
+        "/x"
+    );
+    let linked = session.source_text();
+    assert!(session
+        .edit_link(Revision(1), range(4, 5), "a*[雪]|", "/x", &mut |_| panic!(
+            "no-op accepted"
+        ))
+        .unwrap()
+        .is_none());
+    assert!(session
+        .edit_link(Revision(0), range(4, 5), "bad", "/bad", &mut |_| panic!(
+            "stale accepted"
+        ))
+        .is_err());
+    assert!(session
+        .edit_link(Revision(1), range(4, 5), "bad", "/bad", &mut |_| Err(
+            "refused".into()
+        ))
+        .is_err());
+    assert_eq!(session.source_text(), linked);
+    session
+        .edit_link(Revision(1), range(4, 5), "plain []", "", &mut |_| Ok(()))
+        .unwrap()
+        .unwrap();
+    assert_eq!(session.display_text(), "see plain [] tail");
+    assert!(session
+        .inspect_link(Revision(2), range(4, 5))
+        .unwrap()
+        .is_none());
+    session.undo(Revision(2), &mut |_| Ok(())).unwrap().unwrap();
+    assert_eq!(session.source_text(), linked);
+    session.undo(Revision(3), &mut |_| Ok(())).unwrap().unwrap();
+    assert_eq!(session.source_text(), "see  tail");
+}
+
+#[test]
+fn edit_link_settles_composition_and_refusal_preserves_the_overlay() {
+    let mut session = EditorSession::open("old tail");
+    session.compose(Revision(0), range(0, 3), "new").unwrap();
+    assert!(session
+        .edit_link(Revision(0), range(0, 3), "label", "/x", &mut |_| Err(
+            "refused".into()
+        ))
+        .is_err());
+    assert_eq!(session.source_text(), "old tail");
+    assert!(session.composition().is_some());
+    let mut accepted = 0;
+    session
+        .edit_link(Revision(0), range(0, 3), "label", "/x", &mut |_| {
+            accepted += 1;
+            Ok(())
+        })
+        .unwrap()
+        .unwrap();
+    assert_eq!(accepted, 1);
+    assert_eq!(session.display_text(), "label tail");
+    assert!(session.composition().is_none());
+    session
+        .undo(session.revision(), &mut |_| Ok(()))
+        .unwrap()
+        .unwrap();
+    assert_eq!(session.display_text(), "new tail");
+    session
+        .undo(session.revision(), &mut |_| Ok(()))
+        .unwrap()
+        .unwrap();
+    assert_eq!(session.source_text(), "old tail");
+}
+
+#[test]
+fn edit_link_in_a_table_cell_keeps_neighbor_source_and_literal_pipes() {
+    let original = "| a | b |\n| --- | --- |\n| c | d |\n";
+    let mut session = EditorSession::open(original);
+    let table = session
+        .inspect_table(Revision(0), range(0, 0))
+        .unwrap()
+        .unwrap();
+    let target = table.rows[1][0].content;
+    session
+        .edit_link(Revision(0), target, "x|y", "/x", &mut |_| Ok(()))
+        .unwrap()
+        .unwrap();
+    assert!(session.source_text().contains(" | d |\n"));
+    let table = session
+        .inspect_table(Revision(1), range(0, 0))
+        .unwrap()
+        .unwrap();
+    assert_eq!(table.columns, 2);
+    let cell = table.rows[1][0].content;
+    assert_eq!(session.project(Revision(1), cell).unwrap().text, "x|y");
+    session.undo(Revision(1), &mut |_| Ok(())).unwrap().unwrap();
+    assert_eq!(session.source_text(), original);
+}
+
+#[test]
+fn empty_supplied_label_at_a_caret_does_not_insert_the_destination_or_add_history() {
+    let mut session = EditorSession::open("see ");
+    assert!(session
+        .edit_link(Revision(0), range(4, 4), "", "/target", &mut |_| panic!(
+            "empty label accepted"
+        ))
+        .unwrap()
+        .is_none());
+    assert_eq!(session.source_text(), "see ");
+    assert_eq!(session.revision(), Revision(0));
+    assert!(session
+        .undo(Revision(0), &mut |_| Ok(()))
+        .unwrap()
+        .is_none());
+}

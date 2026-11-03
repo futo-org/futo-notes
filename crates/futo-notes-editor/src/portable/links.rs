@@ -27,6 +27,24 @@ impl PortableSession {
         Ok(change.map(|change| self.issue(record.unwrap(), change)))
     }
 
+    pub fn edit_link(
+        &mut self,
+        expected: Revision,
+        range: DisplayRange,
+        label: &str,
+        destination: &str,
+    ) -> Result<Option<Applied>, PortableError> {
+        self.ready()?;
+        let mut record = None;
+        let change = self
+            .engine
+            .edit_link(expected, range, label, destination, &mut |edit| {
+                record = Some(edit.clone());
+                Ok(())
+            })?;
+        Ok(change.map(|change| self.issue(record.unwrap(), change)))
+    }
+
     /// Note ids never append; like a query they never wait on acknowledgements.
     pub fn update_note_ids(
         &mut self,
