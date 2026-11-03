@@ -25,29 +25,34 @@ import uniffi.futo_notes_ffi.NoteStore
  * Compose-facing state the screen and toolbar read. UI thread only.
  */
 internal class TextFirstController(
-    context: Context,
+    private val context: Context,
     private val core: () -> NoteStore,
     vaultRoot: File,
-    style: TextFirstStyle,
+    private val style: TextFirstStyle,
     private val vault: NotesStore? = null,
 ) : EngineSink {
-    private val images = ImageLoader(vaultRoot)
+    private val images = ImageLoader(context, vaultRoot)
     val view = TextFirstEditText(context, style, images)
     private var engine: EditorEngine? = null
     private var opening: CompletableDeferred<Unit>? = null
     private var closing: CompletableDeferred<FlushDraftResult?>? = null
 
+    var cellView by mutableStateOf<TableCellEditText?>(null); private set
     var opened by mutableStateOf(false); private set
     var openFailure by mutableStateOf<Throwable?>(null); private set
     /** Whether navigation can proceed without an attached editor save. */
     private var released = false
     val canNavigateWithoutSaving: Boolean get() = openFailure != null || released
+    var completion by mutableStateOf<CompletionDraft?>(null); private set
     var caret by mutableStateOf(CaretState.Empty); private set
     /** Edits not yet saved as Markdown. */
     var dirty by mutableStateOf(false); private set
     var isEmpty by mutableStateOf(true); private set
     var focused by mutableStateOf(false); private set
+    /** The last find result, or null before find is first used in this open note. */
+    var find by mutableStateOf<FindSnapshot?>(null); private set
 
+    var onAttachmentChanged: (String) -> Unit = {}
     var onCheckpointed: (FlushDraftResult, String) -> Unit = { _, _ -> }
     var onFailure: (EditorSessionException) -> Unit = {}
 
@@ -64,6 +69,7 @@ internal class TextFirstController(
                 }
             }
         }
+        view.onTableCell = { start, end, seq -> engine?.selectDisplayRange(start, end, seq) {} }
         MainThreadWatchdog.start()
         view.setOnFocusChangeListener { _, hasFocus -> focused = hasFocus }
         view.onFrameDrawn = { timings ->
@@ -101,7 +107,23 @@ internal class TextFirstController(
         isEmpty = view.length() <= TextFirstEditText.END_SENTINEL.length
     }
 
+    override fun onCell(update: CellUpdate?) {
+        if (update == null) { cellView = null; return }
+        val e = engine ?: return
+        val field = cellView ?: TableCellEditText(context, e, style).also { cellView = it; view.hideKeyboard() }
+        field.apply(update)
+    }
+    override fun onCompletion(draft: CompletionDraft?) { completion = draft }
+
+    override fun onFind(snapshot: FindSnapshot) {
+        find = snapshot
+        view.setFind(snapshot)
+        snapshot.reveal?.let { (start, end) -> view.post { view.revealRange(start, end) } }
+    }
+
     override fun onCaretState(state: CaretState) { caret = state }
+
+    override fun onAttachmentId(noteId: String) = onAttachmentChanged(noteId)
 
     override fun onCheckpoint(result: FlushDraftResult, noteId: String) {
         dirty = false
@@ -116,6 +138,7 @@ internal class TextFirstController(
     override fun onImeReset() {
         imeResets += 1
         view.restartKeyboard()
+        cellView?.restartKeyboard()
     }
 
     // ---- commands ----
@@ -125,9 +148,46 @@ internal class TextFirstController(
 
     fun format(format: EditorInlineFormat) { engine?.toggleFormat(format) }
     fun block(command: EditorBlockCommand) { engine?.blockCommand(command) }
+    fun paste(text: String) { engine?.paste(text) }
+    fun finishCellEditing() { engine?.finishCellEditing() }
+    /** The shared display-selection entry point for grid taps and Find. */
+    suspend fun selectDisplayRange(start: Int, end: Int = start): Boolean = suspendCancellableCoroutine { cont ->
+        val e = engine ?: return@suspendCancellableCoroutine cont.resume(false)
+        e.selectDisplayRange(start, end) { cont.resume(it) }
+    }
+    /** Open find or change its query. Highlights only: the selection, source and history are untouched. */
+    suspend fun findSetQuery(query: String): FindSnapshot? = suspendCancellableCoroutine { cont ->
+        val e = engine ?: return@suspendCancellableCoroutine cont.resume(null)
+        e.findSetQuery(query) { cont.resume(it) }
+    }
+
+    /** Land on the current match, then move to the next or previous one; table matches open their cell field. */
+    suspend fun findStep(forward: Boolean): FindSnapshot? = suspendCancellableCoroutine { cont ->
+        val e = engine ?: return@suspendCancellableCoroutine cont.resume(null)
+        e.findStep(forward) { cont.resume(it) }
+    }
+
+    suspend fun findClose(): FindSnapshot? = suspendCancellableCoroutine { cont ->
+        val e = engine ?: return@suspendCancellableCoroutine cont.resume(null)
+        e.findClose { cont.resume(it) }
+    }
+
     fun undo() { engine?.undo() }
     fun redo() { engine?.redo() }
     fun drainCoordinatedChanges() { engine?.drainCoordinatedChanges() }
+
+    fun dismissCompletion(draft: CompletionDraft) { engine?.dismissCompletion(draft) }
+    fun refreshCompletionNoteIds() { engine?.refreshCompletionNoteIds() }
+
+    suspend fun completionDraft(): CompletionDraft? = suspendCancellableCoroutine { cont ->
+        val e = engine ?: return@suspendCancellableCoroutine cont.resume(null)
+        e.completionDraft { cont.resume(it) }
+    }
+
+    suspend fun acceptCompletion(draft: CompletionDraft, noteId: String): Boolean = suspendCancellableCoroutine { cont ->
+        val e = engine ?: return@suspendCancellableCoroutine cont.resume(false)
+        e.acceptCompletion(draft, noteId) { cont.resume(it) }
+    }
 
     suspend fun linkDraft(): LinkDraft? = suspendCancellableCoroutine { cont ->
         val e = engine ?: return@suspendCancellableCoroutine cont.resume(null)
@@ -161,6 +221,11 @@ internal class TextFirstController(
     suspend fun checkpoint(): FlushDraftResult? = suspendCancellableCoroutine { cont ->
         val e = engine ?: return@suspendCancellableCoroutine cont.resume(null)
         e.checkpoint { cont.resume(it) }
+    }
+
+    suspend fun reconcileExternalChanges() = suspendCancellableCoroutine<Unit> { cont ->
+        val e = engine ?: return@suspendCancellableCoroutine cont.resume(Unit)
+        e.reconcileExternalChanges { cont.resume(Unit) }
     }
 
     suspend fun sourceText(): String? = suspendCancellableCoroutine { cont ->
@@ -198,21 +263,13 @@ internal class TextFirstController(
         view.removeCallbacks(latencyFlush)
         latencyFlush.run()
         engine = null
+        find = null
+        view.setFind(FindSnapshot.Closed)
+        cellView = null
+        completion = null
         view.engine = null
         released = true
         opened = false
-    }
-
-    /** Reload the note from the Store, keeping the caret and scroll where they were. */
-    suspend fun reopen(noteId: String) {
-        val selection = view.selectionStart
-        val scroll = view.scrollY
-        if (close() == null) return
-        suspendCancellableCoroutine { cont -> open(noteId) { cont.resume(Unit) } }
-        view.post {
-            view.scrollTo(0, scroll)
-            if (selection >= 0) engine?.hostSelect(selection, selection)
-        }
     }
 
     fun dispose() {

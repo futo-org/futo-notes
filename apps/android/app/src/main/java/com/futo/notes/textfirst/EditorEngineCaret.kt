@@ -8,6 +8,7 @@ import uniffi.futo_notes_ffi.EditorSessionException
 internal fun EditorEngine.refreshCaretState() {
     val s = session ?: return
     try {
+        refreshCompletion()
         val formats = s.activeFormats().toSet()
         val at = mirror.toByte(mirror.selStart).toULong()
         // The last key's projection usually holds the caret; one fewer engine call.

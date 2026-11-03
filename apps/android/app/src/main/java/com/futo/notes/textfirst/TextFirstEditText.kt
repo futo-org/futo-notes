@@ -30,18 +30,21 @@ import uniffi.futo_notes_ffi.EditorParagraphKey
 @SuppressLint("ViewConstructor")
 internal class TextFirstEditText(
     context: Context,
-    private val style: TextFirstStyle,
+    internal val style: TextFirstStyle,
     private val images: ImageLoader,
 ) : AppCompatEditText(context), EngineInputConnection.ViewSide {
     var engine: EditorEngine? = null
     /** The first draw after a keyed update, with where that key's time went. */
     var onFrameDrawn: ((KeyTimings) -> Unit)? = null
 
-    private var applying = false
+    internal var applying = false
     private var appliedSeq = 0
     private var pendingTimings: KeyTimings? = null
     private var checkboxDown = -1
-    private val spans = TfSpanFactory(style) { contentWidth() }
+    var onTableCell: ((Int, Int, Int) -> Unit)? = null
+    private val tableTouch = TableGridTouch(this, { cell -> onTableCell?.invoke(cell.start, cell.end, appliedSeq) }, ::invalidateTableScroll)
+    internal val marks = FindMarks()
+    private val spans = TfSpanFactory(style, marks) { contentWidth() }
     /** The composing underline this view set; the only SPAN_COMPOSING span it owns. */
     private var composing: Any? = null
 
@@ -158,6 +161,7 @@ internal class TextFirstEditText(
     override fun onDraw(canvas: android.graphics.Canvas) {
         val timings = pendingTimings
         if (timings != null) timings.drawStart = android.os.SystemClock.elapsedRealtimeNanos()
+        drawFindMarks(canvas)
         val e = editableText as? ChunkedEditable
         e?.drawWindow = visibleChars()
         try { super.onDraw(canvas) } finally { e?.drawWindow = null }
@@ -282,6 +286,7 @@ internal class TextFirstEditText(
 
     @SuppressLint("ClickableViewAccessibility")
     override fun onTouchEvent(event: MotionEvent): Boolean {
+        if (tableTouch.onTouch(event)) return true
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 checkboxDown = checkboxAt(event.x, event.y)
@@ -297,6 +302,18 @@ internal class TextFirstEditText(
             MotionEvent.ACTION_CANCEL -> if (checkboxDown >= 0) { checkboxDown = -1; return true }
         }
         return super.onTouchEvent(event)
+    }
+
+    /** TextView caches drawing separately: changing span data also invalidates its text display list. */
+    private fun invalidateTableScroll(scroll: TableScroll) {
+        applying = true
+        try {
+            val e = editableText
+            for (span in e.getSpans(0, e.length, TfTableRow::class.java)) {
+                if (span.scroll === scroll) e.setSpan(span, e.getSpanStart(span), e.getSpanEnd(span), e.getSpanFlags(span))
+            }
+        } finally { applying = false }
+        invalidate()
     }
 
     /** The line-start offset of a task row whose checkbox is under (x, y), or -1. */

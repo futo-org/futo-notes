@@ -14,6 +14,7 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import com.futo.notes.storage.NotesStorage
@@ -244,43 +245,23 @@ class NotesStore(
         localTreeChangeTail = scope.launch {
             previous?.join()
             if (resetting || epoch != vaultEpoch) return@launch
-            try {
-                val mutation = withCore {
-                    core.refreshExternalChanges(
-                        summary.updatedIds,
-                        summary.deletedIds,
-                        summary.renamed,
-                    )
-                }
-                if (resetting || epoch != vaultEpoch) return@launch
-                applyMutation(mutation)
-                _localTreeChanges.emit(summary)
-            } catch (e: CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                android.util.Log.w(
-                    "NotesStore",
-                    "scoped local-tree projection failed; rebuilding snapshot",
-                    e,
-                )
+            // A failed refresh must retain explicit rename intent. A rescan can
+            // recover rows, but cannot safely retarget an attached draft.
+            while (!resetting && epoch == vaultEpoch) {
                 try {
-                    val snapshot = withCore {
-                        core.rescan()
-                        core.scan()
+                    val mutation = withCore {
+                        core.refreshExternalChanges(summary.updatedIds, summary.deletedIds, summary.renamed)
                     }
-                    applySnapshot(snapshot.notes, snapshot.folders, epoch)
-                } catch (fallback: CancellationException) {
-                    throw fallback
-                } catch (fallback: Exception) {
-                    android.util.Log.e(
-                        "NotesStore",
-                        "local-tree snapshot recovery failed",
-                        fallback,
-                    )
+                    if (resetting || epoch != vaultEpoch) return@launch
+                    applyMutation(mutation)
+                    _localTreeChanges.emit(summary)
+                    return@launch
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    android.util.Log.w("NotesStore", "external refresh failed; retaining event for retry", e)
+                    delay(2_000)
                 }
-                // The list recovery is best effort, but the open editor can
-                // still reconcile itself from one atomic note read.
-                if (!resetting && epoch == vaultEpoch) _localTreeChanges.emit(summary)
             }
         }
     }

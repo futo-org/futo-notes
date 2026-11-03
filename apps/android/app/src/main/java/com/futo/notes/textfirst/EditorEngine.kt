@@ -21,8 +21,13 @@ import uniffi.futo_notes_ffi.NativeEditorSession
 import uniffi.futo_notes_ffi.NoteStore
 
 internal interface EngineSink {
+    fun onCell(update: CellUpdate?) {}
     fun onUpdate(update: UiUpdate)
+    fun onCompletion(draft: CompletionDraft?) {}
+    fun onFind(snapshot: FindSnapshot) {}
     fun onCaretState(state: CaretState)
+    /** Explicit external identity was adopted, even if its following save fails. */
+    fun onAttachmentId(noteId: String)
     /** A Markdown save landed; [noteId] is the attachment's identity after it (a park moves it). */
     fun onCheckpoint(result: FlushDraftResult, noteId: String)
     /** A failed save does not pause input: the Store retries it on its own schedule. */
@@ -58,6 +63,7 @@ internal class EditorEngine(
     // ---- editor-thread state ----
     internal var session: NativeEditorSession? = null
     internal var fast: FastSession? = null
+    internal var dismissedCompletionStart: ULong? = null
     internal var rev: ULong = 0u
     internal val mirror = DisplayMirror()
 
@@ -65,15 +71,18 @@ internal class EditorEngine(
     val text: CharSequence get() = mirror.text
     val selStart: Int get() = mirror.selStart
     val selEnd: Int get() = mirror.selEnd
+    internal var editingCell = false
+    internal val find = FindEngineState { refreshFind() }
+    internal var cellRange: IntRange? = null
     internal var seq = 0
     internal var saveArmed = false
+    /** A committed external event must survive migration admission or a failed write. */
+    internal var reconcilePending = false
     internal var closed = false
     private var inputStartNanos = 0L
     private var engineNanos = 0L
     /** The last change's projection; the caret state reads its block from it. */
     internal var lastProjection: EditorProjection? = null
-    /** The empty item (UTF-16 offset) whose Indent the engine is holding. */
-    private var heldIndentAt: Int? = null
 
     /** Read on the UI thread when the keyboard connects. */
     @Volatile var publishedSelection = 0L
@@ -146,47 +155,6 @@ internal class EditorEngine(
     /** A selection the host chooses (restoring the caret after a reload). */
     fun hostSelect(start: Int, end: Int) = command { select(start, end, fromView = false) }
 
-    /** Begin an asynchronous image insertion; the claim goes back to [insertImage]. */
-    fun imageClaim(deliver: (ULong?) -> Unit) {
-        val posted = handler.post {
-            var claim: ULong? = null
-            try {
-                if (!closed && session != null && storageGate?.isMigrationStarted != true) {
-                    claim = session?.imageClaim()
-                }
-            } catch (e: EditorSessionException) {
-                handleFailure(e)
-            } finally {
-                ui.post { deliver(claim) }
-            }
-        }
-        if (!posted) ui.post { deliver(null) }
-    }
-
-    fun insertImage(claim: ULong, reference: String, done: (Boolean) -> Unit) {
-        // This command holds a vault attachment operation open until its answer.
-        // Every path, including stale/deleted sessions and a retired thread,
-        // must answer; guarded() alone reports errors without a completion.
-        val posted = handler.post {
-            var inserted = false
-            try {
-                if (!closed && session != null && storageGate?.isMigrationStarted != true) {
-                    if (mirror.overlay != null) commitComposition(null)
-                    val change = session?.insertImage(rev, claim, reference, "")
-                    if (change != null) {
-                        inserted = true
-                        accept(change)
-                    }
-                }
-            } catch (e: EditorSessionException) {
-                handleFailure(e)
-            } finally {
-                ui.post { done(inserted) }
-            }
-        }
-        if (!posted) ui.post { done(false) }
-    }
-
     /** Own-action changes (a relink after rename) the Store queued for this session. */
     fun drainCoordinatedChanges() = command {
         val s = session ?: return@command
@@ -208,6 +176,17 @@ internal class EditorEngine(
     fun checkpoint(done: ((FlushDraftResult?) -> Unit)? = null) = handler.post {
         val result = if (closed || session == null) null else save(force = true)
         if (done != null) ui.post { done(result) }
+    }
+
+    /** Sync already applied its authoritative mutation, including attachment identity.
+     * Reconcile on the input thread, after accepted typing, without replacing the session. */
+    fun reconcileExternalChanges(done: () -> Unit) = handler.post {
+        if (!closed && session != null) {
+            val id = session!!.noteId()
+            ui.post { sink.onAttachmentId(id) }
+            save(force = true, external = true)
+        }
+        ui.post(done)
     }
 
     /** The current exact source, for the screen's rename/draft paths. */
@@ -248,6 +227,7 @@ internal class EditorEngine(
     private fun release() {
         handler.removeCallbacks(saveRunnable)
         handler.removeCallbacks(caretRunnable)
+        find.release(handler)
         session?.destroy()
         fast?.close()
         fast = null
@@ -338,16 +318,7 @@ internal class EditorEngine(
         rev = change.revision
         mirror.selStart = mirror.toUtf16(change.selection.start.toInt())
         mirror.selEnd = mirror.toUtf16(change.selection.end.toInt())
-        // Leaving an item whose Indent was held: the engine dropped it, so
-        // redraw that line at its written depth.
-        val held = heldIndentAt
-        val windows = if (held != null && (mirror.selStart != held || mirror.selEnd != held)) {
-            heldIndentAt = null
-            listOf(window(s.project(rev, mirror.byteRange(held, held))))
-        } else {
-            emptyList()
-        }
-        if (windows.isNotEmpty() || !fromView || mirror.selStart != a || mirror.selEnd != b) postUpdate(emptyList(), windows) else publishSelection()
+        if (!fromView || mirror.selStart != a || mirror.selEnd != b) postUpdate(emptyList(), emptyList()) else publishSelection()
         scheduleCaretState()
     }
 
@@ -355,12 +326,6 @@ internal class EditorEngine(
     internal fun accept(change: EditorViewChange) {
         engineNanos = SystemClock.elapsedRealtimeNanos()
         check(change.previousRevision == rev) { "change ${change.previousRevision} applied at $rev" }
-        // A change with no new revision and no text is a held Indent on an
-        // empty item (pending_indent.rs): remember the line to redraw later.
-        val held = change.revision == change.previousRevision && change.inserted.isEmpty() &&
-            change.range.start == change.range.end
-        val previouslyHeld = heldIndentAt
-        heldIndentAt = if (held) mirror.toUtf16(change.range.start.toInt()) else null
         val edits = ArrayList<TextEdit>(2)
         mirror.overlay?.let { o ->
             mirror.replace(o.start, o.start + o.marked.length, o.original, edits)
@@ -377,16 +342,7 @@ internal class EditorEngine(
         mirror.selStart = mirror.toUtf16(change.selection.start.toInt())
         mirror.selEnd = mirror.toUtf16(change.selection.end.toInt())
         if (verifyMirror) verify()
-        val windows = arrayListOf(window(change.projection))
-        if (previouslyHeld != null && !held) {
-            // Another edit dropped a held Indent; redraw that line where it now is.
-            val shift = change.inserted.length - (end - start)
-            val at = if (previouslyHeld >= end) previouslyHeld + shift else previouslyHeld
-            if (at in 0..mirror.text.length) {
-                runCatching { session?.project(rev, mirror.byteRange(at, at)) }.getOrNull()?.let { windows += window(it) }
-            }
-        }
-        postUpdate(edits, windows)
+        postUpdate(edits, listOf(window(change.projection)))
         armSave()
         scheduleCaretState()
     }
@@ -413,7 +369,10 @@ internal class EditorEngine(
             engineNanos = engineNanos.also { engineNanos = 0L },
         )
         publishSelection()
+        publishCell()
         ui.post { sink.onUpdate(update) }
+        scheduleCaretState()
+        scheduleFindRefresh()
     }
 
     private fun publishSelection() {

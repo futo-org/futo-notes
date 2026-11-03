@@ -327,6 +327,11 @@ dependencies {
     // block. Re-check libjnidispatch.so's LOAD alignment on every bump.
     implementation("net.java.dev.jna:jna:5.19.1@aar")
 
+    // Remote (HTTP/HTTPS) images in the native editor: Coil fetches and decodes
+    // over OkHttp with platform TLS. The loader disables Coil's disk cache.
+    implementation("io.coil-kt.coil3:coil:3.6.3")
+    implementation("io.coil-kt.coil3:coil-network-okhttp:3.6.3")
+
     // Coroutines for the async SyncClient FFI methods.
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
 

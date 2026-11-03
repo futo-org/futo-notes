@@ -85,8 +85,7 @@ import uniffi.futo_notes_ffi.validateTitle
  * note body; rename, move and delete go through the Store's ordinary
  * workflows, which retarget or end the live attachment themselves.
  *
- * Not here yet (later stages): find, wikilink completion, tables,
- * front-matter panel.
+ * Feature controls live beside their owning native adapters.
  */
 @OptIn(ExperimentalLayoutApi::class, FlowPreview::class)
 @Composable
@@ -115,7 +114,6 @@ internal fun TextFirstEditorScreen(
     var pendingNavigation by remember(initialNoteId) { mutableStateOf<(() -> Unit)?>(null) }
     var confirmDelete by remember { mutableStateOf(false) }
     var showMoveSheet by remember { mutableStateOf(false) }
-    var adoptWhenBlurred by remember(initialNoteId) { mutableStateOf(false) }
     val ownerToken = remember(initialNoteId) { store.claimDraftOwnership() }
     // Title renames, moves, deletes and reloads run one at a time.
     val work = remember(initialNoteId) { Mutex() }
@@ -141,6 +139,7 @@ internal fun TextFirstEditorScreen(
         TextFirstController(context, { store.core }, java.io.File(store.rootPath), style, store)
     }
 
+    val find = rememberTextFirstFind(controller, initialNoteId)
     val images = rememberTextFirstImages(controller, store, noteId, leaving, imagePicker)
 
     fun showTitleValidation(title: String) {
@@ -154,6 +153,12 @@ internal fun TextFirstEditorScreen(
             ?: if (duplicate) LocalizedMessage("notes.title.duplicate") else null
     }
 
+    controller.onAttachmentChanged = { finalId ->
+        if (finalId != noteId) {
+            noteId = finalId
+            if (!titleField.isFocused) titleField.commit(splitId(finalId).title)
+        }
+    }
     controller.onCheckpointed = { result, finalId ->
         saveFailed = false
         result.mutation?.let {
@@ -227,38 +232,28 @@ internal fun TextFirstEditorScreen(
         if (titleField.isFocused && isPlaceholderTitle(titleField.text)) titleField.selectAll()
     }
 
-    // Sync changed this note on disk. A clean editor adopts the new bytes (a
-    // focused one waits for blur, as the WebView editor does); a dirty one
-    // keeps its draft, and its next save persists or parks it.
+    // Local mutations and remote summaries both commit this projection. Do not
+    // rescan the vault for body updates or on each completion request.
+    LaunchedEffect(controller.opened, store.notes.map { it.id }.toSet()) {
+        if (controller.opened) controller.refreshCompletionNoteIds()
+    }
+
+    // The Store has already applied explicit remote identity changes. Reconcile
+    // through that same attachment so shared Rust retains selection and local history.
     LaunchedEffect(initialNoteId) {
         store.localTreeChanges.collect { summary ->
             if (!summary.affectsOpenNote(noteId) || leaving) return@collect
             work.withLock {
-                val renamed = summary.renamed.firstOrNull { it.fromId == noteId }?.toId
-                when {
-                    noteId in summary.deletedIds && !controller.dirty -> {
-                        leaving = true
-                        controller.close()
-                        showToast(context, localization.localizedText("notes.deletedElsewhere"))
-                        onBack()
-                    }
-                    controller.dirty -> Unit
-                    renamed != null -> {
-                        noteId = renamed
-                        titleField.commit(splitId(renamed).title)
-                        controller.reopen(renamed)
-                    }
-                    controller.focused -> adoptWhenBlurred = true
-                    else -> controller.reopen(noteId)
+                val renamed = summary.renamed.any { it.fromId == noteId }
+                if (!renamed && noteId in summary.deletedIds && !controller.dirty) {
+                    leaving = true
+                    controller.close()
+                    showToast(context, localization.localizedText("notes.deletedElsewhere"))
+                    onBack()
+                } else {
+                    controller.reconcileExternalChanges()
                 }
             }
-        }
-    }
-
-    LaunchedEffect(controller.focused, adoptWhenBlurred) {
-        if (adoptWhenBlurred && !controller.focused && !leaving) {
-            adoptWhenBlurred = false
-            work.withLock { if (!controller.dirty) controller.reopen(noteId) }
         }
     }
 
@@ -307,7 +302,8 @@ internal fun TextFirstEditorScreen(
         }
     }
 
-    BackHandler { onBack() }
+    BackHandler { if (find.visible) find.close() else onBack() }
+    TextFirstFindVerbs(find, enabled = !leaving)
 
     suspend fun retrySave() {
         val navigate = pendingNavigation
@@ -373,6 +369,7 @@ internal fun TextFirstEditorScreen(
                         }
                     }
                 },
+                onFind = find::open,
                 onMove = { showMoveSheet = true },
                 onCopyPath = {
                     clipboard.setText(AnnotatedString("${store.rootPath}/$noteId.md"))
@@ -405,9 +402,13 @@ internal fun TextFirstEditorScreen(
                     .nativeEditorField(controller),
                     update = { it.isEnabled = !images.recovering && !leaving })
             }
+            if (!leaving && !images.recovering) TextFirstCompletions(controller)
+            TextFirstFindBar(find)
             TextFirstToolbarSlot(controller, onPickImage = images.pick)
         }
     }
+
+    controller.cellView?.let { TextFirstTableCellDialog(controller, it, find.visible) }
 
     if (confirmDiscard) {
         ConfirmDialog(
