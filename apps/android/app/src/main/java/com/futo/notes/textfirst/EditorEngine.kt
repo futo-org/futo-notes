@@ -217,8 +217,9 @@ internal class EditorEngine(
             var failed = false
             try {
                 if (mirror.overlay != null) commitComposition(null)
+                val attachedId = session?.noteId() ?: noteId
                 result = session?.detach()?.also { saved ->
-                    ui.post { sink.onCheckpoint(saved, saved.mutation?.finalId ?: noteId) }
+                    ui.post { sink.onCheckpoint(saved, saved.mutation?.finalId ?: attachedId) }
                 }
             } catch (e: EditorSessionException) {
                 failed = true
@@ -435,7 +436,6 @@ internal class EditorEngine(
         handler.postDelayed(saveRunnable, delay.toMillis())
     }
 
-    /** `checkpoint` when [force], else `saveIfDue`; null when nothing was written or it failed. */
     // ---- toolbar state ----
 
     private val caretRunnable = Runnable { refreshCaretState() }

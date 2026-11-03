@@ -16,6 +16,7 @@ import com.futo.notes.storage.NotesStorage
 import com.futo.notes.localization.LocalLocalization
 import com.futo.notes.localization.Localization
 import com.futo.notes.flushDraftsForVaultHandoff
+import com.futo.notes.rename
 import com.futo.notes.migrateVault
 import com.futo.notes.tryBeginStorageMigration
 import com.futo.notes.resumeAfterStorageMigrationFailure
@@ -77,8 +78,15 @@ class TextFirstMigrationTest {
             assertEquals("accepted before", File(destination, "draft.md").readText())
             withContext(Dispatchers.Main) { store.resumeAfterStorageMigrationFailure() }
             type("retry ")
+            withContext(Dispatchers.Main) {
+                assertNotNull(controller.checkpoint())
+                store.rename("draft", "renamed")
+            }
+            var detachedId: String? = null
+            controller.onCheckpointed = { _, id -> detachedId = id }
             assertNotNull(withContext(Dispatchers.Main) { controller.close() })
-            assertEquals("accepted retry before", File(root, "draft.md").readText())
+            assertEquals("renamed", detachedId)
+            assertEquals("accepted retry before", File(root, "renamed.md").readText())
         } finally {
             withContext(Dispatchers.Main) {
                 store.resumeAfterStorageMigrationFailure()
@@ -143,7 +151,9 @@ class TextFirstMigrationTest {
             val refused = CountDownLatch(1)
             input.handler!!.post { input.commitText("after latch", 1); refused.countDown() }
             assertTrue("editor thread must remain responsive", refused.await(10, TimeUnit.SECONDS))
-            compose.runOnUiThread { assertTrue(editor.text.toString().startsWith("accepted before")) }
+            compose.runOnUiThread {
+                assertEquals("accepted before", editor.text.toString().removeSuffix(TextFirstEditText.END_SENTINEL))
+            }
             val result = runCatching { withContext(Dispatchers.Main) { store.migrateVault(destination) } }
             if (failCheckpoint) {
                 assertTrue(result.getOrThrow() is NotesStorage.MigrationOutcome.Failed)

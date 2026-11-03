@@ -29,6 +29,7 @@ internal fun EditorEngine.checkpointForMigration(done: (Boolean) -> Unit) {
 internal fun EditorEngine.storageAccess(block: () -> Unit): Boolean =
     storageGate?.tryRunAccess(block) ?: run { block(); true }
 
+/** `checkpoint` when [force], else `saveIfDue`; null when nothing was written or it failed. */
 internal fun EditorEngine.save(force: Boolean): FlushDraftResult? {
     var result: FlushDraftResult? = null
     if (!storageAccess { result = saveUnderGate(force) } && !closed) {
