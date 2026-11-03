@@ -55,7 +55,7 @@ class TextFirstLinkTest {
                 assertNotNull(controller.close())
             }
         } finally {
-            withContext(Dispatchers.Main) { controller.dispose() }
+            withContext(Dispatchers.Main) { controller.discard(); controller.dispose() }
             scenario.close()
             store.destroy()
             root.deleteRecursively()
@@ -103,7 +103,7 @@ class TextFirstLinkTest {
                 assertNotNull(controller.close())
             }
         } finally {
-            withContext(Dispatchers.Main) { controller.dispose() }
+            withContext(Dispatchers.Main) { controller.discard(); controller.dispose() }
             scenario.close()
             store.destroy()
             root.deleteRecursively()
