@@ -68,7 +68,8 @@
     "android:SelectUnlockMethod": "the three unlock-method rows are labelled from the method's name, so no one key names them",
     "android:SetRecoveryKeySaved": "the recovery-key checkbox, whose label is the Text beside it rather than its own",
     "android:SelectAppIcon": "an icon tile, labelled with the icon's name",
-    "android:OpenAppIcons": "the app icon row, labelled with the chosen icon's name"
+    "android:OpenAppIcons": "the app icon row, labelled with the chosen icon's name",
+    "android:OpenLink": "The native text-first Link action uses the shared manifest-rendered EditorToolbar button; that renderer is allowlisted because its labels are dynamic manifest keys. OpenLink invokes the same handler as its Link button."
   },
   "unclaimed": {
     "android:notes.actions.share": "hands the note to the OS share sheet; the app does nothing more",

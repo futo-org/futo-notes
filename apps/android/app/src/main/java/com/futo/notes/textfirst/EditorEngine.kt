@@ -248,7 +248,7 @@ internal class EditorEngine(
         guarded(block)
     }
 
-    private fun command(block: () -> Unit) = handler.post {
+    internal fun command(block: () -> Unit) = handler.post {
         inputStartNanos = SystemClock.elapsedRealtimeNanos()
         guarded(block)
         // A collapsed format toggle changes only carried formatting and
