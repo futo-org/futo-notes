@@ -311,4 +311,14 @@ impl StoreEditorSession<'_> {
             result
         })
     }
+
+    pub(super) fn checkpoint_merged(
+        &mut self,
+    ) -> Result<crate::MergedDraftResult, EditorStoreError> {
+        self.mutate(|state, store| {
+            let result = state.checkpoint_merged(store, true);
+            state.lease.bind(&self.state);
+            result
+        })
+    }
 }

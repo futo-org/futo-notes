@@ -31,7 +31,9 @@ retaining its history; ADR-0012 states the exact bounds.
 
 The portable page owns its selection, history and composition. Automatic `StoreEditorHost` saves
 therefore retain legacy parking. An explicitly merge-aware host first settles marked text on the
-page, captures its exact draft and revision, then uses the opt-in flush and calls
+page and acknowledges every request, then calls `StoreEditorHost::checkpoint_merged()` (never the
+bare `flush_draft_merged` beside an attached host: it leaves the host's saved baseline stale and a
+later Undo would park) and calls
 `PortableSession::adopt_merged_source(expected, source)` / WASM `adopt_merged_source`. Send the
 returned normal Append request in sequence, like any other edit. A stale revision or active
 composition refuses adoption without changing the draft/history; retain the current draft and

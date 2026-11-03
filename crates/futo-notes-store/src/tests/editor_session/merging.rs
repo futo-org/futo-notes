@@ -377,3 +377,32 @@ fn portable_clean_checkpoint_leaves_page_owned_source_and_history_unchanged() {
     assert_eq!(page.draft_text(), "first\n\nsecond\n");
     assert_eq!(store.read("plain").unwrap(), "local first\n\npeer second\n");
 }
+
+#[test]
+fn portable_merge_checkpoint_records_the_baseline_so_undo_saves_in_place() {
+    use futo_notes_editor::{PortableSession, SessionToken};
+    let root = TestRoot::new();
+    let store = store(&root);
+    store.create("", "plain", "first\n\nsecond\n").unwrap();
+    let mut host = store
+        .open_editor("plain")
+        .unwrap()
+        .into_portable_host(SessionToken(574))
+        .unwrap();
+    let mut page = PortableSession::from_snapshot(host.snapshot()).unwrap();
+    let edit = page.replace(Revision(0), range(7, 13), "LOCAL").unwrap();
+    page.acknowledge(host.handle(edit.request)).unwrap();
+    store.write("plain", "REMOTE\n\nsecond\n", None).unwrap();
+    let merged = host.checkpoint_merged().unwrap();
+    assert_eq!(merged.source, "REMOTE\n\nLOCAL\n");
+    let adoption = page
+        .adopt_merged_source(Revision(1), &merged.source)
+        .unwrap();
+    page.acknowledge(host.handle(adoption.request)).unwrap();
+    let undo = page.undo(Revision(2)).unwrap().unwrap();
+    page.acknowledge(host.handle(undo.request)).unwrap();
+    let result = host.checkpoint().unwrap();
+    assert_eq!(result.disposition, FlushDisposition::Wrote);
+    assert_eq!(host.id(), "plain");
+    assert_eq!(store.read("plain").unwrap(), "REMOTE\n\nsecond\n");
+}
