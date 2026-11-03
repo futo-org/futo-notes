@@ -21,6 +21,7 @@ import uniffi.futo_notes_ffi.NativeEditorSession
 import uniffi.futo_notes_ffi.NoteStore
 
 internal interface EngineSink {
+    fun onCell(update: CellUpdate?) {}
     fun onUpdate(update: UiUpdate)
     fun onCompletion(draft: CompletionDraft?) {}
     fun onCaretState(state: CaretState)
@@ -67,6 +68,8 @@ internal class EditorEngine(
     val text: CharSequence get() = mirror.text
     val selStart: Int get() = mirror.selStart
     val selEnd: Int get() = mirror.selEnd
+    internal var editingCell = false
+    internal var cellRange: IntRange? = null
     internal var seq = 0
     internal var saveArmed = false
     internal var closed = false
@@ -415,6 +418,7 @@ internal class EditorEngine(
             engineNanos = engineNanos.also { engineNanos = 0L },
         )
         publishSelection()
+        publishCell()
         ui.post { sink.onUpdate(update) }
         scheduleCaretState()
     }

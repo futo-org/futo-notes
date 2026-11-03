@@ -1,0 +1,69 @@
+package com.futo.notes.textfirst
+
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.text.Layout
+import android.text.StaticLayout
+import android.text.TextPaint
+import android.text.style.LineHeightSpan
+import android.text.style.ReplacementSpan
+import uniffi.futo_notes_ffi.EditorTableAlignment
+
+internal class TableScroll { var x = 0f }
+
+/** One physical row, drawn from canonical cell descriptions. Width and scrolling are view concerns. */
+internal class TfTableRow(
+    private val look: TextFirstStyle,
+    val row: GridRow,
+    val displayStart: Int,
+    val scroll: TableScroll,
+    private val width: () -> Int,
+) : ReplacementSpan(), TfAtom {
+    val cellWidth = look.dp(160f)
+    private val padding = look.dp(10f)
+    private val layouts = row.cells.map { cell ->
+        val paint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+            textSize = look.textSizePx; color = look.textColor
+            typeface = if (row.header) look.semibold else look.regular
+        }
+        StaticLayout.Builder.obtain(cell.text, 0, cell.text.length, paint, (cellWidth - padding * 2).toInt())
+            .setAlignment(when (cell.alignment) {
+                EditorTableAlignment.RIGHT -> Layout.Alignment.ALIGN_OPPOSITE
+                EditorTableAlignment.CENTER -> Layout.Alignment.ALIGN_CENTER
+                else -> Layout.Alignment.ALIGN_NORMAL
+            }).setIncludePad(false).build()
+    }
+    private val rowHeight = maxOf(look.dp(48f).toInt(), (layouts.maxOfOrNull { it.height } ?: 0) + (padding * 2).toInt())
+    override fun getSize(paint: Paint, text: CharSequence, start: Int, end: Int, fm: Paint.FontMetricsInt?): Int {
+        fm?.apply { ascent = -rowHeight; top = ascent; descent = 0; bottom = 0 }
+        return width()
+    }
+    override fun draw(canvas: Canvas, text: CharSequence, start: Int, end: Int, x: Float, top: Int, y: Int, bottom: Int, paint: Paint) {
+        val save = canvas.save()
+        canvas.clipRect(x, top.toFloat(), x + width(), bottom.toFloat())
+        val origin = x - scroll.x
+        val border = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = look.borderColor; strokeWidth = look.dp(1f); style = Paint.Style.STROKE }
+        if (row.header) canvas.drawRect(x, top.toFloat(), x + width(), bottom.toFloat(), Paint().apply { color = look.codeBackground })
+        for (column in 0 until row.columns) {
+            val left = origin + column * cellWidth
+            canvas.drawRect(left, top.toFloat(), left + cellWidth, bottom.toFloat(), border)
+            val layout = layouts.getOrNull(column) ?: continue
+            val cellSave = canvas.save()
+            canvas.translate(left + padding, top + padding)
+            layout.draw(canvas)
+            canvas.restoreToCount(cellSave)
+        }
+        canvas.restoreToCount(save)
+    }
+    fun cellAt(x: Float): GridCell? = row.cells.getOrNull(((x + scroll.x) / cellWidth).toInt())
+    fun scrollBy(dx: Float) { scroll.x = (scroll.x + dx).coerceIn(0f, (row.columns * cellWidth - width()).coerceAtLeast(0f)) }
+}
+
+/** The delimiter belongs to Markdown, and takes no visible row in the grid. */
+internal class TfTableDelimiter : ReplacementSpan(), LineHeightSpan, TfAtom {
+    override fun getSize(paint: Paint, text: CharSequence, start: Int, end: Int, fm: Paint.FontMetricsInt?) = 0
+    override fun draw(canvas: Canvas, text: CharSequence, start: Int, end: Int, x: Float, top: Int, y: Int, bottom: Int, paint: Paint) {}
+    override fun chooseHeight(text: CharSequence, start: Int, end: Int, spanstartv: Int, lineHeight: Int, fm: Paint.FontMetricsInt) {
+        fm.ascent = -1; fm.top = -1; fm.descent = 0; fm.bottom = 0
+    }
+}
