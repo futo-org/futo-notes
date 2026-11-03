@@ -85,21 +85,69 @@ class TextFirstLinkTest {
                 assertFalse(insertion.existing)
                 assertEquals("word", insertion.label)
                 assertTrue(controller.editLink(insertion, "FUTO", "https://futo.org"))
-                assertEquals("before [FUTO](https://futo.org) after", controller.sourceText())
+                assertEquals("before [FUTO](<https://futo.org>) after", controller.sourceText())
                 controller.undo()
                 assertEquals(source, controller.sourceText())
                 controller.redo()
                 controller.select(8)
                 val existing = controller.linkDraft()!!
                 assertTrue(controller.editLink(existing, "café", "https://next.test"))
-                assertEquals("before [café](https://next.test) after", controller.sourceText())
+                assertEquals("before [café](<https://next.test>) after", controller.sourceText())
                 controller.undo()
-                assertEquals("before [FUTO](https://futo.org) after", controller.sourceText())
+                assertEquals("before [FUTO](<https://futo.org>) after", controller.sourceText())
                 controller.redo()
                 assertNotNull(controller.close())
                 controller.open("links")
-                assertEquals("before [café](https://next.test) after", controller.sourceText())
+                assertEquals("before [café](<https://next.test>) after", controller.sourceText())
                 assertFalse("draft claims cannot edit a reopened attachment", controller.editLink(existing, "wrong", "https://wrong.test"))
+                assertNotNull(controller.close())
+            }
+        } finally {
+            withContext(Dispatchers.Main) { controller.discard(); controller.dispose() }
+            scenario.close()
+            store.destroy()
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun composingTextSettlesBeforeDialogAndLateInputInvalidatesItsClaim() = runBlocking {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val root = File(context.cacheDir, "link-compose-${UUID.randomUUID()}").apply { check(mkdirs()) }
+        val scenario = ActivityScenario.launch(ComponentActivity::class.java)
+        val store = NoteStore(root.path)
+        lateinit var controller: TextFirstController
+        try {
+            store.createNote("links", "", "before  after")
+            withContext(Dispatchers.Main) {
+                suspendCancellableCoroutine<Unit> { done ->
+                    scenario.onActivity { activity ->
+                        controller = createController(activity, { store }, root)
+                        activity.setContentView(controller.view)
+                        controller.open("links") { assertNull(it); done.resume(Unit) }
+                    }
+                }
+                controller.select(7)
+                val connection = controller.view.onCreateInputConnection(EditorInfo())!!
+                suspendCancellableCoroutine<Unit> { done ->
+                    connection.handler!!.post { connection.setComposingText("café", 1); done.resume(Unit) }
+                }
+                val insertion = controller.linkDraft()!!
+                assertEquals("before café after", controller.sourceText())
+                assertFalse(insertion.existing)
+                assertTrue(controller.editLink(insertion, "FUTO", "https://futo.org"))
+                assertEquals("before café[FUTO](<https://futo.org>) after", controller.sourceText())
+                controller.undo()
+                assertEquals("before café after", controller.sourceText())
+                controller.select(7, 11)
+                val selected = controller.linkDraft()!!
+                assertEquals("café", selected.label)
+                controller.select(0)
+                suspendCancellableCoroutine<Unit> { done ->
+                    connection.handler!!.post { connection.commitText("new ", 1); done.resume(Unit) }
+                }
+                assertFalse("late editor input must invalidate a dialog claim", controller.editLink(selected, "wrong", "https://wrong.test"))
+                assertEquals("new before café after", controller.sourceText())
                 assertNotNull(controller.close())
             }
         } finally {
