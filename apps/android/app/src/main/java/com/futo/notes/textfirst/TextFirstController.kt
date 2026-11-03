@@ -31,7 +31,7 @@ internal class TextFirstController(
     private val style: TextFirstStyle,
     private val vault: NotesStore? = null,
 ) : EngineSink {
-    private val images = ImageLoader(vaultRoot)
+    private val images = ImageLoader(context, vaultRoot)
     val view = TextFirstEditText(context, style, images)
     private var engine: EditorEngine? = null
     private var opening: CompletableDeferred<Unit>? = null

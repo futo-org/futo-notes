@@ -6,16 +6,39 @@ import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import android.util.LruCache
+import coil3.network.okhttp.OkHttpNetworkFetcherFactory
+import coil3.request.ImageRequest
+import coil3.request.SuccessResult
+import coil3.request.allowHardware
+import coil3.size.Dimension
+import coil3.size.Size
+import coil3.toBitmap
 import java.io.File
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 import java.util.concurrent.Executors
 
 /**
  * Decodes vault images for image atoms, off the UI and editor threads. The
  * engine never reads image files (images.md); this resolves a vault reference
  * against the vault root for display only, as the WebView does with its
- * `file://<vault root>/` base. Remote images are not fetched yet.
+ * `file://<vault root>/` base. Remote http(s) images load through Coil; a result only lands on its still-attached span.
  */
-internal class ImageLoader(private val vaultRoot: File) {
+internal class ImageLoader(private val context: android.content.Context, private val vaultRoot: File) {
+    /** Remote fetch + decode via Coil (platform TLS, no disk cache); scoped to this loader. */
+    private val remoteScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private val remote by lazy {
+        coil3.ImageLoader.Builder(context.applicationContext)
+            .components { add(OkHttpNetworkFetcherFactory()) }
+            .diskCache(null)
+            .memoryCache(null)
+            .build()
+    }
+
     private val executor = Executors.newSingleThreadExecutor { r -> Thread(r, "futo-editor-images").apply { priority = Thread.MIN_PRIORITY } }
     private val main = Handler(Looper.getMainLooper())
     private val cache = object : LruCache<String, Bitmap>((Runtime.getRuntime().maxMemory() / 8).toInt()) {
@@ -23,13 +46,28 @@ internal class ImageLoader(private val vaultRoot: File) {
     }
 
     fun load(destination: String, vault: Boolean, maxWidth: Int, done: (Bitmap?) -> Unit) {
-        if (!vault) { done(null); return }
         val key = "$destination@$maxWidth"
         cache.get(key)?.let { done(it); return }
+        if (!vault) { loadRemote(destination, key, maxWidth, done); return }
         executor.execute {
             val bitmap = runCatching { decode(resolve(destination), maxWidth) }.getOrNull()
             if (bitmap != null) cache.put(key, bitmap)
             main.post { done(bitmap) }
+        }
+    }
+
+    private fun loadRemote(destination: String, key: String, maxWidth: Int, done: (Bitmap?) -> Unit) {
+        val url = destination.removePrefix("<").removeSuffix(">")
+        val lower = url.lowercase()
+        if (!lower.startsWith("http://") && !lower.startsWith("https://")) { done(null); return }
+        remoteScope.launch {
+            val bitmap = try {
+                val request = ImageRequest.Builder(context.applicationContext).data(url)
+                    .size(Size(maxWidth, Dimension.Undefined)).allowHardware(false).build()
+                (remote.execute(request) as? SuccessResult)?.image?.toBitmap()
+            } catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) { null }
+            if (bitmap != null) cache.put(key, bitmap)
+            done(bitmap)
         }
     }
 
@@ -64,5 +102,8 @@ internal class ImageLoader(private val vaultRoot: File) {
         }
     }
 
-    fun shutdown() = executor.shutdown()
+    fun shutdown() {
+        executor.shutdown()
+        remoteScope.cancel()
+    }
 }
