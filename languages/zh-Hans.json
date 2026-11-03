@@ -293,7 +293,11 @@
         "peerDeletedDraftOpen": "此笔记已在其他位置删除。你的草稿仍处于打开状态。",
         "peerChangedDraftOpen": "此笔记已在其他位置更改。你的草稿仍处于打开状态。",
         "refreshFailedDraftOpen": "无法刷新当前笔记。你的草稿仍处于打开状态。",
-        "openNoteDeletedKeepingDraft": "当前笔记已被删除；正在保留本地草稿"
+        "openNoteDeletedKeepingDraft": "当前笔记已被删除；正在保留本地草稿",
+        "retry": "重试保存",
+        "discard": "放弃修改",
+        "discardQuestion": "放弃未保存的修改？",
+        "discardWarning": "未保存的修改将会丢失。"
       },
       "navigation": {
         "renamePending": "无法重命名笔记。标题仍在等待保存，因此已暂停导航。",
