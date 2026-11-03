@@ -339,3 +339,69 @@ fn merge_flush_preserves_exact_source_or_parks_both_sides_on_ambiguity() {
         }
     }
 }
+
+#[test]
+fn one_paragraph_merge_preserves_source_bytes_and_parks_ambiguous_edits() {
+    let cases = [
+        (
+            "  café e\u{301} 猫 last\t \r\n",
+            "  café e\u{301} 犬 last\t \r\n",
+            "  café e\u{301} 猫 LOCAL🦀\t \r\n",
+            Some("  café e\u{301} 犬 LOCAL🦀\t \r\n"),
+        ),
+        (
+            "first middle last",
+            "REMOTE first middle last",
+            "first middle last LOCAL",
+            Some("REMOTE first middle last LOCAL"),
+        ),
+        (
+            "first middle last",
+            "first REMOTE middle last",
+            "first LOCAL middle last",
+            None,
+        ),
+        (
+            "first middle last",
+            "first last",
+            "first changed last",
+            None,
+        ),
+        (
+            "the colour is red",
+            "the colour is blue",
+            "the colour is green",
+            None,
+        ),
+        ("the cat rests", "the bat rests", "the car rests", None),
+        (
+            "first removed middle last",
+            "first middle last",
+            "first removed middle LOCAL",
+            Some("first middle LOCAL"),
+        ),
+    ];
+    for (base, remote, local, expected) in cases {
+        let root = TestRoot::new();
+        let store = store(&root);
+        store.write("note", remote, None).unwrap();
+        let result = store.flush_draft_merged("note", base, local).unwrap();
+        if let Some(expected) = expected {
+            assert_eq!(result.source, expected, "base={base:?}");
+            assert_eq!(result.flush.disposition, FlushDisposition::Wrote);
+            assert_eq!(
+                result.flush.mutation.unwrap().final_id.as_deref(),
+                Some("note")
+            );
+            assert_eq!(store.read("note").unwrap(), expected);
+            assert_eq!(store.snapshot().notes.len(), 1);
+        } else {
+            let FlushDisposition::ParkedConflict { parked_id } = result.flush.disposition else {
+                panic!("ambiguous one-paragraph merge must preserve both versions: {base:?}")
+            };
+            assert_eq!(result.source, local);
+            assert_eq!(store.read("note").unwrap(), remote);
+            assert_eq!(store.read(&parked_id).unwrap(), local);
+        }
+    }
+}

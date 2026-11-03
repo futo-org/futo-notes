@@ -56,3 +56,12 @@ the renderer opts into authoritative adoption. Portable/WASM callers can explici
 result through `adopt_merged_source` and mirror its normal Append request, preserving page-owned
 history without changing the acknowledgement schema. Consumption details:
 `docs/architecture/editor-merge-consumption.md`.
+
+## Amendment: independent words within a paragraph (2026-11-03, #323)
+
+The same shared merge owner now retries line-level conflicts at Unicode word boundaries using
+`diffy` over lossless interned tokens. This combines independent words without choosing a winner
+for overlapping replacements or attempting character-level hybrid spellings. Exact whitespace,
+line endings and Unicode source spellings remain authoritative. Same-position insertion ambiguity,
+delete/edit overlap and conservative boundary ambiguity retain the conflict-copy fallback. The
+existing native history preflight and portable opt-in adoption contract remain unchanged.
