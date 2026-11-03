@@ -243,3 +243,104 @@ async fn a_rename_landing_before_the_pull_writes_its_source_is_not_undone() {
     );
     assert!(after.object_map.contains_key("old.md"));
 }
+
+/// Notes synced as `(name, object id, body)`, journal scoped.
+fn synced_notes(root: &Path, base_url: &str, notes: &[(&str, &str, &str)]) -> ConnectedState {
+    let mut state = synced(root, base_url);
+    std::fs::remove_file(root.join("old.md")).unwrap();
+    state.object_map.clear();
+    for (name, object_id, body) in notes {
+        std::fs::write(root.join(name), body).unwrap();
+        state.object_map.insert(
+            (*name).to_owned(),
+            ObjectState {
+                object_id: (*object_id).to_owned(),
+                version: 1,
+                blob_key: format!("{object_id}-blob"),
+                hash: Some(hash_sha256(body)),
+                mtime_ms: None,
+                size_bytes: Some(body.len() as u64),
+            },
+        );
+    }
+    checkpoint::save(root, &state).unwrap();
+    state
+}
+
+fn object_at<'a>(state: &'a ConnectedState, name: &str) -> Option<&'a str> {
+    state
+        .object_map
+        .get(name)
+        .map(|entry| entry.object_id.as_str())
+}
+
+#[tokio::test]
+async fn swapping_two_names_carries_both_objects() {
+    let root = TempRoot::new();
+    let server = FaultServer::new()
+        .note(&KEY, "obj-a", 1, "a.md", "A")
+        .note(&KEY, "obj-b", 1, "b.md", "B")
+        .start();
+    let state = synced_notes(
+        root.path(),
+        &server.base_url,
+        &[("a.md", "obj-a", "A"), ("b.md", "obj-b", "B")],
+    );
+    let store = LocalNoteStore::new(root.path().to_owned());
+    store.rename("a", "swap").unwrap();
+    store.rename("b", "a").unwrap();
+    store.rename("swap", "b").unwrap();
+
+    let (summary, after) = cycle(
+        &state,
+        root.path(),
+        &no_progress,
+        &no_pre_write,
+        &SyncRunJournal::disabled(),
+    )
+    .await
+    .unwrap();
+
+    assert!(summary.failures.is_empty(), "{summary:?}");
+    assert_eq!(object_at(&after, "a.md"), Some("obj-b"));
+    assert_eq!(object_at(&after, "b.md"), Some("obj-a"));
+    assert_eq!(server.requests(Route::UpdateObject), 2);
+    assert_eq!(server.requests(Route::CreateObject), 0);
+    assert_eq!(server.requests(Route::DeleteObject), 0);
+    assert!(intents(root.path()).is_empty());
+}
+
+#[tokio::test]
+async fn a_renamed_note_deleted_before_its_name_is_reused_is_not_claimed_by_the_newcomer() {
+    let root = TempRoot::new();
+    let server = FaultServer::new()
+        .note(&KEY, "obj-a", 1, "a.md", "A")
+        .note(&KEY, "obj-b", 1, "b.md", "B")
+        .start();
+    let state = synced_notes(
+        root.path(),
+        &server.base_url,
+        &[("a.md", "obj-a", "A"), ("b.md", "obj-b", "B")],
+    );
+    let store = LocalNoteStore::new(root.path().to_owned());
+    store.rename("a", "x").unwrap();
+    store.delete("x").unwrap();
+    store.rename("b", "x").unwrap();
+
+    let (summary, after) = cycle(
+        &state,
+        root.path(),
+        &no_progress,
+        &no_pre_write,
+        &SyncRunJournal::disabled(),
+    )
+    .await
+    .unwrap();
+
+    assert!(summary.failures.is_empty(), "{summary:?}");
+    assert_eq!(object_at(&after, "x.md"), Some("obj-b"));
+    assert!(!after.object_map.contains_key("a.md") && !after.object_map.contains_key("b.md"));
+    assert_eq!(server.requests(Route::DeleteObject), 1, "obj-a is deleted");
+    assert_eq!(server.requests(Route::CreateObject), 0);
+    assert!(intents(root.path()).is_empty());
+}

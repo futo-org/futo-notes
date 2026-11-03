@@ -12,7 +12,8 @@ use super::{
 /// One journaled move in progress. Callers hold the store gate and the vault
 /// guard from `begin` to `commit`.
 pub(crate) struct JournaledMove {
-    id: u64,
+    /// `None` when there was nothing to move.
+    id: Option<u64>,
 }
 
 /// Move every `from` to its `to` through this transaction's staging
@@ -23,6 +24,9 @@ pub(crate) fn move_journaled(
     mappings: &[(String, String)],
     folder: Option<(&str, &str)>,
 ) -> Result<JournaledMove, String> {
+    if mappings.is_empty() && folder.is_none() {
+        return Ok(JournaledMove { id: None });
+    }
     let mut journal = load(root)?;
     let id = journal.next_id;
     journal.next_id = id
@@ -93,15 +97,18 @@ pub(crate) fn move_journaled(
     for (source, _) in mappings {
         crate::relink::prune_empty_parents(root, &root.join(crate::note_filename(source)));
     }
-    Ok(JournaledMove { id })
+    Ok(JournaledMove { id: Some(id) })
 }
 
 /// Record that the moves and their backlink rewrite are complete. A failure
 /// here leaves the transaction `Staged`; the next recovery commits it.
 pub(crate) fn commit(root: &Path, transaction: JournaledMove) -> Result<(), String> {
+    let Some(id) = transaction.id else {
+        return Ok(());
+    };
     step("commit")?;
     let mut journal = load(root)?;
-    commit_in(&mut journal, transaction.id);
+    commit_in(&mut journal, id);
     save(root, &journal)
 }
 

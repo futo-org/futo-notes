@@ -47,7 +47,9 @@ struct Claim {
 /// A run of intents that moved one file: A->B then B->C is one chain A->C.
 struct Chain {
     origin: String,
-    current: String,
+    /// Where the file is now; `None` once a later move took that name, which
+    /// the store only allocates when it is free: the file had already gone.
+    current: Option<String>,
     head: u64,
     transactions: HashSet<u64>,
     object_id: Option<String>,
@@ -56,21 +58,38 @@ struct Chain {
 fn chains(intents: Vec<RenameIntent>) -> Vec<Chain> {
     let mut chains: Vec<Chain> = Vec::new();
     for intent in intents {
-        if let Some(chain) = chains.iter_mut().find(|chain| chain.current == intent.from) {
-            chain.current = intent.to;
+        let extends = chains
+            .iter()
+            .position(|chain| chain.current.as_deref() == Some(intent.from.as_str()));
+        for (index, chain) in chains.iter_mut().enumerate() {
+            if Some(index) != extends && chain.current.as_deref() == Some(intent.to.as_str()) {
+                chain.current = None;
+            }
+        }
+        if let Some(index) = extends {
+            let chain = &mut chains[index];
+            chain.current = Some(intent.to);
             chain.transactions.insert(intent.transaction);
             chain.object_id = chain.object_id.take().or(intent.object_id);
             continue;
         }
         chains.push(Chain {
             origin: intent.from,
-            current: intent.to,
+            current: Some(intent.to),
             head: intent.transaction,
             transactions: HashSet::from([intent.transaction]),
             object_id: intent.object_id,
         });
     }
     chains
+}
+
+/// A chain that can move this cycle: its object and where it goes.
+struct Candidate {
+    chain: Chain,
+    owner: String,
+    destination: String,
+    entry: crate::checkpoint::ObjectState,
 }
 
 /// Bind and rekey every committed rename whose destination this scan saw.
@@ -84,6 +103,7 @@ pub(in crate::sync) fn claim_local_renames(
     with_rename_journal(root, |journal| {
         let mut claimed = ClaimedRenames::default();
         let mut settled = HashSet::new();
+        let mut candidates = Vec::new();
         for chain in chains(journal.intents()) {
             let owner = match &chain.object_id {
                 Some(object_id) => mapped_name(state, object_id),
@@ -97,7 +117,11 @@ pub(in crate::sync) fn claim_local_renames(
                 settled.extend(chain.transactions);
                 continue;
             };
-            let destination = chain.current;
+            let Some(destination) = chain.current.clone() else {
+                // Moved, then gone: the ordinary delete takes over.
+                settled.extend(chain.transactions);
+                continue;
+            };
             if owner == destination && chain.object_id.is_none() {
                 // Renamed back before any claim: identity never moved.
                 settled.extend(chain.transactions);
@@ -114,29 +138,60 @@ pub(in crate::sync) fn claim_local_renames(
                 continue;
             }
             let entry = state.object_map[&owner].clone();
-            if owner != destination
-                && state
-                    .object_map
-                    .get(&destination)
-                    .is_some_and(|other| other.object_id != entry.object_id)
-            {
-                // The destination name still maps another object (a local
-                // delete not yet pushed). Carrying ours there would drop that
-                // delete; the pre-journal name pairing applies instead.
-                summary.decide_with(
-                    SyncPhase::Push,
-                    &owner,
-                    decision::IGNORED,
-                    reason::RENAME_TARGET_MAPPED,
-                    destination.clone(),
-                );
-                settled.extend(chain.transactions);
-                continue;
-            }
-            journal.bind(chain.head, &chain.origin, &entry.object_id);
+            candidates.push(Candidate {
+                chain,
+                owner,
+                destination,
+                entry,
+            });
+        }
+
+        // A destination may be vacated by another move this cycle (a swap). One
+        // still mapped to an object that is NOT moving is a local delete not yet
+        // pushed; carrying ours there would drop that delete, so that chain falls
+        // back to the pre-journal name pairing.
+        loop {
+            let vacated: HashSet<&str> = candidates
+                .iter()
+                .filter(|candidate| candidate.owner != candidate.destination)
+                .map(|candidate| candidate.owner.as_str())
+                .collect();
+            let blocked = candidates.iter().position(|candidate| {
+                candidate.owner != candidate.destination
+                    && !vacated.contains(candidate.destination.as_str())
+                    && state
+                        .object_map
+                        .get(&candidate.destination)
+                        .is_some_and(|other| other.object_id != candidate.entry.object_id)
+            });
+            let Some(blocked) = blocked else { break };
+            let candidate = candidates.remove(blocked);
+            summary.decide_with(
+                SyncPhase::Push,
+                &candidate.owner,
+                decision::IGNORED,
+                reason::RENAME_TARGET_MAPPED,
+                candidate.destination,
+            );
+            settled.extend(candidate.chain.transactions);
+        }
+
+        for candidate in &candidates {
+            journal.bind(
+                candidate.chain.head,
+                &candidate.chain.origin,
+                &candidate.entry.object_id,
+            );
+            state.object_map.remove(&candidate.owner);
+        }
+        for candidate in candidates {
+            let Candidate {
+                chain,
+                owner,
+                destination,
+                entry,
+            } = candidate;
             if owner != destination {
-                state.object_map.remove(&owner);
-                state.object_map.insert(destination.clone(), entry.clone());
                 summary.decide_with(
                     SyncPhase::Push,
                     &owner,
@@ -149,6 +204,7 @@ pub(in crate::sync) fn claim_local_renames(
                     to_id: note_id(&destination),
                 });
             }
+            state.object_map.insert(destination.clone(), entry.clone());
             claimed.held.insert(destination.clone());
             claimed.destinations.insert(destination.clone());
             claimed.claims.push(Claim {

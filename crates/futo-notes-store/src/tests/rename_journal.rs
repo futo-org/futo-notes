@@ -344,3 +344,19 @@ fn an_unknown_journal_format_stops_renames_and_is_kept_as_evidence() {
         future
     );
 }
+
+#[test]
+fn a_vault_migration_carries_pending_intents_to_the_new_root() {
+    let root = TestRoot::new();
+    let store = scoped(&root);
+    store.write("old", "body", None).unwrap();
+    store.rename("old", "new").unwrap();
+    let destination = TestRoot::new();
+
+    store.stage_vault_migration(&destination.0).unwrap();
+
+    assert_eq!(
+        intents(&destination.0),
+        vec![("old.md".to_owned(), "new.md".to_owned())]
+    );
+}
