@@ -33,17 +33,16 @@ internal fun rememberTextFirstImages(
     } == true
 
     suspend fun insertPickedImage(uri: Uri, claim: ULong) {
-        var refused = false
-        val name = store.saveImageIntoVault(
-            save = { root -> saveImageIntoVault(context.contentResolver, root, uri) },
-            useSavedImage = { filename ->
-                if (!controller.insertImage(claim, filename)) {
-                    refused = true
-                    error("the editor refused the image")
-                }
-            },
-        )
-        if (name == null && !refused) showToast(context, localization.localizedText("editor.images.unsupportedType"))
+        if (insertImageUri(controller, store, context.contentResolver, uri, claim)) {
+            showToast(context, localization.localizedText("editor.images.unsupportedType"))
+        }
+    }
+
+    DisposableEffect(controller) {
+        controller.acceptImageContent(store, context.contentResolver, scope,
+            { pendingImages += it },
+            { showToast(context, localization.localizedText("editor.images.unsupportedType")) })
+        onDispose { controller.view.clipboard.onImageContent = null }
     }
 
     LaunchedEffect(cameraCapture?.id, cameraCapture?.complete, controller) {
@@ -106,4 +105,64 @@ internal fun rememberTextFirstImages(
     }
 
     return TextFirstImageActions(pendingImages, recoveringCamera, ::pickImage)
+}
+
+/** Save one image through the gated vault attachment and insert it at [claim]; true when the type was unsupported. */
+internal suspend fun insertImageUri(
+    controller: TextFirstController,
+    store: NotesStore,
+    resolver: android.content.ContentResolver,
+    uri: Uri,
+    claim: ULong,
+): Boolean {
+    var refused = false
+    val name = store.saveImageIntoVault(
+        save = { root -> saveImageIntoVault(resolver, root, uri) },
+        useSavedImage = { filename ->
+            if (!controller.insertImage(claim, filename)) {
+                refused = true
+                error("the editor refused the image")
+            }
+        },
+    )
+    return name == null && !refused
+}
+
+/** The one image a clip carries, or null. A clip holding an image is never also a text paste. */
+internal fun clipImageUri(clip: android.content.ClipData?, resolver: android.content.ContentResolver): Uri? {
+    clip ?: return null
+    for (i in 0 until clip.itemCount) {
+        val uri = clip.getItemAt(i).uri ?: continue
+        val type = if (clip.itemCount == 1 && clip.description.hasMimeType("image/*")) "image/" else resolver.getType(uri).orEmpty()
+        if (type.startsWith("image/")) return uri
+    }
+    return null
+}
+
+/**
+ * Route pasted and keyboard-provided images into the note this controller edits.
+ * The claim is taken when the content arrives, so it belongs to the session that
+ * received it; a closed or replaced session refuses it and nothing is saved.
+ */
+internal fun TextFirstController.acceptImageContent(
+    store: NotesStore,
+    resolver: android.content.ContentResolver,
+    scope: kotlinx.coroutines.CoroutineScope,
+    busy: (Int) -> Unit,
+    unsupported: () -> Unit,
+) {
+    val controller = this
+    view.clipboard.onImageContent = { uri, release ->
+        busy(1)
+        scope.launch {
+            try {
+                val claim = controller.imageClaim()
+                if (claim != null && insertImageUri(controller, store, resolver, uri, claim)) unsupported()
+            } finally {
+                release()
+                busy(-1)
+            }
+        }
+        true
+    }
 }
