@@ -37,6 +37,8 @@ internal class TextFirstController(
 
     var opened by mutableStateOf(false); private set
     var openFailure by mutableStateOf<Throwable?>(null); private set
+    /** Whether navigation can proceed without an attached editor save. */
+    val canNavigateWithoutSaving: Boolean get() = !opened
     var caret by mutableStateOf(CaretState.Empty); private set
     /** Edits not yet saved as Markdown. */
     var dirty by mutableStateOf(false); private set
