@@ -114,7 +114,6 @@ internal fun TextFirstEditorScreen(
     var pendingNavigation by remember(initialNoteId) { mutableStateOf<(() -> Unit)?>(null) }
     var confirmDelete by remember { mutableStateOf(false) }
     var showMoveSheet by remember { mutableStateOf(false) }
-    var adoptWhenBlurred by remember(initialNoteId) { mutableStateOf(false) }
     val ownerToken = remember(initialNoteId) { store.claimDraftOwnership() }
     // Title renames, moves, deletes and reloads run one at a time.
     val work = remember(initialNoteId) { Mutex() }
@@ -154,6 +153,12 @@ internal fun TextFirstEditorScreen(
             ?: if (duplicate) LocalizedMessage("notes.title.duplicate") else null
     }
 
+    controller.onAttachmentChanged = { finalId ->
+        if (finalId != noteId) {
+            noteId = finalId
+            if (!titleField.isFocused) titleField.commit(splitId(finalId).title)
+        }
+    }
     controller.onCheckpointed = { result, finalId ->
         saveFailed = false
         result.mutation?.let {
@@ -233,38 +238,22 @@ internal fun TextFirstEditorScreen(
         if (controller.opened) controller.refreshCompletionNoteIds()
     }
 
-    // Sync changed this note on disk. A clean editor adopts the new bytes (a
-    // focused one waits for blur, as the WebView editor does); a dirty one
-    // keeps its draft, and its next save persists or parks it.
+    // The Store has already applied explicit remote identity changes. Reconcile
+    // through that same attachment so shared Rust retains selection and local history.
     LaunchedEffect(initialNoteId) {
         store.localTreeChanges.collect { summary ->
             if (!summary.affectsOpenNote(noteId) || leaving) return@collect
             work.withLock {
-                val renamed = summary.renamed.firstOrNull { it.fromId == noteId }?.toId
-                when {
-                    noteId in summary.deletedIds && !controller.dirty -> {
-                        leaving = true
-                        controller.close()
-                        showToast(context, localization.localizedText("notes.deletedElsewhere"))
-                        onBack()
-                    }
-                    controller.dirty -> Unit
-                    renamed != null -> {
-                        noteId = renamed
-                        titleField.commit(splitId(renamed).title)
-                        controller.reopen(renamed)
-                    }
-                    controller.focused -> adoptWhenBlurred = true
-                    else -> controller.reopen(noteId)
+                val renamed = summary.renamed.any { it.fromId == noteId }
+                if (!renamed && noteId in summary.deletedIds && !controller.dirty) {
+                    leaving = true
+                    controller.close()
+                    showToast(context, localization.localizedText("notes.deletedElsewhere"))
+                    onBack()
+                } else {
+                    controller.reconcileExternalChanges()
                 }
             }
-        }
-    }
-
-    LaunchedEffect(controller.focused, adoptWhenBlurred) {
-        if (adoptWhenBlurred && !controller.focused && !leaving) {
-            adoptWhenBlurred = false
-            work.withLock { if (!controller.dirty) controller.reopen(noteId) }
         }
     }
 

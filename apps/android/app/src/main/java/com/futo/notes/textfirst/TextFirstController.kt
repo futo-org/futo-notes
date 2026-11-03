@@ -52,6 +52,7 @@ internal class TextFirstController(
     /** The last find result, or null before find is first used in this open note. */
     var find by mutableStateOf<FindSnapshot?>(null); private set
 
+    var onAttachmentChanged: (String) -> Unit = {}
     var onCheckpointed: (FlushDraftResult, String) -> Unit = { _, _ -> }
     var onFailure: (EditorSessionException) -> Unit = {}
 
@@ -121,6 +122,8 @@ internal class TextFirstController(
     }
 
     override fun onCaretState(state: CaretState) { caret = state }
+
+    override fun onAttachmentId(noteId: String) = onAttachmentChanged(noteId)
 
     override fun onCheckpoint(result: FlushDraftResult, noteId: String) {
         dirty = false
@@ -220,6 +223,11 @@ internal class TextFirstController(
         e.checkpoint { cont.resume(it) }
     }
 
+    suspend fun reconcileExternalChanges() = suspendCancellableCoroutine<Unit> { cont ->
+        val e = engine ?: return@suspendCancellableCoroutine cont.resume(Unit)
+        e.reconcileExternalChanges { cont.resume(Unit) }
+    }
+
     suspend fun sourceText(): String? = suspendCancellableCoroutine { cont ->
         val e = engine ?: return@suspendCancellableCoroutine cont.resume(null)
         e.sourceText { cont.resume(it) }
@@ -262,18 +270,6 @@ internal class TextFirstController(
         view.engine = null
         released = true
         opened = false
-    }
-
-    /** Reload the note from the Store, keeping the caret and scroll where they were. */
-    suspend fun reopen(noteId: String) {
-        val selection = view.selectionStart
-        val scroll = view.scrollY
-        if (close() == null) return
-        suspendCancellableCoroutine { cont -> open(noteId) { cont.resume(Unit) } }
-        view.post {
-            view.scrollTo(0, scroll)
-            if (selection >= 0) engine?.hostSelect(selection, selection)
-        }
     }
 
     fun dispose() {
