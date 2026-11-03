@@ -69,7 +69,7 @@ pub(crate) fn move_journaled(
         }
     }
     set_phase(&mut journal, id, Phase::Staged);
-    if let Err(error) = save(root, &journal) {
+    if let Err(error) = step("stage").and_then(|()| save(root, &journal)) {
         unstage(root, &sources);
         return Err(abort(&mut journal, error));
     }
@@ -99,6 +99,7 @@ pub(crate) fn move_journaled(
 /// Record that the moves and their backlink rewrite are complete. A failure
 /// here leaves the transaction `Staged`; the next recovery commits it.
 pub(crate) fn commit(root: &Path, transaction: JournaledMove) -> Result<(), String> {
+    step("commit")?;
     let mut journal = load(root)?;
     commit_in(&mut journal, transaction.id);
     save(root, &journal)
@@ -154,12 +155,18 @@ fn unstage(root: &Path, sources: &[(String, String)]) {
     }
 }
 
+/// A named point between durable steps; test fault injection hooks it.
+fn step(_name: &str) -> Result<(), String> {
+    #[cfg(test)]
+    super::tests_support::before_step(_name)?;
+    Ok(())
+}
+
 /// A no-replace move of a note file, or a folder rename. A folder destination
 /// was checked absent under the vault guard; POSIX rename still refuses a
 /// non-empty one.
 pub(super) fn move_entry(root: &Path, from: &str, to: &str, folder: bool) -> Result<(), String> {
-    #[cfg(test)]
-    super::tests_support::before_move(from, to)?;
+    step(&format!("move {from} -> {to}"))?;
     if folder {
         if vault_fs::exists(root, to)? {
             return Err(format!(
