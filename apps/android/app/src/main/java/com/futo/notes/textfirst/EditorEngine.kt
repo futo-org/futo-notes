@@ -209,45 +209,43 @@ internal class EditorEngine(
         ui.post { done(source) }
     }
 
-    /**
-     * Release the attachment: `detach` saves unsaved edits, then releases it
-     * (a deleted note's session saves nothing). The thread quits afterwards.
-     * If that save fails there is no recovery log to fall back on: the failure
-     * is reported and the unsaved edits are lost, as on the desktop host.
-     */
+    /** Save before releasing. A failed detach leaves the exact session editable and retryable. */
     fun close(done: ((FlushDraftResult?) -> Unit)? = null) = handler.post {
         if (closed) { if (done != null) ui.post { done(null) }; return@post }
-        if (!storageAccess {
-            handler.removeCallbacks(saveRunnable)
-            handler.removeCallbacks(caretRunnable)
-            var result: FlushDraftResult? = null
-            val s = session
-            if (s != null) {
-                try {
-                    if (mirror.overlay != null) commitComposition(null)
-                } catch (e: EditorSessionException) {
-                    Log.w(TAG, "commit on close failed", e)
+        var result: FlushDraftResult? = null
+        storageAccess {
+            var failed = false
+            try {
+                if (mirror.overlay != null) commitComposition(null)
+                result = session?.detach()?.also { saved ->
+                    ui.post { sink.onCheckpoint(saved, saved.mutation?.finalId ?: noteId) }
                 }
-                val id = try { s.noteId() } catch (_: EditorSessionException) { noteId }
-                try {
-                    val saved = s.detach()
-                    result = saved
-                    ui.post { sink.onCheckpoint(saved, saved.mutation?.finalId ?: id) }
-                } catch (e: EditorSessionException) {
-                    Log.e(TAG, "save on close failed; unsaved edits of $id are lost", e)
-                    ui.post { sink.onFailure(e) }
-                }
-                s.destroy()
+            } catch (e: EditorSessionException) {
+                failed = true
+                Log.w(TAG, "save on close failed; retaining draft", e)
+                handleFailure(e)
+                drainAfterCheckpoint()
             }
-            fast?.close()
-            fast = null
-            session = null
-            closed = true
-            if (done != null) ui.post { done(result) }
-            thread.quitSafely()
-        }) {
-            if (done != null) ui.post { done(null) }
+            if (!failed) release()
         }
+        if (done != null) ui.post { done(result) }
+    }
+
+    /** Explicit user discard: release without attempting to save the draft. */
+    fun discard(done: () -> Unit) = handler.post {
+        release()
+        ui.post(done)
+    }
+
+    private fun release() {
+        handler.removeCallbacks(saveRunnable)
+        handler.removeCallbacks(caretRunnable)
+        session?.destroy()
+        fast?.close()
+        fast = null
+        session = null
+        closed = true
+        thread.quitSafely()
     }
 
     // ---- internals ----

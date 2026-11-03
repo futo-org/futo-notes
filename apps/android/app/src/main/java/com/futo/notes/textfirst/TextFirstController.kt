@@ -12,6 +12,7 @@ import kotlin.coroutines.resume
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.CompletableDeferred
 import uniffi.futo_notes_ffi.EditorBlockCommand
 import uniffi.futo_notes_ffi.EditorInlineFormat
 import uniffi.futo_notes_ffi.EditorSessionException
@@ -32,6 +33,7 @@ internal class TextFirstController(
     private val images = ImageLoader(vaultRoot)
     val view = TextFirstEditText(context, style, images)
     private var engine: EditorEngine? = null
+    private var closing: CompletableDeferred<FlushDraftResult?>? = null
 
     var opened by mutableStateOf(false); private set
     var openFailure by mutableStateOf<Throwable?>(null); private set
@@ -137,22 +139,43 @@ internal class TextFirstController(
         e.sourceText { cont.resume(it) }
     }
 
-    /** Save and detach. Safe to call more than once. */
+    /** Save and detach. A null result retains the engine and draft for retry. */
     suspend fun close(): FlushDraftResult? {
+        closing?.let { return it.await() }
         val e = engine ?: return null
+        val completion = CompletableDeferred<FlushDraftResult?>()
+        closing = completion
+        e.close { result ->
+            // Finalize even if the screen's awaiting coroutine was canceled.
+            if (result != null) release(e)
+            closing = null
+            completion.complete(result)
+        }
+        return completion.await()
+    }
+
+    /** Called only after the user explicitly confirms losing unsaved edits. */
+    suspend fun discard() {
+        val e = engine ?: return
+        suspendCancellableCoroutine<Unit> { cont ->
+            e.discard { release(e); cont.resume(Unit) }
+        }
+    }
+
+    private fun release(e: EditorEngine) {
+        if (engine !== e) return
         view.removeCallbacks(latencyFlush)
         latencyFlush.run()
         engine = null
         view.engine = null
         opened = false
-        return suspendCancellableCoroutine { cont -> e.close { cont.resume(it) } }
     }
 
     /** Reload the note from the Store, keeping the caret and scroll where they were. */
     suspend fun reopen(noteId: String) {
         val selection = view.selectionStart
         val scroll = view.scrollY
-        close()
+        if (close() == null) return
         suspendCancellableCoroutine { cont -> open(noteId) { cont.resume(Unit) } }
         view.post {
             view.scrollTo(0, scroll)
