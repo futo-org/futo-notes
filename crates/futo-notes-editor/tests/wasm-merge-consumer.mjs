@@ -52,6 +52,9 @@ async function runMergeCase(WasmSession, executable, scenario) {
     const send = async (applied) =>
       page.acknowledge(JSON.stringify(await exchange(applied.request)));
     await send(JSON.parse(page.replace(0n, scenario.start, scenario.end, 'LOCAL')));
+    const renamed = await exchange({ external_rename: 'authoritative final (2)' });
+    assert.equal(renamed.id, 'authoritative final (2)');
+    assert.equal(page.draft_text(), scenario.local);
     const merged = await exchange({
       merge: { base: scenario.base, draft: scenario.local, remote: scenario.remote },
     });
@@ -68,7 +71,7 @@ async function runMergeCase(WasmSession, executable, scenario) {
     worker.stdin.end();
     const [code] = await exited;
     assert.equal(code, 0);
-    assert.equal(readFileSync(join(vault, 'plain.md'), 'utf8'), scenario.merged);
+    assert.equal(readFileSync(join(vault, 'authoritative final (2).md'), 'utf8'), scenario.merged);
   } finally {
     page?.free();
     if (worker.exitCode === null) {

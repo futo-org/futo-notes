@@ -21,10 +21,19 @@ fn native_save_delay_tracks_unsaved_edits_and_checkpoint_clears_it() {
     let status = session.save_status().unwrap();
     assert_eq!((status.revision, status.saved), (1, 0));
     assert!(status.save_deadline.is_some());
-    // Not due yet: nothing is written.
-    if delay > std::time::Duration::from_millis(50) {
-        assert!(session.save_if_due().unwrap().is_none());
-        assert_eq!(store.read("plain".into()).unwrap(), "before");
+    // The foreign caller can be descheduled past the deadline between these
+    // calls. Assert the authoritative outcome, rather than predicting elapsed
+    // time from an earlier delay. Exact debounce boundaries are covered by the
+    // store's controllable-clock tests.
+    match session.save_if_due().unwrap() {
+        None => {
+            assert_eq!(store.read("plain".into()).unwrap(), "before");
+            assert_eq!(session.save_status().unwrap().saved, 0);
+        }
+        Some(_) => {
+            assert_eq!(store.read("plain".into()).unwrap(), "before!");
+            assert_eq!(session.save_status().unwrap().saved, 1);
+        }
     }
     session.checkpoint().unwrap();
     assert_eq!(store.read("plain".into()).unwrap(), "before!");
@@ -363,4 +372,43 @@ fn native_projection_marks_front_matter_as_metadata() {
         .blocks;
     assert_eq!(blocks.iter().filter(|block| block.metadata).count(), 1);
     assert!(!blocks.last().unwrap().metadata);
+}
+
+#[test]
+fn native_remote_rename_retains_draft_and_merges_at_reported_final_id() {
+    let tree = TempTree::new();
+    std::fs::create_dir_all(tree.path("vault")).unwrap();
+    let store = NoteStore::new(path_string(&tree.path("vault")));
+    store
+        .create_note("old".into(), "".into(), "first\n\nsecond\n".into())
+        .unwrap();
+    let session = store.open_editor("old".into()).unwrap();
+    session
+        .replace_utf16(
+            0,
+            EditorUtf16Range { start: 7, end: 13 },
+            "LOCAL".encode_utf16().collect(),
+        )
+        .unwrap();
+    std::fs::rename(tree.path("vault/old.md"), tree.path("vault/final.md")).unwrap();
+    std::fs::write(tree.path("vault/final.md"), "REMOTE\n\nsecond\n").unwrap();
+    let mutation = store
+        .refresh_external_changes(
+            vec![],
+            vec![],
+            vec![futo_notes_ffi::RenamePair {
+                from_id: "old".into(),
+                to_id: "final".into(),
+            }],
+        )
+        .unwrap();
+    assert_eq!(mutation.upserted[0].note.id, "final");
+    assert_eq!(session.note_id().unwrap(), "final");
+    assert_eq!(session.source_text().unwrap(), "first\n\nLOCAL\n");
+    let saved = session.checkpoint().unwrap();
+    assert_eq!(saved.mutation.unwrap().final_id.as_deref(), Some("final"));
+    assert_eq!(session.source_text().unwrap(), "REMOTE\n\nLOCAL\n");
+    session.undo(2).unwrap().unwrap();
+    assert_eq!(session.source_text().unwrap(), "REMOTE\n\nsecond\n");
+    assert!(!store.exists("old".into()));
 }

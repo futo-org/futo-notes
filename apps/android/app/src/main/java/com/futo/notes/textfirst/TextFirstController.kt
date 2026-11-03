@@ -129,6 +129,21 @@ internal class TextFirstController(
     fun redo() { engine?.redo() }
     fun drainCoordinatedChanges() { engine?.drainCoordinatedChanges() }
 
+    suspend fun linkDraft(): LinkDraft? = suspendCancellableCoroutine { cont ->
+        val e = engine ?: return@suspendCancellableCoroutine cont.resume(null)
+        e.linkDraft { cont.resume(it) }
+    }
+
+    suspend fun editLink(draft: LinkDraft, label: String, destination: String): Boolean = suspendCancellableCoroutine { cont ->
+        val e = engine ?: return@suspendCancellableCoroutine cont.resume(false)
+        e.editLink(draft, label, destination) { cont.resume(it) }
+    }
+
+    suspend fun removeLink(draft: LinkDraft): Boolean = suspendCancellableCoroutine { cont ->
+        val e = engine ?: return@suspendCancellableCoroutine cont.resume(false)
+        e.removeLink(draft) { cont.resume(it) }
+    }
+
     suspend fun imageClaim(): ULong? = suspendCancellableCoroutine { cont ->
         val e = engine ?: return@suspendCancellableCoroutine cont.resume(null)
         e.imageClaim { cont.resume(it) }

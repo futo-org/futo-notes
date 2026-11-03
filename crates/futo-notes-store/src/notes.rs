@@ -65,6 +65,22 @@ impl LocalNoteStore {
         let _gate = self.lock_gate()?;
         let _vault_mutation = vault_mutation_guard()?;
 
+        // Prepare every attachment before changing any identity. A failed
+        // destination lease/read keeps all drafts attached for a retry.
+        let mut transitions = Vec::new();
+        for pair in renamed {
+            paths::note_path(&self.root, &pair.from)?;
+            paths::note_path(&self.root, &pair.to)?;
+            if let Some(transition) = crate::editor_session::IdentityTransition::prepare_external(
+                &self.root, &pair.from, &pair.to,
+            )? {
+                transitions.push(transition);
+            }
+        }
+        for transition in transitions {
+            transition.finish();
+        }
+
         let mut affected_ids = Vec::new();
         let mut seen = HashSet::new();
         for id in updated_ids

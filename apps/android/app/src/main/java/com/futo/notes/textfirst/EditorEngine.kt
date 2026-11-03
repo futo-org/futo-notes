@@ -263,7 +263,7 @@ internal class EditorEngine(
         guarded(block)
     }
 
-    private fun command(onUnavailable: () -> Unit = {}, block: () -> Unit) = handler.post {
+    internal fun command(onUnavailable: () -> Unit = {}, block: () -> Unit) = handler.post {
         if (storageGate?.isMigrationStarted == true || closed || session == null) {
             ui.post(onUnavailable)
             return@post
