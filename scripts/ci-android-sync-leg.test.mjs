@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
 import { spawnSync } from 'node:child_process';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 // Drives the real CI script (ci-android-sync-leg.sh sourcing
 // ci-android-emulator.sh) against a fake emulator whose Android framework
@@ -163,6 +163,11 @@ esac
     harness: fs.existsSync(harnessArgs) ? fs.readFileSync(harnessArgs, 'utf8') : null,
   };
 }
+
+// Every case spawns the real script under spawnSync's own 60s bound, which is
+// the real budget. Vitest's 5s default timed out the slow-Node-startup case on
+// a loaded CI runner (pipeline 39298), so the file timeout sits just above it.
+vi.setConfig({ testTimeout: 70_000 });
 
 describe('native-Android sync leg against a framework that restarts after boot', () => {
   it('keeps healthy package operations independent of the injected stalled-probe deadline', () => {
