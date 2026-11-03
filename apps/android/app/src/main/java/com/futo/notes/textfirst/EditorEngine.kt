@@ -147,16 +147,44 @@ internal class EditorEngine(
     fun hostSelect(start: Int, end: Int) = command { select(start, end, fromView = false) }
 
     /** Begin an asynchronous image insertion; the claim goes back to [insertImage]. */
-    fun imageClaim(deliver: (ULong?) -> Unit) = command(onUnavailable = { deliver(null) }) {
-        val claim = session?.imageClaim()
-        ui.post { deliver(claim) }
+    fun imageClaim(deliver: (ULong?) -> Unit) {
+        val posted = handler.post {
+            var claim: ULong? = null
+            try {
+                if (!closed && session != null && storageGate?.isMigrationStarted != true) {
+                    claim = session?.imageClaim()
+                }
+            } catch (e: EditorSessionException) {
+                handleFailure(e)
+            } finally {
+                ui.post { deliver(claim) }
+            }
+        }
+        if (!posted) ui.post { deliver(null) }
     }
 
-    fun insertImage(claim: ULong, reference: String, done: (Boolean) -> Unit) = command(onUnavailable = { done(false) }) {
-        if (mirror.overlay != null) commitComposition(null)
-        val change = session?.insertImage(rev, claim, reference, "")
-        if (change != null) accept(change)
-        ui.post { done(change != null) }
+    fun insertImage(claim: ULong, reference: String, done: (Boolean) -> Unit) {
+        // This command holds a vault attachment operation open until its answer.
+        // Every path, including stale/deleted sessions and a retired thread,
+        // must answer; guarded() alone reports errors without a completion.
+        val posted = handler.post {
+            var inserted = false
+            try {
+                if (!closed && session != null && storageGate?.isMigrationStarted != true) {
+                    if (mirror.overlay != null) commitComposition(null)
+                    val change = session?.insertImage(rev, claim, reference, "")
+                    if (change != null) {
+                        inserted = true
+                        accept(change)
+                    }
+                }
+            } catch (e: EditorSessionException) {
+                handleFailure(e)
+            } finally {
+                ui.post { done(inserted) }
+            }
+        }
+        if (!posted) ui.post { done(false) }
     }
 
     /** Own-action changes (a relink after rename) the Store queued for this session. */
