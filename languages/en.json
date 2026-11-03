@@ -588,6 +588,9 @@
       },
       "ios": {
         "bundleMissing": "The editor is unavailable because editor.html is missing from the app bundle."
+      },
+      "table": {
+        "editCell": "Edit cell"
       }
     },
     "sync": {
