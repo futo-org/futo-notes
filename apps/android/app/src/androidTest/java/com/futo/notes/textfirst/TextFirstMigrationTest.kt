@@ -106,7 +106,7 @@ class TextFirstMigrationTest {
         compose.setContent {
             FutoNotesTheme(darkTheme = false) {
                 CompositionLocalProvider(LocalLocalization provides localization) {
-                    if (visible.value) TextFirstEditorScreen(store, "draft", false, false, {})
+                    if (visible.value) TextFirstEditorScreen(store, "draft", false, false, {}, registerLeave = { {} })
                 }
             }
         }
