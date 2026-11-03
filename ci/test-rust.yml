@@ -155,6 +155,7 @@ test:rust:macos:
         - scripts/cargo-nextest-pin.json
         - ci/install-nextest.sh
         - crates/futo-notes-core/**/*
+        - crates/futo-notes-merge/**/*
         - crates/futo-notes-editor/**/*
         - crates/futo-notes-license/**/*
         - crates/futo-notes-model/**/*

@@ -567,6 +567,15 @@ impl WasmSession {
     pub fn redo(&mut self, revision: u64) -> Result<String, JsValue> {
         json(&self.0.redo(Revision(revision)).map_err(error)?)
     }
+    pub fn adopt_merged_source(&mut self, revision: u64, source: &str) -> Result<String, JsValue> {
+        json(
+            &self
+                .0
+                .adopt_merged_source(Revision(revision), source)
+                .map_err(error)?,
+        )
+    }
+
     pub fn apply_relink_offer(&mut self) -> Result<String, JsValue> {
         json(&self.0.apply_relink_offer().map_err(error)?)
     }
