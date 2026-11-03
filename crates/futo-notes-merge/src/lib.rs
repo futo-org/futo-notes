@@ -38,15 +38,50 @@ fn merge_words(base: &str, server: &str, client: &str) -> MergeResult {
     let base = encode(base);
     let server = encode(server);
     let client = encode(client);
-    match diffy::merge(&base, &server, &client) {
-        Ok(merged) => MergeResult::Clean(
-            merged
-                .lines()
-                .map(|id| tokens[id.parse::<usize>().expect("interned token id")].as_str())
-                .collect(),
-        ),
-        Err(_) => MergeResult::Conflict,
+    let forward = merge_encoded(&base, &server, &client, &tokens);
+    // Repeated tokens let diffy pick one of several equally good alignments,
+    // which can hide that two edits touch the same occurrence. Merging the
+    // mirrored sequence breaks those ties the other way; the merge stands only
+    // when both alignments agree, otherwise the callers preserve both versions.
+    let mirrored = merge_encoded(
+        &reverse_lines(&base),
+        &reverse_lines(&server),
+        &reverse_lines(&client),
+        &tokens,
+    );
+    match (forward, mirrored) {
+        (Some(forward), Some(mut mirrored)) => {
+            mirrored.reverse();
+            if forward == mirrored {
+                MergeResult::Clean(forward.concat())
+            } else {
+                MergeResult::Conflict
+            }
+        }
+        _ => MergeResult::Conflict,
     }
+}
+
+fn reverse_lines(encoded: &str) -> String {
+    encoded.lines().rev().fold(String::new(), |mut out, line| {
+        out.push_str(line);
+        out.push('\n');
+        out
+    })
+}
+
+fn merge_encoded<'a>(
+    base: &str,
+    server: &str,
+    client: &str,
+    tokens: &'a [String],
+) -> Option<Vec<&'a str>> {
+    diffy::merge(base, server, client).ok().map(|merged| {
+        merged
+            .lines()
+            .map(|id| tokens[id.parse::<usize>().expect("interned token id")].as_str())
+            .collect()
+    })
 }
 
 #[cfg(test)]
@@ -85,6 +120,28 @@ mod tests {
             assert_eq!(
                 three_way_merge(base, &local, &remote),
                 MergeResult::Conflict
+            );
+        }
+    }
+
+    #[test]
+    fn repeated_tokens_do_not_hide_delete_edit_overlap() {
+        // The remote deletion of one `a ` could be the first (overlapping the
+        // local replacement) or the last repeat; the alignment is ambiguous.
+        for (base, deleted, replaced) in [
+            ("a a a", "a a", "b a a"),
+            ("猫 猫 猫", "猫 猫", "犬 猫 猫"),
+            ("a a a\r\n", "a a\r\n", "a a b\r\n"),
+        ] {
+            assert_eq!(
+                three_way_merge(base, deleted, replaced),
+                MergeResult::Conflict,
+                "{base:?}"
+            );
+            assert_eq!(
+                three_way_merge(base, replaced, deleted),
+                MergeResult::Conflict,
+                "{base:?} swapped"
             );
         }
     }
