@@ -1999,9 +1999,9 @@ version = "0.1.0"
 dependencies = [
  "aes-gcm",
  "argon2",
- "diffy",
  "filetime",
  "futo-notes-image",
+ "futo-notes-merge",
  "hex",
  "hkdf",
  "hmac",
@@ -2025,6 +2025,7 @@ name = "futo-notes-editor"
 version = "0.1.0"
 dependencies = [
  "futo-notes-image",
+ "futo-notes-merge",
  "futo-notes-tags",
  "futo-notes-wikilinks",
  "pulldown-cmark",
@@ -2071,6 +2072,14 @@ dependencies = [
  "serde_json",
  "spki",
  "time",
+]
+
+[[package]]
+name = "futo-notes-merge"
+version = "0.1.0"
+dependencies = [
+ "diffy",
+ "proptest",
 ]
 
 [[package]]
