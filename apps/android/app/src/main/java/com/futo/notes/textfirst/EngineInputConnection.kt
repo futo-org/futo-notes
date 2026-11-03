@@ -31,6 +31,7 @@ internal class EngineInputConnection(
     interface ViewSide {
         fun contextMenuAction(id: Int)
         fun navigationKey(event: KeyEvent)
+        fun imageContent(info: InputContentInfo, flags: Int): Boolean
     }
 
     private var batch = 0
@@ -204,7 +205,7 @@ internal class EngineInputConnection(
     override fun performPrivateCommand(action: String?, data: Bundle?): Boolean = false
     override fun requestCursorUpdates(cursorUpdateMode: Int): Boolean = false
     override fun closeConnection() { engine.imeFinishComposing() }
-    override fun commitContent(inputContentInfo: InputContentInfo, flags: Int, opts: Bundle?): Boolean = false
+    override fun commitContent(inputContentInfo: InputContentInfo, flags: Int, opts: Bundle?): Boolean = view.imageContent(inputContentInfo, flags)
 
     private companion object {
         const val EXTRACT_WINDOW = 2_000

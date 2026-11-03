@@ -235,7 +235,9 @@ pub fn demote(root: &Path) -> Result<(), String> {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
         Err(e) => return Err(e.to_string()),
     }
-    Ok(())
+    // Pending local renames named paths of the checkpoint just removed; they
+    // must never bind to an equal path in whatever connects next.
+    futo_notes_store::rename_journal::set_rename_scope(root, None)
 }
 
 pub(crate) fn clear_ancestry(root: &Path) {

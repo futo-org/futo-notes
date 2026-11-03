@@ -58,7 +58,8 @@ internal class TableCellEditText(context: Context, private val editor: EditorEng
         val clipboard = context.getSystemService(ClipboardManager::class.java)
         when (id) {
             android.R.id.copy, android.R.id.cut -> editor.copy(id == android.R.id.cut) { clipboard.setPrimaryClip(ClipData.newPlainText(null, it)) }
-            android.R.id.paste, android.R.id.pasteAsPlainText -> clipboard.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(context)?.toString()?.let(editor::paste)
+            // A cell holds inline text only: an image paste is refused, never pasted as its URI.
+            android.R.id.paste, android.R.id.pasteAsPlainText -> if (clipImageUri(clipboard.primaryClip, context.contentResolver) == null) clipboard.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(context)?.toString()?.let(editor::paste)
             android.R.id.selectAll -> editor.command { editor.cellRange?.let { editor.select(it.first, it.last, false) } }
             android.R.id.undo -> editor.undo()
             android.R.id.redo -> editor.redo()
@@ -67,6 +68,7 @@ internal class TableCellEditText(context: Context, private val editor: EditorEng
         return true
     }
     override fun contextMenuAction(id: Int) { post { onTextContextMenuItem(id) } }
+    override fun imageContent(info: android.view.inputmethod.InputContentInfo, flags: Int) = false
     override fun navigationKey(event: KeyEvent) { post { super.onKeyDown(event.keyCode, event) } }
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
         if (event.isCtrlPressed) {

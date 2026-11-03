@@ -19,7 +19,7 @@ import com.futo.notes.puppet.puppetHostedField
 import com.futo.notes.ui.theme.FutoTheme
 
 @Composable
-internal fun TextFirstTableCellDialog(controller: TextFirstController, field: TableCellEditText) {
+internal fun TextFirstTableCellDialog(controller: TextFirstController, field: TableCellEditText, findVisible: Boolean = false) {
     val localization = LocalLocalization.current
     val colors = FutoTheme.colors
     PuppetVerbScope(modal = true) { listOf(
@@ -37,6 +37,7 @@ internal fun TextFirstTableCellDialog(controller: TextFirstController, field: Ta
         text = { Column {
             AndroidView(factory = { field }, modifier = Modifier.fillMaxWidth().heightIn(min = 64.dp, max = 180.dp)
                 .puppetHostedField { PuppetHostedField(field.text.toString(), localization.localizedText("editor.table.editCell"), field.isFocused) })
+            if (findVisible) TextFirstFindInCell(controller)
             TextButton(onClick = controller::undo) { Text(localization.localizedText("editor.toolbar.undo"), color = colors.accent) }
         } },
         confirmButton = { TextButton(onClick = controller::finishCellEditing) { Text(localization.localizedText("common.actions.done"), color = colors.accent) } },

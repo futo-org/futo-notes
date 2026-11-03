@@ -122,6 +122,8 @@ mod push_first;
 mod raw_http;
 #[path = "server_integration/reconnect.rs"]
 mod reconnect;
+#[path = "server_integration/rename_identity.rs"]
+mod rename_identity;
 #[path = "server_integration/round_trip.rs"]
 mod round_trip;
 

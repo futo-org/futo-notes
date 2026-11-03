@@ -1,8 +1,6 @@
 package com.futo.notes.textfirst
 
 import android.annotation.SuppressLint
-import android.content.ClipData
-import android.content.ClipboardManager
 import android.content.Context
 import android.text.Editable
 import android.text.InputFilter
@@ -30,7 +28,7 @@ import uniffi.futo_notes_ffi.EditorParagraphKey
 @SuppressLint("ViewConstructor")
 internal class TextFirstEditText(
     context: Context,
-    private val style: TextFirstStyle,
+    internal val style: TextFirstStyle,
     private val images: ImageLoader,
 ) : AppCompatEditText(context), EngineInputConnection.ViewSide {
     var engine: EditorEngine? = null
@@ -39,13 +37,16 @@ internal class TextFirstEditText(
     /** The first draw after a keyed update, with where that key's time went. */
     var onFrameDrawn: ((KeyTimings) -> Unit)? = null
 
-    private var applying = false
+    internal var applying = false
     private var appliedSeq = 0
     private var pendingTimings: KeyTimings? = null
     private var checkboxDown = -1
     var onTableCell: ((Int, Int, Int) -> Unit)? = null
+    /** Paste and keyboard content; its [TextFirstClipboard.onImageContent] owner saves images. */
+    val clipboard = TextFirstClipboard(context) { engine }
     private val tableTouch = TableGridTouch(this, { cell -> onTableCell?.invoke(cell.start, cell.end, appliedSeq) }, ::invalidateTableScroll)
-    private val spans = TfSpanFactory(style, { contentWidth() }) { span ->
+    internal val marks = FindMarks()
+    private val spans = TfSpanFactory(style, marks, { contentWidth() }) { span ->
         wikilinkContentWidth(this, span, contentWidth())
     }
     /** The composing underline this view set; the only SPAN_COMPOSING span it owns. */
@@ -94,6 +95,7 @@ internal class TextFirstEditText(
         outAttrs.initialSelStart = (packed ushr 32).toInt()
         outAttrs.initialSelEnd = (packed and 0xffffffffL).toInt()
         outAttrs.imeOptions = outAttrs.imeOptions or EditorInfo.IME_FLAG_NO_EXTRACT_UI or EditorInfo.IME_FLAG_NO_ENTER_ACTION
+        androidx.core.view.inputmethod.EditorInfoCompat.setContentMimeTypes(outAttrs, arrayOf("image/*"))
         return EngineInputConnection(engine, this)
     }
 
@@ -164,6 +166,7 @@ internal class TextFirstEditText(
     override fun onDraw(canvas: android.graphics.Canvas) {
         val timings = pendingTimings
         if (timings != null) timings.drawStart = android.os.SystemClock.elapsedRealtimeNanos()
+        drawFindMarks(canvas)
         val e = editableText as? ChunkedEditable
         e?.drawWindow = visibleChars()
         try { super.onDraw(canvas) } finally { e?.drawWindow = null }
@@ -355,23 +358,8 @@ internal class TextFirstEditText(
     }
 
     override fun onTextContextMenuItem(id: Int): Boolean {
-        val engine = engine ?: return false
-        val clipboard = context.getSystemService(ClipboardManager::class.java)
-        when (id) {
-            android.R.id.copy, android.R.id.cut -> engine.copy(cut = id == android.R.id.cut) { markdown ->
-                clipboard.setPrimaryClip(ClipData.newPlainText(null, markdown))
-            }
-            android.R.id.paste, android.R.id.pasteAsPlainText -> {
-                val clip = clipboard.primaryClip
-                val text = if (clip != null && clip.itemCount > 0) clip.getItemAt(0).coerceToText(context)?.toString() else null
-                if (!text.isNullOrEmpty()) engine.paste(text)
-            }
-            android.R.id.selectAll -> engine.selectAll()
-            android.R.id.undo -> engine.undo()
-            android.R.id.redo -> engine.redo()
-            else -> return super.onTextContextMenuItem(id)
-        }
-        return true
+        if (engine == null) return false
+        return clipboard.handle(id) || super.onTextContextMenuItem(id)
     }
 
     // ---- EngineInputConnection.ViewSide (editor thread → UI) ----
@@ -379,6 +367,9 @@ internal class TextFirstEditText(
     override fun contextMenuAction(id: Int) {
         post { onTextContextMenuItem(id) }
     }
+
+    override fun imageContent(info: android.view.inputmethod.InputContentInfo, flags: Int) =
+        clipboard.commitContent(info, flags) { post(it) }
 
     override fun navigationKey(event: KeyEvent) {
         post {
