@@ -34,6 +34,17 @@ internal class StorageMigrationGate {
         }
     }
 
+    /** Editor-thread access never waits: migration drains that same thread
+     * while holding this gate, so waiting here would invert the lock order. */
+    fun tryRunAccess(block: () -> Unit): Boolean {
+        if (!mutex.tryLock()) return false
+        return try {
+            if (migrationStarted) false else { block(); true }
+        } finally {
+            mutex.unlock()
+        }
+    }
+
     fun resume() {
         migrationStarted = false
     }

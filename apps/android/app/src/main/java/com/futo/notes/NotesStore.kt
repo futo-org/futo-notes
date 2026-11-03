@@ -98,6 +98,9 @@ class NotesStore(
 
     /** Serializes every vault-root access, including image writes, with migration. */
     internal val storageMigrationGate = StorageMigrationGate()
+    /** Live native sessions own their drafts; migration drains them on their
+     * editor threads before touching the vault. Registered on the main thread. */
+    internal val nativeEditorDrafts = mutableMapOf<Any, suspend () -> Boolean>()
     val isVaultMigrationStarted: Boolean
         get() = storageMigrationGate.isMigrationStarted
 
