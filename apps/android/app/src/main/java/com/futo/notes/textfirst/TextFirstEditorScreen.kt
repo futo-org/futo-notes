@@ -85,7 +85,7 @@ import uniffi.futo_notes_ffi.validateTitle
  * note body; rename, move and delete go through the Store's ordinary
  * workflows, which retarget or end the live attachment themselves.
  *
- * Not here yet (later stages): find, wikilink completion, tables,
+ * Not here yet (later stages): find, tables,
  * front-matter panel.
  */
 @OptIn(ExperimentalLayoutApi::class, FlowPreview::class)
@@ -225,6 +225,12 @@ internal fun TextFirstEditorScreen(
 
     LaunchedEffect(titleField.isFocused) {
         if (titleField.isFocused && isPlaceholderTitle(titleField.text)) titleField.selectAll()
+    }
+
+    // Local mutations and remote summaries both commit this projection. Do not
+    // rescan the vault for body updates or on each completion request.
+    LaunchedEffect(controller.opened, store.notes.map { it.id }.toSet()) {
+        if (controller.opened) controller.refreshCompletionNoteIds()
     }
 
     // Sync changed this note on disk. A clean editor adopts the new bytes (a
@@ -405,6 +411,7 @@ internal fun TextFirstEditorScreen(
                     .nativeEditorField(controller),
                     update = { it.isEnabled = !images.recovering && !leaving })
             }
+            if (!leaving && !images.recovering) TextFirstCompletions(controller)
             TextFirstToolbarSlot(controller, onPickImage = images.pick)
         }
     }
