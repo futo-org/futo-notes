@@ -87,6 +87,16 @@ try {
   assert.equal(JSON.parse(session.project(0n, 0, 14)).text, display);
   assert.equal(JSON.parse(session.inspect_link(0n, 5, 6)).destination, 'https://x.test');
   assert.deepEqual(await reopened(JSON.stringify({ checkpoint: true })), { id: 'plain' });
+  // The public WASM command mirrors one source record, with one Undo step.
+  const applied = JSON.parse(session.edit_link(0n, 5, 6, '雪 [label]', '/new'));
+  const ack = await reopened(JSON.stringify(applied.request));
+  assert.deepEqual(JSON.parse(session.acknowledge(JSON.stringify(ack))), []);
+  assert.equal(JSON.parse(session.project(1n, 0, 17)).text, 'see 雪 [label]\r\n');
+  assert.equal(JSON.parse(session.inspect_link(1n, 4, 7)).destination, '/new');
+  const undoLabel = JSON.parse(session.undo(1n));
+  const undoAck = await reopened(JSON.stringify(undoLabel.request));
+  assert.deepEqual(JSON.parse(session.acknowledge(JSON.stringify(undoAck))), []);
+  assert.equal(session.draft_text(), updated);
   await stop();
   const referenceSource = "[id]: <https://x.test> 'T'\n\nmiddle\n\n[one][id] end";
   const unlinkedSource = "[id]: <https://x.test> 'T'\n\nmiddle\n\none end";
