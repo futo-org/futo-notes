@@ -13,7 +13,7 @@ internal data class LinkDraft(
 )
 
 /** Inspect only on demand, after queued keyboard input; never on a keystroke. */
-internal fun EditorEngine.linkDraft(deliver: (LinkDraft?) -> Unit) = command {
+internal fun EditorEngine.linkDraft(deliver: (LinkDraft?) -> Unit) = command(onUnavailable = { deliver(null) }) {
     var draft: LinkDraft? = null
     try {
         if (mirror.overlay != null) commitComposition(null)
@@ -29,7 +29,7 @@ internal fun EditorEngine.linkDraft(deliver: (LinkDraft?) -> Unit) = command {
     }
 }
 
-internal fun EditorEngine.removeLink(draft: LinkDraft, done: (Boolean) -> Unit) = command {
+internal fun EditorEngine.removeLink(draft: LinkDraft, done: (Boolean) -> Unit) = command(onUnavailable = { done(false) }) {
     var applied = false
     try {
         if (draft.owner === this && draft.revision == rev && mirror.overlay == null) {
@@ -41,7 +41,7 @@ internal fun EditorEngine.removeLink(draft: LinkDraft, done: (Boolean) -> Unit) 
     }
 }
 
-internal fun EditorEngine.editLink(draft: LinkDraft, label: String, destination: String, done: (Boolean) -> Unit) = command {
+internal fun EditorEngine.editLink(draft: LinkDraft, label: String, destination: String, done: (Boolean) -> Unit) = command(onUnavailable = { done(false) }) {
     var applied = false
     try {
         if (draft.owner === this && draft.revision == rev && mirror.overlay == null) {

@@ -6,6 +6,7 @@ import android.os.Looper
 import android.os.Process
 import android.os.SystemClock
 import android.util.Log
+import com.futo.notes.storage.StorageMigrationGate
 import uniffi.futo_notes_ffi.EditorBlockCommand
 import uniffi.futo_notes_ffi.EditorByteRange
 import uniffi.futo_notes_ffi.EditorInlineFormat
@@ -43,11 +44,12 @@ internal interface EngineSink {
  */
 internal class EditorEngine(
     /** Resolved on the editor thread: the first touch of the store loads the native library. */
-    private val store: () -> NoteStore,
-    private val noteId: String,
+    internal val store: () -> NoteStore,
+    internal val noteId: String,
     internal val sink: EngineSink,
     /** Debug/test: compare the mirror with the engine's display after every change. */
     private val verifyMirror: Boolean = false,
+    internal val storageGate: StorageMigrationGate? = null,
 ) {
     private val thread = HandlerThread("futo-editor", Process.THREAD_PRIORITY_DISPLAY).apply { start() }
     val handler = Handler(thread.looper)
@@ -64,8 +66,8 @@ internal class EditorEngine(
     val selStart: Int get() = mirror.selStart
     val selEnd: Int get() = mirror.selEnd
     internal var seq = 0
-    private var saveArmed = false
-    private var closed = false
+    internal var saveArmed = false
+    internal var closed = false
     private var inputStartNanos = 0L
     private var engineNanos = 0L
     /** The last change's projection; the caret state reads its block from it. */
@@ -77,25 +79,6 @@ internal class EditorEngine(
     @Volatile var publishedSelection = 0L
         private set
 
-
-    fun open(onOpened: (Throwable?) -> Unit) = handler.post {
-        try {
-            val opened = store().openEditor(noteId)
-            session = opened
-            fast = FastSession.of(opened)
-            rev = opened.revision()
-            val display = opened.displayText()
-            mirror.reset(display)
-            val projection = opened.project(rev, EditorByteRange(0u, mirror.utf8Length.toULong()))
-            mirror.selStart = 0; mirror.selEnd = 0
-            postUpdate(reset = display, edits = emptyList(), windows = listOf(window(projection)))
-            ui.post { onOpened(null) }
-            refreshCaretState()
-        } catch (e: Throwable) {
-            Log.e(TAG, "open $noteId failed", e)
-            ui.post { onOpened(e) }
-        }
-    }
 
     // ---- view and toolbar (posted from the UI thread) ----
 
@@ -164,12 +147,12 @@ internal class EditorEngine(
     fun hostSelect(start: Int, end: Int) = command { select(start, end, fromView = false) }
 
     /** Begin an asynchronous image insertion; the claim goes back to [insertImage]. */
-    fun imageClaim(deliver: (ULong?) -> Unit) = command {
+    fun imageClaim(deliver: (ULong?) -> Unit) = command(onUnavailable = { deliver(null) }) {
         val claim = session?.imageClaim()
         ui.post { deliver(claim) }
     }
 
-    fun insertImage(claim: ULong, reference: String, done: (Boolean) -> Unit) = command {
+    fun insertImage(claim: ULong, reference: String, done: (Boolean) -> Unit) = command(onUnavailable = { done(false) }) {
         if (mirror.overlay != null) commitComposition(null)
         val change = session?.insertImage(rev, claim, reference, "")
         if (change != null) accept(change)
@@ -208,19 +191,23 @@ internal class EditorEngine(
     /** Save before releasing. A failed detach leaves the exact session editable and retryable. */
     fun close(done: ((FlushDraftResult?) -> Unit)? = null) = handler.post {
         if (closed) { if (done != null) ui.post { done(null) }; return@post }
-        val s = session
-        val result = try {
-            if (mirror.overlay != null) commitComposition(null)
-            s?.detach()?.also { saved ->
-                ui.post { sink.onCheckpoint(saved, saved.mutation?.finalId ?: noteId) }
+        var result: FlushDraftResult? = null
+        storageAccess {
+            var failed = false
+            try {
+                if (mirror.overlay != null) commitComposition(null)
+                val attachedId = session?.noteId() ?: noteId
+                result = session?.detach()?.also { saved ->
+                    ui.post { sink.onCheckpoint(saved, saved.mutation?.finalId ?: attachedId) }
+                }
+            } catch (e: EditorSessionException) {
+                failed = true
+                Log.w(TAG, "save on close failed; retaining draft", e)
+                handleFailure(e)
+                drainAfterCheckpoint()
             }
-        } catch (e: EditorSessionException) {
-            Log.w(TAG, "save on close failed; retaining draft", e)
-            handleFailure(e)
-            if (done != null) ui.post { done(null) }
-            return@post
+            if (!failed) release()
         }
-        release()
         if (done != null) ui.post { done(result) }
     }
 
@@ -248,7 +235,11 @@ internal class EditorEngine(
         guarded(block)
     }
 
-    internal fun command(block: () -> Unit) = handler.post {
+    internal fun command(onUnavailable: () -> Unit = {}, block: () -> Unit) = handler.post {
+        if (storageGate?.isMigrationStarted == true || closed || session == null) {
+            ui.post(onUnavailable)
+            return@post
+        }
         inputStartNanos = SystemClock.elapsedRealtimeNanos()
         guarded(block)
         // A collapsed format toggle changes only carried formatting and
@@ -259,6 +250,10 @@ internal class EditorEngine(
 
     private fun guarded(block: () -> Unit) {
         if (closed || session == null) return
+        if (storageGate?.isMigrationStarted == true) {
+            ui.post { sink.onImeReset() }
+            return
+        }
         try {
             block()
         } catch (e: EditorSessionException) {
@@ -266,7 +261,7 @@ internal class EditorEngine(
         }
     }
 
-    private fun handleFailure(e: EditorSessionException) {
+    internal fun handleFailure(e: EditorSessionException) {
         when (e) {
             is EditorSessionException.UnrepresentableFormat,
             is EditorSessionException.CompositionActive,
@@ -290,7 +285,7 @@ internal class EditorEngine(
         }
     }
 
-    private fun reloadFromEngine() {
+    internal fun reloadFromEngine() {
         val s = session ?: return
         mirror.overlay = null
         try { s.composition()?.let { s.cancelComposition(s.revision()) } } catch (_: EditorSessionException) {}
@@ -407,45 +402,17 @@ internal class EditorEngine(
      * deadline on — and re-arms from the Store's new delay. One timer at a
      * time, so a keystroke costs no extra FFI call while one is armed.
      */
-    private val saveRunnable = Runnable {
+    internal val saveRunnable = Runnable {
         saveArmed = false
         if (closed || session == null) return@Runnable
         save(force = false)
     }
 
-    private fun armSave() {
+    internal fun armSave() {
         if (saveArmed || closed) return
         val delay = try { session?.saveDelay() } catch (_: EditorSessionException) { null } ?: return
         saveArmed = true
         handler.postDelayed(saveRunnable, delay.toMillis())
-    }
-
-    /** `checkpoint` when [force], else `saveIfDue`; null when nothing was written or it failed. */
-    private fun save(force: Boolean): FlushDraftResult? {
-        val s = session ?: return null
-        return try {
-            val result = when {
-                force -> if (s.saveDelay() == null) null else s.checkpoint()
-                else -> s.saveIfDue()
-            } ?: return null
-            val id = s.noteId()
-            ui.post { sink.onCheckpoint(result, id) }
-            drainAfterCheckpoint()
-            result
-        } catch (e: EditorSessionException) {
-            handleFailure(e)
-            null
-        } finally {
-            // A failed save reschedules itself in the Store; follow it.
-            armSave()
-        }
-    }
-
-    private fun drainAfterCheckpoint() {
-        val s = session ?: return
-        for (change in s.takeCoordinatedChanges()) {
-            if (change.previousRevision == rev) accept(change) else { reloadFromEngine(); return }
-        }
     }
 
     // ---- toolbar state ----
@@ -461,7 +428,7 @@ internal class EditorEngine(
     internal fun units(value: String): List<UShort> = List(value.length) { value[it].code.toUShort() }
 
     companion object {
-        private const val TAG = "TextFirstEngine"
+        internal const val TAG = "TextFirstEngine"
         private const val CARET_STATE_DELAY_MS = 40L
     }
 }

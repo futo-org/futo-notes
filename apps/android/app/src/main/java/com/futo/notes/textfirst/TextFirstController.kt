@@ -1,6 +1,7 @@
 package com.futo.notes.textfirst
 
 import android.content.Context
+import com.futo.notes.NotesStore
 import android.os.SystemClock
 import android.util.Log
 import androidx.compose.runtime.getValue
@@ -9,6 +10,8 @@ import androidx.compose.runtime.setValue
 import java.io.File
 import kotlin.coroutines.resume
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.CompletableDeferred
 import uniffi.futo_notes_ffi.EditorBlockCommand
 import uniffi.futo_notes_ffi.EditorInlineFormat
@@ -25,10 +28,12 @@ internal class TextFirstController(
     private val core: () -> NoteStore,
     vaultRoot: File,
     style: TextFirstStyle,
+    private val vault: NotesStore? = null,
 ) : EngineSink {
     private val images = ImageLoader(vaultRoot)
     val view = TextFirstEditText(context, style, images)
     private var engine: EditorEngine? = null
+    private var opening: CompletableDeferred<Unit>? = null
     private var closing: CompletableDeferred<FlushDraftResult?>? = null
 
     var opened by mutableStateOf(false); private set
@@ -49,6 +54,15 @@ internal class TextFirstController(
     private val latencyFlush = Runnable { latencyWindow.flush()?.let { Log.i("TextFirstLatency", it.toString()) } }
 
     init {
+        vault?.nativeEditorDrafts?.put(this) {
+            withContext(Dispatchers.Main.immediate) {
+                suspendCancellableCoroutine { cont ->
+                    val e = engine
+                    if (e == null) cont.resume(true)
+                    else e.checkpointForMigration { cont.resume(it) }
+                }
+            }
+        }
         MainThreadWatchdog.start()
         view.setOnFocusChangeListener { _, hasFocus -> focused = hasFocus }
         view.onFrameDrawn = { timings ->
@@ -63,13 +77,17 @@ internal class TextFirstController(
         opened = false
         released = false
         openFailure = null
-        val created = EditorEngine(core, noteId, this)
+        val ready = CompletableDeferred<Unit>()
+        opening = ready
+        val created = EditorEngine(core, noteId, this, storageGate = vault?.storageMigrationGate)
         engine = created
         view.engine = created
         created.open { error ->
             if (engine !== created) return@open
             openFailure = error
             opened = error == null
+            opening = null
+            ready.complete(Unit)
             onOpened(error)
         }
     }
@@ -147,6 +165,7 @@ internal class TextFirstController(
 
     /** Save and detach. A null result retains the engine and draft for retry. */
     suspend fun close(): FlushDraftResult? {
+        opening?.await()
         closing?.let { return it.await() }
         val e = engine ?: return null
         val completion = CompletableDeferred<FlushDraftResult?>()
@@ -162,6 +181,7 @@ internal class TextFirstController(
 
     /** Called only after the user explicitly confirms losing unsaved edits. */
     suspend fun discard() {
+        opening?.await()
         val e = engine ?: return
         suspendCancellableCoroutine<Unit> { cont ->
             e.discard { release(e); cont.resume(Unit) }
@@ -190,6 +210,9 @@ internal class TextFirstController(
         }
     }
 
-    fun dispose() = images.shutdown()
+    fun dispose() {
+        vault?.nativeEditorDrafts?.remove(this)
+        images.shutdown()
+    }
 
 }

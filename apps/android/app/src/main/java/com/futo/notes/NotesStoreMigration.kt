@@ -37,11 +37,12 @@ suspend fun NotesStore.inspectVaultDestination(to: File): StorageDestination =
  * blocks new UI input and pauses sync before calling this method.
  */
 suspend fun NotesStore.migrateVault(to: File): NotesStorage.MigrationOutcome {
+    val nativeDrafts = nativeEditorDrafts.values.toList()
     val drafts = pendingEditor.currentDrafts()
     val mutations = mutableListOf<NoteMutation>()
     val outcome = withContext(Dispatchers.IO) {
         storageMigrationGate.runMigration {
-            if (!flushDraftsUnderGate(drafts, mutations)) {
+            if (!nativeDrafts.all { it() } || !flushDraftsUnderGate(drafts, mutations)) {
                 NotesStorage.MigrationOutcome.Failed(
                     "An open editor change could not be saved. The storage mode was not changed.",
                 )
@@ -69,10 +70,13 @@ suspend fun NotesStore.migrateVault(to: File): NotesStorage.MigrationOutcome {
  * would drop it. Holds the same gate as [migrateVault].
  */
 suspend fun NotesStore.flushDraftsForVaultHandoff(): Boolean {
+    val nativeDrafts = nativeEditorDrafts.values.toList()
     val drafts = pendingEditor.currentDrafts()
     val mutations = mutableListOf<NoteMutation>()
     val flushed = withContext(Dispatchers.IO) {
-        storageMigrationGate.runMigration { flushDraftsUnderGate(drafts, mutations) }
+        storageMigrationGate.runMigration {
+            nativeDrafts.all { it() } && flushDraftsUnderGate(drafts, mutations)
+        }
     }
     mutations.forEach(::applyMutation)
     return flushed
