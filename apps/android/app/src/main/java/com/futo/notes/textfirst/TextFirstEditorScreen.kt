@@ -1,6 +1,5 @@
 package com.futo.notes.textfirst
 
-import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -50,7 +49,6 @@ import com.futo.notes.localization.LocalizedMessage
 import com.futo.notes.moveNote
 import com.futo.notes.releaseDraftOwnership
 import com.futo.notes.rename
-import com.futo.notes.saveImageIntoVault
 import com.futo.notes.ui.EditorToolbar
 import com.futo.notes.ui.TitleFieldState
 import com.futo.notes.ui.ToolbarItemAction
@@ -87,7 +85,7 @@ import uniffi.futo_notes_ffi.validateTitle
  * note body; rename, move and delete go through the Store's ordinary
  * workflows, which retarget or end the live attachment themselves.
  *
- * Not here yet (later stages): find, wikilink completion, tables,
+ * Not here yet (later stages): find, tables,
  * front-matter panel.
  */
 @OptIn(ExperimentalLayoutApi::class, FlowPreview::class)
@@ -117,7 +115,6 @@ internal fun TextFirstEditorScreen(
     var pendingNavigation by remember(initialNoteId) { mutableStateOf<(() -> Unit)?>(null) }
     var confirmDelete by remember { mutableStateOf(false) }
     var showMoveSheet by remember { mutableStateOf(false) }
-    var pendingImages by remember(initialNoteId) { mutableStateOf(0) }
     var adoptWhenBlurred by remember(initialNoteId) { mutableStateOf(false) }
     val ownerToken = remember(initialNoteId) { store.claimDraftOwnership() }
     // Title renames, moves, deletes and reloads run one at a time.
@@ -143,6 +140,8 @@ internal fun TextFirstEditorScreen(
         )
         TextFirstController(context, { store.core }, java.io.File(store.rootPath), style, store)
     }
+
+    val images = rememberTextFirstImages(controller, store, noteId, leaving, imagePicker)
 
     fun showTitleValidation(title: String) {
         val blocking = validateTitle(title).firstOrNull { it.kind != "empty" && it.kind != "forbidden_chars" }
@@ -228,6 +227,12 @@ internal fun TextFirstEditorScreen(
         if (titleField.isFocused && isPlaceholderTitle(titleField.text)) titleField.selectAll()
     }
 
+    // Local mutations and remote summaries both commit this projection. Do not
+    // rescan the vault for body updates or on each completion request.
+    LaunchedEffect(controller.opened, store.notes.map { it.id }.toSet()) {
+        if (controller.opened) controller.refreshCompletionNoteIds()
+    }
+
     // Sync changed this note on disk. A clean editor adopts the new bytes (a
     // focused one waits for blur, as the WebView editor does); a dirty one
     // keeps its draft, and its next save persists or parks it.
@@ -273,7 +278,8 @@ internal fun TextFirstEditorScreen(
             if (controller.openFailure != null) return@launch
             work.withLock {
                 val untouched = autoFocus && noteId == initialNoteId && controller.isEmpty && !controller.dirty &&
-                    titleField.text == splitId(initialNoteId).title && pendingImages == 0
+                    titleField.text == splitId(initialNoteId).title && images.pending == 0 &&
+                    imagePicker?.pendingCamera?.noteId != noteId
                 if (!renameTo(titleField.text) || controller.close() == null) {
                     leaving = false
                     saveFailed = true
@@ -313,33 +319,6 @@ internal fun TextFirstEditorScreen(
         val navigate = pendingNavigation
         if (navigate != null) leave(navigate)?.join()
         else controller.checkpoint()
-    }
-
-    fun pickImage(source: String) {
-        val handle: (List<Uri>) -> Unit = { uris ->
-            val uri = uris.firstOrNull()
-            if (uri != null) {
-                pendingImages += 1
-                scope.launch {
-                    try {
-                        val claim = controller.imageClaim() ?: return@launch
-                        val name = store.saveImageIntoVault(
-                            save = { root -> saveImageIntoVault(context.contentResolver, root, uri) },
-                            useSavedImage = { filename ->
-                                check(controller.insertImage(claim, filename)) { "the editor refused the image" }
-                            },
-                        )
-                        if (name == null) showToast(context, localization.localizedText("editor.images.unsupportedType"))
-                    } finally {
-                        pendingImages -= 1
-                    }
-                }
-            }
-        }
-        when (source) {
-            "camera" -> imagePicker?.captureCamera(handle)
-            else -> imagePicker?.pickLibrary(callback = handle)
-        }
     }
 
     fun deleteNote() {
@@ -413,8 +392,8 @@ internal fun TextFirstEditorScreen(
             modifier = Modifier.padding(padding).consumeWindowInsets(padding).fillMaxSize().imePadding(),
         ) {
             TextFirstTitle(
-                titleField, titleWarning, enabled = !leaving,
-                verbsEnabled = !leaving && controller.opened,
+                titleField, titleWarning, enabled = !leaving && !images.recovering,
+                verbsEnabled = !leaving && !images.recovering && controller.opened,
                 onCommit = { work.withLock { renameTo(titleField.text) } },
                 onReturn = { controller.view.showKeyboard() },
             ) { title, forbidden ->
@@ -428,9 +407,12 @@ internal fun TextFirstEditorScreen(
             }
             Spacer(Modifier.size(4.dp))
             Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                AndroidView(factory = { controller.view }, modifier = Modifier.fillMaxSize().nativeEditorField(controller))
+                AndroidView(factory = { controller.view }, modifier = Modifier.fillMaxSize()
+                    .nativeEditorField(controller),
+                    update = { it.isEnabled = !images.recovering && !leaving })
             }
-            TextFirstToolbarSlot(controller, onPickImage = ::pickImage)
+            if (!leaving && !images.recovering) TextFirstCompletions(controller)
+            TextFirstToolbarSlot(controller, onPickImage = images.pick)
         }
     }
 
