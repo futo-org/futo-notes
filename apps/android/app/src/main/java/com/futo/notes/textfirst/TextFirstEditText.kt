@@ -32,6 +32,8 @@ internal class TextFirstEditText(
     private val images: ImageLoader,
 ) : AppCompatEditText(context), EngineInputConnection.ViewSide {
     var engine: EditorEngine? = null
+    var onOpenWikilink: ((String) -> Unit)? = null
+    private val wikilinkTouch = WikilinkTouch(this) { onOpenWikilink?.invoke(it) }
     /** The first draw after a keyed update, with where that key's time went. */
     var onFrameDrawn: ((KeyTimings) -> Unit)? = null
 
@@ -44,7 +46,9 @@ internal class TextFirstEditText(
     val clipboard = TextFirstClipboard(context) { engine }
     private val tableTouch = TableGridTouch(this, { cell -> onTableCell?.invoke(cell.start, cell.end, appliedSeq) }, ::invalidateTableScroll)
     internal val marks = FindMarks()
-    private val spans = TfSpanFactory(style, marks) { contentWidth() }
+    private val spans = TfSpanFactory(style, marks, { contentWidth() }) { span ->
+        wikilinkContentWidth(this, span, contentWidth())
+    }
     /** The composing underline this view set; the only SPAN_COMPOSING span it owns. */
     private var composing: Any? = null
 
@@ -247,7 +251,7 @@ internal class TextFirstEditText(
         applying = true
         try {
             for (atom in e.getSpans(0, e.length, TfAtom::class.java)) {
-                if (atom !is TfImage && atom !is TfDivider) continue
+                if (atom !is TfImage && atom !is TfDivider && atom !is TfWikilink) continue
                 e.setSpan(atom, e.getSpanStart(atom), e.getSpanEnd(atom), e.getSpanFlags(atom))
             }
         } finally {
@@ -288,13 +292,14 @@ internal class TextFirstEditText(
     @SuppressLint("ClickableViewAccessibility")
     override fun onTouchEvent(event: MotionEvent): Boolean {
         if (tableTouch.onTouch(event)) return true
+        if (wikilinkTouch.onTouch(event)) return true
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
-                checkboxDown = checkboxAt(event.x, event.y)
+                checkboxDown = checkboxAt(this, style, event.x, event.y)
                 if (checkboxDown >= 0) return true
             }
             MotionEvent.ACTION_UP -> if (checkboxDown >= 0) {
-                val hit = checkboxAt(event.x, event.y)
+                val hit = checkboxAt(this, style, event.x, event.y)
                 if (hit == checkboxDown) engine?.toggleTaskAt(hit)
                 checkboxDown = -1
                 return true
@@ -302,7 +307,7 @@ internal class TextFirstEditText(
             MotionEvent.ACTION_MOVE -> if (checkboxDown >= 0) return true
             MotionEvent.ACTION_CANCEL -> if (checkboxDown >= 0) { checkboxDown = -1; return true }
         }
-        return super.onTouchEvent(event)
+        return super.onTouchEvent(event).also { wikilinkTouch.settleCaret() }
     }
 
     /** TextView caches drawing separately: changing span data also invalidates its text display list. */
@@ -315,20 +320,6 @@ internal class TextFirstEditText(
             }
         } finally { applying = false }
         invalidate()
-    }
-
-    /** The line-start offset of a task row whose checkbox is under (x, y), or -1. */
-    private fun checkboxAt(x: Float, y: Float): Int {
-        val layout = layout ?: return -1
-        val line = layout.getLineForVertical((y - totalPaddingTop + scrollY).toInt())
-        val start = layout.getLineStart(line)
-        val e = editableText ?: return -1
-        val list = e.getSpans(start, start, TfList::class.java).firstOrNull { it.marker == ListMarker.Task && it.first && e.getSpanStart(it) == start }
-            ?: return -1
-        val paragraphLeft = layout.getParagraphLeft(line)
-        val lineX = x - totalPaddingLeft
-        val withinMarker = lineX <= paragraphLeft + style.dp(4f) && lineX >= paragraphLeft - style.listIndent - style.dp(8f)
-        return if (withinMarker && list.first) start else -1
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {

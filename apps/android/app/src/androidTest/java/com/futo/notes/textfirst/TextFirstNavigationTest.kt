@@ -47,7 +47,7 @@ class TextFirstNavigationTest {
                     AppNavigation(hasBootstrapped = false, availableFolderPaths = emptyList()) { screen, nav, _ ->
                         navigator = nav
                         if (screen is Screen.Editor) TextFirstEditorScreen(
-                            store, screen.noteId, false, false, nav::goBack,
+                            store, screen.noteId, false, false, nav::goBack, nav::openNote,
                             registerLeave = { handler -> nav.registerEditorLeave(screen, handler) },
                         ) else Text("Note list")
                     }

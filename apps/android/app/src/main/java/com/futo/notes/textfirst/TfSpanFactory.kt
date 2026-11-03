@@ -1,7 +1,7 @@
 package com.futo.notes.textfirst
 
 /** Builds the renderer span for a [SpanSpec], and tells whether an existing span already is it. */
-internal class TfSpanFactory(private val style: TextFirstStyle, private val marks: FindMarks, private val contentWidth: () -> Int) {
+internal class TfSpanFactory(private val style: TextFirstStyle, private val marks: FindMarks, private val contentWidth: () -> Int, private val wikilinkWidth: (TfWikilink) -> Int) {
     private val tableScroll = mutableMapOf<Int, TableScroll>()
     fun create(spec: SpanSpec): TfSpan = when (spec) {
         is SpanSpec.Inline -> TfInline(style, spec.bold, spec.italic, spec.strike, spec.code)
@@ -11,7 +11,7 @@ internal class TfSpanFactory(private val style: TextFirstStyle, private val mark
         is SpanSpec.Code -> TfCodeBlock(style)
         is SpanSpec.Metadata -> TfMetadata(style)
         is SpanSpec.Link -> TfLink(style, spec.destination)
-        is SpanSpec.Wikilink -> TfWikilink(style, spec.label, spec.noteId)
+        is SpanSpec.Wikilink -> TfWikilink(style, spec.label, spec.noteId) { wikilinkWidth(it) }
         is SpanSpec.Divider -> TfDivider(style) { contentWidth() }
         is SpanSpec.Image -> TfImage(style, spec.destination, spec.alt, spec.vault) { contentWidth() }
         is SpanSpec.TableRow -> TfTableRow(style, spec.row, spec.start, tableScroll.getOrPut(spec.row.tableStart) { TableScroll() }, marks, contentWidth)

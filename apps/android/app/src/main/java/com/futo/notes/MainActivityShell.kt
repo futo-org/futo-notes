@@ -74,6 +74,7 @@ internal fun MainActivity.AppShell(
                 autoFocus = screen.autoFocus,
                 darkTheme = dark,
                 onBack = navigator::goBack,
+                onOpenNote = navigator::openNote,
                 imagePicker = imagePicker,
                 registerLeave = { handler -> navigator.registerEditorLeave(screen, handler) },
             ) else NoteEditorScreen(
