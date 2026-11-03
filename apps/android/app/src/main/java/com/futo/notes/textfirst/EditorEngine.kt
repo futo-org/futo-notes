@@ -23,6 +23,8 @@ import uniffi.futo_notes_ffi.NoteStore
 internal interface EngineSink {
     fun onUpdate(update: UiUpdate)
     fun onCaretState(state: CaretState)
+    /** Explicit external identity was adopted, even if its following save fails. */
+    fun onAttachmentId(noteId: String)
     /** A Markdown save landed; [noteId] is the attachment's identity after it (a park moves it). */
     fun onCheckpoint(result: FlushDraftResult, noteId: String)
     /** A failed save does not pause input: the Store retries it on its own schedule. */
@@ -67,6 +69,8 @@ internal class EditorEngine(
     val selEnd: Int get() = mirror.selEnd
     internal var seq = 0
     internal var saveArmed = false
+    /** A committed external event must survive migration admission or a failed write. */
+    internal var reconcilePending = false
     internal var closed = false
     private var inputStartNanos = 0L
     private var engineNanos = 0L
@@ -180,6 +184,17 @@ internal class EditorEngine(
     fun checkpoint(done: ((FlushDraftResult?) -> Unit)? = null) = handler.post {
         val result = if (closed || session == null) null else save(force = true)
         if (done != null) ui.post { done(result) }
+    }
+
+    /** Sync already applied its authoritative mutation, including attachment identity.
+     * Reconcile on the input thread, after accepted typing, without replacing the session. */
+    fun reconcileExternalChanges(done: () -> Unit) = handler.post {
+        if (!closed && session != null) {
+            val id = session!!.noteId()
+            ui.post { sink.onAttachmentId(id) }
+            save(force = true, external = true)
+        }
+        ui.post(done)
     }
 
     /** The current exact source, for the screen's rename/draft paths. */

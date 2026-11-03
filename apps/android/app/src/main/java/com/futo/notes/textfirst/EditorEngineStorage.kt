@@ -70,6 +70,7 @@ internal fun EditorEngine.checkpointForMigration(done: (Boolean) -> Unit) {
             if (!closed && s != null) {
                 if (mirror.overlay != null) commitComposition(null)
                 val result = s.checkpoint()
+                drainAfterCheckpoint()
                 val id = s.noteId()
                 ui.post { sink.onCheckpoint(result, id) }
             }
@@ -87,9 +88,10 @@ internal fun EditorEngine.storageAccess(block: () -> Unit): Boolean =
     storageGate?.tryRunAccess(block) ?: run { block(); true }
 
 /** `checkpoint` when [force], else `saveIfDue`; null when nothing was written or it failed. */
-internal fun EditorEngine.save(force: Boolean): FlushDraftResult? {
+internal fun EditorEngine.save(force: Boolean, external: Boolean = false): FlushDraftResult? {
+    if (external) reconcilePending = true
     var result: FlushDraftResult? = null
-    if (!storageAccess { result = saveUnderGate(force) } && !closed) {
+    if (!storageAccess { result = saveUnderGate(force, reconcilePending) } && !closed) {
         handler.removeCallbacks(saveRunnable)
         saveArmed = true
         handler.postDelayed(saveRunnable, 500)
@@ -97,13 +99,17 @@ internal fun EditorEngine.save(force: Boolean): FlushDraftResult? {
     return result
 }
 
-private fun EditorEngine.saveUnderGate(force: Boolean): FlushDraftResult? {
+private fun EditorEngine.saveUnderGate(force: Boolean, external: Boolean): FlushDraftResult? {
     val s = session ?: return null
     return try {
         val result = when {
+            external -> s.checkpoint()
             force -> if (s.saveDelay() == null) null else s.checkpoint()
             else -> s.saveIfDue()
         } ?: return null
+        reconcilePending = false
+        // Publish coordinated source/selection before marking this revision saved.
+        drainAfterCheckpoint()
         val id = s.noteId()
         ui.post { sink.onCheckpoint(result, id) }
         result
