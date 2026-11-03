@@ -31,6 +31,9 @@ export async function runMergeRegressions(WasmSession, executable) {
     const send = async (applied) =>
       page.acknowledge(JSON.stringify(await exchange(applied.request)));
     await send(JSON.parse(page.replace(0n, 7, 13, 'LOCAL')));
+    const renamed = await exchange({ external_rename: 'authoritative final (2)' });
+    assert.equal(renamed.id, 'authoritative final (2)');
+    assert.equal(page.draft_text(), 'first\n\nLOCAL\n');
     const merged = await exchange({
       merge: { base: 'first\n\nsecond\n', draft: 'first\n\nLOCAL\n', remote: '日本🦀\n\nsecond\n' },
     });
@@ -47,7 +50,10 @@ export async function runMergeRegressions(WasmSession, executable) {
     worker.stdin.end();
     const [code] = await exited;
     assert.equal(code, 0);
-    assert.equal(readFileSync(join(vault, 'plain.md'), 'utf8'), '日本🦀\n\nLOCAL\n');
+    assert.equal(
+      readFileSync(join(vault, 'authoritative final (2).md'), 'utf8'),
+      '日本🦀\n\nLOCAL\n',
+    );
   } finally {
     page?.free();
     if (worker.exitCode === null) {

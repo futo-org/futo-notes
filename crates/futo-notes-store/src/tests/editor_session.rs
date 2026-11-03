@@ -4,6 +4,7 @@ use futo_notes_editor::{DisplayOffset, DisplayRange, Revision};
 mod blocks;
 mod clipboard;
 mod composition;
+mod external_rename;
 mod images;
 mod lifecycle;
 mod links;

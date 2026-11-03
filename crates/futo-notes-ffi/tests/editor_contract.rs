@@ -364,3 +364,42 @@ fn native_projection_marks_front_matter_as_metadata() {
     assert_eq!(blocks.iter().filter(|block| block.metadata).count(), 1);
     assert!(!blocks.last().unwrap().metadata);
 }
+
+#[test]
+fn native_remote_rename_retains_draft_and_merges_at_reported_final_id() {
+    let tree = TempTree::new();
+    std::fs::create_dir_all(tree.path("vault")).unwrap();
+    let store = NoteStore::new(path_string(&tree.path("vault")));
+    store
+        .create_note("old".into(), "".into(), "first\n\nsecond\n".into())
+        .unwrap();
+    let session = store.open_editor("old".into()).unwrap();
+    session
+        .replace_utf16(
+            0,
+            EditorUtf16Range { start: 7, end: 13 },
+            "LOCAL".encode_utf16().collect(),
+        )
+        .unwrap();
+    std::fs::rename(tree.path("vault/old.md"), tree.path("vault/final.md")).unwrap();
+    std::fs::write(tree.path("vault/final.md"), "REMOTE\n\nsecond\n").unwrap();
+    let mutation = store
+        .refresh_external_changes(
+            vec![],
+            vec![],
+            vec![futo_notes_ffi::RenamePair {
+                from_id: "old".into(),
+                to_id: "final".into(),
+            }],
+        )
+        .unwrap();
+    assert_eq!(mutation.upserted[0].note.id, "final");
+    assert_eq!(session.note_id().unwrap(), "final");
+    assert_eq!(session.source_text().unwrap(), "first\n\nLOCAL\n");
+    let saved = session.checkpoint().unwrap();
+    assert_eq!(saved.mutation.unwrap().final_id.as_deref(), Some("final"));
+    assert_eq!(session.source_text().unwrap(), "REMOTE\n\nLOCAL\n");
+    session.undo(2).unwrap().unwrap();
+    assert_eq!(session.source_text().unwrap(), "REMOTE\n\nsecond\n");
+    assert!(!store.exists("old".into()));
+}
