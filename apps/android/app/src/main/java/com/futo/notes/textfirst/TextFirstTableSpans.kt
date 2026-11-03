@@ -17,6 +17,7 @@ internal class TfTableRow(
     val row: GridRow,
     val displayStart: Int,
     val scroll: TableScroll,
+    private val marks: FindMarks,
     private val width: () -> Int,
 ) : ReplacementSpan(), TfAtom {
     val cellWidth = look.dp(160f)
@@ -50,12 +51,42 @@ internal class TfTableRow(
             val layout = layouts.getOrNull(column) ?: continue
             val cellSave = canvas.save()
             canvas.translate(left + padding, top + padding)
+            drawMarks(canvas, layout, row.cells[column], start - displayStart)
             layout.draw(canvas)
             canvas.restoreToCount(cellSave)
         }
         canvas.restoreToCount(save)
     }
+    private fun drawMarks(canvas: Canvas, layout: StaticLayout, cell: GridCell, shift: Int) {
+        if (marks.isEmpty) return
+        val from = cell.start + shift
+        val path = android.graphics.Path()
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+        marks.visit(from, cell.end + shift) { s, e, current ->
+            val a = (s - from).coerceIn(0, cell.text.length); val b = (e - from).coerceIn(0, cell.text.length)
+            if (b <= a) return@visit
+            path.rewind()
+            layout.getSelectionPath(a, b, path)
+            paint.color = (look.linkColor and 0x00ffffff) or (if (current) 0x99000000.toInt() else 0x40000000)
+            canvas.drawPath(path, paint)
+        }
+    }
     fun cellAt(x: Float): GridCell? = row.cells.getOrNull(((x + scroll.x) / cellWidth).toInt())
+    /** Scroll the grid so the cell holding [offset] shows; true when it moved. */
+    fun revealCell(offset: Int): Boolean {
+        val column = row.cells.indexOfFirst { offset in it.start..it.end }
+        if (column < 0) return false
+        val left = column * cellWidth
+        val visible = width().toFloat()
+        val wanted = when {
+            left < scroll.x -> left
+            left + cellWidth > scroll.x + visible -> left + cellWidth - visible
+            else -> return false
+        }.coerceIn(0f, (row.columns * cellWidth - visible).coerceAtLeast(0f))
+        if (wanted == scroll.x) return false
+        scroll.x = wanted
+        return true
+    }
     fun scrollBy(dx: Float) { scroll.x = (scroll.x + dx).coerceIn(0f, (row.columns * cellWidth - width()).coerceAtLeast(0f)) }
 }
 

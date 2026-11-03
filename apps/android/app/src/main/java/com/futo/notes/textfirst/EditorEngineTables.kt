@@ -48,11 +48,7 @@ internal fun EditorEngine.selectDisplayRange(start: Int, end: Int, expectedSeq: 
         try {
             if (!closed && session != null && storageGate?.isMigrationStarted != true && (expectedSeq == null || expectedSeq == seq)) {
                 if (mirror.overlay != null) commitComposition(null)
-                val s = checkNotNull(session)
-                val table = s.inspectTable(rev, mirror.byteRange(start, end))
-                editingCell = table?.focus != null
-                select(start, end, fromView = false)
-                if (editingCell) publishCell() else { cellRange = null; ui.post { sink.onCell(null) } }
+                showDisplayRange(start, end)
                 selected = true
             }
         } catch (e: uniffi.futo_notes_ffi.EditorSessionException) {
@@ -60,6 +56,15 @@ internal fun EditorEngine.selectDisplayRange(start: Int, end: Int, expectedSeq: 
         } finally { ui.post { done(selected) } }
     }
     if (!posted) ui.post { done(false) }
+}
+
+/** Select a display range, opening the cell field when it lies in a table cell. Editor thread, no composition. */
+internal fun EditorEngine.showDisplayRange(start: Int, end: Int) {
+    val s = checkNotNull(session)
+    val table = s.inspectTable(rev, mirror.byteRange(start, end))
+    editingCell = table?.focus != null
+    select(start, end, fromView = false)
+    if (editingCell) publishCell() else { cellRange = null; ui.post { sink.onCell(null) } }
 }
 
 internal fun EditorEngine.finishCellEditing() = command {

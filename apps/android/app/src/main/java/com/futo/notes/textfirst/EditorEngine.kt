@@ -24,6 +24,7 @@ internal interface EngineSink {
     fun onCell(update: CellUpdate?) {}
     fun onUpdate(update: UiUpdate)
     fun onCompletion(draft: CompletionDraft?) {}
+    fun onFind(snapshot: FindSnapshot) {}
     fun onCaretState(state: CaretState)
     /** Explicit external identity was adopted, even if its following save fails. */
     fun onAttachmentId(noteId: String)
@@ -71,6 +72,7 @@ internal class EditorEngine(
     val selStart: Int get() = mirror.selStart
     val selEnd: Int get() = mirror.selEnd
     internal var editingCell = false
+    internal val find = FindEngineState { refreshFind() }
     internal var cellRange: IntRange? = null
     internal var seq = 0
     internal var saveArmed = false
@@ -225,6 +227,7 @@ internal class EditorEngine(
     private fun release() {
         handler.removeCallbacks(saveRunnable)
         handler.removeCallbacks(caretRunnable)
+        find.release(handler)
         session?.destroy()
         fast?.close()
         fast = null
@@ -369,6 +372,7 @@ internal class EditorEngine(
         publishCell()
         ui.post { sink.onUpdate(update) }
         scheduleCaretState()
+        scheduleFindRefresh()
     }
 
     private fun publishSelection() {
