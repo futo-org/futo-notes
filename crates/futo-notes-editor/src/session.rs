@@ -13,7 +13,6 @@ mod input;
 mod links;
 mod note_ids;
 mod pending;
-mod pending_indent;
 mod staging;
 mod tags;
 mod transaction;
@@ -51,9 +50,6 @@ pub struct EditorSession {
     find: find::FindState,
     /// Names this session for async claims; never reused within a process.
     incarnation: u64,
-    /// An Indent on an empty item waiting for its first typed text.
-    pending_indent: Option<pending_indent::PendingIndent>,
-    probing_indent: bool,
 }
 
 impl EditorSession {
@@ -108,8 +104,6 @@ impl EditorSession {
             context: staging::StageContext::complete_source(),
             find: find::FindState::default(),
             incarnation: images::next_incarnation(),
-            pending_indent: None,
-            probing_indent: false,
         }
     }
 
@@ -180,9 +174,6 @@ impl EditorSession {
             self.typing = None;
             self.pending_formats = None;
         }
-        if self.selection != range {
-            self.pending_indent = None;
-        }
         self.selection = range;
         self.affinity = affinity;
         Ok(SelectionChange {
@@ -233,9 +224,7 @@ impl EditorSession {
     ) -> Result<ProjectionSlice, EditorError> {
         self.check_revision(expected)?;
         self.validate_range(range)?;
-        let mut slice = self.projection.query(self.revision, range);
-        self.decorate_pending_indent(&mut slice);
-        Ok(slice)
+        Ok(self.projection.query(self.revision, range))
     }
 
     /// Validate ordering before a host converts fixed-width foreign coordinates.
@@ -300,7 +289,6 @@ impl EditorSession {
     }
 
     fn apply(&mut self, edit: &SourceEdit) -> ViewChange {
-        self.pending_indent = None;
         let mirror_bytes = self
             .context
             .origin

@@ -67,7 +67,13 @@ impl Paragraph {
         }
         let links = futo_notes_wikilinks::find_wikilinks(text);
         let base = self.range.start;
-        let inside = |at: usize| links.iter().any(|link| link.start <= at && at < link.end);
+        // Links come sorted and disjoint, and delimiters are visited in
+        // order, so one forward sweep answers every lookup.
+        let mut next = links.iter().peekable();
+        let mut inside = |at: usize| {
+            while next.next_if(|link| link.end <= at).is_some() {}
+            next.peek().is_some_and(|link| link.start <= at)
+        };
         self.word_dangling = text
             .as_bytes()
             .windows(2)

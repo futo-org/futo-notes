@@ -26,7 +26,6 @@ release:gate:
     - job: test:cross-platform-sync
     - job: test:cross-platform-sync:android
     - job: test:ios-native
-    - job: bench:editor
     # Exists only while the WINDOWS_PERSIST_RUNNER bring-up switch is on
     # (ci/windows.yml); optional so a tag without it still gates.
     - job: test:rust:windows

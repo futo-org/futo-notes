@@ -247,16 +247,16 @@ describe('pre-merge CI routing contracts', () => {
     expect(ffiJob).not.toContain('- job: test:cross-platform-sync');
   });
 
-  it('benchmarks the editor alone on a serial runner and gates the release on it', () => {
+  it('benchmarks the editor alone on a serial runner, by hand, gating nothing', () => {
     const bench = topLevelBlock(gitlabPipeline, /^bench:editor:$/m);
     const releaseGate = topLevelBlock(gitlabPipeline, /^release:gate:$/m);
 
     expect(bench).toContain('    - futo_notes_serial');
     expect(bench).toContain('editor-bench-gate.mjs" --regression-only');
     expect(bench).not.toContain('--accept');
-    expect(bench).toContain('$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH');
-    expect(bench).toContain('$CI_COMMIT_TAG');
-    expect(releaseGate).toContain('- job: bench:editor');
+    expect(bench).toContain('when: manual');
+    expect(bench).toContain('allow_failure: true');
+    expect(releaseGate).not.toContain('- job: bench:editor');
   });
 
   it('runs the Windows Rust tests on crate MRs behind the bring-up switch', () => {
