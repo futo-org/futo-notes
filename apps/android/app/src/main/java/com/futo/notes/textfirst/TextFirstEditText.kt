@@ -304,7 +304,7 @@ internal class TextFirstEditText(
             MotionEvent.ACTION_MOVE -> if (checkboxDown >= 0) return true
             MotionEvent.ACTION_CANCEL -> if (checkboxDown >= 0) { checkboxDown = -1; return true }
         }
-        return super.onTouchEvent(event)
+        return super.onTouchEvent(event).also { wikilinkTouch.settleCaret() }
     }
 
     /** TextView caches drawing separately: changing span data also invalidates its text display list. */

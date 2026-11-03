@@ -318,6 +318,23 @@ internal class TfWikilink(
         return x >= layout.getLineLeft(line) && x <= layout.getLineRight(line)
     }
 
+    /** How far along the label's wrapped lines (their widths summed) x falls, 0..1; null above or below the label. */
+    fun runFraction(paint: Paint, x: Float, baselineY: Float): Float? {
+        val layout = layoutFor(paint)
+        val y = baselineY + layout.getLineBaseline(layout.lineCount - 1)
+        if (y < 0 || y >= layout.height) return null
+        val hit = layout.getLineForVertical(y.toInt())
+        var total = 0f
+        var before = 0f
+        for (line in 0 until layout.lineCount) {
+            val run = layout.getLineRight(line) - layout.getLineLeft(line)
+            total += run
+            if (line < hit) before += run
+        }
+        before += (x - layout.getLineLeft(hit)).coerceIn(0f, layout.getLineRight(hit) - layout.getLineLeft(hit))
+        return if (total > 0f) before / total else 0f
+    }
+
     override fun getSize(paint: Paint, text: CharSequence?, start: Int, end: Int, fm: Paint.FontMetricsInt?): Int {
         val layout = layoutFor(paint)
         if (fm != null && layout.lineCount > 1) {
