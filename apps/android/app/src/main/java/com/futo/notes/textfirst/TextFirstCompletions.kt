@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -28,7 +29,11 @@ internal fun TextFirstCompletions(controller: TextFirstController) {
     val scope = rememberCoroutineScope()
     val localization = LocalLocalization.current
     val colors = FutoTheme.colors
+    val list = rememberLazyListState()
     suspend fun choose(noteId: String) {
+        if (list.layoutInfo.visibleItemsInfo.none { it.key == noteId }) {
+            throw PuppetVerbRefusal(409, "Scroll the completion list until the chosen note is visible")
+        }
         if (!controller.acceptCompletion(draft, noteId)) throw PuppetVerbRefusal(409, "Completion changed; read the current suggestions")
     }
     PuppetVerbScope {
@@ -38,7 +43,7 @@ internal fun TextFirstCompletions(controller: TextFirstController) {
         )
     }
     Row(Modifier.fillMaxWidth()) {
-        LazyColumn(Modifier.weight(1f).heightIn(max = 144.dp)) {
+        LazyColumn(Modifier.weight(1f).heightIn(max = 144.dp), state = list) {
             items(draft.value.candidates, key = { it.noteId }) { candidate ->
                 Column(Modifier.fillMaxWidth().clickable {
                     scope.launch { controller.acceptCompletion(draft, candidate.noteId) }

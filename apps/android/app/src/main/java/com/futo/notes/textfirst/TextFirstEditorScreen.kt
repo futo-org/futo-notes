@@ -227,12 +227,17 @@ internal fun TextFirstEditorScreen(
         if (titleField.isFocused && isPlaceholderTitle(titleField.text)) titleField.selectAll()
     }
 
+    // Local mutations and remote summaries both commit this projection. Do not
+    // rescan the vault for body updates or on each completion request.
+    LaunchedEffect(controller.opened, store.notes.map { it.id }.toSet()) {
+        if (controller.opened) controller.refreshCompletionNoteIds()
+    }
+
     // Sync changed this note on disk. A clean editor adopts the new bytes (a
     // focused one waits for blur, as the WebView editor does); a dirty one
     // keeps its draft, and its next save persists or parks it.
     LaunchedEffect(initialNoteId) {
         store.localTreeChanges.collect { summary ->
-            controller.refreshCompletionNoteIds()
             if (!summary.affectsOpenNote(noteId) || leaving) return@collect
             work.withLock {
                 val renamed = summary.renamed.firstOrNull { it.fromId == noteId }?.toId
