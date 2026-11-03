@@ -21,10 +21,19 @@ fn native_save_delay_tracks_unsaved_edits_and_checkpoint_clears_it() {
     let status = session.save_status().unwrap();
     assert_eq!((status.revision, status.saved), (1, 0));
     assert!(status.save_deadline.is_some());
-    // Not due yet: nothing is written.
-    if delay > std::time::Duration::from_millis(50) {
-        assert!(session.save_if_due().unwrap().is_none());
-        assert_eq!(store.read("plain".into()).unwrap(), "before");
+    // The foreign caller can be descheduled past the deadline between these
+    // calls. Assert the authoritative outcome, rather than predicting elapsed
+    // time from an earlier delay. Exact debounce boundaries are covered by the
+    // store's controllable-clock tests.
+    match session.save_if_due().unwrap() {
+        None => {
+            assert_eq!(store.read("plain".into()).unwrap(), "before");
+            assert_eq!(session.save_status().unwrap().saved, 0);
+        }
+        Some(_) => {
+            assert_eq!(store.read("plain".into()).unwrap(), "before!");
+            assert_eq!(session.save_status().unwrap().saved, 1);
+        }
     }
     session.checkpoint().unwrap();
     assert_eq!(store.read("plain".into()).unwrap(), "before!");

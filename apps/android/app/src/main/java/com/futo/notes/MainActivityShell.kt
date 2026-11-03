@@ -2,6 +2,7 @@ package com.futo.notes
 
 import android.provider.Settings
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.lifecycle.lifecycleScope
 import com.futo.notes.localization.LocalLocalization
 import com.futo.notes.puppet.PuppetServerStart
@@ -39,6 +40,14 @@ internal fun MainActivity.AppShell(
         hasBootstrapped = s.hasBootstrapped,
         availableFolderPaths = s.folders,
         effects = { navigator ->
+            val capture = imagePicker.pendingCamera
+            LaunchedEffect(capture?.id, s.hasBootstrapped) {
+                if (capture?.recovered == true && s.hasBootstrapped) {
+                    if (capture.vaultRoot == s.rootPath && s.notes.any { it.id == capture.noteId }) {
+                        navigator.openNote(capture.noteId)
+                    } else imagePicker.finishCamera(capture.id)
+                }
+            }
             LicenseLandingEffect(license, navigator, modalUp = pendingCrashJson.value != null)
             // Debug builds only — compiles to nothing in release (puppet/PuppetServer.kt).
             PuppetServerStart(navigator, s, sync, prefs)
