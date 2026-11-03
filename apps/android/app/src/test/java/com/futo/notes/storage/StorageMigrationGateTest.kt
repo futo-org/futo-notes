@@ -11,6 +11,21 @@ import org.junit.Test
 
 class StorageMigrationGateTest {
     @Test
+    fun `editor access never waits on the migration that drains its thread`() = runBlocking {
+        val gate = StorageMigrationGate()
+        var writes = 0
+        assertTrue(gate.tryRunAccess { writes++ })
+        gate.beginMigration()
+        gate.runMigration {
+            assertEquals(false, gate.tryRunAccess { writes++ })
+        }
+        assertEquals(1, writes)
+        gate.resume()
+        assertTrue(gate.tryRunAccess { writes++ })
+        assertEquals(2, writes)
+    }
+
+    @Test
     fun `migration drains an in-flight write before it starts`() = runBlocking {
         val gate = StorageMigrationGate()
         val writeStarted = CompletableDeferred<Unit>()

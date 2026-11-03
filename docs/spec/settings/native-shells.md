@@ -65,9 +65,17 @@ SettingsScreen.kt _(Android)_, SettingsView.swift _(iOS)_
   activation surfaces an actionable toast; a different non-empty destination
   is never merged into or deleted. Leaving the editor captures and
   persists-or-parks its latest live body before Settings can open; the migration
-  then flushes any retained draft under the vault gate before staging. The
-  blocking overlay never depends on an attached editor WebView. Every copied
-  file keeps its modified time wherever the destination filesystem can carry
+  then flushes any retained draft under the vault gate before staging. Native
+  editor sessions drain already accepted input, including marked composition,
+  and checkpoint under that same gate before staging; new editor input stays
+  paused until failure resumes the original vault or activation restarts the app.
+  A checkpoint or detach requested while migration owns the gate keeps its
+  session and draft available for retry. Ordinary vault I/O leaves native note
+  opening pending without blocking the shell or editor thread; disposal waits
+  for that open and releases its attachment. The blocking overlay never depends
+  on an attached editor WebView. → `NotesStoreMigration.kt`, `textfirst/EditorEngineStorage.kt`,
+  `TextFirstMigrationTest`
+  Every copied file keeps its modified time wherever the destination filesystem can carry
   one, so a storage change leaves Last Modified ordering and each note's
   displayed age unchanged; the copy is never failed over a timestamp.
   → `vault_migration::copy_file`
