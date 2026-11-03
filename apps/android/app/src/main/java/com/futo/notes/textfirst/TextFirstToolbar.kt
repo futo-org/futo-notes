@@ -4,6 +4,14 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import com.futo.notes.puppet.PuppetVerb
+import com.futo.notes.puppet.PuppetVerbScope
+import kotlinx.coroutines.launch
 import com.futo.notes.ui.EditorToolbar
 import com.futo.notes.ui.ToolbarItemAction
 import uniffi.futo_notes_ffi.EditorBlockCommand
@@ -19,22 +27,42 @@ import uniffi.futo_notes_ffi.EditorInlineFormat
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun TextFirstToolbarSlot(controller: TextFirstController, onPickImage: (String) -> Unit) {
-    if (!controller.focused || !WindowInsets.isImeVisible) return
+    val scope = rememberCoroutineScope()
+    var draft by remember(controller) { mutableStateOf<LinkDraft?>(null) }
+    var opening by remember(controller) { mutableStateOf(false) }
+    val visible = controller.focused && WindowInsets.isImeVisible
+    suspend fun openLink() {
+        if (opening || draft != null) return
+        opening = true
+        try { draft = controller.linkDraft() } finally { opening = false }
+    }
+    PuppetVerbScope {
+        if (!visible || opening || draft != null) emptyList() else listOf(
+            PuppetVerb("OpenLink") { openLink() },
+        )
+    }
     val caret = controller.caret
-    EditorToolbar(
+    if (visible) EditorToolbar(
         onListLine = caret.list != null,
         inContainer = caret.list != null || caret.quote,
         activeFormats = toolbarActive(caret),
-        disabledFormats = setOf("link"),
         hiddenItems = setOf("paragraph"),
         perform = { item ->
             when (val action = item.action) {
-                ToolbarItemAction.Exec -> runToolbar(controller, item.id)
+                ToolbarItemAction.Exec -> if (item.id == "link") scope.launch { openLink() } else runToolbar(controller, item.id)
                 is ToolbarItemAction.PickImage -> onPickImage(action.source)
                 ToolbarItemAction.Dismiss -> controller.view.hideKeyboard()
             }
         },
     )
+    draft?.let { claim ->
+        TextFirstLinkDialog(
+            draft = claim,
+            onSubmit = { label, destination -> controller.editLink(claim, label, destination) },
+            onRemove = { controller.removeLink(claim) },
+            onDismiss = { draft = null; controller.view.showKeyboard() },
+        )
+    }
 }
 
 

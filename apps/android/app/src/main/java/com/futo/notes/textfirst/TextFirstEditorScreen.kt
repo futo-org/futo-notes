@@ -87,7 +87,7 @@ import uniffi.futo_notes_ffi.validateTitle
  * note body; rename, move and delete go through the Store's ordinary
  * workflows, which retarget or end the live attachment themselves.
  *
- * Not here yet (later stages): find, links/wikilink completion, tables,
+ * Not here yet (later stages): find, wikilink completion, tables,
  * front-matter panel.
  */
 @OptIn(ExperimentalLayoutApi::class, FlowPreview::class)
