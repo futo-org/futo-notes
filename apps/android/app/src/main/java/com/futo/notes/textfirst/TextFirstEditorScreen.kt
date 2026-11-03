@@ -85,8 +85,7 @@ import uniffi.futo_notes_ffi.validateTitle
  * note body; rename, move and delete go through the Store's ordinary
  * workflows, which retarget or end the live attachment themselves.
  *
- * Not here yet (later stages): find, wikilink completion, tables,
- * front-matter panel.
+ * Feature controls live beside their owning native adapters.
  */
 @OptIn(ExperimentalLayoutApi::class, FlowPreview::class)
 @Composable
@@ -408,6 +407,8 @@ internal fun TextFirstEditorScreen(
             TextFirstToolbarSlot(controller, onPickImage = images.pick)
         }
     }
+
+    controller.cellView?.let { TextFirstTableCellDialog(controller, it) }
 
     if (confirmDiscard) {
         ConfirmDialog(

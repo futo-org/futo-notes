@@ -23,6 +23,8 @@ internal sealed class SpanSpec(val start: Int, val end: Int) {
     class Divider(start: Int, end: Int) : SpanSpec(start, end)
     class Image(start: Int, end: Int, val destination: String, val alt: String, val vault: Boolean) : SpanSpec(start, end)
     /** An empty display line (layout only: no Markdown meaning). */
+    class TableRow(start: Int, end: Int, val row: GridRow) : SpanSpec(start, end)
+    class TableDelimiter(start: Int, end: Int) : SpanSpec(start, end)
     class Blank(start: Int, end: Int) : SpanSpec(start, end)
 }
 
@@ -179,5 +181,5 @@ private fun SpanSpec.slice(start: Int, end: Int, first: Boolean): SpanSpec = whe
     is SpanSpec.Metadata -> SpanSpec.Metadata(start, end)
     is SpanSpec.Link -> SpanSpec.Link(start, end, destination)
     // Atoms are one unit and never span lines; keep them whole.
-    is SpanSpec.Wikilink, is SpanSpec.Divider, is SpanSpec.Image, is SpanSpec.Blank -> this
+    is SpanSpec.Wikilink, is SpanSpec.Divider, is SpanSpec.Image, is SpanSpec.Blank, is SpanSpec.TableRow, is SpanSpec.TableDelimiter -> this
 }
