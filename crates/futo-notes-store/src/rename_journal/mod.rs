@@ -35,7 +35,10 @@ use serde::{Deserialize, Serialize};
 
 pub(crate) use moves::{commit, move_journaled, JournaledMove};
 pub(crate) use recovery::{commit_recovered, recover};
-pub use sync_view::{set_rename_scope, with_rename_journal, RenameIntent, RenameJournal};
+pub(crate) use sync_view::forget_deleted_locked;
+pub use sync_view::{
+    set_rename_scope, with_rename_journal, IntentKey, RenameChain, RenameIntent, RenameJournal,
+};
 
 const FILE: &str = ".local-renames.json";
 pub(super) const STAGING: &str = ".local-renames";

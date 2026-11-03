@@ -12,6 +12,7 @@ futo-notes-core = { path = "../futo-notes-core" }
 futo-notes-model = { path = "../futo-notes-model" }
 futo-notes-search = { path = "../futo-notes-search" }
 rayon = "1"
+same-file = "1"
 simdutf8 = "0.1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

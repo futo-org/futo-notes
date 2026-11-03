@@ -44,6 +44,11 @@ impl RenameJournal {
             .collect()
     }
 
+    /// The committed moves as one chain per moved file, oldest first.
+    pub fn chains(&self) -> Vec<RenameChain> {
+        chains(self.intents())
+    }
+
     /// Persist the server object a move carries, before sync rekeys its
     /// checkpoint to the destination.
     pub fn bind(&mut self, transaction: u64, from: &str, object_id: &str) {
@@ -62,14 +67,106 @@ impl RenameJournal {
         }
     }
 
-    /// Drop transactions whose outcome sync has durably recorded.
-    pub fn acknowledge(&mut self, transactions: &HashSet<u64>) {
-        let before = self.journal.transactions.len();
-        self.journal
-            .transactions
-            .retain(|tx| tx.phase != Phase::Committed || !transactions.contains(&tx.id));
-        self.changed |= self.journal.transactions.len() != before;
+    /// Drop the committed intents whose outcome sync has durably recorded.
+    /// A transaction moving several notes stays until each of them settles.
+    pub fn acknowledge(&mut self, intents: &HashSet<IntentKey>) {
+        self.changed |= forget(&mut self.journal, intents);
     }
+}
+
+/// One committed intent: its transaction and source filename.
+pub type IntentKey = (u64, String);
+
+/// The committed moves of one file: A->B then B->C is one chain A->C.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RenameChain {
+    /// The filename the file had before its first move.
+    pub origin: String,
+    /// Where the file is now; `None` once a later move took that name, which
+    /// the store only allocates when it is free: the file had already gone.
+    pub current: Option<String>,
+    /// The transaction of the first move, where a binding is recorded.
+    pub head: u64,
+    pub intents: Vec<IntentKey>,
+    pub object_id: Option<String>,
+    /// The origin name had already been moved away from: this file was
+    /// created there afterwards and owns nothing a checkpoint recorded there.
+    pub fresh: bool,
+}
+
+fn chains(intents: Vec<RenameIntent>) -> Vec<RenameChain> {
+    let mut chains: Vec<RenameChain> = Vec::new();
+    let mut vacated = HashSet::new();
+    for intent in intents {
+        let extends = chains
+            .iter()
+            .position(|chain| chain.current.as_deref() == Some(intent.from.as_str()));
+        for (index, chain) in chains.iter_mut().enumerate() {
+            if Some(index) != extends && chain.current.as_deref() == Some(intent.to.as_str()) {
+                chain.current = None;
+            }
+        }
+        let key = (intent.transaction, intent.from.clone());
+        let fresh = !vacated.insert(intent.from.clone());
+        if let Some(index) = extends {
+            let chain = &mut chains[index];
+            chain.current = Some(intent.to);
+            chain.intents.push(key);
+            chain.object_id = chain.object_id.take().or(intent.object_id);
+            continue;
+        }
+        chains.push(RenameChain {
+            origin: intent.from,
+            current: Some(intent.to),
+            head: intent.transaction,
+            intents: vec![key],
+            object_id: intent.object_id,
+            fresh,
+        });
+    }
+    chains
+}
+
+fn forget(journal: &mut Journal, intents: &HashSet<IntentKey>) -> bool {
+    if intents.is_empty() {
+        return false;
+    }
+    let mut changed = false;
+    for tx in &mut journal.transactions {
+        if tx.phase != Phase::Committed {
+            continue;
+        }
+        let id = tx.id;
+        let before = tx.mappings.len();
+        tx.mappings
+            .retain(|mapping| !intents.contains(&(id, crate::note_filename(&mapping.from))));
+        changed |= tx.mappings.len() != before;
+    }
+    journal
+        .transactions
+        .retain(|tx| tx.phase != Phase::Committed || !tx.mappings.is_empty());
+    changed
+}
+
+/// The store deleted `filename` (vault guard held): a pending rename that
+/// ended there is over, so no later file at that name can inherit it.
+pub(crate) fn forget_deleted_locked(root: &Path, filename: &str) -> Result<(), String> {
+    let mut journal = load(root)?;
+    let view = RenameJournal {
+        journal,
+        changed: false,
+    };
+    let ended = view
+        .chains()
+        .into_iter()
+        .filter(|chain| chain.current.as_deref() == Some(filename))
+        .flat_map(|chain| chain.intents)
+        .collect::<HashSet<_>>();
+    journal = view.journal;
+    if forget(&mut journal, &ended) {
+        save(root, &journal)?;
+    }
+    Ok(())
 }
 
 /// Run `f` over the committed intents under the vault guard, saving whatever

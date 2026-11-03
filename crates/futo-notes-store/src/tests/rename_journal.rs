@@ -111,17 +111,17 @@ fn a_bound_object_persists_until_its_intent_is_acknowledged() {
     store.write("old", "body", None).unwrap();
     store.rename("old", "new").unwrap();
 
-    let transaction = with_rename_journal(&root.0, |journal| {
+    let key = with_rename_journal(&root.0, |journal| {
         let intent = journal.intents().remove(0);
         journal.bind(intent.transaction, &intent.from, "object-1");
-        intent.transaction
+        (intent.transaction, intent.from)
     })
     .unwrap();
     let bound = with_rename_journal(&root.0, |journal| journal.intents()[0].object_id.clone());
     assert_eq!(bound.unwrap().as_deref(), Some("object-1"));
 
     with_rename_journal(&root.0, |journal| {
-        journal.acknowledge(&HashSet::from([transaction]))
+        journal.acknowledge(&HashSet::from([key]))
     })
     .unwrap();
     assert!(intents(&root.0).is_empty());
@@ -358,5 +358,128 @@ fn a_vault_migration_carries_pending_intents_to_the_new_root() {
     assert_eq!(
         intents(&destination.0),
         vec![("old.md".to_owned(), "new.md".to_owned())]
+    );
+}
+
+fn staged_file(root: &Path) -> std::path::PathBuf {
+    let staging = root.join(".local-renames");
+    let transaction = fs::read_dir(&staging).unwrap().next().unwrap().unwrap();
+    transaction.path().join("0")
+}
+
+#[test]
+fn a_crash_after_recovery_relocates_a_move_still_records_where_it_went() {
+    let root = TestRoot::new();
+    let store = scoped(&root);
+    store.write("old", "ours", None).unwrap();
+    let image = crash_image(&root, "move .local-renames", || {
+        store.rename("old", "new").unwrap();
+    });
+    fs::write(image.0.join("new.md"), "newcomer").unwrap();
+
+    // Recovery relocates ours beside the newcomer, then dies before its
+    // final record.
+    let second = crash_image(&image, "recovered", || {
+        LocalNoteStore::new(image.0.clone()).bootstrap().unwrap();
+    });
+    let restarted = LocalNoteStore::new(second.0.clone());
+    restarted.bootstrap().unwrap();
+
+    assert_eq!(restarted.read("new").unwrap(), "newcomer");
+    let recovered = intents(&second.0);
+    assert_eq!(recovered.len(), 1, "{recovered:?}");
+    let ours = recovered[0].1.trim_end_matches(".md");
+    assert_ne!(ours, "new", "the intent must never name the newcomer");
+    assert_eq!(restarted.read(ours).unwrap(), "ours");
+}
+
+#[test]
+fn a_failed_rename_whose_source_name_was_retaken_keeps_the_original_visible() {
+    let root = TestRoot::new();
+    let store = scoped(&root);
+    store.write("old", "ours", None).unwrap();
+    let vault = root.0.clone();
+    let mut failed = false;
+    tests_support::on_step(move |name| {
+        if !failed && name.starts_with("move .local-renames") {
+            failed = true;
+            fs::write(vault.join("old.md"), "newcomer").unwrap();
+            return Err("injected move failure".to_owned());
+        }
+        Ok(())
+    });
+
+    let result = store.rename("old", "new");
+    tests_support::clear();
+
+    assert!(result.is_err());
+    assert_eq!(store.read("old").unwrap(), "newcomer");
+    let others = ids_in_order(&store)
+        .into_iter()
+        .filter(|id| id != "old")
+        .collect::<Vec<_>>();
+    assert_eq!(others.len(), 1, "{others:?}");
+    assert_eq!(store.read(&others[0]).unwrap(), "ours");
+    assert!(!root.0.join(".local-renames").exists());
+    assert!(intents(&root.0).is_empty());
+}
+
+#[test]
+fn a_crash_inside_the_destination_move_leaves_one_note_not_two() {
+    let root = TestRoot::new();
+    let store = scoped(&root);
+    store.write("old", "ours", None).unwrap();
+    let image = crash_image(&root, "move .local-renames", || {
+        store.rename("old", "new").unwrap();
+    });
+    // The no-replace move links the destination before dropping the staged
+    // name; the crash came in between.
+    fs::hard_link(staged_file(&image.0), image.0.join("new.md")).unwrap();
+    let restarted = LocalNoteStore::new(image.0.clone());
+    restarted.bootstrap().unwrap();
+
+    assert_eq!(ids_in_order(&restarted), vec!["new".to_owned()]);
+    assert_eq!(restarted.read("new").unwrap(), "ours");
+    assert_eq!(
+        intents(&image.0),
+        vec![("old.md".to_owned(), "new.md".to_owned())]
+    );
+    assert!(!image.0.join(".local-renames").exists());
+}
+
+#[test]
+fn a_crash_inside_undoing_a_move_leaves_one_note_not_two() {
+    let root = TestRoot::new();
+    let store = scoped(&root);
+    store.write("old", "ours", None).unwrap();
+    let image = crash_image(&root, "stage", || {
+        store.rename("old", "new").unwrap();
+    });
+    // A recovery putting the source back linked it home, then crashed.
+    fs::hard_link(staged_file(&image.0), image.0.join("old.md")).unwrap();
+    let restarted = LocalNoteStore::new(image.0.clone());
+    restarted.bootstrap().unwrap();
+
+    assert_eq!(ids_in_order(&restarted), vec!["old".to_owned()]);
+    assert_eq!(restarted.read("old").unwrap(), "ours");
+    assert!(intents(&image.0).is_empty());
+    assert!(!image.0.join(".local-renames").exists());
+}
+
+#[test]
+fn deleting_a_renamed_note_ends_its_rename_intent() {
+    let root = TestRoot::new();
+    let store = scoped(&root);
+    store.write("a", "body", None).unwrap();
+    store.write("other", "body", None).unwrap();
+    store.rename("a", "b").unwrap();
+    store.rename("b", "c").unwrap();
+    store.rename("other", "kept").unwrap();
+
+    store.delete("c").unwrap();
+
+    assert_eq!(
+        intents(&root.0),
+        vec![("other.md".to_owned(), "kept.md".to_owned())]
     );
 }

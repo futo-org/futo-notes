@@ -17,7 +17,9 @@ pub(crate) struct JournaledMove {
 }
 
 /// Move every `from` to its `to` through this transaction's staging
-/// directory. On `Err` nothing moved and no intent remains. Folder moves pass
+/// directory. On `Err` every source is back (one whose name a newcomer took
+/// sits beside it, as the error says) and no intent remains, or, if even that
+/// failed, the transaction stays recorded for recovery. Folder moves pass
 /// the folder pair; its notes ride inside it and `mappings` lists them.
 pub(crate) fn move_journaled(
     root: &Path,
@@ -52,45 +54,43 @@ pub(crate) fn move_journaled(
             .collect(),
     });
     save(root, &journal)?;
-    let abort = |journal: &mut Journal, error: String| -> String {
-        journal.transactions.retain(|tx| tx.id != id);
-        if let Err(save_error) = save(root, journal) {
-            return format!("{error}; the rename journal could not be cleared: {save_error}");
-        }
-        remove_staging(root, id);
-        error
-    };
     if let Err(error) = vault_fs::create_dir_all(root, &format!("{STAGING}/{id}")) {
-        return Err(abort(&mut journal, error));
+        journal.transactions.retain(|tx| tx.id != id);
+        return Err(match save(root, &journal) {
+            Ok(()) => {
+                remove_staging(root, id);
+                error
+            }
+            Err(save_error) => {
+                format!("{error}; the rename journal could not be cleared: {save_error}")
+            }
+        });
     }
 
-    // Prepared: sources into staging.
+    // Prepared: sources into staging. The staged name is this transaction's
+    // own, so a plain rename (atomic, unlike a link-then-unlink no-replace
+    // move) is safe: a crash leaves the entry at exactly one of the two names.
     let sources = staging_pairs(mappings, folder, id);
-    for (index, (source, stage)) in sources.iter().enumerate() {
-        if let Err(error) = move_entry(root, source, stage, folder.is_some()) {
-            unstage(root, &sources[..index]);
-            return Err(abort(&mut journal, error));
+    for (source, stage) in &sources {
+        if let Err(error) = stage_entry(root, source, stage) {
+            return Err(roll_back(root, &mut journal, id, error));
         }
     }
     set_phase(&mut journal, id, Phase::Staged);
     if let Err(error) = step("stage").and_then(|()| save(root, &journal)) {
-        unstage(root, &sources);
-        return Err(abort(&mut journal, error));
+        return Err(roll_back(root, &mut journal, id, error));
     }
 
     // Staged: staging into destinations.
     let destinations = destination_pairs(mappings, folder, id);
     for (index, (stage, destination)) in destinations.iter().enumerate() {
         if let Err(error) = move_entry(root, stage, destination, folder.is_some()) {
-            // Back through staging, so a crash during the rollback still
-            // finds every entry under this transaction.
+            // Back through staging, so the undo below (or a recovery after a
+            // crash during it) finds every entry under this transaction.
             for (stage, destination) in destinations[..index].iter().rev() {
                 let _ = move_entry(root, destination, stage, folder.is_some());
             }
-            set_phase(&mut journal, id, Phase::Prepared);
-            let _ = save(root, &journal);
-            unstage(root, &sources);
-            return Err(abort(&mut journal, error));
+            return Err(roll_back(root, &mut journal, id, error));
         }
     }
     remove_staging(root, id);
@@ -156,14 +156,45 @@ fn destination_pairs(
     }
 }
 
-fn unstage(root: &Path, sources: &[(String, String)]) {
-    for (source, stage) in sources.iter().rev() {
-        let _ = vault_fs::move_no_replace(root, stage, source);
+/// Undo a transaction whose sources may sit in staging: record it as
+/// `Prepared`, then put every staged entry back (a newcomer at a source keeps
+/// its name; ours takes a fresh one beside it). Whatever cannot be undone now
+/// stays recorded for the next recovery, never orphaned in staging.
+fn roll_back(root: &Path, journal: &mut Journal, id: u64, error: String) -> String {
+    set_phase(journal, id, Phase::Prepared);
+    if let Err(save_error) = save(root, journal) {
+        return format!("{error}; recovery will settle the rename on restart: {save_error}");
+    }
+    let Some(tx) = journal.transactions.iter().find(|tx| tx.id == id).cloned() else {
+        return error;
+    };
+    let mut warnings = Vec::new();
+    if let Err(restore_error) = super::recovery::restore_sources(root, &tx, &mut warnings) {
+        return format!("{error}; undoing it failed, recovery will on restart: {restore_error}");
+    }
+    journal.transactions.retain(|tx| tx.id != id);
+    if let Err(save_error) = save(root, journal) {
+        return format!("{error}; the rename journal could not be cleared: {save_error}");
+    }
+    remove_staging(root, id);
+    std::iter::once(error)
+        .chain(warnings)
+        .collect::<Vec<_>>()
+        .join("; ")
+}
+
+/// Move a source into its transaction-owned staged name.
+fn stage_entry(root: &Path, source: &str, stage: &str) -> Result<(), String> {
+    step(&format!("move {source} -> {stage}"))?;
+    if vault_fs::rename_local(root, source, stage)? {
+        Ok(())
+    } else {
+        Err(format!("rename source {source} disappeared"))
     }
 }
 
 /// A named point between durable steps; test fault injection hooks it.
-fn step(_name: &str) -> Result<(), String> {
+pub(super) fn step(_name: &str) -> Result<(), String> {
     #[cfg(test)]
     super::tests_support::before_step(_name)?;
     Ok(())

@@ -64,8 +64,11 @@
   stay distinct). Renames chain (A→B→C is one move A→C), the pair is reported
   in `SyncSummary.renamed` on both clients, and an intent is acknowledged only
   after its PUT landed and the checkpoint holding it saved; until then a retry
-  or restart replays it against the same object. A move whose source never
-  reached the server has no identity to carry and uploads as a new note. A
+  or restart replays it against the same object; a folder move settles note by
+  note. A move whose source never reached the server has no identity to carry
+  and uploads as a new note, as does a note created at a name an earlier move
+  vacated; deleting a moved note ends its intent, so a later note at that name
+  is a new note too. A
   crash mid-move is finished (or undone, if the move was not yet recorded) by
   the next store bootstrap, which also replays its backlink rewrite; a
   newcomer at either name is never overwritten. Intents belong to the
@@ -78,7 +81,8 @@
   `rename_journal/` (guarded by `tests/rename_journal.rs`); futo-notes-sync
   `sync/push/local_renames.rs` (guarded by `server_integration/rename_identity.rs`
   against the real server, `sync/local_rename_tests.rs` for failed PUT,
-  unsaved checkpoint and a rename between scan and pull write); cross-platform
+  unsaved checkpoint, a rename between scan and pull write, partial folder
+  PUT failure and reused names); cross-platform
   scenario "offline title rename keeps identity under a peer edit"
 - **Sync reports rename intent; shells never infer renames from id patterns.**
   Every relocation the sync engine performs — paired local moves, mapping

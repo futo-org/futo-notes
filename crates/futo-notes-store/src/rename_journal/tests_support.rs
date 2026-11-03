@@ -9,7 +9,8 @@ thread_local! {
 
 /// Runs on this thread before each step: `move <from> -> <to>` for every file
 /// or folder move, `stage` once every source is staged but before that is
-/// recorded, and `commit` before the committed record is written. An
+/// recorded, `commit` before the committed record is written, and
+/// `recovered` before recovery records what it did. An
 /// `Err` fails that step.
 pub(crate) fn on_step(hook: impl FnMut(&str) -> Result<(), String> + 'static) {
     BEFORE_STEP.with(|slot| *slot.borrow_mut() = Some(Box::new(hook)));

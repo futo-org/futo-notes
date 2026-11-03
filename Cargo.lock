@@ -2110,6 +2110,7 @@ dependencies = [
  "futo-notes-search",
  "rayon",
  "rustix",
+ "same-file",
  "serde",
  "serde_json",
  "sha2",

@@ -5,7 +5,9 @@ use std::path::Path;
 use futo_notes_core::files::vault_fs;
 
 use super::moves::{commit_in, move_entry};
-use super::{load, remove_staging, save, staged, staged_folder, Moves, Phase, Transaction};
+use super::{
+    load, remove_staging, save, staged, staged_folder, Journal, Moves, Phase, Transaction,
+};
 
 /// What recovery did, for the bootstrap warnings.
 pub(crate) struct Recovered {
@@ -40,22 +42,15 @@ pub(crate) fn recover(root: &Path) -> Result<Recovered, String> {
                 journal.transactions.retain(|other| other.id != tx.id);
             }
             Phase::Staged => {
-                let mappings = place_destinations(root, &tx, &mut recovered.warnings)?;
-                if let Some(entry) = journal
-                    .transactions
-                    .iter_mut()
-                    .find(|other| other.id == tx.id)
-                {
-                    for (mapping, (_, to)) in entry.mappings.iter_mut().zip(&mappings) {
-                        mapping.to = to.clone();
-                    }
-                }
+                let mappings =
+                    place_destinations(root, &mut journal, tx.id, &mut recovered.warnings)?;
                 recovered.finished.push((tx.id, mappings));
             }
             Phase::Committed => {}
         }
         remove_staging(root, tx.id);
     }
+    super::moves::step("recovered")?;
     save(root, &journal)?;
     Ok(recovered)
 }
@@ -77,7 +72,7 @@ fn staged_entries(tx: &Transaction) -> Vec<(usize, String)> {
 
 /// Undo a `Prepared` transaction: everything still staged goes home. A
 /// newcomer at the source keeps its name; ours takes a fresh one beside it.
-fn restore_sources(
+pub(super) fn restore_sources(
     root: &Path,
     tx: &Transaction,
     warnings: &mut Vec<String>,
@@ -90,6 +85,9 @@ fn restore_sources(
             Moves::Folder { from, .. } => (from.clone(), true),
             Moves::Notes => (tx.mappings[index].from.clone(), false),
         };
+        if !folder && drop_if_already_moved(root, &stage, &crate::note_filename(&source))? {
+            continue;
+        }
         let home = free_name(root, &source, folder)?;
         move_entry(root, &stage, &entry_name(&home, folder), folder)?;
         if home != source {
@@ -101,51 +99,92 @@ fn restore_sources(
     Ok(())
 }
 
-/// Finish a `Staged` transaction. Returns the final mappings.
+/// Finish a `Staged` transaction. A destination a newcomer took is replaced
+/// by a fresh name, recorded before anything moves into it, so a crash at any
+/// point resumes towards the name the journal holds. Returns the final
+/// mappings.
 fn place_destinations(
     root: &Path,
-    tx: &Transaction,
+    journal: &mut Journal,
+    id: u64,
     warnings: &mut Vec<String>,
 ) -> Result<Vec<(String, String)>, String> {
-    let mut mappings = tx
-        .mappings
-        .iter()
-        .map(|mapping| (mapping.from.clone(), mapping.to.clone()))
-        .collect::<Vec<_>>();
-    for (index, stage) in staged_entries(tx) {
+    let entries = match transaction(journal, id) {
+        Some(tx) => staged_entries(tx),
+        None => Vec::new(),
+    };
+    for (index, stage) in entries {
         if !vault_fs::exists(root, &stage)? {
             continue;
         }
-        match &tx.moves {
-            Moves::Folder { to, .. } => {
-                let destination = free_name(root, to, true)?;
-                move_entry(root, &stage, &destination, true)?;
-                if &destination != to {
-                    warnings.push(format!(
-                        "an interrupted folder move finished as {destination}: {to} was taken"
-                    ));
-                    let prefix = format!("{to}/");
-                    for (_, mapped) in &mut mappings {
-                        if let Some(tail) = mapped.strip_prefix(&prefix) {
-                            *mapped = format!("{destination}/{tail}");
-                        }
-                    }
-                }
-            }
-            Moves::Notes => {
-                let to = mappings[index].1.clone();
-                let destination = free_name(root, &to, false)?;
-                move_entry(root, &stage, &crate::note_filename(&destination), false)?;
-                if destination != to {
-                    warnings.push(format!(
-                        "an interrupted rename finished as {destination}: {to} was taken"
-                    ));
-                    mappings[index].1 = destination;
+        let Some(tx) = transaction(journal, id) else {
+            break;
+        };
+        let (wanted, folder) = match &tx.moves {
+            Moves::Folder { to, .. } => (to.clone(), true),
+            Moves::Notes => (tx.mappings[index].to.clone(), false),
+        };
+        if !folder && drop_if_already_moved(root, &stage, &crate::note_filename(&wanted))? {
+            continue;
+        }
+        let destination = free_name(root, &wanted, folder)?;
+        if destination != wanted {
+            relocate(journal, id, index, &wanted, &destination);
+            save(root, journal)?;
+            warnings.push(if folder {
+                format!("an interrupted folder move finished as {destination}: {wanted} was taken")
+            } else {
+                format!("an interrupted rename finished as {destination}: {wanted} was taken")
+            });
+        }
+        move_entry(root, &stage, &entry_name(&destination, folder), folder)?;
+    }
+    Ok(transaction(journal, id)
+        .map(|tx| {
+            tx.mappings
+                .iter()
+                .map(|mapping| (mapping.from.clone(), mapping.to.clone()))
+                .collect()
+        })
+        .unwrap_or_default())
+}
+
+fn transaction(journal: &Journal, id: u64) -> Option<&Transaction> {
+    journal.transactions.iter().find(|tx| tx.id == id)
+}
+
+/// Point a transaction's destination at `destination` instead of `wanted`.
+fn relocate(journal: &mut Journal, id: u64, index: usize, wanted: &str, destination: &str) {
+    let Some(tx) = journal.transactions.iter_mut().find(|tx| tx.id == id) else {
+        return;
+    };
+    match &mut tx.moves {
+        Moves::Folder { to, .. } => {
+            *to = destination.to_owned();
+            let prefix = format!("{wanted}/");
+            for mapping in &mut tx.mappings {
+                if let Some(tail) = mapping.to.strip_prefix(&prefix) {
+                    mapping.to = format!("{destination}/{tail}");
                 }
             }
         }
+        Moves::Notes => tx.mappings[index].to = destination.to_owned(),
     }
-    Ok(mappings)
+}
+
+/// A no-replace move links its destination before dropping its source; a
+/// crash in between leaves one file under both names. Drop the staged name
+/// then, rather than treating our own file as a newcomer.
+fn drop_if_already_moved(root: &Path, stage: &str, target: &str) -> Result<bool, String> {
+    let target_path = root.join(target);
+    let is_file = std::fs::symlink_metadata(&target_path)
+        .map(|meta| meta.file_type().is_file())
+        .unwrap_or(false);
+    if !is_file || !same_file::is_same_file(root.join(stage), &target_path).unwrap_or(false) {
+        return Ok(false);
+    }
+    vault_fs::remove_local(root, stage)?;
+    Ok(true)
 }
 
 fn entry_name(id: &str, folder: bool) -> String {
