@@ -43,6 +43,8 @@ internal class TextFirstEditText(
     private var appliedSeq = 0
     private var pendingTimings: KeyTimings? = null
     private var checkboxDown = -1
+    var onTableCell: ((Int, Int, Int) -> Unit)? = null
+    private val tableTouch = TableGridTouch(this, { cell -> onTableCell?.invoke(cell.start, cell.end, appliedSeq) }, ::invalidateTableScroll)
     private val spans = TfSpanFactory(style, { contentWidth() }) { span ->
         wikilinkContentWidth(this, span, contentWidth())
     }
@@ -286,14 +288,15 @@ internal class TextFirstEditText(
 
     @SuppressLint("ClickableViewAccessibility")
     override fun onTouchEvent(event: MotionEvent): Boolean {
+        if (tableTouch.onTouch(event)) return true
         if (wikilinkTouch.onTouch(event)) return true
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
-                checkboxDown = checkboxAt(event.x, event.y)
+                checkboxDown = checkboxAt(this, style, event.x, event.y)
                 if (checkboxDown >= 0) return true
             }
             MotionEvent.ACTION_UP -> if (checkboxDown >= 0) {
-                val hit = checkboxAt(event.x, event.y)
+                val hit = checkboxAt(this, style, event.x, event.y)
                 if (hit == checkboxDown) engine?.toggleTaskAt(hit)
                 checkboxDown = -1
                 return true
@@ -304,18 +307,16 @@ internal class TextFirstEditText(
         return super.onTouchEvent(event)
     }
 
-    /** The line-start offset of a task row whose checkbox is under (x, y), or -1. */
-    private fun checkboxAt(x: Float, y: Float): Int {
-        val layout = layout ?: return -1
-        val line = layout.getLineForVertical((y - totalPaddingTop + scrollY).toInt())
-        val start = layout.getLineStart(line)
-        val e = editableText ?: return -1
-        val list = e.getSpans(start, start, TfList::class.java).firstOrNull { it.marker == ListMarker.Task && it.first && e.getSpanStart(it) == start }
-            ?: return -1
-        val paragraphLeft = layout.getParagraphLeft(line)
-        val lineX = x - totalPaddingLeft
-        val withinMarker = lineX <= paragraphLeft + style.dp(4f) && lineX >= paragraphLeft - style.listIndent - style.dp(8f)
-        return if (withinMarker && list.first) start else -1
+    /** TextView caches drawing separately: changing span data also invalidates its text display list. */
+    private fun invalidateTableScroll(scroll: TableScroll) {
+        applying = true
+        try {
+            val e = editableText
+            for (span in e.getSpans(0, e.length, TfTableRow::class.java)) {
+                if (span.scroll === scroll) e.setSpan(span, e.getSpanStart(span), e.getSpanEnd(span), e.getSpanFlags(span))
+            }
+        } finally { applying = false }
+        invalidate()
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {

@@ -2,6 +2,7 @@ package com.futo.notes.textfirst
 
 /** Builds the renderer span for a [SpanSpec], and tells whether an existing span already is it. */
 internal class TfSpanFactory(private val style: TextFirstStyle, private val contentWidth: () -> Int, private val wikilinkWidth: (TfWikilink) -> Int) {
+    private val tableScroll = mutableMapOf<Int, TableScroll>()
     fun create(spec: SpanSpec): TfSpan = when (spec) {
         is SpanSpec.Inline -> TfInline(style, spec.bold, spec.italic, spec.strike, spec.code)
         is SpanSpec.Heading -> TfHeading(style, spec.level)
@@ -13,6 +14,8 @@ internal class TfSpanFactory(private val style: TextFirstStyle, private val cont
         is SpanSpec.Wikilink -> TfWikilink(style, spec.label, spec.noteId) { wikilinkWidth(it) }
         is SpanSpec.Divider -> TfDivider(style) { contentWidth() }
         is SpanSpec.Image -> TfImage(style, spec.destination, spec.alt, spec.vault) { contentWidth() }
+        is SpanSpec.TableRow -> TfTableRow(style, spec.row, spec.start, tableScroll.getOrPut(spec.row.tableStart) { TableScroll() }, contentWidth)
+        is SpanSpec.TableDelimiter -> TfTableDelimiter()
         is SpanSpec.Blank -> TfBlankLine()
     }
 
@@ -27,6 +30,8 @@ internal class TfSpanFactory(private val style: TextFirstStyle, private val cont
         is SpanSpec.Wikilink -> span is TfWikilink && span.label == spec.label && span.noteId == spec.noteId
         is SpanSpec.Divider -> span is TfDivider
         is SpanSpec.Image -> span is TfImage && span.destination == spec.destination
+        is SpanSpec.TableRow -> span is TfTableRow && span.row == spec.row
+        is SpanSpec.TableDelimiter -> span is TfTableDelimiter
         is SpanSpec.Blank -> span is TfBlankLine
     }
 }
