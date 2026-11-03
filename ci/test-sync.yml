@@ -106,6 +106,7 @@ test:cross-platform-sync:
       changes:
         - crates/futo-notes-sync/**/*
         - crates/futo-notes-core/**/*
+        - crates/futo-notes-merge/**/*
         # The whole desktop sync + note-session layer, not just sync*: this
         # suite is the e2e owner of the open-note reconciliation, peer-delete
         # and dirty-draft behavior whose unit replays were removed from

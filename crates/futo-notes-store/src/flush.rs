@@ -112,6 +112,33 @@ impl LocalNoteStore {
         base: &str,
         content: &str,
     ) -> Result<FlushDraftResult, String> {
+        self.flush_draft_decision_locked(id, base, content, false, &mut |_| Ok(true))
+            .map(|result| result.flush)
+    }
+
+    /// Opt into conservative three-way merging. Consumers must adopt `source`
+    /// as authoritative, preserving their local history and selection.
+    pub fn flush_draft_merged(
+        &self,
+        id: &str,
+        base: &str,
+        content: &str,
+    ) -> Result<crate::MergedDraftResult, String> {
+        let _gate = self.lock_gate()?;
+        let _vault_mutation = vault_mutation_guard()?;
+        self.flush_draft_decision_locked(id, base, content, true, &mut |_| Ok(true))
+    }
+
+    /// Validate adoption before any merged bytes reach disk. A consumer unable
+    /// to preserve its history can decline the merge and retain persist-or-park.
+    pub(crate) fn flush_draft_decision_locked(
+        &self,
+        id: &str,
+        base: &str,
+        content: &str,
+        merge: bool,
+        validate: &mut dyn FnMut(&str) -> Result<bool, String>,
+    ) -> Result<crate::MergedDraftResult, String> {
         paths::note_path(&self.root, id)?;
         let current = self.read_note_file(id);
         #[cfg(test)]
@@ -120,7 +147,8 @@ impl LocalNoteStore {
                 hook(id);
             }
         }
-        match current {
+        let mut source = content.to_owned();
+        let flush = match current {
             // Converged is checked BEFORE the base comparison so a draft the
             // disk already holds never rewrites identical bytes (an mtime bump
             // would re-rank the note on every device).
@@ -139,12 +167,43 @@ impl LocalNoteStore {
             // edit, or an in-flight autosave advanced disk past `base`). Never
             // drop the draft: park it as a conflict copy — the diverged note on
             // disk is left intact and the edit survives as a new note.
-            Ok(_) => self.park_conflict_draft(id, content),
+            Ok(current) => {
+                let merged = if merge {
+                    match futo_notes_core::merge::three_way_merge(base, &current, content) {
+                        futo_notes_core::merge::MergeResult::Clean(merged) => Some(merged),
+                        futo_notes_core::merge::MergeResult::Conflict => None,
+                    }
+                } else {
+                    None
+                };
+                if let Some(merged) = merged {
+                    if validate(&merged)? {
+                        source = merged;
+                        if source == current {
+                            Ok(FlushDraftResult {
+                                disposition: FlushDisposition::Converged,
+                                mutation: None,
+                            })
+                        } else {
+                            let metadata = self.write_raw(id, &source, None)?;
+                            Ok(FlushDraftResult {
+                                disposition: FlushDisposition::Wrote,
+                                mutation: Some(self.upsert_mutation(metadata)),
+                            })
+                        }
+                    } else {
+                        self.park_conflict_draft(id, content)
+                    }
+                } else {
+                    self.park_conflict_draft(id, content)
+                }
+            }
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                 self.recreate_missing_draft(id, content)
             }
             Err(error) => Err(io_error(error)),
-        }
+        }?;
+        Ok(crate::MergedDraftResult { source, flush })
     }
 
     /// The flush's peer-delete arm: a dirty draft is edit-wins — recreate at

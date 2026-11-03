@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
   "crates/futo-notes-editor",
+  "crates/futo-notes-merge",
   "crates/futo-notes-core",
   "crates/futo-notes-sync",
   "crates/futo-notes-license",
