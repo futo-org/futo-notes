@@ -97,7 +97,11 @@ class TextFirstCompletionTest {
                 assertEquals("東", draft.value.query)
                 controller.dismissCompletion(draft)
                 suspendCancellableCoroutine<Unit> { done ->
-                    connection.handler!!.post { connection.commitText("京", 1); done.resume(Unit) }
+                    connection.handler!!.post { connection.setComposingText("京", 1); done.resume(Unit) }
+                }
+                assertNull(controller.completionDraft())
+                suspendCancellableCoroutine<Unit> { done ->
+                    connection.handler!!.post { connection.finishComposingText(); done.resume(Unit) }
                 }
                 assertNull("Dismissed run stays dismissed during typing", controller.completionDraft())
                 assertEquals("before [[東京 after", controller.sourceText())

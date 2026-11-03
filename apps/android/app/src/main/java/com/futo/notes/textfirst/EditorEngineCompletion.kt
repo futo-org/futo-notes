@@ -11,6 +11,8 @@ internal fun EditorEngine.completionDraft(deliver: (CompletionDraft?) -> Unit) =
 }
 
 internal fun EditorEngine.currentCompletion(): CompletionDraft? {
+    // Marked text temporarily hides the run; it must not erase dismissal memory.
+    if (mirror.overlay != null) return null
     val found = session?.wikilinkCompletion(rev)
     if (found == null) {
         dismissedCompletionStart = null
