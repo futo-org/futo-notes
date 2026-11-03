@@ -16,6 +16,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import com.futo.notes.puppet.PuppetVerb
+import com.futo.notes.puppet.PuppetVerbScope
 import com.futo.notes.localization.LocalLocalization
 import com.futo.notes.ui.components.FutoMenu
 import com.futo.notes.ui.components.TopBar
@@ -33,6 +35,28 @@ internal fun TextFirstTopBar(
     val c = FutoTheme.colors
     val localization = LocalLocalization.current
     var actionsMenu by remember { mutableStateOf(false) }
+    fun toggleMenu() = PuppetVerb("ToggleNoteActionsMenu", controls = listOf("notes.actions.moreAccessibilityLabel")) {
+        actionsMenu = !actionsMenu
+    }
+    PuppetVerbScope {
+        if (actionsMenu) emptyList() else listOf(
+            toggleMenu(),
+        )
+    }
+    PuppetVerbScope(modal = true) {
+        if (!actionsMenu) emptyList() else listOf(
+            toggleMenu(),
+            PuppetVerb("MoveCurrentNoteToFolder", controls = listOf("notes.actions.moveToFolderEllipsis")) {
+                actionsMenu = false; onMove()
+            },
+            PuppetVerb("CopyCurrentNotePath", controls = listOf("notes.actions.copyFilePath")) {
+                actionsMenu = false; onCopyPath()
+            },
+            PuppetVerb("DeleteCurrentNote", controls = listOf("notes.actions.deleteNote")) {
+                actionsMenu = false; onDelete()
+            },
+        )
+    }
     TopBar(
         title = {},
         navigationIcon = {

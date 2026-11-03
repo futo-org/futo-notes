@@ -66,6 +66,7 @@ internal fun MainActivity.AppShell(
                 darkTheme = dark,
                 onBack = navigator::goBack,
                 imagePicker = imagePicker,
+                registerLeave = { handler -> navigator.registerEditorLeave(screen, handler) },
             ) else NoteEditorScreen(
                 store = s,
                 initialNoteId = screen.noteId,
