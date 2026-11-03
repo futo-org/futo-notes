@@ -44,8 +44,8 @@ internal interface EngineSink {
  */
 internal class EditorEngine(
     /** Resolved on the editor thread: the first touch of the store loads the native library. */
-    private val store: () -> NoteStore,
-    private val noteId: String,
+    internal val store: () -> NoteStore,
+    internal val noteId: String,
     internal val sink: EngineSink,
     /** Debug/test: compare the mirror with the engine's display after every change. */
     private val verifyMirror: Boolean = false,
@@ -79,27 +79,6 @@ internal class EditorEngine(
     @Volatile var publishedSelection = 0L
         private set
 
-
-    fun open(onOpened: (Throwable?) -> Unit) = handler.post {
-        try {
-            var attachment: NativeEditorSession? = null
-            check(storageAccess { attachment = store().openEditor(noteId) }) { "Storage access is paused for migration" }
-            val opened = checkNotNull(attachment)
-            session = opened
-            fast = FastSession.of(opened)
-            rev = opened.revision()
-            val display = opened.displayText()
-            mirror.reset(display)
-            val projection = opened.project(rev, EditorByteRange(0u, mirror.utf8Length.toULong()))
-            mirror.selStart = 0; mirror.selEnd = 0
-            postUpdate(reset = display, edits = emptyList(), windows = listOf(window(projection)))
-            ui.post { onOpened(null) }
-            refreshCaretState()
-        } catch (e: Throwable) {
-            Log.e(TAG, "open $noteId failed", e)
-            ui.post { onOpened(e) }
-        }
-    }
 
     // ---- view and toolbar (posted from the UI thread) ----
 
@@ -449,7 +428,7 @@ internal class EditorEngine(
     internal fun units(value: String): List<UShort> = List(value.length) { value[it].code.toUShort() }
 
     companion object {
-        private const val TAG = "TextFirstEngine"
+        internal const val TAG = "TextFirstEngine"
         private const val CARET_STATE_DELAY_MS = 40L
     }
 }

@@ -1,7 +1,32 @@
 package com.futo.notes.textfirst
 
+import android.util.Log
+import uniffi.futo_notes_ffi.EditorByteRange
+import uniffi.futo_notes_ffi.NativeEditorSession
 import uniffi.futo_notes_ffi.EditorSessionException
 import uniffi.futo_notes_ffi.FlushDraftResult
+
+internal fun EditorEngine.open(onOpened: (Throwable?) -> Unit) = handler.post {
+    try {
+        var attachment: NativeEditorSession? = null
+        check(storageAccess { attachment = store().openEditor(noteId) }) { "Storage access is paused for migration" }
+        val opened = checkNotNull(attachment)
+        session = opened
+        fast = FastSession.of(opened)
+        rev = opened.revision()
+        val display = opened.displayText()
+        mirror.reset(display)
+        val projection = opened.project(rev, EditorByteRange(0u, mirror.utf8Length.toULong()))
+        mirror.selStart = 0; mirror.selEnd = 0
+        postUpdate(reset = display, edits = emptyList(), windows = listOf(window(projection)))
+        ui.post { onOpened(null) }
+        refreshCaretState()
+    } catch (e: Throwable) {
+        Log.e(EditorEngine.TAG, "open $noteId failed", e)
+        ui.post { onOpened(e) }
+    }
+}
+
 
 /** Migration already holds the vault gate. Drain accepted IME work,
  * including marked text, on its owning thread before staging the copy. */
