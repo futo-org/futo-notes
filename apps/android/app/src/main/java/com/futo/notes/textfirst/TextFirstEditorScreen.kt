@@ -139,7 +139,7 @@ fun TextFirstEditorScreen(
             codeBackground = (if (darkTheme) FutoPalette.InkHairline else FutoPalette.N200).toArgb(),
             surfaceColor = c.surfaceSunken.toArgb(),
         )
-        TextFirstController(context, { store.core }, java.io.File(store.rootPath), style)
+        TextFirstController(context, { store.core }, java.io.File(store.rootPath), style, store)
     }
 
     fun showTitleValidation(title: String) {

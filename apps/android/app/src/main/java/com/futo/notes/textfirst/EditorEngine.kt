@@ -6,6 +6,7 @@ import android.os.Looper
 import android.os.Process
 import android.os.SystemClock
 import android.util.Log
+import com.futo.notes.storage.StorageMigrationGate
 import uniffi.futo_notes_ffi.EditorBlockCommand
 import uniffi.futo_notes_ffi.EditorByteRange
 import uniffi.futo_notes_ffi.EditorInlineFormat
@@ -48,6 +49,7 @@ internal class EditorEngine(
     internal val sink: EngineSink,
     /** Debug/test: compare the mirror with the engine's display after every change. */
     private val verifyMirror: Boolean = false,
+    internal val storageGate: StorageMigrationGate? = null,
 ) {
     private val thread = HandlerThread("futo-editor", Process.THREAD_PRIORITY_DISPLAY).apply { start() }
     val handler = Handler(thread.looper)
@@ -64,7 +66,7 @@ internal class EditorEngine(
     val selStart: Int get() = mirror.selStart
     val selEnd: Int get() = mirror.selEnd
     internal var seq = 0
-    private var saveArmed = false
+    internal var saveArmed = false
     internal var closed = false
     private var inputStartNanos = 0L
     private var engineNanos = 0L
@@ -80,7 +82,9 @@ internal class EditorEngine(
 
     fun open(onOpened: (Throwable?) -> Unit) = handler.post {
         try {
-            val opened = store().openEditor(noteId)
+            var attachment: NativeEditorSession? = null
+            check(storageAccess { attachment = store().openEditor(noteId) }) { "Storage access is paused for migration" }
+            val opened = checkNotNull(attachment)
             session = opened
             fast = FastSession.of(opened)
             rev = opened.revision()
@@ -164,12 +168,12 @@ internal class EditorEngine(
     fun hostSelect(start: Int, end: Int) = command { select(start, end, fromView = false) }
 
     /** Begin an asynchronous image insertion; the claim goes back to [insertImage]. */
-    fun imageClaim(deliver: (ULong?) -> Unit) = command {
+    fun imageClaim(deliver: (ULong?) -> Unit) = command(onUnavailable = { deliver(null) }) {
         val claim = session?.imageClaim()
         ui.post { deliver(claim) }
     }
 
-    fun insertImage(claim: ULong, reference: String, done: (Boolean) -> Unit) = command {
+    fun insertImage(claim: ULong, reference: String, done: (Boolean) -> Unit) = command(onUnavailable = { done(false) }) {
         if (mirror.overlay != null) commitComposition(null)
         val change = session?.insertImage(rev, claim, reference, "")
         if (change != null) accept(change)
@@ -213,33 +217,37 @@ internal class EditorEngine(
      */
     fun close(done: ((FlushDraftResult?) -> Unit)? = null) = handler.post {
         if (closed) { if (done != null) ui.post { done(null) }; return@post }
-        handler.removeCallbacks(saveRunnable)
-        handler.removeCallbacks(caretRunnable)
-        var result: FlushDraftResult? = null
-        val s = session
-        if (s != null) {
-            try {
-                if (mirror.overlay != null) commitComposition(null)
-            } catch (e: EditorSessionException) {
-                Log.w(TAG, "commit on close failed", e)
+        if (!storageAccess {
+            handler.removeCallbacks(saveRunnable)
+            handler.removeCallbacks(caretRunnable)
+            var result: FlushDraftResult? = null
+            val s = session
+            if (s != null) {
+                try {
+                    if (mirror.overlay != null) commitComposition(null)
+                } catch (e: EditorSessionException) {
+                    Log.w(TAG, "commit on close failed", e)
+                }
+                val id = try { s.noteId() } catch (_: EditorSessionException) { noteId }
+                try {
+                    val saved = s.detach()
+                    result = saved
+                    ui.post { sink.onCheckpoint(saved, saved.mutation?.finalId ?: id) }
+                } catch (e: EditorSessionException) {
+                    Log.e(TAG, "save on close failed; unsaved edits of $id are lost", e)
+                    ui.post { sink.onFailure(e) }
+                }
+                s.destroy()
             }
-            val id = try { s.noteId() } catch (_: EditorSessionException) { noteId }
-            try {
-                val saved = s.detach()
-                result = saved
-                ui.post { sink.onCheckpoint(saved, saved.mutation?.finalId ?: id) }
-            } catch (e: EditorSessionException) {
-                Log.e(TAG, "save on close failed; unsaved edits of $id are lost", e)
-                ui.post { sink.onFailure(e) }
-            }
-            s.destroy()
+            fast?.close()
+            fast = null
+            session = null
+            closed = true
+            if (done != null) ui.post { done(result) }
+            thread.quitSafely()
+        }) {
+            if (done != null) ui.post { done(null) }
         }
-        fast?.close()
-        fast = null
-        session = null
-        closed = true
-        if (done != null) ui.post { done(result) }
-        thread.quitSafely()
     }
 
     // ---- internals ----
@@ -249,7 +257,11 @@ internal class EditorEngine(
         guarded(block)
     }
 
-    private fun command(block: () -> Unit) = handler.post {
+    private fun command(onUnavailable: () -> Unit = {}, block: () -> Unit) = handler.post {
+        if (storageGate?.isMigrationStarted == true || closed || session == null) {
+            ui.post(onUnavailable)
+            return@post
+        }
         inputStartNanos = SystemClock.elapsedRealtimeNanos()
         guarded(block)
         // A collapsed format toggle changes only carried formatting and
@@ -260,6 +272,10 @@ internal class EditorEngine(
 
     private fun guarded(block: () -> Unit) {
         if (closed || session == null) return
+        if (storageGate?.isMigrationStarted == true) {
+            ui.post { sink.onImeReset() }
+            return
+        }
         try {
             block()
         } catch (e: EditorSessionException) {
@@ -408,7 +424,7 @@ internal class EditorEngine(
      * deadline on — and re-arms from the Store's new delay. One timer at a
      * time, so a keystroke costs no extra FFI call while one is armed.
      */
-    private val saveRunnable = Runnable {
+    internal val saveRunnable = Runnable {
         saveArmed = false
         if (closed || session == null) return@Runnable
         save(force = false)
@@ -421,6 +437,7 @@ internal class EditorEngine(
         handler.postDelayed(saveRunnable, delay.toMillis())
     }
 
+    /** `checkpoint` when [force], else `saveIfDue`; null when nothing was written or it failed. */
     // ---- toolbar state ----
 
     private val caretRunnable = Runnable { refreshCaretState() }

@@ -1,6 +1,7 @@
 package com.futo.notes.textfirst
 
 import android.content.Context
+import com.futo.notes.NotesStore
 import android.os.SystemClock
 import android.util.Log
 import androidx.compose.runtime.getValue
@@ -9,6 +10,8 @@ import androidx.compose.runtime.setValue
 import java.io.File
 import kotlin.coroutines.resume
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import uniffi.futo_notes_ffi.EditorBlockCommand
 import uniffi.futo_notes_ffi.EditorInlineFormat
 import uniffi.futo_notes_ffi.EditorSessionException
@@ -24,6 +27,7 @@ internal class TextFirstController(
     private val core: () -> NoteStore,
     vaultRoot: File,
     style: TextFirstStyle,
+    private val vault: NotesStore? = null,
 ) : EngineSink {
     private val images = ImageLoader(vaultRoot)
     val view = TextFirstEditText(context, style, images)
@@ -44,6 +48,15 @@ internal class TextFirstController(
     private val latencyFlush = Runnable { latencyWindow.flush()?.let { Log.i("TextFirstLatency", it.toString()) } }
 
     init {
+        vault?.nativeEditorDrafts?.put(this) {
+            withContext(Dispatchers.Main.immediate) {
+                suspendCancellableCoroutine { cont ->
+                    val e = engine
+                    if (e == null) cont.resume(true)
+                    else e.checkpointForMigration { cont.resume(it) }
+                }
+            }
+        }
         MainThreadWatchdog.start()
         view.setOnFocusChangeListener { _, hasFocus -> focused = hasFocus }
         view.onFrameDrawn = { timings ->
@@ -57,7 +70,7 @@ internal class TextFirstController(
         check(engine == null) { "already open" }
         opened = false
         openFailure = null
-        val created = EditorEngine(core, noteId, this)
+        val created = EditorEngine(core, noteId, this, storageGate = vault?.storageMigrationGate)
         engine = created
         view.engine = created
         created.open { error ->
@@ -147,6 +160,9 @@ internal class TextFirstController(
         }
     }
 
-    fun dispose() = images.shutdown()
+    fun dispose() {
+        vault?.nativeEditorDrafts?.remove(this)
+        images.shutdown()
+    }
 
 }
