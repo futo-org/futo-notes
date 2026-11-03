@@ -91,6 +91,9 @@ fn connected_state(
     vault_key: [u8; 32],
 ) -> ConnectedState {
     let loaded = checkpoint::load(root, &collection_id);
+    // Local renames from here on refer to this collection's checkpoint. An
+    // unreadable journal is reported by the first cycle that needs it.
+    let _ = futo_notes_store::rename_journal::set_rename_scope(root, Some(&collection_id));
     ConnectedState {
         base_url: server.trim().trim_end_matches('/').to_owned(),
         token,
