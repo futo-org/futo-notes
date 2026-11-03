@@ -433,3 +433,28 @@ fn portable_merge_never_overwrites_the_peer_when_the_page_does_not_adopt() {
     assert_eq!(store.read("plain").unwrap(), "REMOTE\n\nLOCAL\n");
     assert_eq!(store.read(&parked_id).unwrap(), "first\n\nLOCAL\n");
 }
+
+#[test]
+fn portable_undo_before_a_merge_is_adopted_is_not_reported_saved() {
+    use futo_notes_editor::{PortableSession, SessionToken};
+    let root = TestRoot::new();
+    let store = store(&root);
+    store.create("", "plain", "first\n\nsecond\n").unwrap();
+    let mut host = store
+        .open_editor("plain")
+        .unwrap()
+        .into_portable_host(SessionToken(576))
+        .unwrap();
+    let mut page = PortableSession::from_snapshot(host.snapshot()).unwrap();
+    let edit = page.replace(Revision(0), range(7, 13), "LOCAL").unwrap();
+    page.acknowledge(host.handle(edit.request)).unwrap();
+    store.write("plain", "REMOTE\n\nsecond\n", None).unwrap();
+    host.checkpoint_merged().unwrap();
+    let undo = page.undo(Revision(1)).unwrap().unwrap();
+    page.acknowledge(host.handle(undo.request)).unwrap();
+    assert!(matches!(
+        host.checkpoint().unwrap().disposition,
+        FlushDisposition::ParkedConflict { .. }
+    ));
+    assert_eq!(store.read("plain").unwrap(), "REMOTE\n\nLOCAL\n");
+}

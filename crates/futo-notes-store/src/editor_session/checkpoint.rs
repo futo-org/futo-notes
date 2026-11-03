@@ -68,6 +68,7 @@ impl Attachment {
         // through history-aware adoption. A missing clean note has no draft
         // to persist: never feed it to the edit-wins recreate arm.
         let unchanged = source == self.base
+            && self.pending_merge.is_none()
             && (self.portable
                 || self.relink_offer.is_some()
                 || store
