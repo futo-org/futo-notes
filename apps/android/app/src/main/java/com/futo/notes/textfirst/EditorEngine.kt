@@ -25,6 +25,8 @@ internal interface EngineSink {
     fun onUpdate(update: UiUpdate)
     fun onCompletion(draft: CompletionDraft?) {}
     fun onCaretState(state: CaretState)
+    /** Explicit external identity was adopted, even if its following save fails. */
+    fun onAttachmentId(noteId: String)
     /** A Markdown save landed; [noteId] is the attachment's identity after it (a park moves it). */
     fun onCheckpoint(result: FlushDraftResult, noteId: String)
     /** A failed save does not pause input: the Store retries it on its own schedule. */
@@ -72,6 +74,8 @@ internal class EditorEngine(
     internal var cellRange: IntRange? = null
     internal var seq = 0
     internal var saveArmed = false
+    /** A committed external event must survive migration admission or a failed write. */
+    internal var reconcilePending = false
     internal var closed = false
     private var inputStartNanos = 0L
     private var engineNanos = 0L
@@ -151,47 +155,6 @@ internal class EditorEngine(
     /** A selection the host chooses (restoring the caret after a reload). */
     fun hostSelect(start: Int, end: Int) = command { select(start, end, fromView = false) }
 
-    /** Begin an asynchronous image insertion; the claim goes back to [insertImage]. */
-    fun imageClaim(deliver: (ULong?) -> Unit) {
-        val posted = handler.post {
-            var claim: ULong? = null
-            try {
-                if (!closed && session != null && storageGate?.isMigrationStarted != true) {
-                    claim = session?.imageClaim()
-                }
-            } catch (e: EditorSessionException) {
-                handleFailure(e)
-            } finally {
-                ui.post { deliver(claim) }
-            }
-        }
-        if (!posted) ui.post { deliver(null) }
-    }
-
-    fun insertImage(claim: ULong, reference: String, done: (Boolean) -> Unit) {
-        // This command holds a vault attachment operation open until its answer.
-        // Every path, including stale/deleted sessions and a retired thread,
-        // must answer; guarded() alone reports errors without a completion.
-        val posted = handler.post {
-            var inserted = false
-            try {
-                if (!closed && session != null && storageGate?.isMigrationStarted != true) {
-                    if (mirror.overlay != null) commitComposition(null)
-                    val change = session?.insertImage(rev, claim, reference, "")
-                    if (change != null) {
-                        inserted = true
-                        accept(change)
-                    }
-                }
-            } catch (e: EditorSessionException) {
-                handleFailure(e)
-            } finally {
-                ui.post { done(inserted) }
-            }
-        }
-        if (!posted) ui.post { done(false) }
-    }
-
     /** Own-action changes (a relink after rename) the Store queued for this session. */
     fun drainCoordinatedChanges() = command {
         val s = session ?: return@command
@@ -213,6 +176,17 @@ internal class EditorEngine(
     fun checkpoint(done: ((FlushDraftResult?) -> Unit)? = null) = handler.post {
         val result = if (closed || session == null) null else save(force = true)
         if (done != null) ui.post { done(result) }
+    }
+
+    /** Sync already applied its authoritative mutation, including attachment identity.
+     * Reconcile on the input thread, after accepted typing, without replacing the session. */
+    fun reconcileExternalChanges(done: () -> Unit) = handler.post {
+        if (!closed && session != null) {
+            val id = session!!.noteId()
+            ui.post { sink.onAttachmentId(id) }
+            save(force = true, external = true)
+        }
+        ui.post(done)
     }
 
     /** The current exact source, for the screen's rename/draft paths. */
