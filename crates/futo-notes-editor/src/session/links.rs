@@ -99,11 +99,13 @@ impl EditorSession {
         let target = link.as_ref().map_or(range, |link| link.range);
         // An unchanged plain label keeps the existing source and formatting.
         let label = label.filter(|label| {
-            self.projection
-                .display
-                .byte_slice(target.start.0..target.end.0)
-                .to_string()
-                != *label
+            target.start == target.end
+                || self
+                    .projection
+                    .display
+                    .byte_slice(target.start.0..target.end.0)
+                    .to_string()
+                    != *label
         });
         if label.is_none()
             && (link
@@ -147,6 +149,9 @@ impl EditorSession {
             },
             &plan.inserted,
         )?;
+        if edit.removed == edit.inserted {
+            return Ok(None);
+        }
         let before_links = self.projection.pending_for_source_edit(edit.range);
         let prepared = self.prepare_plan_pending(&edit, &plan, &before_links, None)?;
         accept(&edit).map_err(EditorError::Persistence)?;
