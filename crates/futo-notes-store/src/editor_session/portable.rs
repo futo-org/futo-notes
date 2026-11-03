@@ -188,6 +188,7 @@ impl StoreEditorHost<'_> {
         if state.engine.revision() != before {
             state.note_edit();
         }
+        state.adopt_delivered_merge();
         result
     }
 

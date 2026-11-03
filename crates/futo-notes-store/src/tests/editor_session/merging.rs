@@ -406,3 +406,30 @@ fn portable_merge_checkpoint_records_the_baseline_so_undo_saves_in_place() {
     assert_eq!(host.id(), "plain");
     assert_eq!(store.read("plain").unwrap(), "REMOTE\n\nsecond\n");
 }
+
+#[test]
+fn portable_merge_never_overwrites_the_peer_when_the_page_does_not_adopt() {
+    use futo_notes_editor::{PortableSession, SessionToken};
+    let root = TestRoot::new();
+    let store = store(&root);
+    store.create("", "plain", "first\n\nsecond\n").unwrap();
+    let mut host = store
+        .open_editor("plain")
+        .unwrap()
+        .into_portable_host(SessionToken(575))
+        .unwrap();
+    let mut page = PortableSession::from_snapshot(host.snapshot()).unwrap();
+    let edit = page.replace(Revision(0), range(7, 13), "LOCAL").unwrap();
+    page.acknowledge(host.handle(edit.request)).unwrap();
+    store.write("plain", "REMOTE\n\nsecond\n", None).unwrap();
+    let merged = host.checkpoint_merged().unwrap();
+    assert_eq!(merged.source, "REMOTE\n\nLOCAL\n");
+    // The page refused or never received the adoption: the worker still holds
+    // the unmerged draft, and the next save must not overwrite the merge.
+    let result = host.checkpoint().unwrap();
+    let FlushDisposition::ParkedConflict { parked_id } = result.disposition else {
+        panic!("an undelivered merge must preserve both versions")
+    };
+    assert_eq!(store.read("plain").unwrap(), "REMOTE\n\nLOCAL\n");
+    assert_eq!(store.read(&parked_id).unwrap(), "first\n\nLOCAL\n");
+}

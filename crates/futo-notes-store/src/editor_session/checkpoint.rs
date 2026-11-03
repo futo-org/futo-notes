@@ -4,6 +4,18 @@ use crate::LocalNoteStore;
 use crate::{FlushDisposition, FlushDraftResult, MergedDraftResult};
 
 impl Attachment {
+    /// The merged source this portable worker is waiting for its page to adopt.
+    /// Once the worker's draft equals it, the merge is the saved baseline.
+    pub(super) fn adopt_delivered_merge(&mut self) {
+        if self
+            .pending_merge
+            .as_deref()
+            .is_some_and(|merged| self.engine.source_text() == merged)
+        {
+            self.base = self.pending_merge.take().unwrap_or_default();
+        }
+    }
+
     /// Write the draft to markdown now. Unchanged drafts write nothing. A save
     /// that parks the draft retargets this attachment to the parked note.
     pub fn checkpoint(
@@ -106,7 +118,16 @@ impl Attachment {
             self.lease = lease;
             self.id = parked_id.clone();
         }
-        self.base = result.source.clone();
+        // A portable merge is delivered only when the page's adoption Append
+        // replays here (`adopt_delivered_merge`). Until then the worker still
+        // holds the unmerged draft, so the baseline stays put and any later
+        // save parks that draft instead of overwriting the merged disk.
+        self.pending_merge = None;
+        if portable_merge && result.source != source {
+            self.pending_merge = Some(result.source.clone());
+        } else {
+            self.base = result.source.clone();
+        }
         self.mark_saved();
         Ok(result)
     }

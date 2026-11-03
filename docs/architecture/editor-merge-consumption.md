@@ -35,7 +35,7 @@ page and acknowledges every request, then calls `StoreEditorHost::checkpoint_mer
 bare `flush_draft_merged` beside an attached host: it leaves the host's saved baseline stale and a
 later Undo would park) and calls
 `PortableSession::adopt_merged_source(expected, source)` / WASM `adopt_merged_source`. Send the
-returned normal Append request in sequence, like any other edit. A stale revision or active
+returned normal Append request in sequence, like any other edit. The merge becomes the saved baseline only when that Append replays; if adoption never arrives, the next save parks the unmerged draft rather than overwriting the merged bytes. A stale revision or active
 composition refuses adoption without changing the draft/history; retain the current draft and
 reconcile again. Never replace the page from a fresh snapshot as a substitute for rebasing history.
 The compiled WASM/store consumer exercises this explicit path through save, adoption, Undo, Redo
