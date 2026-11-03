@@ -72,7 +72,10 @@ impl LocalNoteStore {
             paths::note_path(&self.root, &pair.from)?;
             paths::note_path(&self.root, &pair.to)?;
             if let Some(transition) = crate::editor_session::IdentityTransition::prepare_external(
-                &self.root, &pair.from, &pair.to,
+                &self.root,
+                &pair.from,
+                &pair.to,
+                deleted_ids,
             )? {
                 transitions.push(transition);
             }
