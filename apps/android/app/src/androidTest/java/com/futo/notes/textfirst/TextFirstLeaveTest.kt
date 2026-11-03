@@ -33,15 +33,7 @@ class TextFirstLeaveTest {
             withContext(Dispatchers.Main) {
                 suspendCancellableCoroutine<Unit> { done ->
                     scenario.onActivity { activity ->
-                        val metrics = activity.resources.displayMetrics
-                        val regular = ResourcesCompat.getFont(activity, R.font.barlow_regular)!!
-                        controller = TextFirstController(activity, { store }, root, TextFirstStyle(
-                            metrics.density, 17f * metrics.scaledDensity, regular,
-                            ResourcesCompat.getFont(activity, R.font.barlow_semibold)!!,
-                            ResourcesCompat.getFont(activity, R.font.barlow_bold)!!,
-                            ResourcesCompat.getFont(activity, R.font.jetbrains_mono_regular)!!,
-                            Color.BLACK, Color.GRAY, Color.BLUE, Color.GRAY, Color.WHITE, Color.WHITE,
-                        ))
+                        controller = createController(activity, { store }, root)
                         initialized = true
                         activity.setContentView(controller.view)
                         controller.open("draft") { assertNull(it); done.resume(Unit) }
@@ -77,4 +69,57 @@ class TextFirstLeaveTest {
             root.deleteRecursively()
         }
     }
+    @Test
+    fun pendingOpenCannotNavigateWithoutSaving() = runBlocking {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val root = File(context.cacheDir, "pending-open-${UUID.randomUUID()}").apply { check(mkdirs()) }
+        val scenario = ActivityScenario.launch(ComponentActivity::class.java)
+        val store = NoteStore(root.path)
+        val entered = java.util.concurrent.CountDownLatch(1)
+        val releaseOpen = java.util.concurrent.CountDownLatch(1)
+        val opened = java.util.concurrent.CountDownLatch(1)
+        lateinit var controller: TextFirstController
+        try {
+            store.createNote("draft", "", "base")
+            scenario.onActivity { activity ->
+                controller = createController(activity, {
+                    entered.countDown()
+                    check(releaseOpen.await(10, java.util.concurrent.TimeUnit.SECONDS))
+                    store
+                }, root)
+                activity.setContentView(controller.view)
+                controller.open("draft") { assertNull(it); opened.countDown() }
+            }
+            assertTrue(entered.await(10, java.util.concurrent.TimeUnit.SECONDS))
+            withContext(Dispatchers.Main) {
+                assertFalse("a pending open is not a successfully closed editor", controller.canNavigateWithoutSaving)
+            }
+            releaseOpen.countDown()
+            assertTrue(opened.await(10, java.util.concurrent.TimeUnit.SECONDS))
+            withContext(Dispatchers.Main) {
+                assertFalse(controller.canNavigateWithoutSaving)
+                assertNotNull(controller.close())
+                assertTrue(controller.canNavigateWithoutSaving)
+            }
+        } finally {
+            releaseOpen.countDown()
+            withContext(Dispatchers.Main) { controller.discard(); controller.dispose() }
+            scenario.close()
+            store.destroy()
+            root.deleteRecursively()
+        }
+    }
+
+    private fun createController(activity: ComponentActivity, core: () -> NoteStore, root: File): TextFirstController {
+        val metrics = activity.resources.displayMetrics
+        val regular = ResourcesCompat.getFont(activity, R.font.barlow_regular)!!
+        return TextFirstController(activity, core, root, TextFirstStyle(
+            metrics.density, 17f * metrics.scaledDensity, regular,
+            ResourcesCompat.getFont(activity, R.font.barlow_semibold)!!,
+            ResourcesCompat.getFont(activity, R.font.barlow_bold)!!,
+            ResourcesCompat.getFont(activity, R.font.jetbrains_mono_regular)!!,
+            Color.BLACK, Color.GRAY, Color.BLUE, Color.GRAY, Color.WHITE, Color.WHITE,
+        ))
+    }
+
 }

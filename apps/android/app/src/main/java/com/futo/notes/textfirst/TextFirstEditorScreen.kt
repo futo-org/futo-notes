@@ -284,7 +284,7 @@ internal fun TextFirstEditorScreen(
 
     DisposableEffect(controller) {
         val unregister = registerLeave { navigate ->
-            if (!controller.opened) navigate() else leave(navigate)
+            if (controller.canNavigateWithoutSaving) navigate() else leave(navigate)
         }
         onDispose { unregister() }
     }
