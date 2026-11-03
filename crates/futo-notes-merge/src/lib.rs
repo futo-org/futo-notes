@@ -1,4 +1,8 @@
 //! Portable three-way source merge, shared by sync, store and editor history.
+use std::collections::HashMap;
+use std::fmt::Write;
+use unicode_segmentation::UnicodeSegmentation;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MergeResult {
     Clean(String),
@@ -8,6 +12,39 @@ pub enum MergeResult {
 pub fn three_way_merge(base: &str, server: &str, client: &str) -> MergeResult {
     match diffy::merge(base, server, client) {
         Ok(merged) => MergeResult::Clean(merged),
+        Err(_) => merge_words(base, server, client),
+    }
+}
+
+/// Reuse diffy's conservative overlap decisions at Unicode word boundaries.
+/// Interned tokens are whole lines so whitespace, CRLF, combining sequences and
+/// literal conflict-marker text stay opaque and round-trip without normalization.
+/// A word is indivisible: competing spellings must not become a hybrid word.
+fn merge_words(base: &str, server: &str, client: &str) -> MergeResult {
+    let mut ids = HashMap::new();
+    let mut tokens = Vec::new();
+    let mut encode = |source: &str| {
+        let mut encoded = String::new();
+        for token in source.split_word_bounds() {
+            let next = tokens.len();
+            let id = *ids.entry(token.to_owned()).or_insert_with(|| {
+                tokens.push(token.to_owned());
+                next
+            });
+            writeln!(encoded, "{id}").expect("writing to a String cannot fail");
+        }
+        encoded
+    };
+    let base = encode(base);
+    let server = encode(server);
+    let client = encode(client);
+    match diffy::merge(&base, &server, &client) {
+        Ok(merged) => MergeResult::Clean(
+            merged
+                .lines()
+                .map(|id| tokens[id.parse::<usize>().expect("interned token id")].as_str())
+                .collect(),
+        ),
         Err(_) => MergeResult::Conflict,
     }
 }
@@ -15,6 +52,26 @@ pub fn three_way_merge(base: &str, server: &str, client: &str) -> MergeResult {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn independent_words_merge_without_reserializing_untouched_source() {
+        assert_eq!(
+            three_way_merge(
+                "  first middle last\t\r\n",
+                "  REMOTE middle last\t\r\n",
+                "  first middle LOCAL\t\r\n"
+            ),
+            MergeResult::Clean("  REMOTE middle LOCAL\t\r\n".into()),
+        );
+    }
+
+    #[test]
+    fn competing_spellings_of_one_word_do_not_create_a_hybrid() {
+        assert_eq!(
+            three_way_merge("the cat rests", "the bat rests", "the car rests"),
+            MergeResult::Conflict
+        );
+    }
 
     #[test]
     fn non_overlapping_edits_merge_cleanly() {
@@ -194,26 +251,46 @@ mod property_tests {
             );
         }
 
-        /// A clean merge may drop a line only if a side deleted it; it must
-        /// never introduce a line neither side has (conflict markers included).
+        /// Output may compose a new line, but cannot invent a word or separator.
         #[test]
-        fn a_clean_merge_invents_no_line(
+        fn a_clean_merge_invents_no_token(
             base in note_text(),
             server in note_text(),
             client in note_text(),
         ) {
             if let MergeResult::Clean(merged) = three_way_merge(&base, &server, &client) {
-                let side_lines: HashSet<&str> = server.lines().chain(client.lines()).collect();
-                for line in merged.lines() {
-                    prop_assert!(
-                        side_lines.contains(line),
-                        "merge invented line {:?} (server {:?}, client {:?})",
-                        line,
-                        server,
-                        client,
-                    );
+                let side_tokens: HashSet<&str> = server.split_word_bounds().chain(client.split_word_bounds()).collect();
+                for token in merged.split_word_bounds() {
+                    prop_assert!(side_tokens.contains(token), "invented token {token:?}");
                 }
             }
+        }
+
+        /// Word-level merges can compose a line neither side has on its own.
+        /// They still must not prefer one side based on argument ordering.
+        #[test]
+        fn swapping_sides_does_not_choose_a_different_merge(
+            base in note_text(),
+            server in note_text(),
+            client in note_text(),
+        ) {
+            prop_assert_eq!(
+                three_way_merge(&base, &server, &client),
+                three_way_merge(&base, &client, &server),
+            );
+        }
+
+        #[test]
+        fn independent_words_keep_both_contributions_and_exact_surroundings(
+            before in "[a-z]{1,12}",
+            after in "[a-z]{1,12}",
+            whitespace in prop::sample::select(vec![" ", "\t", "\u{205f}"]),
+        ) {
+            let base = format!("α{whitespace}first{whitespace}middle{whitespace}last{whitespace}e\u{301}\r\n");
+            let remote = base.replacen("first", &before, 1);
+            let local = base.replacen("last", &after, 1);
+            let expected = format!("α{whitespace}{before}{whitespace}middle{whitespace}{after}{whitespace}e\u{301}\r\n");
+            prop_assert_eq!(three_way_merge(&base, &remote, &local), MergeResult::Clean(expected));
         }
 
         /// Edits far apart in the same note must both survive: this is the
