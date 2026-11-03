@@ -4,10 +4,13 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::Path;
 
-use futo_notes_core::files::{collides_but_differs, file_mtime_ms, vault_fs};
+use futo_notes_core::files::{file_mtime_ms, vault_fs};
 use futo_notes_model::{find_wikilinks, link_targets_naming, rewrite_wikilinks, split_id};
 
-use crate::{note_filename, paths, vault, FileChange, LocalNoteStore, MutationResult, NoteRename};
+use crate::{
+    note_filename, paths, rename_journal, vault, FileChange, LocalNoteStore, MutationResult,
+    NoteRename,
+};
 
 impl LocalNoteStore {
     pub(crate) fn rename_raw(
@@ -40,15 +43,56 @@ impl LocalNoteStore {
                 .map(|id| FileChange::Changed(note_filename(id))),
         );
         self.before_write.before_write(&changes);
-        let transaction = crate::rename_journal::prepare_locked(&self.root, &mappings)?;
-        move_files_with_rollback(&self.root, &mappings)?;
+        let moved = self.move_journaled(&mappings, None)?;
         // Folder moves also arrive here; only a title change counts as an edit.
         if split_id(old_id).1 != split_id(&final_id).1 {
             self.stamp_note(&final_id, None)?;
         }
-        let result = self.finish_mappings(mappings, relinks, Some(final_id));
-        crate::rename_journal::commit_locked(&self.root, transaction)?;
+        let mut result = self.finish_mappings(mappings, relinks, Some(final_id));
+        self.commit_journaled(moved, &mut result);
         Ok(result)
+    }
+
+    /// Move notes (or one folder holding them) under the rename journal. The
+    /// caller holds the gate and vault guard and has prepared its relinks;
+    /// after `finish_mappings` it passes the result to `commit_journaled`.
+    pub(crate) fn move_journaled(
+        &self,
+        mappings: &[(String, String)],
+        folder: Option<(&str, &str)>,
+    ) -> Result<rename_journal::JournaledMove, String> {
+        // Leftovers of an earlier failure in this process come first, so the
+        // journal never holds two transactions racing for one path.
+        self.recover_renames_locked()?;
+        rename_journal::move_journaled(&self.root, mappings, folder)
+    }
+
+    pub(crate) fn commit_journaled(
+        &self,
+        moved: rename_journal::JournaledMove,
+        result: &mut MutationResult,
+    ) {
+        // The files already moved; the next recovery commits the record.
+        if let Err(error) = rename_journal::commit(&self.root, moved) {
+            result
+                .warnings
+                .push(format!("rename recorded for recovery: {error}"));
+        }
+    }
+
+    /// Finish or undo interrupted journaled moves (vault guard held). Returns
+    /// warnings. Recovery runs with no editor attached to the moved notes:
+    /// after a crash there is none, and in-process leftovers are only ever a
+    /// failed commit record, whose rewrite already ran.
+    pub(crate) fn recover_renames_locked(&self) -> Result<Vec<String>, String> {
+        let recovered = rename_journal::recover(&self.root)?;
+        let mut warnings = recovered.warnings;
+        for (id, mappings) in recovered.finished {
+            let relinks = prepare_relinks_detached(&self.root, &mappings)?;
+            warnings.extend(self.finish_mappings(mappings, relinks, None).warnings);
+            rename_journal::commit_recovered(&self.root, id)?;
+        }
+        Ok(warnings)
     }
 
     pub(crate) fn finish_mappings(
@@ -136,6 +180,21 @@ pub(crate) fn prepare_relinks(
     root: &Path,
     mappings: &[(String, String)],
 ) -> Result<Relinks, String> {
+    plan_relinks(root, mappings, true)
+}
+
+/// The same rewrite after the files already moved, for recovery: links still
+/// naming a source resolve against the pre-move ids (`rewrite_wikilinks`
+/// restores them), and notes already rewritten no longer name it.
+fn prepare_relinks_detached(root: &Path, mappings: &[(String, String)]) -> Result<Relinks, String> {
+    plan_relinks(root, mappings, false)
+}
+
+fn plan_relinks(
+    root: &Path,
+    mappings: &[(String, String)],
+    attached: bool,
+) -> Result<Relinks, String> {
     if mappings.is_empty() {
         return Ok(Relinks::default());
     }
@@ -221,6 +280,9 @@ pub(crate) fn prepare_relinks(
             .map(|id| (id.clone(), id.clone())),
     );
     coordinated.sort();
+    if !attached {
+        return Ok(relinks);
+    }
     relinks.attachments = coordinated
         .iter()
         .map(|(from, to)| {
@@ -246,51 +308,6 @@ pub(crate) fn rename_changes(mappings: &[(String, String)]) -> Vec<FileChange> {
             to: note_filename(to),
         })
         .collect()
-}
-
-pub(crate) fn move_files_with_rollback(
-    root: &Path,
-    mappings: &[(String, String)],
-) -> Result<(), String> {
-    let mut completed: Vec<(String, String)> = Vec::new();
-    for (from, to) in mappings {
-        paths::note_path(root, from)?;
-        let destination = paths::note_path(root, to)?;
-        let result = if collides_but_differs(from, to) {
-            vault_fs::rename_case(root, &note_filename(from), &note_filename(to))
-        } else {
-            // No-replace move. The destination id was allocated unique, so a
-            // file there now is a writer outside this store's serialization —
-            // never clobber it (the A1 window applied to rename). `move_no_replace`
-            // is the portable atomic no-replace install (Ok(false) if taken),
-            // carries mtime across, and consumes the source to complete the move;
-            // on a collision the caller rolls back — the newcomer and the source
-            // both survive.
-            match vault_fs::move_no_replace(root, &note_filename(from), &note_filename(to)) {
-                Ok(true) => Ok(()),
-                Ok(false) => Err(format!(
-                    "rename destination {} appeared under a concurrent writer",
-                    destination.display()
-                )),
-                Err(error) => Err(error),
-            }
-        };
-        if let Err(error) = result {
-            for (original, moved) in completed.into_iter().rev() {
-                let _ = vault_fs::move_no_replace(
-                    root,
-                    &note_filename(&moved),
-                    &note_filename(&original),
-                );
-            }
-            return Err(error);
-        }
-        completed.push((from.clone(), to.clone()));
-    }
-    for (source, _) in &completed {
-        prune_empty_parents(root, &root.join(note_filename(source)));
-    }
-    Ok(())
 }
 
 pub(crate) fn prune_empty_parents(root: &Path, note_path: &Path) {
