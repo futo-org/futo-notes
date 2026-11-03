@@ -10,6 +10,7 @@ import androidx.compose.runtime.setValue
 import java.io.File
 import kotlin.coroutines.resume
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.CompletableDeferred
@@ -133,9 +134,13 @@ internal class TextFirstController(
         e.imageClaim { cont.resume(it) }
     }
 
-    suspend fun insertImage(claim: ULong, reference: String): Boolean = suspendCancellableCoroutine { cont ->
-        val e = engine ?: return@suspendCancellableCoroutine cont.resume(false)
-        e.insertImage(claim, reference) { cont.resume(it) }
+    // Once queued, wait for the canonical acknowledgement even if the screen
+    // leaves. Otherwise the vault cleanup can delete an already-inserted image.
+    suspend fun insertImage(claim: ULong, reference: String): Boolean = withContext(NonCancellable) {
+        suspendCancellableCoroutine { cont ->
+            val e = engine ?: return@suspendCancellableCoroutine cont.resume(false)
+            e.insertImage(claim, reference) { cont.resume(it) }
+        }
     }
 
     suspend fun checkpoint(): FlushDraftResult? = suspendCancellableCoroutine { cont ->

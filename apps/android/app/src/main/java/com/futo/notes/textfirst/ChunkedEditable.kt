@@ -146,6 +146,7 @@ internal class ChunkedEditable private constructor(private val target: Int, priv
             if (what is TextWatcher && what !in textWatchers) textWatchers.add(what)
             if (what is SpanWatcher && what !in spanWatchers) spanWatchers.add(what)
             watcherFlags[what] = flags
+            orderWatcherCallbacks(textWatchers, spanWatchers, watcherFlags)
             return
         }
         // SpannableStringBuilder ignores an empty exclusive span (the old one, if any, stays).
