@@ -1,32 +1,64 @@
 package com.futo.notes.textfirst
 
 import android.util.Log
+import kotlin.coroutines.resume
+import kotlin.coroutines.suspendCoroutine
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import uniffi.futo_notes_ffi.EditorByteRange
-import uniffi.futo_notes_ffi.NativeEditorSession
 import uniffi.futo_notes_ffi.EditorSessionException
 import uniffi.futo_notes_ffi.FlushDraftResult
 
-internal fun EditorEngine.open(onOpened: (Throwable?) -> Unit) = handler.post {
-    try {
-        var attachment: NativeEditorSession? = null
-        check(storageAccess { attachment = store().openEditor(noteId) }) { "Storage access is paused for migration" }
-        val opened = checkNotNull(attachment)
-        session = opened
-        fast = FastSession.of(opened)
-        rev = opened.revision()
-        val display = opened.displayText()
-        mirror.reset(display)
-        val projection = opened.project(rev, EditorByteRange(0u, mirror.utf8Length.toULong()))
-        mirror.selStart = 0; mirror.selEnd = 0
-        postUpdate(reset = display, edits = emptyList(), windows = listOf(window(projection)))
-        ui.post { onOpened(null) }
-        refreshCaretState()
-    } catch (e: Throwable) {
-        Log.e(EditorEngine.TAG, "open $noteId failed", e)
-        ui.post { onOpened(e) }
+/** Wait for ordinary vault I/O off the editor thread. The gate stays held
+ * until the attachment is ready; callbacks run only after admission ends. */
+internal fun EditorEngine.open(onOpened: (Throwable?) -> Unit) {
+    val gate = storageGate
+    if (gate == null) {
+        handler.post {
+            val error = openAttachment()
+            ui.post { onOpened(error) }
+        }
+        return
+    }
+    CoroutineScope(Dispatchers.IO).launch {
+        var error: Throwable? = null
+        try {
+            gate.runAccess {
+                suspendCoroutine<Unit> { done ->
+                    if (!handler.post {
+                        error = openAttachment()
+                        done.resume(Unit)
+                    }) {
+                        error = IllegalStateException("The editor was closed before opening")
+                        done.resume(Unit)
+                    }
+                }
+            }
+        } catch (failure: Throwable) {
+            error = failure
+        }
+        ui.post { onOpened(error) }
     }
 }
 
+private fun EditorEngine.openAttachment(): Throwable? = try {
+    check(!closed) { "The editor is closed" }
+    val opened = store().openEditor(noteId)
+    session = opened
+    fast = FastSession.of(opened)
+    rev = opened.revision()
+    val display = opened.displayText()
+    mirror.reset(display)
+    val projection = opened.project(rev, EditorByteRange(0u, mirror.utf8Length.toULong()))
+    mirror.selStart = 0; mirror.selEnd = 0
+    postUpdate(reset = display, edits = emptyList(), windows = listOf(window(projection)))
+    refreshCaretState()
+    null
+} catch (failure: Throwable) {
+    Log.e(EditorEngine.TAG, "open $noteId failed", failure)
+    failure
+}
 
 /** Migration already holds the vault gate. Drain accepted IME work,
  * including marked text, on its owning thread before staging the copy. */

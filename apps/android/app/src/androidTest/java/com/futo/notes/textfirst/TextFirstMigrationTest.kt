@@ -26,6 +26,8 @@ import java.util.UUID
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.resume
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.runBlocking
@@ -41,6 +43,71 @@ class TextFirstMigrationTest {
     @Test fun migrationCopiesTheVisiblyAcceptedMarkedDraft() = exerciseMigration(failStaging = false)
 
     @Test fun failedMigrationKeepsTheAcceptedDraftEditableAndRetryable() = exerciseMigration(failStaging = true)
+
+    @Test fun busyAttachmentWriteKeepsOpenPendingWithoutBlockingTheEditorThread() =
+        openWhileBusy(closeWhilePending = false)
+
+    @Test fun disposingWhileOpenIsPendingReleasesTheEventualAttachment() =
+        openWhileBusy(closeWhilePending = true)
+
+    private fun openWhileBusy(closeWhilePending: Boolean): Unit = runBlocking {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val scratch = File(context.cacheDir, "native-open-migration-${UUID.randomUUID()}").apply { check(mkdirs()) }
+        val root = File(scratch, "source").apply { check(mkdirs()) }
+        File(root, "draft.md").writeText("exact source")
+        lateinit var store: NotesStore
+        lateinit var controller: TextFirstController
+        compose.runOnUiThread { store = NotesStore(root, File(scratch, "index")) }
+        compose.waitUntil(15_000) { store.hasBootstrapped }
+        val held = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val attachment = async {
+            store.saveImageIntoVault(
+                save = { vault -> File(vault, "pending.png").writeBytes(byteArrayOf(1)); "pending.png" },
+                useSavedImage = { held.complete(Unit); release.await() },
+            )
+        }
+        held.await()
+        val opened = CompletableDeferred<Throwable?>()
+        val font = Typeface.DEFAULT
+        val style = TextFirstStyle(1f, 17f, font, font, font, font,
+            Color.BLACK, Color.GRAY, Color.BLUE, Color.GRAY, Color.WHITE, Color.WHITE)
+        withContext(Dispatchers.Main) {
+            controller = TextFirstController(compose.activity, { store.core }, root, style, store)
+            compose.activity.setContentView(controller.view)
+            controller.open("draft") { opened.complete(it) }
+        }
+        val leaving = if (closeWhilePending) async(Dispatchers.Main) {
+            controller.close().also { controller.dispose() }
+        } else null
+        try {
+            val responsive = CompletableDeferred<Unit>()
+            withContext(Dispatchers.Main) {
+                val input = checkNotNull(controller.view.onCreateInputConnection(EditorInfo()))
+                input.handler!!.post { controller.view.post { responsive.complete(Unit) } }
+            }
+            responsive.await()
+            assertFalse("ordinary vault work must leave open pending, not fail it", opened.isCompleted)
+            assertFalse("disposal must wait for the pending open", leaving?.isCompleted == true)
+            release.complete(Unit)
+            attachment.await()
+            assertNull(opened.await())
+            if (leaving != null) assertNotNull(leaving.await()) else {
+                assertEquals("exact source", withContext(Dispatchers.Main) { controller.sourceText() })
+                assertNotNull(withContext(Dispatchers.Main) { controller.close() })
+                withContext(Dispatchers.Main) { controller.dispose() }
+            }
+            // A disposed pending open must not leave a live attachment behind.
+            withContext(Dispatchers.IO) { store.core.openEditor("draft").use { it.detach() } }
+        } finally {
+            release.complete(Unit)
+            attachment.await()
+            withContext(Dispatchers.Main) {
+                controller.close()
+                controller.dispose()
+            }
+        }
+    }
 
     @Test fun checkpointAndDetachDuringMigrationRetainTheDraftUntilRetry() = runBlocking {
         val context = InstrumentationRegistry.getInstrumentation().targetContext

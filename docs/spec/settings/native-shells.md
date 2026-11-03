@@ -70,8 +70,10 @@ SettingsScreen.kt _(Android)_, SettingsView.swift _(iOS)_
   and checkpoint under that same gate before staging; new editor input stays
   paused until failure resumes the original vault or activation restarts the app.
   A checkpoint or detach requested while migration owns the gate keeps its
-  session and draft available for retry. The blocking overlay never depends on
-  an attached editor WebView. → `NotesStoreMigration.kt`, `textfirst/EditorEngineStorage.kt`,
+  session and draft available for retry. Ordinary vault I/O leaves native note
+  opening pending without blocking the shell or editor thread; disposal waits
+  for that open and releases its attachment. The blocking overlay never depends
+  on an attached editor WebView. → `NotesStoreMigration.kt`, `textfirst/EditorEngineStorage.kt`,
   `TextFirstMigrationTest`
   Every copied file keeps its modified time wherever the destination filesystem can carry
   one, so a storage change leaves Last Modified ordering and each note's

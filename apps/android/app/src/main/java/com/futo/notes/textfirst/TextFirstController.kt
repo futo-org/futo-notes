@@ -33,6 +33,7 @@ internal class TextFirstController(
     private val images = ImageLoader(vaultRoot)
     val view = TextFirstEditText(context, style, images)
     private var engine: EditorEngine? = null
+    private var opening: CompletableDeferred<Unit>? = null
     private var closing: CompletableDeferred<FlushDraftResult?>? = null
 
     var opened by mutableStateOf(false); private set
@@ -74,6 +75,8 @@ internal class TextFirstController(
         check(engine == null) { "already open" }
         opened = false
         openFailure = null
+        val ready = CompletableDeferred<Unit>()
+        opening = ready
         val created = EditorEngine(core, noteId, this, storageGate = vault?.storageMigrationGate)
         engine = created
         view.engine = created
@@ -81,6 +84,8 @@ internal class TextFirstController(
             if (engine !== created) return@open
             openFailure = error
             opened = error == null
+            opening = null
+            ready.complete(Unit)
             onOpened(error)
         }
     }
@@ -143,6 +148,7 @@ internal class TextFirstController(
 
     /** Save and detach. A null result retains the engine and draft for retry. */
     suspend fun close(): FlushDraftResult? {
+        opening?.await()
         closing?.let { return it.await() }
         val e = engine ?: return null
         val completion = CompletableDeferred<FlushDraftResult?>()
@@ -158,6 +164,7 @@ internal class TextFirstController(
 
     /** Called only after the user explicitly confirms losing unsaved edits. */
     suspend fun discard() {
+        opening?.await()
         val e = engine ?: return
         suspendCancellableCoroutine<Unit> { cont ->
             e.discard { release(e); cont.resume(Unit) }
