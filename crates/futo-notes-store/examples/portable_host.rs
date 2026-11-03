@@ -29,30 +29,48 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     output.flush()?;
     for line in io::stdin().lock().lines() {
         let value: serde_json::Value = serde_json::from_str(&line?)?;
-        let response =
-            if let Some(destination) = value.get("rename").and_then(|value| value.as_str()) {
-                let mutation = store.rename(&host.id(), destination)?;
-                serde_json::json!({"id": mutation.final_id})
-            } else if let Some(merge) = value.get("merge") {
-                let field = |name: &str| {
-                    merge
-                        .get(name)
-                        .and_then(|value| value.as_str())
-                        .ok_or("merge source missing")
-                };
-                store.write(&host.id(), field("remote")?, None)?;
-                serde_json::to_value(store.flush_draft_merged(
-                    &host.id(),
-                    field("base")?,
-                    field("draft")?,
-                )?)?
-            } else if value.get("checkpoint").is_some() {
-                host.checkpoint()?;
-                serde_json::json!({"id": host.id()})
-            } else {
-                let request: HostRequest = serde_json::from_value(value)?;
-                serde_json::to_value(host.handle(request))?
+        let response = if let Some(destination) =
+            value.get("rename").and_then(|value| value.as_str())
+        {
+            let mutation = store.rename(&host.id(), destination)?;
+            serde_json::json!({"id": mutation.final_id})
+        } else if let Some(destination) = value.get("external_rename").and_then(|v| v.as_str()) {
+            let from = host.id();
+            let root = store.root();
+            // Test input representing the sync writer's committed move.
+            std::fs::rename(
+                futo_notes_core::files::safe_note_path(root, &from)?,
+                futo_notes_core::files::safe_note_path(root, destination)?,
+            )?;
+            let mutation = store.refresh_external_changes(
+                &[],
+                &[],
+                &[futo_notes_store::NoteRename {
+                    from,
+                    to: destination.to_owned(),
+                }],
+            )?;
+            serde_json::json!({"id": host.id(), "renamed": mutation.renamed})
+        } else if let Some(merge) = value.get("merge") {
+            let field = |name: &str| {
+                merge
+                    .get(name)
+                    .and_then(|value| value.as_str())
+                    .ok_or("merge source missing")
             };
+            store.write(&host.id(), field("remote")?, None)?;
+            serde_json::to_value(store.flush_draft_merged(
+                &host.id(),
+                field("base")?,
+                field("draft")?,
+            )?)?
+        } else if value.get("checkpoint").is_some() {
+            host.checkpoint()?;
+            serde_json::json!({"id": host.id()})
+        } else {
+            let request: HostRequest = serde_json::from_value(value)?;
+            serde_json::to_value(host.handle(request))?
+        };
         serde_json::to_writer(&mut output, &response)?;
         output.write_all(b"\n")?;
         output.flush()?;
