@@ -1,12 +1,13 @@
+mod context;
 mod html;
 mod parse;
 pub(crate) use html::{CandidateOpener, Shape};
 mod split;
 use crate::InlineFormat;
 use pulldown_cmark::{CodeBlockKind, Event, Options, Parser, Tag};
+pub(crate) use split::{delimiter_neutral, list_marker, partition, Outside, WORD_TAIL};
 #[cfg(test)]
-pub(crate) use split::UNCUT;
-pub(crate) use split::{list_marker, partition, Outside};
+pub(crate) use split::{NO_WORD_SEAMS, UNCUT};
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -83,10 +84,22 @@ pub(crate) struct Row {
     pub continues: bool,
     /// This row continues one block that the following row continues too.
     pub through: bool,
+    /// This row starts inside its predecessor's last physical line, at a
+    /// word seam (#314): the two rows' boundary blocks are one line.
+    pub mid_line: bool,
     /// The document's leading front matter row (always row zero).
     pub metadata: bool,
     /// The opener line of the raw HTML block this row continues (#314).
     pub opener: Option<Arc<str>>,
+    /// The synthetic ancestor item lines a row cut inside a nested list is
+    /// parsed after: its first item continues a list at that depth.
+    pub context: Option<Arc<str>>,
+    /// For each context ancestor (depth 1 first): the row-relative end of
+    /// its item and of the list holding it.
+    pub context_ends: Vec<(usize, usize)>,
+    /// For each item open at the row's end (depth 1 first): the
+    /// row-relative start of the item and of the list holding it.
+    pub tail_chain: Vec<(usize, usize)>,
 }
 
 pub(super) fn parser_options() -> Options {
@@ -288,6 +301,61 @@ impl Row {
     }
 }
 
+/// `Row::formats_at` for a run of non-decreasing offsets in one pass: spans
+/// enter once their opener ends and leave once their closer starts before the
+/// offset, so a row's segments cost spans + segments rather than their product.
+pub(crate) struct FormatSweep<'a> {
+    row: &'a Row,
+    order: Vec<usize>,
+    next: usize,
+    active: Vec<usize>,
+    last: usize,
+}
+
+impl<'a> FormatSweep<'a> {
+    pub fn new(row: &'a Row) -> Self {
+        let mut order: Vec<usize> = (0..row.spans.len())
+            .filter(|&index| row.spans[index].kind.format().is_some())
+            .collect();
+        order.sort_by_key(|&index| row.spans[index].open.end);
+        Self {
+            row,
+            order,
+            next: 0,
+            active: Vec::new(),
+            last: 0,
+        }
+    }
+
+    /// `work` counts each span entered and each active span checked (a scan
+    /// counts every span).
+    pub fn formats_at(&mut self, source: usize, work: &mut usize) -> Vec<InlineFormat> {
+        if source < self.last {
+            *work += self.row.spans.len();
+            return self.row.formats_at(source);
+        }
+        self.last = source;
+        let spans = &self.row.spans;
+        while let Some(&index) = self.order.get(self.next) {
+            if spans[index].open.end > source {
+                break;
+            }
+            self.active.push(index);
+            self.next += 1;
+            *work += 1;
+        }
+        *work += self.active.len();
+        self.active
+            .retain(|&index| source <= spans[index].close.start);
+        let mut active = self.active.clone();
+        active.sort_unstable();
+        active
+            .into_iter()
+            .filter_map(|index| spans[index].kind.format())
+            .collect()
+    }
+}
+
 pub(crate) enum OpenEnd {
     Html,
     Footnote,
@@ -399,7 +467,7 @@ impl Row {
     /// The physical number of a continued row's first ordered item.
     pub(crate) fn first_number(&self) -> Option<u64> {
         let list = self.blocks.first()?.list.as_ref()?;
-        (self.continues && list.depth == 1).then_some(list.ordinal)?
+        (self.start_depth() == list.depth).then_some(list.ordinal)?
     }
 }
 

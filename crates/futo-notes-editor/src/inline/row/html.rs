@@ -18,6 +18,10 @@ pub(crate) struct Shape {
     pub followed: bool,
     /// The opener line of the raw HTML or fenced block this row continues.
     pub opener: Option<String>,
+    /// The row starts at a word seam inside its predecessor's last line.
+    pub mid_line: bool,
+    /// The ancestor lines of the nested list item this row continues.
+    pub context: Option<String>,
 }
 
 impl Row {
@@ -122,8 +126,12 @@ impl Row {
             blocks,
             continues: true,
             through: false,
+            mid_line: false,
             metadata: false,
             opener: Some(opener.into()),
+            context: None,
+            context_ends: Vec::new(),
+            tail_chain: Vec::new(),
         })
     }
 }
@@ -220,31 +228,40 @@ impl Row {
         winners: &[crate::inline::references::Winner],
     ) -> Self {
         let opener = shape.opener.as_deref();
+        if let Some(context) = &shape.context {
+            let mut row = Self::list_continuation(context, text, references, winners);
+            row.through = shape.through;
+            return row;
+        }
         let mut row = opener
             .and_then(|opener| Self::html_continuation(opener, text, references))
             .unwrap_or_else(|| Self::parse_with_references(text, references, winners));
         row.continue_fence(text, shape.continued, shape.followed);
         row.continues = shape.continues;
         row.through = shape.through;
+        row.mid_line = shape.mid_line;
         row.opener = opener.map(Into::into);
         row
     }
 }
 
+type CandidateFrame = (Option<Arc<str>>, bool, bool, Option<Arc<str>>);
+
 thread_local! {
-    /// The opener of the row whose input is being verified, if any, and
-    /// whether the following row continues its block.
-    static CANDIDATE_OPENER: std::cell::RefCell<(Option<Arc<str>>, bool, bool)> =
-        const { std::cell::RefCell::new((None, false, false)) };
+    /// The opener of the row whose input is being verified, if any, whether
+    /// the following row continues its block, whether source follows, and
+    /// the row's nested list context.
+    static CANDIDATE_OPENER: std::cell::RefCell<CandidateFrame> =
+        const { std::cell::RefCell::new((None, false, false, None)) };
 }
 
 /// Verification of input within a continued row reads its opener first.
-pub(crate) struct CandidateOpener((Option<Arc<str>>, bool, bool));
+pub(crate) struct CandidateOpener(CandidateFrame);
 
 impl CandidateOpener {
-    /// The opener, whether the next row continues the block and whether
-    /// any source follows.
-    pub(crate) fn set(opener: (Option<Arc<str>>, bool, bool)) -> Self {
+    /// The opener, whether the next row continues the block, whether any
+    /// source follows, and the nested list context.
+    pub(crate) fn set(opener: CandidateFrame) -> Self {
         Self(CANDIDATE_OPENER.with(|slot| slot.replace(opener)))
     }
 }
@@ -263,7 +280,11 @@ impl Row {
         references: &Arc<crate::inline::references::References>,
         winners: &[crate::inline::references::Winner],
     ) -> Self {
-        let (opener, continued, followed) = CANDIDATE_OPENER.with(|slot| slot.borrow().clone());
+        let (opener, continued, followed, context) =
+            CANDIDATE_OPENER.with(|slot| slot.borrow().clone());
+        if let Some(context) = context {
+            return Self::list_continuation(&context, text, references, winners);
+        }
         let mut row = opener
             .and_then(|opener| Self::html_continuation(&opener, text, references))
             .unwrap_or_else(|| Self::parse_with_references(text, references, winners));

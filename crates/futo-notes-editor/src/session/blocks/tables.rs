@@ -126,6 +126,14 @@ impl EditorSession {
             if row.pipes {
                 return true;
             }
+            // A row starting at a word seam continues its predecessor's
+            // line, which holds no `|` (word seams never cut such a line):
+            // go on from the row where that line starts.
+            if row.mid_line {
+                let line = self.source.line_to_byte(self.source.byte_to_line(start));
+                index = rows.locate(line, false);
+                continue;
+            }
             // A blank line before the row ends the run.
             let mut before = self.source.bytes_at(start);
             if index == 0 || before.prev() != Some(b'\n') {
@@ -172,6 +180,29 @@ impl EditorSession {
         } else {
             (low, high)
         }
+    }
+
+    /// The table and cell at `range` for paths that need a cell: a range
+    /// outside every cell of its own line (past a row's closing pipe, say)
+    /// answers from that line alone instead of reading the whole table.
+    fn table_cell_target_counted(
+        &self,
+        range: DisplayRange,
+        read: &mut usize,
+    ) -> Option<(Window, (usize, usize))> {
+        let (start, end) = self.table_source_span(range);
+        let line = self.table_line_start(start);
+        let (line_end, _) = self.table_line_end(line);
+        if end > line_end {
+            return None;
+        }
+        let text = self.source.byte_slice(line..line_end).to_string();
+        *read += text.len();
+        if !table::line_has_cell(&text, start - line..end - line) {
+            return None;
+        }
+        let (window, cell) = self.table_target_counted(range, read)?;
+        Some((window, cell?))
     }
 
     fn table_target(&self, range: DisplayRange) -> Option<(Window, Option<(usize, usize)>)> {
@@ -304,9 +335,7 @@ impl EditorSession {
         if !inserted.contains(['|', '\\', '\r', '\n']) {
             return None;
         }
-        let (window, (row, column)) = self
-            .table_target_counted(range, &mut work.parsed)
-            .and_then(|(w, c)| Some((w, c?)))?;
+        let (window, (row, column)) = self.table_cell_target_counted(range, &mut work.parsed)?;
         let raw = window.absolute(window.layout.row_line(row).cells[column].clone());
         let pipes = table::pipe_count(&window.text);
         Some(CellInput {

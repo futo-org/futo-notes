@@ -52,6 +52,14 @@ impl EditorSession {
         action: crate::InputAction,
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<(ViewChange, InputMapping), EditorError> {
+        if self.check_revision(expected).is_ok() {
+            if let Some(change) =
+                self.type_into_pending_indent(expected, range, inserted, action, accept)?
+            {
+                let mapping = InputMapping::new(change.range, change.inserted.len());
+                return Ok((change, mapping));
+            }
+        }
         let mut query_work = crate::inline::references::ReferenceWork::default();
         let (mut change, mapping) = self.replace_action_planned(
             expected,
@@ -114,7 +122,13 @@ impl EditorSession {
             return Ok(change);
         }
         let affinity = self.input_affinity(range);
-        let pending = if range == self.selection {
+        // A deletion that ends at the caret (Backspace) keeps the caret's
+        // carried formats: removing the space typed after italic text, as a
+        // keyboard's double-space period does, must not end the italic.
+        let backspace = inserted.is_empty()
+            && self.selection.start == self.selection.end
+            && range.end == self.selection.start;
+        let pending = if range == self.selection || backspace {
             self.pending_formats.as_deref()
         } else {
             None

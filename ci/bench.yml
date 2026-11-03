@@ -31,3 +31,40 @@ bench:editor:
     - if: $CI_MERGE_REQUEST_IID
       when: manual
       allow_failure: true
+
+# The editor engine's keystroke cost (bytes parsed, link items, wall time) for
+# an engine hill-climb attempt against the commit it started from, both built
+# and run twice, interleaved, in this one job on the serial runner. Runs only on
+# `engine-climb/*` branches, which `just engine-climb push <name>` creates; read
+# verdicts with `just engine-climb results`. Not interruptible: a queued attempt
+# is evidence someone is waiting for, so a newer push must not cancel it.
+bench:engine-keys:
+  extends: .ci-test-image
+  stage: test
+  needs: []
+  tags:
+    - futo_notes_serial
+  interruptible: false
+  variables:
+    # The base commit must be in the clone.
+    GIT_DEPTH: "0"
+  cache:
+    # One key for every attempt, so each starts from the last one's build.
+    key: engine-climb-$CARGO_CACHE_EPOCH
+    paths:
+      - .cargo-home/
+      - target/
+    policy: pull-push
+    when: always
+  script:
+    - !reference [.setup-rust, script]
+    - node "$CI_PROJECT_DIR/scripts/engine-climb.mjs" ci
+  artifacts:
+    when: always
+    expire_in: 30 days
+    paths:
+      - engine-climb/summary.txt
+      - engine-climb/*.json
+  timeout: 45m
+  rules:
+    - if: $CI_COMMIT_BRANCH =~ /^engine-climb\//

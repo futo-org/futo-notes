@@ -203,3 +203,7 @@ flatpak/.builder-state/
 # Local block-drag benchmark variants, run logs and screenshots
 .perf-variants/
 apps/ios/UITests/BlockDragBenchProbe.js
+
+# Engine hill-climb job output and base checkout (scripts/engine-climb.mjs)
+/engine-climb/
+/.engine-climb-base/

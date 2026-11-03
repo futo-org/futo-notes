@@ -122,7 +122,10 @@ fn quoted_lists_indent_and_outdent() {
 fn enter_on_an_empty_item_exits_the_list() {
     assert_eq!(
         accepted("- a\n- \n", range(2, 2), key(ParagraphKey::Enter)),
-        "- a\n\n"
+        // A blank line separates the list from the paragraph the user types
+        // next; written straight under the item it would be a lazy
+        // continuation of it (maintainer decision 2026-11-02).
+        "- a\n\n\n"
     );
     assert_eq!(
         accepted("- a\n  - b\n  - \n", range(4, 4), key(ParagraphKey::Enter)),

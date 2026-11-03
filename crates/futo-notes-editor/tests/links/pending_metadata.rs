@@ -32,7 +32,8 @@ fn unfinished_urls_elsewhere_do_not_add_metadata_work_to_a_local_keystroke() {
     }
     // Separate the independently observed canonical comparison visits,
     // retaining the old field/copy budgets and exact bare-consumer component.
-    for (value, references) in work.iter_mut().zip([36, 33]) {
+    // The span sweep visits one span over the edited row at both sizes.
+    for (value, references) in work.iter_mut().zip([36 + 1, 33 + 1]) {
         *value -= references;
     }
     assert_eq!(work, [1314 + 35, 1271 + 35]);

@@ -236,9 +236,13 @@ fn model(source_len: usize, display: &str, segments: Vec<Segment>) -> Row {
         spans: Vec::new(),
         blocks: Vec::new(),
         continues: false,
+        mid_line: false,
         through: false,
         metadata: false,
         opener: None,
+        context: None,
+        context_ends: Vec::new(),
+        tail_chain: Vec::new(),
     }
 }
 

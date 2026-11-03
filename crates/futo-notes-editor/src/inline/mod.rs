@@ -24,7 +24,11 @@ mod row;
 mod source_points;
 mod spelling;
 #[cfg(test)]
+mod split_nested_tests;
+#[cfg(test)]
 mod split_tests;
+#[cfg(test)]
+mod table_split_tests;
 mod toggle;
 mod tree;
 mod window;
@@ -86,6 +90,36 @@ impl Projection {
         winners: &[references::Winner],
         reference_work: references::ReferenceWork,
     ) -> Self {
+        Self::in_context(
+            source,
+            document_start,
+            references,
+            winners,
+            reference_work,
+            None,
+        )
+    }
+
+    /// A projection of `source` whose first row continues a nested list
+    /// after `context` (its ancestors' lines) with its first item numbered
+    /// as given, as a staged window starting at such a row is.
+    pub(crate) fn in_context(
+        source: &str,
+        document_start: bool,
+        references: std::sync::Arc<references::References>,
+        winners: &[references::Winner],
+        reference_work: references::ReferenceWork,
+        context: Option<(&str, Option<u64>)>,
+    ) -> Self {
+        let outside = match context {
+            Some((context, first_number)) => Outside {
+                continues: true,
+                context: Some(context),
+                first_number,
+                ..Outside::default()
+            },
+            None => Outside::default(),
+        };
         let metadata = if document_start {
             front_matter::len(source.bytes())
         } else {
@@ -97,7 +131,7 @@ impl Projection {
             .then(|| Row::metadata(&source[..metadata]))
             .into_iter()
             .chain(
-                partition(&source[metadata..], Outside::default())
+                partition(&source[metadata..], outside)
                     .rows
                     .into_iter()
                     .map(|piece| {
@@ -172,6 +206,18 @@ impl Projection {
         while first > 0 && (self.rows.at(first).0.opener.is_some() || ordered(first)) {
             first = self.rows.block_start(first);
         }
+        // A row inside a nested list parses only after its ancestors, and a
+        // list command reads the whole nested list, as an uncut row holds it.
+        let nested = (first..=(last + 1).min(self.rows.len() - 1))
+            .any(|index| self.rows.at(index).0.context.is_some());
+        if nested {
+            while first > 0 && self.rows.at(first).0.continues {
+                first = self.rows.block_start(first);
+            }
+            while last + 1 < self.rows.len() && self.rows.at(last + 1).0.continues {
+                last = self.rows.block_end(last + 1);
+            }
+        }
         while last + 1 < self.rows.len() && ordered(last + 1) {
             last = self.rows.block_end(last + 1);
         }
@@ -185,6 +231,30 @@ impl Projection {
         }
         while first > 0 && blank(first) {
             first -= 1;
+        }
+        // A staged window never ends at a word seam: one reaching a paragraph
+        // cut at word seams holds that whole paragraph and a neighbor row on
+        // each side, as its uncut row would (#314).
+        let seamed = (first..=last).any(|index| {
+            self.rows.at(index).0.mid_line
+                || index + 1 < self.rows.len() && self.rows.at(index + 1).0.mid_line
+        });
+        if seamed {
+            while first > 0 && self.rows.at(first).0.continues {
+                first -= 1;
+            }
+            first = first.saturating_sub(1);
+            while last + 1 < self.rows.len() && self.rows.at(last + 1).0.continues {
+                last += 1;
+            }
+            last = (last + 1).min(self.rows.len() - 1);
+            // The neighbor rows themselves end at whole lines.
+            while first > 0 && self.rows.at(first).0.mid_line {
+                first -= 1;
+            }
+            while last + 1 < self.rows.len() && self.rows.at(last + 1).0.mid_line {
+                last += 1;
+            }
         }
         let (_, source_start, display_start) = self.rows.at(first);
         let (row, source_end, _) = self.rows.at(last);

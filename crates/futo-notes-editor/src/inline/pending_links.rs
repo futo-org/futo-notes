@@ -286,13 +286,6 @@ impl Projection {
         work
     }
 
-    pub(super) fn suppressed_link(&self, row: &Row, span: &Span, _display: usize) -> bool {
-        matches!(span.kind, SpanKind::Link(_))
-            && row
-                .literal_links
-                .contains(&(span.open.end..span.close.start))
-    }
-
     pub(super) fn link_is_pending_with_work(&self, range: DisplayRange) -> (bool, usize) {
         let (row, _, display, mut work) = self.rows.display_row_with_work(range.start.0);
         let pending = row.literal_links.iter().any(|link| {

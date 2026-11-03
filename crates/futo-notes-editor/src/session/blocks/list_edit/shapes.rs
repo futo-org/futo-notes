@@ -9,7 +9,14 @@ pub(super) fn number(rows: &mut [Row]) {
         .filter(|row| row.changed())
         .filter_map(|row| row.list.as_ref().map(|list| list.owner.clone()))
         .collect();
+    // A changed row joining another list renumbers that list too.
+    let joined: Vec<usize> = rows
+        .iter()
+        .filter(|row| row.changed())
+        .map(|row| row.key)
+        .collect();
     let mut lists: Vec<Option<(u8, u64, usize)>> = Vec::new();
+    let window_start = rows.first().map_or(0, |row| row.line.start);
     let mut quotes = None;
     for row in rows.iter_mut() {
         if row.blank {
@@ -26,10 +33,12 @@ pub(super) fn number(rows: &mut [Row]) {
         }
         lists.resize(depth, None);
         let untouched = !row.changed()
+            && !joined.contains(&row.key)
             && row
                 .list
                 .as_ref()
                 .is_some_and(|list| !touched.contains(&list.owner));
+        let kept = !row.changed();
         let shape = &mut row.after;
         if shape.ordered() {
             let ordinal = match lists[depth - 1] {
@@ -38,6 +47,17 @@ pub(super) fn number(rows: &mut [Row]) {
                     if marker == shape.marker && key == row.key && !row.pinned =>
                 {
                     next
+                }
+                // A list continuing from before the window counts on from
+                // its own ordinal there.
+                None if kept
+                    && !row.pinned
+                    && row
+                        .list
+                        .as_ref()
+                        .is_some_and(|list| list.owner.start < window_start) =>
+                {
+                    row.before.ordinal.unwrap_or(1)
                 }
                 _ => row.start.unwrap_or(1),
             };

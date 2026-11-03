@@ -1,0 +1,115 @@
+//! A giant table is cut at row lines like a long paragraph: a key in a middle
+//! row costs the same counted work at 2,000 rows as at 100, even with
+//! emphasis literals (`_` in handles) elsewhere in the table. Keys that change
+//! a delimiter run are checked against an uncut twin in
+//! `src/inline/table_split_tests.rs`.
+use futo_notes_editor::{DisplayOffset, DisplayRange, EditWork, EditorSession, ParagraphKey};
+
+fn caret(at: usize) -> DisplayRange {
+    DisplayRange {
+        start: DisplayOffset(at),
+        end: DisplayOffset(at),
+    }
+}
+
+/// A table of URL cells, the shape of the slow corpus note (06a6e2), with an
+/// unpaired leading-`_` handle and, away from the middle, `_` handles that
+/// pair across 14 rows.
+fn table(rows: usize) -> String {
+    let mut source = String::from("| Name | Site | Twitter |\n| --- | --- | --- |\n");
+    for i in 0..rows {
+        let handle = match (i, i % 500) {
+            (7, _) | (_, 203) => format!("_duck{i}"),
+            (_, 217) => format!("duck{i}_"),
+            _ => format!("duck{i}"),
+        };
+        source += &format!(
+            "| duck eggs {i} | https://duck{i}.example.com/notes/{i} | https://twitter.com/{handle} |\n"
+        );
+    }
+    source
+}
+
+fn total(work: &EditWork) -> usize {
+    work.materialized_source_bytes + work.parsed_source_bytes + work.link_metadata_items
+}
+
+/// The session's whole projection equals a fresh open of its source.
+fn assert_fresh(session: &EditorSession, what: &str) {
+    let fresh = EditorSession::open(&session.source_text());
+    let whole = |s: &EditorSession| {
+        let end = DisplayOffset(s.display_text().len());
+        let range = DisplayRange {
+            start: DisplayOffset(0),
+            end,
+        };
+        s.project(s.revision(), range).unwrap()
+    };
+    let (mine, theirs) = (whole(session), whole(&fresh));
+    assert_eq!(mine.text, theirs.text, "{what}: display");
+    assert_eq!(mine.runs, theirs.runs, "{what}: formats");
+    assert_eq!(mine.links, theirs.links, "{what}: links");
+    assert_eq!(mine.blocks, theirs.blocks, "{what}: blocks");
+    assert_eq!(
+        mine.correspondence, theirs.correspondence,
+        "{what}: correspondence"
+    );
+}
+
+/// Type `x` and Backspace it at the end of the middle row's name, then Enter
+/// at the end of that row's line.
+fn keys(rows: usize) -> [EditWork; 3] {
+    let source = table(rows);
+    let needle = format!("duck eggs {}", rows / 2);
+    let mut session = EditorSession::open(&source);
+    let at = session.display_text().find(&format!("{needle} ")).unwrap() + needle.len();
+    let typed = session
+        .replace(session.revision(), caret(at), "x", &mut |_| Ok(()))
+        .unwrap()
+        .work;
+    assert_eq!(
+        session.source_text(),
+        source.replacen(&format!("{needle} |"), &format!("{needle}x |"), 1)
+    );
+    let deleted = session
+        .paragraph_key(
+            session.revision(),
+            caret(at + 1),
+            ParagraphKey::Backspace,
+            &mut |_| Ok(()),
+        )
+        .unwrap()
+        .unwrap()
+        .work;
+    assert_eq!(session.source_text(), source);
+    let line_end = at + session.display_text()[at..].find('\n').unwrap();
+    let entered = session
+        .paragraph_key(
+            session.revision(),
+            caret(line_end),
+            ParagraphKey::Enter,
+            &mut |_| Ok(()),
+        )
+        .unwrap()
+        .unwrap()
+        .work;
+    assert_ne!(session.source_text(), source);
+    assert_fresh(&session, "after Enter");
+    [typed, deleted, entered]
+}
+
+#[test]
+fn keys_in_a_middle_table_row_do_not_scale_with_the_table() {
+    let small = keys(100).map(|work| total(&work));
+    assert!(small.iter().all(|work| *work < 64 * 1024), "{small:?}");
+    let large = keys(2_000).map(|work| total(&work));
+    for (key, (large, small)) in ["type", "backspace", "enter"]
+        .iter()
+        .zip(large.iter().zip(small))
+    {
+        assert!(
+            *large <= small * 3 / 2 + 1024,
+            "{key}: {small} at 100 rows, {large} at 2,000"
+        );
+    }
+}

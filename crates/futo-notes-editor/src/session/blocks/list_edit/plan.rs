@@ -19,14 +19,22 @@ pub(super) struct Respelled {
 
 impl EditorSession {
     /// Respell changed rows and apply the repairs, keeping every other byte.
-    pub(super) fn plan_rows(&self, rows: &[Row]) -> Result<Option<Plan>, EditorError> {
-        let outputs = self.respell_rows(rows)?;
+    pub(super) fn plan_rows(
+        &self,
+        rows: &[Row],
+        outer: &[usize],
+    ) -> Result<Option<Plan>, EditorError> {
+        let outputs = self.respell_rows(rows, outer)?;
         self.emit_rows(rows, &outputs)
     }
 
     /// Each changed row's canonical prefix plus its (escaped) body; `None`
     /// keeps the row's exact bytes. Columns follow the emitted rows.
-    fn respell_rows(&self, rows: &[Row]) -> Result<Vec<Option<Respelled>>, EditorError> {
+    fn respell_rows(
+        &self,
+        rows: &[Row],
+        outer: &[usize],
+    ) -> Result<Vec<Option<Respelled>>, EditorError> {
         // Rows owning later rows keep their authored content column.
         let mut parents = vec![false; rows.len()];
         for row in rows.iter().filter(|row| !row.blank) {
@@ -36,28 +44,40 @@ impl EditorSession {
                 }
             }
         }
-        let mut stack: Vec<usize> = Vec::new();
+        let siblings = sibling_columns(rows);
+        let mut stack: Vec<usize> = outer.to_vec();
         let mut outputs = Vec::with_capacity(rows.len());
         for (index, row) in rows.iter().enumerate() {
             let depth = row.after.depth;
             let quotes_same = row.after.quotes == row.before.quotes;
-            let context = match &row.list {
-                _ if row.blank => true,
-                Some(list) if depth > 0 && row.after.depth == row.before.depth => {
-                    if row.after.opens {
-                        depth == 1 || stack.get(depth - 2).copied() == list.parent_content_column
-                    } else {
-                        stack.get(depth - 1) == Some(&list.content_column)
+            // A row the command leaves alone, under ancestors it leaves
+            // alone, keeps its bytes and columns whatever the rows above it
+            // spelled; two items opening on its line hide a column it keeps.
+            let settled = !row.changed()
+                && !row.escape
+                && row.chain.iter().flatten().all(|&at| !rows[at].changed());
+            let context = settled
+                || match &row.list {
+                    _ if row.blank => true,
+                    Some(list) if depth > 0 && row.after.depth == row.before.depth => {
+                        if row.after.opens {
+                            depth == 1
+                                || stack.get(depth - 2).copied() == list.parent_content_column
+                        } else {
+                            stack.get(depth - 1) == Some(&list.content_column)
+                        }
                     }
-                }
-                _ => true,
-            };
+                    _ => true,
+                };
             if same_shape(&row.after, &row.before) && !row.forced && context && !row.escape {
                 if depth > 0 && row.after.opens {
                     let list = row.list.as_ref().unwrap();
                     stack.truncate(depth - 1);
-                    if stack.len() + 1 != depth {
+                    if stack.len() + 1 != depth && !settled {
                         return Err(EditorError::UnrepresentableFormat);
+                    }
+                    while stack.len() + 1 < depth {
+                        stack.push(list.parent_content_column.unwrap_or_default());
                     }
                     stack.push(list.content_column);
                 } else if depth == 0 && !row.blank {
@@ -65,7 +85,7 @@ impl EditorSession {
                 } else if depth > 0 {
                     stack.truncate(depth);
                 }
-                outputs.push(None);
+                outputs.push(self.renumbered(row, parents[index]));
                 continue;
             }
             if row.fixed && row.list.is_none() && !row.escape && only_quotes(row) {
@@ -89,7 +109,8 @@ impl EditorSession {
                 // A blank row keeps only its quote markers.
             } else if depth > 0 {
                 if row.after.opens {
-                    self.opener_prefix(row, parents[index], base, &mut stack, &mut prefix)?;
+                    let owns = parents[index];
+                    self.opener_prefix(row, owns, &siblings, base, &mut stack, &mut prefix)?;
                 } else {
                     stack.truncate(depth);
                     let column = *stack
@@ -127,6 +148,7 @@ impl EditorSession {
         &self,
         row: &Row,
         owns_rows: bool,
+        siblings: &[(usize, usize, usize)],
         base: usize,
         stack: &mut Vec<usize>,
         prefix: &mut String,
@@ -137,9 +159,15 @@ impl EditorSession {
             base
         } else {
             stack.truncate(depth - 1);
-            *stack
+            let parent = *stack
                 .get(depth - 2)
-                .ok_or(EditorError::UnrepresentableFormat)?
+                .ok_or(EditorError::UnrepresentableFormat)?;
+            siblings
+                .iter()
+                .find(|&&(key, depth, _)| (key, depth) == (row.key, row.after.depth))
+                .map(|&(.., column)| column)
+                .filter(|column| (parent..=parent + 3).contains(column))
+                .unwrap_or(parent)
         };
         if stack.len() + 1 != depth || column < base {
             return Err(EditorError::UnrepresentableFormat);
@@ -261,6 +289,37 @@ impl EditorSession {
         }))
     }
 
+    /// A kept ordered item whose number was its ordinal, renumbered with
+    /// its list: only the digits change. Lazy numbers stay as written, and
+    /// so do digits whose new width would move the content column of rows
+    /// the item owns.
+    fn renumbered(&self, row: &Row, owns_rows: bool) -> Option<Respelled> {
+        let (Some(old), Some(new)) = (row.before.ordinal, row.after.ordinal) else {
+            return None;
+        };
+        let list = row.list.as_ref()?;
+        if old == new || !row.before.opens || !row.after.opens {
+            return None;
+        }
+        let digits = list.marker.start..list.marker.end - 1;
+        let physical = self.source.byte_slice(digits.clone()).to_string();
+        if physical.parse::<u64>().ok()? != old {
+            return None;
+        }
+        let line = self.source.byte_slice(row.line.clone()).to_string();
+        let at = digits.start - row.line.start;
+        let number = super::lists::physical_number(new).to_string();
+        if owns_rows && number.len() != digits.len() {
+            return None;
+        }
+        let text = format!("{}{number}{}", &line[..at], &line[at + digits.len()..]);
+        Some(Respelled {
+            prefix: row.body.start - row.line.start + number.len() - digits.len(),
+            text,
+            escaped: None,
+        })
+    }
+
     /// An inserted line takes the row's own ending, else the note's style.
     pub(super) fn inserted_ending(&self, rows: &[Row], row: &Row) -> String {
         let row = if row.end > row.line.end {
@@ -310,4 +369,22 @@ fn only_quotes(row: &Row) -> bool {
             quotes: 0,
             ..row.before.clone()
         }
+}
+
+/// For each intended list and depth, the marker column of its first
+/// unchanged item: a respelled item joining that list keeps the column, so
+/// its content column cannot swallow those items.
+fn sibling_columns(rows: &[Row]) -> Vec<(usize, usize, usize)> {
+    let mut siblings: Vec<(usize, usize, usize)> = Vec::new();
+    for row in rows.iter().filter(|row| !row.changed() && row.before.opens) {
+        if let Some(list) = &row.list {
+            if !siblings
+                .iter()
+                .any(|&(key, depth, _)| (key, depth) == (row.key, row.after.depth))
+            {
+                siblings.push((row.key, row.after.depth, list.marker_column));
+            }
+        }
+    }
+    siblings
 }

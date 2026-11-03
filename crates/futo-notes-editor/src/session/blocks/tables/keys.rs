@@ -145,7 +145,7 @@ impl EditorSession {
         key: TableKey,
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<Option<TableOutcome>, EditorError> {
-        let Some((window, Some((row, column)))) = self.table_target(range) else {
+        let Some((window, (row, column))) = self.table_cell_target_counted(range, &mut 0) else {
             return Ok(None);
         };
         let rows = window.layout.rows();

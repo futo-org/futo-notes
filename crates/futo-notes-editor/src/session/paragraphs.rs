@@ -39,6 +39,9 @@ impl EditorSession {
         }
         self.validate_range(range)?;
         range = self.body_range(range)?;
+        if let Some(change) = self.pending_indent_key(range, key) {
+            return Ok(Some(change));
+        }
         if matches!(key, ParagraphKey::Tab | ParagraphKey::ShiftTab) {
             return self.fence_tab(expected, range, key == ParagraphKey::ShiftTab, accept);
         }

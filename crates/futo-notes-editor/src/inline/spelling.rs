@@ -121,18 +121,7 @@ pub(super) fn spell_with_anchors(
             link_metadata_items += candidate.reference_work.items;
             link_copied_bytes += candidate.reference_work.copied;
         }
-        let mut missing: Vec<_> = rendered
-            .spans
-            .iter()
-            .filter(|(_, expected)| {
-                !candidate.spans.iter().any(|span| {
-                    span.kind == expected.kind
-                        && span.open == expected.open
-                        && span.close == expected.close
-                })
-            })
-            .map(|(id, _)| *id)
-            .collect();
+        let mut missing: Vec<_> = missing_spans(&rendered, &candidate, &mut link_metadata_items);
         // A bare/autolink spelling is valid only while it reopens with the
         // retained destination. Editing its label can require explicit syntax.
         let mut repaired_link = false;
@@ -171,18 +160,7 @@ pub(super) fn spell_with_anchors(
             parsed += candidate.parsed_source_bytes;
             link_metadata_items += candidate.reference_work.items;
             link_copied_bytes += candidate.reference_work.copied;
-            missing = rendered
-                .spans
-                .iter()
-                .filter(|(_, expected)| {
-                    !candidate.spans.iter().any(|span| {
-                        span.kind == expected.kind
-                            && span.open == expected.open
-                            && span.close == expected.close
-                    })
-                })
-                .map(|(id, _)| *id)
-                .collect();
+            missing = missing_spans(&rendered, &candidate, &mut link_metadata_items);
         }
         if candidate.display != expected || !missing.is_empty() {
             // An entity changes CommonMark's delimiter flanking while
@@ -198,18 +176,7 @@ pub(super) fn spell_with_anchors(
             parsed += candidate.parsed_source_bytes;
             link_metadata_items += candidate.reference_work.items;
             link_copied_bytes += candidate.reference_work.copied;
-            let missing: Vec<_> = rendered
-                .spans
-                .iter()
-                .filter(|(_, expected)| {
-                    !candidate.spans.iter().any(|span| {
-                        span.kind == expected.kind
-                            && span.open == expected.open
-                            && span.close == expected.close
-                    })
-                })
-                .map(|(id, _)| *id)
-                .collect();
+            let missing: Vec<_> = missing_spans(&rendered, &candidate, &mut link_metadata_items);
             for id in missing {
                 let marker = &mut markers[id];
                 if matches!(
@@ -240,13 +207,7 @@ pub(super) fn spell_with_anchors(
             link_metadata_items += candidate.reference_work.items;
             link_copied_bytes += candidate.reference_work.copied;
             if candidate.display != expected
-                || rendered.spans.iter().any(|(_, expected)| {
-                    !candidate.spans.iter().any(|span| {
-                        span.kind == expected.kind
-                            && span.open == expected.open
-                            && span.close == expected.close
-                    })
-                })
+                || !missing_spans(&rendered, &candidate, &mut link_metadata_items).is_empty()
             {
                 return Err(EditorError::UnrepresentableFormat);
             }
@@ -471,4 +432,40 @@ fn repair_code_delimiters(pieces: &[Piece], markers: &mut [Marker]) {
             marker.close = format!("{}{delimiter}", if pad { " " } else { "" });
         }
     }
+}
+
+/// Rendered span ids the candidate parse does not reproduce with the same
+/// kind and marker ranges, in rendered order. Candidate spans are indexed by
+/// their marker ranges, so a row of many links costs spans, not their product.
+/// `work` counts each candidate span indexed and each rendered span checked.
+fn missing_spans(rendered: &render::Rendered, candidate: &Row, work: &mut usize) -> Vec<usize> {
+    *work += candidate.spans.len() + rendered.spans.len();
+    let mut found: std::collections::HashMap<_, Vec<&SpanKind>> =
+        std::collections::HashMap::with_capacity(candidate.spans.len());
+    for span in &candidate.spans {
+        found
+            .entry((
+                span.open.start,
+                span.open.end,
+                span.close.start,
+                span.close.end,
+            ))
+            .or_default()
+            .push(&span.kind);
+    }
+    rendered
+        .spans
+        .iter()
+        .filter(|(_, expected)| {
+            !found
+                .get(&(
+                    expected.open.start,
+                    expected.open.end,
+                    expected.close.start,
+                    expected.close.end,
+                ))
+                .is_some_and(|kinds| kinds.iter().any(|kind| **kind == expected.kind))
+        })
+        .map(|(id, _)| *id)
+        .collect()
 }

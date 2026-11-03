@@ -56,7 +56,9 @@ impl<I: Iterator<Item = u8>> Lines<I> {
                 }
             }
         }
-        self.line() == Some((true, true))
+        // A byte that cannot continue a fence ends the read: a long first
+        // line is not scanned on every edit.
+        self.line_until(true) == Some((true, true))
     }
 
     fn take(&mut self) -> Option<u8> {
@@ -67,6 +69,12 @@ impl<I: Iterator<Item = u8>> Lines<I> {
 
     /// (is a fence, ended by a line break); None at EOF.
     fn line(&mut self) -> Option<(bool, bool)> {
+        self.line_until(false)
+    }
+
+    /// `line`, stopping at the first byte that rules a fence out when
+    /// `fence_only` (the rest of the line then stays unread).
+    fn line_until(&mut self, fence_only: bool) -> Option<(bool, bool)> {
         self.bytes.peek()?;
         let mut dashes = Some(0u8);
         loop {
@@ -82,6 +90,9 @@ impl<I: Iterator<Item = u8>> Lines<I> {
                 Some(b'-') => dashes = dashes.filter(|count| *count < 3).map(|count| count + 1),
                 Some(b' ' | b'\t') => dashes = dashes.filter(|count| *count == 3),
                 Some(_) => dashes = None,
+            }
+            if fence_only && dashes.is_none() {
+                return Some((false, false));
             }
         }
     }
@@ -138,6 +149,7 @@ impl super::row::Row {
         };
         Self {
             continues: false,
+            mid_line: false,
             through: false,
             source_len: source.len(),
             pipes: source.contains('|'),
@@ -166,6 +178,9 @@ impl super::row::Row {
             }],
             metadata: true,
             opener: None,
+            context: None,
+            context_ends: Vec::new(),
+            tail_chain: Vec::new(),
         }
     }
 }

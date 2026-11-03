@@ -482,3 +482,29 @@ fn replacement_at_a_new_hidden_boundary_reports_the_affinity_used_for_input() {
 
 #[path = "inline/entities.rs"]
 mod entities;
+
+#[test]
+fn backspace_keeps_the_carets_carried_format() {
+    use futo_notes_editor::{InlineFormat, InputAction, ParagraphKey, SourceEdit};
+    // A keyboard's double-space period: italic text, a space, then the
+    // keyboard deletes that space and commits ". ". The italic continues.
+    let ok = &mut |_: &SourceEdit| -> Result<(), String> { Ok(()) };
+    let mut s = EditorSession::open("");
+    s.toggle_format(s.revision(), InlineFormat::Italic, ok)
+        .unwrap();
+    for typed in ["abc", " "] {
+        let at = s.selection();
+        s.replace_action(s.revision(), at, typed, InputAction::Typing, ok)
+            .unwrap();
+    }
+    let at = s.selection();
+    s.paragraph_key(s.revision(), at, ParagraphKey::Backspace, ok)
+        .unwrap();
+    assert_eq!(s.active_formats(), vec![InlineFormat::Italic]);
+    for typed in [". ", "x"] {
+        let at = s.selection();
+        s.replace_action(s.revision(), at, typed, InputAction::Typing, ok)
+            .unwrap();
+    }
+    assert_eq!(s.source_text(), "*abc. x*");
+}

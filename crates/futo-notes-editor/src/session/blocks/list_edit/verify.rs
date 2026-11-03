@@ -124,7 +124,7 @@ impl EditorSession {
             let projection = &staged.projection;
             let lines = projection.list_command_lines_in_source(&(0..staged.source.len_bytes()));
             // Lists the intent keeps apart must not merge.
-            let mut owners: Vec<(usize, usize)> = Vec::new();
+            let mut owners: Vec<((usize, usize), usize)> = Vec::new();
             let mut candidate_bodies = Vec::with_capacity(edited.len());
             for (index, row) in rows.iter().enumerate() {
                 let (line, body) = plan.starts[index];
@@ -147,13 +147,16 @@ impl EditorSession {
                     .filter(|_| row.after.opens && !row.blank)
                     .is_some_and(|list| {
                         // One intended list per parsed list, both ways.
+                        // Lists continuing from before a staged window all
+                        // start at it, so depth tells them apart.
+                        let parsed = (list.owner.start, list.depth);
                         match owners
                             .iter()
-                            .find(|(owner, key)| *owner == list.owner.start || *key == row.key)
+                            .find(|(owner, key)| *owner == parsed || *key == row.key)
                         {
-                            Some(&(owner, key)) => owner != list.owner.start || key != row.key,
+                            Some(&(owner, key)) => owner != parsed || key != row.key,
                             None => {
-                                owners.push((list.owner.start, row.key));
+                                owners.push((parsed, row.key));
                                 false
                             }
                         }

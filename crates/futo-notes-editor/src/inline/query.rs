@@ -16,8 +16,10 @@ impl Projection {
         let last = self.rows.locate(range.end.0, true);
         let mut runs: Vec<SemanticRun> = Vec::new();
         let mut correspondence: Vec<Correspondence> = Vec::new();
+        let mut format_visits = 0;
         for index in first..=last {
             let (row, source, display) = self.rows.at(index);
+            let mut sweep = super::row::FormatSweep::new(row);
             for segment in &row.segments {
                 let start = display + segment.display.start;
                 let end = display + segment.display.end;
@@ -47,7 +49,7 @@ impl Projection {
                 if start == end || start >= range.end.0 || end <= range.start.0 {
                     continue;
                 }
-                let mut formats = row.formats_at(segment.source.start);
+                let mut formats = sweep.formats_at(segment.source.start, &mut format_visits);
                 formats.sort();
                 formats.dedup();
                 let selected = DisplayRange {
@@ -66,8 +68,26 @@ impl Projection {
                 });
             }
         }
-        let blocks = self
-            .block_lines(range)
+        // The view reads no cross-row list ranges.
+        let mut lines = self.view_block_lines(range);
+        if range.start != range.end {
+            // An empty list item at the range's end (zero width, so outside
+            // the half-open overlap test) is still an item the view draws.
+            for block in self.view_block_lines(DisplayRange {
+                start: range.end,
+                end: range.end,
+            }) {
+                let at = self.display_at(block.content.start);
+                if block.list.is_some()
+                    && at == range.end.0
+                    && self.display_at(block.content.end) == at
+                    && !lines.iter().any(|line| line.content == block.content)
+                {
+                    lines.push(block);
+                }
+            }
+        }
+        let blocks = lines
             .into_iter()
             .map(|block| crate::BlockDescription {
                 range: DisplayRange {
@@ -89,6 +109,7 @@ impl Projection {
             })
             .collect();
         let (links, mut work) = self.link_descriptions_with_work(range);
+        work.items += format_visits;
         let (wikilinks, wikilink_items) = self.wikilink_descriptions(range);
         work.items += wikilink_items;
         let atoms = self.atom_descriptions(range);
