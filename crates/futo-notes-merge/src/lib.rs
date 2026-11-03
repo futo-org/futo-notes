@@ -74,6 +74,22 @@ mod tests {
     }
 
     #[test]
+    fn repeated_tokens_do_not_hide_same_position_insertion_ambiguity() {
+        for base in ["word word word", "猫 猫 猫", "\u{85} word\u{205f}word\r\n"] {
+            let remote = format!("REMOTE {base}");
+            let local = format!("LOCAL {base}");
+            assert_eq!(
+                three_way_merge(base, &remote, &local),
+                MergeResult::Conflict
+            );
+            assert_eq!(
+                three_way_merge(base, &local, &remote),
+                MergeResult::Conflict
+            );
+        }
+    }
+
+    #[test]
     fn non_overlapping_edits_merge_cleanly() {
         let base = "line 1\nline 2\nline 3\nline 4\nline 5\n";
         let ours = "LINE ONE\nline 2\nline 3\nline 4\nline 5\n";
