@@ -39,7 +39,8 @@ internal class TextFirstController(
     var opened by mutableStateOf(false); private set
     var openFailure by mutableStateOf<Throwable?>(null); private set
     /** Whether navigation can proceed without an attached editor save. */
-    val canNavigateWithoutSaving: Boolean get() = !opened
+    private var released = false
+    val canNavigateWithoutSaving: Boolean get() = openFailure != null || released
     var caret by mutableStateOf(CaretState.Empty); private set
     /** Edits not yet saved as Markdown. */
     var dirty by mutableStateOf(false); private set
@@ -74,6 +75,7 @@ internal class TextFirstController(
     fun open(noteId: String, onOpened: (Throwable?) -> Unit = {}) {
         check(engine == null) { "already open" }
         opened = false
+        released = false
         openFailure = null
         val ready = CompletableDeferred<Unit>()
         opening = ready
@@ -177,6 +179,7 @@ internal class TextFirstController(
         latencyFlush.run()
         engine = null
         view.engine = null
+        released = true
         opened = false
     }
 

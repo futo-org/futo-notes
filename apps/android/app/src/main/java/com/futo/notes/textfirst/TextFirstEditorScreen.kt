@@ -68,6 +68,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -267,6 +268,9 @@ internal fun TextFirstEditorScreen(
         pendingNavigation = navigate
         leaving = true
         return scope.launch {
+            // The title field can accept input before the session finishes opening.
+            snapshotFlow { controller.opened || controller.openFailure != null }.first { it }
+            if (controller.openFailure != null) return@launch
             work.withLock {
                 val untouched = autoFocus && noteId == initialNoteId && controller.isEmpty && !controller.dirty &&
                     titleField.text == splitId(initialNoteId).title && pendingImages == 0
