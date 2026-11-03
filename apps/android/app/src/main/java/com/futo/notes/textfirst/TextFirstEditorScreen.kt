@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -26,7 +25,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
@@ -41,6 +39,7 @@ import com.futo.notes.ImagePicker
 import com.futo.notes.NoteMutationOutcome
 import com.futo.notes.NoteShare
 import com.futo.notes.NotesStore
+import com.futo.notes.puppet.PuppetOpenNote
 import com.futo.notes.R
 import com.futo.notes.awaitEditorLeaves
 import com.futo.notes.claimDraftOwnership
@@ -53,7 +52,6 @@ import com.futo.notes.releaseDraftOwnership
 import com.futo.notes.rename
 import com.futo.notes.saveImageIntoVault
 import com.futo.notes.ui.EditorToolbar
-import com.futo.notes.ui.NoteTitleField
 import com.futo.notes.ui.TitleFieldState
 import com.futo.notes.ui.ToolbarItemAction
 import com.futo.notes.ui.affectsOpenNote
@@ -65,12 +63,12 @@ import com.futo.notes.ui.isPlaceholderTitle
 import com.futo.notes.ui.showToast
 import com.futo.notes.ui.theme.FutoPalette
 import com.futo.notes.ui.theme.FutoTheme
-import com.futo.notes.ui.theme.FutoType
 import com.futo.notes.ui.titleValidationMessage
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -90,17 +88,18 @@ import uniffi.futo_notes_ffi.validateTitle
  * workflows, which retarget or end the live attachment themselves.
  *
  * Not here yet (later stages): find, links/wikilink completion, tables,
- * front-matter panel, Copy Draft after a storage failure.
+ * front-matter panel.
  */
 @OptIn(ExperimentalLayoutApi::class, FlowPreview::class)
 @Composable
-fun TextFirstEditorScreen(
+internal fun TextFirstEditorScreen(
     store: NotesStore,
     initialNoteId: String,
     autoFocus: Boolean,
     darkTheme: Boolean,
     onBack: () -> Unit,
     imagePicker: ImagePicker? = null,
+    registerLeave: (((() -> Unit) -> Unit) -> (() -> Unit)),
 ) {
     val c = FutoTheme.colors
     val localization = LocalLocalization.current
@@ -113,6 +112,9 @@ fun TextFirstEditorScreen(
     val titleField = remember(initialNoteId) { TitleFieldState(splitId(initialNoteId).title) }
     var titleWarning by remember(initialNoteId) { mutableStateOf<LocalizedMessage?>(null) }
     var leaving by remember(initialNoteId) { mutableStateOf(false) }
+    var saveFailed by remember(initialNoteId) { mutableStateOf(false) }
+    var confirmDiscard by remember(initialNoteId) { mutableStateOf(false) }
+    var pendingNavigation by remember(initialNoteId) { mutableStateOf<(() -> Unit)?>(null) }
     var confirmDelete by remember { mutableStateOf(false) }
     var showMoveSheet by remember { mutableStateOf(false) }
     var pendingImages by remember(initialNoteId) { mutableStateOf(0) }
@@ -154,6 +156,7 @@ fun TextFirstEditorScreen(
     }
 
     controller.onCheckpointed = { result, finalId ->
+        saveFailed = false
         result.mutation?.let {
             store.applyMutation(it)
             store.signalLocalChange()
@@ -167,11 +170,7 @@ fun TextFirstEditorScreen(
             if (!titleField.isFocused) titleField.commit(splitId(finalId).title)
         }
     }
-    // A failed save keeps the draft in the engine and input running; the Store
-    // retries it. The Copy Draft screen comes in stage 3.
-    controller.onFailure = {
-        showToast(context, localization.localizedText("notes.save.failedPending"))
-    }
+    controller.onFailure = { saveFailed = true }
 
     // Open after any leave of this same note has released its attachment.
     LaunchedEffect(initialNoteId) {
@@ -264,34 +263,57 @@ fun TextFirstEditorScreen(
         }
     }
 
-    fun leave(navigate: () -> Unit) {
-        if (leaving) return
+    fun leave(navigate: () -> Unit): kotlinx.coroutines.Job? {
+        if (leaving) return null
+        pendingNavigation = navigate
         leaving = true
-        controller.view.hideKeyboard()
-        scope.launch {
-            work.withLock { renameTo(titleField.text) }
-            navigate()
-        }
-    }
-
-    // Leaving: save and detach on the store's scope, which outlives this
-    // screen; reopening the note waits for it (awaitEditorLeaves). An untouched
-    // quick-capture note is discarded, as in the WebView editor.
-    DisposableEffect(initialNoteId) {
-        onDispose {
-            val id = noteId
-            val untouched = autoFocus && id == initialNoteId && controller.isEmpty && !controller.dirty &&
-                titleField.text == splitId(initialNoteId).title && pendingImages == 0
-            store.launchEditorLeave {
-                controller.close()
-                if (untouched) store.delete(id, ownerToken = ownerToken)
-                controller.dispose()
-                store.releaseDraftOwnership(ownerToken)
+        return scope.launch {
+            // The title field can accept input before the session finishes opening.
+            snapshotFlow { controller.opened || controller.openFailure != null }.first { it }
+            if (controller.openFailure != null) return@launch
+            work.withLock {
+                val untouched = autoFocus && noteId == initialNoteId && controller.isEmpty && !controller.dirty &&
+                    titleField.text == splitId(initialNoteId).title && pendingImages == 0
+                if (!renameTo(titleField.text) || controller.close() == null) {
+                    leaving = false
+                    saveFailed = true
+                    return@withLock
+                }
+                if (untouched) store.delete(noteId, ownerToken = ownerToken)
+                pendingNavigation = null
+                navigate()
             }
         }
     }
 
-    BackHandler { leave(onBack) }
+    DisposableEffect(controller) {
+        val unregister = registerLeave { navigate ->
+            if (controller.canNavigateWithoutSaving) navigate() else leave(navigate)
+        }
+        onDispose { unregister() }
+    }
+
+    // Lifecycle disposal is a fallback; ordinary navigation has already saved
+    // before it can remove the screen. A failed fallback retains the session.
+    DisposableEffect(initialNoteId) {
+        onDispose {
+            store.launchEditorLeave {
+                val saved = controller.close()
+                if (saved != null || !controller.opened) {
+                    controller.dispose()
+                    store.releaseDraftOwnership(ownerToken)
+                }
+            }
+        }
+    }
+
+    BackHandler { onBack() }
+
+    suspend fun retrySave() {
+        val navigate = pendingNavigation
+        if (navigate != null) leave(navigate)?.join()
+        else controller.checkpoint()
+    }
 
     fun pickImage(source: String) {
         val handle: (List<Uri>) -> Unit = { uris ->
@@ -364,11 +386,12 @@ fun TextFirstEditorScreen(
         return moved
     }
 
+    PuppetOpenNote(noteId, controller.opened)
     Scaffold(
         containerColor = c.surface,
         topBar = {
             TextFirstTopBar(
-                onBack = { leave(onBack) },
+                onBack = onBack,
                 onShare = {
                     scope.launch {
                         val body = controller.sourceText() ?: return@launch
@@ -389,23 +412,18 @@ fun TextFirstEditorScreen(
         Column(
             modifier = Modifier.padding(padding).consumeWindowInsets(padding).fillMaxSize().imePadding(),
         ) {
-            NoteTitleField(
-                enabled = !leaving,
-                state = titleField.textState,
-                placeholder = localization.localizedText("notes.untitledPlaceholder"),
+            TextFirstTitle(
+                titleField, titleWarning, enabled = !leaving,
+                verbsEnabled = !leaving && controller.opened,
+                onCommit = { work.withLock { renameTo(titleField.text) } },
                 onReturn = { controller.view.showKeyboard() },
-                onTyped = { title, forbidden ->
-                    if (forbidden) titleWarning = LocalizedMessage("notes.title.forbiddenCharacter") else showTitleValidation(title)
-                },
-                modifier = Modifier.fillMaxWidth().padding(start = 22.dp, end = 22.dp, top = 4.dp)
-                    .onFocusChanged { focus -> titleField.focusChanged(focus.isFocused) },
-            )
-            titleWarning?.let { warning ->
-                Text(
-                    localization.localizedText(warning.path, warning.arguments),
-                    style = FutoType.caption,
-                    color = c.danger,
-                    modifier = Modifier.fillMaxWidth().padding(start = 22.dp, end = 22.dp, top = 2.dp),
+            ) { title, forbidden ->
+                if (forbidden) titleWarning = LocalizedMessage("notes.title.forbiddenCharacter") else showTitleValidation(title)
+            }
+            if (saveFailed) {
+                TextFirstSaveError(
+                    onRetry = ::retrySave,
+                    onDiscard = { confirmDiscard = true },
                 )
             }
             Spacer(Modifier.size(4.dp))
@@ -414,6 +432,25 @@ fun TextFirstEditorScreen(
             }
             TextFirstToolbarSlot(controller, onPickImage = ::pickImage)
         }
+    }
+
+    if (confirmDiscard) {
+        ConfirmDialog(
+            title = localization.localizedText("notes.save.discardQuestion"),
+            body = localization.localizedText("notes.save.discardWarning"),
+            confirmLabelKey = "notes.save.discard",
+            onConfirm = {
+                work.withLock {
+                    leaving = true
+                    controller.discard()
+                    confirmDiscard = false
+                    val navigate = pendingNavigation
+                    pendingNavigation = null
+                    if (navigate != null) navigate() else onBack()
+                }
+            },
+            onDismiss = { confirmDiscard = false },
+        )
     }
 
     if (confirmDelete) {

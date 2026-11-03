@@ -31,4 +31,22 @@ class AppNavigatorTest {
 
         assertEquals(Screen.Settings, navigator.currentScreen)
     }
+    @Test
+    fun `editor navigation waits for its successful leave`() {
+        val navigator = navigator()
+        navigator.openNote("draft")
+        val editor = navigator.currentScreen as Screen.Editor
+        var commit: (() -> Unit)? = null
+        val unregister = navigator.registerEditorLeave(editor) { commit = it }
+        navigator.goBack()
+        assertEquals(editor, navigator.currentScreen)
+        // A failed save simply keeps the commit uncalled, so another ordinary
+        // navigation request must pass through the same attached editor.
+        navigator.openSettings()
+        assertEquals(editor, navigator.currentScreen)
+        commit!!()
+        assertEquals(Screen.Settings, navigator.currentScreen)
+        unregister()
+    }
+
 }
