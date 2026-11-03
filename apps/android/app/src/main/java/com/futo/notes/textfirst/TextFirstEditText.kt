@@ -34,6 +34,8 @@ internal class TextFirstEditText(
     private val images: ImageLoader,
 ) : AppCompatEditText(context), EngineInputConnection.ViewSide {
     var engine: EditorEngine? = null
+    var onOpenWikilink: ((String) -> Unit)? = null
+    private val wikilinkTouch = WikilinkTouch(this) { onOpenWikilink?.invoke(it) }
     /** The first draw after a keyed update, with where that key's time went. */
     var onFrameDrawn: ((KeyTimings) -> Unit)? = null
 
@@ -41,7 +43,9 @@ internal class TextFirstEditText(
     private var appliedSeq = 0
     private var pendingTimings: KeyTimings? = null
     private var checkboxDown = -1
-    private val spans = TfSpanFactory(style) { contentWidth() }
+    private val spans = TfSpanFactory(style, { contentWidth() }) { span ->
+        wikilinkContentWidth(this, span, contentWidth())
+    }
     /** The composing underline this view set; the only SPAN_COMPOSING span it owns. */
     private var composing: Any? = null
 
@@ -242,7 +246,7 @@ internal class TextFirstEditText(
         applying = true
         try {
             for (atom in e.getSpans(0, e.length, TfAtom::class.java)) {
-                if (atom !is TfImage && atom !is TfDivider) continue
+                if (atom !is TfImage && atom !is TfDivider && atom !is TfWikilink) continue
                 e.setSpan(atom, e.getSpanStart(atom), e.getSpanEnd(atom), e.getSpanFlags(atom))
             }
         } finally {
@@ -282,6 +286,7 @@ internal class TextFirstEditText(
 
     @SuppressLint("ClickableViewAccessibility")
     override fun onTouchEvent(event: MotionEvent): Boolean {
+        if (wikilinkTouch.onTouch(event)) return true
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 checkboxDown = checkboxAt(event.x, event.y)

@@ -96,6 +96,7 @@ internal fun TextFirstEditorScreen(
     autoFocus: Boolean,
     darkTheme: Boolean,
     onBack: () -> Unit,
+    onOpenNote: (String) -> Unit,
     imagePicker: ImagePicker? = null,
     registerLeave: (((() -> Unit) -> Unit) -> (() -> Unit)),
 ) {
@@ -409,7 +410,10 @@ internal fun TextFirstEditorScreen(
             Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
                 AndroidView(factory = { controller.view }, modifier = Modifier.fillMaxSize()
                     .nativeEditorField(controller),
-                    update = { it.isEnabled = !images.recovering && !leaving })
+                    update = {
+                        it.isEnabled = !images.recovering && !leaving
+                        it.onOpenWikilink = { target -> if (target != noteId) onOpenNote(target) }
+                    })
             }
             if (!leaving && !images.recovering) TextFirstCompletions(controller)
             TextFirstToolbarSlot(controller, onPickImage = images.pick)
