@@ -40,12 +40,15 @@ impl LocalNoteStore {
                 .map(|id| FileChange::Changed(note_filename(id))),
         );
         self.before_write.before_write(&changes);
+        let transaction = crate::rename_journal::prepare_locked(&self.root, &mappings)?;
         move_files_with_rollback(&self.root, &mappings)?;
         // Folder moves also arrive here; only a title change counts as an edit.
         if split_id(old_id).1 != split_id(&final_id).1 {
             self.stamp_note(&final_id, None)?;
         }
-        Ok(self.finish_mappings(mappings, relinks, Some(final_id)))
+        let result = self.finish_mappings(mappings, relinks, Some(final_id));
+        crate::rename_journal::commit_locked(&self.root, transaction)?;
+        Ok(result)
     }
 
     pub(crate) fn finish_mappings(

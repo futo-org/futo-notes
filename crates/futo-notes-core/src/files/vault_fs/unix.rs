@@ -23,6 +23,7 @@ mod writes;
 pub(super) use directories::{clear, create_dir, exists, remove_dir, set_mtime_ms, sync_parent};
 pub(super) use no_replace::{
     create_new, create_new_strict, move_no_replace, move_no_replace_strict, rename_case,
+    link_no_replace_strict, same_file,
 };
 pub(super) use writes::{
     create_dir_all, remove, remove_local, rename, rename_local, write_atomic, write_atomic_local,

@@ -267,3 +267,23 @@ pub(super) fn remove_local(root: &Path, relative: &str) -> Result<bool, String> 
 pub(super) fn rename_local(root: &Path, source: &str, destination: &str) -> Result<bool, String> {
     rename(root, source, destination)
 }
+
+pub(super) fn link_no_replace_strict(root: &Path, source: &str, destination: &str) -> Result<bool, String> {
+    let from = checked_path(root, source, false).map_err(OpenParentError::message)?;
+    let to = checked_path(root, destination, true).map_err(OpenParentError::message)?;
+    match std::fs::hard_link(from, to) {
+        Ok(()) => { sync_parent(root, destination)?; Ok(true) }
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => Ok(false),
+        Err(error) => Err(error.to_string()),
+    }
+}
+
+pub(super) fn same_file(root: &Path, left: &str, right: &str) -> Result<bool, String> {
+    let Some(left) = resolve_or_absent(root, left, false)? else { return Ok(false); };
+    let Some(right) = resolve_or_absent(root, right, false)? else { return Ok(false); };
+    match same_file::is_same_file(left, right) {
+        Ok(same) => Ok(same),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(error.to_string()),
+    }
+}

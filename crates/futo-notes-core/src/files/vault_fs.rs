@@ -293,3 +293,14 @@ pub fn remove_local(root: &Path, relative: &str) -> Result<bool, String> {
 pub fn rename_local(root: &Path, source: &str, destination: &str) -> Result<bool, String> {
     platform::rename_local(root, source, destination)
 }
+
+/// Retain a transaction-owned witness without consuming the source. No copy
+/// fallback: recovery needs physical identity, never content equality.
+pub fn link_no_replace_strict(root: &Path, source: &str, destination: &str) -> Result<bool, String> {
+    platform::link_no_replace_strict(root, source, destination)
+}
+
+/// Compare the entries themselves after validating both vault-relative paths.
+pub fn same_file(root: &Path, left: &str, right: &str) -> Result<bool, String> {
+    platform::same_file(root, left, right)
+}

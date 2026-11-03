@@ -67,6 +67,7 @@ impl LocalNoteStore {
     fn prepare_bootstrap(&self) -> Result<(u32, Vec<String>), String> {
         let _vault_mutation = vault_mutation_guard()?;
         fs::create_dir_all(&self.root).map_err(io_error)?;
+        crate::rename_journal::recover_locked(&self.root)?;
         let (recovered_backups, mut warnings) =
             futo_notes_core::files::recover_parked_backups_locked(&self.root);
         for recovered in recovered_backups {
