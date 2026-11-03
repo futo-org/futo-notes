@@ -39,7 +39,17 @@ impl Attachment {
         let source = self.engine.source_text();
         // An unanswered relink offer means nothing was edited since the store
         // rewrote links under this still-unrewritten draft: nothing to save.
-        if source == self.base || self.relink_offer.is_some() {
+        // Native clean attachments still reconcile an existing outside source
+        // through history-aware adoption. A missing clean note has no draft
+        // to persist: never feed it to the edit-wins recreate arm.
+        let unchanged = source == self.base
+            && (self.portable
+                || self.relink_offer.is_some()
+                || store
+                    .read_existing(&self.id)
+                    .map_err(EditorStoreError::Checkpoint)?
+                    .is_none_or(|disk| disk == self.base));
+        if unchanged || self.relink_offer.is_some() {
             self.mark_saved();
             return Ok(FlushDraftResult {
                 disposition: FlushDisposition::Converged,
