@@ -428,7 +428,7 @@ internal fun TextFirstEditorScreen(
             }
             Spacer(Modifier.size(4.dp))
             Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                AndroidView(factory = { controller.view }, modifier = Modifier.fillMaxSize())
+                AndroidView(factory = { controller.view }, modifier = Modifier.fillMaxSize().nativeEditorField(controller))
             }
             TextFirstToolbarSlot(controller, onPickImage = ::pickImage)
         }
