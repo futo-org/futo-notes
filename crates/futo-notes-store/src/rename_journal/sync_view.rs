@@ -80,8 +80,9 @@ pub struct RenameChain {
     pub head: u64,
     pub intents: Vec<IntentKey>,
     pub object_id: Option<String>,
-    /// The origin name had already been moved away from: this file was
-    /// created there afterwards and owns nothing a checkpoint recorded there.
+    /// The origin name had already been moved away from (or the moved file
+    /// deleted there): this file was created there afterwards and owns
+    /// nothing a checkpoint recorded there.
     pub fresh: bool,
 }
 
@@ -116,6 +117,11 @@ fn chains(intents: Vec<RenameIntent>) -> Vec<RenameChain> {
         }
         let key = (intent.transaction, intent.from.clone());
         let fresh = !vacated.insert(intent.from.clone());
+        if intent.ended {
+            // The moved file was deleted there: a later file at that name is
+            // new, even where a checkpoint already maps the name.
+            vacated.insert(intent.to.clone());
+        }
         let current = (!intent.ended).then_some(intent.to);
         if let Some(index) = extends {
             let chain = &mut chains[index];

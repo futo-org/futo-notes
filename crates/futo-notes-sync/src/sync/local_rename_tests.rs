@@ -538,3 +538,51 @@ async fn deleting_the_moved_note_never_hands_its_object_to_a_newcomer_from_its_o
     assert_eq!(server.requests(Route::UpdateObject), 0);
     assert!(intents(root.path()).is_empty());
 }
+
+#[tokio::test]
+async fn a_newcomer_renamed_away_from_a_deleted_bound_destination_gets_its_own_object() {
+    let root = TempRoot::new();
+    let server = FaultServer::new()
+        .note(&KEY, "obj-a", 1, "a.md", "A")
+        .fail(Route::UpdateObject, When::Nth(1), Fault::Status(500))
+        .start();
+    let state = synced_notes(root.path(), &server.base_url, &[("a.md", "obj-a", "A")]);
+    let store = LocalNoteStore::new(root.path().to_owned());
+    store.rename("a", "b").unwrap();
+    let journal = SyncRunJournal::disabled();
+    let (_, after_failure) = cycle(&state, root.path(), &no_progress, &no_pre_write, &journal)
+        .await
+        .unwrap();
+    assert_eq!(
+        object_at(&after_failure, "b.md"),
+        Some("obj-a"),
+        "bound and rekeyed"
+    );
+    store.delete("b").unwrap();
+    store.write("b", "unrelated", None).unwrap();
+    store.rename("b", "c").unwrap();
+
+    let (summary, after) = cycle(
+        &after_failure,
+        root.path(),
+        &no_progress,
+        &no_pre_write,
+        &journal,
+    )
+    .await
+    .unwrap();
+
+    assert!(summary.failures.is_empty(), "{summary:?}");
+    assert!(
+        object_at(&after, "c.md").is_some_and(|id| id != "obj-a"),
+        "{:?}",
+        after.object_map
+    );
+    assert_eq!(server.requests(Route::DeleteObject), 1, "obj-a is deleted");
+    assert_eq!(
+        server.requests(Route::UpdateObject),
+        1,
+        "only the failed PUT"
+    );
+    assert!(intents(root.path()).is_empty());
+}
