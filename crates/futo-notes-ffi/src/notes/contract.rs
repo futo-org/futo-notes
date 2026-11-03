@@ -270,6 +270,21 @@ impl From<store::FlushDraftResult> for FlushDraftResult {
     }
 }
 
+/// Opt-in merge consumers adopt `source`, retaining their local history.
+#[derive(uniffi::Record)]
+pub struct MergedDraftResult {
+    pub source: String,
+    pub flush: FlushDraftResult,
+}
+impl From<store::MergedDraftResult> for MergedDraftResult {
+    fn from(result: store::MergedDraftResult) -> Self {
+        Self {
+            source: result.source,
+            flush: result.flush.into(),
+        }
+    }
+}
+
 #[derive(uniffi::Record)]
 pub struct SearchHit {
     pub note_id: String,
