@@ -308,6 +308,13 @@ impl EditorSession {
                     .collect()
             })
             .collect();
+        let line_range = |line: &table::Line| {
+            self.display_range(window.base + line.start..window.base + line.end)
+        };
+        let row_lines = (0..layout.rows())
+            .map(|row| line_range(layout.row_line(row)))
+            .collect();
+        let delimiter_line = Some(line_range(&layout.lines[1]));
         let first = window.base + layout.lines[0].start;
         let last = window.base + layout.lines.last().unwrap().end;
         Ok(Some(TableDescription {
@@ -321,6 +328,8 @@ impl EditorSession {
             rows,
             focus: focus.map(|(row, column)| TableFocus { row, column }),
             controls: focus.map(|(row, _)| -> TableControls { layout.controls(row) }),
+            row_lines,
+            delimiter_line,
         }))
     }
 

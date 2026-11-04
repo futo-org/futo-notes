@@ -227,7 +227,7 @@ internal class TextFirstEditText(
         val e = editableText ?: return
         for (span in e.getSpans(0, e.length, TfImage::class.java)) {
             if (span.bitmap != null || span.failed) continue
-            images.load(span.destination, span.vault, contentWidth()) { bitmap ->
+            images.load(span.destination, span.vault, span.remote, contentWidth()) { bitmap ->
                 val current = editableText
                 val s = current.getSpanStart(span)
                 if (s < 0) return@load

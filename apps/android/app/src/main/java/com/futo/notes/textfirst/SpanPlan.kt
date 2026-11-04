@@ -21,7 +21,7 @@ internal sealed class SpanSpec(val start: Int, val end: Int) {
     class Link(start: Int, end: Int, val destination: String) : SpanSpec(start, end)
     class Wikilink(start: Int, end: Int, val label: String, val noteId: String?) : SpanSpec(start, end)
     class Divider(start: Int, end: Int) : SpanSpec(start, end)
-    class Image(start: Int, end: Int, val destination: String, val alt: String, val vault: Boolean) : SpanSpec(start, end)
+    class Image(start: Int, end: Int, val destination: String, val alt: String, val vault: Boolean, val remote: Boolean) : SpanSpec(start, end)
     /** An empty display line (layout only: no Markdown meaning). */
     class TableRow(start: Int, end: Int, val row: GridRow) : SpanSpec(start, end)
     class TableDelimiter(start: Int, end: Int) : SpanSpec(start, end)
@@ -141,7 +141,7 @@ internal fun planSpans(p: EditorProjection, startUtf16: Int, outside: (Int) -> I
         val s = u(a.range.start); val e = u(a.range.end)
         when (a.kind) {
             EditorAtomKind.DIVIDER -> out.add(SpanSpec.Divider(s, e))
-            EditorAtomKind.IMAGE -> a.image?.let { out.add(SpanSpec.Image(s, e, it.destination, it.alt, it.vault)) }
+            EditorAtomKind.IMAGE -> a.image?.let { out.add(SpanSpec.Image(s, e, it.destination, it.alt, it.vault, it.remote)) }
         }
     }
     return splitAtLines(out, p.text, startUtf16)

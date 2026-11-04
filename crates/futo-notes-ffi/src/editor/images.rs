@@ -16,6 +16,8 @@ pub struct EditorImageDescription {
     pub title: Option<String>,
     pub reference: Option<String>,
     pub vault: bool,
+    /// An `http(s)` destination the shell may fetch for display.
+    pub remote: bool,
 }
 
 /// A non-text atom: draw it as one unit with caret stops only at `before` and
@@ -40,6 +42,7 @@ impl From<editor::AtomDescription> for EditorAtomDescription {
             before: value.before.0 as u64,
             after: value.after.0 as u64,
             image: value.image.map(|image| EditorImageDescription {
+                remote: futo_notes_core::image::is_http_image_source(&image.destination),
                 alt: image.alt,
                 destination: image.destination,
                 title: image.title,

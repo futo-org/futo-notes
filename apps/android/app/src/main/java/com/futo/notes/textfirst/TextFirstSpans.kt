@@ -291,6 +291,7 @@ internal class TfImage(
     val destination: String,
     val alt: String,
     val vault: Boolean,
+    val remote: Boolean,
     private val maxWidth: () -> Int,
 ) : ReplacementSpan(), TfAtom {
     @Volatile var bitmap: Bitmap? = null
