@@ -30,11 +30,8 @@ impl EditorSession {
         } else {
             String::new()
         };
-        let separator = if line.quote_depth > 0 && line.heading == 0 {
-            format!("{}\n", continuation.trim_end())
-        } else {
-            String::new()
-        };
+        // A quote continues a line at a time: no blank `>` separator.
+        let separator = String::new();
         let setext = line.underline.is_some();
         let left = body.left.as_str();
         // A setext underline must immediately follow nonempty body text. Move

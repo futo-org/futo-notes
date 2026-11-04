@@ -216,6 +216,42 @@ impl EditorSession {
                         .map(Some);
                 }
             }
+            // A quoted line directly under another (Enter continues a quote a
+            // line at a time) is dropped and the caret leaves one level.
+            let previous = DisplayOffset(
+                self.projection
+                    .display_at(self.source.line_to_byte(index.saturating_sub(1))),
+            );
+            if index > 0
+                && self
+                    .projection
+                    .block_lines(DisplayRange {
+                        start: previous,
+                        end: previous,
+                    })
+                    .first()
+                    .is_some_and(|above| {
+                        !above.content.is_empty()
+                            && above.quote_depth == line.quote_depth
+                            && above.heading == 0
+                            && !above.divider
+                            && !above.code
+                    })
+            {
+                let quote = "> ".repeat(line.quote_depth - 1);
+                let output = format!("{}\n{quote}", quote.trim_end());
+                let caret = line.source.start + output.len();
+                return self
+                    .commit_block_key(
+                        expected,
+                        range,
+                        line.source.start..line.content.end,
+                        &output,
+                        caret,
+                        accept,
+                    )
+                    .map(Some);
+            }
             return self.block_command(expected, range, BlockCommand::Outdent, accept);
         }
         if at_start
@@ -232,42 +268,6 @@ impl EditorSession {
                     accept,
                 )
                 .map(Some);
-        }
-        if at_start && line.quote_depth > 0 {
-            let index = self.source.byte_to_line(line.source.start);
-            if index > 0 {
-                let previous = DisplayOffset(
-                    self.projection
-                        .display_at(self.source.line_to_byte(index - 1)),
-                );
-                if self
-                    .projection
-                    .block_lines(DisplayRange {
-                        start: previous,
-                        end: previous,
-                    })
-                    .first()
-                    .is_some_and(|previous| {
-                        !previous.content.is_empty()
-                            && previous.quote_depth == line.quote_depth
-                            && previous.heading == 0
-                            && !previous.divider
-                            && !previous.code
-                    })
-                {
-                    let separator = format!("{}\n", "> ".repeat(line.quote_depth).trim_end());
-                    return self
-                        .commit_block_key(
-                            expected,
-                            range,
-                            line.source.start..line.source.start,
-                            &separator,
-                            line.content.start + separator.len(),
-                            accept,
-                        )
-                        .map(Some);
-                }
-            }
         }
         if line.divider {
             let at = line.content.end;
