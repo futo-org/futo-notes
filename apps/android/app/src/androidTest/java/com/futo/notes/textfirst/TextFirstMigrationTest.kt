@@ -109,6 +109,54 @@ class TextFirstMigrationTest {
         }
     }
 
+    /** Ordinary vault work (a sync cycle) merely holding the gate is not a failed save. */
+    @Test fun closeWaitsOutOrdinaryVaultWorkInsteadOfReportingASaveFailure(): Unit = runBlocking {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val scratch = File(context.cacheDir, "native-close-busy-${UUID.randomUUID()}").apply { check(mkdirs()) }
+        val root = File(scratch, "source").apply { check(mkdirs()) }
+        File(root, "draft.md").writeText("before")
+        lateinit var store: NotesStore
+        lateinit var controller: TextFirstController
+        compose.runOnUiThread { store = NotesStore(root, File(scratch, "index")) }
+        compose.waitUntil(15_000) { store.hasBootstrapped }
+        val font = Typeface.DEFAULT
+        withContext(Dispatchers.Main) {
+            controller = TextFirstController(compose.activity, { store.core }, root,
+                TextFirstStyle(1f, 17f, font, font, font, font,
+                    Color.BLACK, Color.GRAY, Color.BLUE, Color.GRAY, Color.WHITE, Color.WHITE), store)
+            compose.activity.setContentView(controller.view)
+            suspendCancellableCoroutine<Unit> { done -> controller.open("draft") { assertNull(it); done.resume(Unit) } }
+        }
+        val held = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val busy = async {
+            store.saveImageIntoVault(
+                save = { vault -> File(vault, "busy.png").writeBytes(byteArrayOf(1)); "busy.png" },
+                useSavedImage = { held.complete(Unit); release.await() },
+            )
+        }
+        try {
+            withContext(Dispatchers.Main) {
+                val input = checkNotNull(controller.view.onCreateInputConnection(EditorInfo()))
+                suspendCancellableCoroutine<Unit> { done -> input.handler!!.post { input.commitText("accepted ", 1); done.resume(Unit) } }
+            }
+            held.await()
+            val closing = async(Dispatchers.Main) { controller.close() }
+            kotlinx.coroutines.delay(400)
+            assertFalse("close waits for the gate rather than failing", closing.isCompleted)
+            release.complete(Unit)
+            busy.await()
+            assertNotNull("close succeeds once the gate frees", closing.await())
+            assertEquals("accepted before", File(root, "draft.md").readText())
+        } finally {
+            release.complete(Unit)
+            busy.await()
+            withContext(Dispatchers.Main) { controller.dispose() }
+            store.core.destroy()
+            scratch.deleteRecursively()
+        }
+    }
+
     @Test fun checkpointAndDetachDuringMigrationRetainTheDraftUntilRetry() = runBlocking {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val scratch = File(context.cacheDir, "native-close-migration-${UUID.randomUUID()}").apply { check(mkdirs()) }

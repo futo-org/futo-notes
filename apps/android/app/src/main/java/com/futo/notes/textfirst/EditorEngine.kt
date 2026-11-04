@@ -6,6 +6,7 @@ import android.os.Looper
 import android.os.Process
 import android.os.SystemClock
 import android.util.Log
+import com.futo.notes.storage.GateAccess
 import com.futo.notes.storage.StorageMigrationGate
 import uniffi.futo_notes_ffi.EditorBlockCommand
 import uniffi.futo_notes_ffi.EditorByteRange
@@ -195,27 +196,37 @@ internal class EditorEngine(
         ui.post { done(source) }
     }
 
-    /** Save before releasing. A failed detach leaves the exact session editable and retryable. */
-    fun close(done: ((FlushDraftResult?) -> Unit)? = null) = handler.post {
-        if (closed) { if (done != null) ui.post { done(null) }; return@post }
-        var result: FlushDraftResult? = null
-        storageAccess {
-            var failed = false
-            try {
-                if (mirror.overlay != null) commitComposition(null)
-                val attachedId = session?.noteId() ?: noteId
-                result = session?.detach()?.also { saved ->
-                    ui.post { sink.onCheckpoint(saved, saved.mutation?.finalId ?: attachedId) }
+    /** Save before releasing. A failed detach leaves the exact session editable and retryable.
+     * Ordinary vault work (a sync cycle) holding the gate is waited out, off the editor thread
+     * and for a bounded time; only migration or a real save failure reports null. */
+    fun close(done: ((FlushDraftResult?) -> Unit)? = null) =
+        closeWhenAdmitted(done, SystemClock.uptimeMillis() + CLOSE_BUSY_LIMIT_MS)
+
+    private fun closeWhenAdmitted(done: ((FlushDraftResult?) -> Unit)?, deadline: Long) {
+        handler.post {
+            if (closed) { if (done != null) ui.post { done(null) }; return@post }
+            var result: FlushDraftResult? = null
+            val access = storageAccess {
+                var failed = false
+                try {
+                    if (mirror.overlay != null) commitComposition(null)
+                    val attachedId = session?.noteId() ?: noteId
+                    result = session?.detach()?.also { saved ->
+                        ui.post { sink.onCheckpoint(saved, saved.mutation?.finalId ?: attachedId) }
+                    }
+                } catch (e: EditorSessionException) {
+                    failed = true
+                    Log.w(TAG, "save on close failed; retaining draft", e)
+                    handleFailure(e)
+                    drainAfterCheckpoint()
                 }
-            } catch (e: EditorSessionException) {
-                failed = true
-                Log.w(TAG, "save on close failed; retaining draft", e)
-                handleFailure(e)
-                drainAfterCheckpoint()
+                if (!failed) release()
             }
-            if (!failed) release()
+            if (access == GateAccess.BUSY && SystemClock.uptimeMillis() < deadline) {
+                if (handler.postDelayed({ closeWhenAdmitted(done, deadline) }, GATE_BUSY_RETRY_MS)) return@post
+            }
+            if (done != null) ui.post { done(result) }
         }
-        if (done != null) ui.post { done(result) }
     }
 
     /** Explicit user discard: release without attempting to save the draft. */
@@ -416,6 +427,10 @@ internal class EditorEngine(
 
     companion object {
         internal const val TAG = "TextFirstEngine"
+        /** Re-try cadence while ordinary vault work (a sync cycle) holds the gate. */
+        internal const val GATE_BUSY_RETRY_MS = 50L
+        /** How long close waits for ordinary vault work before reporting failure. */
+        internal const val CLOSE_BUSY_LIMIT_MS = 30_000L
         private const val CARET_STATE_DELAY_MS = 40L
     }
 }

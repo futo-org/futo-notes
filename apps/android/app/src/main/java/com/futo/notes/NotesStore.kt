@@ -14,7 +14,6 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import com.futo.notes.storage.NotesStorage
@@ -111,6 +110,7 @@ class NotesStore(
     internal val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val _localTreeChanges = MutableSharedFlow<SyncSummary>(extraBufferCapacity = 1)
     private var localTreeChangeTail: Job? = null
+    internal var localTreeRetry = LocalTreeRetry()
 
     /** Completed sync cycles, emitted after their exact list mutation is applied. */
     val localTreeChanges = _localTreeChanges.asSharedFlow()
@@ -245,24 +245,25 @@ class NotesStore(
         localTreeChangeTail = scope.launch {
             previous?.join()
             if (resetting || epoch != vaultEpoch) return@launch
-            // A failed refresh must retain explicit rename intent. A rescan can
-            // recover rows, but cannot safely retarget an attached draft.
-            while (!resetting && epoch == vaultEpoch) {
-                try {
-                    val mutation = withCore {
+            projectLocalTree(
+                retry = localTreeRetry,
+                active = { !resetting && epoch == vaultEpoch },
+                refresh = {
+                    withCore {
                         core.refreshExternalChanges(summary.updatedIds, summary.deletedIds, summary.renamed)
                     }
-                    if (resetting || epoch != vaultEpoch) return@launch
-                    applyMutation(mutation)
-                    _localTreeChanges.emit(summary)
-                    return@launch
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (e: Exception) {
-                    android.util.Log.w("NotesStore", "external refresh failed; retaining event for retry", e)
-                    delay(2_000)
-                }
-            }
+                },
+                apply = ::applyMutation,
+                rebuild = {
+                    val snapshot = withCore {
+                        core.rescan()
+                        core.scan()
+                    }
+                    applySnapshot(snapshot.notes, snapshot.folders, epoch)
+                },
+                emit = { _localTreeChanges.emit(summary) },
+                log = { message, error -> android.util.Log.e("NotesStore", message, error) },
+            )
         }
     }
 
