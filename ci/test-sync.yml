@@ -21,7 +21,7 @@ test:cross-platform-sync:
     GIT_DEPTH: "20"
     # The isolated namespace is seeded through the shared runner cache, so a
     # source-only MR consumes it on any serial box without spending ~90s
-    # recompressing target/; tags and lockfile changes refresh it in the
+    # recompressing target/; only tags and main refresh it in the
     # rules below.
     CARGO_CACHE_POLICY: pull
   cache:
@@ -89,11 +89,6 @@ test:cross-platform-sync:
     - if: $CI_COMMIT_TAG
       variables:
         CARGO_CACHE_POLICY: pull-push
-    - if: $CI_MERGE_REQUEST_IID
-      changes:
-        - Cargo.lock
-      variables:
-        CARGO_CACHE_POLICY: pull-push
     # Every MR that can change the desktop client or the sync stack runs the
     # full scenario set and BLOCKS the merge: this suite guards user data, and
     # a failure here nearly shipped a broken release twice. MRs touching none
@@ -104,7 +99,7 @@ test:cross-platform-sync:
     # still runs test:cross-platform-sync:android, which drives this same
     # harness against a desktop client. Main reruns the SAME list on every
     # merge and tags run it unconditionally, so a skipped MR is still covered
-    # before release. Tags and lockfile MRs refresh the isolated archive;
+    # before release. Only tags and main refresh the isolated archive;
     # ordinary source MRs reuse that seed without the post-test upload.
     - if: $CI_MERGE_REQUEST_IID
       changes: &cross-platform-sync-changes
