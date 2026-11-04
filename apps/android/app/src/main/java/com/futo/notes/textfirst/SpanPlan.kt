@@ -107,7 +107,12 @@ internal fun planSpans(p: EditorProjection, startUtf16: Int, outside: (Int) -> I
     val out = ArrayList<SpanSpec>(p.runs.size + p.blocks.size + p.atoms.size)
     // Heading lines keep their own height when empty (no compact block gap).
     val headingLines = ArrayList<IntRange>()
+    var previous: uniffi.futo_notes_ffi.EditorBlockDescription? = null
     for (b in p.blocks) {
+        // An empty fence (opener, body and closer on one display point) arrives as that many
+        // identical blocks; each would add its own quote margin and bar.
+        if (b == previous) continue
+        previous = b
         val s = u(b.range.start)
         val e = withBreak(u(b.range.end)).coerceAtMost(textEndUtf16)
         when {
