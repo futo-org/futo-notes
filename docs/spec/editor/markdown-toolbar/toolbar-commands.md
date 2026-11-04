@@ -30,6 +30,14 @@
   not only Android — until QA-009. Verified emulator 2026-09-11. →
   packages/editor/src/toolbar.ts, src/features/editor/milkdown/toolbarExec.ts,
   tests/editor-embed-milkdown-toolbar.spec.ts
+  > **Gap (parity):** the text-first editor's Code block and Quote buttons
+  > toggle: on a line already in a code block the command takes the touched
+  > lines out of the fence (the rows above and below stay fenced), and on
+  > already-quoted lines it takes one quote level off. The Milkdown toolbar
+  > above is still one-way. → crates/futo-notes-editor/src/session/blocks/
+  > code_command.rs `code_toggle_off`, commands.rs `all_quoted`,
+  > crates/futo-notes-editor/tests/fences/commands.rs,
+  > tests/blocks/toggle.rs
 - Link opens the SAME shared URL prompt the desktop selection toolbar and the
   `/` menu's Link item do (`linkPrompt/`), floated over the caret/selection
   inside the WebView — never a native SwiftUI/Compose dialog. The prompt stays

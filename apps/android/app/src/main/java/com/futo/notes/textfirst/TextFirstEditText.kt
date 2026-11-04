@@ -34,6 +34,8 @@ internal class TextFirstEditText(
     var engine: EditorEngine? = null
     var onOpenWikilink: ((String) -> Unit)? = null
     private val wikilinkTouch = WikilinkTouch(this) { onOpenWikilink?.invoke(it) }
+    private val imageTouch = ImageTouch(this)
+    @Volatile override var selectedImage: Pair<Int, Int>? = null
     /** The first draw after a keyed update, with where that key's time went. */
     var onFrameDrawn: ((KeyTimings) -> Unit)? = null
 
@@ -265,6 +267,7 @@ internal class TextFirstEditText(
 
     override fun onSelectionChanged(selStart: Int, selEnd: Int) {
         super.onSelectionChanged(selStart, selEnd)
+        selectedImage = selectedImage?.takeIf { it.first == selStart && it.second == selEnd }
         if (applying) return
         val e = editableText ?: return
         // The end sentinel is not a caret position (an empty Editable has none yet).
@@ -296,6 +299,7 @@ internal class TextFirstEditText(
         if (!scroll.stoppingTouch && tableTouch.onTouch(event)) return true
         if (scroll.own(event) { super.onTouchEvent(it) }) return true
         if (wikilinkTouch.onTouch(event)) return true
+        imageTouch.onTouch(event)
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 checkboxDown = checkboxAt(this, style, event.x, event.y)
@@ -310,7 +314,7 @@ internal class TextFirstEditText(
             MotionEvent.ACTION_MOVE -> if (checkboxDown >= 0) return true
             MotionEvent.ACTION_CANCEL -> if (checkboxDown >= 0) { checkboxDown = -1; return true }
         }
-        return super.onTouchEvent(event).also { wikilinkTouch.settleCaret() }
+        return super.onTouchEvent(event).also { wikilinkTouch.settleCaret(); imageTouch.settleSelection() }
     }
 
     override fun computeScroll() {

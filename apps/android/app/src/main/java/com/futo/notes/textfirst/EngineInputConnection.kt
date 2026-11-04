@@ -32,6 +32,9 @@ internal class EngineInputConnection(
         fun contextMenuAction(id: Int)
         fun navigationKey(event: KeyEvent)
         fun imageContent(info: InputContentInfo, flags: Int): Boolean
+
+        /** The image a tap selected as one object, while that is still the whole selection. */
+        val selectedImage: Pair<Int, Int>? get() = null
     }
 
     private var batch = 0
@@ -156,6 +159,13 @@ internal class EngineInputConnection(
     override fun setSelection(start: Int, end: Int): Boolean {
         if (cell && !engine.editingCell) return true
         trace("setSelection(" + "start=" + start + " " + "end=" + end + ")")
+        // Enter on a selection makes the keyboard collapse it and delete the
+        // selected text first. A selected image takes Enter as an object (the
+        // engine acts after it), so that collapse is not passed on.
+        if (!cell && start == end) {
+            val image = view.selectedImage
+            if (image != null && image.first == engine.selStart && image.second == engine.selEnd && start == image.second) return true
+        }
         engine.imeSetSelection((low + start).coerceIn(low, high), (low + end).coerceIn(low, high))
         return true
     }
