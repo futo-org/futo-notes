@@ -22,22 +22,18 @@
   EditorToolbar.swift, EditorToolbar.kt, EmbedToolbar.svelte,
   tests/editor-embed-milkdown-toolbar.spec.ts
 - Code block converts the current paragraph(s) into a fenced code block —
-  the same command the `/` menu's Code block item runs. One-way (there is no
-  toolbar command back OUT of a code block; the block-conversion model
-  already refuses both a `code` source and a `code` target for every other
-  button, docs/spec/editor.md "A block-format command never touches a CODE
-  BLOCK" below). Was missing from the manifest entirely — every mobile shell,
-  not only Android — until QA-009. Verified emulator 2026-09-11. →
+  the same command the `/` menu's Code block item runs. It toggles: on lines
+  already inside a code block it takes the touched lines out of the fence, and
+  the rows above and below keep their fence. Every other block button still
+  leaves a code block alone (docs/spec/editor.md "A block-format command never
+  touches a CODE BLOCK" below). Was missing from the manifest entirely — every
+  mobile shell, not only Android — until QA-009. Verified emulator 2026-09-11. →
   packages/editor/src/toolbar.ts, src/features/editor/milkdown/toolbarExec.ts,
-  tests/editor-embed-milkdown-toolbar.spec.ts
-  > **Gap (parity):** the text-first editor's Code block and Quote buttons
-  > toggle: on a line already in a code block the command takes the touched
-  > lines out of the fence (the rows above and below stay fenced), and on
-  > already-quoted lines it takes one quote level off. The Milkdown toolbar
-  > above is still one-way. → crates/futo-notes-editor/src/session/blocks/
-  > code_command.rs `code_toggle_off`, commands.rs `all_quoted`,
-  > crates/futo-notes-editor/tests/fences/commands.rs,
-  > tests/blocks/toggle.rs
+  tests/editor-embed-milkdown-toolbar.spec.ts,
+  crates/futo-notes-editor/src/session/blocks/code_command.rs `code_toggle_off`,
+  crates/futo-notes-editor/tests/fences/commands.rs
+  > **Gap (parity):** the Milkdown toolbar's Code block and Quote are still
+  > one-way; only the text-first editor toggles them (2026-11-04).
 - Link opens the SAME shared URL prompt the desktop selection toolbar and the
   `/` menu's Link item do (`linkPrompt/`), floated over the caret/selection
   inside the WebView — never a native SwiftUI/Compose dialog. The prompt stays
@@ -94,12 +90,14 @@
   Verified in the desktop WebView and Android emulator 2026-09-08. →
   packages/editor/src/toolbar.ts, src/features/editor/milkdown/blockCommands.ts,
   tests/editor-embed-milkdown-toolbar.spec.ts, tests/selection-toolbar.spec.ts
-- Quote applies quote formatting; pressing it inside a quote does not change its
-  depth. Indent and Outdent change the nearest list or quote container one level
+- Quote toggles: on unquoted lines it applies quote formatting, and on lines
+  that are all quoted it takes one quote level off. Indent and Outdent change the nearest list or quote container one level
   at a time; outdenting a top-level quote returns its selected content to the
   surrounding document. Verified in the desktop WebView and Android emulator
   2026-09-08. → src/features/editor/milkdown/blockCommands.ts,
-  tests/editor-embed-milkdown-toolbar.spec.ts
+  tests/editor-embed-milkdown-toolbar.spec.ts,
+  crates/futo-notes-editor/src/session/blocks/commands.rs `all_quoted`,
+  crates/futo-notes-editor/tests/blocks/toggle.rs
 - Bullet, Ordered and Task retain their list toggles and conversions. Converting
   between list kinds preserves nesting; Bullet/Ordered change the enclosing list,
   while Task changes the selected items. Converting a checked task to another
