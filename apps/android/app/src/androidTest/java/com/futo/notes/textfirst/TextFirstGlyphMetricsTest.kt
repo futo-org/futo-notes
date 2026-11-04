@@ -1,0 +1,67 @@
+package com.futo.notes.textfirst
+
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
+import android.text.TextPaint
+import androidx.core.content.res.ResourcesCompat
+import androidx.test.platform.app.InstrumentationRegistry
+import com.futo.notes.R
+import org.junit.Assert.*
+import org.junit.Test
+
+/** How far styled glyphs reach past the advance the caret is placed at. */
+class TextFirstGlyphMetricsTest {
+    private val context = InstrumentationRegistry.getInstrumentation().targetContext
+    private val look: TextFirstStyle = run {
+        val metrics = context.resources.displayMetrics
+        TextFirstStyle(
+            metrics.density, 17f * metrics.scaledDensity,
+            ResourcesCompat.getFont(context, R.font.barlow_regular)!!,
+            ResourcesCompat.getFont(context, R.font.barlow_semibold)!!,
+            ResourcesCompat.getFont(context, R.font.barlow_bold)!!,
+            ResourcesCompat.getFont(context, R.font.jetbrains_mono_regular)!!,
+            Color.BLACK, Color.GRAY, Color.BLUE, Color.GRAY, Color.WHITE, Color.WHITE,
+        )
+    }
+
+    /** Ink to the right of the text's advance, as a fraction of the font size. */
+    private fun overhang(bold: Boolean, italic: Boolean, text: String = "wmvl"): Float {
+        val paint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+            textSize = look.textSizePx
+            typeface = look.regular
+            color = Color.BLACK
+        }
+        TfInline(look, bold, italic, strike = false, code = false).updateMeasureState(paint)
+        val advance = paint.measureText(text)
+        val bitmap = Bitmap.createBitmap((advance + look.textSizePx * 2).toInt(), (look.textSizePx * 2).toInt(), Bitmap.Config.ARGB_8888)
+        bitmap.eraseColor(Color.WHITE)
+        val canvas = Canvas(bitmap)
+        TfInline(look, bold, italic, strike = false, code = false).updateDrawState(paint)
+        canvas.drawText(text, look.textSizePx / 2, look.textSizePx * 1.4f, paint)
+        var right = -1
+        for (x in bitmap.width - 1 downTo 0) {
+            if ((0 until bitmap.height).any { Color.red(bitmap.getPixel(x, it)) < 128 }) { right = x; break }
+        }
+        val overhang = (right + 1 - look.textSizePx / 2 - advance) / look.textSizePx
+        return overhang
+    }
+
+    /**
+     * Barlow ships no italic, so the slant is synthetic and its glyphs reach
+     * past the advance the caret sits at. One platform fake italic (skew 0.25)
+     * reaches about 0.18em past an upright run; a skew of our own on top of it
+     * doubled the slant (0.29em).
+     */
+    @Test fun italicSlantsOnceNotTwice() {
+        val upright = overhang(bold = false, italic = false)
+        assertTrue("italic reaches ${overhang(false, true) - upright}em past upright", overhang(false, true) - upright < 0.25f)
+        assertTrue("bold italic reaches ${overhang(true, true) - overhang(true, false)}em past bold", overhang(true, true) - overhang(true, false) < 0.25f)
+    }
+
+    /** Bold is a real Barlow Bold, never emboldened on top: its ink ends where its advance does. */
+    @Test fun boldInkEndsAtItsAdvance() {
+        assertEquals(overhang(bold = false, italic = false), overhang(bold = true, italic = false), 0.02f)
+    }
+}
