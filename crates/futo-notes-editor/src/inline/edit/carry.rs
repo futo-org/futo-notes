@@ -7,6 +7,7 @@ pub(in crate::inline) fn carry_formats(
     markers: &mut Vec<Marker>,
     active: &mut Vec<usize>,
     formats: &[InlineFormat],
+    reuse: bool,
 ) {
     active.retain(|id| {
         markers[*id]
@@ -24,6 +25,7 @@ pub(in crate::inline) fn carry_formats(
         .find(|piece| !piece.display.chars().all(char::is_whitespace));
     let neighbor: Option<Vec<usize>> = previous
         .or_else(|| after.iter().find(|piece| !piece.display.is_empty()))
+        .filter(|_| reuse)
         .map(|piece| piece.spans.clone());
     // The carried stack must continue the neighbor's: formats that reuse its
     // span come first, in its nesting order, so the shared markers stay one
