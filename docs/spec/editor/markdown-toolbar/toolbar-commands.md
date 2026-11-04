@@ -23,8 +23,10 @@
   tests/editor-embed-milkdown-toolbar.spec.ts
 - Code block converts the current paragraph(s) into a fenced code block —
   the same command the `/` menu's Code block item runs. It toggles: on lines
-  already inside a code block it takes the touched lines out of the fence, and
-  the rows above and below keep their fence. Every other block button still
+  already inside a code block it takes the touched lines out of the fence as
+  plain text (text that would read as Markdown structure, such as `# x`, `- a`,
+  `> q`, `1. x` or `---`, is kept literal), and the rows above and below keep
+  their fence. Every other block button still
   leaves a code block alone (docs/spec/editor.md "A block-format command never
   touches a CODE BLOCK" below). Was missing from the manifest entirely — every
   mobile shell, not only Android — until QA-009. Verified emulator 2026-09-11. →
