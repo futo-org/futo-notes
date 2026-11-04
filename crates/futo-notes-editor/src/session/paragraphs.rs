@@ -9,6 +9,8 @@ pub enum ParagraphKey {
     Enter,
     ShiftEnter,
     Backspace,
+    /// Text-first heading-start deletion joins the preceding physical line.
+    BackspaceJoiningHeading,
     Delete,
     Tab,
     ShiftTab,
@@ -25,7 +27,7 @@ impl EditorSession {
         &mut self,
         expected: Revision,
         mut range: DisplayRange,
-        key: ParagraphKey,
+        mut key: ParagraphKey,
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<Option<ViewChange>, EditorError> {
         self.check_revision(expected)?;
@@ -39,6 +41,12 @@ impl EditorSession {
         }
         self.validate_range(range)?;
         range = self.body_range(range)?;
+        if key == ParagraphKey::BackspaceJoiningHeading {
+            if let Some(change) = self.heading_join_backspace(expected, range, accept)? {
+                return Ok(Some(change));
+            }
+            key = ParagraphKey::Backspace;
+        }
         if matches!(key, ParagraphKey::Tab | ParagraphKey::ShiftTab) {
             return self.fence_indent(expected, range, key == ParagraphKey::ShiftTab, true, accept);
         }
@@ -80,7 +88,9 @@ impl EditorSession {
         }
         let stop = |position, direction| self.grapheme_stop(position, direction, false);
         let inserted = match key {
-            ParagraphKey::Tab | ParagraphKey::ShiftTab => unreachable!(),
+            ParagraphKey::Tab | ParagraphKey::ShiftTab | ParagraphKey::BackspaceJoiningHeading => {
+                unreachable!()
+            }
             ParagraphKey::Enter | ParagraphKey::ShiftEnter => "\n",
             ParagraphKey::Backspace | ParagraphKey::Delete => {
                 if range.start == range.end {

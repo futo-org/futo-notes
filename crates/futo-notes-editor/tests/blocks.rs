@@ -25,3 +25,6 @@ mod seams;
 mod selected_source;
 #[path = "blocks/toggle.rs"]
 mod toggle;
+
+#[path = "blocks/heading_join.rs"]
+mod heading_join;

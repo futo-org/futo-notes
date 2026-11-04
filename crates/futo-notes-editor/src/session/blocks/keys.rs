@@ -360,3 +360,68 @@ impl EditorSession {
         Ok(change)
     }
 }
+
+impl EditorSession {
+    pub(in crate::session) fn heading_join_backspace(
+        &mut self,
+        expected: Revision,
+        range: DisplayRange,
+        accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
+    ) -> Result<Option<ViewChange>, EditorError> {
+        if range.start != range.end {
+            return Ok(None);
+        }
+        let Some(line) = self.projection.block_lines(range).into_iter().next() else {
+            return Ok(None);
+        };
+        if line.heading == 0 || range.start.0 != self.projection.display_at(line.content.start) {
+            return Ok(None);
+        }
+        let index = self.source.byte_to_line(line.source.start);
+        if index == 0
+            || line.source.start
+                <= self
+                    .projection
+                    .source_bounds(self.projection.body_start())
+                    .1
+        {
+            return Ok(None);
+        }
+        let previous_start = self.source.line_to_byte(index - 1);
+        let previous = self
+            .source
+            .byte_slice(previous_start..line.source.start)
+            .to_string();
+        let blank = previous.trim().is_empty()
+            || line.quote_depth > 0 && previous.trim() == "> ".repeat(line.quote_depth).trim();
+        if blank {
+            return self
+                .commit_block_key(
+                    expected,
+                    range,
+                    previous_start..line.source.start,
+                    "",
+                    line.content.start - previous.len(),
+                    accept,
+                )
+                .map(Some);
+        }
+        // Retire only the heading frame, then use ordinary paragraph deletion
+        // to preserve the established list, quote, code and table join rules.
+        // Both changes stay invisible until one protected source acceptance.
+        self.stage_block_action(expected, range, None, accept, |staged, local, accept| {
+            let demoted =
+                staged.block_command(staged.revision(), local, BlockCommand::Heading(0), accept)?;
+            let mut joined = staged.paragraph_key(
+                staged.revision(),
+                staged.selection(),
+                ParagraphKey::Backspace,
+                accept,
+            )?;
+            if let (Some(demoted), Some(joined)) = (&demoted, &mut joined) {
+                accumulate_planning_work(&mut joined.work, demoted.work);
+            }
+            Ok(joined.or(demoted))
+        })
+    }
+}
