@@ -33,10 +33,10 @@ import android.text.style.LineBackgroundSpan
  * depends on the per-line rule; only speed does.
  */
 internal class ChunkedEditable private constructor(private val target: Int, private val max: Int) : ReplaceEditable(), GetChars {
-    private val chunks = ArrayList<EditableChunk>()
-    private var offsets = IntArray(1)
+    internal val chunks = ArrayList<EditableChunk>()
+    internal var offsets = IntArray(1)
     private var total = 0
-    private val home = HashMap<Any, EditableChunk>()
+    internal val home = HashMap<Any, EditableChunk>()
 
     private val textWatchers = ArrayList<TextWatcher>()
     private val spanWatchers = ArrayList<SpanWatcher>()
@@ -72,7 +72,7 @@ internal class ChunkedEditable private constructor(private val target: Int, priv
         return lo
     }
 
-    private fun indexOf(chunk: EditableChunk): Int {
+    internal fun indexOf(chunk: EditableChunk): Int {
         // Chunks are few (a 500 KB note has ~100); identity scan is fine.
         for (i in chunks.indices) if (chunks[i] === chunk) return i
         error("chunk not found")
@@ -375,24 +375,6 @@ internal class ChunkedEditable private constructor(private val target: Int, priv
             out.setSpan(span, s, e, getSpanFlags(span))
         }
         return out
-    }
-
-    /** Test hook: every indexed span lives in a live chunk that holds it, and vice versa. */
-    fun verifyIndex() {
-        for ((span, chunk) in home) {
-            check(chunks.any { it === chunk }) { "$span indexed to a dropped chunk" }
-            check(chunk.text.getSpanStart(span) >= 0) { "$span indexed but not in its chunk" }
-        }
-        for (chunk in chunks) for (span in chunk.text.getSpans(0, chunk.text.length, Any::class.java)) {
-            check(home[span] === chunk) { "$span in a chunk but indexed elsewhere" }
-        }
-    }
-
-    /** Test hook: where a span lives. */
-    fun describe(span: Any): String {
-        val chunk = home[span] ?: return "unindexed"
-        val i = indexOf(chunk)
-        return "chunk $i/${chunks.size} offset ${offsets[i]} len ${chunk.text.length} local ${chunk.text.getSpanStart(span)}..${chunk.text.getSpanEnd(span)} offsets=${offsets.toList()}"
     }
 
     /** Test hook: how many chunks the text is split into. */
