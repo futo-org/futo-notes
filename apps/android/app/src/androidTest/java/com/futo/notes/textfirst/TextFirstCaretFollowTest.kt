@@ -69,6 +69,7 @@ class TextFirstCaretFollowTest {
     }
 
     private fun exercise(note: String, check: Rig.() -> Unit) {
+        NoteScrollMemory.clear()
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val scratch = File(context.cacheDir, "caret-follow-${UUID.randomUUID()}").apply { check(mkdirs()) }
         val root = File(scratch, "vault").apply { check(mkdirs()) }
@@ -162,4 +163,18 @@ class TextFirstCaretFollowTest {
             assertTrue("scrolled ${view.scrollY}, past the note's end at ${end()}", view.scrollY <= end())
         }
     }
+
+    @Test
+    fun selectAllKeepsTheReadersScrollPosition() = exercise(longNote) {
+        compose.runOnUiThread { view.scrollTo(0, view.maxScrollY() / 2) }
+        val readingAt = view.scrollY
+        assertTrue("the reader is in the middle of the note", readingAt > 0)
+        compose.runOnUiThread { view.engine!!.selectAll() }
+        compose.waitUntil(5_000) { view.selectionStart == 0 && view.selectionEnd == view.length() - 1 }
+        // TextView's reveal normally runs at pre-draw, after the engine's selection echo.
+        compose.waitForIdle()
+        compose.runOnUiThread { view.bringPointIntoView(view.selectionEnd) }
+        assertEquals("Select All must not jump to the selection's end", readingAt, view.scrollY)
+    }
+
 }

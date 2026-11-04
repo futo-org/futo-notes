@@ -57,5 +57,9 @@ internal fun TextFirstEditText.caretWasInView(viewHeight: Int): Boolean {
     return l.getLineTop(line) + totalPaddingTop >= scrollY && l.getLineBottom(line) + totalPaddingTop <= scrollY + viewHeight
 }
 
-internal fun TextFirstEditText.revealCaret(offset: Int, nativeReveal: () -> Boolean): Boolean =
-    reveal.at(offset, ready = layout != null && height > 0, reveal = nativeReveal)
+/** A whole-note selection changes the selected range without moving the reader to its end. */
+internal fun TextFirstEditText.revealCaret(offset: Int, nativeReveal: () -> Boolean): Boolean {
+    val end = (editableText?.length ?: 0) - 1
+    if (end > 0 && minOf(selectionStart, selectionEnd) == 0 && maxOf(selectionStart, selectionEnd) == end) return false
+    return reveal.at(offset, ready = layout != null && height > 0, reveal = nativeReveal)
+}
