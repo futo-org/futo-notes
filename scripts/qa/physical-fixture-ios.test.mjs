@@ -12,8 +12,12 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { expect, it } from 'vitest';
+import { expect, it, vi } from 'vitest';
 import { createIOSFixtureExecutor } from './physical-fixture-ios.mjs';
+
+// Subprocess-driven file: each case runs the adapter and its helper processes (1-2.3s idle, ~1.5s median). The 5s default went red on loaded
+// CI runners (audit 2026-11), so the file timeout is set to 30s to cover that bound.
+vi.setConfig({ testTimeout: 30_000 });
 
 it('rejects an XCTest plan for a personal app before invoking any OS command', async () => {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'physical-executor-test-')));

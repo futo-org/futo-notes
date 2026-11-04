@@ -22,6 +22,10 @@ base64 = "0.23"
 uuid = { version = "1", features = ["v7"] }
 
 [dev-dependencies]
+# The journaled-rename tests drive real store renames.
+futo-notes-store = { path = "../futo-notes-store", features = ["test-support"] }
+# The attached-editor rename regression drives a real store editor session.
+futo-notes-editor = { path = "../futo-notes-editor" }
 tokio = { version = "1", features = ["test-util", "io-util", "net"] }
 wiremock = "0.6"
 # The hosted scenarios stand in for a platform auth sheet with a browser-shaped

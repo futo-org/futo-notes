@@ -66,22 +66,23 @@ impl IdentityTransition {
         root: &Path,
         from: &str,
         to: &str,
+        deleted_ids: &[String],
     ) -> Result<Option<Self>, String> {
         let Some(state) = EditorLease::attached(root, from)? else {
             // Replayed completion after this attachment moved is harmless.
             return Ok(None);
         };
-        let attachment = state.lock().unwrap_or_else(PoisonError::into_inner);
-        if attachment.terminal {
-            return Err("editor attachment was deleted".into());
+        let same_file = futo_notes_core::files::collision_key(from)
+            == futo_notes_core::files::collision_key(to);
+        // A destination deleted later in the same cycle leaves nothing to
+        // follow; the draft stays attached and saving recreates it.
+        if deleted_ids.iter().any(|id| id == to) {
+            return Ok(None);
         }
-        drop(attachment);
         // Never abandon a live draft for a missing/unreadable destination.
         let bytes = futo_notes_core::files::vault_fs::read(root, &crate::note_filename(to))?;
         String::from_utf8(bytes).map_err(|error| error.to_string())?;
-        let lease = if futo_notes_core::files::collision_key(from)
-            == futo_notes_core::files::collision_key(to)
-        {
+        let lease = if same_file {
             None
         } else {
             Some(EditorLease::acquire(root, to).map_err(|error| error.to_string())?)

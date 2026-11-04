@@ -72,7 +72,10 @@ impl LocalNoteStore {
             paths::note_path(&self.root, &pair.from)?;
             paths::note_path(&self.root, &pair.to)?;
             if let Some(transition) = crate::editor_session::IdentityTransition::prepare_external(
-                &self.root, &pair.from, &pair.to,
+                &self.root,
+                &pair.from,
+                &pair.to,
+                deleted_ids,
             )? {
                 transitions.push(transition);
             }
@@ -212,6 +215,14 @@ impl LocalNoteStore {
         self.rename(id, &wanted)
     }
 
+    /// A pending rename that ended at the deleted `id` is over: a later note
+    /// at that name must not inherit the moved note's sync identity.
+    fn forget_rename_into(&self, id: &str) -> Option<String> {
+        crate::rename_journal::forget_deleted_locked(&self.root, &note_filename(id))
+            .err()
+            .map(|error| format!("deleted, but the rename journal kept its intent: {error}"))
+    }
+
     pub fn delete(&self, id: &str) -> Result<MutationResult, String> {
         self.delete_with(id, |_| {
             vault_fs::remove_local(&self.root, &note_filename(id)).map(|_| ())
@@ -226,15 +237,23 @@ impl LocalNoteStore {
         let _vault_mutation = vault_mutation_guard()?;
         let path = paths::note_path(&self.root, id)?;
         if !path.exists() {
+            let journal_warning = self.forget_rename_into(id);
             // Already gone (an outside delete): still end an attached editor,
             // or its next save would recreate the note.
             crate::editor_session::terminate_deleted(&self.root, id)?;
-            return Ok(self.finish_mutation(Vec::new(), MutationResult::default()));
+            return Ok(self.finish_mutation(
+                Vec::new(),
+                MutationResult {
+                    warnings: journal_warning.into_iter().collect(),
+                    ..MutationResult::default()
+                },
+            ));
         }
         let change = FileChange::Removed(note_filename(id));
         self.before_write
             .before_write(std::slice::from_ref(&change));
         remove(&path)?;
+        let journal_warning = self.forget_rename_into(id);
         // The file is gone: an attached editor's draft is discarded with it.
         crate::editor_session::terminate_deleted(&self.root, id)?;
         prune_empty_parents(&self.root, &path);
@@ -243,6 +262,7 @@ impl LocalNoteStore {
             Vec::new(),
             MutationResult {
                 removed: vec![id.to_owned()],
+                warnings: journal_warning.into_iter().collect(),
                 ..MutationResult::default()
             },
         ))

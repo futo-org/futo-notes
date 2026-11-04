@@ -2,11 +2,15 @@ packages:
   - apps/*
   - packages/*
 
-# Advisories `pnpm audit --prod` should not fail on. Empty on purpose — see .cargo/audit.toml
-# for the policy. Add the id with a comment saying why; `node scripts/audit.mjs --fix` removes
+# Advisories `pnpm audit --prod` should not fail on — see .cargo/audit.toml for the policy. Add the id with a comment saying why; `node scripts/audit.mjs --fix` removes
 # entries whose advisory is gone.
 auditConfig:
-  ignoreGhsas: []
+  ignoreGhsas:
+    # deepmerge mergeObject() prototype poisoning (low, no patch: 4.3.1 is latest). It is
+    # reached only through @sveltejs/vite-plugin-svelte, which merges our own svelte.config.js
+    # options at build time; no attacker-controlled input exists and the plugin never ships
+    # in the app bundle. Owner: Justin.
+    - GHSA-gcqx-w48m-w2h4
 
 allowBuilds:
   esbuild: true

@@ -15,7 +15,8 @@
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
-use futo_notes_store::rename_journal::{with_rename_journal, RenameIntent};
+use futo_notes_core::files::rename_journal::{with_rename_journal, IntentKey, RenameChain};
+use futo_notes_core::files::vault_fs;
 
 use crate::checkpoint::ConnectedState;
 use crate::sync::object_map::mapped_name;
@@ -38,55 +39,15 @@ pub(in crate::sync) struct ClaimedRenames {
 }
 
 struct Claim {
-    transactions: HashSet<u64>,
+    intents: Vec<IntentKey>,
     destination: String,
     object_id: String,
     baseline_version: u64,
 }
 
-/// A run of intents that moved one file: A->B then B->C is one chain A->C.
-struct Chain {
-    origin: String,
-    /// Where the file is now; `None` once a later move took that name, which
-    /// the store only allocates when it is free: the file had already gone.
-    current: Option<String>,
-    head: u64,
-    transactions: HashSet<u64>,
-    object_id: Option<String>,
-}
-
-fn chains(intents: Vec<RenameIntent>) -> Vec<Chain> {
-    let mut chains: Vec<Chain> = Vec::new();
-    for intent in intents {
-        let extends = chains
-            .iter()
-            .position(|chain| chain.current.as_deref() == Some(intent.from.as_str()));
-        for (index, chain) in chains.iter_mut().enumerate() {
-            if Some(index) != extends && chain.current.as_deref() == Some(intent.to.as_str()) {
-                chain.current = None;
-            }
-        }
-        if let Some(index) = extends {
-            let chain = &mut chains[index];
-            chain.current = Some(intent.to);
-            chain.transactions.insert(intent.transaction);
-            chain.object_id = chain.object_id.take().or(intent.object_id);
-            continue;
-        }
-        chains.push(Chain {
-            origin: intent.from,
-            current: Some(intent.to),
-            head: intent.transaction,
-            transactions: HashSet::from([intent.transaction]),
-            object_id: intent.object_id,
-        });
-    }
-    chains
-}
-
 /// A chain that can move this cycle: its object and where it goes.
 struct Candidate {
-    chain: Chain,
+    chain: RenameChain,
     owner: String,
     destination: String,
     entry: crate::checkpoint::ObjectState,
@@ -104,36 +65,34 @@ pub(in crate::sync) fn claim_local_renames(
         let mut claimed = ClaimedRenames::default();
         let mut settled = HashSet::new();
         let mut candidates = Vec::new();
-        for chain in chains(journal.intents()) {
-            let owner = match &chain.object_id {
-                Some(object_id) => mapped_name(state, object_id),
-                None => state
-                    .object_map
-                    .contains_key(&chain.origin)
-                    .then(|| chain.origin.clone()),
-            };
+        for chain in journal.chains() {
+            let owner = owner(state, &chain);
             let Some(owner) = owner else {
                 // Never on the server under this checkpoint: nothing to carry.
-                settled.extend(chain.transactions);
+                settled.extend(chain.intents);
                 continue;
             };
             let Some(destination) = chain.current.clone() else {
                 // Moved, then gone: the ordinary delete takes over.
-                settled.extend(chain.transactions);
+                settled.extend(chain.intents);
                 continue;
             };
             if owner == destination && chain.object_id.is_none() {
                 // Renamed back before any claim: identity never moved.
-                settled.extend(chain.transactions);
+                settled.extend(chain.intents);
                 continue;
             }
             if !present.contains(destination.as_str()) {
-                if present.contains(owner.as_str()) {
-                    // The move landed after this scan; the next cycle owns it.
+                // The scan takes no vault guard: a move that landed after it,
+                // or during it (the note was in staging, at neither name), is
+                // on disk now. This runs under the guard, so disk is final.
+                let landed = vault_fs::exists(root, &destination).unwrap_or(true);
+                if present.contains(owner.as_str()) || landed {
+                    // The next cycle, whose scan sees the destination, owns it.
                     claimed.held.insert(owner);
                 } else {
                     // Moved, then deleted: the ordinary delete takes over.
-                    settled.extend(chain.transactions);
+                    settled.extend(chain.intents);
                 }
                 continue;
             }
@@ -173,7 +132,7 @@ pub(in crate::sync) fn claim_local_renames(
                 reason::RENAME_TARGET_MAPPED,
                 candidate.destination,
             );
-            settled.extend(candidate.chain.transactions);
+            settled.extend(candidate.chain.intents);
         }
 
         for candidate in &candidates {
@@ -208,7 +167,7 @@ pub(in crate::sync) fn claim_local_renames(
             claimed.held.insert(destination.clone());
             claimed.destinations.insert(destination.clone());
             claimed.claims.push(Claim {
-                transactions: chain.transactions,
+                intents: chain.intents,
                 destination,
                 object_id: entry.object_id,
                 baseline_version: entry.version,
@@ -235,7 +194,7 @@ pub(in crate::sync) fn acknowledge_uploaded(
 fn landed(
     claimed: &ClaimedRenames,
     object_map: &HashMap<String, crate::checkpoint::ObjectState>,
-) -> HashSet<u64> {
+) -> HashSet<IntentKey> {
     claimed
         .claims
         .iter()
@@ -244,7 +203,7 @@ fn landed(
                 entry.object_id == claim.object_id && entry.version > claim.baseline_version
             })
         })
-        .flat_map(|claim| claim.transactions.iter().copied())
+        .flat_map(|claim| claim.intents.iter().cloned())
         .collect()
 }
 
@@ -254,16 +213,25 @@ pub(in crate::sync) fn pending_rename_paths(
     root: &Path,
 ) -> HashSet<String> {
     with_rename_journal(root, |journal| {
-        chains(journal.intents())
-            .into_iter()
-            .filter_map(|chain| match chain.object_id {
-                Some(object_id) => mapped_name(state, &object_id),
-                None => state
-                    .object_map
-                    .contains_key(&chain.origin)
-                    .then_some(chain.origin),
-            })
+        journal
+            .chains()
+            .iter()
+            .filter_map(|chain| owner(state, chain))
             .collect()
     })
     .unwrap_or_default()
+}
+
+/// The checkpoint name holding the object a chain carries: wherever its bound
+/// object now is, else the object recorded at its origin, unless the file
+/// there was created after an earlier move vacated that name.
+fn owner(state: &ConnectedState, chain: &RenameChain) -> Option<String> {
+    match &chain.object_id {
+        Some(object_id) => mapped_name(state, object_id),
+        None if chain.fresh => None,
+        None => state
+            .object_map
+            .contains_key(&chain.origin)
+            .then(|| chain.origin.clone()),
+    }
 }

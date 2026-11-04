@@ -184,3 +184,49 @@ fn failed_save_after_remote_rename_retains_final_identity_and_retries_merge() {
     assert_eq!(store.read("final").unwrap(), "REMOTE\n\nLOCAL\n");
     assert_eq!(store.read_existing("old").unwrap(), None);
 }
+
+#[test]
+fn rename_then_delete_in_one_sync_cycle_refreshes_and_keeps_the_draft_attached() {
+    let root = TestRoot::new();
+    let store = store(&root);
+    store.create("", "old", "base").unwrap();
+    store.create("", "other", "x").unwrap();
+    let mut editor = store.open_editor("old").unwrap();
+    editor.replace(Revision(0), range(0, 4), "local").unwrap();
+    // The peer renamed the note and a later change in the same cycle deleted it.
+    fs::remove_file(root.0.join("old.md")).unwrap();
+    fs::write(root.0.join("other.md"), "y").unwrap();
+    let rename = NoteRename {
+        from: "old".into(),
+        to: "gone".into(),
+    };
+    let mutation = store
+        .refresh_external_changes(&["other".into()], &["gone".into()], &[rename])
+        .unwrap();
+    assert!(mutation.upserted.iter().any(|note| note.note.id == "other"));
+    assert_eq!(editor.id(), "old");
+    // The draft is never abandoned: saving recreates it (edit wins).
+    editor.checkpoint().unwrap();
+    assert_eq!(store.read("old").unwrap(), "local");
+}
+
+#[test]
+fn collision_loser_follows_its_conflict_copy_and_never_merges_into_the_winner() {
+    let root = TestRoot::new();
+    let store = store(&root);
+    store.create("", "note", "first\n\nsecond\n").unwrap();
+    let mut editor = store.open_editor("note").unwrap();
+    editor.replace(Revision(0), range(7, 13), "LOCAL").unwrap();
+    // Sync moved the losing note aside, then wrote the unrelated winner at its id.
+    fs::rename(root.0.join("note.md"), root.0.join("note (conflict).md")).unwrap();
+    fs::write(root.0.join("note.md"), "first\n\nwinner\n").unwrap();
+    let rename = NoteRename {
+        from: "note".into(),
+        to: "note (conflict)".into(),
+    };
+    store.refresh_external_changes(&[], &[], &[rename]).unwrap();
+    assert_eq!(editor.id(), "note (conflict)");
+    editor.checkpoint().unwrap();
+    assert_eq!(store.read("note").unwrap(), "first\n\nwinner\n");
+    assert_eq!(store.read("note (conflict)").unwrap(), "first\n\nLOCAL\n");
+}

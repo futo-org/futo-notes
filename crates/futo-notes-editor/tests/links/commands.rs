@@ -330,3 +330,37 @@ fn empty_supplied_label_at_a_caret_does_not_insert_the_destination_or_add_histor
         .unwrap()
         .is_none());
 }
+
+#[test]
+fn edit_link_label_with_punctuation_inside_a_code_formatted_label_is_literal() {
+    let original = "[`old`](/old)";
+    let mut session = EditorSession::open(original);
+    session.select(Revision(0), range(0, 3)).unwrap();
+    session
+        .edit_link(Revision(0), range(0, 3), "a*b", "/old", &mut |_| Ok(()))
+        .unwrap()
+        .unwrap();
+    assert_eq!(session.display_text(), "a*b");
+    assert!(session.source_text().contains("a*b"));
+    session.undo(Revision(1), &mut |_| Ok(())).unwrap().unwrap();
+    assert_eq!(session.source_text(), original);
+}
+
+#[test]
+fn edit_link_clearing_the_sole_link_leaves_an_empty_document_with_exact_undo() {
+    let original = "[old](/old)";
+    let mut session = EditorSession::open(original);
+    session.select(Revision(0), range(0, 3)).unwrap();
+    let mut accepted = 0;
+    session
+        .edit_link(Revision(0), range(0, 3), "", "", &mut |_| {
+            accepted += 1;
+            Ok(())
+        })
+        .unwrap()
+        .unwrap();
+    assert_eq!(accepted, 1);
+    assert_eq!(session.source_text(), "");
+    session.undo(Revision(1), &mut |_| Ok(())).unwrap().unwrap();
+    assert_eq!(session.source_text(), original);
+}

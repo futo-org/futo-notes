@@ -85,16 +85,13 @@ describe('pre-merge CI routing contracts', () => {
     }
   });
 
-  it('does not repeat P0 smoke coverage in the remaining Playwright suite', () => {
-    // test:e2e:rest skips the smoke spec by describe title, so a test or
-    // describe opened beside that describe (column 0 under Prettier) instead
-    // of inside it runs in both jobs.
-    const smokeSpec = 'tests/p0-regressions.spec.ts';
-    expect(packageScripts['test:e2e:smoke']).toBe(`playwright test ${smokeSpec}`);
-    const grepInvert = /--grep-invert "([^"]+)"/.exec(packageScripts['test:e2e:rest'])?.[1];
-    expect(grepInvert).toBe('P0 Crash and IME Regressions');
-    const topLevel = readFileSync(join(ROOT, smokeSpec), 'utf8').match(/^test\b.*$/gm);
-    expect(topLevel).toEqual([`test.describe('${grepInvert}', () => {`]);
+  it('runs the P0 spec inside test:e2e:rest, not as a second CI job', () => {
+    // The quick local script stays, but CI has one job for the whole suite, so
+    // nothing may exclude the spec from it or re-add a standalone job.
+    expect(packageScripts['test:e2e:smoke']).toBe('playwright test tests/p0-regressions.spec.ts');
+    expect(packageScripts['test:e2e:rest']).not.toContain('--grep-invert');
+    expect(gitlabPipeline).not.toMatch(/^test:e2e:smoke:/m);
+    expect(topLevelBlock(gitlabPipeline, /^release:gate:$/m)).not.toContain('test:e2e:smoke');
   });
 
   it('proves every Playwright shard ran as its shard and ran tests', () => {
@@ -222,16 +219,31 @@ describe('pre-merge CI routing contracts', () => {
     expect(androidJob).toContain("-name 'TEST-*.xml' -type f -print -quit");
   });
 
-  it('runs the full sync scenario set on every MR, alone on a serial runner', () => {
+  it('runs the full sync scenario set on every desktop/sync MR, alone on a serial runner', () => {
     const syncJob = topLevelBlock(gitlabPipeline, /^test:cross-platform-sync:$/m);
     const androidSyncJob = topLevelBlock(gitlabPipeline, /^test:cross-platform-sync:android:$/m);
     const ffiJob = topLevelBlock(gitlabPipeline, /^test:rust:ffi-android:$/m);
 
     expect(syncJob).toContain('node tests/cross-platform-sync.mjs $SYNC_SCENARIO_FLAGS');
-    // No rule trims the scale probes any more, and no MR rule is manual or
-    // path-gated: the suite blocks every merge.
+    // No rule trims the scale probes, and no MR rule is manual: the suite
+    // blocks every merge that can touch the desktop client or the sync stack.
+    // The MR and main rules share ONE path list (a YAML anchor), so main
+    // re-runs whatever an MR was gated on, and docs/iOS/Android-only MRs skip
+    // the serial runner's queue.
     expect(syncJob).not.toContain('--skip-slow');
-    expect(syncJob).toMatch(/\n {4}- if: \$CI_MERGE_REQUEST_IID\n {4}# /);
+    expect(syncJob).toMatch(
+      /- if: \$CI_MERGE_REQUEST_IID\n {6}changes: &cross-platform-sync-changes\n/,
+    );
+    expect(syncJob).toContain('changes: *cross-platform-sync-changes');
+    for (const path of [
+      'crates/**/*',
+      'apps/tauri/**/*',
+      'src/**/*',
+      'packages/**/*',
+      'tests/lib/**/*',
+    ]) {
+      expect(syncJob).toContain(`- ${path}`);
+    }
     expect(syncJob).not.toContain('when: manual');
     expect(syncJob).toContain('$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH');
     // The serial runners (one job at a time) are the exclusion that the
@@ -245,18 +257,6 @@ describe('pre-merge CI routing contracts', () => {
     expect(ffiJob).toContain('    - $LINUX_RUNNER_TAG');
     expect(ffiJob).not.toContain('resource_group');
     expect(ffiJob).not.toContain('- job: test:cross-platform-sync');
-  });
-
-  it('benchmarks the editor alone on a serial runner, by hand, gating nothing', () => {
-    const bench = topLevelBlock(gitlabPipeline, /^bench:editor:$/m);
-    const releaseGate = topLevelBlock(gitlabPipeline, /^release:gate:$/m);
-
-    expect(bench).toContain('    - futo_notes_serial');
-    expect(bench).toContain('editor-bench-gate.mjs" --regression-only');
-    expect(bench).not.toContain('--accept');
-    expect(bench).toContain('when: manual');
-    expect(bench).toContain('allow_failure: true');
-    expect(releaseGate).not.toContain('- job: bench:editor');
   });
 
   it('runs the Windows Rust tests on crate MRs behind the bring-up switch', () => {

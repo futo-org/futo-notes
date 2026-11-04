@@ -15,4 +15,9 @@ ignore = [
   "RUSTSEC-2026-0367",
   "RUSTSEC-2026-0368",
   "RUSTSEC-2026-0369",
+  # zip 4.6.1 `extract()` aborts on a symlink entry that declares a huge size. Same
+  # exposure as the three above: only tauri-plugin-updater's Windows unzip of an archive
+  # that already passed the minisign check, so a crafted entry needs our signing key and
+  # the worst case is the updater process aborting. Fixed in zip >= 9, same blocker.
+  "RUSTSEC-2026-0429",
 ]

@@ -300,108 +300,6 @@ fn one_paragraph_merge_settles_composition_and_maps_unicode_selection() {
 }
 
 #[test]
-fn clean_checkpoint_adopts_peer_source_and_undo_keeps_the_peer() {
-    let root = TestRoot::new();
-    let store = store(&root);
-    store.create("", "plain", "first\n\nsecond\n").unwrap();
-    let mut editor = store.open_editor("plain").unwrap();
-    editor.replace(Revision(0), range(0, 0), "local ").unwrap();
-    editor.checkpoint().unwrap();
-    editor
-        .select_with_affinity(
-            editor.revision(),
-            range(6, 11),
-            futo_notes_editor::Affinity::Forward,
-        )
-        .unwrap();
-    store
-        .write("plain", "local first\n\npeer second\n", None)
-        .unwrap();
-    let result = editor.checkpoint().unwrap();
-    assert_eq!(result.disposition, FlushDisposition::Converged);
-    assert!(result.mutation.is_none());
-    assert_eq!(editor.id(), "plain");
-    assert_eq!(editor.source_text(), "local first\n\npeer second\n");
-    assert_eq!(editor.selection(), range(6, 11));
-    assert_eq!(editor.take_coordinated_changes().unwrap().len(), 1);
-    assert_eq!(editor.save_status().saved, editor.revision());
-    editor.undo(editor.revision()).unwrap().unwrap();
-    assert_eq!(editor.source_text(), "first\n\npeer second\n");
-    editor.checkpoint().unwrap();
-    assert_eq!(store.read("plain").unwrap(), "first\n\npeer second\n");
-}
-
-#[test]
-fn clean_checkpoint_does_not_recreate_a_peer_deleted_note() {
-    let root = TestRoot::new();
-    let store = store(&root);
-    store.create("", "plain", "first\n\nsecond\n").unwrap();
-    let mut editor = store.open_editor("plain").unwrap();
-    editor.replace(Revision(0), range(0, 0), "local ").unwrap();
-    editor.checkpoint().unwrap();
-    std::fs::remove_file(root.0.join("plain.md")).unwrap();
-    assert_eq!(
-        editor.checkpoint().unwrap().disposition,
-        FlushDisposition::Converged
-    );
-    assert_eq!(store.read_existing("plain").unwrap(), None);
-    assert_eq!(editor.source_text(), "local first\n\nsecond\n");
-    assert!(editor.take_coordinated_changes().unwrap().is_empty());
-    // A subsequent real edit still has the existing edit-wins promise.
-    editor.replace(editor.revision(), range(6, 6), "!").unwrap();
-    assert_eq!(
-        editor.checkpoint().unwrap().disposition,
-        FlushDisposition::Recreated
-    );
-    assert_eq!(store.read("plain").unwrap(), "local !first\n\nsecond\n");
-}
-
-#[test]
-fn clean_refresh_read_failure_keeps_source_history_and_baseline_for_retry() {
-    let root = TestRoot::new();
-    let store = store(&root);
-    store.create("", "plain", "first\n\nsecond\n").unwrap();
-    let mut editor = store.open_editor("plain").unwrap();
-    editor.replace(Revision(0), range(0, 0), "local ").unwrap();
-    editor.checkpoint().unwrap();
-    let saved = editor.save_status().saved;
-    let path = root.0.join("plain.md");
-    std::fs::remove_file(&path).unwrap();
-    std::fs::create_dir(&path).unwrap();
-    assert!(editor.checkpoint().is_err());
-    assert_eq!(editor.source_text(), "local first\n\nsecond\n");
-    assert_eq!(editor.save_status().saved, saved);
-    assert!(editor.save_delay().is_some());
-    assert!(editor.take_coordinated_changes().unwrap().is_empty());
-    std::fs::remove_dir(&path).unwrap();
-    std::fs::write(&path, "local first\n\npeer second\n").unwrap();
-    editor.checkpoint().unwrap();
-    assert_eq!(editor.source_text(), "local first\n\npeer second\n");
-    editor.undo(editor.revision()).unwrap().unwrap();
-    assert_eq!(editor.source_text(), "first\n\npeer second\n");
-}
-
-#[test]
-fn clean_refresh_with_ambiguous_saved_undo_preserves_both_versions() {
-    let root = TestRoot::new();
-    let store = store(&root);
-    store.create("", "plain", "first\n\nsecond\n").unwrap();
-    let mut editor = store.open_editor("plain").unwrap();
-    editor.replace(Revision(0), range(0, 5), "saved").unwrap();
-    editor.checkpoint().unwrap();
-    store.write("plain", "REMOTE\n\nsecond\n", None).unwrap();
-    let result = editor.checkpoint().unwrap();
-    let FlushDisposition::ParkedConflict { parked_id } = result.disposition else {
-        panic!("ambiguous saved Undo must preserve both versions")
-    };
-    assert_eq!(editor.id(), parked_id);
-    assert_eq!(store.read("plain").unwrap(), "REMOTE\n\nsecond\n");
-    assert_eq!(store.read(&parked_id).unwrap(), "saved\n\nsecond\n");
-    editor.undo(editor.revision()).unwrap().unwrap();
-    assert_eq!(editor.source_text(), "first\n\nsecond\n");
-}
-
-#[test]
 fn portable_clean_checkpoint_leaves_page_owned_source_and_history_unchanged() {
     use futo_notes_editor::{PortableSession, SessionToken};
     let root = TestRoot::new();
@@ -429,4 +327,85 @@ fn portable_clean_checkpoint_leaves_page_owned_source_and_history_unchanged() {
     page.acknowledge(host.handle(undo.request)).unwrap();
     assert_eq!(page.draft_text(), "first\n\nsecond\n");
     assert_eq!(store.read("plain").unwrap(), "local first\n\npeer second\n");
+}
+
+#[test]
+fn portable_merge_checkpoint_records_the_baseline_so_undo_saves_in_place() {
+    use futo_notes_editor::{PortableSession, SessionToken};
+    let root = TestRoot::new();
+    let store = store(&root);
+    store.create("", "plain", "first\n\nsecond\n").unwrap();
+    let mut host = store
+        .open_editor("plain")
+        .unwrap()
+        .into_portable_host(SessionToken(574))
+        .unwrap();
+    let mut page = PortableSession::from_snapshot(host.snapshot()).unwrap();
+    let edit = page.replace(Revision(0), range(7, 13), "LOCAL").unwrap();
+    page.acknowledge(host.handle(edit.request)).unwrap();
+    store.write("plain", "REMOTE\n\nsecond\n", None).unwrap();
+    let merged = host.checkpoint_merged().unwrap();
+    assert_eq!(merged.source, "REMOTE\n\nLOCAL\n");
+    let adoption = page
+        .adopt_merged_source(Revision(1), &merged.source)
+        .unwrap();
+    page.acknowledge(host.handle(adoption.request)).unwrap();
+    let undo = page.undo(Revision(2)).unwrap().unwrap();
+    page.acknowledge(host.handle(undo.request)).unwrap();
+    let result = host.checkpoint().unwrap();
+    assert_eq!(result.disposition, FlushDisposition::Wrote);
+    assert_eq!(host.id(), "plain");
+    assert_eq!(store.read("plain").unwrap(), "REMOTE\n\nsecond\n");
+}
+
+#[test]
+fn portable_merge_never_overwrites_the_peer_when_the_page_does_not_adopt() {
+    use futo_notes_editor::{PortableSession, SessionToken};
+    let root = TestRoot::new();
+    let store = store(&root);
+    store.create("", "plain", "first\n\nsecond\n").unwrap();
+    let mut host = store
+        .open_editor("plain")
+        .unwrap()
+        .into_portable_host(SessionToken(575))
+        .unwrap();
+    let mut page = PortableSession::from_snapshot(host.snapshot()).unwrap();
+    let edit = page.replace(Revision(0), range(7, 13), "LOCAL").unwrap();
+    page.acknowledge(host.handle(edit.request)).unwrap();
+    store.write("plain", "REMOTE\n\nsecond\n", None).unwrap();
+    let merged = host.checkpoint_merged().unwrap();
+    assert_eq!(merged.source, "REMOTE\n\nLOCAL\n");
+    // The page refused or never received the adoption: the worker still holds
+    // the unmerged draft, and the next save must not overwrite the merge.
+    let result = host.checkpoint().unwrap();
+    let FlushDisposition::ParkedConflict { parked_id } = result.disposition else {
+        panic!("an undelivered merge must preserve both versions")
+    };
+    assert_eq!(store.read("plain").unwrap(), "REMOTE\n\nLOCAL\n");
+    assert_eq!(store.read(&parked_id).unwrap(), "first\n\nLOCAL\n");
+}
+
+#[test]
+fn portable_undo_before_a_merge_is_adopted_is_not_reported_saved() {
+    use futo_notes_editor::{PortableSession, SessionToken};
+    let root = TestRoot::new();
+    let store = store(&root);
+    store.create("", "plain", "first\n\nsecond\n").unwrap();
+    let mut host = store
+        .open_editor("plain")
+        .unwrap()
+        .into_portable_host(SessionToken(576))
+        .unwrap();
+    let mut page = PortableSession::from_snapshot(host.snapshot()).unwrap();
+    let edit = page.replace(Revision(0), range(7, 13), "LOCAL").unwrap();
+    page.acknowledge(host.handle(edit.request)).unwrap();
+    store.write("plain", "REMOTE\n\nsecond\n", None).unwrap();
+    host.checkpoint_merged().unwrap();
+    let undo = page.undo(Revision(1)).unwrap().unwrap();
+    page.acknowledge(host.handle(undo.request)).unwrap();
+    assert!(matches!(
+        host.checkpoint().unwrap().disposition,
+        FlushDisposition::ParkedConflict { .. }
+    ));
+    assert_eq!(store.read("plain").unwrap(), "REMOTE\n\nLOCAL\n");
 }

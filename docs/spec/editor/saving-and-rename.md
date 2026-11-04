@@ -112,7 +112,7 @@
   serialization in the flush window is not clobbered — the draft is parked
   instead), or **parked** as a conflict
   copy (peer changed; both versions survive, the copy id reported). A dirty
-  draft is never silently dropped; a clean editor never recreates a missing note, so a genuinely
+  draft is never silently dropped; a clean editor never flushes, so a genuinely
   abandoned note is never resurrected. Conflict copies are named by the
   engine's one conflict-naming rule ("<title> (conflict YYYY-MM-DD)", counter
   suffix on a same-day collision), and parking is idempotent — a crash-window
@@ -219,14 +219,3 @@
   their token/sequence order and history; automatic portable saves preserve both versions by parking
   on divergence. → crates/futo-notes-store/src/notes.rs,
   crates/futo-notes-store/src/editor_session/identity.rs
-
-- The Android text-first editor consumes coordinated merge changes on its input thread before
-  publishing the saved state, including composition settlement when a later write fails. Remote
-  updates reconcile through the attached session, preserving selection and local Undo rather than
-  closing and reopening it; no asynchronously captured source snapshot replaces newer input.
-  _(Android text-first)_ → EditorEngineStorage.kt, TextFirstController.kt, TextFirstMergeTest.kt
-- Android applies the complete external-change mutation before notifying the open editor. A refused
-  refresh retains the explicit event for retry; a list rescan cannot stand in for successful attachment
-  retargeting. The editor reads its current session id before reconciliation, including when the
-  following save fails. _(Android text-first)_ → NotesStore.kt `localTreeChanged`,
-  TextFirstExternalRefreshTest.kt, TextFirstEditorScreen.kt

@@ -1,18 +1,26 @@
-# Included by .gitlab-ci.yml: Playwright end-to-end and desktop smoke tests.
+# Included by .gitlab-ci.yml: Playwright end-to-end tests.
 
-test:e2e:smoke:
+test:e2e:rest:
   extends: .ci-test-image
   stage: test
-  # Runner 71 — see the `test` job. Median 2m28 on runner 55 vs 1m37 on runner 71.
+  # Runner 71 — see the `test` job. Median 10m10 on runner 55 vs 3m02 on runner 71.
   tags:
     - $LINUX_RUNNER_TAG
+  # One job, not three shards: each shard took 47-58s wall on runner 112
+  # (2026-11, MR pipelines), most of it clone, image start and pnpm install,
+  # and the three starts queued ahead of the editor-embed shards (the long
+  # pole) on runners with 2-5 slots. Playwright still runs --workers=2.
+  variables:
+    PLAYWRIGHT_JSON: $CI_PROJECT_DIR/test-results/results.json
   cache:
     - !reference [.cache-pnpm, cache]
     - !reference [.cache-playwright, cache]
   script:
     - pnpm install --frozen-lockfile --prefer-offline
     - !reference [.setup-playwright, script]
-    - pnpm run test:e2e:smoke
+    - pnpm run test:e2e:rest
+    # M11: a green exit with zero tests (a broken testMatch) must still fail red.
+    - !reference [.check-playwright-ran, script]
   artifacts:
     when: always
     paths:
@@ -22,54 +30,9 @@ test:e2e:smoke:
   rules:
     - !reference [.not-scheduled, rules]
     - if: $CI_COMMIT_TAG
+    # Any spec edit re-runs the suite that contains it.
     - if: $CI_MERGE_REQUEST_IID
-      changes: &web-e2e-smoke-changes
-        - src/**/*
-        - packages/editor/**/*
-        - tests/p0-regressions.spec.ts
-        - tests/lib/**/*
-        - playwright.config.ts
-        - package.json
-        - pnpm-lock.yaml
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
-      changes: *web-e2e-smoke-changes
-
-test:e2e:rest:
-  extends: .ci-test-image
-  stage: test
-  # Runner 71 — see the `test` job. Median 10m10 on runner 55 vs 3m02 on runner 71.
-  tags:
-    - $LINUX_RUNNER_TAG
-  # Three shards by file (188 tests split 63/71/54 on 2026-10-08). Each shard
-  # starts its own dev server; the docker executor gives every job its own
-  # network namespace, so the shards cannot collide on the port. July's
-  # two-shard attempt was undone for oversubscribing runner 55 (58ceb12b7);
-  # these run on runner 71 only, where the cost is its five job slots.
-  parallel: 3
-  variables:
-    PLAYWRIGHT_JSON: $CI_PROJECT_DIR/test-results/results.json
-  cache:
-    - !reference [.cache-pnpm, cache]
-    - !reference [.cache-playwright, cache]
-  script:
-    - pnpm install --frozen-lockfile --prefer-offline
-    - !reference [.setup-playwright, script]
-    # The flag goes straight after the script name, never after `--`; see
-    # .check-playwright-shard.
-    - pnpm run test:e2e:rest --shard="$CI_NODE_INDEX/$CI_NODE_TOTAL"
-    - !reference [.check-playwright-shard, script]
-  artifacts:
-    when: always
-    paths:
-      - test-results/
-      - playwright-report/
-    expire_in: 1 week
-  rules:
-    - if: $CI_COMMIT_TAG
-    # Same web surface as test:e2e:smoke, plus any spec edit re-runs the
-    # suite that contains it.
-    - if: $CI_MERGE_REQUEST_IID
-      changes:
+      changes: &web-e2e-changes
         - src/**/*
         - packages/editor/**/*
         - tests/**/*.spec.ts
@@ -79,6 +42,10 @@ test:e2e:rest:
         - pnpm-lock.yaml
         - ci/*.yml
         - .gitlab-ci.yml
+    # The whole web suite, P0 spec included, runs on main so the P0 crash/IME
+    # spec keeps the main coverage the standalone smoke job gave it.
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      changes: *web-e2e-changes
     - if: $CI_MERGE_REQUEST_IID
       when: manual
       allow_failure: true

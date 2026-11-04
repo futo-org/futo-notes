@@ -266,11 +266,15 @@ impl super::Projection {
                 mut before, after, ..
             } = super::edit::cut(pieces, a..z, false);
             let start = before.len();
+            // Code content is literal: a backslash there is displayed.
+            let in_code = active
+                .iter()
+                .any(|id| markers[*id].kind == SpanKind::Format(crate::InlineFormat::Code));
             before.extend(label.chars().map(|ch| super::spelling::Piece {
                 guard: None,
                 physical_prefix: false,
                 literal_url: None,
-                raw: if ch.is_ascii_punctuation() {
+                raw: if ch.is_ascii_punctuation() && !in_code {
                     format!("\\{ch}")
                 } else {
                     ch.to_string()
