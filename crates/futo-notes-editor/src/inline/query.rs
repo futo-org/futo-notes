@@ -89,8 +89,7 @@ impl Projection {
                     && at == range.end.0
                     && self.display_at(block.content.end) == at
                     && !lines.iter().any(|line| {
-                        line.content == block.content
-                            || self.display_at(line.content.end) == at
+                        line.content == block.content || self.display_at(line.content.end) == at
                     })
                 {
                     lines.push(block);

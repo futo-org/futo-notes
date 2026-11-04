@@ -567,7 +567,11 @@ fn a_block_command_on_the_last_empty_line_reports_that_line_s_new_block() {
                         _ => b.code,
                     }
             });
-            assert!(carries_it, "{raw:?} {command:?}: {:?}", change.projection.blocks);
+            assert!(
+                carries_it,
+                "{raw:?} {command:?}: {:?}",
+                change.projection.blocks
+            );
         }
     }
 }
