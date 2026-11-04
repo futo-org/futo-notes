@@ -164,6 +164,13 @@ internal class TextFirstEditText(
 
     private class ComposingUnderline : UnderlineSpan()
 
+    /** A reveal ignores a pending layout: see [revealNow]. */
+    internal var revealing = false
+
+    override fun bringPointIntoView(offset: Int): Boolean = revealNow { super.bringPointIntoView(offset) }
+
+    override fun isLayoutRequested(): Boolean = !revealing && super.isLayoutRequested()
+
     override fun onDraw(canvas: android.graphics.Canvas) {
         val timings = pendingTimings
         if (timings != null) timings.drawStart = android.os.SystemClock.elapsedRealtimeNanos()
@@ -247,6 +254,7 @@ internal class TextFirstEditText(
     // otherwise keep a stale height).
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
+        if (h < oldh && caretWasInView(oldh)) bringPointIntoView(selectionEnd)
         if (w == oldw) return
         val e = editableText ?: return
         applying = true
