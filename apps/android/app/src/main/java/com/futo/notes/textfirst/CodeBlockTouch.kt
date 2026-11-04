@@ -5,10 +5,10 @@ import android.view.ViewConfiguration
 import kotlin.math.abs
 
 /**
- * A short tap in the margin beside a code block (outside the grey box) selects
- * the whole block as one object. A tap on the code itself still places the
- * caret, which is how code is edited; the fences are hidden, so the margin is
- * the block's frame. Enter then acts after the block, as it does for an image.
+ * A short tap on the handle at a code block's top-right corner selects the
+ * whole block as one object. A tap on the code itself still places the caret,
+ * which is how code is edited; the fences are hidden, so the handle is the
+ * block's frame. Enter then acts after the block, as it does for an image.
  */
 internal class CodeBlockTouch(private val view: TextFirstEditText) {
     private val slop = ViewConfiguration.get(view.context).scaledTouchSlop
@@ -45,24 +45,21 @@ internal class CodeBlockTouch(private val view: TextFirstEditText) {
         }
     }
 
-    /** The code block (its first character to the end of its last line) whose side margin is at this point. */
+    /** The code block (its first character to the end of its last line) whose corner handle is at this point. */
     private fun hit(x: Float, y: Float): Pair<Int, Int>? {
-        if (x >= view.totalPaddingLeft && x < view.width - view.totalPaddingRight) return null
         val layout = view.layout ?: return null
         val text = view.editableText ?: return null
+        val localX = x - view.totalPaddingLeft + view.scrollX
         val localY = y - view.totalPaddingTop + view.scrollY
         if (localY < 0 || localY >= layout.height) return null
-        fun code(line: Int): Boolean {
-            val start = layout.getLineStart(line)
-            return start < text.length && text.getSpans(start, start + 1, TfCodeBlock::class.java)
-                .any { text.getSpanStart(it) <= start && start < text.getSpanEnd(it) }
-        }
-        val tapped = layout.getLineForVertical(localY.toInt())
-        if (!code(tapped)) return null
-        var first = tapped
-        while (first > 0 && code(first - 1)) first--
-        var last = tapped
-        while (last < layout.lineCount - 1 && code(last + 1)) last++
+        val line = layout.getLineForVertical(localY.toInt())
+        // The target reaches a little above the box, so the line before may be the one hit.
+        val first = (line..minOf(line + 1, layout.lineCount - 1)).firstOrNull { cand ->
+            view.isCodeLine(cand) && (cand == 0 || !view.isCodeLine(cand - 1)) &&
+                view.codeHandleTarget(cand).contains(localX, localY)
+        } ?: return null
+        var last = first
+        while (last < layout.lineCount - 1 && view.isCodeLine(last + 1)) last++
         // The text's end sentinel is not a caret position.
         var end = minOf(layout.getLineEnd(last), text.length - 1)
         if (end > layout.getLineStart(last) && text[end - 1] == '\n') end--
