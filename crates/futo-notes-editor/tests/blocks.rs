@@ -17,6 +17,8 @@ mod conversions;
 mod keys;
 #[path = "blocks/projection.rs"]
 mod projection;
+#[path = "blocks/quote_enter.rs"]
+mod quote_enter;
 #[path = "blocks/seams.rs"]
 mod seams;
 #[path = "blocks/selected_source.rs"]

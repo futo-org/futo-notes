@@ -46,7 +46,7 @@ fn enter_carries_inline_formats_from_the_supplied_range_without_a_selection_echo
             if raw.starts_with('#') {
                 "# __ab__\n__c__"
             } else {
-                "> __ab__\n>\n> __c__"
+                "> __ab__\n> __c__"
             }
         );
     }
@@ -101,7 +101,7 @@ fn enter_before_heading_text_preserves_an_explicit_inline_format_toggle() {
 }
 
 #[test]
-fn enter_at_a_later_physical_quote_line_adds_only_the_paragraph_separator() {
+fn enter_at_a_later_physical_quote_line_adds_only_an_empty_quoted_line_above_it() {
     let mut s = EditorSession::open("> a\r\n> __日__\r\n\r\nneighbor");
     let mut v = ReferenceView::new("a\r\n日\r\n\r\nneighbor");
     s.select(s.revision(), range(3, 3)).unwrap();
@@ -115,7 +115,7 @@ fn enter_at_a_later_physical_quote_line_adds_only_the_paragraph_separator() {
         .unwrap()
         .unwrap(),
     );
-    assert_eq!(s.source_text(), "> a\r\n>\n> __日__\r\n\r\nneighbor");
+    assert_eq!(s.source_text(), "> a\r\n> \n> __日__\r\n\r\nneighbor");
     assert_eq!(v.text, "a\r\n\n日\r\n\r\nneighbor");
     assert_eq!(s.selection(), range(4, 4));
     v.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
@@ -128,12 +128,7 @@ fn enter_at_a_later_physical_quote_line_adds_only_the_paragraph_separator() {
 fn heading_and_quote_enter_carry_bold_into_an_empty_continuation() {
     for (raw, expected, shown, entered) in [
         ("# __ab__", "# __ab__\n__c__", "ab\nc", "# __ab__\n"),
-        (
-            "> __ab__",
-            "> __ab__\n>\n> __c__",
-            "ab\n\nc",
-            "> __ab__\n>\n> ",
-        ),
+        ("> __ab__", "> __ab__\n> __c__", "ab\nc", "> __ab__\n> "),
     ] {
         let mut s = EditorSession::open(raw);
         let mut v = ReferenceView::new("ab");
@@ -172,8 +167,8 @@ fn structural_enter_splits_headings_and_continues_or_exits_nested_quotes() {
         ("## ab", "ab", 1, "## a\nb", "a\nb", 2),
         ("## ab", "ab", 2, "## ab\n", "ab\n", 3),
         ("> > ab", "ab", 0, "\n> > ab", "\nab", 1),
-        ("> > ab", "ab", 1, "> > a\n> >\n> > b", "a\n\nb", 3),
-        ("> > ab", "ab", 2, "> > ab\n> >\n> > ", "ab\n\n", 4),
+        ("> > ab", "ab", 1, "> > a\n> > b", "a\nb", 2),
+        ("> > ab", "ab", 2, "> > ab\n> > ", "ab\n", 3),
         ("> > ", "", 0, "> ", "", 0),
         ("> ", "", 0, "", "", 0),
     ] {
@@ -204,7 +199,7 @@ fn empty_quote_paragraph_exit_survives_reopen_at_each_depth() {
         Ok(())
     })
     .unwrap();
-    assert_eq!(s.source_text(), "> > deep\n> >\n> > ");
+    assert_eq!(s.source_text(), "> > deep\n> > ");
     s.paragraph_key(
         s.revision(),
         s.selection(),
@@ -241,9 +236,9 @@ fn structural_splits_keep_inline_styles_and_exact_neighboring_source() {
         (
             "> __ab__\r\n\r\nuntouched",
             1,
-            "> __a__\n>\n> __b__\r\n\r\nuntouched",
-            "a\n\nb\r\n\r\nuntouched",
-            3,
+            "> __a__\n> __b__\r\n\r\nuntouched",
+            "a\nb\r\n\r\nuntouched",
+            2,
         ),
     ] {
         let mut s = EditorSession::open(opening);
