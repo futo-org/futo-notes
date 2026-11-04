@@ -543,3 +543,31 @@ fn whole_setext_quote_depth_changes_every_owned_prefix_and_exact_history() {
         assert_eq!(v.text, shown);
     }
 }
+
+#[test]
+fn a_block_command_on_the_last_empty_line_reports_that_line_s_new_block() {
+    for raw in ["", "text\n", "text\n\n\n", "text\n\n\nmore"] {
+        for command in [
+            BlockCommand::Heading(1),
+            BlockCommand::Quote,
+            BlockCommand::CodeBlock,
+        ] {
+            let mut s = EditorSession::open(raw);
+            let caret = if raw.ends_with("more") { 6 } else { raw.len() };
+            let change = s
+                .block_command(s.revision(), range(caret, caret), command, &mut |_| Ok(()))
+                .unwrap()
+                .unwrap();
+            let carries_it = change.projection.blocks.iter().any(|b| {
+                b.range.start.0 <= caret
+                    && caret <= b.range.end.0
+                    && match command {
+                        BlockCommand::Heading(level) => b.heading == level,
+                        BlockCommand::Quote => b.quote_depth > 0,
+                        _ => b.code,
+                    }
+            });
+            assert!(carries_it, "{raw:?} {command:?}: {:?}", change.projection.blocks);
+        }
+    }
+}
