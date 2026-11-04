@@ -8,7 +8,7 @@ fn native_save_delay_tracks_unsaved_edits_and_checkpoint_clears_it() {
     std::fs::create_dir_all(tree.path("vault")).unwrap();
     let store = NoteStore::new(path_string(&tree.path("vault")));
     store
-        .create_note("plain".into(), "".into(), "before".into())
+        .create_note("plain".into(), "".into(), "before\n".into())
         .unwrap();
     let session = store.open_editor("plain".into()).unwrap();
     assert_eq!(session.save_delay().unwrap(), None);
@@ -27,16 +27,16 @@ fn native_save_delay_tracks_unsaved_edits_and_checkpoint_clears_it() {
     // store's controllable-clock tests.
     match session.save_if_due().unwrap() {
         None => {
-            assert_eq!(store.read("plain".into()).unwrap(), "before");
+            assert_eq!(store.read("plain".into()).unwrap(), "before\n");
             assert_eq!(session.save_status().unwrap().saved, 0);
         }
         Some(_) => {
-            assert_eq!(store.read("plain".into()).unwrap(), "before!");
+            assert_eq!(store.read("plain".into()).unwrap(), "before!\n");
             assert_eq!(session.save_status().unwrap().saved, 1);
         }
     }
     session.checkpoint().unwrap();
-    assert_eq!(store.read("plain".into()).unwrap(), "before!");
+    assert_eq!(store.read("plain".into()).unwrap(), "before!\n");
     assert_eq!(session.save_delay().unwrap(), None);
     assert_eq!(session.save_status().unwrap().saved, 1);
 }
@@ -47,10 +47,10 @@ fn native_relink_is_one_undo_step_and_delete_fences_the_same_attachment() {
     std::fs::create_dir_all(tree.path("vault")).unwrap();
     let store = NoteStore::new(path_string(&tree.path("vault")));
     store
-        .create_note("old".into(), "".into(), "[[old]]".into())
+        .create_note("old".into(), "".into(), "[[old]]\n".into())
         .unwrap();
     let session = store.open_editor("old".into()).unwrap();
-    let mut view = "[[old]]".to_owned();
+    let mut view = "[[old]]\n".to_owned();
     let mut apply = |change: futo_notes_ffi::EditorViewChange| {
         view.replace_range(
             change.range.start as usize..change.range.end as usize,
@@ -70,15 +70,15 @@ fn native_relink_is_one_undo_step_and_delete_fences_the_same_attachment() {
     apply(changes.into_iter().next().unwrap());
     assert!(session.take_coordinated_changes().unwrap().is_empty());
     drop(apply);
-    assert_eq!(view, "[[long name]]!");
-    assert_eq!(session.source_text().unwrap(), "[[long name]]!");
+    assert_eq!(view, "[[long name]]!\n");
+    assert_eq!(session.source_text().unwrap(), "[[long name]]!\n");
     session.undo(2).unwrap().unwrap();
-    assert_eq!(session.source_text().unwrap(), "[[old]]!");
+    assert_eq!(session.source_text().unwrap(), "[[old]]!\n");
     session.redo(3).unwrap().unwrap();
-    assert_eq!(session.source_text().unwrap(), "[[long name]]!");
+    assert_eq!(session.source_text().unwrap(), "[[long name]]!\n");
     store.delete("long name".into()).unwrap();
     store
-        .create_note("long name".into(), "".into(), "fresh".into())
+        .create_note("long name".into(), "".into(), "fresh\n".into())
         .unwrap();
     assert!(matches!(
         session.checkpoint(),
@@ -95,7 +95,7 @@ fn native_relink_is_one_undo_step_and_delete_fences_the_same_attachment() {
             .unwrap()
             .source_text()
             .unwrap(),
-        "fresh"
+        "fresh\n"
     );
 }
 
@@ -296,7 +296,7 @@ fn native_save_failure_keeps_the_session_attached_and_accepting_input() {
     std::fs::create_dir_all(&root).unwrap();
     let store = NoteStore::new(path_string(&root));
     store
-        .create_note("plain".into(), "".into(), "before".into())
+        .create_note("plain".into(), "".into(), "before\n".into())
         .unwrap();
     let session = store.open_editor("plain".into()).unwrap();
     session
@@ -307,11 +307,11 @@ fn native_save_failure_keeps_the_session_attached_and_accepting_input() {
     std::fs::remove_file(&note).unwrap();
     std::fs::create_dir(&note).unwrap();
     assert!(session.detach().is_err());
-    assert_eq!(session.source_text().unwrap(), "before!");
+    assert_eq!(session.source_text().unwrap(), "before!\n");
     session
         .replace_utf16(1, EditorUtf16Range { start: 7, end: 7 }, vec![33])
         .unwrap();
-    assert_eq!(session.source_text().unwrap(), "before!!");
+    assert_eq!(session.source_text().unwrap(), "before!!\n");
     assert!(!root.join(".futo-editor-recovery").exists());
 }
 
@@ -322,10 +322,10 @@ fn native_entity_point_mapping_retains_source_boundary_affinity() {
     std::fs::create_dir_all(tree.path("vault")).unwrap();
     let store = NoteStore::new(path_string(&tree.path("vault")));
     store
-        .create_note("entity".into(), "".into(), "&acE;".into())
+        .create_note("entity".into(), "".into(), "&acE;\n".into())
         .unwrap();
     let session = store.open_editor("entity".into()).unwrap();
-    assert_eq!(session.display_text().unwrap(), "∾\u{0333}");
+    assert_eq!(session.display_text().unwrap(), "∾\u{0333}\n");
     assert_eq!(
         session
             .source_at(

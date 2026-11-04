@@ -29,7 +29,7 @@ class TextFirstLeaveTest {
         lateinit var controller: TextFirstController
         var initialized = false
         try {
-            store.createNote("draft", "", "base")
+            store.createNote("draft", "", "base\n")
             withContext(Dispatchers.Main) {
                 suspendCancellableCoroutine<Unit> { done ->
                     scenario.onActivity { activity ->
@@ -54,14 +54,14 @@ class TextFirstLeaveTest {
             type("draft ")
             assertNull(withContext(Dispatchers.Main) { controller.close() })
             assertTrue("failed detach keeps the controller attached", controller.opened)
-            assertEquals("draft base", withContext(Dispatchers.Main) { controller.sourceText() })
+            assertEquals("draft base\n", withContext(Dispatchers.Main) { controller.sourceText() })
             type("latest ")
-            assertEquals("draft latest base", withContext(Dispatchers.Main) { controller.sourceText() })
+            assertEquals("draft latest base\n", withContext(Dispatchers.Main) { controller.sourceText() })
             check(note.delete())
-            note.writeText("base")
+            note.writeText("base\n")
             assertNotNull(withContext(Dispatchers.Main) { controller.close() })
             assertFalse(controller.opened)
-            assertEquals("draft latest base", store.read("draft"))
+            assertEquals("draft latest base\n", store.read("draft"))
         } finally {
             if (initialized) withContext(Dispatchers.Main) { controller.dispose() }
             scenario.close()
@@ -80,7 +80,7 @@ class TextFirstLeaveTest {
         val opened = java.util.concurrent.CountDownLatch(1)
         lateinit var controller: TextFirstController
         try {
-            store.createNote("draft", "", "base")
+            store.createNote("draft", "", "base\n")
             scenario.onActivity { activity ->
                 controller = createTextFirstController(activity, {
                     entered.countDown()

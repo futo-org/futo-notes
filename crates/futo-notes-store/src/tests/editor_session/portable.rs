@@ -1,6 +1,17 @@
 use super::*;
 use futo_notes_editor::{PortableSession, SessionToken};
 
+/// An assertion may unwind before the successful end of the test body. Release
+/// the held gate before `thread::scope` joins its worker on either path.
+struct ReleaseGateOnDrop(mpsc::Sender<()>);
+
+impl Drop for ReleaseGateOnDrop {
+    fn drop(&mut self) {
+        // The worker may itself have failed; a destructor must not double-panic.
+        let _ = self.0.send(());
+    }
+}
+
 #[test]
 fn portable_composition_refuses_relink_offer_and_commits_under_retargeted_identity() {
     use futo_notes_editor::{DisplayUtf16Offset, DisplayUtf16Range};
@@ -347,11 +358,12 @@ fn an_error_ack_pauses_the_page_and_resume_converges_the_worker_to_the_page_sour
 fn input_proceeds_while_another_thread_holds_the_store_gate() {
     let root = TestRoot::new();
     let store = store(&root);
-    store.create("", "plain", "plain").unwrap();
+    store.create("", "plain", "plain\n").unwrap();
     let (mut host, mut page) = host_for(&store, "plain", 152);
     let (held, held_receive) = mpsc::channel();
     let (release, release_receive) = mpsc::channel::<()>();
     std::thread::scope(|scope| {
+        let _release_gate = ReleaseGateOnDrop(release);
         let store = &store;
         scope.spawn(move || {
             // Any store workflow holds the gate; hold it for the whole test body.
@@ -366,8 +378,7 @@ fn input_proceeds_while_another_thread_holds_the_store_gate() {
         page.acknowledge(ack).unwrap();
         let undo = page.undo(Revision(1)).unwrap().unwrap();
         assert!(host.handle(undo.request).error.is_none());
-        assert_eq!(host.snapshot().source, "plain");
-        release.send(()).unwrap();
+        assert_eq!(host.snapshot().source, "plain\n");
     });
 }
 
@@ -375,11 +386,12 @@ fn input_proceeds_while_another_thread_holds_the_store_gate() {
 fn native_session_input_proceeds_while_another_thread_holds_the_store_gate() {
     let root = TestRoot::new();
     let store = store(&root);
-    store.create("", "plain", "plain").unwrap();
+    store.create("", "plain", "plain\n").unwrap();
     let mut editor = store.open_editor("plain").unwrap();
     let (held, held_receive) = mpsc::channel();
     let (release, release_receive) = mpsc::channel::<()>();
     std::thread::scope(|scope| {
+        let _release_gate = ReleaseGateOnDrop(release);
         let store = &store;
         scope.spawn(move || {
             let _gate = store.lock_gate().unwrap();
@@ -390,8 +402,7 @@ fn native_session_input_proceeds_while_another_thread_holds_the_store_gate() {
         editor.replace(Revision(0), range(5, 5), "!").unwrap();
         editor.select_utf16(Revision(1), utf16_at(6)).unwrap();
         editor.undo(Revision(1)).unwrap();
-        assert_eq!(editor.source_text(), "plain");
-        release.send(()).unwrap();
+        assert_eq!(editor.source_text(), "plain\n");
     });
 }
 
