@@ -53,3 +53,33 @@ fn android_heading_toolbar_toggles_only_a_common_current_level() {
         assert_eq!(s.selection(), selected);
     }
 }
+#[test]
+fn select_all_quote_changes_eligible_rows_in_a_mixed_note() {
+    let opening = "# title\n\n**bold**\n\n- one\n- two\n\n```rs\nraw\n```\n\n| a | b |\n| - | - |\n| c | d |\n";
+    let mut s = EditorSession::open(opening);
+    let shown = s.display_text();
+    let selected = range(0, shown.len());
+    s.select(s.revision(), selected).unwrap();
+    let mut accepted = 0;
+    s.block_command(s.revision(), selected, BlockCommand::Quote, &mut |_| {
+        accepted += 1;
+        Ok(())
+    })
+    .unwrap()
+    .unwrap();
+    assert_eq!(accepted, 1);
+    assert!(s.source_text().starts_with("> title\n"));
+    assert!(s.source_text().contains("> **bold**"));
+    assert!(s.source_text().contains("> one\n> two"));
+    assert!(s.source_text().contains("```rs\nraw\n```"));
+    assert!(s.source_text().contains("> | a | b |"));
+    assert!(
+        s.source_text().ends_with("| c | d |\n"),
+        "{:?}",
+        s.source_text()
+    );
+    assert!(s.selection().end.0 <= s.display_text().len());
+    s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap();
+    assert_eq!(s.source_text(), opening);
+    assert_eq!(s.selection(), selected);
+}
