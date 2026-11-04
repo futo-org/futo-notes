@@ -166,6 +166,15 @@ internal class TextFirstEditText(
 
     private class ComposingUnderline : UnderlineSpan()
 
+    /**
+     * TextView clips its text to the padding box while scrolled, so the bottom
+     * padding (breathing room under the last line) hid every line scrolled into
+     * it behind a blank band. Only the clip reads this during a draw: scrolling
+     * and caret-follow still keep the padding.
+     */
+    private var drawing = false
+    override fun getExtendedPaddingBottom(): Int = if (drawing) 0 else super.getExtendedPaddingBottom()
+
     override fun onDraw(canvas: android.graphics.Canvas) {
         val timings = pendingTimings
         if (timings != null) timings.drawStart = android.os.SystemClock.elapsedRealtimeNanos()
@@ -174,7 +183,8 @@ internal class TextFirstEditText(
         drawFindMarks(canvas)
         val e = editableText as? ChunkedEditable
         e?.drawWindow = visibleChars()
-        try { super.onDraw(canvas) } finally { e?.drawWindow = null }
+        drawing = true
+        try { super.onDraw(canvas) } finally { drawing = false; e?.drawWindow = null }
         if (timings != null) {
             timings.drawEnd = android.os.SystemClock.elapsedRealtimeNanos()
             pendingTimings = null

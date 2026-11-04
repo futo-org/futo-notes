@@ -71,8 +71,9 @@ internal class TfInline(
             bold -> look.bold
             else -> base ?: look.regular
         }
+        // Barlow ships no italic: the ITALIC style makes the platform slant it (fake italic, -0.25).
+        // A skew of our own on top doubled the slant, pushing glyphs far past their advance.
         paint.typeface = if (italic) Typeface.create(face, if (bold) Typeface.BOLD_ITALIC else Typeface.ITALIC) else face
-        if (italic && !face.isItalic) paint.textSkewX = -0.2f
         if (code) paint.textSize *= 0.9f
     }
 
