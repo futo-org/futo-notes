@@ -193,11 +193,6 @@ build:android-native:
   timeout: 90m
   rules:
     - !reference [.not-scheduled, rules]
-    - if: $CI_MERGE_REQUEST_IID
-      changes:
-        - Cargo.lock
-      variables:
-        CARGO_CACHE_POLICY: pull-push
     # The trailing entries are this job's own triggers plus everything that can
     # make test:cross-platform-sync:android run: that job consumes the debug APK
     # built here, so it must never run in a pipeline where this job did not.
