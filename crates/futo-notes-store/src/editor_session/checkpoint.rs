@@ -2,6 +2,7 @@
 use super::{Attachment, EditorLease, EditorStoreError};
 use crate::LocalNoteStore;
 use crate::{FlushDisposition, FlushDraftResult, MergedDraftResult};
+use futo_notes_editor::EditorError;
 
 impl Attachment {
     /// The merged source this portable worker is waiting for its page to adopt.
@@ -64,18 +65,23 @@ impl Attachment {
         let source = self.engine.source_text();
         // An unanswered relink offer means nothing was edited since the store
         // rewrote links under this still-unrewritten draft: nothing to save.
-        // Native clean attachments still reconcile an existing outside source
-        // through history-aware adoption. A missing clean note has no draft
-        // to persist: never feed it to the edit-wins recreate arm.
-        let unchanged = source == self.base
-            && self.pending_merge.is_none()
-            && (self.portable
-                || self.relink_offer.is_some()
-                || store
-                    .read_existing(&self.id)
-                    .map_err(EditorStoreError::Checkpoint)?
-                    .is_none_or(|disk| disk == self.base));
-        if unchanged || self.relink_offer.is_some() {
+        // A native clean attachment (nothing unsaved) whose existing note
+        // changed outside follows that source: it is never a draft, so it is
+        // never parked. A missing clean note has no draft to persist: never
+        // feed it to the edit-wins recreate arm.
+        let clean = source == self.base && self.pending_merge.is_none();
+        let outside = if clean && !self.portable && self.relink_offer.is_none() {
+            store
+                .read_existing(&self.id)
+                .map_err(EditorStoreError::Checkpoint)?
+                .filter(|disk| *disk != self.base)
+        } else {
+            None
+        };
+        if let Some(disk) = outside {
+            return self.follow_outside_source(disk);
+        }
+        if clean || self.relink_offer.is_some() {
             self.mark_saved();
             return Ok(MergedDraftResult {
                 source,
@@ -131,5 +137,36 @@ impl Attachment {
         }
         self.mark_saved();
         Ok(result)
+    }
+
+    /// Adopt the authoritative source into a clean native session through
+    /// history-aware adoption; when its Undo/Redo cannot be rebased (bounds,
+    /// ambiguous overlap) drop the history rather than park a stale copy.
+    fn follow_outside_source(
+        &mut self,
+        disk: String,
+    ) -> Result<MergedDraftResult, EditorStoreError> {
+        let revision = self.engine.revision();
+        let adoption = match self.engine.prepare_external_source(revision, &disk) {
+            Err(EditorError::UnrepresentableFormat | EditorError::InvalidRange) => self
+                .engine
+                .prepare_external_source_dropping_history(revision, &disk),
+            other => other,
+        }
+        .map_err(EditorStoreError::Editor)?;
+        let change = self
+            .engine
+            .apply_external_source(adoption)
+            .map_err(EditorStoreError::Editor)?;
+        self.coordinated.push(change);
+        self.base = disk.clone();
+        self.mark_saved();
+        Ok(MergedDraftResult {
+            source: disk,
+            flush: FlushDraftResult {
+                disposition: FlushDisposition::Converged,
+                mutation: None,
+            },
+        })
     }
 }

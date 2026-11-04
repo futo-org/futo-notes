@@ -2,6 +2,7 @@ use super::*;
 use futo_notes_editor::{DisplayOffset, DisplayRange, Revision};
 
 mod blocks;
+mod clean_refresh;
 mod clipboard;
 mod composition;
 mod images;
