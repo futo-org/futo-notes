@@ -13,10 +13,43 @@ import kotlinx.coroutines.withContext
 import org.junit.Assert.*
 import org.junit.Test
 import uniffi.futo_notes_ffi.EditorBlockCommand
+import uniffi.futo_notes_ffi.EditorInlineFormat
 import uniffi.futo_notes_ffi.NoteStore
 
 /** A block-style button shows its style on an empty line at once, wherever that line is. */
 class TextFirstBlockIndicatorTest {
+    @Test fun repeatedFormatTogglesKeepComposedHeadingInput() = formatThenCompose("# heading")
+
+    @Test fun repeatedFormatTogglesKeepComposedInputInADistantHeading() =
+        formatThenCompose("plain paragraph\n\n".repeat(2_000) + "# heading")
+
+    private fun formatThenCompose(raw: String) = withController(raw) { controller ->
+        val view = controller.view
+        view.requestFocus()
+        // Opening a long note is progressive; this selection waits for the requested tail.
+        val end = raw.substringBeforeLast("# heading").length + "heading".length
+        assertTrue(controller.selectDisplayRange(end))
+        val connection = view.onCreateInputConnection(android.view.inputmethod.EditorInfo())!!
+        val formats = listOf(EditorInlineFormat.BOLD, EditorInlineFormat.ITALIC, EditorInlineFormat.STRIKE)
+        var expected = view.editableText.toString()
+        var at = end
+        repeat(6) { round ->
+            for (format in formats) {
+                controller.format(format)
+                controller.sourceText() // Each toolbar tap completes before the next one.
+            }
+            ime(view, connection) { setComposingText("w", 1) }
+            ime(view, connection) { setComposingText("word", 1) }
+            ime(view, connection) { commitText("word ", 1) }
+            expected = expected.substring(0, at) + "word " + expected.substring(at)
+            at += "word ".length
+            assertEquals("composition survives repeated toggles in round $round", expected,
+                view.editableText.toString())
+            assertEquals("accepted input never restarts the IME", 0, controller.imeResets)
+            assertTrue("the committed word is saved in source", controller.sourceText()!!.contains("word"))
+        }
+    }
+
     @Test fun headingOnTheLastEmptyLineAfterText() = press("text\n", EditorBlockCommand.Heading(1u)) { it.getSpans(5, 5, TfHeading::class.java).any { h -> h.level == 1 } }
     @Test fun headingAfterSeveralBlankLines() = press("text\n\n\n", EditorBlockCommand.Heading(1u)) { it.getSpans(7, 7, TfHeading::class.java).any { h -> h.level == 1 } }
     @Test fun quoteOnTheLastEmptyLineAfterText() = press("text\n", EditorBlockCommand.Quote) { it.getSpans(5, 5, TfQuote::class.java).isNotEmpty() }
