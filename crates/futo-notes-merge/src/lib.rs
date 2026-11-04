@@ -28,7 +28,7 @@ fn merge_words(base: &str, server: &str, client: &str) -> MergeResult {
     let mut tokens = Vec::new();
     let mut encode = |source: &str| {
         let mut encoded = String::new();
-        for token in source.split_word_bounds() {
+        for token in tokenize(source) {
             let next = tokens.len();
             let id = *ids.entry(token.to_owned()).or_insert_with(|| {
                 tokens.push(token.to_owned());
@@ -63,6 +63,49 @@ fn merge_words(base: &str, server: &str, client: &str) -> MergeResult {
         }
         _ => MergeResult::Conflict,
     }
+}
+
+/// Word tokens, except that links, URLs and code spans stay whole: two edits
+/// inside one such construct would otherwise splice a target nobody wrote.
+/// Detection is lexical and per source; an unterminated opener is plain text.
+fn tokenize(source: &str) -> Vec<&str> {
+    let mut tokens = Vec::new();
+    let (mut plain, mut at) = (0, 0);
+    while at < source.len() {
+        let rest = &source[at..];
+        let line_end = rest.find('\n').unwrap_or(rest.len());
+        let line = &rest[..line_end];
+        let atom = if rest.starts_with("[[") {
+            line.find("]]").map(|end| end + 2)
+        } else if rest.starts_with("](") {
+            line.find(')').map(|end| end + 1)
+        } else if rest.starts_with('`') {
+            line[1..].find('`').map(|end| end + 2)
+        } else if (rest.starts_with("http://") || rest.starts_with("https://"))
+            && !source[..at]
+                .chars()
+                .next_back()
+                .is_some_and(char::is_alphanumeric)
+        {
+            Some(
+                rest.find(|c: char| c.is_whitespace() || matches!(c, ')' | ']' | '>' | '"'))
+                    .unwrap_or(rest.len()),
+            )
+        } else {
+            None
+        };
+        match atom {
+            Some(length) => {
+                tokens.extend(source[plain..at].split_word_bounds());
+                tokens.push(&source[at..at + length]);
+                at += length;
+                plain = at;
+            }
+            None => at += rest.chars().next().map_or(1, char::len_utf8),
+        }
+    }
+    tokens.extend(source[plain..].split_word_bounds());
+    tokens
 }
 
 /// A side that deletes or replaces one occurrence of a token the base repeats
@@ -167,6 +210,64 @@ mod tests {
                 "{base:?} swapped"
             );
         }
+    }
+
+    #[test]
+    fn independent_edits_inside_one_atomic_construct_conflict() {
+        for (base, remote, local) in [
+            ("[[Project Plan]]", "[[Project Draft]]", "[[Roadmap Plan]]"),
+            (
+                "see [site](https://a.com/x) now",
+                "see [site](https://b.com/x) now",
+                "see [site](https://a.com/y) now",
+            ),
+            (
+                "go https://a.com/x now",
+                "go https://b.com/x now",
+                "go https://a.com/y now",
+            ),
+            (
+                "run `git status now`",
+                "run `git branch now`",
+                "run `git status later`",
+            ),
+            (
+                "![alt](img one.png)",
+                "![alt](img two.png)",
+                "![alt](pic one.png)",
+            ),
+        ] {
+            assert_eq!(
+                three_way_merge(base, remote, local),
+                MergeResult::Conflict,
+                "{base:?}"
+            );
+            assert_eq!(
+                three_way_merge(base, local, remote),
+                MergeResult::Conflict,
+                "{base:?} swapped"
+            );
+        }
+    }
+
+    #[test]
+    fn an_atomic_construct_edit_still_merges_with_a_separate_word() {
+        assert_eq!(
+            three_way_merge(
+                "first [[Project Plan]] last",
+                "FIRST [[Project Plan]] last",
+                "first [[Project Plan]] LAST",
+            ),
+            MergeResult::Clean("FIRST [[Project Plan]] LAST".into())
+        );
+        assert_eq!(
+            three_way_merge(
+                "first [[Project Plan]] last",
+                "first [[Roadmap]] last",
+                "first [[Project Plan]] LAST",
+            ),
+            MergeResult::Clean("first [[Roadmap]] LAST".into())
+        );
     }
 
     #[test]
