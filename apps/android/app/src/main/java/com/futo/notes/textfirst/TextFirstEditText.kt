@@ -111,8 +111,6 @@ internal class TextFirstEditText(
 
     fun apply(update: UiUpdate) {
         contentComplete = update.complete
-        // An edit or a new selection is the caret's business: bring it into view as TextView does.
-        if (!update.append) broughtOffset = -1
         if (update.append) { applyAppend(update); scheduleRestore(); return }
         val applyStart = android.os.SystemClock.elapsedRealtimeNanos()
         var editsEnd = applyStart
@@ -143,6 +141,7 @@ internal class TextFirstEditText(
                     android.util.Log.i("TextFirstApply", "replace=${(t1 - t0) / 1000}us restyle+batch=${(t2 - t1) / 1000}us windows=${update.windows.map { it.end - it.start }}")
                 }
             }
+            reveal.edited()
             val e = editableText
             // Not BaseInputConnection.removeComposingSpans: it lists every span in the note.
             composing?.let(e::removeSpan)
@@ -173,25 +172,9 @@ internal class TextFirstEditText(
 
     // ---- scroll position ----
 
-    /**
-     * TextView brings the caret back into view before the next draw after any
-     * text or layout change, whether or not the caret did anything. That would
-     * drag a reader who has scrolled away back to it whenever more of the note
-     * arrives, an image lands and resizes its line, or the host puts the reader
-     * back where they were. The caret is brought into view when it has moved
-     * since it last was, or when the view's size or focus changed (the keyboard
-     * rising over it).
-     */
-    internal var broughtOffset = -1
-
-    override fun bringPointIntoView(offset: Int): Boolean {
-        if (offset == broughtOffset) return false
-        broughtOffset = offset
-        return super.bringPointIntoView(offset)
-    }
-
     override fun onFocusChanged(focused: Boolean, direction: Int, previouslyFocusedRect: android.graphics.Rect?) {
-        broughtOffset = -1
+        // Runs from TextView's constructor too, before this class's fields exist.
+        @Suppress("SENSELESS_COMPARISON") if (reveal != null) reveal.again()
         super.onFocusChanged(focused, direction, previouslyFocusedRect)
     }
 
@@ -226,6 +209,13 @@ internal class TextFirstEditText(
     private var drawing = false
     override fun getExtendedPaddingBottom(): Int = if (drawing) 0 else super.getExtendedPaddingBottom()
 
+    internal val reveal = CaretReveal()
+
+    override fun bringPointIntoView(offset: Int): Boolean =
+        reveal.at(offset, ready = layout != null && height > 0) { super.bringPointIntoView(offset) }
+
+    override fun isLayoutRequested(): Boolean = !reveal.ignoringLayout && super.isLayoutRequested()
+
     override fun onDraw(canvas: android.graphics.Canvas) {
         val timings = pendingTimings
         if (timings != null) timings.drawStart = android.os.SystemClock.elapsedRealtimeNanos()
@@ -251,7 +241,7 @@ internal class TextFirstEditText(
     // otherwise keep a stale height).
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
-        if (h != oldh) broughtOffset = -1
+        if (h < oldh && caretWasInView(oldh)) { reveal.again(); bringPointIntoView(selectionEnd) }
         if (w == oldw) return
         val e = editableText ?: return
         applying = true
