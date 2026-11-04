@@ -22,7 +22,7 @@
 // ACCEPT exits 0, and with --accept writes the new counts as the baseline.
 // REJECT exits 1. A crash or bad argument exits 2.
 // `--skip-suite` stops after step 3 and never accepts: it is for triage.
-// `--regression-only` is the CI mode (bench:editor): steps 1 and 3 only, so a
+// `--regression-only` is the quick mode (the retired bench:editor CI job used it): steps 1 and 3 only, so a
 // change that is not a win still passes, and the suite is left to its own
 // job. It ACCEPTs without ever writing the baseline (--accept is refused).
 
