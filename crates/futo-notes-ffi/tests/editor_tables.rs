@@ -23,6 +23,17 @@ fn native_table_cells_keys_and_commands_recover_exact_source() {
         .unwrap()
         .unwrap();
     assert_eq!((table.columns, table.rows.len()), (2, 2));
+    let display = session.display_text().unwrap();
+    let line =
+        |range: &EditorByteRange| display[range.start as usize..range.end as usize].to_owned();
+    assert_eq!(
+        table.row_lines.iter().map(line).collect::<Vec<_>>(),
+        vec!["| a | b |", "| c | d |"]
+    );
+    assert_eq!(
+        line(table.delimiter_line.as_ref().unwrap()),
+        "| --- | --: |"
+    );
     let a = &table.rows[0][0].content;
     let caret = EditorUtf16Range {
         start: a.end,

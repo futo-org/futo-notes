@@ -1,7 +1,5 @@
 package com.futo.notes.textfirst
 
-import android.content.ClipData
-import android.content.ClipboardManager
 import android.content.Context
 import android.text.InputFilter
 import android.text.InputType
@@ -54,19 +52,9 @@ internal class TableCellEditText(context: Context, private val editor: EditorEng
         outAttrs.initialSelStart = selectionStart; outAttrs.initialSelEnd = selectionEnd
         return EngineInputConnection(editor, this, cell = true)
     }
-    override fun onTextContextMenuItem(id: Int): Boolean {
-        val clipboard = context.getSystemService(ClipboardManager::class.java)
-        when (id) {
-            android.R.id.copy, android.R.id.cut -> editor.copy(id == android.R.id.cut) { clipboard.setPrimaryClip(ClipData.newPlainText(null, it)) }
-            // A cell holds inline text only: an image paste is refused, never pasted as its URI.
-            android.R.id.paste, android.R.id.pasteAsPlainText -> if (clipImageUri(clipboard.primaryClip, context.contentResolver) == null) clipboard.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(context)?.toString()?.let(editor::paste)
-            android.R.id.selectAll -> editor.command { editor.cellRange?.let { editor.select(it.first, it.last, false) } }
-            android.R.id.undo -> editor.undo()
-            android.R.id.redo -> editor.redo()
-            else -> return super.onTextContextMenuItem(id)
-        }
-        return true
-    }
+    // A cell holds inline text only: with no image owner, an image paste is refused, never pasted as its URI.
+    private val clipboard = TextFirstClipboard(context, { e -> e.command { e.cellRange?.let { range -> e.select(range.first, range.last, false) } } }) { editor }
+    override fun onTextContextMenuItem(id: Int): Boolean = clipboard.handle(id) || super.onTextContextMenuItem(id)
     override fun contextMenuAction(id: Int) { post { onTextContextMenuItem(id) } }
     override fun imageContent(info: android.view.inputmethod.InputContentInfo, flags: Int) = false
     override fun navigationKey(event: KeyEvent) { post { super.onKeyDown(event.keyCode, event) } }

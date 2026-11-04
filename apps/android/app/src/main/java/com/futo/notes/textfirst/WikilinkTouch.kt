@@ -67,8 +67,8 @@ internal class WikilinkTouch(private val view: TextFirstEditText, private val op
             val start = text.getSpanStart(link)
             if (layout.getLineForOffset(start) != line) continue
             var left = layout.getPrimaryHorizontal(start)
-            if (layout.isRtlCharAt(start)) left -= link.getSize(view.paint, text, start, text.getSpanEnd(link), null)
-            val fraction = link.runFraction(view.paint, localX - left, localY - layout.getLineBaseline(line)) ?: continue
+            if (layout.isRtlCharAt(start)) left -= link.getSize(link.renderedPaint(view.paint), text, start, text.getSpanEnd(link), null)
+            val fraction = link.runFraction(link.renderedPaint(view.paint), localX - left, localY - layout.getLineBaseline(line)) ?: continue
             return link to fraction
         }
         return null
@@ -82,8 +82,8 @@ private fun TfWikilink.containsAt(view: TextFirstEditText, x: Float, y: Float): 
     val line = layout.getLineForVertical(localY.toInt())
     val start = text.getSpanStart(this)
     var left = layout.getPrimaryHorizontal(start)
-    if (layout.isRtlCharAt(start)) left -= getSize(view.paint, text, start, text.getSpanEnd(this), null)
-    return contains(view.paint, x - view.totalPaddingLeft + view.scrollX - left, localY - layout.getLineBaseline(line))
+    if (layout.isRtlCharAt(start)) left -= getSize(renderedPaint(view.paint), text, start, text.getSpanEnd(this), null)
+    return contains(renderedPaint(view.paint), x - view.totalPaddingLeft + view.scrollX - left, localY - layout.getLineBaseline(line))
 }
 
 /** Reserve only the current paragraph's usable width, including list/quote margins. */

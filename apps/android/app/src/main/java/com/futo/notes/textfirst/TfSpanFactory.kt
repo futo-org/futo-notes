@@ -13,7 +13,7 @@ internal class TfSpanFactory(private val style: TextFirstStyle, private val mark
         is SpanSpec.Link -> TfLink(style, spec.destination)
         is SpanSpec.Wikilink -> TfWikilink(style, spec.label, spec.noteId) { wikilinkWidth(it) }
         is SpanSpec.Divider -> TfDivider(style) { contentWidth() }
-        is SpanSpec.Image -> TfImage(style, spec.destination, spec.alt, spec.vault) { contentWidth() }
+        is SpanSpec.Image -> TfImage(style, spec.destination, spec.alt, spec.vault, spec.remote) { contentWidth() }
         is SpanSpec.TableRow -> TfTableRow(style, spec.row, spec.start, tableScroll.getOrPut(spec.row.tableStart) { TableScroll() }, marks, contentWidth)
         is SpanSpec.TableDelimiter -> TfTableDelimiter()
         is SpanSpec.Blank -> TfBlankLine()

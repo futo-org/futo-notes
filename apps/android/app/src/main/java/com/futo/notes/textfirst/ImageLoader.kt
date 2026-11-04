@@ -45,10 +45,14 @@ internal class ImageLoader(private val context: android.content.Context, private
         override fun sizeOf(key: String, value: Bitmap) = value.byteCount
     }
 
-    fun load(destination: String, vault: Boolean, maxWidth: Int, done: (Bitmap?) -> Unit) {
+    /** [vault] and [remote] are the engine's classification of the destination; anything else never loads. */
+    fun load(destination: String, vault: Boolean, remote: Boolean, maxWidth: Int, done: (Bitmap?) -> Unit) {
         val key = "$destination@$maxWidth"
         cache.get(key)?.let { done(it); return }
-        if (!vault) { loadRemote(destination, key, maxWidth, done); return }
+        if (!vault) {
+            if (remote) loadRemote(destination, key, maxWidth, done) else done(null)
+            return
+        }
         executor.execute {
             val bitmap = runCatching { decode(resolve(destination), maxWidth) }.getOrNull()
             if (bitmap != null) cache.put(key, bitmap)
@@ -57,12 +61,9 @@ internal class ImageLoader(private val context: android.content.Context, private
     }
 
     private fun loadRemote(destination: String, key: String, maxWidth: Int, done: (Bitmap?) -> Unit) {
-        val url = destination.removePrefix("<").removeSuffix(">")
-        val lower = url.lowercase()
-        if (!lower.startsWith("http://") && !lower.startsWith("https://")) { done(null); return }
         remoteScope.launch {
             val bitmap = try {
-                val request = ImageRequest.Builder(context.applicationContext).data(url)
+                val request = ImageRequest.Builder(context.applicationContext).data(destination)
                     .size(Size(maxWidth, Dimension.Undefined)).allowHardware(false).build()
                 (remote.execute(request) as? SuccessResult)?.image?.toBitmap()
             } catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) { null }
@@ -72,7 +73,7 @@ internal class ImageLoader(private val context: android.content.Context, private
     }
 
     private fun resolve(destination: String): File {
-        val decoded = Uri.decode(destination.removePrefix("<").removeSuffix(">"))
+        val decoded = Uri.decode(destination)
         val file = File(vaultRoot, decoded).canonicalFile
         require(file.path.startsWith(vaultRoot.canonicalPath + File.separator)) { "image outside the vault" }
         return file

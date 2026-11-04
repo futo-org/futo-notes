@@ -32,7 +32,7 @@ class TextFirstFindTest {
             store.createNote("find", "", source)
             withContext(Dispatchers.Main) {
                 suspendCancellableCoroutine<Unit> { done -> scenario.onActivity { activity ->
-                    controller = createController(activity, { store }, root)
+                    controller = createTextFirstController(activity, { store }, root)
                     activity.setContentView(controller.view)
                     controller.open("find") { assertNull(it); done.resume(Unit) }
                 } }
@@ -123,17 +123,5 @@ class TextFirstFindTest {
         assertEquals("zz$source", c.sourceText())
         c.findClose()
         assertEquals("zz$source", c.sourceText())
-    }
-
-    private fun createController(activity: ComponentActivity, core: () -> NoteStore, root: File): TextFirstController {
-        val metrics = activity.resources.displayMetrics
-        val regular = ResourcesCompat.getFont(activity, R.font.barlow_regular)!!
-        return TextFirstController(activity, core, root, TextFirstStyle(
-            metrics.density, 17f * metrics.scaledDensity, regular,
-            ResourcesCompat.getFont(activity, R.font.barlow_semibold)!!,
-            ResourcesCompat.getFont(activity, R.font.barlow_bold)!!,
-            ResourcesCompat.getFont(activity, R.font.jetbrains_mono_regular)!!,
-            Color.BLACK, Color.GRAY, Color.BLUE, Color.GRAY, Color.WHITE, Color.WHITE,
-        ))
     }
 }

@@ -227,7 +227,7 @@ internal class TextFirstEditText(
         val e = editableText ?: return
         for (span in e.getSpans(0, e.length, TfImage::class.java)) {
             if (span.bitmap != null || span.failed) continue
-            images.load(span.destination, span.vault, contentWidth()) { bitmap ->
+            images.load(span.destination, span.vault, span.remote, contentWidth()) { bitmap ->
                 val current = editableText
                 val s = current.getSpanStart(span)
                 if (s < 0) return@load
@@ -312,13 +312,7 @@ internal class TextFirstEditText(
 
     /** TextView caches drawing separately: changing span data also invalidates its text display list. */
     private fun invalidateTableScroll(scroll: TableScroll) {
-        applying = true
-        try {
-            val e = editableText
-            for (span in e.getSpans(0, e.length, TfTableRow::class.java)) {
-                if (span.scroll === scroll) e.setSpan(span, e.getSpanStart(span), e.getSpanEnd(span), e.getSpanFlags(span))
-            }
-        } finally { applying = false }
+        redrawTableRows { it.scroll === scroll }
         invalidate()
     }
 

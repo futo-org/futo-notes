@@ -29,13 +29,9 @@ internal fun EditorEngine.tableSpans(p: EditorProjection): List<SpanSpec> {
                 GridCell(a, b, mirror.text.substring(a, b), table.alignments[cell.column.toInt()])
             }
             if (cells.isEmpty()) continue
-            val a = mirror.text.lastIndexOf('\n', (cells.first().start - 1).coerceAtLeast(0)).let { if (it < 0) 0 else it + 1 }
-            val b = mirror.text.indexOf('\n', cells.last().end).let { if (it < 0) mirror.text.length else it }
-            out += SpanSpec.TableRow(a, b, GridRow(cells, table.columns.toInt(), i == 0, tableStart))
-            if (i == 0 && b < mirror.text.length) {
-                val delimiterEnd = mirror.text.indexOf('\n', b + 1).let { if (it < 0) mirror.text.length else it }
-                out += SpanSpec.TableDelimiter(b + 1, delimiterEnd)
-            }
+            val line = table.rowLines[i]
+            out += SpanSpec.TableRow(mirror.toUtf16(line.start.toInt()), mirror.toUtf16(line.end.toInt()), GridRow(cells, table.columns.toInt(), i == 0, tableStart))
+            if (i == 0) table.delimiterLine?.let { out += SpanSpec.TableDelimiter(mirror.toUtf16(it.start.toInt()), mirror.toUtf16(it.end.toInt())) }
         }
     }
     return out

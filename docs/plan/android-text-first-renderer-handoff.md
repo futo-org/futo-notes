@@ -1,4 +1,4 @@
-# Android text-first renderer — handoff (updated 2026-11-02, evening)
+# Android text-first renderer — handoff (trimmed 2026-11-03: shipped #318 work removed)
 
 The Android renderer for the Rust text-first engine works end to end in debug builds. Typing is
 now fast on most corpus shapes but **not at the bar** on every note. This file is the state and
@@ -15,11 +15,10 @@ bottlenecks are fixed in the shared Rust crate as part of it.
 | What                     | Where                                                                                                                                                                                                                                                      |
 | ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Branch / MR              | `android-text-first`, draft MR !564 (CI on).                                                                                                                                                                                                               |
-| Prototype, not merged    | JNI keys are now integrated; transport cost/limits are recorded in scripts/perf/android-real-input/README.md.                                                                                                                                                                              |
+| JNI keys                 | Integrated; transport cost/limits are recorded in scripts/perf/android-real-input/README.md.                                                                                                                                                                              |
 | !565 (drop recovery log) | Merged from main; current renderer uses debounced saves, with no recovery log.                                                                                                                                                                                                     |
 | Renderer code            | `apps/android/app/src/main/java/com/futo/notes/textfirst/`                                                                                                                                                                                                 |
 | Engine climbs merged     | nested lists cut at any depth (`inline/row/context.rs`), blank lines inside them, tables cut at row lines (`row/split/seams.rs`), per-segment span sweeps (`inline/edit/span_sweep.rs`). Specs: `docs/spec/editor/portable-core/{tables,long-regions}.md`. |
-| Device claim             | the Moto is claimed by `../futo-notes-android-text-first`; `just qa-release android` there.                                                                                                                                                                |
 | Flag / feel builds       | unchanged: `TextFirstFlag` on in dev ids; `./gradlew -PfutoDebuggable=false :app:installDirectDebug`.                                                                                                                                                      |
 
 ### Architecture in one paragraph
@@ -44,14 +43,9 @@ last line non-empty (Android lays out no paragraph spans for an empty last line)
   returned, bindings included), `kotlin`, `queue`, `text`, `spans`, `frameWait`, `draw`.
   `--profile N` saves a simpleperf trace in the evidence dir. ~70 s now; slow notes still
   stretch it. The full run is `just test-android-text-first-bench --typed 30` (~6 min).
-- `just engine-keys [files | synthetic:<shape>]` — the engine alone on this machine, with work
-  counters (parsed / materialized bytes, link items, projection blocks).
-- `just engine-keys-device …` — the same, cross-compiled and run natively on the claimed phone.
-  The Moto is 12–48× slower than the desktop depending on shape; desktop ms are only a proxy.
-- `just engine-climb push <name>` / `results [prefix]` — queue an engine attempt on CI's serial
-  runner (#114 `futo_notes_serial`, one job at a time; it also runs `test:cross-platform-sync`).
-  Each job runs the editor+store tests and benchmarks the attempt against its base, both built in
-  the job, interleaved. Separate `engine-climb/*` branches, non-interruptible, never auto-cancelled.
+- The engine hill-climb tooling (`engine-keys`, `engine-keys-device`, `engine-climb`) moved to its
+  own MR (f8e4fe7fc); it is not part of this tree. The Moto is 12-48x slower than the desktop
+  depending on shape, so desktop ms are only a proxy.
 - `TextFirstFfiCallBenchmarkTest` (opt-in `-e textFirstFfiBench true`) — binding call costs.
 
 Bench traps found (fixed): `UiAutomation` (even `FLAG_DONT_USE_ACCESSIBILITY`) switched
@@ -78,14 +72,14 @@ What still makes keys late, largest first:
 1. **The engine call's JNA overhead** (every note). Rust alone is ~1 ms/key on the Moto for a
    small note; the call returns after 5–10 ms. UniFFI's Kotlin bindings build several JNA
    `Structure`s per call by reflection, worse after the CPU idles between keys (a key pair: 5.3 ms
-   hot, 9.7 ms after 20 ms idle). The Moto has no ADPF hint sessions. `proto/jni-keys` halves the
-   stage (small note 10.1 → 4.9 ms; on-time 11/30 → 24/30). **Decision for Justin** (§3.4).
+   hot, 9.7 ms after 20 ms idle). The Moto has no ADPF hint sessions. The integrated JNI key path halves
+   the stage (small note 10.1 → 4.9 ms; on-time 11/30 → 24/30).
 2. **One-line prose paragraphs** (a common corpus shape: 2–11k chars, no newline). The engine
    is fixed (word seams, 0.03 ms desktop), but Android re-lays out and redraws the whole
    paragraph per key (text 20 ms, draw 9 ms at 11k chars;
    `DynamicLayout.contentMayProtrudeFromLineTopOrBottom` is a quarter of it).
 3. **Numbered nested list** (6ae4d2): Backspace engine ~12–19 ms on the Moto; Enter on an empty
-   middle item refused (§3.4).
+   middle item is refused by design (decision 1A, main 8d0d8eb41).
 4. **Huge-note Enter/Backspace**: kotlin 2.7–4.6 ms (DisplayIndex rebuild is linear), spans
    2–4 ms.
 5. **Open**: 4.4 s for the 19k-line note — `planSpans` over the whole note on the editor thread
@@ -93,45 +87,33 @@ What still makes keys late, largest first:
 6. Tables: Enter/Tab inside a cell, typing `|`/`\`, paste and row/column commands still read
    the whole table (cheap scan, ~0.4 ms at 200 rows desktop).
 
-### 3.3 Correctness and features
+### 3.3 Remaining correctness and features
 
-Stage 1 (current stage) leftovers:
+Shipped under #318 and no longer tracked here: link editing, wikilink completion and wrapping,
+clipboard and remote images, tables, find, shell-driven save/leave retry (#319), the storage-migration
+gate (#320), three-way merge with the editor adopting it (#322-#323), remote-rename following
+(#324-#325), and refusal of Indent on an empty list item (1A; held indentation no longer exists).
+There is no Copy Draft screen and no recovery log (#319, !565).
 
 - `puppet` cannot see or drive the text-first view (papercuts filed): `OpenNote` reports a false
   refusal, `type` refuses, `doc`/`state` show no note, and it hardcodes `com.futo.notes.dev`.
   QA relied on `adb shell input` + screenshots + logcat (`TextFirstIme`, `TextFirstEngine`,
   `TextFirstApply`, `TextFirstWatchdog`). Needed before agent QA can scale.
-- Camera image insert drew the photo behind un-displaced text (Justin, once); not reproduced via
-  the library picker. Defensive fixes landed (EXIF rotation, re-measure on resize, relayout on
-  bitmap load). The camera can kill the app's process on the Moto, after which the photo is lost
-  (check whether the WebView editor behaves the same).
-- Wikilink labels are a `ReplacementSpan` and do not wrap; long labels run off-screen.
+- Camera image insert drew the photo behind un-displaced text (Justin, once). #326 outcome
+  (emulator futo-qa-2, 2026-11-03): not reproduced. A seeded 640x360 PNG reopened and a native
+  insertion both lay the image out with the following text below it. The one bug found there was a
+  layout-order crash from watcher priority on insertion (fixed, 5e12bd7b0). The real camera shutter
+  could not be driven (the external Camera app ignores keyboard input), so a photo taken on the Moto
+  is still unobserved. Capture identity now persists through SavedState; the camera can still kill
+  the app's process on the Moto, after which that photo is lost (check the WebView editor behaves
+  the same).
 - Inline code background fills the whole line height (Milkdown uses padding and radius).
-- Held indent: only the plain typing path consumes it (`replace_action_mapped`); OS replacement
-  and composition commits do not. Gboard committed per character in tests, but other keyboards
-  compose.
-- Sync while editing is simplified: a dirty editor ignores remote changes until its next save
-  persists-or-parks; a remote rename while dirty is not followed.
-- The editor thread calls the Store outside `NotesStore`'s storage-migration gate.
-- `EditorEngine.kt` is 19,995 bytes (pre-commit limit 20,000); split along real seams before adding to it.
+- Not yet in the text-first editor: front-matter panel, footnotes/HTML rendering.
+- Moto performance after tables, find and wikilink layout is unmeasured (see `just
+  bench-text-first`); the figures above predate those features.
+- `EditorEngine.kt` is near the pre-commit size limit; split along real seams before adding to it.
 - Debug-only diagnostics to remove or gate before shipping: `TextFirstIme` keyboard trace,
   `TextFirstApply`/`TextFirstEngine` change logs, `MainThreadWatchdog`.
-
-Stages 2 and 3 (agreed order):
-
-- Stage 2: link editing (toolbar Link is disabled), wikilink completion menu, clipboard paste of
-  images, remote images (only vault images load).
-- Stage 3: tables UI (grid, `table_key`/`table_command`), find bar, front-matter panel,
-  footnotes/HTML rendering, Copy Draft screen. Under !565 a failed save on leaving a note loses
-  the unsaved edits (toast only) until Copy Draft exists.
-
-### 3.4 Decisions still open
-
-- **JNI fast path** (`proto/jni-keys`): adds a second FFI pattern next to UniFFI for the per-key
-  calls only, same byte encoding and generated readers. 3A merge it / 3B stay on JNA and trim calls.
-- **Enter on an empty middle item of a nested numbered list**: outdent (4A) or keep the refusal
-  and record it in `lists.md` (4B).
-- !564 vs !565 persistence (recovery log or not). Pick one before stage 2.
 
 ## 4. Device and environment notes
 

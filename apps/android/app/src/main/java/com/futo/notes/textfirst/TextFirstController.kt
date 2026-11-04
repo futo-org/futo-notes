@@ -151,26 +151,20 @@ internal class TextFirstController(
     fun paste(text: String) { engine?.paste(text) }
     fun finishCellEditing() { engine?.finishCellEditing() }
     /** The shared display-selection entry point for grid taps and Find. */
-    suspend fun selectDisplayRange(start: Int, end: Int = start): Boolean = suspendCancellableCoroutine { cont ->
-        val e = engine ?: return@suspendCancellableCoroutine cont.resume(false)
-        e.selectDisplayRange(start, end) { cont.resume(it) }
+    suspend fun selectDisplayRange(start: Int, end: Int = start): Boolean = viaEngine(false) { e, done -> e.selectDisplayRange(start, end) { done(it) } }
+    /** One engine round trip; [default] when the editor is gone. */
+    private suspend fun <T> viaEngine(default: T, call: (EditorEngine, (T) -> Unit) -> Unit): T = suspendCancellableCoroutine { cont ->
+        val e = engine ?: return@suspendCancellableCoroutine cont.resume(default)
+        call(e) { cont.resume(it) }
     }
+
     /** Open find or change its query. Highlights only: the selection, source and history are untouched. */
-    suspend fun findSetQuery(query: String): FindSnapshot? = suspendCancellableCoroutine { cont ->
-        val e = engine ?: return@suspendCancellableCoroutine cont.resume(null)
-        e.findSetQuery(query) { cont.resume(it) }
-    }
+    suspend fun findSetQuery(query: String): FindSnapshot? = viaEngine(null) { e, done -> e.findSetQuery(query, done) }
 
     /** Land on the current match, then move to the next or previous one; table matches open their cell field. */
-    suspend fun findStep(forward: Boolean): FindSnapshot? = suspendCancellableCoroutine { cont ->
-        val e = engine ?: return@suspendCancellableCoroutine cont.resume(null)
-        e.findStep(forward) { cont.resume(it) }
-    }
+    suspend fun findStep(forward: Boolean): FindSnapshot? = viaEngine(null) { e, done -> e.findStep(forward, done) }
 
-    suspend fun findClose(): FindSnapshot? = suspendCancellableCoroutine { cont ->
-        val e = engine ?: return@suspendCancellableCoroutine cont.resume(null)
-        e.findClose { cont.resume(it) }
-    }
+    suspend fun findClose(): FindSnapshot? = viaEngine(null) { e, done -> e.findClose(done) }
 
     fun undo() { engine?.undo() }
     fun redo() { engine?.redo() }
@@ -179,35 +173,17 @@ internal class TextFirstController(
     fun dismissCompletion(draft: CompletionDraft) { engine?.dismissCompletion(draft) }
     fun refreshCompletionNoteIds() { engine?.refreshCompletionNoteIds() }
 
-    suspend fun completionDraft(): CompletionDraft? = suspendCancellableCoroutine { cont ->
-        val e = engine ?: return@suspendCancellableCoroutine cont.resume(null)
-        e.completionDraft { cont.resume(it) }
-    }
+    suspend fun completionDraft(): CompletionDraft? = viaEngine(null) { e, done -> e.completionDraft(done) }
 
-    suspend fun acceptCompletion(draft: CompletionDraft, noteId: String): Boolean = suspendCancellableCoroutine { cont ->
-        val e = engine ?: return@suspendCancellableCoroutine cont.resume(false)
-        e.acceptCompletion(draft, noteId) { cont.resume(it) }
-    }
+    suspend fun acceptCompletion(draft: CompletionDraft, noteId: String): Boolean = viaEngine(false) { e, done -> e.acceptCompletion(draft, noteId, done) }
 
-    suspend fun linkDraft(): LinkDraft? = suspendCancellableCoroutine { cont ->
-        val e = engine ?: return@suspendCancellableCoroutine cont.resume(null)
-        e.linkDraft { cont.resume(it) }
-    }
+    suspend fun linkDraft(): LinkDraft? = viaEngine(null) { e, done -> e.linkDraft(done) }
 
-    suspend fun editLink(draft: LinkDraft, label: String, destination: String): Boolean = suspendCancellableCoroutine { cont ->
-        val e = engine ?: return@suspendCancellableCoroutine cont.resume(false)
-        e.editLink(draft, label, destination) { cont.resume(it) }
-    }
+    suspend fun editLink(draft: LinkDraft, label: String, destination: String): Boolean = viaEngine(false) { e, done -> e.editLink(draft, label, destination, done) }
 
-    suspend fun removeLink(draft: LinkDraft): Boolean = suspendCancellableCoroutine { cont ->
-        val e = engine ?: return@suspendCancellableCoroutine cont.resume(false)
-        e.removeLink(draft) { cont.resume(it) }
-    }
+    suspend fun removeLink(draft: LinkDraft): Boolean = viaEngine(false) { e, done -> e.removeLink(draft, done) }
 
-    suspend fun imageClaim(): ULong? = suspendCancellableCoroutine { cont ->
-        val e = engine ?: return@suspendCancellableCoroutine cont.resume(null)
-        e.imageClaim { cont.resume(it) }
-    }
+    suspend fun imageClaim(): ULong? = viaEngine(null) { e, done -> e.imageClaim(done) }
 
     // Once queued, wait for the canonical acknowledgement even if the screen
     // leaves. Otherwise the vault cleanup can delete an already-inserted image.
@@ -218,20 +194,11 @@ internal class TextFirstController(
         }
     }
 
-    suspend fun checkpoint(): FlushDraftResult? = suspendCancellableCoroutine { cont ->
-        val e = engine ?: return@suspendCancellableCoroutine cont.resume(null)
-        e.checkpoint { cont.resume(it) }
-    }
+    suspend fun checkpoint(): FlushDraftResult? = viaEngine(null) { e, done -> e.checkpoint(done) }
 
-    suspend fun reconcileExternalChanges() = suspendCancellableCoroutine<Unit> { cont ->
-        val e = engine ?: return@suspendCancellableCoroutine cont.resume(Unit)
-        e.reconcileExternalChanges { cont.resume(Unit) }
-    }
+    suspend fun reconcileExternalChanges() = viaEngine(Unit) { e, done -> e.reconcileExternalChanges { done(Unit) } }
 
-    suspend fun sourceText(): String? = suspendCancellableCoroutine { cont ->
-        val e = engine ?: return@suspendCancellableCoroutine cont.resume(null)
-        e.sourceText { cont.resume(it) }
-    }
+    suspend fun sourceText(): String? = viaEngine(null) { e, done -> e.sourceText(done) }
 
     /** Save and detach. A null result retains the engine and draft for retry. */
     suspend fun close(): FlushDraftResult? {

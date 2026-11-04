@@ -22,22 +22,27 @@ import uniffi.futo_notes_ffi.NoteStore
 
 /** A tap inside a wrapped wikilink atom puts the caret at the nearest edge of its visual run. */
 class TextFirstLinkTapTest {
+    private val label = "A very long wikilink label that should wrap across multiple visible lines and remain readable while editing"
+
     @Test
-    fun tapInsideWrappedLinkPlacesCaretAtNearestAtomEdge() = runBlocking {
+    fun tapInsideWrappedLinkPlacesCaretAtNearestAtomEdge() = exercise("Before [[$label]] after")
+
+    /** The atom is drawn with the heading's scale, so a tap must be hit-tested against that layout. */
+    @Test
+    fun tapInsideWrappedLinkInAHeadingPlacesCaretAtNearestAtomEdge() = exercise("# [[$label]] after")
+
+    private fun exercise(source: String) = runBlocking {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val root = File(context.cacheDir, "wikilink-tap-${UUID.randomUUID()}").apply { check(mkdirs()) }
         val scenario = ActivityScenario.launch(ComponentActivity::class.java)
         val store = NoteStore(root.path)
         lateinit var controller: TextFirstController
-        val source = "Before [[A very long wikilink label that should wrap across multiple visible lines and remain readable while editing]] after"
-        val start = 7
-        val end = source.indexOf("]] after") + 2
         try {
             store.createNote("tap", "", source)
             withContext(Dispatchers.Main) {
                 suspendCancellableCoroutine<Unit> { done ->
                     scenario.onActivity { activity ->
-                        controller = createController(activity, { store }, root)
+                        controller = createTextFirstController(activity, { store }, root)
                         activity.setContentView(controller.view)
                         controller.open("tap") { assertNull(it); done.resume(Unit) }
                     }
@@ -46,6 +51,10 @@ class TextFirstLinkTapTest {
                 val width = (320 * context.resources.displayMetrics.density).toInt()
                 view.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(2000, View.MeasureSpec.EXACTLY))
                 view.layout(0, 0, width, 2000)
+                // The atom's caret stops are display offsets; a heading hides its marker, shifting them.
+                val link = view.editableText.getSpans(0, view.editableText.length, TfWikilink::class.java).single()
+                val start = view.editableText.getSpanStart(link)
+                val end = view.editableText.getSpanEnd(link)
                 val row = view.layout.getLineForOffset(start)
                 val top = view.totalPaddingTop + view.layout.getLineTop(row)
                 val tall = view.layout.getLineBottom(row) - view.layout.getLineTop(row)
@@ -75,17 +84,5 @@ class TextFirstLinkTapTest {
             store.destroy()
             root.deleteRecursively()
         }
-    }
-
-    private fun createController(activity: ComponentActivity, core: () -> NoteStore, root: File): TextFirstController {
-        val metrics = activity.resources.displayMetrics
-        val regular = ResourcesCompat.getFont(activity, R.font.barlow_regular)!!
-        return TextFirstController(activity, core, root, TextFirstStyle(
-            metrics.density, 17f * metrics.scaledDensity, regular,
-            ResourcesCompat.getFont(activity, R.font.barlow_semibold)!!,
-            ResourcesCompat.getFont(activity, R.font.barlow_bold)!!,
-            ResourcesCompat.getFont(activity, R.font.jetbrains_mono_regular)!!,
-            Color.BLACK, Color.GRAY, Color.BLUE, Color.GRAY, Color.WHITE, Color.WHITE,
-        ))
     }
 }

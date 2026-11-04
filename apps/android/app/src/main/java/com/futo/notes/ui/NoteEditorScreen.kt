@@ -102,10 +102,8 @@ import uniffi.futo_notes_ffi.OpenNoteDisposition
 import uniffi.futo_notes_ffi.OpenNoteFacts
 import uniffi.futo_notes_ffi.SyncSummary
 import uniffi.futo_notes_ffi.classifyOpenNote
-import uniffi.futo_notes_ffi.makeId
 import uniffi.futo_notes_ffi.sanitizeTitle
 import uniffi.futo_notes_ffi.splitId
-import uniffi.futo_notes_ffi.validateTitle
 import com.futo.notes.awaitEditorLeaves
 import com.futo.notes.claimDraftOwnership
 import com.futo.notes.delete
@@ -188,15 +186,7 @@ fun NoteEditorScreen(
     // Persistent warning for dot/too-long; else duplicate; else clear.
     fun showTitleValidation(title: String) {
         warningJob?.cancel()
-        val blocking = validateTitle(title)
-            .firstOrNull { it.kind != "empty" && it.kind != "forbidden_chars" }
-        val dup = title.trim().let { t ->
-            t.isNotEmpty() && makeId(splitId(noteId).folder, sanitizeTitle(t)).let { tgt ->
-                collidesWithOtherNote(noteId, tgt, store.notes.map { it.id })
-            }
-        }
-        titleWarning = blocking?.let { titleValidationMessage(it.kind) }
-            ?: if (dup) LocalizedMessage("notes.title.duplicate") else null
+        titleWarning = titleWarningFor(noteId, title, store.notes.map { it.id })
     }
     // The title onTyped last handled, so the edit watcher below doesn't
     // validate it again (and clobber a forbidden-char warning).

@@ -6,6 +6,7 @@ import kotlin.coroutines.suspendCoroutine
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import com.futo.notes.storage.GateAccess
 import uniffi.futo_notes_ffi.EditorByteRange
 import uniffi.futo_notes_ffi.EditorSessionException
 import uniffi.futo_notes_ffi.FlushDraftResult
@@ -84,17 +85,19 @@ internal fun EditorEngine.checkpointForMigration(done: (Boolean) -> Unit) {
     }) ui.post { done(false) }
 }
 
-internal fun EditorEngine.storageAccess(block: () -> Unit): Boolean =
-    storageGate?.tryRunAccess(block) ?: run { block(); true }
+internal fun EditorEngine.storageAccess(block: () -> Unit): GateAccess =
+    storageGate?.tryRunAccess(block) ?: run { block(); GateAccess.RAN }
 
 /** `checkpoint` when [force], else `saveIfDue`; null when nothing was written or it failed. */
 internal fun EditorEngine.save(force: Boolean, external: Boolean = false): FlushDraftResult? {
     if (external) reconcilePending = true
     var result: FlushDraftResult? = null
-    if (!storageAccess { result = saveUnderGate(force, reconcilePending) } && !closed) {
+    val access = storageAccess { result = saveUnderGate(force, reconcilePending) }
+    if (access != GateAccess.RAN && !closed) {
         handler.removeCallbacks(saveRunnable)
         saveArmed = true
-        handler.postDelayed(saveRunnable, 500)
+        // Ordinary work (a sync cycle) clears quickly; migration holds until it resolves.
+        handler.postDelayed(saveRunnable, if (access == GateAccess.BUSY) EditorEngine.GATE_BUSY_RETRY_MS else 500)
     }
     return result
 }

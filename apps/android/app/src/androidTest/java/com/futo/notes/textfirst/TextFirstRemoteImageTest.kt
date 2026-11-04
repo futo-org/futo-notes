@@ -155,7 +155,7 @@ class TextFirstRemoteImageTest {
         val loader = ImageLoader(context, context.cacheDir)
         val landed = java.util.concurrent.atomic.AtomicInteger()
         try {
-            withContext(Dispatchers.Main) { loader.load("http://127.0.0.1:${server.localPort}/slow.png", false, 100) { landed.incrementAndGet() } }
+            withContext(Dispatchers.Main) { loader.load("http://127.0.0.1:${server.localPort}/slow.png", false, true, 100) { landed.incrementAndGet() } }
             assertTrue(accepted.await(10, java.util.concurrent.TimeUnit.SECONDS))
             withContext(Dispatchers.Main) { loader.shutdown() }
             release.countDown()

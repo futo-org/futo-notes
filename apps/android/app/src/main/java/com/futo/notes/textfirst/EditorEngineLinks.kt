@@ -29,26 +29,20 @@ internal fun EditorEngine.linkDraft(deliver: (LinkDraft?) -> Unit) = command(onU
     }
 }
 
-internal fun EditorEngine.removeLink(draft: LinkDraft, done: (Boolean) -> Unit) = command(onUnavailable = { done(false) }) {
+/** A command whose caller waits for "applied": [block] says so, and the answer is delivered even if it throws. */
+internal fun EditorEngine.ackedCommand(done: (Boolean) -> Unit, block: () -> Boolean) = command(onUnavailable = { done(false) }) {
     var applied = false
-    try {
-        if (draft.owner === this && draft.revision == rev && mirror.overlay == null) {
-            session?.setLink(rev, draft.range, "")?.let(::accept)
-            applied = true
-        }
-    } finally {
-        ui.post { done(applied) }
-    }
+    try { applied = block() } finally { ui.post { done(applied) } }
 }
 
-internal fun EditorEngine.editLink(draft: LinkDraft, label: String, destination: String, done: (Boolean) -> Unit) = command(onUnavailable = { done(false) }) {
-    var applied = false
-    try {
-        if (draft.owner === this && draft.revision == rev && mirror.overlay == null) {
-            session?.editLink(rev, draft.range, label, destination)?.let(::accept)
-            applied = true
-        }
-    } finally {
-        ui.post { done(applied) }
-    }
+internal fun EditorEngine.removeLink(draft: LinkDraft, done: (Boolean) -> Unit) = ackedCommand(done) {
+    val current = draft.owner === this && draft.revision == rev && mirror.overlay == null
+    if (current) session?.setLink(rev, draft.range, "")?.let(::accept)
+    current
+}
+
+internal fun EditorEngine.editLink(draft: LinkDraft, label: String, destination: String, done: (Boolean) -> Unit) = ackedCommand(done) {
+    val current = draft.owner === this && draft.revision == rev && mirror.overlay == null
+    if (current) session?.editLink(rev, draft.range, label, destination)?.let(::accept)
+    current
 }

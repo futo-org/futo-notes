@@ -35,20 +35,19 @@ internal fun EditorEngine.dismissCompletion(draft: CompletionDraft) = command {
     }
 }
 
-internal fun EditorEngine.acceptCompletion(draft: CompletionDraft, noteId: String, done: (Boolean) -> Unit) = command(onUnavailable = { done(false) }) {
+internal fun EditorEngine.acceptCompletion(draft: CompletionDraft, noteId: String, done: (Boolean) -> Unit) = ackedCommand(done) {
     var applied = false
-    try {
-        if (draft.owner === this && mirror.overlay == null && draft.value.revision == rev &&
-            draft.value.candidates.any { it.noteId == noteId }) {
-            val found = session?.wikilinkCompletion(rev)
-            if (found == draft.value && dismissedCompletionStart != found.range.start) {
-                session?.acceptWikilinkCompletion(rev, found.range, found.query, noteId)?.let {
-                    accept(it)
-                    applied = true
-                }
+    if (draft.owner === this && mirror.overlay == null && draft.value.revision == rev &&
+        draft.value.candidates.any { it.noteId == noteId }) {
+        val found = session?.wikilinkCompletion(rev)
+        if (found == draft.value && dismissedCompletionStart != found.range.start) {
+            session?.acceptWikilinkCompletion(rev, found.range, found.query, noteId)?.let {
+                accept(it)
+                applied = true
             }
         }
-    } finally { ui.post { done(applied) } }
+    }
+    applied
 }
 
 /** A vault change refreshes the delivered catalog once, never per completion request. */
