@@ -211,53 +211,22 @@ fn rename_then_delete_in_one_sync_cycle_refreshes_and_keeps_the_draft_attached()
 }
 
 #[test]
-fn replayed_rename_cannot_capture_a_new_attachment_at_the_vacated_id() {
+fn collision_loser_follows_its_conflict_copy_and_never_merges_into_the_winner() {
     let root = TestRoot::new();
     let store = store(&root);
-    store.create("", "old", "same").unwrap();
-    let mut first = store.open_editor("old").unwrap();
-    fs::rename(root.0.join("old.md"), root.0.join("final.md")).unwrap();
-    let rename = NoteRename {
-        from: "old".into(),
-        to: "final".into(),
-    };
-    store
-        .refresh_external_changes(&[], &[], &[rename.clone()])
-        .unwrap();
-    assert_eq!(first.id(), "final");
-    first.close().unwrap();
-    store.create("", "old", "same").unwrap();
-    let mut second = store.open_editor("old").unwrap();
-    store.refresh_external_changes(&[], &[], &[rename]).unwrap();
-    assert_eq!(second.id(), "old");
-    second.replace(Revision(0), range(0, 4), "edit").unwrap();
-    second.checkpoint().unwrap();
-    assert_eq!(store.read("final").unwrap(), "same");
-    assert_eq!(store.read("old").unwrap(), "edit");
-}
-
-#[test]
-fn checkpoint_between_relocation_and_notification_never_loses_either_version() {
-    let root = TestRoot::new();
-    let store = store(&root);
-    store.create("", "old", "first\n\nsecond\n").unwrap();
-    let mut editor = store.open_editor("old").unwrap();
+    store.create("", "note", "first\n\nsecond\n").unwrap();
+    let mut editor = store.open_editor("note").unwrap();
     editor.replace(Revision(0), range(7, 13), "LOCAL").unwrap();
-    fs::rename(root.0.join("old.md"), root.0.join("final.md")).unwrap();
-    fs::write(root.0.join("final.md"), "REMOTE\n\nsecond\n").unwrap();
-    // A dirty save lands after sync moved the file but before it was reported.
-    editor.checkpoint().unwrap();
-    assert_eq!(store.read("old").unwrap(), "first\n\nLOCAL\n");
+    // Sync moved the losing note aside, then wrote the unrelated winner at its id.
+    fs::rename(root.0.join("note.md"), root.0.join("note (conflict).md")).unwrap();
+    fs::write(root.0.join("note.md"), "first\n\nwinner\n").unwrap();
     let rename = NoteRename {
-        from: "old".into(),
-        to: "final".into(),
+        from: "note".into(),
+        to: "note (conflict)".into(),
     };
     store.refresh_external_changes(&[], &[], &[rename]).unwrap();
-    // The draft's saved note and the peer's note both survive intact, and the
-    // attachment does not adopt the peer's bytes in place of the local text.
-    assert_eq!(editor.id(), "old");
-    assert_eq!(editor.source_text(), "first\n\nLOCAL\n");
+    assert_eq!(editor.id(), "note (conflict)");
     editor.checkpoint().unwrap();
-    assert_eq!(store.read("old").unwrap(), "first\n\nLOCAL\n");
-    assert_eq!(store.read("final").unwrap(), "REMOTE\n\nsecond\n");
+    assert_eq!(store.read("note").unwrap(), "first\n\nwinner\n");
+    assert_eq!(store.read("note (conflict)").unwrap(), "first\n\nLOCAL\n");
 }

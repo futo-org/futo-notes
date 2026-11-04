@@ -79,21 +79,6 @@ impl IdentityTransition {
         if deleted_ids.iter().any(|id| id == to) {
             return Ok(None);
         }
-        // A completed rename vacated `from`. A note there now is a replayed
-        // completion meeting a replacement attachment, or a dirty save that
-        // recreated the old path before the rename was reported: either way
-        // this attachment is not the renamed note, so it keeps its identity
-        // and both notes survive.
-        if !same_file
-            && futo_notes_core::files::vault_fs::read(root, &crate::note_filename(from)).is_ok()
-        {
-            return Ok(None);
-        }
-        let attachment = state.lock().unwrap_or_else(PoisonError::into_inner);
-        if attachment.terminal {
-            return Err("editor attachment was deleted".into());
-        }
-        drop(attachment);
         // Never abandon a live draft for a missing/unreadable destination.
         let bytes = futo_notes_core::files::vault_fs::read(root, &crate::note_filename(to))?;
         String::from_utf8(bytes).map_err(|error| error.to_string())?;
