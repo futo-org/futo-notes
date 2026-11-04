@@ -58,18 +58,24 @@ class TextFirstTypingBenchmarkTest {
         // pushes into the app's own external dir are EACCES to the app.)
         val fixtures = File("/data/local/tmp/tf-bench")
         fun shellRead(name: String): String = File(fixtures, name).readText()
-        val manifest = JSONArray(shellRead("manifest.json"))
+        val notes = if (args.getString("textFirstBenchSynthetic") == "true") {
+            TextFirstSyntheticNotes.all
+        } else {
+            val manifest = JSONArray(shellRead("manifest.json"))
+            List(manifest.length()) { index ->
+                val entry = manifest.getJSONObject(index)
+                entry.getString("label") to shellRead(entry.getString("file"))
+            }
+        }
         val vault = File(context.cacheDir, "tf-bench-vault-$runId").apply { deleteRecursively(); check(mkdirs()) }
         val store = NoteStore(vault.absolutePath)
         val results = JSONArray()
         val scenario = ActivityScenario.launch(ComponentActivity::class.java)
         try {
-            for (i in 0 until manifest.length()) {
-                val entry = manifest.getJSONObject(i)
-                val source = shellRead(entry.getString("file"))
+            for ((i, note) in notes.withIndex()) {
+                val (label, source) = note
                 val id = "bench-$i"
                 store.createNote(id, "", source)
-                val label = entry.getString("label")
                 val result = try {
                     measureNote(scenario, store, id, label, plan)
                 } catch (e: Throwable) {
