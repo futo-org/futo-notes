@@ -14,7 +14,7 @@ import {
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { snapshotSource } from './snapshot.mjs';
 
 const apply = fileURLToPath(new URL('./apply-snapshot.py', import.meta.url));
@@ -64,6 +64,10 @@ const transfer = (remote, source) =>
 afterEach(() => {
   for (const root of dirs.splice(0)) rmSync(root, { recursive: true, force: true });
 });
+
+// Subprocess-driven file: each case spawns git and the snapshot script on scratch repos. The 5s default went red on loaded
+// CI runners (audit 2026-11), so the file timeout is set to 30s to cover that bound.
+vi.setConfig({ testTimeout: 30_000 });
 
 describe.skipIf(process.platform === 'win32')('native remote source snapshots', () => {
   it('copies dirty and untracked source, removes deleted source, and preserves ignored caches', () => {

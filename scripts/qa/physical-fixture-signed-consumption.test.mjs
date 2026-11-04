@@ -14,8 +14,12 @@ import { runPhysicalFixtureCLI } from './physical-fixture-cli.mjs';
 import process from 'node:process';
 import { spawnSync, execFileSync } from 'node:child_process';
 import { fileURLToPath, URL } from 'node:url';
-import { expect, it } from 'vitest';
+import { expect, it, vi } from 'vitest';
 import { setupBuild } from './physical-fixture-ios-test-data.mjs';
+
+// Subprocess-driven file: each case spawns the identity CLI and mkfifo probes, 1-1.4s idle. The 5s default went red on loaded
+// CI runners (audit 2026-11), so the file timeout is set to 30s to cover that bound.
+vi.setConfig({ testTimeout: 30_000 });
 
 it('requires a strict signed run UUID before any OS call', () => {
   const t = setupBuild();

@@ -1,7 +1,7 @@
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import sharp from 'sharp';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 const root = resolve(import.meta.dirname, '..');
 const read = (file) => readFileSync(resolve(root, file), 'utf8');
@@ -21,6 +21,10 @@ const ids = [
   'futo',
   'website',
 ];
+
+// Subprocess-driven file: the packaging case reads and hashes every generated icon. The 5s default went red on loaded
+// CI runners (audit 2026-11), so the file timeout is set to 30s to cover that bound.
+vi.setConfig({ testTimeout: 30_000 });
 
 describe('packaged selectable mobile icons', () => {
   it('packages every iPhone, iPad and marketing icon and every picker preview', async () => {

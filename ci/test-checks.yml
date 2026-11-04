@@ -22,32 +22,10 @@ test:
   # can queue behind it there; they no longer queue behind a slow box.
   tags:
     - $LINUX_RUNNER_TAG
-  # Never overlap another pipeline's unit-test job. The contention is between
-  # concurrent JOBS on one runner, not within vitest (which already caps
-  # maxWorkers:4 in CI): with 3 stacked-MR pipelines in flight,
-  # FolderTreeView.test.ts's virtualization cases went from 54/65/52ms to
-  # 5397/3619/3408ms — a 60-100x slowdown — and one crossed vitest's 5s default
-  # and went red. The assertion was fine and the CPU was not, so this is
-  # exclusion, not a longer timeout (M15). Runner 71 is not immune: it shares
-  # its five slots with the Rust, sync and Android jobs. Same root-cause fix,
-  # and the same mechanism, as the sync suite's resource_group above; a
-  # distinct key so the two suites never wait on each other.
-  #
-  # Cost: the median run on runner 71 is 87s, so a third concurrent MR queues
-  # about 3 minutes. That is cheaper than the failure it replaces — a red
-  # pipeline plus the attribution hunt.
-  #
-  # Merge trains would be the other way to stop stacked pipelines overlapping,
-  # but gitlab.futo.org runs the EE binary on a Free tier and merge trains are
-  # Premium-only (merge_trains_enabled is absent from the project API payload).
-  resource_group: unit-tests
-  # TIGHTENED from the inherited 60m project default, not bumped: inside a
-  # resource group a hung job is head-of-line blocking for every other MR, and
-  # hangs are real here (a test:rust:workspace run hung 3870s in the same
-  # incident). 15m is twice runner 55's 7m15 median and ten times runner 71's
-  # 87s, so a cold pnpm store still fits while a wedged job frees the group in
-  # 15m instead of an hour.
-  timeout: 15m
+  # No resource_group: the FolderTreeView case it guarded has a 30s timeout, and
+  # subprocess-spawning script tests carry their own. 25m, not the old 15m:
+  # executor prep counts toward the timeout and took 5-13 min on a starved runner.
+  timeout: 25m
   # No scope classifier: this job always runs the full script. A documentation
   # MR pays the pnpm install, and in exchange there is exactly one path that can
   # be reasoned about. The docs gates it used to shortcut to (check-agent-docs,
@@ -117,9 +95,9 @@ check:release-notes:mr:
 # Fails only on a vulnerability in code that ships — a production npm package or a crate
 # compiled into the desktop app or the FFI library — that .cargo/audit.toml / pnpm-workspace.yaml
 # has not acknowledged, so yellow means "act on this". Still absent from release:gate.needs
-# (docs/architecture-gates.md): a new advisory never blocks a tag by itself. Tags and the default
-# branch run it unconditionally: an advisory appears when the advisory database moves, not when
-# our lockfile does.
+# (docs/architecture-gates.md): a new advisory never blocks a tag by itself. Tags, the default
+# branch and the scheduled pipeline run it, never an MR: an advisory appears when the advisory
+# database moves, not when our lockfile does.
 test:audit:
   stage: test
   needs: []
@@ -159,17 +137,7 @@ test:audit:
     # node scripts/audit.mjs is the shared entry point for both CI and a local run.
     - node "$CI_PROJECT_DIR/scripts/audit.mjs"
   rules:
-    - !reference [.not-scheduled, rules]
     - if: $CI_COMMIT_TAG
-    - if: $CI_MERGE_REQUEST_IID
-      changes:
-        - Cargo.lock
-        - pnpm-lock.yaml
-        - pnpm-workspace.yaml
-        - .cargo/**/*
-        - scripts/audit.mjs
-        - ci/*.yml
-        - .gitlab-ci.yml
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
 
 # Every en.json message needs a translation in every catalog (AGENTS.md §5). Blocking, and in
@@ -219,4 +187,3 @@ test:puppet-gates:
   script:
     - pnpm install --frozen-lockfile --prefer-offline
     - status=0; pnpm run check:puppet-verbs || status=1; pnpm run check:puppet-first || status=1; exit $status
-
