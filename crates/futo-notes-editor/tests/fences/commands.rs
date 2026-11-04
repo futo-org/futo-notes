@@ -265,3 +265,44 @@ fn code_command_on_an_empty_fence_removes_the_fence() {
         session.source_text()
     );
 }
+
+#[test]
+fn code_command_takes_lines_out_as_plain_text_not_markdown_structure() {
+    for (opening, shown, expected) in [
+        ("```\n# x\n```", "# x", "\\# x"),
+        ("```\n- a\n```", "- a", "\\- a"),
+        ("```\n> q\n```", "> q", "\\> q"),
+        ("```\n1. x\n```", "1. x", "1\\. x"),
+        ("```\n---\n```", "---", "\\---"),
+        ("```\n  x\n```", "  x", "&#32; x"),
+        ("> ```\n> # x\n> ```", "# x", "> \\# x"),
+        ("- a\n  ```\n  - b\n  ```", "a\n- b", "- a\n  \\- b"),
+    ] {
+        let mut session = EditorSession::open(opening);
+        let mut view = ReferenceView::new(shown);
+        let line = shown.rfind('\n').map_or(0, |at| at + 1);
+        let caret = range(line, line);
+        session.select(session.revision(), caret).unwrap();
+        view.apply(
+            session
+                .block_command(
+                    session.revision(),
+                    caret,
+                    BlockCommand::CodeBlock,
+                    &mut |_| Ok(()),
+                )
+                .unwrap()
+                .unwrap_or_else(|| panic!("{opening:?}: the command did nothing")),
+        );
+        assert_eq!(session.source_text(), expected, "{opening:?}");
+        assert_eq!(
+            view.text, shown,
+            "{opening:?}: the displayed text does not move"
+        );
+        assert_eq!(
+            session.display_text(),
+            shown,
+            "{opening:?}: plain text, not structure"
+        );
+    }
+}

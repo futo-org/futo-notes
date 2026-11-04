@@ -54,6 +54,13 @@ impl EditorSession {
             {
                 range.start = range.end;
             }
+            // So is a code block selected as one object: Enter acts after it.
+            if let Some(fence) = self.selected_fence(range) {
+                if let Some(change) = self.fence_selected_enter(expected, &fence, accept)? {
+                    return Ok(Some(change));
+                }
+                range.start = range.end;
+            }
             let shift = key == ParagraphKey::ShiftEnter;
             if let Some(change) = self.cell_enter(expected, range, shift, accept)? {
                 return Ok(Some(change));

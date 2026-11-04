@@ -263,8 +263,9 @@ impl EditorSession {
 impl EditorSession {
     /// Enter on the empty last line of a code block that closes the note
     /// leaves the block: nothing can be placed after such a block, so its
-    /// last empty line becomes the empty line after the closing fence. With
-    /// anything after the block, that line stays code.
+    /// last empty line becomes the empty line after the closing fence, at the
+    /// block's own container level (a quote's `> `, a list item's indent).
+    /// With anything after the block, that line stays code.
     fn fence_exit(
         &mut self,
         expected: Revision,
@@ -277,41 +278,31 @@ impl EditorSession {
             return Ok(None);
         };
         let len = self.source.len_bytes();
-        let ending = if self
-            .source
-            .byte_slice(..fence.body.end)
-            .to_string()
-            .ends_with("\r\n")
-        {
-            "\r\n"
-        } else {
-            "\n"
-        };
+        let ending = self.fence_ending(fence);
+        let prefix = self.closer_prefix(fence, closer);
         let after = self.source.byte_slice(closer.end..len).to_string();
+        // The body ends in the code's own ending and the empty last row's
+        // container prefix; the frame's terminal ending is the row's own.
+        let last_row = format!("{ending}{prefix}");
         if inserted != "\n"
             || range.start != range.end
             || range.start.0 != self.projection.display_at(fence.body.end)
-            || fence.body.is_empty()
-            || fence.opener.start
-                != self
-                    .source
-                    .line_to_byte(self.source.byte_to_line(fence.opener.start))
+            || fence.body.len() < last_row.len()
+            || !matches!(after.as_str(), "" | "\n" | "\r\n")
             || !self
                 .source
-                .byte_slice(fence.body.start..fence.body.end)
+                .byte_slice(fence.body.clone())
                 .to_string()
-                .ends_with(ending)
-            || !matches!(after.as_str(), "" | "\n" | "\r\n")
+                .ends_with(&last_row)
         {
             return Ok(None);
         }
-        let separator = self
-            .source
-            .byte_slice(fence.body.end..closer.start)
-            .to_string();
+        let start = fence.body.end - last_row.len();
         let marker = self.source.byte_slice(closer.clone()).to_string();
-        let output = format!("{separator}{marker}{ending}{ending}");
-        let start = fence.body.end - ending.len();
+        // At the top level a note's trailing newline has no line to hold a
+        // caret, so one more is written; a container's own prefix is a line.
+        let tail = if prefix.is_empty() { ending } else { &prefix };
+        let output = format!("{last_row}{marker}{ending}{tail}");
         let caret = start + output.len();
         let materialized = output.len() + (len - start);
         let mut change = self.commit_block_edit(
@@ -323,6 +314,100 @@ impl EditorSession {
             accept,
         )?;
         change.work.materialized_source_bytes += materialized;
+        Ok(Some(change))
+    }
+
+    /// The fence's line ending, as its terminal body ending spells it.
+    fn fence_ending(&self, fence: &crate::inline::fences::Fence) -> &'static str {
+        if self.source.byte_slice(fence.separator.clone()).to_string() == "\r\n" {
+            "\r\n"
+        } else {
+            "\n"
+        }
+    }
+
+    /// The container prefix on the closing fence's row.
+    fn closer_prefix(
+        &self,
+        fence: &crate::inline::fences::Fence,
+        closer: &std::ops::Range<usize>,
+    ) -> String {
+        self.source
+            .byte_slice(fence.separator.end..closer.start)
+            .to_string()
+    }
+
+    /// The fence whose whole editable body a non-empty selection covers: from
+    /// the first code character to the last, with or without the hidden
+    /// terminal ending (a shell selecting a code block as one object).
+    pub(in crate::session) fn selected_fence(
+        &self,
+        range: DisplayRange,
+    ) -> Option<crate::inline::fences::Fence> {
+        if range.start == range.end {
+            return None;
+        }
+        let at = DisplayRange {
+            start: range.start,
+            end: range.start,
+        };
+        let fence = self
+            .projection
+            .block_lines(at)
+            .into_iter()
+            .find_map(|line| line.fence)?;
+        let first = self.projection.display_at(fence.body.start);
+        let last = self.projection.display_at(fence.body.end);
+        let frame = self.projection.display_at(fence.separator.end).max(last);
+        (!fence.body.is_empty() && range.start.0 == first && (last..=frame).contains(&range.end.0))
+            .then_some(fence)
+    }
+
+    /// Enter with a code block selected as one object keeps the block and acts
+    /// after it: an empty line below the closing fence, the caret on it. Like
+    /// an image, a last block can always be left. An unclosed fence has no
+    /// after; the caller treats Enter as a caret at the selection's end.
+    pub(in crate::session) fn fence_selected_enter(
+        &mut self,
+        expected: Revision,
+        fence: &crate::inline::fences::Fence,
+        accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
+    ) -> Result<Option<ViewChange>, EditorError> {
+        let Some(closer) = fence.closer.as_ref() else {
+            return Ok(None);
+        };
+        let len = self.source.len_bytes();
+        let ending = self.fence_ending(fence);
+        let prefix = self.closer_prefix(fence, closer);
+        let rest = self.source.byte_slice(closer.end..len).to_string();
+        let eol = if rest.starts_with("\r\n") {
+            2
+        } else {
+            usize::from(rest.starts_with('\n'))
+        };
+        let at = closer.end + eol;
+        // The closing row's own ending is already in the note, or it is not:
+        // the new row needs one before it, and (at the top level, at the very
+        // end) one after it, since a trailing newline holds no caret.
+        let (text, caret) = match (eol, at == len, prefix.is_empty()) {
+            (0, _, true) => (format!("{ending}{ending}"), at + 2 * ending.len()),
+            (0, _, false) => (
+                format!("{ending}{prefix}"),
+                at + ending.len() + prefix.len(),
+            ),
+            (_, true, true) => (ending.to_owned(), at + ending.len()),
+            (_, true, false) => (prefix.clone(), at + prefix.len()),
+            _ => (format!("{prefix}{ending}"), at + prefix.len()),
+        };
+        let mut change = self.commit_block_edit(
+            expected,
+            at..at,
+            &text,
+            BlockSelection::Source(caret),
+            None,
+            accept,
+        )?;
+        change.work.materialized_source_bytes += text.len();
         Ok(Some(change))
     }
 }

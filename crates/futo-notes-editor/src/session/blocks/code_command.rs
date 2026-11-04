@@ -227,7 +227,18 @@ impl EditorSession {
             let text = split(rows[index + 1].1).0;
             if touched(index) {
                 flush(&mut section, &mut out);
-                out.push(text);
+                // The row is prose now: its text must not read as Markdown.
+                let row_start = rows[index + 1].0;
+                let content = lines
+                    .iter()
+                    .find(|line| line.source.start == row_start)
+                    .map_or(0, |line| line.content.start - row_start)
+                    .min(text.len());
+                out.push(format!(
+                    "{}{}",
+                    &text[..content],
+                    prose_literal(&text[content..])
+                ));
             } else {
                 section.push(text);
             }
@@ -257,4 +268,15 @@ impl EditorSession {
         change.work.materialized_source_bytes += region.len() + output.len();
         Ok(Some(change))
     }
+}
+
+/// Code text spelled so it stays plain text as a paragraph row: block syntax
+/// is kept literal as the block commands keep it, and leading whitespace,
+/// which a paragraph drops, is encoded.
+fn prose_literal(text: &str) -> String {
+    let (mut text, _) = super::content::protect_content(text, false, true);
+    if let Some(first @ (' ' | '\t')) = text.chars().next() {
+        text.replace_range(..1, &format!("&#{};", first as u32));
+    }
+    text
 }

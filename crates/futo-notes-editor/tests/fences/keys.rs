@@ -206,3 +206,118 @@ fn enter_on_an_empty_code_line_keeps_the_fence_when_text_follows() {
         .unwrap();
     assert_eq!(session.source_text(), "```\ncode\n\n\n```\n\nafter");
 }
+
+#[test]
+fn enter_on_the_empty_last_line_of_a_nested_code_block_exits_at_its_container_level() {
+    for (opening, caret, expected) in [
+        ("> ```\n> code\n> \n> ```", 5, "> ```\n> code\n> ```\n> "),
+        ("- ```\n  code\n  \n  ```", 5, "- ```\n  code\n  ```\n  "),
+        (
+            "- a\n  ```\n  code\n  \n  ```",
+            7,
+            "- a\n  ```\n  code\n  ```\n  ",
+        ),
+    ] {
+        let mut session = EditorSession::open(opening);
+        let caret = range(caret, caret);
+        session.select(session.revision(), caret).unwrap();
+        let mut view = ReferenceView::new(&session.display_text());
+        view.apply(
+            session
+                .paragraph_key(session.revision(), caret, ParagraphKey::Enter, &mut |_| {
+                    Ok(())
+                })
+                .unwrap()
+                .unwrap(),
+        );
+        assert_eq!(session.source_text(), expected, "{opening:?}");
+        assert_eq!(view.text, session.display_text());
+        let end = session.display_text().len();
+        assert_eq!(session.selection(), range(end, end), "{opening:?}");
+    }
+}
+
+#[test]
+fn enter_on_a_code_block_selected_as_one_object_adds_a_line_after_it() {
+    for (opening, select, expected, caret) in [
+        // The last block of the note, with and without a final newline.
+        ("```\ncode\n```", (0, 4), "```\ncode\n```\n\n", 6),
+        ("```\ncode\n```\n", (0, 4), "```\ncode\n```\n\n", 6),
+        ("```\na\nb\n```", (0, 3), "```\na\nb\n```\n\n", 5),
+        // With text after, the new line sits between.
+        (
+            "```\ncode\n```\nafter",
+            (0, 4),
+            "```\ncode\n```\n\nafter",
+            5,
+        ),
+        (
+            "intro\n\n```\na\n```\n\nafter",
+            (7, 8),
+            "intro\n\n```\na\n```\n\n\nafter",
+            9,
+        ),
+        // At its container's level.
+        (
+            "> ```\n> code\n> ```",
+            (0, 4),
+            "> ```\n> code\n> ```\n> ",
+            5,
+        ),
+        (
+            "- ```\n  code\n  ```",
+            (0, 4),
+            "- ```\n  code\n  ```\n  ",
+            5,
+        ),
+        (
+            "> ```\n> code\n> ```\n> after",
+            (0, 4),
+            "> ```\n> code\n> ```\n> \n> after",
+            5,
+        ),
+        // CRLF keeps its ending.
+        (
+            "```\r\ncode\r\n```",
+            (0, 4),
+            "```\r\ncode\r\n```\r\n\r\n",
+            8,
+        ),
+    ] {
+        let mut session = EditorSession::open(opening);
+        let selected = range(select.0, select.1);
+        session.select(session.revision(), selected).unwrap();
+        let mut view = ReferenceView::new(&session.display_text());
+        view.apply(
+            session
+                .paragraph_key(
+                    session.revision(),
+                    selected,
+                    ParagraphKey::Enter,
+                    &mut |_| Ok(()),
+                )
+                .unwrap()
+                .unwrap(),
+        );
+        assert_eq!(session.source_text(), expected, "{opening:?}");
+        assert_eq!(view.text, session.display_text());
+        assert_eq!(session.selection(), range(caret, caret), "{opening:?}");
+    }
+}
+
+#[test]
+fn enter_on_a_selected_unclosed_code_block_keeps_the_code() {
+    let mut session = EditorSession::open("```\ncode");
+    let selected = range(0, 4);
+    session.select(session.revision(), selected).unwrap();
+    session
+        .paragraph_key(
+            session.revision(),
+            selected,
+            ParagraphKey::Enter,
+            &mut |_| Ok(()),
+        )
+        .unwrap()
+        .unwrap();
+    assert_eq!(session.source_text(), "```\ncode\n\n");
+}
