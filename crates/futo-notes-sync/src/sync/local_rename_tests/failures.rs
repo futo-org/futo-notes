@@ -155,48 +155,54 @@ async fn a_rename_landing_before_the_pull_writes_its_source_is_not_undone() {
     assert!(after.object_map.contains_key("old.md"));
 }
 
-#[test]
-fn a_scan_landing_mid_rename_never_tombstones_the_moved_note() {
+#[tokio::test]
+async fn a_scan_landing_mid_rename_never_tombstones_the_moved_note() {
+    use std::sync::mpsc;
+
     let root = TempRoot::new();
     let server = FaultServer::new()
         .note(&KEY, "obj", 1, "old.md", "body")
         .start();
     let state = synced(root.path(), &server.base_url);
-    let journal = Arc::new(SyncRunJournal::disabled());
-    let concurrent: Arc<Mutex<Option<std::thread::JoinHandle<ConnectedState>>>> =
-        Arc::new(Mutex::new(None));
-    let (slot, vault, before) = (concurrent.clone(), root.path().to_owned(), state.clone());
-    let cycle_journal = journal.clone();
-    // Once the note sits in the rename's staging (at neither name), a sync
-    // cycle starts on another thread: its scan sees neither file, and its
-    // claim waits on the vault guard until the rename has committed.
-    futo_notes_store::rename_journal::tests_support::on_step(move |step| {
-        let mut slot = slot.lock().unwrap();
-        if step == "stage" && slot.is_none() {
-            let (vault, before, cycle_journal) =
-                (vault.clone(), before.clone(), cycle_journal.clone());
-            *slot = Some(std::thread::spawn(move || {
-                tokio::runtime::Runtime::new()
-                    .unwrap()
-                    .block_on(cycle(
-                        &before,
-                        &vault,
-                        &no_progress,
-                        &no_pre_write,
-                        &cycle_journal,
-                    ))
-                    .unwrap()
-                    .1
+    let journal = SyncRunJournal::disabled();
+    let vault = root.path().to_owned();
+    let (staged_tx, staged_rx) = mpsc::channel::<()>();
+    let (resume_tx, resume_rx) = mpsc::channel::<()>();
+    let resume_rx = Arc::new(Mutex::new(resume_rx));
+    let renamer = Arc::new(Mutex::new(None));
+    let slot = renamer.clone();
+    let mut resume = Some(resume_tx);
+    let mut staged_tx = Some(staged_tx);
+    // Before the scan: a rename starts and parks the note in its staging,
+    // where it is at neither name. After the scan: the rename finishes, and
+    // this cycle's claim waits on the vault guard until it has committed.
+    crate::sync::push::scan_hook::on_scan(move |point| match point {
+        "before" => {
+            let (staged, resume_rx, vault) =
+                (staged_tx.take().unwrap(), resume_rx.clone(), vault.clone());
+            *slot.lock().unwrap() = Some(std::thread::spawn(move || {
+                futo_notes_store::rename_journal::tests_support::on_step(move |step| {
+                    if step == "stage" {
+                        staged.send(()).unwrap();
+                        resume_rx.lock().unwrap().recv().unwrap();
+                    }
+                    Ok(())
+                });
+                LocalNoteStore::new(vault).rename("old", "new").unwrap();
             }));
-            std::thread::sleep(std::time::Duration::from_millis(300));
+            staged_rx.recv().unwrap();
         }
-        Ok(())
+        _ => {
+            if let Some(resume) = resume.take() {
+                resume.send(()).unwrap();
+            }
+        }
     });
-    LocalNoteStore::new(root.path().to_owned())
-        .rename("old", "new")
-        .unwrap();
-    futo_notes_store::rename_journal::tests_support::clear();
-    let raced = concurrent.lock().unwrap().take().unwrap().join().unwrap();
+
+    let raced = cycle(&state, root.path(), &no_progress, &no_pre_write, &journal).await;
+    crate::sync::push::scan_hook::clear();
+    renamer.lock().unwrap().take().unwrap().join().unwrap();
+    let (_, raced) = raced.unwrap();
 
     assert_eq!(
         server.requests(Route::DeleteObject),
@@ -205,17 +211,9 @@ fn a_scan_landing_mid_rename_never_tombstones_the_moved_note() {
     );
     assert_eq!(server.requests(Route::CreateObject), 0);
 
-    let after = tokio::runtime::Runtime::new()
-        .unwrap()
-        .block_on(cycle(
-            &raced,
-            root.path(),
-            &no_progress,
-            &no_pre_write,
-            &journal,
-        ))
-        .unwrap()
-        .1;
+    let (_, after) = cycle(&raced, root.path(), &no_progress, &no_pre_write, &journal)
+        .await
+        .unwrap();
     assert!(carried(&after), "{:?}", after.object_map);
     assert_eq!(server.requests(Route::DeleteObject), 0);
     assert_eq!(server.requests(Route::CreateObject), 0);

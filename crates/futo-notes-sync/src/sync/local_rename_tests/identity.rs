@@ -1,15 +1,11 @@
 //! Which server object each journaled move carries: swaps, folders, deletes
 //! and reused names.
 
-use std::path::Path;
-use std::sync::{Arc, Mutex};
-
 use futo_notes_store::LocalNoteStore;
 
-use crate::checkpoint::{self, ConnectedState};
-use crate::fault_injection::{restart_from_checkpoint, Fault, FaultServer, Route, When};
+use crate::fault_injection::{Fault, FaultServer, Route, When};
 use crate::journal::SyncRunJournal;
-use crate::sync::{cycle, cycle_with_checkpoint};
+use crate::sync::cycle;
 
 use super::*;
 

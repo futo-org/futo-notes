@@ -16,6 +16,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use futo_notes_core::files::rename_journal::{with_rename_journal, IntentKey, RenameChain};
+use futo_notes_core::files::vault_fs;
 
 use crate::checkpoint::ConnectedState;
 use crate::sync::object_map::mapped_name;
@@ -82,8 +83,12 @@ pub(in crate::sync) fn claim_local_renames(
                 continue;
             }
             if !present.contains(destination.as_str()) {
-                if present.contains(owner.as_str()) {
-                    // The move landed after this scan; the next cycle owns it.
+                // The scan takes no vault guard: a move that landed after it,
+                // or during it (the note was in staging, at neither name), is
+                // on disk now. This runs under the guard, so disk is final.
+                let landed = vault_fs::exists(root, &destination).unwrap_or(true);
+                if present.contains(owner.as_str()) || landed {
+                    // The next cycle, whose scan sees the destination, owns it.
                     claimed.held.insert(owner);
                 } else {
                     // Moved, then deleted: the ordinary delete takes over.

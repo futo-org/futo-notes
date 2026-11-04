@@ -11,6 +11,11 @@ Every trigger is push-first: dirty local edits are PUT before any pull writes di
 this ordering to fix a test. `SyncSession` owns mutually exclusive cycles and live-sync lifecycle;
 shells project it rather than reconstructing the protocol.
 
+In-app renames keep identity through the rename journal (`futo_notes_core::files::rename_journal`,
+#214): `push/local_renames.rs` claims committed intents under the vault guard, binds the object
+before rekeying, and acknowledges only after the PUT landed and the checkpoint saved. The push
+scan takes no guard, so any claim decision that depends on absence re-checks disk under it.
+
 ## Verification
 
 - Any change: `just test-sync`. It runs every ordinary test through the pinned,
