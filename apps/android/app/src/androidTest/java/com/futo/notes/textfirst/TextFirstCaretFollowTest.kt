@@ -145,4 +145,21 @@ class TextFirstCaretFollowTest {
         SystemClock.sleep(2000)
         assertEquals("the note was thrown back to the caret", readingAt, view.scrollY)
     }
+
+    /**
+     * The keyboard going away grows the view. A note scrolled to its end must not be left scrolled past
+     * it: TextView only corrected that at its next reveal, so the first tap after the keyboard hid moved
+     * the note under the finger and a double-tap landed on two different words.
+     */
+    @Test
+    fun aNoteScrolledToItsEndIsNotLeftPastItWhenTheViewGrows() = exercise(longNote) {
+        fun end() = view.layout.height + view.totalPaddingTop + view.totalPaddingBottom - view.height
+        compose.runOnUiThread {
+            view.scrollTo(0, end())
+            view.layout(view.left, view.top, view.right, view.bottom + 400)
+        }
+        compose.runOnUiThread {
+            assertTrue("scrolled ${view.scrollY}, past the note's end at ${end()}", view.scrollY <= end())
+        }
+    }
 }

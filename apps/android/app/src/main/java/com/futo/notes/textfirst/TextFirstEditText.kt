@@ -79,6 +79,9 @@ internal class TextFirstEditText(
         importantForAutofill = IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS
         if (android.os.Build.VERSION.SDK_INT >= 30) importantForContentCapture = IMPORTANT_FOR_CONTENT_CAPTURE_NO_EXCLUDE_DESCENDANTS
         highlightColor = (style.linkColor and 0x00ffffff) or 0x40000000
+        if (android.os.Build.VERSION.SDK_INT >= 29) {
+            textCursorDrawable?.let { setTextCursorDrawable(BlankLineCaret(it) { lineHeight }) }
+        }
         filters = arrayOf(InputFilter { source, _, _, dest, dstart, dend ->
             if (applying) null else dest.subSequence(dstart, dend)
         })
@@ -241,6 +244,7 @@ internal class TextFirstEditText(
     // otherwise keep a stale height).
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
+        if (h > oldh) clampScrollToNote()
         if (h < oldh && caretWasInView(oldh)) { reveal.again(); bringPointIntoView(selectionEnd) }
         if (w == oldw) return
         val e = editableText ?: return

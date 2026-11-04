@@ -5,8 +5,25 @@ package com.futo.notes.textfirst
 internal fun TextFirstEditText.anchorY(anchor: ScrollAnchor): Int? {
     val l = layout ?: return null
     val line = l.getLineForOffset(anchor.offset.coerceIn(0, l.text.length))
-    val max = (l.height + totalPaddingTop + totalPaddingBottom - height).coerceAtLeast(0)
-    return (l.getLineTop(line) + anchor.intoLine + totalPaddingTop).coerceIn(0, max)
+    return (l.getLineTop(line) + anchor.intoLine + totalPaddingTop).coerceIn(0, maxScrollY())
+}
+
+/** The furthest the note scrolls: its last line (and the padding under it) at the bottom edge. */
+internal fun TextFirstEditText.maxScrollY(): Int {
+    val l = layout ?: return 0
+    return (l.height + totalPaddingTop + totalPaddingBottom - height).coerceAtLeast(0)
+}
+
+/**
+ * A view that grew (the keyboard went away) with the note scrolled past its new end is left
+ * showing blank space, and TextView only corrects that at its next reveal: the first tap or key
+ * after the keyboard hid then moved the note under the reader's finger, so a double-tap landed
+ * on a different word than its first tap. ScrollView does this clamp in its own layout.
+ */
+internal fun TextFirstEditText.clampScrollToNote() {
+    if (restoring != null) return
+    val max = maxScrollY()
+    if (scrollY > max) scrollTo(scrollX, max)
 }
 
 internal fun TextFirstEditText.stopPinning() {
