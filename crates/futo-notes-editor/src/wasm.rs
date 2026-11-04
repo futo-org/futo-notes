@@ -175,6 +175,29 @@ impl WasmSession {
                 .map_err(error)?,
         )
     }
+    pub fn edit_link(
+        &mut self,
+        revision: u64,
+        start: usize,
+        end: usize,
+        label: &str,
+        destination: &str,
+    ) -> Result<String, JsValue> {
+        json(
+            &self
+                .0
+                .edit_link(
+                    Revision(revision),
+                    DisplayRange {
+                        start: DisplayOffset(start),
+                        end: DisplayOffset(end),
+                    },
+                    label,
+                    destination,
+                )
+                .map_err(error)?,
+        )
+    }
     pub fn wikilink_completion(&self, revision: u64) -> Result<String, JsValue> {
         json(
             &self
