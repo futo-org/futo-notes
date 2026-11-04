@@ -40,6 +40,9 @@ internal class TextFirstStyle(
     val listIndent = textSizePx * 1.4f
     val quoteIndent = dp(3f) + textSizePx * 0.9f
     val codePadding = dp(12f)
+
+    /** Find-match highlight: the link colour, stronger for the current match. */
+    fun findMarkColor(current: Boolean) = (linkColor and 0x00ffffff) or (if (current) 0x99000000.toInt() else 0x40000000)
 }
 
 /** Every span the renderer owns; anything else on the Editable belongs to the platform or the IME. */

@@ -48,19 +48,19 @@ internal fun TextFirstEditText.drawFindMarks(canvas: Canvas) {
         if (e.getSpans(s, s, TfTableRow::class.java).isNotEmpty()) return@visit
         markPath.rewind()
         l.getSelectionPath(s, en.coerceAtMost(e.length), markPath)
-        markPaint.color = (style.linkColor and 0x00ffffff) or (if (current) 0x99000000.toInt() else 0x40000000)
+        markPaint.color = style.findMarkColor(current)
         canvas.drawPath(markPath, markPaint)
     }
     canvas.restoreToCount(save)
 }
 
-/** TextView caches span drawing: re-set each grid row so it paints the new matches. */
-private fun TextFirstEditText.redrawTableRows() {
+/** TextView caches span drawing: re-set each grid row (or those matching [only]) so it repaints. */
+internal fun TextFirstEditText.redrawTableRows(only: (TfTableRow) -> Boolean = { true }) {
     val e = editableText ?: return
     applying = true
     try {
         for (span in e.getSpans(0, e.length, TfTableRow::class.java)) {
-            e.setSpan(span, e.getSpanStart(span), e.getSpanEnd(span), e.getSpanFlags(span))
+            if (only(span)) e.setSpan(span, e.getSpanStart(span), e.getSpanEnd(span), e.getSpanFlags(span))
         }
     } finally { applying = false }
 }

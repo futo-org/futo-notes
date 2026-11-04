@@ -34,6 +34,17 @@ import kotlinx.coroutines.launch
 internal fun findLabel(localization: Localization, state: FindSnapshot?): String =
     localization.localizedText("editor.find.matchCount", mapOf("current" to (state?.current ?: 0), "total" to (state?.total ?: 0)))
 
+/** `StepFind` for the note bar and the cell dialog: one direction contract, two targets. */
+private fun stepFindVerb(step: suspend (forward: Boolean) -> Unit) = PuppetVerb(
+    "StepFind", required = listOf("direction"), integers = listOf("direction"),
+    controls = listOf("editor.find.previousMatch", "editor.find.nextMatch"),
+) { arguments ->
+    val direction = arguments.getInt("direction")
+    if (direction != 1 && direction != -1) throw PuppetVerbRefusal(400, "direction is 1 (next) or -1 (previous)")
+    step(direction == 1)
+    mapOf("direction" to direction)
+}
+
 /**
  * Next/previous inside the table cell window: the cell dialog is modal, so the
  * bar below the note cannot be reached while a match is open in a cell.
@@ -47,15 +58,7 @@ internal fun TextFirstFindInCell(controller: TextFirstController) {
     val enabled = canStepFind(state?.total ?: 0)
     PuppetVerbScope(modal = true) {
         if (!enabled) emptyList() else listOf(
-            PuppetVerb(
-                "StepFind", required = listOf("direction"), integers = listOf("direction"),
-                controls = listOf("editor.find.previousMatch", "editor.find.nextMatch"),
-            ) { arguments ->
-                val direction = arguments.getInt("direction")
-                if (direction != 1 && direction != -1) throw PuppetVerbRefusal(400, "direction is 1 (next) or -1 (previous)")
-                controller.findStep(direction == 1)
-                mapOf("direction" to direction)
-            },
+            stepFindVerb { controller.findStep(it) },
         )
     }
     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -109,15 +112,7 @@ internal fun TextFirstFindVerbs(find: TextFirstFind, enabled: Boolean) {
                 mapOf("query" to find.query)
             })
             if (canStepFind(find.state?.total ?: 0)) {
-                add(PuppetVerb(
-                    "StepFind", required = listOf("direction"), integers = listOf("direction"),
-                    controls = listOf("editor.find.previousMatch", "editor.find.nextMatch"),
-                ) { arguments ->
-                    val direction = arguments.getInt("direction")
-                    if (direction != 1 && direction != -1) throw PuppetVerbRefusal(400, "direction is 1 (next) or -1 (previous)")
-                    find.step(direction == 1)
-                    mapOf("direction" to direction)
-                })
+                add(stepFindVerb { find.step(it) })
             }
             add(PuppetVerb("CloseFind", controls = listOf("editor.find.close")) { find.close() })
         }

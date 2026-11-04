@@ -67,7 +67,7 @@ internal class TfTableRow(
             if (b <= a) return@visit
             path.rewind()
             layout.getSelectionPath(a, b, path)
-            paint.color = (look.linkColor and 0x00ffffff) or (if (current) 0x99000000.toInt() else 0x40000000)
+            paint.color = look.findMarkColor(current)
             canvas.drawPath(path, paint)
         }
     }
