@@ -99,11 +99,14 @@ There is no Copy Draft screen and no recovery log (#319, !565).
   refusal, `type` refuses, `doc`/`state` show no note, and it hardcodes `com.futo.notes.dev`.
   QA relied on `adb shell input` + screenshots + logcat (`TextFirstIme`, `TextFirstEngine`,
   `TextFirstApply`, `TextFirstWatchdog`). Needed before agent QA can scale.
-- Camera image insert drew the photo behind un-displaced text (Justin, once). #326 asked to
-  reproduce it on a claimed device; no reproduction or outcome is recorded anywhere, so the
-  criterion is open. Defensive fixes landed (EXIF rotation, re-measure on resize, relayout on
-  bitmap load). The camera can kill the app's process on the Moto, after which the photo is lost
-  (capture identity now persists through SavedState; check the WebView editor behaves the same).
+- Camera image insert drew the photo behind un-displaced text (Justin, once). #326 outcome
+  (emulator futo-qa-2, 2026-11-03): not reproduced. A seeded 640x360 PNG reopened and a native
+  insertion both lay the image out with the following text below it. The one bug found there was a
+  layout-order crash from watcher priority on insertion (fixed, 5e12bd7b0). The real camera shutter
+  could not be driven (the external Camera app ignores keyboard input), so a photo taken on the Moto
+  is still unobserved. Capture identity now persists through SavedState; the camera can still kill
+  the app's process on the Moto, after which that photo is lost (check the WebView editor behaves
+  the same).
 - Inline code background fills the whole line height (Milkdown uses padding and radius).
 - Not yet in the text-first editor: front-matter panel, footnotes/HTML rendering.
 - Moto performance after tables, find and wikilink layout is unmeasured (see `just
