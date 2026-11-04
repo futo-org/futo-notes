@@ -175,7 +175,8 @@ pub(crate) async fn cycle_with_checkpoint_and_clients(
         }) => return Err(abandon(kind, &reached, phases)),
     };
 
-    let protected_paths = dirty_mapped_paths(&after_push, root);
+    let mut protected_paths = dirty_mapped_paths(&after_push, root);
+    protected_paths.extend(push::local_renames::pending_rename_paths(&after_push, root));
     let started = std::time::Instant::now();
     let pulled = pull::pull_with_checkpoint_protected_client(
         &http,
@@ -220,3 +221,5 @@ fn needs_bootstrap(state: &ConnectedState) -> bool {
 mod behavior_tests;
 #[cfg(test)]
 mod failure_boundary_tests;
+#[cfg(test)]
+mod local_rename_tests;

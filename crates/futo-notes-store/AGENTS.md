@@ -15,8 +15,14 @@ primitives (path safety, atomic writes, conflict names, the vault mutation guard
   each an `impl LocalNoteStore` block: `bootstrap.rs` (`bootstrap`, `startup_listing`, `.txt`
   migration), `notes.rs` (`snapshot`, `read`, `create`, `append`, `write`, `rename`, `move_note`, `delete`,
   external-change projection), `flush.rs` (`save`, `flush_draft`), `folders.rs` (the folder
-  workflows), `relink.rs` (file moves with rollback and backlink rewrites), and `commit.rs`
+  workflows), `relink.rs` (journaled file moves and backlink rewrites), and `commit.rs`
   (no-replace installs and the post-commit `MutationResult`).
+- **`rename_journal/`**: every note/folder move goes `from` -> `.local-renames/<tx>/` -> `to`
+  under the durable rename journal (`.local-renames.json`, #214). `moves.rs` runs and rolls back
+  a move, `recovery.rs` finishes or undoes one at bootstrap. The record and the view sync reads
+  live in `futo-notes-core` `files/rename_journal/`; sync touches it only through that view,
+  under the vault guard (not this crate's gate). Unknown journal versions fail closed and are
+  left untouched; downgrading with a pending intent loses that rename's identity.
 - **`vault.rs`**: the corpus walk, snapshot building, and `note_list_order` — **the** note-list sort
   rule (modified desc, id asc). The walk visits folders and each folder's notes in parallel and
   closes a folder before opening its subfolders, so descriptors stay bounded (iOS defaults to 256;

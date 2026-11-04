@@ -84,6 +84,7 @@ mod flush_draft;
 mod flush_draft_parking;
 mod modified_times;
 mod rename_and_folders;
+mod rename_journal;
 mod reset_and_migration;
 mod sort_order;
 mod unsafe_paths;
