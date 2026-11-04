@@ -57,6 +57,7 @@ import com.futo.notes.ui.collidesWithOtherNote
 import com.futo.notes.ui.components.ConfirmDialog
 import com.futo.notes.ui.components.FolderPickerSheet
 import com.futo.notes.ui.editorTitleTarget
+import com.futo.notes.ui.titleWarningFor
 import com.futo.notes.ui.isPlaceholderTitle
 import com.futo.notes.ui.showToast
 import com.futo.notes.ui.theme.FutoPalette
@@ -71,10 +72,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import uniffi.futo_notes_ffi.FlushDisposition
-import uniffi.futo_notes_ffi.makeId
 import uniffi.futo_notes_ffi.sanitizeTitle
 import uniffi.futo_notes_ffi.splitId
-import uniffi.futo_notes_ffi.validateTitle
 
 /**
  * The note screen for the text-first editor (debug builds, [TextFirstFlag]).
@@ -144,14 +143,7 @@ internal fun TextFirstEditorScreen(
     val images = rememberTextFirstImages(controller, store, noteId, leaving, imagePicker)
 
     fun showTitleValidation(title: String) {
-        val blocking = validateTitle(title).firstOrNull { it.kind != "empty" && it.kind != "forbidden_chars" }
-        val duplicate = title.trim().let { t ->
-            t.isNotEmpty() && collidesWithOtherNote(
-                noteId, makeId(splitId(noteId).folder, sanitizeTitle(t)), store.notes.map { it.id },
-            )
-        }
-        titleWarning = blocking?.let { titleValidationMessage(it.kind) }
-            ?: if (duplicate) LocalizedMessage("notes.title.duplicate") else null
+        titleWarning = titleWarningFor(noteId, title, store.notes.map { it.id })
     }
 
     fun adoptIdentity(finalId: String) {

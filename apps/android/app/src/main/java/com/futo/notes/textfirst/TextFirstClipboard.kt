@@ -11,7 +11,11 @@ import android.view.inputmethod.InputContentInfo
  * Copy, cut and paste for the note view, plus keyboard-provided content. An image
  * never also becomes text: its owner takes the URI and calls the release when done.
  */
-internal class TextFirstClipboard(private val context: Context, private val engine: () -> EditorEngine?) {
+internal class TextFirstClipboard(
+    private val context: Context,
+    private val selectAll: (EditorEngine) -> Unit = { it.selectAll() },
+    private val engine: () -> EditorEngine?,
+) {
     var onImageContent: ((Uri, () -> Unit) -> Boolean)? = null
 
     fun handle(id: Int): Boolean {
@@ -28,7 +32,7 @@ internal class TextFirstClipboard(private val context: Context, private val engi
                 val text = if (clip != null && clip.itemCount > 0) clip.getItemAt(0).coerceToText(context)?.toString() else null
                 if (!text.isNullOrEmpty()) engine.paste(text)
             }
-            android.R.id.selectAll -> engine.selectAll()
+            android.R.id.selectAll -> selectAll(engine)
             android.R.id.undo -> engine.undo()
             android.R.id.redo -> engine.redo()
             else -> return false
