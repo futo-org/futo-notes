@@ -97,13 +97,15 @@ internal fun planSpans(p: EditorProjection, startUtf16: Int, outside: (Int) -> I
         return if (localEnd < p.text.length && p.text[localEnd] == '\n') endUtf16 + 1 else endUtf16
     }
     val out = ArrayList<SpanSpec>(p.runs.size + p.blocks.size + p.atoms.size)
+    // Heading lines keep their own height when empty (no compact block gap).
+    val headingLines = ArrayList<IntRange>()
     for (b in p.blocks) {
         val s = u(b.range.start)
         val e = withBreak(u(b.range.end)).coerceAtMost(textEndUtf16)
         when {
             b.metadata -> out.add(SpanSpec.Metadata(s, e))
             b.code -> out.add(SpanSpec.Code(s, e))
-            b.heading > 0u -> out.add(SpanSpec.Heading(s, e, b.heading.toInt()))
+            b.heading > 0u -> { out.add(SpanSpec.Heading(s, e, b.heading.toInt())); headingLines.add(s until e) }
         }
         if (b.quoteDepth > 0u) out.add(SpanSpec.Quote(s, e, b.quoteDepth.toInt()))
         b.list?.let { list ->
@@ -132,7 +134,7 @@ internal fun planSpans(p: EditorProjection, startUtf16: Int, outside: (Int) -> I
     for (i in p.text.indices) {
         if (p.text[i] == '\n' && (i == 0 || p.text[i - 1] == '\n')) {
             val at = startUtf16 + i
-            if (at > 0) out.add(SpanSpec.Blank(at, at + 1))
+            if (at > 0 && headingLines.none { at in it }) out.add(SpanSpec.Blank(at, at + 1))
         }
     }
     for (l in p.links) out.add(SpanSpec.Link(u(l.range.start), u(l.range.end), l.destination))
