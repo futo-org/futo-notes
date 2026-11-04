@@ -37,6 +37,7 @@ internal class TextFirstStyle(
     val surfaceColor: Int,
     val italic: Typeface = regular,
     val boldItalic: Typeface = bold,
+    val semiboldItalic: Typeface = Typeface.create(italic, 600, true),
 ) {
     fun dp(value: Float) = value * density
     val listIndent = textSizePx * 1.4f
@@ -72,7 +73,8 @@ internal class TfInline(
         // pushed glyphs past their advance, so the caret overlapped them. Code stays upright.
         val face = when {
             code -> look.mono
-            italic && (bold || base === look.semibold) -> look.boldItalic
+            italic && bold -> look.boldItalic
+            italic && (base === look.semibold || base === look.semiboldItalic) -> look.semiboldItalic
             italic -> look.italic
             bold -> look.bold
             else -> base ?: look.regular
@@ -97,8 +99,16 @@ internal class TfHeading(private val look: TextFirstStyle, val level: Int) :
     private val scale = when (level) { 1 -> 1.7f; 2 -> 1.4f; 3 -> 1.2f; else -> 1.05f }
 
     private fun apply(paint: TextPaint) {
-        paint.textSize = look.textSizePx * scale
-        paint.typeface = look.semibold
+        val base = paint.typeface
+        // A restyle can replace the heading after retaining its inline spans.
+        // Compose in either order: the block supplies size and base weight,
+        // while a stronger weight, italic face or code face stays on its run.
+        paint.textSize = look.textSizePx * scale * if (base === look.mono) 0.9f else 1f
+        paint.typeface = when (base) {
+            look.bold, look.boldItalic, look.semiboldItalic, look.mono -> base
+            look.italic -> look.semiboldItalic
+            else -> look.semibold
+        }
     }
 
     override fun updateMeasureState(paint: TextPaint) = apply(paint)

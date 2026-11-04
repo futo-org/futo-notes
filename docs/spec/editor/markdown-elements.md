@@ -1,6 +1,7 @@
 ## Markdown elements (rendered / decorated)
 
 - Headings h1–h6, with inline emphasis / code / wikilinks inside.
+- *(Android text-first editor)* Headings retain bold, italic and strikethrough after changing their level; bold is heavier than the semibold heading base, and italic keeps that base weight. Inline markers remain hidden while moving the caret. → apps/android/app/src/main/java/com/futo/notes/textfirst/TextFirstSpans.kt, apps/android/app/src/androidTest/java/com/futo/notes/textfirst/TextFirstGlyphMetricsTest.kt
 - Emphasis: bold, italic, bold-italic, strikethrough — `*` and `_` markers.
 - Code: inline (single and double backtick) and fenced (triple backticks or
   triple tildes, with optional language).

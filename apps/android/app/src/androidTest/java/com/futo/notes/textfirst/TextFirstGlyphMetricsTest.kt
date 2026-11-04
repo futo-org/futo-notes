@@ -5,9 +5,12 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.text.TextPaint
+import android.text.style.MetricAffectingSpan
 import androidx.core.content.res.ResourcesCompat
 import androidx.test.platform.app.InstrumentationRegistry
 import com.futo.notes.R
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -25,6 +28,7 @@ class TextFirstGlyphMetricsTest {
             Color.BLACK, Color.GRAY, Color.BLUE, Color.GRAY, Color.WHITE, Color.WHITE,
             italic = ResourcesCompat.getFont(context, R.font.barlow_italic)!!,
             boldItalic = ResourcesCompat.getFont(context, R.font.barlow_bold_italic)!!,
+            semiboldItalic = ResourcesCompat.getFont(context, R.font.barlow_semibold_italic)!!,
         )
     }
 
@@ -64,5 +68,37 @@ class TextFirstGlyphMetricsTest {
     /** Bold is a real Barlow Bold, never emboldened on top: its ink ends where its advance does. */
     @Test fun boldInkEndsAtItsAdvance() {
         assertEquals(overhang(bold = false, italic = false), overhang(bold = true, italic = false), 0.02f)
+    }
+
+    /** Changing the level replaces the heading span after the retained inline spans. */
+    @Test fun headingEmphasisSurvivesChangingHeadingLevel() = runBlocking(Dispatchers.Main) {
+        val images = ImageLoader(context, context.cacheDir)
+        try {
+            val view = TextFirstEditText(context, look, images)
+            val text = ChunkedEditable.from("a b c" + TextFirstEditText.END_SENTINEL)
+            val inline = listOf(
+                SpanSpec.Inline(0, 1, bold = true, italic = false, strike = false, code = false),
+                SpanSpec.Inline(2, 3, bold = false, italic = true, strike = false, code = false),
+                SpanSpec.Inline(4, 5, bold = false, italic = false, strike = true, code = false),
+            )
+            view.addSpans(text, listOf(SpanSpec.Heading(0, 5, 1)) + inline)
+            view.restyle(text, StyleWindow(0, 5, listOf(SpanSpec.Heading(0, 5, 2)) + inline))
+            fun paintAt(at: Int) = TextPaint().apply {
+                textSize = look.textSizePx
+                typeface = look.regular
+                for (span in text.getSpans(at, at + 1, MetricAffectingSpan::class.java)) span.updateDrawState(this)
+            }
+            val bold = paintAt(0)
+            assertEquals("heading bold is heavier than its base", 700, bold.typeface.weight)
+            val italic = paintAt(2)
+            assertTrue("heading italic is still italic", italic.typeface.isItalic)
+            assertEquals("heading italic keeps the heading's weight", 600, italic.typeface.weight)
+            assertTrue("heading strike survives its base style", paintAt(4).isStrikeThruText)
+            assertEquals(look.textSizePx * 1.4f, bold.textSize, 0.01f)
+            assertEquals(look.textSizePx * 1.4f, italic.textSize, 0.01f)
+            assertEquals("inline markers stay hidden in the display", "a b c" + TextFirstEditText.END_SENTINEL, text.toString())
+        } finally {
+            images.shutdown()
+        }
     }
 }

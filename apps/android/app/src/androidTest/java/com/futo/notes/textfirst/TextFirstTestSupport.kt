@@ -17,5 +17,8 @@ internal fun createTextFirstController(activity: ComponentActivity, core: () -> 
         ResourcesCompat.getFont(activity, R.font.barlow_bold)!!,
         ResourcesCompat.getFont(activity, R.font.jetbrains_mono_regular)!!,
         Color.BLACK, Color.GRAY, Color.BLUE, Color.GRAY, Color.WHITE, Color.WHITE,
+        italic = ResourcesCompat.getFont(activity, R.font.barlow_italic)!!,
+        boldItalic = ResourcesCompat.getFont(activity, R.font.barlow_bold_italic)!!,
+        semiboldItalic = ResourcesCompat.getFont(activity, R.font.barlow_semibold_italic)!!,
     ))
 }
