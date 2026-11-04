@@ -5,6 +5,7 @@ mod blocks;
 mod clean_refresh;
 mod clipboard;
 mod composition;
+mod external_rename;
 mod images;
 mod lifecycle;
 mod links;

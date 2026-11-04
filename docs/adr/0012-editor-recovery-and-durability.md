@@ -61,3 +61,12 @@ the renderer opts into authoritative adoption. Portable/WASM callers can explici
 result through `adopt_merged_source` and mirror its normal Append request, preserving page-owned
 history without changing the acknowledgement schema. Consumption details:
 `docs/architecture/editor-merge-consumption.md`.
+
+## Amendment: attached drafts follow reported external renames (2026-11-03, #318 / #324)
+
+The external-change projection consumes explicit, committed rename pairs and their final ids under
+the store gate and vault guard. It retargets attached sessions while retaining the original saved
+baseline, draft, selection, composition and history. Checkpoint then merges or parks at that final
+id; a failed save keeps the retargeted draft available for retry. Destination attachment/read failure
+leaves identities untouched. Shells apply returned mutations and never infer identity or collision
+placement from filename patterns. Portable page requests keep their existing sequence/token contract.

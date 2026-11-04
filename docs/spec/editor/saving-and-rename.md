@@ -209,3 +209,13 @@
   `createNoteTitleController.svelte.ts` `handleBlur`,
   `$shared/dom/pointerGesture.ts` `runWhenPointerIdle`;
   tests/p2-regressions.spec.ts, src/shared/dom/pointerGesture.test.ts
+- The shared attached editor follows explicit committed remote rename pairs through the local note
+  engine's external-change projection, including its authoritative collision-resolved destination.
+  Retargeting preserves source, selection, composition, revision and Undo history; the original saved
+  baseline remains available to merge or park against current disk at the final id on checkpoint.
+  Failed saves retain the final attachment and draft for retry. A replay for an already-vacated
+  attachment cannot redirect its current identity, and updated/deleted ids alone never imply a rename.
+  Destination read/attachment failure leaves drafts attached for retry. Portable page requests retain
+  their token/sequence order and history; automatic portable saves preserve both versions by parking
+  on divergence. → crates/futo-notes-store/src/notes.rs,
+  crates/futo-notes-store/src/editor_session/identity.rs
