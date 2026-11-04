@@ -11,6 +11,7 @@ import { Buffer } from 'node:buffer';
 import process from 'node:process';
 import console from 'node:console';
 import { setTimeout, clearTimeout } from 'node:timers';
+import { runMergeRegressions } from './wasm-merge-consumer.mjs';
 import { runBlockRegressions } from './wasm-block-consumer.mjs';
 const { WasmSession } = await import(pathToFileURL(process.argv[2]).href);
 
@@ -337,3 +338,5 @@ const { WasmSession } = await import(pathToFileURL(process.argv[2]).href);
   console.error(error);
   process.exitCode = 1;
 });
+
+await runMergeRegressions(WasmSession, process.argv[3]);

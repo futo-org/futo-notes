@@ -3,8 +3,8 @@ mod rules;
 mod store;
 
 pub use contract::{
-    FlushDisposition, FlushDraftResult, NoteBootstrap, NoteError, NoteMetadata, NoteMutation,
-    NoteSnapshot, NoteSortKey, NoteSortOrder, SearchHit, SortDirection, UpsertedNote,
+    FlushDisposition, FlushDraftResult, MergedDraftResult, NoteBootstrap, NoteError, NoteMetadata,
+    NoteMutation, NoteSnapshot, NoteSortKey, NoteSortOrder, SearchHit, SortDirection, UpsertedNote,
     VaultDestinationInspection, VaultMigrationFinalization, VaultMigrationOutcome,
 };
 pub use rules::{

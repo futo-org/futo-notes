@@ -22,9 +22,10 @@ test:
   # can queue behind it there; they no longer queue behind a slow box.
   tags:
     - $LINUX_RUNNER_TAG
-  # No resource_group: the FolderTreeView case it guarded has a 30s timeout, and
-  # subprocess-spawning script tests carry their own. 25m, not the old 15m:
-  # executor prep counts toward the timeout and took 5-13 min on a starved runner.
+  # No resource_group: the cross-pipeline lock queued every MR behind one job
+  # (2026-11-03). If FolderTreeView timing flakes return under contention, fix the test.
+  # 25m, not 15m: executor prep counts toward the timeout and took 5-13 min on a
+  # starved runner (pipelines 39228, 39298), killing jobs with 2-6 min of script.
   timeout: 25m
   # No scope classifier: this job always runs the full script. A documentation
   # MR pays the pnpm install, and in exchange there is exactly one path that can

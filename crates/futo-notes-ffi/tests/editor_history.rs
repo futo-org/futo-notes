@@ -93,3 +93,46 @@ fn native_isolated_input_and_compound_runs_preserve_exact_history_and_validate_e
     );
     assert!(reopened.undo(0).unwrap().is_none());
 }
+
+#[test]
+fn native_checkpoint_adopts_merged_source_and_undo_retains_remote_contribution() {
+    let tree = TempTree::new();
+    std::fs::create_dir_all(tree.path("vault")).unwrap();
+    let store = NoteStore::new(path_string(&tree.path("vault")));
+    store
+        .create_note("merge".into(), "".into(), "first\n\nsecond\n".into())
+        .unwrap();
+    let session = store.open_editor("merge".into()).unwrap();
+    session
+        .replace_utf16_action(
+            0,
+            EditorUtf16Range { start: 7, end: 13 },
+            "LOCAL".encode_utf16().collect(),
+            EditorInputAction::Isolated,
+        )
+        .unwrap();
+    std::fs::write(tree.path("vault/merge.md"), "REMOTE🦀\n\nsecond\n").unwrap();
+    session.checkpoint().unwrap();
+    assert_eq!(session.source_text().unwrap(), "REMOTE🦀\n\nLOCAL\n");
+    assert_eq!(session.take_coordinated_changes().unwrap().len(), 1);
+    session.undo(session.revision().unwrap()).unwrap().unwrap();
+    assert_eq!(session.source_text().unwrap(), "REMOTE🦀\n\nsecond\n");
+    session.detach().unwrap();
+    assert_eq!(store.read("merge".into()).unwrap(), "REMOTE🦀\n\nsecond\n");
+
+    store
+        .create_note("raw".into(), "".into(), "REMOTE\n\nsecond\n".into())
+        .unwrap();
+    let merged = store
+        .flush_draft_merged(
+            "raw".into(),
+            "first\n\nsecond\n".into(),
+            "first\n\nLOCAL\n".into(),
+        )
+        .unwrap();
+    assert_eq!(merged.source, "REMOTE\n\nLOCAL\n");
+    assert_eq!(
+        merged.flush.mutation.unwrap().final_id.as_deref(),
+        Some("raw")
+    );
+}

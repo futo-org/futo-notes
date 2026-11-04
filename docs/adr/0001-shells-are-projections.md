@@ -7,8 +7,13 @@ desktop saved unconditionally, and only iOS honored the persist-or-park promise 
 rounds of hand-fixes. We decided the engine owns all of it: mutations carry each note's final
 id and sorted position (shells apply splices verbatim and hold no rules), and a single
 `flush_draft` verb resolves every save surprise itself, returning one of four flush
-dispositions (wrote / converged / recreated / parked). Shells own only *when* to save
-(debounce, lifecycle, jetsam register); the engine owns *what happens* on save.
+dispositions (wrote / converged / recreated / parked). Shells own only _when_ to save
+(debounce, lifecycle, jetsam register); the engine owns _what happens_ on save.
+
+The 2026-11-03 amendment in ADR-0012 adds the opt-in `flush_draft_merged` workflow and native
+attached merge adoption. Its authoritative source accompanies the same dispositions and complete
+mutation; consumers never reconstruct a merge. Legacy `flush_draft` retains its contract until its
+renderer can adopt outside contributions while preserving local history.
 
 ## Consequences
 

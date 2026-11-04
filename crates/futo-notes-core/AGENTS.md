@@ -8,7 +8,7 @@ Shared Rust crate imported across the workspace — by the Tauri app and, via th
 
 - **`files/`**: Filename/title rules, path safety, timestamps, atomic writes, parked-backup recovery, and case/normalization-safe renames. `mod.rs` is the public facade; focused child modules own each capability.
 - **`hash.rs`**: SHA-256 content hashing for sync — `hash_sha256()` and `hash_sha256_bytes()`. Any hash change breaks sync protocol compatibility.
-- **`merge.rs`**: Three-way text merge for conflict resolution when both client and server modified the same note.
+- **`merge.rs`**: compatibility facade for `futo-notes-merge`, the portable three-way source merge shared by sync, store and editor history adoption.
 - **`e2ee/`**: AES-GCM, password keys (PBKDF2 and Argon2id), versioned note frames, vault-key wrapping under a vault password or a recovery key, Crockford-base32 recovery keys, and X25519 sealed boxes for QR pairing. `mod.rs` preserves the public crypto contract while child modules own the wire capabilities.
 - **`conflict_names.rs`**: Deterministic and dated conflict-copy filenames.
 - **`image`**: re-export of `futo-notes-image` (image-extension classification, conformance-locked to the editor package).
@@ -36,5 +36,5 @@ is reserved for tests that genuinely require an external environment.
 | What changed | Run |
 |---|---|
 | File operations | `cargo test -p futo-notes-core` + `cargo test -p futo-notes-store` |
-| E2EE, merge, or conflict behavior | `cargo test -p futo-notes-core` + `cargo test -p futo-notes-sync` + `just test-cross-platform` |
+| E2EE, merge, or conflict behavior | `cargo test -p futo-notes-core -p futo-notes-merge` + `cargo test -p futo-notes-sync` + `just test-cross-platform` |
 | Hash computation | `cargo test -p futo-notes-core` + `just test-cross-platform` — any hash change breaks sync protocol compatibility |
