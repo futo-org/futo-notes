@@ -35,6 +35,9 @@ impl EditorSession {
         }
         self.validate_range(range)?;
         range = self.body_range(range)?;
+        if command == BlockCommand::WrapCodeBlock {
+            return self.wrap_code_block(expected, range, accept);
+        }
         if matches!(command, BlockCommand::Heading(level) if level > 6) {
             return Err(EditorError::InvalidRange);
         }
@@ -223,6 +226,7 @@ impl EditorSession {
                     BlockCommand::Outdent => depth -= 1,
                     BlockCommand::Divider
                     | BlockCommand::CodeBlock
+                    | BlockCommand::WrapCodeBlock
                     | BlockCommand::ToggleTask
                     | BlockCommand::BulletList
                     | BlockCommand::OrderedList
@@ -284,6 +288,9 @@ fn changes_block(line: &crate::inline::blocks::BlockLine, command: BlockCommand)
         BlockCommand::Quote => line.quote_depth == 0 || line.heading > 0,
         BlockCommand::Indent | BlockCommand::Outdent => line.quote_depth > 0,
         BlockCommand::Divider | BlockCommand::CodeBlock => true,
+        BlockCommand::WrapCodeBlock => {
+            unreachable!("toolbar commands are resolved before planning")
+        }
         BlockCommand::ToggleTask
         | BlockCommand::BulletList
         | BlockCommand::OrderedList

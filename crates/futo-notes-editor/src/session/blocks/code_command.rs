@@ -290,3 +290,82 @@ fn prose_literal(text: &str) -> String {
     }
     text
 }
+
+impl EditorSession {
+    /// The text-first toolbar authors one fence for the complete selected
+    /// display rows. Unlike the portable per-line command, mixed structures
+    /// are flattened to opaque text in this single accepted edit.
+    pub(super) fn wrap_code_block(
+        &mut self,
+        expected: Revision,
+        range: DisplayRange,
+        accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
+    ) -> Result<Option<ViewChange>, EditorError> {
+        let lines = self.projection.block_lines(range);
+        if let Some(change) = self.code_toggle_off(expected, range, &lines, accept)? {
+            return Ok(Some(change));
+        }
+        let Some(first) = lines.first() else {
+            return Ok(None);
+        };
+        let last = lines.last().unwrap();
+        let start = first
+            .fence
+            .as_ref()
+            .map_or(first.source.start, |f| f.whole.start);
+        let end = last.fence.as_ref().map_or(last.source.end, |f| f.whole.end);
+        let physical = self.source.byte_slice(start..end).to_string();
+        let ending = &physical[physical.trim_end_matches(['\r', '\n']).len()..];
+        let shown_start = self.projection.display_at(start);
+        let shown_end = self.projection.display_at(end);
+        let shown = self
+            .projection
+            .display
+            .byte_slice(shown_start..shown_end)
+            .to_string();
+        // Keep the physical final ending outside the hidden fence frame, so
+        // selecting the parked final empty line does not add a blank code row.
+        let text = shown
+            .strip_suffix(ending)
+            .filter(|_| !ending.is_empty())
+            .unwrap_or(&shown);
+        let width = text
+            .as_bytes()
+            .split(|&ch| ch != b'`')
+            .map(<[u8]>::len)
+            .max()
+            .unwrap_or(0)
+            .saturating_add(1)
+            .max(3);
+        let marker = "`".repeat(width);
+        let prefix = if lines
+            .iter()
+            .all(|line| line.quote_depth == first.quote_depth && !line.in_list)
+        {
+            "> ".repeat(first.quote_depth)
+        } else {
+            String::new()
+        };
+        let body = text.replace('\n', &format!("\n{prefix}"));
+        let inserted = format!("{prefix}{marker}\n{prefix}{body}\n{prefix}{marker}{ending}");
+        let body_start = start + prefix.len() * 2 + marker.len() + 1;
+        let map = |point: usize| {
+            let within = (point - shown_start).min(text.len());
+            body_start
+                + within
+                + prefix.len() * text[..within].bytes().filter(|&ch| ch == b'\n').count()
+                + point.saturating_sub(shown_start + text.len())
+        };
+        let selected = map(range.start.0)..map(range.end.0);
+        let mut change = self.commit_block_edit(
+            expected,
+            start..end,
+            &inserted,
+            BlockSelection::SourceRange(selected),
+            None,
+            accept,
+        )?;
+        change.work.materialized_source_bytes += physical.len() + shown.len() + inserted.len();
+        Ok(Some(change))
+    }
+}

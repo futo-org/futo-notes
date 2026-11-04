@@ -306,3 +306,72 @@ fn code_command_takes_lines_out_as_plain_text_not_markdown_structure() {
         );
     }
 }
+
+#[test]
+fn android_code_command_wraps_selected_mixed_blocks_in_one_fence_and_one_undo() {
+    let opening = "# **title**\n\n- one\n- two\n\n> quote\n\n~~~rs\ncode\n~~~\n\n| a | b |\n| - | - |\n| c | d |\n";
+    let mut s = EditorSession::open(opening);
+    let shown = s.display_text();
+    let selected = range(0, shown.len());
+    s.select(s.revision(), selected).unwrap();
+    let mut accepted = 0;
+    let change = s
+        .block_command(
+            s.revision(),
+            selected,
+            BlockCommand::WrapCodeBlock,
+            &mut |_| {
+                accepted += 1;
+                Ok(())
+            },
+        )
+        .unwrap()
+        .unwrap();
+    assert_eq!(accepted, 1);
+    assert_eq!(
+        s.source_text(),
+        format!("```\n{}\n```\n", shown.trim_end_matches('\n'))
+    );
+    let mut view = ReferenceView::new(&shown);
+    view.apply(change);
+    assert_eq!(view.text, shown.trim_end_matches('\n'));
+    assert_eq!(s.selection(), range(0, view.text.len()));
+    s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap();
+    assert_eq!(s.source_text(), opening);
+    assert_eq!(s.selection(), selected);
+    assert!(s.undo(s.revision(), &mut |_| Ok(())).unwrap().is_none());
+}
+
+#[test]
+fn android_code_wrap_preserves_neighbors_and_uses_a_safe_fence() {
+    for (opening, selected, expected) in [
+        (
+            "before\n\n# **one**\n\n*two*\n\nafter",
+            range(8, 16),
+            "before\n\n```\none\n\ntwo\n```\n\nafter",
+        ),
+        ("> one\n> two", range(0, 7), "> ```\n> one\n> two\n> ```"),
+        ("- one\n- two", range(0, 7), "```\none\ntwo\n```"),
+        (
+            "````\n```\n````\n\ntext",
+            range(0, 9),
+            "````\n```\n\ntext\n````",
+        ),
+    ] {
+        let mut s = EditorSession::open(opening);
+        let shown = s.display_text();
+        s.select(s.revision(), selected).unwrap();
+        s.block_command(
+            s.revision(),
+            selected,
+            BlockCommand::WrapCodeBlock,
+            &mut |_| Ok(()),
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(s.source_text(), expected, "{opening:?}: {shown:?}");
+        assert!(s.selection().end.0 <= s.display_text().len());
+        s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap();
+        assert_eq!(s.source_text(), opening);
+    }
+}

@@ -15,6 +15,8 @@ pub enum BlockCommand {
     OrderedList,
     TaskList,
     CodeBlock,
+    /// Text-first toolbar: one fence around all selected physical lines.
+    WrapCodeBlock,
 }
 
 mod clipboard;
