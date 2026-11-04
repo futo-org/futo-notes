@@ -137,3 +137,44 @@ fn native_atoms_and_image_insertion_reject_claims_from_a_reopened_session() {
         Err(EditorSessionError::StaleClaim)
     ));
 }
+
+#[test]
+fn native_edit_link_is_atomic_revision_bound_and_durable() {
+    let tree = TempTree::new();
+    std::fs::create_dir_all(tree.path("vault")).unwrap();
+    let store = NoteStore::new(path_string(&tree.path("vault")));
+    store
+        .create_note("links".into(), "".into(), "see  tail".into())
+        .unwrap();
+    let session = store.open_editor("links".into()).unwrap();
+    let at = EditorByteRange { start: 4, end: 4 };
+    session
+        .select_with_affinity(0, at, EditorAffinity::Forward)
+        .unwrap();
+    session
+        .edit_link(0, at, "雪 [x]".into(), "/new".into())
+        .unwrap()
+        .unwrap();
+    let linked = session.source_text().unwrap();
+    assert_eq!(session.display_text().unwrap(), "see 雪 [x] tail");
+    assert!(matches!(
+        session.edit_link(0, at, "bad".into(), "/bad".into()),
+        Err(EditorSessionError::StaleRevision { .. })
+    ));
+    session.undo(1).unwrap().unwrap();
+    assert_eq!(session.source_text().unwrap(), "see  tail");
+    session.redo(2).unwrap().unwrap();
+    assert_eq!(session.source_text().unwrap(), linked);
+    session.checkpoint().unwrap();
+    drop(session);
+    let reopened = store.open_editor("links".into()).unwrap();
+    assert_eq!(reopened.source_text().unwrap(), linked);
+    assert_eq!(
+        reopened
+            .inspect_link(0, EditorByteRange { start: 4, end: 7 })
+            .unwrap()
+            .unwrap()
+            .destination,
+        "/new"
+    );
+}

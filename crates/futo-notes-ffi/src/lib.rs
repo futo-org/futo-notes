@@ -30,9 +30,10 @@ pub use license::{
 pub use localization::{localization_maximize_language_tag, localization_plural_category};
 pub use notes::{
     extract_tags, extract_wikilinks, image_extensions, make_id, make_preview, make_rich_preview,
-    sanitize_title, split_id, validate_title, FlushDisposition, FlushDraftResult, NoteBootstrap,
-    NoteError, NoteIdParts, NoteMetadata, NoteMutation, NoteSnapshot, NoteSortKey, NoteSortOrder,
-    NoteStore, SearchHit, SortDirection, TitleIssue, UpsertedNote,
+    sanitize_title, split_id, validate_title, FlushDisposition, FlushDraftResult,
+    MergedDraftResult, NoteBootstrap, NoteError, NoteIdParts, NoteMetadata, NoteMutation,
+    NoteSnapshot, NoteSortKey, NoteSortOrder, NoteStore, SearchHit, SortDirection, TitleIssue,
+    UpsertedNote,
 };
 pub use sync::{
     classify_open_note, min_vault_password_length, probe_sign_in_flow, BillingStatus, Checkout,

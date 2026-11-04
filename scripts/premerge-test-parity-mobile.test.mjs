@@ -169,44 +169,29 @@ describe('pre-merge CI routing contracts: native mobile jobs', () => {
     expect(releaseGate).toContain('- job: test:rust:ffi-android');
   });
 
-  it('starts an iOS-target compile check on MRs for every crate in the FFI tree', () => {
-    // test:rust:macos's MR run type-checks futo-notes-ffi's whole dependency
-    // tree for aarch64-apple-ios; test:ios-native builds futo-notes-ffi for all
-    // three iOS triples. The macOS list names crates one by one (the FFI crate
-    // belongs to test:ios-native alone), so a new crate in that tree must be
-    // added to one of them or an MR touching only it gets no iOS compile until
-    // main. A crate outside it (futo-puppet, a host CLI) never reaches an iOS
-    // build, so neither job can prove anything about it.
-    const mrChanges = (jobPattern) => {
-      const job = topLevelBlock(gitlabPipeline, jobPattern);
-      // The anchored rule is the crate gate; test:ios-native puts its
-      // apps/ios-only UI-tier rule ahead of it.
-      const anchor = job.indexOf('changes: &');
-      const head = '- if: $CI_MERGE_REQUEST_IID\n      changes:';
-      const mrRule = job.slice(anchor >= 0 ? job.lastIndexOf(head, anchor) : job.indexOf(head));
-      return mrRule.slice(0, mrRule.indexOf('- if:', 1));
+  it('skips the ffi arm64 check on MRs where build:android-native builds the same crate', () => {
+    const paths = (job, from) => {
+      const start = job.indexOf('changes:', from);
+      const block = job.slice(start, job.indexOf('\n    - ', start));
+      return [...block.matchAll(/^ {8}- (\S+)$/gm)].map((m) => m[1]).sort();
     };
-    const macosMr = mrChanges(/^test:rust:macos:$/m);
-    const iosMr = mrChanges(/^test:ios-native:$/m);
-    const ffiTree = new Set();
-    const walk = (crate) => {
-      if (ffiTree.has(crate)) return;
-      ffiTree.add(crate);
-      const manifest = readFileSync(join(ROOT, 'crates', crate, 'Cargo.toml'), 'utf8');
-      for (const [, dependency] of manifest.matchAll(/path = "\.\.\/([^"]+)"/g)) walk(dependency);
-    };
-    walk('futo-notes-ffi');
-    const crates = [...ffiTree];
-
-    expect(crates).toEqual(expect.arrayContaining(['futo-notes-core', 'futo-notes-store']));
-    expect(iosMr).toContain('- crates/futo-notes-ffi/**/*\n');
-    for (const crate of crates) {
-      const glob = `- crates/${crate}/**/*\n`;
-      expect(
-        macosMr.includes(glob) || iosMr.includes(glob),
-        `crates/${crate} starts neither test:rust:macos nor test:ios-native on MRs`,
-      ).toBe(true);
-    }
+    const androidCheckJob = topLevelBlock(gitlabPipeline, /^test:rust:ffi-android:$/m);
+    const nativeJob = topLevelBlock(gitlabPipeline, /^build:android-native:$/m);
+    const rulesAt = androidCheckJob.indexOf('  rules:\n');
+    const firstRule = androidCheckJob.slice(rulesAt + '  rules:\n'.length);
+    // The skip rule comes first, so it wins over every rule that follows it.
+    expect(
+      firstRule.replace(/^ {4}#.*\n/gm, '').startsWith('    - if: $CI_MERGE_REQUEST_IID'),
+    ).toBe(true);
+    const skipRule = firstRule.slice(0, firstRule.indexOf('\n    - !reference'));
+    expect(skipRule).toContain('when: never');
+    const nativeStart = nativeJob.indexOf('changes: &native-android-changes');
+    expect(paths(nativeJob, nativeStart).length).toBeGreaterThan(10);
+    expect(paths(androidCheckJob, rulesAt)).toEqual(paths(nativeJob, nativeStart));
+    // Crates that build:android-native does not watch still reach the check.
+    expect(androidCheckJob).toContain('- crates/**/*');
+    expect(androidCheckJob).toContain('$CI_COMMIT_TAG');
+    expect(androidCheckJob).toContain('$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH');
   });
 
   it('runs full macOS workspace tests on main and tags but not MR pipelines', () => {

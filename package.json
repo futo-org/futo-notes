@@ -39,7 +39,7 @@
     "test:editor-gauntlet:milkdown:perf": "playwright test --config playwright.editor-gauntlet.config.ts tests/editor-gauntlet/milkdown-performance-floor.spec.ts",
     "test:editor-gauntlet:milkdown:foreign": "playwright test --config playwright.editor-gauntlet.config.ts tests/editor-gauntlet/milkdown-foreign-preservation.spec.ts",
     "test:e2e:full": "playwright test",
-    "test:e2e:rest": "playwright test --workers=2 --grep-invert \"P0 Crash and IME Regressions\"",
+    "test:e2e:rest": "playwright test --workers=2",
     "test:e2e:editor-embed": "playwright test --config playwright.editor-embed.config.ts",
     "_comment": "Entry points for the web build, lint/format, the check:* repo gates and the vitest/Playwright suites. Tauri, mobile, deploy and everything else live in the justfile — use `just` from the repo root.",
     "test:cross-platform": "node tests/cross-platform-sync.mjs"

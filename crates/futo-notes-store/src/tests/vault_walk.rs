@@ -162,11 +162,14 @@ fn a_verified_racy_note_is_persisted_as_a_hit_once_it_ages_out() {
         store
     };
 
+    // The first pass runs 10 margins in the past, so the note is inside the
+    // racy margin however slow the machine is; the later passes run 10 margins
+    // ahead, so it has aged out. No sleeping, no dependence on the real clock.
+    let skew = |ns: i64| crate::list_cache::test_clock::OFFSET_NS.with(|offset| offset.set(ns));
+    skew(-10 * crate::list_cache::RACY_MARGIN_NS);
     open();
     let written = fs::read(&cache_file).unwrap();
-    std::thread::sleep(
-        Duration::from_nanos(crate::list_cache::RACY_MARGIN_NS as u64) + Duration::from_millis(200),
-    );
+    skew(10 * crate::list_cache::RACY_MARGIN_NS);
     open();
     assert_ne!(fs::read(&cache_file).unwrap(), written);
     let (generation, built_at_ns) = open().list_cache.current();

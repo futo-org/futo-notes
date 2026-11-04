@@ -11,7 +11,7 @@ build: check-node-version _require-node-modules
 test-unit *args: editor-deps
   node_modules/.bin/vitest run "$@"
 
-# Run the Playwright smoke E2E suite.
+# Run the quick P0 crash/IME Playwright spec (CI runs it inside test:e2e:rest).
 test-e2e:
   pnpm run test:e2e:smoke
 
@@ -31,7 +31,7 @@ test-e2e-reuse *args:
 test-browser-container browser='webkit' *args:
   node scripts/browser-container.mjs "$@"
 
-# EXACTLY what CI's test:e2e:rest job runs (everything but the P0 crash/IME spec).
+# EXACTLY what CI's test:e2e:rest job runs (the whole Playwright web suite).
 test-e2e-rest:
   pnpm run test:e2e:rest
 
@@ -45,7 +45,7 @@ test-sync-integration *args:
 
 # Editor engine + store/core tests, Rust conformance goldens + the TS↔Rust rules differential.
 test-rust:
-  cargo test -p futo-notes-editor -p futo-notes-store -p futo-notes-core
+  cargo test -p futo-notes-editor -p futo-notes-store -p futo-notes-core -p futo-notes-merge
   cargo test -p futo-notes-model --test conformance
   cargo test -p futo-notes-license
   node --experimental-strip-types tests/conformance/title-rules-differential.mjs

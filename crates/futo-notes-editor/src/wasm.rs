@@ -175,6 +175,29 @@ impl WasmSession {
                 .map_err(error)?,
         )
     }
+    pub fn edit_link(
+        &mut self,
+        revision: u64,
+        start: usize,
+        end: usize,
+        label: &str,
+        destination: &str,
+    ) -> Result<String, JsValue> {
+        json(
+            &self
+                .0
+                .edit_link(
+                    Revision(revision),
+                    DisplayRange {
+                        start: DisplayOffset(start),
+                        end: DisplayOffset(end),
+                    },
+                    label,
+                    destination,
+                )
+                .map_err(error)?,
+        )
+    }
     pub fn wikilink_completion(&self, revision: u64) -> Result<String, JsValue> {
         json(
             &self
@@ -544,6 +567,15 @@ impl WasmSession {
     pub fn redo(&mut self, revision: u64) -> Result<String, JsValue> {
         json(&self.0.redo(Revision(revision)).map_err(error)?)
     }
+    pub fn adopt_merged_source(&mut self, revision: u64, source: &str) -> Result<String, JsValue> {
+        json(
+            &self
+                .0
+                .adopt_merged_source(Revision(revision), source)
+                .map_err(error)?,
+        )
+    }
+
     pub fn apply_relink_offer(&mut self) -> Result<String, JsValue> {
         json(&self.0.apply_relink_offer().map_err(error)?)
     }

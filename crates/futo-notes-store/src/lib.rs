@@ -10,6 +10,7 @@ mod list_cache;
 mod notes;
 mod paths;
 mod relink;
+pub mod rename_journal;
 mod search;
 mod vault;
 mod vault_migration;
@@ -192,6 +193,15 @@ pub enum FlushDisposition {
 pub struct FlushDraftResult {
     pub disposition: FlushDisposition,
     pub mutation: Option<MutationResult>,
+}
+
+/// Opt-in merge flush: exact authoritative source and the complete save result.
+/// Legacy renderers keep `flush_draft` until they can adopt this source safely.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MergedDraftResult {
+    pub source: String,
+    pub flush: FlushDraftResult,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

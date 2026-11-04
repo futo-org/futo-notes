@@ -1,0 +1,14 @@
+[package]
+name = "futo-notes-merge"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+diffy = "0.5"
+unicode-segmentation = "1.13"
+
+[dev-dependencies]
+proptest = { version = "1.11.0", default-features = false, features = ["std", "bit-set"] }
+
+[lints]
+workspace = true

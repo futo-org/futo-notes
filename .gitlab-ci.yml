@@ -101,7 +101,6 @@ include:
   - local: ci/templates.yml
   - local: ci/test-checks.yml
   - local: ci/test-e2e.yml
-  - local: ci/bench.yml
   - local: ci/test-rust.yml
   - local: ci/test-sync.yml
   - local: ci/build-linux.yml

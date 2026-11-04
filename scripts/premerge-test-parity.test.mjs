@@ -85,16 +85,13 @@ describe('pre-merge CI routing contracts', () => {
     }
   });
 
-  it('does not repeat P0 smoke coverage in the remaining Playwright suite', () => {
-    // test:e2e:rest skips the smoke spec by describe title, so a test or
-    // describe opened beside that describe (column 0 under Prettier) instead
-    // of inside it runs in both jobs.
-    const smokeSpec = 'tests/p0-regressions.spec.ts';
-    expect(packageScripts['test:e2e:smoke']).toBe(`playwright test ${smokeSpec}`);
-    const grepInvert = /--grep-invert "([^"]+)"/.exec(packageScripts['test:e2e:rest'])?.[1];
-    expect(grepInvert).toBe('P0 Crash and IME Regressions');
-    const topLevel = readFileSync(join(ROOT, smokeSpec), 'utf8').match(/^test\b.*$/gm);
-    expect(topLevel).toEqual([`test.describe('${grepInvert}', () => {`]);
+  it('runs the P0 spec inside test:e2e:rest, not as a second CI job', () => {
+    // The quick local script stays, but CI has one job for the whole suite, so
+    // nothing may exclude the spec from it or re-add a standalone job.
+    expect(packageScripts['test:e2e:smoke']).toBe('playwright test tests/p0-regressions.spec.ts');
+    expect(packageScripts['test:e2e:rest']).not.toContain('--grep-invert');
+    expect(gitlabPipeline).not.toMatch(/^test:e2e:smoke:/m);
+    expect(topLevelBlock(gitlabPipeline, /^release:gate:$/m)).not.toContain('test:e2e:smoke');
   });
 
   it('proves every Playwright shard ran as its shard and ran tests', () => {
@@ -275,18 +272,6 @@ describe('pre-merge CI routing contracts', () => {
     expect(ffiJob).toContain('    - $LINUX_RUNNER_TAG');
     expect(ffiJob).not.toContain('resource_group');
     expect(ffiJob).not.toContain('- job: test:cross-platform-sync');
-  });
-
-  it('benchmarks the editor alone on a serial runner, by hand, gating nothing', () => {
-    const bench = topLevelBlock(gitlabPipeline, /^bench:editor:$/m);
-    const releaseGate = topLevelBlock(gitlabPipeline, /^release:gate:$/m);
-
-    expect(bench).toContain('    - futo_notes_serial');
-    expect(bench).toContain('editor-bench-gate.mjs" --regression-only');
-    expect(bench).not.toContain('--accept');
-    expect(bench).toContain('when: manual');
-    expect(bench).toContain('allow_failure: true');
-    expect(releaseGate).not.toContain('- job: bench:editor');
   });
 
   it('runs the Windows Rust tests on crate MRs behind the bring-up switch', () => {

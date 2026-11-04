@@ -341,3 +341,30 @@ fn link_commands_apply_at_once_and_return_canonical_semantics_with_exact_history
     assert_eq!(view.text, "docs");
     assert!(page.inspect_link(Revision(2), range).unwrap().is_none());
 }
+
+#[test]
+fn explicit_merge_adoption_mirrors_an_append_and_keeps_local_undo() {
+    let mut page = PortableSession::open(SessionToken(7), "first\n\nsecond\n", Revision(0));
+    let mut view = common::ReferenceView::new("first\n\nsecond\n");
+    let edit = page.replace(Revision(0), at(7, 13), "LOCAL").unwrap();
+    view.apply(edit.change);
+    page.acknowledge(edit.request.accepted(Revision(1)))
+        .unwrap();
+    let adoption = page
+        .adopt_merged_source(Revision(1), "REMOTE\n\nLOCAL\n")
+        .unwrap();
+    view.apply(adoption.change);
+    assert_eq!(view.text, "REMOTE\n\nLOCAL\n");
+    assert!(matches!(
+        adoption.request.operation,
+        HostOperation::Append(_)
+    ));
+    page.acknowledge(adoption.request.accepted(Revision(2)))
+        .unwrap();
+    let undo = page.undo(Revision(2)).unwrap().unwrap();
+    view.apply(undo.change);
+    assert_eq!(view.text, "REMOTE\n\nsecond\n");
+    page.acknowledge(undo.request.accepted(Revision(3)))
+        .unwrap();
+    assert!(page.undo(Revision(3)).unwrap().is_none());
+}

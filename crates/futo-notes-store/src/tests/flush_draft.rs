@@ -33,9 +33,24 @@ fn flush_draft_writes_when_the_note_still_holds_the_base() {
 // is the negative one — which contention can only make more likely to hold.
 #[test]
 fn flush_draft_serializes_its_check_and_write_against_sync_mutations() {
+    assert_guarded_flush(false);
+    assert_guarded_flush(true);
+}
+
+fn assert_guarded_flush(merge: bool) {
     let root = TestRoot::new();
     let store = Arc::new(store(&root));
-    store.write("note", "base text", None).unwrap();
+    store
+        .write(
+            "note",
+            if merge {
+                "REMOTE\n\nsecond\n"
+            } else {
+                "base text"
+            },
+            None,
+        )
+        .unwrap();
 
     // Parked until the flush hook releases it, so the simulated sync writer can
     // never take the vault guard BEFORE the flush owns its span.
@@ -84,9 +99,17 @@ fn flush_draft_serializes_its_check_and_write_against_sync_mutations() {
 
     let flushing_store = store.clone();
     let flush = std::thread::spawn(move || {
-        flushing_store
-            .flush_draft("note", "base text", "draft text")
-            .unwrap()
+        if merge {
+            let merged = flushing_store
+                .flush_draft_merged("note", "first\n\nsecond\n", "first\n\nLOCAL\n")
+                .unwrap();
+            assert_eq!(merged.source, "REMOTE\n\nLOCAL\n");
+            merged.flush
+        } else {
+            flushing_store
+                .flush_draft("note", "base text", "draft text")
+                .unwrap()
+        }
     });
     let result = flush.join().unwrap();
 
@@ -257,4 +280,128 @@ fn editor_move_saves_and_relinks_in_one_workflow() {
     assert!(!store.exists("Original"));
     assert_eq!(store.read("Folder/Original").unwrap(), "my draft");
     assert_eq!(store.read("Link").unwrap(), "[[Folder/Original]]");
+}
+
+#[test]
+fn independent_paragraph_edits_commit_together_with_authoritative_source() {
+    let root = TestRoot::new();
+    let store = store(&root);
+    let base = "first paragraph\n\nsecond paragraph\n";
+    store
+        .write("note", "REMOTE paragraph\n\nsecond paragraph\n", None)
+        .unwrap();
+    let result = store
+        .flush_draft_merged("note", base, "first paragraph\n\nLOCAL paragraph\n")
+        .unwrap();
+    assert_eq!(
+        store.read("note").unwrap(),
+        "REMOTE paragraph\n\nLOCAL paragraph\n"
+    );
+    assert_eq!(
+        result.flush.mutation.unwrap().final_id.as_deref(),
+        Some("note")
+    );
+    assert_eq!(result.source, "REMOTE paragraph\n\nLOCAL paragraph\n");
+    assert_eq!(store.snapshot().notes.len(), 1);
+}
+
+#[test]
+fn merge_flush_preserves_exact_source_or_parks_both_sides_on_ambiguity() {
+    let cases = [
+        (
+            "α\r\n\r\n猫\t \r\n",
+            "REMOTE🦀\r\n\r\n猫\t \r\n",
+            "α\r\n\r\n犬\t \r\n",
+            Some("REMOTE🦀\r\n\r\n犬\t \r\n"),
+        ),
+        ("x\n", "REMOTE x\n", "LOCAL x\n", None),
+        ("one\n\ntwo\n", "", "one\n\nLOCAL\n", None),
+        ("one\n", "REMOTE\n", "LOCAL\n", None),
+        ("same\n", "same\n", "same\n", Some("same\n")),
+        ("base\n", "REMOTE\n", "base\n", Some("REMOTE\n")),
+    ];
+    for (base, remote, local, expected) in cases {
+        let root = TestRoot::new();
+        let store = store(&root);
+        store.write("note", remote, None).unwrap();
+        let result = store.flush_draft_merged("note", base, local).unwrap();
+        if let Some(expected) = expected {
+            assert_eq!(result.source, expected);
+            assert_eq!(store.read("note").unwrap(), expected);
+            assert_eq!(store.snapshot().notes.len(), 1);
+        } else {
+            let FlushDisposition::ParkedConflict { parked_id } = result.flush.disposition else {
+                panic!("ambiguous overlap must park")
+            };
+            assert_eq!(result.source, local);
+            assert_eq!(store.read("note").unwrap(), remote);
+            assert_eq!(store.read(&parked_id).unwrap(), local);
+        }
+    }
+}
+
+#[test]
+fn one_paragraph_merge_preserves_source_bytes_and_parks_ambiguous_edits() {
+    let cases = [
+        (
+            "  café e\u{301} 猫 last\t \r\n",
+            "  café e\u{301} 犬 last\t \r\n",
+            "  café e\u{301} 猫 LOCAL🦀\t \r\n",
+            Some("  café e\u{301} 犬 LOCAL🦀\t \r\n"),
+        ),
+        (
+            "first middle last",
+            "REMOTE first middle last",
+            "first middle last LOCAL",
+            Some("REMOTE first middle last LOCAL"),
+        ),
+        (
+            "first middle last",
+            "first REMOTE middle last",
+            "first LOCAL middle last",
+            None,
+        ),
+        (
+            "first middle last",
+            "first last",
+            "first changed last",
+            None,
+        ),
+        (
+            "the colour is red",
+            "the colour is blue",
+            "the colour is green",
+            None,
+        ),
+        ("the cat rests", "the bat rests", "the car rests", None),
+        (
+            "first removed middle last",
+            "first middle last",
+            "first removed middle LOCAL",
+            Some("first middle LOCAL"),
+        ),
+    ];
+    for (base, remote, local, expected) in cases {
+        let root = TestRoot::new();
+        let store = store(&root);
+        store.write("note", remote, None).unwrap();
+        let result = store.flush_draft_merged("note", base, local).unwrap();
+        if let Some(expected) = expected {
+            assert_eq!(result.source, expected, "base={base:?}");
+            assert_eq!(result.flush.disposition, FlushDisposition::Wrote);
+            assert_eq!(
+                result.flush.mutation.unwrap().final_id.as_deref(),
+                Some("note")
+            );
+            assert_eq!(store.read("note").unwrap(), expected);
+            assert_eq!(store.snapshot().notes.len(), 1);
+        } else {
+            let FlushDisposition::ParkedConflict { parked_id } = result.flush.disposition else {
+                panic!("ambiguous one-paragraph merge must preserve both versions: {base:?}")
+            };
+            assert_eq!(result.source, local);
+            assert_eq!(store.read("note").unwrap(), remote);
+            assert_eq!(store.read(&parked_id).unwrap(), local);
+        }
+    }
 }

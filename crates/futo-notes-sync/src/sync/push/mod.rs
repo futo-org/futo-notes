@@ -19,12 +19,16 @@ use super::{
 
 mod delete_local;
 pub(in crate::sync) mod local_changes;
+pub(in crate::sync) mod local_renames;
+#[cfg(test)]
+pub(in crate::sync) mod scan_hook;
 #[cfg(test)]
 mod tests;
 
 use super::transfer::upload_executor::{recover_pending_creates, upload_local_files, UploadFiles};
 use delete_local::delete_missing_objects;
 use local_changes::{detect_local_renames, missing_local_files};
+use local_renames::{acknowledge_uploaded, claim_local_renames};
 
 pub(in crate::sync) mod reason {
     pub(in crate::sync) const NOT_ON_SERVER: &str = "not_on_server";
@@ -37,6 +41,8 @@ pub(in crate::sync) mod reason {
     pub(in crate::sync) const UNCHANGED_SINCE_413: &str = "unchanged_since_413";
     pub(in crate::sync) const LOCAL_FILE_GONE: &str = "local_file_gone";
     pub(in crate::sync) const SAME_HASH_AND_BASENAME: &str = "same_hash_and_basename";
+    pub(in crate::sync) const LOCAL_RENAME_INTENT: &str = "local_rename_intent";
+    pub(in crate::sync) const RENAME_TARGET_MAPPED: &str = "rename_target_still_mapped";
     pub(in crate::sync) const DELETE_LOST_TO_REMOTE_EDIT: &str = "delete_lost_to_remote_edit";
     pub(in crate::sync) const ENCRYPT_ERROR: &str = "encrypt_error";
     pub(in crate::sync) const READ_ERROR: &str = "read_error";
@@ -157,10 +163,14 @@ pub(super) async fn push_with_checkpoint_client(
     save_checkpoint: &SaveCheckpoint,
 ) -> Result<(SyncSummary, ConnectedState), CycleFailure> {
     recover_stale_claims(root, pre_write);
+    #[cfg(test)]
+    scan_hook::around("before");
     let scan = local_scan(root).map_err(|error| CycleFailure {
         kind: SyncErrorKind::Io(error),
         state: state.clone(),
     })?;
+    #[cfg(test)]
+    scan_hook::around("after");
     let mut files = scan.files;
     let mut next = state.clone();
     let mut summary = SyncSummary::default();
@@ -170,14 +180,29 @@ pub(super) async fn push_with_checkpoint_client(
             kind,
             state: next.clone(),
         })?;
+    let claimed = claim_local_renames(&mut next, root, &files, &mut summary).map_err(|error| {
+        CycleFailure {
+            kind: SyncErrorKind::Io(error),
+            state: next.clone(),
+        }
+    })?;
     let missing = missing_local_files(&next, &files);
-    let (claimed_missing, renamed_files) =
-        detect_local_renames(&mut next, root, &files, &missing, &mut summary).map_err(|error| {
+    // A name a pending journaled rename holds is that move's, never a
+    // candidate for the legacy basename-and-hash pairing.
+    let unheld = missing
+        .iter()
+        .filter(|(name, _)| !claimed.held.contains(name))
+        .cloned()
+        .collect::<Vec<_>>();
+    let (mut claimed_missing, mut renamed_files) =
+        detect_local_renames(&mut next, root, &files, &unheld, &mut summary).map_err(|error| {
             CycleFailure {
                 kind: SyncErrorKind::Io(error),
                 state: next.clone(),
             }
         })?;
+    claimed_missing.extend(claimed.held.iter().cloned());
+    renamed_files.extend(claimed.destinations.iter().cloned());
     files.sort_by_key(|file| file.size);
 
     // A name no portable filesystem can hold is never uploaded — but it MUST
@@ -232,6 +257,14 @@ pub(super) async fn push_with_checkpoint_client(
     append_derived_renames(&mut summary, &state.object_map, &next.object_map);
     if save_checkpoint(root, &next).is_err() {
         record_checkpoint_failure(&mut summary);
+    } else if let Err(error) = acknowledge_uploaded(root, &claimed, &next) {
+        // Kept intents replay against the same object next cycle.
+        summary.failures.push(SyncFailure {
+            filename: String::new(),
+            kind: FailureKind::Checkpoint,
+            status_code: None,
+            detail: Some(error),
+        });
     }
     Ok((summary, next))
 }

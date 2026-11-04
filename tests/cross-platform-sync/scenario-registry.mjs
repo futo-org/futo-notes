@@ -57,6 +57,7 @@ import {
   peerDeletesWhileDisconnected,
 } from './image-and-data-safety-scenarios.mjs';
 import { parkInsideAKeyboardSwitchLeavesTheSwitchAlone } from './note-switch-parking-scenarios.mjs';
+import { offlineTitleRenameKeepsIdentityUnderAPeerEdit } from './rename-identity-scenarios.mjs';
 import {
   collisionNameUsesFullObjectIdentity,
   collisionPlacementFollowsOpenNote,
@@ -102,6 +103,11 @@ export const scenarios = [
   { name: 'concurrent edit conflict', fn: concurrentEditConflict, matrices: ['desktop-desktop'] },
   { name: 'three way merge', fn: threeWayMerge, matrices: ['desktop-desktop'] },
   { name: 'rename propagation', fn: renamePropagation, matrices: ['desktop-desktop'] },
+  {
+    name: 'offline title rename keeps identity under a peer edit',
+    fn: offlineTitleRenameKeepsIdentityUnderAPeerEdit,
+    matrices: ['desktop-desktop'],
+  },
   {
     name: 'backlink rewrite propagation',
     fn: backlinkRewritePropagation,

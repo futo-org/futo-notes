@@ -1,6 +1,8 @@
 mod blocks;
 mod composition;
+mod external;
 mod find;
+pub use external::ExternalSourceAdoption;
 mod formatting;
 mod front_matter;
 mod os_replacement;

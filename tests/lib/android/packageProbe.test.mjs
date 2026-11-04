@@ -38,6 +38,10 @@ if (command === 'emu avd name' && process.env.QA_PM_MODE) {
 }
 `;
 
+// Subprocess-driven file: the fake adb stalls 1.2s on purpose and each probe is bounded at 250ms-5s. The 5s default went red on loaded
+// CI runners (audit 2026-11), so the file timeout is set to 15s to cover that bound.
+vi.setConfig({ testTimeout: 15_000 });
+
 describe('bounded Android package presence probes', () => {
   let scratch;
   let fake;
