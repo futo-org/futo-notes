@@ -134,4 +134,15 @@ class TextFirstCaretFollowTest {
         repeat(5) { n -> type("\n"); assertCaretInView("Return $n", misses); type("x"); type("\n") }
         assertTrue(misses.joinToString("\n"), misses.isEmpty())
     }
+
+    /** Typing at the bottom, then scrolling up to read: the note stays where the reader put it. */
+    @Test
+    fun scrollingAwayRightAfterAKeyIsNotUndoneWhenTheCursorBlinks() = exercise(longNote) {
+        type("\n")
+        compose.runOnUiThread { view.scroll.dragBy(-view.scrollY) }
+        val readingAt = view.scrollY
+        assertEquals("scrolled to the top", 0, readingAt)
+        SystemClock.sleep(2000)
+        assertEquals("the note was thrown back to the caret", readingAt, view.scrollY)
+    }
 }

@@ -134,6 +134,7 @@ internal class TextFirstEditText(
                     android.util.Log.i("TextFirstApply", "replace=${(t1 - t0) / 1000}us restyle+batch=${(t2 - t1) / 1000}us windows=${update.windows.map { it.end - it.start }}")
                 }
             }
+            reveal.edited()
             val e = editableText
             // Not BaseInputConnection.removeComposingSpans: it lists every span in the note.
             composing?.let(e::removeSpan)
@@ -164,12 +165,12 @@ internal class TextFirstEditText(
 
     private class ComposingUnderline : UnderlineSpan()
 
-    /** A reveal ignores a pending layout: see [revealNow]. */
-    internal var revealing = false
+    internal val reveal = CaretReveal()
 
-    override fun bringPointIntoView(offset: Int): Boolean = revealNow { super.bringPointIntoView(offset) }
+    override fun bringPointIntoView(offset: Int): Boolean =
+        reveal.at(offset, ready = layout != null && height > 0) { super.bringPointIntoView(offset) }
 
-    override fun isLayoutRequested(): Boolean = !revealing && super.isLayoutRequested()
+    override fun isLayoutRequested(): Boolean = !reveal.ignoringLayout && super.isLayoutRequested()
 
     override fun onDraw(canvas: android.graphics.Canvas) {
         val timings = pendingTimings
@@ -254,7 +255,7 @@ internal class TextFirstEditText(
     // otherwise keep a stale height).
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
-        if (h < oldh && caretWasInView(oldh)) bringPointIntoView(selectionEnd)
+        if (h < oldh && caretWasInView(oldh)) { reveal.again(); bringPointIntoView(selectionEnd) }
         if (w == oldw) return
         val e = editableText ?: return
         applying = true
