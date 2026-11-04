@@ -3,7 +3,7 @@ package com.futo.notes.textfirst
 import android.graphics.Color
 import android.os.SystemClock
 import android.view.MotionEvent
-import android.view.View
+import android.view.ViewGroup
 import androidx.activity.ComponentActivity
 import androidx.core.content.res.ResourcesCompat
 import androidx.test.core.app.ActivityScenario
@@ -13,9 +13,11 @@ import java.io.File
 import java.util.UUID
 import kotlin.coroutines.resume
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import org.junit.Assert.*
 import org.junit.Test
 import uniffi.futo_notes_ffi.NoteStore
@@ -35,6 +37,7 @@ class TextFirstLinkTapTest {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val root = File(context.cacheDir, "wikilink-tap-${UUID.randomUUID()}").apply { check(mkdirs()) }
         val scenario = ActivityScenario.launch(ComponentActivity::class.java)
+        val width = (320 * context.resources.displayMetrics.density).toInt()
         val store = NoteStore(root.path)
         lateinit var controller: TextFirstController
         try {
@@ -43,14 +46,14 @@ class TextFirstLinkTapTest {
                 suspendCancellableCoroutine<Unit> { done ->
                     scenario.onActivity { activity ->
                         controller = createTextFirstController(activity, { store }, root)
-                        activity.setContentView(controller.view)
+                        activity.setContentView(controller.view, ViewGroup.LayoutParams(width, 2000))
                         controller.open("tap") { assertNull(it); done.resume(Unit) }
                     }
                 }
                 val view = controller.view
-                val width = (320 * context.resources.displayMetrics.density).toInt()
-                view.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(2000, View.MeasureSpec.EXACTLY))
-                view.layout(0, 0, width, 2000)
+                // Let the window lay the view out at its fixed size. A manual measure/layout raced the window's
+                // own first frame, which re-laid the view at another width between the geometry read and the taps.
+                withTimeout(10_000) { while (!(view.isLaidOut && view.width == width && view.layout != null)) delay(20) }
                 // The atom's caret stops are display offsets; a heading hides its marker, shifting them.
                 val link = view.editableText.getSpans(0, view.editableText.length, TfWikilink::class.java).single()
                 val start = view.editableText.getSpanStart(link)
