@@ -46,6 +46,7 @@ internal class TextFirstEditText(
     val clipboard = TextFirstClipboard(context) { engine }
     private val tableTouch = TableGridTouch(this, { cell -> onTableCell?.invoke(cell.start, cell.end, appliedSeq) }, ::invalidateTableScroll)
     internal val marks = FindMarks()
+    internal val scroll = NoteScroll(this)
     private val spans = TfSpanFactory(style, marks, { contentWidth() }) { span ->
         wikilinkContentWidth(this, span, contentWidth())
     }
@@ -291,7 +292,9 @@ internal class TextFirstEditText(
 
     @SuppressLint("ClickableViewAccessibility")
     override fun onTouchEvent(event: MotionEvent): Boolean {
-        if (tableTouch.onTouch(event)) return true
+        if (event.actionMasked == MotionEvent.ACTION_DOWN) scroll.down(event) else scroll.track(event)
+        if (!scroll.stoppingTouch && tableTouch.onTouch(event)) return true
+        if (scroll.own(event) { super.onTouchEvent(it) }) return true
         if (wikilinkTouch.onTouch(event)) return true
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
@@ -308,6 +311,11 @@ internal class TextFirstEditText(
             MotionEvent.ACTION_CANCEL -> if (checkboxDown >= 0) { checkboxDown = -1; return true }
         }
         return super.onTouchEvent(event).also { wikilinkTouch.settleCaret() }
+    }
+
+    override fun computeScroll() {
+        super.computeScroll()
+        scroll.step()
     }
 
     /** TextView caches drawing separately: changing span data also invalidates its text display list. */

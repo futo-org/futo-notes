@@ -34,6 +34,7 @@ internal class TableGridTouch(
                     edit(cell.copy(start = cell.start + shift, end = cell.end + shift))
                 }
                 down = null
+                if (moved && vertical) view.scroll.release()
                 view.parent?.requestDisallowInterceptTouchEvent(false)
                 return true
             }
@@ -46,8 +47,7 @@ internal class TableGridTouch(
                     if (!moved) vertical = abs(dy) > abs(dx)
                     moved = true
                     if (vertical) {
-                        val maxScroll = ((view.layout?.height ?: 0) + view.totalPaddingTop + view.totalPaddingBottom - view.height).coerceAtLeast(0)
-                        view.scrollTo(view.scrollX, (view.scrollY + dy.toInt()).coerceIn(0, maxScroll))
+                        view.scroll.dragBy(dy.toInt())
                         y = event.y
                     } else {
                         row.scrollBy(dx); x = event.x

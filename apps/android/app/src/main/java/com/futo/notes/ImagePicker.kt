@@ -82,7 +82,8 @@ class ImagePicker(
             val vault = state.getString("vault")
             if (id != null && note != null && vault != null) {
                 pendingCamera = EditorCameraCapture(id, note, vault, cameraUri,
-                    state.getBoolean("complete"), state.getBoolean("success"), recovered = true)
+                    state.getBoolean("complete"), state.getBoolean("success"), recovered = true,
+                    caretStart = state.getInt("caretStart"), caretEnd = state.getInt("caretEnd"))
             }
         }
         activity.savedStateRegistry.registerSavedStateProvider("editor.camera") {
@@ -95,14 +96,17 @@ class ImagePicker(
                     putString("vault", it.vaultRoot)
                     putBoolean("complete", it.complete)
                     putBoolean("success", it.success)
+                    putInt("caretStart", it.caretStart)
+                    putInt("caretEnd", it.caretEnd)
                 }
             }
         }
     }
 
-    internal fun captureCameraForNote(noteId: String, vaultRoot: String): String? {
+    /** [caretStart]..[caretEnd] is where the photo belongs, kept so a recreated screen can put it back. */
+    internal fun captureCameraForNote(noteId: String, vaultRoot: String, caretStart: Int = 0, caretEnd: Int = 0): String? {
         if (pendingCamera != null || cameraInFlight) return null
-        val capture = EditorCameraCapture(UUID.randomUUID().toString(), noteId, vaultRoot)
+        val capture = EditorCameraCapture(UUID.randomUUID().toString(), noteId, vaultRoot, caretStart = caretStart, caretEnd = caretEnd)
         pendingCamera = capture
         onPicked = null
         startCamera() // Native results travel as state, including after recreation.
@@ -359,4 +363,7 @@ internal data class EditorCameraCapture(
     val complete: Boolean = false,
     val success: Boolean = false,
     val recovered: Boolean = false,
+    /** The editor caret (display UTF-16) when the camera opened: where the photo is inserted. */
+    val caretStart: Int = 0,
+    val caretEnd: Int = 0,
 )

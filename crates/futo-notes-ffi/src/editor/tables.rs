@@ -195,6 +195,22 @@ impl NativeEditorSession {
         })
     }
 
+    /// Every table starting in `range`, in order: one call where a host would
+    /// otherwise ask `inspect_table` at each block.
+    pub fn inspect_tables(
+        &self,
+        expected: u64,
+        range: EditorByteRange,
+    ) -> Result<Vec<EditorTableDescription>, EditorSessionError> {
+        self.with_revision(expected, |session| {
+            Ok(session
+                .inspect_tables(Revision(expected), range.try_into()?)?
+                .into_iter()
+                .map(Into::into)
+                .collect())
+        })
+    }
+
     pub fn table_command(
         &self,
         expected: u64,

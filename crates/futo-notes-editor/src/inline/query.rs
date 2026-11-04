@@ -71,17 +71,27 @@ impl Projection {
         // The view reads no cross-row list ranges.
         let mut lines = self.view_block_lines(range);
         if range.start != range.end {
-            // An empty list item at the range's end (zero width, so outside
-            // the half-open overlap test) is still an item the view draws.
+            // An empty line at the range's end (zero width, so outside the
+            // half-open overlap test) still has a block the view draws: a list
+            // item, a heading, a quote or a code line.
             for block in self.view_block_lines(DisplayRange {
                 start: range.end,
                 end: range.end,
             }) {
                 let at = self.display_at(block.content.start);
-                if block.list.is_some()
+                // A block that starts where a listed line ends is that line's
+                // own continuation (a setext underline), not a line of its own.
+                let styled = block.list.is_some()
+                    || block.heading > 0
+                    || block.quote_depth > 0
+                    || block.code;
+                if styled
                     && at == range.end.0
                     && self.display_at(block.content.end) == at
-                    && !lines.iter().any(|line| line.content == block.content)
+                    && !lines.iter().any(|line| {
+                        line.content == block.content
+                            || self.display_at(line.content.end) == at
+                    })
                 {
                     lines.push(block);
                 }

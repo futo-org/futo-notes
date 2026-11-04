@@ -11,17 +11,13 @@ internal data class GridRow(val cells: List<GridCell>, val columns: Int, val hea
 internal data class CellUpdate(val start: Int, val end: Int, val text: String, val selectionStart: Int, val selectionEnd: Int,
     val composingStart: Int, val composingEnd: Int)
 
-/** Inspect only projected blocks, skipping every block already covered by a returned table. */
+/** The window's tables as grid spans; Rust finds them all in one call. */
 internal fun EditorEngine.tableSpans(p: EditorProjection): List<SpanSpec> {
     val s = session ?: return emptyList()
     val out = ArrayList<SpanSpec>()
-    var covered = -1
-    for (block in p.blocks) {
-        val at = mirror.toUtf16(block.range.start.toInt())
-        if (at < covered) continue
-        val table = s.inspectTable(rev, EditorByteRange(block.range.start, block.range.start)) ?: continue
+    // One engine call finds every table starting in the window.
+    for (table in s.inspectTables(rev, p.range)) {
         val tableStart = mirror.toUtf16(table.display.start.toInt())
-        covered = mirror.toUtf16(table.display.end.toInt())
         for ((i, row) in table.rows.withIndex()) {
             val cells = row.map { cell ->
                 val a = mirror.toUtf16(cell.content.start.toInt())
