@@ -3,10 +3,10 @@
 use std::collections::HashSet;
 use std::path::Path;
 
-use futo_notes_core::files::{collides_but_differs, vault_fs, vault_mutation_guard};
+use futo_notes_core::files::{vault_fs, vault_mutation_guard};
 use futo_notes_model::sanitize_folder_path;
 
-use crate::relink::{move_files_with_rollback, prepare_relinks, rename_changes, same_physical};
+use crate::relink::{prepare_relinks, rename_changes, same_physical};
 use crate::{
     note_filename, paths, remove_empty_source_warning, vault, vault_name, FileChange,
     LocalNoteStore, MutationResult,
@@ -112,20 +112,15 @@ impl LocalNoteStore {
         );
         self.before_write.before_write(&changes);
 
-        if collides_but_differs(&from, &to) {
-            vault_fs::rename_case(&self.root, from, to)?;
-        } else {
-            // This renames a DIRECTORY, so the file no-replace primitive
-            // (move_no_replace) doesn't apply, and POSIX rename onto a non-empty dir
-            // fails ENOTEMPTY (no clobber). The only residual of the
-            // exists()-check above is an EMPTY destination dir created in this
-            // user-initiated window being replaced — no note bytes are at risk
-            // (contained notes move via the mapping loop, not this dir rename).
-            // A platform-specific no-replace dir rename (renameat2) isn't worth
-            // it for that (M17 #8, adjudicated).
-            vault_fs::rename_local(&self.root, from, to)?;
-        }
+        // One directory rename, through the journal's staging (which also
+        // makes a case-only rename unambiguous). POSIX rename onto a
+        // non-empty dir fails ENOTEMPTY (no clobber); the residual of the
+        // exists()-check above is an EMPTY destination dir created in this
+        // user-initiated window being replaced — no note bytes are at risk
+        // (M17 #8, adjudicated).
+        let moved = self.move_journaled(&mappings, Some((from, to)))?;
         let mut mutation = self.finish_mappings(mappings, relinks, None);
+        self.commit_journaled(moved, &mut mutation);
         mutation.final_folder = Some(to.to_owned());
         mutation
             .warnings
@@ -196,11 +191,12 @@ impl LocalNoteStore {
                 .map(|id| FileChange::Changed(note_filename(id))),
         );
         self.before_write.before_write(&changes);
-        move_files_with_rollback(&self.root, &mappings)?;
+        let moved = self.move_journaled(&mappings, None)?;
         let cleanup_warning = remove_tree(&target)
             .err()
             .map(|error| format!("notes moved, but folder cleanup failed: {error}"));
         let mut mutation = self.finish_mappings(mappings, relinks, None);
+        self.commit_journaled(moved, &mut mutation);
         mutation.warnings.extend(cleanup_warning);
         Ok(mutation)
     }
