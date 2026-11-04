@@ -17,6 +17,8 @@ internal fun TextFirstEditText.setFind(snapshot: FindSnapshot) {
 internal fun TextFirstEditText.revealRange(start: Int, end: Int) {
     val l = layout ?: return
     val e = editableText ?: return
+    restoring = null // the reader asked to go somewhere else
+    stopPinning()
     val at = start.coerceIn(0, (e.length - 1).coerceAtLeast(0))
     val line = l.getLineForOffset(at)
     val viewport = height - totalPaddingTop - totalPaddingBottom

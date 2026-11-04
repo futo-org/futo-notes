@@ -105,9 +105,10 @@ internal class TextFirstEditText(
     // ---- engine → view ----
 
     fun apply(update: UiUpdate) {
+        contentComplete = update.complete
         // An edit or a new selection is the caret's business: bring it into view as TextView does.
         if (!update.append) broughtOffset = -1
-        if (update.append) { applyAppend(update); return }
+        if (update.append) { applyAppend(update); scheduleRestore(); return }
         val applyStart = android.os.SystemClock.elapsedRealtimeNanos()
         var editsEnd = applyStart
         applying = true
@@ -162,10 +163,10 @@ internal class TextFirstEditText(
         } finally {
             applying = false
         }
-        if (update.reset != null) requestImageLoads()
+        if (update.reset != null) { requestImageLoads(); scheduleRestore() }
     }
 
-    // ---- caret ----
+    // ---- scroll position ----
 
     /**
      * TextView brings the caret back into view before the next draw after any
@@ -187,6 +188,26 @@ internal class TextFirstEditText(
     override fun onFocusChanged(focused: Boolean, direction: Int, previouslyFocusedRect: android.graphics.Rect?) {
         broughtOffset = -1
         super.onFocusChanged(focused, direction, previouslyFocusedRect)
+    }
+
+    /** Where the note was last left, until the view has scrolled there (or the user took over). */
+    internal var restoring: ScrollAnchor? = null
+    /** Whether the text is the whole note: while it is not, a position past its end may yet arrive. */
+    internal var contentComplete = true
+    internal var restoreQueued = false
+    /**
+     * The line the view was just put back on. Images above it land after the
+     * open and change their lines' heights, which would carry it away: until
+     * the reader touches the note (or a few seconds pass) it is held in place.
+     */
+    internal var pinned: ScrollAnchor? = null
+    internal val unpin = Runnable { pinned = null }
+
+    override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
+        super.onLayout(changed, left, top, right, bottom)
+        val anchor = pinned ?: return
+        val y = anchorY(anchor) ?: return
+        if (y != scrollY) scrollTo(scrollX, y)
     }
 
     private class ComposingUnderline : UnderlineSpan()
@@ -268,7 +289,7 @@ internal class TextFirstEditText(
 
     @SuppressLint("ClickableViewAccessibility")
     override fun onTouchEvent(event: MotionEvent): Boolean {
-        if (event.actionMasked == MotionEvent.ACTION_DOWN) scroll.down(event) else scroll.track(event)
+        if (event.actionMasked == MotionEvent.ACTION_DOWN) { restoring = null; stopPinning(); scroll.down(event) } else scroll.track(event)
         if (!scroll.stoppingTouch && tableTouch.onTouch(event)) return true
         if (scroll.own(event) { super.onTouchEvent(it) }) return true
         if (wikilinkTouch.onTouch(event)) return true
@@ -378,6 +399,9 @@ internal class TextFirstEditText(
          * markers, quote bars) for an empty last line.
          */
         const val END_SENTINEL = "\u200B"
+
+        /** How long a restored position is held against images loading above it. */
+        internal const val PIN_MS = 4_000L
 
         /** Debug: log per-update apply timings under `TextFirstApply`. */
         var PROFILE = com.futo.notes.BuildConfig.DEBUG

@@ -79,14 +79,16 @@ internal class TextFirstController(
         }
     }
 
-    fun open(noteId: String, onOpened: (Throwable?) -> Unit = {}) {
+    /** [restore] is where the note was last left; the first screens reach it and the view scrolls there. */
+    fun open(noteId: String, restore: ScrollAnchor? = null, onOpened: (Throwable?) -> Unit = {}) {
         check(engine == null) { "already open" }
         opened = false
         released = false
         openFailure = null
         val ready = CompletableDeferred<Unit>()
         opening = ready
-        val created = EditorEngine(core, noteId, this, storageGate = vault?.storageMigrationGate)
+        view.restoring = restore
+        val created = EditorEngine(core, noteId, this, storageGate = vault?.storageMigrationGate, openThrough = restore?.offset ?: 0)
         engine = created
         view.engine = created
         created.open { error ->

@@ -51,7 +51,7 @@ private fun EditorEngine.openAttachment(): Throwable? = try {
     val display = opened.displayText()
     mirror.reset(display)
     // The first screens now, the rest in slices (EditorEngineStream.kt).
-    val shown = OpenSlices.sliceEnd(mirror.text, 0, OpenSlices.FIRST_CHARS)
+    val shown = OpenSlices.sliceEnd(mirror.text, 0, OpenSlices.FIRST_CHARS + openThrough.coerceIn(0, OpenSlices.REACH_BACK_CHARS))
     tailLength = mirror.text.length - shown
     val projection = opened.project(rev, mirror.byteRange(0, shown))
     mirror.selStart = 0; mirror.selEnd = 0

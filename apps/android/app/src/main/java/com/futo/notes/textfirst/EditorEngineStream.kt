@@ -1,5 +1,6 @@
 package com.futo.notes.textfirst
 
+import android.os.SystemClock
 import uniffi.futo_notes_ffi.EditorSessionException
 
 // Progressive open: a long note shows its first screens at once and the rest
@@ -13,6 +14,12 @@ internal object OpenSlices {
     const val FIRST_CHARS = 6_000
     /** Small enough that one slice's layout never holds the UI thread for long on a low-end phone. */
     const val NEXT_CHARS = 8_000
+    /**
+     * How deep a returning reader's first slice may reach. Past it the note
+     * streams from the top and the view jumps once the saved line arrives, so
+     * a very deep position never costs more than this before something shows.
+     */
+    const val REACH_BACK_CHARS = 120_000
     /** Between slices, so touches and scrolls are served in the gaps. */
     const val GAP_MS = 16L
     /** How far past its target a slice may run to reach a blank line. */
@@ -77,4 +84,22 @@ internal fun EditorEngine.showNextSlice(chars: Int = OpenSlices.NEXT_CHARS) {
 internal fun EditorEngine.finishStreaming() {
     handler.removeCallbacks(tailRunnable)
     if (streaming) showNextSlice(Int.MAX_VALUE / 2)
+}
+
+/** More of the note for the view, after what it shows. The caret, the keyboard and `seq` are untouched. */
+internal fun EditorEngine.postAppend(edits: List<TextEdit>, windows: List<StyleWindow>) {
+    val update = UiUpdate(
+        seq = seq, reset = null, edits = edits,
+        selStart = mirror.selStart, selEnd = mirror.selEnd,
+        composingStart = mirror.composingStart, composingEnd = mirror.composingEnd,
+        windows = windows, inputUptimeNanos = 0L, append = true, complete = !streaming,
+    )
+    ui.post {
+        val began = SystemClock.uptimeMillis()
+        sink.onUpdate(update)
+        // The next slice waits as long as this one took the UI thread, so a slow phone
+        // (or a long note, whose layout costs more) spends half its time on touches.
+        val took = SystemClock.uptimeMillis() - began
+        handler.post { streamTail(maxOf(OpenSlices.GAP_MS, took)) }
+    }
 }

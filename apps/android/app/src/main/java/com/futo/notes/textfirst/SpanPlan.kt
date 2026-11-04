@@ -57,6 +57,8 @@ internal class UiUpdate(
      * selection and composition alone and does not mark the note edited.
      */
     val append: Boolean = false,
+    /** Whether the view holds the whole note once this is applied (false while a progressive open is still streaming). */
+    val complete: Boolean = true,
 )
 
 /**

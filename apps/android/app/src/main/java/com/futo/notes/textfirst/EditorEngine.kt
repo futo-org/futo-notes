@@ -56,6 +56,8 @@ internal class EditorEngine(
     /** Debug/test: compare the mirror with the engine's display after every change. */
     private val verifyMirror: Boolean = false,
     internal val storageGate: StorageMigrationGate? = null,
+    /** A display offset the first screens must reach (where the note was last left), else its top. */
+    internal val openThrough: Int = 0,
 ) {
     private val thread = HandlerThread("futo-editor", Process.THREAD_PRIORITY_DISPLAY).apply { start() }
     val handler = Handler(thread.looper)
@@ -386,30 +388,13 @@ internal class EditorEngine(
             inputUptimeNanos = inputStartNanos,
             postedNanos = SystemClock.elapsedRealtimeNanos(),
             engineNanos = engineNanos.also { engineNanos = 0L },
+            complete = !streaming,
         )
         publishSelection()
         publishCell()
         ui.post { sink.onUpdate(update) }
         scheduleCaretState()
         scheduleFindRefresh()
-    }
-
-    /** More of the note for the view, after what it shows. The caret, the keyboard and `seq` are untouched. */
-    internal fun postAppend(edits: List<TextEdit>, windows: List<StyleWindow>) {
-        val update = UiUpdate(
-            seq = seq, reset = null, edits = edits,
-            selStart = mirror.selStart, selEnd = mirror.selEnd,
-            composingStart = mirror.composingStart, composingEnd = mirror.composingEnd,
-            windows = windows, inputUptimeNanos = 0L, append = true,
-        )
-        ui.post {
-            val began = SystemClock.uptimeMillis()
-            sink.onUpdate(update)
-            // The next slice waits as long as this one took the UI thread, so a slow phone
-            // (or a long note, whose layout costs more) spends half its time on touches.
-            val took = SystemClock.uptimeMillis() - began
-            handler.post { streamTail(maxOf(OpenSlices.GAP_MS, took)) }
-        }
     }
 
     private fun publishSelection() {
