@@ -15,7 +15,7 @@ pub struct ExternalSourceAdoption {
     selection: SourceSelection,
     undo: Vec<HistoryGroup>,
     redo: Vec<HistoryGroup>,
-    pending: crate::inline::PendingLinks,
+    pending: Option<crate::inline::PendingLinks>,
 }
 
 impl EditorSession {
@@ -75,7 +75,42 @@ impl EditorSession {
             selection,
             undo,
             redo,
-            pending,
+            pending: Some(pending),
+        })
+    }
+
+    /// Adopt an outside source for a session with no unsaved local draft when
+    /// its history cannot be rebased. The retained Undo/Redo stacks are
+    /// dropped (the same result as reopening the note) and the selection is
+    /// whatever the whole-source replacement leaves. Outside bytes may rewrite
+    /// front matter, which local input never may.
+    pub fn prepare_external_source_dropping_history(
+        &self,
+        expected: Revision,
+        source: &str,
+    ) -> Result<ExternalSourceAdoption, EditorError> {
+        self.check_revision(expected)?;
+        if self.composition.is_some() {
+            return Err(EditorError::CompositionActive);
+        }
+        let edit = self.prepare_exact_source(
+            expected,
+            SourceRange {
+                start: SourceOffset(0),
+                end: SourceOffset(self.source.len_bytes()),
+            },
+            source,
+        )?;
+        Ok(ExternalSourceAdoption {
+            revision: expected,
+            incarnation: self.incarnation,
+            opening_selection: self.selection,
+            opening_affinity: self.affinity,
+            edit,
+            selection: SourceSelection::Derived,
+            undo: Vec::new(),
+            redo: Vec::new(),
+            pending: None,
         })
     }
 
@@ -99,7 +134,9 @@ impl EditorSession {
         self.selection = self
             .project_history_selection(adoption.selection, self.selection)
             .0;
-        change.work.link_metadata_items += self.projection.restore_pending(&adoption.pending);
+        if let Some(pending) = &adoption.pending {
+            change.work.link_metadata_items += self.projection.restore_pending(pending);
+        }
         self.undo = adoption.undo;
         self.redo = adoption.redo;
         self.typing = None;
