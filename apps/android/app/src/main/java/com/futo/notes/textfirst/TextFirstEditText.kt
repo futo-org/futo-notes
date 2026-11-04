@@ -75,6 +75,7 @@ internal class TextFirstEditText(
             InputType.TYPE_TEXT_FLAG_CAP_SENTENCES or InputType.TYPE_TEXT_FLAG_AUTO_CORRECT
         imeOptions = EditorInfo.IME_FLAG_NO_EXTRACT_UI or EditorInfo.IME_FLAG_NO_ENTER_ACTION
         setHorizontallyScrolling(false)
+        configureSelectionClassifier()
         isVerticalScrollBarEnabled = true
         // Autofill and content capture copy the whole text after every change.
         importantForAutofill = IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS

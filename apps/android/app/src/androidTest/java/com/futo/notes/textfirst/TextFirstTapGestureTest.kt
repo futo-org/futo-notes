@@ -1,6 +1,10 @@
 package com.futo.notes.textfirst
 
 import android.os.SystemClock
+import android.view.ActionMode
+import android.view.Menu
+import android.view.MenuItem
+import android.view.InputDevice
 import android.view.MotionEvent
 import android.view.ViewGroup
 import androidx.activity.ComponentActivity
@@ -22,6 +26,26 @@ import uniffi.futo_notes_ffi.NoteStore
 /** Real taps on the note: an external link opens, a double-tap selects a word, a triple-tap a line. */
 class TextFirstTapGestureTest {
     private val source = "alpha beta gamma\n\nsee https://example.com now and www.example.org too\n\n[label](https://label.example) end"
+
+    @Test
+    fun exactSelectionStillUsesThePlatformClassificationForSmartActions() {
+        val classification = android.view.textclassifier.TextClassification.Builder().setText("https://example.com").build()
+        var calls = 0
+        val native = object : android.view.textclassifier.TextClassifier {
+            override fun classifyText(request: android.view.textclassifier.TextClassification.Request): android.view.textclassifier.TextClassification {
+                calls++
+                return classification
+            }
+            override fun suggestSelection(request: android.view.textclassifier.TextSelection.Request): android.view.textclassifier.TextSelection = error("a delayed platform suggestion must not expand this range")
+        }
+        val classifier = selectionTextClassifier(native)
+        val text = "see https://example.com now"
+        assertSame(classification, classifier.classifyText(android.view.textclassifier.TextClassification.Request.Builder(text, 4, 23).build()))
+        assertEquals(1, calls)
+        val selection = classifier.suggestSelection(android.view.textclassifier.TextSelection.Request.Builder(text, 4, 7).build())
+        assertEquals(4, selection.selectionStartIndex)
+        assertEquals(7, selection.selectionEndIndex)
+    }
 
     private fun exercise(source: String = this.source, check: suspend Rig.() -> Unit) = runBlocking {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
@@ -81,6 +105,7 @@ class TextFirstTapGestureTest {
                     (MotionEvent.ACTION_UP to (drift.lastOrNull() ?: 0f))
                 path.forEachIndexed { step, (action, dx) ->
                     val e = MotionEvent.obtain(down, down + 40L * step / path.lastIndex, action, point.first + dx, point.second, 0)
+                    e.source = InputDevice.SOURCE_TOUCHSCREEN
                     try { view.dispatchTouchEvent(e) } finally { e.recycle() }
                 }
                 clock += 100L
@@ -142,6 +167,7 @@ class TextFirstTapGestureTest {
         for (i in 0..steps + 1) {
             val action = when (i) { 0 -> MotionEvent.ACTION_DOWN; steps + 1 -> MotionEvent.ACTION_UP; else -> MotionEvent.ACTION_MOVE }
             val e = MotionEvent.obtain(down, down + i * 16L, action, 100f, 1000f - 400f * i / (steps + 1), 0)
+            e.source = InputDevice.SOURCE_TOUCHSCREEN
             try { view.dispatchTouchEvent(e) } finally { e.recycle() }
         }
         // Wait out the coast: a touch on a moving note only stops it.
@@ -169,6 +195,30 @@ class TextFirstTapGestureTest {
         delay(600L)
         taps(pointAt("and www"), 3)
         assertEquals("see https://example.com now and www.example.org too", selected())
+    }
+
+    @Test
+    fun repeatedTripleTapsKeepTheNativeSelectionCallout() = exercise { assertTripleTapCallout("beta", "alpha beta gamma") }
+
+    @Test
+    fun aTripleTapOnASingleWordLineStartsNativeSelectionMode() = exercise("solo") { assertTripleTapCallout("solo", "solo") }
+
+    private suspend fun Rig.assertTripleTapCallout(word: String, line: String) {
+        var selectionMode: ActionMode? = null
+        view.customSelectionActionModeCallback = object : ActionMode.Callback {
+            override fun onCreateActionMode(mode: ActionMode, menu: Menu): Boolean {
+                selectionMode = mode
+                return true
+            }
+            override fun onPrepareActionMode(mode: ActionMode, menu: Menu) = false
+            override fun onActionItemClicked(mode: ActionMode, item: MenuItem) = false
+            override fun onDestroyActionMode(mode: ActionMode) { if (selectionMode === mode) selectionMode = null }
+        }
+        repeat(4) { sequence ->
+            taps(pointAt(word), 3)
+            withTimeout(5_000) { while (selectionMode == null) delay(20) }
+            assertEquals("triple tap $sequence keeps the line after native selection mode starts", line, selected())
+        }
     }
 
     @Test

@@ -1,7 +1,9 @@
 package com.futo.notes.textfirst
 
+import android.os.Bundle
 import android.view.MotionEvent
 import android.view.ViewConfiguration
+import android.view.accessibility.AccessibilityNodeInfo
 import kotlin.math.hypot
 
 /**
@@ -71,6 +73,12 @@ internal class LineSelectTouch(private val view: TextFirstEditText) {
         while (start > 0 && text[start - 1] != '\n') start--
         var end = at
         while (end < last && text[end] != '\n') end++
-        view.setSelection(start, end)
+        // This public TextView action also starts the platform's selection
+        // action mode (handles and callout); setSelection alone only paints a range.
+        view.requestFocus()
+        view.performAccessibilityAction(AccessibilityNodeInfo.ACTION_SET_SELECTION, Bundle().apply {
+            putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_START_INT, start)
+            putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT, end)
+        })
     }
 }
