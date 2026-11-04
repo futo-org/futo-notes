@@ -409,7 +409,7 @@ fn outdenting_an_empty_nested_item_reads_only_its_parents_list() {
     }
 }
 
-#[path = "long_regions/list_toggle.rs"]
-mod list_toggle;
 #[path = "long_regions/block_selection.rs"]
 mod block_selection;
+#[path = "long_regions/list_toggle.rs"]
+mod list_toggle;
