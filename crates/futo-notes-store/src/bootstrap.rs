@@ -69,6 +69,11 @@ impl LocalNoteStore {
         fs::create_dir_all(&self.root).map_err(io_error)?;
         let (recovered_backups, mut warnings) =
             futo_notes_core::files::recover_parked_backups_locked(&self.root);
+        // An unreadable journal is evidence, not a reason to hide the vault.
+        match self.recover_renames_locked() {
+            Ok(recovered) => warnings.extend(recovered),
+            Err(error) => warnings.push(error),
+        }
         for recovered in recovered_backups {
             if let Err(error) = self.park_recovered_backup(&recovered) {
                 warnings.push(format!("recovered note {}: {error}", recovered.leaf));
