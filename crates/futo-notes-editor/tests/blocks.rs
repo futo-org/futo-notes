@@ -21,3 +21,5 @@ mod projection;
 mod seams;
 #[path = "blocks/selected_source.rs"]
 mod selected_source;
+#[path = "blocks/toggle.rs"]
+mod toggle;

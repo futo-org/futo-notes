@@ -203,3 +203,65 @@ fn the_shipping_triple_backtick_shortcut_is_inert_inside_literal_inline_code() {
     assert_eq!(session.source_text(), source);
     assert_eq!(view.text, "```js");
 }
+
+#[test]
+fn code_command_on_a_code_line_takes_that_line_out_of_the_fence() {
+    for (opening, shown, caret, expected) in [
+        ("```\nx\n```", "x", range(0, 0), "x"),
+        ("```\nx\ny\n```", "x\ny", range(2, 2), "```\nx\n```\ny"),
+        ("```\nx\ny\n```", "x\ny", range(0, 0), "x\n```\ny\n```"),
+        (
+            "a\n\n```rust\nx\ny\nz\n```\n\nb",
+            "a\n\nx\ny\nz\n\nb",
+            range(5, 5),
+            "a\n\n```rust\nx\n```\ny\n```rust\nz\n```\n\nb",
+        ),
+        ("```\nx\ny\n```", "x\ny", range(0, 3), "x\ny"),
+        ("```\nx\ny", "x\ny", range(2, 2), "```\nx\n```\ny"),
+        ("> ```\n> x\n> ```", "x", range(0, 0), "> x"),
+    ] {
+        let mut session = EditorSession::open(opening);
+        let mut view = ReferenceView::new(shown);
+        session.select(session.revision(), caret).unwrap();
+        let change = session
+            .block_command(
+                session.revision(),
+                caret,
+                BlockCommand::CodeBlock,
+                &mut |_| Ok(()),
+            )
+            .unwrap()
+            .unwrap_or_else(|| panic!("{opening:?}: the command did nothing"));
+        view.apply(change);
+        assert_eq!(session.source_text(), expected, "{opening:?}");
+        assert_eq!(view.text, shown, "the displayed text does not move");
+        assert_eq!(session.selection(), caret);
+        view.apply(
+            session
+                .undo(session.revision(), &mut |_| Ok(()))
+                .unwrap()
+                .unwrap(),
+        );
+        assert_eq!(session.source_text(), opening);
+    }
+}
+
+#[test]
+fn code_command_on_an_empty_fence_removes_the_fence() {
+    let mut session = EditorSession::open("a\n\n```\n```");
+    session.select(session.revision(), range(3, 3)).unwrap();
+    let change = session
+        .block_command(
+            session.revision(),
+            range(3, 3),
+            BlockCommand::CodeBlock,
+            &mut |_| Ok(()),
+        )
+        .unwrap();
+    assert!(change.is_some());
+    assert!(
+        !session.source_text().contains("```"),
+        "{:?}",
+        session.source_text()
+    );
+}

@@ -158,3 +158,51 @@ fn empty_code_enter_returns_a_caret_that_types_in_its_new_body_line() {
         assert_eq!(view.text, display);
     }
 }
+
+#[test]
+fn enter_on_the_empty_last_code_line_of_a_note_leaves_the_fence() {
+    let mut session = EditorSession::open("```\ncode\n```");
+    let mut view = ReferenceView::new("code");
+    let mut press = |session: &mut EditorSession, view: &mut ReferenceView, at: usize| {
+        let caret = range(at, at);
+        session.select(session.revision(), caret).unwrap();
+        view.apply(
+            session
+                .paragraph_key(session.revision(), caret, ParagraphKey::Enter, &mut |_| {
+                    Ok(())
+                })
+                .unwrap()
+                .unwrap(),
+        );
+    };
+    // The first Enter is a newline inside the code, as ever.
+    press(&mut session, &mut view, 4);
+    assert_eq!(session.source_text(), "```\ncode\n\n```");
+    assert_eq!(view.text, "code\n");
+    // The second, on the now-empty last code line, leaves the fence.
+    press(&mut session, &mut view, 5);
+    assert_eq!(session.source_text(), "```\ncode\n```\n\n");
+    assert_eq!(view.text, session.display_text());
+    assert_eq!(session.selection(), range(6, 6));
+    view.apply(
+        session
+            .undo(session.revision(), &mut |_| Ok(()))
+            .unwrap()
+            .unwrap(),
+    );
+    assert_eq!(session.source_text(), "```\ncode\n\n```");
+}
+
+#[test]
+fn enter_on_an_empty_code_line_keeps_the_fence_when_text_follows() {
+    let mut session = EditorSession::open("```\ncode\n\n```\n\nafter");
+    let caret = range(5, 5);
+    session.select(session.revision(), caret).unwrap();
+    session
+        .paragraph_key(session.revision(), caret, ParagraphKey::Enter, &mut |_| {
+            Ok(())
+        })
+        .unwrap()
+        .unwrap();
+    assert_eq!(session.source_text(), "```\ncode\n\n\n```\n\nafter");
+}

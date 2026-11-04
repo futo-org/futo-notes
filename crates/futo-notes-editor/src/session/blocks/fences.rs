@@ -103,6 +103,9 @@ impl EditorSession {
         }) {
             return Ok(None);
         }
+        if let Some(change) = self.fence_exit(expected, range, fence, inserted, accept)? {
+            return Ok(Some(change));
+        }
         let Some(owned) = fence.input_range(&self.projection, range, &lines, inserted) else {
             // Keep foreign code/prose separators with the strict generic planner.
             return Ok(None);
@@ -253,6 +256,73 @@ impl EditorSession {
         if code_end_caret {
             self.carry_block_state(&mut change, None, Affinity::Backward);
         }
+        Ok(Some(change))
+    }
+}
+
+impl EditorSession {
+    /// Enter on the empty last line of a code block that closes the note
+    /// leaves the block: nothing can be placed after such a block, so its
+    /// last empty line becomes the empty line after the closing fence. With
+    /// anything after the block, that line stays code.
+    fn fence_exit(
+        &mut self,
+        expected: Revision,
+        range: DisplayRange,
+        fence: &crate::inline::fences::Fence,
+        inserted: &str,
+        accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
+    ) -> Result<Option<ViewChange>, EditorError> {
+        let Some(closer) = fence.closer.as_ref() else {
+            return Ok(None);
+        };
+        let len = self.source.len_bytes();
+        let ending = if self
+            .source
+            .byte_slice(..fence.body.end)
+            .to_string()
+            .ends_with("\r\n")
+        {
+            "\r\n"
+        } else {
+            "\n"
+        };
+        let after = self.source.byte_slice(closer.end..len).to_string();
+        if inserted != "\n"
+            || range.start != range.end
+            || range.start.0 != self.projection.display_at(fence.body.end)
+            || fence.body.is_empty()
+            || fence.opener.start
+                != self
+                    .source
+                    .line_to_byte(self.source.byte_to_line(fence.opener.start))
+            || !self
+                .source
+                .byte_slice(fence.body.start..fence.body.end)
+                .to_string()
+                .ends_with(ending)
+            || !matches!(after.as_str(), "" | "\n" | "\r\n")
+        {
+            return Ok(None);
+        }
+        let separator = self
+            .source
+            .byte_slice(fence.body.end..closer.start)
+            .to_string();
+        let marker = self.source.byte_slice(closer.clone()).to_string();
+        let output = format!("{separator}{marker}{ending}{ending}");
+        let start = fence.body.end - ending.len();
+        let caret = start + output.len();
+        let materialized = output.len() + (len - start);
+        let mut change = self.commit_block_edit(
+            expected,
+            start..len,
+            &output,
+            BlockSelection::Source(caret),
+            None,
+            accept,
+        )?;
+        change.work.materialized_source_bytes += materialized;
         Ok(Some(change))
     }
 }

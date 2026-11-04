@@ -136,12 +136,6 @@ fn explicit_quote_choice_replaces_heading_and_indent_changes_one_level() {
     })
     .unwrap();
     assert_eq!(s.source_text(), "> Title\r\n\r\nend");
-    assert!(s
-        .block_command(s.revision(), range(0, 0), BlockCommand::Quote, &mut |_| Ok(
-            ()
-        ))
-        .unwrap()
-        .is_none());
     s.block_command(s.revision(), range(0, 0), BlockCommand::Indent, &mut |_| {
         Ok(())
     })
@@ -393,15 +387,14 @@ fn explicit_quote_retires_an_existing_quoted_heading_without_changing_depth() {
         assert_eq!(v.text, shown);
         v.apply(s.redo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
         assert_eq!(s.source_text(), expected);
-        assert!(s
-            .block_command(
-                s.revision(),
-                range(0, 0),
-                BlockCommand::Quote,
-                &mut |_| panic!("no-op must not append")
-            )
-            .unwrap()
-            .is_none());
+        // Choosing Quote again takes one level off (the toolbar toggle).
+        s.block_command(s.revision(), range(0, 0), BlockCommand::Quote, &mut |_| {
+            Ok(())
+        })
+        .unwrap()
+        .unwrap();
+        let blocks = s.project(s.revision(), range(0, 0)).unwrap().blocks;
+        assert_eq!(blocks[0].quote_depth, depth - 1);
     }
 }
 

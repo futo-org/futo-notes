@@ -292,3 +292,25 @@ fn stale_claims_and_unwritable_inserts_change_nothing() {
         assert_eq!(editor.source_text(), source);
     }
 }
+
+#[test]
+fn enter_on_a_selected_image_adds_a_line_below_it_and_keeps_the_image() {
+    for (source, selected, expected, caret) in [
+        ("x\n\n![](a.png)", range(3, 13), "x\n\n![](a.png)\n", 14),
+        ("![](a.png)\n\ny", range(0, 10), "![](a.png)\n\n\ny", 11),
+    ] {
+        let mut editor = EditorSession::open(source);
+        editor.select(editor.revision(), selected).unwrap();
+        editor
+            .paragraph_key(
+                editor.revision(),
+                selected,
+                ParagraphKey::Enter,
+                &mut |_| Ok(()),
+            )
+            .unwrap()
+            .unwrap();
+        assert_eq!(editor.source_text(), expected, "{source:?}");
+        assert_eq!(editor.selection(), range(caret, caret));
+    }
+}

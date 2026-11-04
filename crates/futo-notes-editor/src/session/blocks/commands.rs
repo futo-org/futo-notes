@@ -86,6 +86,12 @@ impl EditorSession {
             }
         }
         let lines = self.selected_block_lines(range);
+        // Choosing Quote on text that is already quoted takes one level off.
+        let command = if command == BlockCommand::Quote && all_quoted(&lines) {
+            BlockCommand::Outdent
+        } else {
+            command
+        };
         if matches!(command, BlockCommand::Heading(1..=6) | BlockCommand::Quote)
             && lines.iter().any(|line| {
                 !line.code
@@ -238,6 +244,17 @@ impl EditorSession {
             })
             .collect()
     }
+}
+
+/// Every selected prose line is a plain quoted paragraph (not a heading or
+/// list), and at least one is.
+fn all_quoted(lines: &[crate::inline::blocks::BlockLine]) -> bool {
+    let mut prose = lines
+        .iter()
+        .filter(|line| !line.code && !line.divider && !line.metadata)
+        .peekable();
+    prose.peek().is_some()
+        && prose.all(|line| line.quote_depth > 0 && line.heading == 0 && line.list.is_none())
 }
 
 fn changes_block(line: &crate::inline::blocks::BlockLine, command: BlockCommand) -> bool {

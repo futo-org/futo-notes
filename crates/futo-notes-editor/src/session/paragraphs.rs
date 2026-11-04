@@ -43,6 +43,17 @@ impl EditorSession {
             return self.fence_tab(expected, range, key == ParagraphKey::ShiftTab, accept);
         }
         if matches!(key, ParagraphKey::Enter | ParagraphKey::ShiftEnter) {
+            // An image selected as one object is not replaced by Enter: the
+            // key acts after it, which is how a caret gets past a last image.
+            if range.start != range.end
+                && self
+                    .projection
+                    .atom_descriptions(range)
+                    .iter()
+                    .any(|atom| atom.kind == crate::AtomKind::Image && atom.range == range)
+            {
+                range.start = range.end;
+            }
             let shift = key == ParagraphKey::ShiftEnter;
             if let Some(change) = self.cell_enter(expected, range, shift, accept)? {
                 return Ok(Some(change));

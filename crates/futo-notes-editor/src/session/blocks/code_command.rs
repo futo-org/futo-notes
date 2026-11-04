@@ -16,6 +16,9 @@ impl EditorSession {
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<Option<ViewChange>, EditorError> {
         let lines = self.projection.block_lines(range);
+        if let Some(change) = self.code_toggle_off(expected, range, &lines, accept)? {
+            return Ok(Some(change));
+        }
         if lines.iter().any(|line| line.heading > 0 && !line.in_list) {
             return self.stage_block_action(
                 expected,
@@ -129,6 +132,129 @@ impl EditorSession {
             accept,
         )?;
         change.work.materialized_source_bytes += materialized;
+        Ok(Some(change))
+    }
+}
+
+impl EditorSession {
+    /// The command on lines that are all already code takes the touched rows
+    /// out of their fence: the rows above and below stay fenced (each part
+    /// keeps the opener's spelling), and the displayed text does not move.
+    fn code_toggle_off(
+        &mut self,
+        expected: Revision,
+        range: DisplayRange,
+        lines: &[crate::inline::blocks::BlockLine],
+        accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
+    ) -> Result<Option<ViewChange>, EditorError> {
+        let Some(fence) = lines.first().and_then(|line| line.fence.as_ref()) else {
+            return Ok(None);
+        };
+        if lines
+            .iter()
+            .any(|line| !line.code || line.fence.as_ref().is_none_or(|f| f.whole != fence.whole))
+        {
+            return Ok(None);
+        }
+        let row_start = |at: usize| self.source.line_to_byte(self.source.byte_to_line(at));
+        let start = row_start(fence.whole.start);
+        let rest = self
+            .source
+            .byte_slice(fence.whole.end..self.source.len_bytes())
+            .to_string();
+        let end = fence.whole.end
+            + if rest.starts_with("\r\n") {
+                2
+            } else {
+                usize::from(rest.starts_with('\n'))
+            };
+        let prefix = self
+            .source
+            .byte_slice(start..fence.opener.start)
+            .to_string();
+        let region = self.source.byte_slice(start..end).to_string();
+        let mut rows: Vec<(usize, &str)> = Vec::new();
+        let mut at = start;
+        for row in region.split_inclusive('\n') {
+            rows.push((at, row));
+            at += row.len();
+        }
+        let split = |row: &str| {
+            let text = row.trim_end_matches(['\r', '\n']);
+            (text.to_owned(), row[text.len()..].to_owned())
+        };
+        let closed = fence.closer.is_some();
+        let body_rows = rows.len() - 1 - usize::from(closed);
+        let first = lines
+            .iter()
+            .map(|line| line.source.start)
+            .min()
+            .unwrap_or(0);
+        let last = lines
+            .iter()
+            .map(|line| line.source.start)
+            .max()
+            .unwrap_or(0);
+        let touched = |index: usize| {
+            let at = rows[index + 1].0;
+            first <= at && at <= last
+        };
+        let opener = split(rows[0].1).0;
+        let closer = if closed {
+            split(rows[rows.len() - 1].1).0
+        } else {
+            format!(
+                "{prefix}{}",
+                (fence.marker as char).to_string().repeat(fence.width)
+            )
+        };
+        let tail = split(rows[rows.len() - 1].1).1;
+        let eol = if rows[0].1.ends_with("\r\n") {
+            "\r\n"
+        } else {
+            "\n"
+        };
+        let mut out: Vec<String> = Vec::new();
+        let mut section: Vec<String> = Vec::new();
+        let flush = |section: &mut Vec<String>, out: &mut Vec<String>| {
+            if !section.is_empty() {
+                out.push(opener.clone());
+                out.append(section);
+                out.push(closer.clone());
+            }
+        };
+        for index in 0..body_rows {
+            let text = split(rows[index + 1].1).0;
+            if touched(index) {
+                flush(&mut section, &mut out);
+                out.push(text);
+            } else {
+                section.push(text);
+            }
+        }
+        // An unclosed fence keeps its tail open.
+        if !closed && !section.is_empty() {
+            out.push(opener.clone());
+            out.append(&mut section);
+        } else {
+            flush(&mut section, &mut out);
+        }
+        let mut output = out.join(eol);
+        if !out.is_empty() {
+            output.push_str(&tail);
+        }
+        if output == region {
+            return Ok(None);
+        }
+        let mut change = self.commit_block_edit(
+            expected,
+            start..end,
+            &output,
+            BlockSelection::Display(range),
+            None,
+            accept,
+        )?;
+        change.work.materialized_source_bytes += region.len() + output.len();
         Ok(Some(change))
     }
 }
