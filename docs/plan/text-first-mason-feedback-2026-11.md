@@ -4,6 +4,10 @@ Scope: the Android text-first editor on `android-text-first` (MR !564). It is de
 release Android still ships the WebView editor. Every fix lands on this branch (decision 8A).
 Delete this file in the commit that finishes the last item (archive rule).
 
+**Text-first only.** No Milkdown changes: nothing in `src/features/editor/milkdown/`, and no
+edit to a cross-platform spec line. Each behavior change gets its own spec line tagged
+*(Android text-first editor)*, next to the line it diverges from.
+
 Every item follows the same loop: reproduce on a real device with `just puppet`, write a failing
 test at the narrowest owner (Rust `crates/futo-notes-editor/tests/` for a rule, Android
 `androidTest/.../textfirst/` for view behavior), fix, then run the owner chain
@@ -15,7 +19,7 @@ test at the narrowest owner (Rust `crates/futo-notes-editor/tests/` for a rule, 
 |---|---|
 | 1A | Bold, italic and strikethrough are allowed inside headings. Fix the rendering; the spec already allows it (`docs/spec/editor/markdown-elements.md:3`). |
 | 2A | Backspace at a heading's visible start deletes the line break before it. A blank line above disappears and the heading stays a heading; a text line above takes the heading's text (Google Docs style). |
-| 3A | Tapping the active H1/H2/H3 again turns the line back into Text. Spec changes: `toolbar-commands.md` ("does not cycle") and `portable-core/block-commands.md:7` ("already-selected heading level is a no-op"). |
+| 3A | Tapping the active H1/H2/H3 again turns the line back into Text, in the text-first editor. The cross-platform lines in `toolbar-commands.md` ("does not cycle") and `portable-core/block-commands.md:7` ("already-selected heading level is a no-op") stay; a tagged text-first line records the difference. |
 | 4 | A format lights up only if the whole selection carries it. Commands the engine would refuse are dimmed (not hidden). Provisional — revisit after Mason uses it. |
 | 5A | Code block on a multi-block selection wraps all selected lines in one fence. |
 | 6 | Pending: Mason's large note and device. Perf work (§E) is blocked on it for repro, not for instrumentation. |
@@ -46,12 +50,11 @@ demotes it" path in `crates/futo-notes-editor/src/session/` and replace it: join
 previous line, removing a blank line wholesale. Edge cases to pin in tests: heading is the first
 line (keep today's demote — nothing to join), previous line is a list item / quote / code fence /
 table (join rules already exist for paragraphs — reuse them), heading inside a quote.
-Spec: new line in `docs/spec/editor/portable-core/interpretation-and-input.md`.
+Spec: new tagged text-first line in `docs/spec/editor/portable-core/interpretation-and-input.md`.
 
 **A4 — Heading can't be turned off (3A).**
 Rust `block_command` for `Heading(level)` when every touched line already has that level → apply
-`Heading(0)`. Android keeps the Text button hidden. Open question below on whether the Milkdown
-editor follows. Test: `crates/futo-notes-editor/tests/blocks/toggle.rs`.
+`Heading(0)`. Android keeps the Text button hidden. Milkdown keeps its no-op. Test: `crates/futo-notes-editor/tests/blocks/toggle.rs`.
 
 ## B. Selection gestures
 
@@ -109,7 +112,7 @@ rather than computing it in Kotlin (rule: note rules live in Rust).
 **D2 — Dim what can't be done.**
 Wire `disabledFormats` (already supported by `ui/EditorToolbar.kt:109`) from D1's refusals.
 Starting rules: inline formats disabled inside code; Indent/Outdent disabled where nothing would
-change; Undo/Redo disabled with empty history. Spec line in `toolbar-commands.md`.
+change; Undo/Redo disabled with empty history. Tagged text-first spec line in `toolbar-commands.md`.
 
 **D3 — Highlights go stale after collapsing and reopening the toolbar; heading number not lit.**
 Blocked on Mason's explanation (decision 7). Working guess: the toolbar slot is recomposed from a
@@ -172,8 +175,4 @@ Each item: its own commit, `type(scope): summary`, body with root cause and a `V
 
 ## Open questions
 
-- 3A and 2A on the Milkdown editor (desktop, iOS, release Android): the editor spec is
-  cross-platform. Recommendation: change heading re-tap (3A) everywhere — it is small in
-  `src/features/editor/milkdown/blockCommands.ts` — and tag 2A as text-first only, since Milkdown
-  is being replaced.
 - Decision 4 is provisional; confirm with Mason after D1/D2 ship to his device.
