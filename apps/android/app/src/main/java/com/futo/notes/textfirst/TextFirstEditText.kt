@@ -244,15 +244,6 @@ internal class TextFirstEditText(
     }
 
 
-    /** The characters on screen, a screen's height of margin either side. */
-    private fun visibleChars(): IntRange? {
-        val l = layout ?: return null
-        val top = scrollY - totalPaddingTop
-        val first = l.getLineForVertical(maxOf(0, top - height))
-        val last = l.getLineForVertical(top + 2 * height)
-        return l.getLineStart(first)..l.getLineEnd(last)
-    }
-
     internal fun contentWidth(): Int = maxOf(1, width - totalPaddingLeft - totalPaddingRight - style.dp(4f).toInt())
 
     // Images and dividers size to the content width; a new width re-measures

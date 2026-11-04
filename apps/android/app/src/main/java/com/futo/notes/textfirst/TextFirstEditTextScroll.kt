@@ -54,3 +54,12 @@ internal fun TextFirstEditText.applyRestore(): Boolean {
     postDelayed(unpin, TextFirstEditText.PIN_MS)
     return true
 }
+
+/** The characters on screen, a screen's height of margin either side. */
+internal fun TextFirstEditText.visibleChars(): IntRange? {
+    val l = layout ?: return null
+    val top = scrollY - totalPaddingTop
+    val first = l.getLineForVertical(maxOf(0, top - height))
+    val last = l.getLineForVertical(top + 2 * height)
+    return l.getLineStart(first)..l.getLineEnd(last)
+}
