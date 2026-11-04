@@ -6,6 +6,8 @@ use serde::{Deserialize, Serialize};
 pub enum BlockCommand {
     /// Zero selects plain paragraph text; one through six select a heading.
     Heading(u8),
+    /// Text-first toolbar: selecting the common current level restores Text.
+    ToggleHeading(u8),
     Quote,
     Indent,
     Outdent,

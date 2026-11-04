@@ -28,3 +28,28 @@ fn quote_command_on_a_quoted_line_takes_the_quote_off_it() {
         let _ = again;
     }
 }
+
+#[test]
+fn android_heading_toolbar_toggles_only_a_common_current_level() {
+    for (opening, level, selected, expected) in [
+        ("# title", 1, range(0, 5), "title"),
+        ("> ## one\n> ## two", 2, range(0, 7), "> one\n> two"),
+        ("## one\n\n### two", 2, range(0, 8), "## one\n## \n## two"),
+        ("title", 3, range(0, 5), "### title"),
+    ] {
+        let mut s = EditorSession::open(opening);
+        s.select(s.revision(), selected).unwrap();
+        s.block_command(
+            s.revision(),
+            selected,
+            BlockCommand::ToggleHeading(level),
+            &mut |_| Ok(()),
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(s.source_text(), expected, "{opening:?}");
+        s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap();
+        assert_eq!(s.source_text(), opening);
+        assert_eq!(s.selection(), selected);
+    }
+}
