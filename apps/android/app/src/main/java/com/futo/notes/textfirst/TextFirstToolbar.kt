@@ -74,7 +74,7 @@ internal fun toolbarActive(caret: CaretState): Set<String> = buildSet {
     when {
         caret.code -> add("code-block")
         caret.heading in 1..3 -> add("heading-${caret.heading}")
-        caret.list == null && !caret.quote -> add("paragraph")
+        !caret.mixed && caret.list == null && !caret.quote -> add("paragraph")
     }
     if (caret.quote) add("quote")
     when (caret.list) {

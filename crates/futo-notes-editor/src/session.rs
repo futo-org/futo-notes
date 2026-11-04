@@ -17,6 +17,8 @@ mod note_ids;
 mod pending;
 mod staging;
 mod tags;
+mod toolbar;
+pub use toolbar::{ToolbarList, ToolbarState};
 mod transaction;
 mod wikilink_completion;
 use crate::history::{

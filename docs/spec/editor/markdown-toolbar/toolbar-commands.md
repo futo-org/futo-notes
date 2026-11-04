@@ -86,6 +86,7 @@
   src/features/editor/milkdown/formatState.ts, EditorToolbar.swift,
   EditorToolbar.kt, EmbedToolbar.svelte,
   tests/editor-embed-milkdown-toolbar.spec.ts
+- *(Android text-first editor)* Bold, Italic and Strikethrough light only when the whole selection carries that format; a collapsed caret shows its carried formats. Block controls light only for the common selected block kind, with mixed blocks left unlit. → crates/futo-notes-editor/src/session/toolbar.rs, apps/android/app/src/main/java/com/futo/notes/textfirst/EditorEngineCaret.kt
 - Heading controls offer Text, H1, H2 and H3 explicitly. Choosing a level applies
   that same level to every selected prose block; choosing it again does not cycle.
   Text returns headings to paragraphs. Enclosing quotes keep their nesting.

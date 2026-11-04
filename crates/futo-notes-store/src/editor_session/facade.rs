@@ -109,6 +109,10 @@ impl StoreEditorSession<'_> {
         self.read(|state| state.engine.active_formats())
     }
 
+    pub fn toolbar_state(&self) -> futo_notes_editor::ToolbarState {
+        self.read(|state| state.engine.toolbar_state())
+    }
+
     pub fn selection(&self) -> DisplayRange {
         self.read(|state| state.engine.selection())
     }

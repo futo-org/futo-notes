@@ -15,6 +15,35 @@ impl Projection {
         line
     }
 
+    /// A caret needs the preceding sibling flag, not the full source ranges
+    /// of a list's owner/items. Keep this bounded to its retained row.
+    fn fix_previous_sibling(&self, index: usize, base: usize, list: &mut ListLine) {
+        let row = self.rows.at(index).0;
+        let first_line = row.blocks.first().map_or(0, |block| block.source.end);
+        if list.quote_depth == 0
+            && row.start_depth() == list.depth
+            && list.item.start - base < first_line
+            && list.previous_content_column.is_none()
+        {
+            list.previous_content_column = Some(list.content_column);
+        }
+    }
+
+    /// Row-local attribution for a caret's toolbar. Expanding cut nested-list
+    /// item or fence ranges here would make a typing refresh walk that region.
+    pub(crate) fn caret_block_lines(&self, range: DisplayRange) -> Vec<blocks::BlockLine> {
+        let mut result = Vec::new();
+        self.visit_block_lines(range, true, |block, base, index| {
+            let mut block = block.clone();
+            block.shift(base);
+            if let Some(list) = &mut block.list {
+                self.fix_previous_sibling(index, base, list);
+            }
+            result.push(block);
+        });
+        result
+    }
+
     /// A cut list keeps each row's own parse. Its ranges reaching across a
     /// cut come from the rows where they start and end, and a continued
     /// item's previous content column equals its own (the cut rule).
@@ -36,11 +65,7 @@ impl Projection {
         let len = row.source_len;
         let at = |range: &std::ops::Range<usize>| range.start - base..range.end - base;
         let (owner, item, outer) = (at(&list.owner), at(&list.item), at(&list.outer_item));
-        let first_line = row.blocks.first().map_or(0, |block| block.source.end);
-        if start_depth == depth && item.start < first_line && list.previous_content_column.is_none()
-        {
-            list.previous_content_column = Some(list.content_column);
-        }
+        self.fix_previous_sibling(index, base, list);
         if continued_start(row, depth, owner.start) {
             list.owner.start = self.open_start(index, depth, false);
         }

@@ -80,13 +80,14 @@ internal class KeyTimings(
         get() = (posted - input) + (applyEnd - applyStart) + (drawEnd - drawStart)
 }
 
-/** Toolbar-facing state at the caret. */
+/** Toolbar-facing common state for the selection, or carried state at a collapsed caret. */
 internal data class CaretState(
     val formats: Set<EditorInlineFormat>,
     val heading: Int,
     val quote: Boolean,
     val list: ListMarker?,
     val code: Boolean,
+    val mixed: Boolean = false,
 ) {
     companion object { val Empty = CaretState(emptySet(), 0, false, null, false) }
 }

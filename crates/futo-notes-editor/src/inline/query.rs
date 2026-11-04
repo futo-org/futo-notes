@@ -158,3 +158,38 @@ fn push_run(runs: &mut Vec<Correspondence>, piece: Correspondence) {
         _ => runs.push(piece),
     }
 }
+
+impl Projection {
+    /// Intersection over visible segments, without materializing selected text,
+    /// link descriptions or correspondence for a toolbar refresh.
+    pub(crate) fn selection_formats(&self, range: DisplayRange) -> Vec<InlineFormat> {
+        let first = self.rows.locate(range.start.0, true);
+        let last = self.rows.locate(range.end.0, true);
+        let mut common: Option<Vec<InlineFormat>> = None;
+        let mut visits = 0;
+        for index in first..=last {
+            let (row, _, display) = self.rows.at(index);
+            let mut sweep = super::row::FormatSweep::new(row);
+            for segment in &row.segments {
+                if segment.display.start == segment.display.end
+                    || display + segment.display.start >= range.end.0
+                    || display + segment.display.end <= range.start.0
+                {
+                    continue;
+                }
+                let formats = sweep.formats_at(segment.source.start, &mut visits);
+                match &mut common {
+                    Some(common) => common.retain(|format| formats.contains(format)),
+                    None => common = Some(formats),
+                }
+                if common.as_ref().is_some_and(Vec::is_empty) {
+                    return Vec::new();
+                }
+            }
+        }
+        let mut common = common.unwrap_or_default();
+        common.sort();
+        common.dedup();
+        common
+    }
+}

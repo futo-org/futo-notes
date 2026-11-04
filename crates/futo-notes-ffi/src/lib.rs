@@ -6,8 +6,8 @@ pub use editor::{
     EditorFindScanRequest, EditorFindScanResult, EditorInlineFormat, EditorInputAction,
     EditorLinkDescription, EditorListDescription, EditorParagraphKey, EditorProjection,
     EditorSaveStatus, EditorSemanticRun, EditorSessionError, EditorSourceByteOffset,
-    EditorSourceByteRange, EditorUtf16Range, EditorUtf16Replacement, EditorViewChange,
-    NativeEditorSession,
+    EditorSourceByteRange, EditorToolbarList, EditorToolbarState, EditorUtf16Range,
+    EditorUtf16Replacement, EditorViewChange, NativeEditorSession,
 };
 pub use editor::{
     EditorTableAlignment, EditorTableCell, EditorTableCommand, EditorTableControls,
