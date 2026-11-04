@@ -128,6 +128,8 @@ internal fun TextFirstEditorScreen(
             regular = regular,
             semibold = ResourcesCompat.getFont(context, R.font.barlow_semibold)!!,
             bold = ResourcesCompat.getFont(context, R.font.barlow_bold)!!,
+            italic = ResourcesCompat.getFont(context, R.font.barlow_italic)!!,
+            boldItalic = ResourcesCompat.getFont(context, R.font.barlow_bold_italic)!!,
             mono = ResourcesCompat.getFont(context, R.font.jetbrains_mono_regular)!!,
             textColor = c.textPrimary.toArgb(),
             mutedColor = c.textMuted.toArgb(),
