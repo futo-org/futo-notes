@@ -33,6 +33,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             if let Some(destination) = value.get("rename").and_then(|value| value.as_str()) {
                 let mutation = store.rename(&host.id(), destination)?;
                 serde_json::json!({"id": mutation.final_id})
+            } else if let Some(merge) = value.get("merge") {
+                let remote = merge
+                    .get("remote")
+                    .and_then(|value| value.as_str())
+                    .ok_or("merge source missing")?;
+                store.write(&host.id(), remote, None)?;
+                serde_json::to_value(host.checkpoint_merged()?)?
             } else if value.get("checkpoint").is_some() {
                 host.checkpoint()?;
                 serde_json::json!({"id": host.id()})

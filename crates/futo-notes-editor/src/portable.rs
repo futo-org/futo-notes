@@ -432,6 +432,22 @@ impl PortableSession {
         Applied { change, request }
     }
 
+    /// Explicitly adopt an opt-in merge flush's authoritative source while
+    /// retaining local Undo. The host mirrors this as an ordinary source edit;
+    /// it must never independently advance the page's revision during saving.
+    /// The caller settles marked text first and verifies the flush's revision.
+    pub fn adopt_merged_source(
+        &mut self,
+        expected: Revision,
+        source: &str,
+    ) -> Result<Applied, PortableError> {
+        self.ready()?;
+        let adoption = self.engine.prepare_external_source(expected, source)?;
+        let edit = adoption.edit.clone();
+        let change = self.engine.apply_external_source(adoption)?;
+        Ok(self.issue(edit, change))
+    }
+
     /// Adopt the worker's relink offer when the page still holds exactly the
     /// offered revision; a stale offer is dropped.
     pub fn apply_relink_offer(&mut self) -> Result<Option<Applied>, PortableError> {
