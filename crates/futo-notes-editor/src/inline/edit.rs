@@ -89,7 +89,7 @@ impl Projection {
         intent: EditIntent,
         escape_pipes: bool,
     ) -> Result<Plan, EditorError> {
-        let plan = |width| {
+        let plan = |width, reuse| {
             self.edit_in(
                 source,
                 range,
@@ -99,6 +99,7 @@ impl Projection {
                 intent,
                 escape_pipes,
                 width,
+                reuse,
             )
         };
         // A cut context can be too narrow to plan (or to judge) the input:
@@ -110,13 +111,21 @@ impl Projection {
             widths.push(Width::Line);
         }
         for width in widths {
-            match plan(width) {
+            match plan(width, true) {
                 Ok((plan, true)) => return Ok(spent(plan, tried)),
                 Ok((plan, false)) => tried.push(plan),
                 Err(_) => {}
             }
         }
-        let (wide, _) = plan(Width::Paragraph)?;
+        // Carried formats join the span beside them where they can. When that
+        // reading cannot be spelled (a format dropped around trailing
+        // whitespace), the new text opens spans of its own.
+        let (wide, _) = match plan(Width::Paragraph, true) {
+            Err(EditorError::UnrepresentableFormat) if pending.is_some() => {
+                plan(Width::Paragraph, false)?
+            }
+            other => other?,
+        };
         Ok(spent(wide, tried))
     }
 
@@ -131,6 +140,7 @@ impl Projection {
         intent: EditIntent,
         escape_pipes: bool,
         width: Width,
+        reuse: bool,
     ) -> Result<(Plan, bool), EditorError> {
         // Front matter is inert: input within it rejects, and input covering
         // it changes only the body.
@@ -194,7 +204,14 @@ impl Projection {
             right.clone()
         };
         if let Some(formats) = pending {
-            carry_formats(&mut before, &after, &mut markers, &mut active, formats);
+            carry_formats(
+                &mut before,
+                &after,
+                &mut markers,
+                &mut active,
+                formats,
+                reuse,
+            );
         }
         let joined = if toggle.is_none() {
             joined_span(inserted, &markers, [&active, &left, &right])

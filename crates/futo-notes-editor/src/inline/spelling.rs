@@ -3,6 +3,8 @@
 mod boundaries;
 mod pieces;
 use boundaries::{repair_boundaries, repair_literal_boundaries};
+use nesting::swap_emphasis_nesting;
+mod nesting;
 mod render;
 pub(super) use pieces::{full_reference_close, Marker, Piece, PieceOrigin, Spelling};
 mod guarded;
@@ -151,6 +153,18 @@ pub(super) fn spell_with_anchors(
             }
         }
         if repaired_link {
+            if words.has_owners() {
+                rendered_changed = true;
+            }
+            materialized += render::replace(&mut rendered, &pieces, &markers, insertion.clone());
+            link_metadata_items += rendered.link_metadata_items;
+            candidate = Row::candidate(&rendered.text, references, &rendered.winners);
+            parsed += candidate.parsed_source_bytes;
+            link_metadata_items += candidate.reference_work.items;
+            link_copied_bytes += candidate.reference_work.copied;
+            missing = missing_spans(&rendered, &candidate, &mut link_metadata_items);
+        }
+        if swap_emphasis_nesting(&mut pieces, &markers, &missing) {
             if words.has_owners() {
                 rendered_changed = true;
             }

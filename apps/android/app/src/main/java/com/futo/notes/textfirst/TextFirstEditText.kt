@@ -29,13 +29,16 @@ import uniffi.futo_notes_ffi.EditorParagraphKey
 internal class TextFirstEditText(
     context: Context,
     internal val style: TextFirstStyle,
-    private val images: ImageLoader,
+    internal val images: ImageLoader,
 ) : AppCompatEditText(context), EngineInputConnection.ViewSide {
     var engine: EditorEngine? = null
     var onOpenWikilink: ((String) -> Unit)? = null
+    var onOpenUrl: ((String) -> Unit)? = null
     private val wikilinkTouch = WikilinkTouch(this) { onOpenWikilink?.invoke(it) }
     private val imageTouch = ImageTouch(this)
     @Volatile override var selectedImage: Pair<Int, Int>? = null
+    private val linkTouch = ExternalLinkTouch(this, { onOpenUrl?.invoke(it) }, ::nativeTouch)
+    private val lineTouch = LineSelectTouch(this)
     /** The first draw after a keyed update, with where that key's time went. */
     var onFrameDrawn: ((KeyTimings) -> Unit)? = null
 
@@ -236,25 +239,7 @@ internal class TextFirstEditText(
         return l.getLineStart(first)..l.getLineEnd(last)
     }
 
-    private fun contentWidth(): Int = maxOf(1, width - totalPaddingLeft - totalPaddingRight - style.dp(4f).toInt())
-
-    private fun requestImageLoads() {
-        val e = editableText ?: return
-        for (span in e.getSpans(0, e.length, TfImage::class.java)) {
-            if (span.bitmap != null || span.failed) continue
-            images.load(span.destination, span.vault, span.remote, contentWidth()) { bitmap ->
-                val current = editableText
-                val s = current.getSpanStart(span)
-                if (s < 0) return@load
-                if (bitmap == null) span.failed = true else span.bitmap = bitmap
-                val en = current.getSpanEnd(span)
-                applying = true
-                try { current.setSpan(span, s, en, TF_SPAN_FLAGS) } finally { applying = false }
-                requestLayout()
-                invalidate()
-            }
-        }
-    }
+    internal fun contentWidth(): Int = maxOf(1, width - totalPaddingLeft - totalPaddingRight - style.dp(4f).toInt())
 
     // Images and dividers size to the content width; a new width re-measures
     // their lines (one measured while the view was not laid out yet would
@@ -310,8 +295,11 @@ internal class TextFirstEditText(
         if (event.actionMasked == MotionEvent.ACTION_DOWN) scroll.down(event) else scroll.track(event)
         if (!scroll.stoppingTouch && tableTouch.onTouch(event)) return true
         if (scroll.own(event) { super.onTouchEvent(it) }) return true
+        if (onOpenUrl != null && linkTouch.onTouch(event)) return true
         if (wikilinkTouch.onTouch(event)) return true
         imageTouch.onTouch(event)
+        // After the links, so a third quick tap on a link still opens it.
+        if (lineTouch.onTouch(event)) return true
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 checkboxDown = checkboxAt(this, style, event.x, event.y)
@@ -328,6 +316,8 @@ internal class TextFirstEditText(
         }
         return super.onTouchEvent(event).also { wikilinkTouch.settleCaret(); imageTouch.settleSelection() }
     }
+
+    private fun nativeTouch(event: MotionEvent) { super.onTouchEvent(event) }
 
     override fun computeScroll() {
         super.computeScroll()

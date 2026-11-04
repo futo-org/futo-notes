@@ -508,3 +508,6 @@ fn backspace_keeps_the_carets_carried_format() {
     }
     assert_eq!(s.source_text(), "*abc. x*");
 }
+
+#[path = "inline/stacked_formats.rs"]
+mod stacked_formats;

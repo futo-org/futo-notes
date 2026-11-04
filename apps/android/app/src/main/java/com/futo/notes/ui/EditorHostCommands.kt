@@ -42,14 +42,17 @@ fun EditorHost.blur() {
  *  the counterpart of [shouldOverrideUrlLoading]'s interception, for links
  *  the editor posts instead of navigating. Scheme-guarded so a crafted note
  *  can't reach file:/javascript:/futo-asset: through this path. */
-internal fun EditorHost.openExternalUrl(url: String) {
+internal fun EditorHost.openExternalUrl(url: String) = openExternalUrl(appContext, url)
+
+/** The scheme-guarded `ACTION_VIEW` behind every external-link tap, native editor and WebView alike. */
+internal fun openExternalUrl(context: Context, url: String) {
     val uri = runCatching { Uri.parse(url) }.getOrNull() ?: return
     when (uri.scheme?.lowercase()) {
         "http", "https", "mailto", "tel" -> Unit
         else -> return
     }
     try {
-        appContext.startActivity(
+        context.startActivity(
             Intent(Intent.ACTION_VIEW, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
         )
     } catch (e: Exception) {

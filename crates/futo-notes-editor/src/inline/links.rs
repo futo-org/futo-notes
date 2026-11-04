@@ -464,7 +464,14 @@ impl super::Projection {
             right
         };
         if let Some(formats) = pending {
-            carry_formats(&mut before, &after, &mut markers, &mut active, formats);
+            carry_formats(
+                &mut before,
+                &after,
+                &mut markers,
+                &mut active,
+                formats,
+                true,
+            );
         }
         let formats = active
             .iter()
