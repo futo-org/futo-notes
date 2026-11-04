@@ -68,29 +68,46 @@ fn merge_words(base: &str, server: &str, client: &str) -> MergeResult {
 /// Word tokens, except that links, URLs and code spans stay whole: two edits
 /// inside one such construct would otherwise splice a target nobody wrote.
 /// Detection is lexical and per source; an unterminated opener is plain text.
+fn first_line(text: &str) -> &str {
+    text.split('\n').next().unwrap_or(text)
+}
+
 fn tokenize(source: &str) -> Vec<&str> {
     let mut tokens = Vec::new();
     let (mut plain, mut at) = (0, 0);
     while at < source.len() {
         let rest = &source[at..];
-        let line_end = rest.find('\n').unwrap_or(rest.len());
-        let line = &rest[..line_end];
         let atom = if rest.starts_with("[[") {
-            line.find("]]").map(|end| end + 2)
+            first_line(rest).find("]]").map(|end| end + 2)
         } else if rest.starts_with("](") {
-            line.find(')').map(|end| end + 1)
+            first_line(rest).find(')').map(|end| end + 1)
         } else if rest.starts_with('`') {
-            line[1..].find('`').map(|end| end + 2)
+            // A span closes at the next backtick run of exactly the opening length.
+            let run = rest.bytes().take_while(|&byte| byte == b'`').count();
+            let mut found = None;
+            let mut offset = run;
+            while let Some(position) = first_line(&rest[offset..]).find('`') {
+                let start = offset + position;
+                let length = rest[start..]
+                    .bytes()
+                    .take_while(|&byte| byte == b'`')
+                    .count();
+                if length == run {
+                    found = Some(start + length);
+                    break;
+                }
+                offset = start + length;
+            }
+            // An unclosed run is plain text.
+            found
         } else if (rest.starts_with("http://") || rest.starts_with("https://"))
             && !source[..at]
                 .chars()
                 .next_back()
                 .is_some_and(char::is_alphanumeric)
         {
-            Some(
-                rest.find(|c: char| c.is_whitespace() || matches!(c, ')' | ']' | '>' | '"'))
-                    .unwrap_or(rest.len()),
-            )
+            // The whole whitespace-delimited candidate: parentheses can be part of a URL.
+            Some(rest.find(char::is_whitespace).unwrap_or(rest.len()))
         } else {
             None
         };
