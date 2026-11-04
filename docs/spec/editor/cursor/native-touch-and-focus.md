@@ -33,3 +33,4 @@
   them and takes nothing away, except while a block-drag press is live (see
   "Selection"). _(native shells)_
 - *(Android text-first editor)* Select All preserves the note's current scroll position. → apps/android/app/src/main/java/com/futo/notes/textfirst/TextFirstEditTextReveal.kt, apps/android/app/src/androidTest/java/com/futo/notes/textfirst/TextFirstCaretFollowTest.kt
+- *(Android text-first editor)* Selection highlights cover visible text up to the editor's top edge while the note is scrolled. → apps/android/app/src/main/java/com/futo/notes/textfirst/TextFirstEditTextCode.kt, apps/android/app/src/androidTest/java/com/futo/notes/textfirst/TextFirstCaretFollowTest.kt

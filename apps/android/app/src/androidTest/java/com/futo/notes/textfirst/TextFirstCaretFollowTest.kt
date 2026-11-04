@@ -177,4 +177,27 @@ class TextFirstCaretFollowTest {
         assertEquals("Select All must not jump to the selection's end", readingAt, view.scrollY)
     }
 
+    @Test
+    fun selectionPaintReachesTextInTheTopPaddingBand() = exercise(longNote) {
+        compose.runOnUiThread {
+            view.engine!!.selectAll()
+        }
+        compose.waitUntil(5_000) { view.selectionStart == 0 && view.selectionEnd == view.length() - 1 }
+        compose.runOnUiThread {
+            // Put the top edge inside a selected line, away from the document's own first-line padding.
+            view.scrollTo(0, view.layout.getLineTop(8) + view.totalPaddingTop / 2)
+            val bitmap = android.graphics.Bitmap.createBitmap(view.width, view.height, android.graphics.Bitmap.Config.ARGB_8888)
+            bitmap.eraseColor(android.graphics.Color.WHITE)
+            val canvas = android.graphics.Canvas(bitmap)
+            canvas.translate(0f, -view.scrollY.toFloat())
+            view.drawTopPaddingBand(canvas)
+            val space = view.layout.getLineStart(8) + 4
+            val x = view.totalPaddingLeft + ((view.layout.getPrimaryHorizontal(space) + view.layout.getPrimaryHorizontal(space + 1)) / 2).toInt()
+            val nativePath = android.graphics.Path().also { view.layout.getSelectionPath(view.selectionStart, view.selectionEnd, it) }
+            val nativeRegion = android.graphics.Region().apply { setPath(nativePath, android.graphics.Region(0, 0, view.width, view.layout.height)) }
+            assertTrue("the fixture samples inside Android's native selection highlight (scroll=${view.scrollY}, padding=${view.totalPaddingTop})", nativeRegion.contains(x - view.totalPaddingLeft, 1 + view.scrollY - view.totalPaddingTop))
+            assertNotEquals("selected text under the top padding keeps its highlight", android.graphics.Color.WHITE, bitmap.getPixel(x, 1))
+            bitmap.recycle()
+        }
+    }
 }
