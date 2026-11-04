@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
@@ -35,7 +35,7 @@ export async function runMergeRegressions(WasmSession, executable) {
     assert.equal(renamed.id, 'authoritative final (2)');
     assert.equal(page.draft_text(), 'first\n\nLOCAL\n');
     const merged = await exchange({
-      merge: { base: 'first\n\nsecond\n', draft: 'first\n\nLOCAL\n', remote: '日本🦀\n\nsecond\n' },
+      merge: { remote: '日本🦀\n\nsecond\n' },
     });
     assert.equal(merged.source, '日本🦀\n\nLOCAL\n');
     const adoption = JSON.parse(page.adopt_merged_source(1n, merged.source));
@@ -44,6 +44,17 @@ export async function runMergeRegressions(WasmSession, executable) {
     const undo = JSON.parse(page.undo(2n));
     await send(undo);
     assert.equal(page.draft_text(), '日本🦀\n\nsecond\n');
+    // Undo persisted before the redo: the saved baseline moved with the merge,
+    // so this saves in place instead of parking a conflict copy.
+    assert.equal((await exchange({ checkpoint: true })).id, 'authoritative final (2)');
+    assert.equal(
+      readFileSync(join(vault, 'authoritative final (2).md'), 'utf8'),
+      '日本🦀\n\nsecond\n',
+    );
+    assert.deepEqual(
+      readdirSync(vault).filter((name) => name.endsWith('.md')),
+      ['authoritative final (2).md'],
+    );
     assert.equal(JSON.parse(page.undo(3n)), null);
     await send(JSON.parse(page.redo(3n)));
     assert.equal(page.draft_text(), '日本🦀\n\nLOCAL\n');

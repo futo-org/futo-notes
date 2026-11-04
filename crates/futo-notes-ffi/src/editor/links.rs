@@ -28,6 +28,19 @@ impl NativeEditorSession {
                 .map(Into::into))
         })
     }
+    pub fn edit_link(
+        &self,
+        expected: u64,
+        range: EditorByteRange,
+        label: String,
+        destination: String,
+    ) -> Result<Option<EditorViewChange>, EditorSessionError> {
+        self.with_revision(expected, |session| {
+            Ok(session
+                .edit_link(Revision(expected), range.try_into()?, &label, &destination)?
+                .map(Into::into))
+        })
+    }
 }
 
 /// Replacement semantics for only the changed wikilinks, at an unchanged revision.

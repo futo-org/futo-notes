@@ -73,6 +73,8 @@ pub(super) struct Attachment {
     lease: EditorLease,
     /// The markdown the file held when this draft last matched it.
     base: String,
+    /// Merged bytes committed for a portable page that has not adopted them yet.
+    pending_merge: Option<String>,
     clock: Arc<dyn EditorClock>,
     save: save::SaveSchedule,
     terminal: bool,
@@ -150,6 +152,7 @@ impl<'store> StoreEditorSession<'store> {
             engine,
             lease,
             base,
+            pending_merge: None,
             clock,
             terminal: false,
             coordinated: Vec::new(),
