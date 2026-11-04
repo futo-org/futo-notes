@@ -45,16 +45,23 @@ internal fun EditorEngine.open(onOpened: (Throwable?) -> Unit) {
 
 private fun EditorEngine.openAttachment(): Throwable? = try {
     check(!closed) { "The editor is closed" }
+    val t0 = System.nanoTime()
     val opened = store().openEditor(noteId)
+    val t1 = System.nanoTime()
     session = opened
     fast = FastSession.of(opened)
     rev = opened.revision()
     val display = opened.displayText()
     mirror.reset(display)
+    val t2 = System.nanoTime()
     val projection = opened.project(rev, EditorByteRange(0u, mirror.utf8Length.toULong()))
+    val t3 = System.nanoTime()
     mirror.selStart = 0; mirror.selEnd = 0
-    postUpdate(reset = display, edits = emptyList(), windows = listOf(window(projection)))
+    val win = window(projection)
+    val t4 = System.nanoTime()
+    postUpdate(reset = display, edits = emptyList(), windows = listOf(win))
     refreshCaretState()
+    Log.i("TextFirstOpen", "engine open=${(t1 - t0) / 1000000}ms display+mirror=${(t2 - t1) / 1000000}ms project=${(t3 - t2) / 1000000}ms window=${(t4 - t3) / 1000000}ms blocks=${projection.blocks.size} chars=${display.length}")
     null
 } catch (failure: Throwable) {
     Log.e(EditorEngine.TAG, "open $noteId failed", failure)

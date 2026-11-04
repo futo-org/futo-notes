@@ -112,9 +112,18 @@ internal class TextFirstEditText(
             if (reset != null) {
                 // Chunk first, then style: one whole-note SpannableStringBuilder
                 // re-sorts its entire span table on every setSpan (quadratic open).
+                val o0 = System.nanoTime()
                 val built = ChunkedEditable.from(reset + END_SENTINEL)
+                val o1 = System.nanoTime()
                 for (window in update.windows) addSpans(built, window.specs)
+                val o2 = System.nanoTime()
                 setText(built, BufferType.EDITABLE)
+                val o3 = System.nanoTime()
+                android.util.Log.i("TextFirstOpen", "ui chunk=${(o1 - o0) / 1000000}ms addSpans=${(o2 - o1) / 1000000}ms setText=${(o3 - o2) / 1000000}ms")
+                viewTreeObserver.addOnPreDrawListener(object : android.view.ViewTreeObserver.OnPreDrawListener {
+                    val s = System.nanoTime()
+                    override fun onPreDraw(): Boolean { viewTreeObserver.removeOnPreDrawListener(this); android.util.Log.i("TextFirstOpen", "ui firstPreDraw +${(System.nanoTime() - s) / 1000000}ms after setText"); return true }
+                })
             } else {
                 val e = editableText
                 val t0 = System.nanoTime()
