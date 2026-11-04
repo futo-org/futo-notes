@@ -62,6 +62,15 @@ result through `adopt_merged_source` and mirror its normal Append request, prese
 history without changing the acknowledgement schema. Consumption details:
 `docs/architecture/editor-merge-consumption.md`.
 
+## Amendment: independent words within a paragraph (2026-11-03, #323)
+
+The same shared merge owner now retries line-level conflicts at Unicode word boundaries using
+`diffy` over lossless interned tokens. This combines independent words without choosing a winner
+for overlapping replacements or attempting character-level hybrid spellings. Exact whitespace,
+line endings and Unicode source spellings remain authoritative. Same-position insertion ambiguity,
+delete/edit overlap and conservative boundary ambiguity retain the conflict-copy fallback. The
+Links, URLs and code spans are single tokens, and a side that deletes or replaces one of several repeated words conflicts, because no alignment can say which occurrence was meant. existing native history preflight and portable opt-in adoption contract remain unchanged.
+
 ## Amendment: attached drafts follow reported external renames (2026-11-03, #318 / #324)
 
 The external-change projection consumes explicit, committed rename pairs and their final ids under

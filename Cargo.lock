@@ -2080,6 +2080,7 @@ version = "0.1.0"
 dependencies = [
  "diffy",
  "proptest",
+ "unicode-segmentation",
 ]
 
 [[package]]

@@ -9,8 +9,29 @@ import { createInterface } from 'node:readline';
 import { setTimeout, clearTimeout } from 'node:timers';
 
 export async function runMergeRegressions(WasmSession, executable) {
+  await runMergeCase(WasmSession, executable, {
+    base: 'first\n\nsecond\n',
+    start: 7,
+    end: 13,
+    local: 'first\n\nLOCAL\n',
+    remote: '日本🦀\n\nsecond\n',
+    merged: '日本🦀\n\nLOCAL\n',
+    selection: 17,
+  });
+  await runMergeCase(WasmSession, executable, {
+    base: 'first middle last\r\n',
+    start: 13,
+    end: 17,
+    local: 'first middle LOCAL\r\n',
+    remote: '日本🦀 middle last\r\n',
+    merged: '日本🦀 middle LOCAL\r\n',
+    selection: 23,
+  });
+}
+
+async function runMergeCase(WasmSession, executable, scenario) {
   const vault = mkdtempSync(join(tmpdir(), 'futo-merge-wasm-'));
-  const worker = spawn(executable, [vault, 'first\n\nsecond\n'], {
+  const worker = spawn(executable, [vault, scenario.base], {
     stdio: ['pipe', 'pipe', 'inherit'],
   });
   const exited = once(worker, 'exit');
@@ -30,41 +51,35 @@ export async function runMergeRegressions(WasmSession, executable) {
     page = WasmSession.restore(JSON.stringify(await next()));
     const send = async (applied) =>
       page.acknowledge(JSON.stringify(await exchange(applied.request)));
-    await send(JSON.parse(page.replace(0n, 7, 13, 'LOCAL')));
+    await send(JSON.parse(page.replace(0n, scenario.start, scenario.end, 'LOCAL')));
     const renamed = await exchange({ external_rename: 'authoritative final (2)' });
     assert.equal(renamed.id, 'authoritative final (2)');
-    assert.equal(page.draft_text(), 'first\n\nLOCAL\n');
+    assert.equal(page.draft_text(), scenario.local);
     const merged = await exchange({
-      merge: { remote: '日本🦀\n\nsecond\n' },
+      merge: { remote: scenario.remote },
     });
-    assert.equal(merged.source, '日本🦀\n\nLOCAL\n');
+    assert.equal(merged.source, scenario.merged);
     const adoption = JSON.parse(page.adopt_merged_source(1n, merged.source));
-    assert.equal(adoption.change.selection.end, 17);
+    assert.equal(adoption.change.selection.end, scenario.selection);
     await send(adoption);
     const undo = JSON.parse(page.undo(2n));
     await send(undo);
-    assert.equal(page.draft_text(), '日本🦀\n\nsecond\n');
+    assert.equal(page.draft_text(), scenario.remote);
     // Undo persisted before the redo: the saved baseline moved with the merge,
     // so this saves in place instead of parking a conflict copy.
     assert.equal((await exchange({ checkpoint: true })).id, 'authoritative final (2)');
-    assert.equal(
-      readFileSync(join(vault, 'authoritative final (2).md'), 'utf8'),
-      '日本🦀\n\nsecond\n',
-    );
+    assert.equal(readFileSync(join(vault, 'authoritative final (2).md'), 'utf8'), scenario.remote);
     assert.deepEqual(
       readdirSync(vault).filter((name) => name.endsWith('.md')),
       ['authoritative final (2).md'],
     );
     assert.equal(JSON.parse(page.undo(3n)), null);
     await send(JSON.parse(page.redo(3n)));
-    assert.equal(page.draft_text(), '日本🦀\n\nLOCAL\n');
+    assert.equal(page.draft_text(), scenario.merged);
     worker.stdin.end();
     const [code] = await exited;
     assert.equal(code, 0);
-    assert.equal(
-      readFileSync(join(vault, 'authoritative final (2).md'), 'utf8'),
-      '日本🦀\n\nLOCAL\n',
-    );
+    assert.equal(readFileSync(join(vault, 'authoritative final (2).md'), 'utf8'), scenario.merged);
   } finally {
     page?.free();
     if (worker.exitCode === null) {

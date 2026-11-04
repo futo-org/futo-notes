@@ -1,9 +1,14 @@
 # Consuming shared editor merges
 
 The shared Rust change is independently consumable by desktop and native hosts; it has no Android
-renderer dependency. `futo-notes-merge` owns the existing conservative line-based `diffy` merge and
-its examples/properties. `futo_notes_core::merge` preserves its existing exports. Independent changes
-inside one paragraph remain separate work (#323).
+renderer dependency. `futo-notes-merge` owns the conservative `diffy` merge and its examples/properties.
+It first merges lines, then retries conflicts using lossless Unicode word-boundary tokens as diffy
+lines. Independent words in one paragraph can combine; competing spellings of one word,
+same-position insertion ambiguity and delete/edit overlap still preserve both versions. Boundary
+ambiguity may conservatively park otherwise independent edits. No source normalization occurs.
+`futo_notes_core::merge` preserves its existing exports. #323 stacks on #322; consumers need both.
+This is a shared merge-rule change, also consumed by sync through the unchanged core facade;
+no shell opt-in API changes are needed beyond #322's adoption contract.
 
 `LocalNoteStore::flush_draft_merged(id, base, draft)` returns `MergedDraftResult { source, flush }`.
 The workflow reads disk, merges and commits under the existing store gate and process-wide vault

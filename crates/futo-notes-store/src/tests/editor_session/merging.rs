@@ -247,6 +247,59 @@ fn ambiguous_older_history_parks_both_versions_instead_of_erasing_the_peer_on_un
 }
 
 #[test]
+fn checkpoint_merges_one_paragraph_and_undo_preserves_remote_words_after_reopen() {
+    let root = TestRoot::new();
+    let store = store(&root);
+    let base = "first middle last\r\n";
+    store.create("", "plain", base).unwrap();
+    let mut editor = store.open_editor("plain").unwrap();
+    editor.replace(Revision(0), range(13, 17), "LOCAL").unwrap();
+    store
+        .write("plain", "REMOTE middle last\r\n", None)
+        .unwrap();
+    let result = editor.checkpoint().unwrap();
+    assert_eq!(result.disposition, FlushDisposition::Wrote);
+    assert_eq!(editor.id(), "plain");
+    assert_eq!(editor.source_text(), "REMOTE middle LOCAL\r\n");
+    assert_eq!(editor.selection(), range(19, 19));
+    editor.undo(editor.revision()).unwrap().unwrap();
+    assert_eq!(editor.source_text(), "REMOTE middle last\r\n");
+    editor.redo(editor.revision()).unwrap().unwrap();
+    assert_eq!(editor.source_text(), "REMOTE middle LOCAL\r\n");
+    editor.checkpoint().unwrap();
+    drop(editor);
+    assert_eq!(
+        store.open_editor("plain").unwrap().source_text(),
+        "REMOTE middle LOCAL\r\n"
+    );
+    assert_eq!(store.snapshot().notes.len(), 1);
+}
+
+#[test]
+fn one_paragraph_merge_settles_composition_and_maps_unicode_selection() {
+    let root = TestRoot::new();
+    let store = store(&root);
+    store.create("", "plain", "猫 middle last\t \r\n").unwrap();
+    let mut editor = store.open_editor("plain").unwrap();
+    editor
+        .compose(Revision(0), range(11, 15), "日本🦀")
+        .unwrap();
+    store
+        .write("plain", "REMOTE🦀 middle last\t \r\n", None)
+        .unwrap();
+    editor.checkpoint().unwrap();
+    assert_eq!(editor.id(), "plain");
+    assert_eq!(editor.source_text(), "REMOTE🦀 middle 日本🦀\t \r\n");
+    assert!(editor.composition().is_none());
+    assert_eq!(editor.selection(), range(28, 28));
+    assert_eq!(editor.take_coordinated_changes().unwrap().len(), 2);
+    editor.undo(editor.revision()).unwrap().unwrap();
+    assert_eq!(editor.source_text(), "REMOTE🦀 middle last\t \r\n");
+    editor.redo(editor.revision()).unwrap().unwrap();
+    assert_eq!(editor.source_text(), "REMOTE🦀 middle 日本🦀\t \r\n");
+}
+
+#[test]
 fn portable_clean_checkpoint_leaves_page_owned_source_and_history_unchanged() {
     use futo_notes_editor::{PortableSession, SessionToken};
     let root = TestRoot::new();
