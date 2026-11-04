@@ -36,6 +36,8 @@ internal class TextFirstStyle(
     val borderColor: Int,
     val codeBackground: Int,
     val surfaceColor: Int,
+    val italic: Typeface = regular,
+    val boldItalic: Typeface = bold,
 ) {
     fun dp(value: Float) = value * density
     val listIndent = textSizePx * 1.4f
@@ -67,14 +69,16 @@ internal class TfInline(
 
     private fun apply(paint: TextPaint) {
         val base = paint.typeface
+        // Real Barlow Italic / Bold Italic: the platform's synthetic slant (and any skew of our own)
+        // pushed glyphs past their advance, so the caret overlapped them. Code stays upright.
         val face = when {
             code -> look.mono
+            italic && (bold || base === look.semibold) -> look.boldItalic
+            italic -> look.italic
             bold -> look.bold
             else -> base ?: look.regular
         }
-        // Barlow ships no italic: the ITALIC style makes the platform slant it (fake italic, -0.25).
-        // A skew of our own on top doubled the slant, pushing glyphs far past their advance.
-        paint.typeface = if (italic) Typeface.create(face, if (bold) Typeface.BOLD_ITALIC else Typeface.ITALIC) else face
+        paint.typeface = face
         if (code) paint.textSize *= 0.9f
     }
 
@@ -113,7 +117,7 @@ internal class TfHeading(private val look: TextFirstStyle, val level: Int) :
 
 internal class TfQuote(private val look: TextFirstStyle, val depth: Int) :
     CharacterStyle(), LeadingMarginSpan, UpdateAppearance, TfSpan {
-    private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = look.borderColor }
+    private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = look.mutedColor }
 
     override fun slice(head: Boolean): TfSpan = if (head) this else TfQuote(look, depth)
     override fun updateDrawState(tp: TextPaint) { tp.color = look.mutedColor }

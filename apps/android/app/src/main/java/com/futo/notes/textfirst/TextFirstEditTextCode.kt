@@ -31,3 +31,19 @@ internal fun TextFirstEditText.drawCodeBackgrounds(canvas: Canvas) {
     }
     canvas.restoreToCount(save)
 }
+
+/**
+ * The text scrolled under the top padding. The TextView clips a scrolled view to
+ * its padding box and offsets the text by the same padding, so unlike the bottom
+ * (see `drawing`) the top padding cannot be zeroed for the clip alone: this draws
+ * the layout once more, clipped to the padding band only.
+ */
+internal fun TextFirstEditText.drawTopPaddingBand(canvas: Canvas) {
+    val l = layout ?: return
+    if (scrollY <= 0 || totalPaddingTop <= 0) return
+    val save = canvas.save()
+    canvas.clipRect(0f, scrollY.toFloat(), width.toFloat() + scrollX, (scrollY + totalPaddingTop).toFloat())
+    canvas.translate(totalPaddingLeft.toFloat(), totalPaddingTop.toFloat())
+    l.draw(canvas)
+    canvas.restoreToCount(save)
+}

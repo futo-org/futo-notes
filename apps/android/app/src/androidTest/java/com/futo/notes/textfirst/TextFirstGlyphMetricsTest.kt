@@ -23,6 +23,8 @@ class TextFirstGlyphMetricsTest {
             ResourcesCompat.getFont(context, R.font.barlow_bold)!!,
             ResourcesCompat.getFont(context, R.font.jetbrains_mono_regular)!!,
             Color.BLACK, Color.GRAY, Color.BLUE, Color.GRAY, Color.WHITE, Color.WHITE,
+            italic = ResourcesCompat.getFont(context, R.font.barlow_italic)!!,
+            boldItalic = ResourcesCompat.getFont(context, R.font.barlow_bold_italic)!!,
         )
     }
 
@@ -49,10 +51,9 @@ class TextFirstGlyphMetricsTest {
     }
 
     /**
-     * Barlow ships no italic, so the slant is synthetic and its glyphs reach
-     * past the advance the caret sits at. One platform fake italic (skew 0.25)
-     * reaches about 0.18em past an upright run; a skew of our own on top of it
-     * doubled the slant (0.29em).
+     * Italic is the bundled Barlow Italic, never the platform's synthetic slant
+     * (skew 0.25, about 0.18em past an upright run) and never a skew of our own
+     * on top of it (0.29em): its ink stays near the advance the caret sits at.
      */
     @Test fun italicSlantsOnceNotTwice() {
         val upright = overhang(bold = false, italic = false)
