@@ -309,10 +309,10 @@ impl EditorSession {
             return Ok(None);
         };
         let last = lines.last().unwrap();
-        let start = first
-            .fence
-            .as_ref()
-            .map_or(first.source.start, |f| f.whole.start);
+        let start = first.fence.as_ref().map_or(first.source.start, |f| {
+            self.source
+                .line_to_byte(self.source.byte_to_line(f.whole.start))
+        });
         let end = last.fence.as_ref().map_or(last.source.end, |f| f.whole.end);
         let physical = self.source.byte_slice(start..end).to_string();
         let ending = &physical[physical.trim_end_matches(['\r', '\n']).len()..];

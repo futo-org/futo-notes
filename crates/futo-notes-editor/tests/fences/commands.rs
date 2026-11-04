@@ -375,3 +375,24 @@ fn android_code_wrap_preserves_neighbors_and_uses_a_safe_fence() {
         assert_eq!(s.source_text(), opening);
     }
 }
+
+#[test]
+fn android_code_wrap_of_a_mixed_quote_includes_the_opening_container_prefix_once() {
+    let opening = "> ```\n> raw\n> ```\n>\n> text";
+    let mut s = EditorSession::open(opening);
+    let shown = s.display_text();
+    let selected = range(0, shown.len());
+    s.select(s.revision(), selected).unwrap();
+    s.block_command(
+        s.revision(),
+        selected,
+        BlockCommand::WrapCodeBlock,
+        &mut |_| Ok(()),
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(s.source_text(), "> ```\n> raw\n> \n> text\n> ```");
+    assert_eq!(s.display_text(), shown);
+    s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap();
+    assert_eq!(s.source_text(), opening);
+}
