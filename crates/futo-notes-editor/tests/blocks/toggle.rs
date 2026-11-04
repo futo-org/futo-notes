@@ -33,6 +33,7 @@ fn quote_command_on_a_quoted_line_takes_the_quote_off_it() {
 fn android_heading_toolbar_toggles_only_a_common_current_level() {
     for (opening, level, selected, expected) in [
         ("# title", 1, range(0, 5), "title"),
+        ("# title\n", 1, range(0, 6), "title\n"),
         ("> ## one\n> ## two", 2, range(0, 7), "> one\n> two"),
         ("## one\n\n### two", 2, range(0, 8), "## one\n## \n## two"),
         ("title", 3, range(0, 5), "### title"),
