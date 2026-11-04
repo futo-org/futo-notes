@@ -7,8 +7,6 @@ import android.text.InputFilter
 import android.text.InputType
 import android.text.Selection
 import android.text.Spannable
-import android.text.Spanned
-import android.text.style.UnderlineSpan
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.KeyEvent
@@ -43,8 +41,8 @@ internal class TextFirstEditText(
     var onFrameDrawn: ((KeyTimings) -> Unit)? = null
 
     internal var applying = false
-    private var appliedSeq = 0
-    private var pendingTimings: KeyTimings? = null
+    internal var appliedSeq = 0
+    internal var pendingTimings: KeyTimings? = null
     private var checkboxDown = -1
     var onTableCell: ((Int, Int, Int) -> Unit)? = null
     /** Paste and keyboard content; its [TextFirstClipboard.onImageContent] owner saves images. */
@@ -56,7 +54,7 @@ internal class TextFirstEditText(
         wikilinkContentWidth(this, span, contentWidth())
     }
     /** The composing underline this view set; the only SPAN_COMPOSING span it owns. */
-    private var composing: Any? = null
+    internal var composing: Any? = null
     private var codeInput = false
 
     init {
@@ -122,66 +120,7 @@ internal class TextFirstEditText(
 
     // ---- engine → view ----
 
-    fun apply(update: UiUpdate) {
-        contentComplete = update.complete
-        if (update.append) { applyAppend(update); scheduleRestore(); return }
-        val applyStart = android.os.SystemClock.elapsedRealtimeNanos()
-        var editsEnd = applyStart
-        applying = true
-        try {
-            val reset = update.reset
-            if (reset != null) {
-                // Chunk first, then style: one whole-note SpannableStringBuilder
-                // re-sorts its entire span table on every setSpan (quadratic open).
-                val built = ChunkedEditable.from(reset + END_SENTINEL)
-                for (window in update.windows) addSpans(built, window.specs)
-                setText(built, BufferType.EDITABLE)
-            } else {
-                val e = editableText
-                val t0 = System.nanoTime()
-                beginBatchEdit()
-                var t1 = t0
-                try {
-                    for (edit in update.edits) e.replace(edit.start, edit.end, edit.text)
-                    t1 = System.nanoTime()
-                    editsEnd = android.os.SystemClock.elapsedRealtimeNanos()
-                    for (window in update.windows) restyle(e, window)
-                } finally {
-                    endBatchEdit()
-                }
-                if (PROFILE) {
-                    val t2 = System.nanoTime()
-                    android.util.Log.i("TextFirstApply", "replace=${(t1 - t0) / 1000}us restyle+batch=${(t2 - t1) / 1000}us windows=${update.windows.map { it.end - it.start }}")
-                }
-            }
-            reveal.edited()
-            val e = editableText
-            // Not BaseInputConnection.removeComposingSpans: it lists every span in the note.
-            composing?.let(e::removeSpan)
-            composing = null
-            if (update.composingStart >= 0 && update.composingEnd > update.composingStart) {
-                composing = ComposingUnderline().also {
-                    e.setSpan(it, update.composingStart, update.composingEnd, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE or Spanned.SPAN_COMPOSING)
-                }
-            }
-            val length = (e.length - 1).coerceAtLeast(0)
-            Selection.setSelection(e, update.selStart.coerceIn(0, length), update.selEnd.coerceIn(0, length))
-            appliedSeq = update.seq
-            if (update.inputUptimeNanos != 0L && update.reset == null) {
-                pendingTimings = KeyTimings(
-                    input = update.inputUptimeNanos,
-                    posted = update.postedNanos,
-                    engine = update.engineNanos,
-                    applyStart = applyStart,
-                    editsEnd = editsEnd,
-                    applyEnd = android.os.SystemClock.elapsedRealtimeNanos(),
-                )
-            }
-        } finally {
-            applying = false
-        }
-        if (update.reset != null) { requestImageLoads(); scheduleRestore() }
-    }
+    fun apply(update: UiUpdate) = applyEngineUpdate(update)
 
     // ---- scroll position ----
 
@@ -211,7 +150,6 @@ internal class TextFirstEditText(
         if (y != scrollY) scrollTo(scrollX, y)
     }
 
-    private class ComposingUnderline : UnderlineSpan()
 
     /**
      * TextView clips its text to the padding box while scrolled, so the bottom
