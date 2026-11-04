@@ -106,7 +106,10 @@ impl IdentityTransition {
         let Some(rewritten) = self.rewritten.take() else {
             return;
         };
-        if state.engine.source_text() == self.before {
+        let rewritten = crate::notes::saved_note_source(&rewritten).into_owned();
+        if crate::notes::saved_note_source(&state.engine.source_text())
+            == crate::notes::saved_note_source(&self.before)
+        {
             let revision = state.engine.revision();
             if state.portable {
                 // The page adopts the rewrite itself, as one Undo step.
@@ -125,7 +128,9 @@ impl IdentityTransition {
                     state.coordinated.push(change);
                 }
             }
-            if state.relink_offer.is_some() || state.engine.source_text() == rewritten {
+            if state.relink_offer.is_some()
+                || crate::notes::saved_note_source(&state.engine.source_text()) == rewritten
+            {
                 state.mark_saved();
             }
         }

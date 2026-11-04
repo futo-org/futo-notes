@@ -123,7 +123,10 @@ internal class TextFirstController(
         snapshot.reveal?.let { (start, end) -> view.post { view.revealRange(start, end) } }
     }
 
-    override fun onCaretState(state: CaretState) { caret = state }
+    override fun onCaretState(state: CaretState) {
+        caret = state
+        view.setCodeInput(state.code)
+    }
 
     override fun onAttachmentId(noteId: String) = onAttachmentChanged(noteId)
 

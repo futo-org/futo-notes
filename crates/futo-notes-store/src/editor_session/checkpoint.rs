@@ -8,11 +8,9 @@ impl Attachment {
     /// The merged source this portable worker is waiting for its page to adopt.
     /// Once the worker's draft equals it, the merge is the saved baseline.
     pub(super) fn adopt_delivered_merge(&mut self) {
-        if self
-            .pending_merge
-            .as_deref()
-            .is_some_and(|merged| self.engine.source_text() == merged)
-        {
+        if self.pending_merge.as_deref().is_some_and(|merged| {
+            crate::notes::saved_note_source(&self.engine.source_text()) == merged
+        }) {
             self.base = self.pending_merge.take().unwrap_or_default();
         }
     }
@@ -69,7 +67,9 @@ impl Attachment {
         // changed outside follows that source: it is never a draft, so it is
         // never parked. A missing clean note has no draft to persist: never
         // feed it to the edit-wins recreate arm.
-        let clean = source == self.base && self.pending_merge.is_none();
+        let saved_source = crate::notes::saved_note_source(&source);
+        let clean =
+            (source == self.base || saved_source == self.base) && self.pending_merge.is_none();
         let outside = if clean && !self.portable && self.relink_offer.is_none() {
             store
                 .read_existing(&self.id)
@@ -84,7 +84,7 @@ impl Attachment {
         if clean || self.relink_offer.is_some() {
             self.mark_saved();
             return Ok(MergedDraftResult {
-                source,
+                source: self.base.clone(),
                 flush: FlushDraftResult {
                     disposition: FlushDisposition::Converged,
                     mutation: None,
@@ -130,7 +130,7 @@ impl Attachment {
         // holds the unmerged draft, so the baseline stays put and any later
         // save parks that draft instead of overwriting the merged disk.
         self.pending_merge = None;
-        if portable_merge && result.source != source {
+        if portable_merge && result.source != saved_source {
             self.pending_merge = Some(result.source.clone());
         } else {
             self.base = result.source.clone();

@@ -2,6 +2,41 @@
 use super::*;
 
 impl EditorSession {
+    pub(in crate::session) fn fence_enter(
+        &mut self,
+        expected: Revision,
+        range: DisplayRange,
+        accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
+    ) -> Result<Option<ViewChange>, EditorError> {
+        let Some(line) = self
+            .projection
+            .block_lines(range)
+            .into_iter()
+            .find(|line| line.code)
+        else {
+            return Ok(None);
+        };
+        let start = self.projection.display_at(line.content.start);
+        if start > range.start.0 {
+            return Ok(None);
+        }
+        let mut inserted = String::from("\n");
+        inserted.extend(
+            self.projection
+                .display
+                .byte_slice(start..range.start.0)
+                .chars()
+                .take_while(|ch| matches!(ch, ' ' | '\t')),
+        );
+        self.fence_input(
+            expected,
+            range,
+            &inserted,
+            crate::InputAction::Isolated,
+            accept,
+        )
+    }
+
     pub(in crate::session) fn fence_conversion(
         &mut self,
         expected: Revision,

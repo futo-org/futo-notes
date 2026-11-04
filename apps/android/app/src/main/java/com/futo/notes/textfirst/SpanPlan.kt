@@ -22,10 +22,8 @@ internal sealed class SpanSpec(val start: Int, val end: Int) {
     class Wikilink(start: Int, end: Int, val label: String, val noteId: String?) : SpanSpec(start, end)
     class Divider(start: Int, end: Int) : SpanSpec(start, end)
     class Image(start: Int, end: Int, val destination: String, val alt: String, val vault: Boolean, val remote: Boolean) : SpanSpec(start, end)
-    /** An empty display line (layout only: no Markdown meaning). */
     class TableRow(start: Int, end: Int, val row: GridRow) : SpanSpec(start, end)
     class TableDelimiter(start: Int, end: Int) : SpanSpec(start, end)
-    class Blank(start: Int, end: Int) : SpanSpec(start, end)
 }
 
 internal class StyleWindow(val start: Int, val end: Int, val specs: List<SpanSpec>)
@@ -105,10 +103,15 @@ internal fun planSpans(p: EditorProjection, startUtf16: Int, outside: (Int) -> I
         return if (localEnd < p.text.length && p.text[localEnd] == '\n') endUtf16 + 1 else endUtf16
     }
     val out = ArrayList<SpanSpec>(p.runs.size + p.blocks.size + p.atoms.size)
-    // Heading lines keep their own height when empty (no compact block gap).
-    val headingLines = ArrayList<IntRange>()
+    val codeBodies = p.blocks.filter { it.code && it.range.start < it.range.end }.sortedBy { it.range.start }
     var previous: uniffi.futo_notes_ffi.EditorBlockDescription? = null
     for (b in p.blocks) {
+        // Hidden fence rows can share the first/last body's display point.
+        // They are not extra paragraphs with another code/quote margin.
+        if (b.code && b.range.start == b.range.end) {
+            val i = codeBodies.binarySearchBy(b.range.start) { it.range.start }.let { if (it >= 0) it else -it - 2 }
+            if (i >= 0 && b.range.end <= codeBodies[i].range.end) continue
+        }
         // An empty fence (opener, body and closer on one display point) arrives as that many
         // identical blocks; each would add its own quote margin and bar.
         if (b == previous) continue
@@ -118,7 +121,7 @@ internal fun planSpans(p: EditorProjection, startUtf16: Int, outside: (Int) -> I
         when {
             b.metadata -> out.add(SpanSpec.Metadata(s, e))
             b.code -> out.add(SpanSpec.Code(s, e))
-            b.heading > 0u -> { out.add(SpanSpec.Heading(s, e, b.heading.toInt())); headingLines.add(s until e) }
+            b.heading > 0u -> out.add(SpanSpec.Heading(s, e, b.heading.toInt()))
         }
         if (b.quoteDepth > 0u) out.add(SpanSpec.Quote(s, e, b.quoteDepth.toInt()))
         b.list?.let { list ->
@@ -143,13 +146,6 @@ internal fun planSpans(p: EditorProjection, startUtf16: Int, outside: (Int) -> I
             ),
         )
     }
-    // Empty display lines get the compact block gap.
-    for (i in p.text.indices) {
-        if (p.text[i] == '\n' && (i == 0 || p.text[i - 1] == '\n')) {
-            val at = startUtf16 + i
-            if (at > 0 && headingLines.none { at in it }) out.add(SpanSpec.Blank(at, at + 1))
-        }
-    }
     for (l in p.links) out.add(SpanSpec.Link(u(l.range.start), u(l.range.end), l.destination))
     for (w in p.wikilinks) out.add(SpanSpec.Wikilink(u(w.range.start), u(w.range.end), w.label, w.noteId))
     for (a in p.atoms) {
@@ -171,7 +167,7 @@ internal fun planSpans(p: EditorProjection, startUtf16: Int, outside: (Int) -> I
 internal fun splitAtLines(specs: List<SpanSpec>, text: String, startUtf16: Int): List<SpanSpec> {
     val out = ArrayList<SpanSpec>(specs.size)
     for (spec in specs) {
-        val atom = spec is SpanSpec.Wikilink || spec is SpanSpec.Divider || spec is SpanSpec.Image || spec is SpanSpec.Blank
+        val atom = spec is SpanSpec.Wikilink || spec is SpanSpec.Divider || spec is SpanSpec.Image
         if (atom || spec.end <= spec.start) { out.add(spec); continue }
         var s = spec.start
         var first = true
@@ -196,5 +192,5 @@ private fun SpanSpec.slice(start: Int, end: Int, first: Boolean): SpanSpec = whe
     is SpanSpec.Metadata -> SpanSpec.Metadata(start, end)
     is SpanSpec.Link -> SpanSpec.Link(start, end, destination)
     // Atoms are one unit and never span lines; keep them whole.
-    is SpanSpec.Wikilink, is SpanSpec.Divider, is SpanSpec.Image, is SpanSpec.Blank, is SpanSpec.TableRow, is SpanSpec.TableDelimiter -> this
+    is SpanSpec.Wikilink, is SpanSpec.Divider, is SpanSpec.Image, is SpanSpec.TableRow, is SpanSpec.TableDelimiter -> this
 }

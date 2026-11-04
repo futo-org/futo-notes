@@ -40,7 +40,7 @@ impl EditorSession {
         self.validate_range(range)?;
         range = self.body_range(range)?;
         if matches!(key, ParagraphKey::Tab | ParagraphKey::ShiftTab) {
-            return self.fence_tab(expected, range, key == ParagraphKey::ShiftTab, accept);
+            return self.fence_indent(expected, range, key == ParagraphKey::ShiftTab, true, accept);
         }
         if matches!(key, ParagraphKey::Enter | ParagraphKey::ShiftEnter) {
             // An image selected as one object is not replaced by Enter: the
@@ -66,6 +66,9 @@ impl EditorSession {
                 return Ok(Some(change));
             }
             if let Some(change) = self.fence_conversion(expected, range, "\n", accept)? {
+                return Ok(Some(change));
+            }
+            if let Some(change) = self.fence_enter(expected, range, accept)? {
                 return Ok(Some(change));
             }
         }

@@ -13,7 +13,6 @@ import uniffi.futo_notes_ffi.EditorByteRange
 import uniffi.futo_notes_ffi.EditorInlineFormat
 import uniffi.futo_notes_ffi.EditorInputAction
 import uniffi.futo_notes_ffi.EditorParagraphKey
-import uniffi.futo_notes_ffi.EditorProjection
 import uniffi.futo_notes_ffi.EditorSessionException
 import uniffi.futo_notes_ffi.EditorUtf16Range
 import uniffi.futo_notes_ffi.EditorViewChange
@@ -85,7 +84,6 @@ internal class EditorEngine(
     private var inputStartNanos = 0L
     private var engineNanos = 0L
     /** The last change's projection; the caret state reads its block from it. */
-    internal var lastProjection: EditorProjection? = null
     /** Characters at the end of the display the view has not been given yet (progressive open). */
     internal var tailLength = 0
     internal val tailRunnable = Runnable { showNextSlice() }
@@ -101,11 +99,6 @@ internal class EditorEngine(
     fun viewSelection(viewSeq: Int, start: Int, end: Int) = handler.post {
         if (viewSeq != seq || closed) return@post
         if (start == mirror.selStart && end == mirror.selEnd) return@post
-        if (mirror.overlay != null) {
-            // The keyboard ends its own composition when the caret moves; keep
-            // the pinned marked range intact until it does.
-            mirror.selStart = start; mirror.selEnd = end; publishSelection(); return@post
-        }
         guarded { select(start, end, fromView = true) }
     }
 
@@ -330,14 +323,27 @@ internal class EditorEngine(
 
     internal fun select(start: Int, end: Int, fromView: Boolean) {
         val s = session ?: return
-        val a = minOf(start, end).coerceIn(0, mirror.text.length)
-        val b = maxOf(start, end).coerceIn(0, mirror.text.length)
+        var a = minOf(start, end).coerceIn(0, mirror.text.length)
+        var b = maxOf(start, end).coerceIn(0, mirror.text.length)
+        val overlay = mirror.overlay
+        val settle = overlay != null && (fromView || a < overlay.start || b > overlay.start + overlay.marked.length)
+        if (settle) {
+            // A tap leaves the keyboard's reconversion range immediately;
+            // waiting for its suggestion to be accepted pins the engine caret.
+            val oldEnd = checkNotNull(overlay).start + overlay.marked.length
+            val oldLength = mirror.text.length
+            commitComposition(null)
+            val shift = mirror.text.length - oldLength
+            if (a >= oldEnd) a += shift
+            if (b >= oldEnd) b += shift
+            ui.post { sink.onImeReset() }
+        }
         if (b > tailStart() && streaming) finishStreaming()
         val change = s.selectUtf16(rev, EditorUtf16Range(a.toULong(), b.toULong()))
         rev = change.revision
         mirror.selStart = mirror.toUtf16(change.selection.start.toInt())
         mirror.selEnd = mirror.toUtf16(change.selection.end.toInt())
-        if (!fromView || mirror.selStart != a || mirror.selEnd != b) postUpdate(emptyList(), emptyList()) else publishSelection()
+        if (settle || !fromView || mirror.selStart != a || mirror.selEnd != b) postUpdate(emptyList(), emptyList()) else publishSelection()
         scheduleCaretState()
     }
 
@@ -359,7 +365,6 @@ internal class EditorEngine(
         }
         mirror.replace(start, end, change.inserted, edits)
         rev = change.revision
-        lastProjection = change.projection
         mirror.selStart = mirror.toUtf16(change.selection.start.toInt())
         mirror.selEnd = mirror.toUtf16(change.selection.end.toInt())
         if (verifyMirror) verify()

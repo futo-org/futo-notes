@@ -36,7 +36,6 @@ internal class TextFirstEditText(
     var onOpenUrl: ((String) -> Unit)? = null
     private val wikilinkTouch = WikilinkTouch(this) { onOpenWikilink?.invoke(it) }
     private val imageTouch = ImageTouch(this)
-    private val codeBlockTouch = CodeBlockTouch(this)
     @Volatile override var selectedObject: Pair<Int, Int>? = null
     private val linkTouch = ExternalLinkTouch(this, { onOpenUrl?.invoke(it) }, ::nativeTouch)
     private val lineTouch = LineSelectTouch(this)
@@ -58,6 +57,7 @@ internal class TextFirstEditText(
     }
     /** The composing underline this view set; the only SPAN_COMPOSING span it owns. */
     private var composing: Any? = null
+    private var codeInput = false
 
     init {
         background = null
@@ -80,9 +80,6 @@ internal class TextFirstEditText(
         importantForAutofill = IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS
         if (android.os.Build.VERSION.SDK_INT >= 30) importantForContentCapture = IMPORTANT_FOR_CONTENT_CAPTURE_NO_EXCLUDE_DESCENDANTS
         highlightColor = (style.linkColor and 0x00ffffff) or 0x40000000
-        if (android.os.Build.VERSION.SDK_INT >= 29) {
-            textCursorDrawable?.let { setTextCursorDrawable(BlankLineCaret(it) { lineHeight }) }
-        }
         filters = arrayOf(InputFilter { source, _, _, dest, dstart, dend ->
             if (applying) null else dest.subSequence(dstart, dend)
         })
@@ -104,12 +101,23 @@ internal class TextFirstEditText(
         val packed = engine.publishedSelection
         outAttrs.initialSelStart = (packed ushr 32).toInt()
         outAttrs.initialSelEnd = (packed and 0xffffffffL).toInt()
+        if (codeInput) {
+            outAttrs.inputType = (outAttrs.inputType and
+                (InputType.TYPE_TEXT_FLAG_AUTO_CORRECT or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES).inv()) or
+                InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+        }
         outAttrs.imeOptions = outAttrs.imeOptions or EditorInfo.IME_FLAG_NO_EXTRACT_UI or EditorInfo.IME_FLAG_NO_ENTER_ACTION
         androidx.core.view.inputmethod.EditorInfoCompat.setContentMimeTypes(outAttrs, arrayOf("image/*"))
         return EngineInputConnection(engine, this)
     }
 
     override fun onCheckIsTextEditor(): Boolean = true
+
+    internal fun setCodeInput(code: Boolean) {
+        if (codeInput == code) return
+        codeInput = code
+        if (isFocused) restartKeyboard()
+    }
 
     // ---- engine → view ----
 
@@ -300,7 +308,6 @@ internal class TextFirstEditText(
         if (onOpenUrl != null && linkTouch.onTouch(event)) return true
         if (wikilinkTouch.onTouch(event)) return true
         imageTouch.onTouch(event)
-        codeBlockTouch.onTouch(event)
         // After the links, so a third quick tap on a link still opens it.
         if (lineTouch.onTouch(event)) return true
         when (event.actionMasked) {
@@ -317,7 +324,7 @@ internal class TextFirstEditText(
             MotionEvent.ACTION_MOVE -> if (checkboxDown >= 0) return true
             MotionEvent.ACTION_CANCEL -> if (checkboxDown >= 0) { checkboxDown = -1; return true }
         }
-        return super.onTouchEvent(event).also { wikilinkTouch.settleCaret(); imageTouch.settleSelection(); codeBlockTouch.settleSelection() }
+        return super.onTouchEvent(event).also { wikilinkTouch.settleCaret(); imageTouch.settleSelection() }
     }
 
     private fun nativeTouch(event: MotionEvent) { super.onTouchEvent(event) }

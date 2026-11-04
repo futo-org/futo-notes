@@ -23,7 +23,6 @@ impl EditorSession {
         };
         if line.code
             || line.heading > 0
-            || line.quote_depth == 0
             || line.divider
             || !self
                 .source
@@ -34,10 +33,35 @@ impl EditorSession {
         {
             return Ok(None);
         }
-        let Some((separator, copied)) =
-            self.quote_neighbor_separator(line.source.end, line.quote_depth, true)
-        else {
-            return Ok(None);
+        let before = line.quote_depth == 0;
+        let (separator, copied) = if before {
+            let row = self.source.byte_to_line(line.source.start);
+            if row == 0 {
+                return Ok(None);
+            }
+            let previous = self.source.line_to_byte(row - 1);
+            let at = DisplayOffset(self.projection.display_at(previous));
+            if !self
+                .projection
+                .block_lines(DisplayRange { start: at, end: at })
+                .iter()
+                .any(|line| line.quote_depth > 0)
+            {
+                return Ok(None);
+            }
+            let ending = if self.source.line(row - 1).to_string().ends_with("\r\n") {
+                "\r\n"
+            } else {
+                "\n"
+            };
+            (ending.to_owned(), ending.len())
+        } else {
+            let Some(boundary) =
+                self.quote_neighbor_separator(line.source.end, line.quote_depth, true)
+            else {
+                return Ok(None);
+            };
+            boundary
         };
         let change = self.stage_mapped_block_action(
             expected,
@@ -52,15 +76,30 @@ impl EditorSession {
                 let line = staged.projection.block_lines(local).remove(0);
                 let formats = staged.pending_formats.clone();
                 let affinity = staged.affinity;
+                let (at, selection) = if before {
+                    let start = staged.projection.source_bounds(local.start.0).1;
+                    let end = if local.start == local.end {
+                        start
+                    } else {
+                        staged.projection.source_bounds(local.end.0).0
+                    };
+                    (
+                        line.source.start,
+                        BlockSelection::SourceRange(start + separator.len()..end + separator.len()),
+                    )
+                } else {
+                    (line.source.end, BlockSelection::Display(local))
+                };
                 let mut boundary = staged.commit_block_edit(
                     staged.revision(),
-                    line.source.end..line.source.end,
+                    at..at,
                     &separator,
-                    BlockSelection::Display(local),
+                    selection,
                     None,
                     accept,
                 )?;
                 staged.carry_block_state(&mut boundary, formats, affinity);
+                let local = staged.selection();
                 let (mut input, mapping) = staged.replace_action_mapped(
                     staged.revision(),
                     local,

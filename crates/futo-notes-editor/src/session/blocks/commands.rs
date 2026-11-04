@@ -41,6 +41,21 @@ impl EditorSession {
         if command == BlockCommand::CodeBlock {
             return self.code_block_command(expected, range, accept);
         }
+        if matches!(command, BlockCommand::Indent | BlockCommand::Outdent)
+            && self
+                .projection
+                .block_lines(range)
+                .iter()
+                .any(|line| line.code)
+        {
+            return self.fence_indent(
+                expected,
+                range,
+                command == BlockCommand::Outdent,
+                false,
+                accept,
+            );
+        }
         if command == BlockCommand::ToggleTask {
             return self.toggle_task(expected, range, accept);
         }

@@ -81,6 +81,7 @@ impl LocalNoteStore {
         content: &str,
         modified_ms: Option<i64>,
     ) -> Result<NoteMetadata, String> {
+        let content = crate::notes::saved_note_source(content);
         for _ in 0..1000 {
             let id = paths::unique_note_id(&self.root, wanted, None)?;
             paths::note_path(&self.root, &id)?;
@@ -216,6 +217,7 @@ impl LocalNoteStore {
         content: &str,
         modified_ms: Option<i64>,
     ) -> Result<NoteMetadata, String> {
+        let content = crate::notes::saved_note_source(content);
         if let Some(existing) = self.colliding_note(id) {
             return Err(format!(
                 "note id collides with existing cross-platform path: {existing}"

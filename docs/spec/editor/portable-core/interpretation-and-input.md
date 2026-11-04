@@ -1,7 +1,7 @@
 # Exact source, interpretation and input
 
 - A session opens exact UTF-8 source, including CRLF, trailing whitespace and final-newline spelling; opening and dropping an unchanged store session writes nothing. → crates/futo-notes-editor, crates/futo-notes-store/src/editor_session
-- Blocks and list items an action does not edit keep their exact bytes and line endings; edited ones may be respelled canonically if they reparse to the intended display and shapes (lists.md), else the action refuses with `UnrepresentableFormat`. Undo restores exact bytes. → crates/futo-notes-editor/src/session/blocks/list_edit/mod.rs
+- Blocks and list items an action does not edit keep their exact bytes and line endings; edited ones may be respelled canonically if they reparse to the intended display and shapes (lists.md), else the action refuses with `UnrepresentableFormat`. Undo restores exact in-memory bytes; authored note writes may append the final line ending required by the save contract (recovery.md). → crates/futo-notes-editor/src/session/blocks/list_edit/mod.rs
 - Insertion, deletion and replacement use distinct source/display UTF-8 byte coordinates; revision-checked conversions expose distinct source/display UTF-16 code-unit ranges for native hosts. Hidden markers and decoded entities have explicit source/display correspondence; one-to-one stretches arrive as literal runs, never per-byte records. → crates/futo-notes-editor/src/coordinates.rs, crates/futo-notes-editor/tests/inline/correspondence.rs
 - Reversed or out-of-range edits, UTF-8 character splits, UTF-16 surrogate splits, unpaired surrogate input and stale revisions reject explicitly before acceptance, leaving text, selection and history unchanged; input preserves exact line endings and Unicode spelling. → crates/futo-notes-editor/src/coordinates.rs, crates/futo-notes-editor/tests/unicode.rs
 - Identical selection/affinity echoes retain carried formatting and the typing group; an actual selection or affinity change breaks the run even if the caret later returns. Selection-only updates carry the current source revision and create no source delta or history step; Undo/Redo restore the exact selection, affinity and carried formats before/after their original edit. → crates/futo-notes-editor/src/session.rs
@@ -33,3 +33,5 @@
 - Inline source edits, formatting and history use the same store acceptance/checkpoint workflow as plain input; edits carry source ranges rather than rendered offsets. → crates/futo-notes-store/src/editor_session/input.rs, crates/futo-notes-store/src/tests/editor_session.rs
 
 Heading, quote and divider block commands: [block-commands.md](block-commands.md).
+
+- *(Android native text-first editor)* Tapping to move the caret settles any keyboard composition or reconversion before selecting the tapped position; leaving a suggested word does not require accepting a keyboard suggestion. → apps/android/app/src/main/java/com/futo/notes/textfirst/EditorEngine.kt `select`

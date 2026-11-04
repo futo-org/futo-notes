@@ -14,6 +14,20 @@ use crate::{
     MutationResult, NoteRename, Snapshot, VaultFile,
 };
 
+/// Nonempty authored notes end in a line ending; existing blank lines stay exact.
+pub(crate) fn saved_note_source(source: &str) -> std::borrow::Cow<'_, str> {
+    if source.is_empty() || source.ends_with('\n') {
+        std::borrow::Cow::Borrowed(source)
+    } else {
+        let ending = if source.contains("\r\n") {
+            "\r\n"
+        } else {
+            "\n"
+        };
+        std::borrow::Cow::Owned(format!("{source}{ending}"))
+    }
+}
+
 impl LocalNoteStore {
     pub fn snapshot(&self) -> Snapshot {
         vault::snapshot_with_cache(&self.root, &self.list_cache, self.sort_order())

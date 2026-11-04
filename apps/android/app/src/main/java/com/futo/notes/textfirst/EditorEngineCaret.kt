@@ -10,10 +10,12 @@ internal fun EditorEngine.refreshCaretState() {
     try {
         refreshCompletion()
         val formats = s.activeFormats().toSet()
-        val at = mirror.toByte(mirror.selStart).toULong()
-        // The last key's projection usually holds the caret; one fewer engine call.
-        val projection = lastProjection?.takeIf { it.revision == rev && it.range.start <= at && at <= it.range.end }
-            ?: s.project(rev, EditorByteRange(at, at))
+        // Projection coordinates describe committed text. A provisional word
+        // may be longer, but its opening range still identifies its block.
+        val at = mirror.toByte(mirror.overlay?.start ?: mirror.selStart).toULong()
+        // Ask for this caret's block: the broader edit window can also contain
+        // a following plain block sharing a hidden fence's display boundary.
+        val projection = s.project(rev, EditorByteRange(at, at))
         val block = projection.blocks.lastOrNull { it.range.start <= at && at <= it.range.end }
         val state = CaretState(
             formats = formats,

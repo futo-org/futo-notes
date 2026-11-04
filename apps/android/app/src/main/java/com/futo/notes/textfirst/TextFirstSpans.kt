@@ -14,7 +14,6 @@ import android.text.style.LineBackgroundSpan
 import android.text.style.LineHeightSpan
 import android.text.style.MetricAffectingSpan
 import android.text.style.ReplacementSpan
-import android.text.style.UpdateLayout
 import android.text.style.UpdateAppearance
 
 /**
@@ -339,28 +338,5 @@ internal class TfImage(
     }
 }
 
-/** The Editable flags every renderer span uses: never grow with typed text. */
+/** Inline and atom spans never grow with typed text; block spans also cover provisional input. */
 internal const val TF_SPAN_FLAGS = Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
-
-/**
- * A blank display line between blocks, drawn at half height to stand in for
- * the Milkdown surface's 0.75em block gap. One per blank line: a LineHeightSpan
- * is also a WrapTogetherSpan, so a span over more than its own line would make
- * the layout reflow everything it covers on every edit (it did: a whole-note
- * span cost 6 s a keystroke in a 19k-line note). [UpdateLayout] so that adding
- * it to text already laid out (a streamed slice) re-measures its line: a
- * bare LineHeightSpan is only consulted when the line is next broken.
- */
-internal class TfBlankLine : LineHeightSpan, UpdateLayout, TfSpan {
-    override fun slice(head: Boolean): TfSpan? = null
-
-    override fun chooseHeight(text: CharSequence, start: Int, end: Int, spanstartv: Int, lineHeight: Int, fm: Paint.FontMetricsInt) {
-        val empty = end - start == 1 && text[start] == '\n' && start > 0
-        if (!empty) return
-        val height = fm.descent - fm.ascent
-        val target = (height * 0.5f).toInt()
-        fm.ascent = fm.descent - target
-        fm.top = fm.ascent
-        fm.bottom = fm.descent
-    }
-}

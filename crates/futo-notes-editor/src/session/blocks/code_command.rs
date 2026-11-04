@@ -275,6 +275,16 @@ impl EditorSession {
 /// which a paragraph drops, is encoded.
 fn prose_literal(text: &str) -> String {
     let (mut text, _) = super::content::protect_content(text, false, true);
+    // Paragraph parsing drops trailing whitespace, unlike code. Keep it visible
+    // so the unchanged display selection is still valid after removing fences.
+    let tail = text.trim_end_matches([' ', '\t']).len();
+    if tail < text.len() {
+        let encoded: String = text[tail..]
+            .chars()
+            .map(|ch| format!("&#{};", ch as u32))
+            .collect();
+        text.replace_range(tail.., &encoded);
+    }
     if let Some(first @ (' ' | '\t')) = text.chars().next() {
         text.replace_range(..1, &format!("&#{};", first as u32));
     }

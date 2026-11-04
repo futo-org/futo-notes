@@ -53,6 +53,5 @@ internal fun EditorEngine.acceptCompletion(draft: CompletionDraft, noteId: Strin
 /** A vault change refreshes the delivered catalog once, never per completion request. */
 internal fun EditorEngine.refreshCompletionNoteIds() = command {
     val change = session?.refreshNoteIds() ?: return@command
-    lastProjection = null
     if (change.projections.isNotEmpty()) postUpdate(emptyList(), change.projections.map(::window))
 }

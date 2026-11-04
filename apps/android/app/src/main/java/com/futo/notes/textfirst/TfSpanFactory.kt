@@ -16,7 +16,6 @@ internal class TfSpanFactory(private val style: TextFirstStyle, private val mark
         is SpanSpec.Image -> TfImage(style, spec.destination, spec.alt, spec.vault, spec.remote) { contentWidth() }
         is SpanSpec.TableRow -> TfTableRow(style, spec.row, spec.start, tableScroll.getOrPut(spec.row.tableStart) { TableScroll() }, marks, contentWidth)
         is SpanSpec.TableDelimiter -> TfTableDelimiter()
-        is SpanSpec.Blank -> TfBlankLine()
     }
 
     fun matches(spec: SpanSpec, span: TfSpan): Boolean = when (spec) {
@@ -32,6 +31,5 @@ internal class TfSpanFactory(private val style: TextFirstStyle, private val mark
         is SpanSpec.Image -> span is TfImage && span.destination == spec.destination
         is SpanSpec.TableRow -> span is TfTableRow && span.row == spec.row
         is SpanSpec.TableDelimiter -> span is TfTableDelimiter
-        is SpanSpec.Blank -> span is TfBlankLine
     }
 }

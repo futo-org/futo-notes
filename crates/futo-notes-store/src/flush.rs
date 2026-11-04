@@ -139,6 +139,9 @@ impl LocalNoteStore {
         merge: bool,
         validate: &mut dyn FnMut(&str) -> Result<bool, String>,
     ) -> Result<crate::MergedDraftResult, String> {
+        let saved_content = crate::notes::saved_note_source(content);
+        let content = saved_content.as_ref();
+        let saved_base = crate::notes::saved_note_source(base);
         paths::note_path(&self.root, id)?;
         let current = self.read_note_file(id);
         #[cfg(test)]
@@ -156,7 +159,7 @@ impl LocalNoteStore {
                 disposition: FlushDisposition::Converged,
                 mutation: None,
             }),
-            Ok(current) if current == base => {
+            Ok(current) if current == base || current == saved_base => {
                 let metadata = self.write_raw(id, content, None)?;
                 Ok(FlushDraftResult {
                     disposition: FlushDisposition::Wrote,
@@ -169,8 +172,14 @@ impl LocalNoteStore {
             // disk is left intact and the edit survives as a new note.
             Ok(current) => {
                 let merged = if merge {
-                    match futo_notes_core::merge::three_way_merge(base, &current, content) {
-                        futo_notes_core::merge::MergeResult::Clean(merged) => Some(merged),
+                    match futo_notes_core::merge::three_way_merge(
+                        &saved_base,
+                        &crate::notes::saved_note_source(&current),
+                        content,
+                    ) {
+                        futo_notes_core::merge::MergeResult::Clean(merged) => {
+                            Some(crate::notes::saved_note_source(&merged).into_owned())
+                        }
                         futo_notes_core::merge::MergeResult::Conflict => None,
                     }
                 } else {
