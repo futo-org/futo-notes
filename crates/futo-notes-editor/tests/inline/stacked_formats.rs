@@ -79,3 +79,45 @@ fn typing_continues_after_dropping_a_format_past_a_space() {
         assert_eq!(s.source_text(), source);
     }
 }
+
+#[test]
+fn repeated_carried_format_toggles_keep_accepting_input_in_a_distant_heading() {
+    use futo_notes_editor::{
+        Affinity, DisplayOffset, DisplayRange,
+        InlineFormat::{Bold, Italic, Strike},
+    };
+    let prefix = "paragraph\n\n".repeat(2000);
+    let mut s = EditorSession::open(&format!("{prefix}# title"));
+    let at = s.display_text().len();
+    let caret = DisplayRange {
+        start: DisplayOffset(at),
+        end: DisplayOffset(at),
+    };
+    s.select_with_affinity(s.revision(), caret, Affinity::Backward)
+        .unwrap();
+    for format in [
+        Bold, Italic, Strike, Bold, Strike, Italic, Strike, Bold, Italic,
+    ] {
+        toggle(&mut s, format);
+        // Native hosts echo the same selection after carried-only commands.
+        s.select_with_affinity(s.revision(), s.selection(), Affinity::Backward)
+            .unwrap();
+    }
+    type_text(&mut s, " typed");
+    assert_eq!(s.display_text(), format!("{prefix}title typed"));
+    assert_eq!(
+        EditorSession::open(&s.source_text()).display_text(),
+        s.display_text()
+    );
+    let selection = DisplayRange {
+        start: DisplayOffset(at - 5),
+        end: DisplayOffset(at),
+    };
+    s.select(s.revision(), selection).unwrap();
+    for format in [Bold, Italic, Strike] {
+        s.toggle_format(s.revision(), format, &mut |_| Ok(()))
+            .unwrap()
+            .unwrap();
+        assert_eq!(s.display_text(), format!("{prefix}title typed"));
+    }
+}
