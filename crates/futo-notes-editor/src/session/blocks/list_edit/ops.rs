@@ -81,13 +81,22 @@ impl EditorSession {
         command: BlockCommand,
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<Option<ViewChange>, EditorError> {
-        if self.projection.has_block_seams(range)
+        let (has_seams, inspected) = self.projection.has_block_seams_with_work(range);
+        let counted = |result: Result<Option<ViewChange>, EditorError>| {
+            result.map(|change| {
+                change.map(|mut change| {
+                    change.work.link_metadata_items += inspected;
+                    change
+                })
+            })
+        };
+        if has_seams
             || self
                 .projection
                 .has_multiline_block_code(&self.source, range)
         {
             // Inline marks and code close and reopen at the new block seams first.
-            return self.stage_block_action(
+            return counted(self.stage_block_action(
                 expected,
                 range,
                 None,
@@ -101,9 +110,9 @@ impl EditorSession {
                     }
                     Ok(change)
                 },
-            );
+            ));
         }
-        self.list_rows_command(expected, range, command, accept)
+        counted(self.list_rows_command(expected, range, command, accept))
     }
 
     fn list_rows_command(

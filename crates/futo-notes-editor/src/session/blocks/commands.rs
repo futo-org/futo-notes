@@ -167,13 +167,25 @@ impl EditorSession {
         if !lines.iter().any(|line| changes_block(line, command)) {
             return Ok(None);
         }
-        let boundaries = self.block_command_boundaries(range, &lines, command);
-        if self.projection.has_block_seams_at(range, &boundaries)
+        let (boundaries, inspected) = self.block_command_boundaries(range, &lines, command);
+        let (has_seams, seam_work) = self
+            .projection
+            .has_block_seams_at_with_work(range, &boundaries);
+        let inspected = inspected + seam_work;
+        let counted = |result: Result<Option<ViewChange>, EditorError>| {
+            result.map(|change| {
+                change.map(|mut change| {
+                    change.work.link_metadata_items += inspected;
+                    change
+                })
+            })
+        };
+        if has_seams
             || self
                 .projection
                 .has_multiline_block_code(&self.source, range)
         {
-            return self.stage_block_action(
+            return counted(self.stage_block_action(
                 expected,
                 range,
                 None,
@@ -199,18 +211,18 @@ impl EditorSession {
                     }
                     Ok(Some(change))
                 },
-            );
+            ));
         }
         if command == BlockCommand::Divider {
-            return self.insert_divider(expected, range, lines, accept);
+            return counted(self.insert_divider(expected, range, lines, accept));
         }
         if matches!(
             command,
             BlockCommand::Quote | BlockCommand::Indent | BlockCommand::Outdent
         ) {
-            return self.quote_command(expected, range, command, accept);
+            return counted(self.quote_command(expected, range, command, accept));
         }
-        self.apply_block_prefix_command(expected, range, command, lines, accept)
+        counted(self.apply_block_prefix_command(expected, range, command, lines, accept))
     }
 
     fn block_command_boundaries(
@@ -218,14 +230,18 @@ impl EditorSession {
         range: DisplayRange,
         selected: &[crate::inline::blocks::BlockLine],
         command: BlockCommand,
-    ) -> Vec<usize> {
+    ) -> (Vec<usize>, usize) {
+        let inspected = std::cell::Cell::new(0usize);
         let shape = |line: &crate::inline::blocks::BlockLine| {
             let mut heading = line.heading;
             let mut depth = line.quote_depth;
-            if selected
-                .iter()
-                .any(|selected| selected.source.start == line.source.start)
-                && changes_block(line, command)
+            if changes_block(line, command)
+                && selected
+                    .binary_search_by(|selected| {
+                        inspected.set(inspected.get() + 1);
+                        selected.source.start.cmp(&line.source.start)
+                    })
+                    .is_ok()
             {
                 match command {
                     BlockCommand::Heading(level) => heading = level,
@@ -249,7 +265,8 @@ impl EditorSession {
             }
             (heading, depth)
         };
-        self.projection
+        let boundaries = self
+            .projection
             .line_boundaries(range)
             .into_iter()
             .filter(|&boundary| {
@@ -275,7 +292,8 @@ impl EditorSession {
                     || right_heading > 0
                     || left_depth != right_depth
             })
-            .collect()
+            .collect();
+        (boundaries, inspected.get())
     }
 }
 
