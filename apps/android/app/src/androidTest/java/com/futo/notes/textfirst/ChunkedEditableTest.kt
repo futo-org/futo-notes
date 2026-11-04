@@ -24,6 +24,14 @@ class ChunkedEditableTest {
 
     private val kinds = listOf(Any::class.java, StyleSpan::class.java, LeadingMarginSpan::class.java, UnderlineSpan::class.java, ForegroundColorSpan::class.java)
 
+    /** LineBackgroundSpan.Standard was added in API 29; this fixture also runs on API 28. */
+    private fun lineBackground(color: Int) = LineBackgroundSpan { canvas, paint, left, right, top, _, bottom, _, _, _, _ ->
+        val original = paint.color
+        paint.color = color
+        canvas.drawRect(left.toFloat(), top.toFloat(), right.toFloat(), bottom.toFloat(), paint)
+        paint.color = original
+    }
+
     private fun newSpan(random: Random): Any = when (random.nextInt(4)) {
         0 -> StyleSpan(1)
         1 -> LeadingMarginSpan.Standard(4)
@@ -156,8 +164,8 @@ class ChunkedEditableTest {
     fun drawWindowClampsOnlyLineBackgroundQueries() {
         val text = "a\nb\nc\nd\n"
         val sut = ChunkedEditable.from(text, target = 2, max = 4)
-        val near = LineBackgroundSpan.Standard(1)
-        val far = LineBackgroundSpan.Standard(2)
+        val near = lineBackground(1)
+        val far = lineBackground(2)
         val other = UnderlineSpan()
         sut.setSpan(near, 0, 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
         sut.setSpan(far, 6, 7, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
