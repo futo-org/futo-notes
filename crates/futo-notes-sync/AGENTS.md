@@ -11,6 +11,15 @@ Every trigger is push-first: dirty local edits are PUT before any pull writes di
 this ordering to fix a test. `SyncSession` owns mutually exclusive cycles and live-sync lifecycle;
 shells project it rather than reconstructing the protocol.
 
+## Local renames (#214, ADR-0013)
+
+Sync reads the store's rename journal (`futo-notes-store::rename_journal`) and never infers a rename
+from hashes, basenames or titles. Inside push, before the scan decides deletes: claim committed
+intents, bind the source's object id, rekey that one checkpoint entry, PUT the original object at the
+destination. Acknowledge only after the PUT landed and the checkpoint holding it saved; a crash
+before that replays against the same object. A pending intent holds both names against delete and
+pull relocation. Recovery of an interrupted move belongs to store bootstrap, not here.
+
 ## Verification
 
 - Any change: `just test-sync`. It runs every ordinary test through the pinned,

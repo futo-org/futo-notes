@@ -15,7 +15,7 @@ primitives (path safety, atomic writes, conflict names, the vault mutation guard
   each an `impl LocalNoteStore` block: `bootstrap.rs` (`bootstrap`, `startup_listing`, `.txt`
   migration), `notes.rs` (`snapshot`, `read`, `create`, `append`, `write`, `rename`, `move_note`, `delete`,
   external-change projection), `flush.rs` (`save`, `flush_draft`), `folders.rs` (the folder
-  workflows), `relink.rs` (file moves with rollback and backlink rewrites), and `commit.rs`
+  workflows), `relink.rs` (journaled file moves with rollback and backlink rewrites), and `commit.rs`
   (no-replace installs and the post-commit `MutationResult`).
 - **`vault.rs`**: the corpus walk, snapshot building, and `note_list_order` — **the** note-list sort
   rule (modified desc, id asc). The walk visits folders and each folder's notes in parallel and
@@ -32,6 +32,11 @@ primitives (path safety, atomic writes, conflict names, the vault mutation guard
   per-note registry.
 - **`editor_draft.rs`**: baseline-aware identity changes. A stale editor parks its draft at the
   requested destination instead of overwriting the peer, and does not redirect links away from it.
+- **`rename_journal/`**: the durable rename transaction journal (ADR-0013). `moves.rs` stages and
+  installs a move, `recovery.rs` finishes or undoes an interrupted one at bootstrap, `sync_view.rs` is
+  the surface sync reads and acknowledges through. It owns `<vault>/.local-renames.json` and
+  `<vault>/.local-renames/<tx>/` (dot-prefixed; walks skip them). Every rename path in `relink.rs`
+  goes through `move_journaled`.
 - **`vault_migration.rs`**: staged, verified moves of a whole vault to a new root; `vault_migration/`
   holds the manifest copy and the directory-fsync durability steps.
 - **`search.rs`**: the per-vault search-engine lifecycle (start, retry, restart). The only place
@@ -44,13 +49,18 @@ primitives (path safety, atomic writes, conflict names, the vault mutation guard
   multi-file rename-and-relink has one decision boundary. A caller that reads, decides, then calls
   back in has created a check-then-act race (AGENTS.md §4, item 6 — one such race resurrected a
   deleted note). If two calls must happen in order, add one workflow here instead.
+- **One exception to the gate: the rename journal.** `rename_journal::with_rename_journal` and
+  `set_rename_scope` are called by sync under the vault mutation guard only, to bind, claim and
+  acknowledge intents. They touch only the journal file, never note content. Do not add another
+  writer outside the gate; extend the journal's surface instead.
 - **`MutationResult` is the complete post-commit projection.** It carries `upserted` (each with its
   position in the sort order), `removed`, `renamed`, `folders`, the collision-resolved `final_id` /
   `final_folder`, and `warnings`. Shells apply it verbatim. Never leave a shell to reconstruct a
   collision outcome, a backlink rewrite, or a list position — ADR-0001 forbids a shell-side
   comparator or final-id heuristic.
 - **Sort order lives only in `vault.rs`.** Shells splice the engine-reported positions.
-- **The raw save primitives stay private and `flush_draft` is the one save verb**, returning a
+- **The raw save primitives stay private and `flush_draft` (with its merging sibling
+  `flush_draft_merged`) is the save verb**, returning a
   `FlushDisposition` the shells render rather than decide. Read
   `docs/adr/0001-shells-are-projections.md` before touching that surface — it owns the reasoning,
   and its consequences section says what re-exposing a primitive would undo.
