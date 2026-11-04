@@ -135,3 +135,4 @@
   The one `*` a save writes is the second of two adjacent lists ("Markdown house
   style"). → packages/editor/src/markdown/,
   tests/editor-embed-milkdown-toolbar.spec.ts
+- Indent on an EMPTY list item is refused like any other Indent with no preceding sibling to nest under: nothing is held as pending indentation, so later typing, composition or an OS replace never retroactively indents the item. This supersedes the earlier held-indent behavior (main 8d0d8eb41; the Android text-first editor's leftover redraw state was removed). → crates/futo-notes-editor/tests/lists.rs (70 passing 2026-11-03; evidence `spec-318-artifacts/321/lists.log`)
