@@ -33,7 +33,10 @@ internal class TextFirstEditText(
 ) : AppCompatEditText(context), EngineInputConnection.ViewSide {
     var engine: EditorEngine? = null
     var onOpenWikilink: ((String) -> Unit)? = null
+    var onOpenUrl: ((String) -> Unit)? = null
     private val wikilinkTouch = WikilinkTouch(this) { onOpenWikilink?.invoke(it) }
+    private val linkTouch = ExternalLinkTouch(this, { onOpenUrl?.invoke(it) }, ::nativeTouch)
+    private val lineTouch = LineSelectTouch(this)
     /** The first draw after a keyed update, with where that key's time went. */
     var onFrameDrawn: ((KeyTimings) -> Unit)? = null
 
@@ -295,7 +298,10 @@ internal class TextFirstEditText(
         if (event.actionMasked == MotionEvent.ACTION_DOWN) scroll.down(event) else scroll.track(event)
         if (!scroll.stoppingTouch && tableTouch.onTouch(event)) return true
         if (scroll.own(event) { super.onTouchEvent(it) }) return true
+        if (onOpenUrl != null && linkTouch.onTouch(event)) return true
         if (wikilinkTouch.onTouch(event)) return true
+        // After the links, so a third quick tap on a link still opens it.
+        if (lineTouch.onTouch(event)) return true
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 checkboxDown = checkboxAt(this, style, event.x, event.y)
@@ -312,6 +318,8 @@ internal class TextFirstEditText(
         }
         return super.onTouchEvent(event).also { wikilinkTouch.settleCaret() }
     }
+
+    private fun nativeTouch(event: MotionEvent) { super.onTouchEvent(event) }
 
     override fun computeScroll() {
         super.computeScroll()
