@@ -224,8 +224,7 @@ internal class TextFirstEditText(
 
     internal val reveal = CaretReveal()
 
-    override fun bringPointIntoView(offset: Int): Boolean =
-        reveal.at(offset, ready = layout != null && height > 0) { super.bringPointIntoView(offset) }
+    override fun bringPointIntoView(offset: Int): Boolean = revealCaret(offset) { super.bringPointIntoView(offset) }
 
     override fun isLayoutRequested(): Boolean = !reveal.ignoringLayout && super.isLayoutRequested()
 

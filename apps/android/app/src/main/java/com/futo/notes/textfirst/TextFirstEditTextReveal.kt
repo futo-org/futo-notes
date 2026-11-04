@@ -56,3 +56,6 @@ internal fun TextFirstEditText.caretWasInView(viewHeight: Int): Boolean {
     val line = l.getLineForOffset(selectionEnd)
     return l.getLineTop(line) + totalPaddingTop >= scrollY && l.getLineBottom(line) + totalPaddingTop <= scrollY + viewHeight
 }
+
+internal fun TextFirstEditText.revealCaret(offset: Int, nativeReveal: () -> Boolean): Boolean =
+    reveal.at(offset, ready = layout != null && height > 0, reveal = nativeReveal)
