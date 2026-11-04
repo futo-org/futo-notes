@@ -4,8 +4,8 @@
 
 mod moves;
 mod recovery;
-#[cfg(test)]
-pub(crate) mod tests_support;
+#[cfg(any(test, feature = "test-support"))]
+pub mod tests_support;
 
 pub(crate) use futo_notes_core::files::rename_journal::forget_deleted_locked;
 pub use futo_notes_core::files::rename_journal::{

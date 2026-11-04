@@ -196,7 +196,7 @@ fn stage_entry(root: &Path, source: &str, stage: &str) -> Result<(), String> {
 
 /// A named point between durable steps; test fault injection hooks it.
 pub(super) fn step(_name: &str) -> Result<(), String> {
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     super::tests_support::before_step(_name)?;
     Ok(())
 }

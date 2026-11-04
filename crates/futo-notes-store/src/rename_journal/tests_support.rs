@@ -12,15 +12,15 @@ thread_local! {
 /// recorded, `commit` before the committed record is written, and
 /// `recovered` before recovery records what it did. An
 /// `Err` fails that step.
-pub(crate) fn on_step(hook: impl FnMut(&str) -> Result<(), String> + 'static) {
+pub fn on_step(hook: impl FnMut(&str) -> Result<(), String> + 'static) {
     BEFORE_STEP.with(|slot| *slot.borrow_mut() = Some(Box::new(hook)));
 }
 
-pub(crate) fn clear() {
+pub fn clear() {
     BEFORE_STEP.with(|slot| *slot.borrow_mut() = None);
 }
 
-pub(crate) fn before_step(step: &str) -> Result<(), String> {
+pub fn before_step(step: &str) -> Result<(), String> {
     BEFORE_STEP.with(|slot| match slot.borrow_mut().as_mut() {
         Some(hook) => hook(step),
         None => Ok(()),

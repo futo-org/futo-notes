@@ -6,6 +6,10 @@ edition = "2021"
 [lib]
 name = "futo_notes_store"
 
+[features]
+# Fault points between a journaled move's durable steps, for other crates' tests.
+test-support = []
+
 [dependencies]
 futo-notes-editor = { path = "../futo-notes-editor" }
 futo-notes-core = { path = "../futo-notes-core" }
