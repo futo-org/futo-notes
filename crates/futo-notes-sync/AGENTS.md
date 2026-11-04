@@ -12,7 +12,7 @@ this ordering to fix a test. `SyncSession` owns mutually exclusive cycles and li
 shells project it rather than reconstructing the protocol.
 
 In-app renames keep identity through the rename journal (`futo_notes_core::files::rename_journal`,
-#214): `push/local_renames.rs` claims committed intents under the vault guard, binds the object
+#214): `src/sync/push/local_renames.rs` claims committed intents under the vault guard, binds the object
 before rekeying, and acknowledges only after the PUT landed and the checkpoint saved. The push
 scan takes no guard, so any claim decision that depends on absence re-checks disk under it.
 
