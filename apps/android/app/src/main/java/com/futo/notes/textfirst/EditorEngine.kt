@@ -81,6 +81,7 @@ internal class EditorEngine(
     /** A committed external event must survive migration admission or a failed write. */
     internal var reconcilePending = false
     internal var closed = false
+    private val toolbarCommands = ToolbarCommandQueue(handler) { executeCommand({}, it) }
     private var inputStartNanos = 0L
     private var engineNanos = 0L
     /** The last change's projection; the caret state reads its block from it. */
@@ -102,12 +103,12 @@ internal class EditorEngine(
         guarded { select(start, end, fromView = true) }
     }
 
-    fun toggleFormat(format: EditorInlineFormat) = command {
+    fun toggleFormat(format: EditorInlineFormat) = toolbarCommands.post {
         if (mirror.overlay != null) commitComposition(null)
         session?.toggleFormat(rev, format)?.let(::accept)
     }
 
-    fun blockCommand(command: EditorBlockCommand) = command {
+    fun blockCommand(command: EditorBlockCommand) = toolbarCommands.post {
         if (mirror.overlay != null) commitComposition(null)
         session?.blockCommandUtf16(rev, EditorUtf16Range(mirror.selStart.toULong(), mirror.selEnd.toULong()), command)?.let(::accept)
     }
@@ -120,12 +121,12 @@ internal class EditorEngine(
         if (change != null) accept(change) else if (keepStart != mirror.selStart || keepEnd != mirror.selEnd) postUpdate(emptyList(), emptyList())
     }
 
-    fun undo() = command {
+    fun undo() = toolbarCommands.post {
         if (mirror.overlay != null) commitComposition(null)
         session?.undo(rev)?.let(::accept)
     }
 
-    fun redo() = command {
+    fun redo() = toolbarCommands.post {
         if (mirror.overlay != null) commitComposition(null)
         session?.redo(rev)?.let(::accept)
     }
@@ -197,8 +198,10 @@ internal class EditorEngine(
     /** Save before releasing. A failed detach leaves the exact session editable and retryable.
      * Ordinary vault work (a sync cycle) holding the gate is waited out, off the editor thread
      * and for a bounded time; only migration or a real save failure reports null. */
-    fun close(done: ((FlushDraftResult?) -> Unit)? = null) =
+    fun close(done: ((FlushDraftResult?) -> Unit)? = null) {
+        toolbarCommands.cancel()
         closeWhenAdmitted(done, SystemClock.uptimeMillis() + CLOSE_BUSY_LIMIT_MS)
+    }
 
     private fun closeWhenAdmitted(done: ((FlushDraftResult?) -> Unit)?, deadline: Long) {
         handler.post {
@@ -223,6 +226,7 @@ internal class EditorEngine(
             if (access == GateAccess.BUSY && SystemClock.uptimeMillis() < deadline) {
                 if (handler.postDelayed({ closeWhenAdmitted(done, deadline) }, GATE_BUSY_RETRY_MS)) return@post
             }
+            if (!closed) toolbarCommands.reopen()
             if (done != null) ui.post { done(result) }
         }
     }
@@ -234,6 +238,7 @@ internal class EditorEngine(
     }
 
     private fun release() {
+        toolbarCommands.cancel()
         handler.removeCallbacks(saveRunnable)
         handler.removeCallbacks(caretRunnable)
         handler.removeCallbacks(tailRunnable)
@@ -254,9 +259,13 @@ internal class EditorEngine(
     }
 
     internal fun command(onUnavailable: () -> Unit = {}, block: () -> Unit) = handler.post {
+        executeCommand(onUnavailable, block)
+    }
+
+    private fun executeCommand(onUnavailable: () -> Unit, block: () -> Unit) {
         if (storageGate?.isMigrationStarted == true || closed || session == null) {
             ui.post(onUnavailable)
-            return@post
+            return
         }
         inputStartNanos = SystemClock.elapsedRealtimeNanos()
         guarded(block)

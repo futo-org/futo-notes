@@ -132,3 +132,5 @@
   many browser editing operations and is quadratic even against a bare
   `contenteditable` carrying no application code, so it measures the harness, not
   the editor (M21). → tests/paste-perf.spec.ts
+
+- *(Android text-first editor)* Toolbar taps made while an earlier toolbar action is waiting or running are dropped; leaving cancels toolbar actions that have not started, then checkpoints the accepted draft. → apps/android/app/src/main/java/com/futo/notes/textfirst/ToolbarCommandGate.kt, apps/android/app/src/main/java/com/futo/notes/textfirst/EditorEngine.kt, apps/android/app/src/androidTest/java/com/futo/notes/textfirst/TextFirstCommandQueueTest.kt
