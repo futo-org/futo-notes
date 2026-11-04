@@ -94,34 +94,59 @@ test:cross-platform-sync:
         - Cargo.lock
       variables:
         CARGO_CACHE_POLICY: pull-push
-    # Every MR runs the full scenario set and BLOCKS the merge: this suite
-    # guards user data, and a failure here nearly shipped a broken release
-    # twice. The path gate and the scale-probe trim it carried on MRs existed
-    # for the shared runner slots; the serial runner took it off those.
-    # Tags and lockfile MRs refresh the isolated archive; ordinary source MRs
-    # reuse that seed without paying the post-test upload cost.
+    # Every MR that can change the desktop client or the sync stack runs the
+    # full scenario set and BLOCKS the merge: this suite guards user data, and
+    # a failure here nearly shipped a broken release twice. MRs touching none
+    # of the paths below (docs, apps/ios, apps/android, release notes, other
+    # scripts) skip it: the serial runner is one box shared with the Android
+    # sync leg, and those MRs waited up to 41 minutes in its queue (pipeline
+    # 39277) for a suite that could not see their change. An Android-only MR
+    # still runs test:cross-platform-sync:android, which drives this same
+    # harness against a desktop client. Main reruns the SAME list on every
+    # merge and tags run it unconditionally, so a skipped MR is still covered
+    # before release. Tags and lockfile MRs refresh the isolated archive;
+    # ordinary source MRs reuse that seed without the post-test upload.
     - if: $CI_MERGE_REQUEST_IID
-    # Main re-runs it on every merged sync change and reseeds the archive.
-    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
-      changes:
-        - crates/futo-notes-sync/**/*
-        - crates/futo-notes-core/**/*
+      changes: &cross-platform-sync-changes
+        - crates/**/*
+        - apps/tauri/**/*
+        - Cargo.toml
+        - Cargo.lock
+        - rust-toolchain.toml
+        - .cargo/**/*
         # The whole desktop sync + note-session layer, not just sync*: this
         # suite is the e2e owner of the open-note reconciliation, peer-delete
         # and dirty-draft behavior whose unit replays were removed from
         # syncManager.test.ts, and that code spans noteSession.svelte.ts,
         # createExternalChangeCoordinator.ts, watcherBatch.ts and autoSync.ts.
-        - src/features/notes/**/*
-        - src/features/sync/**/*
+        # The harness drives the real desktop bundle, so all of src/ and the
+        # editor package count.
+        - src/**/*
+        - packages/**/*
+        - languages/**/*
+        - index.html
+        - vite.config.ts
+        - svelte.config.js
+        - package.json
+        - pnpm-lock.yaml
         - tests/cross-platform-sync.mjs
         - tests/cross-platform-sync/**/*
+        - tests/sync-integration.mjs
         - tests/lib/**/*
+        # Scripts the harness imports.
+        - scripts/lib/**/*
+        - scripts/qa/**/*
+        - scripts/qa-target.mjs
+        - scripts/rust-tests.mjs
+        - scripts/desktop-version.mjs
         # Which server the suite runs against, and how it is resolved. A pin
         # bump changes what every sync job proves, so it must re-run them.
         - scripts/sync-server-pin.json
         - scripts/lib/sync-server.mjs
         - ci/*.yml
         - .gitlab-ci.yml
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+      changes: *cross-platform-sync-changes
       variables:
         CARGO_CACHE_POLICY: pull-push
 
