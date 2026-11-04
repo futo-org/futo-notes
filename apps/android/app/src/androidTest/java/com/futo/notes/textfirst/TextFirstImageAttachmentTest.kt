@@ -66,7 +66,11 @@ class TextFirstImageAttachmentTest {
                         save = {
                             val file = File(it, "accepted.png")
                             if (attached) {
-                                val bitmap = Bitmap.createBitmap(640, 360, Bitmap.Config.ARGB_8888)
+                                // Images are never upscaled, so the photo must be at least as wide as the editor for
+                                // the text after it to land below rather than beside it (a 640 px photo is narrower
+                                // than a 1080 px screen); square keeps the drawn height above the 360 px checks.
+                                val side = maxOf(640, context.resources.displayMetrics.widthPixels)
+                                val bitmap = Bitmap.createBitmap(side, side, Bitmap.Config.ARGB_8888)
                                 bitmap.eraseColor(Color.BLUE)
                                 file.outputStream().use { out -> bitmap.compress(Bitmap.CompressFormat.PNG, 100, out) }
                                 bitmap.recycle()
