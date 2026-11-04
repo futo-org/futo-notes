@@ -128,6 +128,21 @@ describe('pre-merge CI routing contracts', () => {
     expect(rustWorkspaceJob).toContain('CARGO_CACHE_POLICY: pull-push');
   });
 
+  it('keeps every Rust cache on one main key that only main and tags write', () => {
+    const templates = readFileSync(new URL('../ci/templates.yml', import.meta.url), 'utf8');
+    expect(templates).not.toContain('CI_COMMIT_REF_SLUG');
+    for (const name of ['cargo-tauri', 'sync', 'native']) {
+      expect(templates).toContain(`key: ${name}-$CARGO_CACHE_EPOCH-$CI_DEFAULT_BRANCH`);
+    }
+    for (const file of ['test-rust.yml', 'test-sync.yml', 'android.yml']) {
+      const text = readFileSync(new URL(`../ci/${file}`, import.meta.url), 'utf8');
+      // An MR rule that sets pull-push would upload a per-MR copy of target/.
+      expect(text, file).not.toMatch(
+        /- if: \$CI_MERGE_REQUEST_IID\n(?:\s+changes:[^\n]*\n(?:\s+- [^\n]*\n)+)?\s+variables:\n\s+CARGO_CACHE_POLICY: pull-push/,
+      );
+    }
+  });
+
   it('does not cancel manual image rebuilds when a newer pipeline starts', () => {
     const androidImageJob = topLevelBlock(gitlabPipeline, /^build:ci-android-image:$/m);
     const testImageJob = topLevelBlock(gitlabPipeline, /^build:ci-test-image:$/m);

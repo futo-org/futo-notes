@@ -29,12 +29,12 @@ default:
 variables:
   LINUX_RUNNER_TAG: dind_fast
   CARGO_HOME: $CI_PROJECT_DIR/.cargo-home
-  # Main/tag pipelines seed shared Cargo archives. Source-only MRs consume
-  # them without spending minutes recompressing tens of thousands of unchanged
-  # target files; lockfile MRs opt back into pull-push in their job rules.
+  # Main/tag pipelines seed the shared Cargo archives (one key per cache, see
+  # ci/templates.yml). MRs only consume them, lockfile changes included: a
+  # per-branch upload is 40-85 GB per branch on the runner's local cache.
   CARGO_CACHE_POLICY: pull-push
-  # Part of every rolling Rust cache key (ci/templates.yml). Those keys no
-  # longer reset when Cargo.lock changes, so stale dependency builds pile up
+  # Part of every rolling Rust cache key (ci/templates.yml). Those keys do not
+  # reset when Cargo.lock changes, so stale dependency builds pile up
   # in target/; bump this to start every Rust cache fresh.
   CARGO_CACHE_EPOCH: "1"
   # Cache archives are 4 GB Cargo trees on a LAN S3 server: zip time, not

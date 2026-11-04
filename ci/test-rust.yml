@@ -59,11 +59,6 @@ test:rust:workspace:
       variables:
         CARGO_CACHE_POLICY: pull-push
     - if: $CI_MERGE_REQUEST_IID
-      changes:
-        - Cargo.lock
-      variables:
-        CARGO_CACHE_POLICY: pull-push
-    - if: $CI_MERGE_REQUEST_IID
       changes: &rust-workspace-changes
         - Cargo.toml
         - Cargo.lock
