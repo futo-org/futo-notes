@@ -28,6 +28,65 @@ class TextFirstCaretTest {
     @Test fun caretShowsOnAnEmptyQuotedCodeLine() = shows("text\n", EditorBlockCommand.CodeBlock, quoted = true)
     @Test fun caretShowsOnAnEmptyQuoteLine() = shows("text\n", EditorBlockCommand.Quote)
 
+    /** The blank line above a heading is drawn half height, but its caret is as tall as the one on a line of text. */
+    @Test fun caretOnABlankLineIsAsTallAsOnALineOfText() = runBlocking {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val root = File(context.cacheDir, "caret-${UUID.randomUUID()}").apply { check(mkdirs()) }
+        val scenario = ActivityScenario.launch(ComponentActivity::class.java)
+        val store = NoteStore(root.path)
+        lateinit var controller: TextFirstController
+        try {
+            store.createNote("n", "", "an\n\n# Ho\n")
+            withContext(Dispatchers.Main) {
+                suspendCancellableCoroutine<Unit> { done ->
+                    scenario.onActivity { activity ->
+                        controller = createTextFirstController(activity, { store }, root)
+                        activity.setContentView(controller.view)
+                        controller.open("n") { assertNull(it); done.resume(Unit) }
+                    }
+                }
+                val view = controller.view
+                view.isFocusableInTouchMode = true; view.requestFocusFromTouch()
+                // The empty last line is a full line: nothing around its caret but blank space.
+                val text = caretHeight(controller, view.length() - 1)
+                val blank = caretHeight(controller, 3)
+                assertTrue("a full line has a caret", text > 0)
+                assertTrue("the caret on a blank line is $blank px tall, on a full line $text", blank >= text * 9 / 10)
+            }
+        } finally {
+            withContext(Dispatchers.Main) { controller.discard(); controller.dispose() }
+            scenario.close()
+            store.destroy()
+            root.deleteRecursively()
+        }
+    }
+
+    /** The tallest caret seen with the selection at [offset], across more than one blink period; 0 if it never drew. */
+    private suspend fun caretHeight(controller: TextFirstController, offset: Int): Int {
+        val view = controller.view
+        controller.select(offset)
+        delay(300L)
+        val layout = view.layout!!
+        val line = layout.getLineForOffset(offset)
+        val y = (layout.getLineTop(line) + layout.getLineBottom(line)) / 2 + view.totalPaddingTop
+        val caretX = view.totalPaddingLeft + layout.getPrimaryHorizontal(offset).toInt()
+        var tallest = 0
+        repeat(24) {
+            val shot = onScreen(view)
+            val background = shot.getPixel(caretX + 40, y)
+            for (x in caretX - 1..caretX + 4) {
+                if (shot.getPixel(x, y) == background) continue
+                var up = y
+                while (up > 0 && shot.getPixel(x, up - 1) != background) up--
+                var down = y
+                while (down < shot.height - 1 && shot.getPixel(x, down + 1) != background) down++
+                tallest = maxOf(tallest, down - up + 1)
+            }
+            if (tallest == 0) delay(60L)
+        }
+        return tallest
+    }
+
     private fun shows(raw: String, command: EditorBlockCommand?, quoted: Boolean = false) = runBlocking {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val root = File(context.cacheDir, "caret-${UUID.randomUUID()}").apply { check(mkdirs()) }
