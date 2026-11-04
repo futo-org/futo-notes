@@ -400,33 +400,3 @@ fn clean_refresh_with_ambiguous_saved_undo_preserves_both_versions() {
     editor.undo(editor.revision()).unwrap().unwrap();
     assert_eq!(editor.source_text(), "first\n\nsecond\n");
 }
-
-#[test]
-fn portable_clean_checkpoint_leaves_page_owned_source_and_history_unchanged() {
-    use futo_notes_editor::{PortableSession, SessionToken};
-    let root = TestRoot::new();
-    let store = store(&root);
-    store.create("", "plain", "first\n\nsecond\n").unwrap();
-    let mut host = store
-        .open_editor("plain")
-        .unwrap()
-        .into_portable_host(SessionToken(325))
-        .unwrap();
-    let mut page = PortableSession::from_snapshot(host.snapshot()).unwrap();
-    let edit = page.replace(Revision(0), range(0, 0), "local ").unwrap();
-    page.acknowledge(host.handle(edit.request)).unwrap();
-    host.checkpoint().unwrap();
-    store
-        .write("plain", "local first\n\npeer second\n", None)
-        .unwrap();
-    assert_eq!(
-        host.checkpoint().unwrap().disposition,
-        FlushDisposition::Converged
-    );
-    assert_eq!(host.snapshot().source, "local first\n\nsecond\n");
-    assert_eq!(page.draft_text(), "local first\n\nsecond\n");
-    let undo = page.undo(Revision(1)).unwrap().unwrap();
-    page.acknowledge(host.handle(undo.request)).unwrap();
-    assert_eq!(page.draft_text(), "first\n\nsecond\n");
-    assert_eq!(store.read("plain").unwrap(), "local first\n\npeer second\n");
-}

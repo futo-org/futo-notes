@@ -9,6 +9,7 @@ mod lifecycle;
 mod links;
 mod list_actions;
 mod merging;
+mod merging_portable;
 mod native_input_traces;
 mod portable;
 mod portable_attachment;

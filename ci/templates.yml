@@ -191,6 +191,22 @@
         console.log(`Playwright shard ${index}/${total}: ${passed} tests passed`);
       ' "$PLAYWRIGHT_JSON" "$CI_NODE_INDEX" "$CI_NODE_TOTAL"
 
+# M11 for an UNSHARDED Playwright job: a green exit that ran no tests is a
+# pass with nothing behind it. Reads the JSON reporter's output named by
+# $PLAYWRIGHT_JSON.
+.check-playwright-ran:
+  script:
+    - |
+      node -e '
+        const report = require(process.argv[1]);
+        const passed = report.stats ? report.stats.expected : 0;
+        if (!(passed > 0)) {
+          console.error("Playwright ran zero tests");
+          process.exit(1);
+        }
+        console.log(`Playwright: ${passed} tests passed`);
+      ' "$PLAYWRIGHT_JSON"
+
 # ─────────────────────────────────────────────────────────────
 # Cache templates
 # ─────────────────────────────────────────────────────────────

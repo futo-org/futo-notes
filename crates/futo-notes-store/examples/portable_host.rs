@@ -34,18 +34,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let mutation = store.rename(&host.id(), destination)?;
                 serde_json::json!({"id": mutation.final_id})
             } else if let Some(merge) = value.get("merge") {
-                let field = |name: &str| {
-                    merge
-                        .get(name)
-                        .and_then(|value| value.as_str())
-                        .ok_or("merge source missing")
-                };
-                store.write(&host.id(), field("remote")?, None)?;
-                serde_json::to_value(store.flush_draft_merged(
-                    &host.id(),
-                    field("base")?,
-                    field("draft")?,
-                )?)?
+                let remote = merge
+                    .get("remote")
+                    .and_then(|value| value.as_str())
+                    .ok_or("merge source missing")?;
+                store.write(&host.id(), remote, None)?;
+                serde_json::to_value(host.checkpoint_merged()?)?
             } else if value.get("checkpoint").is_some() {
                 host.checkpoint()?;
                 serde_json::json!({"id": host.id()})
