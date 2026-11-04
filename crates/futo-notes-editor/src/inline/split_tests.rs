@@ -504,4 +504,5 @@ fn a_typed_marker_agrees_with_uncut_when_a_later_line_sits_in_raw_html() {
     assert!(whole(&cut) == fresh && whole(&reference) == fresh);
 }
 
+mod quotes;
 mod word_seams;
