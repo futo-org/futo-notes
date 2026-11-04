@@ -48,6 +48,15 @@ impl StoreEditorHost<'_> {
         self.session.checkpoint()
     }
 
+    /// Save with the opt-in three-way merge and record the committed source as
+    /// the saved baseline. Call with every page request acknowledged, then pass
+    /// `source` to the page's `adopt_merged_source` and send the Append it
+    /// returns. Never pair `LocalNoteStore::flush_draft_merged` with an
+    /// attached host: that leaves this baseline stale.
+    pub fn checkpoint_merged(&mut self) -> Result<crate::MergedDraftResult, EditorStoreError> {
+        self.session.checkpoint_merged()
+    }
+
     pub fn id(&self) -> String {
         self.session.id()
     }
@@ -179,6 +188,7 @@ impl StoreEditorHost<'_> {
         if state.engine.revision() != before {
             state.note_edit();
         }
+        state.adopt_delivered_merge();
         result
     }
 

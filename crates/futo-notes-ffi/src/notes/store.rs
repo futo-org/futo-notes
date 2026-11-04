@@ -6,8 +6,9 @@ use futo_notes_store as store;
 use crate::RenamePair;
 
 use super::{
-    FlushDraftResult, NoteBootstrap, NoteError, NoteMutation, NoteSnapshot, NoteSortOrder,
-    SearchHit, VaultDestinationInspection, VaultMigrationFinalization, VaultMigrationOutcome,
+    FlushDraftResult, MergedDraftResult, NoteBootstrap, NoteError, NoteMutation, NoteSnapshot,
+    NoteSortOrder, SearchHit, VaultDestinationInspection, VaultMigrationFinalization,
+    VaultMigrationOutcome,
 };
 
 #[derive(uniffi::Object)]
@@ -126,6 +127,19 @@ impl NoteStore {
     ) -> Result<FlushDraftResult, NoteError> {
         self.inner
             .flush_draft(&id, &base, &content)
+            .map(Into::into)
+            .map_err(NoteError::Io)
+    }
+
+    /// Merge-aware saving for consumers that adopt authoritative source safely.
+    pub fn flush_draft_merged(
+        &self,
+        id: String,
+        base: String,
+        content: String,
+    ) -> Result<MergedDraftResult, NoteError> {
+        self.inner
+            .flush_draft_merged(&id, &base, &content)
             .map(Into::into)
             .map_err(NoteError::Io)
     }

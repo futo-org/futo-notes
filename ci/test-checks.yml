@@ -22,25 +22,8 @@ test:
   # can queue behind it there; they no longer queue behind a slow box.
   tags:
     - $LINUX_RUNNER_TAG
-  # Never overlap another pipeline's unit-test job. The contention is between
-  # concurrent JOBS on one runner, not within vitest (which already caps
-  # maxWorkers:4 in CI): with 3 stacked-MR pipelines in flight,
-  # FolderTreeView.test.ts's virtualization cases went from 54/65/52ms to
-  # 5397/3619/3408ms — a 60-100x slowdown — and one crossed vitest's 5s default
-  # and went red. The assertion was fine and the CPU was not, so this is
-  # exclusion, not a longer timeout (M15). Runner 71 is not immune: it shares
-  # its five slots with the Rust, sync and Android jobs. Same root-cause fix,
-  # and the same mechanism, as the sync suite's resource_group above; a
-  # distinct key so the two suites never wait on each other.
-  #
-  # Cost: the median run on runner 71 is 87s, so a third concurrent MR queues
-  # about 3 minutes. That is cheaper than the failure it replaces — a red
-  # pipeline plus the attribution hunt.
-  #
-  # Merge trains would be the other way to stop stacked pipelines overlapping,
-  # but gitlab.futo.org runs the EE binary on a Free tier and merge trains are
-  # Premium-only (merge_trains_enabled is absent from the project API payload).
-  resource_group: unit-tests
+  # No resource_group: the cross-pipeline lock queued every MR behind one job
+  # (2026-11-03). If FolderTreeView timing flakes return under contention, fix the test.
   # TIGHTENED from the inherited 60m project default, not bumped: inside a
   # resource group a hung job is head-of-line blocking for every other MR, and
   # hangs are real here (a test:rust:workspace run hung 3870s in the same
