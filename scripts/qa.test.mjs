@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { slotOf } from './lib/slot.mjs';
 
@@ -14,6 +14,10 @@ const QA = path.join(path.dirname(fileURLToPath(import.meta.url)), 'qa.mjs');
 // simulator, because `release` took every claim the worktree held. These run
 // qa.mjs for real against a throwaway HOME and git repo; without --shutdown
 // release only deletes owner files, so no device is touched.
+// Subprocess-driven file: each case git-inits a scratch repo and spawns scripts/qa.mjs (up to 1.3s idle). The 5s default went red on loaded
+// CI runners (audit 2026-11), so the file timeout is set to 30s to cover that bound.
+vi.setConfig({ testTimeout: 30_000 });
+
 describe('qa.mjs release', () => {
   let home;
   let root;

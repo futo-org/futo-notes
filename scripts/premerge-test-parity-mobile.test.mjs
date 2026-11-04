@@ -169,6 +169,31 @@ describe('pre-merge CI routing contracts: native mobile jobs', () => {
     expect(releaseGate).toContain('- job: test:rust:ffi-android');
   });
 
+  it('skips the ffi arm64 check on MRs where build:android-native builds the same crate', () => {
+    const paths = (job, from) => {
+      const start = job.indexOf('changes:', from);
+      const block = job.slice(start, job.indexOf('\n    - ', start));
+      return [...block.matchAll(/^ {8}- (\S+)$/gm)].map((m) => m[1]).sort();
+    };
+    const androidCheckJob = topLevelBlock(gitlabPipeline, /^test:rust:ffi-android:$/m);
+    const nativeJob = topLevelBlock(gitlabPipeline, /^build:android-native:$/m);
+    const rulesAt = androidCheckJob.indexOf('  rules:\n');
+    const firstRule = androidCheckJob.slice(rulesAt + '  rules:\n'.length);
+    // The skip rule comes first, so it wins over every rule that follows it.
+    expect(
+      firstRule.replace(/^ {4}#.*\n/gm, '').startsWith('    - if: $CI_MERGE_REQUEST_IID'),
+    ).toBe(true);
+    const skipRule = firstRule.slice(0, firstRule.indexOf('\n    - !reference'));
+    expect(skipRule).toContain('when: never');
+    const nativeStart = nativeJob.indexOf('changes: &native-android-changes');
+    expect(paths(nativeJob, nativeStart).length).toBeGreaterThan(10);
+    expect(paths(androidCheckJob, rulesAt)).toEqual(paths(nativeJob, nativeStart));
+    // Crates that build:android-native does not watch still reach the check.
+    expect(androidCheckJob).toContain('- crates/**/*');
+    expect(androidCheckJob).toContain('$CI_COMMIT_TAG');
+    expect(androidCheckJob).toContain('$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH');
+  });
+
   it('runs full macOS workspace tests on main and tags but not MR pipelines', () => {
     const macosRustJob = topLevelBlock(gitlabPipeline, /^test:rust:macos:$/m);
     const macosRustTask = topLevelBlock(cirrusTasks, /^test_rust_macos_task:$/m);

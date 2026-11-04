@@ -1,4 +1,4 @@
-import { expect, it } from 'vitest';
+import { expect, it, vi } from 'vitest';
 import { spawn, execFileSync } from 'node:child_process';
 import { once } from 'node:events';
 import {
@@ -16,6 +16,10 @@ import process from 'node:process';
 import { setTimeout as delay } from 'node:timers/promises';
 import { readLease, processIdentity } from './physical-fixture-lease.mjs';
 import { runPhysicalFixtureCLI } from './physical-fixture-cli.mjs';
+
+// Subprocess-driven file: each case spawns node helper processes, bounded at 3s apiece, in sequence. The 5s default went red on loaded
+// CI runners (audit 2026-11), so the file timeout is set to 30s to cover that bound.
+vi.setConfig({ testTimeout: 30_000 });
 
 it('refuses extra arguments and arbitrary XCTest commands before loading a manifest', async () => {
   for (const args of [

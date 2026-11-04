@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -55,6 +55,10 @@ function shard(index: number, count = 2): ForeignSweepShardReport {
     sweep,
   };
 }
+
+// Subprocess-driven file: cases spawn the report CLI. The 5s default went red on loaded
+// CI runners (audit 2026-11), so the file timeout is set to 30s to cover that bound.
+vi.setConfig({ testTimeout: 30_000 });
 
 describe('mergeForeignSweepShardReports', () => {
   it.each([true, false])('aggregates CLI inputs with output flag: %s', (withOutput) => {

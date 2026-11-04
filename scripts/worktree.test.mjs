@@ -1,9 +1,13 @@
-import { expect, it } from 'vitest';
+import { expect, it, vi } from 'vitest';
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+
+// Subprocess-driven file: each case runs real git worktree commands against a scratch repo. The 5s default went red on loaded
+// CI runners (audit 2026-11), so the file timeout is set to 30s to cover that bound.
+vi.setConfig({ testTimeout: 30_000 });
 
 it('creates a worktree from a bare name with the same flags as new', () => {
   const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'futo-wt-'));

@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { readJustfileSource } from './lib/justfile.mjs';
 
@@ -24,6 +24,10 @@ afterEach(() => {
 function runGuard(dir) {
   return spawnSync(process.execPath, [GUARD, dir], { encoding: 'utf8' });
 }
+
+// Subprocess-driven file: each case spawns the guard script, including one over the real repo root. The 5s default went red on loaded
+// CI runners (audit 2026-11), so the file timeout is set to 30s to cover that bound.
+vi.setConfig({ testTimeout: 30_000 });
 
 describe('node_modules guard', () => {
   it('fails and names the install command when node_modules is absent', () => {

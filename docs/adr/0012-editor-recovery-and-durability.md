@@ -51,6 +51,11 @@ repeated full-source reconstruction while holding the attachment lock. The publi
 isolated-edit regression remains within the budget and retains every Undo step. These are conservative
 merge-adoption limits, not note-size or history-retention limits.
 
+Parking is reserved for an unsaved draft. A native session with nothing unsaved (source equals its
+saved baseline) whose note changed outside never parks: it adopts the outside source with rebased
+history, or, when the preflight declines, drops its Undo/Redo and adopts anyway (as reopening would).
+A parked copy of that session would only be the stale baseline.
+
 Legacy `flush_draft` and the portable worker's automatic saves retain their existing contract until
 the renderer opts into authoritative adoption. Portable/WASM callers can explicitly adopt a merged
 result through `adopt_merged_source` and mirror its normal Append request, preserving page-owned
