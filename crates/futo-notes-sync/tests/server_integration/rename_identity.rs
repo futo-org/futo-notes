@@ -197,3 +197,78 @@ async fn renaming_one_of_two_equal_notes_moves_only_that_object() {
     common::cleanup(&va);
     common::cleanup(&vb);
 }
+
+/// A peer's rename reaches an editor with unsaved typing: the reported pair
+/// retargets the attached draft, and its next save lands on the original
+/// object at the new name (issue #214, #325).
+#[tokio::test]
+#[ignore = "requires a running FUTO_TEST_SERVER"]
+async fn a_peer_rename_retargets_an_attached_dirty_editor() {
+    use futo_notes_editor::{DisplayOffset, DisplayRange, Revision};
+
+    let server = common::server_url().expect("FUTO_TEST_SERVER must be configured");
+    let old_id = common::unique("attached-old");
+    let new_id = common::unique("attached-new");
+    let (a, va, b, vb, object_id) = synced_pair(&server, &old_id, "Origin").await;
+    let store_a = futo_notes_store::LocalNoteStore::new(va.clone());
+    let mut editor = store_a.open_editor(&old_id).expect("attach A");
+    let at_start = DisplayRange {
+        start: DisplayOffset(0),
+        end: DisplayOffset(0),
+    };
+    editor
+        .replace(Revision(0), at_start, "Local typing ")
+        .expect("unsaved typing");
+
+    futo_notes_store::LocalNoteStore::new(vb.clone())
+        .rename(&old_id, &new_id)
+        .expect("B rename");
+    let (_, b) = futo_notes_sync::run_sync(&b, &vb, &no_progress, &no_pre_write)
+        .await
+        .expect("B sync");
+    let (a_summary, a) = futo_notes_sync::run_sync(&a, &va, &no_progress, &no_pre_write)
+        .await
+        .expect("A receive");
+    assert!(reports(&a_summary, &old_id, &new_id), "{a_summary:?}");
+    let renamed: Vec<_> = a_summary
+        .renamed
+        .iter()
+        .map(|pair| futo_notes_store::NoteRename {
+            from: pair.from_id.clone(),
+            to: pair.to_id.clone(),
+        })
+        .collect();
+    store_a
+        .refresh_external_changes(&a_summary.updated_ids, &a_summary.deleted_ids, &renamed)
+        .expect("project the cycle");
+
+    assert_eq!(editor.id(), new_id);
+    assert_eq!(editor.source_text(), "Local typing Origin");
+    let saved = editor.checkpoint().expect("save");
+    assert_eq!(
+        saved.mutation.unwrap().final_id.as_deref(),
+        Some(new_id.as_str())
+    );
+    drop(editor);
+    let (_, a) = futo_notes_sync::run_sync(&a, &va, &no_progress, &no_pre_write)
+        .await
+        .expect("A push typing");
+    let (_, b) = futo_notes_sync::run_sync(&b, &vb, &no_progress, &no_pre_write)
+        .await
+        .expect("B receive typing");
+
+    for (root, state) in [(&va, &a), (&vb, &b)] {
+        assert_eq!(
+            state.object_map[&format!("{new_id}.md")].object_id,
+            object_id
+        );
+        assert!(!state.object_map.contains_key(&format!("{old_id}.md")));
+        assert!(!root.join(format!("{old_id}.md")).exists());
+        assert_eq!(
+            std::fs::read_to_string(root.join(format!("{new_id}.md"))).unwrap(),
+            "Local typing Origin"
+        );
+    }
+    common::cleanup(&va);
+    common::cleanup(&vb);
+}

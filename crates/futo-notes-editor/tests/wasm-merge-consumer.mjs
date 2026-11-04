@@ -52,6 +52,9 @@ async function runMergeCase(WasmSession, executable, scenario) {
     const send = async (applied) =>
       page.acknowledge(JSON.stringify(await exchange(applied.request)));
     await send(JSON.parse(page.replace(0n, scenario.start, scenario.end, 'LOCAL')));
+    const renamed = await exchange({ external_rename: 'authoritative final (2)' });
+    assert.equal(renamed.id, 'authoritative final (2)');
+    assert.equal(page.draft_text(), scenario.local);
     const merged = await exchange({
       merge: { remote: scenario.remote },
     });
@@ -64,11 +67,11 @@ async function runMergeCase(WasmSession, executable, scenario) {
     assert.equal(page.draft_text(), scenario.remote);
     // Undo persisted before the redo: the saved baseline moved with the merge,
     // so this saves in place instead of parking a conflict copy.
-    assert.equal((await exchange({ checkpoint: true })).id, 'plain');
-    assert.equal(readFileSync(join(vault, 'plain.md'), 'utf8'), scenario.remote);
+    assert.equal((await exchange({ checkpoint: true })).id, 'authoritative final (2)');
+    assert.equal(readFileSync(join(vault, 'authoritative final (2).md'), 'utf8'), scenario.remote);
     assert.deepEqual(
       readdirSync(vault).filter((name) => name.endsWith('.md')),
-      ['plain.md'],
+      ['authoritative final (2).md'],
     );
     assert.equal(JSON.parse(page.undo(3n)), null);
     await send(JSON.parse(page.redo(3n)));
@@ -76,7 +79,7 @@ async function runMergeCase(WasmSession, executable, scenario) {
     worker.stdin.end();
     const [code] = await exited;
     assert.equal(code, 0);
-    assert.equal(readFileSync(join(vault, 'plain.md'), 'utf8'), scenario.merged);
+    assert.equal(readFileSync(join(vault, 'authoritative final (2).md'), 'utf8'), scenario.merged);
   } finally {
     page?.free();
     if (worker.exitCode === null) {

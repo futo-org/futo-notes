@@ -59,6 +59,43 @@ impl IdentityTransition {
         }))
     }
 
+    /// Follow only explicit, already-committed external rename intent. Unlike a
+    /// local relink, the new disk bytes are a peer contribution: retain the
+    /// attachment's original baseline so checkpoint can merge or park safely.
+    pub(crate) fn prepare_external(
+        root: &Path,
+        from: &str,
+        to: &str,
+        deleted_ids: &[String],
+    ) -> Result<Option<Self>, String> {
+        let Some(state) = EditorLease::attached(root, from)? else {
+            // Replayed completion after this attachment moved is harmless.
+            return Ok(None);
+        };
+        let same_file = futo_notes_core::files::collision_key(from)
+            == futo_notes_core::files::collision_key(to);
+        // A destination deleted later in the same cycle leaves nothing to
+        // follow; the draft stays attached and saving recreates it.
+        if deleted_ids.iter().any(|id| id == to) {
+            return Ok(None);
+        }
+        // Never abandon a live draft for a missing/unreadable destination.
+        let bytes = futo_notes_core::files::vault_fs::read(root, &crate::note_filename(to))?;
+        String::from_utf8(bytes).map_err(|error| error.to_string())?;
+        let lease = if same_file {
+            None
+        } else {
+            Some(EditorLease::acquire(root, to).map_err(|error| error.to_string())?)
+        };
+        Ok(Some(Self {
+            state,
+            destination: to.to_owned(),
+            lease,
+            rewritten: None,
+            before: String::new(),
+        }))
+    }
+
     pub(crate) fn finish(mut self) {
         let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
         if let Some(lease) = self.lease.take() {

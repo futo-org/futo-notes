@@ -49,3 +49,28 @@ and reopen bytes.
 Native device input/rendering remains a shell verification responsibility. Shared contract tests
 prove exact source, selection, composition state, mutation, failure/retry and Undo preservation;
 they do not prove a keyboard's visual marked-text behavior.
+
+## Following external rename intent (#324)
+
+Prerequisite: the shared #322 merge/adoption contract above. This addition is usable independently
+of Android rendering, through existing store and UniFFI contracts; it adds no wire fields.
+
+After sync commits files, deliver its explicit rename pairs (including collision-resolved final
+ids) to `LocalNoteStore::refresh_external_changes` / `NoteStore.refresh_external_changes`. Under
+the store gate and vault guard the engine reserves destination attachments before changing any
+identity. A missing/unreadable destination or another editor's destination lease refuses the refresh
+without moving the drafts; retain the event for retry. Apply the complete returned mutation. Updated
+and deleted id lists alone never imply identity; do not derive a rename from similar filenames.
+
+An attached draft follows the reported final id without replacing its source, revision, selection,
+composition or history. Its saved baseline remains the pre-rename source: the next checkpoint merges
+against current disk bytes at the final id, or parks the full draft when ambiguous. Use the session's
+current id and the checkpoint mutation's final id after every save, including conflict parking. A
+replayed completion for an already-vacated attachment does not retarget its parked/new identity.
+Failed persistence keeps the final attachment and unsaved draft for retry; no old-id save is needed.
+
+The portable/WASM page retains its outstanding requests and history through retargeting. Send pending
+Append requests in their existing token/sequence order; the worker resolves persistence against its
+current attachment id. Automatic portable saves continue to park on divergence, preserving both
+versions. Explicit merge adoption remains the opt-in path described above. Native attached sessions
+adopt safe merges automatically and expose coordinated view changes through the existing contract.
