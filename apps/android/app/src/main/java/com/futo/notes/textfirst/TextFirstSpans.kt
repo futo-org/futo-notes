@@ -210,10 +210,14 @@ internal class TfList(
     }
 }
 
+/**
+ * A code line's monospace face and inset. Its background is not a
+ * LineBackgroundSpan: the TextView draws the caret before the layout's line
+ * backgrounds, so an opaque one would cover the caret on a code line. The view
+ * paints it first instead (`drawCodeBackgrounds`).
+ */
 internal class TfCodeBlock(private val look: TextFirstStyle) :
-    MetricAffectingSpan(), LineBackgroundSpan, LeadingMarginSpan, TfSpan {
-    private val paint = Paint().apply { color = look.surfaceColor }
-
+    MetricAffectingSpan(), LeadingMarginSpan, TfSpan {
     override fun slice(head: Boolean): TfSpan = if (head) this else TfCodeBlock(look)
 
     override fun updateMeasureState(paint: TextPaint) {
@@ -222,10 +226,6 @@ internal class TfCodeBlock(private val look: TextFirstStyle) :
     }
 
     override fun updateDrawState(paint: TextPaint) = updateMeasureState(paint)
-
-    override fun drawBackground(c: Canvas, p: Paint, left: Int, right: Int, top: Int, baseline: Int, bottom: Int, text: CharSequence, start: Int, end: Int, lineNumber: Int) {
-        c.drawRect(left.toFloat(), top.toFloat(), right.toFloat(), bottom.toFloat(), paint)
-    }
 
     override fun getLeadingMargin(first: Boolean) = look.codePadding.toInt()
     override fun drawLeadingMargin(c: Canvas, p: Paint, x: Int, dir: Int, top: Int, baseline: Int, bottom: Int, text: CharSequence, start: Int, end: Int, first: Boolean, layout: Layout?) = Unit
