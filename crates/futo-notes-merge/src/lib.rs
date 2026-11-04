@@ -21,6 +21,9 @@ pub fn three_way_merge(base: &str, server: &str, client: &str) -> MergeResult {
 /// literal conflict-marker text stay opaque and round-trip without normalization.
 /// A word is indivisible: competing spellings must not become a hybrid word.
 fn merge_words(base: &str, server: &str, client: &str) -> MergeResult {
+    if removes_repeated_token(base, server) || removes_repeated_token(base, client) {
+        return MergeResult::Conflict;
+    }
     let mut ids = HashMap::new();
     let mut tokens = Vec::new();
     let mut encode = |source: &str| {
@@ -60,6 +63,25 @@ fn merge_words(base: &str, server: &str, client: &str) -> MergeResult {
         }
         _ => MergeResult::Conflict,
     }
+}
+
+/// A side that deletes or replaces one occurrence of a token the base repeats
+/// could mean any of those occurrences, and no token alignment can say which.
+/// Both sides then may be editing the same one, so the merge must not guess.
+fn removes_repeated_token(base: &str, side: &str) -> bool {
+    let count = |source: &str| {
+        let mut counts = HashMap::new();
+        for token in source
+            .split_word_bounds()
+            .filter(|token| !token.trim().is_empty())
+        {
+            *counts.entry(token.to_owned()).or_insert(0usize) += 1;
+        }
+        counts
+    };
+    let (base, side) = (count(base), count(side));
+    base.iter()
+        .any(|(token, &before)| before > 1 && side.get(token).copied().unwrap_or(0) < before)
 }
 
 fn reverse_lines(encoded: &str) -> String {
@@ -132,6 +154,7 @@ mod tests {
             ("a a a", "a a", "b a a"),
             ("猫 猫 猫", "猫 猫", "犬 猫 猫"),
             ("a a a\r\n", "a a\r\n", "a a b\r\n"),
+            ("a a a a", "SERVER a a", "a a LOCAL a"),
         ] {
             assert_eq!(
                 three_way_merge(base, deleted, replaced),
