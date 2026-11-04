@@ -58,7 +58,11 @@ internal fun rememberTextFirstImages(
             if (!capture.success || capture.uri == null || leaving) return@LaunchedEffect
             snapshotFlow { controller.opened || controller.openFailure != null }.first { it }
             if (!controller.opened) return@LaunchedEffect
-            val claim = if (capture.recovered) controller.imageClaim() else cameraClaim?.second
+            // A recreated screen reopened the note with its caret at the top: put it back first.
+            val claim = if (capture.recovered) {
+                controller.select(capture.caretStart, capture.caretEnd)
+                controller.imageClaim()
+            } else cameraClaim?.second
             if (claim != null) insertPickedImage(capture.uri, claim)
         } finally {
             pendingImages -= 1
@@ -89,7 +93,9 @@ internal fun rememberTextFirstImages(
             if (source == "camera" && controller.checkpoint() == null && controller.dirty) return@launch
             val claim = controller.imageClaim() ?: return@launch
             if (source == "camera") {
-                val id = imagePicker?.captureCameraForNote(noteId, store.rootPath) ?: return@launch
+                val view = controller.view
+                val id = imagePicker?.captureCameraForNote(noteId, store.rootPath, view.selectionStart.coerceAtLeast(0), view.selectionEnd.coerceAtLeast(0))
+                    ?: return@launch
                 cameraClaim = id to claim
             } else {
                 imagePicker?.pickLibrary { uris ->

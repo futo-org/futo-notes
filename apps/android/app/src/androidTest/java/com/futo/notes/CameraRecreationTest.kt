@@ -66,7 +66,7 @@ class CameraRecreationTest {
                 lateinit var id: String
                 lateinit var output: File
                 scenario.onActivity { activity ->
-                    id = checkNotNull(picker.captureCameraForNote("origin", "/scratch/vault"))
+                    id = checkNotNull(picker.captureCameraForNote("origin", "/scratch/vault", caretStart = 7, caretEnd = 9))
                     val capture = checkNotNull(picker.pendingCamera)
                     val uri = checkNotNull(capture.uri)
                     activity.contentResolver.openOutputStream(uri)!!.use { it.write(byteArrayOf(1, 2, 3)) }
@@ -100,6 +100,7 @@ class CameraRecreationTest {
                     assertEquals("origin", restored.noteId)
                     assertEquals("/scratch/vault", restored.vaultRoot)
                     assertTrue(restored.recovered)
+                    assertEquals("the caret the photo belongs at survives recreation", 7 to 9, restored.caretStart to restored.caretEnd)
                     results.dispatchResult(requestCode, success)
                     val result = checkNotNull(picker.pendingCamera)
                     assertTrue(result.complete)
