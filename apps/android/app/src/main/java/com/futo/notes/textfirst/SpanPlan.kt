@@ -88,6 +88,7 @@ internal data class CaretState(
     val list: ListMarker?,
     val code: Boolean,
     val mixed: Boolean = false,
+    val disabled: Set<String> = emptySet(),
 ) {
     companion object { val Empty = CaretState(emptySet(), 0, false, null, false) }
 }

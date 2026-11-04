@@ -21,6 +21,13 @@ internal fun EditorEngine.refreshCaretState() {
             },
             code = selected.code,
             mixed = selected.mixed,
+            disabled = buildSet {
+                if (!selected.inlineAllowed) addAll(listOf("bold", "italic", "strikethrough", "link"))
+                if (!selected.canIndent) add("indent")
+                if (!selected.canOutdent) add("outdent")
+                if (!selected.canUndo) add("undo")
+                if (!selected.canRedo) add("redo")
+            },
         )
         ui.post { sink.onCaretState(state) }
     } catch (e: EditorSessionException) {

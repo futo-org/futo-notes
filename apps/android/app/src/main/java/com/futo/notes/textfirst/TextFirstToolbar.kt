@@ -44,7 +44,8 @@ internal fun TextFirstToolbarSlot(controller: TextFirstController, onPickImage: 
     val caret = controller.caret
     if (visible) EditorToolbar(
         onListLine = caret.list != null,
-        inContainer = caret.list != null || caret.quote || caret.code,
+        inContainer = true,
+        disabledFormats = caret.disabled,
         activeFormats = toolbarActive(caret),
         hiddenItems = setOf("paragraph"),
         perform = { item ->
