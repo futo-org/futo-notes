@@ -51,6 +51,12 @@ internal class UiUpdate(
     val postedNanos: Long = 0L,
     /** When the engine call behind it returned; 0 when there was none. */
     val engineNanos: Long = 0L,
+    /**
+     * More of the note, inserted after what the view already shows (the tail of
+     * a progressive open). Not a change of the note: it leaves the view's
+     * selection and composition alone and does not mark the note edited.
+     */
+    val append: Boolean = false,
 )
 
 /**

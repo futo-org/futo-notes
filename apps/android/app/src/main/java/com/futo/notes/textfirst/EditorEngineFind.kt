@@ -36,6 +36,8 @@ internal fun EditorEngine.findCommand(done: (FindSnapshot?) -> Unit, block: (Nat
         try {
             val s = session
             if (!closed && s != null && storageGate?.isMigrationStarted != true) {
+                // Matches and their reveal can lie anywhere in the note.
+                finishStreaming()
                 val (report, reveal) = block(s)
                 find.open = report.open
                 result = snapshot(s, report, reveal)

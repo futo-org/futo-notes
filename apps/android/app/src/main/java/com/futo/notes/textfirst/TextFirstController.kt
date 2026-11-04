@@ -102,7 +102,7 @@ internal class TextFirstController(
     // ---- EngineSink ----
 
     override fun onUpdate(update: UiUpdate) {
-        if (update.edits.isNotEmpty() && update.reset == null) dirty = true
+        if (update.edits.isNotEmpty() && update.reset == null && !update.append) dirty = true
         view.apply(update)
         isEmpty = view.length() <= TextFirstEditText.END_SENTINEL.length
     }

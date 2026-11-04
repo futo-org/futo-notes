@@ -29,7 +29,7 @@ import uniffi.futo_notes_ffi.EditorParagraphKey
 internal class TextFirstEditText(
     context: Context,
     internal val style: TextFirstStyle,
-    private val images: ImageLoader,
+    internal val images: ImageLoader,
 ) : AppCompatEditText(context), EngineInputConnection.ViewSide {
     var engine: EditorEngine? = null
     var onOpenWikilink: ((String) -> Unit)? = null
@@ -47,7 +47,7 @@ internal class TextFirstEditText(
     private val tableTouch = TableGridTouch(this, { cell -> onTableCell?.invoke(cell.start, cell.end, appliedSeq) }, ::invalidateTableScroll)
     internal val marks = FindMarks()
     internal val scroll = NoteScroll(this)
-    private val spans = TfSpanFactory(style, marks, { contentWidth() }) { span ->
+    internal val spans = TfSpanFactory(style, marks, { contentWidth() }) { span ->
         wikilinkContentWidth(this, span, contentWidth())
     }
     /** The composing underline this view set; the only SPAN_COMPOSING span it owns. */
@@ -105,6 +105,9 @@ internal class TextFirstEditText(
     // ---- engine → view ----
 
     fun apply(update: UiUpdate) {
+        // An edit or a new selection is the caret's business: bring it into view as TextView does.
+        if (!update.append) broughtOffset = -1
+        if (update.append) { applyAppend(update); return }
         val applyStart = android.os.SystemClock.elapsedRealtimeNanos()
         var editsEnd = applyStart
         applying = true
@@ -162,6 +165,30 @@ internal class TextFirstEditText(
         if (update.reset != null) requestImageLoads()
     }
 
+    // ---- caret ----
+
+    /**
+     * TextView brings the caret back into view before the next draw after any
+     * text or layout change, whether or not the caret did anything. That would
+     * drag a reader who has scrolled away back to it whenever more of the note
+     * arrives, an image lands and resizes its line, or the host puts the reader
+     * back where they were. The caret is brought into view when it has moved
+     * since it last was, or when the view's size or focus changed (the keyboard
+     * rising over it).
+     */
+    internal var broughtOffset = -1
+
+    override fun bringPointIntoView(offset: Int): Boolean {
+        if (offset == broughtOffset) return false
+        broughtOffset = offset
+        return super.bringPointIntoView(offset)
+    }
+
+    override fun onFocusChanged(focused: Boolean, direction: Int, previouslyFocusedRect: android.graphics.Rect?) {
+        broughtOffset = -1
+        super.onFocusChanged(focused, direction, previouslyFocusedRect)
+    }
+
     private class ComposingUnderline : UnderlineSpan()
 
     override fun onDraw(canvas: android.graphics.Canvas) {
@@ -179,40 +206,6 @@ internal class TextFirstEditText(
     }
 
 
-    /** Replace the renderer's spans inside a window, keeping identical ones so the layout does not reflow them. */
-    private fun restyle(e: Editable, given: StyleWindow) {
-        // A window reaching the display's end also owns the end sentinel.
-        val window = if (given.end == e.length - 1) StyleWindow(given.start, given.end + 1, given.specs) else given
-        val wanted = window.specs.toMutableList()
-        for (span in e.getSpans(window.start, window.end, TfSpan::class.java)) {
-            val s = e.getSpanStart(span)
-            val en = e.getSpanEnd(span)
-            if (s < 0) continue
-            // A neighbour that only touches the window is not part of it.
-            if (s != en && (en <= window.start || s >= window.end) && window.start != window.end) continue
-            if (s >= window.start && en <= window.end) {
-                val match = wanted.indexOfFirst { (it.start == s && (it.end == en || it.start == it.end && en == s + 1)) && spans.matches(it, span) }
-                if (match >= 0) { wanted.removeAt(match); continue }
-            }
-            e.removeSpan(span)
-            if (s < window.start) span.slice(head = true)?.let { e.setSpan(it, s, window.start, TF_SPAN_FLAGS) }
-            if (en > window.end) span.slice(head = false)?.let { e.setSpan(it, window.end, en, TF_SPAN_FLAGS) }
-        }
-        addSpans(e, wanted)
-        if (wanted.any { it is SpanSpec.Image }) requestImageLoads()
-    }
-
-    private fun addSpans(target: Spannable, specs: List<SpanSpec>) {
-        for (spec in specs) {
-            if (spec.end < spec.start || spec.end > target.length - 1) continue
-            // A block on the empty last line (a new list item at the end) sits
-            // on the end sentinel; Android lays out no paragraph spans for an
-            // empty last line.
-            val end = if (spec.start == spec.end && spec.start == target.length - 1) spec.end + 1 else spec.end
-            target.setSpan(spans.create(spec), spec.start, end, TF_SPAN_FLAGS)
-        }
-    }
-
     /** The characters on screen, a screen's height of margin either side. */
     private fun visibleChars(): IntRange? {
         val l = layout ?: return null
@@ -222,31 +215,14 @@ internal class TextFirstEditText(
         return l.getLineStart(first)..l.getLineEnd(last)
     }
 
-    private fun contentWidth(): Int = maxOf(1, width - totalPaddingLeft - totalPaddingRight - style.dp(4f).toInt())
-
-    private fun requestImageLoads() {
-        val e = editableText ?: return
-        for (span in e.getSpans(0, e.length, TfImage::class.java)) {
-            if (span.bitmap != null || span.failed) continue
-            images.load(span.destination, span.vault, span.remote, contentWidth()) { bitmap ->
-                val current = editableText
-                val s = current.getSpanStart(span)
-                if (s < 0) return@load
-                if (bitmap == null) span.failed = true else span.bitmap = bitmap
-                val en = current.getSpanEnd(span)
-                applying = true
-                try { current.setSpan(span, s, en, TF_SPAN_FLAGS) } finally { applying = false }
-                requestLayout()
-                invalidate()
-            }
-        }
-    }
+    internal fun contentWidth(): Int = maxOf(1, width - totalPaddingLeft - totalPaddingRight - style.dp(4f).toInt())
 
     // Images and dividers size to the content width; a new width re-measures
     // their lines (one measured while the view was not laid out yet would
     // otherwise keep a stale height).
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
+        if (h != oldh) broughtOffset = -1
         if (w == oldw) return
         val e = editableText ?: return
         applying = true

@@ -7,7 +7,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import com.futo.notes.storage.GateAccess
-import uniffi.futo_notes_ffi.EditorByteRange
 import uniffi.futo_notes_ffi.EditorSessionException
 import uniffi.futo_notes_ffi.FlushDraftResult
 
@@ -51,9 +50,13 @@ private fun EditorEngine.openAttachment(): Throwable? = try {
     rev = opened.revision()
     val display = opened.displayText()
     mirror.reset(display)
-    val projection = opened.project(rev, EditorByteRange(0u, mirror.utf8Length.toULong()))
+    // The first screens now, the rest in slices (EditorEngineStream.kt).
+    val shown = OpenSlices.sliceEnd(mirror.text, 0, OpenSlices.FIRST_CHARS)
+    tailLength = mirror.text.length - shown
+    val projection = opened.project(rev, mirror.byteRange(0, shown))
     mirror.selStart = 0; mirror.selEnd = 0
-    postUpdate(reset = display, edits = emptyList(), windows = listOf(window(projection)))
+    postUpdate(reset = display.substring(0, shown), edits = emptyList(), windows = listOf(window(projection)))
+    streamTail()
     refreshCaretState()
     null
 } catch (failure: Throwable) {

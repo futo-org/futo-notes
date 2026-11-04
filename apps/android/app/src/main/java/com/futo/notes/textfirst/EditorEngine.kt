@@ -84,6 +84,9 @@ internal class EditorEngine(
     private var engineNanos = 0L
     /** The last change's projection; the caret state reads its block from it. */
     internal var lastProjection: EditorProjection? = null
+    /** Characters at the end of the display the view has not been given yet (progressive open). */
+    internal var tailLength = 0
+    internal val tailRunnable = Runnable { showNextSlice() }
 
     /** Read on the UI thread when the keyboard connects. */
     @Volatile var publishedSelection = 0L
@@ -238,6 +241,7 @@ internal class EditorEngine(
     private fun release() {
         handler.removeCallbacks(saveRunnable)
         handler.removeCallbacks(caretRunnable)
+        handler.removeCallbacks(tailRunnable)
         find.release(handler)
         session?.destroy()
         fast?.close()
@@ -306,6 +310,7 @@ internal class EditorEngine(
 
     internal fun reloadFromEngine() {
         val s = session ?: return
+        stopStreaming()
         mirror.overlay = null
         try { s.composition()?.let { s.cancelComposition(s.revision()) } } catch (_: EditorSessionException) {}
         rev = s.revision()
@@ -325,6 +330,7 @@ internal class EditorEngine(
         val s = session ?: return
         val a = minOf(start, end).coerceIn(0, mirror.text.length)
         val b = maxOf(start, end).coerceIn(0, mirror.text.length)
+        if (b > tailStart() && streaming) finishStreaming()
         val change = s.selectUtf16(rev, EditorUtf16Range(a.toULong(), b.toULong()))
         rev = change.revision
         mirror.selStart = mirror.toUtf16(change.selection.start.toInt())
@@ -344,6 +350,8 @@ internal class EditorEngine(
         }
         val start = mirror.toUtf16(change.range.start.toInt())
         val end = mirror.toUtf16(change.range.end.toInt())
+        // A change reaching text the view has not been given waits for it to arrive.
+        if (streaming && end > tailStart()) finishStreaming()
         if (TextFirstEditText.PROFILE) {
             Log.i(TAG, "change ${change.previousRevision}->${change.revision}: replace [$start,$end) with ${change.inserted.length} chars; projection ${change.projection.range.end - change.projection.range.start} bytes, ${change.projection.blocks.size} blocks, ${change.projection.runs.size} runs; parsed=${change.parsedSourceBytes}")
         }
@@ -384,6 +392,24 @@ internal class EditorEngine(
         ui.post { sink.onUpdate(update) }
         scheduleCaretState()
         scheduleFindRefresh()
+    }
+
+    /** More of the note for the view, after what it shows. The caret, the keyboard and `seq` are untouched. */
+    internal fun postAppend(edits: List<TextEdit>, windows: List<StyleWindow>) {
+        val update = UiUpdate(
+            seq = seq, reset = null, edits = edits,
+            selStart = mirror.selStart, selEnd = mirror.selEnd,
+            composingStart = mirror.composingStart, composingEnd = mirror.composingEnd,
+            windows = windows, inputUptimeNanos = 0L, append = true,
+        )
+        ui.post {
+            val began = SystemClock.uptimeMillis()
+            sink.onUpdate(update)
+            // The next slice waits as long as this one took the UI thread, so a slow phone
+            // (or a long note, whose layout costs more) spends half its time on touches.
+            val took = SystemClock.uptimeMillis() - began
+            handler.post { streamTail(maxOf(OpenSlices.GAP_MS, took)) }
+        }
     }
 
     private fun publishSelection() {
