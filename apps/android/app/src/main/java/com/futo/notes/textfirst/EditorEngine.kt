@@ -56,6 +56,8 @@ internal class EditorEngine(
     /** Debug/test: compare the mirror with the engine's display after every change. */
     private val verifyMirror: Boolean = false,
     internal val storageGate: StorageMigrationGate? = null,
+    /** A display offset the first screens must reach (where the note was last left), else its top. */
+    internal val openThrough: Int = 0,
 ) {
     private val thread = HandlerThread("futo-editor", Process.THREAD_PRIORITY_DISPLAY).apply { start() }
     val handler = Handler(thread.looper)
@@ -84,6 +86,9 @@ internal class EditorEngine(
     private var engineNanos = 0L
     /** The last change's projection; the caret state reads its block from it. */
     internal var lastProjection: EditorProjection? = null
+    /** Characters at the end of the display the view has not been given yet (progressive open). */
+    internal var tailLength = 0
+    internal val tailRunnable = Runnable { showNextSlice() }
 
     /** Read on the UI thread when the keyboard connects. */
     @Volatile var publishedSelection = 0L
@@ -238,6 +243,7 @@ internal class EditorEngine(
     private fun release() {
         handler.removeCallbacks(saveRunnable)
         handler.removeCallbacks(caretRunnable)
+        handler.removeCallbacks(tailRunnable)
         find.release(handler)
         session?.destroy()
         fast?.close()
@@ -306,6 +312,7 @@ internal class EditorEngine(
 
     internal fun reloadFromEngine() {
         val s = session ?: return
+        stopStreaming()
         mirror.overlay = null
         try { s.composition()?.let { s.cancelComposition(s.revision()) } } catch (_: EditorSessionException) {}
         rev = s.revision()
@@ -325,6 +332,7 @@ internal class EditorEngine(
         val s = session ?: return
         val a = minOf(start, end).coerceIn(0, mirror.text.length)
         val b = maxOf(start, end).coerceIn(0, mirror.text.length)
+        if (b > tailStart() && streaming) finishStreaming()
         val change = s.selectUtf16(rev, EditorUtf16Range(a.toULong(), b.toULong()))
         rev = change.revision
         mirror.selStart = mirror.toUtf16(change.selection.start.toInt())
@@ -344,6 +352,8 @@ internal class EditorEngine(
         }
         val start = mirror.toUtf16(change.range.start.toInt())
         val end = mirror.toUtf16(change.range.end.toInt())
+        // A change reaching text the view has not been given waits for it to arrive.
+        if (streaming && end > tailStart()) finishStreaming()
         if (TextFirstEditText.PROFILE) {
             Log.i(TAG, "change ${change.previousRevision}->${change.revision}: replace [$start,$end) with ${change.inserted.length} chars; projection ${change.projection.range.end - change.projection.range.start} bytes, ${change.projection.blocks.size} blocks, ${change.projection.runs.size} runs; parsed=${change.parsedSourceBytes}")
         }
@@ -378,6 +388,7 @@ internal class EditorEngine(
             inputUptimeNanos = inputStartNanos,
             postedNanos = SystemClock.elapsedRealtimeNanos(),
             engineNanos = engineNanos.also { engineNanos = 0L },
+            complete = !streaming,
         )
         publishSelection()
         publishCell()

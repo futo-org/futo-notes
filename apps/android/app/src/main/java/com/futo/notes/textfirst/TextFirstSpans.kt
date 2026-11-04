@@ -14,6 +14,7 @@ import android.text.style.LineBackgroundSpan
 import android.text.style.LineHeightSpan
 import android.text.style.MetricAffectingSpan
 import android.text.style.ReplacementSpan
+import android.text.style.UpdateLayout
 import android.text.style.UpdateAppearance
 
 /**
@@ -342,9 +343,11 @@ internal const val TF_SPAN_FLAGS = Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
  * the Milkdown surface's 0.75em block gap. One per blank line: a LineHeightSpan
  * is also a WrapTogetherSpan, so a span over more than its own line would make
  * the layout reflow everything it covers on every edit (it did: a whole-note
- * span cost 6 s a keystroke in a 19k-line note).
+ * span cost 6 s a keystroke in a 19k-line note). [UpdateLayout] so that adding
+ * it to text already laid out (a streamed slice) re-measures its line: a
+ * bare LineHeightSpan is only consulted when the line is next broken.
  */
-internal class TfBlankLine : LineHeightSpan, TfSpan {
+internal class TfBlankLine : LineHeightSpan, UpdateLayout, TfSpan {
     override fun slice(head: Boolean): TfSpan? = null
 
     override fun chooseHeight(text: CharSequence, start: Int, end: Int, spanstartv: Int, lineHeight: Int, fm: Paint.FontMetricsInt) {

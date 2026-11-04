@@ -172,7 +172,8 @@ internal fun TextFirstEditorScreen(
     // Open after any leave of this same note has released its attachment.
     LaunchedEffect(initialNoteId) {
         store.awaitEditorLeaves()
-        controller.open(initialNoteId) { error ->
+        // A note made just now has nothing to return to; any other opens where it was left.
+        controller.open(initialNoteId, restore = if (autoFocus) null else NoteScrollMemory.get(initialNoteId)) { error ->
             // A note that cannot be opened never shows as a blank page; leave,
             // as the WebView editor does when its read fails.
             if (error != null) {
@@ -285,6 +286,8 @@ internal fun TextFirstEditorScreen(
     // before it can remove the screen. A failed fallback retains the session.
     DisposableEffect(initialNoteId) {
         onDispose {
+            // Before the detach below: the view still holds the note as the reader left it.
+            NoteScrollMemory.put(noteId, controller.view.scrollAnchor())
             store.launchEditorLeave {
                 val saved = controller.close()
                 if (saved != null || !controller.opened) {

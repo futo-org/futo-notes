@@ -52,7 +52,7 @@ internal class TextFirstEditText(
     private val tableTouch = TableGridTouch(this, { cell -> onTableCell?.invoke(cell.start, cell.end, appliedSeq) }, ::invalidateTableScroll)
     internal val marks = FindMarks()
     internal val scroll = NoteScroll(this)
-    private val spans = TfSpanFactory(style, marks, { contentWidth() }) { span ->
+    internal val spans = TfSpanFactory(style, marks, { contentWidth() }) { span ->
         wikilinkContentWidth(this, span, contentWidth())
     }
     /** The composing underline this view set; the only SPAN_COMPOSING span it owns. */
@@ -110,6 +110,10 @@ internal class TextFirstEditText(
     // ---- engine → view ----
 
     fun apply(update: UiUpdate) {
+        contentComplete = update.complete
+        // An edit or a new selection is the caret's business: bring it into view as TextView does.
+        if (!update.append) broughtOffset = -1
+        if (update.append) { applyAppend(update); scheduleRestore(); return }
         val applyStart = android.os.SystemClock.elapsedRealtimeNanos()
         var editsEnd = applyStart
         applying = true
@@ -164,7 +168,51 @@ internal class TextFirstEditText(
         } finally {
             applying = false
         }
-        if (update.reset != null) requestImageLoads()
+        if (update.reset != null) { requestImageLoads(); scheduleRestore() }
+    }
+
+    // ---- scroll position ----
+
+    /**
+     * TextView brings the caret back into view before the next draw after any
+     * text or layout change, whether or not the caret did anything. That would
+     * drag a reader who has scrolled away back to it whenever more of the note
+     * arrives, an image lands and resizes its line, or the host puts the reader
+     * back where they were. The caret is brought into view when it has moved
+     * since it last was, or when the view's size or focus changed (the keyboard
+     * rising over it).
+     */
+    internal var broughtOffset = -1
+
+    override fun bringPointIntoView(offset: Int): Boolean {
+        if (offset == broughtOffset) return false
+        broughtOffset = offset
+        return super.bringPointIntoView(offset)
+    }
+
+    override fun onFocusChanged(focused: Boolean, direction: Int, previouslyFocusedRect: android.graphics.Rect?) {
+        broughtOffset = -1
+        super.onFocusChanged(focused, direction, previouslyFocusedRect)
+    }
+
+    /** Where the note was last left, until the view has scrolled there (or the user took over). */
+    internal var restoring: ScrollAnchor? = null
+    /** Whether the text is the whole note: while it is not, a position past its end may yet arrive. */
+    internal var contentComplete = true
+    internal var restoreQueued = false
+    /**
+     * The line the view was just put back on. Images above it land after the
+     * open and change their lines' heights, which would carry it away: until
+     * the reader touches the note (or a few seconds pass) it is held in place.
+     */
+    internal var pinned: ScrollAnchor? = null
+    internal val unpin = Runnable { pinned = null }
+
+    override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
+        super.onLayout(changed, left, top, right, bottom)
+        val anchor = pinned ?: return
+        val y = anchorY(anchor) ?: return
+        if (y != scrollY) scrollTo(scrollX, y)
     }
 
     private class ComposingUnderline : UnderlineSpan()
@@ -196,40 +244,6 @@ internal class TextFirstEditText(
     }
 
 
-    /** Replace the renderer's spans inside a window, keeping identical ones so the layout does not reflow them. */
-    private fun restyle(e: Editable, given: StyleWindow) {
-        // A window reaching the display's end also owns the end sentinel.
-        val window = if (given.end == e.length - 1) StyleWindow(given.start, given.end + 1, given.specs) else given
-        val wanted = window.specs.toMutableList()
-        for (span in e.getSpans(window.start, window.end, TfSpan::class.java)) {
-            val s = e.getSpanStart(span)
-            val en = e.getSpanEnd(span)
-            if (s < 0) continue
-            // A neighbour that only touches the window is not part of it.
-            if (s != en && (en <= window.start || s >= window.end) && window.start != window.end) continue
-            if (s >= window.start && en <= window.end) {
-                val match = wanted.indexOfFirst { (it.start == s && (it.end == en || it.start == it.end && en == s + 1)) && spans.matches(it, span) }
-                if (match >= 0) { wanted.removeAt(match); continue }
-            }
-            e.removeSpan(span)
-            if (s < window.start) span.slice(head = true)?.let { e.setSpan(it, s, window.start, TF_SPAN_FLAGS) }
-            if (en > window.end) span.slice(head = false)?.let { e.setSpan(it, window.end, en, TF_SPAN_FLAGS) }
-        }
-        addSpans(e, wanted)
-        if (wanted.any { it is SpanSpec.Image }) requestImageLoads()
-    }
-
-    private fun addSpans(target: Spannable, specs: List<SpanSpec>) {
-        for (spec in specs) {
-            if (spec.end < spec.start || spec.end > target.length - 1) continue
-            // A block on the empty last line (a new list item at the end) sits
-            // on the end sentinel; Android lays out no paragraph spans for an
-            // empty last line.
-            val end = if (spec.start == spec.end && spec.start == target.length - 1) spec.end + 1 else spec.end
-            target.setSpan(spans.create(spec), spec.start, end, TF_SPAN_FLAGS)
-        }
-    }
-
     /** The characters on screen, a screen's height of margin either side. */
     private fun visibleChars(): IntRange? {
         val l = layout ?: return null
@@ -246,6 +260,7 @@ internal class TextFirstEditText(
     // otherwise keep a stale height).
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
+        if (h != oldh) broughtOffset = -1
         if (w == oldw) return
         val e = editableText ?: return
         applying = true
@@ -292,7 +307,7 @@ internal class TextFirstEditText(
 
     @SuppressLint("ClickableViewAccessibility")
     override fun onTouchEvent(event: MotionEvent): Boolean {
-        if (event.actionMasked == MotionEvent.ACTION_DOWN) scroll.down(event) else scroll.track(event)
+        if (event.actionMasked == MotionEvent.ACTION_DOWN) { restoring = null; stopPinning(); scroll.down(event) } else scroll.track(event)
         if (!scroll.stoppingTouch && tableTouch.onTouch(event)) return true
         if (scroll.own(event) { super.onTouchEvent(it) }) return true
         if (onOpenUrl != null && linkTouch.onTouch(event)) return true
@@ -408,6 +423,9 @@ internal class TextFirstEditText(
          * markers, quote bars) for an empty last line.
          */
         const val END_SENTINEL = "\u200B"
+
+        /** How long a restored position is held against images loading above it. */
+        internal const val PIN_MS = 4_000L
 
         /** Debug: log per-update apply timings under `TextFirstApply`. */
         var PROFILE = com.futo.notes.BuildConfig.DEBUG
