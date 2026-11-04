@@ -78,7 +78,9 @@
   rename's identity (unsupported); a journal format this binary does not know
   stops renames and sync with an error and is left untouched. Unchanged-content
   external folder moves still pair by equal hash AND basename. → futo-notes-store
-  `rename_journal/` (guarded by `tests/rename_journal.rs`); futo-notes-sync
+  `rename_journal/` (moves + recovery; guarded by `tests/rename_journal.rs`),
+  its record and sync view in futo-notes-core `files/rename_journal/` (so sync
+  never depends on the store's search index); futo-notes-sync
   `sync/push/local_renames.rs` (guarded by `server_integration/rename_identity.rs`
   against the real server, `sync/local_rename_tests.rs` for failed PUT,
   unsaved checkpoint, a rename between scan and pull write, partial folder

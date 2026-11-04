@@ -15,7 +15,7 @@
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
-use futo_notes_store::rename_journal::{with_rename_journal, IntentKey, RenameChain};
+use futo_notes_core::files::rename_journal::{with_rename_journal, IntentKey, RenameChain};
 
 use crate::checkpoint::ConnectedState;
 use crate::sync::object_map::mapped_name;

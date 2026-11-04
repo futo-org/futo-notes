@@ -5,7 +5,7 @@ use std::path::Path;
 use futo_notes_core::files::vault_fs;
 
 use super::moves::{commit_in, move_entry};
-use super::{
+use futo_notes_core::files::rename_journal::{
     load, remove_staging, save, staged, staged_folder, Journal, Moves, Phase, Transaction,
 };
 

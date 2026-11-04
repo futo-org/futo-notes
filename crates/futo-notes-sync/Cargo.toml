@@ -7,7 +7,6 @@ edition = "2021"
 name = "futo_notes_sync"
 
 [dependencies]
-futo-notes-store = { path = "../futo-notes-store" }
 futo-notes-core = { path = "../futo-notes-core" }
 reqwest = { version = "0.12.12", default-features = false, features = ["json", "rustls-tls-manual-roots", "stream", "http2"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
@@ -22,6 +21,8 @@ base64 = "0.23"
 uuid = { version = "1", features = ["v7"] }
 
 [dev-dependencies]
+# The journaled-rename tests drive real store renames.
+futo-notes-store = { path = "../futo-notes-store" }
 tokio = { version = "1", features = ["test-util", "io-util", "net"] }
 wiremock = "0.6"
 # The hosted scenarios stand in for a platform auth sheet with a browser-shaped

@@ -10,8 +10,8 @@ use std::path::Path;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 
+use futo_notes_core::files::rename_journal::{set_rename_scope, with_rename_journal};
 use futo_notes_core::hash::hash_sha256;
-use futo_notes_store::rename_journal::{set_rename_scope, with_rename_journal};
 use futo_notes_store::LocalNoteStore;
 
 use crate::checkpoint::{self, ConnectedState, ObjectState};

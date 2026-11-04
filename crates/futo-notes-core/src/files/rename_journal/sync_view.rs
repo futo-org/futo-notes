@@ -3,9 +3,9 @@
 use std::collections::HashSet;
 use std::path::Path;
 
-use futo_notes_core::files::vault_mutation_guard;
+use crate::files::vault_mutation_guard;
 
-use super::{load, save, Journal, Phase};
+use super::{load, note_filename, save, Journal, Phase};
 
 // The sync-facing surface.
 
@@ -47,7 +47,7 @@ impl RenameJournal {
                 continue;
             }
             for mapping in &mut tx.mappings {
-                if crate::note_filename(&mapping.from) == from
+                if note_filename(&mapping.from) == from
                     && mapping.object_id.as_deref() != Some(object_id)
                 {
                     mapping.object_id = Some(object_id.to_owned());
@@ -94,8 +94,8 @@ fn intents_of(journal: &Journal) -> Vec<RenameIntent> {
         .flat_map(|tx| {
             tx.mappings.iter().map(|mapping| RenameIntent {
                 transaction: tx.id,
-                from: crate::note_filename(&mapping.from),
-                to: crate::note_filename(&mapping.to),
+                from: note_filename(&mapping.from),
+                to: note_filename(&mapping.to),
                 object_id: mapping.object_id.clone(),
                 ended: mapping.ended,
             })
@@ -154,7 +154,7 @@ fn forget(journal: &mut Journal, intents: &HashSet<IntentKey>) -> bool {
         let id = tx.id;
         let before = tx.mappings.len();
         tx.mappings
-            .retain(|mapping| !intents.contains(&(id, crate::note_filename(&mapping.from))));
+            .retain(|mapping| !intents.contains(&(id, note_filename(&mapping.from))));
         changed |= tx.mappings.len() != before;
     }
     journal
@@ -167,7 +167,7 @@ fn forget(journal: &mut Journal, intents: &HashSet<IntentKey>) -> bool {
 /// ended there is over, so no later file at that name can inherit it. The
 /// intents stay, marked, until sync settles them: they are also the evidence
 /// that a later file at a vacated origin is a new one.
-pub(crate) fn forget_deleted_locked(root: &Path, filename: &str) -> Result<(), String> {
+pub fn forget_deleted_locked(root: &Path, filename: &str) -> Result<(), String> {
     let mut journal = load(root)?;
     let ended = chains(intents_of(&journal))
         .into_iter()
@@ -183,7 +183,7 @@ pub(crate) fn forget_deleted_locked(root: &Path, filename: &str) -> Result<(), S
         }
         let id = tx.id;
         for mapping in &mut tx.mappings {
-            if ended.contains(&(id, crate::note_filename(&mapping.from))) {
+            if ended.contains(&(id, note_filename(&mapping.from))) {
                 mapping.ended = true;
             }
         }

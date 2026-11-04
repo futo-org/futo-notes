@@ -237,7 +237,7 @@ pub fn demote(root: &Path) -> Result<(), String> {
     }
     // Pending local renames named paths of the checkpoint just removed; they
     // must never bind to an equal path in whatever connects next.
-    futo_notes_store::rename_journal::set_rename_scope(root, None)
+    futo_notes_core::files::rename_journal::set_rename_scope(root, None)
 }
 
 pub(crate) fn clear_ancestry(root: &Path) {
