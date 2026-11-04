@@ -118,6 +118,22 @@ class TextFirstTapGestureTest {
         assertEquals("jittery double tap: sel ${view.selectionStart}-${view.selectionEnd}", "gamma", selected())
     }
 
+    /** Gboard marks the word the caret lands in; the second tap of a double-tap arrives with that composition open. */
+    @Test
+    fun aDoubleTapSelectsTheWordWhileTheKeyboardMarksIt() = exercise {
+        view.setSelection(0)
+        val connection = view.onCreateInputConnection(android.view.inputmethod.EditorInfo())!!
+        taps(pointAt("beta"), 1)
+        controller.sourceText()
+        val start = text.indexOf("beta")
+        connection.setComposingRegion(start, start + 4)
+        controller.sourceText()
+        delay(300L)
+        taps(pointAt("beta"), 2)
+        delay(500L)
+        assertEquals("marked double tap: sel ${view.selectionStart}-${view.selectionEnd}", "beta", selected())
+    }
+
     @Test
     fun aDoubleTapAfterAFlingSelectsTheWord() = exercise((1..300).joinToString("\n\n") { "Line number $it of a long note" }) {
         view.setSelection(0)
