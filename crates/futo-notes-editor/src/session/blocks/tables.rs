@@ -276,6 +276,44 @@ impl EditorSession {
         }
     }
 
+    /// Every table whose header line starts in `range`, in order: what a host
+    /// gets by asking `inspect_table` at each block start, in one call.
+    pub fn inspect_tables(
+        &self,
+        expected: Revision,
+        range: DisplayRange,
+    ) -> Result<Vec<TableDescription>, EditorError> {
+        self.check_revision(expected)?;
+        self.validate_range(range)?;
+        let mut tables: Vec<TableDescription> = Vec::new();
+        let mut covered = 0;
+        for line in self.projection.view_block_lines(range) {
+            // A list, quote, code or heading line is never a root table row.
+            if line.code
+                || line.quote_depth > 0
+                || line.list.is_some()
+                || line.in_list
+                || line.heading > 0
+                || line.divider
+            {
+                continue;
+            }
+            let at = self.projection.display_at(line.content.start);
+            if at < covered {
+                continue;
+            }
+            let at = DisplayRange {
+                start: DisplayOffset(at),
+                end: DisplayOffset(at),
+            };
+            if let Some(table) = self.inspect_table(expected, at)? {
+                covered = table.display.end.0;
+                tables.push(table);
+            }
+        }
+        Ok(tables)
+    }
+
     /// The table at `range`, with its focused cell and applicable commands when
     /// the range lies inside one cell. Hosts pass the current selection.
     pub fn inspect_table(
