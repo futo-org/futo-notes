@@ -4,7 +4,11 @@ import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-import { expect, it } from 'vitest';
+import { expect, it, vi } from 'vitest';
+
+// Subprocess-driven file: each case runs real git add/stash/worktree commands. The 5s default went red on loaded
+// CI runners (audit 2026-11), so the file timeout is set to 30s to cover that bound.
+vi.setConfig({ testTimeout: 30_000 });
 
 it.each(['primary', 'linked'])(
   'snapshots staged, unstaged and untracked source without touching the %s index or stash',

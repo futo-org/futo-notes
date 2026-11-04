@@ -9,6 +9,10 @@ import { slotOf } from '../lib/slot.mjs';
 const QA = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../qa.mjs');
 
 // Run the public CLI against fake platform executables, never CoreSimulator.
+// Subprocess-driven file: cases chain several scripts/qa.mjs spawns, each bounded at 10s. The 5s default went red on loaded
+// CI runners (audit 2026-11), so the file timeout is set to 30s to cover that bound.
+vi.setConfig({ testTimeout: 30_000 });
+
 describe.skipIf(process.platform !== 'darwin')('preferred pooled iOS QA claims', () => {
   let scratch;
   let root;

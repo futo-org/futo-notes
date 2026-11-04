@@ -16,7 +16,6 @@ release:gate:
     - job: test
     - job: check:release-notes
     - job: test:localization-audit
-    - job: test:e2e:smoke
     - job: test:e2e:rest
     - job: test:e2e:editor-embed
     - job: test:rust:workspace

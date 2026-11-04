@@ -5,7 +5,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { join } from 'node:path';
 import { fileURLToPath, URL } from 'node:url';
 import process from 'node:process';
-import { expect, it } from 'vitest';
+import { expect, it, vi } from 'vitest';
 import { sandbox } from '../ios-capture-fixture-signed-test-data.mjs';
 import { sourceProvenance } from '../ios-capture-fixture.mjs';
 import { buildSignedFixture } from '../ios-capture-fixture-signed.mjs';
@@ -14,6 +14,10 @@ import { runPhysicalFixtureCLI } from './physical-fixture-cli.mjs';
 
 const A = 'A1111111-1111-4111-8111-111111111111';
 const B = 'B1111111-1111-4111-8111-111111111111';
+
+// Subprocess-driven file: its identity CLI child runs under spawnSync's own 30s bound. The 5s default went red on loaded
+// CI runners (audit 2026-11), so the file timeout is set to 40s to cover that bound.
+vi.setConfig({ testTimeout: 40_000 });
 
 it('actual identity CLI binds the requested UUID before any OS verification', () => {
   const t = sandbox();
