@@ -39,6 +39,7 @@ class TextFirstScrollRestoreTest {
         store = NotesStore(root, File(root, "index"))
         store.core.createNote("long", "", longNote())
         store.core.createNote("short", "", "just a line")
+        store.core.createNote("deep", "", buildString { for (i in 0 until 3000) append("## Section $i\n\nSome **bold** prose for section $i.\n\n- one\n- two\n\n") })
         compose.setContent {
             ProvideLocalization("en") {
                 FutoNotesTheme(darkTheme = false) {
@@ -115,5 +116,18 @@ class TextFirstScrollRestoreTest {
         goBack()
         val second = openAndWait("long", "Section 0")
         compose.runOnIdle { assertEquals(0, second.scrollY) }
+    }
+
+    /** Deeper than the first slice reaches: the note shows its top at once, then the view jumps when the line arrives. */
+    @Test fun aLineBeyondTheFirstSliceReachIsRestoredOnceItArrives() {
+        val wanted = 150_000
+        NoteScrollMemory.put("deep", ScrollAnchor(wanted, 0))
+        val view = openAndWait("deep", "Section 0")
+        compose.waitUntil(120_000) { compose.runOnUiThread { }; view.restoring == null }
+        compose.runOnIdle {
+            val now = view.scrollAnchor()!!
+            assertTrue("landed on the saved line: ${now.offset}", kotlin.math.abs(now.offset - wanted) < 200)
+            assertTrue("scrolled: ${view.scrollY}", view.scrollY > 0)
+        }
     }
 }
