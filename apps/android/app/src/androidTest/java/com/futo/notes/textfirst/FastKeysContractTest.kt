@@ -30,7 +30,7 @@ class FastKeysContractTest {
                 assertEquals(expected, actual)
                 assertEquals(canonical.sourceText(), accelerated.sourceText())
             }
-            for (key in listOf(EditorParagraphKey.ENTER, EditorParagraphKey.BACKSPACE, EditorParagraphKey.SHIFT_ENTER, EditorParagraphKey.BACKSPACE)) {
+            for (key in listOf(EditorParagraphKey.ENTER, EditorParagraphKey.BACKSPACE, EditorParagraphKey.SHIFT_ENTER, EditorParagraphKey.BACKSPACE_JOINING_HEADING)) {
                 val at = canonical.displayText().length
                 assertEquals(
                     canonical.paragraphKeyUtf16(canonical.revision(), EditorUtf16Range(at.toULong(), at.toULong()), key),

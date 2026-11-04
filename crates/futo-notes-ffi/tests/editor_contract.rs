@@ -412,3 +412,55 @@ fn native_remote_rename_retains_draft_and_merges_at_reported_final_id() {
     assert_eq!(session.source_text().unwrap(), "REMOTE\n\nsecond\n");
     assert!(!store.exists("old".into()));
 }
+
+#[test]
+fn native_text_first_commands_preserve_explicit_portable_variants() {
+    use futo_notes_ffi::{EditorBlockCommand, EditorParagraphKey};
+    let tree = TempTree::new();
+    std::fs::create_dir_all(tree.path("vault")).unwrap();
+    let store = NoteStore::new(path_string(&tree.path("vault")));
+    store
+        .create_note("n".into(), "".into(), "above\n# title".into())
+        .unwrap();
+    let session = store.open_editor("n".into()).unwrap();
+    session
+        .paragraph_key_utf16(
+            0,
+            EditorUtf16Range { start: 6, end: 6 },
+            EditorParagraphKey::BackspaceJoiningHeading,
+        )
+        .unwrap()
+        .unwrap();
+    assert_eq!(session.source_text().unwrap(), "abovetitle\n");
+    let rev = session.revision().unwrap();
+    let range = EditorUtf16Range { start: 0, end: 0 };
+    session
+        .block_command_utf16(
+            rev,
+            range.clone(),
+            EditorBlockCommand::ToggleHeading { level: 1 },
+        )
+        .unwrap()
+        .unwrap();
+    session
+        .block_command_utf16(
+            session.revision().unwrap(),
+            range.clone(),
+            EditorBlockCommand::ToggleHeading { level: 1 },
+        )
+        .unwrap()
+        .unwrap();
+    assert_eq!(session.source_text().unwrap(), "abovetitle\n");
+    session
+        .block_command_utf16(
+            session.revision().unwrap(),
+            range,
+            EditorBlockCommand::WrapCodeBlock,
+        )
+        .unwrap()
+        .unwrap();
+    assert!(session
+        .source_text()
+        .unwrap()
+        .starts_with("```\nabovetitle"));
+}

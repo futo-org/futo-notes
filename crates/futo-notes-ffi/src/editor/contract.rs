@@ -86,6 +86,7 @@ pub enum EditorParagraphKey {
     Delete,
     Tab,
     ShiftTab,
+    BackspaceJoiningHeading,
 }
 impl From<EditorParagraphKey> for editor::ParagraphKey {
     fn from(value: EditorParagraphKey) -> Self {
@@ -96,6 +97,7 @@ impl From<EditorParagraphKey> for editor::ParagraphKey {
             EditorParagraphKey::Delete => Self::Delete,
             EditorParagraphKey::Tab => Self::Tab,
             EditorParagraphKey::ShiftTab => Self::ShiftTab,
+            EditorParagraphKey::BackspaceJoiningHeading => Self::BackspaceJoiningHeading,
         }
     }
 }
@@ -112,6 +114,8 @@ pub enum EditorBlockCommand {
     TaskList,
     ToggleTask,
     CodeBlock,
+    WrapCodeBlock,
+    ToggleHeading { level: u8 },
 }
 impl From<EditorBlockCommand> for editor::BlockCommand {
     fn from(value: EditorBlockCommand) -> Self {
@@ -126,6 +130,8 @@ impl From<EditorBlockCommand> for editor::BlockCommand {
             EditorBlockCommand::TaskList => Self::TaskList,
             EditorBlockCommand::ToggleTask => Self::ToggleTask,
             EditorBlockCommand::CodeBlock => Self::CodeBlock,
+            EditorBlockCommand::WrapCodeBlock => Self::WrapCodeBlock,
+            EditorBlockCommand::ToggleHeading { level } => Self::ToggleHeading(level),
         }
     }
 }

@@ -85,7 +85,8 @@ internal fun EditorEngine.imeSetSelection(start: Int, end: Int) = input {
 internal fun EditorEngine.key(key: EditorParagraphKey) = input {
     if (session == null) return@input
     if (mirror.overlay != null) commitComposition(null)
-    val change = checkNotNull(fast).paragraphKey(rev, mirror.selStart, mirror.selEnd, key)
+    val intent = if (key == EditorParagraphKey.BACKSPACE) EditorParagraphKey.BACKSPACE_JOINING_HEADING else key
+    val change = checkNotNull(fast).paragraphKey(rev, mirror.selStart, mirror.selEnd, intent)
     if (change != null) accept(change)
 }
 
