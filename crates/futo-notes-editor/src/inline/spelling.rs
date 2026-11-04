@@ -237,6 +237,11 @@ pub(super) fn spell_with_anchors(
             }
             at = end;
         }
+        // With no visible text left there is no piece boundary to anchor to;
+        // the only caret is where the edit landed.
+        if found.is_none() && anchor == 0 && expected.is_empty() {
+            found = Some(rendered.caret);
+        }
         mapped.push(found.ok_or(EditorError::UnrepresentableFormat)?);
     }
     if verified.is_none() && (!guards.owners.is_empty() || typed.has_update()) {

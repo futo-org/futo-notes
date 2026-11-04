@@ -53,7 +53,34 @@ impl EditorSession {
         destination: &str,
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<Option<ViewChange>, EditorError> {
+        self.set_link_label(expected, range, None, destination, accept)
+    }
+
+    /// Replace a label and destination atomically. Labels are literal display
+    /// text; an interior range expands to the complete existing link.
+    pub fn edit_link(
+        &mut self,
+        expected: Revision,
+        range: DisplayRange,
+        label: &str,
+        destination: &str,
+        accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
+    ) -> Result<Option<ViewChange>, EditorError> {
+        self.set_link_label(expected, range, Some(label), destination, accept)
+    }
+
+    fn set_link_label(
+        &mut self,
+        expected: Revision,
+        range: DisplayRange,
+        label: Option<&str>,
+        destination: &str,
+        accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
+    ) -> Result<Option<ViewChange>, EditorError> {
         self.check_revision(expected)?;
+        if label.is_some_and(|label| label.contains(['\r', '\n', '\0'])) {
+            return Err(EditorError::InvalidText);
+        }
         if destination.contains(['\r', '\n', '\0']) {
             return Err(EditorError::InvalidText);
         }
@@ -63,20 +90,31 @@ impl EditorSession {
                 range,
                 accept,
                 |staged, local, accept| {
-                    staged.set_link(staged.revision(), local, destination, accept)
+                    staged.set_link_label(staged.revision(), local, label, destination, accept)
                 },
             );
         }
         self.validate_range(range)?;
         let (link, inspection_work) = self.inspect_link_with_work(expected, range)?;
-        if link
-            .as_ref()
-            .is_some_and(|link| link.destination == destination)
-            || link.is_none() && destination.is_empty()
+        let target = link.as_ref().map_or(range, |link| link.range);
+        // An unchanged plain label keeps the existing source and formatting.
+        let label = label.filter(|label| {
+            target.start == target.end
+                || self
+                    .projection
+                    .display
+                    .byte_slice(target.start.0..target.end.0)
+                    .to_string()
+                    != *label
+        });
+        if label.is_none()
+            && (link
+                .as_ref()
+                .is_some_and(|link| link.destination == destination)
+                || link.is_none() && destination.is_empty())
         {
             return Ok(None);
         }
-        let target = link.map_or(range, |link| link.range);
         if self
             .projection
             .block_lines(target)
@@ -85,7 +123,7 @@ impl EditorSession {
         {
             return Ok(None);
         }
-        let inserting = target.start == target.end;
+        let inserting = target.start == target.end && label.is_none();
         let (mut plan, selected_source) = if inserting {
             (
                 self.projection.insert_link(
@@ -100,7 +138,7 @@ impl EditorSession {
         } else {
             let (plan, selection) =
                 self.projection
-                    .link_edit(&self.source, target, range, destination)?;
+                    .link_edit(&self.source, target, range, destination, label)?;
             (plan, Some(selection))
         };
         let edit = self.prepare_source(
@@ -111,6 +149,9 @@ impl EditorSession {
             },
             &plan.inserted,
         )?;
+        if edit.removed == edit.inserted {
+            return Ok(None);
+        }
         let before_links = self.projection.pending_for_source_edit(edit.range);
         let prepared = self.prepare_plan_pending(&edit, &plan, &before_links, None)?;
         accept(&edit).map_err(EditorError::Persistence)?;
