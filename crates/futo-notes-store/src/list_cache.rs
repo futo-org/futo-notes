@@ -28,9 +28,21 @@ const RECORD_LEN: usize = 5 * 8 + 4 * 8;
 pub(crate) const RACY_MARGIN_NS: i64 = 2_000_000_000;
 
 pub(crate) fn now_ns() -> i64 {
-    SystemTime::now()
+    let real = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map_or(0, |since| since.as_nanos().min(i64::MAX as u128) as i64)
+        .map_or(0, |since| since.as_nanos().min(i64::MAX as u128) as i64);
+    #[cfg(test)]
+    let real = real.saturating_add(test_clock::OFFSET_NS.with(std::cell::Cell::get));
+    real
+}
+
+/// A per-thread skew on [`now_ns`], so a test decides whether a pass sees a
+/// note as inside or outside the racy margin instead of sleeping past it.
+#[cfg(test)]
+pub(crate) mod test_clock {
+    thread_local! {
+        pub(crate) static OFFSET_NS: std::cell::Cell<i64> = const { std::cell::Cell::new(0) };
+    }
 }
 
 /// The vault root as recorded in and compared against the file.

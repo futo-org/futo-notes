@@ -24,13 +24,9 @@ test:
     - $LINUX_RUNNER_TAG
   # No resource_group: the cross-pipeline lock queued every MR behind one job
   # (2026-11-03). If FolderTreeView timing flakes return under contention, fix the test.
-  # TIGHTENED from the inherited 60m project default, not bumped: inside a
-  # resource group a hung job is head-of-line blocking for every other MR, and
-  # hangs are real here (a test:rust:workspace run hung 3870s in the same
-  # incident). 15m is twice runner 55's 7m15 median and ten times runner 71's
-  # 87s, so a cold pnpm store still fits while a wedged job frees the group in
-  # 15m instead of an hour.
-  timeout: 15m
+  # 25m, not 15m: executor prep counts toward the timeout and took 5-13 min on a
+  # starved runner (pipelines 39228, 39298), killing jobs with 2-6 min of script.
+  timeout: 25m
   # No scope classifier: this job always runs the full script. A documentation
   # MR pays the pnpm install, and in exchange there is exactly one path that can
   # be reasoned about. The docs gates it used to shortcut to (check-agent-docs,
@@ -100,9 +96,9 @@ check:release-notes:mr:
 # Fails only on a vulnerability in code that ships — a production npm package or a crate
 # compiled into the desktop app or the FFI library — that .cargo/audit.toml / pnpm-workspace.yaml
 # has not acknowledged, so yellow means "act on this". Still absent from release:gate.needs
-# (docs/architecture-gates.md): a new advisory never blocks a tag by itself. Tags and the default
-# branch run it unconditionally: an advisory appears when the advisory database moves, not when
-# our lockfile does.
+# (docs/architecture-gates.md): a new advisory never blocks a tag by itself. Tags, the default
+# branch and the scheduled pipeline run it, never an MR: an advisory appears when the advisory
+# database moves, not when our lockfile does.
 test:audit:
   stage: test
   needs: []
@@ -142,17 +138,7 @@ test:audit:
     # node scripts/audit.mjs is the shared entry point for both CI and a local run.
     - node "$CI_PROJECT_DIR/scripts/audit.mjs"
   rules:
-    - !reference [.not-scheduled, rules]
     - if: $CI_COMMIT_TAG
-    - if: $CI_MERGE_REQUEST_IID
-      changes:
-        - Cargo.lock
-        - pnpm-lock.yaml
-        - pnpm-workspace.yaml
-        - .cargo/**/*
-        - scripts/audit.mjs
-        - ci/*.yml
-        - .gitlab-ci.yml
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
 
 # Every en.json message needs a translation in every catalog (AGENTS.md §5). Blocking, and in
@@ -202,4 +188,3 @@ test:puppet-gates:
   script:
     - pnpm install --frozen-lockfile --prefer-offline
     - status=0; pnpm run check:puppet-verbs || status=1; pnpm run check:puppet-first || status=1; exit $status
-

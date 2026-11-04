@@ -370,12 +370,12 @@ fn mutations_report_the_post_commit_folder_projection() {
 // Folder rename once re-resolved every link in the vault against every note id
 // for each moved note, then still scanned every note once per moved note. The
 // link-rewrite pass must grow with neither again: this moves half the vault.
-// Links skip the moved folder, so the timer measures that pass rather than
-// fsync'd rewrites.
-#[test]
-fn folder_rename_in_a_large_linked_vault_is_fast() {
+// Links skip the moved folder, so the work measured is that pass rather than
+// fsync'd rewrites. The bound is a ratio of two vault sizes timed in this
+// process, not a wall-clock limit, so a slow shared disk cannot fail it: a
+// linear rename takes ~4x as long for 4x the notes, a quadratic one ~16x.
+fn timed_folder_rename(total: usize) -> Duration {
     let root = TestRoot::new();
-    let total = 1000;
     for note in 0..total {
         let folder = root.0.join(format!("Folder {}", note % 2));
         fs::create_dir_all(&folder).unwrap();
@@ -393,11 +393,22 @@ fn folder_rename_in_a_large_linked_vault_is_fast() {
     let mutation = store.rename_folder("Folder 0", "Renamed").unwrap();
     let elapsed = started.elapsed();
 
-    assert_eq!(mutation.renamed.len(), 500);
+    assert_eq!(mutation.renamed.len(), total / 2);
     assert_eq!(mutation.relinked, ["pointer"]);
     assert_eq!(store.read("pointer").unwrap(), "[[Renamed/note 0]]");
+    elapsed
+}
+
+#[test]
+fn folder_rename_in_a_large_linked_vault_scales_linearly() {
+    // Best of three per size drops scheduler noise without a tolerance.
+    let best = |total| (0..3).map(|_| timed_folder_rename(total)).min().unwrap();
+    let small = best(400);
+    let large = best(1600);
+    let ratio = large.as_secs_f64() / small.as_secs_f64().max(1e-6);
     assert!(
-        elapsed < Duration::from_secs(1),
-        "folder rename over {total} linked notes must be fast (was {elapsed:?})"
+        ratio < 10.0,
+        "folder rename must scale ~linearly: 4x the notes took {ratio:.1}x as long \
+         (400 notes {small:?}, 1600 notes {large:?}; linear is ~4x, quadratic ~16x)"
     );
 }

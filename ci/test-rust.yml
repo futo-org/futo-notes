@@ -210,6 +210,27 @@ test:rust:ffi-android:
   # office-runner path is minutes.
   timeout: 60m
   rules:
+    # build:android-native builds this same crate (arm64 included) whenever
+    # these paths change; keep the list equal to its native-android-changes
+    # (premerge-test-parity asserts it).
+    - if: $CI_MERGE_REQUEST_IID
+      changes:
+        - apps/android/**/*
+        - crates/futo-notes-ffi/**/*
+        - Cargo.lock
+        - languages/**/*
+        - tests/localization/**/*
+        - scripts/generate-native-language-resources.mjs
+        - scripts/build-rust-android.sh
+        - scripts/ci-android-instrumentation.sh
+        - scripts/ci-android-emulator.sh
+        - scripts/ci-android-sync-leg.sh
+        - tests/cross-platform-sync.mjs
+        - tests/cross-platform-sync/**/*
+        - tests/lib/**/*
+        - scripts/sync-server-pin.json
+        - scripts/lib/sync-server.mjs
+      when: never
     - !reference [.not-scheduled, rules]
     - if: $CI_COMMIT_TAG
     - if: $CI_MERGE_REQUEST_IID

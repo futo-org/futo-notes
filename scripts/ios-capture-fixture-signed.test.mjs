@@ -1,6 +1,10 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import process from 'node:process';
 import { validateSigningSelection } from './ios-capture-fixture-signed.mjs';
+
+// Subprocess-driven file: each case spawns the capture script through spawnSync. The 5s default went red on loaded
+// CI runners (audit 2026-11), so the file timeout is set to 30s to cover that bound.
+vi.setConfig({ testTimeout: 30_000 });
 
 describe('explicit existing development profile selection', () => {
   it('accepts a matched wildcard profile only for the fixed isolated bundle family', () => {

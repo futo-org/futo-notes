@@ -81,9 +81,9 @@ describe('the nightly TestFlight schedule', () => {
     expect(config.workflow.rules.some((rule) => matches(rule.if, SCHEDULE))).toBe(true);
   });
 
-  it('runs only the test gate, the iOS build, and the TestFlight upload', () => {
+  it('runs only the test gate, the advisory audit, the iOS build, and the TestFlight upload', () => {
     const running = jobNames.filter((name) => outcome(config[name], SCHEDULE) !== 'never');
-    expect(running.sort()).toEqual(['build:ios-native', 'publish:ios:main', 'test']);
+    expect(running.sort()).toEqual(['build:ios-native', 'publish:ios:main', 'test', 'test:audit']);
     expect(outcome(config['build:ios-native'], SCHEDULE)).toBe('on_success');
   });
 });
