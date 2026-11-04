@@ -154,14 +154,17 @@ internal fun TextFirstEditorScreen(
             ?: if (duplicate) LocalizedMessage("notes.title.duplicate") else null
     }
 
-    controller.onAttachmentChanged = { finalId ->
-        if (finalId != noteId) {
-            noteId = finalId
-            if (!titleField.isFocused) titleField.commit(splitId(finalId).title)
-        }
+    fun adoptIdentity(finalId: String) {
+        if (finalId == noteId) return
+        noteId = finalId
+        if (!titleField.isFocused) titleField.commit(splitId(finalId).title)
     }
+    controller.onAttachmentChanged = ::adoptIdentity
     controller.onCheckpointed = { result, finalId ->
         saveFailed = false
+        // A save that succeeds on its own supersedes a Back whose save failed earlier;
+        // Retry must then only save, not replay that navigation. An in-flight leave keeps its own.
+        if (!leaving) pendingNavigation = null
         result.mutation?.let {
             store.applyMutation(it)
             store.signalLocalChange()
@@ -170,10 +173,7 @@ internal fun TextFirstEditorScreen(
         if (disposition is FlushDisposition.ParkedConflict) {
             showToast(context, localization.localizedText("notes.save.conflictCopy"))
         }
-        if (finalId != noteId) {
-            noteId = finalId
-            if (!titleField.isFocused) titleField.commit(splitId(finalId).title)
-        }
+        adoptIdentity(finalId)
     }
     controller.onFailure = { saveFailed = true }
 

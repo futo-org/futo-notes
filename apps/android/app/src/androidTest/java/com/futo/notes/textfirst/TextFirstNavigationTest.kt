@@ -84,6 +84,27 @@ class TextFirstNavigationTest {
         assertEquals("draft latest base", store.core.read("draft"))
     }
 
+    /** Retry after a later autosave failure saves; only the Back that failed asked to leave. */
+    @Test fun retryAfterARecoveredAutosaveDoesNotReplayAnOldBack() {
+        fun barShown() = compose.onAllNodesWithText("Retry save").fetchSemanticsNodes().isNotEmpty()
+        failSaves()
+        type("draft ")
+        compose.runOnIdle { navigator.goBack() }
+        compose.waitUntil(10_000) { barShown() }
+        restoreSaves()
+        type("kept ")
+        compose.waitUntil(10_000) { !barShown() }
+        failSaves()
+        type("more ")
+        compose.waitUntil(10_000) { barShown() }
+        restoreSaves("draft kept base") // what the successful autosave last wrote
+        compose.onNodeWithText("Retry save").performClick()
+        compose.waitUntil(10_000) { !barShown() }
+        Thread.sleep(1_000)
+        compose.runOnIdle { assertTrue("retry saves; it does not navigate", navigator.currentScreen is Screen.Editor) }
+        assertTrue("disk: ${store.core.read("draft")}", store.core.read("draft")!!.contains("more"))
+    }
+
     @Test fun failedLeaveRequiresExplicitDiscardConfirmation() {
         failSaves()
         type("discard me ")
@@ -108,9 +129,9 @@ class TextFirstNavigationTest {
         check(File(root, "draft.md").mkdir())
     }
 
-    private fun restoreSaves() {
+    private fun restoreSaves(content: String = "base") {
         check(File(root, "draft.md").delete())
-        File(root, "draft.md").writeText("base")
+        File(root, "draft.md").writeText(content)
     }
 
     private fun type(text: String) {
