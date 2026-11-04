@@ -98,7 +98,7 @@ export async function startAndroidNativeInstance(name, repoRoot, serial) {
   const device = new AndroidDevice(serial);
   verifyAndroidApk({ serial });
   const client = new AndroidNativeSyncClient({ name, repoRoot, device });
-  device.launch();
+  device.pinWebViewEditor();
   await client.completeFirstRunIfNeeded();
   await client.openNoteList();
   return client;
