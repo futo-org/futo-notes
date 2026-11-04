@@ -155,15 +155,11 @@ async fn a_rename_landing_before_the_pull_writes_its_source_is_not_undone() {
     assert!(after.object_map.contains_key("old.md"));
 }
 
-#[tokio::test]
-async fn a_scan_landing_mid_rename_never_tombstones_the_moved_note() {
+/// A sync cycle whose scan lands while a store rename of `old` to `new` has
+/// the note parked in staging; the rename commits before the claim.
+async fn scan_mid_rename(root: &TempRoot, state: &ConnectedState) -> ConnectedState {
     use std::sync::mpsc;
 
-    let root = TempRoot::new();
-    let server = FaultServer::new()
-        .note(&KEY, "obj", 1, "old.md", "body")
-        .start();
-    let state = synced(root.path(), &server.base_url);
     let journal = SyncRunJournal::disabled();
     let vault = root.path().to_owned();
     let (staged_tx, staged_rx) = mpsc::channel::<()>();
@@ -199,10 +195,21 @@ async fn a_scan_landing_mid_rename_never_tombstones_the_moved_note() {
         }
     });
 
-    let raced = cycle(&state, root.path(), &no_progress, &no_pre_write, &journal).await;
+    let raced = cycle(state, root.path(), &no_progress, &no_pre_write, &journal).await;
     crate::sync::push::scan_hook::clear();
     renamer.lock().unwrap().take().unwrap().join().unwrap();
-    let (_, raced) = raced.unwrap();
+    raced.unwrap().1
+}
+
+#[tokio::test]
+async fn a_scan_landing_mid_rename_never_tombstones_the_moved_note() {
+    let root = TempRoot::new();
+    let server = FaultServer::new()
+        .note(&KEY, "obj", 1, "old.md", "body")
+        .start();
+    let state = synced(root.path(), &server.base_url);
+
+    let raced = scan_mid_rename(&root, &state).await;
 
     assert_eq!(
         server.requests(Route::DeleteObject),
@@ -210,7 +217,7 @@ async fn a_scan_landing_mid_rename_never_tombstones_the_moved_note() {
         "no false tombstone"
     );
     assert_eq!(server.requests(Route::CreateObject), 0);
-
+    let journal = SyncRunJournal::disabled();
     let (_, after) = cycle(&raced, root.path(), &no_progress, &no_pre_write, &journal)
         .await
         .unwrap();
@@ -218,4 +225,33 @@ async fn a_scan_landing_mid_rename_never_tombstones_the_moved_note() {
     assert_eq!(server.requests(Route::DeleteObject), 0);
     assert_eq!(server.requests(Route::CreateObject), 0);
     assert!(intents(root.path()).is_empty());
+}
+
+#[tokio::test]
+async fn a_lookalike_note_never_takes_the_object_of_a_move_the_scan_missed() {
+    let root = TempRoot::new();
+    let server = FaultServer::new()
+        .note(&KEY, "obj", 1, "old.md", "body")
+        .start();
+    let state = synced(root.path(), &server.base_url);
+    // Same basename and body, never synced: the legacy external-move pairing
+    // would take it for `old.md` moved into a folder.
+    write_note(root.path(), "Folder/old.md", "body");
+
+    let raced = scan_mid_rename(&root, &state).await;
+
+    assert_eq!(server.requests(Route::DeleteObject), 0);
+    assert_ne!(
+        object_at(&raced, "Folder/old.md"),
+        Some("obj"),
+        "{:?}",
+        raced.object_map
+    );
+    let journal = SyncRunJournal::disabled();
+    let (_, after) = cycle(&raced, root.path(), &no_progress, &no_pre_write, &journal)
+        .await
+        .unwrap();
+    assert!(carried(&after), "{:?}", after.object_map);
+    assert_ne!(object_at(&after, "Folder/old.md"), Some("obj"));
+    assert_eq!(server.requests(Route::DeleteObject), 0);
 }

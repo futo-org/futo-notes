@@ -187,8 +187,15 @@ pub(super) async fn push_with_checkpoint_client(
         }
     })?;
     let missing = missing_local_files(&next, &files);
+    // A name a pending journaled rename holds is that move's, never a
+    // candidate for the legacy basename-and-hash pairing.
+    let unheld = missing
+        .iter()
+        .filter(|(name, _)| !claimed.held.contains(name))
+        .cloned()
+        .collect::<Vec<_>>();
     let (mut claimed_missing, mut renamed_files) =
-        detect_local_renames(&mut next, root, &files, &missing, &mut summary).map_err(|error| {
+        detect_local_renames(&mut next, root, &files, &unheld, &mut summary).map_err(|error| {
             CycleFailure {
                 kind: SyncErrorKind::Io(error),
                 state: next.clone(),
