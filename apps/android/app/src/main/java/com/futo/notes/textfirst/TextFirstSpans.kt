@@ -3,9 +3,11 @@ package com.futo.notes.textfirst
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.RectF
 import android.graphics.Typeface
 import android.text.Layout
+import android.text.Selection
 import android.text.Spanned
 import android.text.TextPaint
 import android.text.style.CharacterStyle
@@ -43,6 +45,7 @@ internal class TextFirstStyle(
     val listIndent = textSizePx * 1.4f
     val quoteIndent = dp(3f) + textSizePx * 0.9f
     val codePadding = dp(12f)
+    val selectionColor = (linkColor and 0x00ffffff) or 0x40000000
 
     /** Find-match highlight: the link colour, stronger for the current match. */
     fun findMarkColor(current: Boolean) = (linkColor and 0x00ffffff) or (if (current) 0x99000000.toInt() else 0x40000000)
@@ -179,6 +182,32 @@ internal class TfList(
         paint.color = look.textColor
         paint.textSize = look.textSizePx
         paint.typeface = look.regular
+        val selectionStart = Selection.getSelectionStart(spanned)
+        val selectionEnd = Selection.getSelectionEnd(spanned)
+        // Native multiline selection already covers later rows' gutters.
+        // Extend only its first row, so those existing highlights are not painted twice.
+        if (selectionStart >= 0 && selectionEnd >= 0 && selectionStart != selectionEnd && minOf(selectionStart, selectionEnd) == start) {
+            var bodyEnd = spanned.getSpanEnd(this)
+            // Block spans include a line ending, and a provisional last row can
+            // also include the view's end sentinel; neither is selected body text.
+            if (bodyEnd == text.length && bodyEnd > start && text[bodyEnd - 1] == TextFirstEditText.END_SENTINEL[0]) bodyEnd--
+            while (bodyEnd > start && (text[bodyEnd - 1] == '\n' || text[bodyEnd - 1] == '\r')) bodyEnd--
+            if (bodyEnd > start && maxOf(selectionStart, selectionEnd) >= bodyEnd) {
+                paint.color = look.selectionColor
+                paint.style = Paint.Style.FILL
+                val numberLeft = if (marker == ListMarker.Ordered) left + unit - look.dp(5f) - paint.measureText("${number ?: 1}.") else left
+                var selectionBottom = bottom.toFloat()
+                val selectedEnd = maxOf(selectionStart, selectionEnd)
+                if (layout != null && layout.getLineForOffset(start) == layout.getLineForOffset(selectedEnd)) {
+                    // A single selected visual row excludes the extra line spacing.
+                    val path = Path().also { layout.getSelectionPath(start, selectedEnd, it) }
+                    val bounds = RectF().also { path.computeBounds(it, true) }
+                    selectionBottom = minOf(selectionBottom, bounds.bottom)
+                }
+                c.drawRect(minOf(left, numberLeft), top.toFloat(), left + unit, selectionBottom, paint)
+                paint.color = look.textColor
+            }
+        }
         when (marker) {
             ListMarker.Bullet -> {
                 val radius = look.dp(2.6f)

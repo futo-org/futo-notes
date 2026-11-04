@@ -18,6 +18,7 @@
   tests/blockquote-continuation.spec.ts
 - Lists: ordered, unordered, nested, and task checkboxes (checked / unchecked /
   uppercase `X`).
+- *(Android text-first editor)* Selecting a complete list row extends its highlight over the rendered number, bullet or task checkbox; a caret or partial-word selection does not highlight that marker. → apps/android/app/src/main/java/com/futo/notes/textfirst/TextFirstSpans.kt, apps/android/app/src/androidTest/java/com/futo/notes/textfirst/TextFirstGlyphMetricsTest.kt
 - List depth comes from CommonMark's parse, not from counting spaces — a whole
   list indented by one to three spaces still renders as a list, and `*  Parent.`
   (two spaces after the marker) puts its content at column 3, so a two-space

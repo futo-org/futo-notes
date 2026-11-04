@@ -78,7 +78,7 @@ internal class TextFirstEditText(
         // Autofill and content capture copy the whole text after every change.
         importantForAutofill = IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS
         if (android.os.Build.VERSION.SDK_INT >= 30) importantForContentCapture = IMPORTANT_FOR_CONTENT_CAPTURE_NO_EXCLUDE_DESCENDANTS
-        highlightColor = (style.linkColor and 0x00ffffff) or 0x40000000
+        highlightColor = style.selectionColor
         filters = arrayOf(InputFilter { source, _, _, dest, dstart, dend ->
             if (applying) null else dest.subSequence(dstart, dend)
         })
