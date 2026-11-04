@@ -34,7 +34,7 @@ class TextFirstExitTest {
 
     /** The keyboard answers Enter on a selection by collapsing it and deleting the selected text first. */
     @Test fun enterOnASelectedImageKeepsItAndAddsALineBelow() = session("![](a.png)") { c ->
-        c.view.selectedImage = 0 to 10
+        c.view.selectedObject = 0 to 10
         c.select(0, 10)
         delay(300L)
         val connection = c.view.onCreateInputConnection(EditorInfo())!!

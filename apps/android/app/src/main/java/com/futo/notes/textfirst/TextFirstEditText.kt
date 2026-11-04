@@ -36,7 +36,8 @@ internal class TextFirstEditText(
     var onOpenUrl: ((String) -> Unit)? = null
     private val wikilinkTouch = WikilinkTouch(this) { onOpenWikilink?.invoke(it) }
     private val imageTouch = ImageTouch(this)
-    @Volatile override var selectedImage: Pair<Int, Int>? = null
+    private val codeBlockTouch = CodeBlockTouch(this)
+    @Volatile override var selectedObject: Pair<Int, Int>? = null
     private val linkTouch = ExternalLinkTouch(this, { onOpenUrl?.invoke(it) }, ::nativeTouch)
     private val lineTouch = LineSelectTouch(this)
     /** The first draw after a keyed update, with where that key's time went. */
@@ -260,7 +261,7 @@ internal class TextFirstEditText(
 
     override fun onSelectionChanged(selStart: Int, selEnd: Int) {
         super.onSelectionChanged(selStart, selEnd)
-        selectedImage = selectedImage?.takeIf { it.first == selStart && it.second == selEnd }
+        selectedObject = selectedObject?.takeIf { it.first == selStart && it.second == selEnd }
         if (applying) return
         val e = editableText ?: return
         // The end sentinel is not a caret position (an empty Editable has none yet).
@@ -294,6 +295,7 @@ internal class TextFirstEditText(
         if (onOpenUrl != null && linkTouch.onTouch(event)) return true
         if (wikilinkTouch.onTouch(event)) return true
         imageTouch.onTouch(event)
+        codeBlockTouch.onTouch(event)
         // After the links, so a third quick tap on a link still opens it.
         if (lineTouch.onTouch(event)) return true
         when (event.actionMasked) {
@@ -310,7 +312,7 @@ internal class TextFirstEditText(
             MotionEvent.ACTION_MOVE -> if (checkboxDown >= 0) return true
             MotionEvent.ACTION_CANCEL -> if (checkboxDown >= 0) { checkboxDown = -1; return true }
         }
-        return super.onTouchEvent(event).also { wikilinkTouch.settleCaret(); imageTouch.settleSelection() }
+        return super.onTouchEvent(event).also { wikilinkTouch.settleCaret(); imageTouch.settleSelection(); codeBlockTouch.settleSelection() }
     }
 
     private fun nativeTouch(event: MotionEvent) { super.onTouchEvent(event) }
