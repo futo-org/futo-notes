@@ -113,7 +113,20 @@ impl EditorSession {
         command: BlockCommand,
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<Option<ViewChange>, EditorError> {
-        let (window, mut rows) = self.command_rows(range, command != BlockCommand::Heading(0));
+        let selected = self.selected_list_lines(range);
+        let repeating = !selected.is_empty()
+            && selected.iter().all(|line| {
+                line.list.as_ref().is_some_and(|list| match command {
+                    BlockCommand::BulletList => list.ordinal.is_none() && list.checked.is_none(),
+                    BlockCommand::OrderedList => list.ordinal.is_some(),
+                    BlockCommand::TaskList => list.checked.is_some(),
+                    _ => false,
+                })
+            });
+        // A repeated kind lifts the selected items; it does not retarget the
+        // complete list. Keep the ordinary neighbor window for that action.
+        let (window, mut rows) =
+            self.command_rows(range, command != BlockCommand::Heading(0) && !repeating);
         let written = rows
             .iter()
             .any(|row| row.selected && (!row.blank || row.before.heading > 0 || row.before.opens));
