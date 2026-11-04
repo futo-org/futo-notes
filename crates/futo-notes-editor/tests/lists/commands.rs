@@ -435,7 +435,11 @@ fn composition_after_a_refused_indent_writes_the_text_once_at_the_written_depth(
     let revision = s.revision();
     s.compose(revision, range(end, end), "にほん").unwrap();
     s.compose(revision, range(end, end), "日本").unwrap();
-    assert_eq!(s.source_text(), REFUSED_INDENT, "marked text is provisional");
+    assert_eq!(
+        s.source_text(),
+        REFUSED_INDENT,
+        "marked text is provisional"
+    );
     let change = s
         .commit_composition(revision, Some("日本語"), &mut |_| Ok(()))
         .unwrap()
