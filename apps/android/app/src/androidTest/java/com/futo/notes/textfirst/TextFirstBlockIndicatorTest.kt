@@ -18,6 +18,28 @@ import uniffi.futo_notes_ffi.NoteStore
 
 /** A block-style button shows its style on an empty line at once, wherever that line is. */
 class TextFirstBlockIndicatorTest {
+    @Test fun selectAllCodeBlockKeepsMixedNoteTextAndUndoesInOneStep() = withController(
+        "# heading\n\n**bold** and *italic*\n\n- item\n\n```\ncode\n```\n\n| a | b |\n| --- | --- |\n| c | d |\n",
+    ) { controller ->
+        val view = controller.view
+        val original = controller.sourceText()
+        val display = view.editableText.toString()
+        assertTrue(controller.selectDisplayRange(0, view.length() - 1))
+        runToolbar(controller, "code-block")
+        val wrapped = controller.sourceText()!!
+        assertEquals("all selected lines share one opening and closing fence", 2,
+            wrapped.lineSequence().count { it == "```" })
+        assertTrue(wrapped.startsWith("```\n"))
+        assertTrue(wrapped.endsWith("\n```\n"))
+        // One terminal body ending belongs to the hidden fence frame (fenced-code.md).
+        val written = display.removeSuffix(TextFirstEditText.END_SENTINEL).removeSuffix("\n")
+        assertEquals("the native projection retains every written line", written + TextFirstEditText.END_SENTINEL,
+            view.editableText.toString())
+        assertEquals("whole-note conversion is accepted", 0, controller.imeResets)
+        controller.undo()
+        assertEquals("one Undo restores exact mixed Markdown", original, controller.sourceText())
+    }
+
     @Test fun repeatedFormatTogglesKeepComposedHeadingInput() = formatThenCompose("# heading")
 
     @Test fun repeatedFormatTogglesKeepComposedInputInADistantHeading() =
