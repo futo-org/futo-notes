@@ -17,6 +17,8 @@ mod comment_seams;
 mod containers;
 #[path = "lists/enter_at_start.rs"]
 mod enter_at_start;
+#[path = "lists/enter_split.rs"]
+mod enter_split;
 #[path = "lists/fixtures.rs"]
 mod fixtures;
 #[path = "lists/input.rs"]
