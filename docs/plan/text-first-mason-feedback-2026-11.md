@@ -18,7 +18,7 @@ Tapping active H1 returned the line to Text; Undo restored H1, and leaving/reope
 the exact saved Markdown. Gboard is not installed on this phone.
 
 The Pixel toolbar selection/reopen tests passed 2/2. Glyph metrics passed 3/4: the remaining
-`boldInkEndsAtItsAdvance` assertion differed on this device (expected underline position
+`boldInkEndsAtItsAdvance` assertion differed on this device (expected normalized glyph overhang
 -0.074229695, actual -0.09663866). That assertion remains undiagnosed; no test was loosened.
 Further physical automation and performance measurements were left to manual follow-up.
 
