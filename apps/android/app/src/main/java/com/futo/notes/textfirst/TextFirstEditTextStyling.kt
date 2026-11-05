@@ -16,8 +16,10 @@ internal fun TextFirstEditText.applyAppend(update: UiUpdate) {
         val end = Selection.getSelectionEnd(e)
         beginBatchEdit()
         try {
-            for (edit in update.edits) e.replace(edit.start, edit.end, edit.text)
-            for (window in update.windows) restyle(e, window)
+            e.withRendererUpdate(update) {
+                for (edit in update.edits) e.replace(edit.start, edit.end, edit.text)
+                for (window in update.windows) restyle(e, window)
+            }
         } finally {
             endBatchEdit()
         }

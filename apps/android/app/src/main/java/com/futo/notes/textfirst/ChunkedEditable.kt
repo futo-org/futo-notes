@@ -38,7 +38,8 @@ internal class ChunkedEditable private constructor(private val target: Int, priv
     private var total = 0
     internal val home = HashMap<Any, EditableChunk>()
 
-    private val textWatchers = ArrayList<TextWatcher>()
+    internal val textWatchers = ArrayList<TextWatcher>()
+    internal var rendererChange: RendererChange? = null
     private val spanWatchers = ArrayList<SpanWatcher>()
     private val watcherFlags = LinkedHashMap<Any, Int>()
     private var filters: Array<InputFilter> = emptyArray()
@@ -168,9 +169,11 @@ internal class ChunkedEditable private constructor(private val target: Int, priv
         if (flags and Spanned.SPAN_PRIORITY != 0) prioritized += 1
         chunk.added(what)
         home[what] = chunk
-        val watchers = spanWatchers.toTypedArray()
-        if (old == null) for (w in watchers) w.onSpanAdded(this, what, start, end)
-        else for (w in watchers) w.onSpanChanged(this, what, oldStart, oldEnd, start, end)
+        if (rendererChange == null || what !is TfSpan) {
+            val watchers = spanWatchers.toTypedArray()
+            if (old == null) for (w in watchers) w.onSpanAdded(this, what, start, end)
+            else for (w in watchers) w.onSpanChanged(this, what, oldStart, oldEnd, start, end)
+        }
         if (last != first || chunk.text.length > max) splitIfLarge(indexOf(chunk))
     }
 
@@ -188,7 +191,9 @@ internal class ChunkedEditable private constructor(private val target: Int, priv
         chunk.text.removeSpan(what)
         chunk.removed(what)
         home.remove(what)
-        for (w in spanWatchers.toTypedArray()) w.onSpanRemoved(this, what, start, end)
+        if (rendererChange == null || what !is TfSpan) {
+            for (w in spanWatchers.toTypedArray()) w.onSpanRemoved(this, what, start, end)
+        }
     }
 
     override fun getSpanStart(tag: Any): Int {
@@ -277,7 +282,7 @@ internal class ChunkedEditable private constructor(private val target: Int, priv
         val before = en - st
         val after = text.length
         if (before == 0 && after == 0) return this
-        val watchers = textWatchers.toTypedArray()
+        val watchers = if (rendererChange == null) textWatchers.toTypedArray() else emptyArray()
         for (w in watchers) w.beforeTextChanged(this, st, before, after)
         var first = chunkAt(st)
         val last = chunkAt(en)
@@ -317,7 +322,9 @@ internal class ChunkedEditable private constructor(private val target: Int, priv
             // Fold an emptied chunk into a neighbour so lookups never land on it.
             if (first + 1 < chunks.size) merge(first, first + 1) else merge(first - 1, first)
         }
-        for ((span, s0, e0) in dropped) for (w in spanWatchers.toTypedArray()) w.onSpanRemoved(this, span, s0, e0)
+        for ((span, s0, e0) in dropped) if (rendererChange == null || span !is TfSpan) {
+            for (w in spanWatchers.toTypedArray()) w.onSpanRemoved(this, span, s0, e0)
+        }
         for (w in watchers) w.onTextChanged(this, st, before, after)
         for (w in watchers) w.afterTextChanged(this)
         return this
