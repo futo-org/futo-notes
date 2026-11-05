@@ -71,6 +71,9 @@ internal class TextFirstEditText(
         // CSS line-height 1.55 is 1.55 × the font size; Android's multiplier
         // would scale Barlow's taller full height instead.
         lineHeight = (style.textSizePx * 1.55f).toInt()
+        // A fallback font's taller metrics (Arabic, Hebrew) would grow its row past
+        // that height; CSS keeps line-height fixed whatever font draws the glyphs.
+        isFallbackLineSpacing = false
         gravity = Gravity.TOP or Gravity.START
         val side = style.dp(18f).toInt()
         // TextView clips drawing to its padding, so no tall bottom padding here.

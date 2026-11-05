@@ -26,6 +26,13 @@ class TextFirstLineMetricsTest {
         }
     }
 
+    /** A fallback font (Arabic, Hebrew) must not make its row taller than a Latin row of the same list. */
+    @Test fun rightToLeftListItemIsAsTallAsALatinOne() {
+        val heights = lineHeights("- one\n- two\n- العربية\n- three\n- עברית\n- four\n")
+        assertEquals("the Arabic row keeps the Latin row height ($heights)", heights[1], heights[2])
+        assertEquals("the Hebrew row keeps the Latin row height ($heights)", heights[1], heights[4])
+    }
+
     /** TextView clips its text to the padding box while scrolled: the bottom padding must not hide lines behind it. */
     @Test fun scrolledTextIsNotClippedAtTheBottomPadding() = runBlocking {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
