@@ -389,6 +389,22 @@ pub struct EditorSourceByteRange {
     pub start: u64,
     pub end: u64,
 }
+/// A long note's first screens before its session exists, exactly as that
+/// session will show them: `projection.text` is the display text, and
+/// `tables` the tables starting in it. Read-only; nothing is attached.
+#[derive(Debug, PartialEq, Eq, uniffi::Record)]
+pub struct EditorQuickOpen {
+    pub projection: EditorProjection,
+    pub tables: Vec<super::tables::EditorTableDescription>,
+}
+impl From<editor::QuickOpen> for EditorQuickOpen {
+    fn from(value: editor::QuickOpen) -> Self {
+        Self {
+            projection: value.projection.into(),
+            tables: value.tables.into_iter().map(Into::into).collect(),
+        }
+    }
+}
 #[derive(Debug, PartialEq, Eq, uniffi::Record)]
 pub struct EditorProjection {
     pub revision: u64,

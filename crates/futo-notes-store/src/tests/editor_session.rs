@@ -15,6 +15,7 @@ mod native_input_traces;
 mod portable;
 mod portable_attachment;
 mod portable_waiting;
+mod quick_open;
 mod saving;
 mod seams;
 mod tables;

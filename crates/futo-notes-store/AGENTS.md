@@ -35,7 +35,7 @@ primitives (path safety, atomic writes, conflict names, the vault mutation guard
 - **`editor_session/`**: store-owned editor attachment, input and debounced markdown saves (500 ms idle, 2 s max wait; no recovery log);
   `save.rs` owns the injected-clock schedule, `checkpoint.rs` the save decision (write, converge,
   recreate or park), `identity.rs` an attached note's rename/relink, `lease.rs` the one-attachment-
-  per-note registry.
+  per-note registry, `quick_open.rs` a long note's read-only first screens before it attaches.
 - **`editor_draft.rs`**: baseline-aware identity changes. A stale editor parks its draft at the
   requested destination instead of overwriting the peer, and does not redirect links away from it.
 - **`vault_migration.rs`**: staged, verified moves of a whole vault to a new root; `vault_migration/`

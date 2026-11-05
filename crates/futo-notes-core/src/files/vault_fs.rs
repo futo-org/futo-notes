@@ -247,6 +247,11 @@ mod contract_tests;
 pub fn read_optional(root: &Path, relative: &str) -> Result<Option<Vec<u8>>, String> {
     platform::read_optional(root, relative)
 }
+/// The file opened for reading, under the same rules as [`read_optional`],
+/// for a caller that reads only part of it.
+pub fn open_optional(root: &Path, relative: &str) -> Result<Option<std::fs::File>, String> {
+    platform::open_optional(root, relative)
+}
 pub fn create_new(root: &Path, relative: &str, bytes: &[u8]) -> Result<bool, String> {
     platform::create_new(root, relative, bytes)
 }

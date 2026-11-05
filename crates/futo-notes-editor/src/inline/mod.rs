@@ -21,6 +21,7 @@ pub(crate) use pending_links::{PendingLinkWitness, PendingLinks};
 mod cross_feature_tests;
 pub(crate) mod images;
 mod row;
+pub(crate) use row::parser_options;
 mod source_points;
 mod spelling;
 pub(crate) use spelling::EscapeTypedDelimiters;
