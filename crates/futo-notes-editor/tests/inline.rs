@@ -284,10 +284,16 @@ fn reviewed_hidden_boundary_cases_keep_literal_view_and_exact_undo() {
                     .unwrap(),
             );
             assert_fresh(&session, &view);
+            // A caret between CR and LF types at the end of its line.
+            let landed = if display[..at].ends_with('\r') && display[at..].starts_with('\n') {
+                at - 1
+            } else {
+                at
+            };
             let mut expected = display.to_owned();
-            expected.insert(at, 'x');
+            expected.insert(landed, 'x');
             assert_eq!(view.text, expected, "insert {source:?} at {at}");
-            assert_eq!(session.selection(), range(at + 1, at + 1));
+            assert_eq!(session.selection(), range(landed + 1, landed + 1));
             assert_eq!(
                 EditorSession::open(&session.source_text()).display_text(),
                 expected

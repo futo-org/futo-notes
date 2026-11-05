@@ -89,6 +89,13 @@ impl EditorSession {
                 });
         }
         self.validate_range(range)?;
+        // Text inserted at a caret never splits a CRLF; a foreign replacement
+        // range may still address the CR and LF code points separately.
+        let range = if range.start == range.end {
+            self.outside_crlf(range)
+        } else {
+            range
+        };
         let cell = self.input_cell(range, inserted, query_work);
         let flat = cell.as_ref().map(|_| blocks::CellInput::flatten(inserted));
         let inserted = flat.as_deref().unwrap_or(inserted);

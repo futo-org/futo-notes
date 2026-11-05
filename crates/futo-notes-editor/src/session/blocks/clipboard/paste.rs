@@ -158,6 +158,7 @@ impl EditorSession {
             );
         }
         self.validate_range(range)?;
+        let range = self.outside_crlf(range);
         // Inside a table the paste is one cell's text: edge blank lines go and
         // inner line breaks become one space. Across cells it is refused.
         if let Some(change) = self.paste_in_cell(expected, range, text, accept)? {

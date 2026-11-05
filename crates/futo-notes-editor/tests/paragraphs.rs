@@ -303,3 +303,90 @@ fn a_nonbreaking_space_line_is_content_and_keeps_its_existing_inline_run() {
     assert_eq!(s.source_text(), "__a\n\u{00a0}\nb__");
     assert_eq!(v.text, "a\n\u{00a0}\nb");
 }
+
+#[test]
+fn a_caret_between_cr_and_lf_acts_at_the_line_end_and_never_refuses() {
+    use futo_notes_editor::ParagraphKey;
+    let keys = [
+        ParagraphKey::Enter,
+        ParagraphKey::ShiftEnter,
+        ParagraphKey::Backspace,
+        ParagraphKey::Delete,
+        ParagraphKey::Tab,
+        ParagraphKey::ShiftTab,
+    ];
+    for opening in [
+        "ab\r\ncd",
+        "**ab**\r\ncd",
+        "- ab\r\n- cd",
+        "1. ab\r\n   cd",
+        "> ab\r\n> cd",
+        "# ab\r\ncd",
+        "```\r\nab\r\ncd\r\n```",
+        "| a | b |\r\n| - | - |\r\n| c | d |\r\n",
+    ] {
+        let display = EditorSession::open(opening).display_text();
+        let inside = display.find("\r\n").unwrap() + 1;
+        // The same input with the caret before the CR is the expected result.
+        let before = |act: &dyn Fn(&mut EditorSession, DisplayRange) -> bool| {
+            let mut s = EditorSession::open(opening);
+            let acted = act(&mut s, range(inside - 1, inside - 1));
+            (acted, s.source_text(), s.selection())
+        };
+        let mut s = EditorSession::open(opening);
+        assert_eq!(
+            s.select(s.revision(), range(inside, inside))
+                .unwrap()
+                .selection,
+            range(inside - 1, inside - 1),
+            "{opening:?}"
+        );
+        let typed =
+            |s: &mut EditorSession, at| s.replace(s.revision(), at, "x", &mut |_| Ok(())).is_ok();
+        let mut s = EditorSession::open(opening);
+        assert!(typed(&mut s, range(inside, inside)), "{opening:?} typing");
+        assert_eq!(
+            (true, s.source_text(), s.selection()),
+            before(&typed),
+            "{opening:?} typing"
+        );
+        let acts: [(&str, fn(&mut EditorSession, DisplayRange) -> bool); 2] = [
+            ("compose", |s, at| {
+                s.compose(s.revision(), at, "x").is_ok()
+                    && s.commit_composition(s.revision(), None, &mut |_| Ok(()))
+                        .is_ok()
+            }),
+            ("paste", |s, at| {
+                s.paste_markdown(s.revision(), at, "x", &mut |_| Ok(()))
+                    .is_ok()
+            }),
+        ];
+        for (name, act) in acts {
+            // A table's row edge is outside every cell, where paste is refused
+            // whatever the line ending (tables.md).
+            if name == "paste" && opening.starts_with('|') {
+                continue;
+            }
+            let mut s = EditorSession::open(opening);
+            assert!(act(&mut s, range(inside, inside)), "{opening:?} {name}");
+            assert_eq!(
+                (true, s.source_text(), s.selection()),
+                before(&act),
+                "{opening:?} {name}"
+            );
+        }
+        for key in keys {
+            let press = |s: &mut EditorSession, at| {
+                s.paragraph_key(s.revision(), at, key, &mut |_| Ok(()))
+                    .is_ok()
+            };
+            let mut s = EditorSession::open(opening);
+            assert!(press(&mut s, range(inside, inside)), "{opening:?} {key:?}");
+            assert_eq!(
+                (true, s.source_text(), s.selection()),
+                before(&press),
+                "{opening:?} {key:?}"
+            );
+        }
+    }
+}

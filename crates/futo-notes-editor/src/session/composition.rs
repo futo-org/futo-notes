@@ -26,6 +26,11 @@ impl EditorSession {
     ) -> Result<Composition, EditorError> {
         self.check_revision(expected)?;
         self.validate_range(range)?;
+        let range = if range.start == range.end {
+            self.outside_crlf(range)
+        } else {
+            range
+        };
         let range = self
             .composition
             .as_ref()

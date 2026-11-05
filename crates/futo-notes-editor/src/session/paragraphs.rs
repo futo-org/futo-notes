@@ -40,7 +40,7 @@ impl EditorSession {
             );
         }
         self.validate_range(range)?;
-        range = self.body_range(range)?;
+        range = self.body_range(self.outside_crlf(range))?;
         if key == ParagraphKey::BackspaceJoiningHeading {
             if let Some(change) = self.heading_join_backspace(expected, range, accept)? {
                 return Ok(Some(change));
