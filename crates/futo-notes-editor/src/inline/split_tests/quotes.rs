@@ -96,7 +96,10 @@ fn quote_cuts_keep_shifted_prefixes_neighbors_line_endings_and_exact_history() {
                 let (_, _, at) = cut.projection.rows.at(cut.projection.rows.len() / 2);
                 at
             } else {
-                let middle = text.len() / 2;
+                let mut middle = text.len() / 2;
+                while !text.is_char_boundary(middle) {
+                    middle -= 1;
+                }
                 middle + text[middle..].find('\n').unwrap_or(0)
             };
             let selected = range(at, at);

@@ -216,7 +216,10 @@ impl Projection {
                 reuse,
             );
         }
-        let joined = if toggle.is_none() {
+        // A pasted span joins the same style beside it; typed text, even a
+        // committed string, lands character for character.
+        let typing = matches!(intent, EditIntent::Input(crate::InputAction::Typing));
+        let joined = if toggle.is_none() && !typing {
             joined_span(inserted, &markers, [&active, &left, &right])
         } else {
             None
@@ -427,6 +430,7 @@ impl Projection {
         let (sealed, seal_parsed) =
             self.sealed_candidate(source, source_start, source_end, &output);
         let caret = rendered.caret;
+        let literal = rendered.literal;
         let (mut retained, mut correspondence_work) =
             SourceCorrespondence::verify(&raw, inserted, &output, rendered.origins, source_start);
         if let Some(word) = angle.source {

@@ -124,3 +124,48 @@ pub(super) fn repair_boundaries(pieces: &mut [Piece], missing: &[usize]) {
         }
     }
 }
+
+/// Escape every literal inline delimiter in `scope` that is spelled as itself,
+/// so it can no longer open, close or pair: the fallback for a typed delimiter
+/// whose flanking cannot keep the row's formatting. Code, URL-spelled links,
+/// guarded words and hidden pieces keep their bytes. Returns whether any
+/// piece changed.
+pub(super) fn escape_literal_delimiters(
+    pieces: &mut [Piece],
+    markers: &[super::Marker],
+    scope: Range<usize>,
+) -> bool {
+    let mut changed = false;
+    for piece in &mut pieces[scope] {
+        let opaque = piece.spans.iter().any(|&id| match &markers[id].kind {
+            SpanKind::Format(format) => *format == crate::InlineFormat::Code,
+            SpanKind::Link(_) => matches!(markers[id].open.as_str(), "" | "<"),
+        });
+        if opaque
+            || piece.raw != piece.display
+            || piece.guard.is_some()
+            || piece.literal_url.is_some()
+            || piece.definition.is_some()
+            || piece.physical_prefix
+            || piece.trailing
+            || !piece.display.contains(DELIMITERS)
+        {
+            continue;
+        }
+        piece.raw = piece
+            .display
+            .chars()
+            .map(|ch| {
+                if DELIMITERS.contains(&ch) {
+                    format!("\\{ch}")
+                } else {
+                    ch.to_string()
+                }
+            })
+            .collect();
+        changed = true;
+    }
+    changed
+}
+
+const DELIMITERS: [char; 11] = ['*', '_', '~', '`', '[', ']', '<', '>', '!', '&', '\\'];

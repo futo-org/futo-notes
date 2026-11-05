@@ -509,6 +509,9 @@ fn backspace_keeps_the_carets_carried_format() {
     assert_eq!(s.source_text(), "*abc. x*");
 }
 
+#[path = "inline/typed_delimiters.rs"]
+mod typed_delimiters;
+
 #[path = "inline/stacked_formats.rs"]
 mod stacked_formats;
 
