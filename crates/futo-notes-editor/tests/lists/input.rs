@@ -216,3 +216,90 @@ fn shortcut_acceptance_keeps_foreign_ownership_selection_and_carried_format() {
         }
     }
 }
+
+/// Types one character at a time at the current selection, as the Android
+/// text-first shell does for hardware keys and `adb shell input text`.
+pub(crate) fn type_chars(s: &mut EditorSession, view: &mut ReferenceView, text: &str) {
+    for ch in text.chars() {
+        let change = s
+            .replace_action(
+                s.revision(),
+                s.selection(),
+                &ch.to_string(),
+                InputAction::Typing,
+                &mut |_| Ok(()),
+            )
+            .unwrap_or_else(|error| panic!("{ch:?} refused in {:?}: {error:?}", s.source_text()));
+        view.apply(change);
+    }
+}
+
+/// Opens `raw` and presses Enter at its end.
+pub(crate) fn after_enter(raw: &str) -> (EditorSession, ReferenceView) {
+    let mut s = EditorSession::open(raw);
+    let mut view = ReferenceView::new(&s.display_text());
+    let end = range(view.text.len(), view.text.len());
+    s.select(s.revision(), end).unwrap();
+    view.apply(
+        s.paragraph_key(s.revision(), end, ParagraphKey::Enter, &mut |_| Ok(()))
+            .unwrap()
+            .unwrap(),
+    );
+    (s, view)
+}
+
+#[test]
+fn bullet_and_task_markers_typed_under_a_paragraph_start_a_list_item() {
+    for (typed, expected, display) in [
+        ("- apples", "para\n\n- apples", "para\n\napples"),
+        ("* x", "para\n\n- x", "para\n\nx"),
+        ("+ x", "para\n\n- x", "para\n\nx"),
+        ("- [ ] x", "para\n\n- [ ] x", "para\n\nx"),
+        ("1. x", "para\n\n1. x", "para\n\nx"),
+    ] {
+        let (mut s, mut view) = after_enter("para");
+        type_chars(&mut s, &mut view, typed);
+        assert_eq!(s.source_text(), expected, "{typed:?}");
+        assert_eq!(view.text, display, "{typed:?}");
+    }
+    // The triggering space is one Undo step back to the typed literal marker.
+    let (mut s, mut view) = after_enter("para");
+    type_chars(&mut s, &mut view, "- ");
+    assert_eq!(s.source_text(), "para\n\n- ");
+    assert_eq!(view.text, "para\n\n");
+    assert_eq!(s.selection(), range(6, 6));
+    view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(s.source_text(), "para\n&#45;");
+    assert_eq!(view.text, "para\n-");
+    assert_eq!(s.selection(), range(6, 6));
+    view.apply(s.redo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(s.source_text(), "para\n\n- ");
+    // A keyboard committing the marker as one string does the same.
+    let (mut s, mut view) = after_enter("para");
+    view.apply(
+        s.replace_action(
+            s.revision(),
+            s.selection(),
+            "- ",
+            InputAction::Typing,
+            &mut |_| Ok(()),
+        )
+        .unwrap(),
+    );
+    assert_eq!(s.source_text(), "para\n\n- ");
+    assert_eq!(view.text, "para\n\n");
+    view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(s.source_text(), "para\n");
+    assert_eq!(s.selection(), range(5, 5));
+}
+
+#[test]
+fn an_indented_star_typed_on_a_blank_line_stays_visible_text() {
+    let mut s = EditorSession::open("\n");
+    let mut view = ReferenceView::new("\n");
+    s.select(s.revision(), range(1, 1)).unwrap();
+    type_chars(&mut s, &mut view, " *]");
+    assert_eq!(s.source_text(), "\n&#32;&#42;]");
+    assert_eq!(view.text, "\n *]");
+    assert_eq!(s.selection(), range(4, 4));
+}

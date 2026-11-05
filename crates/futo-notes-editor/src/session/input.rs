@@ -97,11 +97,15 @@ impl EditorSession {
             return Ok((change, mapping));
         }
         if action == crate::InputAction::Typing {
-            if let Some(change) =
-                self.line_start_conversion(expected, range, inserted, accept, query_work)?
-            {
-                let mapping = InputMapping::new(change.range, change.inserted.len());
-                return Ok((change, mapping));
+            // A typed character is never refused: a shortcut whose block
+            // cannot be written leaves its marker as literal text instead.
+            match self.line_start_conversion(expected, range, inserted, accept, query_work) {
+                Ok(Some(change)) => {
+                    let mapping = InputMapping::new(change.range, change.inserted.len());
+                    return Ok((change, mapping));
+                }
+                Ok(None) | Err(EditorError::UnrepresentableFormat) => {}
+                Err(error) => return Err(error),
             }
         }
         if let Some(change) = self.input_at_divider(expected, range, inserted, action, accept)? {

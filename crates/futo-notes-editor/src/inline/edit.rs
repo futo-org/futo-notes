@@ -356,7 +356,8 @@ impl Projection {
                         ..range.start.0,
                 )
                 .chars()
-                .all(|ch| matches!(ch, '#' | '>' | '*' | '_'));
+                // Indentation before a marker still leaves it a block marker.
+                .all(|ch| matches!(ch, '#' | '>' | '*' | '_' | ' ' | '\t'));
         let display_line = self
             .display
             .line_to_byte(self.display.byte_to_line(range.start.0));

@@ -303,6 +303,9 @@ impl EditorSession {
         if heading.is_none() && !quote && !divider {
             return Ok(None);
         }
+        if (heading.is_some() || quote) && line.list.is_some() {
+            return self.marker_in_item(expected, range, heading.map(str::len), accept);
+        }
         let command = if let Some(hashes) = heading {
             BlockCommand::Heading(hashes.len() as u8)
         } else if quote {
@@ -335,6 +338,46 @@ impl EditorSession {
 
             change.work.link_copied_bytes += removed.work.link_copied_bytes;
             Ok(Some(change))
+        })
+    }
+}
+
+impl EditorSession {
+    /// `## ` or `> ` typed at the start of a list item's text writes a heading
+    /// or quote inside that item, where CommonMark reads it. Where it cannot
+    /// (after a task checkbox) the shortcut declines and the space lands as
+    /// literal text.
+    fn marker_in_item(
+        &mut self,
+        expected: Revision,
+        range: DisplayRange,
+        heading: Option<usize>,
+        accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
+    ) -> Result<Option<ViewChange>, EditorError> {
+        let affinity = self.input_affinity(range);
+        self.stage_block_action(expected, range, None, accept, |staged, local, accept| {
+            let line = staged.projection.block_lines(local).remove(0);
+            let (caret, _) = staged.projection.source_selection(local, affinity);
+            let marker = heading.map_or_else(|| "> ".to_owned(), |n| "#".repeat(n) + " ");
+            let at = line.content.start;
+            let end = at + marker.len();
+            // A caret before the item's hidden marker still types into it.
+            let typed = caret.start.source.0.max(at);
+            let change = staged.commit_block_edit(
+                staged.revision(),
+                at..typed,
+                &marker,
+                BlockSelection::Source(end),
+                None,
+                accept,
+            )?;
+            let line = staged.projection.block_lines(staged.selection()).remove(0);
+            let reads = line.list.is_some()
+                && match heading {
+                    Some(n) => usize::from(line.heading) == n,
+                    None => line.quote_depth > 0,
+                };
+            Ok(reads.then_some(change))
         })
     }
 }

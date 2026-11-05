@@ -290,6 +290,10 @@ impl EditorSession {
         }
         row.body.start = typed;
         row.forced = true;
+        // A typed marker with nothing after it is an empty item, which cannot
+        // interrupt a paragraph: it gets the blank-line repair a list command
+        // gives a blank row.
+        row.from_blank |= row.body.is_empty();
         if let Some(checked) = task {
             if !row.before.opens {
                 return Ok(None);

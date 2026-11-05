@@ -295,3 +295,108 @@ fn untouched_lists_kept(before: &str, after: &str, label: &str) {
         }
     }
 }
+
+/// Block markers a typed run may open with, then characters typed after
+/// them. Inline delimiters (`*`, `_`, backticks) appear only as markers:
+/// their mid-text flanking repairs are a separate inline concern.
+const MARKERS: &[&str] = &[
+    "", "- ", "* ", "+ ", "1. ", "3. ", "# ", "## ", "> ", "- [ ] ", "[x] ", "*", "  * ", " - ",
+    ">", "#", "-", "- - ", "> - ", "- > ", "- ## ",
+];
+const TYPED: &[u8] = b"#>-+1.[] x aabq";
+
+fn letters_in(text: &str) -> usize {
+    text.matches(['a', 'b', 'q']).count()
+}
+
+#[test]
+fn typed_characters_are_never_refused_and_always_land() {
+    let mut seed = 0x2545_f491_4f6c_dd1du64;
+    let mut next = move |bound: usize| {
+        seed ^= seed << 13;
+        seed ^= seed >> 7;
+        seed ^= seed << 17;
+        (seed % bound.max(1) as u64) as usize
+    };
+    let cases = std::env::var("TYPING_CASES").map_or(400, |cases| cases.parse().unwrap());
+    for case in 0..cases {
+        let mut original = String::new();
+        for _ in 0..1 + next(3) {
+            original.push_str(PIECES[next(PIECES.len())]);
+        }
+        let mut session = EditorSession::open(&original);
+        // A random line start, or a fresh line after Enter at a line end.
+        let display = session.display_text();
+        let starts: Vec<usize> = std::iter::once(0)
+            .chain(display.match_indices('\n').map(|(at, _)| at + 1))
+            .collect();
+        let mut at = starts[next(starts.len())];
+        let enter = next(2) == 0;
+        if enter {
+            at = display[at..]
+                .find(['\r', '\n'])
+                .map_or(display.len(), |end| at + end);
+        }
+        let caret = DisplayRange {
+            start: DisplayOffset(at),
+            end: DisplayOffset(at),
+        };
+        session.select(session.revision(), caret).unwrap();
+        if enter {
+            let _ =
+                session.paragraph_key(session.revision(), caret, ParagraphKey::Enter, &mut |_| {
+                    Ok(())
+                });
+        }
+        let mut input = MARKERS[next(MARKERS.len())].to_owned();
+        for _ in 0..next(8) {
+            input.push(TYPED[next(TYPED.len())] as char);
+        }
+        let letters = |s: &EditorSession| s.display_text().matches(['a', 'b', 'q']).count();
+        // A keyboard may commit the whole run as one string.
+        if next(4) == 0 && !input.is_empty() {
+            let before = letters(&session);
+            let selection = session.selection();
+            let label = format!(
+                "case {case} committed {input:?} into {original:?}\nnow {:?}",
+                session.source_text()
+            );
+            session
+                .replace_action(
+                    session.revision(),
+                    selection,
+                    &input,
+                    crate::InputAction::Typing,
+                    &mut |_| Ok(()),
+                )
+                .unwrap_or_else(|error| panic!("{error:?} {label}"));
+            let fresh = EditorSession::open(&session.source_text());
+            assert_eq!(session.display_text(), fresh.display_text(), "{label}");
+            assert_eq!(letters(&session), before + letters_in(&input), "{label}");
+            continue;
+        }
+        for (index, ch) in input.char_indices() {
+            let label = format!(
+                "case {case} typed {:?} into {original:?}\nnow {:?}",
+                &input[..=index],
+                session.source_text()
+            );
+            let before = letters(&session);
+            let selection = session.selection();
+            session
+                .replace_action(
+                    session.revision(),
+                    selection,
+                    &ch.to_string(),
+                    crate::InputAction::Typing,
+                    &mut |_| Ok(()),
+                )
+                .unwrap_or_else(|error| panic!("{error:?} {label}"));
+            let fresh = EditorSession::open(&session.source_text());
+            assert_eq!(session.display_text(), fresh.display_text(), "{label}");
+            if matches!(ch, 'a' | 'b' | 'q') {
+                assert_eq!(letters(&session), before + 1, "{label}");
+            }
+        }
+    }
+}

@@ -70,12 +70,15 @@ impl Projection {
             }
         }
         if inserted.contains(char::is_whitespace) {
-            let ended = caret
-                - inserted
+            // Input read as block markers can leave less display than its
+            // last word (`  * +` is two empty items).
+            let ended = caret.saturating_sub(
+                inserted
                     .rsplit(char::is_whitespace)
                     .next()
                     .unwrap_or("")
-                    .len();
+                    .len(),
+            );
             let preceding: usize = self
                 .display
                 .chars_at(self.display.byte_to_char(input.start.0))
