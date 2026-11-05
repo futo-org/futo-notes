@@ -5,6 +5,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.text.input.placeCursorAtEnd
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.unit.dp
@@ -17,6 +20,32 @@ import com.futo.notes.ui.NoteTitleField
 import com.futo.notes.ui.TitleFieldState
 import com.futo.notes.ui.theme.FutoTheme
 import com.futo.notes.ui.theme.FutoType
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+
+/**
+ * The warning under the title. A stripped forbidden character's warning hides after 2 s,
+ * as in the WebView editor, since the character never persists; a validation result
+ * (dot, length, duplicate, or none) replaces it and stays.
+ */
+internal class TitleWarning(private val scope: CoroutineScope) {
+    var message by mutableStateOf<LocalizedMessage?>(null)
+        private set
+    private var hide: Job? = null
+
+    fun validate(result: LocalizedMessage?) {
+        hide?.cancel()
+        message = result
+    }
+
+    fun forbiddenCharacter() {
+        hide?.cancel()
+        message = LocalizedMessage("notes.title.forbiddenCharacter")
+        hide = scope.launch { delay(2000); message = null }
+    }
+}
 
 /** The native editor title and its validation feedback. */
 @Composable

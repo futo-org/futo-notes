@@ -45,7 +45,6 @@ import com.futo.notes.claimDraftOwnership
 import com.futo.notes.delete
 import com.futo.notes.launchEditorLeave
 import com.futo.notes.localization.LocalLocalization
-import com.futo.notes.localization.LocalizedMessage
 import com.futo.notes.moveNote
 import com.futo.notes.releaseDraftOwnership
 import com.futo.notes.rename
@@ -107,7 +106,6 @@ internal fun TextFirstEditorScreen(
 
     var noteId by remember(initialNoteId) { mutableStateOf(initialNoteId) }
     val titleField = remember(initialNoteId) { TitleFieldState(splitId(initialNoteId).title) }
-    var titleWarning by remember(initialNoteId) { mutableStateOf<LocalizedMessage?>(null) }
     var leaving by remember(initialNoteId) { mutableStateOf(false) }
     var saveFailed by remember(initialNoteId) { mutableStateOf(false) }
     var confirmDiscard by remember(initialNoteId) { mutableStateOf(false) }
@@ -145,8 +143,9 @@ internal fun TextFirstEditorScreen(
     val find = rememberTextFirstFind(controller, initialNoteId)
     val images = rememberTextFirstImages(controller, store, noteId, leaving, imagePicker)
 
+    val titleWarning = remember(initialNoteId) { TitleWarning(scope) }
     fun showTitleValidation(title: String) {
-        titleWarning = titleWarningFor(noteId, title, store.notes.map { it.id })
+        titleWarning.validate(titleWarningFor(noteId, title, store.notes.map { it.id }))
     }
 
     fun adoptIdentity(finalId: String) {
@@ -384,12 +383,12 @@ internal fun TextFirstEditorScreen(
             modifier = Modifier.padding(padding).consumeWindowInsets(padding).fillMaxSize().imePadding(),
         ) {
             TextFirstTitle(
-                titleField, titleWarning, enabled = !leaving && !images.recovering,
+                titleField, titleWarning.message, enabled = !leaving && !images.recovering,
                 verbsEnabled = !leaving && !images.recovering && controller.opened,
                 onCommit = { work.withLock { renameTo(titleField.text) } },
                 onReturn = { controller.view.showKeyboard() },
             ) { title, forbidden ->
-                if (forbidden) titleWarning = LocalizedMessage("notes.title.forbiddenCharacter") else showTitleValidation(title)
+                if (forbidden) titleWarning.forbiddenCharacter() else showTitleValidation(title)
             }
             if (saveFailed) {
                 TextFirstSaveError(

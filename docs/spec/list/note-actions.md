@@ -202,7 +202,8 @@
   shared `validate_title` exposed over FFI (futo-notes-ffi) — the same
   conformance-locked source as desktop's `validateTitle`; only the forbidden-char
   input filter is mirrored locally per shell. → futo-notes-ffi `validate_title`,
-  NoteEditorView.swift, NoteEditorScreen.kt; desktop NotesShell.svelte /
+  NoteEditorView.swift, NoteEditorScreen.kt, textfirst/TextFirstEditorScreen.kt;
+  desktop NotesShell.svelte /
   noteSession.svelte.ts `handleTitleInput`
 - **The canonical title→filename sanitizer produces a name legal on EVERY
   platform.** `sanitizeTitle` strips the visible filesystem delimiters plus the
