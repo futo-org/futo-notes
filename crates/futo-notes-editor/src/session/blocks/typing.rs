@@ -343,6 +343,57 @@ impl EditorSession {
 }
 
 impl EditorSession {
+    /// A keyboard commit such as `- [ ] spinach` into an empty list item reads
+    /// as if typed one character at a time, so its leading list marker
+    /// changes the item's kind, as a paste does; the commit is one Undo step.
+    pub(in crate::session) fn marker_committed_into_empty_item(
+        &mut self,
+        expected: Revision,
+        range: DisplayRange,
+        inserted: &str,
+        accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
+    ) -> Result<Option<ViewChange>, EditorError> {
+        let marker = inserted.split_once(' ').map(|(marker, _)| marker);
+        let starts_list = marker.is_some_and(|marker| {
+            matches!(marker, "-" | "+" | "*")
+                || marker.strip_suffix('.').is_some_and(|digits| {
+                    (1..=9).contains(&digits.len()) && digits.bytes().all(|b| b.is_ascii_digit())
+                })
+        });
+        if !starts_list
+            || range.start != range.end
+            || inserted.len() <= 2
+            || inserted.contains(['\r', '\n'])
+        {
+            return Ok(None);
+        }
+        let Some(line) = self.projection.block_lines(range).into_iter().next() else {
+            return Ok(None);
+        };
+        if line.list.is_none()
+            || line.code
+            || line.html
+            || line.content.start != line.content.end
+            || range.start.0 != self.projection.display_at(line.content.start)
+        {
+            return Ok(None);
+        }
+        self.stage_block_action(expected, range, None, accept, |staged, _, accept| {
+            let mut last = None;
+            for ch in inserted.chars() {
+                let mut buffer = [0; 4];
+                last = Some(staged.replace_action(
+                    staged.revision(),
+                    staged.selection(),
+                    ch.encode_utf8(&mut buffer),
+                    crate::InputAction::Typing,
+                    accept,
+                )?);
+            }
+            Ok(last)
+        })
+    }
+
     /// `## ` or `> ` typed at the start of a list item's text writes a heading
     /// or quote inside that item, where CommonMark reads it. Where it cannot
     /// (after a task checkbox) the shortcut declines and the space lands as

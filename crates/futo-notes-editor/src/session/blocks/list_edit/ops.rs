@@ -342,6 +342,41 @@ impl EditorSession {
         row.blank = false;
         self.commit_rows(expected, range, window, rows, accept)
     }
+
+    /// A bullet (`start` none) or ordered marker typed into an empty item
+    /// changes that item's kind; a task becomes a plain item. The same kind
+    /// keeps the item in its list, another kind starts its own list.
+    pub(in crate::session::blocks) fn retype_empty_item(
+        &mut self,
+        expected: Revision,
+        range: DisplayRange,
+        start: Option<u64>,
+        typed: usize,
+        accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
+    ) -> Result<Option<ViewChange>, EditorError> {
+        let (window, mut rows) = self.command_rows(range, false);
+        let index = rows
+            .iter()
+            .position(|row| row.selected)
+            .ok_or(EditorError::UnrepresentableFormat)?;
+        let row = &mut rows[index];
+        // A caret before the item's hidden marker still types into its body.
+        let typed = typed.max(row.body.start);
+        if !row.before.opens || typed > row.line.end {
+            return Ok(None);
+        }
+        row.body.start = typed;
+        row.forced = true;
+        row.after.checked = None;
+        if start.is_some() != row.before.ordered() {
+            row.after.marker = if start.is_some() { b'.' } else { b'-' };
+            row.after.ordinal = None;
+            row.start = start;
+            row.pinned = start.is_some();
+            row.key = usize::MAX - index;
+        }
+        self.commit_rows(expected, range, window, rows, accept)
+    }
 }
 
 impl EditorSession {

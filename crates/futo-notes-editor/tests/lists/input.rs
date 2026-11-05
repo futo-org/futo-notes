@@ -303,3 +303,75 @@ fn an_indented_star_typed_on_a_blank_line_stays_visible_text() {
     assert_eq!(view.text, "\n *]");
     assert_eq!(s.selection(), range(4, 4));
 }
+
+#[test]
+fn a_list_marker_typed_into_an_empty_item_changes_its_kind() {
+    for (raw, typed, expected, display) in [
+        (
+            "- [ ] a\n- [ ] ",
+            "- [ ] spinach",
+            "- [ ] a\n- [ ] spinach",
+            "a\nspinach",
+        ),
+        (
+            "- [ ] a\n- [ ] ",
+            "- [x] beta",
+            "- [ ] a\n- [x] beta",
+            "a\nbeta",
+        ),
+        ("- [ ] a\n- [ ] ", "- plain", "- [ ] a\n- plain", "a\nplain"),
+        ("- a\n- ", "1. x", "- a\n1. x", "a\nx"),
+        ("- a\n- ", "- [ ] x", "- a\n- [ ] x", "a\nx"),
+        ("- a\n- ", "* x", "- a\n- x", "a\nx"),
+        ("1. a\n2. ", "7. x", "1. a\n2. x", "a\nx"),
+    ] {
+        let label = format!("{raw:?} + {typed:?}");
+        // Typed one character at a time.
+        let mut s = EditorSession::open(raw);
+        let mut view = ReferenceView::new(&s.display_text());
+        let end = range(view.text.len(), view.text.len());
+        s.select(s.revision(), end).unwrap();
+        type_chars(&mut s, &mut view, typed);
+        assert_eq!(s.source_text(), expected, "typed {label}");
+        assert_eq!(view.text, display, "typed {label}");
+        // Committed as one string: one Undo returns to the empty item.
+        let mut s = EditorSession::open(raw);
+        let mut view = ReferenceView::new(&s.display_text());
+        s.select(s.revision(), end).unwrap();
+        view.apply(
+            s.replace_action(s.revision(), end, typed, InputAction::Typing, &mut |_| {
+                Ok(())
+            })
+            .unwrap(),
+        );
+        assert_eq!(s.source_text(), expected, "committed {label}");
+        assert_eq!(view.text, display, "committed {label}");
+        assert_eq!(
+            s.selection(),
+            range(display.len(), display.len()),
+            "{label}"
+        );
+        view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+        assert_eq!(s.source_text(), raw, "undo {label}");
+        assert_eq!(s.selection(), end, "undo {label}");
+        view.apply(s.redo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+        assert_eq!(s.source_text(), expected, "redo {label}");
+    }
+}
+
+#[test]
+fn a_list_marker_pasted_into_an_empty_item_matches_typing_it() {
+    for (raw, pasted, expected) in [
+        ("- [ ] a\n- [ ] ", "- [ ] spinach", "- [ ] a\n- [ ] spinach"),
+        ("- [ ] a\n- [ ] ", "- [x] beta", "- [ ] a\n- [x] beta"),
+        ("- a\n- ", "1. x", "- a\n1. x"),
+    ] {
+        let mut s = EditorSession::open(raw);
+        let end = range(s.display_text().len(), s.display_text().len());
+        s.select(s.revision(), end).unwrap();
+        s.paste_markdown(s.revision(), end, pasted, &mut |_| Ok(()))
+            .unwrap()
+            .unwrap();
+        assert_eq!(s.source_text(), expected, "{raw:?} + {pasted:?}");
+    }
+}

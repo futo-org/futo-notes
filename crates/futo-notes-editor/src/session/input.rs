@@ -99,7 +99,14 @@ impl EditorSession {
         if action == crate::InputAction::Typing {
             // A typed character is never refused: a shortcut whose block
             // cannot be written leaves its marker as literal text instead.
-            match self.line_start_conversion(expected, range, inserted, accept, query_work) {
+            let converted =
+                self.marker_committed_into_empty_item(expected, range, inserted, accept)
+                    .and_then(|change| match change {
+                        Some(change) => Ok(Some(change)),
+                        None => self
+                            .line_start_conversion(expected, range, inserted, accept, query_work),
+                    });
+            match converted {
                 Ok(Some(change)) => {
                     let mapping = InputMapping::new(change.range, change.inserted.len());
                     return Ok((change, mapping));
