@@ -58,6 +58,9 @@ internal fun rendererChange(length: Int, edits: List<TextEdit>, windows: List<St
     var end = 0
     var delta = 0
     for (edit in edits) {
+        // Style-only engine changes can carry an empty delta at the note's
+        // end. Its coordinate is not a text mutation or repaint footprint.
+        if (edit.start == edit.end && edit.text.isEmpty()) continue
         start = minOf(start, edit.start)
         end = maxOf(end, edit.end) + edit.text.length - (edit.end - edit.start)
         delta += edit.text.length - (edit.end - edit.start)

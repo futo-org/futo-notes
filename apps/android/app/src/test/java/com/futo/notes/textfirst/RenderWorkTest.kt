@@ -20,6 +20,19 @@ class RenderWorkTest {
         assertEquals(5_999, rawPrefixEnd(text, 6_000))
         assertEquals(6_001, rawPrefixEnd(text, 6_001))
     }
+    @Test fun anEmptyMirrorDeltaDoesNotRequestAResetBeyondTheRenderedPrefix() {
+        val mirror = DisplayMirror().apply { reset("X".repeat(20_000)) }
+        val edits = mutableListOf<TextEdit>()
+        mirror.replace(20_000, 20_000, "", edits)
+        assertTrue("source/style revisions may contain no display-text mutation", edits.isEmpty())
+        assertFalse(requiresPrefixReset(edits, 6_000))
+        assertEquals(20_000, mirror.text.length)
+    }
+    @Test fun anEmptyDisplayDeltaAtTheNoteEndDoesNotBroadenAStyleWindow() {
+        assertEquals(RendererChange(0, 6_000, 6_000), rendererChange(2_000_001,
+            listOf(TextEdit(2_000_000, 2_000_000, "")), listOf(StyleWindow(0, 6_000, emptyList()))))
+        assertNull(rendererChange(2_000_001, listOf(TextEdit(2_000_000, 2_000_000, "")), emptyList()))
+    }
     @Test fun offPrefixStyleMetadataInvalidatesOnlyTheEditableThatExists() {
         assertEquals(RendererChange(0, 5, 5), rendererChange(5, emptyList(), listOf(StyleWindow(0, 10_000, emptyList()))))
     }

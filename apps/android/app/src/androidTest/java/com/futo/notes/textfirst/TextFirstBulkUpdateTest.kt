@@ -124,6 +124,48 @@ class TextFirstBulkUpdateTest {
         assertEquals(listOf(Triple(0, 5, 5)), watcher.changed)
     }
 
+    @Test fun rendererBatchRetainsNativeTextWatcherPriorityOrder() = exercise {
+        val calls = mutableListOf<String>()
+        fun watcher(label: String) = object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence, start: Int, count: Int, after: Int) { calls += "before $label" }
+            override fun onTextChanged(s: CharSequence, start: Int, before: Int, count: Int) { calls += "changed $label" }
+            override fun afterTextChanged(s: Editable) { calls += "after $label" }
+        }
+        val e = view.editableText
+        e.setSpan(watcher("low"), 0, e.length, Spanned.SPAN_INCLUSIVE_INCLUSIVE)
+        e.setSpan(watcher("high"), 0, e.length, Spanned.SPAN_INCLUSIVE_INCLUSIVE or (200 shl Spanned.SPAN_PRIORITY_SHIFT))
+        view.apply(update(2, emptyList(), specs("old\n", true), 4, 0, 0))
+        assertEquals(listOf("before high", "before low", "changed high", "changed low", "after high", "after low"), calls)
+    }
+
+    @Test fun boundedHeadingRestyleDoesNotMeasureTheUnchangedTail() = exercise {
+        val source = lines(4_000)
+        view.apply(UiUpdate(2, source, emptyList(), 0, 0, -1, -1, emptyList(), 0L))
+        val exact = android.view.View.MeasureSpec.EXACTLY
+        view.measure(android.view.View.MeasureSpec.makeMeasureSpec(800, exact), android.view.View.MeasureSpec.makeMeasureSpec(600, exact))
+        view.layout(0, 0, 800, 600)
+        var tailMeasures = 0
+        val counter = object : android.text.style.MetricAffectingSpan() {
+            override fun updateMeasureState(paint: android.text.TextPaint) { tailMeasures++ }
+            override fun updateDrawState(paint: android.text.TextPaint) = Unit
+        }
+        val tail = source.lastIndexOf("line 3999")
+        view.editableText.setSpan(counter, tail, tail + 9, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        tailMeasures = 0
+        val windowEnd = source.indexOf('\n', 6_000) + 1
+        val headings = mutableListOf<SpanSpec>()
+        var from = 0
+        while (from < windowEnd) {
+            val to = source.indexOf('\n', from) + 1
+            headings += SpanSpec.Heading(from, to, 1)
+            from = to
+        }
+        view.apply(UiUpdate(3, null, listOf(TextEdit(source.length, source.length, "")), 0, source.length, -1, -1,
+            listOf(StyleWindow(0, windowEnd, headings)), SystemClock.elapsedRealtimeNanos()))
+        assertEquals("a 6k renderer window must not remeasure a distant unchanged row", 0, tailMeasures)
+        assertEquals(source + TextFirstEditText.END_SENTINEL, view.text.toString())
+    }
+
     private class Watcher(val failBefore: Throwable? = null, val failChanged: Throwable? = null) : TextWatcher, SpanWatcher {
         val before = mutableListOf<Triple<Int, Int, Int>>()
         val changed = mutableListOf<Triple<Int, Int, Int>>()

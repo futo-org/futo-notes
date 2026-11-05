@@ -35,7 +35,7 @@ internal class DisplayMirror {
     fun replace(start: Int, end: Int, value: String, edits: MutableList<TextEdit>) {
         text.replace(start, end, value)
         index.replace(text, start, end, value.length)
-        edits.add(TextEdit(start, end, value))
+        if (start != end || value.isNotEmpty()) edits.add(TextEdit(start, end, value))
     }
 
     fun byteRange(start: Int, end: Int) =
