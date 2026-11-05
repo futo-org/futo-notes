@@ -212,8 +212,8 @@ fn typed_dividers_leave_the_editable_paragraph_and_undo_the_trigger_only() {
         s.replace(s.revision(), s.selection(), "-", &mut |_| Ok(()))
             .unwrap();
     }
-    assert_eq!(s.source_text(), "before\r\n***\n\r\nafter");
-    assert_eq!(s.display_text(), "before\r\n\u{fffc}\n\r\nafter");
+    assert_eq!(s.source_text(), "before\r\n***\r\n\r\nafter");
+    assert_eq!(s.display_text(), "before\r\n\u{fffc}\r\n\r\nafter");
 }
 #[test]
 fn quote_shortcut_isolates_its_line_from_following_plain_text() {

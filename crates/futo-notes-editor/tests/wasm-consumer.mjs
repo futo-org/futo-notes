@@ -253,8 +253,8 @@ const { WasmSession } = await import(pathToFileURL(process.argv[2]).href);
     const divider = JSON.parse(page.block_command_utf16(27n, 7, 7, '"Divider"'));
     const dividerChange = await send(divider);
     apply(dividerChange);
-    assert.equal(page.draft_text(), '> ~~__😀z日本 b__~~\n> ***\n> \r\n');
-    assert.equal(text, '😀z日本 b\n\ufffc\n\r\n');
+    assert.equal(page.draft_text(), '> ~~__😀z日本 b__~~\r\n> ***\r\n> \r\n');
+    assert.equal(text, '😀z日本 b\r\n\ufffc\r\n\r\n');
     assert.ok(dividerChange.projection.blocks.some((block) => block.divider));
   } finally {
     clearTimeout(deadline);

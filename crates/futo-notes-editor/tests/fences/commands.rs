@@ -76,7 +76,7 @@ fn code_block_command_wraps_only_its_selected_physical_lines() {
     );
     assert_eq!(
         session.source_text(),
-        "before\r\n\r\n```\nab\n```\r\n\r\nafter"
+        "before\r\n\r\n```\r\nab\r\n```\r\n\r\nafter"
     );
     assert_eq!(view.text, "before\r\n\r\nab\r\n\r\nafter");
     view.apply(

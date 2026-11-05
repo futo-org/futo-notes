@@ -28,3 +28,6 @@ mod toggle;
 
 #[path = "blocks/heading_join.rs"]
 mod heading_join;
+
+#[path = "blocks/line_endings.rs"]
+mod line_endings;

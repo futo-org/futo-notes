@@ -263,8 +263,9 @@ fn structural_splits_keep_inline_styles_and_exact_neighboring_source() {
         &mut |_| Ok(()),
     )
     .unwrap();
-    assert_eq!(s.source_text(), "__a__\n***\n\n__b__\r\nend");
-    assert_eq!(s.display_text(), "a\n\u{fffc}\n\nb\r\nend");
+    // The divider's lines take the caret line's CRLF.
+    assert_eq!(s.source_text(), "__a__\r\n***\r\n\r\n__b__\r\nend");
+    assert_eq!(s.display_text(), "a\r\n\u{fffc}\r\n\r\nb\r\nend");
 }
 #[test]
 fn selecting_heading_or_quote_text_then_enter_is_one_exact_action() {

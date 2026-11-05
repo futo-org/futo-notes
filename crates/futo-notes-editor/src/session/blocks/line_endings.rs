@@ -1,11 +1,10 @@
-//! Enter and Shift+Enter write the caret line's line ending.
+//! Enter, Shift+Enter and the block commands that write new lines (divider,
+//! code block) write the caret line's line ending.
 use super::*;
 
 impl EditorSession {
     /// On a CRLF line, runs the LF key action on a staged copy and spells each
-    /// line break it wrote as CRLF, as one accepted edit and Undo step. A
-    /// changed stretch that already held a bare LF (a mixed note) keeps the
-    /// action's LF spelling.
+    /// line break it wrote as CRLF, as one accepted edit and Undo step.
     pub(in crate::session) fn crlf_enter(
         &mut self,
         expected: Revision,
@@ -18,10 +17,44 @@ impl EditorSession {
         if self.in_table_cell(range) {
             return self.lf_paragraph_key(expected, range, key, accept);
         }
+        self.in_caret_line_ending(expected, range, accept, |staged, local, accept| {
+            staged.lf_paragraph_key(staged.revision(), local, key, accept)
+        })
+    }
+
+    /// The divider and code-block commands, whose new lines are written by
+    /// their own owners, on a CRLF line.
+    pub(in crate::session) fn crlf_block_command(
+        &mut self,
+        expected: Revision,
+        range: DisplayRange,
+        command: BlockCommand,
+        accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
+    ) -> Result<Option<ViewChange>, EditorError> {
+        self.in_caret_line_ending(expected, range, accept, |staged, local, accept| {
+            staged.lf_block_command(staged.revision(), local, command, accept)
+        })
+    }
+
+    /// Runs an action that writes LF line breaks on a staged copy, then
+    /// spells each break it wrote as CRLF in the same accepted edit and Undo
+    /// step. A changed stretch that already held a bare LF (a mixed note)
+    /// keeps the action's LF spelling. The action must edit source whenever it
+    /// returns a change.
+    fn in_caret_line_ending(
+        &mut self,
+        expected: Revision,
+        range: DisplayRange,
+        accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
+        action: impl FnOnce(
+            &mut Self,
+            DisplayRange,
+            &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
+        ) -> Result<Option<ViewChange>, EditorError>,
+    ) -> Result<Option<ViewChange>, EditorError> {
         self.stage_block_action(expected, range, None, accept, |staged, local, accept| {
             let before = staged.source_text();
-            let Some(change) = staged.lf_paragraph_key(staged.revision(), local, key, accept)?
-            else {
+            let Some(change) = action(staged, local, accept)? else {
                 return Ok(None);
             };
             let after = staged.source_text();
@@ -30,12 +63,20 @@ impl EditorSession {
                 .zip(after.bytes())
                 .take_while(|(a, b)| a == b)
                 .count();
-            let suffix = before[prefix..]
+            let mut suffix = before[prefix..]
                 .bytes()
                 .rev()
                 .zip(after[prefix..].bytes().rev())
                 .take_while(|(a, b)| a == b)
                 .count();
+            // A shared final LF the action left bare (its CR replaced) is one
+            // of its breaks too.
+            while suffix > 0 && {
+                let at = after.len() - suffix;
+                after.as_bytes()[at] == b'\n' && (at == 0 || after.as_bytes()[at - 1] != b'\r')
+            } {
+                suffix -= 1;
+            }
             let changed = prefix..after.len() - suffix;
             let bare = |text: &str, range: std::ops::Range<usize>| {
                 range

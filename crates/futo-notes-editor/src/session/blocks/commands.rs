@@ -73,6 +73,27 @@ impl EditorSession {
         }
         self.validate_range(range)?;
         range = self.body_range(range)?;
+        // New lines take the caret line's spelling, as Enter's do.
+        if matches!(
+            command,
+            BlockCommand::Divider | BlockCommand::CodeBlock | BlockCommand::WrapCodeBlock
+        ) {
+            let (at, _) = self.projection.source_bounds(range.start.0);
+            if self.line_ending_at(at) == "\r\n" {
+                return self.crlf_block_command(expected, range, command, accept);
+            }
+        }
+        self.lf_block_command(expected, range, command, accept)
+    }
+
+    /// `block_command` on a validated body range, writing LF line breaks.
+    pub(in crate::session) fn lf_block_command(
+        &mut self,
+        expected: Revision,
+        range: DisplayRange,
+        command: BlockCommand,
+        accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
+    ) -> Result<Option<ViewChange>, EditorError> {
         let command = if let BlockCommand::ToggleHeading(level) = command {
             if !(1..=6).contains(&level) {
                 return Err(EditorError::InvalidRange);
