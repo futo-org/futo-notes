@@ -83,8 +83,8 @@ class TextFirstMigrationTest {
         try {
             val responsive = CompletableDeferred<Unit>()
             withContext(Dispatchers.Main) {
-                val input = checkNotNull(controller.view.onCreateInputConnection(EditorInfo()))
-                input.handler!!.post { controller.view.post { responsive.complete(Unit) } }
+                assertNull("a pending source has no keyboard connection", controller.view.onCreateInputConnection(EditorInfo()))
+                controller.view.engine!!.handler.post { controller.view.post { responsive.complete(Unit) } }
             }
             responsive.await()
             assertFalse("ordinary vault work must leave open pending, not fail it", opened.isCompleted)
@@ -147,7 +147,7 @@ class TextFirstMigrationTest {
             release.complete(Unit)
             busy.await()
             assertNotNull("close succeeds once the gate frees", closing.await())
-            assertEquals("accepted before", File(root, "draft.md").readText())
+            assertEquals("accepted before\n", File(root, "draft.md").readText())
         } finally {
             release.complete(Unit)
             busy.await()
@@ -185,12 +185,16 @@ class TextFirstMigrationTest {
             assertTrue(withContext(Dispatchers.Main) { store.tryBeginStorageMigration() })
             assertNull(withContext(Dispatchers.Main) { controller.checkpoint() })
             assertNull(withContext(Dispatchers.Main) { controller.close() })
+            withContext(Dispatchers.Main) {
+                controller.dispose()
+                assertTrue("a failed detach retains the vault's draft checkpoint owner", store.nativeEditorDrafts.containsKey(controller))
+            }
             assertTrue(controller.opened)
             assertEquals("accepted before", withContext(Dispatchers.Main) { controller.sourceText() })
             assertEquals("before", File(root, "draft.md").readText())
             val destination = File(scratch, "destination")
             withContext(Dispatchers.Main) { store.migrateVault(destination) }
-            assertEquals("accepted before", File(destination, "draft.md").readText())
+            assertEquals("accepted before\n", File(destination, "draft.md").readText())
             withContext(Dispatchers.Main) { store.resumeAfterStorageMigrationFailure() }
             type("retry ")
             withContext(Dispatchers.Main) {
@@ -201,7 +205,11 @@ class TextFirstMigrationTest {
             controller.onCheckpointed = { _, id -> detachedId = id }
             assertNotNull(withContext(Dispatchers.Main) { controller.close() })
             assertEquals("renamed", detachedId)
-            assertEquals("accepted retry before", File(root, "renamed.md").readText())
+            assertEquals("accepted retry before\n", File(root, "renamed.md").readText())
+            withContext(Dispatchers.Main) {
+                controller.dispose()
+                assertFalse("successful terminal disposal releases the draft owner", store.nativeEditorDrafts.containsKey(controller))
+            }
         } finally {
             withContext(Dispatchers.Main) {
                 store.resumeAfterStorageMigrationFailure()
@@ -276,7 +284,7 @@ class TextFirstMigrationTest {
                 check(File(root, "draft.md").delete())
                 File(root, "draft.md").writeText("before")
             } else {
-                assertEquals("accepted before", File(root, "draft.md").readText())
+                assertEquals("accepted before\n", File(root, "draft.md").readText())
             }
             if (failStaging || failCheckpoint) {
                 if (failStaging) {
@@ -292,10 +300,10 @@ class TextFirstMigrationTest {
                     assertTrue(store.tryBeginStorageMigration())
                     assertTrue(store.flushDraftsForVaultHandoff())
                 }
-                assertEquals("accepted retry before", File(root, "draft.md").readText())
+                assertEquals("accepted retry before\n", File(root, "draft.md").readText())
             } else {
                 result.getOrThrow()
-                assertEquals("accepted before", File(destination, "draft.md").readText())
+                assertEquals("accepted before\n", File(destination, "draft.md").readText())
             }
         } finally {
             // Successful staging keeps the source authoritative until activation.

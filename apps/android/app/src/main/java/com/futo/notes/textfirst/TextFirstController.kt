@@ -247,6 +247,8 @@ internal class TextFirstController(
     }
 
     fun dispose() {
+        // Pending opens and failed detaches still own an editable draft.
+        if (engine != null && openFailure == null) return
         if (engine == null) view.releasePayload()
         vault?.nativeEditorDrafts?.remove(this)
         images.shutdown()
