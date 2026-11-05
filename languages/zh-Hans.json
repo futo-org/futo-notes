@@ -567,7 +567,8 @@
         "needsAtLeastOneColumn": "表格至少需要一列。"
       },
       "progressiveLoad": {
-        "loadingRest": "正在加载此笔记的其余部分…"
+        "loadingRest": "正在加载此笔记的其余部分…",
+        "opening": "正在打开此笔记…"
       },
       "loadFailed": {
         "heading": "无法显示此笔记。",

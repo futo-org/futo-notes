@@ -1,5 +1,6 @@
 package com.futo.notes.textfirst
 
+import android.os.SystemClock
 import android.util.Log
 import kotlin.coroutines.resume
 import kotlin.coroutines.suspendCoroutine
@@ -9,58 +10,110 @@ import kotlinx.coroutines.launch
 import com.futo.notes.storage.GateAccess
 import uniffi.futo_notes_ffi.EditorSessionException
 import uniffi.futo_notes_ffi.FlushDraftResult
+import uniffi.futo_notes_ffi.NativeEditorSession
 
-/** Wait for ordinary vault I/O off the editor thread. The gate stays held
- * until the attachment is ready; callbacks run only after admission ends. */
+/**
+ * Wait for ordinary vault I/O off the editor thread, then open the whole note
+ * there too, so the editor thread stays free to show the quick first screens
+ * and queue input meanwhile. The gate stays held until the attachment is
+ * installed; callbacks run only after admission ends.
+ */
 internal fun EditorEngine.open(onOpened: (Throwable?) -> Unit) {
+    handler.post { showQuickOpen() }
     val gate = storageGate
-    if (gate == null) {
-        handler.post {
-            val error = openAttachment()
-            ui.post { onOpened(error) }
-        }
-        return
-    }
     CoroutineScope(Dispatchers.IO).launch {
         var error: Throwable? = null
-        try {
-            gate.runAccess {
-                suspendCoroutine<Unit> { done ->
-                    if (!handler.post {
-                        error = openAttachment()
-                        done.resume(Unit)
-                    }) {
-                        error = IllegalStateException("The editor was closed before opening")
-                        done.resume(Unit)
-                    }
+        val attach: suspend () -> Unit = {
+            val began = SystemClock.elapsedRealtimeNanos()
+            val opened = store().openEditor(noteId)
+            Log.i(EditorEngine.TAG, "openEditor ${(SystemClock.elapsedRealtimeNanos() - began) / 1000} us")
+            suspendCoroutine<Unit> { done ->
+                if (!handler.post {
+                    error = install(opened)
+                    done.resume(Unit)
+                }) {
+                    opened.destroy()
+                    error = IllegalStateException("The editor was closed before opening")
+                    done.resume(Unit)
                 }
             }
+        }
+        try {
+            if (gate == null) attach() else gate.runAccess { attach() }
         } catch (failure: Throwable) {
+            Log.e(EditorEngine.TAG, "open $noteId failed", failure)
             error = failure
         }
+        // An open that never ran leaves nothing for waiting input to reach.
+        if (error != null) handler.post { if (session == null) awaitingOpen = null }
         ui.post { onOpened(error) }
     }
 }
 
-private fun EditorEngine.openAttachment(): Throwable? = try {
-    check(!closed) { "The editor is closed" }
-    val opened = store().openEditor(noteId)
+/**
+ * A long note's first screens from a parse of its first bytes alone, shown
+ * read-only before the whole open (Rust guarantees they are the same text
+ * and styles). Input that arrives meanwhile waits in [EditorEngine.awaitingOpen].
+ */
+internal fun EditorEngine.showQuickOpen() {
+    if (closed || session != null) return
+    val began = SystemClock.elapsedRealtimeNanos()
+    val quick = try {
+        store().quickOpenEditor(noteId)
+    } catch (failure: Exception) {
+        Log.w(EditorEngine.TAG, "quick open $noteId failed", failure)
+        null
+    } ?: return
+    val display = quick.projection.text
+    // A reader returning deep into the note waits for the whole open, which reaches their line.
+    if (openThrough > display.length) return
+    mirror.reset(display)
+    mirror.selStart = 0; mirror.selEnd = 0
+    viewEdits.discontinue()
+    quickDisplay = display
+    postUpdate(reset = display, edits = emptyList(), windows = listOf(window(quick.projection, tableSpans(quick.tables))))
+    Log.i(EditorEngine.TAG, "quick open ${display.length} chars in ${(SystemClock.elapsedRealtimeNanos() - began) / 1000} us")
+}
+
+/** Take the opened session on the editor thread and hand the view over to it. */
+private fun EditorEngine.install(opened: NativeEditorSession): Throwable? = try {
+    if (closed) {
+        opened.destroy()
+        throw IllegalStateException("The editor is closed")
+    }
+    val began = SystemClock.elapsedRealtimeNanos()
     session = opened
     fast = FastSession.of(opened)
     rev = opened.revision()
     val display = opened.displayText()
+    val quick = quickDisplay
+    quickDisplay = null
     mirror.reset(display)
-    viewEdits.discontinue()
-    // The first screens now, the rest in slices (EditorEngineStream.kt).
-    val shown = OpenSlices.sliceEnd(mirror.text, 0, OpenSlices.FIRST_CHARS + openThrough.coerceIn(0, OpenSlices.REACH_BACK_CHARS))
-    tailLength = mirror.text.length - shown
-    val projection = opened.project(rev, mirror.byteRange(0, shown))
-    mirror.selStart = 0; mirror.selEnd = 0
-    postUpdate(reset = display.substring(0, shown), edits = emptyList(), windows = listOf(window(projection)), paced = true)
+    if (quick != null && display.startsWith(quick)) {
+        // The view already shows these screens with these styles; it keeps
+        // them, and its caret, and the rest follows in slices.
+        tailLength = display.length - quick.length
+        if (streaming) streamTail(0) else postUpdate(emptyList(), emptyList())
+    } else {
+        if (quick != null) Log.w(EditorEngine.TAG, "quick open of $noteId differs from its whole open; replacing it")
+        viewEdits.discontinue()
+        // The first screens now, the rest in slices (EditorEngineStream.kt).
+        val shown = OpenSlices.sliceEnd(mirror.text, 0, OpenSlices.FIRST_CHARS + openThrough.coerceIn(0, OpenSlices.REACH_BACK_CHARS))
+        tailLength = mirror.text.length - shown
+        val projection = opened.project(rev, mirror.byteRange(0, shown))
+        mirror.selStart = 0; mirror.selEnd = 0
+        postUpdate(reset = display.substring(0, shown), edits = emptyList(), windows = listOf(window(projection)), paced = true)
+    }
+    Log.i(EditorEngine.TAG, "installed ${display.length} chars in ${(SystemClock.elapsedRealtimeNanos() - began) / 1000} us")
+    // Taps, keys and commands made while it opened, in order.
+    val waiting = awaitingOpen
+    awaitingOpen = null
+    waiting?.forEach { it() }
     refreshCaretState()
     null
 } catch (failure: Throwable) {
     Log.e(EditorEngine.TAG, "open $noteId failed", failure)
+    awaitingOpen = null
     failure
 }
 

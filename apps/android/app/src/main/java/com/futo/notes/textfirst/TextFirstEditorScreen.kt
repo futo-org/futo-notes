@@ -405,6 +405,7 @@ internal fun TextFirstEditorScreen(
                         it.onOpenWikilink = { target -> if (target != noteId) onOpenNote(target) }
                         it.onOpenUrl = { url -> com.futo.notes.ui.openExternalUrl(context, url) }
                     })
+                TextFirstOpening(controller)
             }
             if (!leaving && !images.recovering) TextFirstCompletions(controller)
             TextFirstFindBar(find)

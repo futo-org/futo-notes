@@ -75,6 +75,10 @@ internal class EditorEngine(
     internal var tailLength = 0
     internal val renderWork = RenderWork()
     internal val tailRunnable = Runnable { showNextRenderSlice() }
+    /** Input, taps and commands made before the session existed (EditorEngineOpening.kt). */
+    internal var awaitingOpen: ArrayDeque<() -> Unit>? = ArrayDeque()
+    /** The quick first screens the view shows until the whole open lands. */
+    internal var quickDisplay: String? = null
 
     /** Read on the UI thread when the keyboard connects. */
     @Volatile var publishedSelection = 0L
@@ -92,10 +96,14 @@ internal class EditorEngine(
      * carried through their edits and echoed back, never dropped.
      */
     fun viewSelection(viewSeq: Int, start: Int, end: Int) = handler.post {
-        if (closed) return@post
-        val (a, b) = viewEdits.map(viewSeq, start, end) ?: return@post
-        if (a == mirror.selStart && b == mirror.selEnd) return@post
-        guarded { select(a, b, fromView = true, echo = viewSeq != seq) }
+        if (closed || selectWhileOpening(viewSeq, start, end)) return@post
+        selectFromView(viewSeq, start, end)
+    }
+
+    internal fun selectFromView(viewSeq: Int, start: Int, end: Int, force: Boolean = false) {
+        val (a, b) = viewEdits.map(viewSeq, start, end) ?: return
+        if (!force && a == mirror.selStart && b == mirror.selEnd) return
+        guarded { select(a, b, fromView = true, echo = force || viewSeq != seq) }
     }
 
     fun toggleFormat(format: EditorInlineFormat) = toolbarCommands.post {
@@ -262,6 +270,8 @@ internal class EditorEngine(
         fast = null
         session = null
         mirror.release()
+        awaitingOpen = null
+        quickDisplay = null
         tailLength = 0
         editingCell = false
         cellRange = null
@@ -284,6 +294,7 @@ internal class EditorEngine(
     }
 
     private fun executeCommand(onUnavailable: () -> Unit, block: () -> Unit) {
+        if (deferredUntilOpen { executeCommand(onUnavailable, block) }) return
         if (storageGate?.isMigrationStarted == true || closed || session == null) {
             ui.post(onUnavailable)
             return
@@ -297,6 +308,7 @@ internal class EditorEngine(
     }
 
     private fun guarded(block: () -> Unit) {
+        if (deferredUntilOpen { guarded(block) }) return
         if (closed || session == null) return
         if (storageGate?.isMigrationStarted == true) {
             ui.post { sink.onImeReset() }
@@ -403,7 +415,7 @@ internal class EditorEngine(
             inputUptimeNanos = inputStartNanos,
             postedNanos = SystemClock.elapsedRealtimeNanos(),
             engineNanos = engineNanos.also { engineNanos = 0L },
-            complete = !streaming && !renderWork.stylesPending,
+            complete = session != null && !streaming && !renderWork.stylesPending,
             sourceChanged = sourceChanged, preserveScroll = preserveScroll,
             marked = marked,
         )
@@ -414,7 +426,7 @@ internal class EditorEngine(
         scheduleFindRefresh()
     }
 
-    private fun publishSelection() {
+    internal fun publishSelection() {
         publishedSelection = (mirror.selStart.toLong() shl 32) or (mirror.selEnd.toLong() and 0xffffffffL)
         val state = EngineImeState.capture(mirror.text, mirror.selStart, mirror.selEnd,
             mirror.composingStart, mirror.composingEnd,

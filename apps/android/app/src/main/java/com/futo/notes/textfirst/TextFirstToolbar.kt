@@ -14,6 +14,7 @@ import com.futo.notes.puppet.PuppetVerbScope
 import kotlinx.coroutines.launch
 import com.futo.notes.ui.EditorToolbar
 import com.futo.notes.ui.ToolbarItemAction
+import com.futo.notes.ui.ToolbarSpec
 import uniffi.futo_notes_ffi.EditorBlockCommand
 import uniffi.futo_notes_ffi.EditorInlineFormat
 
@@ -37,7 +38,7 @@ internal fun TextFirstToolbarSlot(controller: TextFirstController, onPickImage: 
         try { draft = controller.linkDraft() } finally { opening = false }
     }
     PuppetVerbScope {
-        if (!visible || opening || draft != null) emptyList() else listOf(
+        if (!visible || !controller.opened || opening || draft != null) emptyList() else listOf(
             PuppetVerb("OpenLink") { openLink() },
         )
     }
@@ -45,7 +46,8 @@ internal fun TextFirstToolbarSlot(controller: TextFirstController, onPickImage: 
     if (visible) EditorToolbar(
         onListLine = caret.list != null,
         inContainer = true,
-        disabledFormats = caret.disabled,
+        // Until the whole open lands the note shows read-only: nothing edits it.
+        disabledFormats = if (controller.opened) caret.disabled else editItems,
         activeFormats = toolbarActive(caret),
         hiddenItems = setOf("paragraph"),
         perform = { item ->
@@ -66,6 +68,10 @@ internal fun TextFirstToolbarSlot(controller: TextFirstController, onPickImage: 
     }
 }
 
+
+/** Every toolbar item that changes the note: all but Dismiss. */
+private val editItems: Set<String> = ToolbarSpec.groups.flatten()
+    .filter { it.action != ToolbarItemAction.Dismiss }.mapTo(mutableSetOf()) { it.id }
 
 /** The toolbar ids lit at the caret (ToolbarSpec ids). */
 internal fun toolbarActive(caret: CaretState): Set<String> = buildSet {

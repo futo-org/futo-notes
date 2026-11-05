@@ -4,11 +4,12 @@ import android.graphics.Color
 import androidx.activity.ComponentActivity
 import androidx.core.content.res.ResourcesCompat
 import com.futo.notes.R
+import com.futo.notes.storage.StorageMigrationGate
 import java.io.File
 import uniffi.futo_notes_ffi.NoteStore
 
 /** The editor under test, styled like the app, for the classes that drive it through a bare activity. */
-internal fun createTextFirstController(activity: ComponentActivity, core: () -> NoteStore, root: File): TextFirstController {
+internal fun createTextFirstController(activity: ComponentActivity, core: () -> NoteStore, root: File, storageGate: StorageMigrationGate? = null): TextFirstController {
     val metrics = activity.resources.displayMetrics
     val regular = ResourcesCompat.getFont(activity, R.font.barlow_regular)!!
     return TextFirstController(activity, core, root, TextFirstStyle(
@@ -20,5 +21,5 @@ internal fun createTextFirstController(activity: ComponentActivity, core: () -> 
         italic = ResourcesCompat.getFont(activity, R.font.barlow_italic)!!,
         boldItalic = ResourcesCompat.getFont(activity, R.font.barlow_bold_italic)!!,
         semiboldItalic = ResourcesCompat.getFont(activity, R.font.barlow_semibold_italic)!!,
-    ))
+    ), storageGate = storageGate)
 }

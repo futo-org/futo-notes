@@ -569,7 +569,8 @@
         "needsAtLeastOneColumn": "A table needs at least one column."
       },
       "progressiveLoad": {
-        "loadingRest": "Loading the rest of this note…"
+        "loadingRest": "Loading the rest of this note…",
+        "opening": "Opening this note…"
       },
       "loadFailed": {
         "heading": "This note could not be displayed.",

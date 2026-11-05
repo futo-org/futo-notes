@@ -2,6 +2,7 @@ package com.futo.notes.textfirst
 
 import android.content.Context
 import com.futo.notes.NotesStore
+import com.futo.notes.storage.StorageMigrationGate
 import android.os.SystemClock
 import android.util.Log
 import androidx.compose.runtime.getValue
@@ -30,6 +31,8 @@ internal class TextFirstController(
     vaultRoot: File,
     private val style: TextFirstStyle,
     private val vault: NotesStore? = null,
+    /** What the whole open waits for; the vault's, unless a test holds its own. */
+    private val storageGate: StorageMigrationGate? = vault?.storageMigrationGate,
 ) : EngineSink {
     private val images = ImageLoader(context, vaultRoot)
     val view = TextFirstEditText(context, style, images)
@@ -88,11 +91,14 @@ internal class TextFirstController(
         val ready = CompletableDeferred<Unit>()
         opening = ready
         view.restoring = restore
-        val created = EditorEngine(core, noteId, this, storageGate = vault?.storageMigrationGate, openThrough = restore?.offset ?: 0)
+        openedAt = SystemClock.elapsedRealtimeNanos()
+        firstTextPending = true
+        val created = EditorEngine(core, noteId, this, storageGate = storageGate, openThrough = restore?.offset ?: 0)
         engine = created
         view.engine = created
         created.open { error ->
             if (engine !== created) return@open
+            Log.i(OPEN_TAG, "editable ${(SystemClock.elapsedRealtimeNanos() - openedAt) / 1_000_000} ms after open")
             openFailure = error
             opened = error == null
             opening = null
@@ -109,6 +115,26 @@ internal class TextFirstController(
         if (update.sourceChanged || update.edits.isNotEmpty() && !update.append) dirty = true
         view.apply(update)
         isEmpty = view.length() <= TextFirstEditText.END_SENTINEL.length
+        if (!isEmpty && firstTextPending) logFirstText(openedAt)
+    }
+
+    /** Time to first text: open() to the first frame drawn holding the note's text. */
+    private var openedAt = 0L
+    private var firstTextPending = false
+
+    private fun logFirstText(began: Long) {
+        firstTextPending = false
+        val observer = view.viewTreeObserver
+        val listener = object : android.view.ViewTreeObserver.OnDrawListener {
+            var logged = false
+            override fun onDraw() {
+                if (logged) return
+                logged = true
+                Log.i(OPEN_TAG, "first text drawn ${(SystemClock.elapsedRealtimeNanos() - began) / 1_000_000} ms after open")
+                view.post { if (observer.isAlive) observer.removeOnDrawListener(this) }
+            }
+        }
+        observer.addOnDrawListener(listener)
     }
 
     override fun onCell(update: CellUpdate?) {
@@ -244,6 +270,10 @@ internal class TextFirstController(
         view.engine = null
         released = true
         opened = false
+    }
+
+    companion object {
+        private const val OPEN_TAG = "TextFirstOpen"
     }
 
     fun dispose() {

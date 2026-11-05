@@ -3,6 +3,7 @@ package com.futo.notes.textfirst
 import uniffi.futo_notes_ffi.EditorByteRange
 import uniffi.futo_notes_ffi.EditorProjection
 import uniffi.futo_notes_ffi.EditorTableAlignment
+import uniffi.futo_notes_ffi.EditorTableDescription
 import uniffi.futo_notes_ffi.EditorUtf16Range
 
 /** Display coordinates supplied by Rust. Never source coordinates or Markdown fragments. */
@@ -14,9 +15,13 @@ internal data class CellUpdate(val start: Int, val end: Int, val text: String, v
 /** The window's tables as grid spans; Rust finds them all in one call. */
 internal fun EditorEngine.tableSpans(p: EditorProjection): List<SpanSpec> {
     val s = session ?: return emptyList()
-    val out = ArrayList<SpanSpec>()
     // One engine call finds every table starting in the window.
-    for (table in s.inspectTables(rev, p.range)) {
+    return tableSpans(s.inspectTables(rev, p.range))
+}
+
+internal fun EditorEngine.tableSpans(tables: List<EditorTableDescription>): List<SpanSpec> {
+    val out = ArrayList<SpanSpec>()
+    for (table in tables) {
         val tableStart = mirror.toUtf16(table.display.start.toInt())
         for ((i, row) in table.rows.withIndex()) {
             val cells = row.map { cell ->
