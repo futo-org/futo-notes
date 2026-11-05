@@ -30,6 +30,7 @@ internal class TextFirstEditText(
     internal val images: ImageLoader,
 ) : AppCompatEditText(context), EngineInputConnection.ViewSide {
     var engine: EditorEngine? = null
+    internal val imePublisher = NativeImePublisher(this)
     var onOpenWikilink: ((String) -> Unit)? = null
     var onOpenUrl: ((String) -> Unit)? = null
     private val wikilinkTouch = WikilinkTouch(this) { onOpenWikilink?.invoke(it) }
@@ -94,21 +95,8 @@ internal class TextFirstEditText(
     // suggestions are unaffected: inputType still asks for them.
     override fun isSuggestionsEnabled(): Boolean = false
 
-    override fun onCreateInputConnection(outAttrs: EditorInfo): InputConnection? {
-        val fallback = super.onCreateInputConnection(outAttrs)
-        val engine = engine ?: return fallback
-        val packed = engine.publishedSelection
-        outAttrs.initialSelStart = (packed ushr 32).toInt()
-        outAttrs.initialSelEnd = (packed and 0xffffffffL).toInt()
-        if (codeInput) {
-            outAttrs.inputType = (outAttrs.inputType and
-                (InputType.TYPE_TEXT_FLAG_AUTO_CORRECT or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES).inv()) or
-                InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
-        }
-        outAttrs.imeOptions = outAttrs.imeOptions or EditorInfo.IME_FLAG_NO_EXTRACT_UI or EditorInfo.IME_FLAG_NO_ENTER_ACTION
-        androidx.core.view.inputmethod.EditorInfoCompat.setContentMimeTypes(outAttrs, arrayOf("image/*"))
-        return EngineInputConnection(engine, this)
-    }
+    // Never call super: its Editor would publish the clipped renderer's coordinates to the IME.
+    override fun onCreateInputConnection(outAttrs: EditorInfo): InputConnection? = createEngineInputConnection(outAttrs, codeInput)
 
     override fun onCheckIsTextEditor(): Boolean = true
 

@@ -103,6 +103,8 @@ internal class TextFirstController(
 
     // ---- EngineSink ----
 
+    override fun onImeState(state: EngineImeState) { view.imePublisher.publish(state) }
+
     override fun onUpdate(update: UiUpdate) {
         if (update.edits.isNotEmpty() && update.reset == null && !update.append) dirty = true
         view.apply(update)

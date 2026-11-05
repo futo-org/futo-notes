@@ -23,8 +23,8 @@ import uniffi.futo_notes_ffi.EditorParagraphKey
  * Methods that need the view (context-menu actions, hardware-style key events
  * that move the caret) are forwarded to the UI thread through [view].
  */
-internal class EngineInputConnection(
-    private val engine: EditorEngine,
+internal open class EngineInputConnection(
+    protected val engine: EditorEngine,
     private val view: ViewSide,
     private val cell: Boolean = false,
 ) : InputConnection {
@@ -54,21 +54,24 @@ internal class EngineInputConnection(
     override fun getHandler(): Handler = engine.handler
 
     override fun getTextBeforeCursor(n: Int, flags: Int): CharSequence {
+        require(n >= 0)
         trace("getTextBeforeCursor(" + "n=" + n + ")")
         val text = engine.text
         val end = engine.selStart.coerceIn(0, text.length)
-        return text.substring(maxOf(low, end - n), end)
+        return imeTextBefore(text, end, low, n)
     }
 
     override fun getTextAfterCursor(n: Int, flags: Int): CharSequence {
+        require(n >= 0)
         val text = engine.text
         val start = engine.selEnd.coerceIn(0, text.length)
-        return text.substring(start, minOf(high, start + n))
+        return imeTextAfter(text, start, high, n)
     }
 
     override fun getSelectedText(flags: Int): CharSequence? {
         val text = engine.text
         if (engine.selStart == engine.selEnd) return null
+        if (engine.selEnd - engine.selStart > IME_SELECTED_CHARS) return null
         return text.substring(engine.selStart.coerceIn(0, text.length), engine.selEnd.coerceIn(0, text.length))
     }
 
@@ -77,20 +80,20 @@ internal class EngineInputConnection(
         else TextUtils.getCapsMode(engine.text, engine.selStart.coerceIn(0, engine.text.length), reqModes)
 
     override fun getExtractedText(request: ExtractedTextRequest?, flags: Int): ExtractedText? {
-        // Full-screen extract mode is off (flagNoExtractUi); keyboards that ask
-        // anyway get a window around the caret rather than a 500 KB copy.
-        val text = engine.text
-        val from = maxOf(low, engine.selStart - EXTRACT_WINDOW)
-        val to = minOf(high, engine.selEnd + EXTRACT_WINDOW)
+        // Never parcel a whole giant selection or pretend it is collapsed.
+        val context = contextWindow(IME_CONTEXT_CHARS, IME_CONTEXT_CHARS) ?: return null
         return ExtractedText().apply {
-            this.text = text.substring(from, to)
-            startOffset = from - low
+            this.text = context.text
+            startOffset = context.start
             partialStartOffset = -1
             partialEndOffset = -1
-            selectionStart = engine.selStart - from
-            selectionEnd = engine.selEnd - from
+            selectionStart = context.selectionStart
+            selectionEnd = context.selectionEnd
         }
     }
+
+    protected fun contextWindow(before: Int, after: Int): ImeContextWindow? =
+        ImeContextWindow.capture(engine.text, engine.selStart, engine.selEnd, low, high, before, after)
 
     override fun deleteSurroundingText(beforeLength: Int, afterLength: Int): Boolean {
         if (cell && !engine.editingCell) return true
@@ -217,7 +220,4 @@ internal class EngineInputConnection(
     override fun closeConnection() { engine.imeFinishComposing() }
     override fun commitContent(inputContentInfo: InputContentInfo, flags: Int, opts: Bundle?): Boolean = view.imageContent(inputContentInfo, flags)
 
-    private companion object {
-        const val EXTRACT_WINDOW = 2_000
-    }
 }

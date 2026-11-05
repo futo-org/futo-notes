@@ -50,7 +50,7 @@ internal class TableCellEditText(context: Context, private val editor: EditorEng
     override fun onCreateInputConnection(outAttrs: EditorInfo): InputConnection {
         super.onCreateInputConnection(outAttrs)
         outAttrs.initialSelStart = selectionStart; outAttrs.initialSelEnd = selectionEnd
-        return EngineInputConnection(editor, this, cell = true)
+        return engineInputConnection(editor, this, cell = true)
     }
     // A cell holds inline text only: with no image owner, an image paste is refused, never pasted as its URI.
     private val clipboard = TextFirstClipboard(context, { e -> e.command { e.cellRange?.let { range -> e.select(range.first, range.last, false) } } }) { editor }
@@ -70,7 +70,7 @@ internal class TableCellEditText(context: Context, private val editor: EditorEng
             }
             return true
         }
-        val connection = EngineInputConnection(editor, this, cell = true)
+        val connection = engineInputConnection(editor, this, cell = true)
         editor.handler.post { connection.sendKeyEvent(event) }
         return true
     }

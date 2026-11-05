@@ -20,22 +20,6 @@ import uniffi.futo_notes_ffi.FlushDraftResult
 import uniffi.futo_notes_ffi.NativeEditorSession
 import uniffi.futo_notes_ffi.NoteStore
 
-internal interface EngineSink {
-    fun onCell(update: CellUpdate?) {}
-    fun onUpdate(update: UiUpdate)
-    fun onCompletion(draft: CompletionDraft?) {}
-    fun onFind(snapshot: FindSnapshot) {}
-    fun onCaretState(state: CaretState)
-    /** Explicit external identity was adopted, even if its following save fails. */
-    fun onAttachmentId(noteId: String)
-    /** A Markdown save landed; [noteId] is the attachment's identity after it (a park moves it). */
-    fun onCheckpoint(result: FlushDraftResult, noteId: String)
-    /** A failed save does not pause input: the Store retries it on its own schedule. */
-    fun onFailure(error: EditorSessionException)
-    /** The keyboard's idea of the text is now wrong (a refused edit); restart its connection. */
-    fun onImeReset()
-}
-
 /**
  * The editor thread. It owns the [NativeEditorSession] (Store and FFI calls
  * block, so never the UI thread — host contract §3), receives keyboard calls
@@ -91,6 +75,8 @@ internal class EditorEngine(
 
     /** Read on the UI thread when the keyboard connects. */
     @Volatile var publishedSelection = 0L
+        private set
+    @Volatile var publishedIme: EngineImeState? = null
         private set
 
 
@@ -247,6 +233,7 @@ internal class EditorEngine(
         fast?.close()
         fast = null
         session = null
+        publishedIme = null
         closed = true
         thread.quitSafely()
     }
@@ -413,6 +400,11 @@ internal class EditorEngine(
 
     private fun publishSelection() {
         publishedSelection = (mirror.selStart.toLong() shl 32) or (mirror.selEnd.toLong() and 0xffffffffL)
+        val state = EngineImeState.capture(mirror.text, mirror.selStart, mirror.selEnd,
+            mirror.composingStart, mirror.composingEnd,
+            android.text.TextUtils.getCapsMode(mirror.text, mirror.selStart, IME_CAPS_MODES))
+        publishedIme = state
+        ui.post { sink.onImeState(state) }
     }
 
 
