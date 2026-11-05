@@ -205,6 +205,10 @@ impl EditorSession {
         Some((window, cell?))
     }
 
+    pub(super) fn in_table(&self, range: DisplayRange) -> bool {
+        self.table_target(range).is_some()
+    }
+
     pub(super) fn in_table_cell(&self, range: DisplayRange) -> bool {
         self.table_target(range)
             .is_some_and(|(_, cell)| cell.is_some())

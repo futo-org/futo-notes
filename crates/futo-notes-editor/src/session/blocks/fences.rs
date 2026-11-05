@@ -50,9 +50,15 @@ impl EditorSession {
         let Some(line) = self.projection.block_lines(range).into_iter().next() else {
             return Ok(None);
         };
-        // A task's text follows its checkbox, so no fence can open on its line: the
-        // backticks stay text and the key does what it does in any task.
-        if line.code || line.html || line.heading > 0 || line.divider || line.task.is_some() {
+        // A table row stays a row: its text is cells, not a line to convert;
+        // a task's text is a paragraph after its checkbox, never a fence.
+        if line.code
+            || line.html
+            || line.heading > 0
+            || line.divider
+            || line.task.is_some()
+            || self.in_table(range)
+        {
             return Ok(None);
         }
         let (inside, _) = self.projection.source_bounds(range.start.0);
@@ -98,8 +104,9 @@ impl EditorSession {
             .byte_slice(range.start.0..self.projection.display_at(line.content.end))
             .to_string();
         let fence = (marker as char).to_string().repeat(width);
-        let output = format!("{prefix}\n{quote}{body}\n{quote}{fence}");
-        let caret = line.content.start + prefix.len() + 1 + quote.len();
+        let ending = self.line_ending_at(line.content.start);
+        let output = format!("{prefix}{ending}{quote}{body}{ending}{quote}{fence}");
+        let caret = line.content.start + prefix.len() + ending.len() + quote.len();
         self.commit_block_edit(
             expected,
             line.content.clone(),
