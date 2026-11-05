@@ -6,10 +6,21 @@ Delete this file in the commit that finishes the last item (archive rule).
 
 ## Implementation checkpoint
 
-The implementation and emulator measurements below are complete. Physical Pixel checks remain
-blocked: the phone is secure-locked and its installed `com.futo.notes.dev` rejects this build's
-different signing certificate. The Pixel's app was neither removed nor cleared, and no signing key was accessed.
-Using its matching dev key requires the approval in AGENTS.md §11.1; unlocking is also needed.
+The implementation and emulator measurements below are complete. On 2026-11-05, the user
+authorized replacing the Pixel's differently signed dev app. Its app data was backed up outside
+git before replacing only `com.futo.notes.dev`; the installed APK hash matches this checkout.
+The production app was not touched. Device automation has stopped for the user's manual testing.
+
+On the Pixel 7a (Android 15/API 35), actual LatinIME soft-key taps after repeated format toggles
+produced `# ~~***Hello***~~ ` without lost characters. Heading emphasis rendered correctly;
+selecting the word lit Bold, Italic and Strike, including after toolbar dismissal/reopening.
+Tapping active H1 returned the line to Text; Undo restored H1, and leaving/reopening preserved
+the exact saved Markdown. Gboard is not installed on this phone.
+
+The Pixel toolbar selection/reopen tests passed 2/2. Glyph metrics passed 3/4: the remaining
+`boldInkEndsAtItsAdvance` assertion differed on this device (expected underline position
+-0.074229695, actual -0.09663866). That assertion remains undiagnosed; no test was loosened.
+Further physical automation and performance measurements were left to manual follow-up.
 
 | Items | Current evidence |
 |---|---|
