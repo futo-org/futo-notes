@@ -257,16 +257,7 @@ export async function runBlockRegressions() {
     ['#x\n=', 'Backspace', '\\#\n=', '#x', 2, 2, '#', false],
     ['## x', 'Space', '## &#32;', 'x', 0, 1, ' ', false],
     ['x\n=', 'Newline', '# \n', 'x', 0, 1, '\n', false],
-    [
-      '> __ab\n> cd__',
-      'Enter',
-      '> __a__\n> __!b__\n> __cd__',
-      'ab\ncd',
-      1,
-      1,
-      'a\n!b\ncd',
-      true,
-    ],
+    ['> __ab\n> cd__', 'Enter', '> __a__\n> __!b__\n> __cd__', 'ab\ncd', 1, 1, 'a\n!b\ncd', true],
     [
       '> __ab\n> cd__\n> ===',
       'Enter',
