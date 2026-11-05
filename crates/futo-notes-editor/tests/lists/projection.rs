@@ -1,5 +1,33 @@
 use super::*;
 
+/// Chaos lane-1-07: the line Enter leaves a last item for (after the blank line it writes) is
+/// a plain line, so a renderer draws its caret at the margin, not at the item's text indent.
+/// A line straight under an item still continues it: text typed there is lazy.
+#[test]
+fn a_line_after_a_blank_line_at_the_end_of_a_list_is_not_in_the_list() {
+    // (note, a display offset on a line after the blank line)
+    for (raw, at) in [
+        ("- [ ] eggs\n- [ ] lemons (3)\n\n\n", 17),
+        ("1. a\n\n\n\n", 3),
+        ("1. a\n\n\n\n", 4),
+    ] {
+        let s = EditorSession::open(raw);
+        let line = s.project(s.revision(), range(at, at)).unwrap();
+        assert!(
+            line.blocks.iter().all(|b| b.list.is_none()),
+            "{raw:?} at {at}: {:?}",
+            line.blocks
+        );
+    }
+    let s = EditorSession::open("- a\n\n");
+    let lazy = s.project(s.revision(), range(2, 2)).unwrap();
+    assert!(
+        lazy.blocks.iter().any(|b| b.list.is_some()),
+        "{:?}",
+        lazy.blocks
+    );
+}
+
 #[test]
 fn opening_supported_list_spellings_hides_markers_and_retains_lazy_numbers() {
     let raw =

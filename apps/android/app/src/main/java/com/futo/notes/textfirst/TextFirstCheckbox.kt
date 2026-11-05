@@ -12,16 +12,17 @@ internal fun checkboxAt(view: TextFirstEditText, style: TextFirstStyle, x: Float
     // paragraph's left for left-to-right text, at its right for right-to-left text.
     val dir = layout.getParagraphDirection(line)
     val contentEdge = if (dir < 0) layout.getParagraphRight(line) else layout.getParagraphLeft(line)
-    val withinMarker = onTaskCheckbox(x - view.totalPaddingLeft, contentEdge.toFloat(), dir, style.listIndent, style.dp(4f), style.dp(8f))
+    val withinMarker = onTaskCheckbox(x - view.totalPaddingLeft, contentEdge.toFloat(), dir, style.listIndent, style.dp(8f))
     return if (withinMarker && list.first) start else -1
 }
 
 /**
  * Whether [lineX] falls on a task checkbox whose text starts at [contentEdge] in a paragraph
- * running in [dir] (1 left-to-right, -1 right-to-left): up to [slop] into the text, or up to
- * [indent] plus [reach] back into the leading margin.
+ * running in [dir] (1 left-to-right, -1 right-to-left): anywhere in the leading margin before
+ * the text, up to [indent] plus [reach] back from it. A touch on the text itself, even its
+ * first letter, places the caret instead.
  */
-internal fun onTaskCheckbox(lineX: Float, contentEdge: Float, dir: Int, indent: Float, slop: Float, reach: Float): Boolean {
+internal fun onTaskCheckbox(lineX: Float, contentEdge: Float, dir: Int, indent: Float, reach: Float): Boolean {
     val intoMargin = (contentEdge - lineX) * dir
-    return intoMargin >= -slop && intoMargin <= indent + reach
+    return intoMargin > 0f && intoMargin <= indent + reach
 }

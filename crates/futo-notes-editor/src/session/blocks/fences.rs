@@ -50,7 +50,9 @@ impl EditorSession {
         let Some(line) = self.projection.block_lines(range).into_iter().next() else {
             return Ok(None);
         };
-        if line.code || line.html || line.heading > 0 || line.divider {
+        // A task's text follows its checkbox, so no fence can open on its line: the
+        // backticks stay text and the key does what it does in any task.
+        if line.code || line.html || line.heading > 0 || line.divider || line.task.is_some() {
             return Ok(None);
         }
         let (inside, _) = self.projection.source_bounds(range.start.0);
@@ -76,7 +78,20 @@ impl EditorSession {
         {
             return Ok(None);
         }
-        let quote = "> ".repeat(line.quote_depth);
+        let quote = if line.list.is_some() || line.in_list {
+            // Inside a list item the code rows continue the item: its quotes stay, and its
+            // markers become the spaces that reach the item's content column.
+            let row = self
+                .source
+                .line_to_byte(self.source.byte_to_line(line.content.start));
+            self.source
+                .byte_slice(row..line.content.start)
+                .chars()
+                .map(|ch| if matches!(ch, '>' | '\t') { ch } else { ' ' })
+                .collect()
+        } else {
+            "> ".repeat(line.quote_depth)
+        };
         let body = self
             .projection
             .display
