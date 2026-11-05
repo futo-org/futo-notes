@@ -150,6 +150,13 @@ internal class EditorEngine(
     /** A selection the host chooses (restoring the caret after a reload). */
     fun hostSelect(start: Int, end: Int) = command { select(start, end, fromView = false) }
 
+    /** While the view is touched or shows its text menu, background slices wait (TextFirstEditText). */
+    fun holdRender(held: Boolean) = handler.post {
+        if (closed) return@post
+        renderWork.held = held
+        if (!held) streamTail(0)
+    }
+
     /**
      * The view cut itself to a bounded prefix to lay out a new width
      * (TextFirstEditTextWidth.kt). Render it again from this thread's text,

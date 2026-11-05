@@ -52,7 +52,7 @@ internal fun EditorEngine.tailStart() = mirror.text.length - tailLength
 /** Schedule one bounded unit only after the previous UI apply acknowledged it. */
 internal fun EditorEngine.streamTail(delay: Long = OpenSlices.GAP_MS) {
     handler.removeCallbacks(tailRunnable)
-    if (!closed && !renderWork.awaitingUi && mirror.overlay == null && (streaming || renderWork.stylesPending)) handler.postDelayed(tailRunnable, delay)
+    if (!closed && !renderWork.awaitingUi && !renderWork.held && mirror.overlay == null && (streaming || renderWork.stylesPending)) handler.postDelayed(tailRunnable, delay)
 }
 
 internal fun EditorEngine.stopStreaming() {
@@ -67,7 +67,7 @@ internal fun EditorEngine.projectWindow(from: Int, end: Int): StyleWindow {
 }
 
 internal fun EditorEngine.showNextRenderSlice() {
-    if (closed || renderWork.awaitingUi || mirror.overlay != null) return
+    if (closed || renderWork.awaitingUi || renderWork.held || mirror.overlay != null) return
     try {
         if (renderWork.stylesPending) {
             val from = renderWork.styleStart

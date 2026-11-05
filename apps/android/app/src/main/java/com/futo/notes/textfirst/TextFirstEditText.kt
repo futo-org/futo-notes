@@ -30,6 +30,10 @@ internal class TextFirstEditText(
     internal val images: ImageLoader,
 ) : AppCompatEditText(context), EngineInputConnection.ViewSide {
     var engine: EditorEngine? = null
+        set(value) {
+            field = value
+            if (renderHold.held) value?.holdRender(true)
+        }
     internal val imePublisher = NativeImePublisher(this)
     var onOpenWikilink: ((String) -> Unit)? = null
     var onOpenUrl: ((String) -> Unit)? = null
@@ -64,6 +68,7 @@ internal class TextFirstEditText(
     private var codeInput = false
     /** The view cut itself to a prefix for a new width; engine updates wait for the engine's reset (TextFirstEditTextWidth.kt). */
     internal var awaitingRelayout = false
+    internal val renderHold = RenderHold(this)
 
     init {
         background = null
@@ -85,6 +90,8 @@ internal class TextFirstEditText(
         imeOptions = EditorInfo.IME_FLAG_NO_EXTRACT_UI or EditorInfo.IME_FLAG_NO_ENTER_ACTION
         setHorizontallyScrolling(false)
         configureSelectionClassifier()
+        customSelectionActionModeCallback = renderHold.MenuWatch()
+        customInsertionActionModeCallback = renderHold.MenuWatch()
         textLocales = android.os.LocaleList.getDefault() // explicit: see onConfigurationChanged
         isVerticalScrollBarEnabled = true
         // Autofill and content capture copy the whole text after every change.
@@ -135,6 +142,18 @@ internal class TextFirstEditText(
             textLocales = locales
         }
         super.onConfigurationChanged(newConfig)
+    }
+
+    // ---- background rendering waits for touch and the text menu (TextFirstRenderHold.kt) ----
+
+    override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+        renderHold.touchStarting(event)
+        try { return super.dispatchTouchEvent(event) } finally { renderHold.touchEnded(event) }
+    }
+
+    override fun performLongClick(): Boolean {
+        renderHold.longPressed()
+        return super.performLongClick()
     }
 
     internal fun setCodeInput(code: Boolean) {

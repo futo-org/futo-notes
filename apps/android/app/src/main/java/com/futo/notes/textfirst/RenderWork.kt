@@ -6,6 +6,8 @@ internal class RenderWork {
     var awaitingUi = false
     var styleStart = 0
     var styleEnd = 0
+    /** The view is touched or shows its text menu: background slices wait. Not cleared by [reset]. */
+    var held = false
     val stylesPending get() = styleStart < styleEnd
     fun reset() { generation++; awaitingUi = false; styleStart = 0; styleEnd = 0 }
     fun dirty(start: Int, end: Int) {

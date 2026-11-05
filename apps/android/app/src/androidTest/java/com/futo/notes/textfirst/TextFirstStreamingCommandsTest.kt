@@ -1,5 +1,12 @@
 package com.futo.notes.textfirst
 
+import android.app.Activity
+import android.os.SystemClock
+import android.view.ActionMode
+import android.view.MotionEvent
+import android.view.ViewConfiguration
+import android.view.Window
+import androidx.test.platform.app.InstrumentationRegistry
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CompletableDeferred
@@ -329,6 +336,62 @@ class TextFirstStreamingCommandsTest {
             assertEquals(state.selectionEnd, info.initialSelEnd)
             assertTrue(state.context!!.text.length <= IME_CONTEXT_CHARS + IME_SELECTED_CHARS)
         }
+    }
+
+    /**
+     * Android closes a TextView's floating text menu (Cut, Copy, Select all) on
+     * every text change, so a slice landing while it was up took it away on its own.
+     */
+    @Test fun theTextMenuStaysUpWhileTheTailIsStillToCome() = exercise {
+        val modes = mutableListOf<ActionMode>()
+        var finished = 0
+        ui {
+            val window = (controller.view.context as Activity).window
+            val original = window.callback
+            window.callback = object : Window.Callback by original {
+                override fun onActionModeStarted(mode: ActionMode) { modes += mode; original.onActionModeStarted(mode) }
+                override fun onActionModeFinished(mode: ActionMode) { finished++; original.onActionModeFinished(mode) }
+            }
+        }
+        // A real long press on the first word.
+        var x = 0f
+        var y = 0f
+        ui {
+            val v = controller.view
+            // The bare test activity's theme leaves an EditText unfocusable by touch; the app's does not.
+            v.isFocusableInTouchMode = true
+            assertTrue(v.requestFocus())
+            val at = IntArray(2).also(v::getLocationOnScreen)
+            x = at[0] + v.totalPaddingLeft + 20f
+            y = at[1] + v.totalPaddingTop + v.layout.getLineBaseline(0) - 5f
+        }
+        val down = SystemClock.uptimeMillis()
+        fun send(action: Int) {
+            val e = MotionEvent.obtain(down, SystemClock.uptimeMillis(), action, x, y, 0)
+            e.source = android.view.InputDevice.SOURCE_TOUCHSCREEN
+            try { InstrumentationRegistry.getInstrumentation().sendPointerSync(e) } finally { e.recycle() }
+        }
+        send(MotionEvent.ACTION_DOWN)
+        Thread.sleep(ViewConfiguration.getLongPressTimeout() + 300L)
+        send(MotionEvent.ACTION_UP)
+        // The menu opens after the text classifier answers, off the main thread.
+        runBlocking { kotlinx.coroutines.withTimeoutOrNull(5_000) { while (true) { var n = 0; ui { n = modes.size }; if (n > 0) break; kotlinx.coroutines.delay(20) } } }
+        ui {
+            assertEquals("the long press opened the text menu", 1, modes.size)
+            assertTrue("and selected a word", controller.view.selectionEnd > controller.view.selectionStart)
+        }
+        // The tail's next slice comes due while the menu is up.
+        engine.handler.post { engine.showNextRenderSlice() }
+        engine.handler.post { engine.streamTail(0) }
+        barrier()
+        barrier()
+        ui { assertEquals("a background slice must not close the text menu", 0, finished) }
+        // Dismissing it lets the note finish.
+        ui { modes.single().finish() }
+        barrier()
+        awaitComplete()
+        val display = display()
+        ui { assertEquals(display + TextFirstEditText.END_SENTINEL, controller.view.text.toString()) }
     }
 
     private fun exercise(body: String? = null, check: StreamingRig.() -> Unit) = streamingExercise(body, check)
