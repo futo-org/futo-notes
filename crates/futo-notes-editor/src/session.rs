@@ -477,13 +477,18 @@ impl EditorSession {
         } else {
             &entry.entries.first().unwrap().before_links
         };
-        change.work.link_metadata_items += self.projection.restore_pending(pending);
-        let (projection, link_work) = self
-            .projection
-            .query_with_work(self.revision, change.projection.range);
-        change.projection = projection;
-        change.work.link_metadata_items += link_work.items;
-        change.work.link_copied_bytes += link_work.copied;
+        let (restore_work, restored) = self.projection.restore_pending_changed(pending);
+        change.work.link_metadata_items += restore_work;
+        // The apply above already queried this range; only restored transient
+        // fields can make that answer stale.
+        if restored {
+            let (projection, link_work) = self
+                .projection
+                .query_with_work(self.revision, change.projection.range);
+            change.projection = projection;
+            change.work.link_metadata_items += link_work.items;
+            change.work.link_copied_bytes += link_work.copied;
+        }
         self.typing = None;
         if redo {
             self.undo.push(entry);

@@ -53,6 +53,13 @@ impl Projection {
     }
 
     pub(crate) fn restore_pending(&mut self, snapshot: &PendingLinks) -> usize {
+        self.restore_pending_changed(snapshot).0
+    }
+
+    /// [`Self::restore_pending`], also saying whether any row's transient
+    /// fields changed: when none did, an earlier projection query still holds.
+    pub(crate) fn restore_pending_changed(&mut self, snapshot: &PendingLinks) -> (usize, bool) {
+        let mut cleared = false;
         let (first, first_work) = self.rows.locate_with_work(snapshot.window.start, false);
         let (last, last_work) = self.rows.locate_with_work(
             snapshot
@@ -72,6 +79,10 @@ impl Projection {
                 snapshot.window.start <= source + range.start
                     && source + range.end <= snapshot.window.end
             };
+            let held = row.literal_links.len()
+                + row.guarded_words.len()
+                + row.typed_inputs.len()
+                + row.literal_delimiters.len();
             row.literal_links.retain(|range| {
                 work += 1;
                 !inside(range)
@@ -88,6 +99,11 @@ impl Projection {
                 work += 1;
                 !inside(range)
             });
+            cleared |= held
+                != row.literal_links.len()
+                    + row.guarded_words.len()
+                    + row.typed_inputs.len()
+                    + row.literal_delimiters.len();
         }
         work += self.restore_guard_words(snapshot);
         work += self.restore_typed_origins(snapshot);
@@ -104,7 +120,7 @@ impl Projection {
                 row.literal_links.push(local);
             }
         }
-        work
+        (work, cleared || snapshot.has_fields())
     }
 }
 
