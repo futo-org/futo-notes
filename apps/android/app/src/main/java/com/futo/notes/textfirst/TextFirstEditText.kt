@@ -35,11 +35,16 @@ internal class TextFirstEditText(
     var onOpenUrl: ((String) -> Unit)? = null
     private val wikilinkTouch = WikilinkTouch(this) { onOpenWikilink?.invoke(it) }
     private val imageTouch = ImageTouch(this)
+    @Volatile override var renderedSelection: Long = Long.MIN_VALUE
+        private set
     @Volatile override var selectedObject: Pair<Int, Int>? = null
     private val linkTouch = ExternalLinkTouch(this, { onOpenUrl?.invoke(it) }, ::nativeTouch)
     private val lineTouch = LineSelectTouch(this)
     /** The first draw after a keyed update, with where that key's time went. */
     var onFrameDrawn: ((KeyTimings) -> Unit)? = null
+    /** Optional benchmark observer for every apply, including progressive append work. */
+    internal var onRenderFrame: ((Long) -> Unit)? = null
+    internal var onApplyMeasured: ((KeyTimings, UiUpdate) -> Unit)? = null
 
     internal var applying = false
     internal var appliedSeq = 0
@@ -170,6 +175,7 @@ internal class TextFirstEditText(
             pendingTimings = null
             onFrameDrawn?.invoke(timings)
         }
+        onRenderFrame?.invoke(android.os.SystemClock.elapsedRealtimeNanos())
     }
 
 
@@ -200,6 +206,7 @@ internal class TextFirstEditText(
 
     override fun onSelectionChanged(selStart: Int, selEnd: Int) {
         super.onSelectionChanged(selStart, selEnd)
+        renderedSelection = (selStart.toLong() shl 32) or (selEnd.toLong() and 0xffffffffL)
         selectedObject = selectedObject?.takeIf { it.first == selStart && it.second == selEnd }
         if (applying) return
         val e = editableText ?: return

@@ -106,7 +106,7 @@ internal class TextFirstController(
     override fun onImeState(state: EngineImeState) { view.imePublisher.publish(state) }
 
     override fun onUpdate(update: UiUpdate) {
-        if (update.edits.isNotEmpty() && update.reset == null && !update.append) dirty = true
+        if (update.sourceChanged || update.edits.isNotEmpty() && !update.append) dirty = true
         view.apply(update)
         isEmpty = view.length() <= TextFirstEditText.END_SENTINEL.length
     }

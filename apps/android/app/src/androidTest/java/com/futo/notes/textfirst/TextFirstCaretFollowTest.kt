@@ -178,6 +178,45 @@ class TextFirstCaretFollowTest {
     }
 
     @Test
+    fun pendingWholeNoteStylesCannotPinLaterKeyboardTypingAboveTheBottomCaret() = exercise(
+        (0 until 2500).joinToString("\n\n", postfix = "\n") { "paragraph $it has words" },
+    ) {
+        val engine = view.engine!!
+        val drawn = CountDownLatch(1)
+        var requested = Long.MAX_VALUE
+        var overflow = 0
+        var injected = false
+        compose.runOnUiThread {
+            view.scrollTo(0, 300)
+            view.onFrameDrawn = { timings ->
+                if (timings.input >= requested) {
+                    val layout = view.layout
+                    overflow = layout.getLineBottom(layout.getLineForOffset(view.selectionEnd)) +
+                        view.totalPaddingTop - view.scrollY - (view.height - view.extendedPaddingBottom)
+                    drawn.countDown()
+                }
+            }
+            view.onApplyMeasured = { _, update ->
+                if (update.styleOnly && !injected) {
+                    injected = true
+                    requested = SystemClock.elapsedRealtimeNanos()
+                    ic.handler!!.post {
+                        ic.setSelection(engine.text.length, engine.text.length)
+                        ic.commitText("\n", 1)
+                    }
+                    // Resolve the pending style reflow through the same Compose
+                    // parent layout that handles a real keyboard frame.
+                    view.requestLayout()
+                }
+            }
+            engine.selectAll()
+            engine.blockCommand(EditorBlockCommand.Quote)
+        }
+        assertTrue("the keyboard frame was drawn", drawn.await(15, TimeUnit.SECONDS))
+        assertTrue("pending style anchor left the caret $overflow px below the viewport", overflow <= 0)
+    }
+
+    @Test
     fun selectionPaintReachesTextInTheTopPaddingBand() = exercise(longNote) {
         compose.runOnUiThread {
             view.engine!!.selectAll()

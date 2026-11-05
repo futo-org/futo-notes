@@ -67,11 +67,12 @@ internal class EditorEngine(
     internal var closed = false
     private val toolbarCommands = ToolbarCommandQueue(handler) { executeCommand({}, it) }
     private var inputStartNanos = 0L
-    private var engineNanos = 0L
+    internal var engineNanos = 0L
     /** The last change's projection; the caret state reads its block from it. */
     /** Characters at the end of the display the view has not been given yet (progressive open). */
     internal var tailLength = 0
-    internal val tailRunnable = Runnable { showNextSlice() }
+    internal val renderWork = RenderWork()
+    internal val tailRunnable = Runnable { showNextRenderSlice() }
 
     /** Read on the UI thread when the keyboard connects. */
     @Volatile var publishedSelection = 0L
@@ -136,7 +137,7 @@ internal class EditorEngine(
         ui.post { deliver(markdown) }
     }
 
-    fun selectAll() = command { select(0, mirror.text.length, fromView = false) }
+    fun selectAll() = command { select(0, mirror.text.length, fromView = false, finishTail = false); streamTail(0) }
 
     /** A selection the host chooses (restoring the caret after a reload). */
     fun hostSelect(start: Int, end: Int) = command { select(start, end, fromView = false) }
@@ -224,6 +225,7 @@ internal class EditorEngine(
     }
 
     private fun release() {
+        renderWork.reset()
         toolbarCommands.cancel()
         handler.removeCallbacks(saveRunnable)
         handler.removeCallbacks(caretRunnable)
@@ -308,8 +310,7 @@ internal class EditorEngine(
         val display = s.displayText()
         mirror.reset(display)
         mirror.selStart = mirror.selStart.coerceIn(0, mirror.text.length); mirror.selEnd = mirror.selEnd.coerceIn(mirror.selStart, mirror.text.length)
-        val projection = s.project(rev, EditorByteRange(0u, mirror.utf8Length.toULong()))
-        postUpdate(reset = display, edits = emptyList(), windows = listOf(window(projection)))
+        resetViewProgressively()
         ui.post { sink.onImeReset() }
     }
 
@@ -317,7 +318,7 @@ internal class EditorEngine(
 
 
 
-    internal fun select(start: Int, end: Int, fromView: Boolean) {
+    internal fun select(start: Int, end: Int, fromView: Boolean, finishTail: Boolean = true) {
         val s = session ?: return
         var a = minOf(start, end).coerceIn(0, mirror.text.length)
         var b = maxOf(start, end).coerceIn(0, mirror.text.length)
@@ -334,7 +335,7 @@ internal class EditorEngine(
             if (b >= oldEnd) b += shift
             ui.post { sink.onImeReset() }
         }
-        if (b > tailStart() && streaming) finishStreaming()
+        if (finishTail && b > tailStart() && streaming) finishStreaming()
         val change = s.selectUtf16(rev, EditorUtf16Range(a.toULong(), b.toULong()))
         rev = change.revision
         mirror.selStart = mirror.toUtf16(change.selection.start.toInt())
@@ -343,39 +344,17 @@ internal class EditorEngine(
         scheduleCaretState()
     }
 
-    /** Apply one accepted engine change to the mirror, then post it to the view. */
-    internal fun accept(change: EditorViewChange) {
-        engineNanos = SystemClock.elapsedRealtimeNanos()
-        check(change.previousRevision == rev) { "change ${change.previousRevision} applied at $rev" }
-        val edits = ArrayList<TextEdit>(2)
-        mirror.overlay?.let { o ->
-            mirror.replace(o.start, o.start + o.marked.length, o.original, edits)
-            mirror.overlay = null
-        }
-        val start = mirror.toUtf16(change.range.start.toInt())
-        val end = mirror.toUtf16(change.range.end.toInt())
-        // A change reaching text the view has not been given waits for it to arrive.
-        if (streaming && end > tailStart()) finishStreaming()
-        if (TextFirstEditText.PROFILE) {
-            Log.i(TAG, "change ${change.previousRevision}->${change.revision}: replace [$start,$end) with ${change.inserted.length} chars; projection ${change.projection.range.end - change.projection.range.start} bytes, ${change.projection.blocks.size} blocks, ${change.projection.runs.size} runs; parsed=${change.parsedSourceBytes}")
-        }
-        mirror.replace(start, end, change.inserted, edits)
-        rev = change.revision
-        mirror.selStart = mirror.toUtf16(change.selection.start.toInt())
-        mirror.selEnd = mirror.toUtf16(change.selection.end.toInt())
-        if (verifyMirror) verify()
-        postUpdate(edits, listOf(window(change.projection)))
-        armSave()
-        scheduleCaretState()
-    }
+    /** Apply one accepted engine change to its authoritative mirror and bounded view projection. */
+    internal fun accept(change: EditorViewChange) = acceptViewChange(change)
 
-    private fun verify() {
+    internal fun verify() {
+        if (!verifyMirror) return
         val s = session ?: return
         val engine = s.displayText()
         check(engine == mirror.text.toString()) { "mirror diverged from engine display at revision $rev" }
     }
 
-    internal fun postUpdate(edits: List<TextEdit>, windows: List<StyleWindow>, reset: String? = null) {
+    internal fun postUpdate(edits: List<TextEdit>, windows: List<StyleWindow>, reset: String? = null, sourceChanged: Boolean = false, preserveScroll: Boolean = false, paced: Boolean = false) {
         seq += 1
         val update = UiUpdate(
             seq = seq,
@@ -389,11 +368,12 @@ internal class EditorEngine(
             inputUptimeNanos = inputStartNanos,
             postedNanos = SystemClock.elapsedRealtimeNanos(),
             engineNanos = engineNanos.also { engineNanos = 0L },
-            complete = !streaming,
+            complete = !streaming && !renderWork.stylesPending,
+            sourceChanged = sourceChanged, preserveScroll = preserveScroll,
         )
         publishSelection()
         publishCell()
-        ui.post { sink.onUpdate(update) }
+        if (paced) postRenderUpdate(update) else ui.post { sink.onUpdate(update) }
         scheduleCaretState()
         scheduleFindRefresh()
     }

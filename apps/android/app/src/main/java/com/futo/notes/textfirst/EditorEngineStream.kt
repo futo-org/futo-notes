@@ -49,57 +49,107 @@ internal val EditorEngine.streaming get() = tailLength > 0
 
 internal fun EditorEngine.tailStart() = mirror.text.length - tailLength
 
-/** Schedule the next slice [delay] ms from now, if any is left. */
+/** Schedule one bounded unit only after the previous UI apply acknowledged it. */
 internal fun EditorEngine.streamTail(delay: Long = OpenSlices.GAP_MS) {
     handler.removeCallbacks(tailRunnable)
-    if (streaming && !closed) handler.postDelayed(tailRunnable, delay)
+    if (!closed && !renderWork.awaitingUi && mirror.overlay == null && (streaming || renderWork.stylesPending)) handler.postDelayed(tailRunnable, delay)
 }
 
 internal fun EditorEngine.stopStreaming() {
     handler.removeCallbacks(tailRunnable)
     tailLength = 0
+    renderWork.reset()
 }
 
-/** Show the next slice. */
-internal fun EditorEngine.showNextSlice(chars: Int = OpenSlices.NEXT_CHARS) {
-    val s = session ?: return
-    if (closed || !streaming) return
-    val from = tailStart()
-    val end = OpenSlices.sliceEnd(mirror.text, from, chars)
+internal fun EditorEngine.projectWindow(from: Int, end: Int): StyleWindow {
+    val s = checkNotNull(session)
+    return window(s.project(rev, mirror.byteRange(from, end)))
+}
+
+internal fun EditorEngine.showNextRenderSlice() {
+    if (closed || renderWork.awaitingUi || mirror.overlay != null) return
     try {
-        val projection = s.project(rev, mirror.byteRange(from, end))
-        val window = window(projection)
-        tailLength = mirror.text.length - end
-        postAppend(listOf(TextEdit(from, from, mirror.text.substring(from, end))), listOf(window))
-        return
-    } catch (e: EditorSessionException) {
-        // The note stays complete in the engine; show it whole rather than leave a stub.
-        handleFailure(e)
-        stopStreaming()
+        if (renderWork.stylesPending) {
+            val from = renderWork.styleStart
+            val end = minOf(renderWork.styleEnd, OpenSlices.sliceEnd(mirror.text, from, OpenSlices.NEXT_CHARS))
+            val window = projectWindow(from, end)
+            renderWork.styleStart = end
+            postRenderUpdate(UiUpdate(
+                seq, null, emptyList(), mirror.selStart, mirror.selEnd,
+                mirror.composingStart, mirror.composingEnd, listOf(window), 0L,
+                complete = !streaming && !renderWork.stylesPending, styleOnly = true,
+            ))
+        } else showNextSlice()
+    } catch (error: EditorSessionException) {
+        handleFailure(error)
         reloadFromEngine()
     }
 }
 
-/** Show everything still unshown, before anything that may reach it. */
-internal fun EditorEngine.finishStreaming() {
-    handler.removeCallbacks(tailRunnable)
-    if (streaming) showNextSlice(Int.MAX_VALUE / 2)
+/** Show one text slice. A provisional overlay has different coordinates from Rust's committed text. */
+internal fun EditorEngine.showNextSlice(chars: Int = OpenSlices.NEXT_CHARS, force: Boolean = false) {
+    if (session == null) return
+    if (closed || !streaming || mirror.overlay != null || !force && renderWork.awaitingUi) return
+    val from = tailStart()
+    val end = OpenSlices.sliceEnd(mirror.text, from, chars)
+    try {
+        val window = projectWindow(from, end)
+        tailLength = mirror.text.length - end
+        postAppend(listOf(TextEdit(from, from, mirror.text.substring(from, end))), listOf(window))
+    } catch (e: EditorSessionException) {
+        handleFailure(e)
+        reloadFromEngine()
+    }
 }
 
-/** More of the note for the view, after what it shows. The caret, the keyboard and `seq` are untouched. */
+/** Legacy deep Find/cell navigation still needs its target laid out before revealing it. */
+internal fun EditorEngine.finishStreaming() {
+    handler.removeCallbacks(tailRunnable)
+    if (streaming) showNextSlice(Int.MAX_VALUE / 2, force = true)
+}
+
+/** A self-contained bounded prefix supersedes old render work, never the canonical source. */
+internal fun EditorEngine.resetViewProgressively(edits: List<TextEdit> = emptyList(), sourceChanged: Boolean = false) {
+    check(mirror.overlay == null)
+    handler.removeCallbacks(tailRunnable)
+    renderWork.reset()
+    val shown = OpenSlices.sliceEnd(mirror.text, 0, OpenSlices.FIRST_CHARS)
+    tailLength = mirror.text.length - shown
+    postUpdate(edits, listOf(projectWindow(0, shown)), reset = mirror.text.substring(0, shown), sourceChanged = sourceChanged, preserveScroll = true, paced = true)
+}
+
+/** Oversized marked text stays provisional: show a raw bounded prefix without querying committed offsets. */
+internal fun EditorEngine.resetMarkedView(edits: List<TextEdit>) {
+    check(mirror.overlay != null)
+    handler.removeCallbacks(tailRunnable)
+    renderWork.reset()
+    val shown = rawPrefixEnd(mirror.text, OpenSlices.FIRST_CHARS)
+    tailLength = mirror.text.length - shown
+    postUpdate(edits, emptyList(), reset = mirror.text.substring(0, shown), preserveScroll = true, paced = true)
+}
+
+/** Append without replacing a newer touch selection; the view extends only its still-clipped range. */
 internal fun EditorEngine.postAppend(edits: List<TextEdit>, windows: List<StyleWindow>) {
-    val update = UiUpdate(
-        seq = seq, reset = null, edits = edits,
-        selStart = mirror.selStart, selEnd = mirror.selEnd,
-        composingStart = mirror.composingStart, composingEnd = mirror.composingEnd,
-        windows = windows, inputUptimeNanos = 0L, append = true, complete = !streaming,
-    )
+    postRenderUpdate(UiUpdate(
+        seq, null, edits, mirror.selStart, mirror.selEnd,
+        mirror.composingStart, mirror.composingEnd, windows, 0L,
+        append = true, complete = !streaming && !renderWork.stylesPending,
+    ))
+}
+
+/** FIFO applies remain valid. Only an obsolete acknowledgement after a self-contained reset is ignored. */
+internal fun EditorEngine.postRenderUpdate(update: UiUpdate) {
+    val generation = renderWork.generation
+    renderWork.awaitingUi = true
     ui.post {
         val began = SystemClock.uptimeMillis()
         sink.onUpdate(update)
-        // The next slice waits as long as this one took the UI thread, so a slow phone
-        // (or a long note, whose layout costs more) spends half its time on touches.
         val took = SystemClock.uptimeMillis() - began
-        handler.post { streamTail(maxOf(OpenSlices.GAP_MS, took)) }
+        handler.post {
+            if (!closed && renderWork.generation == generation) {
+                renderWork.awaitingUi = false
+                streamTail(maxOf(OpenSlices.GAP_MS, took))
+            }
+        }
     }
 }

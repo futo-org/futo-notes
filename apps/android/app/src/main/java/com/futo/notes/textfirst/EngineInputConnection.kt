@@ -35,6 +35,8 @@ internal open class EngineInputConnection(
 
         /** The image or code block a tap selected as one object, while that is still the whole selection. */
         val selectedObject: Pair<Int, Int>? get() = null
+        /** The native clipped range, for rejecting only its stale IME echo. */
+        val renderedSelection: Long get() = Long.MIN_VALUE
     }
 
     private var batch = 0
@@ -44,10 +46,7 @@ internal open class EngineInputConnection(
     /** Debug: every keyboard call, with the caret it saw, under `TextFirstIme`. */
     private fun trace(call: String) {
         if (com.futo.notes.BuildConfig.DEBUG) {
-            val text = engine.text
-            val at = engine.selStart.coerceIn(0, text.length)
-            val around = text.substring(maxOf(0, at - 12), at).replace("\n", "⏎")
-            android.util.Log.d("TextFirstIme", "$call  sel=${engine.selStart}..${engine.selEnd} before=\"$around\"")
+            android.util.Log.d("TextFirstIme", "$call sel=${engine.selStart}..${engine.selEnd} length=${engine.text.length}")
         }
     }
 
@@ -126,7 +125,7 @@ internal open class EngineInputConnection(
 
     override fun setComposingText(text: CharSequence, newCursorPosition: Int): Boolean {
         if (cell && !engine.editingCell) return true
-        trace("setComposingText(" + "text=" + text + " " + "newCursorPosition=" + newCursorPosition + ")")
+        trace("setComposingText(" + "textLength=" + text.length + " " + "newCursorPosition=" + newCursorPosition + ")")
         engine.imeSetComposing(text.toString())
         return true
     }
@@ -146,7 +145,7 @@ internal open class EngineInputConnection(
 
     override fun commitText(text: CharSequence, newCursorPosition: Int): Boolean {
         if (cell && !engine.editingCell) return true
-        trace("commitText(" + "text=" + text + " " + "newCursorPosition=" + newCursorPosition + ")")
+        trace("commitText(" + "textLength=" + text.length + " " + "newCursorPosition=" + newCursorPosition + ")")
         engine.imeCommit(text.toString())
         return true
     }
@@ -162,6 +161,11 @@ internal open class EngineInputConnection(
     override fun setSelection(start: Int, end: Int): Boolean {
         if (cell && !engine.editingCell) return true
         trace("setSelection(" + "start=" + start + " " + "end=" + end + ")")
+        if (!cell) {
+            val requested = (start.toLong() shl 32) or (end.toLong() and 0xffffffffL)
+            val logical = (engine.selStart.toLong() shl 32) or (engine.selEnd.toLong() and 0xffffffffL)
+            if (requested == view.renderedSelection && requested != logical) return true
+        }
         // Enter on a selection makes the keyboard collapse it and delete the
         // selected text first. A selected image or code block takes Enter as an
         // object (the engine acts after it), so that collapse is not passed on.

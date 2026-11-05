@@ -9,6 +9,18 @@ import android.widget.TextView.BufferType
 internal fun TextFirstEditText.applyEngineUpdate(update: UiUpdate) {
     contentComplete = update.complete
     if (update.append) { applyAppend(update); scheduleRestore(); return }
+    if (update.styleOnly) { applyStyleSlice(update); return }
+    if (update.reset != null && update.preserveScroll) {
+        scrollAnchor()?.let { before ->
+            var offset = before.offset
+            for (edit in update.edits) offset = when {
+                offset < edit.start -> offset
+                offset >= edit.end -> offset + edit.text.length - (edit.end - edit.start)
+                else -> edit.start + minOf(offset - edit.start, edit.text.length)
+            }
+            restoring = ScrollAnchor(offset, before.intoLine)
+        }
+    }
     val applyStart = android.os.SystemClock.elapsedRealtimeNanos()
     var editsEnd = applyStart
     applying = true
@@ -45,7 +57,7 @@ internal fun TextFirstEditText.applyEngineUpdate(update: UiUpdate) {
         // Not BaseInputConnection.removeComposingSpans: it lists every span in the note.
         composing?.let(e::removeSpan)
         composing = null
-        if (update.composingStart >= 0 && update.composingEnd > update.composingStart) {
+        if (update.composingStart >= 0 && update.composingEnd > update.composingStart && update.composingEnd <= e.length - 1) {
             composing = ComposingUnderline().also {
                 e.setSpan(it, update.composingStart, update.composingEnd, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE or Spanned.SPAN_COMPOSING)
             }
@@ -53,7 +65,7 @@ internal fun TextFirstEditText.applyEngineUpdate(update: UiUpdate) {
         val length = (e.length - 1).coerceAtLeast(0)
         Selection.setSelection(e, update.selStart.coerceIn(0, length), update.selEnd.coerceIn(0, length))
         appliedSeq = update.seq
-        if (update.inputUptimeNanos != 0L && update.reset == null) {
+        if (update.inputUptimeNanos != 0L && (update.reset == null || update.sourceChanged)) {
             pendingTimings = KeyTimings(
                 input = update.inputUptimeNanos,
                 posted = update.postedNanos,
@@ -66,6 +78,10 @@ internal fun TextFirstEditText.applyEngineUpdate(update: UiUpdate) {
     } finally {
         applying = false
     }
+    onApplyMeasured?.invoke(KeyTimings(
+        update.inputUptimeNanos, update.postedNanos, update.engineNanos,
+        applyStart, editsEnd, android.os.SystemClock.elapsedRealtimeNanos(),
+    ), update)
     if (update.reset != null) { requestImageLoads(); scheduleRestore() }
 }
 

@@ -55,8 +55,7 @@ private fun EditorEngine.openAttachment(): Throwable? = try {
     tailLength = mirror.text.length - shown
     val projection = opened.project(rev, mirror.byteRange(0, shown))
     mirror.selStart = 0; mirror.selEnd = 0
-    postUpdate(reset = display.substring(0, shown), edits = emptyList(), windows = listOf(window(projection)))
-    streamTail()
+    postUpdate(reset = display.substring(0, shown), edits = emptyList(), windows = listOf(window(projection)), paced = true)
     refreshCaretState()
     null
 } catch (failure: Throwable) {

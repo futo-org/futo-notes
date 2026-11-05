@@ -10,24 +10,38 @@ import android.text.Spanned
 /** The next part of a progressively opened note, after what shows now. */
 internal fun TextFirstEditText.applyAppend(update: UiUpdate) {
     val e = editableText ?: return
+    val observer = onApplyMeasured
+    val applyStart = if (observer != null) android.os.SystemClock.elapsedRealtimeNanos() else 0L
+    var editsEnd = applyStart
     applying = true
     try {
         val start = Selection.getSelectionStart(e)
         val end = Selection.getSelectionEnd(e)
+        val oldLast = (e.length - 1).coerceAtLeast(0)
+        val followsLogicalSelection = start == update.selStart.coerceIn(0, oldLast) && end == update.selEnd.coerceIn(0, oldLast)
         beginBatchEdit()
         try {
             e.withRendererUpdate(update) {
                 for (edit in update.edits) e.replace(edit.start, edit.end, edit.text)
+                if (observer != null) editsEnd = android.os.SystemClock.elapsedRealtimeNanos()
                 for (window in update.windows) restyle(e, window)
             }
         } finally {
             endBatchEdit()
         }
-        // A caret at the end of what showed would be pushed past the new text.
-        if (Selection.getSelectionStart(e) != start || Selection.getSelectionEnd(e) != end) Selection.setSelection(e, start, end)
+        // Extend a still-clipped logical selection as its text arrives. A
+        // newer native touch range must survive an already-posted append.
+        val last = (e.length - 1).coerceAtLeast(0)
+        val a = if (followsLogicalSelection) update.selStart.coerceIn(0, last) else start
+        val b = if (followsLogicalSelection) update.selEnd.coerceIn(0, last) else end
+        if (Selection.getSelectionStart(e) != a || Selection.getSelectionEnd(e) != b) Selection.setSelection(e, a, b)
     } finally {
         applying = false
     }
+    observer?.invoke(KeyTimings(
+        update.inputUptimeNanos, update.postedNanos, update.engineNanos,
+        applyStart, editsEnd, android.os.SystemClock.elapsedRealtimeNanos(),
+    ), update)
 }
 
 /** Replace the renderer's spans inside a window, keeping identical ones so the layout does not reflow them. */
@@ -99,4 +113,19 @@ internal fun TextFirstEditText.requestImageLoads(from: Int = 0, to: Int = Int.MA
             invalidate()
         }
     }
+}
+
+/** Restyle an acknowledged bounded window without replacing a newer native selection or composition. */
+internal fun TextFirstEditText.applyStyleSlice(update: UiUpdate) {
+    val began = android.os.SystemClock.elapsedRealtimeNanos()
+    // The attached DynamicLayout reflows synchronously with the coherent
+    // renderer notification. Correct that change once; the open-note image
+    // pin would keep overriding later keyboard navigation and caret reveal.
+    val anchor = if (restoring == null) scrollAnchor() else null
+    applying = true
+    beginBatchEdit()
+    try { editableText.withRendererUpdate(update) { for (window in update.windows) restyle(editableText, window) } }
+    finally { endBatchEdit(); applying = false }
+    anchor?.let { anchorY(it)?.let { y -> if (y != scrollY) scrollTo(scrollX, y) } }
+    onApplyMeasured?.invoke(KeyTimings(0L, update.postedNanos, 0L, began, began, android.os.SystemClock.elapsedRealtimeNanos()), update)
 }

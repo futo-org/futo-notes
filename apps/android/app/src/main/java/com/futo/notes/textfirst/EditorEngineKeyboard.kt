@@ -103,14 +103,25 @@ internal fun EditorEngine.commitComposition(value: String?) {
         mirror.replace(o.start, o.start + o.marked.length, o.original, edits)
         mirror.overlay = null
         mirror.selStart = o.start + o.original.length; mirror.selEnd = mirror.selStart
-        postUpdate(edits, emptyList())
+        if (edits.any { it.text.length > OpenSlices.NEXT_CHARS * 2 || it.end > tailStart() }) resetViewProgressively(edits)
+        else postUpdate(edits, listOf(projectWindow(o.start, (o.start + o.original.length).coerceAtMost(tailStart()))))
     }
+    streamTail(0)
 }
 
 internal fun EditorEngine.setMarked(o: DisplayMirror.Overlay, value: String) {
+    val shown = tailStart()
     val edits = ArrayList<TextEdit>(1)
     mirror.replace(o.start, o.start + o.marked.length, value, edits)
     o.marked = value
     mirror.selStart = o.start + value.length; mirror.selEnd = mirror.selStart
-    postUpdate(edits, emptyList())
+    // Marked text is provisional. Clip only its renderer delta, never the
+    // keyboard's full-document coordinates or the engine's original text.
+    val visible = edits.mapNotNull { edit ->
+        if (edit.start > shown) null else TextEdit(edit.start, minOf(edit.end, shown), edit.text)
+    }
+    val newShown = shown + visible.sumOf { it.text.length - (it.end - it.start) }
+    tailLength = mirror.text.length - newShown
+    if (visible.any { it.text.length > OpenSlices.NEXT_CHARS * 2 }) resetMarkedView(visible)
+    else postUpdate(visible, emptyList())
 }

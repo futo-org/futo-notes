@@ -57,6 +57,11 @@ internal class UiUpdate(
     val append: Boolean = false,
     /** Whether the view holds the whole note once this is applied (false while a progressive open is still streaming). */
     val complete: Boolean = true,
+    /** Only styles change; preserve the newer native selection/composition and reader's anchor. */
+    val styleOnly: Boolean = false,
+    /** A source mutation may require a bounded reset rather than a visible text delta. */
+    val sourceChanged: Boolean = false,
+    val preserveScroll: Boolean = false,
 )
 
 /**
