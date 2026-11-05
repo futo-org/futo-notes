@@ -20,12 +20,20 @@ class RtlListMarkerTest {
 
     @Test fun checkboxTapIsJudgedOnTheTextsLeadingSide() {
         // LTR: text starts at 24, the box is left of it.
-        assertTrue(onTaskCheckbox(10f, contentEdge = indent, dir = 1, indent = indent, slop = 4f, reach = 8f))
-        assertFalse(onTaskCheckbox(60f, contentEdge = indent, dir = 1, indent = indent, slop = 4f, reach = 8f))
+        assertTrue(onTaskCheckbox(10f, contentEdge = indent, dir = 1, indent = indent, reach = 8f))
+        assertFalse(onTaskCheckbox(60f, contentEdge = indent, dir = 1, indent = indent, reach = 8f))
         // RTL: text starts at 676 and the box is right of it; a tap at the left edge is not a toggle.
         val rtlEdge = width - indent
-        assertTrue(onTaskCheckbox(690f, contentEdge = rtlEdge, dir = -1, indent = indent, slop = 4f, reach = 8f))
-        assertFalse(onTaskCheckbox(10f, contentEdge = rtlEdge, dir = -1, indent = indent, slop = 4f, reach = 8f))
-        assertFalse(onTaskCheckbox(600f, contentEdge = rtlEdge, dir = -1, indent = indent, slop = 4f, reach = 8f))
+        assertTrue(onTaskCheckbox(690f, contentEdge = rtlEdge, dir = -1, indent = indent, reach = 8f))
+        assertFalse(onTaskCheckbox(10f, contentEdge = rtlEdge, dir = -1, indent = indent, reach = 8f))
+        assertFalse(onTaskCheckbox(600f, contentEdge = rtlEdge, dir = -1, indent = indent, reach = 8f))
+    }
+
+    @Test fun aTapOnTheTextsFirstLetterIsNotAToggle() {
+        // Chaos lane-1-27: a tap on the 'e' of 'eggs', just right of the box, checked the task.
+        assertTrue(onTaskCheckbox(indent - 1f, contentEdge = indent, dir = 1, indent = indent, reach = 8f))
+        assertFalse(onTaskCheckbox(indent + 2f, contentEdge = indent, dir = 1, indent = indent, reach = 8f))
+        val rtlEdge = width - indent
+        assertFalse(onTaskCheckbox(rtlEdge - 2f, contentEdge = rtlEdge, dir = -1, indent = indent, reach = 8f))
     }
 }
