@@ -407,3 +407,48 @@ fn enter_on_backticks_typed_in_a_task_continues_the_task_list() {
         .unwrap();
     assert!(projected.blocks.iter().all(|b| !b.code && b.list.is_none()));
 }
+
+#[test]
+fn a_code_block_ending_a_saved_note_takes_enter_and_typing_at_its_last_line() {
+    // Saving gives the note a final line ending, so the empty line after the
+    // closing fence shares the display end with the code's last line.
+    for opening in [
+        "```\ncode\n```\n",
+        "~~~\ncode\n~~~\n",
+        "```rust\r\ncode\r\n```\r\n",
+    ] {
+        let fence = &opening[..opening.find('\n').unwrap() + 1];
+        let closer = &opening[opening.find("code").unwrap() + 4..];
+        let mut session = EditorSession::open(opening);
+        let mut view = ReferenceView::new("code");
+        let caret = range(4, 4);
+        session.select(session.revision(), caret).unwrap();
+        view.apply(
+            session
+                .replace(session.revision(), caret, "x", &mut |_| Ok(()))
+                .unwrap_or_else(|e| panic!("{opening:?} typing: {e:?}")),
+        );
+        assert_eq!(session.source_text(), format!("{fence}codex{closer}"));
+        assert_eq!(view.text, "codex");
+        let caret = range(5, 5);
+        view.apply(
+            session
+                .paragraph_key(session.revision(), caret, ParagraphKey::Enter, &mut |_| {
+                    Ok(())
+                })
+                .unwrap_or_else(|e| panic!("{opening:?} Enter: {e:?}"))
+                .unwrap(),
+        );
+        let ending = if fence.ends_with("\r\n") {
+            "\r\n"
+        } else {
+            "\n"
+        };
+        assert_eq!(
+            session.source_text(),
+            format!("{fence}codex{ending}{closer}")
+        );
+        assert_eq!(view.text, format!("codex{ending}"));
+        assert_eq!(view.text, session.display_text());
+    }
+}

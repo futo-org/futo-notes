@@ -122,6 +122,13 @@ impl EditorSession {
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<Option<ViewChange>, EditorError> {
         let mut lines = self.projection.block_lines(range);
+        // A note whose last block is a fence ends with the empty line after
+        // its closing line ending; it shares the code's last display position,
+        // where the caret is on the code.
+        let end = self.source.len_bytes();
+        if range.start == range.end && lines.iter().any(|line| line.fence.is_some()) {
+            lines.retain(|line| line.fence.is_some() || line.source != (end..end));
+        }
         if range.start == range.end
             && range == self.selection
             && self.affinity == Affinity::Backward
