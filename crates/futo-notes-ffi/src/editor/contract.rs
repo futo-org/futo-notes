@@ -480,13 +480,33 @@ pub struct EditorComposition {
     pub revision: u64,
     pub range: EditorByteRange,
     pub text: String,
+    /// How to draw the marked text: the formats it will have once committed.
+    pub runs: Vec<EditorMarkedRun>,
+}
+/// A formatted stretch of marked text, in UTF-16 units of `EditorComposition::text`.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct EditorMarkedRun {
+    pub start_utf16: u64,
+    pub end_utf16: u64,
+    pub formats: Vec<EditorInlineFormat>,
 }
 impl From<editor::Composition> for EditorComposition {
     fn from(value: editor::Composition) -> Self {
+        let utf16 = |byte: usize| value.text[..byte].encode_utf16().count() as u64;
+        let runs = value
+            .runs
+            .iter()
+            .map(|run| EditorMarkedRun {
+                start_utf16: utf16(run.start),
+                end_utf16: utf16(run.end),
+                formats: run.formats.iter().copied().map(Into::into).collect(),
+            })
+            .collect();
         Self {
             revision: value.revision.0,
             range: value.range.into(),
             text: value.text,
+            runs,
         }
     }
 }

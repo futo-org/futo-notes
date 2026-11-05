@@ -78,6 +78,24 @@ internal fun TextFirstEditText.restyle(e: Editable, given: StyleWindow) {
     if (wanted.any { it is SpanSpec.Image }) requestImageLoads(window.start, window.end)
 }
 
+/**
+ * Draw marked (composing) text in the inline formats the engine says it will
+ * commit with. Only inline spans change: block spans already cover it.
+ */
+internal fun TextFirstEditText.restyleMarked(e: Editable, start: Int, composingEnd: Int, marked: List<SpanSpec.Inline>) {
+    val end = minOf(composingEnd, e.length - 1)
+    if (start < 0 || end <= start) return
+    for (span in e.getSpans(start, end, TfInline::class.java)) {
+        val s = e.getSpanStart(span)
+        val en = e.getSpanEnd(span)
+        if (s < 0 || (s != en && (en <= start || s >= end))) continue
+        e.removeSpan(span)
+        if (s < start) span.slice(head = true)?.let { setRendererSpan(e, it, s, start) }
+        if (en > end) span.slice(head = false)?.let { setRendererSpan(e, it, end, en) }
+    }
+    addSpans(e, marked)
+}
+
 internal fun TextFirstEditText.addSpans(target: Spannable, specs: List<SpanSpec>) {
     for (spec in specs) {
         if (spec.end < spec.start || spec.end > target.length - 1) continue

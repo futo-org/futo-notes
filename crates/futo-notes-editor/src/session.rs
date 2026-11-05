@@ -24,7 +24,7 @@ mod wikilink_completion;
 use crate::history::{
     HistoryClock, HistoryEntry, HistoryGroup, HistoryInput, MonotonicClock, TypingRun,
 };
-pub use composition::Composition;
+pub use composition::{Composition, MarkedRun};
 pub use find::{FindReport, FindScanRequest, FindScanResult, FindWork};
 pub use paragraphs::ParagraphKey;
 use ropey::Rope;

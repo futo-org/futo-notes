@@ -388,7 +388,7 @@ internal class EditorEngine(
         check(engine == mirror.text.toString()) { "mirror diverged from engine display at revision $rev" }
     }
 
-    internal fun postUpdate(edits: List<TextEdit>, windows: List<StyleWindow>, reset: String? = null, sourceChanged: Boolean = false, preserveScroll: Boolean = false, paced: Boolean = false) {
+    internal fun postUpdate(edits: List<TextEdit>, windows: List<StyleWindow>, reset: String? = null, sourceChanged: Boolean = false, preserveScroll: Boolean = false, paced: Boolean = false, marked: List<SpanSpec.Inline>? = null) {
         seq += 1
         viewEdits.record(seq, edits)
         val update = UiUpdate(
@@ -405,6 +405,7 @@ internal class EditorEngine(
             engineNanos = engineNanos.also { engineNanos = 0L },
             complete = !streaming && !renderWork.stylesPending,
             sourceChanged = sourceChanged, preserveScroll = preserveScroll,
+            marked = marked,
         )
         publishSelection()
         publishCell()

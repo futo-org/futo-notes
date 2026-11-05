@@ -62,6 +62,11 @@ internal class UiUpdate(
     /** A source mutation may require a bounded reset rather than a visible text delta. */
     val sourceChanged: Boolean = false,
     val preserveScroll: Boolean = false,
+    /**
+     * The inline formats the marked text will have once committed, over
+     * [composingStart, composingEnd); null when this update leaves them as they are.
+     */
+    val marked: List<SpanSpec.Inline>? = null,
 )
 
 /**

@@ -1,13 +1,16 @@
 package com.futo.notes.textfirst
 
+import uniffi.futo_notes_ffi.EditorInlineFormat
 import uniffi.futo_notes_ffi.EditorInputAction
+import uniffi.futo_notes_ffi.EditorMarkedRun
 import uniffi.futo_notes_ffi.EditorParagraphKey
 import uniffi.futo_notes_ffi.EditorUtf16Range
 import uniffi.futo_notes_ffi.EditorUtf16Replacement
 
 // Keyboard input for [EditorEngine]: called on the editor thread by the input
 // connection. Marked text is an engine-owned overlay (interpretation spec,
-// composition lines); the mirror shows it so the keyboard reads what it wrote.
+// composition lines); the mirror shows it so the keyboard reads what it wrote,
+// and the view draws it in the formats the engine says it will commit with.
 
 
 internal fun EditorEngine.replace(start: Int, end: Int, value: String, action: EditorInputAction) {
@@ -29,13 +32,13 @@ internal fun EditorEngine.imeSetComposing(value: String) = input {
     val o = mirror.overlay
     if (o == null) {
         val start = mirror.selStart; val end = mirror.selEnd
-        s.composeUtf16(rev, EditorUtf16Range(start.toULong(), end.toULong()), units(value))
+        val marked = s.composeUtf16(rev, EditorUtf16Range(start.toULong(), end.toULong()), units(value))
         val opened = DisplayMirror.Overlay(start, mirror.text.substring(start, end), mirror.text.substring(start, end))
         mirror.overlay = opened
-        setMarked(opened, value)
+        setMarked(opened, value, marked.runs)
     } else {
-        s.composeUtf16(rev, EditorUtf16Range(o.start.toULong(), (o.start + o.original.length).toULong()), units(value))
-        setMarked(o, value)
+        val marked = s.composeUtf16(rev, EditorUtf16Range(o.start.toULong(), (o.start + o.original.length).toULong()), units(value))
+        setMarked(o, value, marked.runs)
     }
 }
 
@@ -109,7 +112,7 @@ internal fun EditorEngine.commitComposition(value: String?) {
     streamTail(0)
 }
 
-internal fun EditorEngine.setMarked(o: DisplayMirror.Overlay, value: String) {
+internal fun EditorEngine.setMarked(o: DisplayMirror.Overlay, value: String, runs: List<EditorMarkedRun>) {
     val shown = tailStart()
     val edits = ArrayList<TextEdit>(1)
     mirror.replace(o.start, o.start + o.marked.length, value, edits)
@@ -123,5 +126,18 @@ internal fun EditorEngine.setMarked(o: DisplayMirror.Overlay, value: String) {
     val newShown = shown + visible.sumOf { it.text.length - (it.end - it.start) }
     tailLength = mirror.text.length - newShown
     if (visible.any { it.text.length > OpenSlices.NEXT_CHARS * 2 }) resetMarkedView(visible)
-    else postUpdate(visible, emptyList())
+    else postUpdate(visible, emptyList(), marked = markedSpans(o.start, newShown, runs))
+}
+
+/** The engine's formats for the marked text, placed in the view and cut to what it shows. */
+private fun markedSpans(start: Int, shown: Int, runs: List<EditorMarkedRun>): List<SpanSpec.Inline> = runs.mapNotNull { run ->
+    val a = start + run.startUtf16.toInt()
+    val b = minOf(start + run.endUtf16.toInt(), shown)
+    if (a >= b) null else SpanSpec.Inline(
+        a, b,
+        bold = EditorInlineFormat.BOLD in run.formats,
+        italic = EditorInlineFormat.ITALIC in run.formats,
+        strike = EditorInlineFormat.STRIKE in run.formats,
+        code = EditorInlineFormat.CODE in run.formats,
+    )
 }

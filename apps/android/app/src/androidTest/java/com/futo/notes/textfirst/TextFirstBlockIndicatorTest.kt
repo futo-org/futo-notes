@@ -16,7 +16,10 @@ import uniffi.futo_notes_ffi.EditorBlockCommand
 import uniffi.futo_notes_ffi.EditorInlineFormat
 import uniffi.futo_notes_ffi.NoteStore
 
-/** A block-style button shows its style on an empty line at once, wherever that line is. */
+/**
+ * A style shows at once: a block-style button on an empty line wherever that line is,
+ * and composing (marked) text in the formats it will have once committed.
+ */
 class TextFirstBlockIndicatorTest {
     @Test fun selectAllCodeBlockKeepsMixedNoteTextAndUndoesInOneStep() = withController(
         "# heading\n\n**bold** and *italic*\n\n- item\n\n```\ncode\n```\n\n| a | b |\n| --- | --- |\n| c | d |\n",
@@ -91,6 +94,53 @@ class TextFirstBlockIndicatorTest {
         assertTrue(controller.selectDisplayRange(plain))
         ime(view, connection) { setComposingText("z", 1) }
         assertEquals("a quote never grows past its terminating newline", 0, view.editableText.getSpans(plain, plain + 1, TfQuote::class.java).size)
+    }
+
+    // Marked text is drawn with the formats it will have once committed
+    // (interpretation-and-input.md, composition lines): Gboard sends a word as
+    // composing text and commits it only on Space.
+    @Test fun carriedBoldShowsWhileTheWordIsComposing() = composeAndCommit("text\n", 5, setOf(EditorInlineFormat.BOLD), EditorInlineFormat.BOLD)
+    @Test fun carriedItalicShowsWhileTheWordIsComposing() = composeAndCommit("text\n", 5, setOf(EditorInlineFormat.ITALIC), EditorInlineFormat.ITALIC)
+    @Test fun carriedStrikeShowsWhileTheWordIsComposing() = composeAndCommit("text\n", 5, setOf(EditorInlineFormat.STRIKE), EditorInlineFormat.STRIKE)
+    @Test fun carriedCodeShowsWhileTheWordIsComposing() = composeAndCommit("text\n", 5, setOf(EditorInlineFormat.CODE), EditorInlineFormat.CODE)
+    @Test fun carriedBoldShowsWhileComposingInAHeading() = composeAndCommit("# heading\n", 7, setOf(EditorInlineFormat.BOLD), EditorInlineFormat.BOLD)
+    @Test fun boldToggledOffComposesPlain() = composeAndCommit("text\n", 5, emptySet(), EditorInlineFormat.BOLD, EditorInlineFormat.BOLD)
+    @Test fun composingInsideABoldWordShowsBold() = composeAndCommit("a **bold** b", 4, setOf(EditorInlineFormat.BOLD))
+    @Test fun composingInsideABoldWordAfterBoldOffShowsPlain() = composeAndCommit("a **bold** b", 4, emptySet(), EditorInlineFormat.BOLD)
+
+    private fun composeAndCommit(raw: String, caret: Int, expected: Set<EditorInlineFormat>, vararg toggles: EditorInlineFormat) = withController(raw) { controller ->
+        val view = controller.view
+        view.requestFocus()
+        assertTrue(controller.selectDisplayRange(caret))
+        for (format in toggles) {
+            controller.format(format)
+            controller.sourceText() // Each toolbar tap completes before the next one.
+        }
+        val connection = view.onCreateInputConnection(android.view.inputmethod.EditorInfo())!!
+        for (word in listOf("H", "He", "Hey")) {
+            ime(view, connection) { setComposingText(word, 1) }
+            assertEquals(word, view.editableText.substring(caret, caret + word.length))
+            for (i in caret until caret + word.length) {
+                assertEquals("composing '$word': character ${i - caret} is drawn in the formats it will commit with",
+                    expected, drawnFormats(view.editableText, i))
+            }
+        }
+        ime(view, connection) { commitText("Hey ", 1) }
+        controller.sourceText() // Queue barrier: the commit's restyle has applied.
+        for (i in caret until caret + 3) {
+            assertEquals("committed character ${i - caret} keeps the formats it was composed with",
+                expected, drawnFormats(view.editableText, i))
+        }
+    }
+
+    private fun drawnFormats(text: android.text.Spanned, at: Int): Set<EditorInlineFormat> = buildSet {
+        for (span in text.getSpans(at, at + 1, TfInline::class.java)) {
+            if (text.getSpanStart(span) > at || text.getSpanEnd(span) < at + 1) continue
+            if (span.bold) add(EditorInlineFormat.BOLD)
+            if (span.italic) add(EditorInlineFormat.ITALIC)
+            if (span.strike) add(EditorInlineFormat.STRIKE)
+            if (span.code) add(EditorInlineFormat.CODE)
+        }
     }
 
     private suspend fun ime(view: TextFirstEditText, connection: android.view.inputmethod.InputConnection, call: android.view.inputmethod.InputConnection.() -> Unit) = suspendCancellableCoroutine<Unit> { done ->

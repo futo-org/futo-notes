@@ -49,6 +49,7 @@ internal fun TextFirstEditText.applyEngineUpdate(update: UiUpdate) {
                     t1 = System.nanoTime()
                     editsEnd = android.os.SystemClock.elapsedRealtimeNanos()
                     for (window in update.windows) restyle(e, window)
+                    update.marked?.let { restyleMarked(e, update.composingStart, update.composingEnd, it) }
                 }
             } finally {
                 endBatchEdit()
