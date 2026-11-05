@@ -45,6 +45,8 @@ pub(crate) struct Plan {
     pub split_retirement: Option<std::sync::Arc<super::guarded_words::CodeWordIdentity>>,
     pub retained: SourceCorrespondence,
     pub requires_source_identity: bool,
+    /// The source window the planner read; `range` lies inside it.
+    pub context: Range<usize>,
     pub range: Range<usize>,
     pub delimiters: Vec<Range<usize>>,
     pub pending_links: Vec<Range<usize>>,
@@ -446,6 +448,7 @@ impl Projection {
             .map(|(c, _)| c.len_utf8())
             .sum();
         let plan = Plan {
+            context: source_start..source_end,
             guarded_words,
             split_retirement: rendered.split_retirement,
             retained,

@@ -328,17 +328,26 @@ impl Projection {
                 }
             }
         }
-        let mut origin = 0;
-        origin += metadata;
+        let mut origin = metadata;
+        let placed: Vec<_> = pieces
+            .into_iter()
+            .map(|(len, shape)| {
+                origin += len;
+                (origin - len, len, shape)
+            })
+            .collect();
+        // Each row parses alone; a whole-note reparse spreads them over cores.
+        let references = &self.references;
+        let pieces = crate::parallel::map(&placed, |(origin, len, shape)| {
+            let raw = &text[*origin..*origin + *len];
+            let (local, work) = references::window_winners(&winners, *origin, raw.len());
+            (Row::piece(raw, shape, references, &local), work)
+        });
         let parsed: Vec<_> = (metadata > 0)
             .then(|| Row::metadata(&text[..metadata]))
             .into_iter()
-            .chain(pieces.into_iter().map(|(len, shape)| {
-                let raw = &text[origin..origin + len];
-                let (local, work) = references::window_winners(&winners, origin, raw.len());
+            .chain(pieces.into_iter().map(|(row, work)| {
                 reference_work.items += work;
-                let row = Row::piece(raw, &shape, &self.references, &local);
-                origin += raw.len();
                 row
             }))
             .collect();

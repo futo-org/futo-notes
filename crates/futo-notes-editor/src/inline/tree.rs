@@ -83,7 +83,8 @@ impl Rows {
     }
     pub fn replace(&mut self, start: usize, end: usize, rows: Vec<Row>) {
         let (a, rest) = split(self.root.take(), start);
-        let (_, b) = split(rest, end - start);
+        let (retired, b) = split(rest, end - start);
+        crate::parallel::drop_large(retired, end - start);
         let mut middle = None;
         for row in rows {
             // SplitMix64 supplies stable, well-distributed heap priorities.

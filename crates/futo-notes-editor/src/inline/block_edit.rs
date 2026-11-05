@@ -299,6 +299,7 @@ impl Projection {
             retained: Default::default(),
             requires_source_identity: false,
             guarded_words: rendered.take_guards(source_start, source_end),
+            context: source_start..source_end,
             split_retirement: None,
             pending_links: rendered.pending_links,
             activated_links: rendered.activated_links,

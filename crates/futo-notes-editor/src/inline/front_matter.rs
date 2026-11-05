@@ -196,6 +196,19 @@ impl super::Projection {
         }
     }
 
+    /// Endpoints inside front matter move to the body start; a selection
+    /// starting at the note's start may still cover all of the metadata.
+    pub(crate) fn outside_metadata(&self, mut range: crate::DisplayRange) -> crate::DisplayRange {
+        let body = crate::DisplayOffset(self.body_start());
+        if range.end.0 < body.0 {
+            range.end = body;
+        }
+        if range.start.0 < body.0 && (range.start.0 > 0 || range.end == body) {
+            range.start = body;
+        }
+        range
+    }
+
     /// Display offset where the body (first legal caret) starts.
     pub(crate) fn body_start(&self) -> usize {
         let (row, _, _) = self.rows.at(0);

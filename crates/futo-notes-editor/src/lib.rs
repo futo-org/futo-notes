@@ -5,6 +5,7 @@ mod history;
 pub use history::{DisplayReplacement, DisplayUtf16Replacement, HistoryClock, InputAction};
 mod inline;
 mod movement;
+mod parallel;
 mod portable;
 mod session;
 mod table;

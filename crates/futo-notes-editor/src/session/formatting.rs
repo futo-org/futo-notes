@@ -2,6 +2,9 @@
 
 use super::*;
 use crate::history::Transaction;
+mod at_once;
+#[cfg(test)]
+mod at_once_tests;
 mod bodies;
 use bodies::{Bodies, Body};
 #[cfg(test)]
@@ -18,12 +21,7 @@ impl EditorSession {
     ) -> Result<Option<ViewChange>, EditorError> {
         self.check_revision(expected)?;
         let committed = self.commit_composition(expected, None, accept)?;
-        if self
-            .projection
-            .block_lines(self.selection)
-            .iter()
-            .all(|line| line.code)
-        {
+        if self.projection.all_code_lines(self.selection) {
             return Ok(committed);
         }
         if self.selection.start == self.selection.end {
@@ -121,14 +119,20 @@ impl EditorSession {
 impl EditorSession {
     /// The formats a selected toggle would remove: for a multi-body
     /// selection those every body carries, else those the whole run carries.
-    pub(super) fn selected_toggle_formats(&self, range: DisplayRange) -> Vec<InlineFormat> {
-        let Bodies { multi, bodies } = self.format_bodies(range);
+    /// `lines` are `range`'s format block lines.
+    pub(super) fn selected_toggle_formats(
+        &self,
+        range: DisplayRange,
+        lines: &[crate::inline::blocks::BlockLine],
+    ) -> Vec<InlineFormat> {
+        let Bodies { multi, bodies } = self.bodies_in(range, lines);
         if !multi {
             return self.projection.selection_formats(range);
         }
+        let projection = &self.projection;
+        let each = crate::parallel::map(&bodies, |body| projection.selection_formats(body.range));
         let mut common: Option<Vec<InlineFormat>> = None;
-        for body in &bodies {
-            let formats = self.projection.selection_formats(body.range);
+        for formats in each {
             match &mut common {
                 Some(common) => common.retain(|format| formats.contains(format)),
                 None => common = Some(formats),
@@ -142,8 +146,10 @@ impl EditorSession {
 
     /// A selection over several bodies: one direction for all of them (add
     /// unless every body already carries the format), each body toggled
-    /// locally on one staged window, then one acceptance and one Undo group.
-    /// Bodies that cannot take the format are skipped; refusing all refuses.
+    /// locally, then one acceptance and one Undo group. Bodies that cannot
+    /// take the format are skipped; refusing all refuses. Independent bodies
+    /// are planned in one pass over the unchanged note; anything else is
+    /// toggled body by body on one staged window.
     fn toggle_bodies(
         &mut self,
         expected: Revision,
@@ -151,14 +157,27 @@ impl EditorSession {
         bodies: &[Body],
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<ViewChange, EditorError> {
-        let (window, staged, transaction, work) = self.stage_bodies(format, bodies)?;
-        let transaction = transaction.ok_or(EditorError::UnrepresentableFormat)?;
-        let (mut source_range, inserted) = transaction.finish();
-        source_range.start.0 += window.start;
-        source_range.end.0 += window.start;
-        let edit = self.prepare_source(expected, source_range, &inserted)?;
-        let pending = staged.prepare_pending_for_parent(window.start);
-        let guard_validation = self.validate_stage_guards(&edit, window, &pending)?;
+        let projection = &self.projection;
+        let carried = crate::parallel::map(bodies, |body| {
+            projection.selection_formats(body.range).contains(&format)
+        });
+        let add = !carried.iter().all(|carried| *carried);
+        let (edit, pending, guard_validation, work) = if let Some((range, inserted, work)) =
+            self.plan_bodies_at_once(format, add, bodies, &carried)
+        {
+            let edit = self.prepare_source(expected, range, &inserted)?;
+            (edit, None, EditWork::default(), work)
+        } else {
+            let (window, staged, transaction, work) = self.stage_bodies(format, add, bodies)?;
+            let transaction = transaction.ok_or(EditorError::UnrepresentableFormat)?;
+            let (mut source_range, inserted) = transaction.finish();
+            source_range.start.0 += window.start;
+            source_range.end.0 += window.start;
+            let edit = self.prepare_source(expected, source_range, &inserted)?;
+            let pending = staged.prepare_pending_for_parent(window.start);
+            let guard_validation = self.validate_stage_guards(&edit, window, &pending)?;
+            (edit, Some(pending), guard_validation, work)
+        };
         // No host-visible changes, history or clock boundaries before acceptance.
         accept(&edit).map_err(EditorError::Persistence)?;
         let before_selection = self.selection;
@@ -167,7 +186,9 @@ impl EditorSession {
         let before_formats = self.pending_formats.clone();
         let before_links = self.projection.pending_for_source_edit(edit.range);
         let mut change = self.apply(&edit);
-        self.adopt_stage_pending(&pending, &mut change);
+        if let Some(pending) = &pending {
+            self.adopt_stage_pending(pending, &mut change);
+        }
         accumulate_planning_work(&mut change.work, guard_validation);
         accumulate_planning_work(&mut change.work, work);
         change.work.materialized_source_bytes += edit.inserted.len();
@@ -208,11 +229,10 @@ impl EditorSession {
     fn stage_bodies(
         &self,
         format: InlineFormat,
+        add: bool,
         bodies: &[Body],
     ) -> Result<(std::ops::Range<usize>, Self, Option<Transaction>, EditWork), EditorError> {
-        let carries =
-            |range: DisplayRange| self.projection.selection_formats(range).contains(&format);
-        let add = !bodies.iter().all(|body| carries(body.range));
+        let carries = |range: DisplayRange| self.carries_format(range, format);
         let (window, display_start) = self.projection.edit_window(self.selection);
         let raw = self.source.byte_slice(window.clone()).to_string();
         let mut staged = self.stage_source(&raw, window.clone())?;

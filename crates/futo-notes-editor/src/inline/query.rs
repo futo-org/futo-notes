@@ -14,10 +14,111 @@ impl Projection {
     ) -> (ProjectionSlice, references::ReferenceWork) {
         let first = self.rows.locate(range.start.0, true);
         let last = self.rows.locate(range.end.0, true);
+        // Rows are read in independent runs of rows; adjacent pieces merge
+        // across a seam exactly as they would have in one sweep.
+        let chunks: Vec<_> = (first..=last)
+            .step_by(QUERY_ROWS)
+            .map(|start| start..=(start + QUERY_ROWS - 1).min(last))
+            .collect();
+        let parts = crate::parallel::map(&chunks, |rows| self.query_rows(rows.clone(), range));
         let mut runs: Vec<SemanticRun> = Vec::new();
         let mut correspondence: Vec<Correspondence> = Vec::new();
         let mut format_visits = 0;
-        for index in first..=last {
+        for (part_runs, part_correspondence, visits) in parts {
+            format_visits += visits;
+            let mut part_runs = part_runs.into_iter();
+            if let Some(run) = part_runs.next() {
+                push_semantic(&mut runs, run);
+            }
+            runs.extend(part_runs);
+            let mut part_correspondence = part_correspondence.into_iter();
+            if let Some(piece) = part_correspondence.next() {
+                push_run(&mut correspondence, piece);
+            }
+            correspondence.extend(part_correspondence);
+        }
+        // The view reads no cross-row list ranges.
+        let mut lines = self.view_block_lines(range);
+        if range.start != range.end {
+            // An empty line at the range's end (zero width, so outside the
+            // half-open overlap test) still has a block the view draws: a list
+            // item, a heading, a quote or a code line.
+            for block in self.view_block_lines(DisplayRange {
+                start: range.end,
+                end: range.end,
+            }) {
+                let at = self.display_at(block.content.start);
+                // A block that starts where a listed line ends is that line's
+                // own continuation (a setext underline), not a line of its own.
+                let styled = block.list.is_some()
+                    || block.heading > 0
+                    || block.quote_depth > 0
+                    || block.code;
+                if styled
+                    && at == range.end.0
+                    && self.display_at(block.content.end) == at
+                    && !lines.iter().any(|line| {
+                        line.content == block.content || self.display_at(line.content.end) == at
+                    })
+                {
+                    lines.push(block);
+                }
+            }
+        }
+        let blocks = crate::parallel::map(&lines, |block| crate::BlockDescription {
+            range: DisplayRange {
+                start: DisplayOffset(self.display_at(block.content.start)),
+                end: DisplayOffset(self.display_at(block.content.end)),
+            },
+            heading: block.heading,
+            quote_depth: block.quote_depth,
+            divider: block.divider,
+            list: block.list.as_ref().map(|list| crate::ListDescription {
+                depth: list.depth,
+                number: list.ordinal,
+                checked: list.checked,
+                first: list.first,
+            }),
+            code: block.code,
+            language: block.code_language.clone(),
+            metadata: block.metadata,
+        });
+        let (links, mut work) = self.link_descriptions_with_work(range);
+        work.items += format_visits;
+        let (wikilinks, wikilink_items) = self.wikilink_descriptions(range);
+        work.items += wikilink_items;
+        let atoms = self.atom_descriptions(range);
+        (
+            ProjectionSlice {
+                links,
+                wikilinks,
+                atoms,
+                blocks,
+                revision,
+                range,
+                text: self
+                    .display
+                    .byte_slice(range.start.0..range.end.0)
+                    .to_string(),
+                runs,
+                correspondence,
+            },
+            work,
+        )
+    }
+}
+
+impl Projection {
+    /// Semantic runs and correspondence of rows `rows`, clipped to `range`.
+    fn query_rows(
+        &self,
+        rows: std::ops::RangeInclusive<usize>,
+        range: DisplayRange,
+    ) -> (Vec<SemanticRun>, Vec<Correspondence>, usize) {
+        let mut runs: Vec<SemanticRun> = Vec::new();
+        let mut correspondence: Vec<Correspondence> = Vec::new();
+        let mut format_visits = 0;
+        for index in rows {
             let (row, source, display) = self.rows.at(index);
             let mut sweep = super::row::FormatSweep::new(row);
             for segment in &row.segments {
@@ -68,77 +169,23 @@ impl Projection {
                 });
             }
         }
-        // The view reads no cross-row list ranges.
-        let mut lines = self.view_block_lines(range);
-        if range.start != range.end {
-            // An empty line at the range's end (zero width, so outside the
-            // half-open overlap test) still has a block the view draws: a list
-            // item, a heading, a quote or a code line.
-            for block in self.view_block_lines(DisplayRange {
-                start: range.end,
-                end: range.end,
-            }) {
-                let at = self.display_at(block.content.start);
-                // A block that starts where a listed line ends is that line's
-                // own continuation (a setext underline), not a line of its own.
-                let styled = block.list.is_some()
-                    || block.heading > 0
-                    || block.quote_depth > 0
-                    || block.code;
-                if styled
-                    && at == range.end.0
-                    && self.display_at(block.content.end) == at
-                    && !lines.iter().any(|line| {
-                        line.content == block.content || self.display_at(line.content.end) == at
-                    })
-                {
-                    lines.push(block);
-                }
-            }
+        (runs, correspondence, format_visits)
+    }
+}
+
+/// Rows per independently read run of a projection query.
+const QUERY_ROWS: usize = 16;
+
+/// A run continues the previous one when it starts where that ends with the
+/// same formats.
+fn push_semantic(runs: &mut Vec<SemanticRun>, run: SemanticRun) {
+    match runs.last_mut() {
+        Some(previous)
+            if previous.range.end == run.range.start && previous.formats == run.formats =>
+        {
+            previous.range.end = run.range.end;
         }
-        let blocks = lines
-            .into_iter()
-            .map(|block| crate::BlockDescription {
-                range: DisplayRange {
-                    start: DisplayOffset(self.display_at(block.content.start)),
-                    end: DisplayOffset(self.display_at(block.content.end)),
-                },
-                heading: block.heading,
-                quote_depth: block.quote_depth,
-                divider: block.divider,
-                list: block.list.as_ref().map(|list| crate::ListDescription {
-                    depth: list.depth,
-                    number: list.ordinal,
-                    checked: list.checked,
-                    first: list.first,
-                }),
-                code: block.code,
-                language: block.code_language,
-                metadata: block.metadata,
-            })
-            .collect();
-        let (links, mut work) = self.link_descriptions_with_work(range);
-        work.items += format_visits;
-        let (wikilinks, wikilink_items) = self.wikilink_descriptions(range);
-        work.items += wikilink_items;
-        let atoms = self.atom_descriptions(range);
-        (
-            ProjectionSlice {
-                links,
-                wikilinks,
-                atoms,
-                blocks,
-                revision,
-                range,
-                text: self
-                    .display
-                    .byte_slice(range.start.0..range.end.0)
-                    .to_string(),
-                runs,
-                correspondence,
-            },
-            work,
-        )
+        _ => runs.push(run),
     }
 }
 
