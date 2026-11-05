@@ -23,7 +23,10 @@ use std::ops::Range;
 #[derive(Clone, Copy)]
 pub(crate) enum EditIntent {
     Input(crate::InputAction),
-    Toggle(InlineFormat),
+    /// A selected format toggle. `Some(add)` forces its direction, the one a
+    /// multi-block selection decided for all of its bodies; `None` decides
+    /// from the selected pieces alone.
+    Toggle(InlineFormat, Option<bool>),
 }
 
 /// How far an input's planning context reaches.
@@ -149,9 +152,9 @@ impl Projection {
             return Err(EditorError::InvalidRange);
         }
         range.start.0 = range.start.0.max(body);
-        let toggle = match intent {
-            EditIntent::Toggle(format) => Some(format),
-            _ => None,
+        let (toggle, direction) = match intent {
+            EditIntent::Toggle(format, direction) => (Some(format), direction),
+            _ => (None, None),
         };
         let Context {
             typed_inputs,
@@ -333,7 +336,8 @@ impl Projection {
                         ..self.display_at(line.content.end) - self.display_at(source_start)
                 })
                 .collect();
-            toggle_work = super::toggle::pieces(&mut changed, &mut markers, a..z, format, &opaque);
+            toggle_work =
+                super::toggle::pieces(&mut changed, &mut markers, a..z, format, direction, &opaque);
             if format == InlineFormat::Code {
                 let work = guard_state.enroll(&mut changed, &markers)?;
                 guard_work.items += work.items;

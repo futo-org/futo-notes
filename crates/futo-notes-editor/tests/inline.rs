@@ -517,3 +517,6 @@ mod toolbar_refusals;
 
 #[path = "inline/toolbar.rs"]
 mod toolbar;
+
+#[path = "inline/multi_block.rs"]
+mod multi_block;

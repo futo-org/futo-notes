@@ -108,7 +108,7 @@ impl EditorSession {
             formats: if range.start == range.end {
                 self.active_formats()
             } else {
-                self.projection.selection_formats(range)
+                self.selected_toggle_formats(range)
             },
             heading: common.map(|line| line.heading),
             quote: !lines.is_empty() && lines.iter().all(|line| line.quote_depth > 0),
