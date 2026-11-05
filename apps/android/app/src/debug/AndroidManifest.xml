@@ -4,5 +4,11 @@
     xmlns:tools="http://schemas.android.com/tools">
     <application>
         <profileable android:shell="true" tools:targetApi="29" />
+        <activity
+            android:name=".textfirst.TextFirstToolbarTestActivity"
+            android:exported="true"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode|locale|layoutDirection"
+            android:theme="@style/Theme.Material3.DayNight.NoActionBar"
+            android:windowSoftInputMode="adjustResize" />
     </application>
 </manifest>

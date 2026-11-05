@@ -1,8 +1,12 @@
 package com.futo.notes.textfirst
 
-import androidx.activity.ComponentActivity
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -22,6 +26,7 @@ import com.futo.notes.ui.theme.FutoTheme
 import java.io.File
 import java.util.UUID
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.CompletableDeferred
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -30,7 +35,7 @@ import uniffi.futo_notes_ffi.NoteStore
 
 /** Native selection callbacks → engine query → the real keyboard toolbar, including slot recreation. */
 class TextFirstToolbarSelectionTest {
-    @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
+    @get:Rule val compose = createAndroidComposeRule<TextFirstToolbarTestActivity>()
 
     @Test fun selectingFormattedWordsLightsTheirButtonsAfterTheToolbarReopens() = exercise {
         for ((word, key, id) in listOf(
@@ -101,15 +106,28 @@ class TextFirstToolbarSelectionTest {
                 FutoNotesTheme(darkTheme = false) {
                     CompositionLocalProvider(LocalLocalization provides localization) {
                         accent = FutoTheme.colors.accent
-                        Column(Modifier.fillMaxSize()) {
-                            AndroidView(factory = { controller.view }, modifier = Modifier.weight(1f))
-                            TextFirstToolbarSlot(controller, onPickImage = {})
+                        Scaffold(containerColor = FutoTheme.colors.surface) { padding ->
+                            Column(Modifier.padding(padding).consumeWindowInsets(padding).fillMaxSize().imePadding()) {
+                                AndroidView(factory = { controller.view }, modifier = Modifier.weight(1f).fillMaxWidth())
+                                TextFirstToolbarSlot(controller, onPickImage = {})
+                            }
                         }
                     }
                 }
             }
             compose.runOnUiThread { controller.open("n") }
             compose.waitUntil(10_000) { controller.opened }
+            val firstFrame = CompletableDeferred<Unit>()
+            compose.runOnUiThread {
+                controller.view.onRenderFrame = {
+                    controller.view.onRenderFrame = null
+                    firstFrame.complete(Unit)
+                }
+                controller.view.invalidate()
+            }
+            compose.waitUntil(10_000) {
+                firstFrame.isCompleted && controller.view.hasWindowFocus() && controller.view.width > 0 && controller.view.height > 0
+            }
             compose.runOnUiThread {
                 controller.view.isFocusableInTouchMode = true
                 controller.view.showKeyboard()
