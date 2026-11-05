@@ -321,3 +321,89 @@ fn enter_on_a_selected_unclosed_code_block_keeps_the_code() {
         .unwrap();
     assert_eq!(session.source_text(), "```\ncode\n\n");
 }
+
+/// A fence opener typed in a list item opens its code block inside that item: the body and
+/// closing rows sit at the item's content column, so the item, and the list, go on around it.
+#[test]
+fn enter_on_an_opener_typed_in_a_list_item_keeps_the_block_in_the_item() {
+    // (note, its display, where the backticks are typed, the note after Enter)
+    for (raw, shown, at, expected) in [
+        ("- a\n- ", "a\n", 2, "- a\n- ```\n  \n  ```"),
+        ("- a\n  - x", "a\nx", 2, "- a\n  - ```\n    x\n    ```"),
+        (
+            "> 1. a\n> 2. ",
+            "a\n",
+            2,
+            "> 1. a\n> 2. ```\n>    \n>    ```",
+        ),
+    ] {
+        let mut session = EditorSession::open(raw);
+        assert_eq!(session.display_text(), shown, "{raw:?}");
+        let end = at;
+        let mut view = ReferenceView::new(shown);
+        view.apply(
+            session
+                .replace(session.revision(), range(end, end), "```", &mut |_| Ok(()))
+                .unwrap(),
+        );
+        let typed = session.source_text();
+        let caret = session.selection();
+        view.apply(
+            session
+                .paragraph_key(session.revision(), caret, ParagraphKey::Enter, &mut |_| {
+                    Ok(())
+                })
+                .unwrap()
+                .unwrap(),
+        );
+        assert_eq!(session.source_text(), expected, "{raw:?}");
+        let body = session.selection();
+        let projected = session.project(session.revision(), body).unwrap();
+        assert!(
+            projected.blocks.iter().all(|b| b.code && b.list.is_some()),
+            "the code row is in the list item: {raw:?} {:?}",
+            projected.blocks
+        );
+        view.apply(
+            session
+                .undo(session.revision(), &mut |_| Ok(()))
+                .unwrap()
+                .unwrap(),
+        );
+        assert_eq!(session.source_text(), typed, "{raw:?}");
+    }
+}
+
+/// A task's text starts after its checkbox, where no fence can open: Enter after typed
+/// backticks in a task is the task's own Enter, and the backticks stay its text, rather
+/// than a closing fence written below the list that turns the rest of the note into code.
+#[test]
+fn enter_on_backticks_typed_in_a_task_continues_the_task_list() {
+    let raw = "- [ ] a\n- [ ] \n\ntail\n";
+    let mut session = EditorSession::open(raw);
+    let mut view = ReferenceView::new("a\n\n\ntail\n");
+    view.apply(
+        session
+            .replace(session.revision(), range(2, 2), "```", &mut |_| Ok(()))
+            .unwrap(),
+    );
+    let caret = session.selection();
+    view.apply(
+        session
+            .paragraph_key(session.revision(), caret, ParagraphKey::Enter, &mut |_| {
+                Ok(())
+            })
+            .unwrap()
+            .unwrap(),
+    );
+    assert_eq!(
+        session.source_text(),
+        "- [ ] a\n- [ ] \\```\n- [ ] \n\ntail\n"
+    );
+    assert_eq!(view.text, "a\n```\n\n\ntail\n");
+    let tail = session.display_text().find("tail").unwrap();
+    let projected = session
+        .project(session.revision(), range(tail, tail + 4))
+        .unwrap();
+    assert!(projected.blocks.iter().all(|b| !b.code && b.list.is_none()));
+}
