@@ -172,8 +172,11 @@ internal class EditorEngine(
      * dropped until this reset arrives.
      */
     fun relayoutView(through: Int) = handler.post {
-        if (closed || session == null) return@post
-        if (mirror.overlay != null) resetMarkedView(emptyList()) else resetViewProgressively(through = through)
+        // A rotation over the quick first screens waits for the session that renders it again.
+        whenOpen {
+            if (closed || session == null) return@whenOpen
+            if (mirror.overlay != null) resetMarkedView(emptyList()) else resetViewProgressively(through = through)
+        }
     }
 
     /** Own-action changes (a relink after rename) the Store queued for this session. */
