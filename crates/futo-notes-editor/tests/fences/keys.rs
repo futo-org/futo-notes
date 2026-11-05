@@ -163,7 +163,7 @@ fn empty_code_enter_returns_a_caret_that_types_in_its_new_body_line() {
 fn enter_on_the_empty_last_code_line_of_a_note_leaves_the_fence() {
     let mut session = EditorSession::open("```\ncode\n```");
     let mut view = ReferenceView::new("code");
-    let mut press = |session: &mut EditorSession, view: &mut ReferenceView, at: usize| {
+    let press = |session: &mut EditorSession, view: &mut ReferenceView, at: usize| {
         let caret = range(at, at);
         session.select(session.revision(), caret).unwrap();
         view.apply(
