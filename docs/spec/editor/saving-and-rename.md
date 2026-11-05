@@ -167,7 +167,12 @@
   with no ghost). NOTE: a simulator can't reproduce OS jetsam, so this validates
   the surviving-process flush path, not an actual jetsam-during-background kill.
 - An empty title shows the placeholder "Untitled"; the title field strips
-  newlines.
+  newlines. Leaving with an empty title keeps the note's current name: the body
+  still saves and Back leaves normally.
+- A refused title (empty, illegal, or a duplicate) is never a save failure; only
+  a rename the store attempted and failed keeps the editor open with the
+  "Couldn't save note" banner. → apps/android/app/src/main/java/com/futo/notes/ui/EditorNavigationCommit.kt
+  (`commitEditorTitleSnapshot`, shared by both Android editors)
 - A title that differs from the saved title only by leading or trailing
   whitespace leaves the session clean and skips the write. Only the saved-title
   comparison is normalized; the visible editor title keeps its whitespace.

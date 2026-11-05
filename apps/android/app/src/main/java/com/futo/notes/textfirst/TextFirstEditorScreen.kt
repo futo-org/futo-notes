@@ -56,6 +56,7 @@ import com.futo.notes.ui.affectsOpenNote
 import com.futo.notes.ui.collidesWithOtherNote
 import com.futo.notes.ui.components.ConfirmDialog
 import com.futo.notes.ui.components.FolderPickerSheet
+import com.futo.notes.ui.commitEditorTitleSnapshot
 import com.futo.notes.ui.editorTitleTarget
 import com.futo.notes.ui.titleWarningFor
 import com.futo.notes.ui.isPlaceholderTitle
@@ -72,7 +73,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import uniffi.futo_notes_ffi.FlushDisposition
-import uniffi.futo_notes_ffi.sanitizeTitle
 import uniffi.futo_notes_ffi.splitId
 
 /**
@@ -196,23 +196,25 @@ internal fun TextFirstEditorScreen(
         onDispose { lifecycle.removeObserver(observer) }
     }
 
+    /**
+     * Rename to the typed title. A refused title (blank, illegal, or another note's name)
+     * keeps the current name and is not a failure; false only when the store's rename failed.
+     */
     suspend fun renameTo(next: String): Boolean {
         val wanted = editorTitleTarget(noteId, next, store.notes.mapTo(mutableSetOf()) { it.id })
-        if (wanted == null || wanted == noteId) {
-            return next.isNotBlank() && sanitizeTitle(next.trim()) == splitId(noteId).title
+        val commit = commitEditorTitleSnapshot(noteId, wanted) { from, to ->
+            store.rename(from, to, draft = null, ownerToken = ownerToken)
         }
-        return when (val outcome = store.rename(noteId, wanted, draft = null, ownerToken = ownerToken)) {
-            is NoteMutationOutcome.Committed -> {
-                noteId = outcome.value.id
-                if (titleField.text == next) titleField.commit(splitId(noteId).title)
-                controller.drainCoordinatedChanges()
-                true
-            }
-            NoteMutationOutcome.Failed -> {
-                showToast(context, localization.localizedText("notes.title.renameFailed"))
-                false
-            }
+        if (!commit.isCommitted) {
+            showToast(context, localization.localizedText("notes.title.renameFailed"))
+            return false
         }
+        if (wanted != null && wanted != noteId) {
+            noteId = commit.id
+            if (titleField.text == next) titleField.commit(splitId(noteId).title)
+            controller.drainCoordinatedChanges()
+        }
+        return true
     }
 
     LaunchedEffect(initialNoteId) {
