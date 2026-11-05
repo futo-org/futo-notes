@@ -19,6 +19,29 @@ fn apply(view: &mut String, change: &EditorViewChange) {
     );
 }
 
+/// A note holding exactly `source`, which may lack the final line ending every
+/// authored write appends (portable-core/recovery.md).
+fn plant_note(tree: &TempTree, id: &str, source: &str) {
+    std::fs::write(tree.path(&format!("vault/{id}.md")), source).unwrap();
+}
+
+/// Source and display after an authored save of `source`: a nonempty note
+/// without a final line ending gains its own (CRLF or LF). The gained ending's
+/// display is the editor's own projection of the saved bytes.
+fn saved_forms(source: &str, display: &str) -> (String, String) {
+    if source.is_empty() || source.ends_with('\n') {
+        return (source.to_owned(), display.to_owned());
+    }
+    let ending = if source.contains("\r\n") {
+        "\r\n"
+    } else {
+        "\n"
+    };
+    let saved = format!("{source}{ending}");
+    let shown = futo_notes_editor::EditorSession::open(&saved).display_text();
+    (saved, shown)
+}
+
 #[test]
 fn shared_list_actions_forward_native_coordinates_history_and_exact_saves() {
     let original: Vec<Value> = serde_json::from_str(include_str!(
@@ -82,9 +105,7 @@ fn shared_list_actions_forward_native_coordinates_history_and_exact_saves() {
         let tree = TempTree::new();
         std::fs::create_dir_all(tree.path("vault")).unwrap();
         let store = NoteStore::new(path_string(&tree.path("vault")));
-        store
-            .create_note("lists".into(), "".into(), text("source").into())
-            .unwrap();
+        plant_note(&tree, "lists", text("source"));
         let s = store.open_editor("lists".into()).unwrap();
         let mut view = text("display").to_owned();
         assert_eq!(s.display_text().unwrap(), view);
@@ -246,15 +267,17 @@ fn shared_list_actions_forward_native_coordinates_history_and_exact_saves() {
         assert_eq!(view, text("shown"));
         s.checkpoint().unwrap();
         s.detach().unwrap();
+        // The save appended the note's final line ending, if it had none.
+        let (saved, shown) = saved_forms(text("expected"), text("shown"));
         let recovered = store.open_editor("lists".into()).unwrap();
-        assert_eq!(recovered.source_text().unwrap(), text("expected"));
-        assert_eq!(recovered.display_text().unwrap(), text("shown"));
+        assert_eq!(recovered.source_text().unwrap(), saved);
+        assert_eq!(recovered.display_text().unwrap(), shown);
         assert!(recovered
             .undo(recovered.revision().unwrap())
             .unwrap()
             .is_none());
         recovered.checkpoint().unwrap();
-        assert_eq!(store.read("lists".into()).unwrap(), text("expected"));
+        assert_eq!(store.read("lists".into()).unwrap(), saved);
         recovered.detach().unwrap();
         assert_eq!(
             store
@@ -262,7 +285,7 @@ fn shared_list_actions_forward_native_coordinates_history_and_exact_saves() {
                 .unwrap()
                 .source_text()
                 .unwrap(),
-            text("expected")
+            saved
         );
     }
 }

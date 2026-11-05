@@ -15,17 +15,17 @@ fn block_commands_edit_in_memory_and_stop_at_the_terminal_fence() {
     editor
         .replace_utf16(Revision(0), range(2, 2), &[33])
         .unwrap();
-    assert_eq!(editor.source_text(), "ab!");
+    assert_eq!(editor.source_text(), "ab!\n");
     editor
         .block_command_utf16(Revision(1), range(0, 0), BlockCommand::Heading(3))
         .unwrap()
         .unwrap();
-    assert_eq!(editor.source_text(), "### ab!");
+    assert_eq!(editor.source_text(), "### ab!\n");
     store.delete("body").unwrap();
     store.create("", "body", "fresh").unwrap();
     assert!(matches!(
         editor.block_command_utf16(editor.revision(), range(0, 0), BlockCommand::Divider),
         Err(EditorStoreError::SessionDeleted)
     ));
-    assert_eq!(store.read("body").unwrap(), "fresh");
+    assert_eq!(store.read("body").unwrap(), "fresh\n");
 }

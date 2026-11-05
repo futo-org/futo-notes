@@ -20,7 +20,7 @@ fn flush_draft_writes_when_the_note_still_holds_the_base() {
     let mutation = result.mutation.expect("a write projects a mutation");
     assert_eq!(mutation.final_id.as_deref(), Some("note"));
     assert_eq!(mutation.upserted[0].note.id, "note");
-    assert_eq!(store.read("note").unwrap(), "draft text");
+    assert_eq!(store.read("note").unwrap(), "draft text\n");
 }
 
 // `vault_mutation_guard` is ONE process-wide mutex, so every test in this
@@ -169,10 +169,10 @@ fn flush_draft_parks_a_diverged_draft_as_a_dated_conflict_copy() {
     assert_eq!(mutation.upserted[0].note.id, expected_copy);
     assert_eq!(
         store.read("note").unwrap(),
-        "peer version",
+        "peer version\n",
         "diverged note untouched"
     );
-    assert_eq!(store.read(&expected_copy).unwrap(), "my draft");
+    assert_eq!(store.read(&expected_copy).unwrap(), "my draft\n");
 }
 
 #[test]
@@ -185,7 +185,7 @@ fn flush_draft_recreates_a_peer_deleted_note_at_the_original_id() {
         .unwrap();
 
     assert_eq!(result.disposition, FlushDisposition::Recreated);
-    assert_eq!(store.read("Gone").unwrap(), "surviving draft");
+    assert_eq!(store.read("Gone").unwrap(), "surviving draft\n");
     let mutation = result.mutation.expect("a recreate projects a mutation");
     assert_eq!(mutation.final_id.as_deref(), Some("Gone"));
     assert_eq!(mutation.upserted[0].note.id, "Gone");
@@ -236,7 +236,7 @@ fn flush_draft_parks_when_the_id_reappears_inside_the_recreate_window() {
         "peer recreated",
         "the reappeared note must not be clobbered"
     );
-    assert_eq!(store.read(&expected_copy).unwrap(), "my draft");
+    assert_eq!(store.read(&expected_copy).unwrap(), "my draft\n");
 }
 
 #[test]
@@ -260,7 +260,7 @@ fn editor_rename_preserves_peer_changes_and_parks_the_draft() {
     let mutation = store
         .save_draft_as("Original", "Renamed", "base", "my draft")
         .unwrap();
-    assert_eq!(store.read("Original").unwrap(), "peer edit");
+    assert_eq!(store.read("Original").unwrap(), "peer edit\n");
     let final_id = mutation.final_id.unwrap();
     assert!(final_id.starts_with("Renamed (conflict "));
     assert_eq!(store.read(&final_id).unwrap(), "my draft");
@@ -278,8 +278,8 @@ fn editor_move_saves_and_relinks_in_one_workflow() {
         .unwrap();
     assert_eq!(mutation.final_id.as_deref(), Some("Folder/Original"));
     assert!(!store.exists("Original"));
-    assert_eq!(store.read("Folder/Original").unwrap(), "my draft");
-    assert_eq!(store.read("Link").unwrap(), "[[Folder/Original]]");
+    assert_eq!(store.read("Folder/Original").unwrap(), "my draft\n");
+    assert_eq!(store.read("Link").unwrap(), "[[Folder/Original]]\n");
 }
 
 #[test]
@@ -381,6 +381,15 @@ fn one_paragraph_merge_preserves_source_bytes_and_parks_ambiguous_edits() {
             Some("first middle LOCAL"),
         ),
     ];
+    // The returned source keeps the draft's spelling; disk holds the saved
+    // form, which ends in a line ending (recovery.md).
+    let saved = |source: &str| {
+        if source.ends_with('\n') {
+            source.to_owned()
+        } else {
+            format!("{source}\n")
+        }
+    };
     for (base, remote, local, expected) in cases {
         let root = TestRoot::new();
         let store = store(&root);
@@ -393,15 +402,15 @@ fn one_paragraph_merge_preserves_source_bytes_and_parks_ambiguous_edits() {
                 result.flush.mutation.unwrap().final_id.as_deref(),
                 Some("note")
             );
-            assert_eq!(store.read("note").unwrap(), expected);
+            assert_eq!(store.read("note").unwrap(), saved(expected));
             assert_eq!(store.snapshot().notes.len(), 1);
         } else {
             let FlushDisposition::ParkedConflict { parked_id } = result.flush.disposition else {
                 panic!("ambiguous one-paragraph merge must preserve both versions: {base:?}")
             };
             assert_eq!(result.source, local);
-            assert_eq!(store.read("note").unwrap(), remote);
-            assert_eq!(store.read(&parked_id).unwrap(), local);
+            assert_eq!(store.read("note").unwrap(), saved(remote));
+            assert_eq!(store.read(&parked_id).unwrap(), saved(local));
         }
     }
 }

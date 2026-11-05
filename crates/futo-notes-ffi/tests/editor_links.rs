@@ -13,7 +13,7 @@ fn native_note_id_refresh_reaches_a_composing_session() {
         .create_note("Roadmap".into(), "Projects".into(), "".into())
         .unwrap();
     store
-        .create_note("home".into(), "".into(), "[[Roadmap]] ab".into())
+        .create_note("home".into(), "".into(), "[[Roadmap]] ab\n".into())
         .unwrap();
     let session = store.open_editor("home".into()).unwrap();
     session
@@ -37,7 +37,7 @@ fn native_note_id_refresh_reaches_a_composing_session() {
         (link.label.as_str(), link.note_id.as_deref()),
         ("Roadmap", None)
     );
-    assert_eq!(session.source_text().unwrap(), "[[Roadmap]] ab");
+    assert_eq!(session.source_text().unwrap(), "[[Roadmap]] ab\n");
 }
 
 #[test]
@@ -49,7 +49,7 @@ fn native_wikilink_completion_requests_accepts_and_rejects_stale_claims() {
         .create_note("Roadmap".into(), "Projects".into(), "".into())
         .unwrap();
     store
-        .create_note("home".into(), "".into(), "see [[Ro".into())
+        .create_note("home".into(), "".into(), "see [[Ro\n".into())
         .unwrap();
     let session = store.open_editor("home".into()).unwrap();
     let at = EditorByteRange { start: 8, end: 8 };
@@ -78,7 +78,7 @@ fn native_wikilink_completion_requests_accepts_and_rejects_stale_claims() {
         )
         .unwrap();
     assert_eq!(change.revision, 1);
-    assert_eq!(session.source_text().unwrap(), "see [[Projects/Roadmap]]");
+    assert_eq!(session.source_text().unwrap(), "see [[Projects/Roadmap]]\n");
     assert!(matches!(
         session.accept_wikilink_completion(0, found.range, found.query, "Projects/Roadmap".into()),
         Err(EditorSessionError::StaleRevision { .. })
@@ -86,7 +86,7 @@ fn native_wikilink_completion_requests_accepts_and_rejects_stale_claims() {
     session.checkpoint().unwrap();
     assert_eq!(
         store.read("home".into()).unwrap(),
-        "see [[Projects/Roadmap]]"
+        "see [[Projects/Roadmap]]\n"
     );
 }
 
@@ -135,7 +135,7 @@ fn native_atoms_and_image_insertion_reject_claims_from_a_reopened_session() {
     std::fs::create_dir_all(tree.path("vault")).unwrap();
     let store = NoteStore::new(path_string(&tree.path("vault")));
     store
-        .create_note("pics".into(), "".into(), "a ![x](image-1.png) b".into())
+        .create_note("pics".into(), "".into(), "a ![x](image-1.png) b\n".into())
         .unwrap();
     let session = store.open_editor("pics".into()).unwrap();
     let atoms = session
@@ -167,7 +167,7 @@ fn native_atoms_and_image_insertion_reject_claims_from_a_reopened_session() {
         .unwrap();
     assert_eq!(
         session.source_text().unwrap(),
-        "a ![x](image-1.png) b![](image-2.png)"
+        "a ![x](image-1.png) b![](image-2.png)\n"
     );
     session.checkpoint().unwrap();
     drop(session);
@@ -184,7 +184,7 @@ fn native_edit_link_is_atomic_revision_bound_and_durable() {
     std::fs::create_dir_all(tree.path("vault")).unwrap();
     let store = NoteStore::new(path_string(&tree.path("vault")));
     store
-        .create_note("links".into(), "".into(), "see  tail".into())
+        .create_note("links".into(), "".into(), "see  tail\n".into())
         .unwrap();
     let session = store.open_editor("links".into()).unwrap();
     let at = EditorByteRange { start: 4, end: 4 };
@@ -196,13 +196,13 @@ fn native_edit_link_is_atomic_revision_bound_and_durable() {
         .unwrap()
         .unwrap();
     let linked = session.source_text().unwrap();
-    assert_eq!(session.display_text().unwrap(), "see 雪 [x] tail");
+    assert_eq!(session.display_text().unwrap(), "see 雪 [x] tail\n");
     assert!(matches!(
         session.edit_link(0, at, "bad".into(), "/bad".into()),
         Err(EditorSessionError::StaleRevision { .. })
     ));
     session.undo(1).unwrap().unwrap();
-    assert_eq!(session.source_text().unwrap(), "see  tail");
+    assert_eq!(session.source_text().unwrap(), "see  tail\n");
     session.redo(2).unwrap().unwrap();
     assert_eq!(session.source_text().unwrap(), linked);
     session.checkpoint().unwrap();

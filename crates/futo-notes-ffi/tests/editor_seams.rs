@@ -5,6 +5,29 @@ fn range(a: u64, z: u64) -> EditorUtf16Range {
     EditorUtf16Range { start: a, end: z }
 }
 
+/// A note holding exactly `source`, which may lack the final line ending every
+/// authored write appends (portable-core/recovery.md).
+fn plant_note(tree: &TempTree, id: &str, source: &str) {
+    std::fs::write(tree.path(&format!("vault/{id}.md")), source).unwrap();
+}
+
+/// Source and display after an authored save of `source`: a nonempty note
+/// without a final line ending gains its own (CRLF or LF). The gained ending's
+/// display is the editor's own projection of the saved bytes.
+fn saved_forms(source: &str, display: &str) -> (String, String) {
+    if source.is_empty() || source.ends_with('\n') {
+        return (source.to_owned(), display.to_owned());
+    }
+    let ending = if source.contains("\r\n") {
+        "\r\n"
+    } else {
+        "\n"
+    };
+    let saved = format!("{source}{ending}");
+    let shown = futo_notes_editor::EditorSession::open(&saved).display_text();
+    (saved, shown)
+}
+
 #[test]
 fn native_structural_seams_and_raw_composition_keep_exact_saves_and_carets() {
     let cases: Vec<serde_json::Value> = [
@@ -20,9 +43,7 @@ fn native_structural_seams_and_raw_composition_keep_exact_saves_and_carets() {
         let tree = TempTree::new();
         std::fs::create_dir_all(tree.path("vault")).unwrap();
         let store = NoteStore::new(path_string(&tree.path("vault")));
-        store
-            .create_note("seam".into(), "".into(), text("source").into())
-            .unwrap();
+        plant_note(&tree, "seam", text("source"));
         let s = store.open_editor("seam".into()).unwrap();
         let mut view = text("display").to_owned();
         let mut last = None;
@@ -199,10 +220,12 @@ fn native_structural_seams_and_raw_composition_keep_exact_saves_and_carets() {
         );
         s.checkpoint().unwrap();
         s.detach().unwrap();
+        // The save appended the note's final line ending, if it had none.
+        let (saved, shown) = saved_forms(text("expectedSource"), text("expectedDisplay"));
         let recovered = store.open_editor("seam".into()).unwrap();
-        assert_eq!(recovered.source_text().unwrap(), text("expectedSource"));
-        assert_eq!(recovered.display_text().unwrap(), text("expectedDisplay"));
+        assert_eq!(recovered.source_text().unwrap(), saved);
+        assert_eq!(recovered.display_text().unwrap(), shown);
         recovered.checkpoint().unwrap();
-        assert_eq!(store.read("seam".into()).unwrap(), text("expectedSource"));
+        assert_eq!(store.read("seam".into()).unwrap(), saved);
     }
 }
