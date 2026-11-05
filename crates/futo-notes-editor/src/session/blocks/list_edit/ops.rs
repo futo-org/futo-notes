@@ -127,7 +127,7 @@ impl EditorSession {
             && selected.iter().all(|line| {
                 line.list.as_ref().is_some_and(|list| match command {
                     BlockCommand::BulletList => list.ordinal.is_none() && list.checked.is_none(),
-                    BlockCommand::OrderedList => list.ordinal.is_some(),
+                    BlockCommand::OrderedList => list.ordinal.is_some() && list.checked.is_none(),
                     BlockCommand::TaskList => list.checked.is_some(),
                     _ => false,
                 })

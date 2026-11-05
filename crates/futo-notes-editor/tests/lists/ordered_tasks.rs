@@ -243,3 +243,46 @@ fn quoted_and_ancestor_selected_ordered_fragments_keep_their_canonical_owners() 
         assert_eq!(view.text, shown);
     }
 }
+
+#[test]
+fn choosing_ordered_on_a_cut_ordered_task_list_retargets_the_whole_owner() {
+    let list: String = (1..=1_000)
+        .map(|i| format!("{i}. [ ] task {i}\n"))
+        .collect();
+    let plain: String = (1..=1_000).map(|i| format!("{i}. task {i}\n")).collect();
+    let original = format!("before\n\n{list}\nafter");
+    let expected = format!("before\n\n{plain}\nafter");
+    let mut s = EditorSession::open(&original);
+    let shown = s.display_text();
+    let at = shown.find("task 501").unwrap();
+    let selected = range(at, at);
+    s.select_with_affinity(s.revision(), selected, Affinity::Backward)
+        .unwrap();
+    let mut accepted = 0;
+    s.block_command(
+        s.revision(),
+        selected,
+        BlockCommand::OrderedList,
+        &mut |_| {
+            accepted += 1;
+            Ok(())
+        },
+    )
+    .unwrap()
+    .unwrap();
+    assert_eq!(
+        s.source_text().matches("[ ]").count(),
+        0,
+        "OrderedList is a whole-list retarget, not a repeated Task command"
+    );
+    assert_eq!(s.source_text(), expected);
+    assert_eq!(s.display_text(), shown);
+    assert_eq!(s.selection(), selected);
+    assert_eq!(accepted, 1);
+    s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap();
+    assert_eq!(s.source_text(), original);
+    assert_eq!(s.selection(), selected);
+    assert_eq!(s.affinity(), Affinity::Backward);
+    s.redo(s.revision(), &mut |_| Ok(())).unwrap().unwrap();
+    assert_eq!(s.source_text(), expected);
+}
