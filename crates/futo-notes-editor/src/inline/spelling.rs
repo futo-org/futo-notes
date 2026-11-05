@@ -25,6 +25,26 @@ use render::render;
 use std::ops::Range;
 pub(super) use url_timing::prepare_url_input;
 
+thread_local! {
+    static ESCAPE_TYPED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// While held, planned input writes its typed delimiters as escaped literal
+/// text: the text joins a paragraph its own row cannot verify.
+pub(crate) struct EscapeTypedDelimiters(bool);
+
+impl EscapeTypedDelimiters {
+    pub(crate) fn set() -> Self {
+        Self(ESCAPE_TYPED.with(|slot| slot.replace(true)))
+    }
+}
+
+impl Drop for EscapeTypedDelimiters {
+    fn drop(&mut self) {
+        ESCAPE_TYPED.with(|slot| slot.set(self.0));
+    }
+}
+
 pub(super) fn spell(
     pieces: Vec<Piece>,
     guards: super::guarded_words::GuardState,
@@ -81,7 +101,12 @@ pub(super) fn spell_with_anchors(
     let typed_delimiter = pieces[insertion.clone()]
         .iter()
         .any(|piece| piece.display.contains(['*', '_', '~', '`']));
-    if !literal && typed_delimiter {
+    if !literal && typed_delimiter && ESCAPE_TYPED.with(std::cell::Cell::get) {
+        escape_literal_delimiters(&mut pieces, &markers, insertion.clone());
+        materialized += render::replace(&mut rendered, &pieces, &markers, insertion.clone());
+        link_metadata_items += rendered.link_metadata_items;
+        literal = true;
+    } else if !literal && typed_delimiter {
         let candidate = Row::candidate(&rendered.text, references, &rendered.winners);
         parsed += candidate.parsed_source_bytes;
         link_metadata_items += candidate.reference_work.items;
@@ -212,7 +237,7 @@ pub(super) fn spell_with_anchors(
             // An entity changes CommonMark's delimiter flanking while
             // decoding to the same visible scalar. Repair only the exact
             // neighbor of a marker that the library could no longer pair.
-            repair_boundaries(&mut pieces, &missing);
+            repair_boundaries(&mut pieces, &markers, &missing);
             if words.has_owners() {
                 rendered_changed = true;
             }
@@ -271,7 +296,7 @@ pub(super) fn spell_with_anchors(
                 }
                 for repaired in [false, true] {
                     if repaired {
-                        repair_boundaries(&mut pieces, &missing);
+                        repair_boundaries(&mut pieces, &markers, &missing);
                     }
                     materialized +=
                         render::replace(&mut rendered, &pieces, &markers, insertion.clone());

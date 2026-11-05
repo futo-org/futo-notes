@@ -34,6 +34,9 @@ pub(crate) enum EditIntent {
 pub(super) enum Width {
     /// The rows holding the edited range.
     Rows,
+    /// Those rows and the next one, which text typed on the blank line
+    /// ending them joins.
+    Joined,
     /// Those rows widened to whole physical lines past word seams.
     Line,
     /// The complete paragraph or list.
@@ -111,6 +114,26 @@ impl Projection {
         // plan once more against the whole line when a word seam bounds the
         // rows, then against the complete paragraph or list (#314).
         let mut tried = Vec::new();
+        // Text typed on a blank line joins the paragraph below it, whose
+        // delimiters can then pair with the typed text or the row's own. Plan
+        // it with that paragraph first, so delimiters stay raw only while the
+        // joined paragraph reads as typed; when it cannot be planned, a typed
+        // delimiter lands escaped as literal text.
+        let _escape = if matches!(intent, EditIntent::Input(_))
+            && !inserted.is_empty()
+            && self.joins_next_row(range)
+        {
+            match plan(Width::Joined, true) {
+                Ok((plan, true)) => return Ok(spent(plan, tried)),
+                Ok((plan, false)) => tried.push(plan),
+                Err(_) => {}
+            }
+            inserted
+                .contains(['*', '_', '~', '`'])
+                .then(super::spelling::EscapeTypedDelimiters::set)
+        } else {
+            None
+        };
         let mut widths = vec![Width::Rows];
         if self.at_word_seam(range) {
             widths.push(Width::Line);

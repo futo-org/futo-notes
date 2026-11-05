@@ -35,6 +35,7 @@ mod list_edit;
 mod list_join;
 mod list_typing;
 mod lists;
+mod literal_typing;
 mod physical_layout;
 mod split;
 mod tables;

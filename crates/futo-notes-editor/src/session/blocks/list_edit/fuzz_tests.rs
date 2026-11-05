@@ -318,6 +318,10 @@ const INLINE_PIECES: &[&str] = &[
     "| a | **b** |\n|---|---|\n| `c` | _d_ |\n",
     "*a **b** c* ~x~ __a_b__\n",
     "1. _one_\n2. `two`\n",
+    // A span right after inline code; a quoted blank line above a list item
+    // that cannot interrupt a paragraph.
+    "`x`~-~ and `y`*z*\n",
+    "> x\n> \n> 2. ordered\n",
 ];
 
 /// Visible letters in order, except a task shortcut's `x`: typed delimiters
@@ -337,7 +341,8 @@ fn without_delimiters(text: &str) -> String {
 
 #[test]
 fn typed_characters_are_never_refused_and_always_land() {
-    let mut seed = 0x2545_f491_4f6c_dd1du64;
+    let mut seed =
+        std::env::var("TYPING_SEED").map_or(0x2545_f491_4f6c_dd1du64, |seed| seed.parse().unwrap());
     let mut next = move |bound: usize| {
         seed ^= seed << 13;
         seed ^= seed >> 7;
@@ -368,9 +373,9 @@ fn typed_characters_are_never_refused_and_always_land() {
                 .find(['\r', '\n'])
                 .map_or(display.len(), |end| at + end);
         } else if place == 1 {
-            // A caret stops at grapheme boundaries, never inside a CRLF.
+            // Any scalar boundary, including between a CRLF's CR and LF.
             at = next(display.len() + 1);
-            while !display.is_char_boundary(at) || display[..at].ends_with('\r') {
+            while !display.is_char_boundary(at) {
                 at -= 1;
             }
         }
@@ -410,8 +415,20 @@ fn type_checked(session: &mut EditorSession, typed: &str, label: &str) {
     let display = session.display_text();
     let selection = session.selection();
     let (start, end) = (selection.start.0, selection.end.0);
-    let typed_over = format!("{}{typed}{}", &display[..start], &display[end..]);
     let line = display[..start].rsplit('\n').next().unwrap();
+    let typed_over = format!("{}{typed}{}", &display[..start], &display[end..]);
+    // A Space after a line's ```word opener may convert it to a code block
+    // whose opener line, language word and the Space are hidden (not in a
+    // heading, table or task, where the opener stays literal text).
+    let converted = line
+        .strip_prefix("```")
+        .filter(|word| typed == " " && !word.contains([' ', '`']))
+        .map(|word| format!("{}{}", &display[..start - word.len()], &display[end..]));
+    // (reading, whether the visible text must match it beyond delimiters):
+    // a conversion can also end the paragraph the line was part of.
+    let readings: Vec<(&String, bool)> = std::iter::once((&typed_over, true))
+        .chain(converted.iter().map(|reading| (reading, false)))
+        .collect();
     let exact = line.contains(|ch: char| ch.is_alphabetic() && ch != 'x');
     let label = format!("{label}\nnow {:?} at {selection:?}", session.source_text());
     session
@@ -430,12 +447,11 @@ fn type_checked(session: &mut EditorSession, typed: &str, label: &str) {
         EditorSession::open(&session.source_text()).display_text(),
         "{label}"
     );
-    assert_eq!(letters_of(&now), letters_of(&typed_over), "{label}");
-    if exact {
-        assert_eq!(
-            without_delimiters(&now),
-            without_delimiters(&typed_over),
-            "{label}"
-        );
-    }
+    assert!(
+        readings
+            .iter()
+            .any(|&(reading, whole)| letters_of(&now) == letters_of(reading)
+                && (!exact || !whole || without_delimiters(&now) == without_delimiters(reading))),
+        "{label}\nshows {now:?}\nexpected one of {readings:?}"
+    );
 }

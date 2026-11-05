@@ -88,7 +88,11 @@ pub(super) fn repair_literal_boundaries(
     }
 }
 
-pub(super) fn repair_boundaries(pieces: &mut [Piece], missing: &[usize]) {
+pub(super) fn repair_boundaries(
+    pieces: &mut [Piece],
+    markers: &[super::Marker],
+    missing: &[usize],
+) {
     let mut encode = Vec::new();
     for &id in missing {
         for index in 0..pieces.len() {
@@ -115,7 +119,14 @@ pub(super) fn repair_boundaries(pieces: &mut [Piece], missing: &[usize]) {
     encode.dedup();
     for index in encode {
         let piece = &mut pieces[index];
-        if piece.raw == piece.display
+        // Code shows an entity verbatim; its neighbor on the other side of
+        // the span is the one to encode.
+        let code = piece
+            .spans
+            .iter()
+            .any(|&id| markers[id].kind == SpanKind::Format(crate::InlineFormat::Code));
+        if !code
+            && piece.raw == piece.display
             && piece.display.chars().count() == 1
             && !piece.display.chars().any(char::is_whitespace)
         {

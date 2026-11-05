@@ -23,6 +23,7 @@ pub(crate) mod images;
 mod row;
 mod source_points;
 mod spelling;
+pub(crate) use spelling::EscapeTypedDelimiters;
 #[cfg(test)]
 mod split_nested_tests;
 #[cfg(test)]

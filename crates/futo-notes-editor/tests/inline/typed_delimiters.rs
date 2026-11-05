@@ -60,3 +60,115 @@ fn typed_delimiters_that_cannot_format_land_as_escaped_literals() {
         assert_eq!(view.text, opened);
     }
 }
+
+/// Text typed after a format span that directly follows inline code, outside
+/// that span: the flanking repair encodes the typed scalar, never a code
+/// character (code shows an entity verbatim).
+#[test]
+fn typing_after_a_span_that_follows_inline_code_lands() {
+    use futo_notes_editor::Affinity;
+    for original in ["`x`~-~", "`x`*-*", "`x`~~-~~", "`x`~y~", "`_`~-~"] {
+        let mut session = EditorSession::open(original);
+        let opened = session.display_text();
+        let mut view = ReferenceView::new(&opened);
+        let at = opened.len();
+        session
+            .select_with_affinity(session.revision(), range(at, at), Affinity::Forward)
+            .unwrap();
+        view.apply(
+            session
+                .replace(session.revision(), range(at, at), "a", &mut |_| Ok(()))
+                .unwrap_or_else(|e| panic!("{original:?}: {e:?}")),
+        );
+        assert_fresh(&session, &view);
+        assert_eq!(view.text, format!("{opened}a"), "{original:?}");
+        assert!(
+            EditorSession::open(&session.source_text())
+                .display_text()
+                .ends_with('a'),
+            "{original:?}"
+        );
+    }
+}
+
+/// A delimiter typed on a blank line directly above a paragraph joins that
+/// paragraph; it stays raw only while the joined paragraph reads as typed,
+/// else it lands escaped, so it never pairs with that paragraph's syntax.
+#[test]
+fn a_delimiter_typed_above_a_paragraph_never_pairs_with_it() {
+    for (original, at, typed, source) in [
+        ("x\n\n`b` and `c\n", 2, "`", "x\n\\`\n`b` and `c\n"),
+        ("x\n\n**b** `c\n", 2, "`", "x\n\\`\n**b** `c\n"),
+        (
+            "five\n\n7. seven `code` [link](https://x.y)\n",
+            5,
+            "`",
+            "five\n\\`\n7. seven `code` [link](https://x.y)\n",
+        ),
+        // A star that cannot pair below stays raw.
+        ("x\n\n*b c\n", 2, "*", "x\n*\n*b c\n"),
+    ] {
+        let mut session = EditorSession::open(original);
+        let opened = session.display_text();
+        let mut view = ReferenceView::new(&opened);
+        session.select(session.revision(), range(at, at)).unwrap();
+        view.apply(
+            session
+                .replace(session.revision(), range(at, at), typed, &mut |_| Ok(()))
+                .unwrap(),
+        );
+        assert_fresh(&session, &view);
+        assert_eq!(session.source_text(), source, "{original:?}");
+    }
+}
+
+/// Typing that no inline spelling could verify used to refuse; it now lands,
+/// escaped where needed, and the row reads as written.
+#[test]
+fn typing_no_inline_spelling_can_verify_still_lands() {
+    use futo_notes_editor::Affinity;
+    for (original, at, affinity, typed, source) in [
+        // A quoted blank line above a list item that cannot interrupt the
+        // paragraph the typed text starts: it joins, as at top level.
+        (
+            "> x\n> \n> 2. ordered\n",
+            2,
+            Affinity::Backward,
+            "a",
+            Some("> x\n> a\n> 2. ordered\n"),
+        ),
+        ("~~_*x*~_", 4, Affinity::Forward, "q", None),
+        ("_*#*~b_under_ x", 4, Affinity::Forward, "~", None),
+    ] {
+        let mut session = EditorSession::open(original);
+        let opened = session.display_text();
+        let mut view = ReferenceView::new(&opened);
+        session
+            .select_with_affinity(session.revision(), range(at, at), affinity)
+            .unwrap();
+        view.apply(
+            session
+                .replace(session.revision(), range(at, at), typed, &mut |_| Ok(()))
+                .unwrap_or_else(|e| panic!("{original:?}: {e:?}")),
+        );
+        assert_fresh(&session, &view);
+        let letters = |text: &str| {
+            text.chars()
+                .filter(|c| c.is_alphabetic())
+                .collect::<String>()
+        };
+        let mut expected = opened.clone();
+        expected.insert_str(at, typed);
+        assert_eq!(letters(&view.text), letters(&expected), "{original:?}");
+        if let Some(source) = source {
+            assert_eq!(session.source_text(), source);
+        }
+        view.apply(
+            session
+                .undo(session.revision(), &mut |_| Ok(()))
+                .unwrap()
+                .unwrap(),
+        );
+        assert_eq!(session.source_text(), original);
+    }
+}

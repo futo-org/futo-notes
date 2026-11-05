@@ -53,14 +53,39 @@ impl EditorSession {
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<(ViewChange, InputMapping), EditorError> {
         let mut query_work = crate::inline::references::ReferenceWork::default();
-        let (mut change, mapping) = self.replace_action_planned(
-            expected,
-            range,
-            inserted,
-            action,
-            accept,
-            &mut query_work,
-        )?;
+        let planned =
+            self.replace_action_planned(expected, range, inserted, action, accept, &mut query_work);
+        // A typed character is never refused: when no spelling of it reads as
+        // typed, its delimiters land escaped, and failing that the text lands
+        // as literal source.
+        let typing = action == crate::InputAction::Typing
+            && !inserted.is_empty()
+            && self.composition.is_none();
+        let (mut change, mapping) = match planned {
+            Err(EditorError::UnrepresentableFormat) if typing => {
+                let escaped = {
+                    let _escape = crate::inline::EscapeTypedDelimiters::set();
+                    self.replace_action_planned(
+                        expected,
+                        range,
+                        inserted,
+                        action,
+                        accept,
+                        &mut query_work,
+                    )
+                };
+                match escaped {
+                    Err(EditorError::UnrepresentableFormat) => {
+                        let change =
+                            self.literal_typing(expected, range, inserted, action, accept)?;
+                        let mapping = InputMapping::new(change.range, change.inserted.len());
+                        (change, mapping)
+                    }
+                    other => other?,
+                }
+            }
+            other => other?,
+        };
         change.work.parsed_source_bytes += query_work.parsed;
         change.work.link_metadata_items += query_work.items;
         change.work.link_copied_bytes += query_work.copied;
