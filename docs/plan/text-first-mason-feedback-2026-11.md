@@ -4,6 +4,47 @@ Scope: the Android text-first editor on `android-text-first` (MR !564). It is de
 release Android still ships the WebView editor. Every fix lands on this branch (decision 8A).
 Delete this file in the commit that finishes the last item (archive rule).
 
+## Implementation checkpoint
+
+The implementation and emulator measurements below are complete. Physical Pixel checks remain
+blocked: the phone is secure-locked and its installed `com.futo.notes.dev` rejects this build's
+different signing certificate. The Pixel's app was neither removed nor cleared, and no signing key was accessed.
+Using its matching dev key requires the approval in AGENTS.md §11.1; unlocking is also needed.
+
+| Items | Current evidence |
+|---|---|
+| A1 | Heading emphasis keeps its weight, italic face and strike through restyling; real-font native tests pass. Caret movement continues to hide markers, as the existing contract requires. |
+| A3, A4 | Explicit text-first intents join heading starts with the previous line and toggle the common heading level off; portable no-op/demote intents remain available unchanged. Core, FFI and native key-transport tests pass. |
+| B2 | Native triple-tap handles/callouts remain active; delayed smart-selection expansion no longer overwrites the logical line. Native classification actions still delegate to Android. |
+| C1, C2 | Select All retains the viewport and native selection paint reaches the scrolled top edge. Android 9 and Android 16 regressions pass. |
+| C4 | Mixed written lines wrap in one fence and one Undo restores exact Markdown. Core and native mixed-note regressions pass; the original crash stack was not available. |
+| D1, D2, D3 | Rust reports selection-wide formats and eligibility. Native selected-word/reopened-toolbar tests pass, and fully selected list rows include their rendered markers in the highlight. Partial-word selection leaves markers unhighlighted. |
+| A2, F1 | Repeated collapsed format toggles followed by composed input pass in ordinary and distant headings, without lost text or IME resets. The original intermittent report has not reproduced in these fixtures. |
+| B1 | Existing focused, unfocused, jitter, fling and composing-word double-tap fixtures pass; no speculative double-tap change was applied. |
+| C3 | The mixed-note Select-All-shaped Quote fixture succeeds in Rust. Commands retain the existing rule that code stays opaque; the supplied note is mostly code after its unclosed fence. |
+| E | Queue cancellation and accepted-input preservation pass. Indexed Rust planning removes measured quadratic work. The supplied-note Select All responds in 62 ms and completes background rendering in 13.40 s, compared with the original 81.89 s blocking apply. Fully shown H1, Quote and Code block respond in 1.41/1.33/0.59 s, with complete rendering in 16.19/1.51/15.34 s. All ten block controls complete in one process without OOM after terminal buffers are released. Explicit 20k-line quote typing falls from 140.66 ms to 0.27 ms on the optimized host. Full measurements and limitations are in `docs/spec/editor/performance.md`. |
+
+The editor/core suite passed 641 tests (one ignored), the FFI contract passed 11, and both Android
+flavors passed 479 JVM tests each and compiled. Android 9 compatibility/interaction checks pass,
+including the real-font, marker, triple-tap, selected-word/reopened-toolbar and first-frame cases.
+Android 16 focused regressions pass, including Bulk 9, Streaming 16, Caret Follow 8, Leave 3,
+Scroll Restore 3, Toolbar Selection 2 and Migration 7. The umbrella and prepush checks still fail 97 inherited store
+tests: an archived starting-commit control has the same failures plus one corrected stale fixture,
+with no new store failures. The two apparent store deadlocks were stale final-LF assertions before
+gate release; their fixtures and panic cleanup are corrected without changing save behavior.
+Additional strict migration fixtures distinguish raw/live source from canonical persisted final LF,
+and test pending-worker responsiveness without requesting an input connection before readiness.
+
+Two final performance regressions were reproduced and fixed: an empty display delta at the note's
+end widened a 6k repaint to the whole document; closed editors retained large renderer/mirror
+payloads across successive benchmark actions. The native repaint regression verifies that the
+unchanged tail is not measured, and terminal-disposal tests preserve scroll capture and failed-save
+retry/checkpoint ownership. A permanent unbounded GC-root leak was not established.
+
+The original private input remained unchanged. Its emulator copy and owned device heap/fixture files
+were removed. No private note contents are committed. Physical Gboard and low-end-phone frame
+budgets remain unverified; debug-emulator quote typing had p95 17.88 ms with 17/20 on-time frames.
+
 **Text-first only.** No Milkdown changes: nothing in `src/features/editor/milkdown/`, and no
 edit to a cross-platform spec line. Each behavior change gets its own spec line tagged
 *(Android text-first editor)*, next to the line it diverges from.
@@ -22,8 +63,8 @@ test at the narrowest owner (Rust `crates/futo-notes-editor/tests/` for a rule, 
 | 3A | Tapping the active H1/H2/H3 again turns the line back into Text, in the text-first editor. The cross-platform lines in `toolbar-commands.md` ("does not cycle") and `portable-core/block-commands.md:7` ("already-selected heading level is a no-op") stay; a tagged text-first line records the difference. |
 | 4 | A format lights up only if the whole selection carries it. Commands the engine would refuse are dimmed (not hidden). Provisional — revisit after Mason uses it. |
 | 5A | Code block on a multi-block selection wraps all selected lines in one fence. |
-| 6 | Pending: Mason's large note and device. Perf work (§E) is blocked on it for repro, not for instrumentation. |
-| 7 | Pending: Mason's explanation of "the number isn't highlighted". |
+| 6 | Received the supplied giant note (2,377,842 bytes, 160,005 lines). Use emulators for most work and the connected Pixel 7a for physical checks, in dev builds. The note has an unclosed fence at line 2,274, so most of its heading-looking text is opaque code. Keep the private input outside git. |
+| 7 | Clarified: the rendered number beside a selected numbered-list item lacks the selection highlight. Separately, selecting a fully formatted word fails to light Bold/Italic/Strikethrough in the toolbar, including after reopening it. |
 
 ## A. Heading rules
 
@@ -114,13 +155,14 @@ Wire `disabledFormats` (already supported by `ui/EditorToolbar.kt:109`) from D1'
 Starting rules: inline formats disabled inside code; Indent/Outdent disabled where nothing would
 change; Undo/Redo disabled with empty history. Tagged text-first spec line in `toolbar-commands.md`.
 
-**D3 — Highlights go stale after collapsing and reopening the toolbar; heading number not lit.**
-Blocked on Mason's explanation (decision 7). Working guess: the toolbar slot is recomposed from a
-`caret` snapshot that isn't refreshed when the slot reappears, and heading buttons render their
-text label without the active tint. Check `EditorToolbar` tints text-label items the same as icon
-items.
+**D3 — Selected list numbers lack selection paint; format buttons do not reflect the selected word.**
+Decision 7 refers to the rendered numbered-list marker in the note, not a heading or toolbar
+number. Paint that marker's selected background through the native view's selection rendering.
+Separately, verify D1's whole-selection state through actual word selection and toolbar
+collapse/reopen, including Bold, Italic and Strikethrough. Existing toolbar text labels already
+receive the active tint; do not change heading labels on this premise.
 
-## E. Large-note performance (blocked on Mason's note for repro)
+## E. Large-note performance (supplied note available)
 
 Symptoms: toolbar commands and selection on a large note take up to 2 minutes, stack up, and the
 note can't be left; typing in a large quote is slow; removing a list from one item in the middle
@@ -135,10 +177,11 @@ Facts from the code:
 - Select All then a block command touches every line, then rebuilds spans for the whole note.
 
 Plan:
-1. Build a synthetic large fixture now (mixed headings/emphasis/lists/quotes/code, ~20k lines)
-   and swap in Mason's note when it arrives.
+1. Keep the synthetic mixed ~20k-line and 2k-line quote fixtures, and measure the supplied
+   160,005-line note as a private local fixture. Its unclosed fence is part of the repro;
+   preserve the source and measure the actual interpretation.
 2. Measure with the existing harness (`TextFirstTypingBenchmarkTest`, `KeyLatencyWindow`,
-   `MainThreadWatchdog`) on the Moto: Select All, each block command on Select All, list toggle
+   `MainThreadWatchdog`) on emulators and the Pixel 7a: Select All, each block command on Select All, list toggle
    on one middle item, typing in a 2k-line quote. Split time into Rust command, FFI, span
    planning, and Android layout.
 3. Fix by cause. Expected candidates: cut long quotes into rows like lists and fences
@@ -148,8 +191,9 @@ Plan:
    leaving the note cancels queued work. Leaving must never wait on the editor thread beyond
    the save checkpoint.
 
-Bar: the project's current one — zero late frames on the Moto for typing; a whole-note command
-finishes in a bounded, measured time with the UI responsive throughout. Record the numbers in
+Bar: the project's current one — zero late frames on the low-end reference phone for typing;
+the authorized Pixel 7a substitutes for this session's physical checks and cannot prove that
+low-end budget. A whole-note command finishes in a bounded, measured time with the UI responsive throughout. Record the numbers in
 `docs/spec/editor/performance.md`.
 
 ## F. Typing produces nothing after format toggles
@@ -168,8 +212,8 @@ Rust test for the carried-format sequence and an androidTest through `EngineInpu
    may be the stall).
 3. A1, A3, A4, C1 (well-understood, small).
 4. B1, B2, C2, C3.
-5. D1, D2, then D3 once Mason explains.
-6. E structural fixes once Mason's note is in hand.
+5. D1, D2 and D3 with the clarified numbered-list and selected-word cases.
+6. E structural fixes against the supplied note and the synthetic list/quote cases.
 
 Each item: its own commit, `type(scope): summary`, body with root cause and a `Verified:` line.
 
