@@ -232,3 +232,18 @@ fn android_semantics_are_read_in_dp() {
     assert!(row_for(&rows, "folder", "ideas").is_some());
     assert!(row_for(&rows, "note", "ideas").is_none());
 }
+
+/// A field or row reads its text as the screen shows it: a note named with two spaces keeps them
+/// (AGENTS.md M2), and only the line breaks between a row's parts become one space.
+#[test]
+fn a_rows_text_keeps_its_runs_of_spaces_and_joins_its_lines() {
+    let tree = from_tree(&json!({
+        "scale": 1.0, "screen": {"w": 360, "h": 800},
+        "nodes": [{"role": "field", "text": "Snack-Time  Plan  v2", "x": 22, "y": 92,
+                   "w": 316, "h": 29, "actions": ["tap"], "flags": [], "section": "content"},
+                  {"role": "row", "text": "Snack-Time  Plan  v2\nJust now\n  x ", "x": 16, "y": 157,
+                   "w": 328, "h": 72, "actions": ["tap"], "flags": [], "section": "list"}]
+    }));
+    assert_eq!(tree.nodes[0].text, "Snack-Time  Plan  v2");
+    assert_eq!(tree.nodes[1].text, "Snack-Time  Plan  v2 Just now x");
+}
