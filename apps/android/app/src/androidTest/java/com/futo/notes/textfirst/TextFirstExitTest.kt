@@ -2,6 +2,7 @@ package com.futo.notes.textfirst
 
 import android.view.KeyEvent
 import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.InputConnection
 import androidx.activity.ComponentActivity
 import androidx.test.core.app.ActivityScenario
 import androidx.test.platform.app.InstrumentationRegistry
@@ -21,10 +22,10 @@ import uniffi.futo_notes_ffi.NoteStore
 /** A block can always be left: Enter past a selected image, Quote and Code block as toggles. */
 class TextFirstExitTest {
     @Test fun quoteButtonTakesTheQuoteOffAQuotedLine() =
-        session("> quoted") { c -> c.select(2); c.block(EditorBlockCommand.Quote); assertEquals("quoted", c.sourceText()) }
+        session("> quoted\n") { c -> c.select(2); c.block(EditorBlockCommand.Quote); assertEquals("quoted\n", c.sourceText()) }
 
     @Test fun codeButtonTakesTheLineOutOfItsFence() =
-        session("```\ncode\n```") { c -> c.select(1); c.block(EditorBlockCommand.CodeBlock); assertEquals("code", c.sourceText()) }
+        session("```\ncode\n```\n") { c -> c.select(1); c.block(EditorBlockCommand.CodeBlock); assertEquals("code\n", c.sourceText()) }
 
     @Test fun enterOnTheEmptyLastCodeLineLeavesTheFence() = session("```\ncode\n\n```") { c ->
         c.select(5)
@@ -33,21 +34,30 @@ class TextFirstExitTest {
     }
 
     /** The keyboard answers Enter on a selection by collapsing it and deleting the selected text first. */
-    @Test fun enterOnASelectedImageKeepsItAndAddsALineBelow() = session("![](a.png)") { c ->
+    @Test fun enterOnASelectedImageKeepsItAndAddsALineBelow() = session("![](a.png)\n") { c ->
         c.view.selectedObject = 0 to 10
         c.select(0, 10)
         delay(300L)
-        val connection = c.view.onCreateInputConnection(EditorInfo())!!
-        connection.setSelection(10, 10)
-        connection.deleteSurroundingText(10, 0)
+        ime(c) {
+            setSelection(10, 10)
+            deleteSurroundingText(10, 0)
+        }
         enter(c)
-        assertEquals("![](a.png)\n", c.sourceText())
+        assertEquals("![](a.png)\n\n", c.sourceText())
     }
 
-    private suspend fun enter(c: TextFirstController) {
+    private suspend fun enter(c: TextFirstController) = ime(c) { sendKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER)) }
+
+    /**
+     * Keyboard calls arrive on the connection's handler, as the system delivers
+     * them; calling them on the main thread raced the posted selection and Enter
+     * landed at the old caret.
+     */
+    private suspend fun ime(c: TextFirstController, call: InputConnection.() -> Unit) {
         val connection = c.view.onCreateInputConnection(EditorInfo())!!
-        connection.sendKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER))
-        delay(400L)
+        suspendCancellableCoroutine<Unit> { done ->
+            connection.handler!!.post { connection.call(); c.view.post { done.resume(Unit) } }
+        }
     }
 
     private fun session(raw: String, body: suspend (TextFirstController) -> Unit) = runBlocking {

@@ -27,7 +27,7 @@ class TextFirstCompletionTest {
         val scenario = ActivityScenario.launch(ComponentActivity::class.java)
         val store = NoteStore(root.path)
         lateinit var controller: TextFirstController
-        val source = "before [[東 after"
+        val source = "before [[東 after\n"
         try {
             store.createNote("links", "", source)
             store.createNote("東京", "work", "destination")
@@ -45,7 +45,7 @@ class TextFirstCompletionTest {
                 assertEquals(listOf("work/東京"), completion.value.candidates.map { it.noteId })
                 assertEquals("東京", completion.value.candidates.single().label)
                 assertTrue(controller.acceptCompletion(completion, "work/東京"))
-                assertEquals("before [[work/東京]] after", controller.sourceText())
+                assertEquals("before [[work/東京]] after\n", controller.sourceText())
                 controller.undo()
                 assertEquals(source, controller.sourceText())
                 controller.select(10)
@@ -71,7 +71,7 @@ class TextFirstCompletionTest {
         val store = NoteStore(root.path)
         lateinit var controller: TextFirstController
         try {
-            store.createNote("links", "", "before [[ after")
+            store.createNote("links", "", "before [[ after\n")
             store.createNote("東京", "work", "destination")
             withContext(Dispatchers.Main) {
                 suspendCancellableCoroutine<Unit> { done ->
@@ -89,7 +89,7 @@ class TextFirstCompletionTest {
                 }
                 assertNull("Suggestions must not claim marked text", controller.completionDraft())
                 assertFalse(controller.acceptCompletion(beforeComposition, "work/東京"))
-                assertEquals("before [[ after", controller.sourceText())
+                assertEquals("before [[ after\n", controller.sourceText())
                 suspendCancellableCoroutine<Unit> { done ->
                     connection.handler!!.post { connection.finishComposingText(); done.resume(Unit) }
                 }
@@ -104,7 +104,7 @@ class TextFirstCompletionTest {
                     connection.handler!!.post { connection.finishComposingText(); done.resume(Unit) }
                 }
                 assertNull("Dismissed run stays dismissed during typing", controller.completionDraft())
-                assertEquals("before [[東京 after", controller.sourceText())
+                assertEquals("before [[東京 after\n", controller.sourceText())
                 assertEquals(11, controller.view.selectionStart)
                 controller.select(0)
                 assertNull(controller.completionDraft())

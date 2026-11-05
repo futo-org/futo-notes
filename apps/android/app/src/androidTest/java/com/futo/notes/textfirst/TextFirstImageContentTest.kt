@@ -37,7 +37,7 @@ class TextFirstImageContentTest {
         return file to FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
     }
 
-    private fun run(source: String = "before", body: suspend Harness.() -> Unit) = runBlocking {
+    private fun run(source: String = "before\n", body: suspend Harness.() -> Unit) = runBlocking {
         val scratch = File(context.cacheDir, "image-content-${UUID.randomUUID()}").apply { check(mkdirs()) }
         val root = File(scratch, "notes").apply { check(mkdirs()) }
         File(root, "origin.md").writeText(source)
@@ -125,7 +125,7 @@ class TextFirstImageContentTest {
             connection.commitContent(InputContentInfo(uri, ClipDescription("kb", arrayOf("text/plain"))), 0, null)
         }
         assertFalse(accepted)
-        assertEquals("before", controller.sourceText())
+        assertEquals("before\n", controller.sourceText())
         assertEquals(0, images().size)
     }
 
@@ -137,7 +137,7 @@ class TextFirstImageContentTest {
             controller.view.onTextContextMenuItem(android.R.id.paste)
         }
         delay(1_000)
-        assertEquals("before", store.core.read("origin"))
+        assertEquals("before\n", store.core.read("origin"))
         assertEquals(0, images().size)
         assertEquals(0, busy)
     }
@@ -166,6 +166,6 @@ class TextFirstImageContentTest {
             controller.select(6)
             controller.view.onTextContextMenuItem(android.R.id.paste)
         }
-        assertEquals("before pasted", controller.sourceText())
+        assertEquals("before pasted\n", controller.sourceText())
     }
 }

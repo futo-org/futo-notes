@@ -31,7 +31,7 @@ class TextFirstLinkTest {
         val scenario = ActivityScenario.launch(ComponentActivity::class.java)
         val store = NoteStore(root.path)
         lateinit var controller: TextFirstController
-        val source = "before [café](https://old.test) after"
+        val source = "before [café](https://old.test) after\n"
         try {
             store.createNote("links", "", source)
             withContext(Dispatchers.Main) {
@@ -50,7 +50,7 @@ class TextFirstLinkTest {
                 assertTrue(link.existing)
                 assertEquals(source, controller.sourceText()) // Cancel is no command.
                 assertTrue(controller.removeLink(link))
-                assertEquals("before café after", controller.sourceText())
+                assertEquals("before café after\n", controller.sourceText())
                 controller.undo()
                 assertEquals(source, controller.sourceText())
                 assertNotNull(controller.close())
@@ -73,7 +73,7 @@ class TextFirstLinkTest {
         val scenario = ActivityScenario.launch(ComponentActivity::class.java)
         val store = NoteStore(root.path)
         lateinit var controller: TextFirstController
-        val source = "before word after"
+        val source = "before word after\n"
         try {
             store.createNote("links", "", source)
             withContext(Dispatchers.Main) {
@@ -89,20 +89,23 @@ class TextFirstLinkTest {
                 assertFalse(insertion.existing)
                 assertEquals("word", insertion.label)
                 assertTrue(controller.editLink(insertion, "FUTO", "https://futo.org"))
-                assertEquals("before [FUTO](<https://futo.org>) after", controller.sourceText())
+                assertEquals("before [FUTO](<https://futo.org>) after\n", controller.sourceText())
                 controller.undo()
                 assertEquals(source, controller.sourceText())
                 controller.redo()
                 controller.select(8)
                 val existing = controller.linkDraft()!!
                 assertTrue(controller.editLink(existing, "café", "https://next.test"))
-                assertEquals("before [café](<https://next.test>) after", controller.sourceText())
+                assertEquals("before [café](<https://next.test>) after\n", controller.sourceText())
                 controller.undo()
-                assertEquals("before [FUTO](<https://futo.org>) after", controller.sourceText())
+                assertEquals("before [FUTO](<https://futo.org>) after\n", controller.sourceText())
                 controller.redo()
+                // Leaving cancels a toolbar action that has not started (performance.md):
+                // the Redo must land before the note closes.
+                assertEquals("before [café](<https://next.test>) after\n", controller.sourceText())
                 assertNotNull(controller.close())
                 controller.open("links")
-                assertEquals("before [café](<https://next.test>) after", controller.sourceText())
+                assertEquals("before [café](<https://next.test>) after\n", controller.sourceText())
                 assertFalse("draft claims cannot edit a reopened attachment", controller.editLink(existing, "wrong", "https://wrong.test"))
                 assertNotNull(controller.close())
             }
@@ -122,7 +125,7 @@ class TextFirstLinkTest {
         val store = NoteStore(root.path)
         lateinit var controller: TextFirstController
         try {
-            store.createNote("links", "", "before  after")
+            store.createNote("links", "", "before  after\n")
             withContext(Dispatchers.Main) {
                 suspendCancellableCoroutine<Unit> { done ->
                     scenario.onActivity { activity ->
@@ -137,12 +140,12 @@ class TextFirstLinkTest {
                     connection.handler!!.post { connection.setComposingText("café", 1); done.resume(Unit) }
                 }
                 val insertion = controller.linkDraft()!!
-                assertEquals("before café after", controller.sourceText())
+                assertEquals("before café after\n", controller.sourceText())
                 assertFalse(insertion.existing)
                 assertTrue(controller.editLink(insertion, "FUTO", "https://futo.org"))
-                assertEquals("before café[FUTO](<https://futo.org>) after", controller.sourceText())
+                assertEquals("before café[FUTO](<https://futo.org>) after\n", controller.sourceText())
                 controller.undo()
-                assertEquals("before café after", controller.sourceText())
+                assertEquals("before café after\n", controller.sourceText())
                 controller.select(7, 11)
                 val selected = controller.linkDraft()!!
                 assertEquals("café", selected.label)
@@ -151,7 +154,7 @@ class TextFirstLinkTest {
                     connection.handler!!.post { connection.commitText("new ", 1); done.resume(Unit) }
                 }
                 assertFalse("late editor input must invalidate a dialog claim", controller.editLink(selected, "wrong", "https://wrong.test"))
-                assertEquals("new before café after", controller.sourceText())
+                assertEquals("new before café after\n", controller.sourceText())
                 assertNotNull(controller.close())
             }
         } finally {
@@ -169,7 +172,7 @@ class TextFirstLinkTest {
         val scenario = ActivityScenario.launch(ComponentActivity::class.java)
         val store = NoteStore(root.path)
         lateinit var controller: TextFirstController
-        val source = "Before [[A very long wikilink label that should wrap across multiple visible lines and remain readable while editing]] after"
+        val source = "Before [[A very long wikilink label that should wrap across multiple visible lines and remain readable while editing]] after\n"
         try {
             store.createNote("wrap", "", source)
             withContext(Dispatchers.Main) {
@@ -215,7 +218,7 @@ class TextFirstLinkTest {
         lateinit var controller: TextFirstController
         val label = "A long linked title with café 🦊 and many words that wrap across several lines"
         val target = "folder/$label"
-        val source = "Before [[$target]] after"
+        val source = "Before [[$target]] after\n"
         val start = 7
         val end = source.indexOf("]] after") + 2
         try {
@@ -295,7 +298,7 @@ class TextFirstLinkTest {
                 suspendCancellableCoroutine<Unit> { done ->
                     connection.handler!!.post { connection.commitText("replacement", 1); done.resume(Unit) }
                 }
-                assertEquals("Before replacement after", controller.sourceText())
+                assertEquals("Before replacement after\n", controller.sourceText())
                 controller.undo()
                 assertEquals(source, controller.sourceText())
                 layout(width * 2)

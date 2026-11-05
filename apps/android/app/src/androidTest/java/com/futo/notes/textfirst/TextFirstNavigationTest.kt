@@ -40,7 +40,7 @@ class TextFirstNavigationTest {
     @Before fun open() {
         root = File(compose.activity.cacheDir, "navigation-${UUID.randomUUID()}").apply { check(mkdirs()) }
         store = NotesStore(root, File(root, "index"))
-        store.core.createNote("draft", "", "base")
+        store.core.createNote("draft", "", "base\n")
         compose.setContent {
             ProvideLocalization("en") {
                 FutoNotesTheme(darkTheme = false) {
@@ -81,7 +81,7 @@ class TextFirstNavigationTest {
         restoreSaves()
         compose.onNodeWithText("Retry save").performClick()
         compose.waitUntil(10_000) { navigator.currentScreen is Screen.Folder }
-        assertEquals("draft latest base", store.core.read("draft"))
+        assertEquals("draft latest base\n", store.core.read("draft"))
     }
 
     /** Retry after a later autosave failure saves; only the Back that failed asked to leave. */
@@ -97,7 +97,7 @@ class TextFirstNavigationTest {
         failSaves()
         type("more ")
         compose.waitUntil(10_000) { barShown() }
-        restoreSaves("draft kept base") // what the successful autosave last wrote
+        restoreSaves("draft kept base\n") // what the successful autosave last wrote
         compose.onNodeWithText("Retry save").performClick()
         compose.waitUntil(10_000) { !barShown() }
         Thread.sleep(1_000)
@@ -119,7 +119,7 @@ class TextFirstNavigationTest {
         restoreSaves()
         // Discard releases the lease; reopening sees only the previously saved body.
         store.core.openEditor("draft").use { session ->
-            assertEquals("base", session.sourceText())
+            assertEquals("base\n", session.sourceText())
             session.detach()
         }
     }
@@ -129,7 +129,7 @@ class TextFirstNavigationTest {
         check(File(root, "draft.md").mkdir())
     }
 
-    private fun restoreSaves(content: String = "base") {
+    private fun restoreSaves(content: String = "base\n") {
         check(File(root, "draft.md").delete())
         File(root, "draft.md").writeText(content)
     }

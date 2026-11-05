@@ -69,7 +69,7 @@ class TextFirstExternalRefreshTest {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val scratch = File(context.cacheDir, "refresh-${UUID.randomUUID()}").apply { check(mkdirs()) }
         val root = File(scratch, "vault").apply { check(mkdirs()) }
-        File(root, "old.md").writeText("base")
+        File(root, "old.md").writeText("base\n")
         val store = withContext(Dispatchers.Main) { NotesStore(root, File(scratch, "index")) }
         val events = Channel<SyncSummary>(Channel.UNLIMITED)
         val collector = launch(start = CoroutineStart.UNDISPATCHED) { store.localTreeChanges.collect { events.send(it) } }
@@ -95,10 +95,10 @@ class TextFirstExternalRefreshTest {
                 val event = withTimeout(10_000) { events.receive() }
                 assertEquals(listOf(RenamePair("old", "new")), event.renamed)
                 assertEquals("new", attached.noteId())
-                assertEquals("local base", attached.sourceText())
+                assertEquals("local base\n", attached.sourceText())
                 attached.detach()
                 assertFalse(File(root, "old.md").exists())
-                assertEquals("local base", store.core.read("new"))
+                assertEquals("local base\n", store.core.read("new"))
             }
         } finally {
             collector.cancel()
