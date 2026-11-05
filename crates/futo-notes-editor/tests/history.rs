@@ -25,6 +25,65 @@ fn range(a: usize, z: usize) -> DisplayRange {
         end: DisplayOffset(z),
     }
 }
+/// Chaos finding lane-1-11: every Undo after a heading shortcut typed into an
+/// ordered item returns to a state that was on screen while typing.
+#[test]
+fn undo_after_a_typed_heading_in_an_item_walks_back_through_typed_states() {
+    use futo_notes_editor::{InputAction, ParagraphKey};
+    let clock = Arc::new(Clock::default());
+    let mut s = EditorSession::open_with_clock("1. first step\n2. second step", clock);
+    let mut view = ReferenceView::new("first step\nsecond step");
+    s.select(s.revision(), range(11, 11)).unwrap();
+    let mut states = vec![(s.source_text(), s.selection())];
+    for _ in 0..2 {
+        view.apply(
+            s.paragraph_key(
+                s.revision(),
+                s.selection(),
+                ParagraphKey::Enter,
+                &mut |_| Ok(()),
+            )
+            .unwrap()
+            .unwrap(),
+        );
+        states.push((s.source_text(), s.selection()));
+    }
+    assert_eq!(states[2].0, "1. first step\n\n\n2. second step");
+    for (index, ch) in "## Sub heading".chars().enumerate() {
+        view.apply(
+            s.replace_action(
+                s.revision(),
+                s.selection(),
+                &ch.to_string(),
+                InputAction::Typing,
+                &mut |_| Ok(()),
+            )
+            .unwrap(),
+        );
+        // The typed `##`, the triggering space, and the typed words.
+        if matches!(index, 1 | 2) {
+            states.push((s.source_text(), s.selection()));
+        }
+    }
+    assert_eq!(
+        s.source_text(),
+        "1. first step\n\n\n2. ## Sub headingsecond step"
+    );
+    assert_eq!(view.text, "first step\n\n\nSub headingsecond step");
+    assert_eq!(states[3].0, "1. first step\n\n\n2. ##second step");
+    assert_eq!(states[4].0, "1. first step\n\n\n2. ## second step");
+    for (source, selection) in states.into_iter().rev() {
+        view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+        assert_eq!(s.source_text(), source);
+        assert_eq!(s.selection(), selection);
+        if source == "1. first step\n2. second step" {
+            break;
+        }
+    }
+    assert_eq!(s.source_text(), "1. first step\n2. second step");
+    assert_eq!(view.text, "first step\nsecond step");
+}
+
 #[test]
 fn typing_groups_use_the_injected_clock_and_exact_pause_boundary() {
     let clock = Arc::new(Clock::default());
