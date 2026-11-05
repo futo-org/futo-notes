@@ -30,7 +30,7 @@ internal class FindEngineState(refresh: () -> Unit) {
 }
 
 /** The result of an explicit find command, then delivered to the sink. Editor thread. */
-internal fun EditorEngine.findCommand(done: (FindSnapshot?) -> Unit, action: RefusedEdit? = RefusedEdit.EDIT, block: (NativeEditorSession) -> Pair<EditorFindReport, Boolean>) {
+internal fun EditorEngine.findCommand(done: (FindSnapshot?) -> Unit, block: (NativeEditorSession) -> Pair<EditorFindReport, Boolean>) {
     val posted = handler.post {
         var result: FindSnapshot? = null
         try {
@@ -44,7 +44,7 @@ internal fun EditorEngine.findCommand(done: (FindSnapshot?) -> Unit, action: Ref
                 ui.post { sink.onFind(result) }
             }
         } catch (e: EditorSessionException) {
-            handleFailure(e, action)
+            handleFailure(e)
         } finally { ui.post { done(result) } }
     }
     if (!posted) ui.post { done(null) }
@@ -74,7 +74,7 @@ internal fun EditorEngine.findClose(done: (FindSnapshot?) -> Unit) = findCommand
     s.findClose() to false
 }
 
-internal fun EditorEngine.findState(done: (FindSnapshot?) -> Unit) = findCommand(done, action = null) { s -> s.findReport() to false }
+internal fun EditorEngine.findState(done: (FindSnapshot?) -> Unit) = findCommand(done) { s -> s.findReport() to false }
 
 /** Input only logs edit windows; matches rebase on read and a settled rescan replaces stale ones. */
 internal fun EditorEngine.scheduleFindRefresh() {

@@ -496,12 +496,6 @@
         "remove": "Remove link",
         "failed": "Could not update the link. The text may have changed. Cancel and try again."
       },
-      "refused": {
-        "format": "That formatting can't be applied here",
-        "indent": "Can't indent this item here",
-        "text": "That text couldn't be inserted here",
-        "edit": "That edit couldn't be applied"
-      },
       "find": {
         "open": "Find in note",
         "queryLabel": "Find in note",

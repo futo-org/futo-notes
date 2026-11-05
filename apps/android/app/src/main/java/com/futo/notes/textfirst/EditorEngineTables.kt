@@ -44,7 +44,7 @@ internal fun EditorEngine.selectDisplayRange(start: Int, end: Int, expectedSeq: 
                 selected = true
             }
         } catch (e: uniffi.futo_notes_ffi.EditorSessionException) {
-            handleFailure(e, RefusedEdit.EDIT)
+            handleFailure(e)
         } finally { ui.post { done(selected) } }
     }
     if (!posted) ui.post { done(false) }
@@ -59,7 +59,7 @@ internal fun EditorEngine.showDisplayRange(start: Int, end: Int) {
     if (editingCell) publishCell() else { cellRange = null; ui.post { sink.onCell(null) } }
 }
 
-internal fun EditorEngine.finishCellEditing() = command(RefusedEdit.EDIT) {
+internal fun EditorEngine.finishCellEditing() = command {
     if (mirror.overlay != null) commitComposition(null)
     editingCell = false
     cellRange = null

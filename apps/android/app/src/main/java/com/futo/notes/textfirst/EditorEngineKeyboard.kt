@@ -15,7 +15,7 @@ internal fun EditorEngine.replace(start: Int, end: Int, value: String, action: E
     accept(checkNotNull(fast).replace(rev, start, end, value, action))
 }
 
-internal fun EditorEngine.imeCommit(value: String) = input(RefusedEdit.TEXT) {
+internal fun EditorEngine.imeCommit(value: String) = input {
     val o = mirror.overlay
     when {
         o != null -> commitComposition(value)
@@ -24,7 +24,7 @@ internal fun EditorEngine.imeCommit(value: String) = input(RefusedEdit.TEXT) {
     }
 }
 
-internal fun EditorEngine.imeSetComposing(value: String) = input(RefusedEdit.TEXT) {
+internal fun EditorEngine.imeSetComposing(value: String) = input {
     val s = session ?: return@input
     val o = mirror.overlay
     if (o == null) {
@@ -39,7 +39,7 @@ internal fun EditorEngine.imeSetComposing(value: String) = input(RefusedEdit.TEX
     }
 }
 
-internal fun EditorEngine.imeSetComposingRegion(start: Int, end: Int) = input(RefusedEdit.EDIT) {
+internal fun EditorEngine.imeSetComposingRegion(start: Int, end: Int) = input {
     val s = session ?: return@input
     if (mirror.overlay != null) commitComposition(null)
     val a = minOf(start, end).coerceIn(0, mirror.text.length)
@@ -50,11 +50,11 @@ internal fun EditorEngine.imeSetComposingRegion(start: Int, end: Int) = input(Re
     postUpdate(edits = emptyList(), windows = emptyList())
 }
 
-internal fun EditorEngine.imeFinishComposing() = input(RefusedEdit.TEXT) {
+internal fun EditorEngine.imeFinishComposing() = input {
     if (mirror.overlay != null) commitComposition(null)
 }
 
-internal fun EditorEngine.imeDeleteSurrounding(before: Int, after: Int) = input(RefusedEdit.EDIT) {
+internal fun EditorEngine.imeDeleteSurrounding(before: Int, after: Int) = input {
     if (mirror.selStart == mirror.selEnd && mirror.overlay == null) {
         if (after == 0 && before > 0 && mirror.selStart - before == mirror.previousGrapheme(mirror.selStart)) {
             return@input key(EditorParagraphKey.BACKSPACE)
@@ -78,11 +78,11 @@ internal fun EditorEngine.imeDeleteSurrounding(before: Int, after: Int) = input(
     }
 }
 
-internal fun EditorEngine.imeSetSelection(start: Int, end: Int) = input(RefusedEdit.EDIT) {
+internal fun EditorEngine.imeSetSelection(start: Int, end: Int) = input {
     select(start, end, fromView = false)
 }
 
-internal fun EditorEngine.key(key: EditorParagraphKey) = input(RefusedEdit.forKey(key)) {
+internal fun EditorEngine.key(key: EditorParagraphKey) = input {
     if (session == null) return@input
     if (mirror.overlay != null) commitComposition(null)
     val intent = if (key == EditorParagraphKey.BACKSPACE) EditorParagraphKey.BACKSPACE_JOINING_HEADING else key

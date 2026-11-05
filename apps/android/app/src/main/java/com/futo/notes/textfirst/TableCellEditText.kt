@@ -44,7 +44,7 @@ internal class TableCellEditText(context: Context, private val editor: EditorEng
     }
     override fun onSelectionChanged(a: Int, b: Int) {
         super.onSelectionChanged(a, b)
-        if (!applying) current?.let { editor.hostSelect(it.start + a.coerceAtLeast(0), it.start + b.coerceAtLeast(0), RefusedEdit.EDIT) }
+        if (!applying) current?.let { editor.hostSelect(it.start + a.coerceAtLeast(0), it.start + b.coerceAtLeast(0)) }
     }
     override fun onWindowFocusChanged(hasWindowFocus: Boolean) {
         super.onWindowFocusChanged(hasWindowFocus)
@@ -56,7 +56,7 @@ internal class TableCellEditText(context: Context, private val editor: EditorEng
         return engineInputConnection(editor, this, cell = true)
     }
     // A cell holds inline text only: with no image owner, an image paste is refused, never pasted as its URI.
-    private val clipboard = TextFirstClipboard(context, { e -> e.command(RefusedEdit.EDIT) { e.cellRange?.let { range -> e.select(range.first, range.last, false) } } }) { editor }
+    private val clipboard = TextFirstClipboard(context, { e -> e.command { e.cellRange?.let { range -> e.select(range.first, range.last, false) } } }) { editor }
     override fun onTextContextMenuItem(id: Int): Boolean = clipboard.handle(id) || super.onTextContextMenuItem(id)
     override fun contextMenuAction(id: Int) { post { onTextContextMenuItem(id) } }
     override fun imageContent(info: android.view.inputmethod.InputContentInfo, flags: Int) = false

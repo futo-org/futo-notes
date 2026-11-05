@@ -27,7 +27,7 @@ internal fun EditorEngine.refreshCompletion() {
     ui.post { sink.onCompletion(found) }
 }
 
-internal fun EditorEngine.dismissCompletion(draft: CompletionDraft) = command(RefusedEdit.EDIT) {
+internal fun EditorEngine.dismissCompletion(draft: CompletionDraft) = command {
     val found = session?.wikilinkCompletion(rev)
     if (draft.owner === this && found?.range?.start == draft.value.range.start) {
         dismissedCompletionStart = found.range.start
@@ -35,7 +35,7 @@ internal fun EditorEngine.dismissCompletion(draft: CompletionDraft) = command(Re
     }
 }
 
-internal fun EditorEngine.acceptCompletion(draft: CompletionDraft, noteId: String, done: (Boolean) -> Unit) = ackedCommand(done, RefusedEdit.TEXT) {
+internal fun EditorEngine.acceptCompletion(draft: CompletionDraft, noteId: String, done: (Boolean) -> Unit) = ackedCommand(done) {
     var applied = false
     if (draft.owner === this && mirror.overlay == null && draft.value.revision == rev &&
         draft.value.candidates.any { it.noteId == noteId }) {

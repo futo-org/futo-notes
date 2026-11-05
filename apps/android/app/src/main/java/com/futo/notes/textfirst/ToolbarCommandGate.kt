@@ -29,15 +29,15 @@ internal class ToolbarCommandGate {
 /** Handler adapter: cancellation removes only toolbar work, preserving accepted keyboard input. */
 internal class ToolbarCommandQueue(
     private val handler: Handler,
-    private val execute: (RefusedEdit, () -> Unit) -> Unit,
+    private val execute: (() -> Unit) -> Unit,
 ) {
     private val gate = ToolbarCommandGate()
     private val token = Any()
 
-    fun post(action: RefusedEdit, block: () -> Unit) {
+    fun post(block: () -> Unit) {
         if (!gate.acquire()) return
         val posted = handler.postAtTime({
-            try { if (gate.begin()) execute(action, block) } finally { gate.complete() }
+            try { if (gate.begin()) execute(block) } finally { gate.complete() }
         }, token, SystemClock.uptimeMillis())
         if (!posted) gate.complete()
     }

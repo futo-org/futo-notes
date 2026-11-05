@@ -13,7 +13,7 @@ internal data class LinkDraft(
 )
 
 /** Inspect only on demand, after queued keyboard input; never on a keystroke. */
-internal fun EditorEngine.linkDraft(deliver: (LinkDraft?) -> Unit) = command(RefusedEdit.EDIT, onUnavailable = { deliver(null) }) {
+internal fun EditorEngine.linkDraft(deliver: (LinkDraft?) -> Unit) = command(onUnavailable = { deliver(null) }) {
     var draft: LinkDraft? = null
     try {
         if (mirror.overlay != null) commitComposition(null)
@@ -29,9 +29,8 @@ internal fun EditorEngine.linkDraft(deliver: (LinkDraft?) -> Unit) = command(Ref
     }
 }
 
-/** A command whose caller waits for "applied": [block] says so, and the answer is delivered even if it throws.
- * A refusal toasts as [action]; the link dialog passes none, since it shows its own failure. */
-internal fun EditorEngine.ackedCommand(done: (Boolean) -> Unit, action: RefusedEdit? = null, block: () -> Boolean) = command(action, onUnavailable = { done(false) }) {
+/** A command whose caller waits for "applied": [block] says so, and the answer is delivered even if it throws. */
+internal fun EditorEngine.ackedCommand(done: (Boolean) -> Unit, block: () -> Boolean) = command(onUnavailable = { done(false) }) {
     var applied = false
     try { applied = block() } finally { ui.post { done(applied) } }
 }
