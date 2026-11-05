@@ -235,6 +235,12 @@ internal class EditorEngine(
         fast?.close()
         fast = null
         session = null
+        mirror.release()
+        tailLength = 0
+        editingCell = false
+        cellRange = null
+        dismissedCompletionStart = null
+        publishedSelection = 0L
         publishedIme = null
         closed = true
         thread.quitSafely()

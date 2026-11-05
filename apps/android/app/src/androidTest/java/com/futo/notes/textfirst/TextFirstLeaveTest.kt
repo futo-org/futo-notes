@@ -53,7 +53,9 @@ class TextFirstLeaveTest {
             }
             type("draft ")
             assertNull(withContext(Dispatchers.Main) { controller.close() })
+            withContext(Dispatchers.Main) { controller.dispose() }
             assertTrue("failed detach keeps the controller attached", controller.opened)
+            assertTrue("failed-save disposal retains the editable payload", withContext(Dispatchers.Main) { controller.view.text.toString().contains("draft base") })
             assertEquals("draft base\n", withContext(Dispatchers.Main) { controller.sourceText() })
             type("latest ")
             assertEquals("draft latest base\n", withContext(Dispatchers.Main) { controller.sourceText() })
@@ -110,4 +112,66 @@ class TextFirstLeaveTest {
         }
     }
 
+    @Test
+    fun disposingASavedEditorReleasesPayloadAfterTheScrollAnchorCanBeCaptured() = runBlocking {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val root = File(context.cacheDir, "leave-payload-${UUID.randomUUID()}").apply { check(mkdirs()) }
+        val scenario = ActivityScenario.launch(ComponentActivity::class.java)
+        val store = NoteStore(root.path)
+        val opened = java.util.concurrent.CountDownLatch(1)
+        val drawn = java.util.concurrent.CountDownLatch(1)
+        lateinit var controller: TextFirstController
+        lateinit var retainedEngine: EditorEngine
+        try {
+            store.createNote("large", "", "```\n" + "code row\n".repeat(4_000) + "```\n")
+            scenario.onActivity { activity ->
+                controller = createTextFirstController(activity, { store }, root)
+                activity.setContentView(controller.view)
+                controller.view.onRenderFrame = { if (opened.count == 0L && controller.view.contentComplete) drawn.countDown() }
+                controller.open("large") { assertNull(it); opened.countDown() }
+            }
+            assertTrue(opened.await(10, java.util.concurrent.TimeUnit.SECONDS))
+            assertTrue(drawn.await(10, java.util.concurrent.TimeUnit.SECONDS))
+            withContext(Dispatchers.Main) {
+                val view = controller.view
+                retainedEngine = view.engine!!
+                view.scrollTo(0, 800)
+                val anchor = view.scrollAnchor()
+                assertTrue(view.length() > 30_000)
+                assertNotNull(controller.close())
+                val afterClose = view.scrollAnchor()
+                assertNotNull(anchor)
+                assertNotNull(afterClose)
+                assertEquals("navigation captures the reader's offset after close", anchor!!.offset, afterClose!!.offset)
+                assertEquals("navigation captures the reader's line inset after close", anchor.intoLine, afterClose.intoLine)
+                assertTrue("close keeps the view intact until final disposal", view.length() > 30_000)
+                controller.dispose()
+                assertEquals("a platform-retained view must not retain the previous note", TextFirstEditText.END_SENTINEL.length, view.length())
+                assertEquals(TextFirstEditText.END_SENTINEL, view.text.toString())
+                assertNull(view.onRenderFrame)
+                assertNull(view.onApplyMeasured)
+                assertNull(view.onFrameDrawn)
+                val exact = android.view.View.MeasureSpec.EXACTLY
+                view.measure(android.view.View.MeasureSpec.makeMeasureSpec(800, exact), android.view.View.MeasureSpec.makeMeasureSpec(600, exact))
+                view.layout(0, 0, 800, 600)
+                assertTrue("the retained native layout is small", view.layout.lineCount <= 2)
+            }
+            // Retaining an old IC or publisher must not keep a closed note's
+            // mirror capacity/index or provisional/cell state alive.
+            assertTrue(retainedEngine.closed)
+            assertEquals(0, retainedEngine.mirror.text.length)
+            assertEquals(0, retainedEngine.mirror.text.capacity())
+            assertEquals(0, retainedEngine.mirror.utf8Length)
+            assertEquals(0, retainedEngine.selStart)
+            assertEquals(0, retainedEngine.selEnd)
+            assertNull(retainedEngine.mirror.overlay)
+            assertFalse(retainedEngine.editingCell)
+            assertNull(retainedEngine.cellRange)
+        } finally {
+            withContext(Dispatchers.Main) { controller.dispose() }
+            scenario.close()
+            store.destroy()
+            root.deleteRecursively()
+        }
+    }
 }

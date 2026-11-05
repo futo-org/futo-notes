@@ -44,6 +44,8 @@ internal const val IME_CAPS_MODES = TextUtils.CAP_MODE_CHARACTERS or TextUtils.C
 internal class NativeImePublisher(private val view: TextFirstEditText) {
     private var connectedOwner: EditorEngine? = null
 
+    fun release() { connectedOwner = null }
+
     fun publish(state: EngineImeState) {
         val owner = view.engine ?: return
         if (owner.publishedIme !== state) return // a newer source state or attachment superseded it

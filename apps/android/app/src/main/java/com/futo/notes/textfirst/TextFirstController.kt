@@ -247,6 +247,7 @@ internal class TextFirstController(
     }
 
     fun dispose() {
+        if (engine == null) view.releasePayload()
         vault?.nativeEditorDrafts?.remove(this)
         images.shutdown()
     }

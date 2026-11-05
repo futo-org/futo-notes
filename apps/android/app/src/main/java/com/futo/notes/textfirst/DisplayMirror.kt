@@ -29,6 +29,16 @@ internal class DisplayMirror {
         index = DisplayIndex(text)
     }
 
+    /** A closed input connection may outlive its note; keep no document capacity behind it. */
+    fun release() {
+        text.setLength(0)
+        text.trimToSize()
+        index = DisplayIndex(text)
+        selStart = 0
+        selEnd = 0
+        overlay = null
+    }
+
     fun toUtf16(byte: Int): Int = index.byteToUtf16(text, byte)
     fun toByte(utf16: Int): Int = index.utf16ToByte(text, utf16)
 
