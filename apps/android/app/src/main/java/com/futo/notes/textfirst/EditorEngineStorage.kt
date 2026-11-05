@@ -50,6 +50,7 @@ private fun EditorEngine.openAttachment(): Throwable? = try {
     rev = opened.revision()
     val display = opened.displayText()
     mirror.reset(display)
+    viewEdits.discontinue()
     // The first screens now, the rest in slices (EditorEngineStream.kt).
     val shown = OpenSlices.sliceEnd(mirror.text, 0, OpenSlices.FIRST_CHARS + openThrough.coerceIn(0, OpenSlices.REACH_BACK_CHARS))
     tailLength = mirror.text.length - shown

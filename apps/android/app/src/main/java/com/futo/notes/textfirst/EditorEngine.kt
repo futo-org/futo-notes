@@ -61,6 +61,8 @@ internal class EditorEngine(
     internal val find = FindEngineState { refreshFind() }
     internal var cellRange: IntRange? = null
     internal var seq = 0
+    /** The display edits each posted update carried, for view selections made behind them. */
+    internal val viewEdits = ViewEditJournal()
     internal var saveArmed = false
     /** A committed external event must survive migration admission or a failed write. */
     internal var reconcilePending = false
@@ -83,11 +85,17 @@ internal class EditorEngine(
 
     // ---- view and toolbar (posted from the UI thread) ----
 
-    /** A selection the view made (touch, handles, arrow keys) against update [viewSeq]. */
+    /**
+     * A selection the view made (touch, handles, arrow keys) against update
+     * [viewSeq]. It is the user's newest action even when later updates are
+     * still on their way to the view (a long command ran first), so it is
+     * carried through their edits and echoed back, never dropped.
+     */
     fun viewSelection(viewSeq: Int, start: Int, end: Int) = handler.post {
-        if (viewSeq != seq || closed) return@post
-        if (start == mirror.selStart && end == mirror.selEnd) return@post
-        guarded { select(start, end, fromView = true) }
+        if (closed) return@post
+        val (a, b) = viewEdits.map(viewSeq, start, end) ?: return@post
+        if (a == mirror.selStart && b == mirror.selEnd) return@post
+        guarded { select(a, b, fromView = true, echo = viewSeq != seq) }
     }
 
     fun toggleFormat(format: EditorInlineFormat) = toolbarCommands.post {
@@ -315,6 +323,7 @@ internal class EditorEngine(
         rev = s.revision()
         val display = s.displayText()
         mirror.reset(display)
+        viewEdits.discontinue()
         mirror.selStart = mirror.selStart.coerceIn(0, mirror.text.length); mirror.selEnd = mirror.selEnd.coerceIn(mirror.selStart, mirror.text.length)
         resetViewProgressively()
         ui.post { sink.onImeReset() }
@@ -324,7 +333,8 @@ internal class EditorEngine(
 
 
 
-    internal fun select(start: Int, end: Int, fromView: Boolean, finishTail: Boolean = true) {
+    /** [echo]: updates still in flight to the view would overwrite this view selection. */
+    internal fun select(start: Int, end: Int, fromView: Boolean, finishTail: Boolean = true, echo: Boolean = false) {
         val s = session ?: return
         var a = minOf(start, end).coerceIn(0, mirror.text.length)
         var b = maxOf(start, end).coerceIn(0, mirror.text.length)
@@ -346,7 +356,7 @@ internal class EditorEngine(
         rev = change.revision
         mirror.selStart = mirror.toUtf16(change.selection.start.toInt())
         mirror.selEnd = mirror.toUtf16(change.selection.end.toInt())
-        if (settle || !fromView || mirror.selStart != a || mirror.selEnd != b) postUpdate(emptyList(), emptyList()) else publishSelection()
+        if (settle || echo || !fromView || mirror.selStart != a || mirror.selEnd != b) postUpdate(emptyList(), emptyList()) else publishSelection()
         scheduleCaretState()
     }
 
@@ -362,6 +372,7 @@ internal class EditorEngine(
 
     internal fun postUpdate(edits: List<TextEdit>, windows: List<StyleWindow>, reset: String? = null, sourceChanged: Boolean = false, preserveScroll: Boolean = false, paced: Boolean = false) {
         seq += 1
+        viewEdits.record(seq, edits)
         val update = UiUpdate(
             seq = seq,
             reset = reset,
