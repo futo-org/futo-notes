@@ -170,6 +170,7 @@ internal fun TextFirstEditorScreen(
         adoptIdentity(finalId)
     }
     controller.onFailure = { saveFailed = true }
+    controller.onRefused = { refused -> showToast(context, localization.localizedText(refused.messageKey)) }
 
     // Open after any leave of this same note has released its attachment.
     LaunchedEffect(initialNoteId) {

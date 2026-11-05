@@ -64,3 +64,15 @@ internal fun TextFirstEditText.drawTopPaddingBand(canvas: Canvas) {
     }
     canvas.restoreToCount(save)
 }
+
+/**
+ * A hairline along the top edge while the note is scrolled. Text scrolls all the
+ * way to this edge (see drawTopPaddingBand), which sits a few dp under the title
+ * row; without an edge a heading cut there reads as drawn over the title.
+ */
+internal fun TextFirstEditText.drawScrollEdge(canvas: Canvas) {
+    if (scrollY <= 0) return
+    val paint = Paint().apply { color = this@drawScrollEdge.style.borderColor }
+    val top = scrollY.toFloat()
+    canvas.drawRect(scrollX.toFloat(), top, (scrollX + width).toFloat(), top + maxOf(1f, style.dp(1f)), paint)
+}

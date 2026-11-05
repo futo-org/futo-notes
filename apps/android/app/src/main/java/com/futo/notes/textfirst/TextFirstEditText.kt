@@ -173,7 +173,7 @@ internal class TextFirstEditText(
         val e = editableText as? ChunkedEditable
         e?.drawWindow = visibleChars()
         drawing = true
-        try { super.onDraw(canvas); drawTopPaddingBand(canvas) } finally { drawing = false; e?.drawWindow = null }
+        try { super.onDraw(canvas); drawTopPaddingBand(canvas); drawScrollEdge(canvas) } finally { drawing = false; e?.drawWindow = null }
         if (timings != null) {
             timings.drawEnd = android.os.SystemClock.elapsedRealtimeNanos()
             pendingTimings = null

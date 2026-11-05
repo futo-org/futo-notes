@@ -65,7 +65,7 @@ internal class EditorEngine(
     /** A committed external event must survive migration admission or a failed write. */
     internal var reconcilePending = false
     internal var closed = false
-    private val toolbarCommands = ToolbarCommandQueue(handler) { executeCommand({}, it) }
+    private val toolbarCommands = ToolbarCommandQueue(handler) { action, block -> executeCommand(action, {}, block) }
     private var inputStartNanos = 0L
     internal var engineNanos = 0L
     /** The last change's projection; the caret state reads its block from it. */
@@ -87,20 +87,20 @@ internal class EditorEngine(
     fun viewSelection(viewSeq: Int, start: Int, end: Int) = handler.post {
         if (viewSeq != seq || closed) return@post
         if (start == mirror.selStart && end == mirror.selEnd) return@post
-        guarded { select(start, end, fromView = true) }
+        guarded(RefusedEdit.EDIT) { select(start, end, fromView = true) }
     }
 
-    fun toggleFormat(format: EditorInlineFormat) = toolbarCommands.post {
+    fun toggleFormat(format: EditorInlineFormat) = toolbarCommands.post(RefusedEdit.FORMAT) {
         if (mirror.overlay != null) commitComposition(null)
         session?.toggleFormat(rev, format)?.let(::accept)
     }
 
-    fun blockCommand(command: EditorBlockCommand) = toolbarCommands.post {
+    fun blockCommand(command: EditorBlockCommand) = toolbarCommands.post(RefusedEdit.forBlock(command)) {
         if (mirror.overlay != null) commitComposition(null)
         session?.blockCommandUtf16(rev, EditorUtf16Range(mirror.selStart.toULong(), mirror.selEnd.toULong()), command)?.let(::accept)
     }
 
-    fun toggleTaskAt(offset: Int) = command {
+    fun toggleTaskAt(offset: Int) = command(RefusedEdit.EDIT) {
         if (mirror.overlay != null) commitComposition(null)
         val s = session ?: return@command
         val keepStart = mirror.selStart; val keepEnd = mirror.selEnd
@@ -108,22 +108,22 @@ internal class EditorEngine(
         if (change != null) accept(change) else if (keepStart != mirror.selStart || keepEnd != mirror.selEnd) postUpdate(emptyList(), emptyList())
     }
 
-    fun undo() = toolbarCommands.post {
+    fun undo() = toolbarCommands.post(RefusedEdit.EDIT) {
         if (mirror.overlay != null) commitComposition(null)
         session?.undo(rev)?.let(::accept)
     }
 
-    fun redo() = toolbarCommands.post {
+    fun redo() = toolbarCommands.post(RefusedEdit.EDIT) {
         if (mirror.overlay != null) commitComposition(null)
         session?.redo(rev)?.let(::accept)
     }
 
-    fun paste(markdown: String) = command {
+    fun paste(markdown: String) = command(RefusedEdit.TEXT) {
         if (mirror.overlay != null) commitComposition(null)
         session?.pasteMarkdown(rev, mirror.byteRange(mirror.selStart, mirror.selEnd), markdown)?.let(::accept)
     }
 
-    fun copy(cut: Boolean, deliver: (String) -> Unit) = command {
+    fun copy(cut: Boolean, deliver: (String) -> Unit) = command(RefusedEdit.EDIT) {
         if (mirror.overlay != null) commitComposition(null)
         val s = session ?: return@command
         if (mirror.selStart == mirror.selEnd) return@command
@@ -137,10 +137,10 @@ internal class EditorEngine(
         ui.post { deliver(markdown) }
     }
 
-    fun selectAll() = command { select(0, mirror.text.length, fromView = false, finishTail = false); streamTail(0) }
+    fun selectAll() = command(RefusedEdit.EDIT) { select(0, mirror.text.length, fromView = false, finishTail = false); streamTail(0) }
 
-    /** A selection the host chooses (restoring the caret after a reload). */
-    fun hostSelect(start: Int, end: Int) = command { select(start, end, fromView = false) }
+    /** A selection the host chooses (restoring the caret after a reload), or a table cell's own, which is the user's ([action]). */
+    fun hostSelect(start: Int, end: Int, action: RefusedEdit? = null) = command(action) { select(start, end, fromView = false) }
 
     /** Own-action changes (a relink after rename) the Store queued for this session. */
     fun drainCoordinatedChanges() = command {
@@ -248,29 +248,31 @@ internal class EditorEngine(
 
     // ---- internals ----
 
-    internal fun input(block: () -> Unit) {
+    /** Keyboard input; [action] names what a refusal tells the user. */
+    internal fun input(action: RefusedEdit, block: () -> Unit) {
         inputStartNanos = SystemClock.elapsedRealtimeNanos()
-        guarded(block)
+        guarded(action, block)
     }
 
-    internal fun command(onUnavailable: () -> Unit = {}, block: () -> Unit) = handler.post {
-        executeCommand(onUnavailable, block)
+    /** [action] is the user's action a refusal toasts for; null for host work the user did not ask for. */
+    internal fun command(action: RefusedEdit? = null, onUnavailable: () -> Unit = {}, block: () -> Unit) = handler.post {
+        executeCommand(action, onUnavailable, block)
     }
 
-    private fun executeCommand(onUnavailable: () -> Unit, block: () -> Unit) {
+    private fun executeCommand(action: RefusedEdit?, onUnavailable: () -> Unit, block: () -> Unit) {
         if (storageGate?.isMigrationStarted == true || closed || session == null) {
             ui.post(onUnavailable)
             return
         }
         inputStartNanos = SystemClock.elapsedRealtimeNanos()
-        guarded(block)
+        guarded(action, block)
         // A collapsed format toggle changes only carried formatting and
         // returns no change; the toolbar must still light up at once.
         handler.removeCallbacks(caretRunnable)
         refreshCaretState()
     }
 
-    private fun guarded(block: () -> Unit) {
+    private fun guarded(action: RefusedEdit?, block: () -> Unit) {
         if (closed || session == null) return
         if (storageGate?.isMigrationStarted == true) {
             ui.post { sink.onImeReset() }
@@ -279,11 +281,12 @@ internal class EditorEngine(
         try {
             block()
         } catch (e: EditorSessionException) {
-            handleFailure(e)
+            handleFailure(e, action)
         }
     }
 
-    internal fun handleFailure(e: EditorSessionException) {
+    /** [action] is the user's action that failed, null for host work: only the user's refusals toast. */
+    internal fun handleFailure(e: EditorSessionException, action: RefusedEdit? = null) {
         when (e) {
             is EditorSessionException.UnrepresentableFormat,
             is EditorSessionException.CompositionActive,
@@ -292,7 +295,8 @@ internal class EditorEngine(
                 // A refused command changes nothing (lists.md, interpretation
                 // spec); the keyboard may have assumed otherwise.
                 Log.i(TAG, "refused: $e")
-                ui.post { sink.onImeReset() }
+                val toast = RefusedEdit.toastFor(action, e)
+                ui.post { sink.onImeReset(); if (toast != null) sink.onRefused(toast) }
                 postUpdate(emptyList(), emptyList())
             }
             is EditorSessionException.StaleRevision -> {
