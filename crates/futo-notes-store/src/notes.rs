@@ -28,6 +28,27 @@ pub(crate) fn saved_note_source(source: &str) -> std::borrow::Cow<'_, str> {
     }
 }
 
+/// Two sources that save as the same bytes: they differ at most by the final
+/// line ending that saving appends.
+pub(crate) fn same_saved_source(a: &str, b: &str) -> bool {
+    saved_note_source(a) == saved_note_source(b)
+}
+
+/// A saved-form merge spelled for a draft that has no final line ending, so
+/// the editor adopts it without an edit it never made. Only the ending saving
+/// appended is removed: the result still saves as exactly `merged`.
+pub(crate) fn draft_spelling(merged: String, draft: &str) -> String {
+    if saved_note_source(draft) == draft {
+        return merged;
+    }
+    ["\r\n", "\n"]
+        .into_iter()
+        .filter_map(|ending| merged.strip_suffix(ending))
+        .find(|unended| saved_note_source(unended) == merged.as_str())
+        .map(str::to_owned)
+        .unwrap_or(merged)
+}
+
 impl LocalNoteStore {
     pub fn snapshot(&self) -> Snapshot {
         vault::snapshot_with_cache(&self.root, &self.list_cache, self.sort_order())
