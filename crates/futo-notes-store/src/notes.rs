@@ -198,7 +198,8 @@ impl LocalNoteStore {
     ///
     /// The source filename is the title (M2): only the Markdown extension is
     /// removed, and the normal collision allocator chooses a suffix rather
-    /// than overwriting an existing note. The source file is read-only input.
+    /// than overwriting an existing note. The source file is read-only input,
+    /// and its bytes are copied as they are, with no final line ending added.
     pub fn import_markdown(&self, source: &Path) -> Result<MutationResult, String> {
         if !is_markdown_path(source) {
             return Err("only .md and .markdown files can be imported".to_owned());
@@ -215,7 +216,7 @@ impl LocalNoteStore {
 
         let _gate = self.lock_gate()?;
         let _vault_mutation = vault_mutation_guard()?;
-        let metadata = self.install_new(&make_id("", title), &content, None)?;
+        let metadata = self.install_exact(&make_id("", title), &content, None)?;
         Ok(self.upsert_mutation(metadata))
     }
 

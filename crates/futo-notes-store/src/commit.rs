@@ -81,7 +81,21 @@ impl LocalNoteStore {
         content: &str,
         modified_ms: Option<i64>,
     ) -> Result<NoteMetadata, String> {
-        let content = crate::notes::saved_note_source(content);
+        self.install_exact(
+            wanted,
+            &crate::notes::saved_note_source(content),
+            modified_ms,
+        )
+    }
+
+    /// `install_new` without the authored final line ending: the bytes land as
+    /// given. Import uses it, since an imported file is not authored here.
+    pub(crate) fn install_exact(
+        &self,
+        wanted: &str,
+        content: &str,
+        modified_ms: Option<i64>,
+    ) -> Result<NoteMetadata, String> {
         for _ in 0..1000 {
             let id = paths::unique_note_id(&self.root, wanted, None)?;
             paths::note_path(&self.root, &id)?;

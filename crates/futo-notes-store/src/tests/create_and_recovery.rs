@@ -63,6 +63,19 @@ fn importing_markdown_preserves_the_filename_and_never_clobbers() {
 }
 
 #[test]
+fn importing_markdown_copies_the_file_byte_for_byte() {
+    let vault = TestRoot::new();
+    let external = TestRoot::new();
+    let source = external.0.join("no ending.md");
+    fs::write(&source, "a\r\nb").unwrap();
+    let store = store(&vault);
+
+    store.import_markdown(&source).unwrap();
+
+    assert_eq!(store.read("no ending").unwrap(), "a\r\nb");
+}
+
+#[test]
 fn importing_rejects_non_markdown_files() {
     let vault = TestRoot::new();
     let external = TestRoot::new();
