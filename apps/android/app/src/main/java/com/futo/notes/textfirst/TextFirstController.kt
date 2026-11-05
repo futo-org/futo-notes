@@ -55,6 +55,9 @@ internal class TextFirstController(
     var onAttachmentChanged: (String) -> Unit = {}
     var onCheckpointed: (FlushDraftResult, String) -> Unit = { _, _ -> }
     var onFailure: (EditorSessionException) -> Unit = {}
+    /** A refused user action to tell the user about, at most one per [RefusalToastThrottle] interval. */
+    var onRefused: (RefusedEdit) -> Unit = {}
+    private val refusalToasts = RefusalToastThrottle()
 
     private val latencyWindow = KeyLatencyWindow()
     private val latencyFlush = Runnable { latencyWindow.flush()?.let { Log.i("TextFirstLatency", it.toString()) } }
@@ -138,6 +141,10 @@ internal class TextFirstController(
     }
 
     override fun onFailure(error: EditorSessionException) = onFailure.invoke(error)
+
+    override fun onRefused(action: RefusedEdit) {
+        if (refusalToasts.admit(SystemClock.uptimeMillis())) onRefused.invoke(action)
+    }
 
     /** Keyboard restarts after a refused or failed edit; a benchmark counts refusals with it. */
     @Volatile var imeResets = 0; private set

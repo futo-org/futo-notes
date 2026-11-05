@@ -11,7 +11,7 @@ internal fun EditorEngine.imageClaim(deliver: (ULong?) -> Unit) {
                 claim = session?.imageClaim()
             }
         } catch (e: EditorSessionException) {
-            handleFailure(e)
+            handleFailure(e, RefusedEdit.EDIT)
         } finally {
             ui.post { deliver(claim) }
         }
@@ -35,7 +35,7 @@ internal fun EditorEngine.insertImage(claim: ULong, reference: String, done: (Bo
                 }
             }
         } catch (e: EditorSessionException) {
-            handleFailure(e)
+            handleFailure(e, RefusedEdit.EDIT)
         } finally {
             ui.post { done(inserted) }
         }

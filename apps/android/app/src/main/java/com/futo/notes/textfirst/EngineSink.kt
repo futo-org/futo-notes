@@ -18,4 +18,6 @@ internal interface EngineSink {
     fun onFailure(error: EditorSessionException)
     /** The keyboard's idea of the text is now wrong (a refused edit); restart its connection. */
     fun onImeReset()
+    /** The engine refused a user's action; the screen tells them. */
+    fun onRefused(action: RefusedEdit) {}
 }
