@@ -11,9 +11,11 @@ import java.io.File
 import java.util.UUID
 import kotlin.coroutines.resume
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import org.junit.Assert.*
 import org.junit.Test
 import uniffi.futo_notes_ffi.NoteStore
@@ -26,7 +28,7 @@ class TextFirstTableTest {
         val scenario = ActivityScenario.launch(ComponentActivity::class.java)
         val store = NoteStore(root.path)
         lateinit var controller: TextFirstController
-        val source = "before" + " sentence".repeat(1000) + "\r\n\r\n| 名称 | Value |\r\n| :--- | ---: |\r\n| café\\|茶 | old |\r\n\r\nafter"
+        val source = "before" + " sentence".repeat(1000) + "\r\n\r\n| 名称 | Value |\r\n| :--- | ---: |\r\n| café\\|茶 | old |\r\n\r\nafter\r\n"
         try {
             store.createNote("grid", "", source)
             withContext(Dispatchers.Main) {
@@ -41,6 +43,8 @@ class TextFirstTableTest {
                     noteConnection.commitText("prefix ", 1); done.resume(Unit)
                 } }
                 assertEquals("prefix " + source, controller.sourceText())
+                // The grid lies past the first open slice: tap it only once it is laid out.
+                withTimeout(10_000) { while (!controller.view.contentComplete) delay(10) }
                 val view = controller.view
                 val width = context.resources.displayMetrics.widthPixels
                 val height = context.resources.displayMetrics.heightPixels

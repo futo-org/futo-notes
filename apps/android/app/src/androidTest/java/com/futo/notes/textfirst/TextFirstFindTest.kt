@@ -20,7 +20,7 @@ import uniffi.futo_notes_ffi.NoteStore
 
 /** Find through the public controller seam: real session, real find rules, real table cells. */
 class TextFirstFindTest {
-    private val source = "Alpha café 😀 Beta\r\n\r\n**bold** alpha\r\n\r\n| 名称 | Value |\r\n| :--- | ---: |\r\n| ALPHA cell | x |\r\n\r\nend alpha"
+    private val source = "Alpha café 😀 Beta\r\n\r\n**bold** alpha\r\n\r\n| 名称 | Value |\r\n| :--- | ---: |\r\n| ALPHA cell | x |\r\n\r\nend alpha\r\n"
 
     private fun <T> withNote(block: suspend (TextFirstController) -> T): T = runBlocking {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
