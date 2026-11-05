@@ -29,7 +29,7 @@ fn deleting_the_end_of_a_formatted_selection_carries_its_style() {
     assert_eq!(session.selection(), range(5, 5));
 }
 #[test]
-fn enter_uses_the_platform_range_and_undo_removes_one_newline() {
+fn enter_uses_the_platform_range_and_undo_removes_one_line_break() {
     use futo_notes_editor::ParagraphKey;
     let mut session = EditorSession::open("ab\r\nuntouched\r\n");
     let mut view = ReferenceView::new("ab\r\nuntouched\r\n");
@@ -42,9 +42,10 @@ fn enter_uses_the_platform_range_and_undo_removes_one_newline() {
             .unwrap()
             .unwrap(),
     );
-    assert_eq!(session.source_text(), "a\nb\r\nuntouched\r\n");
-    assert_eq!(view.text, "a\nb\r\nuntouched\r\n");
-    assert_eq!(session.selection(), range(2, 2));
+    // The new break takes the caret line's CRLF spelling.
+    assert_eq!(session.source_text(), "a\r\nb\r\nuntouched\r\n");
+    assert_eq!(view.text, "a\r\nb\r\nuntouched\r\n");
+    assert_eq!(session.selection(), range(3, 3));
     view.apply(session.undo(Revision(1), &mut |_| Ok(())).unwrap().unwrap());
     assert_eq!(session.source_text(), "ab\r\nuntouched\r\n");
     assert_eq!(session.selection(), range(10, 10));
@@ -99,25 +100,25 @@ fn bold_carries_across_enter_and_an_empty_line_without_losing_undo_bytes() {
         .unwrap()
         .unwrap(),
     );
-    assert_eq!(s.source_text(), "__a\nb__\r\nuntouched\r\n");
-    assert_eq!(v.text, "a\nb\r\nuntouched\r\n");
+    assert_eq!(s.source_text(), "__a\r\nb__\r\nuntouched\r\n");
+    assert_eq!(v.text, "a\r\nb\r\nuntouched\r\n");
     assert_eq!(s.active_formats(), vec![InlineFormat::Bold]);
     v.apply(
-        s.paragraph_key(s.revision(), range(2, 2), ParagraphKey::Enter, &mut |_| {
+        s.paragraph_key(s.revision(), range(3, 3), ParagraphKey::Enter, &mut |_| {
             Ok(())
         })
         .unwrap()
         .unwrap(),
     );
-    assert_eq!(s.source_text(), "__a__\n\n__b__\r\nuntouched\r\n");
-    assert_eq!(v.text, "a\n\nb\r\nuntouched\r\n");
+    assert_eq!(s.source_text(), "__a__\r\n\r\n__b__\r\nuntouched\r\n");
+    assert_eq!(v.text, "a\r\n\r\nb\r\nuntouched\r\n");
     assert_eq!(s.active_formats(), vec![InlineFormat::Bold]);
     v.apply(
-        s.replace(s.revision(), range(3, 3), "X", &mut |_| Ok(()))
+        s.replace(s.revision(), range(5, 5), "X", &mut |_| Ok(()))
             .unwrap(),
     );
-    assert_eq!(s.source_text(), "__a__\n\n__Xb__\r\nuntouched\r\n");
-    assert_eq!(v.text, "a\n\nXb\r\nuntouched\r\n");
+    assert_eq!(s.source_text(), "__a__\r\n\r\n__Xb__\r\nuntouched\r\n");
+    assert_eq!(v.text, "a\r\n\r\nXb\r\nuntouched\r\n");
 }
 
 #[test]
@@ -389,4 +390,67 @@ fn a_caret_between_cr_and_lf_acts_at_the_line_end_and_never_refuses() {
             );
         }
     }
+}
+
+#[test]
+fn enter_writes_the_caret_lines_crlf_in_every_block_kind() {
+    use futo_notes_editor::ParagraphKey;
+    let bare = |s: &str| {
+        let b = s.as_bytes();
+        (0..b.len()).any(|i| b[i] == b'\n' && (i == 0 || b[i - 1] != b'\r'))
+    };
+    for opening in [
+        "ab\r\ncd\r\n",
+        "**ab**\r\ncd\r\n",
+        "- ab\r\n- cd\r\n",
+        "- ab\r\n- \r\n",
+        "- [ ] ab\r\n- [x] cd\r\n",
+        "1. ab\r\n2. cd\r\n",
+        "1. ab\r\nlazy\r\n2. cd\r\n",
+        "1. ab\r\n\r\n   more\r\n",
+        "- a\r\n  - b\r\n  - \r\n",
+        "> ab\r\n> cd\r\n",
+        "> - a\r\n> - b\r\n",
+        "# ab\r\ncd\r\n",
+        "ab\r\n--\r\n",
+        "```\r\nab\r\ncd\r\n```\r\nx\r\n",
+        "---\r\n\r\nab\r\n",
+        "x\r\n\r\n---\r\n\r\ny\r\n",
+        "para\r\n- \r\n",
+        "| a | b |\r\n| - | - |\r\n| c | d |\r\n",
+    ] {
+        let display = EditorSession::open(opening).display_text();
+        for at in (0..=display.len()).filter(|&at| display.is_char_boundary(at)) {
+            for key in [ParagraphKey::Enter, ParagraphKey::ShiftEnter] {
+                let mut s = EditorSession::open(opening);
+                let mut v = ReferenceView::new(&display);
+                let Some(change) = s
+                    .paragraph_key(s.revision(), range(at, at), key, &mut |_| Ok(()))
+                    .unwrap_or_else(|e| panic!("{opening:?} {at} {key:?}: {e:?}"))
+                else {
+                    continue;
+                };
+                // A table cell's Enter may only move the caret.
+                if change.revision == change.previous_revision {
+                    continue;
+                }
+                v.apply(change);
+                let source = s.source_text();
+                assert!(!bare(&source), "{opening:?} {at} {key:?}: {source:?}");
+                assert_eq!(v.text, s.display_text(), "{opening:?} {at} {key:?}");
+                if let Some(undo) = s.undo(s.revision(), &mut |_| Ok(())).unwrap() {
+                    v.apply(undo);
+                    assert_eq!(s.source_text(), opening, "{opening:?} {at} {key:?}");
+                    assert_eq!(v.text, display);
+                }
+            }
+        }
+    }
+    // An LF line in a mixed note keeps writing LF.
+    let mut s = EditorSession::open("ab\ncd\r\n");
+    s.paragraph_key(s.revision(), range(1, 1), ParagraphKey::Enter, &mut |_| {
+        Ok(())
+    })
+    .unwrap();
+    assert_eq!(s.source_text(), "a\nb\ncd\r\n");
 }

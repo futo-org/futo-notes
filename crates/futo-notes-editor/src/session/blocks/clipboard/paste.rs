@@ -392,7 +392,7 @@ impl EditorSession {
     }
 
     /// The caret line's ending, else the preceding line's, else LF.
-    fn line_ending_at(&self, at: usize) -> &'static str {
+    pub(in crate::session) fn line_ending_at(&self, at: usize) -> &'static str {
         let end = line_end(&self.source, at);
         let len = self.source.len_bytes();
         let crlf = |at: usize| {

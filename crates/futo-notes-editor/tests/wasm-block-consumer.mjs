@@ -189,11 +189,11 @@ export async function runBlockRegressions() {
   await reviewedBlockRegression(
     '~~~~ c++ info\r\n猫🦊\r\n~~~~~  \r\n\n__tail__',
     'Enter',
-    '~~~~ c++ info\r\n猫\n🦊\r\n~~~~~  \r\n\n__tail__',
+    '~~~~ c++ info\r\n猫\r\n🦊\r\n~~~~~  \r\n\n__tail__',
     '猫🦊\r\n\ntail',
     1,
     1,
-    '猫\n🦊\r\n\ntail',
+    '猫\r\n🦊\r\n\ntail',
     false,
     'c++',
   );
@@ -213,11 +213,11 @@ export async function runBlockRegressions() {
     [
       '> > 猫🦊\r\n> > e\u0301\r\n> > ===',
       'Enter',
-      '> > 猫🦊\r\n> > ===\r\n\n> > e\u0301',
+      '> > 猫🦊\r\n> > ===\r\n\r\n> > e\u0301',
       '猫🦊\r\ne\u0301',
       5,
       5,
-      '猫🦊\r\n\ne\u0301',
+      '猫🦊\r\n\r\ne\u0301',
     ],
     ['> # x', 'Enter', '> # \n> ', 'x', 0, 1, '\n'],
     ['> x\n> =', 'Enter', '> # \n> ', 'x', 0, 1, '\n'],

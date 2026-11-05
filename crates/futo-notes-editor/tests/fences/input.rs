@@ -42,10 +42,10 @@ fn literal_code_input_and_enter_keep_fence_and_neighbors_exact_through_history()
     );
     assert_eq!(
         session.source_text(),
-        "~~~js\r\na\nb\r\n~~~~ \r\n\n__tail__"
+        "~~~js\r\na\r\nb\r\n~~~~ \r\n\n__tail__"
     );
-    assert_eq!(view.text, "a\nb\r\n\ntail");
-    assert_eq!(session.selection(), range(2, 2));
+    assert_eq!(view.text, "a\r\nb\r\n\ntail");
+    assert_eq!(session.selection(), range(3, 3));
 }
 
 #[test]

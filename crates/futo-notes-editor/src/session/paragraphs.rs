@@ -17,7 +17,7 @@ pub enum ParagraphKey {
 }
 
 impl EditorSession {
-    /// Paragraph Enter/Shift+Enter insert one LF. Directional deletion removes
+    /// Paragraph Enter/Shift+Enter insert one line break, CRLF on a CRLF line. Directional deletion removes
     /// the selection or one visible extended grapheme (CRLF is one line break).
     /// Headings, quotes and divider edges route through the shared block owner;
     /// Enter in a table cell takes the table's keys; list and fence keys
@@ -27,7 +27,7 @@ impl EditorSession {
         &mut self,
         expected: Revision,
         mut range: DisplayRange,
-        mut key: ParagraphKey,
+        key: ParagraphKey,
         accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
     ) -> Result<Option<ViewChange>, EditorError> {
         self.check_revision(expected)?;
@@ -41,6 +41,24 @@ impl EditorSession {
         }
         self.validate_range(range)?;
         range = self.body_range(self.outside_crlf(range))?;
+        // A line break takes the caret line's spelling, as pasted ones do.
+        if matches!(key, ParagraphKey::Enter | ParagraphKey::ShiftEnter) {
+            let (at, _) = self.projection.source_bounds(range.start.0);
+            if self.line_ending_at(at) == "\r\n" {
+                return self.crlf_enter(expected, range, key, accept);
+            }
+        }
+        self.lf_paragraph_key(expected, range, key, accept)
+    }
+
+    /// `paragraph_key` with every line break the key writes spelled LF.
+    pub(in crate::session) fn lf_paragraph_key(
+        &mut self,
+        expected: Revision,
+        mut range: DisplayRange,
+        mut key: ParagraphKey,
+        accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
+    ) -> Result<Option<ViewChange>, EditorError> {
         if key == ParagraphKey::BackspaceJoiningHeading {
             if let Some(change) = self.heading_join_backspace(expected, range, accept)? {
                 return Ok(Some(change));

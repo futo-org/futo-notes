@@ -24,7 +24,7 @@ fn enter_at_an_items_text_start_opens_an_empty_item_above() {
         ("- a", 0, "- \n- a", 1),
         // A new root item takes its list's indented marker column.
         ("  - a\n  - b", 2, "  - a\n  - \n  - b", 3),
-        ("- a\r\n- b\r\n", 3, "- a\r\n- \n- b\r\n", 4),
+        ("- a\r\n- b\r\n", 3, "- a\r\n- \r\n- b\r\n", 5),
     ] {
         let mut s = EditorSession::open(raw);
         let opening = s.display_text();

@@ -30,6 +30,7 @@ mod fence_tab;
 mod fences;
 mod indent_source;
 mod keys;
+mod line_endings;
 mod list_edit;
 mod list_join;
 mod list_typing;

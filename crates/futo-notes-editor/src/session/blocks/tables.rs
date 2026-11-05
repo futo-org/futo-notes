@@ -205,6 +205,11 @@ impl EditorSession {
         Some((window, cell?))
     }
 
+    pub(super) fn in_table_cell(&self, range: DisplayRange) -> bool {
+        self.table_target(range)
+            .is_some_and(|(_, cell)| cell.is_some())
+    }
+
     fn table_target(&self, range: DisplayRange) -> Option<(Window, Option<(usize, usize)>)> {
         self.table_target_counted(range, &mut 0)
     }
