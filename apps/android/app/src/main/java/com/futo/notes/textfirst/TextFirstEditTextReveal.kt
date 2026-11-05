@@ -21,6 +21,8 @@ internal class CaretReveal {
     var ignoringLayout = false
         private set
     private var offset = -1
+    /** The selection's other end, when a range was held: TextView reveals its start and its end. */
+    private var other = -1
     private var edits = 0
     private var revealedEdits = -1
 
@@ -28,17 +30,22 @@ internal class CaretReveal {
     fun edited() { edits += 1 }
 
     /** The view shrank (the keyboard rose) under a caret that was on screen: reveal it again. */
-    fun again() { offset = -1 }
+    fun again() { offset = -1; other = -1 }
 
-    /** Count [offset] as revealed without scrolling: the reader was put elsewhere on purpose. */
-    fun hold(offset: Int) {
+    /** Count [offset] (and a range's [other] end) as revealed without scrolling: the reader was put elsewhere on purpose. */
+    fun hold(offset: Int, other: Int = offset) {
         this.offset = offset
+        this.other = other
         revealedEdits = edits
     }
 
+    /** While true, nothing is revealed: the selection is moving with text the stream appends. */
+    var quiet = false
+
     fun at(offset: Int, ready: Boolean, reveal: () -> Boolean): Boolean {
-        if (!ready || (offset == this.offset && edits == revealedEdits)) return false
+        if (!ready || quiet || ((offset == this.offset || offset == other) && edits == revealedEdits)) return false
         this.offset = offset
+        other = offset
         revealedEdits = edits
         ignoringLayout = true
         try { return reveal() } finally { ignoringLayout = false }
@@ -59,6 +66,8 @@ internal fun TextFirstEditText.caretWasInView(viewHeight: Int): Boolean {
 
 /** A whole-note selection changes the selected range without moving the reader to its end. */
 internal fun TextFirstEditText.revealCaret(offset: Int, nativeReveal: () -> Boolean): Boolean {
+    // The reader is being put back on their line (an open, a new width); the caret stays where it is.
+    if (restoring != null) return false
     val end = (editableText?.length ?: 0) - 1
     if (end > 0 && minOf(selectionStart, selectionEnd) == 0 && maxOf(selectionStart, selectionEnd) == end) return false
     return reveal.at(offset, ready = layout != null && height > 0, reveal = nativeReveal)

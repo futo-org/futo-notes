@@ -64,7 +64,7 @@ internal fun TextFirstEditText.applyRestore(): Boolean {
     // More of the note is still coming: wait until the line can be put at the top.
     if (wanted > max && !contentComplete) return false
     restoring = null
-    reveal.hold(selectionEnd) // the caret stays where it is, off screen
+    reveal.hold(selectionEnd, selectionStart) // the caret stays where it is, off screen
     scroll.stop()
     scrollTo(scrollX, wanted.coerceIn(0, max))
     pinned = anchor

@@ -108,12 +108,12 @@ internal fun EditorEngine.finishStreaming() {
     if (streaming) showNextSlice(Int.MAX_VALUE / 2, force = true)
 }
 
-/** A self-contained bounded prefix supersedes old render work, never the canonical source. */
-internal fun EditorEngine.resetViewProgressively(edits: List<TextEdit> = emptyList(), sourceChanged: Boolean = false) {
+/** A self-contained bounded prefix, reaching [through], supersedes old render work, never the canonical source. */
+internal fun EditorEngine.resetViewProgressively(edits: List<TextEdit> = emptyList(), sourceChanged: Boolean = false, through: Int = 0) {
     check(mirror.overlay == null)
     handler.removeCallbacks(tailRunnable)
     renderWork.reset()
-    val shown = OpenSlices.sliceEnd(mirror.text, 0, OpenSlices.FIRST_CHARS)
+    val shown = OpenSlices.sliceEnd(mirror.text, 0, OpenSlices.FIRST_CHARS + through)
     tailLength = mirror.text.length - shown
     postUpdate(edits, listOf(projectWindow(0, shown)), reset = mirror.text.substring(0, shown), sourceChanged = sourceChanged, preserveScroll = true, paced = true)
 }

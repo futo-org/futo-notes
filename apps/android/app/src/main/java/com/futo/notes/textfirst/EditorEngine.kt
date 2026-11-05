@@ -150,6 +150,17 @@ internal class EditorEngine(
     /** A selection the host chooses (restoring the caret after a reload). */
     fun hostSelect(start: Int, end: Int) = command { select(start, end, fromView = false) }
 
+    /**
+     * The view cut itself to a bounded prefix to lay out a new width
+     * (TextFirstEditTextWidth.kt). Render it again from this thread's text,
+     * reaching [through]; the view ignores updates made against the text it
+     * dropped until this reset arrives.
+     */
+    fun relayoutView(through: Int) = handler.post {
+        if (closed || session == null) return@post
+        if (mirror.overlay != null) resetMarkedView(emptyList()) else resetViewProgressively(through = through)
+    }
+
     /** Own-action changes (a relink after rename) the Store queued for this session. */
     fun drainCoordinatedChanges() = command {
         val s = session ?: return@command

@@ -62,6 +62,8 @@ internal class TextFirstEditText(
     /** The composing underline this view set; the only SPAN_COMPOSING span it owns. */
     internal var composing: Any? = null
     private var codeInput = false
+    /** The view cut itself to a prefix for a new width; engine updates wait for the engine's reset (TextFirstEditTextWidth.kt). */
+    internal var awaitingRelayout = false
 
     init {
         background = null
@@ -83,6 +85,7 @@ internal class TextFirstEditText(
         imeOptions = EditorInfo.IME_FLAG_NO_EXTRACT_UI or EditorInfo.IME_FLAG_NO_ENTER_ACTION
         setHorizontallyScrolling(false)
         configureSelectionClassifier()
+        textLocales = android.os.LocaleList.getDefault() // explicit: see onConfigurationChanged
         isVerticalScrollBarEnabled = true
         // Autofill and content capture copy the whole text after every change.
         importantForAutofill = IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS
@@ -111,6 +114,28 @@ internal class TextFirstEditText(
     override fun onCreateInputConnection(outAttrs: EditorInfo): InputConnection? = createEngineInputConnection(outAttrs, codeInput)
 
     override fun onCheckIsTextEditor(): Boolean = true
+
+    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+        if (MeasureSpec.getMode(widthMeasureSpec) != MeasureSpec.UNSPECIFIED) {
+            beforeNewWidth(MeasureSpec.getSize(widthMeasureSpec) - compoundPaddingLeft - compoundPaddingRight)
+        }
+        super.onMeasure(widthMeasureSpec, heightMeasureSpec)
+    }
+
+    // TextView drops its layout on EVERY configuration change (a rotation, dark
+    // mode, a keyboard plugged in) to pick up the default locale, unless its
+    // locales were set explicitly; the next measure then lays out the whole note
+    // again even at the same width. They are set explicitly (to the same default
+    // TextView would use), and a real locale change is followed from a bounded
+    // prefix (TextFirstEditTextWidth.kt).
+    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
+        val locales = android.os.LocaleList.getDefault()
+        if (locales != textLocales) {
+            boundForRelayout()
+            textLocales = locales
+        }
+        super.onConfigurationChanged(newConfig)
+    }
 
     internal fun setCodeInput(code: Boolean) {
         if (codeInput == code) return

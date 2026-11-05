@@ -19,6 +19,11 @@ internal fun TextFirstEditText.applyAppend(update: UiUpdate) {
         val end = Selection.getSelectionEnd(e)
         val oldLast = (e.length - 1).coerceAtLeast(0)
         val followsLogicalSelection = start == update.selStart.coerceIn(0, oldLast) && end == update.selEnd.coerceIn(0, oldLast)
+        // A selection past the view's end rides along with the arriving text
+        // (it sits at the insertion point): the reader did not move it, so the
+        // view does not scroll to it.
+        val clipped = followsLogicalSelection && maxOf(update.selStart, update.selEnd) > oldLast
+        reveal.quiet = clipped
         beginBatchEdit()
         try {
             e.withRendererUpdate(update) {
@@ -35,7 +40,9 @@ internal fun TextFirstEditText.applyAppend(update: UiUpdate) {
         val a = if (followsLogicalSelection) update.selStart.coerceIn(0, last) else start
         val b = if (followsLogicalSelection) update.selEnd.coerceIn(0, last) else end
         if (Selection.getSelectionStart(e) != a || Selection.getSelectionEnd(e) != b) Selection.setSelection(e, a, b)
+        if (clipped) reveal.hold(b, a)
     } finally {
+        reveal.quiet = false
         applying = false
     }
     observer?.invoke(KeyTimings(

@@ -7,6 +7,12 @@ import android.widget.TextView.BufferType
 
 /** Apply one ordered engine update to the text, spans, composition and native selection together. */
 internal fun TextFirstEditText.applyEngineUpdate(update: UiUpdate) {
+    // Cut short for a new width (TextFirstEditTextWidth.kt): deltas made against
+    // the dropped text no longer fit, and a reset brings their result.
+    if (awaitingRelayout) {
+        if (update.reset == null) return
+        awaitingRelayout = false
+    }
     contentComplete = update.complete
     if (update.append) { applyAppend(update); scheduleRestore(); return }
     if (update.styleOnly) { applyStyleSlice(update); return }
