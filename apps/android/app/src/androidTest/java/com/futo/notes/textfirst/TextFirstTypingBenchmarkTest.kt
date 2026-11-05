@@ -38,8 +38,12 @@ class TextFirstTypingBenchmarkTest {
     fun measureKeyToDraw() {
         val args = InstrumentationRegistry.getArguments()
         assumeTrue(args.getString("textFirstBench") == "true")
-        val runId = args.getString("textFirstBenchRunId") ?: "local"
+        val runId = (args.getString("textFirstBenchRunId") ?: "local").also {
+            require(it.matches(Regex("[A-Za-z0-9._-]+"))) { "Invalid benchmark run id" }
+        }
         val typed = args.getString("textFirstBenchTyped")?.toInt() ?: 100
+        val options = TextFirstBenchmarkOptions(args)
+        val selectedActions = options.actions("textFirstBenchActions", setOf("type", "enter", "backspace"))
         // Quick runs: the same key count for every action, a time box per
         // series, and fewer warm-up keys (scripts/android-text-first-bench.mjs --quick).
         val plan = KeyPlan(
@@ -58,7 +62,9 @@ class TextFirstTypingBenchmarkTest {
         // pushes into the app's own external dir are EACCES to the app.)
         val fixtures = File("/data/local/tmp/tf-bench")
         fun shellRead(name: String): String = File(fixtures, name).readText()
-        val notes = if (args.getString("textFirstBenchSynthetic") == "true") {
+        val notes = if (options.externalSource != null) {
+            listOf("external-fixture" to options.externalSource)
+        } else if (args.getString("textFirstBenchSynthetic") == "true") {
             TextFirstSyntheticNotes.all
         } else {
             val manifest = JSONArray(shellRead("manifest.json"))
@@ -67,9 +73,11 @@ class TextFirstTypingBenchmarkTest {
                 entry.getString("label") to shellRead(entry.getString("file"))
             }
         }
-        val vault = File(context.cacheDir, "tf-bench-vault-$runId").apply { deleteRecursively(); check(mkdirs()) }
+        val vault = File(context.cacheDir, "tf-bench-vault-$runId-${java.util.UUID.randomUUID()}").apply { check(mkdirs()) }
         val store = NoteStore(vault.absolutePath)
         val results = JSONArray()
+        var completed = false
+        var failed = false
         val scenario = ActivityScenario.launch(ComponentActivity::class.java)
         try {
             for ((i, note) in notes.withIndex()) {
@@ -77,18 +85,20 @@ class TextFirstTypingBenchmarkTest {
                 val id = "bench-$i"
                 store.createNote(id, "", source)
                 val result = try {
-                    measureNote(scenario, store, id, label, plan)
+                    measureNote(scenario, store, id, label, plan, options, selectedActions)
                 } catch (e: Throwable) {
+                    failed = true
                     // One failing note is a finding, not a reason to lose the run.
-                    JSONObject().put("label", label).put("error", e.stackTraceToString().take(4000))
+                    JSONObject().put("label", label).put("error", if (options.externalSource != null) e.javaClass.simpleName else e.stackTraceToString().take(4000))
                 }
                 results.put(result)
                 writeReport(context, runId, results)
             }
+            completed = !failed
         } finally {
             scenario.close()
             store.destroy()
-            vault.deleteRecursively()
+            if (completed) vault.deleteRecursively()
         }
         writeReport(context, runId, results)
     }
@@ -112,6 +122,8 @@ class TextFirstTypingBenchmarkTest {
         id: String,
         label: String,
         plan: KeyPlan,
+        options: TextFirstBenchmarkOptions,
+        selectedActions: Set<String>,
     ): JSONObject {
         lateinit var controller: TextFirstController
         val drawn = arrayOfNulls<CountDownLatch>(1)
@@ -137,19 +149,27 @@ class TextFirstTypingBenchmarkTest {
                 }
             }
         }
-        check(opened.await(120, TimeUnit.SECONDS)) { "$label did not open" }
-        // The caret at the end of the line nearest the middle of the note.
+        check(opened.await(options.timeoutSeconds, TimeUnit.SECONDS)) { "$label did not open" }
+        // Position against the complete worker mirror, not the progressively
+        // opened view prefix. No full-note string is copied on the main thread.
         lateinit var ic: InputConnection
-        scenario.onActivity {
-            val text = controller.view.text.toString()
-            val visible = text.length - TextFirstEditText.END_SENTINEL.length
-            val mid = text.indexOf('\n', visible / 2).let { if (it < 0) visible else it }
-            controller.view.requestFocus()
-            controller.select(mid)
-            controller.view.post { controller.view.bringPointIntoView(mid) }
-            ic = controller.view.onCreateInputConnection(EditorInfo())!!
+        val positioned = CountDownLatch(1)
+        val selectionBegan = SystemClock.elapsedRealtimeNanos()
+        val engine = controller.view.engine!!
+        engine.handler.post {
+            val text = engine.text
+            val mid = options.offset?.also { require(it <= text.length) { "Benchmark display offset is outside the note" } }
+                ?: text.indexOf('\n', text.length / 2).let { if (it < 0) text.length else it }
+            engine.select(mid, mid, false)
+            engine.ui.post {
+                controller.view.requestFocus()
+                controller.view.bringPointIntoView(mid)
+                ic = controller.view.onCreateInputConnection(EditorInfo())!!
+                controller.view.postOnAnimation { positioned.countDown() }
+            }
         }
-        SystemClock.sleep(500)
+        check(positioned.await(options.timeoutSeconds, TimeUnit.SECONDS)) { "$label selection timed out" }
+        val selectionSetupNs = SystemClock.elapsedRealtimeNanos() - selectionBegan
         val handler = ic.handler!!
         val vsyncs = VsyncRecorder()
         val phase = kotlin.random.Random(283)
@@ -160,7 +180,9 @@ class TextFirstTypingBenchmarkTest {
         // engine changed nothing and the keyboard restarts) is not timed.
         // Keys land at a random point of the 16.7 ms frame, as typing does;
         // a fixed rhythm would line every key up just after a vsync.
+        var timedOut = false
         fun key(action: (InputConnection) -> Unit): LongArray {
+            if (timedOut) return longArrayOf(TIMED_OUT)
             val latch = CountDownLatch(1)
             drawn[0] = latch
             lastTimings = null
@@ -176,7 +198,7 @@ class TextFirstTypingBenchmarkTest {
             SystemClock.sleep(plan.settleMs + phase.nextLong(17))
             val t = lastTimings
             if (controller.imeResets != resets) return longArrayOf(REFUSED)
-            if (!ok || t == null) return longArrayOf(TIMED_OUT)
+            if (!ok || t == null) { timedOut = true; return longArrayOf(TIMED_OUT) }
             return longArrayOf(
                 drawnAt[0] - started,
                 t.posted - started,
@@ -196,7 +218,10 @@ class TextFirstTypingBenchmarkTest {
             while (samples.size < count &&
                 (plan.seriesBudgetNs <= 0 || samples.size < MIN_SAMPLES ||
                     SystemClock.elapsedRealtimeNanos() - began < plan.seriesBudgetNs)
-            ) samples += key(action)
+            ) {
+                samples += key(action)
+                if (timedOut) break
+            }
             val timed = samples.filter { it.size > 1 }
             fun p(values: List<Long>, q: Int) = values[((values.size - 1) * q + 50) / 100]
             val result = JSONObject().put("action", name).put("samples", timed.size)
@@ -218,14 +243,14 @@ class TextFirstTypingBenchmarkTest {
                 .put("onTime", late.count { it == 0L })
                 .put("stagesNs", stageP50)
         }
-        repeat(plan.warmup) { key { it.commitText("w", 1) } }
+        repeat(plan.warmup) { if (!timedOut) key { it.commitText("w", 1) } }
         val actions = JSONArray()
-            .put(series("type", plan.type) { it.commitText("a", 1) })
-            .put(series("enter", plan.enter) { it.commitText("\n", 1) })
-            .put(series("backspace", plan.backspace) { it.deleteSurroundingText(1, 0) })
+        if ("type" in selectedActions) actions.put(series("type", plan.type) { it.commitText("a", 1) })
+        if ("enter" in selectedActions) actions.put(series("enter", plan.enter) { it.commitText("\n", 1) })
+        if ("backspace" in selectedActions) actions.put(series("backspace", plan.backspace) { it.deleteSurroundingText(1, 0) })
         scenario.onActivity { vsyncs.stop() }
         // Off the main thread: close() answers through a main-thread post.
-        kotlinx.coroutines.runBlocking { controller.close() }
+        kotlinx.coroutines.runBlocking { kotlinx.coroutines.withTimeout(options.timeoutSeconds * 1_000L) { controller.close() } }
         scenario.onActivity { activity ->
             controller.dispose()
             activity.setContentView(FrameLayout(activity))
@@ -234,6 +259,8 @@ class TextFirstTypingBenchmarkTest {
             .put("label", label)
             .put("chars", controller.view.length())
             .put("openNs", openNs)
+            .put("privateFixture", options.externalSource != null)
+            .put("selectionSetupNs", selectionSetupNs)
             .put("actions", actions)
     }
 
