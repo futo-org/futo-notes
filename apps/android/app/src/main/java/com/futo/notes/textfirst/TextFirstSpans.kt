@@ -138,10 +138,24 @@ internal class TfQuote(private val look: TextFirstStyle, val depth: Int) :
     override fun drawLeadingMargin(c: Canvas, p: Paint, x: Int, dir: Int, top: Int, baseline: Int, bottom: Int, text: CharSequence, start: Int, end: Int, first: Boolean, layout: Layout?) {
         val bar = look.dp(3f)
         for (level in 0 until depth) {
-            val left = x + dir * level * look.quoteIndent
-            c.drawRect(left, top.toFloat(), left + dir * bar, bottom.toFloat(), paint)
+            val (left, right) = leadingSpan(x, dir, level * look.quoteIndent, level * look.quoteIndent + bar)
+            c.drawRect(left, top.toFloat(), right, bottom.toFloat(), paint)
         }
     }
+}
+
+/**
+ * The canvas x that lies [offset] from a paragraph's leading edge [x]. A leading margin is
+ * drawn with `dir` 1 for left-to-right (x is its left edge) and -1 for right-to-left (x is
+ * its right edge), so the same offsets put markers beside the text in either direction.
+ */
+internal fun leadingX(x: Int, dir: Int, offset: Float): Float = x + dir * offset
+
+/** The canvas extent between two leading offsets, as (left, right). */
+internal fun leadingSpan(x: Int, dir: Int, from: Float, to: Float): Pair<Float, Float> {
+    val a = leadingX(x, dir, from)
+    val b = leadingX(x, dir, to)
+    return minOf(a, b) to maxOf(a, b)
 }
 
 internal enum class ListMarker { Bullet, Ordered, Task }
@@ -170,14 +184,13 @@ internal class TfList(
 
     override fun getLeadingMargin(first: Boolean) = (look.listIndent * (depth + 1)).toInt()
 
-    /** The marker's box in layout coordinates, for hit-testing a checkbox tap. */
-    fun markerLeft(x: Int) = x + look.listIndent * depth
-
     override fun drawLeadingMargin(c: Canvas, p: Paint, x: Int, dir: Int, top: Int, baseline: Int, bottom: Int, text: CharSequence, start: Int, end: Int, first: Boolean, layout: Layout?) {
         if (!first || !this.first) return
         val spanned = text as? Spanned ?: return
         if (spanned.getSpanStart(this) != start) return
-        val left = markerLeft(x)
+        // Offsets below run from the paragraph's leading edge [x] in direction [dir]:
+        // an RTL paragraph's markers sit at its right, beside where its text starts.
+        val lead = look.listIndent * depth
         val unit = look.listIndent
         paint.color = look.textColor
         paint.textSize = look.textSizePx
@@ -195,7 +208,7 @@ internal class TfList(
             if (bodyEnd > start && maxOf(selectionStart, selectionEnd) >= bodyEnd) {
                 paint.color = look.selectionColor
                 paint.style = Paint.Style.FILL
-                val numberLeft = if (marker == ListMarker.Ordered) left + unit - look.dp(5f) - paint.measureText("${number ?: 1}.") else left
+                val numberStart = if (marker == ListMarker.Ordered) lead + unit - look.dp(5f) - paint.measureText("${number ?: 1}.") else lead
                 var selectionBottom = bottom.toFloat()
                 val selectedEnd = maxOf(selectionStart, selectionEnd)
                 if (layout != null && layout.getLineForOffset(start) == layout.getLineForOffset(selectedEnd)) {
@@ -204,7 +217,8 @@ internal class TfList(
                     val bounds = RectF().also { path.computeBounds(it, true) }
                     selectionBottom = minOf(selectionBottom, bounds.bottom)
                 }
-                c.drawRect(minOf(left, numberLeft), top.toFloat(), left + unit, selectionBottom, paint)
+                val (left, right) = leadingSpan(x, dir, minOf(lead, numberStart), lead + unit)
+                c.drawRect(left, top.toFloat(), right, selectionBottom, paint)
                 paint.color = look.textColor
             }
         }
@@ -214,18 +228,20 @@ internal class TfList(
                 val cy = baseline - look.textSizePx * 0.32f
                 paint.style = Paint.Style.FILL
                 if (depth % 2 == 1) { paint.style = Paint.Style.STROKE; paint.strokeWidth = look.dp(1.2f) }
-                c.drawCircle(left + unit * 0.45f, cy, radius, paint)
+                c.drawCircle(leadingX(x, dir, lead + unit * 0.45f), cy, radius, paint)
             }
             ListMarker.Ordered -> {
-                paint.textAlign = Paint.Align.RIGHT
+                // The number ends beside the text, whichever side that is.
+                paint.textAlign = if (dir < 0) Paint.Align.LEFT else Paint.Align.RIGHT
                 paint.color = look.mutedColor
-                c.drawText("${number ?: 1}.", left + unit - look.dp(5f), baseline.toFloat(), paint)
+                c.drawText("${number ?: 1}.", leadingX(x, dir, lead + unit - look.dp(5f)), baseline.toFloat(), paint)
                 paint.textAlign = Paint.Align.LEFT
             }
             ListMarker.Task -> {
                 val size = look.textSizePx * 0.95f
                 val cy = baseline - look.textSizePx * 0.35f
-                val box = RectF(left + unit - size - look.dp(6f), cy - size / 2, left + unit - look.dp(6f), cy + size / 2)
+                val (boxLeft, boxRight) = leadingSpan(x, dir, lead + unit - size - look.dp(6f), lead + unit - look.dp(6f))
+                val box = RectF(boxLeft, cy - size / 2, boxRight, cy + size / 2)
                 paint.strokeWidth = look.dp(1.5f)
                 if (checked) {
                     paint.style = Paint.Style.FILL
