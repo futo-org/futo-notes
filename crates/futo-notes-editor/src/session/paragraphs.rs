@@ -48,7 +48,11 @@ impl EditorSession {
             key = ParagraphKey::Backspace;
         }
         if matches!(key, ParagraphKey::Tab | ParagraphKey::ShiftTab) {
-            return self.fence_indent(expected, range, key == ParagraphKey::ShiftTab, true, accept);
+            let outdent = key == ParagraphKey::ShiftTab;
+            if let Some(change) = self.fence_indent(expected, range, outdent, true, accept)? {
+                return Ok(Some(change));
+            }
+            return self.list_tab(expected, range, outdent, accept);
         }
         if matches!(key, ParagraphKey::Enter | ParagraphKey::ShiftEnter) {
             // An image selected as one object is not replaced by Enter: the

@@ -31,6 +31,8 @@ mod lifting;
 mod mixed_commands;
 #[path = "lists/projection.rs"]
 mod projection;
+#[path = "lists/tab.rs"]
+mod tab;
 
 #[path = "lists/semantic_context.rs"]
 mod semantic_context;

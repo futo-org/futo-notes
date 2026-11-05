@@ -136,7 +136,8 @@ fn tab_expanded_content_columns_hide_the_complete_owned_continuation_prefix() {
 }
 
 #[test]
-fn nested_navigation_stops_at_visible_graphemes_and_tab_leaves_source_history_untouched() {
+fn nested_navigation_stops_at_visible_graphemes_and_unavailable_tab_leaves_source_history_untouched(
+) {
     let raw = "> - 🦊a\r\n>   - e\u{301}b";
     let mut s = EditorSession::open(raw);
     assert_eq!(s.display_text(), "🦊a\r\ne\u{301}b");
@@ -145,14 +146,16 @@ fn nested_navigation_stops_at_visible_graphemes_and_tab_leaves_source_history_un
         assert_eq!(change.selection, range(at, at));
         assert_eq!(change.revision, Revision(0));
     }
-    for key in [ParagraphKey::Tab, ParagraphKey::ShiftTab] {
-        assert!(s
-            .paragraph_key(Revision(0), range(10, 11), key, &mut |_| panic!(
-                "non-code Tab accepted"
-            ))
-            .unwrap()
-            .is_none());
-    }
+    // The nested item has no sibling to nest under, so Tab (Indent) is a no-op.
+    assert!(s
+        .paragraph_key(
+            Revision(0),
+            range(10, 11),
+            ParagraphKey::Tab,
+            &mut |_| panic!("unavailable Tab accepted")
+        )
+        .unwrap()
+        .is_none());
     assert_eq!(s.source_text(), raw);
     assert_eq!(s.revision(), Revision(0));
     assert!(s

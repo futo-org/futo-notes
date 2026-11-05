@@ -15,6 +15,44 @@ impl EditorSession {
         self.block_command(expected, range, command, accept)
     }
 
+    /// Tab and Shift+Tab in a list item run the toolbar's Indent and Outdent
+    /// commands, and do nothing where those buttons are disabled. Outside
+    /// lists and code, Tab is not an indent key.
+    pub(in crate::session) fn list_tab(
+        &mut self,
+        expected: Revision,
+        range: DisplayRange,
+        outdent: bool,
+        accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
+    ) -> Result<Option<ViewChange>, EditorError> {
+        let in_list = self
+            .selected_block_lines(range)
+            .first()
+            .is_some_and(|line| {
+                !line.code
+                    && line
+                        .list
+                        .as_ref()
+                        .is_some_and(|list| list.quote_depth == line.quote_depth)
+            });
+        let state = self.toolbar_state_at(range);
+        if !in_list
+            || !(if outdent {
+                state.can_outdent
+            } else {
+                state.can_indent
+            })
+        {
+            return Ok(None);
+        }
+        let command = if outdent {
+            BlockCommand::Outdent
+        } else {
+            BlockCommand::Indent
+        };
+        self.block_command(expected, range, command, accept)
+    }
+
     pub fn block_command(
         &mut self,
         expected: Revision,

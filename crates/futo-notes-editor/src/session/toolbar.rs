@@ -27,7 +27,12 @@ impl EditorSession {
     /// Selection-wide formats and common blocks, plus the initial command
     /// eligibility rules. This reads retained attribution; it never stages edits.
     pub fn toolbar_state(&self) -> ToolbarState {
-        let range = self.selection;
+        self.toolbar_state_at(self.selection)
+    }
+
+    /// Toolbar state for a supplied range, so a key acts exactly where its
+    /// matching button would.
+    pub(super) fn toolbar_state_at(&self, range: DisplayRange) -> ToolbarState {
         let lines = if range.start == range.end {
             self.projection.caret_block_lines(range)
         } else {
