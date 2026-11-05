@@ -154,21 +154,21 @@ impl EditorSession {
         prefix: &mut String,
     ) -> Result<(), EditorError> {
         let depth = row.after.depth;
-        let column = if depth == 1 {
+        let parent = if depth == 1 {
             stack.clear();
             base
         } else {
             stack.truncate(depth - 1);
-            let parent = *stack
+            *stack
                 .get(depth - 2)
-                .ok_or(EditorError::UnrepresentableFormat)?;
-            siblings
-                .iter()
-                .find(|&&(key, depth, _)| (key, depth) == (row.key, row.after.depth))
-                .map(|&(.., column)| column)
-                .filter(|column| (parent..=parent + 3).contains(column))
-                .unwrap_or(parent)
+                .ok_or(EditorError::UnrepresentableFormat)?
         };
+        let column = siblings
+            .iter()
+            .find(|&&(key, depth, _)| (key, depth) == (row.key, row.after.depth))
+            .map(|&(.., column)| column)
+            .filter(|column| (parent..=parent + 3).contains(column))
+            .unwrap_or(parent);
         if stack.len() + 1 != depth || column < base {
             return Err(EditorError::UnrepresentableFormat);
         }

@@ -48,7 +48,7 @@ fn undo_after_a_typed_heading_in_an_item_walks_back_through_typed_states() {
         );
         states.push((s.source_text(), s.selection()));
     }
-    assert_eq!(states[2].0, "1. first step\n\n\n2. second step");
+    assert_eq!(states[2].0, "1. first step\n2. \n3. \n4. second step");
     for (index, ch) in "## Sub heading".chars().enumerate() {
         view.apply(
             s.replace_action(
@@ -67,11 +67,11 @@ fn undo_after_a_typed_heading_in_an_item_walks_back_through_typed_states() {
     }
     assert_eq!(
         s.source_text(),
-        "1. first step\n\n\n2. ## Sub headingsecond step"
+        "1. first step\n2. \n3. \n4. ## Sub headingsecond step"
     );
     assert_eq!(view.text, "first step\n\n\nSub headingsecond step");
-    assert_eq!(states[3].0, "1. first step\n\n\n2. ##second step");
-    assert_eq!(states[4].0, "1. first step\n\n\n2. ## second step");
+    assert_eq!(states[3].0, "1. first step\n2. \n3. \n4. ##second step");
+    assert_eq!(states[4].0, "1. first step\n2. \n3. \n4. ## second step");
     for (source, selection) in states.into_iter().rev() {
         view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
         assert_eq!(s.source_text(), source);

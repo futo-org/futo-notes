@@ -8,6 +8,7 @@ use super::*;
 use crate::inline::ListLine;
 use std::ops::Range;
 
+mod enter;
 mod indent;
 mod ops;
 mod plan;

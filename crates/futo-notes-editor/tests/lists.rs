@@ -15,6 +15,8 @@ mod commands;
 mod comment_seams;
 #[path = "lists/containers.rs"]
 mod containers;
+#[path = "lists/enter_at_start.rs"]
+mod enter_at_start;
 #[path = "lists/fixtures.rs"]
 mod fixtures;
 #[path = "lists/input.rs"]

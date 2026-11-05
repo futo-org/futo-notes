@@ -168,13 +168,13 @@ fn ordered_task_split_maps_later_item_digit_growth_and_supplied_caret() {
 }
 
 #[test]
-fn enter_at_a_list_start_leaves_a_line_above_and_continuation_enter_splits_the_item() {
+fn enter_at_a_list_start_opens_an_item_above_and_continuation_enter_splits_the_item() {
     for (raw, selected, expected, shown, caret) in [
-        ("* ab", range(0, 0), "\n* ab", "\nab", 1),
+        ("* ab", range(0, 0), "* \n* ab", "\nab", 1),
         (
             "5) ab\n1) keep",
             range(0, 0),
-            "\n5) ab\n1) keep",
+            "5) \n6) ab\n1) keep",
             "\nab\nkeep",
             1,
         ),

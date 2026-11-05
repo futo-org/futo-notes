@@ -61,17 +61,10 @@ impl EditorSession {
         }
         let list = line.list.as_ref().unwrap();
         let at_start = range.start.0 == self.projection.display_at(line.content.start);
-        if list.first && line.task.is_none() && at_start {
-            return self
-                .commit_block_key(
-                    expected,
-                    range,
-                    line.source.start..line.source.start,
-                    "\n",
-                    line.source.start + 1,
-                    accept,
-                )
-                .map(Some);
+        if list.first && at_start && range.start == range.end {
+            let quote =
+                &prefix[..super::indent_source::quote_prefix_end(&prefix, line.quote_depth)];
+            return self.enter_at_item_start(expected, range, &format!("{quote}\n"), accept);
         }
         let body = self.split_block_body(&lines, range)?;
         let origin = if list.first {
@@ -172,5 +165,53 @@ impl EditorSession {
         change.work.materialized_source_bytes += body.materialized;
         change.work.parsed_source_bytes += body.parsed;
         Ok(Some(change))
+    }
+
+    /// Enter at a nonempty item's text start: an empty item of the same list
+    /// opens above it and the caret stays on the item's text. `blank` (the
+    /// item's quote markers and a line break) is staged above the item and the
+    /// generic list edit turns it into the new item; both are one Undo step.
+    fn enter_at_item_start(
+        &mut self,
+        expected: Revision,
+        range: DisplayRange,
+        blank: &str,
+        accept: &mut dyn FnMut(&SourceEdit) -> Result<(), String>,
+    ) -> Result<Option<ViewChange>, EditorError> {
+        self.stage_block_action(expected, range, None, accept, |staged, local, accept| {
+            let lines = staged.projection.block_lines(local);
+            let start = lines
+                .first()
+                .ok_or(EditorError::UnrepresentableFormat)?
+                .source
+                .start;
+            let caret = start + blank.len() - 1;
+            let staged_blank = staged.commit_block_key(
+                staged.revision(),
+                local,
+                start..start,
+                blank,
+                caret,
+                accept,
+            )?;
+            let Some(mut change) =
+                staged.empty_item_above(staged.revision(), staged.selection(), accept)?
+            else {
+                return Ok(None);
+            };
+            accumulate_planning_work(&mut change.work, staged_blank.work);
+            // The new item's line, then the original text on the next one.
+            let display = &staged.projection.display;
+            let line = display.byte_to_line(staged.selection().start.0);
+            let text = DisplayOffset(display.line_to_byte(line + 1));
+            staged.select(
+                staged.revision(),
+                DisplayRange {
+                    start: text,
+                    end: text,
+                },
+            )?;
+            Ok(Some(change))
+        })
     }
 }
