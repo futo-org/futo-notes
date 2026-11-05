@@ -100,6 +100,10 @@ internal class TextFirstEditText(
     // suggestions are unaffected: inputType still asks for them.
     override fun isSuggestionsEnabled(): Boolean = false
 
+    // Not important for autofill is not enough: augmented autofill still offers an
+    // "Autofill" item in the selection menu, over Select all. A note is never a form field.
+    override fun getAutofillType(): Int = AUTOFILL_TYPE_NONE
+
     // Never call super: its Editor would publish the clipped renderer's coordinates to the IME.
     override fun onCreateInputConnection(outAttrs: EditorInfo): InputConnection? = createEngineInputConnection(outAttrs, codeInput)
 
