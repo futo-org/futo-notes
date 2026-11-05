@@ -28,6 +28,32 @@ fn a_line_after_a_blank_line_at_the_end_of_a_list_is_not_in_the_list() {
     );
 }
 
+/// Corpus notes that panicked the engine on open: pulldown-cmark starts a
+/// nested item opened by a tab at the line ending before it, which handed the
+/// item's marker to the previous line (a heading item, a fence's closer).
+#[test]
+fn a_tab_indented_item_under_a_heading_or_fence_item_opens() {
+    for (raw, depth) in [
+        ("- #\n\t-", 2),
+        ("```\n```\n-\n\t```\n\t```\n\t-", 2),
+        ("- # Title\n\t- nested", 2),
+        ("- a\r\n\t- b", 2),
+    ] {
+        let s = EditorSession::open(raw);
+        let display = s.display_text();
+        let at = display.len();
+        let last = s.project(s.revision(), range(at, at)).unwrap();
+        let list = last.blocks.iter().rev().find_map(|b| b.list.as_ref());
+        assert_eq!(
+            list.map(|l| l.depth),
+            Some(depth),
+            "{raw:?}: {:?}",
+            last.blocks
+        );
+        assert_eq!(s.source_text(), raw);
+    }
+}
+
 #[test]
 fn opening_supported_list_spellings_hides_markers_and_retains_lazy_numbers() {
     let raw =
