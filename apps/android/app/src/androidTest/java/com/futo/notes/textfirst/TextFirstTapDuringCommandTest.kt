@@ -32,4 +32,28 @@ class TextFirstTapDuringCommandTest {
             assertEquals(6, controller.view.selectionEnd)
         }
     }
+
+    @Test fun aTableCellTapDuringALongCommandStillOpensTheCell() = streamingExercise(
+        "| a | b |\n|---|---|\n| 1 | 2 |\n\n" + (0 until 2_000).joinToString("") { "paragraph $it\n\n" },
+    ) {
+        val cell = display().indexOf('2').also { assertTrue(it > 0) }
+        engine.selectAll()
+        barrier()
+        awaitComplete()
+        val blocked = CountDownLatch(1)
+        val resume = CountDownLatch(1)
+        engine.handler.post { blocked.countDown(); check(resume.await(10, TimeUnit.SECONDS)) }
+        assertTrue(blocked.await(10, TimeUnit.SECONDS))
+        try {
+            engine.toggleFormat(EditorInlineFormat.BOLD)
+            ui { controller.view.onTableCell!!(cell, cell, controller.view.appliedSeq) }
+        } finally { resume.countDown() }
+        barrier()
+        var editing = false
+        var caret = -1
+        engine.handler.post { editing = engine.editingCell; caret = engine.selStart }
+        barrier()
+        assertTrue("the tapped cell opens", editing)
+        assertEquals(cell, caret)
+    }
 }

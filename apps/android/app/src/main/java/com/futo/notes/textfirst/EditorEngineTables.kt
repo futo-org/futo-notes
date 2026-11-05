@@ -33,14 +33,19 @@ internal fun EditorEngine.tableSpans(p: EditorProjection): List<SpanSpec> {
     return out
 }
 
-/** Used by a grid tap and Find alike: the selected range is the actual displayed range. */
-internal fun EditorEngine.selectDisplayRange(start: Int, end: Int, expectedSeq: Int? = null, done: (Boolean) -> Unit) {
+/**
+ * Used by a grid tap and Find alike: the selected range is the actual displayed range.
+ * A grid tap names the view update it saw ([viewSeq]); like any tap it is carried through
+ * the updates still on their way to the view rather than dropped.
+ */
+internal fun EditorEngine.selectDisplayRange(start: Int, end: Int, viewSeq: Int? = null, done: (Boolean) -> Unit) {
     val posted = handler.post {
         var selected = false
         try {
-            if (!closed && session != null && storageGate?.isMigrationStarted != true && (expectedSeq == null || expectedSeq == seq)) {
+            val range = if (viewSeq == null) start to end else viewEdits.map(viewSeq, start, end)
+            if (!closed && session != null && storageGate?.isMigrationStarted != true && range != null) {
                 if (mirror.overlay != null) commitComposition(null)
-                showDisplayRange(start, end)
+                showDisplayRange(range.first, range.second)
                 selected = true
             }
         } catch (e: uniffi.futo_notes_ffi.EditorSessionException) {
