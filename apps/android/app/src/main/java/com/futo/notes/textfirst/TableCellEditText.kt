@@ -24,8 +24,11 @@ internal class TableCellEditText(context: Context, private val editor: EditorEng
         imeOptions = EditorInfo.IME_ACTION_DONE or EditorInfo.IME_FLAG_NO_EXTRACT_UI
         setPadding(style.dp(12f).toInt(), style.dp(12f).toInt(), style.dp(12f).toInt(), style.dp(12f).toInt())
         filters = arrayOf(InputFilter { _, _, _, dest, a, b -> if (applying) null else dest.subSequence(a, b) })
+        importantForAutofill = IMPORTANT_FOR_AUTOFILL_NO
     }
     override fun isSuggestionsEnabled() = false
+    // A cell is note text, never a form field: no "Autofill" item over its selection menu.
+    override fun getAutofillType() = AUTOFILL_TYPE_NONE
     fun apply(update: CellUpdate) {
         current = update
         applying = true

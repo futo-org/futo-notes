@@ -45,7 +45,6 @@ import com.futo.notes.claimDraftOwnership
 import com.futo.notes.delete
 import com.futo.notes.launchEditorLeave
 import com.futo.notes.localization.LocalLocalization
-import com.futo.notes.localization.LocalizedMessage
 import com.futo.notes.moveNote
 import com.futo.notes.releaseDraftOwnership
 import com.futo.notes.rename
@@ -56,6 +55,7 @@ import com.futo.notes.ui.affectsOpenNote
 import com.futo.notes.ui.collidesWithOtherNote
 import com.futo.notes.ui.components.ConfirmDialog
 import com.futo.notes.ui.components.FolderPickerSheet
+import com.futo.notes.ui.commitEditorTitleSnapshot
 import com.futo.notes.ui.editorTitleTarget
 import com.futo.notes.ui.titleWarningFor
 import com.futo.notes.ui.isPlaceholderTitle
@@ -72,7 +72,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import uniffi.futo_notes_ffi.FlushDisposition
-import uniffi.futo_notes_ffi.sanitizeTitle
 import uniffi.futo_notes_ffi.splitId
 
 /**
@@ -107,7 +106,6 @@ internal fun TextFirstEditorScreen(
 
     var noteId by remember(initialNoteId) { mutableStateOf(initialNoteId) }
     val titleField = remember(initialNoteId) { TitleFieldState(splitId(initialNoteId).title) }
-    var titleWarning by remember(initialNoteId) { mutableStateOf<LocalizedMessage?>(null) }
     var leaving by remember(initialNoteId) { mutableStateOf(false) }
     var saveFailed by remember(initialNoteId) { mutableStateOf(false) }
     var confirmDiscard by remember(initialNoteId) { mutableStateOf(false) }
@@ -145,8 +143,9 @@ internal fun TextFirstEditorScreen(
     val find = rememberTextFirstFind(controller, initialNoteId)
     val images = rememberTextFirstImages(controller, store, noteId, leaving, imagePicker)
 
+    val titleWarning = remember(initialNoteId) { TitleWarning(scope) }
     fun showTitleValidation(title: String) {
-        titleWarning = titleWarningFor(noteId, title, store.notes.map { it.id })
+        titleWarning.validate(titleWarningFor(noteId, title, store.notes.map { it.id }))
     }
 
     fun adoptIdentity(finalId: String) {
@@ -196,23 +195,25 @@ internal fun TextFirstEditorScreen(
         onDispose { lifecycle.removeObserver(observer) }
     }
 
+    /**
+     * Rename to the typed title. A refused title (blank, illegal, or another note's name)
+     * keeps the current name and is not a failure; false only when the store's rename failed.
+     */
     suspend fun renameTo(next: String): Boolean {
         val wanted = editorTitleTarget(noteId, next, store.notes.mapTo(mutableSetOf()) { it.id })
-        if (wanted == null || wanted == noteId) {
-            return next.isNotBlank() && sanitizeTitle(next.trim()) == splitId(noteId).title
+        val commit = commitEditorTitleSnapshot(noteId, wanted) { from, to ->
+            store.rename(from, to, draft = null, ownerToken = ownerToken)
         }
-        return when (val outcome = store.rename(noteId, wanted, draft = null, ownerToken = ownerToken)) {
-            is NoteMutationOutcome.Committed -> {
-                noteId = outcome.value.id
-                if (titleField.text == next) titleField.commit(splitId(noteId).title)
-                controller.drainCoordinatedChanges()
-                true
-            }
-            NoteMutationOutcome.Failed -> {
-                showToast(context, localization.localizedText("notes.title.renameFailed"))
-                false
-            }
+        if (!commit.isCommitted) {
+            showToast(context, localization.localizedText("notes.title.renameFailed"))
+            return false
         }
+        if (wanted != null && wanted != noteId) {
+            noteId = commit.id
+            if (titleField.text == next) titleField.commit(splitId(noteId).title)
+            controller.drainCoordinatedChanges()
+        }
+        return true
     }
 
     LaunchedEffect(initialNoteId) {
@@ -382,12 +383,12 @@ internal fun TextFirstEditorScreen(
             modifier = Modifier.padding(padding).consumeWindowInsets(padding).fillMaxSize().imePadding(),
         ) {
             TextFirstTitle(
-                titleField, titleWarning, enabled = !leaving && !images.recovering,
+                titleField, titleWarning.message, enabled = !leaving && !images.recovering,
                 verbsEnabled = !leaving && !images.recovering && controller.opened,
                 onCommit = { work.withLock { renameTo(titleField.text) } },
                 onReturn = { controller.view.showKeyboard() },
             ) { title, forbidden ->
-                if (forbidden) titleWarning = LocalizedMessage("notes.title.forbiddenCharacter") else showTitleValidation(title)
+                if (forbidden) titleWarning.forbiddenCharacter() else showTitleValidation(title)
             }
             if (saveFailed) {
                 TextFirstSaveError(
