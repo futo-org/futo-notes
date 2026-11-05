@@ -124,6 +124,36 @@ class TextFirstCaretFollowTest {
         assertTrue(misses.joinToString("\n"), misses.isEmpty())
     }
 
+    /**
+     * Chaos lane-1-07: Enter twice at the end of a last task leaves the list, and the caret on the
+     * new plain line sits at the margin, not at the task text's indent the empty task row had.
+     */
+    @Test
+    fun enterTwiceAtTheEndOfATaskListPutsTheCaretAtTheMargin() = exercise("$longNote\n\n- [ ] eggs\n- [ ] lemons (3)\n") {
+        compose.runOnUiThread {
+            val end = view.text.toString().indexOf("lemons (3)") + "lemons (3)".length
+            view.engine!!.hostSelect(end, end)
+        }
+        SystemClock.sleep(300)
+        repeat(2) {
+            key {
+                it.sendKeyEvent(android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_ENTER))
+                it.sendKeyEvent(android.view.KeyEvent(android.view.KeyEvent.ACTION_UP, android.view.KeyEvent.KEYCODE_ENTER))
+            }
+        }
+        compose.waitForIdle()
+        compose.runOnUiThread {
+            val text: android.text.Spanned = view.text!!
+            val caret = view.selectionEnd
+            assertTrue("the caret is on an empty line after a blank one", text.toString().substring(0, caret).endsWith("lemons (3)\n\n"))
+            val margins = text.getSpans(caret, caret, TfList::class.java)
+                .filter { text.getSpanEnd(it) > caret || text.getSpanStart(it) == caret }
+            assertTrue("no list row styles the plain line: $margins", margins.isEmpty())
+            val x = view.layout.getPrimaryHorizontal(caret)
+            assertEquals("the caret is at the margin", 0f, x, 1f)
+        }
+    }
+
     /** A new line, H1, a title, Return: the new line's caret is on screen at once, not clipped at the bottom edge. */
     @Test
     fun returnAfterAHeadingAtTheBottomRevealsTheNewLine() = exercise(longNote) {
