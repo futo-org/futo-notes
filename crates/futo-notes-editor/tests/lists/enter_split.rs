@@ -125,16 +125,161 @@ fn enter_before_a_lazy_continuation_keeps_it_and_the_later_items_in_the_list() {
     }
 }
 
-#[test]
-fn enter_that_would_strand_an_items_later_blocks_is_refused() {
-    // An empty item cannot begin with a blank line followed by its content.
-    let raw = "1. a\n\n   more\n2. b";
+/// Presses Enter at `at` and checks the result reopens to the same display,
+/// list rows and caret, then that Undo restores the exact source.
+fn enter_at(raw: &str, at: usize, expected: &str, rows: &[&str], caret: usize) {
     let mut s = EditorSession::open(raw);
-    let revision = s.revision();
-    assert!(matches!(
-        s.paragraph_key(revision, range(1, 1), ParagraphKey::Enter, &mut |_| Ok(())),
-        Err(EditorError::UnrepresentableFormat)
-    ));
-    assert_eq!(s.source_text(), raw);
-    assert_eq!(s.revision(), revision);
+    let display = s.display_text();
+    let mut view = ReferenceView::new(&display);
+    view.apply(
+        s.paragraph_key(
+            s.revision(),
+            range(at, at),
+            ParagraphKey::Enter,
+            &mut |_| Ok(()),
+        )
+        .unwrap()
+        .unwrap(),
+    );
+    assert_eq!(s.source_text(), expected, "{raw:?}");
+    assert_eq!(list_rows(&s), rows, "{raw:?}");
+    assert_eq!(view.text, s.display_text(), "{raw:?}");
+    assert_eq!(s.selection(), range(caret, caret), "{raw:?}");
+    assert_eq!(
+        EditorSession::open(expected).display_text(),
+        s.display_text(),
+        "{raw:?}"
+    );
+    view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+    assert_eq!(s.source_text(), raw, "{raw:?} undo");
+    assert_eq!(view.text, display);
+}
+
+#[test]
+fn enter_before_an_items_blank_line_moves_the_blank_above_the_new_item() {
+    // An item begins with at most one blank line, so the empty new item takes
+    // the item's later rows directly and the blank line stays above it.
+    enter_at(
+        "1. a\n\n   b",
+        1,
+        "1. a\n\n2. \n   b",
+        &["1.1", "1", "1.2", "1"],
+        3,
+    );
+    enter_at(
+        "1. a\n\n   more\n2. b",
+        1,
+        "1. a\n\n2. \n   more\n3. b",
+        &["1.1", "1", "1.2", "1", "1.3"],
+        3,
+    );
+    enter_at(
+        "1. a\n\n\n   b\n2. c",
+        1,
+        "1. a\n\n\n2. \n   b\n3. c",
+        &["1.1", "1", "1", "1.2", "1", "1.3"],
+        4,
+    );
+    enter_at(
+        "> - a\n>\n>   b",
+        1,
+        "> - a\n>\n> - \n>   b",
+        &["-1", "1", "-1", "1"],
+        3,
+    );
+    // A blank line after the moved rows' first content is an ordinary loose
+    // continuation and needs no move.
+    enter_at(
+        "1. a\n   x\n\n   b",
+        1,
+        "1. a\n2. \n   x\n\n   b",
+        &["1.1", "1.2", "1", "1", "1"],
+        2,
+    );
+}
+
+#[test]
+fn enter_in_formatting_that_crosses_the_caret_line_closes_and_reopens_it() {
+    // (source, caret, expected source, display after, bold mask of that display)
+    for (raw, at, expected, shown, mask) in [
+        // The bold continues on a lazy line, which became literal `lazy** x`.
+        (
+            "1. **a\nlazy** x",
+            1,
+            "1. **a**\n2. \n   **lazy** x",
+            "a\n\nlazy x",
+            "b\n\nbbbb  ",
+        ),
+        // A split inside the bold, an indented continuation and a bullet.
+        (
+            "1. **ab\nlazy** x",
+            1,
+            "1. **a**\n2. **b**\n**lazy** x",
+            "a\nb\nlazy x",
+            "b\nb\nbbbb  ",
+        ),
+        (
+            "- **a\n  cont** x",
+            1,
+            "- **a**\n- \n  **cont** x",
+            "a\n\ncont x",
+            "b\n\nbbbb  ",
+        ),
+        // The caret on a later row: the rows above close their bold too.
+        (
+            "1. **a\nb\nc** d",
+            3,
+            "1. **a**\n**b**\n2. \n   **c** d",
+            "a\nb\n\nc d",
+            "b\nb\n\nb  ",
+        ),
+        // Inside a quote.
+        (
+            "> 1. *a\n> lazy* x",
+            1,
+            "> 1. *a*\n> 2. \n>    *lazy* x",
+            "a\n\nlazy x",
+            "i\n\niiii  ",
+        ),
+    ] {
+        let mut s = EditorSession::open(raw);
+        let mut view = ReferenceView::new(&s.display_text());
+        view.apply(
+            s.paragraph_key(
+                s.revision(),
+                range(at, at),
+                ParagraphKey::Enter,
+                &mut |_| Ok(()),
+            )
+            .unwrap()
+            .unwrap(),
+        );
+        assert_eq!(s.source_text(), expected, "{raw:?}");
+        assert_eq!(s.display_text(), shown, "{raw:?}");
+        assert_eq!(view.text, shown, "{raw:?}");
+        let reopened = EditorSession::open(expected);
+        assert_eq!(reopened.display_text(), shown, "{raw:?}");
+        let formats = shown
+            .char_indices()
+            .map(|(at, c)| {
+                if c == '\n' {
+                    return '\n';
+                }
+                let p = reopened
+                    .project(reopened.revision(), range(at, at + 1))
+                    .unwrap();
+                let has = |format| p.runs.iter().any(|run| run.formats.contains(&format));
+                if has(InlineFormat::Bold) {
+                    'b'
+                } else if has(InlineFormat::Italic) {
+                    'i'
+                } else {
+                    ' '
+                }
+            })
+            .collect::<String>();
+        assert_eq!(formats, mask, "{raw:?}");
+        view.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
+        assert_eq!(s.source_text(), raw);
+    }
 }

@@ -1,6 +1,9 @@
 //! Enter spelling and list numbering after list-key routing chooses insertion.
 use super::*;
 
+/// Source replacements, each a byte range and its new text.
+type RowEdits = Vec<(std::ops::Range<usize>, String)>;
+
 impl EditorSession {
     pub(super) fn insert_list_paragraph(
         &mut self,
@@ -110,13 +113,32 @@ impl EditorSession {
             let at = target.rfind('[').unwrap() + 1;
             target.replace_range(at..at + 1, " ");
         }
-        let output = format!("{left_prefix}{}\n{continuation}{}", body.left, body.right);
-        let mut caret =
-            line.source.start + left_prefix.len() + body.left.len() + 1 + continuation.len();
-        let mut edits = vec![(line.source.start..line.content.end, output)];
         // The item's later rows now follow the new marker and must stay in it.
         let opens_empty = body.right.is_empty() && origin.task.is_none();
-        edits.extend(self.moved_item_rows(line, &origin, &continuation, opens_empty)?);
+        let (moved, blanks) = self.moved_item_rows(line, &origin, &continuation, opens_empty)?;
+        let output = format!(
+            "{left_prefix}{}\n{blanks}{continuation}{}",
+            body.left, body.right
+        );
+        let mut caret = line.source.start
+            + left_prefix.len()
+            + body.left.len()
+            + 1
+            + blanks.len()
+            + continuation.len();
+        let mut edits = vec![(line.source.start..line.content.end, output)];
+        edits.extend(moved);
+        // The split closed and reopened formatting at the caret line's edges;
+        // the paragraph's rows above and below it must close and reopen too.
+        let (above, below) = self.paragraph_rows_around(line);
+        for rows in [above, below] {
+            for (range, text) in self.standalone_rows(&rows)? {
+                if range.start < line.source.start {
+                    caret = caret + text.len() - range.len();
+                }
+                edits.push((range, text));
+            }
+        }
         if list.ordinal.is_some() {
             let group = DisplayRange {
                 start: DisplayOffset(self.projection.display_at(list.owner.start)),
@@ -167,19 +189,107 @@ impl EditorSession {
         Ok(Some(change))
     }
 
+    /// The rows of the caret line's paragraph above and below it (lazy or
+    /// indented continuation lines of the same item).
+    fn paragraph_rows_around(
+        &self,
+        line: &crate::inline::blocks::BlockLine,
+    ) -> (
+        Vec<crate::inline::blocks::BlockLine>,
+        Vec<crate::inline::blocks::BlockLine>,
+    ) {
+        let item = &line.list.as_ref().unwrap().item;
+        let display = &self.projection.display;
+        let row = |index: usize| {
+            let point = DisplayOffset(display.line_to_byte(index));
+            self.projection
+                .block_lines(DisplayRange {
+                    start: point,
+                    end: point,
+                })
+                .into_iter()
+                .next()
+        };
+        let same = |other: &crate::inline::blocks::BlockLine| {
+            other.paragraph_text
+                && !other.code
+                && other.heading == 0
+                && other.list.as_ref().is_some_and(|list| &list.item == item)
+        };
+        let at = display.byte_to_line(self.projection.display_at(line.content.start));
+        let mut above = Vec::new();
+        if !line.list.as_ref().unwrap().first {
+            for index in (0..at).rev() {
+                let Some(other) = row(index).filter(|other| same(other)) else {
+                    break;
+                };
+                let first = other.list.as_ref().unwrap().first;
+                above.push(other);
+                if first {
+                    break;
+                }
+            }
+            above.reverse();
+        }
+        let mut below = Vec::new();
+        for index in at + 1..display.len_lines() {
+            match row(index) {
+                Some(other) if same(&other) && !other.list.as_ref().unwrap().first => {
+                    below.push(other)
+                }
+                _ => break,
+            }
+        }
+        (above, below)
+    }
+
+    /// Content edits that spell `rows` as a paragraph of their own, closing and
+    /// reopening any formatting that crossed their edges. Unchanged physical
+    /// bodies keep their bytes.
+    fn standalone_rows(
+        &self,
+        rows: &[crate::inline::blocks::BlockLine],
+    ) -> Result<RowEdits, EditorError> {
+        let (Some(first), Some(last)) = (rows.first(), rows.last()) else {
+            return Ok(Vec::new());
+        };
+        let range = DisplayRange {
+            start: DisplayOffset(self.projection.display_at(first.content.start)),
+            end: DisplayOffset(self.projection.display_at(last.content.end)),
+        };
+        let text = self
+            .projection
+            .body_source(&self.source, range, false, self.revision)?
+            .text;
+        let bodies = rows.iter().flat_map(|row| &row.bodies).collect::<Vec<_>>();
+        let parts = text.split('\n').collect::<Vec<_>>();
+        if parts.len() != bodies.len() {
+            return Err(EditorError::UnrepresentableFormat);
+        }
+        let mut edits = Vec::new();
+        for (body, part) in bodies.into_iter().zip(parts) {
+            let part = part.trim_end_matches('\r');
+            if self.source.byte_slice(body.content.clone()) != part {
+                edits.push((body.content.clone(), part.to_owned()));
+            }
+        }
+        Ok(edits)
+    }
+
     /// Indentation edits that keep the split item's later rows inside the new
     /// item. `continuation` is the new item's prefix; when it `opens_empty`
     /// (no text on its own line) its rows need its full content column, so
-    /// lazy continuation lines are indented to it, and a blank row before
-    /// more of the item cannot be written (an item begins with at most one
-    /// blank line). A marker that grows a digit moves indented rows with it.
+    /// lazy continuation lines are indented to it. An item begins with at most
+    /// one blank line, so blank rows between the split line and the rest of
+    /// the item are removed and returned to be written above the new marker.
+    /// A marker that grows a digit moves indented rows with it.
     fn moved_item_rows(
         &self,
         line: &crate::inline::blocks::BlockLine,
         origin: &crate::inline::blocks::BlockLine,
         continuation: &str,
         opens_empty: bool,
-    ) -> Result<Vec<(std::ops::Range<usize>, String)>, EditorError> {
+    ) -> Result<(RowEdits, String), EditorError> {
         let list = origin.list.as_ref().unwrap();
         let end = line.list.as_ref().unwrap().item.end;
         let quote_end = super::indent_source::quote_prefix_end(continuation, list.quote_depth);
@@ -196,7 +306,8 @@ impl EditorSession {
         let shift = column.saturating_sub(list.content_column);
         let mut edits = Vec::new();
         let mut lazy = opens_empty;
-        let mut blank = false;
+        let mut content = false;
+        let mut blanks = String::new();
         let mut index = self.source.byte_to_line(line.source.start) + 1;
         while index < self.source.len_lines() && self.source.line_to_byte(index) < end {
             let start = self.source.line_to_byte(index);
@@ -206,13 +317,14 @@ impl EditorSession {
             let quotes = super::indent_source::quote_prefix_end(text, list.quote_depth);
             let body = &text[quotes..];
             if body.trim().is_empty() {
-                blank = true;
+                if opens_empty && !content {
+                    blanks.push_str(&raw);
+                    edits.push((start..start + raw.len(), String::new()));
+                }
                 lazy = false;
                 continue;
             }
-            if blank && opens_empty {
-                return Err(EditorError::UnrepresentableFormat);
-            }
+            content = true;
             let indent = quotes + (body.len() - body.trim_start_matches([' ', '\t']).len());
             let at = crate::inline::columns(&text[..indent], 0);
             let wanted = if at >= list.content_column {
@@ -244,7 +356,12 @@ impl EditorSession {
                 format!("{quote}{}", " ".repeat(spaces)),
             ));
         }
-        Ok(edits)
+        if !content {
+            // Blank rows with nothing after them stay where they are.
+            edits.clear();
+            blanks.clear();
+        }
+        Ok((edits, blanks))
     }
 
     /// Enter at a nonempty item's text start: an empty item of the same list
