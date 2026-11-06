@@ -93,9 +93,9 @@ fn login_syncs_and_a_second_client_receives_exact_bytes() {
     a.run(&["--json", "sync"]).assert_ok();
     assert_eq!(
         fs::read(a.note("release reminder")).unwrap(),
-        format!("{body}edited on B").into_bytes()
+        format!("{body}edited on B\n").into_bytes()
     );
-    assert_eq!(a.run(&["read", "from b"]).stdout, "new");
+    assert_eq!(a.run(&["read", "from b"]).stdout, "new\n");
 
     let again = a.run(&["--json", "sync"]).json();
     assert_eq!(again["data"]["uploaded"], 0, "a rerun duplicates nothing");
@@ -231,7 +231,7 @@ fn a_failed_first_sync_keeps_the_configuration_for_a_retry() {
         .contains(&server.url));
     fs::remove_file(root.join("work")).unwrap();
     env.run(&["sync"]).assert_ok();
-    assert_eq!(env.run(&["read", "work/plan"]).stdout, "x");
+    assert_eq!(env.run(&["read", "work/plan"]).stdout, "x\n");
 }
 
 #[test]
@@ -249,7 +249,7 @@ fn a_checkpoint_that_cannot_be_written_fails_and_recovers() {
     let run = env.run(&["--json", "sync"]);
     run.assert_status(1);
     assert_eq!(run.error_code(), "sync_incomplete");
-    assert_eq!(env.run(&["read", "pending"]).stdout, "x", "local edit kept");
+    assert_eq!(env.run(&["read", "pending"]).stdout, "x\n", "local edit kept");
 
     fs::remove_dir(&state).unwrap();
     env.run(&["--json", "sync"]).assert_ok();
@@ -337,7 +337,7 @@ fn logout_keeps_notes_and_a_new_login_honors_history() {
     a.login(&server).assert_ok();
     assert!(!a.note("doomed").exists(), "the deletion is not undone");
     b.run(&["sync"]).assert_ok();
-    assert_eq!(b.run(&["read", "kept"]).stdout, "k edited offline");
+    assert_eq!(b.run(&["read", "kept"]).stdout, "k\n edited offline\n");
 }
 
 #[test]
