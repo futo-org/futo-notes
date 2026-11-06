@@ -20,7 +20,9 @@ satisfy it yet — that's what makes gaps visible.
 ## Conventions
 
 - A behavior is true on **all platforms by default**. Platform-specific lines
-  get a tag: *(Android)*, *(iOS)*, *(desktop)*, or *(native shells)*.
+  get a tag: *(Android)*, *(iOS)*, *(desktop)*, *(native shells)*, or
+  *(mobile)* — the native text-first editor on iOS and Android alike
+  ([editor/mobile.md](editor/mobile.md)).
 - `→ path` points at the code or learning doc that is the authority, or where
   the behavior is load-bearing.
 - `> **Gap:**` marks a known missing or divergent behavior we haven't closed.
