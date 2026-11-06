@@ -176,8 +176,15 @@ _test-ios bundle *names: _preflight-ios build-rust-ios
 ios-dev-ports output configuration="Debug":
   node scripts/ios-dev-ports.mjs "$@"
 
-# JVM unit tests under BOTH flavors; optional Gradle Class[.method] patterns.
-test-android-native *tests: _preflight-android android-env-check (build-rust-android "device")
+# The JVM unit tests read the generated Kotlin bindings but never load the
+# native library, so this skips the per-ABI .so build (ABIS=none): ~120s of
+# every call after a Rust change. build-android-native still builds the .so.
+[private]
+_android-bindings:
+  ABIS=none bash scripts/build-rust-android.sh
+
+# JVM unit tests under BOTH flavors (bindings only, no .so); optional Gradle Class[.method] patterns.
+test-android-native *tests: _preflight-android android-env-check _android-bindings
   #!/usr/bin/env bash
   set -euo pipefail
   # Stages the CURRENT editor.html into the assets, like every other native

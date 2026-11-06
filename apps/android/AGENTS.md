@@ -9,7 +9,7 @@ WebView. There is no Tauri Android shell.
 ```bash
 just android-native            # Rust ffi (device ABI) → editor bundle → installDirectDebug → launch
 just build-android-native      # compile-only sanity (BOTH distribution flavors)
-just test-android-native       # JVM unit tests (BOTH distribution flavors)
+just test-android-native       # JVM unit tests (BOTH flavors; no .so build, empties jniLibs/)
 just test-android-native com.futo.notes.DistributionFlavorTest # one JVM class, both flavors
 just test-android-ui com.futo.notes.textfirst.TextFirstCaretTest com.futo.notes.editor.NativeEditorSessionTest
                                # device tests: ANY number of classes/Class#method/packages in ONE call
@@ -74,7 +74,7 @@ The Android FFI build uses the `release-ffi` profile because the workspace
 release profile's `panic = "abort"` breaks UniFFI's `catch_unwind` — never switch
 it to plain release. `versionCode = MAJOR*1e6 + MINOR*1e3 + PATCH`.
 
-The dev recipes (`android-native`, `build-android-native`, `test-android-native*`)
+The dev recipes (`android-native`, `build-android-native`, `test-android-native-ui`)
 build the FFI only for the connected device's ABI, about a third of a cold Rust
 build; with no single device to ask they build all three. A plain
 `just build-rust-android`, `just deploy-android`, and CI build every shipped ABI.

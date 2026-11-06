@@ -10,6 +10,11 @@
 # `release-ffi` preserves panic unwinding for UniFFI and keeps symbols for AGP
 # to extract before stripping the device libraries.
 #
+# ABIS=none builds NO .so: only the host library and the Kotlin bindings. That is
+# everything the JVM unit tests (`just test-android-native`) read — they never
+# load libfuto_notes_ffi — and the NDK build is ~120 of the ~135 seconds of a
+# warm `build-android-native` after any Rust change (three ABIs, thin LTO).
+#
 # FUTO_ANDROID_FFI_PROFILE=dev builds the `dev` profile instead — the Android
 # twin of build-rust-ios.sh's FUTO_IOS_FFI_PROFILE. It is the only way to reach
 # the engine's own debug-only overrides from this shell, because they are gated
@@ -31,12 +36,15 @@ fi
 # ── Early environment checks with actionable errors ──────────────────────
 # Use the same discovery and pin validation as setup; selecting the newest
 # installed NDK can disagree with AGP and silently skip library stripping.
-ANDROID_NDK_HOME="$(node "$ROOT/scripts/lib/android-toolchain.mjs")"
-export ANDROID_NDK_HOME
-echo "==> Using Android NDK: $ANDROID_NDK_HOME"
-if ! command -v cargo-ndk >/dev/null 2>&1; then
-  echo "ERROR: cargo-ndk not found. Install it:  cargo install cargo-ndk" >&2
-  exit 1
+# ABIS=none builds no .so, so it needs neither the NDK nor cargo-ndk.
+if [[ "${ABIS:-}" != none ]]; then
+  ANDROID_NDK_HOME="$(node "$ROOT/scripts/lib/android-toolchain.mjs")"
+  export ANDROID_NDK_HOME
+  echo "==> Using Android NDK: $ANDROID_NDK_HOME"
+  if ! command -v cargo-ndk >/dev/null 2>&1; then
+    echo "ERROR: cargo-ndk not found. Install it:  cargo install cargo-ndk" >&2
+    exit 1
+  fi
 fi
 
 APP="apps/android"
@@ -67,9 +75,13 @@ PROFILE="${FUTO_ANDROID_FFI_PROFILE:-release-ffi}"
 # at library load instead — as does any install after a failed or stopped build.
 rm -rf "$JNI"
 
-echo "==> Building futo-notes-ffi for Android ABIs: $ABIS (profile: $PROFILE)"
-cargo ndk --platform 24 --target "$ABIS" --output-dir "$JNI" \
-  build -p futo-notes-ffi --profile "$PROFILE"
+if [[ "$ABIS" == none ]]; then
+  echo "==> ABIS=none: skipping the per-ABI .so build (bindings only)"
+else
+  echo "==> Building futo-notes-ffi for Android ABIs: $ABIS (profile: $PROFILE)"
+  cargo ndk --platform 24 --target "$ABIS" --output-dir "$JNI" \
+    build -p futo-notes-ffi --profile "$PROFILE"
+fi
 
 echo "==> Building host lib (for binding generation metadata)"
 # Same features as the bindgen run below: a plain build resolves `serde` with
@@ -94,5 +106,9 @@ cargo run -p futo-notes-ffi --features bindgen --bin uniffi-bindgen -- generate 
   --out-dir "$KOTLIN_OUT"
 
 echo "==> Done."
-echo "    .so files: $JNI/<abi>/libfuto_notes_ffi.so"
+if [[ "$ABIS" == none ]]; then
+  echo "    .so files: none (ABIS=none); jniLibs/ is empty"
+else
+  echo "    .so files: $JNI/<abi>/libfuto_notes_ffi.so"
+fi
 echo "    bindings:  $KOTLIN_OUT/uniffi/futo_notes_ffi/futo_notes_ffi.kt"

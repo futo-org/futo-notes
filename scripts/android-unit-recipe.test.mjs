@@ -84,7 +84,15 @@ else fs.appendFileSync(process.env.QA_RECIPE_RECORD + '.instrument', JSON.string
   });
 
   it('keeps SDK preflight and regenerated bindings before Gradle', () => {
-    expect(unit.header).toMatch(/android-env-check.*\(build-rust-android "device"\)/);
+    expect(unit.header).toMatch(/android-env-check.*_android-bindings/);
+  });
+
+  // The JVM tests never load libfuto_notes_ffi, so the per-ABI NDK build (~120s
+  // after any Rust change) is not theirs to pay; only the Kotlin bindings are.
+  it('generates bindings without building any ABI', () => {
+    const bindings = recipe('_android-bindings');
+    expect(bindings.body).toMatch(/ABIS=none bash scripts\/build-rust-android\.sh/);
+    expect(unit.header).not.toMatch(/build-rust-android/);
   });
 
   it('runs the full suite when no class is supplied', () => {
