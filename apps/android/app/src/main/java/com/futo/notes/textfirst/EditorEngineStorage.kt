@@ -93,7 +93,7 @@ private fun EditorEngine.install(opened: NativeEditorSession): Throwable? = try 
         // The view already shows these screens with these styles; it keeps
         // them, and its caret, and the rest follows in slices.
         tailLength = display.length - quick.length
-        if (streaming) streamTail(0) else postUpdate(emptyList(), emptyList())
+        if (streaming) streamAfterUi() else postUpdate(emptyList(), emptyList())
     } else {
         if (quick != null) Log.w(EditorEngine.TAG, "quick open of $noteId differs from its whole open; replacing it")
         viewEdits.discontinue()
@@ -187,5 +187,22 @@ internal fun EditorEngine.drainAfterCheckpoint() {
     val s = session ?: return
     for (change in s.takeCoordinatedChanges()) {
         if (change.previousRevision == rev) accept(change) else { reloadFromEngine(); return }
+    }
+}
+
+/**
+ * The rest of the note streams the way an open's does: the next slice comes
+ * one UI round trip and a gap after the open completes, never at once.
+ */
+private fun EditorEngine.streamAfterUi() {
+    val generation = renderWork.generation
+    renderWork.awaitingUi = true
+    ui.post {
+        handler.post {
+            if (!closed && renderWork.generation == generation) {
+                renderWork.awaitingUi = false
+                streamTail()
+            }
+        }
     }
 }
