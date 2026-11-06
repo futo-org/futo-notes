@@ -246,6 +246,9 @@ export async function androidDoesNotRewriteARawNote(desktop, android, server) {
   const id = `${HARNESS_NOTE_PREFIX}raw-no-newline`;
   const raw = '# raw\nno final newline, written outside the app';
   android.externalWriteNote(id, raw);
+  // Android has no filesystem watcher: a process restart is how it re-reads the vault.
+  android.device.restart();
+  await android.waitForNoteInList(id);
   await android.syncNow();
   await desktop.syncNow();
   await waitForDesktopNoteContent(desktop, id, raw);
