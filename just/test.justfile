@@ -127,16 +127,55 @@ remote-sync *flags:
   node scripts/remote-test.mjs "$@" test-cross-platform
 
 # The normal pre-merge umbrella: specs, arch gates, Rust conformance, lint, tests, build.
-check: check-node-modules check-node-version _require-node-modules toolbar-spec-check title-spec-check coin-check arch-gate lint-swift test-rust rust-format-check rust-lint
+check: check-node-modules check-node-version _require-node-modules toolbar-spec-check title-spec-check coin-check lint-swift
   #!/usr/bin/env bash
+  # The Rust checks, the static checks and the vitest suite share nothing, so they run
+  # at once (~120s serial -> the longest lane, ~50s); see justfile-notes.md "check".
+  # Each lane's output is held and printed whole when it finishes, in a fixed order.
+  set -euo pipefail
+  logs="$(mktemp -d)"
+  trap 'rm -rf "$logs"' EXIT
+  just_bin="{{just_executable()}}"
+  pids=()
+  lanes=()
+  run_lane() {
+    local name="$1"
+    shift
+    "$@" >"$logs/$name.log" 2>&1 &
+    pids+=("$!")
+    lanes+=("$name")
+  }
+  echo "==> check: rust, static and unit lanes run in parallel; each one's output follows when it finishes"
+  run_lane rust "$just_bin" _check-rust
+  run_lane static "$just_bin" _check-static
+  run_lane unit pnpm run test:full
+  failed=()
+  for i in "${!pids[@]}"; do
+    if wait "${pids[$i]}"; then status=ok; else status=FAILED; failed+=("${lanes[$i]}"); fi
+    echo "==> check lane '${lanes[$i]}': $status"
+    cat "$logs/${lanes[$i]}.log"
+  done
+  if [ "${#failed[@]}" -gt 0 ]; then
+    echo "check FAILED in lane(s): ${failed[*]}" >&2
+    exit 1
+  fi
+  # After the lanes: the build empties dist/, which the Tauri crate embeds while it compiles.
   # pipefail: see `build:` above — a failing tsc/vite build must not hide behind `| tail`.
+  pnpm run build | tail -20
+
+# check's Rust lane: arch gates (incl. the Tauri sync contract), conformance, rustfmt, clippy.
+[private]
+_check-rust: arch-gate test-rust rust-format-check rust-lint
+
+# check's static lane: eslint, svelte-check, prettier, tsc (the build repeats tsc after the lanes).
+[private]
+_check-static:
+  #!/usr/bin/env bash
   set -euo pipefail
   pnpm run lint
   pnpm run check:svelte
   pnpm run format:check
-  pnpm run test:full
   pnpm exec tsc --noEmit | head -30
-  pnpm run build | tail -20
 
 # Maximal pre-push gate: `check` + full Rust workspace + full E2E + cross-platform sync.
 prepush: check test-rust-full
