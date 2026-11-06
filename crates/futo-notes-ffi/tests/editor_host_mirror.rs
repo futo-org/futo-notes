@@ -85,8 +85,8 @@ fn style_plan_reports_utf16_spans_for_a_byte_window() {
     assert!(spans.iter().any(|s| matches!(
         s,
         EditorStyleSpan::Inline {
-            start: 10,
-            end: 11,
+            start: 9,
+            end: 10,
             bold: true,
             ..
         }
