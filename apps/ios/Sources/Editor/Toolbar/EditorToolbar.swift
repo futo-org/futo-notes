@@ -12,7 +12,7 @@ import UIKit
 /// toolbarExec.ts commands the web toolbar runs.
 struct EditorToolbarView: View {
     @Environment(\.displayScale) private var displayScale
-    @ObservedObject var state: EditorToolbarState
+    @ObservedObject var state: WebEditorToolbarState
     @ObservedObject var toolbarLocalization: EditorToolbarLocalization
     /// Dispatch the tapped item — exec over the bridge, native image picker,
     /// or blur (dismiss).
