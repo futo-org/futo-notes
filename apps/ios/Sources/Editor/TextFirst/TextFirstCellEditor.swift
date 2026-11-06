@@ -24,8 +24,10 @@
         }
     }
 
+    /// The field placed over the tapped cell (a subview of the note's text view, so it scrolls with
+    /// the note). Tapping the note outside it, or Done, returns to the note.
     @MainActor
-    final class TextFirstCellEditor: UIViewController, UITextViewDelegate {
+    final class TextFirstCellEditor: NSObject, UITextViewDelegate {
         let controller: TextFirstEditorController
         let field = TextFirstCellField()
         /// The cell content's range in the note's display (UTF-16), as the engine last said.
@@ -33,73 +35,69 @@
         private(set) var cellEnd = 0
         private var applying = 0
         private var pending: (range: NSRange, text: String)?
+        private var finished = false
 
         init(controller: TextFirstEditorController) {
             self.controller = controller
-            super.init(nibName: nil, bundle: nil)
+            super.init()
         }
-        required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-        override func viewDidLoad() {
-            super.viewDidLoad()
-            view.backgroundColor = .systemBackground
+        /// Build the field over the cell the engine's selection is in and start editing.
+        func install() {
             field.editor = self
             field.delegate = self
-            field.font = .systemFont(ofSize: 17)
-            field.textContainerInset = UIEdgeInsets(top: 12, left: 12, bottom: 12, right: 12)
-            field.backgroundColor = .secondarySystemBackground
-            field.layer.cornerRadius = 10
+            field.isScrollEnabled = false
+            field.textContainerInset = UIEdgeInsets(
+                top: TextFirstTableMetrics.padding, left: TextFirstTableMetrics.padding,
+                bottom: TextFirstTableMetrics.padding, right: TextFirstTableMetrics.padding)
+            field.textContainer.lineFragmentPadding = 0
+            field.backgroundColor = .systemBackground
+            field.layer.borderColor = UIColor(Theme.primary).cgColor
+            field.layer.borderWidth = 2
             field.autocorrectionType = .yes
             field.autocapitalizationType = .sentences
             field.smartQuotesType = .no
             field.smartDashesType = .no
             field.accessibilityIdentifier = "text-first-cell-field"
-            field.translatesAutoresizingMaskIntoConstraints = false
             let localization = controller.linkLocalization ?? Localization.system()
-            let done = UIButton(type: .system)
-            done.setTitle(localization.localizedText("common.actions.done"), for: .normal)
-            done.addAction(UIAction { [weak self] _ in self?.finish() }, for: .touchUpInside)
-            let undo = UIButton(type: .system)
-            undo.setImage(UIImage(systemName: "arrow.uturn.backward"), for: .normal)
-            undo.accessibilityLabel = localization.localizedText("editor.toolbar.undo")
-            undo.addAction(
-                UIAction { [weak self] _ in
+            let done = UIBarButtonItem(
+                title: localization.localizedText("common.actions.done"),
+                primaryAction: UIAction {
+                    [weak self] _ in self?.finish()
+                })
+            let undo = UIBarButtonItem(
+                image: UIImage(systemName: "arrow.uturn.backward"),
+                primaryAction: UIAction { [weak self] _ in
                     self?.controller.undo()
                     self?.refresh()
-                }, for: .touchUpInside)
-            let bar = UIStackView(arrangedSubviews: [undo, UIView(), done])
-            bar.translatesAutoresizingMaskIntoConstraints = false
-            view.addSubview(bar)
-            view.addSubview(field)
-            NSLayoutConstraint.activate([
-                bar.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 12),
-                bar.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
-                bar.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
-                field.topAnchor.constraint(equalTo: bar.bottomAnchor, constant: 8),
-                field.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
-                field.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
-                field.heightAnchor.constraint(greaterThanOrEqualToConstant: 64),
-                field.bottomAnchor.constraint(
-                    lessThanOrEqualTo: view.keyboardLayoutGuide.topAnchor, constant: -12),
-            ])
+                })
+            undo.accessibilityLabel = localization.localizedText("editor.toolbar.undo")
+            let bar = UIToolbar(frame: CGRect(x: 0, y: 0, width: 320, height: 44))
+            bar.items = [undo, UIBarButtonItem(systemItem: .flexibleSpace), done]
+            field.inputAccessoryView = bar
+            controller.textView.addSubview(field)
             controller.onAccepted = { [weak self] in self?.refresh() }
             refresh()
-        }
-
-        override func viewDidAppear(_ animated: Bool) {
-            super.viewDidAppear(animated)
             field.becomeFirstResponder()
         }
 
-        override func viewDidDisappear(_ animated: Bool) {
-            super.viewDidDisappear(animated)
+        /// Return to the note: the field goes, the engine selection stays on the cell.
+        func finish() {
+            guard !finished else { return }
+            finished = true
+            controller.finishComposition()
             controller.onAccepted = nil
             if controller.cellEditor === self { controller.cellEditor = nil }
+            field.resignFirstResponder()
+            field.removeFromSuperview()
         }
 
-        func finish() {
-            controller.finishComposition()
-            dismiss(animated: true)
+        func textViewDidEndEditing(_ tv: UITextView) { finish() }
+
+        /// Put the field over its cell: the drawn row's position, this table's scroll, the row height.
+        func reposition() {
+            guard !finished, let frame = controller.cellFrame(start: cellStart) else { return }
+            if field.frame != frame { field.frame = frame }
         }
 
         /// Show the cell the engine's selection is in; leave when it is in none.
@@ -109,9 +107,7 @@
                     expected: controller.rev,
                     selection: TextFirstEditorController.range(controller.engineSelection))
             else {
-                if !controller.engineComposing, field.markedTextRange == nil {
-                    dismiss(animated: true)
-                }
+                if !controller.engineComposing, field.markedTextRange == nil { finish() }
                 return
             }
             cellStart = Int(cell.start)
@@ -126,6 +122,13 @@
             if field.text != text { field.text = text }
             if field.selectedRange != local { field.selectedRange = local }
             applying -= 1
+            if let (span, content) = controller.tableCell(at: cellStart) {
+                field.font = TextFirstTableMetrics.font(header: span.header)
+                field.textAlignment =
+                    content.alignment == .right
+                    ? .right : content.alignment == .center ? .center : .natural
+            }
+            reposition()
         }
 
         private func shifted(_ r: NSRange) -> NSRange {
@@ -273,18 +276,20 @@
             }
         }
 
-        /// Open the cell's editor on this session: select its content, scroll its column into view.
+        /// Open the cell's editor on this session: select its content, scroll its column into view
+        /// and put the field over the cell.
         func openCellEditor(_ hit: TableCellHit) {
-            guard !closed, cellEditor == nil else { return }
+            guard !closed else { return }
+            cellEditor?.finish()
             finishComposition()
             revealCell(hit.cell, in: hit.span, row: hit.row)
             selectInCell(hit.cell.range)
-            guard let presenter = textView.window?.rootViewController?.topmost else { return }
             let editor = TextFirstCellEditor(controller: self)
-            editor.modalPresentationStyle = .pageSheet
-            if let sheet = editor.sheetPresentationController { sheet.detents = [.medium()] }
             cellEditor = editor
-            presenter.present(editor, animated: true)
+            editor.install()
+            if let frame = cellFrame(start: hit.cell.range.location) {
+                textView.scrollRectToVisible(frame.insetBy(dx: 0, dy: -60), animated: false)
+            }
         }
     }
 #endif

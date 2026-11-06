@@ -31,6 +31,7 @@
             super.layoutSubviews()
             controller?.images.widthChanged()
             controller?.tablesWidthChanged()
+            controller?.cellEditor?.reposition()
         }
 
         override func becomeFirstResponder() -> Bool {

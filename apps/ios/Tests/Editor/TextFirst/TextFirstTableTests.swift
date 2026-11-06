@@ -108,7 +108,7 @@
             let hit = try #require(h.controller.tableCellHit(at: point(h, row: 0, column: 0)))
             h.controller.selectInCell(hit.cell.range)
             let editor = TextFirstCellEditor(controller: h.controller)
-            editor.loadViewIfNeeded()
+            editor.install()
             #expect(editor.field.text == "日本")
             // Typing, then a pipe (written as \|), are the engine's edits.
             _ = editor.textView(
@@ -138,7 +138,7 @@
             let hit = try #require(h.controller.tableCellHit(at: point(h, row: 0, column: 0)))
             h.controller.selectInCell(hit.cell.range)
             let editor = TextFirstCellEditor(controller: h.controller)
-            editor.loadViewIfNeeded()
+            editor.install()
             // Enter selects the cell below.
             _ = editor.textView(
                 editor.field, shouldChangeTextIn: NSRange(location: 0, length: 0),

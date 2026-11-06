@@ -23,6 +23,8 @@
             let alignment: EditorTableAlignment
             /// The cell content's range in the text storage.
             let range: NSRange
+            /// Where the content starts in its row line (stays true when edits above shift the row).
+            let rowOffset: Int
         }
         let columns: Int
         let header: Bool
@@ -83,7 +85,8 @@
                 return TextFirstTableRowSpan.Cell(
                     column: Int(cell.column),
                     text: text.substring(with: NSRange(location: s, length: e - s)),
-                    alignment: cell.alignment, range: NSRange(location: s, length: e - s))
+                    alignment: cell.alignment, range: NSRange(location: s, length: e - s),
+                    rowOffset: s - range.location)
             }
             let span = TextFirstTableRowSpan(
                 columns: columns, header: header, tableStart: tableStart, cells: parts)
@@ -174,6 +177,37 @@
             return TableCellHit(row: hit.row, span: hit.span, cell: cell)
         }
 
+        /// The span and cell whose content starts at display offset `start`.
+        func tableCell(at start: Int) -> (TextFirstTableRowSpan, TextFirstTableRowSpan.Cell)? {
+            // An empty cell's start may be the row's line break, so look one glyph back too.
+            for offset in [start, start - 1] where offset >= 0 && offset < storage.length {
+                if let span = storage.attribute(.tfTable, at: offset, effectiveRange: nil)
+                    as? TextFirstTableRowSpan,
+                    let cell = span.cells.first(where: { $0.range.location == start })
+                {
+                    return (span, cell)
+                }
+            }
+            return nil
+        }
+
+        /// Where the cell starting at display offset `start` is drawn, in the text view's coordinates.
+        func cellFrame(start: Int) -> CGRect? {
+            guard let (span, cell) = tableCell(at: start), let manager = textView.textLayoutManager,
+                let content = manager.textContentManager,
+                let location = content.location(manager.documentRange.location, offsetBy: start),
+                let f = manager.textLayoutFragment(for: location) as? TextFirstLayoutFragment,
+                let run = f.tableRuns.first(where: { $0.span === span }),
+                let rect = f.tableRect(run)
+            else { return nil }
+            let scroll = tableScroll[span.tableStart] ?? 0
+            let width = min(TextFirstTableMetrics.cellWidth, images.containerWidth)
+            return CGRect(
+                x: inset.left + CGFloat(cell.column) * TextFirstTableMetrics.cellWidth - scroll,
+                y: inset.top + f.layoutFragmentFrame.minY + rect.minY, width: width,
+                height: rect.height)
+        }
+
         /// Scroll one table's columns together to `x`, redrawing its rows.
         func scrollTable(
             startingAt tableStart: Int, columns: Int, to x: CGFloat, around row: NSRange
@@ -217,6 +251,7 @@
             {
                 manager.invalidateLayout(for: range)
             }
+            cellEditor?.reposition()
         }
 
         /// Scroll so the column of `cell` shows (opening its editor).
