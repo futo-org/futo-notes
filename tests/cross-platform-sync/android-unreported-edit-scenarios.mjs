@@ -9,7 +9,7 @@ import {
   waitForAndroidConflictCopy,
   waitForDesktopNoteContent,
 } from './android-leg-scenarios.mjs';
-import { assert, assertEqual } from './waits-and-assertions.mjs';
+import { asSaved, assert, assertEqual } from './waits-and-assertions.mjs';
 
 // RC-08 (FB-5): the open-note verdict must see an edit the editor has not
 // reported yet. A large note withholds `change` while its tail streams, so the
