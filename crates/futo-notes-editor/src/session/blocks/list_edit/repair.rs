@@ -110,10 +110,9 @@ pub(super) fn repairs(rows: &[Row], at: usize) -> Vec<Repair> {
             options.push(Repair::Insert(start, Insert::Comment));
         }
     }
-    // A blank line turned into an empty item breaks the paragraph ABOVE it
-    // (it would read as a setext underline): separate them. Only for that
-    // row: an indented empty item under a paragraph is refused instead, not
-    // pushed down a line.
+    // An empty item written by the command breaks the paragraph ABOVE it (an
+    // empty item cannot interrupt one, and a `-` reads as a setext
+    // underline): separate them.
     if at + 1 < rows.len() && rows[at + 1].from_blank && rows[at + 1].insert == Insert::None {
         options.push(Repair::Insert(at + 1, Insert::Blank));
     }
