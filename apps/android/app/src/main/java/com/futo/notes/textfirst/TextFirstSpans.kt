@@ -261,13 +261,6 @@ internal class TfList(
             }
         }
     }
-
-    /** The checkbox's horizontal extent relative to the line's leading edge. */
-    fun checkboxHit(lineLeft: Float, x: Float): Boolean {
-        if (marker != ListMarker.Task) return false
-        val right = lineLeft + look.listIndent * (depth + 1)
-        return x >= right - look.listIndent - look.dp(8f) && x <= right + look.dp(4f)
-    }
 }
 
 /**

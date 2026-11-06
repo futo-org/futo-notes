@@ -70,7 +70,6 @@ internal class EditorEngine(
     private val toolbarCommands = ToolbarCommandQueue(handler) { executeCommand({}, it) }
     private var inputStartNanos = 0L
     internal var engineNanos = 0L
-    /** The last change's projection; the caret state reads its block from it. */
     /** Characters at the end of the display the view has not been given yet (progressive open). */
     internal var tailLength = 0
     internal val renderWork = RenderWork()

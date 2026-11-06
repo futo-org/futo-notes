@@ -74,8 +74,6 @@ internal fun EditorEngine.findClose(done: (FindSnapshot?) -> Unit) = findCommand
     s.findClose() to false
 }
 
-internal fun EditorEngine.findState(done: (FindSnapshot?) -> Unit) = findCommand(done) { s -> s.findReport() to false }
-
 /** Input only logs edit windows; matches rebase on read and a settled rescan replaces stale ones. */
 internal fun EditorEngine.scheduleFindRefresh() {
     if (!find.open || closed) return
