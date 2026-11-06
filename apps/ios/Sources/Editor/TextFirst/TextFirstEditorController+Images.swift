@@ -202,23 +202,6 @@
     extension TextFirstEditorController {
         var isClosed: Bool { closed }
 
-        /// The whole image a caret's Backspace (or forward Delete) would otherwise cut into: the
-        /// engine's Backspace removes one grapheme, which here is the last glyph of the spelling
-        /// and would leave plain text behind. Removes that image in one edit and returns true.
-        func deleteImage(adjacentTo caret: Int, forward: Bool) -> Bool {
-            let probe = forward ? caret : caret - 1
-            guard !closed, probe >= 0, probe < storage.length else { return false }
-            let paragraph = (storage.string as NSString).paragraphRange(
-                for: NSRange(location: probe, length: 0))
-            var run = NSRange()
-            guard
-                storage.attribute(.tfImage, at: probe, longestEffectiveRange: &run, in: paragraph)
-                    is TextFirstImageSpan,
-                forward ? run.location == caret : NSMaxRange(run) == caret
-            else { return false }
-            return paragraphKey(forward ? .delete : .backspace, range: run)
-        }
-
         /// `range` with each end moved out of an image's glyphs (nearest end; a one-glyph step
         /// from one end, an arrow key, jumps across the whole image).
         func clampedOutOfImages(_ range: NSRange) -> NSRange {

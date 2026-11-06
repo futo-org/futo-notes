@@ -118,7 +118,13 @@ fn an_image_is_one_unbroken_span_with_the_engines_classification() {
                 alt,
                 vault,
                 remote,
-            } => Some((text(*start, *end), destination.clone(), alt.clone(), *vault, *remote)),
+            } => Some((
+                text(*start, *end),
+                destination.clone(),
+                alt.clone(),
+                *vault,
+                *remote,
+            )),
             _ => None,
         })
         .collect();
@@ -126,9 +132,24 @@ fn an_image_is_one_unbroken_span_with_the_engines_classification() {
     // `pic 1.png` has a space, so only the angle spelling is an image; the bare one is text.
     assert_eq!(
         images[0],
-        ("![](https://e.com/p.png)".into(), "https://e.com/p.png".into(), "".into(), false, true)
+        (
+            "![](https://e.com/p.png)".into(),
+            "https://e.com/p.png".into(),
+            "".into(),
+            false,
+            true
+        )
     );
-    assert_eq!(images[1], ("![](my.png)".into(), "my.png".into(), "".into(), true, false));
+    assert_eq!(
+        images[1],
+        (
+            "![](my.png)".into(),
+            "my.png".into(),
+            "".into(),
+            true,
+            false
+        )
+    );
 }
 
 #[test]

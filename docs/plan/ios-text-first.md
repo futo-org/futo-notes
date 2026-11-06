@@ -32,7 +32,7 @@ commit that finishes the last milestone (archive rule).
 | M6 | Tables | |
 | M7 | Find | |
 | M8 | Long notes: quick open, streaming, Select All | |
-| M9 | Remaining mobile lines and an evidence pass | |
+| M9 | Remaining mobile lines and an evidence pass (incl. VoiceOver must read an image's alt text, not its hidden Markdown) | |
 
 ## Engine MRs and !564 notes
 
@@ -46,6 +46,7 @@ commit that finishes the last milestone (archive rule).
 |---|---|---|---|
 | `SpanPlan.kt` (`planSpans`, `splitAtLines`) | `host::plan_styles`, `NativeEditorSession.style_plan` | !592 (stacked on !589) | posted |
 | `toolbarActive` / disabled-id mapping in `TextFirstToolbar.kt`, `EditorEngineCaret.kt` | `host::toolbar_highlights`, `NativeEditorSession.toolbar_highlights` | !594 (stacked on !592, merges !590 for `ToolbarState`) | posted |
+| (no Kotlin: engine gap Android shares) caret Backspace/Delete next to an image removes the whole atom | `ParagraphKey::Backspace/Delete` widen to the atom | !595 (from main) | posted |
 | `SpanPlan.kt` image branch (`SpanSpec.Image`) | `host::StyleSpec::Image`, `EditorStyleSpan.Image` | !593 (stacked on !592, merges !590 for `is_http_image_source`) | posted |
 | `ToolbarCommandGate.kt` | not needed on iOS: every command runs synchronously on the main actor, so none is queued or dropped. Revisit if M8 moves the engine off the main thread. | | |
 
@@ -135,9 +136,9 @@ commit that finishes the last milestone (archive rule).
   held when a load changes heights above the screen.
 - Interaction: caret stops only at an image's ends (nearest end; one glyph step from an end jumps
   across); a tap selects the image as one object (engine Enter keeps it and acts after); caret
-  Backspace/Delete next to an image removes it whole (`deleteImage`: the engine's Backspace removes
-  one grapheme, which would leave `![](p.png` as text; Android has that gap too, an engine-level fix
-  would serve both); text typed after an image is plain.
+  Backspace/Delete next to an image removes it whole (decided in the engine, MR !595 from main, merged
+  here: the engine's Backspace used to remove one grapheme of the spelling; Swift only sends the
+  plain key; Android needs no workaround); text typed after an image is plain.
 - Adding: Camera/Image toolbar items, and a paste that is an image with no text, take the engine's
   `image_claim` first, save through `VaultImages.save` (now takes a root) and present the claim to
   `insert_image`; a refused insertion (stale claim, caret in code) deletes the file. The camera

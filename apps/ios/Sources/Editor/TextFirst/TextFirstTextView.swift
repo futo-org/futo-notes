@@ -20,8 +20,7 @@
         /// the line up (or demotes a first-line heading); elsewhere it is a plain Backspace.
         override func deleteBackward() {
             guard markedTextRange == nil, selectedRange.length == 0, let controller,
-                controller.deleteImage(adjacentTo: selectedRange.location, forward: false)
-                    || controller.paragraphKey(.backspaceJoiningHeading)
+                controller.paragraphKey(.backspaceJoiningHeading)
             else {
                 super.deleteBackward()
                 return
@@ -62,8 +61,7 @@
                 // A caret's forward Delete is the engine's; Tab and Shift-Tab indent and outdent
                 // a list item, and anywhere else are UIKit's.
                 if key.keyCode == .keyboardDeleteForward, selectedRange.length == 0,
-                    controller.deleteImage(adjacentTo: selectedRange.location, forward: true)
-                        || controller.paragraphKey(.delete)
+                    controller.paragraphKey(.delete)
                 {
                     return
                 }

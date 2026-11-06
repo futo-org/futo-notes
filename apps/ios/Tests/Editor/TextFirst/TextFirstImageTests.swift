@@ -209,9 +209,8 @@
             // A forward Delete from before an image does the same; elsewhere it is not an image delete.
             let forward = TextFirstHarness("a ![](p.png) b\n")
             forward.select(2, 2)
-            #expect(forward.controller.deleteImage(adjacentTo: 2, forward: true))
+            #expect(forward.controller.paragraphKey(.delete))
             #expect(!forward.source.contains("p.png"))
-            #expect(!forward.controller.deleteImage(adjacentTo: 1, forward: true))
             // Typing right after an image gives plain text, not the image's hidden glyph look.
             let typed = TextFirstHarness("a ![](p.png) b\n")
             typed.select(12, 12)
