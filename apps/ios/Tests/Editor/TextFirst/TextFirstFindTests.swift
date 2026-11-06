@@ -144,7 +144,8 @@
 
         @Test func aMatchInAnImagesAltTextMarksThePicture() {
             let h = TextFirstHarness(
-                "see ![a cat](find-pic.png) end\n", files: ["find-pic.png": TextFirstHarness.png(80, 40)])
+                "see ![a cat](find-pic.png) end\n",
+                files: ["find-pic.png": TextFirstHarness.png(80, 40)])
             h.controller.openFind()
             h.controller.setFindQuery("cat")
             #expect(h.controller.findModel.total == 1)
