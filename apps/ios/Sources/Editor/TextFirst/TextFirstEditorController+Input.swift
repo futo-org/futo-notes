@@ -31,6 +31,8 @@
         }
 
         func textViewDidChangeSelection(_ textView: UITextView) {
+            // The touch has placed its caret; what UIKit asks about from here on is on screen.
+            self.textView.fingerIsDown = false
             invalidateMarkerHighlights(old: lastDrawnSelection, new: textView.selectedRange)
             lastDrawnSelection = textView.selectedRange
             guard applying == 0, !closed, !engineComposing, textView.markedTextRange == nil,

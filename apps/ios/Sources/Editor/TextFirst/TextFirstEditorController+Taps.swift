@@ -50,6 +50,9 @@
             pan.delegate = self
             textView.addGestureRecognizer(pan)
             tablePan = pan
+            let tracker = TextFirstTouchTracker(target: nil, action: nil)
+            tracker.onChange = { [weak self] down in self?.textView.fingerIsDown = down }
+            textView.addGestureRecognizer(tracker)
         }
 
         func gestureRecognizer(
