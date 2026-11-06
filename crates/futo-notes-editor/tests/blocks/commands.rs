@@ -354,16 +354,17 @@ fn text_conversion_retires_heading_indentation_without_exposing_spaces() {
 }
 
 #[test]
-fn explicit_quote_retires_an_existing_quoted_heading_without_changing_depth() {
-    for (raw, expected, shown, depth) in [
-        ("> ## Title ##", "> Title", "Title", 1),
+fn explicit_quote_on_a_quoted_heading_takes_one_quote_level_off_and_keeps_the_heading() {
+    for (raw, expected, shown, level, depth) in [
+        ("> ## Title ##", "## Title ##", "Title", 2, 0),
         (
             "> > ### 猫🦊 ###\r\n\r\nend",
-            "> > 猫🦊\r\n\r\nend",
+            "> ### 猫🦊 ###\r\n\r\nend",
             "猫🦊\r\n\r\nend",
-            2,
+            3,
+            1,
         ),
-        ("> > > ###### x ######", "> > > x", "x", 3),
+        ("> > > ###### x ######", "> > ###### x ######", "x", 6, 2),
     ] {
         let mut s = EditorSession::open(raw);
         let mut v = ReferenceView::new(shown);
@@ -380,21 +381,13 @@ fn explicit_quote_retires_an_existing_quoted_heading_without_changing_depth() {
         assert_eq!(s.source_text(), expected);
         assert_eq!(v.text, shown);
         let blocks = s.project(s.revision(), range(0, 0)).unwrap().blocks;
-        assert_eq!(blocks[0].heading, 0);
+        assert_eq!(blocks[0].heading, level);
         assert_eq!(blocks[0].quote_depth, depth);
         v.apply(s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
         assert_eq!(s.source_text(), raw);
         assert_eq!(v.text, shown);
         v.apply(s.redo(s.revision(), &mut |_| Ok(())).unwrap().unwrap());
         assert_eq!(s.source_text(), expected);
-        // Choosing Quote again takes one level off (the toolbar toggle).
-        s.block_command(s.revision(), range(0, 0), BlockCommand::Quote, &mut |_| {
-            Ok(())
-        })
-        .unwrap()
-        .unwrap();
-        let blocks = s.project(s.revision(), range(0, 0)).unwrap().blocks;
-        assert_eq!(blocks[0].quote_depth, depth - 1);
     }
 }
 

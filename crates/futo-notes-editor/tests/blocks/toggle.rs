@@ -84,3 +84,41 @@ fn select_all_quote_changes_eligible_rows_in_a_mixed_note() {
     assert_eq!(s.source_text(), opening);
     assert_eq!(s.selection(), selected);
 }
+
+#[test]
+fn quote_toggle_off_keeps_the_block_kind_of_every_quoted_line() {
+    for (opening, caret, expected) in [
+        ("> ## Title", range(0, 0), "## Title"),
+        (
+            "> ## Title ##\r\n\r\nend",
+            range(0, 0),
+            "## Title ##\r\n\r\nend",
+        ),
+        ("> > ## x", range(0, 0), "> ## x"),
+        ("> - item", range(0, 0), "- item"),
+        ("> - [ ] task", range(0, 0), "- [ ] task"),
+        ("> 1. one", range(0, 0), "1. one"),
+        ("> ## a\n> ## b", range(0, 3), "## a\n## b"),
+        ("> ## a\n> b", range(0, 3), "## a\nb"),
+    ] {
+        let mut s = EditorSession::open(opening);
+        s.select(s.revision(), caret).unwrap();
+        s.block_command(s.revision(), caret, BlockCommand::Quote, &mut |_| Ok(()))
+            .unwrap_or_else(|e| panic!("{opening:?}: {e:?}"))
+            .unwrap_or_else(|| panic!("{opening:?}: the command did nothing"));
+        assert_eq!(s.source_text(), expected, "{opening:?}");
+        s.undo(s.revision(), &mut |_| Ok(())).unwrap().unwrap();
+        assert_eq!(s.source_text(), opening, "{opening:?} undo");
+    }
+}
+
+#[test]
+fn quote_on_an_unquoted_heading_still_makes_it_quoted_text() {
+    let mut s = EditorSession::open("## Title");
+    s.block_command(s.revision(), range(0, 0), BlockCommand::Quote, &mut |_| {
+        Ok(())
+    })
+    .unwrap()
+    .unwrap();
+    assert_eq!(s.source_text(), "> Title");
+}
