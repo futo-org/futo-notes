@@ -17,7 +17,7 @@ fn local_commands_work_with_no_account() {
         .assert_ok();
     let created = env.run(&["create", "work/plan", "--body", "draft"]);
     assert_eq!(created.assert_ok().line(), "work/plan");
-    assert_eq!(env.run(&["read", "work/plan"]).stdout, "draft");
+    assert_eq!(env.run(&["read", "work/plan"]).stdout, "draft\n");
     assert_eq!(env.ids(), ["release checklist", "work/plan"]);
     assert_eq!(
         env.run(&["list", "--folder", "work"]).assert_ok().line(),
@@ -155,9 +155,10 @@ fn edge_case_bodies_and_ids_round_trip() {
     assert_eq!(env.run(&["read", "empty"]).assert_ok().stdout, "");
 
     let multi = "line one\n\n  indented\ttab\nno newline at end";
+    let saved = format!("{multi}\n");
     env.run_stdin(&["create", "Ünïcødé ✓ 日本", "--stdin"], multi.as_bytes())
         .assert_ok();
-    assert_eq!(env.run(&["read", "Ünïcødé ✓ 日本"]).stdout, multi);
+    assert_eq!(env.run(&["read", "Ünïcødé ✓ 日本"]).stdout, saved);
 
     assert_eq!(
         env.run(&["create", "--body", "-x", "--", "-dash"])
@@ -239,8 +240,8 @@ fn create_never_overwrites_and_reports_the_allocated_id() {
     let second = env.run(&["create", "note", "--body", "second"]);
     let id = second.assert_ok().line().to_owned();
     assert_ne!(id, "note");
-    assert_eq!(env.run(&["read", "note"]).stdout, "first");
-    assert_eq!(env.run(&["read", &id]).stdout, "second");
+    assert_eq!(env.run(&["read", "note"]).stdout, "first\n");
+    assert_eq!(env.run(&["read", &id]).stdout, "second\n");
 }
 
 #[test]
@@ -291,7 +292,7 @@ fn concurrent_creates_and_appends_all_land() {
         .map(|id| env.run(&["read", id]).stdout)
         .collect::<Vec<_>>();
     bodies.sort();
-    assert_eq!(bodies, ["c0", "c1", "c2", "c3"]);
+    assert_eq!(bodies, ["c0\n", "c1\n", "c2\n", "c3\n"]);
     let log = env.run(&["read", "log"]).stdout;
     for index in 0..8 {
         assert_eq!(log.matches(&format!("[{index}]")).count(), 1, "{log}");
@@ -346,8 +347,8 @@ fn rename_and_move_rewrite_backlinks_and_report_final_ids() {
     let renamed = env.run(&["rename", "target", "taken"]);
     let id = renamed.assert_ok().line().to_owned();
     assert_ne!(id, "taken", "the collision got a new ID");
-    assert_eq!(env.run(&["read", "taken"]).stdout, "already here");
-    assert_eq!(env.run(&["read", "linker"]).stdout, format!("see [[{id}]]"));
+    assert_eq!(env.run(&["read", "taken"]).stdout, "already here\n");
+    assert_eq!(env.run(&["read", "linker"]).stdout, format!("see [[{id}]]\n"));
 
     let moved = env.run(&["--json", "move", &id, "--folder", "archive/2026"]);
     let value = moved.json();
@@ -376,7 +377,7 @@ fn edit_saves_through_the_editor_and_cleans_up() {
         .output()
         .map(|output| assert!(output.status.success(), "{output:?}"))
         .unwrap();
-    assert_eq!(env.run(&["read", "n"]).stdout, "after");
+    assert_eq!(env.run(&["read", "n"]).stdout, "after\n");
     assert_eq!(fs::read_dir(env.path("tmp")).unwrap().count(), 0);
 }
 
@@ -433,7 +434,7 @@ fn a_failed_editor_keeps_the_draft_and_leaves_the_note() {
     let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     let draft = value["data"]["draftPath"].as_str().unwrap();
     assert_eq!(fs::read_to_string(draft).unwrap(), "half done");
-    assert_eq!(env.run(&["read", "n"]).stdout, "original");
+    assert_eq!(env.run(&["read", "n"]).stdout, "original\n");
 }
 
 #[test]
@@ -460,8 +461,8 @@ fn a_note_changed_during_editing_parks_the_draft() {
     let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(value["error"]["code"], "draft_parked");
     let parked = value["data"]["parkedId"].as_str().unwrap();
-    assert_eq!(env.run(&["read", "n"]).stdout, "base peer");
-    assert_eq!(env.run(&["read", parked]).stdout, "mine");
+    assert_eq!(env.run(&["read", "n"]).stdout, "base\n peer\n");
+    assert_eq!(env.run(&["read", parked]).stdout, "mine\n");
 }
 
 #[test]
@@ -521,7 +522,7 @@ fn every_json_command_prints_exactly_one_object() {
     let read = env.run(&["--json", "read", "f/k"]).json();
     assert_eq!(
         read["data"],
-        serde_json::json!({"id": "f/k", "content": "xy"})
+        serde_json::json!({"id": "f/k", "content": "x\ny\n"})
     );
     let list = env.run(&["--json", "list"]).json();
     assert_eq!(
