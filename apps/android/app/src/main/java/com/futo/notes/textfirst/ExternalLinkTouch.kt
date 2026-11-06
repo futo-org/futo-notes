@@ -7,11 +7,12 @@ import kotlin.math.abs
 /**
  * A short tap on an external link's own glyphs opens it (external-links.md); the blank space past the end of
  * a link's line, a drag and a long press stay ordinary text interaction. Like [WikilinkTouch], the tap is
- * consumed on lift, after the platform has been told the gesture is over, so it places no caret.
+ * consumed on lift, after the platform has been told the gesture is over, so it places no caret. A link the
+ * system cannot open ([open] answers false) is no link tap: the lift stays ordinary text interaction.
  */
 internal class ExternalLinkTouch(
     private val view: TextFirstEditText,
-    private val open: (String) -> Unit,
+    private val open: (String) -> Boolean,
     private val cancelNative: (MotionEvent) -> Unit,
 ) {
     private val slop = ViewConfiguration.get(view.context).scaledTouchSlop
@@ -32,13 +33,12 @@ internal class ExternalLinkTouch(
                 val link = pressed
                 pressed = null
                 if (link != null && event.eventTime - event.downTime < ViewConfiguration.getLongPressTimeout() &&
-                    linkAt(event.x, event.y) === link) {
+                    linkAt(event.x, event.y) === link && open(link.destination)) {
                     view.cancelLongPress()
                     view.isPressed = false
                     val cancel = MotionEvent.obtain(event)
                     cancel.action = MotionEvent.ACTION_CANCEL
                     try { cancelNative(cancel) } finally { cancel.recycle() }
-                    open(link.destination)
                     return true
                 }
             }
