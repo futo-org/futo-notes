@@ -31,6 +31,8 @@
         }
 
         func textViewDidChangeSelection(_ textView: UITextView) {
+            invalidateMarkerHighlights(old: lastDrawnSelection, new: textView.selectedRange)
+            lastDrawnSelection = textView.selectedRange
             guard applying == 0, !closed, !engineComposing, textView.markedTextRange == nil,
                 pendingEdit == nil,
                 // A text change not yet reported (no shouldChangeTextIn): its report must reach
@@ -47,6 +49,7 @@
                 let end = try mirror.byteToUtf16(byte: change.selection.end)
                 setSelection(NSRange(location: Int(start), length: Int(end - start)))
                 syncToolbar()
+                refreshCompletion()
             } catch {
                 recover(error, context: "selection")
             }

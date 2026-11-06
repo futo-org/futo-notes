@@ -27,7 +27,7 @@ commit that finishes the last milestone (archive rule).
 | M1 | Port the proof onto the current engine: open, type, save, IME shapes, kill loop, 20k smoke | done |
 | M2 | Toolbar and selection state (Mason's heading/format items), projection styling | done |
 | M3 | Lists, checkboxes, quotes, code | done |
-| M4 | Links and wikilinks, including completion | |
+| M4 | Links and wikilinks, including completion | done |
 | M5 | Images | |
 | M6 | Tables | |
 | M7 | Find | |
@@ -86,6 +86,31 @@ commit that finishes the last milestone (archive rule).
   engine changes nothing. The toolbar's Indent/Outdent were M2.
 - Not done: RTL list margins, selection highlight over list markers (Android lines, they stay
   Android-tagged); no spec line moved this milestone.
+
+## M4 notes
+
+- Carry-overs: a fully selected list row now highlights its rendered marker (`highlightedMarkerRect`
+  in the layout fragment, repainted by invalidating the old and new selection's range; Mason D3 /
+  decision 7), and the line moved to `mobile/lists.md` (dade6d9b7 on `android-text-first`).
+  Android's touch handler consumes a checkbox touch, so iOS does the same: while a touch starts on
+  a checkbox, a link or a resolved wikilink the text view refuses first responder (no caret, no
+  keyboard) and the caret the tap moved is put back. Verified on the simulator: with the keyboard
+  down, a checkbox tap toggled it (no keyboard), a wikilink tap opened the note, a link tap
+  recorded the open. A new *(mobile)* line records this.
+- RTL list/quote margins stay deferred (Android line `markdown-elements.md` "right-to-left
+  paragraph", still Android-tagged): the iOS fragments assume left-to-right.
+- Link taps: the styler tags glyphs with `tfLinkURL`/`tfWikilink`; the tap handler hit-tests the
+  glyph under the finger (the blank space past a line's end is not a link) and opens through the
+  app's `editorNavigationDecision`. A wikilink tap pushes the note (`Route.note`); coming back
+  re-attaches this editor (the leave closed it). Unresolved wikilinks do nothing.
+- Completion: after every accepted change and selection change the controller asks the engine for
+  `wikilink_completion`; candidates show as an inline list above the keyboard toolbar (accept /
+  Close; dismissal is remembered per claim start). `refresh_note_ids` runs on open and when the
+  vault's notes change, redrawing only the projections the engine names.
+- Link item: a prompt (label, destination; Add/Update, Remove, Cancel) reusing the catalog's
+  `editor.linkPrompt.*` keys; the engine spells the link (it may write `<...>` around a URL).
+- Not unit-tested: the prompt's UIAlertController presentation and the completion list's
+  rendering (the engine calls behind them are).
 
 ## M1 notes
 

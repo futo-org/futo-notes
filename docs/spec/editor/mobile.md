@@ -16,3 +16,4 @@ The section files under `mobile/` are added as lines move.
 - [Clipboard and system text actions](mobile/clipboard.md)
 - [Toolbar state and commands](mobile/toolbar.md)
 - [Heading keys](mobile/headings.md)
+- [Lists, checkboxes and links](mobile/lists.md)

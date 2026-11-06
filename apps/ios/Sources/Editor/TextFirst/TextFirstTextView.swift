@@ -27,6 +27,11 @@
             }
         }
 
+        override func becomeFirstResponder() -> Bool {
+            if controller?.suppressFocus == true { return false }
+            return super.becomeFirstResponder()
+        }
+
         override func unmarkText() {
             super.unmarkText()
             controller?.platformUnmarked()

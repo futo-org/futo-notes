@@ -8,6 +8,10 @@
     extension NSAttributedString.Key {
         /// `TextFirstBlockAttribute` on every character of a drawn line (including its newline).
         static let tfBlock = NSAttributedString.Key("futo.tf.block")
+        /// An external link's destination, on its glyphs.
+        static let tfLinkURL = NSAttributedString.Key("futo.tf.linkURL")
+        /// A resolved wikilink's note id, on its glyphs.
+        static let tfWikilink = NSAttributedString.Key("futo.tf.wikilink")
     }
 
     /// What the engine said about one line that draws something besides text.
@@ -29,9 +33,15 @@
     final class TextFirstLayoutFragment: NSTextLayoutFragment {
         let block: TextFirstBlockAttribute
         var accent: UIColor = UIColor(Theme.primary)
+        /// The controller whose selection decides whether the marker is highlighted.
+        weak var host: TextFirstEditorController?
 
-        init(block: TextFirstBlockAttribute, element: NSTextElement, range: NSTextRange?) {
+        init(
+            block: TextFirstBlockAttribute, element: NSTextElement, range: NSTextRange?,
+            host: TextFirstEditorController?
+        ) {
             self.block = block
+            self.host = host
             super.init(textElement: element, range: range)
         }
 
@@ -72,6 +82,17 @@
                 height: side)
         }
 
+        /// The marker's gutter, in the fragment's coordinates, when the selection covers the whole
+        /// row (so the highlight reaches the rendered bullet, number or box); nil for a caret or a
+        /// partial selection.
+        var highlightedMarkerRect: CGRect? {
+            guard block.list != nil, block.showsMarker, let host, let manager = textLayoutManager,
+                MainActor.assumeIsolated({ host.selectionRange(for: self, in: manager) }) != nil
+            else { return nil }
+            let line = firstLine
+            return CGRect(x: textIndent - 26, y: line.minY, width: 26, height: line.height)
+        }
+
         override func draw(at pointIn: CGPoint, in context: CGContext) {
             let point = CGPoint(x: pointIn.x - layoutFragmentFrame.minX, y: pointIn.y)
             if block.code {
@@ -95,6 +116,10 @@
                     let x = point.x + 2 + CGFloat(i) * 14
                     context.fill(CGRect(x: x, y: point.y, width: 3, height: layoutFragmentFrame.height))
                 }
+            }
+            if let marker = highlightedMarkerRect {
+                (MainActor.assumeIsolated { host?.textView.tintColor } ?? accent).withAlphaComponent(0.2).setFill()
+                context.fill(marker.offsetBy(dx: point.x, dy: point.y))
             }
             if let list = block.list, block.showsMarker { drawListMarker(list, at: point, in: context) }
             super.draw(at: pointIn, in: context)
@@ -160,6 +185,8 @@
 
     /// Hands TextKit a `TextFirstLayoutFragment` for every paragraph that draws something.
     final class TextFirstLayoutDelegate: NSObject, NSTextLayoutManagerDelegate {
+        weak var host: TextFirstEditorController?
+
         func textLayoutManager(
             _ textLayoutManager: NSTextLayoutManager, textLayoutFragmentFor location: NSTextLocation,
             in textElement: NSTextElement
@@ -169,7 +196,7 @@
                     as? TextFirstBlockAttribute
             {
                 return TextFirstLayoutFragment(
-                    block: block, element: textElement, range: textElement.elementRange)
+                    block: block, element: textElement, range: textElement.elementRange, host: host)
             }
             return NSTextLayoutFragment(textElement: textElement, range: textElement.elementRange)
         }

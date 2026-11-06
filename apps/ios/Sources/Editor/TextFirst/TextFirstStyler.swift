@@ -73,18 +73,20 @@
                         .strikethroughStyle, value: NSUnderlineStyle.single.rawValue, range: r)
                 }
                 if code { storage.addAttribute(.backgroundColor, value: UIColor.tertiarySystemFill, range: r) }
-            case .link(let start, let end, _):
+            case .link(let start, let end, let destination):
                 guard let r = range(start, end, length) else { return }
                 storage.addAttributes(
                     [
                         .foregroundColor: UIColor(Theme.primary),
                         .underlineStyle: NSUnderlineStyle.single.rawValue,
+                        .tfLinkURL: destination,
                     ], range: r)
             case .wikilink(let start, let end, _, let noteId):
                 guard let r = range(start, end, length) else { return }
                 storage.addAttribute(
                     .foregroundColor, value: noteId == nil ? UIColor.secondaryLabel : UIColor(Theme.primary),
                     range: r)
+                if let noteId { storage.addAttribute(.tfWikilink, value: noteId, range: r) }
             }
         }
 

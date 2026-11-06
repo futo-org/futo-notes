@@ -82,6 +82,33 @@
             #expect(h.controller.divergences.isEmpty)
         }
 
+        // Mason D3: a fully selected list row highlights its rendered marker; a caret or a
+        // partial selection does not.
+        @Test func aFullySelectedRowHighlightsItsMarker() {
+            let h = TextFirstHarness("- alpha beta\n- [ ] gamma\n")
+            h.tv.layoutIfNeeded()
+            let manager = h.tv.textLayoutManager!
+            func markerRects() -> [CGRect?] {
+                var out: [CGRect?] = []
+                manager.enumerateTextLayoutFragments(from: manager.documentRange.location, options: []) {
+                    f in
+                    if let f = f as? TextFirstLayoutFragment { out.append(f.highlightedMarkerRect) }
+                    return true
+                }
+                return out
+            }
+            h.select(0, 0)
+            #expect(markerRects().allSatisfy { $0 == nil })
+            h.select(2, 6)
+            #expect(markerRects().allSatisfy { $0 == nil })
+            h.select(0, 11)
+            let full = markerRects()
+            #expect(full.first.flatMap { $0 } != nil)
+            #expect(full.dropFirst().allSatisfy { $0 == nil })
+            h.select(0, 17)
+            #expect(markerRects().compactMap { $0 }.count == 2)
+        }
+
         @Test func tabAndShiftTabIndentAndOutdentAListItem() {
             let h = TextFirstHarness("- a\n- b\n")
             h.select(3, 3)

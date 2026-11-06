@@ -48,6 +48,14 @@
         var toolbarInstalled = false
         let layoutDelegate = TextFirstLayoutDelegate()
         var touchHitCheckbox = false
+        /// A touch on a checkbox or link is under way: the text view must not become first responder.
+        var suppressFocus = false
+        let completionModel = TextFirstCompletionModel()
+        var dismissedCompletionStart: UInt64?
+        var linkLocalization: Localization?
+        var lastDrawnSelection = NSRange(location: 0, length: 0)
+        /// Our own tap recogniser, the only one allowed to act on a checkbox touch.
+        var checkboxTap: UITapGestureRecognizer?
         var selectionBeforeTouch = NSRange(location: 0, length: 0)
 
         let io = DispatchQueue(label: "futo.textfirst.io", qos: .userInitiated)
@@ -136,6 +144,7 @@
             adjustStyled(for: edit)
             restyle(change)
             syncToolbar()
+            refreshCompletion()
             markDirty()
             checkDivergence()
         }

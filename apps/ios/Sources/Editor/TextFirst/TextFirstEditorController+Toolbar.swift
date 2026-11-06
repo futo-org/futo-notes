@@ -9,6 +9,7 @@
         static let hiddenToolbarItems: Set<String> = ["paragraph"]
 
         func installToolbar(localization: Localization) {
+            linkLocalization = localization
             let accessory = EditorToolbarAccessory(
                 state: toolbarState, localization: localization, hiding: Self.hiddenToolbarItems
             ) { [weak self] item in self?.toolbar(item) }
@@ -76,7 +77,8 @@
             case "task-list": block(.taskList)
             case "indent": block(.indent)
             case "outdent": block(.outdent)
-            default: break  // link (M4), camera and image (M5)
+            case "link": presentLinkPrompt(localization: linkLocalization ?? Localization.system())
+            default: break  // camera and image (M5)
             }
         }
 

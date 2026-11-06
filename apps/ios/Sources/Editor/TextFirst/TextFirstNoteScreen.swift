@@ -47,6 +47,10 @@
                     if let controller {
                         TextFirstEditorRepresentable(
                             controller: controller, theme: colorScheme == .dark ? "dark" : "light")
+                        TextFirstCompletionList(
+                            model: controller.completionModel, localization: localization,
+                            accept: { controller.acceptCompletion(noteId: $0) },
+                            dismiss: { controller.dismissCompletion() })
                     } else {
                         Color.clear
                     }
@@ -55,6 +59,12 @@
             .background(Theme.background)
             .navigationBarTitleDisplayMode(.inline)
             .onAppear {
+                // Back from a pushed note: the leave closed this editor, so attach it again.
+                if leaving, controller == nil {
+                    leaving = false
+                    ownerToken = store.claimDraftOwnership()
+                    Task { await open() }
+                }
                 PuppetVerbs.shared.openNote = noteId
                 if ownerToken == 0 { ownerToken = store.claimDraftOwnership() }
             }
@@ -72,6 +82,7 @@
                     controller.checkpoint()
                 }
             }
+            .onReceive(store.$notes) { _ in controller?.refreshNoteIds() }
             .onDisappear { leave() }
         }
 
@@ -95,6 +106,10 @@
                         store.showTransient(LocalizedMessage("notes.save.failedPending"))
                     }
                     made.installToolbar(localization: localization)
+                    made.onOpenNote = { id in
+                        if id != noteId { navPath.append(.note(id)) }
+                    }
+                    made.refreshNoteIds()
                     controller = made
                     if let path = ProcessInfo.processInfo.environment["FUTO_TF_STEADY_LOG"] {
                         made.steadyTyper = TextFirstSteadyTyper(controller: made, path: path)
@@ -123,6 +138,7 @@
                 store.releaseDraftOwnership(token: ownerToken)
                 return
             }
+            self.controller = nil
             let untouched = autoFocus && noteId == originalId
                 && titleField == splitId(id: originalId).title && !controller.dirty
             let token = ownerToken
