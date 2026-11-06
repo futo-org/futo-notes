@@ -5,4 +5,7 @@ mod display_mirror;
 pub use display_mirror::{DisplayMirror, MirrorEdit, MirrorError};
 
 mod style_plan;
-pub use style_plan::{plan_styles, ListMarker, StyleSpec};
+pub use style_plan::{plan_styles, ListMarker, StyleSpec, TableCellSpan};
+
+mod table_plan;
+pub use table_plan::plan_tables;

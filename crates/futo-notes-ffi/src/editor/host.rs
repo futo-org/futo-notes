@@ -4,11 +4,12 @@
 use std::sync::{Arc, Mutex};
 
 use futo_notes_editor::host::{
-    plan_styles, DisplayMirror, ListMarker, MirrorEdit, MirrorError, StyleSpec,
+    plan_styles, plan_tables, DisplayMirror, ListMarker, MirrorEdit, MirrorError, StyleSpec,
 };
 use futo_notes_editor::{DisplayOffset, DisplayRange, Revision};
 
-use super::{EditorByteRange, EditorSessionError, NativeEditorSession};
+use super::tables::EditorTableAlignment;
+use super::{EditorByteRange, EditorSessionError, EditorUtf16Range, NativeEditorSession};
 
 /// A coordinate the mirror refused; nothing changed.
 #[derive(Debug, uniffi::Error, thiserror::Error)]
@@ -198,6 +199,27 @@ pub enum EditorStyleSpan {
         vault: bool,
         remote: bool,
     },
+    TableRow {
+        start: u64,
+        end: u64,
+        columns: u64,
+        header: bool,
+        table_start: u64,
+        cells: Vec<EditorStyleCell>,
+    },
+    TableDelimiter {
+        start: u64,
+        end: u64,
+    },
+}
+
+/// One cell of a table row span: its content's UTF-16 range, column and alignment.
+#[derive(Debug, Clone, PartialEq, Eq, uniffi::Record)]
+pub struct EditorStyleCell {
+    pub column: u64,
+    pub start: u64,
+    pub end: u64,
+    pub alignment: EditorTableAlignment,
 }
 
 impl From<StyleSpec> for EditorStyleSpan {
@@ -282,6 +304,33 @@ impl From<StyleSpec> for EditorStyleSpan {
                 start: u(start),
                 end: u(end),
             },
+            StyleSpec::TableRow {
+                start,
+                end,
+                columns,
+                header,
+                table_start,
+                cells,
+            } => Self::TableRow {
+                start: u(start),
+                end: u(end),
+                columns: u(columns),
+                header,
+                table_start: u(table_start),
+                cells: cells
+                    .into_iter()
+                    .map(|cell| EditorStyleCell {
+                        column: u(cell.column),
+                        start: u(cell.start),
+                        end: u(cell.end),
+                        alignment: cell.alignment.into(),
+                    })
+                    .collect(),
+            },
+            StyleSpec::TableDelimiter { start, end } => Self::TableDelimiter {
+                start: u(start),
+                end: u(end),
+            },
             StyleSpec::Image {
                 start,
                 end,
@@ -323,10 +372,53 @@ impl NativeEditorSession {
                     .map_or(0, |r| r.start.0)
             };
             let start = to_utf16(display.start.0);
-            Ok(plan_styles(&slice, start, &mut to_utf16)
-                .into_iter()
-                .map(Into::into)
-                .collect())
+            let mut spans = plan_styles(&slice, start, &mut to_utf16);
+            let tables = session.inspect_tables(Revision(expected), display)?;
+            spans.extend(plan_tables(&tables, &mut to_utf16));
+            Ok(spans.into_iter().map(Into::into).collect())
         })
     }
+
+    /// The table cell holding a selection, for a host's cell editor: the cell's content range
+    /// and the selection, both in UTF-16 units of the whole display (a selection leaving the
+    /// cell, or outside every table, is `None`).
+    pub fn cell_view(
+        &self,
+        expected: u64,
+        selection: EditorUtf16Range,
+    ) -> Result<Option<EditorCellView>, EditorSessionError> {
+        self.with_revision(expected, |session| {
+            let rev = Revision(expected);
+            let range = session.display_from_utf16(rev, selection.try_into()?)?;
+            let Some(table) = session.inspect_table(rev, range)? else {
+                return Ok(None);
+            };
+            let Some(focus) = table.focus else {
+                return Ok(None);
+            };
+            let Some(cell) = table
+                .rows
+                .get(focus.row)
+                .and_then(|row| row.get(focus.column))
+            else {
+                return Ok(None);
+            };
+            let content = session.display_to_utf16(rev, cell.content)?;
+            Ok(Some(EditorCellView {
+                row: focus.row as u32,
+                column: focus.column as u32,
+                start: content.start.0 as u64,
+                end: content.end.0 as u64,
+            }))
+        })
+    }
+}
+
+/// The cell a selection is in (see `NativeEditorSession::cell_view`).
+#[derive(Debug, PartialEq, Eq, uniffi::Record)]
+pub struct EditorCellView {
+    pub row: u32,
+    pub column: u32,
+    pub start: u64,
+    pub end: u64,
 }
