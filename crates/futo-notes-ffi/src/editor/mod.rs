@@ -11,6 +11,8 @@ mod contract;
 mod correspondence;
 pub use correspondence::{EditorCorrespondence, EditorCorrespondenceKind};
 mod find;
+mod host;
+pub use host::{EditorDisplayMirror, EditorMirrorEdit, EditorMirrorError};
 mod images;
 mod links;
 mod tags;
