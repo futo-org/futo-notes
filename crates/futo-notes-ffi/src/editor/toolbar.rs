@@ -9,7 +9,7 @@ pub enum EditorToolbarList {
 }
 
 #[derive(Debug, PartialEq, Eq, uniffi::Record)]
-pub struct EditorToolbarState {
+pub struct EditorToolbarSnapshot {
     pub formats: Vec<EditorInlineFormat>,
     pub heading: Option<u8>,
     pub quote: bool,
@@ -23,7 +23,7 @@ pub struct EditorToolbarState {
     pub can_redo: bool,
 }
 
-impl From<futo_notes_editor::ToolbarState> for EditorToolbarState {
+impl From<futo_notes_editor::ToolbarState> for EditorToolbarSnapshot {
     fn from(state: futo_notes_editor::ToolbarState) -> Self {
         Self {
             formats: state.formats.into_iter().map(Into::into).collect(),
@@ -47,7 +47,7 @@ impl From<futo_notes_editor::ToolbarState> for EditorToolbarState {
 
 #[uniffi::export]
 impl NativeEditorSession {
-    pub fn toolbar_state(&self) -> Result<EditorToolbarState, EditorSessionError> {
+    pub fn toolbar_state(&self) -> Result<EditorToolbarSnapshot, EditorSessionError> {
         self.with_session(|session| Ok(session.toolbar_state().into()))
     }
 }
