@@ -78,6 +78,25 @@ describe('claimPoolName', () => {
     },
   );
 
+  // `qa-claim android --extra`: shard targets for `just test-android-ui --shard`.
+  it('adds extra Android claims beside the first, up to the shared-pool limit', () => {
+    expect(() => pool.claimExtraAndroid(root)).toThrow(/claim this worktree's emulator first/);
+    const first = pool.claimPoolName('android', root);
+    pool.markWiped('android', first.name);
+    const names = [first.name];
+    for (let i = 1; i < pool.MAX_ANDROID_CLAIMS; i++) {
+      const extra = pool.claimExtraAndroid(root);
+      expect(extra.fresh).toBe(true);
+      expect(names).not.toContain(extra.name);
+      expect(JSON.parse(fs.readFileSync(ownerFile(extra.name), 'utf8')).extra).toBe(true);
+      pool.markWiped('android', extra.name);
+      names.push(extra.name);
+    }
+    expect(() => pool.claimExtraAndroid(root)).toThrow(/limit/);
+    // A plain claim still answers with the worktree's own emulator, never an extra.
+    expect(pool.claimPoolName('android', root)).toEqual({ name: first.name, fresh: false });
+  });
+
   it('keeps Android allocation independent of a foreign iOS lock', () => {
     const file = path.join(home, '.futo-notes-qa', 'ios-allocation.lock');
     fs.mkdirSync(path.dirname(file), { recursive: true });

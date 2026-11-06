@@ -365,3 +365,4 @@ dependencies {
 }
 
 apply(from = "performance.gradle")
+apply(from = "device-test-abis.gradle")

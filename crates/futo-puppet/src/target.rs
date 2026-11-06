@@ -163,7 +163,9 @@ fn recorded_device(platform: NativePlatform) -> Option<String> {
     let root = repo_root();
     let owner = owners.iter().find_map(|path| {
         let owner: Value = serde_json::from_slice(&std::fs::read(path).ok()?).ok()?;
-        (std::path::Path::new(owner["worktree"].as_str()?) == root).then_some(owner)
+        // An `--extra` claim is a shard target for instrumentation, never the device to drive.
+        (std::path::Path::new(owner["worktree"].as_str()?) == root && owner["extra"] != true)
+            .then_some(owner)
     })?;
     owner["id"].as_str().map(str::to_owned)
 }

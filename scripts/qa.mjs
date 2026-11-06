@@ -19,7 +19,7 @@
 // back or moves a claim, and cannot be combined with --erase. Default selection
 // stays slot-based. iOS allocation contention fails closed before boot/wipe.
 //
-//   node scripts/qa.mjs claim [ios|android|all] [--reboot] [--erase (ios only)] [--avd legacy-name] [--sim pool-name-or-id (ios only)] [--serial physical-android-serial]
+//   node scripts/qa.mjs claim [ios|android|all] [--reboot] [--erase (ios only)] [--avd legacy-name] [--sim pool-name-or-id (ios only)] [--serial physical-android-serial] [--extra (android only)]
 //   node scripts/qa.mjs device ios|android        # this worktree's device as JSON, claimed on first use
 //   node scripts/qa.mjs status                    # pool devices + servers, owners, state
 //   node scripts/qa.mjs release [ios|android] [--shutdown]  # release this worktree's claims
@@ -58,6 +58,7 @@ import {
   POOL,
   SRV_DIR,
   claimPoolName,
+  claimExtraAndroid,
   claimNamedAndroid,
   claimPhysicalAndroid,
   assertPhysicalAndroid,
@@ -96,7 +97,12 @@ function wipeOnFreshClaim(platform, name, fresh, wipe) {
   info(`${platform}: wiped com.futo.notes.dev data on ${name} (new claim)`);
 }
 
-async function cmdClaim(target, { reboot = false, erase = false, avd, sim, serial } = {}) {
+async function cmdClaim(
+  target,
+  { reboot = false, erase = false, avd, sim, serial, extra = false } = {},
+) {
+  if (extra && (target !== 'android' || avd || sim || serial || erase))
+    die('--extra requires the explicit android target and no --avd/--sim/--serial/--erase');
   if (sim && target !== 'ios') die('--sim requires the explicit ios target');
   if (sim && erase) die('--sim cannot be combined with --erase; erase uses the existing claim');
   if (erase && target !== 'ios') die('--erase requires the explicit ios target');
@@ -153,7 +159,11 @@ async function cmdClaim(target, { reboot = false, erase = false, avd, sim, seria
   if (wantAndroid) {
     let claim;
     try {
-      claim = avd ? claimNamedAndroid(root, avd) : claimPoolName('android', root);
+      claim = extra
+        ? claimExtraAndroid(root)
+        : avd
+          ? claimNamedAndroid(root, avd)
+          : claimPoolName('android', root);
     } catch (error) {
       die(error.message);
     }
@@ -167,6 +177,11 @@ async function cmdClaim(target, { reboot = false, erase = false, avd, sim, seria
     }
     recordId('android', name, serial);
     info(`android: ${name} → ${serial}`);
+    if (extra) {
+      // Not exported: ANDROID_SERIAL stays on this worktree's own emulator.
+      info(`android: ${name} is an extra shard target; just test-android-ui --shard uses it`);
+      return;
+    }
     exports.push(`export ANDROID_SERIAL=${serial}`);
     exports.push(`export ANDROID_AVD_NAME=${name}`);
   }
@@ -188,7 +203,7 @@ async function cmdDevice(platform) {
     claim =
       platform === 'ios'
         ? claimPoolName('ios', root)
-        : (myDevices(root).find((device) => device.platform === platform) ?? {});
+        : (myDevices(root).find((device) => device.platform === platform && !device.extra) ?? {});
   } catch (error) {
     die(error.message);
   }
@@ -228,7 +243,12 @@ function myDevices(root) {
     if (!m) continue;
     const owner = readOwner(m[1], m[2]);
     if (owner?.worktree === root) {
-      mine.push({ platform: m[1], name: m[2], fresh: owner.wipePending === true });
+      mine.push({
+        platform: m[1],
+        name: m[2],
+        fresh: owner.wipePending === true,
+        extra: owner.extra === true,
+      });
     }
   }
   return mine;
@@ -362,7 +382,7 @@ function cmdStatus() {
 // ── main ───────────────────────────────────────────────────────────────────
 
 const USAGE =
-  'usage: qa.mjs claim [ios|android|all] [--reboot] [--erase (ios only)] [--avd legacy-name] [--sim pool-name-or-id (ios only)] [--serial physical-android-serial] | device ios|android | camera-poster <png> | android-target | android-apk [path] | status | release [ios|android] [--shutdown] | gc | server-start [--standin] | server-stop [--drop] | avd-baseline';
+  'usage: qa.mjs claim [ios|android|all] [--reboot] [--erase (ios only)] [--avd legacy-name] [--sim pool-name-or-id (ios only)] [--serial physical-android-serial] [--extra (android only)] | device ios|android | camera-poster <png> | android-target | android-apk [path] | status | release [ios|android] [--shutdown] | gc | server-start [--standin] | server-stop [--drop] | avd-baseline';
 const [cmd, ...args] = process.argv.slice(2);
 // Handle help before worktree discovery or invoking any platform tool. A help
 // request must never acquire an owner file, boot a device, or wipe app data.
@@ -379,10 +399,12 @@ switch (cmd) {
     let serial;
     let reboot = false;
     let erase = false;
+    let extra = false;
     const positional = [];
     for (let i = 0; i < args.length; i++) {
       const arg = args[i];
       if (arg === '--reboot') reboot = true;
+      else if (arg === '--extra') extra = true;
       else if (arg === '--erase') erase = true;
       else if (arg === '--avd') {
         if (avd) die('claim accepts --avd only once');
@@ -400,7 +422,7 @@ switch (cmd) {
       else positional.push(arg);
     }
     if (positional.length > 1) die('claim accepts at most one platform: ios, android or all');
-    await cmdClaim(positional[0] || 'all', { reboot, erase, avd, sim, serial });
+    await cmdClaim(positional[0] || 'all', { reboot, erase, avd, sim, serial, extra });
     break;
   }
   case 'camera-poster': {
