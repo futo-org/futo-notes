@@ -57,6 +57,13 @@
             if let descriptor = base.fontDescriptor.withSymbolicTraits(traits) {
                 attributes[.font] = UIFont(descriptor: descriptor, size: base.pointSize)
             }
+            // Strike is not a font trait: the next character must carry it as typed, or only the
+            // first one (restyled after the engine answers) is struck.
+            if active.contains("strikethrough") {
+                attributes[.strikethroughStyle] = NSUnderlineStyle.single.rawValue
+            } else {
+                attributes[.strikethroughStyle] = nil
+            }
             textView.typingAttributes = attributes
         }
 

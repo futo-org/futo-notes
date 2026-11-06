@@ -75,6 +75,46 @@
             #expect(font(h, at: 1).fontDescriptor.symbolicTraits.contains(.traitBold))
         }
 
+        // A collapsed Strike toggle changes what the next character will be, like Bold: the view's
+        // typing attributes carry the strike, so a character UIKit inserts is struck as typed and
+        // not only once the engine's restyle reaches it.
+        @Test func aCollapsedStrikeToggleCarriesIntoTypingAttributesAndTheWholeWord() {
+            let h = TextFirstHarness("first\n")
+            h.controller.installToolbar(localization: Localization.system())
+            h.select(6, 6)
+            tap(h, "strikethrough")
+            #expect(h.tv.typingAttributes[.strikethroughStyle] != nil)
+            h.type("word")
+            #expect(h.source.hasPrefix("first\n~~word~~"))
+            for index in 6..<10 {
+                #expect(
+                    h.controller.storage.attribute(
+                        .strikethroughStyle, at: index, effectiveRange: nil) != nil,
+                    "no strike at \(index)")
+            }
+            tap(h, "strikethrough")
+            #expect(h.tv.typingAttributes[.strikethroughStyle] == nil)
+        }
+
+        // The keyboard's double-space period, as UIKit delivers it: the trailing space is replaced
+        // by "." (the delegate is asked for a space typed at the caret, then the text changes),
+        // then a space is typed. A collapsed Italic toggle keeps the next sentence italic.
+        @Test func aDoubleSpacePeriodKeepsACollapsedItalicGoing() {
+            let h = TextFirstHarness("")
+            h.controller.installToolbar(localization: Localization.system())
+            h.select(0, 0)
+            tap(h, "italic")
+            h.type("hello world ")
+            let space = h.tv.textRange(
+                from: h.tv.position(from: h.tv.beginningOfDocument, offset: 11)!,
+                to: h.tv.position(from: h.tv.beginningOfDocument, offset: 12)!)!
+            h.tv.replace(space, withText: ".")
+            h.type(" next")
+            #expect(h.source.hasPrefix("*hello world. next*"))
+            #expect(font(h, at: 14).fontDescriptor.symbolicTraits.contains(.traitItalic))
+            #expect(h.controller.divergences.isEmpty)
+        }
+
         // Mason A1: a heading keeps bold, italic and strike through restyling.
         @Test func headingEmphasisKeepsItsWeightItalicAndStrike() {
             let h = TextFirstHarness("# **b** *i* ~~s~~")

@@ -98,6 +98,9 @@ impl EditorSession {
         };
         if self.selection != selection {
             self.selection = selection;
+            self.pending_formats = None;
+        }
+        if carried.is_some() {
             self.pending_formats = carried;
         }
         self.affinity = Affinity::Backward;
