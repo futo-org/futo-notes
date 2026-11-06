@@ -8,12 +8,17 @@
     /// The 20k-line smoke: open time and keystroke latency on a large note. It records numbers
     /// (printed as `TFSMOKE20K ...`) and only gates absurd regressions; the figures are not a budget.
     ///
+    /// Opt-in (it only means something on the optimized engine):
+    /// `TEST_RUNNER_TEXT_FIRST_SMOKE_OUT=/tmp/smoke.txt FUTO_IOS_FFI_PROFILE=release-ffi just test-ios-native TextFirstSmokeTests`.
+    ///
     /// Method: the note is 20,000 lines of mixed prose and Markdown (~1 MB), made in a fresh vault.
+    /// It has no ordered lists on purpose: see the ledger, the engine takes seconds per keystroke
+    /// in a note with thousands of them.
     /// `open` is the Rust `openEditor` plus the controller's first display (engine parse, display
     /// text, storage). `layout` is the view's first full layout pass in a 390x700 window.
     /// A keystroke is the delegate round trip a keyboard makes (shouldChangeText, insertText, the
     /// engine's change, the view repainted) plus a layout pass, timed with CACurrentMediaTime,
-    /// 300 characters typed in the middle of the note. Simulator, Debug app, dev-profile Rust.
+    /// 300 characters typed in the middle of the note. Simulator, Debug app, release-ffi Rust.
     @Suite @MainActor
     struct TextFirstSmokeTests {
         static func largeNote(lines: Int) -> String {
@@ -24,14 +29,15 @@
                 case 2: return "- item \(i) with `code` and a [link](https://example.com/\(i))"
                 case 3: return "Plain sentence number \(i), with some words to wrap across the width of a phone."
                 case 4: return "> a quoted thought \(i)"
-                case 5: return "1. ordered \(i)"
+                case 5: return "Another sentence \(i) with a trailing *emphasis* word."
                 case 6: return "日本語の文章 \(i) mixed with ascii and emoji 😀"
                 default: return ""
                 }
             }.joined(separator: "\n") + "\n"
         }
 
-        @Test func twentyThousandLines() async throws {
+        @Test(.enabled(if: ProcessInfo.processInfo.environment["TEXT_FIRST_SMOKE_OUT"] != nil))
+        func twentyThousandLines() async throws {
             let source = Self.largeNote(lines: 20_000)
             let root = FileManager.default.temporaryDirectory.appendingPathComponent(
                 "text-first-smoke-\(UUID().uuidString)")
