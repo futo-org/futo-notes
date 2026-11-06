@@ -278,6 +278,8 @@ impl LocalNoteStore {
         id: &str,
         content: &str,
     ) -> Result<FlushDraftResult, String> {
+        let content = crate::notes::saved_note_source(content);
+        let content = content.as_ref();
         let (folder, title) = split_id(id);
         let date = current_conflict_date();
         let sibling_titles: Vec<String> = vault::note_paths(&self.root)

@@ -274,7 +274,19 @@ impl EditorSession {
 /// is kept literal as the block commands keep it, and leading whitespace,
 /// which a paragraph drops, is encoded.
 fn prose_literal(text: &str) -> String {
-    let (mut text, _) = super::content::protect_content(text, false, true);
+    // Inline syntax (emphasis, code spans, links, HTML, entities) would change
+    // the display, so those characters are written as numeric entities.
+    let literal: String = text
+        .chars()
+        .map(|ch| {
+            if matches!(ch, '\\' | '*' | '_' | '~' | '`' | '[' | ']' | '<' | '&') {
+                format!("&#{};", ch as u32)
+            } else {
+                ch.to_string()
+            }
+        })
+        .collect();
+    let (mut text, _) = super::content::protect_content(&literal, false, true);
     // Paragraph parsing drops trailing whitespace, unlike code. Keep it visible
     // so the unchanged display selection is still valid after removing fences.
     let tail = text.trim_end_matches([' ', '\t']).len();

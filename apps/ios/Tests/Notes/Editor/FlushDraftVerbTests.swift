@@ -34,7 +34,7 @@ struct FlushDraftVerbTests {
         }
         #expect(try await vault.read("old") == "")
         _ = try await vault.write("new", content: "new body", epoch: 1)
-        #expect(try await vault.read("new") == "new body")
+        #expect(try await vault.read("new") == "new body\n")
     }
 
     @Test("a draft whose base still matches disk is written")
@@ -49,6 +49,6 @@ struct FlushDraftVerbTests {
 
         #expect(result.disposition == .wrote)
         #expect(result.mutation?.finalId == "note")
-        #expect(try await vault.read("note") == "draft text")
+        #expect(try await vault.read("note") == "draft text\n")
     }
 }

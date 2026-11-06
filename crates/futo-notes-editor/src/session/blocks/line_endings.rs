@@ -93,8 +93,12 @@ impl EditorSession {
             if breaks.is_empty() {
                 return Ok(Some(change));
             }
+            let selection = staged.selection();
             let caret = staged
-                .source_at(staged.revision(), staged.selection().start, staged.affinity)?
+                .source_at(staged.revision(), selection.start, staged.affinity)?
+                .0;
+            let selected_end = staged
+                .source_at(staged.revision(), selection.end, staged.affinity)?
                 .0;
             let mut converted = String::with_capacity(changed.len() + breaks.len());
             let mut at = changed.start;
@@ -104,14 +108,20 @@ impl EditorSession {
                 at = lf + 1;
             }
             converted.push_str(&after[at..changed.end]);
-            let shifted = caret + breaks.iter().filter(|&&lf| lf < caret).count();
+            let shift = |at: usize| at + breaks.iter().filter(|&&lf| lf < at).count();
+            let shifted = shift(caret);
+            let selected = if selected_end == caret {
+                BlockSelection::Source(shifted)
+            } else {
+                BlockSelection::SourceRange(shifted..shift(selected_end))
+            };
             let formats = staged.pending_formats.clone();
             let affinity = staged.affinity;
             let mut second = staged.commit_block_edit(
                 staged.revision(),
                 changed,
                 &converted,
-                BlockSelection::Source(shifted),
+                selected,
                 None,
                 accept,
             )?;
