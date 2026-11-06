@@ -167,27 +167,7 @@ the whole document. A serializer that throws counts as a failure, never as a mat
 
 ## check-node-modules
 
-A fresh worktree has no `node_modules`, and the first JS recipe `check` reaches dies with
-`ERR_PNPM_RECURSIVE_EXEC_FIRST_FAIL Command "tsx" not found` — an error that names a
-binary, not the missing install (pc_40406aa84bc1). Not an auto-install: `check` is a gate,
-and installing behind your back changes what it just verified. `check` deliberately does
-NOT depend on `editor-deps`, even though every other recipe `editor-deps` guards does:
-`editor-deps` self-installs (`pnpm install`) on a missing/stale `node_modules`, which is
-exactly the behind-your-back mutation this forbids for a gate. The guard only
-refuses and tells you the command; it never runs it for you. Three independent fixes for
-this same papercut once landed on parallel MR stacks (mr-298, mr-318, mr-320); the
-duplicates were later collapsed, so `check-node-modules` is now the one guard on `check`.
-
-`check-node-modules` (scripts/check-node-modules.mjs) also guards RC-69: for every entry in
-`patchedDependencies` it verifies the patch is APPLIED in every installed copy the app
-resolves (`node_modules/<pkg>`, each workspace package's link, and every `.pnpm/*/node_modules/<pkg>`
-link). An INCREMENTAL `pnpm install` over an existing `node_modules` can link a
-`<pkg>_patch_hash=<hash>` directory holding the unpatched package, or keep an older patch when
-a patch file is extended, so a dev or agent checkout silently runs unpatched code; CI installs
-fresh and never sees it. It is a pure-JS, read-only check (each hunk's post-image must be present
-in the installed file, the question `git apply --check --reverse` answers, without needing git or
-`patch`), ~50 ms. It runs from `check` (so `prepush`) and after `just install`; the pre-push hook that once ran it was removed in 72096a0b.
-Recovery it prints: `rm -rf node_modules && pnpm install`.
+Moved verbatim to [check-node-modules.md](check-node-modules.md).
 
 ## release-notes-check
 
@@ -228,6 +208,11 @@ list below even though the 2026-09 usage audit flagged it as zero-invocation —
 asserted live by `scripts/premerge-test-parity-mobile.test.mjs` ("builds both Android
 distribution flavors..."), which requires `deploy-android flavor="direct":` to exist in the
 justfile.
+
+## test-android-ui / test-android-native-ui
+
+The device-test recipes, why several classes used to run only the first, sharding and the
+build skip: [android-device-tests.md](android-device-tests.md).
 
 ## check-puppet-verbs / check-puppet-first
 
@@ -329,20 +314,4 @@ for the full flag list and the macOS-only/interactive/local-machine refusal tier
 
 ## Rust sync timeouts
 
-`just test-sync` runs ordinary sync tests through pinned, checksum-verified nextest, then Cargo
-for doctests (unsupported by nextest). `just test-rust-full` and Linux/macOS CI workspace runs
-use the same bounded sync runner and retain Cargo for other crates. Four tests run concurrently;
-SLOW is reported every 30s, TIMEOUT after 120s, with 5s termination grace. Server-only cases stay
-ignored; `just test-sync-integration` runs those binaries serially and reports whether hosted
-stand-in coverage ran.
-
-First use installs `scripts/cargo-nextest-pin.json` through `ci/install-nextest.sh`;
-`just install-nextest` installs separately without changing the Rust toolchain. The POSIX
-installer supports Linux/macOS. Without a pinned archive, preinstall that exact version in
-Cargo's bin directory or `NEXTEST_INSTALL_DIR`. On Windows the binary is `cargo-nextest.exe`
-(normally `~/.cargo/bin/cargo-nextest.exe`). Missing/wrong versions fail before testing;
-there is no fallback to unbounded Cargo. See nextest's [installation](https://nexte.st/docs/installation/pre-built-binaries/)
-and [timeouts](https://nexte.st/docs/features/slow-tests/).
-
-`just test-sync-timeout-proof` runs a healthy fixture beside an intentional deadlock under
-repository policy; it succeeds only when nextest names the deadlock as TIMEOUT and exits nonzero.
+Moved verbatim to [rust-sync-timeouts.md](rust-sync-timeouts.md).

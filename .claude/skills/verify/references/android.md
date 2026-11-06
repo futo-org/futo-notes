@@ -89,6 +89,21 @@ adb shell pidof com.futo.notes.dev    # confirm it's running
 without launching on some emulators. If the activity name ever moves:
 `adb shell cmd package resolve-activity --brief com.futo.notes.dev`.)
 
+### Instrumentation (device) tests
+
+```bash
+just test-android-ui com.futo.notes.textfirst.TextFirstCaretTest com.futo.notes.textfirst.TextFirstFindTest
+just test-android-ui com.futo.notes.textfirst          # a package; no selector = the whole suite
+just qa-claim android --extra && just test-android-ui --shard   # split over 2–3 claimed emulators
+```
+
+Put every class you need in ONE call. The build (emulator ABI only) is skipped while the
+worktree is unchanged, APKs install only when they differ, and one `am instrument` runs
+them all; it is red on any failure, crash, zero tests, or a selector that ran nothing.
+It clears the dev app's data first and leaves the app installed. Claimed emulators only —
+never a physical phone. `just test-android-native-ui` is the slower Gradle path
+(rebuild, install, uninstall every call) kept for CI parity. Details: `apps/android/AGENTS.md`.
+
 **First run on a fresh AVD hits onboarding**: a "Where should your notes
 live?" storage choice plus an "All files access" permission grant stand
 between launch and the note list. On small AVD resolutions the

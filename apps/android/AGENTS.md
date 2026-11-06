@@ -11,8 +11,11 @@ just android-native            # Rust ffi (device ABI) → editor bundle → ins
 just build-android-native      # compile-only sanity (BOTH distribution flavors)
 just test-android-native       # JVM unit tests (BOTH distribution flavors)
 just test-android-native com.futo.notes.DistributionFlavorTest # one JVM class, both flavors
-just test-android-native-ui    # all Compose instrumentation tests on $ANDROID_SERIAL (direct)
-just test-android-native-ui com.futo.notes.DialogImeDismissTest # one class; add #method for one test
+just test-android-ui com.futo.notes.textfirst.TextFirstCaretTest com.futo.notes.editor.NativeEditorSessionTest
+                               # device tests: ANY number of classes/Class#method/packages in ONE call
+just test-android-ui com.futo.notes.textfirst  # a whole package; no selector = the whole suite
+just test-android-ui --shard   # split across every emulator this worktree claimed
+just test-android-native-ui    # the same through Gradle connectedDirectDebugAndroidTest (slow; CI parity)
 just android-drive             # drive the running app; no args prints the commands
 just test-android-storage      # user-level storage stories on a real device
 just test-android-perf         # editor perf budgets on the low-end reference phone
@@ -161,7 +164,7 @@ read the list there, not from a copy here that would rot.
 | `app/src/debug`   | debug-only surfaces — `testhook/` and `puppet/`          |
 | `app/src/release` | no-op stand-ins for debug-only surfaces, at the same FQN |
 | `app/src/test` | JVM unit tests; compiled against `main + debug + the flavor` |
-| `app/src/androidTest` | Compose instrumentation tests (`just test-android-native-ui`, CI's emulator job) |
+| `app/src/androidTest` | Compose instrumentation tests (`just test-android-ui`, CI's emulator job) |
 
 Generated and gitignored: `uniffi/` Kotlin bindings, `jniLibs/`,
 `app/src/main/assets/editor.html`. Never edit them — regenerate (M8).
@@ -210,7 +213,16 @@ Generated and gitignored: `uniffi/` Kotlin bindings, `jniLibs/`,
 CI **does** run instrumented tests: `build:android-native` executes
 `scripts/ci-android-instrumentation.sh` on a headless emulator and publishes
 its `apps/android/app/build/outputs/androidTest-results/` JUnit XML. They are not part of local `just check`, which has no
-emulator — run them with `just test-android-native-ui`.
+emulator — run them with `just test-android-ui`.
+
+### Running device tests
+
+Pass every class you need to ONE `just test-android-ui` call, never one call per class:
+it builds once (emulator ABI only, skipped while the worktree is unchanged), installs only
+changed APKs and runs all selectors in one `am instrument`, red on any failure, crash, zero
+tests or selector that ran nothing. Claimed **emulators** only: it clears the app's data.
+`--shard` splits over extra claims (`just qa-claim android --extra`, max 3). Details, the
+Gradle path and the old multi-class bug: `docs/agents/android-device-tests.md`.
 
 Even so, prefer pushing logic down rather than reaching for instrumentation: the
 storage-switch success path ends in `Runtime.getRuntime().exit(0)`, which an
