@@ -26,6 +26,10 @@ actor NoteVault {
     }
 
     func scan() -> NoteSnapshot { core.scan() }
+
+    /// The Rust editor session owns the note's exact bytes and saves them itself.
+    func openEditor(_ id: String) throws -> NativeEditorSession { try core.openEditor(id: id) }
+
     /// A missing note reads as empty; one that exists but cannot be decoded
     /// throws, so it never opens as a blank page.
     func read(_ id: String) throws -> String { try core.read(id: id) }

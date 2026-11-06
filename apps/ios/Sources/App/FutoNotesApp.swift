@@ -21,6 +21,9 @@ struct FutoNotesApp: App {
 
     init() {
         launchConfiguration = AppLaunchConfiguration.resolve()
+        #if FUTO_DEBUG_BUILD
+            TextFirstFlag.readLaunchArguments()
+        #endif
         // Install the crash hooks before ANY other work — a crash during app
         // init must still be captured for the next launch.
         CrashReporter.install()
@@ -108,8 +111,10 @@ struct FutoNotesApp: App {
                     // first note-open doesn't pay the WebKit-boot + bundle-parse
                     // cost on the navigation critical path (F11). Mirrors
                     // Android's EditorHost.prewarm in MainActivity.
-                    EditorHost.shared.setLocalization(localization)
-                    EditorHost.prewarm()
+                    if EditorHost.isInUse {
+                        EditorHost.shared.setLocalization(localization)
+                        EditorHost.prewarm()
+                    }
                     // Crash logs from the previous run — before restoreSession so
                     // a slow/offline server can't delay the crash dialog.
                     await crash.processPendingReports()
@@ -126,7 +131,7 @@ struct FutoNotesApp: App {
             case .active:
                 let refreshedLocalization = Localization.system()
                 localization = refreshedLocalization
-                EditorHost.shared.setLocalization(refreshedLocalization)
+                if EditorHost.isInUse { EditorHost.shared.setLocalization(refreshedLocalization) }
                 sync.resumeLiveAsync()
                 // Re-arm the once-per-episode background flush so the next
                 // backgrounding persists again (the flush is coalesced across the
