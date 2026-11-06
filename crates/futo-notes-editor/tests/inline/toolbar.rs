@@ -94,3 +94,33 @@ fn toolbar_caret_keeps_container_eligibility_across_cut_rows() {
     assert!(state.can_indent);
     assert!(state.can_outdent);
 }
+
+#[test]
+fn collapsed_italic_survives_a_keyboards_double_space_period() {
+    use futo_notes_editor::InlineFormat;
+    // UIKit turns the trailing space into a period with one replace of that space (the caret
+    // stays put, a typed space follows), or into ". " with one replace.
+    for (replaced, then_typed, caret) in [(".", " ", 12), (". ", "", 13)] {
+        let mut s = EditorSession::open("");
+        s.toggle_format(s.revision(), InlineFormat::Italic, &mut |_| Ok(()))
+            .unwrap();
+        for (at, typed) in "hello world ".chars().enumerate() {
+            s.replace(s.revision(), range(at, at), &typed.to_string(), &mut |_| {
+                Ok(())
+            })
+            .unwrap();
+        }
+        s.replace_os(s.revision(), range(11, 12), replaced, &[], &mut |_| Ok(()))
+            .unwrap();
+        if !then_typed.is_empty() {
+            s.replace(s.revision(), range(caret, caret), then_typed, &mut |_| {
+                Ok(())
+            })
+            .unwrap();
+        }
+        assert_eq!(s.toolbar_state().formats, vec![InlineFormat::Italic]);
+        s.replace(s.revision(), range(13, 13), "n", &mut |_| Ok(()))
+            .unwrap();
+        assert_eq!(s.source_text(), "*hello world. n*", "{replaced:?}");
+    }
+}

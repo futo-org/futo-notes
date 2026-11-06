@@ -218,7 +218,10 @@ impl EditorSession {
                 Affinity::Backward
             };
             staged.select_with_affinity(staged.revision(), local_range, affinity)?;
-            if replacement.range == self.selection {
+            // A run that ends at the caret is typed there: it takes the caret's carried formats.
+            let ends_at_caret = self.selection.start == self.selection.end
+                && replacement.range.end == self.selection.end;
+            if replacement.range == self.selection || ends_at_caret {
                 staged.pending_formats = self.pending_formats.clone();
             }
             let references = staged.projection.references.clone();
