@@ -3,3 +3,6 @@
 
 mod display_mirror;
 pub use display_mirror::{DisplayMirror, MirrorEdit, MirrorError};
+
+mod find_plan;
+pub use find_plan::{plan_find, FindLanding, FindSnapshot, FindStepPlan};
