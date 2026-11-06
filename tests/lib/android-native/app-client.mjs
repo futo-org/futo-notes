@@ -16,12 +16,6 @@ import {
   USE_MY_OWN_SERVER_LABEL,
 } from './constants.mjs';
 
-/** Equal modulo the single final line ending a save appends (LF, or CRLF for a CRLF note). */
-export function sameSavedText(actual, expected) {
-  const bare = (text) => text.replace(/\r?\n$/, '');
-  return typeof actual === 'string' && bare(actual) === bare(expected);
-}
-
 export class AndroidNativeAppClient {
   constructor({ name, repoRoot, device }) {
     this.name = name;
@@ -217,7 +211,7 @@ export class AndroidNativeAppClient {
     await this.device.waitFor(
       `${this.name} to hold ${JSON.stringify(expected.slice(0, 40))} in ${id}`,
       timeoutMs,
-      () => sameSavedText(this.readNote(id), expected),
+      () => this.readNote(id) === expected,
     );
   }
 
