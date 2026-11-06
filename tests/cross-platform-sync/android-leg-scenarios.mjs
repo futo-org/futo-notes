@@ -4,7 +4,7 @@
 
 import { HARNESS_NOTE_PREFIX } from '../lib/android-native-instance.mjs';
 import { sleep } from '../lib/mcp-client.mjs';
-import { assert, assertEqual } from './waits-and-assertions.mjs';
+import { assert, assertEqual, assertSavedEqual, sameSavedText } from './waits-and-assertions.mjs';
 
 // ── Android-leg scenarios ───────────────────────────────────────
 //
@@ -79,8 +79,8 @@ export async function androidDefersFocusedPeerEditUntilBlur(desktop, android, se
     focused: true,
     afterCursor: deferCursor,
   });
-  assertEqual(android.readNote(id), peerEdit, 'Android vault should contain the peer edit');
-  assertEqual(
+  assertSavedEqual(android.readNote(id), peerEdit, 'Android vault should contain the peer edit');
+  assertSavedEqual(
     await android.readOpenEditorContent(),
     base,
     'focused Android editor should not immediately adopt a peer edit',
@@ -182,7 +182,7 @@ export async function androidKeepsADraftTypedWhileAPeerEditIsDeferred(desktop, a
 
   // The phone's own text is what the phone still shows, and it reaches disk —
   // as its own note, not by overwriting the peer.
-  assertEqual(
+  assertSavedEqual(
     await android.readOpenEditorContent(),
     localDraft,
     'a draft typed while a peer edit was deferred must not be clobbered on blur',
@@ -204,7 +204,7 @@ export async function waitForDesktopNoteContent(client, id, expected, timeoutMs 
   while (Date.now() - start < timeoutMs) {
     await client.syncNow();
     last = await client.readNote(id).catch(() => null);
-    if (last === expected) return;
+    if (sameSavedText(last, expected)) return;
     await sleep(1_000);
   }
   throw new Error(
@@ -222,7 +222,7 @@ export async function waitForAndroidConflictCopy(android, id, expectedText, time
       .listNoteFilenames()
       .filter((name) => name.startsWith(HARNESS_NOTE_PREFIX) && name !== `${id}.md`)
       .map((name) => name.replace(/\.md$/, ''));
-    const hit = seen.find((candidate) => android.readNote(candidate) === expectedText);
+    const hit = seen.find((candidate) => sameSavedText(android.readNote(candidate), expectedText));
     if (hit) return hit;
     await sleep(1_000);
   }

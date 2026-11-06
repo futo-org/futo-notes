@@ -6,7 +6,7 @@
 import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
 import { DEBUG_PACKAGE } from '../android-device.mjs';
-import { AndroidNativeAppClient } from './app-client.mjs';
+import { AndroidNativeAppClient, sameSavedText } from './app-client.mjs';
 import {
   LIVE_TIMEOUT_MS,
   OPEN_NOTE_LOG_TAG,
@@ -39,7 +39,7 @@ export class AndroidNativeEditorClient extends AndroidNativeAppClient {
     await this.device.waitFor(
       `${this.name}'s editor to hold ${JSON.stringify(expected.slice(0, 40))}`,
       timeoutMs,
-      async () => (await this.readOpenEditorContent()) === expected,
+      async () => sameSavedText(await this.readOpenEditorContent(), expected),
     );
   }
 

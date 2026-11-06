@@ -9,7 +9,7 @@ import {
   waitForAndroidConflictCopy,
   waitForDesktopNoteContent,
 } from './android-leg-scenarios.mjs';
-import { assert, assertEqual } from './waits-and-assertions.mjs';
+import { assert, assertSavedEqual } from './waits-and-assertions.mjs';
 
 // RC-08 (FB-5): the open-note verdict must see an edit the editor has not
 // reported yet. A large note withholds `change` while its tail streams, so the
@@ -47,7 +47,7 @@ async function typeUnreportedEditWhileStreaming(android, id, base, marker) {
     'the note finished streaming before the peer change could land — the edit is ' +
       'already reported, so this run proves nothing',
   );
-  assertEqual(android.readNote(id), base, 'the typed edit must not have been saved yet');
+  assertSavedEqual(android.readNote(id), base, 'the typed edit must not have been saved yet');
 }
 
 /** Every harness note in the Android vault holding `text`, by id. */
